@@ -96,6 +96,17 @@ Workspace (container de abas)
 | Terminal | >_ | Shell interativo | Shell, diretório atual, limpar |
 | Tasklist | ✅ | Lista de tarefas | Filtros, ordenação, fonte (local/jira) |
 
+### Chat modal por aba
+
+Editor, terminal e tasklist podem abrir um **chat modal** vinculado à própria aba do workspace. Esse modal:
+
+- Usa a **mesma conversa persistida por aba** usada por uma aba de chat dedicada
+- Usa o **mesmo pipeline de envio** do chat principal, sempre endereçado por `conversationId`
+- Só adiciona capacidades contextuais da superfície ativa (ex.: contexto do editor, histórico do terminal, resumo da tasklist)
+- Não cria um produto paralelo; é apenas outra superfície para a mesma conversa
+
+Se a aba ainda não tiver conversa, o `conversationId` é criado sob demanda e persistido na configuração da aba do workspace antes do primeiro envio.
+
 ## Split View e Acessibilidade
 
 O workspace suporta split view — múltiplas abas visíveis simultaneamente na tela.
@@ -171,6 +182,8 @@ Cada landmark é uma ARIA landmark region. Dentro de cada região, Tab e setas n
 | **Ctrl+PageDown** | Próxima aba |
 | **Ctrl+PageUp** | Aba anterior |
 | **Ctrl+1..9** | Vai direto pra aba N |
+
+Observação: quando um **chat modal** estiver aberto, a troca de abas fica bloqueada até ele ser fechado. Isso evita que o modal continue apontando para uma superfície diferente da aba original.
 
 ### Movimentação (Alt+Setas — convenção interna)
 

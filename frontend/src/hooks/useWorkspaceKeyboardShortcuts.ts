@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import i18next from 'i18next';
 import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
 import { useMiniChatStore } from '../store/miniChatStore';
 import { useAnnouncer } from './useAnnouncer';
@@ -47,9 +48,6 @@ export function useWorkspaceKeyboardShortcuts() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
-      const isDataGrid = target.closest('.datagrid-container') !== null;
-      if (isDataGrid) return;
-
       // Ctrl+Shift+I: mini-chat do painel (adaptador registado pela aba ativa)
       if (
         event.ctrlKey &&
@@ -61,6 +59,9 @@ export function useWorkspaceKeyboardShortcuts() {
         void useMiniChatStore.getState().requestOpen();
         return;
       }
+
+      const isDataGrid = target.closest('.datagrid-container') !== null;
+      if (isDataGrid) return;
 
       // Chord mode: aguardando segunda tecla após Ctrl+N
       if (chordPendingRef.current && !event.ctrlKey && !event.altKey && !event.metaKey) {
@@ -165,6 +166,10 @@ export function useWorkspaceKeyboardShortcuts() {
         const num = parseInt(event.key, 10);
         if (num >= 1 && num <= 9) {
           event.preventDefault();
+          if (useMiniChatStore.getState().isOpen) {
+            announce(i18next.t('workspace.chatModal.closeBeforeChangingTabs'));
+            return;
+          }
           const targetTab = tabs[num - 1];
           if (targetTab) {
             setActiveTab(targetTab.id);
@@ -176,6 +181,10 @@ export function useWorkspaceKeyboardShortcuts() {
 
     function navigateTab(direction: 1 | -1) {
       if (tabs.length <= 1) return;
+      if (useMiniChatStore.getState().isOpen) {
+        announce(i18next.t('workspace.chatModal.closeBeforeChangingTabs'));
+        return;
+      }
       const currentIndex = tabs.findIndex(t => t.id === activeTabId);
       if (currentIndex === -1) return;
 

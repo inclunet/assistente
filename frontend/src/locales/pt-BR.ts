@@ -641,7 +641,7 @@ const ptBR = {
         previewLabel: 'Preview do Mermaid. Pressione Enter para editar',
       },
       inlineChat: {
-        title: 'Mini-chat',
+        title: 'Chat',
         conversation: 'Conversa',
         messageDeleted: 'Mensagem excluída',
         deleteError: 'Erro ao excluir mensagem',
@@ -651,12 +651,12 @@ const ptBR = {
         newConversationError: 'Erro ao criar nova conversa',
         conversationCleared: 'Conversa limpa',
         clearError: 'Erro ao limpar conversa',
-        toolbarLabel: 'Mini-chat',
+        toolbarLabel: 'Chat',
         newBtn: 'Nova',
         clearBtn: 'Limpar',
         contextBtn: 'Contexto',
         messageActions: 'Ações da mensagem',
-        prepareNeedCodeOrRich: 'Mude para Código ou Rico para usar o mini-chat do editor.',
+        prepareNeedCodeOrRich: 'Mude para Código ou Rico para usar o chat do editor.',
         prepareSelectionFailed: 'Não foi possível capturar a seleção do editor.',
         prepareSelectionTooLarge: 'Seleção muito grande para enviar ao chat (limite: {{max}} caracteres).',
         patchNotApplicable: 'Resposta não contém patch aplicável',
@@ -1356,7 +1356,15 @@ const ptBR = {
       editTabTitle: 'Editar título da aba',
       closeTab: 'Fechar aba',
       miniChat: {
-        panelNotSupported: 'Este painel ainda não suporta o mini-chat.',
+        panelNotSupported: 'Este painel ainda não suporta o chat.',
+        panelLoading: 'Aguarde o painel carregar ou tente abrir o chat de novo.',
+        modalBlocked: 'Feche o diálogo aberto antes de usar o chat.',
+        adapterUnavailable:
+          'Não foi possível enviar: o painel não está ligado ao chat. Feche e abra o chat de novo.',
+        prepareFailed: 'Não foi possível preparar o chat. Tente de novo.',
+      },
+      chatModal: {
+        closeBeforeChangingTabs: 'Feche o chat aberto antes de trocar de aba.',
       },
       tabType: {
         chat: 'Chat',

@@ -3,7 +3,6 @@ import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { useChatStore } from '../store/chatStore';
 import { useMiniChatStore } from '../store/miniChatStore';
 import type { MiniChatAdapter } from '../store/miniChatStore';
 import { useRegisterMiniChatAdapter } from '../hooks/useRegisterMiniChatAdapter';
@@ -11,6 +10,7 @@ import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
 import { useTabScrollState } from '../hooks/useTabScrollState';
+import { createTextMediaFile } from '../services/mediaService';
 import './TerminalPage.css';
 
 export default function TerminalPage() {
@@ -105,9 +105,25 @@ export default function TerminalPage() {
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        await useChatStore.getState().sendMessage(instruction, media, {
-          profileSlug: effectiveProfileSlug || undefined,
-        });
+        const contextDisplay = currentHistory.slice(-40)
+          .map((e) => {
+            const cmd = String(e.command || '').trim();
+            const out = String(e.output || '').trimEnd();
+            return [`$ ${cmd}`, out].filter(Boolean).join('\n');
+          })
+          .filter(Boolean)
+          .join('\n---\n') || t('terminal.miniChat.noHistory');
+        const contextAttachment = await createTextMediaFile(
+          'terminal-context.txt',
+          contextDisplay,
+        );
+        return {
+          content: instruction,
+          mediaFiles: [...(media ?? []), contextAttachment],
+          paramsOverride: {
+            profileSlug: effectiveProfileSlug || undefined,
+          },
+        };
       },
     };
   }, [wsActiveTab, currentHistory, effectiveProfileSlug, t]);

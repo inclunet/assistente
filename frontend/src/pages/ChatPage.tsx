@@ -3,10 +3,9 @@ import { useChatStore } from '../store/chatStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
 import { ChatSessionView } from '../components/chat/ChatSessionView';
-import './ChatPage.css';
 
 export default function ChatPage() {
-  const sendMessage = useChatStore((s) => s.sendMessage);
+  const sendMessageToConversation = useChatStore((s) => s.sendMessageToConversation);
   const activeTab = useWorkspaceStore((s) => s.getActiveTab());
 
   useEffect(() => {
@@ -17,10 +16,14 @@ export default function ChatPage() {
   }, [activeTab?.id, activeTab?.type, activeTab?.conversationId]);
 
   const onSend = useCallback(
-    async (content: string, mediaFiles?: Parameters<typeof sendMessage>[1]) => {
-      await sendMessage(content, mediaFiles);
+    async (content: string, mediaFiles?: Parameters<typeof sendMessageToConversation>[2]) => {
+      const conversationId = activeTab?.type === 'chat' ? activeTab.conversationId : 0;
+      if (!conversationId) {
+        throw new Error('Conversa da aba de chat ainda não está pronta.');
+      }
+      await sendMessageToConversation(conversationId, content, mediaFiles);
     },
-    [sendMessage],
+    [activeTab?.conversationId, activeTab?.type, sendMessageToConversation],
   );
 
   return <ChatSessionView variant="page" onSend={onSend} />;

@@ -641,7 +641,7 @@ const en = {
         previewLabel: 'Mermaid preview. Press Enter to edit',
       },
       inlineChat: {
-        title: 'Mini-chat',
+        title: 'Chat',
         conversation: 'Conversation',
         messageDeleted: 'Message deleted',
         deleteError: 'Error deleting message',
@@ -651,12 +651,12 @@ const en = {
         newConversationError: 'Error creating new conversation',
         conversationCleared: 'Conversation cleared',
         clearError: 'Error clearing conversation',
-        toolbarLabel: 'Mini-chat',
+        toolbarLabel: 'Chat',
         newBtn: 'New',
         clearBtn: 'Clear',
         contextBtn: 'Context',
         messageActions: 'Message actions',
-        prepareNeedCodeOrRich: 'Switch to Code or Rich mode to use the editor mini-chat.',
+        prepareNeedCodeOrRich: 'Switch to Code or Rich mode to use the editor chat.',
         prepareSelectionFailed: 'Could not capture the editor selection.',
         prepareSelectionTooLarge: 'Selection is too large to send to chat (limit: {{max}} characters).',
         patchNotApplicable: 'Response does not contain an applicable patch',
@@ -1382,7 +1382,15 @@ const en = {
       editTabTitle: 'Edit tab title',
       closeTab: 'Close tab',
       miniChat: {
-        panelNotSupported: 'This panel does not support mini-chat yet.',
+        panelNotSupported: 'This panel does not support chat yet.',
+        panelLoading: 'Wait for the panel to finish loading or try opening chat again.',
+        modalBlocked: 'Close the open dialog before using chat.',
+        adapterUnavailable:
+          'Could not send: the panel is not connected to chat. Close and open chat again.',
+        prepareFailed: 'Could not prepare chat. Please try again.',
+      },
+      chatModal: {
+        closeBeforeChangingTabs: 'Close the open chat before switching tabs.',
       },
       tabType: {
         chat: 'Chat',

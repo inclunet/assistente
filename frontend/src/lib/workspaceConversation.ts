@@ -1,4 +1,5 @@
 import { CreateConversation } from '@wailsjs/go/main/App';
+import i18next from 'i18next';
 import type { WorkspaceTab } from '../store/workspaceStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
@@ -7,11 +8,10 @@ import { useChatStore } from '../store/chatStore';
 const inflight = new Map<string, Promise<number>>();
 
 /**
- * Garante que a aba do workspace tem conversa no backend e que o chatStore está sincronizado.
- * Usa sempre CreateConversation (conversa nova). Chamado ao abrir o mini-chat (editor/terminal/tasklist)
- * e pelo bridge só para a aba dedicada a chat.
+ * Garante que a aba do workspace tem `conversationId` persistido, sem assumir que deve
+ * também trocar a conversa ativa global do `chatStore`.
  */
-export async function ensureWorkspaceTabHasConversation(wsTab: WorkspaceTab): Promise<number> {
+export async function ensureWorkspaceTabConversationId(wsTab: WorkspaceTab): Promise<number> {
   const pending = inflight.get(wsTab.id);
   if (pending) return pending;
 
@@ -23,14 +23,11 @@ export async function ensureWorkspaceTabHasConversation(wsTab: WorkspaceTab): Pr
 
     let cid = fresh.conversationId ?? 0;
     if (cid > 0) {
-      const chat = useChatStore.getState();
-      if (chat.activeConversationId !== cid) {
-        await useChatStore.getState().loadConversation(cid);
-      }
       return cid;
     }
 
-    const conv = await CreateConversation('Nova Conversa', '');
+    const title = i18next.t('chat.newConversation');
+    const conv = await CreateConversation(title, '');
     cid = conv.id;
     await useWorkspaceStore.getState().updateTab(wsTab.id, { conversation_id: cid });
     await useChatStore.getState().loadConversation(cid);
@@ -42,4 +39,17 @@ export async function ensureWorkspaceTabHasConversation(wsTab: WorkspaceTab): Pr
   });
   inflight.set(wsTab.id, promise);
   return promise;
+}
+
+/**
+ * Garante que a aba do workspace tem conversa no backend e sincroniza o `chatStore`
+ * com essa conversa quando necessário.
+ */
+export async function ensureWorkspaceTabHasConversation(wsTab: WorkspaceTab): Promise<number> {
+  const cid = await ensureWorkspaceTabConversationId(wsTab);
+  const chat = useChatStore.getState();
+  if (chat.activeConversationId !== cid) {
+    await useChatStore.getState().loadConversation(cid);
+  }
+  return cid;
 }

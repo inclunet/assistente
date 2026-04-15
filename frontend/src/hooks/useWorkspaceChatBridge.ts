@@ -40,9 +40,14 @@ export function useWorkspaceChatBridge() {
     if (conversationId > 0) {
       const gen = ++syncGenerationRef.current;
       void (async () => {
-        const chatState = useChatStore.getState();
-        if (chatState.activeConversationId !== conversationId) {
-          await useChatStore.getState().loadConversation(conversationId);
+        try {
+          const chatState = useChatStore.getState();
+          if (chatState.activeConversationId !== conversationId) {
+            await useChatStore.getState().loadConversation(conversationId);
+          }
+        } catch (error) {
+          console.error('[WorkspaceChatBridge] Erro ao carregar conversa:', error);
+          return;
         }
         if (syncGenerationRef.current !== gen) return;
         const nowTab = useWorkspaceStore.getState().getActiveTab();

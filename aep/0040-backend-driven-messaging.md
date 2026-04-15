@@ -51,7 +51,7 @@ Isso são **decisões de negócio** vivendo no frontend: quando recarregar mensa
 O frontend registra listeners, dispara a chamada Wails, recebe eventos, decide quando fazer reload, decide quando fazer cleanup. O backend é "burro" — emite eventos e espera que alguém esteja ouvindo. Se o frontend perder um evento (race condition, tab switch, erro JS), o estado fica inconsistente.
 
 ### 6. Criação implícita de conversa no envio
-O frontend cria conversa automaticamente se `activeConversationId === 0`. Isso acopla criação de conversa ao envio de mensagem — duas responsabilidades distintas no mesmo fluxo. Mensagens devem ser enviadas **apenas** para conversas que já existem. Se a conversa não existe, é erro.
+O frontend cria conversa automaticamente se `activeConversationId === 0`. Isso acopla criação de conversa ao envio de mensagem — duas responsabilidades distintas no mesmo fluxo. Mensagens devem ser enviadas **apenas** para conversas que já existem. Se a conversa não existe, a superfície do workspace deve garantir e persistir o `conversationId` antes do envio.
 
 ---
 
@@ -64,7 +64,7 @@ O frontend cria conversa automaticamente se `activeConversationId === 0`. Isso a
 5. **Testável** — cada fase tem critérios de aceitação verificáveis com testes automatizados.
 6. **Conversa é pré-requisito** — mensagens só podem ser enviadas para conversas que já existem. `SendMessage` para `conversationId=0` ou inexistente retorna erro. A criação de conversa é responsabilidade separada.
 7. **Conversas são independentes** — conversas existem no banco sem vínculo forte com abas, workspace ou qualquer conceito de UI. Abas carregam conversas para exibição, mas conversas sobrevivem sem aba. Canais (Telegram, Signal) criam e mantêm conversas independentemente de haver aba aberta.
-8. **Uma única forma de enviar mensagens** — existe UM método `SendMessage` no backend e UM `sendMessage` no frontend. Criar métodos duplicados ou wrappers alternativos é proibido (ver seção "Regras permanentes").
+8. **Um único pipeline de envio** — existe UM método `SendMessage` no backend. No frontend, todas as superfícies (aba de chat, chat modal do editor, terminal, tasklist) convergem para o mesmo pipeline explícito por `conversationId`, sem fluxos paralelos de envio.
 9. **Eventos contidos e acionáveis** — eventos não são apenas notificações passivas; o backend os usa para tomar decisões de orquestração (quando sintetizar TTS, quando renomear conversa, quando notificar canal externo). O protocolo de eventos é o contrato central do sistema.
 
 ---
@@ -249,13 +249,12 @@ type ChatDoneEvent struct {
 
 Quando houve tool calls, o backend inclui a árvore de mensagens atualizada no próprio evento `chat:done`. **O frontend não precisa fazer `GetMessages()` manualmente.**
 
-#### 2.5 Mudanças no frontend `sendMessage`
+#### 2.5 Mudanças no frontend no pipeline de envio
 
-A função encolhe para ~20 linhas. **Não existe mais `sendMessageWithParams`** — há uma única função `sendMessage`:
+A camada de envio encolhe para ~20 linhas. **Não existe mais `sendMessageWithParams`** e superfícies diferentes não implementam envios paralelos; todas convergem para um mesmo envio por `conversationId`:
 
 ```typescript
-sendMessage: async (content, mediaFiles, paramsOverride) => {
-  const conversationId = get().activeConversationId;
+sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride) => {
   if (!conversationId) {
     // Conversa DEVE existir antes de enviar mensagem.
     // Se não existe, é erro. Criação de conversa é responsabilidade separada.
@@ -282,7 +281,7 @@ sendMessage: async (content, mediaFiles, paramsOverride) => {
 
 #### 2.6 Event listener centralizado (não por chamada)
 
-Os listeners são registrados UMA VEZ no mount da app (ou no hook `useChatEvents`), não dentro de `sendMessage`:
+Os listeners são registrados UMA VEZ no mount da app (ou no hook `useChatEvents`), não dentro do envio:
 
 ```typescript
 // frontend/src/hooks/useChatEvents.ts
@@ -326,8 +325,8 @@ export function useChatEvents() {
 - [ ] Unit test Go: `chat:assistant_message_started` emitido com ID real
 - [ ] Unit test Go: `chat:done` inclui `updatedMessages` quando `hadToolCalls=true`
 - [ ] Unit test Frontend: `insertBackendMessage` adiciona mensagem ao estado
-- [ ] Unit test Frontend: `sendMessage` NÃO cria mensagens locais
-- [ ] Unit test Frontend: `sendMessage` sem `activeConversationId` mostra erro, não cria conversa
+- [ ] Unit test Frontend: o pipeline de envio NÃO cria mensagens locais
+- [ ] Unit test Frontend: enviar sem `conversationId` mostra erro, não cria conversa
 - [ ] Unit test Frontend: listeners ignoram eventos de outra conversa
 - [ ] Integration test: mensagem enviada → UI mostra mensagem com ID do banco, sem temp ID
 
@@ -335,9 +334,9 @@ export function useChatEvents() {
 - `generateId()` removido do chatStore
 - `addMessage()` removido do fluxo de envio (mantido apenas para uso interno se necessário)
 - Zero mensagens na UI sem correspondência no banco
-- Frontend `sendMessage` tem < 30 linhas
-- `sendMessageWithParams` não existe mais — apenas `sendMessage`
-- Enviar mensagem sem conversa ativa gera erro claro, sem criação implícita
+- O pipeline de envio do frontend tem < 30 linhas
+- `sendMessageWithParams` não existe mais
+- Enviar mensagem sem `conversationId` gera erro claro, sem criação implícita
 
 ---
 
@@ -448,7 +447,7 @@ Remover código morto e simplificar.
 - [x] ~~Remover `unsubscribe*` manuais~~ — mantido: essencial para cleanup de event listeners
 - [x] ~~Remover `activeListeners` Map~~ — mantido: previne memory leaks de listeners
 - [x] Remover `DEFAULT_TITLE_PATTERNS` e lógica de rename do frontend (feito na Fase 2)
-- [x] Unificar `sendMessage` e `sendMessageWithParams` em uma só função (feito entre Fase 2-3)
+- [x] Unificar o pipeline de envio do frontend e remover `sendMessageWithParams` (feito entre Fase 2-3)
 - [x] Remover criação implícita de conversa do fluxo de envio
 - [x] ~~Atualizar tipos `id` para `number`~~ — mantido como `string`: streaming placeholder usa string determinística
 - [x] ~~Remover `debouncedUpdateMessage` e `flushPendingUpdate`~~ — mantido: crítico para performance (60fps throttle)
@@ -481,7 +480,7 @@ Tudo em um único PR. Cada commit deve deixar os testes passando.
 
 | Métrica | Antes | Depois |
 |---------|-------|--------|
-| Linhas de `sendMessageWithParams` | ~200 | ~30 |
+| Linhas da camada principal de envio | ~200 | ~30 |
 | Event listeners registrados por chamada | 7 | 0 (globais) |
 | IDs temporários na UI | 2 por mensagem | 0 |
 | Mensagens fantasma (sem banco) | Possível | Impossível |
@@ -512,7 +511,7 @@ Estas regras são permanentes e devem ser respeitadas por qualquer mudança futu
 
 ### Envio de mensagens
 - **Existe UMA única função `SendMessage` no backend** (`app_chat.go` → `ChatController` → `SendMessageUseCase`). Toda mensagem — vinda do frontend, de canais, de deep links — passa por essa função. É proibido criar funções alternativas de envio.
-- **Existe UMA única função `sendMessage` no frontend** (chatStore). Nenhum componente, hook ou store pode criar uma forma alternativa de enviar mensagens. Se precisar customizar, use parâmetros — não crie um novo método.
+- **Existe UM único pipeline de envio no frontend** (chatStore). Componentes podem ter helpers para resolver contexto ou `conversationId`, mas nenhum componente, hook ou store pode criar um fluxo alternativo de envio.
 - **O backend é a fonte de verdade.** O frontend não cria mensagens locais, não gera IDs temporários, não decide quando recarregar mensagens. Renderiza o que o backend emite via eventos.
 
 ### Eventos

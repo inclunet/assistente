@@ -156,6 +156,14 @@ describe('chatStore validation', () => {
     expect(mockAnnounce).toHaveBeenCalled();
   });
 
+  it('sendMessageToConversation envia usando o conversationId explícito', async () => {
+    useChatStore.setState({ activeConversationId: null });
+
+    await useChatStore.getState().sendMessageToConversation(7, 'hello');
+
+    expect(mockSendMessage).toHaveBeenCalledWith(7, 'hello', '', expect.any(Object));
+  });
+
   it('chat:speak event invokes handleChatSpeak for matching conversation', async () => {
     mockSendMessage.mockImplementation(() => {
       // Simula backend: emite chat:messages_ready, depois chat:speak do user

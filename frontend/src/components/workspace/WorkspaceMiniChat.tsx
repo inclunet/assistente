@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
 import { ChatSessionView } from '../chat/ChatSessionView';
-import { getAdapter, useMiniChatStore } from '../../store/miniChatStore';
+import { useMiniChatStore } from '../../store/miniChatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useChatStore } from '../../store/chatStore';
-import { ttsService } from '../../services/tts';
-import { messageAudioService } from '../../services/messageAudio';
+import { useUIStore } from '../../store/uiStore';
+import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import type { MediaFile } from '../../services/mediaService';
 
 import './WorkspaceMiniChat.css';
@@ -28,8 +28,6 @@ export function WorkspaceMiniChat() {
   }, [activeConversation?.title, activeConversation?.id, t]);
 
   const handleClose = useCallback(() => {
-    ttsService.stop();
-    messageAudioService.stopCurrentAudio();
     close();
   }, [close]);
 
@@ -41,18 +39,77 @@ export function WorkspaceMiniChat() {
     }
   }, [isOpen, boundTabId, activeWorkspaceTab?.id, handleClose]);
 
+  /** `bumpFocus()` altera o nonce; sem isto o textarea do ChatInput não volta a receber foco. */
+  useEffect(() => {
+    if (!isOpen) return;
+    const id = requestAnimationFrame(() => {
+      const ta = document.querySelector(
+        '.workspace-mini-chat .chat-input__textarea',
+      ) as HTMLTextAreaElement | null;
+      ta?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isOpen, focusNonce]);
+
   const handleSend = useCallback(
     async (content: string, mediaFiles?: MediaFile[]) => {
-      const tabId = useMiniChatStore.getState().boundTabId;
-      const adapter = getAdapter(tabId);
-      const meta = useMiniChatStore.getState().sessionMeta;
-      if (!adapter || !tabId) {
+      const {
+        boundTabId: tabId,
+        boundConversationId: storedConversationId,
+        sessionMeta: meta,
+        boundSend,
+      } = useMiniChatStore.getState();
+      if (!boundSend || !tabId) {
+        useUIStore.getState().addToast(t('workspace.miniChat.adapterUnavailable'), 'error');
         handleClose();
         return;
       }
-      await adapter.send(content, mediaFiles, meta);
+
+      const ws = useWorkspaceStore.getState().workspace;
+      const tab = ws?.tabs.find((x) => x.id === tabId);
+      if (!tab) {
+        useUIStore.getState().addToast(t('workspace.miniChat.adapterUnavailable'), 'error');
+        handleClose();
+        return;
+      }
+
+      let targetConversationId = storedConversationId;
+      try {
+        targetConversationId = await ensureWorkspaceTabConversationId(tab);
+      } catch (e) {
+        console.error('[miniChat] falha ao garantir conversa no envio:', e);
+        useUIStore.getState().addToast(t('editor.inlineChat.newConversationError'), 'error');
+        return;
+      }
+
+      if (!targetConversationId) {
+        console.error('[miniChat] conversationId ausente após ensure — envio cancelado');
+        useUIStore.getState().addToast(t('editor.inlineChat.newConversationError'), 'error');
+        return;
+      }
+
+      const sendPlan = await boundSend(content, mediaFiles, meta, {
+        tabId,
+        conversationId: targetConversationId,
+      });
+      if (!sendPlan) return;
+
+      try {
+        await useChatStore.getState().sendMessageToConversation(
+          targetConversationId,
+          sendPlan.content,
+          sendPlan.mediaFiles,
+          sendPlan.paramsOverride,
+        );
+        await sendPlan.afterSend?.();
+      } catch (error) {
+        sendPlan.onSendError?.(error);
+        if (!sendPlan.onSendError) {
+          throw error;
+        }
+      }
     },
-    [handleClose],
+    [handleClose, t],
   );
 
   return (

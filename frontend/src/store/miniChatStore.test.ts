@@ -43,8 +43,10 @@ function resetMiniChatState() {
   useMiniChatStore.setState({
     isOpen: false,
     boundTabId: null,
+    boundConversationId: null,
     contextDisplay: '',
     sessionMeta: null,
+    boundSend: null,
     focusNonce: 0,
     adapterError: null,
   });
@@ -71,15 +73,17 @@ describe('miniChatStore.requestOpen', () => {
     expect(mockAddToast).not.toHaveBeenCalled();
   });
 
-  it('não reabre quando o mini-chat já está aberto', async () => {
+  it('com mini-chat já aberto, requestOpen só reforça o foco (bumpFocus) sem chamar prepare', async () => {
     mockGetActiveTab.mockReturnValue(editorTab);
-    useMiniChatStore.getState().open('ctx', {}, 'tab-editor');
+    useMiniChatStore.getState().open('ctx', {}, 'tab-editor', 1, vi.fn());
+    const nonceBefore = useMiniChatStore.getState().focusNonce;
     const prepare = vi.fn();
     registerMiniChatAdapter('tab-editor', { prepare, send: vi.fn() });
 
     await useMiniChatStore.getState().requestOpen();
 
     expect(prepare).not.toHaveBeenCalled();
+    expect(useMiniChatStore.getState().focusNonce).toBe(nonceBefore + 1);
   });
 
   it('retorna cedo quando um modal genérico está aberto', async () => {
@@ -91,6 +95,7 @@ describe('miniChatStore.requestOpen', () => {
     await useMiniChatStore.getState().requestOpen();
 
     expect(prepare).not.toHaveBeenCalled();
+    expect(mockAddToast).toHaveBeenCalledWith('workspace.miniChat.modalBlocked', 'info');
   });
 
   it('com aba chat ativa não foca o input quando um modal está aberto', async () => {
@@ -129,8 +134,10 @@ describe('miniChatStore.requestOpen', () => {
     const s = useMiniChatStore.getState();
     expect(s.isOpen).toBe(true);
     expect(s.boundTabId).toBe('tab-editor');
+    expect(s.boundConversationId).toBe(1);
     expect(s.contextDisplay).toBe('selection');
     expect(s.sessionMeta).toEqual(meta);
+    expect(typeof s.boundSend).toBe('function');
   });
 
   it('não abre quando prepare() falha sem mensagem', async () => {
@@ -142,6 +149,18 @@ describe('miniChatStore.requestOpen', () => {
 
     expect(useMiniChatStore.getState().isOpen).toBe(false);
     expect(mockAddToast).not.toHaveBeenCalled();
+    expect(mockEnsureWorkspaceTabHasConversation).not.toHaveBeenCalled();
+  });
+
+  it('mostra toast de erro quando prepare() lança', async () => {
+    mockGetActiveTab.mockReturnValue(editorTab);
+    const prepare = vi.fn().mockRejectedValue(new Error('boom'));
+    registerMiniChatAdapter('tab-editor', { prepare, send: vi.fn() });
+
+    await useMiniChatStore.getState().requestOpen();
+
+    expect(useMiniChatStore.getState().isOpen).toBe(false);
+    expect(mockAddToast).toHaveBeenCalledWith('workspace.miniChat.prepareFailed', 'error');
     expect(mockEnsureWorkspaceTabHasConversation).not.toHaveBeenCalled();
   });
 });

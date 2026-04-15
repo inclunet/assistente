@@ -19,7 +19,6 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
 import './ChatSessionView.css';
-import '../../pages/ChatPage.css';
 
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
@@ -154,7 +153,7 @@ export function ChatSessionView({
     },
     onResend: async (message) => {
       if (message.content) {
-        await useChatStore.getState().sendMessage(String(message.content));
+        await onSend(String(message.content));
         announce(t('chat.announce.messageResent'));
       }
     },
@@ -349,7 +348,7 @@ export function ChatSessionView({
 
         <ChatInput
           onSend={handleSendMessage}
-          disabled={isLoading}
+          disabled={variant === 'embedded' ? false : isLoading}
           ref={inputRef}
           voiceEnabled={true}
           onArrowUp={() => {

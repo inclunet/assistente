@@ -13,7 +13,7 @@ import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
 import { useRichEditorFlushEvents } from './useRichEditorFlushEvents';
 import { useRegisterMiniChatAdapter } from '../hooks/useRegisterMiniChatAdapter';
 import { useMiniChatStore } from '../store/miniChatStore';
-import type { MiniChatAdapter, MiniChatPrepareResult } from '../store/miniChatStore';
+import type { MiniChatAdapter, MiniChatPrepareResult, MiniChatSendPlan, MiniChatSession } from '../store/miniChatStore';
 import { useEditorStore, DEFAULT_MD, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -1445,22 +1445,21 @@ export default function EditorPage() {
     instruction: string,
     mediaFiles: MediaFile[] | undefined,
     inlineChatSelection: InlineChatSelection,
-  ) => {
-    if (!activeTab) return;
+    session?: MiniChatSession,
+  ): Promise<MiniChatSendPlan> => {
+    if (!activeTab) return null;
 
-    const chatState = useChatStore.getState();
-    if (chatState.isLoading) {
-      addToast('O chat já está respondendo. Aguarde terminar.', 'info');
-      return;
-    }
+    // Não bloquear pelo `isLoading` global: o mini-chat partilha o chatStore e um estado
+    // preso (ou outro painel) desativava o input sem feedback claro; `sendMessage` já
+    // trata pedidos em paralelo / substitui listeners.
 
-    const expectedConversationId = useChatStore.getState().activeConversationId ?? undefined;
+    const expectedConversationId = session?.conversationId ?? useChatStore.getState().activeConversationId ?? undefined;
 
     const beforeMessages = useChatStore.getState().getMessages();
     const afterMessageId = getMaxNumericMessageId(beforeMessages as Message[]);
 
     const trimmed = String(instruction || '').trim();
-    if (!trimmed) return;
+    if (!trimmed) return null;
 
     const prompt = buildEditorPatchPrompt({
       instruction: trimmed,
@@ -1709,55 +1708,71 @@ export default function EditorPage() {
       if (toolCallingEnabled && !activeTab?.filePath) {
         addToast('Salve o arquivo antes de usar o assistente inline', 'warning');
         setIsAsking(false);
-        return;
+        return null;
       }
 
       const donePromise = waitForChatDone(expectedConversationId);
+      return {
+        content: prompt,
+        mediaFiles,
+        paramsOverride: toolCallingEnabled
+          ? {
+              profileSlug: effectiveProfileSlug,
+              tabType: 'editor',
+              activeFilePath: activeTab?.filePath ?? undefined,
+            }
+          : {
+              profileSlug: effectiveProfileSlug,
+            },
+        afterSend: async () => {
+          try {
+            await donePromise;
 
-      if (toolCallingEnabled) {
-        await useChatStore.getState().sendMessage(prompt, mediaFiles, {
-          profileSlug: effectiveProfileSlug,
-          tabType: 'editor',
-          activeFilePath: activeTab?.filePath ?? undefined,
-        });
-      } else {
-        await useChatStore.getState().sendMessage(prompt, mediaFiles, { profileSlug: effectiveProfileSlug });
-      }
+            if (runId !== inlineChatRunIdRef.current) return;
 
-      await donePromise;
+            // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
+            // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
+            if (toolCallingEnabled) {
+              useMiniChatStore.getState().setAdapterError(null);
+              useMiniChatStore.getState().close();
+              setIsAsking(false);
+              focusEditorSoon();
+              return;
+            }
 
-      if (runId !== inlineChatRunIdRef.current) return;
+            // Fallback (sem tool calling): extrai patch do corpo da resposta e confirma.
+            const extracted = await waitForEditorPatch({
+              afterMessageId,
+              timeoutMs: 8000,
+            });
+            if (!extracted.ok) {
+              const errText = String(extracted.error || '').trim();
+              if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
+                addToast(t('editor.inlineChat.patchNotApplicable'), 'error');
+              }
+              useMiniChatStore.getState().setAdapterError(errText || t('editor.inlineChat.patchExtractDefault'));
+              setIsAsking(false);
+              return;
+            }
 
-      // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
-      // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
-      if (toolCallingEnabled) {
-        useMiniChatStore.getState().setAdapterError(null);
-        useMiniChatStore.getState().close();
-        setIsAsking(false);
-        focusEditorSoon();
-        return;
-      }
-
-      // Fallback (sem tool calling): extrai patch do corpo da resposta e confirma.
-      const extracted = await waitForEditorPatch({
-        afterMessageId,
-        timeoutMs: 8000,
-      });
-      if (!extracted.ok) {
-        const errText = String(extracted.error || '').trim();
-        if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
-          addToast(t('editor.inlineChat.patchNotApplicable'), 'error');
-        }
-        useMiniChatStore.getState().setAdapterError(errText || t('editor.inlineChat.patchExtractDefault'));
-        setIsAsking(false);
-        return;
-      }
-
-      await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
+            await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
+          } catch (e: unknown) {
+            console.error('[EditorPage] inline chat error:', e);
+            useMiniChatStore.getState().setAdapterError(getErrorMessage(e) || t('editor.inlineChat.requestChangeError'));
+            setIsAsking(false);
+          }
+        },
+        onSendError: (e: unknown) => {
+          console.error('[EditorPage] inline chat error:', e);
+          useMiniChatStore.getState().setAdapterError(getErrorMessage(e) || t('editor.inlineChat.requestChangeError'));
+          setIsAsking(false);
+        },
+      };
     } catch (e: unknown) {
       console.error('[EditorPage] inline chat error:', e);
       useMiniChatStore.getState().setAdapterError(getErrorMessage(e) || t('editor.inlineChat.requestChangeError'));
       setIsAsking(false);
+      return null;
     }
   };
 
@@ -1769,12 +1784,14 @@ export default function EditorPage() {
 
     return {
       prepare: async (): Promise<MiniChatPrepareResult> => {
-        if (!activeTab) return { ok: false };
+        if (!activeTab) return { ok: false, message: t('workspace.miniChat.panelLoading') };
         if (activeTab.mode === 'view') {
           addToast(t('editor.inlineChat.prepareNeedCodeOrRich'), 'info');
           return { ok: false };
         }
-        if (isAsking) return { ok: false };
+        if (isAsking) {
+          return { ok: false, message: t('workspace.miniChat.panelLoading') };
+        }
 
         const selectionRaw =
           activeTab.mode === 'markdown'
@@ -1833,8 +1850,8 @@ export default function EditorPage() {
         useMiniChatStore.getState().setAdapterError(null);
         return { ok: true, contextDisplay, meta: selection };
       },
-      send: (instruction, media, meta) =>
-        sendEditorMiniChatRef.current(instruction, media, meta as InlineChatSelection),
+      send: (instruction, media, meta, session) =>
+        sendEditorMiniChatRef.current(instruction, media, meta as InlineChatSelection, session),
     };
   }, [wsActiveTab, activeTab, isAsking, addToast, editorReadyNonce, t]);
 

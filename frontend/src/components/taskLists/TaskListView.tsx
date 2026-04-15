@@ -3,7 +3,6 @@ import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageO
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
-import { useChatStore } from '../../store/chatStore';
 import { useMiniChatStore } from '../../store/miniChatStore';
 import type { MiniChatAdapter } from '../../store/miniChatStore';
 import { useRegisterMiniChatAdapter } from '../../hooks/useRegisterMiniChatAdapter';
@@ -16,6 +15,7 @@ import { Toolbar } from '../ui/Toolbar';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
 import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../../types/tasklist';
+import { createTextMediaFile } from '../../services/mediaService';
 
 const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
 
@@ -201,9 +201,24 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        await useChatStore.getState().sendMessage(instruction, media, {
-          profileSlug: effectiveProfileSlug || undefined,
-        });
+        const taskLabel = t('tasklist.miniChatContext.taskCount', { count: tasks.length });
+        const header = `${taskList.title}\n${taskLabel}\n`;
+        const body = tasks
+          .slice(0, 40)
+          .map((x) => `- ${String(x.title || '').trim()}`)
+          .join('\n');
+        const contextAttachment = await createTextMediaFile(
+          'tasklist-context.md',
+          `${header}${body || t('tasklist.miniChatContext.noTasks')}`,
+          'text/markdown',
+        );
+        return {
+          content: instruction,
+          mediaFiles: [...(media ?? []), contextAttachment],
+          paramsOverride: {
+            profileSlug: effectiveProfileSlug || undefined,
+          },
+        };
       },
     };
   }, [wsActiveTab, taskList, tasks, effectiveProfileSlug, t]);

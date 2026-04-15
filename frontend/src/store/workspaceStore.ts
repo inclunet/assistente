@@ -18,7 +18,9 @@ import {
 } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { workspace } from '../../wailsjs/go/models';
+import i18next from 'i18next';
 import { announce } from '../hooks/useAnnouncer';
+import { isModalOpen } from '../components/ui/Modal';
 
 export type TabType = 'chat' | 'editor' | 'terminal' | 'tasklist';
 
@@ -338,6 +340,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   },
 
   setActiveTab: async (tabId) => {
+    if (isModalOpen()) {
+      announce(i18next.t('workspace.chatModal.closeBeforeChangingTabs'));
+      return;
+    }
     await SetActiveWorkspaceTab(tabId);
     set(state => ({
       workspace: state.workspace
