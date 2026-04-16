@@ -102,11 +102,11 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 		surfaceType = data.ActiveTabType
 	}
 	surfaceTitle := data.ActiveTabTitle
-	surfaceState := chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[prompt] surface json")
+	surfaceState := chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[prompt] surface state json")
 	if surfaceState == nil && activeTab != nil && len(activeTab.State) > 0 {
 		surfaceState = activeTab.State
 	}
-	surfaceContext := chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[prompt] surface json")
+	surfaceContext := chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[prompt] surface context json")
 
 	if surfaceType != "" || surfaceTitle != "" || surfaceState != nil || surfaceContext != nil {
 		data.Surface = &chat.SurfaceInfo{

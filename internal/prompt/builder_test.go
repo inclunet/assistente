@@ -3,6 +3,7 @@ package prompt_test
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"strings"
 	"testing"
 
@@ -269,6 +270,27 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 	}
 	if got := data.Surface.Context["selectedText"]; got != "hello" {
 		t.Fatalf("Surface.Context[selectedText] = %v, want hello", got)
+	}
+}
+
+func TestBuildTemplateData_InvalidSurfaceLogsIdentifyField(t *testing.T) {
+	originalWriter := log.Writer()
+	var output strings.Builder
+	log.SetOutput(&output)
+	defer log.SetOutput(originalWriter)
+
+	b := &prompt.Builder{}
+	_ = b.BuildTemplateData(nil, llm.ChatParams{
+		SurfaceStateJSON:   "{",
+		SurfaceContextJSON: "{",
+	}, 1)
+
+	logs := output.String()
+	if !strings.Contains(logs, "[prompt] surface state json inválido") {
+		t.Fatalf("esperava log do state, recebeu: %s", logs)
+	}
+	if !strings.Contains(logs, "[prompt] surface context json inválido") {
+		t.Fatalf("esperava log do context, recebeu: %s", logs)
 	}
 }
 

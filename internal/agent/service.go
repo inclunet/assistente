@@ -110,8 +110,8 @@ func (s *Service) RunAgenticLoop(
 		ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
 			TabType:        params.TabType,
 			ActiveFilePath: params.ActiveFilePath,
-			SurfaceState:   chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[agent] surface payload"),
-			SurfaceContext: chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[agent] surface payload"),
+			SurfaceState:   chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[agent] surface state payload"),
+			SurfaceContext: chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[agent] surface context payload"),
 		})
 	}
 

@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"log"
+	"strings"
 	"sync"
 	"testing"
 
@@ -209,6 +211,24 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 					done.AssistantMessageID, gotMsgID)
 			}
 		}
+	}
+}
+
+func TestSurfacePayloadPrefixesIdentifyField(t *testing.T) {
+	originalWriter := log.Writer()
+	var output strings.Builder
+	log.SetOutput(&output)
+	defer log.SetOutput(originalWriter)
+
+	_ = chat.DecodeSurfaceJSONMap("{", "[agent] surface state payload")
+	_ = chat.DecodeSurfaceJSONMap("{", "[agent] surface context payload")
+
+	logs := output.String()
+	if !strings.Contains(logs, "[agent] surface state payload inválido") {
+		t.Fatalf("esperava log do state, recebeu: %s", logs)
+	}
+	if !strings.Contains(logs, "[agent] surface context payload inválido") {
+		t.Fatalf("esperava log do context, recebeu: %s", logs)
 	}
 }
 
