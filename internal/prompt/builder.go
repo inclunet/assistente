@@ -4,7 +4,6 @@
 package prompt
 
 import (
-	"encoding/json"
 	"log"
 	"reflect"
 	"strings"
@@ -60,22 +59,6 @@ type TemplateData = chat.TemplateData
 // TabInfo é um alias para chat.TabInfo.
 type TabInfo = chat.TabInfo
 
-func decodeSurfaceJSON(raw string) map[string]any {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
-		log.Printf("[prompt] surface json inválido: %v", err)
-		return nil
-	}
-	if len(decoded) == 0 {
-		return nil
-	}
-	return decoded
-}
-
 // BuildTemplateData monta o TemplateData a partir do perfil ativo e do workspace.
 func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID uint) TemplateData {
 	enabledToolNames := b.ComputeEnabledToolNames(activeProfile)
@@ -119,11 +102,11 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 		surfaceType = data.ActiveTabType
 	}
 	surfaceTitle := data.ActiveTabTitle
-	surfaceState := decodeSurfaceJSON(params.SurfaceStateJSON)
+	surfaceState := chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[prompt] surface json")
 	if surfaceState == nil && activeTab != nil && len(activeTab.State) > 0 {
 		surfaceState = activeTab.State
 	}
-	surfaceContext := decodeSurfaceJSON(params.SurfaceContextJSON)
+	surfaceContext := chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[prompt] surface json")
 
 	if surfaceType != "" || surfaceTitle != "" || surfaceState != nil || surfaceContext != nil {
 		data.Surface = &chat.SurfaceInfo{

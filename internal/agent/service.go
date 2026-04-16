@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -16,21 +15,6 @@ import (
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
-
-func decodeSurfacePayload(raw string) map[string]any {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
-		log.Printf("[agent] surface payload inválido: %v", err)
-		return nil
-	}
-	if len(decoded) == 0 {
-		return nil
-	}
-	return decoded
-}
 
 // AgenticResult captura o resultado de uma iteração do streaming LLM.
 // Preenchido pelos callbacks OnDone/OnToolCalls/OnError do IterationHandler.
@@ -126,8 +110,8 @@ func (s *Service) RunAgenticLoop(
 		ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
 			TabType:        params.TabType,
 			ActiveFilePath: params.ActiveFilePath,
-			SurfaceState:   decodeSurfacePayload(params.SurfaceStateJSON),
-			SurfaceContext: decodeSurfacePayload(params.SurfaceContextJSON),
+			SurfaceState:   chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[agent] surface payload"),
+			SurfaceContext: chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[agent] surface payload"),
 		})
 	}
 

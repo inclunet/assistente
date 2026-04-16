@@ -47,9 +47,6 @@ export function WorkspaceTabList() {
     if (activeElement?.closest?.('button[role="tab"]')) {
       pendingFocusTabIdRef.current = tabId;
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'pre-fix-modal-tabs-1',hypothesisId:'H2',location:'frontend/src/components/workspace/WorkspaceTabList.tsx:42',message:'workspace tab select requested',data:{tabId,editingTabId},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     void setActiveTab(tabId);
   }, [setActiveTab]);
 
@@ -149,25 +146,16 @@ export function WorkspaceTabList() {
       e.preventDefault();
       e.stopPropagation();
       lastEditIntentRef.current = 'enter';
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'pre-fix-rename-blur-1',hypothesisId:'H4',location:'frontend/src/components/workspace/WorkspaceTabList.tsx:105',message:'workspace tab rename keydown enter',data:{editingTabId,editingTitle},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       confirmEditing('enter');
     } else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
       lastEditIntentRef.current = 'escape';
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'pre-fix-rename-blur-1',hypothesisId:'H4',location:'frontend/src/components/workspace/WorkspaceTabList.tsx:109',message:'workspace tab rename keydown escape',data:{editingTabId,editingTitle},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       cancelEditing();
     }
   }, [confirmEditing, cancelEditing]);
 
   const handleEditBlur = useCallback(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'pre-fix-rename-blur-1',hypothesisId:'H3',location:'frontend/src/components/workspace/WorkspaceTabList.tsx:116',message:'workspace tab rename blur',data:{editingTabId,editingTitle,lastIntent:lastEditIntentRef.current},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (lastEditIntentRef.current) {
       lastEditIntentRef.current = null;
       return;
@@ -349,11 +337,8 @@ export function WorkspaceTabList() {
         onDragOver={(e) => handleDragOver(e, tab.id)}
         onDragLeave={() => setDropTargetId(null)}
         onDrop={(e) => handleDrop(e, tab.id)}
+        onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
         onMouseDown={(e) => {
-          if (e.button === 2) {
-            handleTabContextMenu(e, tab.id);
-            return;
-          }
           if (e.button === 1 && tabs.length > 1) {
             e.preventDefault();
             void removeTab(tab.id);
@@ -365,7 +350,6 @@ export function WorkspaceTabList() {
           className={`ws-tabs__tab${isActive ? ' ws-tabs__tab--active' : ''}${isEditing ? ' ws-tabs__tab--editing' : ''}`}
           controlsId={null}
           ariaLabel={`${tab.title}, ${t(`workspace.tabType.${tab.type}`)}`}
-          onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
         >
           <span className="ws-tabs__tab-icon" aria-hidden="true">{icon}</span>
           <span className="ws-tabs__tab-title" aria-hidden="true">{tab.title}</span>

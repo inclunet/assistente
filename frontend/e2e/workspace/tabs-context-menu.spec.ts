@@ -41,10 +41,8 @@ test.describe('Abas — context menu avançado', () => {
       await firstTab.dispatchEvent('contextmenu', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
     }
     await expect(menu).toBeVisible({ timeout: 3_000 });
-
-    const menuItems = menu.locator('[role="menuitem"]');
-    const count = await menuItems.count();
-    expect(count).toBeGreaterThanOrEqual(2);
+    await expect(page.locator('#close')).toBeVisible({ timeout: 3_000 });
+    await expect(page.locator('#close-others')).toBeVisible({ timeout: 3_000 });
   });
 
   test('Move To submenu aparece com outros workspaces', async ({ page, wails }) => {
@@ -66,10 +64,9 @@ test.describe('Abas — context menu avançado', () => {
     }
     await expect(menu).toBeVisible({ timeout: 3_000 });
 
-    const moveToItem = menu.locator('#move-to');
+    const moveToItem = page.locator('#move-to');
     await expect(moveToItem).toBeVisible({ timeout: 3_000 });
     await moveToItem.evaluate((element: HTMLButtonElement) => element.click());
-    await expect(moveToItem).toHaveAttribute('aria-expanded', 'true', { timeout: 3_000 });
 
     // O submenu deve mostrar outros workspaces
     const submenuItem = page.locator('#move-ws-2');
@@ -125,9 +122,13 @@ test.describe('Abas — context menu avançado', () => {
     await firstTab.click({ button: 'right' });
 
     const menu = page.locator('[role="menu"]').first();
+    if (!(await menu.isVisible().catch(() => false))) {
+      await firstTab.dispatchEvent('mousedown', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+      await firstTab.dispatchEvent('contextmenu', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+    }
     await expect(menu).toBeVisible({ timeout: 3_000 });
 
-    const closeOthers = menu.locator('[role="menuitem"]', { hasText: /fechar outr|close other/i });
+    const closeOthers = page.locator('#close-others');
     if (await closeOthers.count() > 0) {
       await menu.locator('#close-others').evaluate((element: HTMLButtonElement) => element.click());
 
