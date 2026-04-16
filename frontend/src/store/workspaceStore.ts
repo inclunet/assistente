@@ -21,6 +21,7 @@ import { workspace } from '../../wailsjs/go/models';
 import i18next from 'i18next';
 import { announce } from '../hooks/useAnnouncer';
 import { isModalOpen } from '../components/ui/Modal';
+import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 
 export type TabType = 'chat' | 'editor' | 'terminal' | 'tasklist';
 
@@ -141,14 +142,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   initialize: async () => {
     if (initializingPromise) return initializingPromise;
 
-    const wailsWindow = window as Window & { go?: unknown };
-    if (typeof window === 'undefined' || !wailsWindow.go) {
-      setTimeout(() => get().initialize(), 100);
-      return;
-    }
-
     const run = async () => {
       try {
+        await waitForWailsBridge();
         const [bws, list] = await Promise.all([
           GetActiveWorkspace(),
           ListWorkspaces(),
