@@ -187,6 +187,15 @@ export function ChatSessionView({
         hasAutoFocusedRef.current = true;
         clearInterval(checkTimer);
         setTimeout(() => {
+          const active = document.activeElement as HTMLElement | null;
+          const hasMeaningfulFocus =
+            !!active &&
+            active !== document.body &&
+            active !== document.documentElement &&
+            active !== inputElement;
+          if (document.querySelector('.ws-tabs__tab-edit')) return;
+          if (active?.closest('.ws-tabs')) return;
+          if (hasMeaningfulFocus) return;
           inputElement.focus();
         }, 100);
       }
@@ -201,7 +210,8 @@ export function ChatSessionView({
     if (wasLoadingRef.current && !isLoading) {
       const active = document.activeElement as HTMLElement | null;
       const isEditingMessage = active?.closest('.chat-message--editing') !== null;
-      if (!isEditingMessage) {
+      const isEditingWorkspaceTab = !!document.querySelector('.ws-tabs__tab-edit');
+      if (!isEditingMessage && !isEditingWorkspaceTab) {
         requestAnimationFrame(() => {
           inputRef.current?.focus();
         });

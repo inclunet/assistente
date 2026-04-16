@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MessageOutlined,
@@ -52,13 +52,24 @@ export function WorkspaceTabList() {
   const startEditing = useCallback((tabId: string, currentTitle: string) => {
     setEditingTabId(tabId);
     setEditingTitle(currentTitle);
-    setTimeout(() => {
-      editInputRef.current?.focus();
-      editInputRef.current?.select();
-    }, 10);
   }, []);
 
-  const confirmEditing = useCallback(() => {
+  useLayoutEffect(() => {
+    if (!editingTabId) return;
+    const input = editInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+    const rafId = requestAnimationFrame(() => {
+      const current = editInputRef.current;
+      if (!current || document.activeElement === current) return;
+      current.focus();
+      current.select();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [editingTabId]);
+
+  const confirmEditing = useCallback((_source: 'enter' | 'blur' | 'unknown' = 'unknown') => {
     const tabIdToFocus = editingTabId;
     if (editingTabId && editingTitle.trim()) {
       const trimmed = editingTitle.trim();
@@ -83,7 +94,7 @@ export function WorkspaceTabList() {
   const cancelEditing = useCallback(() => {
     setEditingTabId(null);
     setEditingTitle('');
-  }, []);
+  }, [editingTabId, editingTitle]);
 
   const handleEditKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     const navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Delete', 'Backspace'];
@@ -94,7 +105,7 @@ export function WorkspaceTabList() {
     if (e.key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
-      confirmEditing();
+      confirmEditing('enter');
     } else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
@@ -157,6 +168,7 @@ export function WorkspaceTabList() {
 
   const handleTabContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
     e.preventDefault();
+    e.stopPropagation();
     contextTargetRef.current = tabId;
     const tab = tabs.find(t => t.id === tabId);
     if (!tab) return;
@@ -276,18 +288,22 @@ export function WorkspaceTabList() {
         onDragLeave={() => setDropTargetId(null)}
         onDrop={(e) => handleDrop(e, tab.id)}
         onMouseDown={(e) => {
+          if (e.button === 2) {
+            handleTabContextMenu(e, tab.id);
+            return;
+          }
           if (e.button === 1 && tabs.length > 1) {
             e.preventDefault();
             void removeTab(tab.id);
           }
         }}
-        onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
       >
         <Tab
           value={tab.id}
           className={`ws-tabs__tab${isActive ? ' ws-tabs__tab--active' : ''}${isEditing ? ' ws-tabs__tab--editing' : ''}`}
           controlsId={null}
           ariaLabel={`${tab.title}, ${t(`workspace.tabType.${tab.type}`)}`}
+          onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
         >
           <span className="ws-tabs__tab-icon" aria-hidden="true">{icon}</span>
           <span className="ws-tabs__tab-title" aria-hidden="true">{tab.title}</span>
@@ -298,10 +314,11 @@ export function WorkspaceTabList() {
             ref={editInputRef}
             type="text"
             className="ws-tabs__tab-edit"
+            autoFocus
             value={editingTitle}
             onChange={(e) => setEditingTitle(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
             onKeyDown={handleEditKeyDown}
-            onBlur={confirmEditing}
             onClick={(e) => e.stopPropagation()}
             aria-label={t('workspace.editTabTitle')}
           />

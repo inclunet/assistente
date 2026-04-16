@@ -427,7 +427,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (event.error) {
         ensureAssistantNode();
         flushPendingUpdate(streamingMsgId, get().updateMessage);
-        get().updateMessage(streamingMsgId, `Erro: ${event.error}`);
+        get().updateMessage(
+          streamingMsgId,
+          i18next.t('chat.errorPrefix', { message: event.error }),
+        );
         cleanup();
       }
 
@@ -617,7 +620,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       cleanup();
       const errorMsg = getErrorMessage(error);
       ensureAssistantNode();
-      get().updateMessage(streamingMsgId, `Erro ao enviar mensagem: ${errorMsg}`);
+      get().updateMessage(
+        streamingMsgId,
+        i18next.t('chat.sendErrorPrefix', { message: errorMsg }),
+      );
       set((state) => {
         if (!state.activeConversation) return state;
         return {
@@ -1209,7 +1215,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (event.error) {
           ensureAssistantNode();
           flushPendingUpdate(streamingMsgId, get().updateMessage);
-          get().updateMessage(streamingMsgId, `Erro: ${event.error}`);
+          get().updateMessage(
+            streamingMsgId,
+            i18next.t('chat.errorPrefix', { message: event.error }),
+          );
           cleanup();
         }
         if (event.done) {

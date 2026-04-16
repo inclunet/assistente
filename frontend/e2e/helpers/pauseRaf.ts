@@ -13,6 +13,7 @@ declare global {
  */
 export async function pauseRAF(page: Page) {
   await page.evaluate(() => {
+    if (window.__origRAF) return;
     window.__origRAF = window.requestAnimationFrame;
     window.requestAnimationFrame = (cb: FrameRequestCallback) => {
       window.__rafQueue = window.__rafQueue || [];
@@ -24,13 +25,13 @@ export async function pauseRAF(page: Page) {
 
 export async function resumeRAF(page: Page) {
   await page.evaluate(() => {
-    if (window.__origRAF) {
-      window.requestAnimationFrame = window.__origRAF;
-      const queue = window.__rafQueue || [];
-      window.__rafQueue = [];
-      for (const cb of queue) {
-        try { cb(performance.now()); } catch (_) { /* ignore */ }
-      }
+    if (!window.__origRAF) return;
+    window.requestAnimationFrame = window.__origRAF;
+    window.__origRAF = undefined;
+    const queue = window.__rafQueue || [];
+    window.__rafQueue = [];
+    for (const cb of queue) {
+      try { cb(performance.now()); } catch (_) { /* ignore */ }
     }
   });
 }

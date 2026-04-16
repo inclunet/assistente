@@ -1431,7 +1431,7 @@ export default function EditorPage() {
       }
 
       // Se falhar, mantém pendente mas avisa.
-      addToast('Não foi possível inserir no editor (tentativa esgotada). Abra o Editor e tente novamente.', 'error');
+      addToast(t('editor.chatModal.insertExhausted'), 'error');
       setPendingInsert(null);
     })();
 
@@ -1551,7 +1551,7 @@ export default function EditorPage() {
         const s = selection;
 
         if (currentActiveDocId !== s.tabId) {
-          addToast('Abra a aba original do editor para aplicar esta alteração.', 'info');
+          addToast(t('editor.chatModal.openOriginalTabToApply'), 'info');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1570,7 +1570,7 @@ export default function EditorPage() {
 
         // Se o conteúdo mudou desde o snapshot, evita aplicar offsets errados.
         if (!applied.ok) {
-          addToast('O texto selecionado mudou desde que você abriu o chat. Refazer a seleção e tentar novamente.', 'error');
+          addToast(t('editor.chatModal.selectionChangedRetry'), 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1580,7 +1580,7 @@ export default function EditorPage() {
         setDocMarkdown(s.tabId, nextMarkdown);
         updateLatestMarkdownForTab(s.tabId, nextMarkdown);
         schedulePersistForTab(s.tabId);
-        addToast('Alteração aplicada', 'success');
+        addToast(t('editor.chatModal.patchApplied'), 'success');
 
         requestAnimationFrame(() => {
           try {
@@ -1604,14 +1604,14 @@ export default function EditorPage() {
       } else {
         const s = selection;
         if (currentActiveDocId !== s.tabId) {
-          addToast('Abra a aba original do editor para aplicar esta alteração.', 'info');
+          addToast(t('editor.chatModal.openOriginalTabToApply'), 'info');
           setIsAsking(false);
           focusEditorSoon();
           return;
         }
         const rich = richEditorRef.current;
         if (!rich) {
-          addToast('Editor rico não está pronto.', 'error');
+          addToast(t('editor.chatModal.richEditorNotReady'), 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1640,20 +1640,20 @@ export default function EditorPage() {
 
           if (!validation.ok) {
             if (validation.reason === 'no_selection') {
-              addToast('Não foi possível ler a seleção atual do editor rico. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.richSelectionReadFailed'), 'error');
             } else if (validation.reason === 'selected_text_mismatch') {
-              addToast('O texto selecionado mudou desde que você abriu o chat. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.selectionChangedRetry'), 'error');
             } else if (validation.reason === 'cannot_read_selected_text') {
-              addToast('Não foi possível validar a seleção do editor rico. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.richSelectionValidateFailed'), 'error');
             } else {
-              addToast('A seleção mudou desde que você abriu o chat. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.selectionSnapshotChanged'), 'error');
             }
             setIsAsking(false);
             focusEditorSoon();
             return;
           }
         } catch {
-          addToast('Não foi possível validar a seleção do editor rico. Refazer a seleção e tentar novamente.', 'error');
+          addToast(t('editor.chatModal.richSelectionValidateFailed'), 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1662,7 +1662,7 @@ export default function EditorPage() {
         const isMarkdown = patch?.format === 'markdown';
         const contentToInsert = !isMarkdown ? replacement : markdownToHtml(replacement);
         applyRichTextInsert({ rich, from: s.from, to: s.to, contentToInsert });
-        addToast('Alteração aplicada', 'success');
+        addToast(t('editor.chatModal.patchApplied'), 'success');
         flushActiveRichMarkdownNow();
       }
 
@@ -1710,7 +1710,7 @@ export default function EditorPage() {
         return;
       }
 
-      addToast('Alteração rejeitada', 'info');
+      addToast(t('editor.chatModal.patchRejected'), 'info');
       setIsAsking(false);
       // Mantém o chat modal aberto para você criticar/explicar detalhes.
       // Apenas devolve o foco para o input do chat.
@@ -2090,7 +2090,7 @@ export default function EditorPage() {
     if (!activeTab) return;
     const fence = findMermaidFenceByIndex(activeTab.markdown, index);
     if (!fence) {
-      addToast('Não foi possível localizar o bloco Mermaid no Markdown.', 'error');
+      addToast(t('editor.chatModal.mermaidBlockNotFound'), 'error');
       return;
     }
     setActiveMermaidIndex(index);

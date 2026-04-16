@@ -340,6 +340,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   },
 
   setActiveTab: async (tabId) => {
+    if (get().workspace?.activeTabId === tabId) {
+      return;
+    }
     if (isModalOpen()) {
       announce(i18next.t('workspace.chatModal.closeBeforeChangingTabs'));
       return;

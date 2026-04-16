@@ -114,7 +114,7 @@ export function WorkspaceChatModal() {
 
   return (
     <Modal isOpen={isOpen} title={modalTitle} onClose={handleClose} size="lg">
-      <div className="editor-inline-chat workspace-chat-modal" key={focusNonce}>
+      <div className="editor-inline-chat workspace-chat-modal">
         <details className="editor-inline-chat__context" open={false}>
           <summary className="editor-inline-chat__context-summary">
             {t('editor.chatModal.contextBtn')}

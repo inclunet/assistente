@@ -66,9 +66,10 @@ test('chat modal do terminal cria conversa e envia mensagem', async ({ page, wai
   await wails.waitForApp();
 
   await page.getByRole('button', { name: /chat/i }).click();
-  await expect(page.locator('.workspace-mini-chat')).toBeVisible();
+  const chatModal = page.getByRole('dialog', { name: /chat/i });
+  await expect(chatModal).toBeVisible();
 
-  const textarea = page.locator('.workspace-mini-chat .chat-input__textarea');
+  const textarea = chatModal.getByRole('textbox', { name: /message/i });
   await textarea.fill('teste terminal');
   await textarea.press('Enter');
 

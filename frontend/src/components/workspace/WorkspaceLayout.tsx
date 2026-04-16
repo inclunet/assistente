@@ -212,6 +212,9 @@ export function WorkspaceLayout() {
         id: 'contentArea',
         label: t('landmarks.contentArea', 'Área de conteúdo'),
         focus: () => {
+          if (document.querySelector('.ws-tabs__tab-edit')) {
+            return false;
+          }
           const area = document.querySelector('.ws-content .ws-content-area') as HTMLElement | null;
           if (!area) return false;
 

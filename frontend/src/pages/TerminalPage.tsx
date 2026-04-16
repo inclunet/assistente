@@ -146,7 +146,9 @@ export default function TerminalPage() {
               label: t('editor.chatModal.title'),
               icon: <MessageOutlined />,
               shortcut: 'Ctrl+Shift+I',
-              onClick: () => void useWorkspaceChatModalStore.getState().requestOpen(),
+              onClick: () => {
+                void useWorkspaceChatModalStore.getState().requestOpen();
+              },
             },
           ]}
           right={
