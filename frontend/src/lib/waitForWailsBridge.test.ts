@@ -22,7 +22,8 @@ describe('waitForWailsBridge', () => {
     expect(target.requestAnimationFrame).toHaveBeenCalledTimes(1);
 
     target.go = { main: { App: {} } };
-    scheduled?.(performance.now());
+    expect(scheduled).not.toBeNull();
+    scheduled!(performance.now());
 
     await expect(pending).resolves.toBeUndefined();
   });
