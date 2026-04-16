@@ -1369,6 +1369,7 @@ const ptBR = {
       tabListLabel: 'Lista de painéis',
       editTabTitle: 'Editar título da aba',
       closeTab: 'Fechar aba',
+      closeDialogBeforeChangingTabs: 'Feche o diálogo aberto antes de trocar de aba.',
       chatModal: {
         panelNotSupported: 'Este painel ainda não suporta o chat.',
         panelLoading: 'Aguarde o painel carregar ou tente abrir o chat de novo.',
@@ -1376,7 +1377,6 @@ const ptBR = {
         adapterUnavailable:
           'Não foi possível enviar: o painel não está ligado ao chat. Feche e abra o chat de novo.',
         prepareFailed: 'Não foi possível preparar o chat. Tente de novo.',
-        closeBeforeChangingTabs: 'Feche o chat aberto antes de trocar de aba.',
       },
       tabType: {
         chat: 'Chat',

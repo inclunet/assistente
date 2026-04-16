@@ -23,14 +23,13 @@ test.describe('Toolbar — navegação por setas (workspace toolbar)', () => {
     const wsToolbar = page.locator('.workspace-toolbar[role="toolbar"]');
     const firstBtn = wsToolbar.locator('button:not([disabled])').first();
     await firstBtn.focus();
+    await expect(firstBtn).toBeFocused({ timeout: 3_000 });
     await expect(firstBtn).toHaveAttribute('tabindex', '0');
 
-    await page.keyboard.press('ArrowRight');
+    await firstBtn.press('ArrowRight');
 
-    // Primeiro botão volta para tabindex="-1"
-    await expect(firstBtn).toHaveAttribute('tabindex', '-1', { timeout: 3_000 });
-
-    // Outro elemento recebe tabindex="0"
+    const secondItem = wsToolbar.locator('button:not([disabled]), [role="combobox"]').nth(1);
+    await expect(secondItem).toHaveAttribute('tabindex', '0', { timeout: 5_000 });
     const activeItem = wsToolbar.locator('[tabindex="0"]:not(.toolbar__search)');
     await expect(activeItem).toHaveCount(1);
     await resumeRAF(page);
@@ -45,10 +44,11 @@ test.describe('Toolbar — navegação por setas (workspace toolbar)', () => {
     const count = await items.count();
     if (count < 2) return;
 
-    // Foca segundo item
-    await items.nth(1).focus();
-    await expect(items.nth(1)).toHaveAttribute('tabindex', '0');
-    await page.keyboard.press('ArrowLeft');
+    await items.first().focus();
+    await expect(items.first()).toHaveAttribute('tabindex', '0');
+    await items.first().press('ArrowRight');
+    await expect(items.nth(1)).toHaveAttribute('tabindex', '0', { timeout: 3_000 });
+    await items.nth(1).press('ArrowLeft');
 
     await expect(items.first()).toHaveAttribute('tabindex', '0', { timeout: 3_000 });
     await expect(items.nth(1)).toHaveAttribute('tabindex', '-1');
@@ -64,17 +64,21 @@ test.describe('Toolbar — navegação por setas (workspace toolbar)', () => {
     const count = await items.count();
     if (count < 2) return;
 
-    // Move para o segundo
-    await items.nth(1).focus();
-    await expect(items.nth(1)).toHaveAttribute('tabindex', '0');
+    await items.first().focus();
+    await expect(items.first()).toHaveAttribute('tabindex', '0');
+    await items.first().press('ArrowRight');
+    await expect(items.nth(1)).toHaveAttribute('tabindex', '0', { timeout: 3_000 });
 
     // Home → primeiro
-    await page.keyboard.press('Home');
+    await items.nth(1).press('Home');
+    await expect(items.first()).toBeFocused({ timeout: 3_000 });
     await expect(items.first()).toHaveAttribute('tabindex', '0', { timeout: 3_000 });
 
     // End → último
-    await page.keyboard.press('End');
-    await expect(items.nth(count - 1)).toHaveAttribute('tabindex', '0', { timeout: 3_000 });
+    await items.first().press('End');
+    const lastItem = items.last();
+    await expect(lastItem).toBeFocused({ timeout: 5_000 });
+    await expect(lastItem).toHaveAttribute('tabindex', '0', { timeout: 5_000 });
     await expect(items.first()).toHaveAttribute('tabindex', '-1');
 
     await resumeRAF(page);
@@ -96,7 +100,7 @@ test.describe('Toolbar — navegação por setas (workspace toolbar)', () => {
     }
 
     await pauseRAF(page);
-    await page.keyboard.press('ArrowRight');
+    await items.first().press('ArrowRight');
     await expect(items.first()).toHaveAttribute('tabindex', '-1', { timeout: 3_000 });
     await expect(items.nth(1)).toHaveAttribute('tabindex', '0');
     await resumeRAF(page);
@@ -115,7 +119,7 @@ test.describe('Toolbar — navegação por setas (topbar)', () => {
 
     await items.first().focus();
     await expect(items.first()).toHaveAttribute('tabindex', '0');
-    await page.keyboard.press('ArrowRight');
+    await items.first().press('ArrowRight');
     await expect(items.first()).toHaveAttribute('tabindex', '-1', { timeout: 3_000 });
     await resumeRAF(page);
   });

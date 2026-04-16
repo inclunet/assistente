@@ -1395,6 +1395,7 @@ const en = {
       tabListLabel: 'Panel list',
       editTabTitle: 'Edit tab title',
       closeTab: 'Close tab',
+      closeDialogBeforeChangingTabs: 'Close the open dialog before switching tabs.',
       chatModal: {
         panelNotSupported: 'This panel does not support chat yet.',
         panelLoading: 'Wait for the panel to finish loading or try opening chat again.',
@@ -1402,7 +1403,6 @@ const en = {
         adapterUnavailable:
           'Could not send: the panel is not connected to chat. Close and open chat again.',
         prepareFailed: 'Could not prepare chat. Please try again.',
-        closeBeforeChangingTabs: 'Close the open chat before switching tabs.',
       },
       tabType: {
         chat: 'Chat',

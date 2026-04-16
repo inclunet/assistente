@@ -6,6 +6,27 @@ const mockSkills = [
   { slug: 'explain', name: 'Explicar', displayName: 'Explicar', description: 'Explica conceito detalhadamente', invocable: true, argumentHint: '' },
 ];
 
+async function openSlashMenu(page: import('@playwright/test').Page, value = '/') {
+  const textarea = page.locator('.chat-input__textarea');
+  await expect(textarea).toBeEditable({ timeout: 5_000 });
+  await textarea.click();
+  await textarea.fill(value);
+  await expect.poll(async () => textarea.inputValue(), { timeout: 5_000 }).toBe(value);
+
+  await expect.poll(async () => {
+    return page.evaluate(() =>
+      window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'GetUserInvocableSkills',
+      ),
+    );
+  }, { timeout: 5_000 }).toBe(true);
+
+  const menu = page.locator('[role="listbox"]');
+  await expect(menu).toBeVisible({ timeout: 5_000 });
+
+  return { textarea, menu };
+}
+
 test.describe('Chat — Slash Commands', () => {
   test.beforeEach(async ({ wails }) => {
     await wails.setResponse('GetUserInvocableSkills', mockSkills);
@@ -14,11 +35,7 @@ test.describe('Chat — Slash Commands', () => {
   test('digitar / abre o menu de slash commands', async ({ page, wails }) => {
     await wails.waitForApp();
 
-    const textarea = page.locator('.chat-input__textarea');
-    await textarea.fill('/');
-
-    const menu = page.locator('[role="listbox"]');
-    await expect(menu).toBeVisible({ timeout: 3_000 });
+    const { menu } = await openSlashMenu(page);
 
     // Deve exibir todos os skills
     const options = menu.locator('[role="option"]');
@@ -28,11 +45,7 @@ test.describe('Chat — Slash Commands', () => {
   test('texto após / filtra os comandos', async ({ page, wails }) => {
     await wails.waitForApp();
 
-    const textarea = page.locator('.chat-input__textarea');
-    await textarea.fill('/sum');
-
-    const menu = page.locator('[role="listbox"]');
-    await expect(menu).toBeVisible({ timeout: 3_000 });
+    const { menu } = await openSlashMenu(page, '/sum');
 
     // Apenas "summarize" deve aparecer
     const options = menu.locator('[role="option"]');
@@ -46,10 +59,7 @@ test.describe('Chat — Slash Commands', () => {
   test('filtro sem resultados mostra estado vazio', async ({ page, wails }) => {
     await wails.waitForApp();
 
-    const textarea = page.locator('.chat-input__textarea');
-    await textarea.fill('/xyznonexistent');
-
-    const menu = page.locator('[role="listbox"]');
+    const { menu } = await openSlashMenu(page, '/xyznonexistent');
     const visible = await menu.isVisible({ timeout: 2_000 }).catch(() => false);
 
     if (visible) {
@@ -68,11 +78,7 @@ test.describe('Chat — Slash Commands', () => {
   test('ArrowDown/ArrowUp navega entre opções', async ({ page, wails }) => {
     await wails.waitForApp();
 
-    const textarea = page.locator('.chat-input__textarea');
-    await textarea.fill('/');
-
-    const menu = page.locator('[role="listbox"]');
-    await expect(menu).toBeVisible({ timeout: 3_000 });
+    const { textarea, menu } = await openSlashMenu(page);
 
     // O primeiro item deve estar selecionado por padrão
     const firstOption = menu.locator('[role="option"]').first();
@@ -92,11 +98,7 @@ test.describe('Chat — Slash Commands', () => {
   test('Enter seleciona o comando e insere slug no textarea', async ({ page, wails }) => {
     await wails.waitForApp();
 
-    const textarea = page.locator('.chat-input__textarea');
-    await textarea.fill('/');
-
-    const menu = page.locator('[role="listbox"]');
-    await expect(menu).toBeVisible({ timeout: 3_000 });
+    const { textarea, menu } = await openSlashMenu(page);
 
     // Seleciona o primeiro item (summarize)
     await textarea.press('Enter');
@@ -112,11 +114,7 @@ test.describe('Chat — Slash Commands', () => {
   test('Tab também seleciona o comando', async ({ page, wails }) => {
     await wails.waitForApp();
 
-    const textarea = page.locator('.chat-input__textarea');
-    await textarea.fill('/');
-
-    const menu = page.locator('[role="listbox"]');
-    await expect(menu).toBeVisible({ timeout: 3_000 });
+    const { textarea, menu } = await openSlashMenu(page);
 
     // Navega para o segundo item e seleciona com Tab
     await textarea.press('ArrowDown');

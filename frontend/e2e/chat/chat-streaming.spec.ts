@@ -124,11 +124,18 @@ test.describe('Chat — erro no envio', () => {
     await wails.setError('SendMessage', 'Network error');
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Mensagem que vai falhar');
+    await expect.poll(async () => textarea.inputValue()).toBe('Mensagem que vai falhar');
     await textarea.press('Enter');
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'SendMessage',
+      );
+    }, { timeout: 5_000 });
 
-    // O erro aparece como mensagem do assistente no chat
-    const errorMessage = page.locator('.chat-message', { hasText: /Erro ao enviar mensagem/ });
+    const errorMessage = page.locator('[role="alert"], .chat-message').filter({ hasText: /Network error/ });
     await expect(errorMessage).toBeVisible({ timeout: 5_000 });
   });
 
@@ -139,11 +146,19 @@ test.describe('Chat — erro no envio', () => {
     await wails.setError('SendMessage', 'Timeout');
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Mensagem com erro');
+    await expect.poll(async () => textarea.inputValue()).toBe('Mensagem com erro');
     await textarea.press('Enter');
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'SendMessage',
+      );
+    }, { timeout: 5_000 });
 
     // Aguarda o erro aparecer
-    await page.locator('.chat-message', { hasText: /Erro ao enviar/ }).waitFor({ timeout: 5_000 });
+    await page.locator('[role="alert"], .chat-message').filter({ hasText: /Timeout/ }).waitFor({ timeout: 5_000 });
 
     // Input deve ser reabilitado (isLoading → false)
     await page.waitForFunction(() => {
@@ -163,11 +178,19 @@ test.describe('Chat — erro no envio', () => {
     await wails.setError('SendMessage', 'Connection refused: server unavailable');
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Teste');
+    await expect.poll(async () => textarea.inputValue()).toBe('Teste');
     await textarea.press('Enter');
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'SendMessage',
+      );
+    }, { timeout: 5_000 });
 
     // A mensagem de erro deve conter o texto do erro
-    const errorMessage = page.locator('.chat-message', { hasText: 'Connection refused' });
+    const errorMessage = page.locator('[role="alert"], .chat-message').filter({ hasText: 'Connection refused' });
     await expect(errorMessage).toBeVisible({ timeout: 5_000 });
   });
 });
@@ -182,8 +205,17 @@ test.describe('Chat — thinking/reasoning', () => {
     await page.waitForSelector('.message-node', { timeout: 5_000 });
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Pense sobre isso');
+    await expect.poll(async () => textarea.inputValue(), { timeout: 5_000 }).toBe('Pense sobre isso');
     await textarea.press('Enter');
+
+    await page.waitForFunction(
+      () => window.__wailsMock.getCallLog().some((c) => c.fn === 'SendMessage'),
+      undefined,
+      { timeout: 5_000 },
+    );
 
     // Simula início de thinking (conversationId obrigatório)
     await wails.emit('chat:thinking', {

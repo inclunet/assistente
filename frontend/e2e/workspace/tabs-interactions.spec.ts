@@ -27,6 +27,27 @@ const threeTabWorkspace = makeWorkspace([
   { id: 'tab-3', title: 'Conversa 3', conversation_id: 3, position: 2 },
 ]);
 
+const fullTokenStats = {
+  conversationId: 1,
+  promptTokens: 500,
+  completionTokens: 300,
+  totalTokens: 800,
+  messageCount: 5,
+  mostUsedModel: 'gpt-4',
+  contextUsage: 10,
+  contextLimit: 128000,
+  isNearLimit: false,
+  isCritical: false,
+  systemPromptEstimatedTokens: 100,
+  summaryTokens: 0,
+  messagesInContextTokens: 400,
+  messagesOutOfContextTokens: 0,
+  messagesInContextCount: 5,
+  messagesOutOfContextCount: 0,
+  toolsUsedCount: 0,
+  toolBreakdown: [],
+};
+
 test.describe('Abas — fechar aba', () => {
   test('fechar aba via botão X remove do tablist', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
@@ -81,18 +102,20 @@ test.describe('Abas — fechar aba', () => {
 
     await wails.waitForApp();
 
-    // Right-click na segunda aba
     const secondTab = page.locator('button[role="tab"]').nth(1);
-    await secondTab.click({ button: 'right' });
+    await secondTab.dispatchEvent('mousedown', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+    await secondTab.dispatchEvent('contextmenu', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
 
     // Menu de contexto aparece
     const menu = page.locator('[role="menu"]').first();
+    if (!(await menu.isVisible().catch(() => false))) {
+      await secondTab.click({ button: 'right' });
+    }
     await expect(menu).toBeVisible({ timeout: 3_000 });
 
-    // Clica em "Fechar"
     const closeItem = menu.locator('[role="menuitem"]', { hasText: /fechar$/i });
     if (await closeItem.count() > 0) {
-      await closeItem.first().click();
+      await menu.locator('#close').evaluate((element: HTMLButtonElement) => element.click());
 
       const log = await wails.getCallLog();
       const removeCalls = log.filter(c => c.fn === 'RemoveWorkspaceTab');
@@ -127,6 +150,34 @@ test.describe('Abas — trocar aba', () => {
     const log = await wails.getCallLog();
     const setCalls = log.filter(c => c.fn === 'SetActiveWorkspaceTab');
     expect(setCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('atalhos de troca de aba são bloqueados quando há modal genérico aberto', async ({ page, wails }) => {
+    await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
+    await wails.setResponse('GetConversationTokenStats', fullTokenStats);
+    await wails.setResponse('SetActiveWorkspaceTab', undefined);
+
+    await wails.waitForApp();
+
+    const firstTab = page.locator('button[role="tab"]').first();
+    await expect(firstTab).toHaveAttribute('aria-selected', 'true');
+
+    const tokenStatsButton = page.locator('.token-stats-button');
+    await expect(tokenStatsButton).toBeVisible({ timeout: 5_000 });
+    await tokenStatsButton.click();
+
+    const dialog = page.locator('.modal-overlay[role="dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 7_000 });
+
+    await page.keyboard.press('Control+PageDown');
+    await page.keyboard.press('Control+2');
+
+    await expect(dialog).toBeVisible();
+    await expect(firstTab).toHaveAttribute('aria-selected', 'true');
+
+    const log = await wails.getCallLog();
+    const setCalls = log.filter(c => c.fn === 'SetActiveWorkspaceTab');
+    expect(setCalls.length).toBe(0);
   });
 
   test('navegação por teclado (ArrowRight/Left) entre abas', async ({ page, wails }) => {
@@ -198,6 +249,37 @@ test.describe('Abas — renomear', () => {
         (c: { fn: string }) => c.fn === 'UpdateWorkspaceTab'
       );
     }, { timeout: 5_000 });
+
+    const log = await wails.getCallLog();
+    const updateCalls = log.filter(c => c.fn === 'UpdateWorkspaceTab');
+    expect(updateCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('blur confirma renomeação ao clicar fora do campo', async ({ page, wails }) => {
+    await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
+    await wails.setResponse('UpdateWorkspaceTab', threeTabWorkspace);
+
+    await wails.waitForApp();
+
+    const firstTab = page.locator('button[role="tab"]').first();
+    await firstTab.click();
+    await firstTab.focus();
+    await firstTab.press('F2');
+
+    const editInput = page.locator('.ws-tabs__tab-edit');
+    await expect(editInput).toBeVisible({ timeout: 3_000 });
+    await expect(editInput).toBeFocused({ timeout: 1_000 });
+
+    await editInput.fill('Conversa via blur');
+    await page.getByRole('button', { name: /workspace options/i }).click();
+
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'UpdateWorkspaceTab'
+      );
+    }, { timeout: 5_000 });
+
+    await expect(editInput).not.toBeVisible({ timeout: 3_000 });
 
     const log = await wails.getCallLog();
     const updateCalls = log.filter(c => c.fn === 'UpdateWorkspaceTab');

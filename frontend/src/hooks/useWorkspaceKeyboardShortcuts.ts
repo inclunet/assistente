@@ -17,6 +17,7 @@ import { useEffect, useRef } from 'react';
 import i18next from 'i18next';
 import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import { isModalOpen } from '../components/ui/Modal';
 import { useAnnouncer } from './useAnnouncer';
 import { restoreDefaultFocus } from './useDefaultFocus';
 
@@ -166,8 +167,8 @@ export function useWorkspaceKeyboardShortcuts() {
         const num = parseInt(event.key, 10);
         if (num >= 1 && num <= 9) {
           event.preventDefault();
-          if (useWorkspaceChatModalStore.getState().isOpen) {
-            announce(i18next.t('workspace.chatModal.closeBeforeChangingTabs'));
+          if (isModalOpen()) {
+            announce(i18next.t('workspace.closeDialogBeforeChangingTabs'));
             return;
           }
           const targetTab = tabs[num - 1];
@@ -181,8 +182,8 @@ export function useWorkspaceKeyboardShortcuts() {
 
     function navigateTab(direction: 1 | -1) {
       if (tabs.length <= 1) return;
-      if (useWorkspaceChatModalStore.getState().isOpen) {
-        announce(i18next.t('workspace.chatModal.closeBeforeChangingTabs'));
+      if (isModalOpen()) {
+        announce(i18next.t('workspace.closeDialogBeforeChangingTabs'));
         return;
       }
       const currentIndex = tabs.findIndex(t => t.id === activeTabId);

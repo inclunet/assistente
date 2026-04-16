@@ -340,11 +340,17 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   },
 
   setActiveTab: async (tabId) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'pre-fix-modal-tabs-1',hypothesisId:'H1',location:'frontend/src/store/workspaceStore.ts:342',message:'workspace setActiveTab called',data:{tabId,currentActiveTabId:get().workspace?.activeTabId??null,modalOpen:isModalOpen()},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (get().workspace?.activeTabId === tabId) {
       return;
     }
     if (isModalOpen()) {
-      announce(i18next.t('workspace.chatModal.closeBeforeChangingTabs'));
+      // #region agent log
+      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'pre-fix-modal-tabs-1',hypothesisId:'H1',location:'frontend/src/store/workspaceStore.ts:346',message:'workspace setActiveTab blocked by modal',data:{tabId,announcementKey:'workspace.closeDialogBeforeChangingTabs'},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      announce(i18next.t('workspace.closeDialogBeforeChangingTabs'));
       return;
     }
     await SetActiveWorkspaceTab(tabId);

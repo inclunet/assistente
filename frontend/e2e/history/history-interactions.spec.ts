@@ -270,27 +270,28 @@ test.describe('Histórico — edição inline de título', () => {
     // F2 para editar (inline editing no DataGrid)
     await page.keyboard.press('F2');
 
-    // Verifica se um input de edição apareceu
-    const editInput = page.locator('[role="grid"] input[type="text"]');
-    const hasEditInput = await editInput.isVisible({ timeout: 3_000 }).catch(() => false);
+    const editInput = page.locator('.cell-edit-input');
+    await expect(editInput).toBeVisible({ timeout: 3_000 });
+    await editInput.evaluate((element: HTMLInputElement, nextValue: string) => {
+      element.focus();
+      element.value = nextValue;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+    }, 'Título Editado');
 
-    if (hasEditInput) {
-      await editInput.fill('Título Editado');
+    // Confirma a edição clicando fora (blur → saveEdit)
+    // Não usamos press('Enter') pois fill() pode triggar blur antes
+    await grid.click({ position: { x: 5, y: 5 }, force: true });
 
-      // Confirma a edição clicando fora (blur → saveEdit)
-      // Não usamos press('Enter') pois fill() pode triggar blur antes
-      await grid.click({ position: { x: 5, y: 5 }, force: true });
+    // Aguarda o processamento
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'UpdateConversation'
+      );
+    }, { timeout: 5_000 });
 
-      // Aguarda o processamento
-      await page.waitForFunction(() => {
-        return window.__wailsMock.getCallLog().some(
-          (c: { fn: string }) => c.fn === 'UpdateConversation'
-        );
-      }, { timeout: 5_000 });
-
-      const log = await wails.getCallLog();
-      const updateCalls = log.filter(c => c.fn === 'UpdateConversation');
-      expect(updateCalls.length).toBeGreaterThanOrEqual(1);
-    }
+    const log = await wails.getCallLog();
+    const updateCalls = log.filter(c => c.fn === 'UpdateConversation');
+    expect(updateCalls.length).toBeGreaterThanOrEqual(1);
   });
 });

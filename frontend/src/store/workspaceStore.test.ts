@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const { mockedAnnounce, mockedIsModalOpen } = vi.hoisted(() => ({
+  mockedAnnounce: vi.fn(),
+  mockedIsModalOpen: vi.fn(() => false),
+}));
+
 vi.mock('@wailsjs/go/main/App', () => ({
   GetActiveWorkspace: vi.fn(),
   ListWorkspaces: vi.fn(),
@@ -27,12 +32,17 @@ vi.mock('../../wailsjs/go/models', () => ({
 }));
 
 vi.mock('../hooks/useAnnouncer', () => ({
-  announce: vi.fn(),
+  announce: mockedAnnounce,
+}));
+
+vi.mock('../components/ui/Modal', () => ({
+  isModalOpen: mockedIsModalOpen,
 }));
 
 import { useWorkspaceStore, registerTabRenameHandler } from './workspaceStore';
-import { UpdateWorkspaceTab } from '@wailsjs/go/main/App';
+import { SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/main/App';
 
+const mockedSetActiveWorkspaceTab = vi.mocked(SetActiveWorkspaceTab);
 const mockedUpdateWorkspaceTab = vi.mocked(UpdateWorkspaceTab);
 
 function setStoreState(
@@ -61,6 +71,9 @@ function setStoreState(
 describe('handleContentRenamed', () => {
   beforeEach(() => {
     useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedAnnounce.mockClear();
+    mockedIsModalOpen.mockReturnValue(false);
+    mockedSetActiveWorkspaceTab.mockReset();
   });
 
   it('atualiza titulo da aba quando conversa é renomeada', async () => {
@@ -122,6 +135,9 @@ describe('handleContentRenamed', () => {
 describe('renameTabContent + registerTabRenameHandler', () => {
   beforeEach(() => {
     useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedAnnounce.mockClear();
+    mockedIsModalOpen.mockReturnValue(false);
+    mockedSetActiveWorkspaceTab.mockReset();
   });
 
   it('chama handler registrado ao renomear aba de chat', () => {
@@ -181,5 +197,28 @@ describe('renameTabContent + registerTabRenameHandler', () => {
     useWorkspaceStore.getState().renameTabContent('tab-1', 'Novo nome');
 
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('setActiveTab', () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedAnnounce.mockClear();
+    mockedIsModalOpen.mockReturnValue(false);
+    mockedSetActiveWorkspaceTab.mockReset();
+  });
+
+  it('bloqueia troca de aba quando há qualquer modal aberto', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+    ], 'tab-1');
+
+    mockedIsModalOpen.mockReturnValue(true);
+
+    await useWorkspaceStore.getState().setActiveTab('tab-2');
+
+    expect(mockedSetActiveWorkspaceTab).not.toHaveBeenCalled();
+    expect(mockedAnnounce).toHaveBeenCalledTimes(1);
   });
 });

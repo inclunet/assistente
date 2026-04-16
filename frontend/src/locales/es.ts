@@ -89,6 +89,8 @@ const es = {
       conversation: 'Conversación',
       conversationCleared: 'Conversación vaciada',
       clearError: 'Error al vaciar conversación',
+      errorPrefix: 'Error: {{message}}',
+      sendErrorPrefix: 'Error al enviar el mensaje: {{message}}',
       historyLabel: 'Historial',
       tokenStatsOpened: 'Modal de estadísticas de tokens abierto',
       profileLabel: 'Perfil',
@@ -652,8 +654,6 @@ const es = {
         newConversationError: 'Error al crear nueva conversación',
         conversationCleared: 'Conversación vaciada',
         clearError: 'Error al vaciar conversación',
-      errorPrefix: 'Error: {{message}}',
-      sendErrorPrefix: 'Error al enviar el mensaje: {{message}}',
         toolbarLabel: 'Chat',
         newBtn: 'Nueva',
         clearBtn: 'Vaciar',
@@ -1394,6 +1394,7 @@ const es = {
       tabListLabel: 'Lista de paneles',
       editTabTitle: 'Editar título de la pestaña',
       closeTab: 'Cerrar pestaña',
+      closeDialogBeforeChangingTabs: 'Cierra el diálogo abierto antes de cambiar de pestaña.',
       chatModal: {
         panelNotSupported: 'Este panel aún no admite el chat.',
         panelLoading: 'Espera a que el panel termine de cargar o vuelve a abrir el chat.',
@@ -1401,7 +1402,6 @@ const es = {
         adapterUnavailable:
           'No se pudo enviar: el panel no está vinculado al chat. Cierra y vuelve a abrir el chat.',
         prepareFailed: 'No se pudo preparar el chat. Inténtalo de nuevo.',
-        closeBeforeChangingTabs: 'Cierra el chat abierto antes de cambiar de pestaña.',
       },
       tabType: {
         chat: 'Chat',

@@ -34,6 +34,8 @@ export function WorkspaceTabList() {
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const contextTargetRef = useRef<string | null>(null);
+  const lastEditIntentRef = useRef<'enter' | 'escape' | 'blur' | null>(null);
+  const pendingFocusTabIdRef = useRef<string | null>(null);
   const { menu: ctxMenu, openAtPoint: openCtx, closeMenu: closeCtx, onSelectItem: onCtxSelect } = useAnchoredContextMenu();
 
   const tabs = workspace?.tabs || [];
@@ -41,8 +43,24 @@ export function WorkspaceTabList() {
 
   const handleSelect = useCallback((tabId: string) => {
     if (!tabId) return;
+    const activeElement = document.activeElement as HTMLElement | null;
+    if (activeElement?.closest?.('button[role="tab"]')) {
+      pendingFocusTabIdRef.current = tabId;
+    }
+    // #region agent log
+    fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'pre-fix-modal-tabs-1',hypothesisId:'H2',location:'frontend/src/components/workspace/WorkspaceTabList.tsx:42',message:'workspace tab select requested',data:{tabId,editingTabId},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     void setActiveTab(tabId);
   }, [setActiveTab]);
+
+  useLayoutEffect(() => {
+    if (!activeTabId || pendingFocusTabIdRef.current !== activeTabId) return;
+    const nextTab = tabListRef.current?.querySelector(
+      `button[role="tab"][data-tab-value="${activeTabId}"]`
+    ) as HTMLButtonElement | null;
+    nextTab?.focus();
+    pendingFocusTabIdRef.current = null;
+  }, [activeTabId]);
 
   const handleDelete = useCallback((tabId: string) => {
     if (tabs.length <= 1) return;
@@ -50,6 +68,7 @@ export function WorkspaceTabList() {
   }, [removeTab, tabs.length]);
 
   const startEditing = useCallback((tabId: string, currentTitle: string) => {
+    lastEditIntentRef.current = null;
     setEditingTabId(tabId);
     setEditingTitle(currentTitle);
   }, []);
@@ -69,15 +88,23 @@ export function WorkspaceTabList() {
     return () => cancelAnimationFrame(rafId);
   }, [editingTabId]);
 
-  const confirmEditing = useCallback((_source: 'enter' | 'blur' | 'unknown' = 'unknown') => {
+  const confirmEditing = useCallback((source: 'enter' | 'blur') => {
+    lastEditIntentRef.current = source;
     const tabIdToFocus = editingTabId;
-    if (editingTabId && editingTitle.trim()) {
-      const trimmed = editingTitle.trim();
-      void updateTab(editingTabId, { title: trimmed });
-      renameTabContent(editingTabId, trimmed);
-    }
+    const tabIdToRename = editingTabId;
+    const trimmedTitle = editingTitle.trim();
+
     setEditingTabId(null);
     setEditingTitle('');
+
+    if (tabIdToRename && trimmedTitle) {
+      void updateTab(tabIdToRename, { title: trimmedTitle });
+      try {
+        renameTabContent(tabIdToRename, trimmedTitle);
+      } catch (error) {
+        console.error('[WorkspaceTabList] Rename tab content error:', error);
+      }
+    }
 
     if (tabIdToFocus) {
       setTimeout(() => {
@@ -91,10 +118,26 @@ export function WorkspaceTabList() {
     }
   }, [editingTabId, editingTitle, updateTab, renameTabContent]);
 
+  useLayoutEffect(() => {
+    if (!editingTabId) return;
+
+    const handlePointerDownOutside = (event: PointerEvent) => {
+      const input = editInputRef.current;
+      const target = event.target as Node | null;
+      if (!input || !target) return;
+      if (input.contains(target)) return;
+      if (lastEditIntentRef.current) return;
+      confirmEditing('blur');
+    };
+
+    document.addEventListener('pointerdown', handlePointerDownOutside, true);
+    return () => document.removeEventListener('pointerdown', handlePointerDownOutside, true);
+  }, [confirmEditing, editingTabId]);
+
   const cancelEditing = useCallback(() => {
     setEditingTabId(null);
     setEditingTitle('');
-  }, [editingTabId, editingTitle]);
+  }, []);
 
   const handleEditKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     const navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Delete', 'Backspace'];
@@ -105,13 +148,32 @@ export function WorkspaceTabList() {
     if (e.key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
+      lastEditIntentRef.current = 'enter';
+      // #region agent log
+      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'pre-fix-rename-blur-1',hypothesisId:'H4',location:'frontend/src/components/workspace/WorkspaceTabList.tsx:105',message:'workspace tab rename keydown enter',data:{editingTabId,editingTitle},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       confirmEditing('enter');
     } else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
+      lastEditIntentRef.current = 'escape';
+      // #region agent log
+      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'pre-fix-rename-blur-1',hypothesisId:'H4',location:'frontend/src/components/workspace/WorkspaceTabList.tsx:109',message:'workspace tab rename keydown escape',data:{editingTabId,editingTitle},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       cancelEditing();
     }
   }, [confirmEditing, cancelEditing]);
+
+  const handleEditBlur = useCallback(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'pre-fix-rename-blur-1',hypothesisId:'H3',location:'frontend/src/components/workspace/WorkspaceTabList.tsx:116',message:'workspace tab rename blur',data:{editingTabId,editingTitle,lastIntent:lastEditIntentRef.current},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (lastEditIntentRef.current) {
+      lastEditIntentRef.current = null;
+      return;
+    }
+    confirmEditing('blur');
+  }, [confirmEditing, editingTabId, editingTitle]);
 
   const handleListKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (editingTabId) return;
@@ -319,6 +381,7 @@ export function WorkspaceTabList() {
             onChange={(e) => setEditingTitle(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             onKeyDown={handleEditKeyDown}
+            onBlur={handleEditBlur}
             onClick={(e) => e.stopPropagation()}
             aria-label={t('workspace.editTabTitle')}
           />

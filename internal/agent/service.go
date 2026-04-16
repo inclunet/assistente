@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -17,7 +18,7 @@ import (
 )
 
 func decodeSurfacePayload(raw string) map[string]any {
-	if raw == "" {
+	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
 	var decoded map[string]any
