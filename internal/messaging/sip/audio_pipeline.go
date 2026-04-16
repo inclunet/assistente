@@ -26,6 +26,9 @@ type AudioPipelineConfig struct {
 	// VAD ajusta o detector de atividade de voz
 	VAD VADConfig
 
+	// Preprocess configura limpeza de áudio antes do VAD/STT.
+	Preprocess PreprocessConfig
+
 	// ReadFrameSize ├® o tamanho do frame lido do RTP em bytes (PCM 16-bit).
 	// Padr├úo: 320 (20ms @ 8kHz mono 16-bit = 160 samples * 2 bytes)
 	ReadFrameSize int
@@ -51,12 +54,6 @@ type AudioPipelineConfig struct {
 	// Padrão: 2
 	STTMaxRetries int
 
-	// InputGain é o fator de amplificação aplicado ao áudio de entrada após
-	// decodificação G.711. Compensa sinais fracos de SBCs/gateways telefônicos.
-	// 1.0 = sem ganho, 10.0 = 10x amplificação. Clipping é prevenido.
-	// Padrão: 10.0
-	InputGain float64
-
 	// BargeInRMSThreshold é o nível RMS mínimo para detectar barge-in durante
 	// reprodução de TTS. Deve ser acima do nível de eco típico do softphone.
 	// Padrão: 0.15
@@ -72,13 +69,13 @@ type AudioPipelineConfig struct {
 func DefaultAudioPipelineConfig() AudioPipelineConfig {
 	return AudioPipelineConfig{
 		VAD:                  DefaultVADConfig(),
+		Preprocess:           DefaultPreprocessConfig(),
 		ReadFrameSize:        320,
 		InputSampleRate:      8000,
 		STTSampleRate:        16000,
 		TTSOutputFormat:      "pcm",
 		EchoCooldownDuration: 300 * time.Millisecond,
 		STTMaxRetries:        2,
-		InputGain:            15.0,
 		BargeInRMSThreshold:  0.15,
 		BargeInMinFrames:     5,
 	}
@@ -88,7 +85,7 @@ func DefaultAudioPipelineConfig() AudioPipelineConfig {
 //
 // Fluxo de entrada (call → LLM):
 //
-//	RTP → AudioReader (G.711 µ-law/A-law) → Decode → PCM 8kHz → VAD → Speech Segment → Resample 16kHz → WAV → Whisper STT → texto → Gateway
+//	RTP → AudioReader (G.711 µ-law/A-law) → Decode → SpeexDSP (denoise/AGC) → WebRTC VAD → Speech Segment → Resample 16kHz → WAV → Whisper STT → texto → Gateway
 //
 // DialogSession abstrai os m├®todos comuns entre DialogServerSession (inbound)
 // e DialogClientSession (outbound) do diago, permitindo o pipeline funcionar
@@ -106,11 +103,12 @@ type DialogSession interface {
 //
 //	Gateway resposta ÔåÆ SIPAdapter.Send() ÔåÆ PlayAudio() ÔåÆ PCM ÔåÆ AudioWriter ÔåÆ RTP
 type AudioPipeline struct {
-	config  AudioPipelineConfig
-	dialog  DialogSession
-	vad     *EnergyVAD
-	call    *CallSession
-	handler messaging.IncomingMessageHandler
+	config       AudioPipelineConfig
+	dialog       DialogSession
+	vad          *SpeechDetector
+	preprocessor *AudioPreprocessor
+	call         *CallSession
+	handler      messaging.IncomingMessageHandler
 
 	// SpeechManager para STT (Whisper)
 	speechManager *speech.SpeechManager
@@ -189,12 +187,24 @@ func (p *AudioPipeline) Run() error {
 		codecName, mediaProps.Codec.PayloadType, mediaProps.Codec.SampleRate,
 		mediaProps.Laddr, mediaProps.Raddr)
 
-	// Configura VAD com callbacks
-	p.vad = NewEnergyVAD(
+	p.preprocessor, err = NewAudioPreprocessor(p.config.Preprocess)
+	if err != nil {
+		return fmt.Errorf("sip pipeline: erro ao iniciar preprocessador: %w", err)
+	}
+	defer func() {
+		if closeErr := p.preprocessor.Close(); closeErr != nil {
+			log.Printf("[SIP Pipeline] Erro ao fechar preprocessador: %v", closeErr)
+		}
+	}()
+
+	p.vad, err = NewSpeechDetector(
 		p.config.VAD,
 		p.onSpeechStart,
 		p.onSpeechEnd,
 	)
+	if err != nil {
+		return fmt.Errorf("sip pipeline: erro ao iniciar VAD: %w", err)
+	}
 
 	// Frame buffer para leitura de dados codificados G.711.
 	// G.711: 1 byte/sample, 160 bytes = 20ms @ 8kHz.
@@ -207,13 +217,9 @@ func (p *AudioPipeline) Run() error {
 	// PCM 16-bit: 2 bytes por sample G.711, então buffer = 2x o tamanho
 	pcmBuf := make([]byte, frameSize*2)
 
-	// Cooldown após playback: tempo para eco do softphone remoto dissipar.
-	const echoCooldown = 600 * time.Millisecond
-
-	// Ganho de entrada para compensar sinais fracos de SBCs telefônicos.
-	inputGain := p.config.InputGain
-	if inputGain <= 0 {
-		inputGain = 1.0
+	echoCooldown := p.config.EchoCooldownDuration
+	if echoCooldown <= 0 {
+		echoCooldown = 300 * time.Millisecond
 	}
 
 	// Diagnóstico: loga RMS a cada ~5 segundos para verificar se áudio real chega.
@@ -234,7 +240,7 @@ func (p *AudioPipeline) Run() error {
 	// para injetá-los no VAD após confirmar barge-in, evitando perda de ~100ms.
 	var bargeInPreBuf [][]byte
 
-	log.Printf("[SIP Pipeline] Iniciado para chamada %s (gain=%.1fx)", p.call.ID, inputGain)
+	log.Printf("[SIP Pipeline] Iniciado para chamada %s (preprocess=SpeexDSP, vad=WebRTC mode=%d)", p.call.ID, p.config.VAD.Mode)
 
 	for {
 		select {
@@ -264,20 +270,25 @@ func (p *AudioPipeline) Run() error {
 				continue
 			}
 
-			// Aplica ganho de entrada para compensar sinais fracos do SBC.
-			if inputGain != 1.0 {
-				applyGain(pcmBuf[:pcmN], inputGain)
+			rawRMS := computeRMS(pcmBuf[:pcmN])
+			processedPCM, procErr := p.preprocessor.ProcessCapture(pcmBuf[:pcmN])
+			if procErr != nil {
+				log.Printf("[SIP Pipeline] Erro no preprocessamento SpeexDSP: %v", procErr)
+				continue
+			}
+			if len(processedPCM) == 0 {
+				continue
 			}
 
-			// Diagnóstico: calcula RMS do frame (pós-ganho) e loga a cada ~5s.
-			rms := computeRMS(pcmBuf[:pcmN])
+			// Diagnóstico: calcula RMS do frame pós-preprocessamento e loga a cada ~5s.
+			rms := computeRMS(processedPCM)
 			if rms > diagMaxRMS {
 				diagMaxRMS = rms
 			}
 			diagFrames++
 			if diagFrames%250 == 0 {
-				log.Printf("[SIP Diag] frames=%d, maxRMS=%.4f, gain=%.0fx",
-					diagFrames, diagMaxRMS, inputGain)
+				log.Printf("[SIP Diag] frames=%d, maxRMS=%.4f, rawRMS=%.4f",
+					diagFrames, diagMaxRMS, rawRMS)
 				diagMaxRMS = 0
 			}
 
@@ -285,15 +296,15 @@ func (p *AudioPipeline) Run() error {
 			// O eco do TTS pelo speaker remoto tem RMS moderado; fala real do
 			// usuário sobre o eco produz RMS muito mais alto.
 			if p.playbackActive.Load() {
-				if rms > bargeInThreshold {
+				if rawRMS > bargeInThreshold {
 					bargeInFrames++
 					// Guarda cópia do frame para não perder fala do usuário
-					frameCopy := make([]byte, pcmN)
-					copy(frameCopy, pcmBuf[:pcmN])
+					frameCopy := make([]byte, len(processedPCM))
+					copy(frameCopy, processedPCM)
 					bargeInPreBuf = append(bargeInPreBuf, frameCopy)
 
 					if bargeInFrames >= bargeInMinFrames {
-						log.Printf("[SIP Pipeline] Barge-in durante playback (RMS=%.4f, frames=%d)", rms, bargeInFrames)
+						log.Printf("[SIP Pipeline] Barge-in durante playback (rawRMS=%.4f, frames=%d)", rawRMS, bargeInFrames)
 						p.StopPlayback()
 						if p.OnBargeIn != nil {
 							func() {
@@ -329,7 +340,7 @@ func (p *AudioPipeline) Run() error {
 				}
 			}
 
-			p.vad.ProcessFrame(pcmBuf[:pcmN])
+			p.vad.ProcessFrame(processedPCM)
 		}
 	}
 }
@@ -621,8 +632,8 @@ func isWhisperHallucination(text string) bool {
 		"[no speech]",
 		"(silence)",
 		"(music)",
-		"you",           // Whisper "you" hallucination on silence
-		"thank you.",     // Common hallucination on short noise
+		"you",        // Whisper "you" hallucination on silence
+		"thank you.", // Common hallucination on short noise
 		"thanks.",
 		"bye.",
 		"thank you for watching.",
@@ -828,13 +839,13 @@ func encodePCMToWAV(pcm []byte, sampleRate uint32, bitsPerSample uint16, numChan
 
 	// fmt chunk
 	buf.WriteString("fmt ")
-	binary.Write(&buf, binary.LittleEndian, uint32(16))         // SubchunkSize
-	binary.Write(&buf, binary.LittleEndian, uint16(1))          // AudioFormat (PCM)
-	binary.Write(&buf, binary.LittleEndian, numChannels)        // NumChannels
-	binary.Write(&buf, binary.LittleEndian, sampleRate)         // SampleRate
-	binary.Write(&buf, binary.LittleEndian, byteRate)           // ByteRate
-	binary.Write(&buf, binary.LittleEndian, blockAlign)         // BlockAlign
-	binary.Write(&buf, binary.LittleEndian, bitsPerSample)      // BitsPerSample
+	binary.Write(&buf, binary.LittleEndian, uint32(16))    // SubchunkSize
+	binary.Write(&buf, binary.LittleEndian, uint16(1))     // AudioFormat (PCM)
+	binary.Write(&buf, binary.LittleEndian, numChannels)   // NumChannels
+	binary.Write(&buf, binary.LittleEndian, sampleRate)    // SampleRate
+	binary.Write(&buf, binary.LittleEndian, byteRate)      // ByteRate
+	binary.Write(&buf, binary.LittleEndian, blockAlign)    // BlockAlign
+	binary.Write(&buf, binary.LittleEndian, bitsPerSample) // BitsPerSample
 
 	// data chunk
 	buf.WriteString("data")

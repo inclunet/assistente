@@ -1,14 +1,13 @@
 package sip
 
 import (
-	"encoding/binary"
+	"fmt"
 	"log"
-	"math"
-	"sort"
 	"time"
+
+	webrtcvad "github.com/bytectlgo/webrtcvad-go"
 )
 
-// VADState indica se o VAD detecta fala ou sil├¬ncio.
 type VADState int
 
 const (
@@ -16,557 +15,289 @@ const (
 	VADSpeech
 )
 
-// VADConfig configura o detector de atividade de voz baseado em energia RMS.
 type VADConfig struct {
-	// SilenceThreshold ├® o n├¡vel RMS abaixo do qual ├® considerado sil├¬ncio (0.0ÔÇô1.0).
-	// Padr├úo: 0.02
-	SilenceThreshold float64
-
-	// SpeechThreshold ├® o n├¡vel RMS acima do qual ├® considerado fala (0.0ÔÇô1.0).
-	// Padr├úo: 0.03
-	SpeechThreshold float64
-
-	// SilenceDuration ├® o tempo cont├¡nuo de sil├¬ncio para finalizar um segmento de fala.
-	// Padr├úo: 800ms
-	SilenceDuration time.Duration
-
-	// SpeechDuration ├® o tempo m├¡nimo de fala para considerar um segmento v├ílido.
-	// Padr├úo: 250ms
-	SpeechDuration time.Duration
-
-	// LeadingBufferDuration ├® a quantidade de ├íudio antes do onset de fala capturada
-	// para evitar cortar o in├¡cio de s├¡labas.
-	// Padr├úo: 200ms
+	Mode                  int
+	FrameDuration         time.Duration
+	SilenceDuration       time.Duration
+	SpeechDuration        time.Duration
 	LeadingBufferDuration time.Duration
-
-	// SampleRate ├® a taxa de amostragem do ├íudio de entrada.
-	// Padr├úo: 8000 (G.711)
-	SampleRate int
-
-	// AdaptiveNoise habilita threshold adaptativo baseado no n├¡vel de ru├¡do de fundo.
-	// Quando habilitado, SpeechThreshold e SilenceThreshold ajustam automaticamente.
-	// Padr├úo: true
-	AdaptiveNoise bool
-
-	// AdaptiveAlpha ├® a taxa de aprendizado do filtro EMA para estimar ru├¡do de fundo.
-	// Valores menores = adapta├º├úo mais lenta (mais est├ível). Range: 0.001ÔÇô0.1
-	// Padr├úo: 0.01
-	AdaptiveAlpha float64
-
-	// AdaptiveMargin ├® o multiplicador acima do n├¡vel de ru├¡do estimado para
-	// definir o SpeechThreshold din├ómico. Ex: 2.5 = threshold = noiseFloor * 2.5
-	// Padr├úo: 2.5
-	AdaptiveMargin float64
-
-	// ZCRWeight define o peso do ZCR (Zero Crossing Rate) na decis├úo de voz.
-	// 0.0 = ignora ZCR (s├│ RMS), 1.0 = peso m├íximo. Fala tem ZCR m├®dio (50-200 Hz 8kHz).
-	// Ru├¡do branco tem ZCR alto (>0.3). Cliques/tons puros t├¬m ZCR baixo (<0.05).
-	// Padr├úo: 0.3
-	ZCRWeight float64
-
-	// MaxSegmentDuration é a duração máxima de um segmento de fala antes de forçar
-	// emissão para o STT. Previne mega-segmentos causados por eco ou ruído contínuo.
-	// Padrão: 15s
-	MaxSegmentDuration time.Duration
-
-	// WarmupDuration é o período inicial onde o VAD calibra o noise floor mas não
-	// dispara onsets de fala. Permite estabilizar thresholds adaptativos antes de
-	// reagir, evitando falsos positivos de ruído do SBC/codec no início da chamada.
-	// Padrão: 1s
-	WarmupDuration time.Duration
+	SampleRate            int
+	MaxSegmentDuration    time.Duration
+	WarmupDuration        time.Duration
+	NoiseFloorAlpha       float64
+	NoiseFloorMin         float64
 }
 
-// DefaultVADConfig retorna configura├º├úo padr├úo para canal telef├┤nico G.711.
 func DefaultVADConfig() VADConfig {
 	return VADConfig{
-		SilenceThreshold:      0.02,
-		SpeechThreshold:       0.03,
-		SilenceDuration:       1500 * time.Millisecond,
-		SpeechDuration:        200 * time.Millisecond,
+		Mode:                  1,
+		FrameDuration:         20 * time.Millisecond,
+		SilenceDuration:       800 * time.Millisecond,
+		SpeechDuration:        120 * time.Millisecond,
 		LeadingBufferDuration: 200 * time.Millisecond,
 		SampleRate:            8000,
-		AdaptiveNoise:         true,
-		AdaptiveAlpha:         0.01,
-		AdaptiveMargin:        2.5,
-		ZCRWeight:             0.3,
 		MaxSegmentDuration:    15 * time.Second,
-		WarmupDuration:        2 * time.Second,
+		WarmupDuration:        1500 * time.Millisecond,
+		NoiseFloorAlpha:       0.02,
+		NoiseFloorMin:         0.01,
 	}
 }
 
-// EnergyVAD ├® um detector de atividade de voz baseado em energia RMS com
-// Zero Crossing Rate (ZCR) e threshold adaptativo ao ru├¡do de fundo.
-// Processa ├íudio PCM 16-bit signed little-endian mono.
-// Usa contagem de samples para medir dura├º├Áes (n├úo depende de time.Now).
-type EnergyVAD struct {
+type SpeechDetector struct {
 	config VADConfig
-	state  VADState
+	vad    *webrtcvad.VAD
 
-	// Contadores de samples para medir dura├º├Áes
-	speechSamples  int // samples consecutivos acima do threshold
-	silenceSamples int // samples consecutivos abaixo do threshold
+	state VADState
 
-	// Thresholds em n├║mero de samples
-	speechSamplesThreshold  int
-	silenceSamplesThreshold int
-	maxSegmentBytes         int // m├íximo de bytes no speech buffer antes de force-emit
+	frameBytes             int
+	speechFramesThreshold  int
+	silenceFramesThreshold int
+	warmupFramesThreshold  int
+	maxSegmentBytes        int
 
-	// Threshold adaptativo
-	noiseFloor      float64   // n├¡vel RMS estimado do ru├¡do de fundo (EMA)
-	noiseInited     bool      // se o noiseFloor j├í convergiu (primeiros ~500ms)
-	noiseInitBuf    []float64
-	noiseInitSize   int // samples para inicializa├º├úo (~500ms)
-	noiseInitFrames int // total de frames processados durante inicializa├º├úo
+	pendingBuf []byte
+	leadingBuf []byte
+	speechBuf  []byte
 
-	// Buffer circular de leading audio (pr├®-onset)
-	leadingBuf     []byte
-	leadingBufSize int // tamanho m├íximo em bytes
-	leadingBufPos  int // posi├º├úo de escrita no buffer circular
+	speechFrames  int
+	silenceFrames int
+	warmupFrames  int
 
-	// Acumula áudio do segmento de fala atual
-	speechBuf []byte
+	noiseFloor float64
 
-	// Warm-up: samples processados até agora (suprime onsets durante warmup)
-	warmupSamples    int
-	warmupThreshold  int // samples necessários para completar warm-up
-	warmupComplete   bool
-
-	// Callbacks
 	onSpeechStart func()
 	onSpeechEnd   func(segment []byte)
 }
 
-// NewEnergyVAD cria um novo detector VAD com a configura├º├úo fornecida.
-func NewEnergyVAD(cfg VADConfig, onSpeechStart func(), onSpeechEnd func(segment []byte)) *EnergyVAD {
+func NewSpeechDetector(cfg VADConfig, onSpeechStart func(), onSpeechEnd func(segment []byte)) (*SpeechDetector, error) {
 	if cfg.SampleRate == 0 {
 		cfg.SampleRate = 8000
 	}
-	if cfg.SilenceThreshold == 0 {
-		cfg.SilenceThreshold = 0.02
+	if cfg.Mode < 0 || cfg.Mode > 3 {
+		cfg.Mode = 2
 	}
-	if cfg.SpeechThreshold == 0 {
-		cfg.SpeechThreshold = 0.03
+	if cfg.FrameDuration == 0 {
+		cfg.FrameDuration = 20 * time.Millisecond
 	}
-	if cfg.SilenceDuration == 0 {
+	if cfg.FrameDuration != 10*time.Millisecond && cfg.FrameDuration != 20*time.Millisecond && cfg.FrameDuration != 30*time.Millisecond {
+		return nil, fmt.Errorf("frame duration inválida para WebRTC VAD: %s", cfg.FrameDuration)
+	}
+	if cfg.SilenceDuration < 0 {
 		cfg.SilenceDuration = 800 * time.Millisecond
 	}
-	if cfg.SpeechDuration == 0 {
-		cfg.SpeechDuration = 250 * time.Millisecond
+	if cfg.SpeechDuration < 0 {
+		cfg.SpeechDuration = 120 * time.Millisecond
 	}
-	if cfg.LeadingBufferDuration == 0 {
+	if cfg.LeadingBufferDuration < 0 {
 		cfg.LeadingBufferDuration = 200 * time.Millisecond
 	}
-	if cfg.AdaptiveAlpha == 0 {
-		cfg.AdaptiveAlpha = 0.01
-	}
-	if cfg.AdaptiveMargin == 0 {
-		cfg.AdaptiveMargin = 2.5
-	}
-	if cfg.MaxSegmentDuration == 0 {
+	if cfg.MaxSegmentDuration < 0 {
 		cfg.MaxSegmentDuration = 15 * time.Second
 	}
-	// WarmupDuration: 0 = sem warm-up (desabilitado em testes).
-	// Valor padrão definido em DefaultVADConfig().
-
-	// Converte durações em número de samples
-	speechSamplesThreshold := int(cfg.SpeechDuration.Seconds() * float64(cfg.SampleRate))
-	silenceSamplesThreshold := int(cfg.SilenceDuration.Seconds() * float64(cfg.SampleRate))
-
-	// Leading buffer: samples * 2 bytes por sample
-	leadingSamples := int(cfg.LeadingBufferDuration.Seconds() * float64(cfg.SampleRate))
-	leadingBufSize := leadingSamples * 2 // 16-bit = 2 bytes per sample
-
-	// Inicializa├º├úo do noise floor: coleta ~500ms de ├íudio antes de usar adaptive.
-	// Cada ProcessFrame tipicamente recebe 20ms de ├íudio, ent├úo 500ms Ôëê 25 frames.
-	noiseInitSize := 25
-
-	// Max segment: duração em bytes (samples * 2 bytes por sample)
-	maxSegmentBytes := int(cfg.MaxSegmentDuration.Seconds() * float64(cfg.SampleRate)) * 2
-
-	// Warm-up: conversão de duração para samples
-	warmupThreshold := int(cfg.WarmupDuration.Seconds() * float64(cfg.SampleRate))
-
-	return &EnergyVAD{
-		config:                  cfg,
-		state:                   VADSilence,
-		speechSamplesThreshold:  speechSamplesThreshold,
-		silenceSamplesThreshold: silenceSamplesThreshold,
-		maxSegmentBytes:         maxSegmentBytes,
-		noiseFloor:              cfg.SilenceThreshold,
-		noiseInitSize:           noiseInitSize,
-		leadingBuf:              make([]byte, leadingBufSize),
-		leadingBufSize:          leadingBufSize,
-		warmupThreshold:         warmupThreshold,
-		onSpeechStart:           onSpeechStart,
-		onSpeechEnd:             onSpeechEnd,
+	if cfg.WarmupDuration < 0 {
+		cfg.WarmupDuration = 1500 * time.Millisecond
 	}
+	if cfg.NoiseFloorAlpha <= 0 {
+		cfg.NoiseFloorAlpha = 0.02
+	}
+	if cfg.NoiseFloorMin <= 0 {
+		cfg.NoiseFloorMin = 0.01
+	}
+
+	frameSamples := int(cfg.FrameDuration.Seconds() * float64(cfg.SampleRate))
+	if frameSamples <= 0 || !webrtcvad.ValidRateAndFrameLength(cfg.SampleRate, frameSamples) {
+		return nil, fmt.Errorf("combinação inválida de sampleRate=%d e frame=%s para WebRTC VAD", cfg.SampleRate, cfg.FrameDuration)
+	}
+
+	vad, err := webrtcvad.New(cfg.Mode)
+	if err != nil {
+		return nil, fmt.Errorf("criar WebRTC VAD: %w", err)
+	}
+
+	frameBytes := frameSamples * 2
+	speechFramesThreshold := durationToFrames(cfg.SpeechDuration, cfg.FrameDuration)
+	silenceFramesThreshold := durationToFrames(cfg.SilenceDuration, cfg.FrameDuration)
+	warmupFramesThreshold := 0
+	if cfg.WarmupDuration > 0 {
+		warmupFramesThreshold = durationToFrames(cfg.WarmupDuration, cfg.FrameDuration)
+	}
+	leadingBufBytes := 0
+	if cfg.LeadingBufferDuration > 0 {
+		leadingBufBytes = durationToFrames(cfg.LeadingBufferDuration, cfg.FrameDuration) * frameBytes
+	}
+	maxSegmentBytes := 0
+	if cfg.MaxSegmentDuration > 0 {
+		maxSegmentBytes = durationToFrames(cfg.MaxSegmentDuration, cfg.FrameDuration) * frameBytes
+	}
+
+	return &SpeechDetector{
+		config:                 cfg,
+		vad:                    vad,
+		state:                  VADSilence,
+		frameBytes:             frameBytes,
+		speechFramesThreshold:  speechFramesThreshold,
+		silenceFramesThreshold: silenceFramesThreshold,
+		warmupFramesThreshold:  warmupFramesThreshold,
+		leadingBuf:             make([]byte, 0, leadingBufBytes),
+		speechBuf:              make([]byte, 0, max(frameBytes*8, leadingBufBytes)),
+		noiseFloor:             cfg.NoiseFloorMin,
+		maxSegmentBytes:        maxSegmentBytes,
+		onSpeechStart:          onSpeechStart,
+		onSpeechEnd:            onSpeechEnd,
+	}, nil
 }
 
-// ProcessFrame processa um frame de áudio PCM 16-bit signed LE mono.
-// Combina RMS energy com ZCR para decisão mais robusta. Usa threshold
-// adaptativo ao ruído de fundo quando AdaptiveNoise está habilitado.
-func (v *EnergyVAD) ProcessFrame(pcm []byte) VADState {
-	rms := computeRMS(pcm)
-	frameSamples := len(pcm) / 2
-
-	// Atualiza noise floor adaptativo
-	v.updateNoiseFloor(rms)
-
-	// Warm-up: processa frames para calibrar noise floor mas não dispara onsets.
-	// Evita falsos positivos de ruído do SBC/codec no início da chamada.
-	if !v.warmupComplete {
-		if v.warmupThreshold <= 0 {
-			v.warmupComplete = true
-		} else {
-			v.warmupSamples += frameSamples
-			v.appendLeadingBuffer(pcm)
-			if v.warmupSamples >= v.warmupThreshold {
-				v.warmupComplete = true
-				log.Printf("[VAD] Warm-up completo (%dms, noiseFloor=%.4f)",
-					v.warmupSamples*1000/v.config.SampleRate, v.noiseFloor)
-			}
-			return v.state
-		}
+func (d *SpeechDetector) ProcessFrame(pcm []byte) VADState {
+	if len(pcm) == 0 {
+		return d.state
 	}
 
-	// Calcula score combinado RMS + ZCR
-	score := v.computeScore(pcm, rms)
+	d.pendingBuf = append(d.pendingBuf, pcm...)
+	for len(d.pendingBuf) >= d.frameBytes {
+		frame := make([]byte, d.frameBytes)
+		copy(frame, d.pendingBuf[:d.frameBytes])
+		d.pendingBuf = d.pendingBuf[d.frameBytes:]
+		d.processOneFrame(frame)
+	}
 
-	// Resolve thresholds (adaptativos ou fixos)
-	speechTh, silenceTh := v.resolveThresholds()
+	return d.state
+}
 
-	switch v.state {
+func (d *SpeechDetector) processOneFrame(frame []byte) {
+	rms := computeRMS(frame)
+	d.appendLeading(frame)
+
+	isSpeech, err := d.vad.IsSpeech(frame, d.config.SampleRate)
+	if err != nil {
+		log.Printf("[SIP VAD] Erro ao processar frame: %v", err)
+		return
+	}
+
+	if !isSpeech {
+		d.updateNoiseFloor(rms)
+	}
+
+	if d.warmupFrames < d.warmupFramesThreshold {
+		d.warmupFrames++
+		if d.warmupFrames == d.warmupFramesThreshold {
+			log.Printf("[SIP VAD] Warm-up completo (noiseFloor=%.4f)", d.noiseFloor)
+		}
+		return
+	}
+
+	switch d.state {
 	case VADSilence:
-		v.processInSilence(pcm, score, speechTh, frameSamples)
+		if isSpeech {
+			d.speechFrames++
+			if d.speechFrames >= d.speechFramesThreshold {
+				d.state = VADSpeech
+				d.silenceFrames = 0
+				d.speechBuf = append(d.speechBuf[:0], d.leadingBuf...)
+				if d.onSpeechStart != nil {
+					d.onSpeechStart()
+				}
+			}
+		} else {
+			d.speechFrames = 0
+		}
 	case VADSpeech:
-		v.processInSpeech(pcm, score, silenceTh, frameSamples)
-	}
-
-	return v.state
-}
-
-// State retorna o estado atual do VAD.
-func (v *EnergyVAD) State() VADState {
-	return v.state
-}
-
-// Reset volta o VAD ao estado inicial.
-func (v *EnergyVAD) Reset() {
-	v.state = VADSilence
-	v.speechSamples = 0
-	v.silenceSamples = 0
-	v.speechBuf = nil
-	v.leadingBufPos = 0
-	v.noiseFloor = v.config.SilenceThreshold
-	v.noiseInited = false
-	v.noiseInitBuf = nil
-	for i := range v.leadingBuf {
-		v.leadingBuf[i] = 0
-	}
-}
-
-// Flush for├ºa a emiss├úo do segmento de fala atual (se houver).
-// ├Ütil para encerramento de chamada.
-func (v *EnergyVAD) Flush() {
-	if v.state == VADSpeech && len(v.speechBuf) > 0 {
-		if v.onSpeechEnd != nil {
-			v.onSpeechEnd(v.speechBuf)
+		d.speechBuf = append(d.speechBuf, frame...)
+		if d.maxSegmentBytes > 0 && len(d.speechBuf) >= d.maxSegmentBytes {
+			d.emitSegment()
+			return
 		}
-		v.speechBuf = nil
-		v.state = VADSilence
-		v.speechSamples = 0
-		v.silenceSamples = 0
-	}
-}
 
-func (v *EnergyVAD) processInSilence(pcm []byte, score float64, speechThreshold float64, frameSamples int) {
-	// Mant├®m leading buffer atualizado (inclui frames pr├®-onset)
-	v.appendLeadingBuffer(pcm)
-
-	if score >= speechThreshold {
-		v.speechSamples += frameSamples
-		v.silenceSamples = 0
-
-		// Verifica se atingiu dura├º├úo m├¡nima de speech (em samples)
-		if v.speechSamples >= v.speechSamplesThreshold {
-			v.state = VADSpeech
-			v.silenceSamples = 0
-
-			log.Printf("[VAD] Onset ÔåÆ Speech (score=%.4f th=%.4f noiseFloor=%.4f speechMs=%d)",
-				score, speechThreshold, v.noiseFloor, v.speechSamples*1000/v.config.SampleRate)
-
-			// Inicia speech buffer com leading audio (inclui frames pr├®-onset)
-			v.speechBuf = make([]byte, 0, v.leadingBufSize+len(pcm))
-			v.speechBuf = append(v.speechBuf, v.drainLeadingBuffer()...)
-			v.speechBuf = append(v.speechBuf, pcm...)
-
-			if v.onSpeechStart != nil {
-				v.onSpeechStart()
+		if isSpeech {
+			d.silenceFrames = 0
+		} else {
+			d.silenceFrames++
+			if d.silenceFrames >= d.silenceFramesThreshold {
+				d.emitSegment()
 			}
 		}
-	} else {
-		v.silenceSamples += frameSamples
-		// Tolera at├® 2 frames de sil├¬ncio (40ms) dentro de um onset de fala.
-		// Codec G.711 e jitter RTP podem causar frames intermitentes silenciosos.
-		// S├│ reseta se o sil├¬ncio durar mais que a toler├óncia.
-		hangoverSamples := v.config.SampleRate / 25 // ~40ms
-		if v.silenceSamples > hangoverSamples {
-			v.speechSamples = 0
-			v.silenceSamples = 0
-		}
 	}
 }
 
-func (v *EnergyVAD) processInSpeech(pcm []byte, score float64, silenceThreshold float64, frameSamples int) {
-	// Acumula ├íudio
-	v.speechBuf = append(v.speechBuf, pcm...)
+func (d *SpeechDetector) Flush() {
+	if d.state == VADSpeech && len(d.speechBuf) > 0 {
+		d.emitSegment()
+	}
+}
 
-	// Force-emit: se o segmento excedeu a dura├º├úo m├íxima, emite para n├úo
-	// acumular mega-segmentos (causados por eco do TTS, ru├¡do cont├¡nuo, etc).
-	// O STT (Whisper) funciona melhor com segmentos de 5-15s.
-	if v.maxSegmentBytes > 0 && len(v.speechBuf) >= v.maxSegmentBytes {
-		log.Printf("[VAD] MaxSegment atingido (%.1fs) ÔÇö force-emit",
-			v.config.MaxSegmentDuration.Seconds())
-		if v.onSpeechEnd != nil && len(v.speechBuf) > 0 {
-			v.onSpeechEnd(v.speechBuf)
-		}
-		v.speechBuf = nil
-		v.state = VADSilence
-		v.speechSamples = 0
-		v.silenceSamples = 0
-		v.leadingBufPos = 0
+func (d *SpeechDetector) Reset() error {
+	if err := d.vad.SetMode(d.config.Mode); err != nil {
+		return err
+	}
+	d.state = VADSilence
+	d.pendingBuf = d.pendingBuf[:0]
+	d.leadingBuf = d.leadingBuf[:0]
+	d.speechBuf = d.speechBuf[:0]
+	d.speechFrames = 0
+	d.silenceFrames = 0
+	d.warmupFrames = 0
+	d.noiseFloor = d.config.NoiseFloorMin
+	return nil
+}
+
+func (d *SpeechDetector) State() VADState {
+	return d.state
+}
+
+func (d *SpeechDetector) NoiseFloor() float64 {
+	return d.noiseFloor
+}
+
+func (d *SpeechDetector) appendLeading(frame []byte) {
+	limit := cap(d.leadingBuf)
+	if limit == 0 {
 		return
 	}
-
-	if score < silenceThreshold {
-		v.silenceSamples += frameSamples
-
-		if v.silenceSamples >= v.silenceSamplesThreshold {
-			// Sil├¬ncio confirmado: emite segmento
-			if v.onSpeechEnd != nil && len(v.speechBuf) > 0 {
-				v.onSpeechEnd(v.speechBuf)
-			}
-			v.speechBuf = nil
-			v.state = VADSilence
-			v.speechSamples = 0
-			v.silenceSamples = 0
-			v.leadingBufPos = 0
-		}
-	} else {
-		// Fala detectada ÔÇö reseta timer de sil├¬ncio
-		v.silenceSamples = 0
+	d.leadingBuf = append(d.leadingBuf, frame...)
+	if len(d.leadingBuf) > limit {
+		d.leadingBuf = d.leadingBuf[len(d.leadingBuf)-limit:]
 	}
 }
 
-// updateNoiseFloor atualiza a estimativa do ru├¡do de fundo usando EMA.
-// S├│ atualiza durante sil├¬ncio (quando n├úo h├í fala ativa).
-func (v *EnergyVAD) updateNoiseFloor(rms float64) {
-	if !v.config.AdaptiveNoise {
+func (d *SpeechDetector) updateNoiseFloor(rms float64) {
+	if rms <= 0 {
 		return
 	}
-
-	// Fase de inicializa├º├úo: coleta frames para estimar o noise floor inicial.
-	// Filtra frames com RMS alto (prov├ível fala ou ru├¡do impulsivo) para n├úo
-	// inflar o noise floor. Usa percentil 25 para ser conservador.
-	if !v.noiseInited {
-		// S├│ coleta frames com RMS baixo (< 0.15) para evitar incluir fala
-		if rms < 0.15 {
-			v.noiseInitBuf = append(v.noiseInitBuf, rms)
-		}
-		// Tamb├®m conta total de frames processados para n├úo esperar infinitamente
-		v.noiseInitFrames++
-		if len(v.noiseInitBuf) >= v.noiseInitSize || v.noiseInitFrames >= v.noiseInitSize*3 {
-			if len(v.noiseInitBuf) > 0 {
-				v.noiseFloor = medianFloat64(v.noiseInitBuf)
-			}
-			v.noiseInited = true
-			v.noiseInitBuf = nil
-		}
-		return
-	}
-
-	// S├│ atualiza noise floor quando est├í em sil├¬ncio
-	if v.state == VADSilence {
-		alpha := v.config.AdaptiveAlpha
-		v.noiseFloor = alpha*rms + (1-alpha)*v.noiseFloor
+	alpha := d.config.NoiseFloorAlpha
+	d.noiseFloor = alpha*rms + (1-alpha)*d.noiseFloor
+	if d.noiseFloor < d.config.NoiseFloorMin {
+		d.noiseFloor = d.config.NoiseFloorMin
 	}
 }
 
-// resolveThresholds retorna os thresholds de speech e silence efetivos.
-// Se AdaptiveNoise est├í habilitado e o noise floor j├í convergiu, usa
-// thresholds din├ómicos baseados no n├¡vel de ru├¡do estimado.
-func (v *EnergyVAD) resolveThresholds() (speechTh, silenceTh float64) {
-	if !v.config.AdaptiveNoise || !v.noiseInited {
-		return v.config.SpeechThreshold, v.config.SilenceThreshold
+func (d *SpeechDetector) emitSegment() {
+	segment := make([]byte, len(d.speechBuf))
+	copy(segment, d.speechBuf)
+	if d.onSpeechEnd != nil && len(segment) > 0 {
+		d.onSpeechEnd(segment)
 	}
-
-	// Speech threshold = noise floor * margin
-	speechTh = v.noiseFloor * v.config.AdaptiveMargin
-	// Silence threshold = metade do speech threshold
-	silenceTh = speechTh * 0.6
-
-	// Clamp inferior: garante thresholds mínimos sensíveis para áudio
-	// telefônico com ganho (sinais ampliados via InputGain).
-	const minSpeechTh = 0.003
-	const minSilenceTh = 0.002
-	if speechTh < minSpeechTh {
-		speechTh = minSpeechTh
-	}
-	if silenceTh < minSilenceTh {
-		silenceTh = minSilenceTh
-	}
-
-	// Upper bound: thresholds absurdamente altos tornam detec├º├úo imposs├¡vel
-	const maxSpeechTh = 0.5
-	const maxSilenceTh = 0.3
-	if speechTh > maxSpeechTh {
-		speechTh = maxSpeechTh
-	}
-	if silenceTh > maxSilenceTh {
-		silenceTh = maxSilenceTh
-	}
-
-	return speechTh, silenceTh
+	d.state = VADSilence
+	d.speechBuf = d.speechBuf[:0]
+	d.speechFrames = 0
+	d.silenceFrames = 0
 }
 
-// computeScore combina RMS energy com ZCR para gerar um score de atividade vocal.
-// Fala humana tem RMS m├®dio e ZCR na faixa 0.05ÔÇô0.20 (8kHz).
-// Ru├¡do branco tem ZCR alto (>0.3). Cliques t├¬m ZCR muito baixo.
-func (v *EnergyVAD) computeScore(pcm []byte, rms float64) float64 {
-	if v.config.ZCRWeight <= 0 {
-		return rms // Sem ZCR, usa RMS puro
+func durationToFrames(total time.Duration, frame time.Duration) int {
+	if total <= 0 || frame <= 0 {
+		return 1
 	}
-
-	zcr := computeZCR(pcm)
-
-	// ZCR de fala est├í tipicamente entre 0.05 e 0.20 para 8kHz.
-	// Penaliza ZCR muito alto (ru├¡do) ou muito baixo (tom puro/clique).
-	var zcrBonus float64
-	if zcr >= 0.04 && zcr <= 0.25 {
-		// ZCR na faixa de fala ÔåÆ b├┤nus
-		zcrBonus = 1.0
-	} else if zcr > 0.25 && zcr <= 0.40 {
-		// ZCR moderadamente alto ÔåÆ b├┤nus parcial (pode ser fricativa)
-		zcrBonus = 0.5
-	} else {
-		// ZCR fora da faixa ÔåÆ sem b├┤nus (provavelmente n├úo ├® fala)
-		zcrBonus = 0.0
+	frames := int(total / frame)
+	if total%frame != 0 {
+		frames++
 	}
-
-	// Score = RMS * (1 + ZCRWeight * zcrBonus)
-	// Se zcrBonus=1 e weight=0.3: score = RMS * 1.3 (boost para fala)
-	// Se zcrBonus=0 e weight=0.3: score = RMS * 1.0 (sem boost)
-	return rms * (1.0 + v.config.ZCRWeight*zcrBonus)
+	if frames < 1 {
+		return 1
+	}
+	return frames
 }
 
-// NoiseFloor retorna o nível estimado de ruído de fundo atual.
-func (v *EnergyVAD) NoiseFloor() float64 {
-	return v.noiseFloor
-}
-
-func (v *EnergyVAD) appendLeadingBuffer(pcm []byte) {
-	if v.leadingBufSize == 0 {
-		return
+func max(a, b int) int {
+	if a > b {
+		return a
 	}
-
-	for _, b := range pcm {
-		v.leadingBuf[v.leadingBufPos%v.leadingBufSize] = b
-		v.leadingBufPos++
-	}
-}
-
-func (v *EnergyVAD) drainLeadingBuffer() []byte {
-	if v.leadingBufSize == 0 || v.leadingBufPos == 0 {
-		return nil
-	}
-
-	if v.leadingBufPos <= v.leadingBufSize {
-		// Buffer n├úo completou um ciclo, retorna tudo
-		result := make([]byte, v.leadingBufPos)
-		copy(result, v.leadingBuf[:v.leadingBufPos])
-		return result
-	}
-
-	// Buffer circular cheio ÔÇö reordena
-	start := v.leadingBufPos % v.leadingBufSize
-	result := make([]byte, v.leadingBufSize)
-	copy(result, v.leadingBuf[start:])
-	copy(result[v.leadingBufSize-start:], v.leadingBuf[:start])
-	return result
-}
-
-// computeZCR calcula o Zero Crossing Rate de um buffer PCM 16-bit signed LE.
-// Retorna a fra├º├úo de transi├º├Áes de sinal (0.0ÔÇô1.0).
-// Fala humana tipicamente 0.05ÔÇô0.20 (8kHz). Ru├¡do branco >0.3.
-func computeZCR(pcm []byte) float64 {
-	numSamples := len(pcm) / 2
-	if numSamples < 2 {
-		return 0
-	}
-
-	var crossings int
-	prevSample := int16(binary.LittleEndian.Uint16(pcm[0:2]))
-
-	for i := 1; i < numSamples; i++ {
-		sample := int16(binary.LittleEndian.Uint16(pcm[i*2 : i*2+2]))
-		if (prevSample >= 0 && sample < 0) || (prevSample < 0 && sample >= 0) {
-			crossings++
-		}
-		prevSample = sample
-	}
-
-	return float64(crossings) / float64(numSamples-1)
-}
-
-// medianFloat64 retorna a mediana de um slice de float64.
-// Cria uma c├│pia para n├úo alterar o slice original.
-func medianFloat64(vals []float64) float64 {
-	if len(vals) == 0 {
-		return 0
-	}
-	sorted := make([]float64, len(vals))
-	copy(sorted, vals)
-	sort.Float64s(sorted)
-
-	n := len(sorted)
-	if n%2 == 0 {
-		return (sorted[n/2-1] + sorted[n/2]) / 2
-	}
-	return sorted[n/2]
-}
-
-// computeRMS calcula o RMS (Root Mean Square) normalizado de um buffer PCM 16-bit signed LE.
-// Retorna um valor entre 0.0 e 1.0.
-func computeRMS(pcm []byte) float64 {
-	if len(pcm) < 2 {
-		return 0
-	}
-
-	numSamples := len(pcm) / 2
-	var sumSquares float64
-
-	for i := 0; i < numSamples; i++ {
-		sample := int16(binary.LittleEndian.Uint16(pcm[i*2 : i*2+2]))
-		normalized := float64(sample) / 32768.0
-		sumSquares += normalized * normalized
-	}
-
-	return math.Sqrt(sumSquares / float64(numSamples))
-}
-
-// applyGain multiplica as amostras PCM 16-bit por um fator de ganho.
-// Faz clipping em [-32768, 32767] para prevenir overflow.
-func applyGain(pcm []byte, gain float64) {
-	numSamples := len(pcm) / 2
-	for i := 0; i < numSamples; i++ {
-		sample := int16(binary.LittleEndian.Uint16(pcm[i*2 : i*2+2]))
-		amplified := float64(sample) * gain
-		// Clipping
-		if amplified > 32767 {
-			amplified = 32767
-		} else if amplified < -32768 {
-			amplified = -32768
-		}
-		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(int16(amplified)))
-	}
+	return b
 }

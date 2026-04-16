@@ -1,10 +1,11 @@
 module assistente
 
-go 1.25
+go 1.25.1
 
 require (
 	github.com/KennethanCeyer/ptyx v0.2.0
 	github.com/anthropics/anthropic-sdk-go v1.27.1
+	github.com/bytectlgo/webrtcvad-go v0.0.0-20251029075309-6b03219b15ae
 	github.com/danieljoos/wincred v1.2.3
 	github.com/emiago/diago v0.28.0
 	github.com/emiago/sipgo v1.3.0
