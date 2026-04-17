@@ -69,6 +69,9 @@ export const useChatKeyboardNav = ({
         e.key === 'ArrowUp' &&
         messages.length > 0
       ) {
+        // #region agent log
+        fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-history-nav-pre-fix-1',hypothesisId:'H3',location:'frontend/src/hooks/useChatKeyboardNav.ts:67',message:'chat history entry from input',data:{messageCount:messages.length,activeElement:(document.activeElement as HTMLElement | null)?.className ?? null,targetMessageId:messages[messages.length - 1]?.getAttribute('data-message-id') ?? null},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         e.preventDefault();
         focusedMessageIndex.current = messages.length - 1;
         const lastMessage = messages[focusedMessageIndex.current];

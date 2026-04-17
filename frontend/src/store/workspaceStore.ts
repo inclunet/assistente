@@ -425,6 +425,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
         matches = tab.state?.sessionId === contentId;
       }
       if (matches) {
+        // #region agent log
+        fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-title-nav-pre-fix-1',hypothesisId:'H2',location:'frontend/src/store/workspaceStore.ts:427',message:'workspace tab rename sync',data:{type,contentId,newTitle,tabId:tab.id,tabTitleBefore:tab.title,conversationId:tab.conversationId ?? null},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         void get().updateTab(tab.id, { title: newTitle });
       }
     }

@@ -245,4 +245,78 @@ describe('chatStore validation', () => {
 
     expect(mockHandleChatSpeak).not.toHaveBeenCalled();
   });
+
+  it('usa placeholder único por envio e finaliza streaming após erro no stream', async () => {
+    useChatStore.setState({
+      activeConversationId: 1,
+      activeConversation: { id: 1, title: 'Conversa', threadedMessages: [] },
+    });
+
+    mockSendMessage
+      .mockImplementationOnce(() => {
+        emitEvent('chat:messages_ready', { conversationId: 1, userMessageId: 14535, userContent: 'falha 1' });
+        emitEvent('chat:stream', { conversationId: 1, content: 'parcial', done: false });
+        emitEvent('chat:stream', { conversationId: 1, error: '401 Unauthorized' });
+        return Promise.resolve();
+      })
+      .mockImplementationOnce(() => {
+        emitEvent('chat:messages_ready', { conversationId: 1, userMessageId: 14545, userContent: 'ok 2' });
+        emitEvent('chat:stream', { conversationId: 1, content: 'resposta final', done: false });
+        emitEvent('chat:stream', { conversationId: 1, messageId: 14546, content: 'resposta final', done: true });
+        emitEvent('chat:done', { conversationId: 1, assistantMessageId: 14546, hadToolCalls: false });
+        return Promise.resolve();
+      });
+
+    await useChatStore.getState().sendMessage('falha 1');
+    await useChatStore.getState().sendMessage('ok 2');
+
+    const threaded = useChatStore.getState().activeConversation?.threadedMessages ?? [];
+    const ids = threaded.map((node) => String(node.message.id));
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const syntheticIds = ids.filter((id) => id.startsWith('streaming-1-'));
+    expect(syntheticIds.length).toBe(1);
+    const firstAssistantError = threaded.find((node) => String(node.message.id) === syntheticIds[0]);
+    expect(firstAssistantError).toBeDefined();
+    expect(firstAssistantError?.message.isStreaming).toBe(false);
+    expect(ids).toContain('14546');
+  });
+
+  it('não duplica mensagem real quando outro caminho já inseriu o mesmo assistant id', async () => {
+    useChatStore.setState({
+      activeConversationId: 1,
+      activeConversation: {
+        id: 1,
+        title: 'Conversa',
+        threadedMessages: [
+          {
+            message: {
+              id: '14731',
+              conversationId: 1,
+              role: 'assistant',
+              content: 'mensagem já sincronizada',
+              createdAt: new Date().toISOString(),
+              isStreaming: false,
+            },
+            children: [],
+            childCount: 0,
+          } as any,
+        ],
+      },
+    });
+
+    mockSendMessage.mockImplementationOnce(() => {
+      emitEvent('chat:messages_ready', { conversationId: 1, userMessageId: 14730, userContent: 'oi' });
+      emitEvent('chat:stream', { conversationId: 1, content: 'resposta parcial', done: false });
+      emitEvent('chat:stream', { conversationId: 1, messageId: 14731, content: 'resposta final', done: true });
+      emitEvent('chat:done', { conversationId: 1, assistantMessageId: 14731, hadToolCalls: false });
+      return Promise.resolve();
+    });
+
+    await useChatStore.getState().sendMessage('oi');
+
+    const threaded = useChatStore.getState().activeConversation?.threadedMessages ?? [];
+    const assistant14731 = threaded.filter((node) => String(node.message.id) === '14731');
+    expect(assistant14731).toHaveLength(1);
+  });
 });

@@ -193,6 +193,77 @@ test.describe('Chat — erro no envio', () => {
     const errorMessage = page.locator('[role="alert"], .chat-message').filter({ hasText: 'Connection refused' });
     await expect(errorMessage).toBeVisible({ timeout: 5_000 });
   });
+
+  test('erro no stream seguido de novo envio não gera duplicate key no histórico', async ({ page, wails }) => {
+    const consoleWarnings: string[] = [];
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (text.includes('Encountered two children with the same key')) {
+        consoleWarnings.push(text);
+      }
+    });
+
+    await wails.setResponse('EnsureConversation', baseConversation);
+    await wails.setResponse('SendMessage', 2);
+    await wails.waitForApp();
+
+    const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+
+    await textarea.click();
+    await textarea.fill('primeira falha');
+    await textarea.press('Enter');
+    await page.waitForFunction(
+      () => window.__wailsMock.getCallLog().filter((c) => c.fn === 'SendMessage').length >= 1,
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    await wails.emit('chat:messages_ready', {
+      conversationId: 1,
+      userMessageId: 14535,
+      userContent: 'primeira falha',
+    });
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      messageId: 14536,
+      content: 'resposta parcial',
+      done: false,
+    });
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      error: '500 Internal Server Error',
+    });
+    await expect(page.locator('.chat-message').filter({ hasText: /500 Internal Server Error/ })).toBeVisible({ timeout: 5_000 });
+
+    await textarea.fill('segunda tentativa');
+    await textarea.press('Enter');
+    await page.waitForFunction(
+      () => window.__wailsMock.getCallLog().filter((c) => c.fn === 'SendMessage').length >= 2,
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    await wails.emit('chat:messages_ready', {
+      conversationId: 1,
+      userMessageId: 14545,
+      userContent: 'segunda tentativa',
+    });
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      messageId: 14546,
+      content: 'resposta final',
+      done: true,
+    });
+    await wails.emit('chat:done', {
+      conversationId: 1,
+      assistantMessageId: 14546,
+      hadToolCalls: false,
+    });
+
+    await expect(page.locator('.chat-message').filter({ hasText: 'resposta final' })).toBeVisible({ timeout: 5_000 });
+    expect(consoleWarnings).toEqual([]);
+  });
 });
 
 test.describe('Chat — thinking/reasoning', () => {
