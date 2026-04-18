@@ -267,13 +267,13 @@ function App() {
         if (questionnaireOpen && questionnaireData) {
             try {
                 await RespondQuestionnaire(questionnaireData.id, answers, false);
+                setQuestionnaireOpen(false);
+                setQuestionnaireData(null);
+                restoreFocus();
             } catch (err) {
                 console.error('[App] Erro ao enviar questionário:', err);
                 addToast(t('app.questionnaire.submitError'), 'error');
             }
-            setQuestionnaireOpen(false);
-            setQuestionnaireData(null);
-            restoreFocus();
             return;
         }
 
@@ -286,12 +286,13 @@ function App() {
         if (questionnaireOpen && questionnaireData) {
             try {
                 await RespondQuestionnaire(questionnaireData.id, {}, true);
+                setQuestionnaireOpen(false);
+                setQuestionnaireData(null);
+                restoreFocus();
             } catch (err) {
                 console.error('[App] Erro ao cancelar questionário:', err);
+                addToast(t('app.questionnaire.submitError'), 'error');
             }
-            setQuestionnaireOpen(false);
-            setQuestionnaireData(null);
-            restoreFocus();
             return;
         }
 

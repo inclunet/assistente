@@ -247,6 +247,29 @@ test.describe('Chat — Enter no detalhe da mensagem (virtual modal)', () => {
     ), { timeout: 3_000 }).toBe(true);
     await resumeRAF(page);
   });
+
+  test('modo leitura não gera warning de aria-hidden com foco retido', async ({ page, wails }) => {
+    const ariaHiddenWarnings: string[] = [];
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (text.includes('Blocked aria-hidden on an element because its descendant retained focus')) {
+        ariaHiddenWarnings.push(text);
+      }
+    });
+
+    await setupChatWithMessages(wails);
+
+    const messages = page.locator('.message-node[data-level="0"]');
+    await expect(messages).toHaveCount(3, { timeout: 5_000 });
+
+    await pauseRAF(page);
+    await messages.nth(1).focus();
+    await messages.nth(1).press('Enter');
+    await expect(messages.nth(1)).toHaveAttribute('role', 'dialog', { timeout: 3_000 });
+    await resumeRAF(page);
+
+    expect(ariaHiddenWarnings).toEqual([]);
+  });
 });
 
 test.describe('Chat history — atributos ARIA', () => {
