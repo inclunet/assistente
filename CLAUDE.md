@@ -96,6 +96,32 @@ O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven
 ### Referência
 - `aep/0040-backend-driven-messaging.md`
 
+## AEPs — Architecture Evolution Proposals (OBRIGATÓRIO)
+
+O diretório `aep/` é o repositório único de decisões arquiteturais do projeto. Contém 45+ documentos numerados que definem contratos, protocolos, decisões de design e planos de evolução.
+
+### Regras absolutas
+- **NUNCA** crie outro diretório para AEPs (ex.: `aeps/`, `docs/aep/`, `proposals/`). Tudo fica em `aep/`.
+- **Antes de implementar qualquer feature significativa**, consulte os AEPs relevantes em `aep/` para verificar se já existe decisão arquitetural sobre o tema.
+- **O código DEVE estar alinhado com os AEPs.** Se encontrar divergência entre um AEP e o código:
+  1. NÃO assuma que o código está certo e o AEP desatualizado.
+  2. Pergunte ao usuário: "O AEP `aep/XXXX` diz X, mas o código faz Y. O AEP precisa ser atualizado ou o código precisa ser corrigido?"
+  3. Só prossiga após confirmação.
+- **Ao criar novo AEP**, numere sequencialmente a partir do último existente (consulte `aep/` para o maior número).
+- **Formato**: Markdown, em português, com seções: Resumo, Motivação, Decisões, Fases, Riscos, Critérios de aceitação.
+
+### AEPs chave (consultar frequentemente)
+
+| AEP | Tema |
+|---|---|
+| `aep/0040-backend-driven-messaging.md` | Protocolo de mensagens (contrato central) |
+| `aep/0039-tool-calling-revamp.md` | Sistema de ferramentas |
+| `aep/0045-cli-interface.md` | Interface CLI alternativa ao Wails |
+| `aep/0034-unified-workspace.md` | Workspace unificado |
+| `aep/0028-componentization.md` | Arquitetura de componentes frontend |
+| `aep/0024-speech-architecture.md` | Arquitetura de fala (TTS/STT) |
+| `aep/0012-llm-provider-manager.md` | Gerenciamento de provedores LLM |
+
 ## Enforcement Automatizado (CI)
 
 Todo PR para `main` roda automaticamente:

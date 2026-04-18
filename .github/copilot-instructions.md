@@ -63,6 +63,27 @@ O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven
 ### Referência
 - Detalhes completos: `aep/0040-backend-driven-messaging.md`
 
+## AEPs — Architecture Evolution Proposals (OBRIGATÓRIO)
+
+O diretório `aep/` é o repositório único de decisões arquiteturais do projeto. Contém 45+ documentos numerados que definem contratos, protocolos, decisões de design e planos de evolução.
+
+### Regras absolutas
+- **NUNCA crie outro diretório** para AEPs (ex.: `aeps/`, `docs/aep/`, `proposals/`). Tudo fica em `aep/`.
+- **Antes de implementar qualquer feature significativa**, consulte os AEPs relevantes em `aep/` para verificar se já existe decisão arquitetural sobre o tema.
+- **O código DEVE estar alinhado com os AEPs.** Se encontrar divergência entre um AEP e o código:
+  1. NÃO assuma que o código está certo e o AEP desatualizado.
+  2. Pergunte ao usuário: "O AEP `aep/XXXX` diz X, mas o código faz Y. O AEP precisa ser atualizado ou o código precisa ser corrigido?"
+  3. Só prossiga após confirmação.
+- **Ao criar novo AEP**, use numeração sequencial a partir do último existente (consulte `aep/` para o maior número).
+- **Formato**: Markdown, em português, com seções: Resumo, Motivação, Decisões, Fases, Riscos, Critérios de aceitação.
+
+### AEPs chave (consultar frequentemente)
+- `aep/0040-backend-driven-messaging.md` — protocolo de mensagens (contrato central)
+- `aep/0039-tool-calling-revamp.md` — sistema de ferramentas
+- `aep/0045-cli-interface.md` — interface CLI alternativa ao Wails
+- `aep/0034-unified-workspace.md` — workspace unificado
+- `aep/0028-componentization.md` — arquitetura de componentes frontend
+
 ## i18n (Internacionalização — OBRIGATÓRIO)
 - TODAS as strings visíveis ao usuário DEVEM usar `t('namespace.key')` via `react-i18next`
 - NUNCA hardcode strings em qualquer idioma diretamente no JSX
