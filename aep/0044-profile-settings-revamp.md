@@ -1,4 +1,4 @@
-# 0002 ÔÇö Profile Settings Revamp (Tabbed Panels)
+# 0044 — Profile Settings Revamp (Tabbed Panels)
 
 Autor: Leonardo Gleison Ferreira (Leo) / Assistente
 Data: 2026-04-01
@@ -121,7 +121,7 @@ Pr├│ximos passos sugeridos
 3. Eu gero o arquivo .md final (j├í criei este rascunho) e posso preparar um patch inicial que cria o ProfileSettingsPage e move as se├º├Áes para as tabs (sem alterar persist├¬ncia/DB), reusando componentes do design system.
 
 Anexos / Links ├║teis
-- AEP 0001: ./aeps/0001-tts-stt-voices-aep.md (voices extension ÔÇö complementar ├á aba Voz)
+- AEP 0043: ./aep/0043-tts-stt-voices.md (voices extension — complementar à aba Voz)
 
 ---
 

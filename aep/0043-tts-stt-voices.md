@@ -1,4 +1,4 @@
-# AEP 0001 ÔÇö Evolu├º├úo TTS/STT: Vozes (Assistant + User)
+# AEP 0043 — Evolução TTS/STT: Vozes (Assistant + User)
 
 Estado: Draft
 Autor: Leonardo
