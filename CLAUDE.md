@@ -94,7 +94,7 @@ O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven
 - **Protocolo de eventos é contrato central.** O backend usa eventos para orquestrar TTS, rename, notificação de canais. Alterar schema de evento exige atualizar todos os consumidores.
 
 ### Referência
-- `aep/0040-backend-driven-messaging.md`
+- Detalhes completos no AEP de backend-driven-messaging em `aep/`.
 
 ## AEPs — Architecture Evolution Proposals (OBRIGATÓRIO)
 
@@ -109,18 +109,7 @@ O diretório `aep/` é o repositório único de decisões arquiteturais do proje
   3. Só prossiga após confirmação.
 - **Ao criar novo AEP**, numere sequencialmente a partir do último existente (consulte `aep/` para o maior número).
 - **Formato**: Markdown, em português, com seções: Resumo, Motivação, Decisões, Fases, Riscos, Critérios de aceitação.
-
-### AEPs chave (consultar frequentemente)
-
-| AEP | Tema |
-|---|---|
-| `aep/0040-backend-driven-messaging.md` | Protocolo de mensagens (contrato central) |
-| `aep/0039-tool-calling-revamp.md` | Sistema de ferramentas |
-| `aep/0045-cli-interface.md` | Interface CLI alternativa ao Wails |
-| `aep/0034-unified-workspace.md` | Workspace unificado |
-| `aep/0028-componentization.md` | Arquitetura de componentes frontend |
-| `aep/0024-speech-architecture.md` | Arquitetura de fala (TTS/STT) |
-| `aep/0012-llm-provider-manager.md` | Gerenciamento de provedores LLM |
+- **Para descobrir AEPs relevantes**, liste `aep/` e leia os títulos — os nomes dos arquivos descrevem o tema.
 
 ## Enforcement Automatizado (CI)
 

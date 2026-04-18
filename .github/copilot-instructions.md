@@ -61,7 +61,7 @@ O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven
 - **Conversas são independentes de abas.** Conversas existem no banco sem vínculo com UI. Canais (Telegram, Signal) criam conversas sem abas.
 
 ### Referência
-- Detalhes completos: `aep/0040-backend-driven-messaging.md`
+- Detalhes completos no AEP de backend-driven-messaging em `aep/`.
 
 ## AEPs — Architecture Evolution Proposals (OBRIGATÓRIO)
 
@@ -76,13 +76,7 @@ O diretório `aep/` é o repositório único de decisões arquiteturais do proje
   3. Só prossiga após confirmação.
 - **Ao criar novo AEP**, use numeração sequencial a partir do último existente (consulte `aep/` para o maior número).
 - **Formato**: Markdown, em português, com seções: Resumo, Motivação, Decisões, Fases, Riscos, Critérios de aceitação.
-
-### AEPs chave (consultar frequentemente)
-- `aep/0040-backend-driven-messaging.md` — protocolo de mensagens (contrato central)
-- `aep/0039-tool-calling-revamp.md` — sistema de ferramentas
-- `aep/0045-cli-interface.md` — interface CLI alternativa ao Wails
-- `aep/0034-unified-workspace.md` — workspace unificado
-- `aep/0028-componentization.md` — arquitetura de componentes frontend
+- **Para descobrir AEPs relevantes**, liste `aep/` e leia os títulos — os nomes dos arquivos descrevem o tema.
 
 ## i18n (Internacionalização — OBRIGATÓRIO)
 - TODAS as strings visíveis ao usuário DEVEM usar `t('namespace.key')` via `react-i18next`
