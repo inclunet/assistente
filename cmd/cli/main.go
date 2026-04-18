@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,6 +29,11 @@ var rootCmd = &cobra.Command{
 	Short: "Assistente pessoal via terminal",
 	Long:  "Interface CLI para o assistente pessoal — chat com LLMs, gerenciamento de perfis e configurações.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Silencia logs de startup quando não está em modo verbose
+		if !verbose {
+			log.SetOutput(io.Discard)
+		}
+
 		// Inicializa o app com adapters CLI
 		ctx, cancel := context.WithCancel(context.Background())
 
