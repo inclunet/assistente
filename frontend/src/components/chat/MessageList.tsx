@@ -178,7 +178,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
   useEffect(() => {
     const ids = displayMessages.map((node) => String(node.message.id));
     const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index);
-    if (duplicates.length === 0) return;
+    if (!import.meta.env.DEV || duplicates.length === 0) return;
     console.warn('[MessageList] duplicate message ids detected in display messages', Array.from(new Set(duplicates)));
   }, [displayMessages, threadedMessages]);
 

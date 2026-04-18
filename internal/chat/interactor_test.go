@@ -8,8 +8,10 @@ import (
 
 	"assistente/internal/configdir"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/profiles"
+	"gorm.io/gorm"
 )
 
 // spyEmitter captures emitted events for assertions.
@@ -53,6 +55,57 @@ func newTestInteractor(em events.Emitter) *Interactor {
 		Emitter:  em,
 		ConvRepo: noopConvRepo{},
 	})
+}
+
+type retryMessageRepoStub struct {
+	getMessage func(messageID uint) (*database.ChatMessage, error)
+}
+
+func (r *retryMessageRepoStub) CreateMessage(_ MessageOptions) (*Message, error) {
+	return nil, nil
+}
+
+func (r *retryMessageRepoStub) GetMessage(messageID uint) (*Message, error) {
+	if r.getMessage != nil {
+		return r.getMessage(messageID)
+	}
+	return nil, nil
+}
+
+func (r *retryMessageRepoStub) GetMessages(_ uint, _ *uint) ([]Message, error) {
+	return nil, nil
+}
+
+func (r *retryMessageRepoStub) GetConversationSummary(_ uint) (string, uint, error) {
+	return "", 0, nil
+}
+
+func (r *retryMessageRepoStub) GetDetailedTokenStats(_ uint, _ uint) (*DetailedTokenStats, error) {
+	return nil, nil
+}
+
+func (r *retryMessageRepoStub) GetContextWindowUsage(_ uint, _ int) (float64, int, error) {
+	return 0, 0, nil
+}
+
+func (r *retryMessageRepoStub) GetRecentMessagesTokenCount(_ uint, _ int) (int, error) {
+	return 0, nil
+}
+
+func (r *retryMessageRepoStub) GetTurnTokenStats(_ uint, _ uint) (*database.TokenStats, error) {
+	return nil, nil
+}
+
+func (r *retryMessageRepoStub) AddAssistantToolMessage(_ uint, _ uint, _, _, _, _ string) (*Message, error) {
+	return nil, nil
+}
+
+func (r *retryMessageRepoStub) AddToolResultMessage(_ uint, _ uint, _, _ string) (*Message, error) {
+	return nil, nil
+}
+
+func (r *retryMessageRepoStub) SearchMessages(_ string, _ int) ([]MessageSearchResult, error) {
+	return nil, nil
 }
 
 func setupProfileTestEnv(t *testing.T) *profiles.Manager {
@@ -159,6 +212,27 @@ func TestPrepareContext_RejectsConversationIDZero(t *testing.T) {
 	}
 	if ev.ConversationID != 0 {
 		t.Errorf("expected conversationId=0, got %d", ev.ConversationID)
+	}
+}
+
+func TestGetRetryableUserMessage_ReturnsDomainErrorWhenMessageNotFound(t *testing.T) {
+	interactor := NewInteractor(InteractorConfig{
+		Repo: &retryMessageRepoStub{
+			getMessage: func(_ uint) (*database.ChatMessage, error) {
+				return nil, gorm.ErrRecordNotFound
+			},
+		},
+	})
+
+	msg, err := interactor.GetRetryableUserMessage(7, 42)
+	if msg != nil {
+		t.Fatalf("expected nil message, got %+v", msg)
+	}
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Error() != "mensagem não encontrada" {
+		t.Fatalf("expected domain not found error, got %v", err)
 	}
 }
 

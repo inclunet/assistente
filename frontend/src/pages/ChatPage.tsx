@@ -17,13 +17,16 @@ export default function ChatPage() {
 
   const onSend = useCallback(
     async (content: string, mediaFiles?: Parameters<typeof sendMessageToConversation>[2]) => {
-      const conversationId = activeTab?.type === 'chat' ? activeTab.conversationId : 0;
+      if (!activeTab || activeTab.type !== 'chat') {
+        throw new Error('A aba ativa não suporta envio de mensagens.');
+      }
+      const conversationId = await ensureWorkspaceTabHasConversation(activeTab);
       if (!conversationId) {
         throw new Error('Conversa da aba de chat ainda não está pronta.');
       }
       await sendMessageToConversation(conversationId, content, mediaFiles);
     },
-    [activeTab?.conversationId, activeTab?.type, sendMessageToConversation],
+    [activeTab, sendMessageToConversation],
   );
 
   return <ChatSessionView variant="page" onSend={onSend} />;

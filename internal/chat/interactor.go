@@ -14,6 +14,7 @@ import (
 	"assistente/internal/providers"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
+	"gorm.io/gorm"
 )
 
 // DefaultMaxContextMessages é o limite padrão de mensagens carregadas no contexto.
@@ -257,6 +258,9 @@ type RecordUserMessageResponse struct {
 func (i *Interactor) GetRetryableUserMessage(conversationID uint, messageID uint) (*Message, error) {
 	userMsg, err := i.repo.GetMessage(messageID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("mensagem não encontrada")
+		}
 		return nil, err
 	}
 	if userMsg == nil {

@@ -164,6 +164,13 @@ import ChatPage from './ChatPage';
 
 describe('ChatPage', () => {
   beforeEach(() => {
+    workspaceStoreState.getActiveTab = () => ({
+      id: 'chat-tab',
+      type: 'chat' as const,
+      conversationId: 1,
+      title: 'Conversa',
+      position: 0,
+    });
     sendMessageMock.mockReset();
     showMenuMock.mockReset();
     hideMenuMock.mockReset();
@@ -177,6 +184,28 @@ describe('ChatPage', () => {
 
     expect(showMenuMock).toHaveBeenCalled();
     expect(screen.getByText('Copiar')).toBeInTheDocument();
+  });
+
+  it('garante a conversa da aba antes de enviar quando ainda não existe conversationId', async () => {
+    const user = userEvent.setup();
+    workspaceStoreState.getActiveTab = () => ({
+      id: 'chat-tab',
+      type: 'chat' as const,
+      conversationId: 0,
+      title: 'Conversa',
+      position: 0,
+    });
+    ensureWorkspaceTabHasConversationMock.mockResolvedValue(42);
+    sendMessageMock.mockResolvedValueOnce(undefined);
+
+    render(<ChatPage />);
+
+    await user.click(screen.getByRole('button', { name: 'send' }));
+
+    await waitFor(() => {
+      expect(ensureWorkspaceTabHasConversationMock).toHaveBeenCalled();
+      expect(sendMessageMock).toHaveBeenCalledWith(42, 'oi', undefined);
+    });
   });
 
   it('mostra banner de erro e permite retry', async () => {
