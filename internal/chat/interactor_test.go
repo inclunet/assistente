@@ -236,6 +236,21 @@ func TestGetRetryableUserMessage_ReturnsDomainErrorWhenMessageNotFound(t *testin
 	}
 }
 
+func TestGetRetryableUserMessage_ReturnsErrorWhenRepositoryIsUnavailable(t *testing.T) {
+	interactor := NewInteractor(InteractorConfig{})
+
+	msg, err := interactor.GetRetryableUserMessage(7, 42)
+	if msg != nil {
+		t.Fatalf("expected nil message, got %+v", msg)
+	}
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Error() != "repositório de mensagens indisponível" {
+		t.Fatalf("expected repository unavailable error, got %v", err)
+	}
+}
+
 func TestPrepareContext_ProfileSlugInheritsProviderAndModelFromActiveProfile(t *testing.T) {
 	spy := &spyEmitter{}
 	profileMgr := setupProfileTestEnv(t)

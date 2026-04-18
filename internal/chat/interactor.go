@@ -256,6 +256,9 @@ type RecordUserMessageResponse struct {
 
 // GetRetryableUserMessage retorna uma mensagem existente validando que ela pode ser reenviada.
 func (i *Interactor) GetRetryableUserMessage(conversationID uint, messageID uint) (*Message, error) {
+	if i.repo == nil {
+		return nil, errors.New("repositório de mensagens indisponível")
+	}
 	userMsg, err := i.repo.GetMessage(messageID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
