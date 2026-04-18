@@ -133,6 +133,20 @@ function generateTabId(): string {
 }
 
 let initializingPromise: Promise<void> | null = null;
+let initializeRetryTimer: ReturnType<typeof setTimeout> | null = null;
+const WAILS_BRIDGE_INIT_TIMEOUT_MS = 10000;
+const WAILS_BRIDGE_RETRY_DELAY_MS = 1000;
+
+function isWailsBridgeTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('Timed out waiting for Wails bridge');
+}
+
+function clearInitializeRetryTimer() {
+  if (initializeRetryTimer !== null) {
+    clearTimeout(initializeRetryTimer);
+    initializeRetryTimer = null;
+  }
+}
 
 export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   workspace: null,
@@ -144,7 +158,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
     const run = async () => {
       try {
-        await waitForWailsBridge();
+        clearInitializeRetryTimer();
+        await waitForWailsBridge({ timeoutMs: WAILS_BRIDGE_INIT_TIMEOUT_MS });
         const [bws, list] = await Promise.all([
           GetActiveWorkspace(),
           ListWorkspaces(),
@@ -181,6 +196,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
           set({ isInitialized: true, workspaces: list || [] });
         }
       } catch (error) {
+        if (isWailsBridgeTimeoutError(error)) {
+          console.warn('[Workspace] Wails bridge timeout during initialize; retrying...', error);
+          if (initializeRetryTimer === null) {
+            initializeRetryTimer = setTimeout(() => {
+              initializeRetryTimer = null;
+              void get().initialize();
+            }, WAILS_BRIDGE_RETRY_DELAY_MS);
+          }
+          return;
+        }
         console.error('[Workspace] Error initializing:', error);
         set({ isInitialized: true });
       } finally {
