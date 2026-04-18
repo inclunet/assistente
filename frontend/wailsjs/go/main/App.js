@@ -790,6 +790,10 @@ export function SendMessage(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3, arg4);
 }
 
+export function RetryMessage(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RetryMessage'](arg1, arg2, arg3);
+}
+
 export function SendMessageFromChannel(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['SendMessageFromChannel'](arg1, arg2, arg3, arg4, arg5);
 }

@@ -74,6 +74,15 @@ type mockMessageRepo struct {
 func (r *mockMessageRepo) CreateMessage(opts database.MessageOptions) (*database.ChatMessage, error) {
 	return nil, nil
 }
+func (r *mockMessageRepo) GetMessage(messageID uint) (*database.ChatMessage, error) {
+	for i := range r.messages {
+		if r.messages[i].ID == messageID {
+			msg := r.messages[i]
+			return &msg, nil
+		}
+	}
+	return nil, nil
+}
 func (r *mockMessageRepo) GetMessages(conversationID uint, parentID *uint) ([]database.ChatMessage, error) {
 	if r.err != nil {
 		return nil, r.err

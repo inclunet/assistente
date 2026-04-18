@@ -265,9 +265,10 @@ test.describe('Chat — erro no envio', () => {
     expect(consoleWarnings).toEqual([]);
   });
 
-  test('reenviar mensagem existente após erro reutiliza SendMessage sem duplicar mensagem do usuário', async ({ page, wails }) => {
+  test('reenviar mensagem existente após erro usa RetryMessage sem duplicar mensagem do usuário', async ({ page, wails }) => {
     await wails.setResponse('EnsureConversation', baseConversation);
     await wails.setResponse('SendMessage', 2);
+    await wails.setResponse('RetryMessage', 2);
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
@@ -308,7 +309,7 @@ test.describe('Chat — erro no envio', () => {
     await contextMenu.locator('[role="menuitem"]', { hasText: /Reenviar mensagem/i }).click();
 
     await page.waitForFunction(
-      () => window.__wailsMock.getCallLog().filter((c) => c.fn === 'SendMessage').length === 2,
+      () => window.__wailsMock.getCallLog().filter((c) => c.fn === 'RetryMessage').length === 1,
       undefined,
       { timeout: 5_000 },
     );
@@ -328,14 +329,8 @@ test.describe('Chat — erro no envio', () => {
     await expect(page.locator('.chat-message').filter({ hasText: 'resposta após retry' })).toBeVisible({ timeout: 5_000 });
 
     const callLog = await wails.getCallLog();
-    const sendCalls = callLog.filter((c) => c.fn === 'SendMessage');
-    expect(sendCalls).toHaveLength(2);
-    expect(sendCalls[1]?.args).toEqual([
-      1,
-      '',
-      '',
-      expect.objectContaining({ retryMessageId: 14535 }),
-    ]);
+    expect(callLog.filter((c) => c.fn === 'SendMessage')).toHaveLength(1);
+    expect(callLog.filter((c) => c.fn === 'RetryMessage')).toHaveLength(1);
     await expect(page.locator('.message-node[data-level="0"]').filter({ hasText: 'mensagem original' })).toHaveCount(1);
   });
 });

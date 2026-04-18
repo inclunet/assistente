@@ -64,7 +64,7 @@ O frontend cria conversa automaticamente se `activeConversationId === 0`. Isso a
 5. **Testável** — cada fase tem critérios de aceitação verificáveis com testes automatizados.
 6. **Conversa é pré-requisito** — mensagens só podem ser enviadas para conversas que já existem. `SendMessage` para `conversationId=0` ou inexistente retorna erro. A criação de conversa é responsabilidade separada.
 7. **Conversas são independentes** — conversas existem no banco sem vínculo forte com abas, workspace ou qualquer conceito de UI. Abas carregam conversas para exibição, mas conversas sobrevivem sem aba. Canais (Telegram, Signal) criam e mantêm conversas independentemente de haver aba aberta.
-8. **Um único pipeline de envio** — existe UM método `SendMessage` no backend. No frontend, todas as superfícies (aba de chat, chat modal do editor, terminal, tasklist) convergem para o mesmo pipeline explícito por `conversationId`, sem fluxos paralelos de envio.
+8. **Um único pipeline para mensagem nova, com retry explícito** — existe UM método `SendMessage` para novas mensagens no backend. O único endpoint adicional permitido é `RetryMessage`, usado exclusivamente para reenviar uma mensagem de usuário já persistida, sem criar nova mensagem `user`. No frontend, todas as superfícies convergem para esses contratos explícitos por `conversationId`, sem fluxos paralelos de envio.
 9. **Contexto de superfície é estruturado** — contexto da aba ativa não deve ser injetado artificialmente no texto do usuário. Ele deve viajar em parâmetros estruturados (`tabType`, `surfaceState`, `surfaceContext`) para que profiles, skills e tools consumam isso de forma consistente.
 10. **Eventos contidos e acionáveis** — eventos não são apenas notificações passivas; o backend os usa para tomar decisões de orquestração (quando sintetizar TTS, quando renomear conversa, quando notificar canal externo). O protocolo de eventos é o contrato central do sistema.
 
@@ -511,8 +511,9 @@ Estas regras são permanentes e devem ser respeitadas por qualquer mudança futu
 - **Mensagens só podem ser enviadas para conversas que existem.** `SendMessage` com `conversationID=0` ou ID inexistente retorna erro. A criação de conversa é responsabilidade separada e explícita.
 
 ### Envio de mensagens
-- **Existe UMA única função `SendMessage` no backend** (`app_chat.go` → `ChatController` → `SendMessageUseCase`). Toda mensagem — vinda do frontend, de canais, de deep links — passa por essa função. É proibido criar funções alternativas de envio.
-- **Existe UM único pipeline de envio no frontend** (chatStore). Componentes podem ter helpers para resolver contexto ou `conversationId`, mas nenhum componente, hook ou store pode criar um fluxo alternativo de envio.
+- **Existe UMA única função `SendMessage` para mensagens novas no backend** (`app_chat.go` → `ChatController` → `SendMessageUseCase`). Toda mensagem nova — vinda do frontend, de canais, de deep links — passa por essa função.
+- **`RetryMessage` é a única exceção permitida ao contrato acima.** Ele existe apenas para reexecutar a resposta a partir de uma mensagem de usuário já persistida, sem inserir nova linha `user` no banco. É proibido criar qualquer outro endpoint público de envio.
+- **Existe UM único pipeline de envio no frontend** (chatStore). Componentes podem ter helpers para resolver contexto ou `conversationId`, mas nenhum componente, hook ou store pode criar um fluxo alternativo de envio fora de `SendMessage` para mensagem nova e `RetryMessage` para retry explícito.
 - **O backend é a fonte de verdade.** O frontend não cria mensagens locais, não gera IDs temporários, não decide quando recarregar mensagens. Renderiza o que o backend emite via eventos.
 
 ### Eventos

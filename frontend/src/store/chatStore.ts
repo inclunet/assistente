@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   SendMessage,
+  RetryMessage,
   GetMessages,
   GetConversationInfo,
   EnsureConversation,
@@ -658,9 +659,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         activeFilePath: paramsOverride?.activeFilePath,
         surfaceStateJson: paramsOverride?.surfaceStateJson,
         surfaceContextJson: paramsOverride?.surfaceContextJson,
-        retryMessageId: retryMessageId,
       };
-      await SendMessage(conversationId, content, mediaJson, mergedParams);
+      if (retryMessageId) {
+        await RetryMessage(conversationId, retryMessageId, mergedParams);
+      } else {
+        await SendMessage(conversationId, content, mediaJson, mergedParams);
+      }
 
     } catch (error: unknown) {
       if (cleanupExecuted) return; // Already handled by chat:error listener
