@@ -46,6 +46,7 @@ vi.mock('../lib/waitForWailsBridge', () => ({
 import { useWorkspaceStore, registerTabRenameHandler } from './workspaceStore';
 import { GetActiveWorkspace, ListWorkspaces, SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/main/App';
 import { waitForWailsBridge } from '../lib/waitForWailsBridge';
+import { workspace } from '../../wailsjs/go/models';
 
 const mockedGetActiveWorkspace = vi.mocked(GetActiveWorkspace);
 const mockedListWorkspaces = vi.mocked(ListWorkspaces);
@@ -245,7 +246,7 @@ describe('initialize', () => {
     mockedWaitForWailsBridge
       .mockRejectedValueOnce(new Error('Timed out waiting for Wails bridge after 10000ms'))
       .mockResolvedValueOnce(undefined);
-    mockedGetActiveWorkspace.mockResolvedValueOnce(null);
+    mockedGetActiveWorkspace.mockResolvedValueOnce(null as unknown as workspace.Workspace);
     mockedListWorkspaces.mockResolvedValueOnce([]);
 
     await useWorkspaceStore.getState().initialize();
