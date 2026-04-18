@@ -1,0 +1,79 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
+	cliadapter "assistente/adapters/cli"
+	"assistente/internal/app"
+
+	"github.com/spf13/cobra"
+)
+
+// AppVersion é injetado via ldflags no build.
+var AppVersion = "dev"
+
+var (
+	verbose bool
+	rootApp *app.App
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "assistente",
+	Short: "Assistente pessoal via terminal",
+	Long:  "Interface CLI para o assistente pessoal — chat com LLMs, gerenciamento de perfis e configurações.",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Inicializa o app com adapters CLI
+		ctx, cancel := context.WithCancel(context.Background())
+
+		// Cancela o contexto em SIGINT/SIGTERM
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			cancel()
+		}()
+
+		rootApp = app.NewApp()
+
+		emitter := cliadapter.NewEmitterAdapter(
+			cliadapter.WithVerbose(verbose),
+		)
+
+		rootApp.StartupWithAdapters(ctx,
+			emitter,
+			cliadapter.WindowAdapter{},
+			cliadapter.DialogAdapter{},
+		)
+
+		return nil
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		if rootApp != nil {
+			rootApp.Shutdown()
+		}
+	},
+}
+
+func init() {
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Exibe eventos detalhados no stderr")
+
+	rootCmd.AddCommand(versionCmd)
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Exibe a versão do assistente",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("assistente %s\n", AppVersion)
+	},
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}

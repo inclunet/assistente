@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"log"
+	"time"
 
-	"github.com/wailsapp/wails/v2"
+	"assistente/adapters/wails"
+	application "assistente/internal/app"
+
+	wailslib "github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
@@ -12,11 +18,9 @@ import (
 var assets embed.FS
 
 func main() {
-	// Create an instance of the app structure
-	app := NewApp()
+	a := application.NewApp()
 
-	// Create application with options
-	err := wails.Run(&options.App{
+	err := wailslib.Run(&options.App{
 		Title:  "assistente",
 		Width:  1024,
 		Height: 768,
@@ -24,13 +28,27 @@ func main() {
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
+		OnStartup: func(ctx context.Context) {
+			a.StartupWithAdapters(ctx,
+				wails.NewEmitterAdapter(ctx),
+				wails.NewWindowAdapter(ctx),
+				wails.NewDialogAdapter(ctx),
+			)
+			// Restaura foco da janela (resolve bug do Wails no Windows)
+			go func() {
+				time.Sleep(400 * time.Millisecond)
+				a.ShowWindow()
+				log.Printf("[App] WindowShow chamado após startup")
+			}()
+		},
+		OnShutdown: func(_ context.Context) {
+			a.Shutdown()
+		},
 		Bind: []interface{}{
-			app,
+			a,
 		},
 		Debug: options.Debug{
-			OpenInspectorOnStartup: false, // Não abre automaticamente
+			OpenInspectorOnStartup: false,
 		},
 	})
 
