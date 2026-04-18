@@ -66,6 +66,10 @@ type OutgoingMessage struct {
 
 	// ReplyToMessageID é opcional — ID da mensagem a ser respondida.
 	ReplyToMessageID string
+
+	// AssistantMessageID é o ID interno (DB) da mensagem do assistente.
+	// Usado pelo SIP adapter para second-chance cache lookup de áudio TTS.
+	AssistantMessageID uint
 }
 
 // Attachment representa um anexo de mensagem (áudio, imagem, documento, etc.).

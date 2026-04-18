@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"time"
 
 	"assistente/internal/channels"
 	"assistente/internal/chat"
@@ -13,6 +14,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/messaging"
 	"assistente/internal/messaging/signal"
+	"assistente/internal/messaging/sip"
 	"assistente/internal/messaging/slack"
 	"assistente/internal/messaging/telegram"
 	"assistente/internal/profiles"
@@ -34,10 +36,14 @@ type MessagingControllerConfig struct {
 	Emitter          ports.Emitter
 	ConvSvc          chat.ConversationRepository
 	SendMessageFn    messaging.SendMessageFunc
+
+	// SIP (opcional — injetado quando SIP está disponível)
+	CreateSIPSpeechManager    func() (*speech.SpeechManager, string)
+	CancelStreamingForContact func(channel, contactID string)
 }
 
 // MessagingController é o Inbound Adapter para canais de mensageria externos
-// (Telegram, Signal, Slack, etc.). Gerencia o gateway, conexões e contatos.
+// (Telegram, Signal, Slack, SIP, etc.). Gerencia o gateway, conexões e contatos.
 type MessagingController struct {
 	ctx              context.Context
 	profileMgr       *profiles.Manager
@@ -50,6 +56,10 @@ type MessagingController struct {
 	convSvc          chat.ConversationRepository
 	sendMessageFn    messaging.SendMessageFunc
 
+	// SIP callbacks
+	createSIPSpeechManager    func() (*speech.SpeechManager, string)
+	cancelStreamingForContact func(channel, contactID string)
+
 	// criados por Init()
 	msgGateway       *messaging.Gateway
 	responseNotifier *messaging.ResponseNotifier
@@ -59,16 +69,18 @@ type MessagingController struct {
 // Chame Init() para inicializar o gateway e conectar os canais habilitados.
 func NewMessagingController(cfg MessagingControllerConfig) *MessagingController {
 	return &MessagingController{
-		ctx:              cfg.Ctx,
-		profileMgr:       cfg.ProfileMgr,
-		credMgr:          cfg.CredMgr,
-		questionnaireMgr: cfg.QuestionnaireMgr,
-		speechSvc:        cfg.SpeechSvc,
-		audioRepo:        cfg.AudioRepo,
-		toolRegistry:     cfg.ToolRegistry,
-		emitter:          cfg.Emitter,
-		convSvc:          cfg.ConvSvc,
-		sendMessageFn:    cfg.SendMessageFn,
+		ctx:                       cfg.Ctx,
+		profileMgr:                cfg.ProfileMgr,
+		credMgr:                   cfg.CredMgr,
+		questionnaireMgr:          cfg.QuestionnaireMgr,
+		speechSvc:                 cfg.SpeechSvc,
+		audioRepo:                 cfg.AudioRepo,
+		toolRegistry:              cfg.ToolRegistry,
+		emitter:                   cfg.Emitter,
+		convSvc:                   cfg.ConvSvc,
+		sendMessageFn:             cfg.SendMessageFn,
+		createSIPSpeechManager:    cfg.CreateSIPSpeechManager,
+		cancelStreamingForContact: cfg.CancelStreamingForContact,
 	}
 }
 
@@ -98,6 +110,12 @@ func (c *MessagingController) Init() {
 	//   "always_audio":    sempre gera TTS
 	// Retorna (nil, nil) se não deve gerar áudio (gateway enviará texto).
 	synthesizeTTS := messaging.SynthesizeTTSFunc(func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
+		// SIP tem seu próprio pipeline de streaming TTS no adapter (SpeakText).
+		// Não precisa de TTS do gateway — menor latência com streaming direto.
+		if channel == "sip" {
+			return nil, nil
+		}
+
 		// Respeita cancelamento/timeout do gateway
 		select {
 		case <-ctx.Done():
@@ -226,6 +244,9 @@ func (c *MessagingController) Init() {
 		approveContactFn,
 		synthesizeTTS,
 		saveAudio,
+		func(messageID uint) (string, string, error) {
+			return c.audioRepo.GetMessageAudio(messageID)
+		},
 	)
 
 	enabledChannels, err := channels.LoadEnabled()
@@ -243,6 +264,11 @@ func (c *MessagingController) Init() {
 	}
 	if cfg, ok := enabledChannels["slack"]; ok {
 		c.connectSlack(cfg)
+	}
+	if cfg, ok := enabledChannels["sip"]; ok {
+		c.connectSIP(cfg)
+	} else {
+		log.Printf("[Messaging] SIP não configurado ou desabilitado")
 	}
 
 	if c.toolRegistry != nil {
@@ -289,6 +315,12 @@ func (c *MessagingController) GetChannelConfig(channelName string) (*channels.Ch
 
 // SaveChannelConfig salva a configuração de um canal e reconecta automaticamente.
 func (c *MessagingController) SaveChannelConfig(channelName string, cfg *channels.ChannelConfig) error {
+	existing, err := channels.Load(channelName)
+	if err != nil {
+		return err
+	}
+	mergePreservedChannelState(channelName, existing, cfg)
+
 	if err := c.persistChannelCredentials(channelName, cfg); err != nil {
 		return err
 	}
@@ -297,6 +329,31 @@ func (c *MessagingController) SaveChannelConfig(channelName string, cfg *channel
 	}
 	c.restartChannel(channelName, cfg)
 	return nil
+}
+
+func mergePreservedChannelState(channelName string, existing, incoming *channels.ChannelConfig) {
+	if existing == nil || incoming == nil {
+		return
+	}
+	if incoming.Conversations == nil && existing.Conversations != nil {
+		incoming.Conversations = existing.Conversations
+	}
+	if channelName != "sip" {
+		return
+	}
+	if incoming.SIPAudioTuningConfigured || !existing.SIPAudioTuningConfigured {
+		return
+	}
+	incoming.SIPAudioTuningConfigured = existing.SIPAudioTuningConfigured
+	incoming.SIPDenoise = existing.SIPDenoise
+	incoming.SIPAGC = existing.SIPAGC
+	incoming.SIPNoiseSuppressDB = existing.SIPNoiseSuppressDB
+	incoming.SIPAGCTarget = existing.SIPAGCTarget
+	incoming.SIPAGCMaxGainDB = existing.SIPAGCMaxGainDB
+	incoming.SIPVADMode = existing.SIPVADMode
+	incoming.SIPVADSpeechMS = existing.SIPVADSpeechMS
+	incoming.SIPVADSilenceMS = existing.SIPVADSilenceMS
+	incoming.SIPBargeInThreshold = existing.SIPBargeInThreshold
 }
 
 // RestartChannel reconecta um canal de mensageria (exposto ao frontend).
@@ -470,6 +527,8 @@ func (c *MessagingController) restartChannel(channelName string, cfg *channels.C
 		c.connectSignal(cfg)
 	case "slack":
 		c.connectSlack(cfg)
+	case "sip":
+		c.connectSIP(cfg)
 	default:
 		log.Printf("[Messaging] Canal desconhecido: %s", channelName)
 	}
@@ -533,6 +592,19 @@ func (c *MessagingController) persistChannelCredentials(channelName string, cfg 
 				return err
 			}
 			cfg.APIToken = ""
+		}
+	case "sip":
+		if cfg.SIPPasswordRef == "" && cfg.SIPPassword != "" {
+			cfg.SIPPasswordRef = fmt.Sprintf("channel:%s:sip_password", channelName)
+		}
+		if cfg.SIPPasswordRef != "" && cfg.SIPPassword != "" {
+			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.SIPPasswordRef, &credentials.AuthConfig{
+				Type:  "secret",
+				Token: cfg.SIPPassword,
+			}); err != nil {
+				return err
+			}
+			cfg.SIPPassword = ""
 		}
 	}
 	return nil
@@ -605,6 +677,7 @@ func (c *MessagingController) getSupportedChannelTypes() map[string]struct{} {
 		"telegram": {},
 		"signal":   {},
 		"slack":    {},
+		"sip":      {},
 	}
 }
 
@@ -619,4 +692,87 @@ func (c *MessagingController) resolveCredentialRef(ref string) string {
 		return ""
 	}
 	return credentials.ResolveSecretFromAuth(auth)
+}
+
+// connectSIP cria e registra o adapter SIP (telefonia via diago/sipgo).
+func (c *MessagingController) connectSIP(cfg *channels.ChannelConfig) {
+	if cfg.SIPServer == "" || cfg.SIPUser == "" {
+		log.Printf("[Messaging] SIP não configurado (servidor ou usuário ausente)")
+		return
+	}
+	sipPassword := cfg.SIPPassword
+	if sipPassword == "" && cfg.SIPPasswordRef != "" {
+		sipPassword = c.resolveCredentialRef(cfg.SIPPasswordRef)
+	}
+	if sipPassword == "" {
+		log.Printf("[Messaging] SIP: senha vazia, não conectando")
+		return
+	}
+	sipCfg := sip.SIPConfig{
+		Server:      cfg.SIPServer,
+		Port:        cfg.SIPPort,
+		Transport:   cfg.SIPTransport,
+		User:        cfg.SIPUser,
+		Password:    sipPassword,
+		DisplayName: cfg.SIPDisplayName,
+		LocalIP:     cfg.SIPLocalIP,
+	}
+	adapter := sip.NewAdapter(sipCfg)
+	adapter.SetPipelineConfig(buildSIPPipelineConfig(cfg))
+
+	if c.cancelStreamingForContact != nil {
+		adapter.CancelStreamingForContact = c.cancelStreamingForContact
+	}
+
+	// Injeta SpeechManager com fix de STT para server-side
+	if c.createSIPSpeechManager != nil {
+		sm, voiceID := c.createSIPSpeechManager()
+		if sm != nil {
+			adapter.SetSpeechManager(sm)
+			if voiceID != "" {
+				adapter.SetVoiceID(voiceID)
+			}
+		}
+	}
+
+	c.msgGateway.Register("sip", adapter)
+	go func() {
+		if err := adapter.Connect(c.ctx); err != nil {
+			log.Printf("[Messaging] Erro ao conectar SIP: %v", err)
+		}
+	}()
+	log.Printf("[Messaging] SIP conectado (%s@%s:%d)", cfg.SIPUser, cfg.SIPServer, sipCfg.GetPort())
+}
+
+func buildSIPPipelineConfig(cfg *channels.ChannelConfig) sip.AudioPipelineConfig {
+	pipelineCfg := sip.DefaultAudioPipelineConfig()
+	if cfg == nil || !cfg.SIPAudioTuningConfigured {
+		return pipelineCfg
+	}
+
+	pipelineCfg.Preprocess.EnableDenoise = cfg.SIPDenoise
+	pipelineCfg.Preprocess.EnableAGC = cfg.SIPAGC
+	if cfg.SIPNoiseSuppressDB != 0 {
+		pipelineCfg.Preprocess.NoiseSuppressDB = cfg.SIPNoiseSuppressDB
+	}
+	if cfg.SIPAGCTarget != 0 {
+		pipelineCfg.Preprocess.AGCTarget = cfg.SIPAGCTarget
+	}
+	if cfg.SIPAGCMaxGainDB != 0 {
+		pipelineCfg.Preprocess.AGCMaxGainDB = cfg.SIPAGCMaxGainDB
+	}
+	if cfg.SIPVADMode >= 0 && cfg.SIPVADMode <= 3 {
+		pipelineCfg.VAD.Mode = cfg.SIPVADMode
+	}
+	if cfg.SIPVADSpeechMS > 0 {
+		pipelineCfg.VAD.SpeechDuration = time.Duration(cfg.SIPVADSpeechMS) * time.Millisecond
+	}
+	if cfg.SIPVADSilenceMS > 0 {
+		pipelineCfg.VAD.SilenceDuration = time.Duration(cfg.SIPVADSilenceMS) * time.Millisecond
+	}
+	if cfg.SIPBargeInThreshold > 0 {
+		pipelineCfg.BargeInRMSThreshold = cfg.SIPBargeInThreshold
+	}
+
+	return pipelineCfg
 }

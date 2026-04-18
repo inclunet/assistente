@@ -43,6 +43,7 @@ type ServiceConfig struct {
 	ResponseNotifier *messaging.ResponseNotifier
 	GetTokenStats    func(uint) (*chat.TokenStats, error)
 	TriggerSummarize func(uint)
+	OnResponseSaved  func(conversationID, messageID uint, text string)
 	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
 	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
 	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
@@ -56,6 +57,7 @@ type Service struct {
 	responseNotifier *messaging.ResponseNotifier
 	getTokenStats    func(uint) (*chat.TokenStats, error)
 	triggerSummarize func(uint)
+	onResponseSaved  func(conversationID, messageID uint, text string)
 	onSpeechRequest  func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
@@ -68,6 +70,7 @@ func NewService(cfg ServiceConfig) *Service {
 		responseNotifier: cfg.ResponseNotifier,
 		getTokenStats:    cfg.GetTokenStats,
 		triggerSummarize: cfg.TriggerSummarize,
+		onResponseSaved:  cfg.OnResponseSaved,
 		onSpeechRequest:  cfg.OnSpeechRequest,
 	}
 }
@@ -114,15 +117,9 @@ func (s *Service) RunAgenticLoop(
 	}
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
-		// Verifica cancelamento
+		// Verifica cancelamento (barge-in, troca de conversa)
 		if ctx.Err() != nil {
 			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
-			s.emitter.Emit("chat:stream", events.StreamEvent{
-				Content:        "",
-				Done:           true,
-				Error:          "Operação cancelada",
-				ConversationId: conversationID,
-			})
 			return
 		}
 
@@ -134,6 +131,11 @@ func (s *Service) RunAgenticLoop(
 
 		// 2. Erro?
 		if result.Error != "" {
+			// Context canceled (barge-in) não é erro — apenas interrompe silenciosamente
+			if ctx.Err() != nil {
+				log.Printf("[Agent] iteração %d cancelada (barge-in): %s", iteration, result.Error)
+				return
+			}
 			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
 			s.emitter.Emit("chat:stream", events.StreamEvent{
 				Content:        result.FullResponse,
@@ -336,6 +338,16 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		AssistantMessageID: savedMsgID,
 		HadToolCalls:       turnID > 0,
 	})
+
+	// TTS proativo: gera áudio em background. NÃO bloqueia o Notify/Gateway
+	// porque o TTS provider pode demorar ou falhar. O SIP adapter já tem
+	// SpeakText como fallback; o cache é otimização, não requisito.
+	if s.onResponseSaved != nil && savedMsgID > 0 {
+		go func() {
+			defer s.recoverFromPanic(conversationID, "onResponseSaved")
+			s.onResponseSaved(conversationID, savedMsgID, result.FullResponse)
+		}()
+	}
 
 	if s.triggerSummarize != nil {
 		go func() {

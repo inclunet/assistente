@@ -111,6 +111,14 @@ interface ChatErrorEvent {
   error: string;
 }
 
+export interface NewMessageData {
+  role: string;
+  content: string;
+  isStreaming?: boolean;
+  parentId?: string;
+  source?: string;
+}
+
 export interface ActiveConversation {
   id: number;
   title: string;

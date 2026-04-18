@@ -10,16 +10,18 @@ import (
 // conexões de canais e ferramentas de mensageria.
 func (a *App) initMessaging() {
 	a.msgCtrl = controllers.NewMessagingController(controllers.MessagingControllerConfig{
-		Ctx:              a.ctx,
-		ProfileMgr:       a.profileManager,
-		CredMgr:          a.credMgr,
-		QuestionnaireMgr: a.questionnaireMgr,
-		SpeechSvc:        a.speechSvc,
-		AudioRepo:        a.audioSvc,
-		ToolRegistry:     a.toolRegistry,
-		Emitter:          a.emitter,
-		ConvSvc:          a.convSvc,
-		SendMessageFn:    a.SendMessageFromChannel,
+		Ctx:                       a.ctx,
+		ProfileMgr:                a.profileManager,
+		CredMgr:                   a.credMgr,
+		QuestionnaireMgr:          a.questionnaireMgr,
+		SpeechSvc:                 a.speechSvc,
+		AudioRepo:                 a.audioSvc,
+		ToolRegistry:              a.toolRegistry,
+		Emitter:                   a.emitter,
+		ConvSvc:                   a.convSvc,
+		SendMessageFn:             a.SendMessageFromChannel,
+		CreateSIPSpeechManager:    a.createSIPSpeechManager,
+		CancelStreamingForContact: a.cancelStreamingForContact,
 	})
 	a.msgCtrl.Init()
 	a.msgGateway = a.msgCtrl.Gateway()

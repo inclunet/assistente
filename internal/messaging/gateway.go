@@ -35,6 +35,10 @@ type SynthesizeTTSFunc func(ctx context.Context, text string, channel string, in
 // SaveAudioFunc é a assinatura da função que salva áudio no DB.
 type SaveAudioFunc func(messageID uint, audioBase64 string, mimeType string) error
 
+// GetCachedAudioFunc busca áudio já gerado (cache TTS proativo) no DB.
+// Retorna (audioBase64, mimeType, err). Se não encontrar, retorna ("", "", nil).
+type GetCachedAudioFunc func(messageID uint) (audioBase64 string, mimeType string, err error)
+
 // ApproveContactFunc é a assinatura da função que solicita aprovação para autorizar um contato.
 // Retorna true se aprovado, false caso contrário.
 type ApproveContactFunc func(ctx context.Context, channel, displayName, contactID, username string) (bool, error)
@@ -57,8 +61,9 @@ type Gateway struct {
 	sendMessage   SendMessageFunc
 	emitEvent     emitFunc
 	approveContact ApproveContactFunc
-	synthesizeTTS SynthesizeTTSFunc // Opcional: sintetiza áudio para respostas em modo áudio
-	saveAudio     SaveAudioFunc     // Opcional: salva áudio no DB
+	synthesizeTTS  SynthesizeTTSFunc  // Opcional: sintetiza áudio para respostas em modo áudio
+	saveAudio      SaveAudioFunc      // Opcional: salva áudio no DB
+	getCachedAudio GetCachedAudioFunc // Opcional: busca áudio TTS proativo do cache DB
 }
 
 // NewGateway cria um novo Gateway de mensageria.
@@ -69,6 +74,7 @@ func NewGateway(
 	approveContact ApproveContactFunc,
 	synthesizeTTS SynthesizeTTSFunc,
 	saveAudio SaveAudioFunc,
+	getCachedAudio GetCachedAudioFunc,
 ) *Gateway {
 	return &Gateway{
 		messengers:    make(map[string]Messenger),
@@ -77,8 +83,9 @@ func NewGateway(
 		sendMessage:   sendMessage,
 		emitEvent:     emitEvent,
 		approveContact: approveContact,
-		synthesizeTTS: synthesizeTTS,
-		saveAudio:     saveAudio,
+		synthesizeTTS:  synthesizeTTS,
+		saveAudio:      saveAudio,
+		getCachedAudio: getCachedAudio,
 	}
 }
 
@@ -276,9 +283,40 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			}
 
 			outMsg := OutgoingMessage{
-				ChatID:           msg.From.ID,
-				Text:             response,
-				ReplyToMessageID: msg.ID,
+				ChatID:             msg.From.ID,
+				Text:               response,
+				ReplyToMessageID:   msg.ID,
+				AssistantMessageID: assistantMsgID,
+			}
+
+			// Consulta cache TTS proativo (Phase 1 gera áudio ao salvar resposta).
+			// Se já existe no DB, usa direto sem chamar synthesizeTTS.
+			if assistantMsgID > 0 && g.getCachedAudio != nil {
+				cachedBase64, cachedMime, cacheErr := g.getCachedAudio(assistantMsgID)
+				if cacheErr == nil && cachedBase64 != "" {
+					audioData, decErr := base64.StdEncoding.DecodeString(cachedBase64)
+					if decErr == nil && len(audioData) > 0 {
+						ext := "mp3"
+						if cachedMime == "audio/wav" {
+							ext = "wav"
+						}
+						outMsg.Attachments = []Attachment{{
+							Filename: "resposta." + ext,
+							MIMEType: cachedMime,
+							Data:     audioData,
+						}}
+						outMsg.Text = ""
+						log.Printf("[Gateway] trace=%s conv=%d msgID=%d cache hit TTS proativo bytes=%d mime=%s",
+							traceID, conversationID, assistantMsgID, len(audioData), cachedMime)
+
+						err := messenger.Send(ctx, outMsg)
+						if err != nil {
+							log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao enviar resposta (cache): %v",
+								traceID, conversationID, msg.Channel, err)
+						}
+						return
+					}
+				}
 			}
 
 			// Gera TTS via TTSBroker (com timeout) para não bloquear indefinidamente.

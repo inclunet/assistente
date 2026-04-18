@@ -240,7 +240,17 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
 
-	// Inicializa o gateway de mensageria (Telegram, etc.)
+	// Inicializa o Speech Service (TTS/STT business logic) — antes de initMessaging
+	// porque o canal SIP precisa do speechSvc para criar SpeechManagers
+	a.speechSvc = speech.NewService(speech.ServiceConfig{
+		Emitter:         a.emitter,
+		Registry:        a.llmRegistry,
+		ProfileProvider: profileProviderAdapter{app: a},
+		CredMgr:         a.credMgr,
+		AudioRepo:       a.audioSvc,
+	})
+
+	// Inicializa o gateway de mensageria (Telegram, SIP, etc.)
 	a.initMessaging()
 
 	// Callback reutilizado pelo agent.Service e ChatController
@@ -266,6 +276,7 @@ func (a *App) startup(ctx context.Context) {
 		ResponseNotifier: a.responseNotifier,
 		GetTokenStats:    a.GetConversationTokenStats,
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
+		OnResponseSaved:  a.onResponseSaved,
 		OnSpeechRequest:  speechDispatcher,
 	})
 

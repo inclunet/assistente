@@ -62,6 +62,11 @@ func (s *Service) GetSpeechManager() *SpeechManager {
 	return s.speechManager
 }
 
+// GetAudioRepo retorna o repositório de áudio do serviço.
+func (s *Service) GetAudioRepo() AudioRepository {
+	return s.audioRepo
+}
+
 // SetSpeechManager permite que a camada Wails injete um speech manager.
 func (s *Service) SetSpeechManager(sm *SpeechManager) {
 	s.speechManager = sm
@@ -92,6 +97,17 @@ func (s *Service) EnsureSpeechManager() bool {
 		return false
 	}
 	return s.speechManager != nil
+}
+
+// CreateManagerForProfile cria um SpeechManager configurado a partir de um perfil.
+// Resolve defaults ($default → ID real) e delega para NewSpeechManagerFromProfile.
+// Retorna nil se p for nil ou se a criação falhar.
+func (s *Service) CreateManagerForProfile(p *profiles.Profile) *SpeechManager {
+	if p == nil {
+		return nil
+	}
+	resolved := s.profileProvider.ResolveDefaults(p)
+	return NewSpeechManagerFromProfile(resolved, s.registry, s.credMgr)
 }
 
 // CreateTTSClient cria um TTSClient para um provider LLM específico.

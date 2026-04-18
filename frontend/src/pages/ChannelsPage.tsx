@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import {
   GetChannelConfig,
+  GetChannelConfigAsMap,
   SaveChannelConfig,
   GetMessagingStatus,
   SignalCheckAPI,
@@ -29,7 +30,8 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { Button } from '../components';
-import { ChannelsTelegramSection, ChannelsSignalSection, ChannelsSlackSection } from '../components/channels';
+import { ChannelsTelegramSection, ChannelsSignalSection, ChannelsSlackSection, ChannelsSIPSection } from '../components/channels';
+import { SIPDialer } from '../components/channels/SIPDialer';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { DataGrid, type DataGridColumn } from '../components/ui/DataGrid';
 import { Modal, isModalOpen } from '../components/ui/Modal';
@@ -84,6 +86,29 @@ interface SlackForm {
   maxContacts: number;
 }
 
+interface SIPForm {
+  enabled: boolean;
+  sipServer: string;
+  sipPort: number;
+  sipUser: string;
+  sipPassword: string;
+  sipDisplayName: string;
+  sipTransport: string;
+  sipLocalIP: string;
+  sipDenoise: boolean;
+  sipAGC: boolean;
+  sipNoiseSuppressDB: number;
+  sipAGCTarget: number;
+  sipAGCMaxGainDB: number;
+  sipVADMode: number;
+  sipVADSpeechMS: number;
+  sipVADSilenceMS: number;
+  sipBargeInThreshold: number;
+  profile: string;
+  maxHistory: number;
+  maxContacts: number;
+}
+
 type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying' | 'done';
 
 // ─── Component ───────────────────────────────────────────────────────
@@ -94,7 +119,7 @@ export default function ChannelsPage() {
   const { announce } = useAnnouncer();
   const { handleGridReady: channelsHandleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'channels-page' });
-  const defaultChannelProfile = 'canais-comunicacao';
+  const defaultChannelProfile = '';
   const requestConfirm = useConfirm();
   const getErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : String(error ?? '');
@@ -121,11 +146,18 @@ export default function ChannelsPage() {
   const [slackForm, setSlackForm] = useState<SlackForm>({
     enabled: false, botToken: '', appToken: '', profile: '', maxHistory: 50, maxContacts: 1,
   });
+  const [sipForm, setSipForm] = useState<SIPForm>({
+    enabled: false, sipServer: '', sipPort: 5060, sipUser: '', sipPassword: '', sipDisplayName: '', sipTransport: 'udp', sipLocalIP: '',
+    sipDenoise: true, sipAGC: true, sipNoiseSuppressDB: -24, sipAGCTarget: 24000, sipAGCMaxGainDB: 30,
+    sipVADMode: 1, sipVADSpeechMS: 80, sipVADSilenceMS: 400, sipBargeInThreshold: 0.15,
+    profile: '', maxHistory: 50, maxContacts: 0,
+  });
 
   const [credentialSummaries, setCredentialSummaries] = useState<Record<string, CredentialSummary>>({});
   const [telegramUseVault, setTelegramUseVault] = useState(true);
   const [signalUseVault, setSignalUseVault] = useState(true);
   const [slackUseVault, setSlackUseVault] = useState(true);
+  const [sipUseVault, setSipUseVault] = useState(true);
 
   // ── Signal registration ──────────────────────────────────────────
   const [signalRegStep, setSignalRegStep] = useState<SignalRegisterStep>('idle');
@@ -165,10 +197,12 @@ export default function ChannelsPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [telegramCfg, signalCfg, slackCfg, status, credentialsList] = await Promise.all([
+      const [telegramCfg, signalCfg, slackCfg, sipCfg, sipAudioTuning, status, credentialsList] = await Promise.all([
         GetChannelConfig('telegram'),
         GetChannelConfig('signal'),
         GetChannelConfig('slack'),
+        GetChannelConfig('sip'),
+        GetChannelConfigAsMap('sip'),
         GetMessagingStatus(),
         ListCredentials().catch(() => [] as CredentialSummary[]),
       ]);
@@ -176,6 +210,7 @@ export default function ChannelsPage() {
       const tgEnabled = telegramCfg?.enabled || false;
       const sigEnabled = signalCfg?.enabled || false;
       const slackEnabled = slackCfg?.enabled || false;
+      const sipEnabled = sipCfg?.enabled || false;
 
       if (telegramCfg) {
         setTelegramForm({
@@ -207,6 +242,31 @@ export default function ChannelsPage() {
           maxContacts: slackCfg.max_contacts || 1,
         });
       }
+      if (sipCfg) {
+        const sipAudioCfg = sipAudioTuning ?? {};
+        setSipForm({
+          enabled: sipEnabled,
+          sipServer: sipCfg.sip_server || '',
+          sipPort: sipCfg.sip_port || 5060,
+          sipUser: sipCfg.sip_user || '',
+          sipPassword: sipCfg.sip_password || '',
+          sipDisplayName: sipCfg.sip_display_name || '',
+          sipTransport: sipCfg.sip_transport || 'udp',
+          sipLocalIP: sipCfg.sip_local_ip || '',
+          sipDenoise: typeof sipAudioCfg.sip_denoise === 'boolean' ? sipAudioCfg.sip_denoise : true,
+          sipAGC: typeof sipAudioCfg.sip_agc === 'boolean' ? sipAudioCfg.sip_agc : true,
+          sipNoiseSuppressDB: typeof sipAudioCfg.sip_noise_suppress_db === 'number' ? sipAudioCfg.sip_noise_suppress_db : -24,
+          sipAGCTarget: typeof sipAudioCfg.sip_agc_target === 'number' ? sipAudioCfg.sip_agc_target : 24000,
+          sipAGCMaxGainDB: typeof sipAudioCfg.sip_agc_max_gain_db === 'number' ? sipAudioCfg.sip_agc_max_gain_db : 30,
+          sipVADMode: typeof sipAudioCfg.sip_vad_mode === 'number' ? sipAudioCfg.sip_vad_mode : 1,
+          sipVADSpeechMS: typeof sipAudioCfg.sip_vad_speech_ms === 'number' ? sipAudioCfg.sip_vad_speech_ms : 80,
+          sipVADSilenceMS: typeof sipAudioCfg.sip_vad_silence_ms === 'number' ? sipAudioCfg.sip_vad_silence_ms : 400,
+          sipBargeInThreshold: typeof sipAudioCfg.sip_barge_in_threshold === 'number' ? sipAudioCfg.sip_barge_in_threshold : 0.15,
+          profile: sipCfg.profile || defaultChannelProfile,
+          maxHistory: sipCfg.max_history || 50,
+          maxContacts: sipCfg.max_contacts || 0,
+        });
+      }
 
       const summaryMap: Record<string, CredentialSummary> = {};
       for (const entry of credentialsList || []) {
@@ -227,9 +287,13 @@ export default function ChannelsPage() {
         summaryMap[slackBotPattern] || summaryMap[slackAppPattern] || slackCfg?.bot_token_ref || slackCfg?.app_token_ref
       );
 
+      const sipPasswordPattern = channelCredentialPattern('sip', 'sip_password');
+      const sipStored = Boolean(summaryMap[sipPasswordPattern] || sipCfg?.sip_password_ref);
+
       setTelegramUseVault(telegramStored || !telegramCfg?.bot_token);
       setSignalUseVault(signalStored || !signalCfg?.api_token);
       setSlackUseVault(slackStored || (!slackCfg?.bot_token && !slackCfg?.app_token));
+      setSipUseVault(sipStored || !sipCfg?.sip_password);
 
       setChannelRows([
         {
@@ -252,6 +316,13 @@ export default function ChannelsPage() {
           label: 'Slack',
           enabled: slackEnabled,
           status: status['slack'] || t('channels.status.disconnected'),
+        },
+        {
+          id: 'sip',
+          name: 'sip',
+          label: 'SIP',
+          enabled: sipEnabled,
+          status: status['sip'] || t('channels.status.disconnected'),
         },
       ]);
 
@@ -428,6 +499,47 @@ export default function ChannelsPage() {
           max_history: slackForm.maxHistory,
           max_contacts: slackForm.maxContacts,
         }));
+      } else if (channelName === 'sip') {
+        const sipPasswordPattern = channelCredentialPattern('sip', 'sip_password');
+        const sipPassword = sipForm.sipPassword.trim();
+        const storedSip = credentialSummaries[sipPasswordPattern];
+
+        if (sipUseVault) {
+          if (sipPassword) {
+            await UpsertCredential({
+              pattern: sipPasswordPattern,
+              type: 'secret',
+              token: sipPassword,
+            });
+          } else if (sipForm.enabled && !storedSip) {
+            throw new Error(t('channels.sip.password') + ' required');
+          }
+        }
+
+        await SaveChannelConfig('sip', {
+          enabled: sipForm.enabled,
+          sip_server: sipForm.sipServer,
+          sip_port: sipForm.sipPort,
+          sip_user: sipForm.sipUser,
+          sip_password: sipUseVault ? '' : sipPassword,
+          sip_password_ref: sipUseVault ? sipPasswordPattern : '',
+          sip_display_name: sipForm.sipDisplayName,
+          sip_transport: sipForm.sipTransport,
+          sip_local_ip: sipForm.sipLocalIP,
+          sip_audio_tuning_configured: true,
+          sip_denoise: sipForm.sipDenoise,
+          sip_agc: sipForm.sipAGC,
+          sip_noise_suppress_db: sipForm.sipNoiseSuppressDB,
+          sip_agc_target: sipForm.sipAGCTarget,
+          sip_agc_max_gain_db: sipForm.sipAGCMaxGainDB,
+          sip_vad_mode: sipForm.sipVADMode,
+          sip_vad_speech_ms: sipForm.sipVADSpeechMS,
+          sip_vad_silence_ms: sipForm.sipVADSilenceMS,
+          sip_barge_in_threshold: sipForm.sipBargeInThreshold,
+          profile: sipForm.profile,
+          max_history: sipForm.maxHistory,
+          max_contacts: sipForm.maxContacts,
+        } as unknown as channels.ChannelConfig);
       }
       addToast(t('channels.toast.channelSaved', { name: channelName }), 'success');
       announce(t('channels.toast.channelSaved', { name: channelName }));
@@ -738,7 +850,9 @@ export default function ChannelsPage() {
       ? 'Signal'
       : editingChannel === 'slack'
         ? 'Slack'
-        : '';
+        : editingChannel === 'sip'
+          ? 'SIP'
+          : '';
 
   const toolbarActions = [
     {
@@ -843,6 +957,26 @@ export default function ChannelsPage() {
     />
   );
 
+  // ── Render: SIP editor ───────────────────────────────────────────
+
+  const sipConnected = channelRows.find(r => r.name === 'sip')?.status === 'connected';
+
+  const renderSIPEditor = () => (
+    <>
+      <ChannelsSIPSection
+        form={sipForm}
+        onChange={setSipForm}
+        onAnnounce={announce}
+        vaultEnabled={sipUseVault}
+        onToggleVault={setSipUseVault}
+        credentialStored={Boolean(credentialSummaries[channelCredentialPattern('sip', 'sip_password')])}
+        credentialMasked={credentialSummaries[channelCredentialPattern('sip', 'sip_password')]?.masked || ''}
+        onRemoveCredential={() => handleRemoveCredential(channelCredentialPattern('sip', 'sip_password'), 'SIP Password')}
+      />
+      <SIPDialer connected={sipConnected} />
+    </>
+  );
+
   // ── Main render ──────────────────────────────────────────────────
 
   if (loading) {
@@ -900,6 +1034,7 @@ export default function ChannelsPage() {
           {editingChannel === 'telegram' && renderTelegramEditor()}
           {editingChannel === 'signal' && renderSignalEditor()}
           {editingChannel === 'slack' && renderSlackEditor()}
+          {editingChannel === 'sip' && renderSIPEditor()}
         </EditorPanelFields>
         <EditorPanelFooter>
           {editingChannel && (

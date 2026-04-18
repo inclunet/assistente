@@ -258,6 +258,79 @@ func GetAvailableTemplates() []ChannelTemplate {
 				},
 			},
 		},
+		{
+			Type:        "sip",
+			DisplayName: "SIP (Telefonia)",
+			Description: "Canal de telefonia via protocolo SIP — recebe e realiza chamadas de voz",
+			Icon:        "📞",
+			Supported:   true,
+			DocURL:      "https://github.com/emiago/diago",
+			Fields: []ChannelTemplateField{
+				{
+					Key:         "sip_server",
+					Label:       "Servidor SIP",
+					Type:        "text",
+					Required:    true,
+					Placeholder: "asterisk.local ou 192.168.1.100",
+					Description: "Endereço do servidor SIP (Asterisk, FreePBX, etc.)",
+				},
+				{
+					Key:          "sip_port",
+					Label:        "Porta SIP",
+					Type:         "number",
+					Required:     false,
+					DefaultValue: 5060,
+					Description:  "Porta do servidor SIP (padrão: 5060)",
+				},
+				{
+					Key:         "sip_user",
+					Label:       "Ramal / Usuário",
+					Type:        "text",
+					Required:    true,
+					Placeholder: "100",
+					Description: "Ramal ou usuário SIP para registro",
+				},
+				{
+					Key:         "sip_password",
+					Label:       "Senha SIP",
+					Type:        "password",
+					Required:    true,
+					Placeholder: "",
+					Description: "Senha de autenticação SIP",
+				},
+				{
+					Key:         "sip_display_name",
+					Label:       "Nome de Exibição",
+					Type:        "text",
+					Required:    false,
+					Placeholder: "Assistente IA",
+					Description: "Nome exibido no caller ID",
+				},
+				{
+					Key:          "sip_transport",
+					Label:        "Transporte",
+					Type:         "text",
+					Required:     false,
+					DefaultValue: "udp",
+					Description:  "Protocolo de transporte: udp, tcp ou tls",
+				},
+				{
+					Key:         "sip_local_ip",
+					Label:        "IP Local",
+					Type:         "text",
+					Required:     false,
+					Description:  "IP da interface de rede local para bind. Vazio = todas as interfaces.",
+				},
+				{
+					Key:          "max_contacts",
+					Label:        "Máximo de Contatos",
+					Type:         "number",
+					Required:     false,
+					DefaultValue: 0,
+					Description:  "Número máximo de chamadores autorizados (0 = ilimitado)",
+				},
+			},
+		},
 	}
 }
 
@@ -323,6 +396,37 @@ func CreateFromTemplate(templateType string, values map[string]interface{}) erro
 		case "api_url":
 			if str, ok := value.(string); ok {
 				cfg.APIURL = str
+			}
+		case "sip_server":
+			if str, ok := value.(string); ok {
+				cfg.SIPServer = str
+			}
+		case "sip_port":
+			switch v := value.(type) {
+			case float64:
+				cfg.SIPPort = int(v)
+			case int:
+				cfg.SIPPort = v
+			}
+		case "sip_user":
+			if str, ok := value.(string); ok {
+				cfg.SIPUser = str
+			}
+		case "sip_password":
+			if str, ok := value.(string); ok {
+				cfg.SIPPassword = str
+			}
+		case "sip_display_name":
+			if str, ok := value.(string); ok {
+				cfg.SIPDisplayName = str
+			}
+		case "sip_transport":
+			if str, ok := value.(string); ok {
+				cfg.SIPTransport = str
+			}
+		case "sip_local_ip":
+			if str, ok := value.(string); ok {
+				cfg.SIPLocalIP = str
 			}
 		case "max_contacts":
 			// Aceita float64 (JSON number) ou int

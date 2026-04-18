@@ -40,6 +40,26 @@ type ChannelConfig struct {
 	MaxHistory  int    `json:"max_history,omitempty"`   // Mensagens no contexto (0 = padrão)
 	MaxContacts int    `json:"max_contacts,omitempty"`  // Máximo de contatos autorizados (0 = 1)
 
+	// SIP: configuração para canal de telefonia
+	SIPServer                string  `json:"sip_server,omitempty"`                  // Endereço do servidor SIP (ex: "asterisk.local")
+	SIPPort                  int     `json:"sip_port,omitempty"`                    // Porta do servidor SIP (0 = padrão: 5060)
+	SIPTransport             string  `json:"sip_transport,omitempty"`               // Transporte: "udp" (padrão), "tcp", "tls"
+	SIPUser                  string  `json:"sip_user,omitempty"`                    // Ramal/usuário SIP (ex: "100")
+	SIPPassword              string  `json:"sip_password,omitempty"`                // Senha SIP (em texto, será migrada para ref)
+	SIPPasswordRef           string  `json:"sip_password_ref,omitempty"`            // Referência no credential manager
+	SIPDisplayName           string  `json:"sip_display_name,omitempty"`            // Nome exibido no caller ID
+	SIPLocalIP               string  `json:"sip_local_ip,omitempty"`                // IP local para bind (vazio = todas as interfaces)
+	SIPAudioTuningConfigured bool    `json:"sip_audio_tuning_configured,omitempty"` // Indica que os ajustes abaixo devem sobrescrever os defaults
+	SIPDenoise               bool    `json:"sip_denoise,omitempty"`                 // Habilita redução de ruído no preprocessamento SIP
+	SIPAGC                   bool    `json:"sip_agc,omitempty"`                     // Habilita AGC no preprocessamento SIP
+	SIPNoiseSuppressDB       int     `json:"sip_noise_suppress_db,omitempty"`       // Atenuação máxima de ruído em dB (negativo)
+	SIPAGCTarget             int     `json:"sip_agc_target,omitempty"`              // Alvo do AGC em amplitude PCM
+	SIPAGCMaxGainDB          int     `json:"sip_agc_max_gain_db,omitempty"`         // Ganho máximo do AGC em dB
+	SIPVADMode               int     `json:"sip_vad_mode,omitempty"`                // Modo do WebRTC VAD (0-3)
+	SIPVADSpeechMS           int     `json:"sip_vad_speech_ms,omitempty"`           // Duração mínima de fala para onset
+	SIPVADSilenceMS          int     `json:"sip_vad_silence_ms,omitempty"`          // Duração de silêncio para fechar segmento
+	SIPBargeInThreshold      float64 `json:"sip_barge_in_threshold,omitempty"`      // RMS mínimo para interromper TTS
+
 	// Conversations mapeia contactID → conversationID (persistido entre reinícios).
 	// Permite reaproveitar conversas existentes ao reiniciar o app.
 	Conversations map[string]uint `json:"conversations,omitempty"`

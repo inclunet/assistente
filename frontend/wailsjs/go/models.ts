@@ -57,11 +57,29 @@ export namespace channels {
 	    max_history?: number;
 	    max_contacts?: number;
 	    conversations?: Record<string, number>;
-	
+	    sip_server?: string;
+	    sip_port?: number;
+	    sip_user?: string;
+	    sip_password?: string;
+	    sip_password_ref?: string;
+	    sip_display_name?: string;
+	    sip_transport?: string;
+	    sip_local_ip?: string;
+	    sip_audio_tuning_configured?: boolean;
+	    sip_denoise?: boolean;
+	    sip_agc?: boolean;
+	    sip_noise_suppress_db?: number;
+	    sip_agc_target?: number;
+	    sip_agc_max_gain_db?: number;
+	    sip_vad_mode?: number;
+	    sip_vad_speech_ms?: number;
+	    sip_vad_silence_ms?: number;
+	    sip_barge_in_threshold?: number;
+
 	    static createFrom(source: any = {}) {
 	        return new ChannelConfig(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
@@ -77,6 +95,24 @@ export namespace channels {
 	        this.max_history = source["max_history"];
 	        this.max_contacts = source["max_contacts"];
 	        this.conversations = source["conversations"];
+	        this.sip_server = source["sip_server"];
+	        this.sip_port = source["sip_port"];
+	        this.sip_user = source["sip_user"];
+	        this.sip_password = source["sip_password"];
+	        this.sip_password_ref = source["sip_password_ref"];
+	        this.sip_display_name = source["sip_display_name"];
+	        this.sip_transport = source["sip_transport"];
+	        this.sip_local_ip = source["sip_local_ip"];
+	        this.sip_audio_tuning_configured = source["sip_audio_tuning_configured"];
+	        this.sip_denoise = source["sip_denoise"];
+	        this.sip_agc = source["sip_agc"];
+	        this.sip_noise_suppress_db = source["sip_noise_suppress_db"];
+	        this.sip_agc_target = source["sip_agc_target"];
+	        this.sip_agc_max_gain_db = source["sip_agc_max_gain_db"];
+	        this.sip_vad_mode = source["sip_vad_mode"];
+	        this.sip_vad_speech_ms = source["sip_vad_speech_ms"];
+	        this.sip_vad_silence_ms = source["sip_vad_silence_ms"];
+	        this.sip_barge_in_threshold = source["sip_barge_in_threshold"];
 	    }
 	}
 	export class ChannelTemplateField {
@@ -3611,3 +3647,27 @@ export namespace workspace {
 
 }
 
+export namespace sip {
+
+	export class CallInfo {
+	    id: string;
+	    callerId: string;
+	    state: string;
+	    duration: string;
+	    startedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CallInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.callerId = source["callerId"];
+	        this.state = source["state"];
+	        this.duration = source["duration"];
+	        this.startedAt = source["startedAt"];
+	    }
+	}
+
+}

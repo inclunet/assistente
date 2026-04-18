@@ -350,6 +350,22 @@ func (sm *SpeechManager) synthesizeStreamOpenAI(ctx context.Context, text string
 	return client.SynthesizeStream(ctx, text, internalCallbacks)
 }
 
+// SynthesizeStreamRaw sintetiza com streaming retornando bytes brutos (sem conversão
+// base64) e permitindo sobrescrever o formato de saída. Útil para o canal SIP que
+// precisa de WAV (PCM lossless) ao invés de MP3.
+func (sm *SpeechManager) SynthesizeStreamRaw(ctx context.Context, text, voice, format string, callbacks TTSStreamCallbacks) error {
+	client := sm.GetTTSClient()
+	if client == nil {
+		return fmt.Errorf("TTS client not configured")
+	}
+
+	v := TTSVoice(voice)
+	if voice == "" {
+		v = client.config.Voice
+	}
+	return client.SynthesizeStreamWithFormat(ctx, text, v, TTSFormat(format), callbacks)
+}
+
 // SupportsStreaming retorna true se o provedor do role assistant suporta streaming.
 func (sm *SpeechManager) SupportsStreaming() bool {
 	sm.mu.RLock()
