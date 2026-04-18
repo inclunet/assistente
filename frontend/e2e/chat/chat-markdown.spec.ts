@@ -31,8 +31,26 @@ async function sendAndStream(
   markdownContent: string,
 ) {
   const textarea = page.locator('.chat-input__textarea');
+  await expect(textarea).toBeEditable({ timeout: 5_000 });
+  await textarea.click();
   await textarea.fill('Teste');
   await textarea.press('Enter');
+
+  await page.waitForFunction(() => {
+    return window.__wailsMock.getCallLog().some(
+      (c: { fn: string }) => c.fn === 'SendMessage',
+    );
+  }, { timeout: 5_000 });
+
+  await wails.emit('chat:messages_ready', {
+    conversationId: 1,
+    userMessageId: 100,
+    userContent: 'Teste',
+  });
+
+  await page.waitForFunction(() => {
+    return document.querySelectorAll('.message-node').length >= 2;
+  }, { timeout: 5_000 });
 
   // Stream com conteúdo
   await wails.emit('chat:stream', {
@@ -40,7 +58,12 @@ async function sendAndStream(
     messageId: 2,
     token: markdownContent,
     done: false,
+    content: markdownContent,
   });
+
+  await page.waitForFunction(() => {
+    return document.querySelectorAll('.message-node').length >= 3;
+  }, { timeout: 5_000 });
 
   // Finaliza stream
   await wails.emit('chat:stream', {

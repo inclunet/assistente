@@ -14,6 +14,7 @@ import (
 	"assistente/internal/providers"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
+	"gorm.io/gorm"
 )
 
 // DefaultMaxContextMessages é o limite padrão de mensagens carregadas no contexto.
@@ -32,7 +33,7 @@ type ChatParams = llm.ChatParams
 // does not need to import internal/prompt (which already imports internal/chat).
 type SystemPromptBuilder interface {
 	Build(messages []llm.Message, enabledSkills []string, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string) []llm.Message
-	BuildTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) TemplateData
+	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID uint) TemplateData
 }
 
 // InteractorConfig groups all dependencies for Interactor.
@@ -55,6 +56,32 @@ type Interactor struct {
 	profileMgr    *profiles.Manager
 	skillMgr      skills.InvokerManager
 	promptBuilder SystemPromptBuilder
+}
+
+func inheritProfileRoutingFields(base *profiles.Profile, fallback *profiles.Profile) *profiles.Profile {
+	if base == nil || fallback == nil {
+		return base
+	}
+
+	merged := *base
+	merged.Chat = base.Chat
+	merged.Voice = base.Voice
+	merged.Input = base.Input
+
+	if strings.TrimSpace(merged.Chat.LLMProvider) == "" {
+		merged.Chat.LLMProvider = fallback.Chat.LLMProvider
+	}
+	if strings.TrimSpace(merged.Chat.Model) == "" {
+		merged.Chat.Model = fallback.Chat.Model
+	}
+	if strings.TrimSpace(merged.Voice.Assistant.LLMProviderID) == "" {
+		merged.Voice.Assistant.LLMProviderID = fallback.Voice.Assistant.LLMProviderID
+	}
+	if strings.TrimSpace(merged.Input.LLMProviderID) == "" {
+		merged.Input.LLMProviderID = fallback.Input.LLMProviderID
+	}
+
+	return &merged
 }
 
 // NewInteractor creates an Interactor with its required dependencies.
@@ -147,6 +174,13 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if err != nil {
 			log.Printf("[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", req.Params.ProfileSlug, err)
 			activeProfile, err = i.profileMgr.GetActive()
+		} else {
+			globalActive, globalErr := i.profileMgr.GetActive()
+			if globalErr != nil {
+				log.Printf("[PrepareContext] Erro ao obter perfil ativo global para fallback: %v", globalErr)
+			} else {
+				activeProfile = inheritProfileRoutingFields(activeProfile, globalActive)
+			}
 		}
 	} else {
 		activeProfile, err = i.profileMgr.GetActive()
@@ -220,6 +254,30 @@ type RecordUserMessageResponse struct {
 	ConversationSummary string
 }
 
+// GetRetryableUserMessage retorna uma mensagem existente validando que ela pode ser reenviada.
+func (i *Interactor) GetRetryableUserMessage(conversationID uint, messageID uint) (*Message, error) {
+	if i.repo == nil {
+		return nil, errors.New("repositório de mensagens indisponível")
+	}
+	userMsg, err := i.repo.GetMessage(messageID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("mensagem não encontrada")
+		}
+		return nil, err
+	}
+	if userMsg == nil {
+		return nil, errors.New("mensagem não encontrada")
+	}
+	if userMsg.ConversationID != conversationID {
+		return nil, fmt.Errorf("mensagem %d não pertence à conversa %d", messageID, conversationID)
+	}
+	if userMsg.Role != "user" {
+		return nil, fmt.Errorf("mensagem %d não é do usuário", messageID)
+	}
+	return userMsg, nil
+}
+
 // RecordUserMessage persiste a mensagem do usuário, emite o evento ready e carrega o histórico da conversa.
 func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessageRequest) (*RecordUserMessageResponse, error) {
 	userMsg, err := i.repo.CreateMessage(MessageOptions{
@@ -242,6 +300,15 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 		UserContent:    userMsg.Content,
 	})
 
+	return i.ReuseLoadedUserMessage(ctx, req, userMsg)
+}
+
+// ReuseLoadedUserMessage monta a resposta de retry a partir de uma mensagem já validada/carregada.
+func (i *Interactor) ReuseLoadedUserMessage(_ context.Context, req RecordUserMessageRequest, userMsg *Message) (*RecordUserMessageResponse, error) {
+	if userMsg == nil {
+		return nil, errors.New("mensagem não encontrada")
+	}
+
 	maxCtxMsgs := DefaultMaxContextMessages
 	if req.ActiveProfile != nil {
 		maxCtxMsgs = req.ActiveProfile.GetMaxContextMessages()
@@ -262,6 +329,16 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 		Messages:            messages,
 		ConversationSummary: summary,
 	}, nil
+}
+
+// ReuseUserMessage carrega uma mensagem de usuário já persistida para um retry sem duplicá-la no banco.
+func (i *Interactor) ReuseUserMessage(ctx context.Context, req RecordUserMessageRequest, messageID uint) (*RecordUserMessageResponse, error) {
+	userMsg, err := i.GetRetryableUserMessage(req.ConversationID, messageID)
+	if err != nil {
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar mensagem para retry: " + err.Error()})
+		return nil, err
+	}
+	return i.ReuseLoadedUserMessage(ctx, req, userMsg)
 }
 
 // ResolveUserContentRequest contém os dados brutos para resolução de conteúdo do usuário.
@@ -334,7 +411,7 @@ type PrepareMessagesResponse struct {
 func (i *Interactor) PrepareMessages(req PrepareMessagesRequest) PrepareMessagesResponse {
 	var skillTplData TemplateData
 	if i.promptBuilder != nil {
-		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params.ProfileSlug, req.ConversationID)
+		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params, req.ConversationID)
 	}
 
 	var slashSkillContent string

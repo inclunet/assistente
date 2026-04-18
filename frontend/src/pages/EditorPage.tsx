@@ -1,9 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CompassOutlined, EditOutlined, FileOutlined, MessageOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
+import { CompassOutlined, FileOutlined, MessageOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
-import { ProfilePicker } from '../components/pickers/ProfilePicker';
 import { CodeEditor } from '../components/ui/CodeEditor';
 import { MarkdownRenderer } from '../components/ui/MarkdownRenderer';
 import { Menu, type MenuItem } from '../components/menu';
@@ -12,7 +11,14 @@ import { MermaidEditorModal } from '../components/editor/MermaidEditorModal';
 import { RichTextEditor } from '../components/editor/RichTextEditor';
 import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
 import { useRichEditorFlushEvents } from './useRichEditorFlushEvents';
-import { EditorInlineChatModal } from '@/components/editor/EditorInlineChatModal';
+import { useRegisterWorkspaceChatAdapter } from '../hooks/useRegisterWorkspaceChatAdapter';
+import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import type {
+  WorkspaceChatModalAdapter,
+  WorkspaceChatModalPrepareResult,
+  WorkspaceChatSendPlan,
+  WorkspaceChatModalSession,
+} from '../store/workspaceChatModalStore';
 import { useEditorStore, DEFAULT_MD, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -20,13 +26,13 @@ import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
 import { createTwoFilesPatch } from 'diff';
-import { buildEditorPatchPrompt } from '../lib/editorPatch';
 import { applyTextReplacementByOffset } from '../lib/editorPatchApply';
 import { normalizeEditorInsertContent } from '../lib/editorInsertNormalize';
 import { applyRichTextInsert, applyRichTextInsertAtEnd } from '../lib/richTextPatchApply';
 import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
+import { buildChatSurfaceParams } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
@@ -130,7 +136,7 @@ export default function EditorPage() {
         selectionIsEmpty?: boolean;
         /** Contexto ao redor do cursor para orientar inserção */
         cursorContext?: string;
-        /** Texto a exibir no painel "Contexto" do mini-chat */
+        /** Texto a exibir no painel "Contexto" do chat modal */
         displayText?: string;
         startOffset: number;
         endOffset: number;
@@ -163,11 +169,9 @@ export default function EditorPage() {
     return '';
   };
 
-  const [inlineChatOpen, setInlineChatOpen] = useState(false);
-  const [inlineChatSelection, setInlineChatSelection] = useState<InlineChatSelection | null>(null);
-  const [inlineChatError, setInlineChatError] = useState<string | null>(null);
   const inlineChatRunIdRef = useRef(0);
-  const [inlineChatFocusNonce, setInlineChatFocusNonce] = useState(0);
+  const chatModalOpen = useWorkspaceChatModalStore((s) => s.isOpen);
+  const prevChatModalOpenRef = useRef(false);
 
   const [sessionLoaded, setSessionLoaded] = useState(false);
 
@@ -1043,7 +1047,7 @@ export default function EditorPage() {
   useEffect(() => {
     if (!sessionLoaded) return;
     if (!activeTab) return;
-    if (inlineChatOpen) return;
+    if (chatModalOpen) return;
     if (isModalOpen()) return;
 
     const el = document.activeElement as HTMLElement | null;
@@ -1072,7 +1076,7 @@ export default function EditorPage() {
     if (!isTypingTarget && (isDocumentBody || isEditorZone)) {
       focusEditorSoon();
     }
-  }, [sessionLoaded, activeTab?.id, activeTab?.mode, inlineChatOpen]);
+  }, [sessionLoaded, activeTab?.id, activeTab?.mode, chatModalOpen]);
 
 
   const prevDocsRef = useRef<Record<string, EditorDocument>>({});
@@ -1246,6 +1250,15 @@ export default function EditorPage() {
     }, 20);
   }
 
+  useEffect(() => {
+    if (prevChatModalOpenRef.current && !chatModalOpen) {
+      inlineChatRunIdRef.current += 1;
+      setIsAsking(false);
+      focusEditorSoon();
+    }
+    prevChatModalOpenRef.current = chatModalOpen;
+  }, [chatModalOpen, activeTab]);
+
   const flushActiveRichMarkdownNow = useCallback(() => {
     try {
       const st = useEditorStore.getState();
@@ -1418,7 +1431,7 @@ export default function EditorPage() {
       }
 
       // Se falhar, mantém pendente mas avisa.
-      addToast('Não foi possível inserir no editor (tentativa esgotada). Abra o Editor e tente novamente.', 'error');
+      addToast(t('editor.chatModal.insertExhausted'), 'error');
       setPendingInsert(null);
     })();
 
@@ -1427,138 +1440,62 @@ export default function EditorPage() {
     };
   }, [pendingInsert, editorReadyNonce]);
 
-  const closeInlineChatModal = () => {
-    inlineChatRunIdRef.current += 1;
-    setInlineChatOpen(false);
-    setInlineChatSelection(null);
-    setInlineChatError(null);
-    setIsAsking(false);
-    focusEditorSoon();
-  };
-
-  const askInlineChat = async () => {
-    if (!activeTab) return;
-
-    // Se não há conversa ativa no chatStore, cria uma
-    if (!useChatStore.getState().activeConversationId) {
-      try {
-        await useChatStore.getState().createConversation();
-      } catch {
-        addToast('Não foi possível criar uma conversa para o chat inline.', 'error');
-        return;
-      }
-    }
-
-    const selectionRaw =
-      activeTab.mode === 'markdown'
-        ? getSelectionSnapshot()
-        : activeTab.mode === 'rich'
-          ? getRichSelectionSnapshot()
-          : null;
-
-    if (!selectionRaw) {
-      addToast('Não foi possível capturar a seleção do editor.', 'error');
-      return;
-    }
-
-    if (selectionRaw.selectedText.length > 20000) {
-      addToast('Seleção muito grande para enviar ao chat (limite: 20.000 caracteres).', 'error');
-      return;
-    }
-
-    const snapshot =
-      activeTab.mode === 'markdown'
-        ? (editorRef.current?.getModel?.()?.getValue?.() ?? activeTab.markdown)
-        : (selectionRaw as any)?.snapshot ?? activeTab.markdown;
-    const selection: InlineChatSelection =
-      activeTab.mode === 'markdown'
-        ? {
-            mode: 'markdown',
-            tabId: activeTab.id,
-            selectedText: selectionRaw.selectedText,
-            selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
-            cursorContext: (selectionRaw as any).cursorContext,
-            displayText: (selectionRaw as any).displayText,
-            startOffset: (selectionRaw as any).startOffset,
-            endOffset: (selectionRaw as any).endOffset,
-            snapshot,
-          }
-        : {
-            mode: 'rich',
-            tabId: activeTab.id,
-            selectedText: selectionRaw.selectedText,
-            selectedMarkdown: (selectionRaw as any)?.selectedMarkdown,
-            selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
-            cursorContext: (selectionRaw as any).cursorContext,
-            displayText: (selectionRaw as any).displayText,
-            displayMarkdown: (selectionRaw as any)?.displayMarkdown,
-            from: (selectionRaw as any).from,
-            to: (selectionRaw as any).to,
-            snapshot,
-          };
-
-    setInlineChatError(null);
-    setInlineChatSelection(selection);
-    setInlineChatOpen(true);
-    setInlineChatFocusNonce((n) => n + 1);
-  };
-
-  const askInlineChatRef = useRef(askInlineChat);
-  useEffect(() => {
-    askInlineChatRef.current = askInlineChat;
-  }, [askInlineChat]);
-
   type EditorPatch = {
     replacement?: string;
     format?: string;
     notes?: string;
   };
 
-  const sendInlineChatInstruction = async (instruction: string, mediaFiles?: MediaFile[]) => {
-    if (!activeTab) return;
-    if (!inlineChatSelection) {
-      addToast('Seleção do editor não está disponível.', 'error');
-      return;
-    }
+  const sendEditorChatModalMessage = async (
+    instruction: string,
+    mediaFiles: MediaFile[] | undefined,
+    inlineChatSelection: InlineChatSelection,
+    session?: WorkspaceChatModalSession,
+  ): Promise<WorkspaceChatSendPlan> => {
+    if (!activeTab) return null;
 
-    const chatState = useChatStore.getState();
-    if (chatState.isLoading) {
-      addToast('O chat já está respondendo. Aguarde terminar.', 'info');
-      return;
-    }
+    // Não bloquear pelo `isLoading` global: o chat modal partilha o chatStore e um estado
+    // preso (ou outro painel) desativava o input sem feedback claro; `sendMessage` já
+    // trata pedidos em paralelo / substitui listeners.
 
-    // Se não há conversa ativa no chatStore, cria uma
-    if (!chatState.activeConversationId) {
-      try {
-        await chatState.createConversation();
-      } catch {
-        addToast('Não foi possível criar uma conversa para o chat inline.', 'error');
-        return;
-      }
-    }
-
-    const expectedConversationId = useChatStore.getState().activeConversationId ?? undefined;
+    const expectedConversationId = session?.conversationId ?? useChatStore.getState().activeConversationId ?? undefined;
 
     const beforeMessages = useChatStore.getState().getMessages();
     const afterMessageId = getMaxNumericMessageId(beforeMessages as Message[]);
 
     const trimmed = String(instruction || '').trim();
-    if (!trimmed) return;
+    if (!trimmed) return null;
 
-    const prompt = buildEditorPatchPrompt({
-      instruction: trimmed,
-      selectedText:
-        inlineChatSelection.mode === 'rich'
-          ? String(inlineChatSelection.selectedMarkdown || inlineChatSelection.selectedText || '')
-          : inlineChatSelection.selectedText,
-      format: 'markdown',
-      selectionIsEmpty: !!inlineChatSelection.selectionIsEmpty,
-      cursorContext: inlineChatSelection.cursorContext,
-      filePath: activeTab?.filePath ?? undefined,
-    });
+    const prompt = trimmed;
+    const editorSurfaceTab = wsActiveTab ?? {
+      type: 'editor',
+      title: activeTab.title,
+      state: {
+        filePath: activeTab.filePath ?? undefined,
+        draftId: activeTab.draftId ?? undefined,
+      },
+    };
+    const surfaceContext = inlineChatSelection.mode === 'rich'
+      ? {
+          mode: 'rich',
+          selectedText: inlineChatSelection.selectedText,
+          selectedMarkdown: inlineChatSelection.selectedMarkdown,
+          selectionIsEmpty: inlineChatSelection.selectionIsEmpty,
+          cursorContext: inlineChatSelection.cursorContext,
+          from: inlineChatSelection.from,
+          to: inlineChatSelection.to,
+        }
+      : {
+          mode: 'markdown',
+          selectedText: inlineChatSelection.selectedText,
+          selectionIsEmpty: inlineChatSelection.selectionIsEmpty,
+          cursorContext: inlineChatSelection.cursorContext,
+          startOffset: inlineChatSelection.startOffset,
+          endOffset: inlineChatSelection.endOffset,
+        };
 
     const runId = (inlineChatRunIdRef.current += 1);
-    setInlineChatError(null);
+    useWorkspaceChatModalStore.getState().setAdapterError(null);
 
     const isToolCallingEnabledForProfileSlug = async (slug: string): Promise<boolean> => {
       const s = String(slug || '').trim();
@@ -1614,7 +1551,7 @@ export default function EditorPage() {
         const s = selection;
 
         if (currentActiveDocId !== s.tabId) {
-          addToast('Abra a aba original do editor para aplicar esta alteração.', 'info');
+          addToast(t('editor.chatModal.openOriginalTabToApply'), 'info');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1633,7 +1570,7 @@ export default function EditorPage() {
 
         // Se o conteúdo mudou desde o snapshot, evita aplicar offsets errados.
         if (!applied.ok) {
-          addToast('O texto selecionado mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
+          addToast(t('editor.chatModal.selectionChangedRetry'), 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1643,7 +1580,7 @@ export default function EditorPage() {
         setDocMarkdown(s.tabId, nextMarkdown);
         updateLatestMarkdownForTab(s.tabId, nextMarkdown);
         schedulePersistForTab(s.tabId);
-        addToast('Alteração aplicada', 'success');
+        addToast(t('editor.chatModal.patchApplied'), 'success');
 
         requestAnimationFrame(() => {
           try {
@@ -1667,20 +1604,20 @@ export default function EditorPage() {
       } else {
         const s = selection;
         if (currentActiveDocId !== s.tabId) {
-          addToast('Abra a aba original do editor para aplicar esta alteração.', 'info');
+          addToast(t('editor.chatModal.openOriginalTabToApply'), 'info');
           setIsAsking(false);
           focusEditorSoon();
           return;
         }
         const rich = richEditorRef.current;
         if (!rich) {
-          addToast('Editor rico não está pronto.', 'error');
+          addToast(t('editor.chatModal.richEditorNotReady'), 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
         }
 
-        // Evita aplicar em um range errado caso a seleção tenha mudado enquanto o mini-chat estava aberto.
+        // Evita aplicar em um range errado caso a seleção tenha mudado enquanto o chat estava aberto.
         try {
           const currentSel = rich.state?.selection;
           const expectedEmpty = !!s.selectionIsEmpty;
@@ -1703,20 +1640,20 @@ export default function EditorPage() {
 
           if (!validation.ok) {
             if (validation.reason === 'no_selection') {
-              addToast('Não foi possível ler a seleção atual do editor rico. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.richSelectionReadFailed'), 'error');
             } else if (validation.reason === 'selected_text_mismatch') {
-              addToast('O texto selecionado mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.selectionChangedRetry'), 'error');
             } else if (validation.reason === 'cannot_read_selected_text') {
-              addToast('Não foi possível validar a seleção do editor rico. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.richSelectionValidateFailed'), 'error');
             } else {
-              addToast('A seleção mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.selectionSnapshotChanged'), 'error');
             }
             setIsAsking(false);
             focusEditorSoon();
             return;
           }
         } catch {
-          addToast('Não foi possível validar a seleção do editor rico. Refazer a seleção e tentar novamente.', 'error');
+          addToast(t('editor.chatModal.richSelectionValidateFailed'), 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1725,13 +1662,12 @@ export default function EditorPage() {
         const isMarkdown = patch?.format === 'markdown';
         const contentToInsert = !isMarkdown ? replacement : markdownToHtml(replacement);
         applyRichTextInsert({ rich, from: s.from, to: s.to, contentToInsert });
-        addToast('Alteração aplicada', 'success');
+        addToast(t('editor.chatModal.patchApplied'), 'success');
         flushActiveRichMarkdownNow();
       }
 
-      setInlineChatError(null);
-      setInlineChatSelection(null);
-      setInlineChatOpen(false);
+      useWorkspaceChatModalStore.getState().setAdapterError(null);
+      useWorkspaceChatModalStore.getState().close();
       setIsAsking(false);
       focusEditorSoon();
     };
@@ -1774,77 +1710,166 @@ export default function EditorPage() {
         return;
       }
 
-      addToast('Alteração rejeitada', 'info');
+      addToast(t('editor.chatModal.patchRejected'), 'info');
       setIsAsking(false);
-      // Mantém o mini-chat aberto para você criticar/explicar detalhes.
-      // Apenas devolve o foco para o input do mini-chat.
-      setInlineChatFocusNonce((n) => n + 1);
+      // Mantém o chat modal aberto para você criticar/explicar detalhes.
+      // Apenas devolve o foco para o input do chat.
+      useWorkspaceChatModalStore.getState().bumpFocus();
     };
 
     try {
       setIsAsking(true);
 
       // Regra importante:
-      // - tools ON  => edit_file com confirmação contextual (Go-side); frontend fecha o mini-chat
+      // - tools ON  => edit_file com confirmação contextual (Go-side); frontend fecha o chat modal
       // - tools OFF => body-only (extrai ```editor_patch``` do texto e confirma aqui)
       const toolCallingEnabled = await isToolCallingEnabledForProfileSlug(effectiveProfileSlug);
 
-      // Com tools ativas, edit_file precisa do caminho do arquivo. Drafts sem filePath não são suportados.
-      if (toolCallingEnabled && !activeTab?.filePath) {
-        addToast('Salve o arquivo antes de usar o assistente inline', 'warning');
-        setIsAsking(false);
-        return;
-      }
+      // Drafts sem filePath não conseguem usar edit_file; nesse caso, cai para o
+      // mesmo fluxo principal com fallback body-only e aplicação local do patch.
+      const canUseToolCalling = toolCallingEnabled && !!activeTab?.filePath;
+      const surfaceParams = buildChatSurfaceParams(editorSurfaceTab, {
+        profileSlug: effectiveProfileSlug,
+        context: surfaceContext,
+      });
 
       const donePromise = waitForChatDone(expectedConversationId);
+      return {
+        content: prompt,
+        mediaFiles,
+        paramsOverride: surfaceParams,
+        afterSend: async () => {
+          try {
+            await donePromise;
 
-      if (toolCallingEnabled) {
-        await useChatStore.getState().sendMessage(prompt, mediaFiles, {
-          profileSlug: effectiveProfileSlug,
-          tabType: 'editor',
-          activeFilePath: activeTab?.filePath ?? undefined,
-        });
-      } else {
-        await useChatStore.getState().sendMessage(prompt, mediaFiles, { profileSlug: effectiveProfileSlug });
-      }
+            if (runId !== inlineChatRunIdRef.current) return;
 
-      await donePromise;
+            // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
+            // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
+            if (canUseToolCalling) {
+              useWorkspaceChatModalStore.getState().setAdapterError(null);
+              useWorkspaceChatModalStore.getState().close();
+              setIsAsking(false);
+              focusEditorSoon();
+              return;
+            }
 
-      if (runId !== inlineChatRunIdRef.current) return;
+            // Fallback (sem tool calling): extrai patch do corpo da resposta e confirma.
+            const extracted = await waitForEditorPatch({
+              afterMessageId,
+              timeoutMs: 8000,
+            });
+            if (!extracted.ok) {
+              const errText = String(extracted.error || '').trim();
+              if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
+                addToast(t('editor.chatModal.patchNotApplicable'), 'error');
+              }
+              useWorkspaceChatModalStore.getState().setAdapterError(errText || t('editor.chatModal.patchExtractDefault'));
+              setIsAsking(false);
+              return;
+            }
 
-      // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
-      // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
-      if (toolCallingEnabled) {
-        setInlineChatError(null);
-        setInlineChatSelection(null);
-        setInlineChatOpen(false);
-        setIsAsking(false);
-        focusEditorSoon();
-        return;
-      }
-
-      // Fallback (sem tool calling): extrai patch do corpo da resposta e confirma.
-      const extracted = await waitForEditorPatch({
-        afterMessageId,
-        timeoutMs: 8000,
-      });
-      if (!extracted.ok) {
-        const errText = String(extracted.error || '').trim();
-        if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
-          addToast('Resposta não contém patch aplicável', 'error');
-        }
-        setInlineChatError(errText || 'Nenhum patch encontrado');
-        setIsAsking(false);
-        return;
-      }
-
-      await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
+            await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
+          } catch (e: unknown) {
+            console.error('[EditorPage] inline chat error:', e);
+            useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
+            setIsAsking(false);
+          }
+        },
+        onSendError: (e: unknown) => {
+          console.error('[EditorPage] inline chat error:', e);
+          useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
+          setIsAsking(false);
+        },
+      };
     } catch (e: unknown) {
       console.error('[EditorPage] inline chat error:', e);
-      setInlineChatError(getErrorMessage(e) || 'Erro ao pedir alteração ao chat');
+      useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
       setIsAsking(false);
+      return null;
     }
   };
+
+  const sendEditorChatModalRef = useRef(sendEditorChatModalMessage);
+  sendEditorChatModalRef.current = sendEditorChatModalMessage;
+
+  const editorChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
+    if (!wsActiveTab || wsActiveTab.type !== 'editor') return null;
+
+    return {
+      prepare: async (): Promise<WorkspaceChatModalPrepareResult> => {
+        if (!activeTab) return { ok: false, message: t('workspace.chatModal.panelLoading') };
+        if (activeTab.mode === 'view') {
+          addToast(t('editor.chatModal.prepareNeedCodeOrRich'), 'info');
+          return { ok: false };
+        }
+        if (isAsking) {
+          return { ok: false, message: t('workspace.chatModal.panelLoading') };
+        }
+
+        const selectionRaw =
+          activeTab.mode === 'markdown'
+            ? getSelectionSnapshot()
+            : activeTab.mode === 'rich'
+              ? getRichSelectionSnapshot()
+              : null;
+
+        if (!selectionRaw) {
+          addToast(t('editor.chatModal.prepareSelectionFailed'), 'error');
+          return { ok: false };
+        }
+
+        if (selectionRaw.selectedText.length > 20000) {
+          addToast(t('editor.chatModal.prepareSelectionTooLarge', { max: 20000 }), 'error');
+          return { ok: false };
+        }
+
+        const snapshot =
+          activeTab.mode === 'markdown'
+            ? (editorRef.current?.getModel?.()?.getValue?.() ?? activeTab.markdown)
+            : (selectionRaw as any)?.snapshot ?? activeTab.markdown;
+        const selection: InlineChatSelection =
+          activeTab.mode === 'markdown'
+            ? {
+                mode: 'markdown',
+                tabId: activeTab.id,
+                selectedText: selectionRaw.selectedText,
+                selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
+                cursorContext: (selectionRaw as any).cursorContext,
+                displayText: (selectionRaw as any).displayText,
+                startOffset: (selectionRaw as any).startOffset,
+                endOffset: (selectionRaw as any).endOffset,
+                snapshot,
+              }
+            : {
+                mode: 'rich',
+                tabId: activeTab.id,
+                selectedText: selectionRaw.selectedText,
+                selectedMarkdown: (selectionRaw as any)?.selectedMarkdown,
+                selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
+                cursorContext: (selectionRaw as any).cursorContext,
+                displayText: (selectionRaw as any).displayText,
+                displayMarkdown: (selectionRaw as any)?.displayMarkdown,
+                from: (selectionRaw as any).from,
+                to: (selectionRaw as any).to,
+                snapshot,
+              };
+
+        const contextDisplay =
+          selection.displayText ||
+          (selection.mode === 'rich' ? selection.selectedMarkdown : '') ||
+          selection.selectedText ||
+          '';
+
+        useWorkspaceChatModalStore.getState().setAdapterError(null);
+        return { ok: true, contextDisplay, meta: selection };
+      },
+      send: (instruction, media, meta, session) =>
+        sendEditorChatModalRef.current(instruction, media, meta as InlineChatSelection, session),
+    };
+  }, [wsActiveTab, activeTab, isAsking, addToast, editorReadyNonce, t]);
+
+  useRegisterWorkspaceChatAdapter(wsActiveTab?.id, editorChatModalAdapter);
 
   const openFile = async () => {
     try {
@@ -2065,7 +2090,7 @@ export default function EditorPage() {
     if (!activeTab) return;
     const fence = findMermaidFenceByIndex(activeTab.markdown, index);
     if (!fence) {
-      addToast('Não foi possível localizar o bloco Mermaid no Markdown.', 'error');
+      addToast(t('editor.chatModal.mermaidBlockNotFound'), 'error');
       return;
     }
     setActiveMermaidIndex(index);
@@ -2144,25 +2169,6 @@ export default function EditorPage() {
       autosaveTimersByTabRef.current = {};
     };
   }, []);
-
-  // Ctrl+Shift+I: pedir alteração ao chat
-  useEffect(() => {
-    const onKeyDown = async (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && (e.code === 'KeyI' || e.key === 'i' || e.key === 'I') && !e.altKey) {
-        e.preventDefault();
-        if (isAsking) return;
-        if (activeTab?.mode === 'view') {
-          addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
-          return;
-        }
-        if (isModalOpen()) return;
-        await askInlineChatRef.current();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [isAsking, activeTab?.mode, addToast]);
 
   const fileMenuItems = useMemo(() => {
     const canSave = !!activeTab && (!activeTab.filePath || isExternalConflictLocked(activeTab.id));
@@ -2297,15 +2303,15 @@ export default function EditorPage() {
         onClick: async () => {
           if (isAsking) return;
           if (activeTab?.mode === 'view') {
-            addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
+            addToast(t('editor.chatModal.prepareNeedCodeOrRich'), 'info');
             return;
           }
-          await askInlineChat();
+          await useWorkspaceChatModalStore.getState().requestOpen();
         },
         disabled: !activeTab || isAsking,
       },
     ];
-  }, [activeTab, askInlineChat, isAsking, addToast]);
+  }, [activeTab, isAsking, addToast, t]);
 
   // Atalhos de arquivos
   useEffect(() => {
@@ -2377,21 +2383,6 @@ export default function EditorPage() {
           </div>
         }
         actions={actions}
-        rightEnd={
-          <ProfilePicker
-            value={effectiveProfileSlug}
-            onChange={(slug) => {
-              if (wsActiveTab) {
-                void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
-              }
-            }}
-            variant="toolbar"
-            label={t('workspace.tabProfileLabel', 'Perfil')}
-            description={t('workspace.tabProfileDescription')}
-            icon={<EditOutlined />}
-            maxWidth="180px"
-          />
-        }
         ariaLabel={t('editor.aria.toolbar')}
       />
 
@@ -2537,21 +2528,6 @@ export default function EditorPage() {
           </div>
         )}
       </div>
-
-      <EditorInlineChatModal
-        isOpen={inlineChatOpen}
-        title="Perguntar ao chat"
-        selectedText={
-          inlineChatSelection?.displayText ||
-          (inlineChatSelection?.mode === 'rich' ? inlineChatSelection.selectedMarkdown : '') ||
-          inlineChatSelection?.selectedText ||
-          ''
-        }
-        error={inlineChatError}
-        focusNonce={inlineChatFocusNonce}
-        onClose={closeInlineChatModal}
-        onSend={sendInlineChatInstruction}
-      />
 
       <MermaidEditorModal
         isOpen={activeMermaidIndex !== null || richMermaidSession !== null}

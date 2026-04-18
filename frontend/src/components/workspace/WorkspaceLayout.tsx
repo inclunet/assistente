@@ -16,6 +16,7 @@ import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
+import { WorkspaceChatModal } from './WorkspaceChatModal';
 import './WorkspaceLayout.css';
 
 export function WorkspaceLayout() {
@@ -211,6 +212,9 @@ export function WorkspaceLayout() {
         id: 'contentArea',
         label: t('landmarks.contentArea', 'Área de conteúdo'),
         focus: () => {
+          if (document.querySelector('.ws-tabs__tab-edit')) {
+            return false;
+          }
           const area = document.querySelector('.ws-content .ws-content-area') as HTMLElement | null;
           if (!area) return false;
 
@@ -278,6 +282,9 @@ export function WorkspaceLayout() {
         <WorkspaceToolbar />
         {workspace && <WorkspaceTabList />}
         <WorkspaceContent />
+        {/* Rota index (WorkspaceIndexRoute em router.tsx); conteúdo real vem de WorkspaceContent */}
+        <Outlet />
+        <WorkspaceChatModal />
       </div>
     );
   }

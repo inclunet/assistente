@@ -106,10 +106,12 @@ func (s *Service) RunAgenticLoop(
 	}
 
 	// Propaga contexto de invocação (tab type + arquivo ativo) para as tools
-	if params.TabType != "" {
+	if params.TabType != "" || params.ActiveFilePath != "" || params.SurfaceStateJSON != "" || params.SurfaceContextJSON != "" {
 		ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
 			TabType:        params.TabType,
 			ActiveFilePath: params.ActiveFilePath,
+			SurfaceState:   chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[agent] surface state payload"),
+			SurfaceContext: chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[agent] surface context payload"),
 		})
 	}
 

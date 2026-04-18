@@ -152,9 +152,20 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   }, [focusInput, wsActiveTab, updateWsTab]);
 
   const handleHistoryChange = async (conversationId: number, conversation: { title?: string }) => {
+    const nextTitle = conversation.title || t('chat.newConversation');
     try {
-      await loadConversation(conversationId);
-      announce(`${t('chat.conversationLoaded')}: ${conversation.title || t('chat.conversationLoaded')}`);
+      if (wsActiveTab?.type === 'chat') {
+        await Promise.all([
+          loadConversation(conversationId),
+          updateWsTab(wsActiveTab.id, {
+            conversation_id: conversationId,
+            title: nextTitle,
+          }),
+        ]);
+      } else {
+        await loadConversation(conversationId);
+      }
+      announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
     } catch (error) {
       console.error('[ChatToolbar] Erro ao carregar conversa:', error);
       announce(t('chat.loadError'));

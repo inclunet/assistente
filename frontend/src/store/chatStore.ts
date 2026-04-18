@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   SendMessage,
+  RetryMessage,
   GetMessages,
   GetConversationInfo,
   EnsureConversation,
@@ -149,9 +150,56 @@ const getErrorMessage = (error: unknown): string => {
 };
 
 const activeListeners = new Map<string, () => void>();
+let streamingMessageSeq = 0;
 
 const streamUpdateTimers = new Map<string, NodeJS.Timeout>();
 const pendingStreamUpdates = new Map<string, { messageId: string; content: string }>();
+
+const createStreamingMessageId = (conversationId: number): string => {
+  streamingMessageSeq += 1;
+  return `streaming-${conversationId}-${streamingMessageSeq}`;
+};
+
+const hasMessageId = (
+  nodes: MessageNode[] | undefined,
+  targetId: string,
+  excludeId?: string,
+): boolean => {
+  if (!nodes || nodes.length === 0) return false;
+  for (const node of nodes) {
+    const id = String(node.message.id);
+    if (id === targetId && id !== excludeId) return true;
+    if (node.children?.length && hasMessageId(node.children, targetId, excludeId)) return true;
+  }
+  return false;
+};
+
+const finalizeStreamingNode = (
+  conversation: ActiveConversation,
+  syntheticId: string,
+  finalId?: string | null,
+): ActiveConversation => {
+  const collidesWithExistingRealId = !!finalId && hasMessageId(conversation.threadedMessages, finalId, syntheticId);
+  const markDone = (nodes: MessageNode[]): MessageNode[] => nodes.flatMap((node) => {
+    const id = String(node.message.id);
+    if (id === syntheticId) {
+      if (collidesWithExistingRealId) {
+        return [];
+      }
+      node.message.isStreaming = false;
+      if (finalId) node.message.id = finalId;
+    } else if (collidesWithExistingRealId && finalId && id === finalId) {
+      node.message.isStreaming = false;
+    }
+    if (node.children?.length) node.children = markDone(node.children);
+    return [node];
+  });
+
+  return {
+    ...conversation,
+    threadedMessages: markDone(conversation.threadedMessages),
+  };
+};
 
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -227,6 +275,8 @@ interface ChatStore {
 
   createConversation: (title?: string) => Promise<number>;
   loadConversation: (id: number) => Promise<void>;
+  /** Limpa a conversa ativa (ex.: ao focar editor/terminal/tasklist sem conversa até abrir o chat modal). */
+  clearActiveConversation: () => void;
 
   updateMessage: (messageId: string, content: string) => void;
   updateMessageReasoning: (messageId: string, reasoning: string) => void;
@@ -239,6 +289,17 @@ interface ChatStore {
   isReasoningExpanded: (messageId: string) => boolean;
 
   sendMessage: (content: string, mediaFiles?: MediaFile[], paramsOverride?: Partial<llm.ChatParams>) => Promise<void>;
+  sendMessageToConversation: (
+    conversationId: number,
+    content: string,
+    mediaFiles?: MediaFile[],
+    paramsOverride?: Partial<llm.ChatParams>,
+  ) => Promise<void>;
+  retryMessageToConversation: (
+    conversationId: number,
+    messageId: number,
+    paramsOverride?: Partial<llm.ChatParams>,
+  ) => Promise<void>;
   stopStreaming: () => void;
 
   getActiveConversation: () => ActiveConversation | null;
@@ -263,6 +324,368 @@ interface ChatStore {
 }
 
 export const useChatStore = create<ChatStore>()((set, get) => {
+  let loadConversationSeq = 0;
+
+  const sendMessageInternal = async (
+    conversationId: number,
+    content: string,
+    mediaFiles?: MediaFile[],
+    paramsOverride?: Partial<llm.ChatParams>,
+    retryMessageId?: number,
+  ) => {
+    if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
+      announce(i18next.t('chat.validation.messageTooLarge', {
+        defaultValue: 'Mensagem muito grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
+        size: content.length,
+        max: MAX_MESSAGE_CONTENT_SIZE,
+      }));
+      return;
+    }
+
+    if (mediaFiles && mediaFiles.length > 0) {
+      const totalSize = mediaFiles.reduce((acc, f) => acc + f.file.size, 0);
+      const estimatedBase64Size = Math.ceil(totalSize * 1.37);
+      if (estimatedBase64Size > MAX_MEDIA_SIZE) {
+        announce(i18next.t('chat.validation.mediaTooLarge', {
+          defaultValue: 'Arquivos de mídia muito grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
+          size: Math.round(estimatedBase64Size / 1024 / 1024),
+          max: Math.round(MAX_MEDIA_SIZE / 1024 / 1024),
+        }));
+        return;
+      }
+    }
+
+    const conversationIdStr = conversationId.toString();
+
+    // Backend-driven: sem addMessage local — user msg vem do chat:messages_ready, assistant do chat:stream
+    set({ isLoading: true, completedSegments: [], activeToolCalls: [] });
+    playSendSound();
+
+    // ID determinístico para placeholder de streaming (substituído pelo ID real do backend em chat:done)
+    const streamingMsgId = createStreamingMessageId(conversationId);
+    let cleanupExecuted = false;
+    let streamingAnnounced = false;
+    let assistantNodeCreated = false;
+
+    // Declarar unsubs antes de cleanup para evitar TDZ (temporal dead zone)
+    const noop = () => { /* no-op */ };
+    let unsubMessagesReady = noop;
+    let unsubStream = noop;
+    let unsubThinking = noop;
+    let unsubToolStart = noop;
+    let unsubToolEnd = noop;
+    let unsubSegmentDone = noop;
+    let unsubDone = noop;
+    let unsubError = noop;
+    let unsubSpeak = noop;
+
+    const ensureAssistantNode = () => {
+      if (assistantNodeCreated) return;
+      assistantNodeCreated = true;
+      const assistantMsg = new main.EnrichedMessage({
+        id: streamingMsgId,
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+        conversationId,
+        isStreaming: true,
+        internal: false,
+        createdAt: new Date().toISOString(),
+      });
+      const assistantNode = new main.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
+      set((state) => ({
+        activeConversation: state.activeConversation
+          ? { ...state.activeConversation, threadedMessages: [...state.activeConversation.threadedMessages, assistantNode] }
+          : state.activeConversation,
+        streamingMessageId: streamingMsgId,
+      }));
+    };
+
+    const cleanup = () => {
+      if (cleanupExecuted) return;
+      cleanupExecuted = true;
+      unsubMessagesReady();
+      unsubStream();
+      unsubThinking();
+      unsubToolStart();
+      unsubToolEnd();
+      unsubSegmentDone();
+      unsubDone();
+      unsubError();
+      unsubSpeak();
+      activeListeners.delete(conversationIdStr);
+      set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
+    };
+
+    const existingCleanup = activeListeners.get(conversationIdStr);
+    if (existingCleanup) {
+      existingCleanup();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    // chat:error → erro de validação do backend (tamanho, provider, etc.)
+    unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
+      if (event.conversationId !== conversationId && event.conversationId !== 0) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+      set((state) => {
+        if (!state.activeConversation) return state;
+        return {
+          activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+        };
+      });
+      announce(event.error);
+      cleanup();
+    });
+
+    // chat:speak → TTS proativo disparado pelo backend antes de chat:done, para evitar cleanup prematuro dos listeners
+    unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
+      if (event.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+      void handleChatSpeak(event).catch((err) => {
+        announce(i18next.t('chat.autoReadError'));
+        console.error('[chat:speak] falha ao processar evento TTS', err);
+      });
+    });
+
+    // chat:messages_ready → insere mensagem do usuário com ID REAL do backend (sem temp ID)
+    unsubMessagesReady = EventsOn('chat:messages_ready', (data: ChatMessagesReadyEvent) => {
+      if (data.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+      if (!data.userMessageId) return;
+      if (hasMessageId(get().activeConversation?.threadedMessages, String(data.userMessageId))) return;
+      const userMsg = new main.EnrichedMessage({
+        id: data.userMessageId.toString(),
+        role: 'user',
+        content: data.userContent || content,
+        timestamp: Date.now(),
+        conversationId: data.conversationId,
+        isStreaming: false,
+        internal: false,
+        createdAt: new Date().toISOString(),
+      });
+      const userNode = new main.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
+      set((state) => ({
+        activeConversation: state.activeConversation
+          ? {
+              ...state.activeConversation,
+              threadedMessages: [...state.activeConversation.threadedMessages, userNode],
+            }
+          : state.activeConversation,
+      }));
+    });
+
+    // chat:stream → cria placeholder de assistant na primeira chunk, atualiza conteúdo
+    unsubStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
+      if (event.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+
+      if (event.content && !event.done && !event.error) {
+        ensureAssistantNode();
+        if (!streamingAnnounced) {
+          streamingAnnounced = true;
+          announce(i18next.t('chat.announce.assistantResponding'), 'polite');
+        }
+        debouncedUpdateMessage(streamingMsgId, event.content, get().updateMessage);
+      }
+
+      if (event.error) {
+        ensureAssistantNode();
+        flushPendingUpdate(streamingMsgId, get().updateMessage);
+        get().updateMessage(
+          streamingMsgId,
+          i18next.t('chat.errorPrefix', { message: event.error }),
+        );
+        set((state) => {
+          if (!state.activeConversation) return state;
+          return {
+            activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+          };
+        });
+        cleanup();
+      }
+
+      if (event.done) {
+        ensureAssistantNode();
+        flushPendingUpdate(streamingMsgId, get().updateMessage);
+        if (event.content) get().updateMessage(streamingMsgId, event.content);
+
+        const backendAssistantId = event.messageId && event.messageId > 0
+          ? event.messageId.toString() : null;
+
+        set((state) => {
+          if (!state.activeConversation) return state;
+          const nextConversation = finalizeStreamingNode(state.activeConversation, streamingMsgId, backendAssistantId);
+          return {
+            activeConversation: nextConversation,
+          };
+        });
+
+        const currentState = get();
+        const flatMessages = flattenThreadedMessages(currentState.activeConversation?.threadedMessages);
+        const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || streamingMsgId));
+        if (finalMessage?.content) {
+          const isActiveConv = currentState.activeConversationId === conversationId;
+          if (isActiveConv) playReceiveSound();
+        }
+      }
+    });
+
+    unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
+      if (event.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+      ensureAssistantNode();
+      if (event.started) {
+        set({ isThinking: true, streamingReasoning: event.content || '' });
+        announce(i18next.t('chat.announce.modelThinking'), 'polite');
+      } else if (event.done) {
+        set({ isThinking: false });
+        if (event.content) get().updateMessageReasoning(streamingMsgId, event.content);
+      } else {
+        set({ streamingReasoning: event.content || '' });
+      }
+    });
+
+    unsubToolStart = EventsOn('chat:tool_start', (data: ChatToolStartEvent) => {
+      if (data.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+      ensureAssistantNode();
+      set((state) => ({
+        activeToolCalls: [
+          ...state.activeToolCalls,
+          { name: data.name, callId: data.callId, args: data.args, status: 'running' as const },
+        ],
+      }));
+    });
+
+    unsubToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
+      if (data.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+      set((state) => ({
+        activeToolCalls: state.activeToolCalls.map((tc) =>
+          tc.callId === data.callId
+            ? { ...tc, status: (data.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: data.summary }
+            : tc
+        ),
+      }));
+      if (data.status === 'error') announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
+    });
+
+    unsubSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
+      if (data.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+      if (data.hasMore) {
+        const state = get();
+        const newSegments: TurnSegment[] = [...state.completedSegments];
+        if (state.activeToolCalls.length > 0) {
+          const toolCount = state.activeToolCalls.length;
+          newSegments.push({
+            type: 'tool_calls',
+            toolCalls: state.activeToolCalls.map(tc => ({
+              id: tc.callId,
+              type: 'function',
+              function: { name: tc.name, arguments: tc.args || '' },
+              result: tc.summary,
+            })),
+          });
+          announce(toolCount === 1 ? state.activeToolCalls[0].name : `${toolCount} ferramentas`, 'polite');
+        }
+        if (data.content) {
+          newSegments.push({ type: 'text', content: data.content });
+        }
+        set({ completedSegments: newSegments, activeToolCalls: [] });
+        flushPendingUpdate(streamingMsgId, get().updateMessage);
+        get().updateMessage(streamingMsgId, '');
+      }
+    });
+
+    unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
+      if (event.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+
+      set((state) => {
+        if (!state.activeConversation) return state;
+        return {
+          activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+        };
+      });
+
+      if (event.hadToolCalls && get().activeConversationId === conversationId) {
+        GetMessages(conversationId, null).then((backendNodes) => {
+          const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
+          set((state) => {
+            if (state.activeConversationId !== conversationId) return state;
+            return {
+              activeConversation: state.activeConversation
+                ? { ...state.activeConversation, threadedMessages: messageNodes }
+                : null,
+              completedSegments: [],
+            };
+          });
+        }).catch((err) => {
+          console.error('[Chat] Erro ao recarregar mensagens:', err);
+        });
+      }
+
+      cleanup();
+    });
+
+    activeListeners.set(conversationIdStr, cleanup);
+
+    try {
+      let mediaJson = '';
+      if (mediaFiles && mediaFiles.length > 0) {
+        const mediaDataArray: MediaData[] = [];
+        for (const mediaFile of mediaFiles) {
+          const base64Data = await fileToBase64(mediaFile.file);
+          mediaDataArray.push({
+            name: mediaFile.file.name,
+            type: mediaFile.file.type,
+            data: base64Data,
+            size: mediaFile.file.size,
+          });
+        }
+        mediaJson = JSON.stringify(mediaDataArray);
+      }
+
+      const mergedParams: llm.ChatParams = {
+        model: paramsOverride?.model ?? '',
+        temperature: paramsOverride?.temperature ?? 0,
+        maxTokens: paramsOverride?.maxTokens ?? 0,
+        maxTokensMode: paramsOverride?.maxTokensMode,
+        topP: paramsOverride?.topP,
+        reasoningEffort: paramsOverride?.reasoningEffort,
+        profileSlug: paramsOverride?.profileSlug ?? get().contextProfileSlug ?? undefined,
+        tabType: paramsOverride?.tabType,
+        activeFilePath: paramsOverride?.activeFilePath,
+        surfaceStateJson: paramsOverride?.surfaceStateJson,
+        surfaceContextJson: paramsOverride?.surfaceContextJson,
+      };
+      if (retryMessageId) {
+        await RetryMessage(conversationId, retryMessageId, mergedParams);
+      } else {
+        await SendMessage(conversationId, content, mediaJson, mergedParams);
+      }
+
+    } catch (error: unknown) {
+      if (cleanupExecuted) return; // Already handled by chat:error listener
+      console.error('[Chat] Error sending message:', error);
+      cleanup();
+      const errorMsg = getErrorMessage(error);
+      ensureAssistantNode();
+      get().updateMessage(
+        streamingMsgId,
+        i18next.t('chat.sendErrorPrefix', { message: errorMsg }),
+      );
+      set((state) => {
+        if (!state.activeConversation) return state;
+        return {
+          activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+        };
+      });
+      set({ isLoading: false, streamingMessageId: null });
+    }
+  };
+
   return {
     activeConversationId: null,
     activeConversation: null,
@@ -310,16 +733,44 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return conv.id;
     },
 
+    clearActiveConversation: () => {
+      messageAudioService.stopCurrentAudio();
+      ttsService.stop();
+      // Invalida loads pendentes para não restaurarem uma conversa antiga após troca de aba.
+      loadConversationSeq++;
+      const prevId = get().activeConversationId;
+      if (prevId) {
+        const key = String(prevId);
+        const cleanup = activeListeners.get(key);
+        if (cleanup) {
+          cleanup();
+          activeListeners.delete(key);
+        }
+      }
+      set({
+        activeConversationId: null,
+        activeConversation: null,
+        isLoading: false,
+        streamingMessageId: null,
+        streamingReasoning: null,
+        isThinking: false,
+        activeToolCalls: [],
+        completedSegments: [],
+      });
+    },
+
     loadConversation: async (id) => {
       // Para TTS/áudio da conversa anterior ao trocar
       messageAudioService.stopCurrentAudio();
       ttsService.stop();
+      const seq = ++loadConversationSeq;
 
       try {
         const [conv, backendNodes] = await Promise.all([
           GetConversationInfo(id),
           GetMessages(id, null),
         ]);
+        if (seq !== loadConversationSeq) return;
         const messageNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
         set({
           activeConversationId: id,
@@ -333,6 +784,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           isInitialized: true,
         });
       } catch (error) {
+        if (seq !== loadConversationSeq) return;
         console.error('[Chat] Erro ao carregar conversa:', error);
         set({
           activeConversationId: id,
@@ -486,365 +938,37 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     sendMessage: async (content, mediaFiles, paramsOverride) => {
-      if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
-        announce(i18next.t('chat.validation.messageTooLarge', {
-          defaultValue: 'Mensagem muito grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
-          size: content.length,
-          max: MAX_MESSAGE_CONTENT_SIZE,
-        }));
-        return;
-      }
-
-      if (mediaFiles && mediaFiles.length > 0) {
-        const totalSize = mediaFiles.reduce((acc, f) => acc + f.file.size, 0);
-        const estimatedBase64Size = Math.ceil(totalSize * 1.37);
-        if (estimatedBase64Size > MAX_MEDIA_SIZE) {
-          announce(i18next.t('chat.validation.mediaTooLarge', {
-            defaultValue: 'Arquivos de mídia muito grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
-            size: Math.round(estimatedBase64Size / 1024 / 1024),
-            max: Math.round(MAX_MEDIA_SIZE / 1024 / 1024),
-          }));
-          return;
-        }
-      }
-
-      const conversationId = get().activeConversationId || 0;
+      const conversationId = get().activeConversationId ?? 0;
       if (conversationId === 0) {
-        console.error('[Chat] sendMessage called without active conversation');
+        console.error('[Chat] sendMessage sem conversa ativa (use ensureWorkspaceTabHasConversation ao abrir o painel)');
+        announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }
+      await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride);
+    },
 
-      const conversationIdStr = conversationId.toString();
-
-      // Backend-driven: sem addMessage local — user msg vem do chat:messages_ready, assistant do chat:stream
-      set({ isLoading: true, completedSegments: [], activeToolCalls: [] });
-      playSendSound();
-
-      // ID determinístico para placeholder de streaming (substituído pelo ID real do backend em chat:done)
-      const streamingMsgId = `streaming-${conversationId}`;
-      let cleanupExecuted = false;
-      let streamingAnnounced = false;
-      let assistantNodeCreated = false;
-
-      // Declarar unsubs antes de cleanup para evitar TDZ (temporal dead zone)
-      const noop = () => { /* no-op */ };
-      let unsubMessagesReady = noop;
-      let unsubStream = noop;
-      let unsubThinking = noop;
-      let unsubToolStart = noop;
-      let unsubToolEnd = noop;
-      let unsubSegmentDone = noop;
-      let unsubDone = noop;
-      let unsubError = noop;
-      let unsubSpeak = noop;
-
-      const ensureAssistantNode = () => {
-        if (assistantNodeCreated) return;
-        assistantNodeCreated = true;
-        const assistantMsg = new main.EnrichedMessage({
-          id: streamingMsgId,
-          role: 'assistant',
-          content: '',
-          timestamp: Date.now(),
-          conversationId,
-          isStreaming: true,
-          internal: false,
-          createdAt: new Date().toISOString(),
-        });
-        const assistantNode = new main.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
-        set((state) => ({
-          activeConversation: state.activeConversation
-            ? { ...state.activeConversation, threadedMessages: [...state.activeConversation.threadedMessages, assistantNode] }
-            : state.activeConversation,
-          streamingMessageId: streamingMsgId,
-        }));
-      };
-
-      const cleanup = () => {
-        if (cleanupExecuted) return;
-        cleanupExecuted = true;
-        unsubMessagesReady();
-        unsubStream();
-        unsubThinking();
-        unsubToolStart();
-        unsubToolEnd();
-        unsubSegmentDone();
-        unsubDone();
-        unsubError();
-        unsubSpeak();
-        activeListeners.delete(conversationIdStr);
-        set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
-      };
-
-      const existingCleanup = activeListeners.get(conversationIdStr);
-      if (existingCleanup) {
-        existingCleanup();
-        await new Promise(resolve => setTimeout(resolve, 0));
+    sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride) => {
+      if (!conversationId) {
+        console.error('[Chat] sendMessageToConversation sem conversationId explícito');
+        announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
+        return;
       }
-
-      // chat:error → erro de validação do backend (tamanho, provider, etc.)
-      unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
-        if (event.conversationId !== conversationId && event.conversationId !== 0) return;
-        if (!activeListeners.has(conversationIdStr)) return;
-        announce(event.error);
-        cleanup();
-      });
-
-      // chat:speak → TTS proativo disparado pelo backend antes de chat:done, para evitar cleanup prematuro dos listeners
-      unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
-        if (event.conversationId !== conversationId) return;
-        if (!activeListeners.has(conversationIdStr)) return;
-        void handleChatSpeak(event).catch((err) => {
-          announce(i18next.t('chat.autoReadError'));
-          console.error('[chat:speak] falha ao processar evento TTS', err);
-        });
-      });
-
-      // chat:messages_ready → insere mensagem do usuário com ID REAL do backend (sem temp ID)
-      unsubMessagesReady = EventsOn('chat:messages_ready', (data: ChatMessagesReadyEvent) => {
-        if (data.conversationId !== conversationId) return;
-        if (!activeListeners.has(conversationIdStr)) return;
-        if (!data.userMessageId) return;
-        const userMsg = new main.EnrichedMessage({
-          id: data.userMessageId.toString(),
-          role: 'user',
-          content: data.userContent || content,
-          timestamp: Date.now(),
-          conversationId: data.conversationId,
-          isStreaming: false,
-          internal: false,
-          createdAt: new Date().toISOString(),
-        });
-        const userNode = new main.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
-        set((state) => ({
-          activeConversation: state.activeConversation
-            ? { ...state.activeConversation, threadedMessages: [...state.activeConversation.threadedMessages, userNode] }
-            : state.activeConversation,
-        }));
-      });
-
-      // chat:stream → cria placeholder de assistant na primeira chunk, atualiza conteúdo
-      unsubStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
-        if (event.conversationId !== conversationId) return;
-        if (!activeListeners.has(conversationIdStr)) return;
-
-        if (event.content && !event.done && !event.error) {
-          ensureAssistantNode();
-          if (!streamingAnnounced) {
-            streamingAnnounced = true;
-            announce('Assistente está respondendo', 'polite');
-          }
-          debouncedUpdateMessage(streamingMsgId, event.content, get().updateMessage);
-        }
-
-        if (event.error) {
-          ensureAssistantNode();
-          flushPendingUpdate(streamingMsgId, get().updateMessage);
-          get().updateMessage(streamingMsgId, `Erro: ${event.error}`);
-          cleanup();
-        }
-
-        if (event.done) {
-          ensureAssistantNode();
-          flushPendingUpdate(streamingMsgId, get().updateMessage);
-          if (event.content) get().updateMessage(streamingMsgId, event.content);
-
-          const backendAssistantId = event.messageId && event.messageId > 0
-            ? event.messageId.toString() : null;
-
-          set((state) => {
-            if (!state.activeConversation) return state;
-            return {
-              activeConversation: {
-                ...state.activeConversation,
-                threadedMessages: state.activeConversation.threadedMessages.map((node) => {
-                  const markDone = (n: MessageNode): MessageNode => {
-                    if (n.message.id === streamingMsgId) {
-                      n.message.isStreaming = false;
-                      if (backendAssistantId) n.message.id = backendAssistantId;
-                    }
-                    if (n.children?.length) n.children = n.children.map(markDone);
-                    return n;
-                  };
-                  return markDone(node);
-                }),
-              },
-            };
-          });
-
-          const currentState = get();
-          const flatMessages = flattenThreadedMessages(currentState.activeConversation?.threadedMessages);
-          const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || streamingMsgId));
-          if (finalMessage?.content) {
-            const isActiveConv = currentState.activeConversationId === conversationId;
-            if (isActiveConv) playReceiveSound();
-          }
-        }
-      });
-
-      unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
-        if (event.conversationId !== conversationId) return;
-        if (!activeListeners.has(conversationIdStr)) return;
-        ensureAssistantNode();
-        if (event.started) {
-          set({ isThinking: true, streamingReasoning: event.content || '' });
-          announce('O modelo está pensando...', 'polite');
-        } else if (event.done) {
-          set({ isThinking: false });
-          if (event.content) get().updateMessageReasoning(streamingMsgId, event.content);
-        } else {
-          set({ streamingReasoning: event.content || '' });
-        }
-      });
-
-      unsubToolStart = EventsOn('chat:tool_start', (data: ChatToolStartEvent) => {
-        if (data.conversationId !== conversationId) return;
-        if (!activeListeners.has(conversationIdStr)) return;
-        ensureAssistantNode();
-        set((state) => ({
-          activeToolCalls: [
-            ...state.activeToolCalls,
-            { name: data.name, callId: data.callId, args: data.args, status: 'running' as const },
-          ],
-        }));
-      });
-
-      unsubToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
-        if (data.conversationId !== conversationId) return;
-        if (!activeListeners.has(conversationIdStr)) return;
-        set((state) => ({
-          activeToolCalls: state.activeToolCalls.map((tc) =>
-            tc.callId === data.callId
-              ? { ...tc, status: (data.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: data.summary }
-              : tc
-          ),
-        }));
-        if (data.status === 'error') announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
-      });
-
-      unsubSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
-        if (data.conversationId !== conversationId) return;
-        if (!activeListeners.has(conversationIdStr)) return;
-        if (data.hasMore) {
-          const state = get();
-          const newSegments: TurnSegment[] = [...state.completedSegments];
-          if (state.activeToolCalls.length > 0) {
-            const toolCount = state.activeToolCalls.length;
-            newSegments.push({
-              type: 'tool_calls',
-              toolCalls: state.activeToolCalls.map(tc => ({
-                id: tc.callId,
-                type: 'function',
-                function: { name: tc.name, arguments: tc.args || '' },
-                result: tc.summary,
-              })),
-            });
-            announce(toolCount === 1 ? state.activeToolCalls[0].name : `${toolCount} ferramentas`, 'polite');
-          }
-          if (data.content) {
-            newSegments.push({ type: 'text', content: data.content });
-          }
-          set({ completedSegments: newSegments, activeToolCalls: [] });
-          flushPendingUpdate(streamingMsgId, get().updateMessage);
-          get().updateMessage(streamingMsgId, '');
-        }
-      });
-
-      unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
-        if (event.conversationId !== conversationId) return;
-        if (!activeListeners.has(conversationIdStr)) return;
-
-        set((state) => {
-          if (!state.activeConversation) return state;
-          return {
-            activeConversation: {
-              ...state.activeConversation,
-              threadedMessages: state.activeConversation.threadedMessages.map((node) => {
-                const markDone = (n: MessageNode): MessageNode => {
-                  if (n.message.id === streamingMsgId) n.message.isStreaming = false;
-                  if (n.children?.length) n.children = n.children.map(markDone);
-                  return n;
-                };
-                return markDone(node);
-              }),
-            },
-          };
-        });
-
-        if (event.hadToolCalls && get().activeConversationId === conversationId) {
-          GetMessages(conversationId, null).then((backendNodes) => {
-            const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
-            set((state) => {
-              if (state.activeConversationId !== conversationId) return state;
-              return {
-                activeConversation: state.activeConversation
-                  ? { ...state.activeConversation, threadedMessages: messageNodes }
-                  : null,
-                completedSegments: [],
-              };
-            });
-          }).catch((err) => {
-            console.error('[Chat] Erro ao recarregar mensagens:', err);
-          });
-        }
-
-        cleanup();
-      });
-
-      activeListeners.set(conversationIdStr, cleanup);
-
-      try {
-        let mediaJson = '';
-        if (mediaFiles && mediaFiles.length > 0) {
-          const mediaDataArray: MediaData[] = [];
-          for (const mediaFile of mediaFiles) {
-            const base64Data = await fileToBase64(mediaFile.file);
-            mediaDataArray.push({
-              name: mediaFile.file.name,
-              type: mediaFile.file.type,
-              data: base64Data,
-              size: mediaFile.file.size,
-            });
-          }
-          mediaJson = JSON.stringify(mediaDataArray);
-        }
-
-        const mergedParams: llm.ChatParams = {
-          model: paramsOverride?.model ?? '',
-          temperature: paramsOverride?.temperature ?? 0,
-          maxTokens: paramsOverride?.maxTokens ?? 0,
-          maxTokensMode: paramsOverride?.maxTokensMode,
-          topP: paramsOverride?.topP,
-          reasoningEffort: paramsOverride?.reasoningEffort,
-          profileSlug: paramsOverride?.profileSlug ?? get().contextProfileSlug ?? undefined,
-        };
-        await SendMessage(conversationId, content, mediaJson, mergedParams);
-
-      } catch (error: unknown) {
-        if (cleanupExecuted) return; // Already handled by chat:error listener
-        console.error('[Chat] Error sending message:', error);
-        cleanup();
-        const errorMsg = getErrorMessage(error);
-        ensureAssistantNode();
-        get().updateMessage(streamingMsgId, `Erro ao enviar mensagem: ${errorMsg}`);
-        set((state) => {
-          if (!state.activeConversation) return state;
-          return {
-            activeConversation: {
-              ...state.activeConversation,
-              threadedMessages: state.activeConversation.threadedMessages.map((node) => {
-                const markDone = (n: MessageNode): MessageNode => {
-                  if (n.message.id === streamingMsgId) n.message.isStreaming = false;
-                  if (n.children?.length) n.children = n.children.map(markDone);
-                  return n;
-                };
-                return markDone(node);
-              }),
-            },
-          };
-        });
-        set({ isLoading: false, streamingMessageId: null });
+      if (get().activeConversationId !== conversationId) {
+        await get().loadConversation(conversationId);
       }
+      await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride);
+    },
+
+    retryMessageToConversation: async (conversationId, messageId, paramsOverride) => {
+      if (!conversationId || !messageId) {
+        console.error('[Chat] retryMessageToConversation sem conversationId/messageId válido');
+        announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
+        return;
+      }
+      if (get().activeConversationId !== conversationId) {
+        await get().loadConversation(conversationId);
+      }
+      await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId);
     },
 
     stopStreaming: () => {
@@ -1025,7 +1149,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (get().activeConversationId !== conversationId) return;
 
       const conversationIdStr = conversationId.toString();
-      const streamingMsgId = `streaming-${conversationId}`;
+      const streamingMsgId = createStreamingMessageId(conversationId);
       let cleanupExecuted = false;
       let streamingAnnounced = false;
       let assistantNodeCreated = false;
@@ -1090,6 +1214,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
         if (event.conversationId !== conversationId && event.conversationId !== 0) return;
         if (!activeListeners.has(conversationIdStr)) return;
+        set((state) => {
+          if (!state.activeConversation) return state;
+          return {
+            activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+          };
+        });
         announce(event.error);
         cleanup();
       });
@@ -1109,6 +1239,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         if (!event.userMessageId) return;
+        if (hasMessageId(get().activeConversation?.threadedMessages, String(event.userMessageId))) return;
         const userMsg = new main.EnrichedMessage({
           id: event.userMessageId.toString(),
           role: 'user',
@@ -1138,14 +1269,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           ensureAssistantNode();
           if (!streamingAnnounced) {
             streamingAnnounced = true;
-            announce('Assistente está respondendo', 'polite');
+            announce(i18next.t('chat.announce.assistantResponding'), 'polite');
           }
           debouncedUpdateMessage(streamingMsgId, event.content, get().updateMessage);
         }
         if (event.error) {
           ensureAssistantNode();
           flushPendingUpdate(streamingMsgId, get().updateMessage);
-          get().updateMessage(streamingMsgId, `Erro: ${event.error}`);
+          get().updateMessage(
+            streamingMsgId,
+            i18next.t('chat.errorPrefix', { message: event.error }),
+          );
+          set((state) => {
+            if (!state.activeConversation) return state;
+            return {
+              activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+            };
+          });
           cleanup();
         }
         if (event.done) {
@@ -1158,20 +1298,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           set((state) => {
             if (!state.activeConversation) return state;
             return {
-              activeConversation: {
-                ...state.activeConversation,
-                threadedMessages: state.activeConversation.threadedMessages.map((node) => {
-                  const markDone = (n: MessageNode): MessageNode => {
-                    if (n.message.id === streamingMsgId) {
-                      n.message.isStreaming = false;
-                      if (backendAssistantId) n.message.id = backendAssistantId;
-                    }
-                    if (n.children?.length) n.children = n.children.map(markDone);
-                    return n;
-                  };
-                  return markDone(node);
-                }),
-              },
+              activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId, backendAssistantId),
             };
           });
           const currentState = get();
@@ -1190,7 +1317,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         ensureAssistantNode();
         if (event.started) {
           set({ isThinking: true, streamingReasoning: event.content || '' });
-          announce('O modelo está pensando...', 'polite');
+          announce(i18next.t('chat.announce.modelThinking'), 'polite');
         } else if (event.done) {
           set({ isThinking: false });
           if (event.content) get().updateMessageReasoning(streamingMsgId, event.content);
@@ -1258,17 +1385,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         set((state) => {
           if (!state.activeConversation) return state;
           return {
-            activeConversation: {
-              ...state.activeConversation,
-              threadedMessages: state.activeConversation.threadedMessages.map((node) => {
-                const markDone = (n: MessageNode): MessageNode => {
-                  if (n.message.id === streamingMsgId) n.message.isStreaming = false;
-                  if (n.children?.length) n.children = n.children.map(markDone);
-                  return n;
-                };
-                return markDone(node);
-              }),
-            },
+            activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
           };
         });
 

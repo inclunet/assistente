@@ -93,11 +93,11 @@ test.describe('Chat history — navegação por setas entre mensagens', () => {
     await messages.first().focus();
 
     // ArrowDown → segunda mensagem
-    await page.keyboard.press('ArrowDown');
+    await messages.first().press('ArrowDown');
     await expect(messages.nth(1)).toBeFocused({ timeout: 3_000 });
 
     // ArrowDown → terceira mensagem
-    await page.keyboard.press('ArrowDown');
+    await messages.nth(1).press('ArrowDown');
     await expect(messages.nth(2)).toBeFocused({ timeout: 3_000 });
     await resumeRAF(page);
   });
@@ -203,7 +203,7 @@ test.describe('Chat — Enter no detalhe da mensagem (virtual modal)', () => {
 
     await pauseRAF(page);
     await messages.nth(1).focus();
-    await page.keyboard.press('Enter');
+    await messages.nth(1).press('Enter');
 
     // O message-node deve ter role="dialog" e aria-modal="true"
     await expect(messages.nth(1)).toHaveAttribute('role', 'dialog', { timeout: 3_000 });
@@ -238,15 +238,37 @@ test.describe('Chat — Enter no detalhe da mensagem (virtual modal)', () => {
 
     await pauseRAF(page);
     await messages.nth(1).focus();
-    await page.keyboard.press('Enter');
+    await messages.nth(1).press('Enter');
     await expect(messages.nth(1)).toHaveAttribute('role', 'dialog', { timeout: 3_000 });
 
     // O foco deve estar dentro da mensagem (no conteúdo de texto)
-    const contentFocused = await messages.nth(1).evaluate(
+    await expect.poll(async () => messages.nth(1).evaluate(
       (el) => el.contains(document.activeElement),
-    );
-    expect(contentFocused).toBe(true);
+    ), { timeout: 3_000 }).toBe(true);
     await resumeRAF(page);
+  });
+
+  test('modo leitura não gera warning de aria-hidden com foco retido', async ({ page, wails }) => {
+    const ariaHiddenWarnings: string[] = [];
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (text.includes('Blocked aria-hidden on an element because its descendant retained focus')) {
+        ariaHiddenWarnings.push(text);
+      }
+    });
+
+    await setupChatWithMessages(wails);
+
+    const messages = page.locator('.message-node[data-level="0"]');
+    await expect(messages).toHaveCount(3, { timeout: 5_000 });
+
+    await pauseRAF(page);
+    await messages.nth(1).focus();
+    await messages.nth(1).press('Enter');
+    await expect(messages.nth(1)).toHaveAttribute('role', 'dialog', { timeout: 3_000 });
+    await resumeRAF(page);
+
+    expect(ariaHiddenWarnings).toEqual([]);
   });
 });
 

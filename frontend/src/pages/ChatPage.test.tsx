@@ -3,12 +3,15 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const sendMessageMock = vi.fn();
-const loadConversationInActiveTabMock = vi.fn();
 const updateMessageMock = vi.fn();
 const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
 const speakMessageMock = vi.fn();
+const ensureWorkspaceTabHasConversationMock = vi.fn().mockResolvedValue(1);
+const workspaceStoreState = {
+  getActiveTab: () => ({ id: 'chat-tab', type: 'chat' as const, conversationId: 1, title: 'Conversa', position: 0 }),
+};
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
@@ -30,20 +33,41 @@ vi.mock('../services/tts', () => ({
   },
 }));
 
+const chatStoreState = {
+  isLoading: false,
+  sendMessage: sendMessageMock,
+  sendMessageToConversation: sendMessageMock,
+  getThreadedMessages: () => [],
+  loadMessageChildren: vi.fn(),
+  getActiveConversation: () => ({ id: 1, title: 'Conversa' }),
+  loadConversation: vi.fn(),
+  updateMessage: updateMessageMock,
+  toggleReasoningExpanded: vi.fn(),
+  isReasoningExpanded: () => false,
+  startEditing: vi.fn(),
+  startReading: vi.fn(),
+};
+
 vi.mock('../store/chatStore', () => ({
-  useChatStore: () => ({
-    isLoading: false,
-    sendMessage: sendMessageMock,
-    getThreadedMessages: () => [],
-    loadMessageChildren: vi.fn(),
-    getActiveTab: () => ({ id: 'tab-1', title: 'Conversa', conversationId: 10 }),
-    loadConversationInActiveTab: loadConversationInActiveTabMock,
-    updateMessage: updateMessageMock,
-    toggleReasoningExpanded: vi.fn(),
-    isReasoningExpanded: () => false,
-    startEditing: vi.fn(),
-    startReading: vi.fn(),
-  }),
+  useChatStore: (selector?: (s: typeof chatStoreState) => unknown) => {
+    if (typeof selector === 'function') {
+      return selector(chatStoreState);
+    }
+    return chatStoreState;
+  },
+}));
+
+vi.mock('../store/workspaceStore', () => ({
+  useWorkspaceStore: (selector?: (s: typeof workspaceStoreState) => unknown) => {
+    if (typeof selector === 'function') {
+      return selector(workspaceStoreState);
+    }
+    return workspaceStoreState;
+  },
+}));
+
+vi.mock('../lib/workspaceConversation', () => ({
+  ensureWorkspaceTabHasConversation: (...args: unknown[]) => ensureWorkspaceTabHasConversationMock(...args),
 }));
 
 vi.mock('../store/editorStore', () => ({
@@ -140,9 +164,17 @@ import ChatPage from './ChatPage';
 
 describe('ChatPage', () => {
   beforeEach(() => {
+    workspaceStoreState.getActiveTab = () => ({
+      id: 'chat-tab',
+      type: 'chat' as const,
+      conversationId: 1,
+      title: 'Conversa',
+      position: 0,
+    });
     sendMessageMock.mockReset();
     showMenuMock.mockReset();
     hideMenuMock.mockReset();
+    ensureWorkspaceTabHasConversationMock.mockClear();
     sendMessageMock.mockRejectedValueOnce(new Error('erro'));
   });
 
@@ -152,6 +184,28 @@ describe('ChatPage', () => {
 
     expect(showMenuMock).toHaveBeenCalled();
     expect(screen.getByText('Copiar')).toBeInTheDocument();
+  });
+
+  it('garante a conversa da aba antes de enviar quando ainda não existe conversationId', async () => {
+    const user = userEvent.setup();
+    workspaceStoreState.getActiveTab = () => ({
+      id: 'chat-tab',
+      type: 'chat' as const,
+      conversationId: 0,
+      title: 'Conversa',
+      position: 0,
+    });
+    ensureWorkspaceTabHasConversationMock.mockResolvedValue(42);
+    sendMessageMock.mockResolvedValueOnce(undefined);
+
+    render(<ChatPage />);
+
+    await user.click(screen.getByRole('button', { name: 'send' }));
+
+    await waitFor(() => {
+      expect(ensureWorkspaceTabHasConversationMock).toHaveBeenCalled();
+      expect(sendMessageMock).toHaveBeenCalledWith(42, 'oi', undefined);
+    });
   });
 
   it('mostra banner de erro e permite retry', async () => {

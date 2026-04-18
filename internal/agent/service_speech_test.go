@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -42,6 +44,9 @@ type mockMsgRepo struct {
 func (m *mockMsgRepo) CreateMessage(opts chat.MessageOptions) (*chat.Message, error) {
 	m.nextID++
 	return &chat.Message{ID: m.nextID, Role: opts.Role, Content: opts.Content}, nil
+}
+func (m *mockMsgRepo) GetMessage(messageID uint) (*chat.Message, error) {
+	return &chat.Message{ID: messageID}, nil
 }
 func (m *mockMsgRepo) GetMessages(uint, *uint) ([]chat.Message, error)    { return nil, nil }
 func (m *mockMsgRepo) GetConversationSummary(uint) (string, uint, error)  { return "", 0, nil }
@@ -209,6 +214,28 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 					done.AssistantMessageID, gotMsgID)
 			}
 		}
+	}
+}
+
+func TestSurfacePayloadPrefixesIdentifyField(t *testing.T) {
+	var output strings.Builder
+	logger := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&output, format, args...)
+		_, _ = output.WriteString("\n")
+	}
+
+	state := chat.DecodeSurfaceJSONMapWithLogger("{", "[agent] surface state payload", logger)
+	context := chat.DecodeSurfaceJSONMapWithLogger("{", "[agent] surface context payload", logger)
+
+	if state != nil || context != nil {
+		t.Fatalf("expected invalid payloads to decode as nil, got state=%v context=%v", state, context)
+	}
+	logs := output.String()
+	if !strings.Contains(logs, "[agent] surface state payload inválido") {
+		t.Fatalf("esperava log do state, recebeu: %s", logs)
+	}
+	if !strings.Contains(logs, "[agent] surface context payload inválido") {
+		t.Fatalf("esperava log do context, recebeu: %s", logs)
 	}
 }
 

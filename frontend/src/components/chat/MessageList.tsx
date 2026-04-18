@@ -175,6 +175,25 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
     [threadedMessages]
   );
 
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+
+    for (const node of displayMessages) {
+      const id = String(node.message.id);
+      if (seen.has(id)) {
+        duplicates.add(id);
+      } else {
+        seen.add(id);
+      }
+    }
+
+    if (duplicates.size === 0) return;
+    console.warn('[MessageList] duplicate message ids detected in display messages', Array.from(duplicates));
+  }, [displayMessages, threadedMessages]);
+
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior });
   };

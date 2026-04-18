@@ -191,3 +191,54 @@ func TestSendMessageUseCase_ReturnsErrorWhenProviderNotFound(t *testing.T) {
 		t.Errorf("expected error to mention provider ID, got: %q", err.Error())
 	}
 }
+
+func TestSendMessageUseCase_RetryExistingUserMessageDoesNotDuplicateUserRow(t *testing.T) {
+	setupTestDB(t)
+
+	store := providers.NewDBStore()
+	if err := store.Save([]*llm.ProviderConfig{{
+		ID:      "dummy",
+		Name:    "Dummy",
+		Type:    "openai",
+		BaseURL: "http://localhost",
+	}}); err != nil {
+		t.Fatalf("save dummy provider: %v", err)
+	}
+
+	mgr := setupProfileDir(t)
+	setupProfileWith(t, mgr, minValidProfile("Retry Existing Message", "nonexistent"))
+
+	conv, err := database.CreateConversation("retry-conv", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	userMsg, err := database.CreateMessage(database.MessageOptions{
+		ConversationID: conv.ID,
+		Role:           "user",
+		Content:        "mensagem original",
+		Source:         "wails",
+	})
+	if err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+
+	uc := newTestUseCase(t, mgr)
+	_, err = uc.Execute(usecases.SendMessageRequest{
+		Ctx:            context.Background(),
+		ConversationID: conv.ID,
+		RetryMessageID: userMsg.ID,
+		Source:         "wails",
+		Params:         llm.ChatParams{Model: "gpt-4o"},
+	})
+	if err == nil {
+		t.Fatal("expected error when provider not found during retry, got nil")
+	}
+
+	var count int64
+	if err := database.DB().Model(&database.ChatMessage{}).Where("conversation_id = ?", conv.ID).Count(&count).Error; err != nil {
+		t.Fatalf("count messages: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("retry should not duplicate user messages, got %d rows", count)
+	}
+}

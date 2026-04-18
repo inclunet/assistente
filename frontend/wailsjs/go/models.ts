@@ -1185,6 +1185,8 @@ export namespace llm {
 	    responseTimeout?: number;
 	    tabType?: string;
 	    activeFilePath?: string;
+	    surfaceStateJson?: string;
+	    surfaceContextJson?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatParams(source);
@@ -1203,6 +1205,8 @@ export namespace llm {
 	        this.responseTimeout = source["responseTimeout"];
 	        this.tabType = source["tabType"];
 	        this.activeFilePath = source["activeFilePath"];
+	        this.surfaceStateJson = source["surfaceStateJson"];
+	        this.surfaceContextJson = source["surfaceContextJson"];
 	    }
 	}
 	export class FunctionCall {

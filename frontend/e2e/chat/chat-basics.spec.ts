@@ -46,8 +46,10 @@ test.describe('Chat — envio de mensagem', () => {
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Olá, assistente!');
-    await expect(textarea).toHaveValue('Olá, assistente!');
+    await expect.poll(async () => textarea.inputValue(), { timeout: 5_000 }).toBe('Olá, assistente!');
 
     // Envia com Enter
     await textarea.press('Enter');
@@ -68,14 +70,16 @@ test.describe('Chat — envio de mensagem', () => {
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Linha 1');
+    await expect.poll(async () => textarea.inputValue()).toBe('Linha 1');
+    await textarea.press('End');
     await textarea.press('Shift+Enter');
     await textarea.type('Linha 2');
 
     // O campo deve conter as duas linhas (sem ter enviado)
-    const value = await textarea.inputValue();
-    expect(value).toContain('Linha 1');
-    expect(value).toContain('Linha 2');
+    await expect.poll(async () => (await textarea.inputValue()).replace(/\r\n/g, '\n')).toBe('Linha 1\nLinha 2');
   });
 
   test('textarea limpa após envio', async ({ page, wails }) => {
@@ -190,9 +194,13 @@ test.describe('Chat — acessibilidade', () => {
 
     // O botão de enviar só aparece quando há texto (voice button ocupa quando vazio)
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Olá');
+    await expect.poll(async () => textarea.inputValue(), { timeout: 5_000 }).toBe('Olá');
 
     const sendBtn = page.locator('.chat-input__button');
+    await expect(sendBtn).toBeVisible({ timeout: 5_000 });
     const label = await sendBtn.getAttribute('aria-label');
     expect(label).toBeTruthy();
   });

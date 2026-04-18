@@ -18,7 +18,10 @@ import {
 } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { workspace } from '../../wailsjs/go/models';
+import i18next from 'i18next';
 import { announce } from '../hooks/useAnnouncer';
+import { isModalOpen } from '../components/ui/Modal';
+import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 
 export type TabType = 'chat' | 'editor' | 'terminal' | 'tasklist';
 
@@ -130,6 +133,20 @@ function generateTabId(): string {
 }
 
 let initializingPromise: Promise<void> | null = null;
+let initializeRetryTimer: ReturnType<typeof setTimeout> | null = null;
+const WAILS_BRIDGE_INIT_TIMEOUT_MS = 10000;
+const WAILS_BRIDGE_RETRY_DELAY_MS = 1000;
+
+function isWailsBridgeTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('Timed out waiting for Wails bridge');
+}
+
+function clearInitializeRetryTimer() {
+  if (initializeRetryTimer !== null) {
+    clearTimeout(initializeRetryTimer);
+    initializeRetryTimer = null;
+  }
+}
 
 export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   workspace: null,
@@ -139,14 +156,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   initialize: async () => {
     if (initializingPromise) return initializingPromise;
 
-    const wailsWindow = window as Window & { go?: unknown };
-    if (typeof window === 'undefined' || !wailsWindow.go) {
-      setTimeout(() => get().initialize(), 100);
-      return;
-    }
-
     const run = async () => {
       try {
+        clearInitializeRetryTimer();
+        await waitForWailsBridge({ timeoutMs: WAILS_BRIDGE_INIT_TIMEOUT_MS });
         const [bws, list] = await Promise.all([
           GetActiveWorkspace(),
           ListWorkspaces(),
@@ -183,6 +196,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
           set({ isInitialized: true, workspaces: list || [] });
         }
       } catch (error) {
+        if (isWailsBridgeTimeoutError(error)) {
+          console.warn('[Workspace] Wails bridge timeout during initialize; retrying...', error);
+          if (initializeRetryTimer === null) {
+            initializeRetryTimer = setTimeout(() => {
+              initializeRetryTimer = null;
+              void get().initialize();
+            }, WAILS_BRIDGE_RETRY_DELAY_MS);
+          }
+          return;
+        }
         console.error('[Workspace] Error initializing:', error);
         set({ isInitialized: true });
       } finally {
@@ -338,6 +361,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   },
 
   setActiveTab: async (tabId) => {
+    if (get().workspace?.activeTabId === tabId) {
+      return;
+    }
+    if (isModalOpen()) {
+      announce(i18next.t('workspace.closeDialogBeforeChangingTabs'));
+      return;
+    }
     await SetActiveWorkspaceTab(tabId);
     set(state => ({
       workspace: state.workspace

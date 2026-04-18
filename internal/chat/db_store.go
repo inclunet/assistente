@@ -12,6 +12,10 @@ func (s *DBMessageStore) CreateMessage(opts database.MessageOptions) (*database.
 	return database.CreateMessage(opts)
 }
 
+func (s *DBMessageStore) GetMessage(messageID uint) (*database.ChatMessage, error) {
+	return database.GetMessage(messageID)
+}
+
 func (s *DBMessageStore) GetMessages(conversationID uint, parentID *uint) ([]database.ChatMessage, error) {
 	return database.GetMessages(conversationID, parentID)
 }

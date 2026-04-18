@@ -139,8 +139,17 @@ test.describe('Chat — tool calls (streaming)', () => {
 
     // Envia mensagem para iniciar o fluxo
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Pesquise o clima');
+    await expect.poll(async () => textarea.inputValue()).toBe('Pesquise o clima');
     await textarea.press('Enter');
+
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'SendMessage',
+      );
+    }, { timeout: 5_000 });
 
     // Backend confirma a mensagem do usuário
     await wails.emit('chat:messages_ready', {
@@ -149,13 +158,21 @@ test.describe('Chat — tool calls (streaming)', () => {
       userContent: 'Pesquise o clima',
     });
 
+    await page.waitForFunction(() => {
+      return document.querySelectorAll('.message-node').length >= 2;
+    }, { timeout: 5_000 });
+
     // Simula início de streaming
     await wails.emit('chat:stream', {
       conversationId: 1,
       messageId: 2,
-      content: '',
+      content: 'Buscando...',
       done: false,
     });
+
+    await page.waitForFunction(() => {
+      return document.querySelectorAll('.message-node').length >= 3;
+    }, { timeout: 5_000 });
 
     // Simula início de tool call
     await wails.emit('chat:tool_start', {
@@ -189,8 +206,17 @@ test.describe('Chat — tool calls (streaming)', () => {
     await page.waitForSelector('.chat-message', { timeout: 5_000 });
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Pesquise o clima');
+    await expect.poll(async () => textarea.inputValue()).toBe('Pesquise o clima');
     await textarea.press('Enter');
+
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'SendMessage',
+      );
+    }, { timeout: 5_000 });
 
     // Backend confirma a mensagem do usuário
     await wails.emit('chat:messages_ready', {
@@ -199,12 +225,20 @@ test.describe('Chat — tool calls (streaming)', () => {
       userContent: 'Pesquise o clima',
     });
 
+    await page.waitForFunction(() => {
+      return document.querySelectorAll('.message-node').length >= 2;
+    }, { timeout: 5_000 });
+
     await wails.emit('chat:stream', {
       conversationId: 1,
       messageId: 2,
-      content: '',
+      content: 'Buscando...',
       done: false,
     });
+
+    await page.waitForFunction(() => {
+      return document.querySelectorAll('.message-node').length >= 3;
+    }, { timeout: 5_000 });
 
     await wails.emit('chat:tool_start', {
       conversationId: 1,

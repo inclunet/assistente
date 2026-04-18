@@ -7,6 +7,8 @@ import "context"
 type InvocationContext struct {
 	TabType        string // "editor", "chat", etc.
 	ActiveFilePath string // caminho absoluto do arquivo ativo (apenas para editor tabs)
+	SurfaceState   map[string]any
+	SurfaceContext map[string]any
 }
 
 type ctxKey struct{}

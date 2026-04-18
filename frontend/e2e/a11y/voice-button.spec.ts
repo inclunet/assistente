@@ -1,5 +1,20 @@
 import { test, expect } from '../fixtures';
 
+const toggleProfile = {
+  slug: 'default',
+  name: 'Default',
+  description: 'Default profile',
+  source: 'builtin',
+  system_prompt: '',
+  input: {
+    triggers: [
+      { type: 'button_toggle', enabled: true },
+    ],
+  },
+  tts: {},
+  stt: {},
+};
+
 /**
  * Testes de acessibilidade do VoiceButton.
  *
@@ -54,9 +69,16 @@ test.describe('VoiceButton — ARIA attributes', () => {
       return;
     }
 
-    // Foca no botão
-    await voiceBtn.focus();
-    await expect(voiceBtn).toBeFocused({ timeout: 3_000 });
+    await page.locator('body').click();
+
+    let focused = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      focused = await voiceBtn.evaluate((el) => el === document.activeElement).catch(() => false);
+      if (focused) break;
+    }
+
+    expect(focused).toBe(true);
   });
 });
 
@@ -66,6 +88,7 @@ test.describe('VoiceButton — keyboard interaction', () => {
     await wails.setResponse('GetSpeechProviders', [
       { id: 'test', name: 'Test', type: 'stt', enabled: true },
     ]);
+    await wails.setResponse('GetActiveProfile', toggleProfile);
     await wails.waitForApp();
 
     const voiceBtn = page.locator('.voice-button');
@@ -75,11 +98,8 @@ test.describe('VoiceButton — keyboard interaction', () => {
       return;
     }
 
-    await voiceBtn.focus();
-    await expect(voiceBtn).toBeFocused({ timeout: 3_000 });
-
     // Space deve acionar a interação de voz
-    await page.keyboard.press('Space');
+    await voiceBtn.press('Space');
     
     // Aguarda estado mudar
     await page.waitForTimeout(200);
@@ -98,6 +118,7 @@ test.describe('VoiceButton — keyboard interaction', () => {
     await wails.setResponse('GetSpeechProviders', [
       { id: 'test', name: 'Test', type: 'stt', enabled: true },
     ]);
+    await wails.setResponse('GetActiveProfile', toggleProfile);
     await wails.waitForApp();
 
     const voiceBtn = page.locator('.voice-button');
@@ -107,10 +128,8 @@ test.describe('VoiceButton — keyboard interaction', () => {
       return;
     }
 
-    await voiceBtn.focus();
-    
     // Ativa via Space
-    await page.keyboard.press('Space');
+    await voiceBtn.press('Space');
     await page.waitForTimeout(200);
 
     // Escape cancela

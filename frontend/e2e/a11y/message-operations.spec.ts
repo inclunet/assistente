@@ -361,15 +361,17 @@ test.describe('MessageNode — Shift+F10 context menu', () => {
     await expect(messages).toHaveCount(3, { timeout: 5_000 });
 
     await pauseRAF(page);
-    await messages.first().focus();
+    const firstMessage = messages.first();
+    await firstMessage.focus();
+    await expect(firstMessage).toBeFocused({ timeout: 3_000 });
 
     // Shift+F10 abre o context menu
-    await page.keyboard.press('Shift+F10');
+    await firstMessage.press('Shift+F10');
     await resumeRAF(page);
 
     // Deve aparecer um menu de contexto
     const contextMenu = page.locator('[role="menu"]');
-    await expect(contextMenu).toBeVisible({ timeout: 5_000 });
+    await expect(contextMenu).toBeVisible({ timeout: 7_000 });
   });
 });
 

@@ -107,7 +107,7 @@ func TestBuildChatSpeakEventUsesBackendAudioForRemoteAssistantVoice(t *testing.T
 	}
 }
 
-func TestBuildChatSpeakEventUsesNoneWhenDisabled(t *testing.T) {
+func TestBuildChatSpeakEventUsesAnnounceWhenDisabled(t *testing.T) {
 	app := &App{}
 	req := ChatSpeakRequest{
 		ConversationID: 12,
@@ -124,8 +124,8 @@ func TestBuildChatSpeakEventUsesNoneWhenDisabled(t *testing.T) {
 
 	event := app.buildChatSpeakEvent(req, "user", "Oi", cfg)
 
-	if event.Strategy != ChatSpeakStrategyNone {
-		t.Fatalf("strategy = %q, want %q", event.Strategy, ChatSpeakStrategyNone)
+	if event.Strategy != ChatSpeakStrategyAnnounce {
+		t.Fatalf("strategy = %q, want %q (a11y sem TTS)", event.Strategy, ChatSpeakStrategyAnnounce)
 	}
 	if event.AutoRead {
 		t.Fatal("autoRead = true, want false")

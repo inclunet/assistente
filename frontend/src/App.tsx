@@ -15,6 +15,7 @@ import { useTheme } from './hooks/useTheme';
 import { ConfigProvider } from 'antd';
 import type { Locale } from 'antd/es/locale';
 import { getAntdTheme } from './theme/antdTheme';
+import { waitForWailsBridge } from './lib/waitForWailsBridge';
 
 function useAntdLocale(lang: string): Locale | undefined {
     const [locale, setLocale] = useState<Locale | undefined>(undefined);
@@ -53,14 +54,11 @@ function App() {
     const uiCancel = useQuestionnaireUIStore((s) => s.cancel);
 
     useEffect(() => {
-        // Aguardar Wails estar pronto antes de carregar configuração
+        const controller = new AbortController();
+
         const loadConfig = async () => {
-            // Verificar se Wails está disponível
-            const wailsWindow = window as Window & { go?: unknown };
-            if (typeof window === 'undefined' || !wailsWindow.go) {
-                setTimeout(loadConfig, 100);
-                return;
-            }
+            await waitForWailsBridge({ signal: controller.signal });
+            if (controller.signal.aborted) return;
 
             setLoading(true);
             try {
@@ -108,11 +106,19 @@ function App() {
                 setError(t('app.config.loadError'));
                 addToast(t('app.config.loadError'), 'error');
             } finally {
-                setLoading(false);
+                if (!controller.signal.aborted) {
+                    setLoading(false);
+                }
             }
         };
 
-        loadConfig();
+        void loadConfig().catch((error) => {
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                return;
+            }
+            console.error('Erro ao carregar configuração:', error);
+        });
+        return () => controller.abort();
     }, [setConfig, setLoading, setError, addToast]);
 
     // Escuta eventos de conversa deletada/limpa
@@ -261,13 +267,13 @@ function App() {
         if (questionnaireOpen && questionnaireData) {
             try {
                 await RespondQuestionnaire(questionnaireData.id, answers, false);
+                setQuestionnaireOpen(false);
+                setQuestionnaireData(null);
+                restoreFocus();
             } catch (err) {
                 console.error('[App] Erro ao enviar questionário:', err);
                 addToast(t('app.questionnaire.submitError'), 'error');
             }
-            setQuestionnaireOpen(false);
-            setQuestionnaireData(null);
-            restoreFocus();
             return;
         }
 
@@ -280,12 +286,13 @@ function App() {
         if (questionnaireOpen && questionnaireData) {
             try {
                 await RespondQuestionnaire(questionnaireData.id, {}, true);
+                setQuestionnaireOpen(false);
+                setQuestionnaireData(null);
+                restoreFocus();
             } catch (err) {
                 console.error('[App] Erro ao cancelar questionário:', err);
+                addToast(t('app.questionnaire.submitError'), 'error');
             }
-            setQuestionnaireOpen(false);
-            setQuestionnaireData(null);
-            restoreFocus();
             return;
         }
 

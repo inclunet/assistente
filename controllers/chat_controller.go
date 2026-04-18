@@ -84,6 +84,20 @@ func (c *ChatController) SendMessage(ctx context.Context, conversationID uint, u
 	})
 }
 
+// RetryMessage reexecuta o turno a partir de uma mensagem já persistida, sem duplicar a mensagem do usuário.
+func (c *ChatController) RetryMessage(ctx context.Context, conversationID uint, messageID uint, params llm.ChatParams) (uint, error) {
+	if conversationID > 0 && c.msgGateway != nil && c.responseNotifier != nil {
+		c.registerChannelBridge(conversationID)
+	}
+	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conversationID,
+		RetryMessageID: messageID,
+		Params:         params,
+		Source:         "wails",
+	})
+}
+
 // SendMessageFromChannel é chamado pelo Gateway de mensageria (Telegram, Signal, etc.).
 func (c *ChatController) SendMessageFromChannel(ctx context.Context, conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
 	return c.sendMsgUC.Execute(usecases.SendMessageRequest{

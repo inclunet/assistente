@@ -124,11 +124,18 @@ test.describe('Chat — erro no envio', () => {
     await wails.setError('SendMessage', 'Network error');
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Mensagem que vai falhar');
+    await expect.poll(async () => textarea.inputValue()).toBe('Mensagem que vai falhar');
     await textarea.press('Enter');
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'SendMessage',
+      );
+    }, { timeout: 5_000 });
 
-    // O erro aparece como mensagem do assistente no chat
-    const errorMessage = page.locator('.chat-message', { hasText: /Erro ao enviar mensagem/ });
+    const errorMessage = page.locator('[role="alert"], .chat-message').filter({ hasText: /Network error/ });
     await expect(errorMessage).toBeVisible({ timeout: 5_000 });
   });
 
@@ -139,11 +146,19 @@ test.describe('Chat — erro no envio', () => {
     await wails.setError('SendMessage', 'Timeout');
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Mensagem com erro');
+    await expect.poll(async () => textarea.inputValue()).toBe('Mensagem com erro');
     await textarea.press('Enter');
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'SendMessage',
+      );
+    }, { timeout: 5_000 });
 
     // Aguarda o erro aparecer
-    await page.locator('.chat-message', { hasText: /Erro ao enviar/ }).waitFor({ timeout: 5_000 });
+    await page.locator('[role="alert"], .chat-message').filter({ hasText: /Timeout/ }).waitFor({ timeout: 5_000 });
 
     // Input deve ser reabilitado (isLoading → false)
     await page.waitForFunction(() => {
@@ -163,12 +178,160 @@ test.describe('Chat — erro no envio', () => {
     await wails.setError('SendMessage', 'Connection refused: server unavailable');
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Teste');
+    await expect.poll(async () => textarea.inputValue()).toBe('Teste');
     await textarea.press('Enter');
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'SendMessage',
+      );
+    }, { timeout: 5_000 });
 
     // A mensagem de erro deve conter o texto do erro
-    const errorMessage = page.locator('.chat-message', { hasText: 'Connection refused' });
+    const errorMessage = page.locator('[role="alert"], .chat-message').filter({ hasText: 'Connection refused' });
     await expect(errorMessage).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('erro no stream seguido de novo envio não gera duplicate key no histórico', async ({ page, wails }) => {
+    const consoleWarnings: string[] = [];
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (text.includes('Encountered two children with the same key')) {
+        consoleWarnings.push(text);
+      }
+    });
+
+    await wails.setResponse('EnsureConversation', baseConversation);
+    await wails.setResponse('SendMessage', 2);
+    await wails.waitForApp();
+
+    const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+
+    await textarea.click();
+    await textarea.fill('primeira falha');
+    await textarea.press('Enter');
+    await page.waitForFunction(
+      () => window.__wailsMock.getCallLog().filter((c) => c.fn === 'SendMessage').length >= 1,
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    await wails.emit('chat:messages_ready', {
+      conversationId: 1,
+      userMessageId: 14535,
+      userContent: 'primeira falha',
+    });
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      messageId: 14536,
+      content: 'resposta parcial',
+      done: false,
+    });
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      error: '500 Internal Server Error',
+    });
+    await expect(page.locator('.chat-message').filter({ hasText: /500 Internal Server Error/ })).toBeVisible({ timeout: 5_000 });
+
+    await textarea.fill('segunda tentativa');
+    await textarea.press('Enter');
+    await page.waitForFunction(
+      () => window.__wailsMock.getCallLog().filter((c) => c.fn === 'SendMessage').length >= 2,
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    await wails.emit('chat:messages_ready', {
+      conversationId: 1,
+      userMessageId: 14545,
+      userContent: 'segunda tentativa',
+    });
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      messageId: 14546,
+      content: 'resposta final',
+      done: true,
+    });
+    await wails.emit('chat:done', {
+      conversationId: 1,
+      assistantMessageId: 14546,
+      hadToolCalls: false,
+    });
+
+    await expect(page.locator('.chat-message').filter({ hasText: 'resposta final' })).toBeVisible({ timeout: 5_000 });
+    expect(consoleWarnings).toEqual([]);
+  });
+
+  test('reenviar mensagem existente após erro usa RetryMessage sem duplicar mensagem do usuário', async ({ page, wails }) => {
+    await wails.setResponse('EnsureConversation', baseConversation);
+    await wails.setResponse('SendMessage', 2);
+    await wails.setResponse('RetryMessage', 2);
+    await wails.waitForApp();
+
+    const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
+    await textarea.fill('mensagem original');
+    await textarea.press('Enter');
+
+    await page.waitForFunction(
+      () => window.__wailsMock.getCallLog().filter((c) => c.fn === 'SendMessage').length === 1,
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    await wails.emit('chat:messages_ready', {
+      conversationId: 1,
+      userMessageId: 14535,
+      userContent: 'mensagem original',
+    });
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      messageId: 14536,
+      content: 'resposta parcial',
+      done: false,
+    });
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      error: '500 Internal Server Error',
+    });
+
+    const firstUserMessage = page.locator('.message-node[data-level="0"]').filter({ hasText: 'mensagem original' }).first();
+    await expect(firstUserMessage).toBeVisible({ timeout: 5_000 });
+    await firstUserMessage.focus();
+    await firstUserMessage.press('Shift+F10');
+
+    const contextMenu = page.locator('[role="menu"]');
+    await expect(contextMenu).toBeVisible({ timeout: 7_000 });
+    await contextMenu.locator('[role="menuitem"]', { hasText: /Reenviar mensagem/i }).click();
+
+    await page.waitForFunction(
+      () => window.__wailsMock.getCallLog().filter((c) => c.fn === 'RetryMessage').length === 1,
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      messageId: 14537,
+      content: 'resposta após retry',
+      done: true,
+    });
+    await wails.emit('chat:done', {
+      conversationId: 1,
+      assistantMessageId: 14537,
+      hadToolCalls: false,
+    });
+
+    await expect(page.locator('.chat-message').filter({ hasText: 'resposta após retry' })).toBeVisible({ timeout: 5_000 });
+
+    const callLog = await wails.getCallLog();
+    expect(callLog.filter((c) => c.fn === 'SendMessage')).toHaveLength(1);
+    expect(callLog.filter((c) => c.fn === 'RetryMessage')).toHaveLength(1);
+    await expect(page.locator('.message-node[data-level="0"]').filter({ hasText: 'mensagem original' })).toHaveCount(1);
   });
 });
 
@@ -182,8 +345,17 @@ test.describe('Chat — thinking/reasoning', () => {
     await page.waitForSelector('.message-node', { timeout: 5_000 });
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Pense sobre isso');
+    await expect.poll(async () => textarea.inputValue(), { timeout: 5_000 }).toBe('Pense sobre isso');
     await textarea.press('Enter');
+
+    await page.waitForFunction(
+      () => window.__wailsMock.getCallLog().some((c) => c.fn === 'SendMessage'),
+      undefined,
+      { timeout: 5_000 },
+    );
 
     // Simula início de thinking (conversationId obrigatório)
     await wails.emit('chat:thinking', {

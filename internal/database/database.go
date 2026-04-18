@@ -406,6 +406,15 @@ func GetMessageContent(messageID uint) (string, error) {
 	return msg.Content, nil
 }
 
+// GetMessage retorna a mensagem completa pelo ID.
+func GetMessage(messageID uint) (*ChatMessage, error) {
+	var msg ChatMessage
+	if err := db.First(&msg, messageID).Error; err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
 // AddToolMessage adiciona uma mensagem de role="tool" (resposta de tool ao orquestrador)
 func AddToolMessage(conversationID uint, content string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
