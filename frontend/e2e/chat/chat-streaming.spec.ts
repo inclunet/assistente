@@ -264,6 +264,75 @@ test.describe('Chat — erro no envio', () => {
     await expect(page.locator('.chat-message').filter({ hasText: 'resposta final' })).toBeVisible({ timeout: 5_000 });
     expect(consoleWarnings).toEqual([]);
   });
+
+  test('reenviar mensagem existente após erro usa RetryMessage sem duplicar mensagem do usuário', async ({ page, wails }) => {
+    await wails.setResponse('EnsureConversation', baseConversation);
+    await wails.setResponse('SendMessage', 2);
+    await wails.setResponse('RetryMessage', 2);
+    await wails.waitForApp();
+
+    const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
+    await textarea.fill('mensagem original');
+    await textarea.press('Enter');
+
+    await page.waitForFunction(
+      () => window.__wailsMock.getCallLog().filter((c) => c.fn === 'SendMessage').length === 1,
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    await wails.emit('chat:messages_ready', {
+      conversationId: 1,
+      userMessageId: 14535,
+      userContent: 'mensagem original',
+    });
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      messageId: 14536,
+      content: 'resposta parcial',
+      done: false,
+    });
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      error: '500 Internal Server Error',
+    });
+
+    const firstUserMessage = page.locator('.message-node[data-level="0"]').filter({ hasText: 'mensagem original' }).first();
+    await expect(firstUserMessage).toBeVisible({ timeout: 5_000 });
+    await firstUserMessage.focus();
+    await firstUserMessage.press('Shift+F10');
+
+    const contextMenu = page.locator('[role="menu"]');
+    await expect(contextMenu).toBeVisible({ timeout: 7_000 });
+    await contextMenu.locator('[role="menuitem"]', { hasText: /Reenviar mensagem/i }).click();
+
+    await page.waitForFunction(
+      () => window.__wailsMock.getCallLog().filter((c) => c.fn === 'RetryMessage').length === 1,
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    await wails.emit('chat:stream', {
+      conversationId: 1,
+      messageId: 14537,
+      content: 'resposta após retry',
+      done: true,
+    });
+    await wails.emit('chat:done', {
+      conversationId: 1,
+      assistantMessageId: 14537,
+      hadToolCalls: false,
+    });
+
+    await expect(page.locator('.chat-message').filter({ hasText: 'resposta após retry' })).toBeVisible({ timeout: 5_000 });
+
+    const callLog = await wails.getCallLog();
+    expect(callLog.filter((c) => c.fn === 'SendMessage')).toHaveLength(1);
+    expect(callLog.filter((c) => c.fn === 'RetryMessage')).toHaveLength(1);
+    await expect(page.locator('.message-node[data-level="0"]').filter({ hasText: 'mensagem original' })).toHaveCount(1);
+  });
 });
 
 test.describe('Chat — thinking/reasoning', () => {
