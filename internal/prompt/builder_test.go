@@ -294,6 +294,36 @@ func TestBuildTemplateData_InvalidSurfaceLogsIdentifyField(t *testing.T) {
 	}
 }
 
+func TestBuildTemplateData_DoesNotReuseActiveTabStateWhenSurfaceTypeDiffers(t *testing.T) {
+	ws := &workspace.Workspace{
+		Name: "Meu Workspace",
+		Tabs: workspace.TabsState{
+			Active: "tab-2",
+			Items: []workspace.Tab{
+				{ID: "tab-2", Title: "Editor", Type: "editor", State: map[string]any{"filePath": "/tmp/readme.md"}},
+			},
+		},
+	}
+	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
+	data := b.BuildTemplateData(nil, llm.ChatParams{
+		ProfileSlug: "terminal",
+		TabType:     "terminal",
+	}, 7)
+
+	if data.Surface == nil {
+		t.Fatal("expected Surface to be filled")
+	}
+	if data.Surface.Type != "terminal" {
+		t.Fatalf("Surface.Type = %q, want terminal", data.Surface.Type)
+	}
+	if data.Surface.Title != "" {
+		t.Fatalf("Surface.Title = %q, want empty", data.Surface.Title)
+	}
+	if data.Surface.State != nil {
+		t.Fatalf("Surface.State = %v, want nil", data.Surface.State)
+	}
+}
+
 func TestComputeEnabledToolNames_DisableTools_ReturnsNil(t *testing.T) {
 	reg := tools.NewRegistry()
 	_ = reg.Register(&fakeTool{name: "read_file"})

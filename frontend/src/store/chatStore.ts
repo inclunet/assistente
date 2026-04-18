@@ -160,22 +160,6 @@ const createStreamingMessageId = (conversationId: number): string => {
   return `streaming-${conversationId}-${streamingMessageSeq}`;
 };
 
-const findDuplicateMessageIds = (nodes: MessageNode[] | undefined): string[] => {
-  if (!nodes || nodes.length === 0) return [];
-  const counts = new Map<string, number>();
-  const visit = (entries: MessageNode[]) => {
-    for (const entry of entries) {
-      const id = String(entry.message.id);
-      counts.set(id, (counts.get(id) ?? 0) + 1);
-      if (entry.children?.length) visit(entry.children);
-    }
-  };
-  visit(nodes);
-  return Array.from(counts.entries())
-    .filter(([, count]) => count > 1)
-    .map(([id]) => id);
-};
-
 const hasMessageId = (
   nodes: MessageNode[] | undefined,
   targetId: string,
@@ -349,9 +333,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     paramsOverride?: Partial<llm.ChatParams>,
     retryMessageId?: number,
   ) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-title-nav-pre-fix-1',hypothesisId:'H1',location:'frontend/src/store/chatStore.ts:276',message:'send message started',data:{conversationId,activeConversationId:get().activeConversationId,activeTitle:get().activeConversation?.title ?? null,contentPreview:content.slice(0,80),profileSlug:paramsOverride?.profileSlug ?? get().contextProfileSlug ?? null},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
       announce(i18next.t('chat.validation.messageTooLarge', {
         defaultValue: 'Mensagem muito grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
@@ -375,7 +356,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }
 
     const conversationIdStr = conversationId.toString();
-    const sendStartedAt = Date.now();
 
     // Backend-driven: sem addMessage local — user msg vem do chat:messages_ready, assistant do chat:stream
     set({ isLoading: true, completedSegments: [], activeToolCalls: [] });
@@ -398,7 +378,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     let unsubDone = noop;
     let unsubError = noop;
     let unsubSpeak = noop;
-    let stuckWatchdogId: ReturnType<typeof setTimeout> | null = null;
 
     const ensureAssistantNode = () => {
       if (assistantNodeCreated) return;
@@ -425,10 +404,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const cleanup = () => {
       if (cleanupExecuted) return;
       cleanupExecuted = true;
-      if (stuckWatchdogId !== null) {
-        clearTimeout(stuckWatchdogId);
-        stuckWatchdogId = null;
-      }
       unsubMessagesReady();
       unsubStream();
       unsubThinking();
@@ -448,20 +423,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       await new Promise(resolve => setTimeout(resolve, 0));
     }
 
-    stuckWatchdogId = setTimeout(() => {
-      if (cleanupExecuted) return;
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-stuck-send-pre-fix-1',hypothesisId:'H11',location:'frontend/src/store/chatStore.ts:438',message:'send stuck watchdog fired',data:{conversationId,streamingMsgId,isLoading:get().isLoading,streamingMessageId:get().streamingMessageId,activeConversationId:get().activeConversationId,elapsedMs:Date.now()-sendStartedAt,activeListenerRegistered:activeListeners.has(conversationIdStr)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-    }, 15000);
-
     // chat:error → erro de validação do backend (tamanho, provider, etc.)
     unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
       if (event.conversationId !== conversationId && event.conversationId !== 0) return;
       if (!activeListeners.has(conversationIdStr)) return;
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-title-nav-pre-fix-1',hypothesisId:'H5',location:'frontend/src/store/chatStore.ts:372',message:'chat error event',data:{conversationId,eventConversationId:event.conversationId,error:event.error,readingMessageId:get().readingMessageId,editingMessageId:get().editingMessageId,streamingMessageId:get().streamingMessageId},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       set((state) => {
         if (!state.activeConversation) return state;
         return {
@@ -487,12 +452,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (data.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
       if (!data.userMessageId) return;
-      if (hasMessageId(get().activeConversation?.threadedMessages, String(data.userMessageId))) {
-        // #region agent log
-        fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-duplicate-realid-post-fix-1',hypothesisId:'H6',location:'frontend/src/store/chatStore.ts:465',message:'skip duplicate user message from messages_ready',data:{conversationId,userMessageId:data.userMessageId},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-        return;
-      }
+      if (hasMessageId(get().activeConversation?.threadedMessages, String(data.userMessageId))) return;
       const userMsg = new main.EnrichedMessage({
         id: data.userMessageId.toString(),
         role: 'user',
@@ -506,19 +466,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const userNode = new main.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
       set((state) => ({
         activeConversation: state.activeConversation
-          ? (() => {
-              const nextConversation = {
-                ...state.activeConversation,
-                threadedMessages: [...state.activeConversation.threadedMessages, userNode],
-              };
-              const duplicateIds = findDuplicateMessageIds(nextConversation.threadedMessages);
-              if (duplicateIds.length > 0) {
-                // #region agent log
-                fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-duplicate-realid-pre-fix-2',hypothesisId:'H6',location:'frontend/src/store/chatStore.ts:442',message:'duplicate ids after messages_ready append',data:{conversationId,userMessageId:data.userMessageId,duplicateIds,threadedIds:nextConversation.threadedMessages.map((node)=>String(node.message.id)).slice(-12)},timestamp:Date.now()})}).catch(()=>{});
-                // #endregion
-              }
-              return nextConversation;
-            })()
+          ? {
+              ...state.activeConversation,
+              threadedMessages: [...state.activeConversation.threadedMessages, userNode],
+            }
           : state.activeConversation,
       }));
     });
@@ -564,17 +515,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         set((state) => {
           if (!state.activeConversation) return state;
           const nextConversation = finalizeStreamingNode(state.activeConversation, streamingMsgId, backendAssistantId);
-          if (backendAssistantId && hasMessageId(state.activeConversation.threadedMessages, backendAssistantId, streamingMsgId)) {
-            // #region agent log
-            fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-duplicate-realid-post-fix-1',hypothesisId:'H8',location:'frontend/src/store/chatStore.ts:531',message:'drop synthetic placeholder because real id already exists',data:{conversationId,syntheticId:streamingMsgId,backendAssistantId},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
-          }
-          const duplicateIds = findDuplicateMessageIds(nextConversation.threadedMessages);
-          if (duplicateIds.length > 0) {
-            // #region agent log
-            fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-duplicate-realid-pre-fix-2',hypothesisId:'H7',location:'frontend/src/store/chatStore.ts:501',message:'duplicate ids after stream finalization',data:{conversationId,syntheticId:streamingMsgId,backendAssistantId,duplicateIds,threadedIds:nextConversation.threadedMessages.map((node)=>String(node.message.id)).slice(-12)},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
-          }
           return {
             activeConversation: nextConversation,
           };
@@ -661,9 +601,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
       if (event.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-title-nav-pre-fix-1',hypothesisId:'H1',location:'frontend/src/store/chatStore.ts:543',message:'chat done before rename',data:{conversationId,hadToolCalls:!!event.hadToolCalls,activeTitle:get().activeConversation?.title ?? null,messageCount:get().activeConversation?.threadedMessages?.length ?? 0},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
 
       set((state) => {
         if (!state.activeConversation) return state;
@@ -723,18 +660,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         surfaceStateJson: paramsOverride?.surfaceStateJson,
         surfaceContextJson: paramsOverride?.surfaceContextJson,
       };
-      const bridgeAction = retryMessageId ? 'RetryMessage' : 'SendMessage';
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-stuck-send-pre-fix-1',hypothesisId:'H11',location:'frontend/src/store/chatStore.ts:702',message:`calling ${bridgeAction} bridge`,data:{conversationId,streamingMsgId,hasMedia:!!mediaJson,profileSlug:mergedParams.profileSlug ?? null,tabType:mergedParams.tabType ?? null,retryMessageId:retryMessageId ?? null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (retryMessageId) {
         await RetryMessage(conversationId, retryMessageId, mergedParams);
       } else {
         await SendMessage(conversationId, content, mediaJson, mergedParams);
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-stuck-send-pre-fix-1',hypothesisId:'H11',location:'frontend/src/store/chatStore.ts:705',message:`${bridgeAction} bridge resolved`,data:{conversationId,streamingMsgId,elapsedMs:Date.now()-sendStartedAt,isLoading:get().isLoading,streamingMessageId:get().streamingMessageId,retryMessageId:retryMessageId ?? null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
 
     } catch (error: unknown) {
       if (cleanupExecuted) return; // Already handled by chat:error listener
@@ -1141,9 +1071,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleConversationRenamed: (conversationId: number, newTitle: string) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-title-nav-pre-fix-1',hypothesisId:'H1',location:'frontend/src/store/chatStore.ts:1019',message:'chat store rename handler',data:{conversationId,newTitle,activeConversationId:get().activeConversationId,activeTitleBefore:get().activeConversation?.title ?? null,willApply:get().activeConversationId===conversationId},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (get().activeConversationId === conversationId) {
         set((state) => ({
           activeConversation: state.activeConversation
@@ -1312,12 +1239,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         if (!event.userMessageId) return;
-        if (hasMessageId(get().activeConversation?.threadedMessages, String(event.userMessageId))) {
-          // #region agent log
-          fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-duplicate-realid-post-fix-1',hypothesisId:'H6',location:'frontend/src/store/chatStore.ts:1255',message:'skip duplicate incoming user message from messages_ready',data:{conversationId,userMessageId:event.userMessageId},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
-          return;
-        }
+        if (hasMessageId(get().activeConversation?.threadedMessages, String(event.userMessageId))) return;
         const userMsg = new main.EnrichedMessage({
           id: event.userMessageId.toString(),
           role: 'user',
@@ -1375,11 +1297,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
           set((state) => {
             if (!state.activeConversation) return state;
-            if (backendAssistantId && hasMessageId(state.activeConversation.threadedMessages, backendAssistantId, streamingMsgId)) {
-              // #region agent log
-              fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-duplicate-realid-post-fix-1',hypothesisId:'H8',location:'frontend/src/store/chatStore.ts:1312',message:'drop synthetic incoming placeholder because real id already exists',data:{conversationId,syntheticId:streamingMsgId,backendAssistantId},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
-            }
             return {
               activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId, backendAssistantId),
             };

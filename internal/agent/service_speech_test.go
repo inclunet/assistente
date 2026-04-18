@@ -45,6 +45,9 @@ func (m *mockMsgRepo) CreateMessage(opts chat.MessageOptions) (*chat.Message, er
 	m.nextID++
 	return &chat.Message{ID: m.nextID, Role: opts.Role, Content: opts.Content}, nil
 }
+func (m *mockMsgRepo) GetMessage(messageID uint) (*chat.Message, error) {
+	return &chat.Message{ID: messageID}, nil
+}
 func (m *mockMsgRepo) GetMessages(uint, *uint) ([]chat.Message, error)    { return nil, nil }
 func (m *mockMsgRepo) GetConversationSummary(uint) (string, uint, error)  { return "", 0, nil }
 func (m *mockMsgRepo) GetDetailedTokenStats(uint, uint) (*chat.DetailedTokenStats, error) {

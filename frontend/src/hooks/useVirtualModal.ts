@@ -63,10 +63,6 @@ export function useVirtualModal({
       el.setAttribute('aria-label', 'Leitura de mensagem. Pressione Escape para sair.');
       el.setAttribute('tabindex', '-1');
 
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'virtual-modal-post-fix-1',hypothesisId:'H10',location:'frontend/src/hooks/useVirtualModal.ts:60',message:'activate virtual modal',data:{activeElement:(document.activeElement as HTMLElement | null)?.className ?? null,elementInsideRoot:!!document.getElementById('root')?.contains(el)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-
       // Virtual modal vive dentro de #root, então não podemos marcar #root como
       // aria-hidden sem esconder também o próprio elemento focado. Em vez disso,
       // isolamos a interação usando inert nos irmãos ao longo da árvore.

@@ -327,9 +327,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 
     // ArrowDown: navega para próximo irmão
     if (key === 'ArrowDown') {
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-history-nav-pre-fix-1',hypothesisId:'H4',location:'frontend/src/components/chat/MessageNode.tsx:329',message:'message node arrow down',data:{messageId:String(node.message.id),level,siblingIndex,siblingCount,hasChildren,isExpanded,willReachInput:level===0&&siblingIndex>=siblingCount-1&&!!onReachEnd,activeElement:(document.activeElement as HTMLElement | null)?.getAttribute('data-message-id') ?? (document.activeElement as HTMLElement | null)?.className ?? null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       e.preventDefault();
       e.stopPropagation();
       if (siblingIndex < siblingCount - 1) {
@@ -347,9 +344,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     
     // ArrowUp: navega para irmão anterior
     if (key === 'ArrowUp') {
-      // #region agent log
-      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-history-nav-pre-fix-1',hypothesisId:'H4',location:'frontend/src/components/chat/MessageNode.tsx:346',message:'message node arrow up',data:{messageId:String(node.message.id),level,siblingIndex,siblingCount,hasChildren,isExpanded,atFirstSibling:siblingIndex===0,activeElement:(document.activeElement as HTMLElement | null)?.getAttribute('data-message-id') ?? (document.activeElement as HTMLElement | null)?.className ?? null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       e.preventDefault();
       e.stopPropagation();
       if (siblingIndex > 0) {

@@ -42,4 +42,19 @@ describe('waitForWailsBridge', () => {
 
     await expect(pending).resolves.toBeUndefined();
   });
+
+  it('rejeita com timeout controlado quando o bridge não aparece', async () => {
+    vi.useFakeTimers();
+
+    const target = {
+      go: undefined,
+    } as unknown as Window & { go?: unknown };
+
+    const pending = waitForWailsBridge({ target, timeoutMs: 50 });
+    const assertion = expect(pending).rejects.toThrow('Timed out waiting for Wails bridge after 50ms');
+
+    await vi.advanceTimersByTimeAsync(50);
+
+    await assertion;
+  });
 });

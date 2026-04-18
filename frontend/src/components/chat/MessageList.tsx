@@ -179,9 +179,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
     const ids = displayMessages.map((node) => String(node.message.id));
     const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index);
     if (duplicates.length === 0) return;
-    // #region agent log
-    fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-duplicate-realid-pre-fix-2',hypothesisId:'H9',location:'frontend/src/components/chat/MessageList.tsx:177',message:'duplicate ids in display messages',data:{duplicateIds:Array.from(new Set(duplicates)),displayIds:ids.slice(-12),threadedIds:threadedMessages.map((node)=>String(node.message.id)).slice(-12),threadedTurnIds:threadedMessages.map((node)=>node.message.turnId ?? null).slice(-12)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+    console.warn('[MessageList] duplicate message ids detected in display messages', Array.from(new Set(duplicates)));
   }, [displayMessages, threadedMessages]);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
