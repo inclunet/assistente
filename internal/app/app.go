@@ -153,6 +153,11 @@ func NewApp() *App {
 	}
 }
 
+// Context retorna o contexto da aplicação.
+func (a *App) Context() context.Context {
+	return a.ctx
+}
+
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
 // Reutilizado pelo Wails (via cmd/desktop) e pelo CLI (via cmd/cli).
 func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) {

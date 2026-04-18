@@ -17,8 +17,9 @@ import (
 var AppVersion = "dev"
 
 var (
-	verbose bool
-	rootApp *app.App
+	verbose     bool
+	rootApp     *app.App
+	cliEmitter  *cliadapter.EmitterAdapter
 )
 
 var rootCmd = &cobra.Command{
@@ -39,12 +40,12 @@ var rootCmd = &cobra.Command{
 
 		rootApp = app.NewApp()
 
-		emitter := cliadapter.NewEmitterAdapter(
+		cliEmitter = cliadapter.NewEmitterAdapter(
 			cliadapter.WithVerbose(verbose),
 		)
 
 		rootApp.StartupWithAdapters(ctx,
-			emitter,
+			cliEmitter,
 			cliadapter.WindowAdapter{},
 			cliadapter.DialogAdapter{},
 		)
@@ -62,6 +63,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Exibe eventos detalhados no stderr")
 
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(chatCmd)
+	rootCmd.AddCommand(profilesCmd)
+	rootCmd.AddCommand(configCmd)
 }
 
 var versionCmd = &cobra.Command{

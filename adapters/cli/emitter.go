@@ -21,6 +21,7 @@ type EmitterAdapter struct {
 	out     io.Writer // stdout por padrão
 	errOut  io.Writer // stderr por padrão
 	verbose bool
+	done    chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
 }
 
 // EmitterOption configura o EmitterAdapter.
@@ -53,6 +54,27 @@ func NewEmitterAdapter(opts ...EmitterOption) *EmitterAdapter {
 	return e
 }
 
+// WaitDone retorna um canal que é fechado quando o streaming termina
+// (chat:stream com Done=true ou chat:error). Deve ser chamado ANTES de SendMessage.
+func (e *EmitterAdapter) WaitDone() <-chan struct{} {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.done = make(chan struct{})
+	return e.done
+}
+
+// signalDone fecha o canal done se estiver aberto.
+func (e *EmitterAdapter) signalDone() {
+	if e.done != nil {
+		select {
+		case <-e.done:
+			// já fechado
+		default:
+			close(e.done)
+		}
+	}
+}
+
 // Emit processa um evento do sistema e escreve no terminal quando relevante.
 func (e *EmitterAdapter) Emit(event string, data any) {
 	e.mu.Lock()
@@ -81,11 +103,13 @@ func (e *EmitterAdapter) handleStream(data any) {
 
 	if ev.Error != "" {
 		fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
+		e.signalDone()
 		return
 	}
 
 	if ev.Done {
 		fmt.Fprintln(e.out)
+		e.signalDone()
 		return
 	}
 
@@ -95,6 +119,7 @@ func (e *EmitterAdapter) handleStream(data any) {
 // handleError imprime erros no stderr.
 func (e *EmitterAdapter) handleError(data any) {
 	fmt.Fprintf(e.errOut, "Erro: %v\n", data)
+	e.signalDone()
 }
 
 // handleTool imprime informações de tool calling quando verbose.

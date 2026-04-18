@@ -6,7 +6,9 @@ Status: em implementação
 
 ## Resumo executivo
 
-Adicionar um entrypoint CLI (`cmd/cli/main.go`) que permite usar o assistente via terminal, sem dependência do Wails ou interface gráfica. Para isso, é necessário primeiro reestruturar o projeto: mover a lógica do `App` (hoje em `package main` na raiz) para `internal/app/`, tornando-a importável tanto pelo entrypoint desktop (`cmd/desktop/`) quanto pelo CLI (`cmd/cli/`).
+Adicionar um entrypoint CLI (`cmd/cli/main.go`) que permite usar o assistente via terminal, sem dependência do Wails ou interface gráfica. Para isso, foi necessário reestruturar o projeto: mover a lógica do `App` (antes em `package main` na raiz) para `internal/app/`, tornando-a importável tanto pelo entrypoint desktop (raiz) quanto pelo CLI (`cmd/cli/`).
+
+**Nota:** O `main.go` desktop permanece na raiz do projeto (não em `cmd/desktop/`) porque `//go:embed` do Go não permite caminhos com `..` — e `frontend/dist` está na raiz.
 
 A arquitetura de ports/adapters já abstrai ~85% do acoplamento com Wails. O CLI reutiliza integralmente controllers, services e packages internos, substituindo apenas os 3 adapters de UI (Emitter, Window, Dialog) por implementações de terminal.
 
@@ -52,9 +54,12 @@ Em Go, `package main` não pode ser importado por outro package. Para ter dois e
 **Estrutura resultante:**
 
 ```
+main.go                    ← wails.Run() + embed frontend (permanece na raiz por //go:embed)
 cmd/
-  desktop/main.go          ← wails.Run() + embed frontend (único lugar com import Wails)
   cli/main.go              ← cobra + adapters CLI (zero Wails)
+  cli/chat.go              ← subcomando chat (streaming + REPL + pipe)
+  cli/profiles.go          ← subcomando profiles (list, show, activate)
+  cli/config.go            ← subcomando config (show, providers, model)
 internal/
   app/                     ← App struct + StartupWithAdapters() + toda orquestração
     app.go                 ← App struct, NewApp(), StartupWithAdapters(), Shutdown()
@@ -64,20 +69,20 @@ internal/
     db.go, llm.go, etc.   ← lógica auxiliar
   ...                      ← packages existentes (chat, llm, speech, etc.)
 adapters/
-  wails/                   ← adapters Wails (importado apenas por cmd/desktop/)
+  wails/                   ← adapters Wails (importado apenas pelo main.go da raiz)
   cli/                     ← adapters CLI (importado apenas por cmd/cli/)
   noop/                    ← adapters noop (testes)
 controllers/               ← inalterado
 ```
 
-**O que move para `internal/app/`:**
+**O que moveu para `internal/app/`:**
 - ~51 arquivos `.go` da raiz (exceto `main.go`)
 - Mudança mecânica: `package main` → `package app`
 - Zero alteração de lógica — apenas rename de package
 - `internal/app/` **não importa Wails** — usa apenas interfaces de `ports`
 
-**O que NÃO move:**
-- `main.go` da raiz → vira `cmd/desktop/main.go`
+**O que NÃO moveu:**
+- `main.go` da raiz — permanece na raiz porque `//go:embed all:frontend/dist` requer que o arquivo esteja acima ou no mesmo nível de `frontend/`. Go **proíbe `..`** em caminhos de embed, impedindo `cmd/desktop/main.go` de referenciar `../../frontend/dist`.
 - `adapters/` — já está separado
 - `controllers/` — já está separado
 - `internal/` (sub-packages) — já estão separados
@@ -107,7 +112,7 @@ controllers/               ← inalterado
 ## Arquitetura proposta
 
 ```
-cmd/desktop/main.go        ← wails.Run(), embed, startup() wrapper com adapters Wails
+main.go (raiz)             ← wails.Run(), embed, OnStartup wrapper com adapters Wails
 cmd/cli/main.go            ← cobra root command
 cmd/cli/chat.go            ← subcomando chat (REPL + pipe)
 cmd/cli/profiles.go        ← subcomando profiles
@@ -127,9 +132,9 @@ adapters/cli/dialog.go     ← DialogPort via args/flags
 ### Fluxo de inicialização
 
 **Desktop (Wails):**
-1. `cmd/desktop/main.go` cria `app.NewApp()`
-2. `wails.Run()` chama `startup(ctx)` que injeta adapters Wails
-3. `startup()` chama `app.StartupWithAdapters(ctx, wailsEmitter, wailsWindow, wailsDialog)`
+1. `main.go` (raiz) cria `app.NewApp()`
+2. `wails.Run()` chama `OnStartup(ctx)` que injeta adapters Wails
+3. `OnStartup()` chama `app.StartupWithAdapters(ctx, wailsEmitter, wailsWindow, wailsDialog)`
 
 **CLI:**
 1. `cmd/cli/main.go` cria `app.NewApp()`
@@ -147,32 +152,35 @@ O `cli.EmitterAdapter` traduz eventos para output formatado:
 
 ## Fases de implementação
 
-### Fase 0 — Reestruturação do projeto (pré-requisito)
+### Fase 0 — Reestruturação do projeto ✅
 
-1. Mover ~51 arquivos `.go` da raiz para `internal/app/` (`package main` → `package app`)
-2. Mover `main.go` para `cmd/desktop/main.go` (mantém `package main`, importa `internal/app`)
-3. Exportar tipos e funções necessários (ex.: `NewApp()`, `StartupWithAdapters()`, `Shutdown()`)
-4. Atualizar `wails.json` para apontar para o novo path de build
-5. **Verificação:** `go build ./cmd/desktop` compila; `go test ./...` sem regressões; `wails dev` funciona
+1. ✅ Mover ~51 arquivos `.go` da raiz para `internal/app/` (`package main` → `package app`)
+2. ✅ `main.go` permanece na raiz (restrição do `//go:embed` impede mover para `cmd/desktop/`)
+3. ✅ Exportar tipos e funções: `NewApp()`, `StartupWithAdapters()`, `Shutdown()`, `Context()`
+4. N/A — `wails.json` não precisa de alteração (main.go continua na raiz)
+5. ✅ `go build .` e `go build ./cmd/cli` compilam; `go test ./...` sem regressões
 
-### Fase 1 — Adapters CLI e entrypoint
+### Fase 1 — Adapters CLI e entrypoint ✅
 
-6. Criar package `adapters/cli/` com 3 implementações (Emitter, Window, Dialog) ✅ (já feito)
-7. Criar `cmd/cli/main.go` com cobra root command e inicialização via `app.StartupWithAdapters()`
-8. **Verificação:** `go build ./cmd/cli` compila; `go test ./...` sem regressões
+6. ✅ Criar package `adapters/cli/` com 3 implementações (Emitter, Window, Dialog)
+7. ✅ Criar `cmd/cli/main.go` com cobra root command e inicialização via `app.StartupWithAdapters()`
+8. ✅ EmitterAdapter com `WaitDone()` para sincronização de streaming
+9. ✅ `go build ./cmd/cli` compila; `go test ./...` sem regressões
 
-### Fase 2 — Comandos básicos
+### Fase 2 — Comandos básicos ✅
 
-9. Implementar `assistente chat "pergunta"` — envia mensagem e imprime resposta streaming
-10. Implementar `assistente profiles list|show|activate`
-11. Implementar `assistente config get|set`
-12. **Verificação:** comandos funcionam end-to-end
+10. ✅ `assistente chat "pergunta"` — envia mensagem e imprime resposta streaming
+11. ✅ `assistente chat` sem args — modo REPL interativo
+12. ✅ `echo "pergunta" | assistente chat` — modo pipe
+13. ✅ `assistente profiles list|show|activate`
+14. ✅ `assistente config show|providers|model`
+15. Flags: `--model`, `--profile`, `--conversation`, `--verbose`
 
 ### Fase 3 — Interatividade e automação
 
-13. REPL interativo — `assistente chat` sem args
-14. Pipe mode — `echo "pergunta" | assistente chat`
-15. Ctrl+C cancela geração em andamento
+16. Ctrl+C cancela geração em andamento (cancelamento gracioso via context)
+17. Output formatado com markdown renderizado no terminal (opcional)
+18. Auto-complete de shell (cobra built-in)
 
 ### Fase 4 — Build e distribuição
 
@@ -192,7 +200,7 @@ O `cli.EmitterAdapter` traduz eventos para output formatado:
 
 ## Critérios de aceitação
 
-- `go build ./cmd/desktop` compila e `wails dev` funciona normalmente
+- `go build .` (desktop) compila e `wails dev` funciona normalmente
 - `go build ./cmd/cli` compila sem deps Wails
 - `assistente-cli chat "olá"` retorna resposta streaming no terminal
 - `echo "olá" | assistente-cli chat` funciona em modo pipe
