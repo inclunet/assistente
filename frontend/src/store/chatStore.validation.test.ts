@@ -8,10 +8,12 @@ vi.mock('../hooks/useAnnouncer', () => ({
 }));
 
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
+const mockRetryMessage = vi.fn().mockResolvedValue(undefined);
 const mockGetMessages = vi.fn().mockResolvedValue([]);
 const mockGetConversationInfo = vi.fn().mockResolvedValue({});
 vi.mock('@wailsjs/go/main/App', () => ({
   SendMessage: (...args: unknown[]) => mockSendMessage(...args),
+  RetryMessage: (...args: unknown[]) => mockRetryMessage(...args),
   GetMessages: (...args: unknown[]) => mockGetMessages(...args),
   GetConversationInfo: (...args: unknown[]) => mockGetConversationInfo(...args),
   EnsureConversation: vi.fn().mockResolvedValue(1),
@@ -87,6 +89,7 @@ describe('chatStore validation', () => {
     eventListeners.clear();
     mockAnnounce.mockClear();
     mockSendMessage.mockClear();
+    mockRetryMessage.mockClear();
     mockGetMessages.mockReset();
     mockGetMessages.mockResolvedValue([]);
     mockGetConversationInfo.mockReset();
@@ -117,6 +120,13 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessage(exactContent);
 
     expect(mockSendMessage).toHaveBeenCalled();
+  });
+
+  it('retry de mensagem existente usa RetryMessage sem criar novo SendMessage', async () => {
+    await useChatStore.getState().retryMessageToConversation(1, 42);
+
+    expect(mockRetryMessage).toHaveBeenCalledWith(1, 42, expect.any(Object));
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   it('rejects media exceeding max size', async () => {

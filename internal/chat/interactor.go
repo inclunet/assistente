@@ -253,6 +253,24 @@ type RecordUserMessageResponse struct {
 	ConversationSummary string
 }
 
+// GetRetryableUserMessage retorna uma mensagem existente validando que ela pode ser reenviada.
+func (i *Interactor) GetRetryableUserMessage(conversationID uint, messageID uint) (*Message, error) {
+	userMsg, err := i.repo.GetMessage(messageID)
+	if err != nil {
+		return nil, err
+	}
+	if userMsg == nil {
+		return nil, errors.New("mensagem não encontrada")
+	}
+	if userMsg.ConversationID != conversationID {
+		return nil, fmt.Errorf("mensagem %d não pertence à conversa %d", messageID, conversationID)
+	}
+	if userMsg.Role != "user" {
+		return nil, fmt.Errorf("mensagem %d não é do usuário", messageID)
+	}
+	return userMsg, nil
+}
+
 // RecordUserMessage persiste a mensagem do usuário, emite o evento ready e carrega o histórico da conversa.
 func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessageRequest) (*RecordUserMessageResponse, error) {
 	userMsg, err := i.repo.CreateMessage(MessageOptions{
@@ -274,6 +292,36 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 		UserMessageID:  userMsg.ID,
 		UserContent:    userMsg.Content,
 	})
+
+	maxCtxMsgs := DefaultMaxContextMessages
+	if req.ActiveProfile != nil {
+		maxCtxMsgs = req.ActiveProfile.GetMaxContextMessages()
+	}
+	loader := MediaHistoryLoader{
+		Repo:       i.repo,
+		Transcribe: req.Transcribe,
+		MaxMsgs:    maxCtxMsgs,
+	}
+	messages, summary, err := loader.Load(req.ConversationID)
+	if err != nil {
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar histórico: " + err.Error()})
+		return nil, err
+	}
+
+	return &RecordUserMessageResponse{
+		UserMsg:             userMsg,
+		Messages:            messages,
+		ConversationSummary: summary,
+	}, nil
+}
+
+// ReuseUserMessage carrega uma mensagem de usuário já persistida para um retry sem duplicá-la no banco.
+func (i *Interactor) ReuseUserMessage(ctx context.Context, req RecordUserMessageRequest, messageID uint) (*RecordUserMessageResponse, error) {
+	userMsg, err := i.GetRetryableUserMessage(req.ConversationID, messageID)
+	if err != nil {
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar mensagem para retry: " + err.Error()})
+		return nil, err
+	}
 
 	maxCtxMsgs := DefaultMaxContextMessages
 	if req.ActiveProfile != nil {

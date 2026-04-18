@@ -27,6 +27,7 @@ vi.mock('../../services/tts', () => ({
 const chatStoreState = {
   isLoading: false,
   sendMessage: vi.fn(),
+  retryMessageToConversation: vi.fn(),
   getThreadedMessages: () => [],
   loadMessageChildren: vi.fn(),
   getActiveConversation: () => ({ id: 1, title: 'Conversa' }),

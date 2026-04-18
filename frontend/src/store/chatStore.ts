@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   SendMessage,
+  RetryMessage,
   GetMessages,
   GetConversationInfo,
   EnsureConversation,
@@ -310,6 +311,11 @@ interface ChatStore {
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
   ) => Promise<void>;
+  retryMessageToConversation: (
+    conversationId: number,
+    messageId: number,
+    paramsOverride?: Partial<llm.ChatParams>,
+  ) => Promise<void>;
   stopStreaming: () => void;
 
   getActiveConversation: () => ActiveConversation | null;
@@ -341,6 +347,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     content: string,
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
+    retryMessageId?: number,
   ) => {
     // #region agent log
     fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-title-nav-pre-fix-1',hypothesisId:'H1',location:'frontend/src/store/chatStore.ts:276',message:'send message started',data:{conversationId,activeConversationId:get().activeConversationId,activeTitle:get().activeConversation?.title ?? null,contentPreview:content.slice(0,80),profileSlug:paramsOverride?.profileSlug ?? get().contextProfileSlug ?? null},timestamp:Date.now()})}).catch(()=>{});
@@ -368,6 +375,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }
 
     const conversationIdStr = conversationId.toString();
+    const sendStartedAt = Date.now();
 
     // Backend-driven: sem addMessage local — user msg vem do chat:messages_ready, assistant do chat:stream
     set({ isLoading: true, completedSegments: [], activeToolCalls: [] });
@@ -390,6 +398,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     let unsubDone = noop;
     let unsubError = noop;
     let unsubSpeak = noop;
+    let stuckWatchdogId: ReturnType<typeof setTimeout> | null = null;
 
     const ensureAssistantNode = () => {
       if (assistantNodeCreated) return;
@@ -416,6 +425,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const cleanup = () => {
       if (cleanupExecuted) return;
       cleanupExecuted = true;
+      if (stuckWatchdogId !== null) {
+        clearTimeout(stuckWatchdogId);
+        stuckWatchdogId = null;
+      }
       unsubMessagesReady();
       unsubStream();
       unsubThinking();
@@ -434,6 +447,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       existingCleanup();
       await new Promise(resolve => setTimeout(resolve, 0));
     }
+
+    stuckWatchdogId = setTimeout(() => {
+      if (cleanupExecuted) return;
+      // #region agent log
+      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-stuck-send-pre-fix-1',hypothesisId:'H11',location:'frontend/src/store/chatStore.ts:438',message:'send stuck watchdog fired',data:{conversationId,streamingMsgId,isLoading:get().isLoading,streamingMessageId:get().streamingMessageId,activeConversationId:get().activeConversationId,elapsedMs:Date.now()-sendStartedAt,activeListenerRegistered:activeListeners.has(conversationIdStr)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+    }, 15000);
 
     // chat:error → erro de validação do backend (tamanho, provider, etc.)
     unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
@@ -703,7 +723,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         surfaceStateJson: paramsOverride?.surfaceStateJson,
         surfaceContextJson: paramsOverride?.surfaceContextJson,
       };
-      await SendMessage(conversationId, content, mediaJson, mergedParams);
+      const bridgeAction = retryMessageId ? 'RetryMessage' : 'SendMessage';
+      // #region agent log
+      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-stuck-send-pre-fix-1',hypothesisId:'H11',location:'frontend/src/store/chatStore.ts:702',message:`calling ${bridgeAction} bridge`,data:{conversationId,streamingMsgId,hasMedia:!!mediaJson,profileSlug:mergedParams.profileSlug ?? null,tabType:mergedParams.tabType ?? null,retryMessageId:retryMessageId ?? null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      if (retryMessageId) {
+        await RetryMessage(conversationId, retryMessageId, mergedParams);
+      } else {
+        await SendMessage(conversationId, content, mediaJson, mergedParams);
+      }
+      // #region agent log
+      fetch('http://127.0.0.1:7271/ingest/fb09268b-5fc3-4325-9bc8-e9411ee258d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eb006c'},body:JSON.stringify({sessionId:'eb006c',runId:'chat-stuck-send-pre-fix-1',hypothesisId:'H11',location:'frontend/src/store/chatStore.ts:705',message:`${bridgeAction} bridge resolved`,data:{conversationId,streamingMsgId,elapsedMs:Date.now()-sendStartedAt,isLoading:get().isLoading,streamingMessageId:get().streamingMessageId,retryMessageId:retryMessageId ?? null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
 
     } catch (error: unknown) {
       if (cleanupExecuted) return; // Already handled by chat:error listener
@@ -996,6 +1027,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         await get().loadConversation(conversationId);
       }
       await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride);
+    },
+
+    retryMessageToConversation: async (conversationId, messageId, paramsOverride) => {
+      if (!conversationId || !messageId) {
+        console.error('[Chat] retryMessageToConversation sem conversationId/messageId válido');
+        announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
+        return;
+      }
+      if (get().activeConversationId !== conversationId) {
+        await get().loadConversation(conversationId);
+      }
+      await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId);
     },
 
     stopStreaming: () => {

@@ -46,6 +46,7 @@ export function ChatSessionView({
     loadMessageChildren,
     getActiveConversation,
     loadConversation,
+    retryMessageToConversation,
     updateMessage,
     toggleReasoningExpanded,
     isReasoningExpanded,
@@ -152,10 +153,11 @@ export function ChatSessionView({
       startEditing(message.id);
     },
     onResend: async (message) => {
-      if (message.content) {
-        await onSend(String(message.content));
-        announce(t('chat.announce.messageResent'));
-      }
+      const conversationId = getActiveConversation()?.id;
+      const messageId = typeof message.id === 'number' ? message.id : parseInt(String(message.id), 10);
+      if (!conversationId || Number.isNaN(messageId)) return;
+      await retryMessageToConversation(conversationId, messageId);
+      announce(t('chat.announce.messageResent'));
     },
     onDelete: handleDeleteMessage,
     onSendToEditor: (payload) => sendToEditor(payload),

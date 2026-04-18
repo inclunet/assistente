@@ -411,6 +411,8 @@ export function SearchConversationHistory(arg1:string,arg2:number):Promise<Array
 
 export function SendMessage(arg1:number,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<number>;
 
+export function RetryMessage(arg1:number,arg2:number,arg3:llm.ChatParams):Promise<number>;
+
 export function SendMessageFromChannel(arg1:number,arg2:string,arg3:string,arg4:llm.ChatParams,arg5:string):Promise<number>;
 
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;

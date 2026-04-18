@@ -24,6 +24,15 @@ func (r *stubRepo) GetConversationSummary(_ uint) (string, uint, error) {
 func (r *stubRepo) CreateMessage(_ database.MessageOptions) (*database.ChatMessage, error) {
 	return nil, nil
 }
+func (r *stubRepo) GetMessage(messageID uint) (*database.ChatMessage, error) {
+	for i := range r.messages {
+		if r.messages[i].ID == messageID {
+			msg := r.messages[i]
+			return &msg, nil
+		}
+	}
+	return nil, nil
+}
 func (r *stubRepo) GetDetailedTokenStats(_ uint, _ uint) (*database.DetailedTokenStats, error) {
 	return nil, nil
 }

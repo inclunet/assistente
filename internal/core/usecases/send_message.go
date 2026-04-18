@@ -67,6 +67,7 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 type SendMessageRequest struct {
 	Ctx            context.Context
 	ConversationID uint
+	RetryMessageID uint
 	UserContent    string
 	UserMedia      string
 	Params         llm.ChatParams
@@ -88,6 +89,19 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 		defaultModel = cfg.DefaultModel
 	}
 
+	if req.RetryMessageID > 0 {
+		reused, err := uc.chatInteractor.GetRetryableUserMessage(req.ConversationID, req.RetryMessageID)
+		if err != nil {
+			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar mensagem para retry: " + err.Error()})
+			return 0, err
+		}
+		req.UserContent = reused.Content
+		req.UserMedia = reused.Media
+		if reused.Source != "" {
+			req.Source = reused.Source
+		}
+	}
+
 	// Delega validação, renaming e resolução de perfil para o ChatInteractor.
 	pctx, err := uc.chatInteractor.PrepareContext(context.Background(), chat.PrepareContextRequest{
 		ConversationID: req.ConversationID,
@@ -104,41 +118,60 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 	params := pctx.Params
 	userContent := pctx.UserContent
 
-	// Resolve conteúdo: extrai áudio do media e aplica STT fallback para canais.
-	var sttProvider string
-	if activeProfile != nil {
-		sttProvider = activeProfile.Input.STTProvider
-	}
-	resolved := uc.chatInteractor.ResolveUserContent(context.Background(), chat.ResolveUserContentRequest{
-		Content:     userContent,
-		Media:       req.UserMedia,
-		Source:      req.Source,
-		STTProvider: sttProvider,
-		Transcribe:  uc.whisperTranscribeFunc(),
-	})
-	userContent = resolved.Content
+	var userMsg *chat.Message
+	var messages []llm.Message
+	var conversationSummary string
+	if req.RetryMessageID > 0 {
+		rmsg, err := uc.chatInteractor.ReuseUserMessage(context.Background(), chat.RecordUserMessageRequest{
+			ConversationID: req.ConversationID,
+			Source:         req.Source,
+			ActiveProfile:  activeProfile,
+			Transcribe:     uc.whisperTranscribeFunc(),
+		}, req.RetryMessageID)
+		if err != nil {
+			return 0, err
+		}
+		userMsg = rmsg.UserMsg
+		messages = rmsg.Messages
+		conversationSummary = rmsg.ConversationSummary
+		userContent = userMsg.Content
+	} else {
+		// Resolve conteúdo: extrai áudio do media e aplica STT fallback para canais.
+		var sttProvider string
+		if activeProfile != nil {
+			sttProvider = activeProfile.Input.STTProvider
+		}
+		resolved := uc.chatInteractor.ResolveUserContent(context.Background(), chat.ResolveUserContentRequest{
+			Content:     userContent,
+			Media:       req.UserMedia,
+			Source:      req.Source,
+			STTProvider: sttProvider,
+			Transcribe:  uc.whisperTranscribeFunc(),
+		})
+		userContent = resolved.Content
 
-	// Persiste mensagem do usuário, emite ready e carrega histórico.
-	rmsg, err := uc.chatInteractor.RecordUserMessage(context.Background(), chat.RecordUserMessageRequest{
-		ConversationID: req.ConversationID,
-		Content:        userContent,
-		Media:          req.UserMedia,
-		AudioBase64:    resolved.AudioBase64,
-		AudioMimeType:  resolved.AudioMimeType,
-		Source:         req.Source,
-		ActiveProfile:  activeProfile,
-		Transcribe:     uc.whisperTranscribeFunc(),
-	})
-	if err != nil {
-		return 0, err
-	}
-	userMsg := rmsg.UserMsg
-	messages := rmsg.Messages
-	conversationSummary := rmsg.ConversationSummary
+		// Persiste mensagem do usuário, emite ready e carrega histórico.
+		rmsg, err := uc.chatInteractor.RecordUserMessage(context.Background(), chat.RecordUserMessageRequest{
+			ConversationID: req.ConversationID,
+			Content:        userContent,
+			Media:          req.UserMedia,
+			AudioBase64:    resolved.AudioBase64,
+			AudioMimeType:  resolved.AudioMimeType,
+			Source:         req.Source,
+			ActiveProfile:  activeProfile,
+			Transcribe:     uc.whisperTranscribeFunc(),
+		})
+		if err != nil {
+			return 0, err
+		}
+		userMsg = rmsg.UserMsg
+		messages = rmsg.Messages
+		conversationSummary = rmsg.ConversationSummary
 
-	// TTS proativo: verbaliza a mensagem do usuário (síncrono para garantir ordem dos eventos)
-	if uc.onSpeechRequest != nil && userContent != "" {
-		uc.onSpeechRequest(req.ConversationID, userMsg.ID, "user", userContent, "user_message", params.ProfileSlug, true)
+		// TTS proativo: verbaliza a mensagem do usuário (síncrono para garantir ordem dos eventos)
+		if uc.onSpeechRequest != nil && userContent != "" {
+			uc.onSpeechRequest(req.ConversationID, userMsg.ID, "user", userContent, "user_message", params.ProfileSlug, true)
+		}
 	}
 
 	// Detecta slash skill, compõe system prompt e pré-processa mídia.

@@ -26,6 +26,9 @@ type MessageRepository interface {
 	// CreateMessage persiste uma mensagem no banco.
 	CreateMessage(opts MessageOptions) (*Message, error)
 
+	// GetMessage retorna uma mensagem completa pelo ID.
+	GetMessage(messageID uint) (*Message, error)
+
 	// GetMessages retorna mensagens de uma conversa, opcionalmente filtradas por parentID.
 	GetMessages(conversationID uint, parentID *uint) ([]Message, error)
 
