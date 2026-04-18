@@ -39,11 +39,20 @@ vi.mock('../components/ui/Modal', () => ({
   isModalOpen: mockedIsModalOpen,
 }));
 
-import { useWorkspaceStore, registerTabRenameHandler } from './workspaceStore';
-import { SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/main/App';
+vi.mock('../lib/waitForWailsBridge', () => ({
+  waitForWailsBridge: vi.fn(),
+}));
 
+import { useWorkspaceStore, registerTabRenameHandler } from './workspaceStore';
+import { GetActiveWorkspace, ListWorkspaces, SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/main/App';
+import { waitForWailsBridge } from '../lib/waitForWailsBridge';
+import { workspace } from '../../wailsjs/go/models';
+
+const mockedGetActiveWorkspace = vi.mocked(GetActiveWorkspace);
+const mockedListWorkspaces = vi.mocked(ListWorkspaces);
 const mockedSetActiveWorkspaceTab = vi.mocked(SetActiveWorkspaceTab);
 const mockedUpdateWorkspaceTab = vi.mocked(UpdateWorkspaceTab);
+const mockedWaitForWailsBridge = vi.mocked(waitForWailsBridge);
 
 function setStoreState(
   tabs: Array<{ id: string; type: string; conversationId?: number; state?: Record<string, unknown>; title: string; position: number }>,
@@ -220,5 +229,38 @@ describe('setActiveTab', () => {
 
     expect(mockedSetActiveWorkspaceTab).not.toHaveBeenCalled();
     expect(mockedAnnounce).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('initialize', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedGetActiveWorkspace.mockReset();
+    mockedListWorkspaces.mockReset();
+    mockedWaitForWailsBridge.mockReset();
+  });
+
+  it('faz retry quando waitForWailsBridge expira e só marca isInitialized após sucesso', async () => {
+    vi.useFakeTimers();
+    mockedWaitForWailsBridge
+      .mockRejectedValueOnce(new Error('Timed out waiting for Wails bridge after 10000ms'))
+      .mockResolvedValueOnce(undefined);
+    mockedGetActiveWorkspace.mockResolvedValueOnce(null as unknown as workspace.Workspace);
+    mockedListWorkspaces.mockResolvedValueOnce([]);
+
+    await useWorkspaceStore.getState().initialize();
+
+    expect(useWorkspaceStore.getState().isInitialized).toBe(false);
+    expect(mockedGetActiveWorkspace).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await vi.waitFor(() => {
+      expect(mockedWaitForWailsBridge).toHaveBeenCalledTimes(2);
+      expect(mockedGetActiveWorkspace).toHaveBeenCalledTimes(1);
+      expect(mockedListWorkspaces).toHaveBeenCalledTimes(1);
+      expect(useWorkspaceStore.getState().isInitialized).toBe(true);
+    });
   });
 });

@@ -3,10 +3,11 @@ package prompt_test
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"fmt"
 	"strings"
 	"testing"
 
+	"assistente/internal/chat"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
@@ -274,17 +275,17 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 }
 
 func TestBuildTemplateData_InvalidSurfaceLogsIdentifyField(t *testing.T) {
-	originalWriter := log.Writer()
 	var output strings.Builder
-	log.SetOutput(&output)
-	defer log.SetOutput(originalWriter)
+	logger := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&output, format, args...)
+		_, _ = output.WriteString("\n")
+	}
 
-	b := &prompt.Builder{}
-	_ = b.BuildTemplateData(nil, llm.ChatParams{
-		SurfaceStateJSON:   "{",
-		SurfaceContextJSON: "{",
-	}, 1)
-
+	state := chat.DecodeSurfaceJSONMapWithLogger("{", "[prompt] surface state json", logger)
+	context := chat.DecodeSurfaceJSONMapWithLogger("{", "[prompt] surface context json", logger)
+	if state != nil || context != nil {
+		t.Fatalf("expected invalid payloads to decode as nil, got state=%v context=%v", state, context)
+	}
 	logs := output.String()
 	if !strings.Contains(logs, "[prompt] surface state json inválido") {
 		t.Fatalf("esperava log do state, recebeu: %s", logs)
