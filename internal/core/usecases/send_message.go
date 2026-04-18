@@ -105,7 +105,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 	}
 
 	// Delega validação, renaming e resolução de perfil para o ChatInteractor.
-	pctx, err := uc.chatInteractor.PrepareContext(context.Background(), chat.PrepareContextRequest{
+	pctx, err := uc.chatInteractor.PrepareContext(ctx, chat.PrepareContextRequest{
 		ConversationID: req.ConversationID,
 		UserContent:    req.UserContent,
 		UserMedia:      req.UserMedia,
@@ -124,7 +124,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 	var messages []llm.Message
 	var conversationSummary string
 	if req.RetryMessageID > 0 {
-		rmsg, err := uc.chatInteractor.ReuseLoadedUserMessage(context.Background(), chat.RecordUserMessageRequest{
+		rmsg, err := uc.chatInteractor.ReuseLoadedUserMessage(ctx, chat.RecordUserMessageRequest{
 			ConversationID: req.ConversationID,
 			Source:         req.Source,
 			ActiveProfile:  activeProfile,
@@ -143,7 +143,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 		if activeProfile != nil {
 			sttProvider = activeProfile.Input.STTProvider
 		}
-		resolved := uc.chatInteractor.ResolveUserContent(context.Background(), chat.ResolveUserContentRequest{
+		resolved := uc.chatInteractor.ResolveUserContent(ctx, chat.ResolveUserContentRequest{
 			Content:     userContent,
 			Media:       req.UserMedia,
 			Source:      req.Source,
@@ -153,7 +153,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 		userContent = resolved.Content
 
 		// Persiste mensagem do usuário, emite ready e carrega histórico.
-		rmsg, err := uc.chatInteractor.RecordUserMessage(context.Background(), chat.RecordUserMessageRequest{
+		rmsg, err := uc.chatInteractor.RecordUserMessage(ctx, chat.RecordUserMessageRequest{
 			ConversationID: req.ConversationID,
 			Content:        userContent,
 			Media:          req.UserMedia,
