@@ -4,6 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockGetChannelConfig = vi.fn();
+const mockGetChannelConfigAsMap = vi.fn();
 const mockGetMessagingStatus = vi.fn();
 const mockGetChannelTemplates = vi.fn();
 const mockListCredentials = vi.fn();
@@ -31,6 +32,7 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@wailsjs/go/main/App', () => ({
   GetChannelConfig: (name: string) => mockGetChannelConfig(name),
+  GetChannelConfigAsMap: (name: string) => mockGetChannelConfigAsMap(name),
   SaveChannelConfig: (name: string, payload: unknown) => mockSaveChannelConfig(name, payload),
   GetMessagingStatus: () => mockGetMessagingStatus(),
   RestartChannel: (name: string) => mockRestartChannel(name),
@@ -173,6 +175,7 @@ describe('ChannelsPage', () => {
       max_contacts: 1,
     });
     mockGetMessagingStatus.mockResolvedValue({});
+    mockGetChannelConfigAsMap.mockResolvedValue({});
     mockGetChannelTemplates.mockResolvedValue([
       { type: 'telegram', display_name: 'Telegram', icon: '📨' },
     ]);

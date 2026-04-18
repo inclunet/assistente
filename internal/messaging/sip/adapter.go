@@ -135,6 +135,13 @@ func (s *SIPAdapter) SetVoiceID(id string) {
 	s.voiceID = id
 }
 
+// SetPipelineConfig configura os parâmetros do pipeline de áudio SIP.
+func (s *SIPAdapter) SetPipelineConfig(cfg AudioPipelineConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pipelineCfg = cfg
+}
+
 // Name retorna o identificador da plataforma.
 func (s *SIPAdapter) Name() string {
 	return "sip"

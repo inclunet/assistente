@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"time"
 
 	"assistente/internal/channels"
 	"assistente/internal/chat"
@@ -37,7 +38,7 @@ type MessagingControllerConfig struct {
 	SendMessageFn    messaging.SendMessageFunc
 
 	// SIP (opcional — injetado quando SIP está disponível)
-	CreateSIPSpeechManager   func() (*speech.SpeechManager, string)
+	CreateSIPSpeechManager    func() (*speech.SpeechManager, string)
 	CancelStreamingForContact func(channel, contactID string)
 }
 
@@ -56,7 +57,7 @@ type MessagingController struct {
 	sendMessageFn    messaging.SendMessageFunc
 
 	// SIP callbacks
-	createSIPSpeechManager   func() (*speech.SpeechManager, string)
+	createSIPSpeechManager    func() (*speech.SpeechManager, string)
 	cancelStreamingForContact func(channel, contactID string)
 
 	// criados por Init()
@@ -314,6 +315,12 @@ func (c *MessagingController) GetChannelConfig(channelName string) (*channels.Ch
 
 // SaveChannelConfig salva a configuração de um canal e reconecta automaticamente.
 func (c *MessagingController) SaveChannelConfig(channelName string, cfg *channels.ChannelConfig) error {
+	existing, err := channels.Load(channelName)
+	if err != nil {
+		return err
+	}
+	mergePreservedChannelState(channelName, existing, cfg)
+
 	if err := c.persistChannelCredentials(channelName, cfg); err != nil {
 		return err
 	}
@@ -322,6 +329,31 @@ func (c *MessagingController) SaveChannelConfig(channelName string, cfg *channel
 	}
 	c.restartChannel(channelName, cfg)
 	return nil
+}
+
+func mergePreservedChannelState(channelName string, existing, incoming *channels.ChannelConfig) {
+	if existing == nil || incoming == nil {
+		return
+	}
+	if incoming.Conversations == nil && existing.Conversations != nil {
+		incoming.Conversations = existing.Conversations
+	}
+	if channelName != "sip" {
+		return
+	}
+	if incoming.SIPAudioTuningConfigured || !existing.SIPAudioTuningConfigured {
+		return
+	}
+	incoming.SIPAudioTuningConfigured = existing.SIPAudioTuningConfigured
+	incoming.SIPDenoise = existing.SIPDenoise
+	incoming.SIPAGC = existing.SIPAGC
+	incoming.SIPNoiseSuppressDB = existing.SIPNoiseSuppressDB
+	incoming.SIPAGCTarget = existing.SIPAGCTarget
+	incoming.SIPAGCMaxGainDB = existing.SIPAGCMaxGainDB
+	incoming.SIPVADMode = existing.SIPVADMode
+	incoming.SIPVADSpeechMS = existing.SIPVADSpeechMS
+	incoming.SIPVADSilenceMS = existing.SIPVADSilenceMS
+	incoming.SIPBargeInThreshold = existing.SIPBargeInThreshold
 }
 
 // RestartChannel reconecta um canal de mensageria (exposto ao frontend).
@@ -686,6 +718,7 @@ func (c *MessagingController) connectSIP(cfg *channels.ChannelConfig) {
 		LocalIP:     cfg.SIPLocalIP,
 	}
 	adapter := sip.NewAdapter(sipCfg)
+	adapter.SetPipelineConfig(buildSIPPipelineConfig(cfg))
 
 	if c.cancelStreamingForContact != nil {
 		adapter.CancelStreamingForContact = c.cancelStreamingForContact
@@ -709,4 +742,37 @@ func (c *MessagingController) connectSIP(cfg *channels.ChannelConfig) {
 		}
 	}()
 	log.Printf("[Messaging] SIP conectado (%s@%s:%d)", cfg.SIPUser, cfg.SIPServer, sipCfg.GetPort())
+}
+
+func buildSIPPipelineConfig(cfg *channels.ChannelConfig) sip.AudioPipelineConfig {
+	pipelineCfg := sip.DefaultAudioPipelineConfig()
+	if cfg == nil || !cfg.SIPAudioTuningConfigured {
+		return pipelineCfg
+	}
+
+	pipelineCfg.Preprocess.EnableDenoise = cfg.SIPDenoise
+	pipelineCfg.Preprocess.EnableAGC = cfg.SIPAGC
+	if cfg.SIPNoiseSuppressDB != 0 {
+		pipelineCfg.Preprocess.NoiseSuppressDB = cfg.SIPNoiseSuppressDB
+	}
+	if cfg.SIPAGCTarget != 0 {
+		pipelineCfg.Preprocess.AGCTarget = cfg.SIPAGCTarget
+	}
+	if cfg.SIPAGCMaxGainDB != 0 {
+		pipelineCfg.Preprocess.AGCMaxGainDB = cfg.SIPAGCMaxGainDB
+	}
+	if cfg.SIPVADMode >= 0 && cfg.SIPVADMode <= 3 {
+		pipelineCfg.VAD.Mode = cfg.SIPVADMode
+	}
+	if cfg.SIPVADSpeechMS > 0 {
+		pipelineCfg.VAD.SpeechDuration = time.Duration(cfg.SIPVADSpeechMS) * time.Millisecond
+	}
+	if cfg.SIPVADSilenceMS > 0 {
+		pipelineCfg.VAD.SilenceDuration = time.Duration(cfg.SIPVADSilenceMS) * time.Millisecond
+	}
+	if cfg.SIPBargeInThreshold > 0 {
+		pipelineCfg.BargeInRMSThreshold = cfg.SIPBargeInThreshold
+	}
+
+	return pipelineCfg
 }

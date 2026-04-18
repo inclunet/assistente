@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import {
   GetChannelConfig,
+  GetChannelConfigAsMap,
   SaveChannelConfig,
   GetMessagingStatus,
   SignalCheckAPI,
@@ -94,6 +95,15 @@ interface SIPForm {
   sipDisplayName: string;
   sipTransport: string;
   sipLocalIP: string;
+  sipDenoise: boolean;
+  sipAGC: boolean;
+  sipNoiseSuppressDB: number;
+  sipAGCTarget: number;
+  sipAGCMaxGainDB: number;
+  sipVADMode: number;
+  sipVADSpeechMS: number;
+  sipVADSilenceMS: number;
+  sipBargeInThreshold: number;
   profile: string;
   maxHistory: number;
   maxContacts: number;
@@ -137,7 +147,10 @@ export default function ChannelsPage() {
     enabled: false, botToken: '', appToken: '', profile: '', maxHistory: 50, maxContacts: 1,
   });
   const [sipForm, setSipForm] = useState<SIPForm>({
-    enabled: false, sipServer: '', sipPort: 5060, sipUser: '', sipPassword: '', sipDisplayName: '', sipTransport: 'udp', sipLocalIP: '', profile: '', maxHistory: 50, maxContacts: 0,
+    enabled: false, sipServer: '', sipPort: 5060, sipUser: '', sipPassword: '', sipDisplayName: '', sipTransport: 'udp', sipLocalIP: '',
+    sipDenoise: true, sipAGC: true, sipNoiseSuppressDB: -24, sipAGCTarget: 24000, sipAGCMaxGainDB: 30,
+    sipVADMode: 1, sipVADSpeechMS: 80, sipVADSilenceMS: 400, sipBargeInThreshold: 0.15,
+    profile: '', maxHistory: 50, maxContacts: 0,
   });
 
   const [credentialSummaries, setCredentialSummaries] = useState<Record<string, CredentialSummary>>({});
@@ -184,11 +197,12 @@ export default function ChannelsPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [telegramCfg, signalCfg, slackCfg, sipCfg, status, credentialsList] = await Promise.all([
+      const [telegramCfg, signalCfg, slackCfg, sipCfg, sipAudioTuning, status, credentialsList] = await Promise.all([
         GetChannelConfig('telegram'),
         GetChannelConfig('signal'),
         GetChannelConfig('slack'),
         GetChannelConfig('sip'),
+        GetChannelConfigAsMap('sip'),
         GetMessagingStatus(),
         ListCredentials().catch(() => [] as CredentialSummary[]),
       ]);
@@ -229,6 +243,7 @@ export default function ChannelsPage() {
         });
       }
       if (sipCfg) {
+        const sipAudioCfg = sipAudioTuning ?? {};
         setSipForm({
           enabled: sipEnabled,
           sipServer: sipCfg.sip_server || '',
@@ -238,6 +253,15 @@ export default function ChannelsPage() {
           sipDisplayName: sipCfg.sip_display_name || '',
           sipTransport: sipCfg.sip_transport || 'udp',
           sipLocalIP: sipCfg.sip_local_ip || '',
+          sipDenoise: typeof sipAudioCfg.sip_denoise === 'boolean' ? sipAudioCfg.sip_denoise : true,
+          sipAGC: typeof sipAudioCfg.sip_agc === 'boolean' ? sipAudioCfg.sip_agc : true,
+          sipNoiseSuppressDB: typeof sipAudioCfg.sip_noise_suppress_db === 'number' ? sipAudioCfg.sip_noise_suppress_db : -24,
+          sipAGCTarget: typeof sipAudioCfg.sip_agc_target === 'number' ? sipAudioCfg.sip_agc_target : 24000,
+          sipAGCMaxGainDB: typeof sipAudioCfg.sip_agc_max_gain_db === 'number' ? sipAudioCfg.sip_agc_max_gain_db : 30,
+          sipVADMode: typeof sipAudioCfg.sip_vad_mode === 'number' ? sipAudioCfg.sip_vad_mode : 1,
+          sipVADSpeechMS: typeof sipAudioCfg.sip_vad_speech_ms === 'number' ? sipAudioCfg.sip_vad_speech_ms : 80,
+          sipVADSilenceMS: typeof sipAudioCfg.sip_vad_silence_ms === 'number' ? sipAudioCfg.sip_vad_silence_ms : 400,
+          sipBargeInThreshold: typeof sipAudioCfg.sip_barge_in_threshold === 'number' ? sipAudioCfg.sip_barge_in_threshold : 0.15,
           profile: sipCfg.profile || defaultChannelProfile,
           maxHistory: sipCfg.max_history || 50,
           maxContacts: sipCfg.max_contacts || 0,
@@ -492,7 +516,7 @@ export default function ChannelsPage() {
           }
         }
 
-        await SaveChannelConfig('sip', channels.ChannelConfig.createFrom({
+        await SaveChannelConfig('sip', {
           enabled: sipForm.enabled,
           sip_server: sipForm.sipServer,
           sip_port: sipForm.sipPort,
@@ -502,10 +526,20 @@ export default function ChannelsPage() {
           sip_display_name: sipForm.sipDisplayName,
           sip_transport: sipForm.sipTransport,
           sip_local_ip: sipForm.sipLocalIP,
+          sip_audio_tuning_configured: true,
+          sip_denoise: sipForm.sipDenoise,
+          sip_agc: sipForm.sipAGC,
+          sip_noise_suppress_db: sipForm.sipNoiseSuppressDB,
+          sip_agc_target: sipForm.sipAGCTarget,
+          sip_agc_max_gain_db: sipForm.sipAGCMaxGainDB,
+          sip_vad_mode: sipForm.sipVADMode,
+          sip_vad_speech_ms: sipForm.sipVADSpeechMS,
+          sip_vad_silence_ms: sipForm.sipVADSilenceMS,
+          sip_barge_in_threshold: sipForm.sipBargeInThreshold,
           profile: sipForm.profile,
           max_history: sipForm.maxHistory,
           max_contacts: sipForm.maxContacts,
-        }));
+        } as unknown as channels.ChannelConfig);
       }
       addToast(t('channels.toast.channelSaved', { name: channelName }), 'success');
       announce(t('channels.toast.channelSaved', { name: channelName }));

@@ -11,6 +11,15 @@ interface SIPForm {
   sipDisplayName: string;
   sipTransport: string;
   sipLocalIP: string;
+  sipDenoise: boolean;
+  sipAGC: boolean;
+  sipNoiseSuppressDB: number;
+  sipAGCTarget: number;
+  sipAGCMaxGainDB: number;
+  sipVADMode: number;
+  sipVADSpeechMS: number;
+  sipVADSilenceMS: number;
+  sipBargeInThreshold: number;
   profile: string;
   maxHistory: number;
   maxContacts: number;
@@ -129,6 +138,106 @@ export function ChannelsSIPSection({
           />
           <p className="channels-page__hint">
             {t('channels.sip.localIPHint')}
+          </p>
+          <Checkbox
+            label={t('channels.sip.denoise')}
+            checked={form.sipDenoise}
+            onChange={(e) => onChange({ ...form, sipDenoise: e.target.checked })}
+          />
+          <Checkbox
+            label={t('channels.sip.agc')}
+            checked={form.sipAGC}
+            onChange={(e) => onChange({ ...form, sipAGC: e.target.checked })}
+          />
+          <Input
+            label={t('channels.sip.noiseSuppressDb')}
+            type="number"
+            min="-60"
+            max="0"
+            value={form.sipNoiseSuppressDB}
+            onChange={(e) =>
+              onChange({ ...form, sipNoiseSuppressDB: parseInt(e.target.value, 10) || 0 })
+            }
+            fullWidth
+          />
+          <p className="channels-page__hint">
+            {t('channels.sip.noiseSuppressDbHint')}
+          </p>
+          <Input
+            label={t('channels.sip.agcTarget')}
+            type="number"
+            min="1000"
+            max="32767"
+            value={form.sipAGCTarget}
+            onChange={(e) =>
+              onChange({ ...form, sipAGCTarget: parseInt(e.target.value, 10) || 24000 })
+            }
+            fullWidth
+          />
+          <Input
+            label={t('channels.sip.agcMaxGainDb')}
+            type="number"
+            min="1"
+            max="60"
+            value={form.sipAGCMaxGainDB}
+            onChange={(e) =>
+              onChange({ ...form, sipAGCMaxGainDB: parseInt(e.target.value, 10) || 30 })
+            }
+            fullWidth
+          />
+          <p className="channels-page__hint">
+            {t('channels.sip.agcHint')}
+          </p>
+          <Input
+            label={t('channels.sip.vadMode')}
+            type="number"
+            min="0"
+            max="3"
+            value={form.sipVADMode}
+            onChange={(e) =>
+              onChange({ ...form, sipVADMode: parseInt(e.target.value, 10) || 0 })
+            }
+            fullWidth
+          />
+          <Input
+            label={t('channels.sip.vadSpeechMs')}
+            type="number"
+            min="20"
+            max="2000"
+            value={form.sipVADSpeechMS}
+            onChange={(e) =>
+              onChange({ ...form, sipVADSpeechMS: parseInt(e.target.value, 10) || 80 })
+            }
+            fullWidth
+          />
+          <Input
+            label={t('channels.sip.vadSilenceMs')}
+            type="number"
+            min="20"
+            max="3000"
+            value={form.sipVADSilenceMS}
+            onChange={(e) =>
+              onChange({ ...form, sipVADSilenceMS: parseInt(e.target.value, 10) || 400 })
+            }
+            fullWidth
+          />
+          <p className="channels-page__hint">
+            {t('channels.sip.vadHint')}
+          </p>
+          <Input
+            label={t('channels.sip.bargeInThreshold')}
+            type="number"
+            min="0"
+            max="1"
+            step="0.01"
+            value={form.sipBargeInThreshold}
+            onChange={(e) =>
+              onChange({ ...form, sipBargeInThreshold: parseFloat(e.target.value) || 0.15 })
+            }
+            fullWidth
+          />
+          <p className="channels-page__hint">
+            {t('channels.sip.bargeInThresholdHint')}
           </p>
           <Input
             label={t('channels.sip.maxContacts')}
