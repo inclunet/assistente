@@ -293,6 +293,15 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 		UserContent:    userMsg.Content,
 	})
 
+	return i.ReuseLoadedUserMessage(ctx, req, userMsg)
+}
+
+// ReuseLoadedUserMessage monta a resposta de retry a partir de uma mensagem já validada/carregada.
+func (i *Interactor) ReuseLoadedUserMessage(_ context.Context, req RecordUserMessageRequest, userMsg *Message) (*RecordUserMessageResponse, error) {
+	if userMsg == nil {
+		return nil, errors.New("mensagem não encontrada")
+	}
+
 	maxCtxMsgs := DefaultMaxContextMessages
 	if req.ActiveProfile != nil {
 		maxCtxMsgs = req.ActiveProfile.GetMaxContextMessages()
@@ -322,27 +331,7 @@ func (i *Interactor) ReuseUserMessage(ctx context.Context, req RecordUserMessage
 		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar mensagem para retry: " + err.Error()})
 		return nil, err
 	}
-
-	maxCtxMsgs := DefaultMaxContextMessages
-	if req.ActiveProfile != nil {
-		maxCtxMsgs = req.ActiveProfile.GetMaxContextMessages()
-	}
-	loader := MediaHistoryLoader{
-		Repo:       i.repo,
-		Transcribe: req.Transcribe,
-		MaxMsgs:    maxCtxMsgs,
-	}
-	messages, summary, err := loader.Load(req.ConversationID)
-	if err != nil {
-		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar histórico: " + err.Error()})
-		return nil, err
-	}
-
-	return &RecordUserMessageResponse{
-		UserMsg:             userMsg,
-		Messages:            messages,
-		ConversationSummary: summary,
-	}, nil
+	return i.ReuseLoadedUserMessage(ctx, req, userMsg)
 }
 
 // ResolveUserContentRequest contém os dados brutos para resolução de conteúdo do usuário.

@@ -89,12 +89,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 		defaultModel = cfg.DefaultModel
 	}
 
+	var retryUserMsg *chat.Message
 	if req.RetryMessageID > 0 {
 		reused, err := uc.chatInteractor.GetRetryableUserMessage(req.ConversationID, req.RetryMessageID)
 		if err != nil {
 			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar mensagem para retry: " + err.Error()})
 			return 0, err
 		}
+		retryUserMsg = reused
 		req.UserContent = reused.Content
 		req.UserMedia = reused.Media
 		if reused.Source != "" {
@@ -122,12 +124,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 	var messages []llm.Message
 	var conversationSummary string
 	if req.RetryMessageID > 0 {
-		rmsg, err := uc.chatInteractor.ReuseUserMessage(context.Background(), chat.RecordUserMessageRequest{
+		rmsg, err := uc.chatInteractor.ReuseLoadedUserMessage(context.Background(), chat.RecordUserMessageRequest{
 			ConversationID: req.ConversationID,
 			Source:         req.Source,
 			ActiveProfile:  activeProfile,
 			Transcribe:     uc.whisperTranscribeFunc(),
-		}, req.RetryMessageID)
+		}, retryUserMsg)
 		if err != nil {
 			return 0, err
 		}

@@ -1187,6 +1187,7 @@ export namespace llm {
 	    activeFilePath?: string;
 	    surfaceStateJson?: string;
 	    surfaceContextJson?: string;
+	    retryMessageId?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatParams(source);
@@ -1207,6 +1208,7 @@ export namespace llm {
 	        this.activeFilePath = source["activeFilePath"];
 	        this.surfaceStateJson = source["surfaceStateJson"];
 	        this.surfaceContextJson = source["surfaceContextJson"];
+	        this.retryMessageId = source["retryMessageId"];
 	    }
 	}
 	export class FunctionCall {

@@ -200,6 +200,7 @@ type ChatParams struct {
 	ActiveFilePath       string  `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
 	SurfaceStateJSON     string  `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
 	SurfaceContextJSON   string  `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
+	RetryMessageID       uint    `json:"retryMessageId,omitempty"`       // Reusa uma mensagem de usuário já persistida sem duplicá-la
 }
 
 // ==================== Helper Functions ====================

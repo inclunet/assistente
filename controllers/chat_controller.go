@@ -77,22 +77,9 @@ func (c *ChatController) SendMessage(ctx context.Context, conversationID uint, u
 	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
 		Ctx:            ctx,
 		ConversationID: conversationID,
+		RetryMessageID: params.RetryMessageID,
 		UserContent:    userContent,
 		UserMedia:      userMedia,
-		Params:         params,
-		Source:         "wails",
-	})
-}
-
-// RetryMessage reexecuta o turno a partir de uma mensagem já persistida, sem duplicar a mensagem do usuário.
-func (c *ChatController) RetryMessage(ctx context.Context, conversationID uint, messageID uint, params llm.ChatParams) (uint, error) {
-	if conversationID > 0 && c.msgGateway != nil && c.responseNotifier != nil {
-		c.registerChannelBridge(conversationID)
-	}
-	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
-		Ctx:            ctx,
-		ConversationID: conversationID,
-		RetryMessageID: messageID,
 		Params:         params,
 		Source:         "wails",
 	})

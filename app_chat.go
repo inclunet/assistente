@@ -12,11 +12,6 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 	return a.chatCtrl.SendMessage(a.ctx, conversationID, userContent, userMedia, params)
 }
 
-// RetryMessage reexecuta a resposta a partir de uma mensagem do usuário já persistida.
-func (a *App) RetryMessage(conversationID uint, messageID uint, params ChatParams) (uint, error) {
-	return a.chatCtrl.RetryMessage(a.ctx, conversationID, messageID, params)
-}
-
 // SendMessageFromChannel é chamado pelo Gateway de mensageria.
 func (a *App) SendMessageFromChannel(conversationID uint, content, media string, params ChatParams, source string) (uint, error) {
 	return a.chatCtrl.SendMessageFromChannel(a.ctx, conversationID, content, media, params, source)
