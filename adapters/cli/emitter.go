@@ -85,7 +85,7 @@ func (e *EmitterAdapter) Emit(event string, data any) {
 		e.handleStream(data)
 	case event == "chat:error":
 		e.handleError(data)
-	case strings.HasPrefix(event, "chat:tool:"):
+	case strings.HasPrefix(event, "chat:tool_"):
 		e.handleTool(event, data)
 	default:
 		if e.verbose {
@@ -118,7 +118,24 @@ func (e *EmitterAdapter) handleStream(data any) {
 
 // handleError imprime erros no stderr.
 func (e *EmitterAdapter) handleError(data any) {
-	fmt.Fprintf(e.errOut, "Erro: %v\n", data)
+	switch v := data.(type) {
+	case ports.ErrorEvent:
+		if e.verbose && v.ConversationID != 0 {
+			fmt.Fprintf(e.errOut, "Erro: %s (conversationId=%d)\n", v.Error, v.ConversationID)
+		} else {
+			fmt.Fprintf(e.errOut, "Erro: %s\n", v.Error)
+		}
+	case *ports.ErrorEvent:
+		if v == nil {
+			fmt.Fprintln(e.errOut, "Erro: <nil>")
+		} else if e.verbose && v.ConversationID != 0 {
+			fmt.Fprintf(e.errOut, "Erro: %s (conversationId=%d)\n", v.Error, v.ConversationID)
+		} else {
+			fmt.Fprintf(e.errOut, "Erro: %s\n", v.Error)
+		}
+	default:
+		fmt.Fprintf(e.errOut, "Erro: %v\n", data)
+	}
 	e.signalDone()
 }
 

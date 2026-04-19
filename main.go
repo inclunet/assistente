@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"embed"
-	"log"
 	"time"
 
 	"assistente/adapters/wails"
@@ -36,9 +35,14 @@ func main() {
 			)
 			// Restaura foco da janela (resolve bug do Wails no Windows)
 			go func() {
-				time.Sleep(400 * time.Millisecond)
-				a.ShowWindow()
-				log.Printf("[App] WindowShow chamado após startup")
+				timer := time.NewTimer(400 * time.Millisecond)
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+					a.ShowWindow()
+				case <-ctx.Done():
+					return
+				}
 			}()
 		},
 		OnShutdown: func(_ context.Context) {

@@ -113,6 +113,7 @@ func runREPL() error {
 	fmt.Fprintln(os.Stderr, "---")
 
 	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB para mensagens grandes
 	for {
 		fmt.Fprint(os.Stderr, "> ")
 		if !scanner.Scan() {

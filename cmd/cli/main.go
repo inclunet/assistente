@@ -21,9 +21,11 @@ import (
 var AppVersion = "dev"
 
 var (
-	verbose     bool
-	rootApp     *app.App
-	cliEmitter  *cliadapter.EmitterAdapter
+	verbose    bool
+	rootApp    *app.App
+	cliEmitter *cliadapter.EmitterAdapter
+	rootCancel context.CancelFunc
+	rootSigCh  chan os.Signal
 )
 
 var rootCmd = &cobra.Command{
@@ -39,12 +41,13 @@ var rootCmd = &cobra.Command{
 
 		// Inicializa o app com adapters CLI
 		ctx, cancel := context.WithCancel(context.Background())
+		rootCancel = cancel
 
 		// Cancela o contexto em SIGINT/SIGTERM
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		rootSigCh = make(chan os.Signal, 1)
+		signal.Notify(rootSigCh, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
-			<-sigCh
+			<-rootSigCh
 			cancel()
 		}()
 
@@ -66,6 +69,12 @@ var rootCmd = &cobra.Command{
 		if rootApp != nil {
 			rootApp.Shutdown()
 		}
+		if rootSigCh != nil {
+			signal.Stop(rootSigCh)
+		}
+		if rootCancel != nil {
+			rootCancel()
+		}
 	},
 }
 
@@ -81,6 +90,8 @@ func init() {
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Exibe a versão do assistente",
+	// Sobrescreve PersistentPreRunE para não inicializar o app
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("assistente %s\n", AppVersion)
 	},

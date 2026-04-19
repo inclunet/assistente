@@ -59,9 +59,7 @@ var profilesShowCmd = &cobra.Command{
 		if profile.Chat.Model != "" {
 			fmt.Printf("Modelo:      %s\n", profile.Chat.Model)
 		}
-		if profile.Chat.Temperature > 0 {
-			fmt.Printf("Temperatura: %.1f\n", profile.Chat.Temperature)
-		}
+		fmt.Printf("Temperatura: %.1f\n", profile.Chat.Temperature)
 		if profile.Chat.MaxTokens > 0 {
 			fmt.Printf("Max Tokens:  %d\n", profile.Chat.MaxTokens)
 		}
