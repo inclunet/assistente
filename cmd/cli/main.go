@@ -11,8 +11,10 @@ import (
 
 	cliadapter "assistente/adapters/cli"
 	"assistente/internal/app"
+	"assistente/internal/database"
 
 	"github.com/spf13/cobra"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 // AppVersion é injetado via ldflags no build.
@@ -32,6 +34,7 @@ var rootCmd = &cobra.Command{
 		// Silencia logs de startup quando não está em modo verbose
 		if !verbose {
 			log.SetOutput(io.Discard)
+			database.SetLogLevel(gormlogger.Silent)
 		}
 
 		// Inicializa o app com adapters CLI

@@ -13,9 +13,19 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 var db *gorm.DB
+
+// gormLogLevel controla o nível de log do GORM. Padrão: Warn.
+// Use SetLogLevel(logger.Silent) para silenciar completamente (ex.: CLI sem --verbose).
+var gormLogLevel = logger.Warn
+
+// SetLogLevel define o nível de log do GORM antes de Init().
+func SetLogLevel(level logger.LogLevel) {
+	gormLogLevel = level
+}
 
 // ErrConversationDeleted é retornado quando se tenta salvar mensagem em conversa que foi deletada
 // Os chamadores devem verificar esse erro e abortar o processamento graciosamente
@@ -67,7 +77,9 @@ func Init() error {
 		dbPath = resolved.Path
 	}
 
-	db, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	db, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+		Logger: logger.Default.LogMode(gormLogLevel),
+	})
 	if err != nil {
 		return err
 	}
