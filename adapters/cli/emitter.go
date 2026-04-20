@@ -89,6 +89,8 @@ func (e *EmitterAdapter) Emit(event string, data any) {
 		e.handleStream(data)
 	case event == "chat:error":
 		e.handleError(data)
+	case event == "chat:done":
+		e.handleDone(data)
 	case strings.HasPrefix(event, "chat:tool_"):
 		e.handleTool(event, data)
 	default:
@@ -168,6 +170,46 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 		return
 	}
 	_, _ = fmt.Fprintf(e.errOut, "[tool] %s\n", event)
+}
+
+// handleDone imprime resumo do chat:done no stderr (AEP-0039 Fase 2).
+func (e *EmitterAdapter) handleDone(data any) {
+	ev, ok := e.toDoneEvent(data)
+	if !ok {
+		return
+	}
+	// Filtra eventos de outras conversas
+	if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
+		return
+	}
+	// Só exibe resumo se houve tool calls (evita ruído em respostas simples)
+	if ev.ToolCallCount > 0 || ev.Reason == "limit_reached" || ev.Reason == "error" {
+		reason := ev.Reason
+		if reason == "" {
+			reason = "completed"
+		}
+		_, _ = fmt.Fprintf(e.errOut, "[done] %d iterações, %d tool calls, %s\n",
+			ev.IterationCount, ev.ToolCallCount, reason)
+	} else if e.verbose {
+		reason := ev.Reason
+		if reason == "" {
+			reason = "completed"
+		}
+		_, _ = fmt.Fprintf(e.errOut, "[done] %s\n", reason)
+	}
+}
+
+// toDoneEvent converte o payload genérico para ports.DoneEvent.
+func (e *EmitterAdapter) toDoneEvent(data any) (ports.DoneEvent, bool) {
+	switch v := data.(type) {
+	case ports.DoneEvent:
+		return v, true
+	case *ports.DoneEvent:
+		if v != nil {
+			return *v, true
+		}
+	}
+	return ports.DoneEvent{}, false
 }
 
 // toStreamEvent converte o payload genérico para StreamEvent.
