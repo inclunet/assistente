@@ -61,12 +61,30 @@ type ToolEndEvent struct {
 	ServerLabel    string `json:"serverLabel,omitempty"`
 	Native         bool   `json:"native,omitempty"`          // DEPRECADO (AEP-0039) — usar Origin
 	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
+	DurationMs     int64  `json:"durationMs,omitempty"`       // AEP-0039 Fase 3
 }
 
-// ToolSummary describes a tool invocation within an iteration (AEP-0039 Fase 2).
+// ToolFailureEvent is the payload for chat:tool_failure (AEP-0039 Fase 3).
+// Emitted when a tool execution fails with structured error classification.
+// Distinct from tool_end with status="error" — this carries retry context.
+type ToolFailureEvent struct {
+	ConversationID uint   `json:"conversationId"`
+	Name           string `json:"name"`
+	CallID         string `json:"callId"`
+	ErrorKind      string `json:"errorKind"`                  // "timeout" | "invalid_args" | "not_found" | "panic" | "unknown"
+	Retryable      bool   `json:"retryable"`
+	Message        string `json:"message,omitempty"`
+	DurationMs     int64  `json:"durationMs,omitempty"`
+	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
+	WillRetry      bool   `json:"willRetry,omitempty"`        // true se retry automático será tentado
+}
+
+// ToolSummary describes a tool invocation within an iteration (AEP-0039 Fase 2+3).
 type ToolSummary struct {
-	Name   string `json:"name"`
-	Status string `json:"status"` // "ok" | "error"
+	Name       string `json:"name"`
+	Status     string `json:"status"`                       // "ok" | "error"
+	ErrorKind  string `json:"errorKind,omitempty"`           // AEP-0039 Fase 3
+	DurationMs int64  `json:"durationMs,omitempty"`          // AEP-0039 Fase 3
 }
 
 // SegmentDoneEvent is the payload for chat:segment_done.

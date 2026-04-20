@@ -31,3 +31,9 @@ func EmitToolEnd(emitter events.Emitter, ev ports.ToolEndEvent) {
 	}
 	emitter.Emit("chat:tool_end", ev)
 }
+
+// EmitToolFailure emits a chat:tool_failure event for structured error reporting (AEP-0039 Fase 3).
+// This is emitted in addition to chat:tool_end when a tool fails with a classifiable error.
+func EmitToolFailure(emitter events.Emitter, ev ports.ToolFailureEvent) {
+	emitter.Emit("chat:tool_failure", ev)
+}
