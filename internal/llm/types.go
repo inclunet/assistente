@@ -30,6 +30,18 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
+// EnrichedToolCall estende ToolCall com metadata de execução para persistência no DB (AEP-0039 Fase 5).
+// Usado apenas na serialização para o banco; ToolCall regular é usado nas chamadas à API do LLM.
+type EnrichedToolCall struct {
+	ID          string       `json:"id"`
+	Type        string       `json:"type"`
+	Function    FunctionCall `json:"function"`
+	Origin      string       `json:"origin,omitempty"`       // "builtin" | "mcp_bridge" | "mcp_native"
+	ServerLabel string       `json:"server_label,omitempty"` // Label do servidor MCP
+	Iteration   int          `json:"iteration,omitempty"`    // Iteração do agentic loop (0-based)
+	DurationMs  int64        `json:"duration_ms,omitempty"`  // Duração da execução em milissegundos
+}
+
 // ToolCallDelta representa um delta incremental de tool_call durante streaming.
 // O LLM envia os argumentos em fragmentos que precisam ser acumulados.
 type ToolCallDelta struct {
