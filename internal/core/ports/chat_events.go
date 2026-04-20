@@ -46,7 +46,8 @@ type ToolStartEvent struct {
 	CallID         string `json:"callId"`
 	Args           string `json:"args,omitempty"`
 	ServerLabel    string `json:"serverLabel,omitempty"`
-	Native         bool   `json:"native,omitempty"`
+	Native         bool   `json:"native,omitempty"`          // DEPRECADO (AEP-0039) — usar Origin
+	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
 }
 
 // ToolEndEvent is the payload for chat:tool_end.
@@ -58,7 +59,8 @@ type ToolEndEvent struct {
 	Summary        string `json:"summary,omitempty"`
 	Error          string `json:"error,omitempty"`
 	ServerLabel    string `json:"serverLabel,omitempty"`
-	Native         bool   `json:"native,omitempty"`
+	Native         bool   `json:"native,omitempty"`          // DEPRECADO (AEP-0039) — usar Origin
+	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
 }
 
 // ToolSummary describes a tool invocation within an iteration (AEP-0039 Fase 2).
