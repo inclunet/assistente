@@ -77,7 +77,7 @@ func (h *agenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		}
 		outputSummary := truncateString(event.Output, 200)
 
-		h.Emitter.Emit("chat:tool_end", ports.ToolEndEvent{
+		EmitToolEnd(h.Emitter, ports.ToolEndEvent{
 			ConversationID: h.ConversationID,
 			Name:           event.Name,
 			CallID:         event.ID,
@@ -85,19 +85,19 @@ func (h *agenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 			Summary:        outputSummary,
 			Error:          errSummary,
 			ServerLabel:    event.ServerLabel,
-			Native:         true,
+			Origin:         OriginMCPNative,
 		})
 
 		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
 			event.Name, event.ServerLabel, event.ID, len(event.Output))
 	} else {
-		h.Emitter.Emit("chat:tool_start", ports.ToolStartEvent{
+		EmitToolStart(h.Emitter, ports.ToolStartEvent{
 			ConversationID: h.ConversationID,
 			Name:           event.Name,
 			CallID:         event.ID,
 			Args:           event.Arguments,
 			ServerLabel:    event.ServerLabel,
-			Native:         true,
+			Origin:         OriginMCPNative,
 		})
 
 		log.Printf("[MCP Native] 🔧 %s (server=%s, id=%s)",

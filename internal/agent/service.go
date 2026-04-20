@@ -250,12 +250,13 @@ func (s *Service) RunAgenticLoop(
 			if execResult.Result.IsError {
 				status = "error"
 			}
-			s.emitter.Emit("chat:tool_end", ports.ToolEndEvent{
+			EmitToolEnd(s.emitter, ports.ToolEndEvent{
 				ConversationID: conversationID,
 				Name:           execResult.ToolName,
 				CallID:         execResult.CallID,
 				Status:         status,
 				Summary:        truncateString(execResult.Result.Content, 200),
+				Origin:         OriginBuiltin,
 			})
 
 			// AEP-0039: acumula stats
@@ -501,11 +502,12 @@ func (s *Service) emitTokenStats(conversationID uint) {
 
 func (s *Service) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
 	for _, call := range calls {
-		s.emitter.Emit("chat:tool_start", ports.ToolStartEvent{
+		EmitToolStart(s.emitter, ports.ToolStartEvent{
 			ConversationID: conversationID,
 			Name:           call.Function.Name,
 			CallID:         call.ID,
 			Args:           call.Function.Arguments,
+			Origin:         OriginBuiltin,
 		})
 	}
 }
