@@ -32,8 +32,8 @@ var toolsListCmd = &cobra.Command{
 func runToolsList(svc toolsBackend, out io.Writer) error {
 	tools := svc.GetAvailableTools()
 	if len(tools) == 0 {
-		_, _ = fmt.Fprintln(out, "Nenhuma ferramenta disponível.")
-		return nil
+		_, err := fmt.Fprintln(out, "Nenhuma ferramenta disponível.")
+		return err
 	}
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)

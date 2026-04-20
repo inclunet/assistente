@@ -46,8 +46,8 @@ var providersListCmd = &cobra.Command{
 func runProvidersList(svc providersBackend, out io.Writer) error {
 	items := svc.GetLLMProvidersWithStatus()
 	if len(items) == 0 {
-		_, _ = fmt.Fprintln(out, "Nenhum provedor configurado. Use 'asst providers add' ou 'asst setup'.")
-		return nil
+		_, err := fmt.Fprintln(out, "Nenhum provedor configurado. Use 'asst providers add' ou 'asst setup'.")
+		return err
 	}
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
@@ -87,12 +87,16 @@ Solicita tipo, API key e modelo, testa a conexão e salva.`,
 
 func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, readPwd passwordReader) error {
 	// Passo 1: Escolher tipo
-	_, _ = fmt.Fprintln(out, "Escolha o tipo de provedor:")
-	_, _ = fmt.Fprintln(out)
+	ew := &errWriter{w: out}
+	ew.println("Escolha o tipo de provedor:")
+	ew.println()
 	for i, choice := range providerChoices {
-		_, _ = fmt.Fprintf(out, "  %2d. %s\n", i+1, choice)
+		ew.printf("  %2d. %s\n", i+1, choice)
 	}
-	_, _ = fmt.Fprintln(out)
+	ew.println()
+	if ew.err != nil {
+		return ew.err
+	}
 
 	providerChoice, err := readProviderChoice(reader, out)
 	if err != nil {
@@ -169,8 +173,9 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 
 	models, modelsErr := svc.ListModelsRaw(modelsReq)
 	if modelsErr == nil && len(models) > 0 {
-		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintln(out, "Modelos disponíveis:")
+		mw := &errWriter{w: out}
+		mw.println()
+		mw.println("Modelos disponíveis:")
 		displayCount := len(models)
 		if displayCount > 20 {
 			displayCount = 20
@@ -180,12 +185,15 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 			if models[i] == model {
 				marker = "* "
 			}
-			_, _ = fmt.Fprintf(out, "  %s%2d. %s\n", marker, i+1, models[i])
+			mw.printf("  %s%2d. %s\n", marker, i+1, models[i])
 		}
 		if len(models) > 20 {
-			_, _ = fmt.Fprintf(out, "  ... e mais %d modelos.\n", len(models)-20)
+			mw.printf("  ... e mais %d modelos.\n", len(models)-20)
 		}
-		_, _ = fmt.Fprintln(out)
+		mw.println()
+		if mw.err != nil {
+			return mw.err
+		}
 
 		defaultHint := ""
 		if model != "" {
@@ -237,8 +245,8 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 		return fmt.Errorf("erro ao criar provedor: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(out, "Provedor '%s' criado com sucesso.\n", providerChoice)
-	return nil
+	_, err = fmt.Fprintf(out, "Provedor '%s' criado com sucesso.\n", providerChoice)
+	return err
 }
 
 // ─── test ───────────────────────────────────────────────────────────────────
@@ -266,8 +274,8 @@ func runProvidersTest(svc providersBackend, out io.Writer, id string) error {
 		_, _ = fmt.Fprintln(out, "FALHOU")
 		return fmt.Errorf("conexão falhou")
 	}
-	_, _ = fmt.Fprintln(out, "OK")
-	return nil
+	_, err = fmt.Fprintln(out, "OK")
+	return err
 }
 
 // ─── models ─────────────────────────────────────────────────────────────────
@@ -289,13 +297,14 @@ func runProvidersModels(svc providersBackend, out io.Writer, id string) error {
 		return fmt.Errorf("erro ao listar modelos: %w", err)
 	}
 	if len(models) == 0 {
-		_, _ = fmt.Fprintln(out, "Nenhum modelo encontrado.")
-		return nil
+		_, err = fmt.Fprintln(out, "Nenhum modelo encontrado.")
+		return err
 	}
+	ew := &errWriter{w: out}
 	for _, m := range models {
-		_, _ = fmt.Fprintln(out, m)
+		ew.println(m)
 	}
-	return nil
+	return ew.err
 }
 
 // ─── default ────────────────────────────────────────────────────────────────
@@ -313,8 +322,8 @@ func runProvidersDefault(svc providersBackend, out io.Writer, id string) error {
 	if err := svc.SetDefaultProvider(id); err != nil {
 		return fmt.Errorf("erro ao definir provedor padrão: %w", err)
 	}
-	_, _ = fmt.Fprintf(out, "Provedor '%s' definido como padrão.\n", id)
-	return nil
+	_, err := fmt.Fprintf(out, "Provedor '%s' definido como padrão.\n", id)
+	return err
 }
 
 // ─── remove ─────────────────────────────────────────────────────────────────
@@ -332,8 +341,8 @@ func runProvidersRemove(svc providersBackend, out io.Writer, id string) error {
 	if err := svc.DeleteLLMProvider(context.Background(), id); err != nil {
 		return fmt.Errorf("erro ao remover provedor: %w", err)
 	}
-	_, _ = fmt.Fprintf(out, "Provedor '%s' removido.\n", id)
-	return nil
+	_, err := fmt.Fprintf(out, "Provedor '%s' removido.\n", id)
+	return err
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

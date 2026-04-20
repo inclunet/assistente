@@ -51,9 +51,13 @@ Exemplos:
 		// Se não há args, tenta ler do stdin (pipe mode)
 		if message == "" {
 			if !isTerminal(os.Stdin) {
-				data, err := io.ReadAll(os.Stdin)
+				const maxInputSize = 512 * 1024 // 512KB — alinhado com limite do backend
+				data, err := io.ReadAll(io.LimitReader(os.Stdin, maxInputSize+1))
 				if err != nil {
 					return fmt.Errorf("erro ao ler stdin: %w", err)
+				}
+				if len(data) > maxInputSize {
+					return fmt.Errorf("entrada excede limite de %d KB", maxInputSize/1024)
 				}
 				message = strings.TrimSpace(string(data))
 			}
@@ -139,7 +143,7 @@ func ensureConversation(svc chatBackend) (*app.Conversation, error) {
 
 // runREPL inicia o modo interativo de chat.
 func runREPL(svc chatBackend, emitter waitDoner) error {
-	_, _ = fmt.Fprintln(os.Stderr, "Modo interativo. Digite sua mensagem (Ctrl+C cancela a geração; Ctrl+D para sair).")
+	_, _ = fmt.Fprintln(os.Stderr, "Modo interativo. Ctrl+C durante a geração cancela a resposta; Ctrl+D para sair.")
 	_, _ = fmt.Fprintln(os.Stderr, "---")
 
 	scanner := bufio.NewScanner(os.Stdin)

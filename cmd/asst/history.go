@@ -51,8 +51,8 @@ func runHistoryList(svc historyBackend, out io.Writer, search string, limit int)
 			return fmt.Errorf("erro ao buscar: %w", err)
 		}
 		if len(results) == 0 {
-			_, _ = fmt.Fprintln(out, "Nenhum resultado encontrado.")
-			return nil
+			_, err = fmt.Fprintln(out, "Nenhum resultado encontrado.")
+			return err
 		}
 
 		w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
@@ -73,8 +73,8 @@ func runHistoryList(svc historyBackend, out io.Writer, search string, limit int)
 		return fmt.Errorf("erro ao listar conversas: %w", err)
 	}
 	if len(conversations) == 0 {
-		_, _ = fmt.Fprintln(out, "Nenhuma conversa no histórico.")
-		return nil
+		_, err = fmt.Fprintln(out, "Nenhuma conversa no histórico.")
+		return err
 	}
 
 	display := limit
@@ -113,18 +113,18 @@ func runHistoryShow(svc historyBackend, out io.Writer, id uint) error {
 		return fmt.Errorf("conversa não encontrada: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(out, "=== %s (ID: %d) ===\n\n", conv.Title, conv.ID)
-
 	messages, err := svc.GetMessages(id, nil)
 	if err != nil {
 		return fmt.Errorf("erro ao carregar mensagens: %w", err)
 	}
 
-	fprintMessageNodes(out, messages)
-	return nil
+	ew := &errWriter{w: out}
+	ew.printf("=== %s (ID: %d) ===\n\n", conv.Title, conv.ID)
+	fprintMessageNodes(ew, messages)
+	return ew.err
 }
 
-func fprintMessageNodes(out io.Writer, nodes []chat.MessageNode) {
+func fprintMessageNodes(ew *errWriter, nodes []chat.MessageNode) {
 	for _, node := range nodes {
 		msg := node.Message
 		role := strings.ToUpper(msg.Role)
@@ -132,10 +132,10 @@ func fprintMessageNodes(out io.Writer, nodes []chat.MessageNode) {
 		if len(content) > 500 {
 			content = content[:497] + "..."
 		}
-		_, _ = fmt.Fprintf(out, "[%s] %s\n\n", role, content)
+		ew.printf("[%s] %s\n\n", role, content)
 
 		if len(node.Children) > 0 {
-			fprintMessageNodes(out, node.Children)
+			fprintMessageNodes(ew, node.Children)
 		}
 	}
 }
@@ -159,8 +159,8 @@ func runHistoryDelete(svc historyBackend, out io.Writer, id uint) error {
 	if err := svc.DeleteConversation(id); err != nil {
 		return fmt.Errorf("erro ao remover conversa: %w", err)
 	}
-	_, _ = fmt.Fprintf(out, "Conversa %d removida.\n", id)
-	return nil
+	_, err := fmt.Fprintf(out, "Conversa %d removida.\n", id)
+	return err
 }
 
 func init() {

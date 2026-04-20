@@ -53,8 +53,11 @@ var rootCmd = &cobra.Command{
 		rootSigCh = make(chan os.Signal, 1)
 		signal.Notify(rootSigCh, syscall.SIGTERM)
 		go func() {
-			<-rootSigCh
-			cancel()
+			select {
+			case <-rootSigCh:
+				cancel()
+			case <-ctx.Done():
+			}
 		}()
 
 		rootApp = app.NewApp()

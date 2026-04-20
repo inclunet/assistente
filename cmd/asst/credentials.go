@@ -41,8 +41,8 @@ func runCredentialsList(svc credentialsBackend, out io.Writer) error {
 		return fmt.Errorf("erro ao listar credenciais: %w", err)
 	}
 	if len(items) == 0 {
-		_, _ = fmt.Fprintln(out, "Nenhuma credencial registrada.")
-		return nil
+		_, err := fmt.Fprintln(out, "Nenhuma credencial registrada.")
+		return err
 	}
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
@@ -118,8 +118,8 @@ func runCredentialsSet(svc credentialsBackend, out io.Writer, pattern, value, cr
 		return fmt.Errorf("erro ao salvar credencial: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(out, "Credencial '%s' salva.\n", pattern)
-	return nil
+	_, err := fmt.Fprintf(out, "Credencial '%s' salva.\n", pattern)
+	return err
 }
 
 // ─── remove ─────────────────────────────────────────────────────────────────
@@ -137,8 +137,8 @@ func runCredentialsRemove(svc credentialsBackend, out io.Writer, pattern string)
 	if err := svc.DeleteCredential(pattern); err != nil {
 		return fmt.Errorf("erro ao remover credencial: %w", err)
 	}
-	_, _ = fmt.Fprintf(out, "Credencial '%s' removida.\n", pattern)
-	return nil
+	_, err := fmt.Fprintf(out, "Credencial '%s' removida.\n", pattern)
+	return err
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

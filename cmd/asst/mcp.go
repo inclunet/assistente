@@ -41,8 +41,8 @@ var mcpListCmd = &cobra.Command{
 func runMCPList(svc mcpBackend, out io.Writer) error {
 	servers := svc.ListMCPServers()
 	if len(servers) == 0 {
-		_, _ = fmt.Fprintln(out, "Nenhum servidor MCP configurado.")
-		return nil
+		_, err := fmt.Fprintln(out, "Nenhum servidor MCP configurado.")
+		return err
 	}
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
@@ -112,8 +112,8 @@ func runMCPAdd(svc mcpBackend, out io.Writer, slug, command, cmdArgs string, env
 		return fmt.Errorf("erro ao salvar servidor: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(out, "Servidor MCP '%s' adicionado.\n", slug)
-	return nil
+	_, err := fmt.Fprintf(out, "Servidor MCP '%s' adicionado.\n", slug)
+	return err
 }
 
 // ─── connect / disconnect ───────────────────────────────────────────────────
@@ -133,8 +133,8 @@ func runMCPConnect(svc mcpBackend, out io.Writer, slug string) error {
 		_, _ = fmt.Fprintln(out, "FALHOU")
 		return fmt.Errorf("erro: %w", err)
 	}
-	_, _ = fmt.Fprintln(out, "OK")
-	return nil
+	_, err := fmt.Fprintln(out, "OK")
+	return err
 }
 
 var mcpDisconnectCmd = &cobra.Command{
@@ -150,8 +150,8 @@ func runMCPDisconnect(svc mcpBackend, out io.Writer, slug string) error {
 	if err := svc.DisconnectMCPServer(slug); err != nil {
 		return fmt.Errorf("erro ao desconectar: %w", err)
 	}
-	_, _ = fmt.Fprintf(out, "Servidor '%s' desconectado.\n", slug)
-	return nil
+	_, err := fmt.Fprintf(out, "Servidor '%s' desconectado.\n", slug)
+	return err
 }
 
 // ─── tools ──────────────────────────────────────────────────────────────────
@@ -168,8 +168,8 @@ var mcpToolsCmd = &cobra.Command{
 func runMCPTools(svc mcpBackend, out io.Writer, slug string) error {
 	tools := svc.GetMCPServerTools(slug)
 	if len(tools) == 0 {
-		_, _ = fmt.Fprintf(out, "Nenhuma tool no servidor '%s'.\n", slug)
-		return nil
+		_, err := fmt.Fprintf(out, "Nenhuma tool no servidor '%s'.\n", slug)
+		return err
 	}
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
@@ -199,8 +199,8 @@ func runMCPRemove(svc mcpBackend, out io.Writer, slug string) error {
 	if err := svc.DeleteMCPServer(slug); err != nil {
 		return fmt.Errorf("erro ao remover servidor: %w", err)
 	}
-	_, _ = fmt.Fprintf(out, "Servidor MCP '%s' removido.\n", slug)
-	return nil
+	_, err := fmt.Fprintf(out, "Servidor MCP '%s' removido.\n", slug)
+	return err
 }
 
 func init() {
