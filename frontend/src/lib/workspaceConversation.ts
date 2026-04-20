@@ -1,4 +1,4 @@
-import { CreateConversation } from '@wailsjs/go/main/App';
+import { CreateConversation } from '@wailsjs/go/app/App';
 import i18next from 'i18next';
 import type { WorkspaceTab } from '../store/workspaceStore';
 import { useWorkspaceStore } from '../store/workspaceStore';

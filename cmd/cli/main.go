@@ -85,6 +85,7 @@ func init() {
 	rootCmd.AddCommand(chatCmd)
 	rootCmd.AddCommand(profilesCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(completionCmd)
 }
 
 var versionCmd = &cobra.Command{
@@ -94,6 +95,44 @@ var versionCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("assistente %s\n", AppVersion)
+	},
+}
+
+var completionCmd = &cobra.Command{
+	Use:   "completion [bash|zsh|fish|powershell]",
+	Short: "Gera script de auto-complete para o shell",
+	Long: `Gera script de auto-complete para o shell especificado.
+
+Exemplos:
+  # Bash (adicione ao ~/.bashrc):
+  assistente completion bash > /etc/bash_completion.d/assistente
+
+  # Zsh (adicione ao ~/.zshrc):
+  assistente completion zsh > "${fpath[1]}/_assistente"
+
+  # Fish:
+  assistente completion fish > ~/.config/fish/completions/assistente.fish
+
+  # PowerShell (adicione ao $PROFILE):
+  assistente completion powershell | Out-String | Invoke-Expression`,
+	// Sobrescreve PersistentPreRunE para não inicializar o app
+	PersistentPreRunE:     func(cmd *cobra.Command, args []string) error { return nil },
+	DisableFlagsInUseLine: true,
+	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
+	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		switch args[0] {
+		case "bash":
+			return rootCmd.GenBashCompletion(os.Stdout)
+		case "zsh":
+			return rootCmd.GenZshCompletion(os.Stdout)
+		case "fish":
+			return rootCmd.GenFishCompletion(os.Stdout, true)
+		case "powershell":
+			return rootCmd.GenPowerShellCompletionWithDesc(os.Stdout)
+		default:
+			return fmt.Errorf("shell não suportado: %s", args[0])
+		}
 	},
 }
 

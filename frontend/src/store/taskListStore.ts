@@ -30,7 +30,7 @@ import {
   GetTaskNotes,
   UpdateTaskNote,
   DeleteTaskNote,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import type {
   Task,
   TaskNote,

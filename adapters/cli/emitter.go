@@ -17,11 +17,12 @@ import (
 // Eventos de streaming de chat são impressos token a token no stdout.
 // Demais eventos são ignorados em modo silencioso ou logados em modo verbose.
 type EmitterAdapter struct {
-	mu      sync.Mutex
-	out     io.Writer // stdout por padrão
-	errOut  io.Writer // stderr por padrão
-	verbose bool
-	done    chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
+	mu          sync.Mutex
+	out         io.Writer // stdout por padrão
+	errOut      io.Writer // stderr por padrão
+	verbose     bool
+	done        chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
+	lastPrinted int          // quantidade de bytes de Content já impressos (para imprimir só o delta)
 }
 
 // EmitterOption configura o EmitterAdapter.
@@ -95,6 +96,7 @@ func (e *EmitterAdapter) Emit(event string, data any) {
 }
 
 // handleStream imprime tokens de streaming no stdout.
+// Content chega acumulado: só imprimimos o delta em relação ao que já foi escrito.
 func (e *EmitterAdapter) handleStream(data any) {
 	ev, ok := e.toStreamEvent(data)
 	if !ok {
@@ -103,17 +105,23 @@ func (e *EmitterAdapter) handleStream(data any) {
 
 	if ev.Error != "" {
 		fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
+		e.lastPrinted = 0
 		e.signalDone()
 		return
 	}
 
 	if ev.Done {
 		fmt.Fprintln(e.out)
+		e.lastPrinted = 0
 		e.signalDone()
 		return
 	}
 
-	fmt.Fprint(e.out, ev.Content)
+	// Content é acumulado; imprime só o que é novo.
+	if len(ev.Content) > e.lastPrinted {
+		fmt.Fprint(e.out, ev.Content[e.lastPrinted:])
+		e.lastPrinted = len(ev.Content)
+	}
 }
 
 // handleError imprime erros no stderr.

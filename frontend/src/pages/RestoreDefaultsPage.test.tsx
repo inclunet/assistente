@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import RestoreDefaultsPage from './RestoreDefaultsPage';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
-import * as AppAPI from '@wailsjs/go/main/App';
+import * as AppAPI from '@wailsjs/go/app/App';
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -34,7 +34,7 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('../store/uiStore');
 vi.mock('../store/chatStore');
-vi.mock('@wailsjs/go/main/App');
+vi.mock('@wailsjs/go/app/App');
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
     announce: vi.fn(),

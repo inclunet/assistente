@@ -1,4 +1,4 @@
-import { DispatchSpeech } from '@wailsjs/go/main/App';
+import { DispatchSpeech } from '@wailsjs/go/app/App';
 import i18next from 'i18next';
 
 import { announce } from '../../hooks/useAnnouncer';

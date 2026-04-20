@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetLLMProvidersWithStatus: () => mockGetProviders(),
   CreateLLMProvider: (payload: unknown) => mockCreateProvider(payload),
   DeleteLLMProvider: (_ctx: unknown, id: string) => mockDeleteProvider(id),

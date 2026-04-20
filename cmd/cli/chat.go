@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"assistente/internal/app"
 
@@ -58,6 +60,7 @@ func init() {
 }
 
 // sendAndWait envia uma mensagem e bloqueia até o streaming terminar.
+// Ctrl+C durante a geração cancela o streaming (barge-in) sem encerrar o processo.
 func sendAndWait(message string) error {
 	conv, err := ensureConversation()
 	if err != nil {
@@ -80,9 +83,20 @@ func sendAndWait(message string) error {
 		return fmt.Errorf("erro ao enviar mensagem: %w", err)
 	}
 
-	// Aguarda fim do streaming
+	// Intercepta Ctrl+C para cancelar a geração (barge-in) sem matar o processo
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT)
+	defer signal.Stop(sigCh)
+
+	// Aguarda fim do streaming ou cancelamento
 	select {
 	case <-done:
+		return nil
+	case <-sigCh:
+		rootApp.CancelStreamingForConversation(conv.ID)
+		fmt.Fprintln(os.Stderr, "\n(geração cancelada)")
+		// Aguarda o done do emitter para garantir que o streaming encerrou
+		<-done
 		return nil
 	case <-rootApp.Context().Done():
 		return fmt.Errorf("cancelado")

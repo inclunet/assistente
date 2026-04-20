@@ -12,8 +12,9 @@ func TestEmitterAdapter_StreamEvent(t *testing.T) {
 	var out, errOut bytes.Buffer
 	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
 
+	// Content chega acumulado como no BaseStreamHandler real
 	e.Emit("chat:stream", ports.StreamEvent{Content: "Olá"})
-	e.Emit("chat:stream", ports.StreamEvent{Content: " mundo"})
+	e.Emit("chat:stream", ports.StreamEvent{Content: "Olá mundo"})
 	e.Emit("chat:stream", ports.StreamEvent{Done: true})
 
 	if got := out.String(); got != "Olá mundo\n" {

@@ -29,7 +29,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetChannelConfig: (name: string) => mockGetChannelConfig(name),
   SaveChannelConfig: (name: string, payload: unknown) => mockSaveChannelConfig(name, payload),
   GetMessagingStatus: () => mockGetMessagingStatus(),

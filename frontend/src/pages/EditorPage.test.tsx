@@ -179,7 +179,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
   EventsOn: () => () => {},
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   EditorDeleteDraft: vi.fn(),
   EditorGetFileInfo: vi.fn(),
   GetProfile: vi.fn(),

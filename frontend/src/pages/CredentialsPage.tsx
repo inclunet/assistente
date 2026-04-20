@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/main/App';
+import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/app/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';

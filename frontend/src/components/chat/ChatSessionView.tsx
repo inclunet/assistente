@@ -14,7 +14,7 @@ import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useTabScrollState } from '../../hooks/useTabScrollState';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage } from '@wailsjs/go/main/App';
+import { DeleteMessage } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';

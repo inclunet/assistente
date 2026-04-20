@@ -2,7 +2,7 @@
 
 Autor: Leonardo Gleison Ferreira (Leo) / Assistente
 Data: 2026-04-18
-Status: em implementação
+Status: concluído
 
 ## Resumo executivo
 
@@ -176,16 +176,59 @@ O `cli.EmitterAdapter` traduz eventos para output formatado:
 14. ✅ `assistente config show|providers|model`
 15. Flags: `--model`, `--profile`, `--conversation`, `--verbose`
 
-### Fase 3 — Interatividade e automação
+### Fase 3 — Interatividade e automação ✅
 
-16. Ctrl+C cancela geração em andamento (cancelamento gracioso via context)
-17. Output formatado com markdown renderizado no terminal (opcional)
-18. Auto-complete de shell (cobra built-in)
+16. ✅ Ctrl+C cancela geração em andamento (barge-in via `CancelStreamingForConversation` + SIGINT handler)
+17. Descartado — markdown no terminal adiciona dependência pesada; output plain text é suficiente para CLI
+18. ✅ Auto-complete de shell (subcomando `completion` para bash, zsh, fish, powershell)
 
-### Fase 4 — Build e distribuição
+### Fase 4 — Build e distribuição ✅
 
-16. Task no `.vscode/tasks.json`: `Go: build cli`
-17. Documentação no README
+19. ✅ Task `Go: build cli` no `.vscode/tasks.json`
+20. Documentação no README (a ser adicionada conforme necessidade)
+
+### Fase 5 — Setup e gerenciamento de providers
+
+Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem precisar do desktop.
+
+21. `assistente setup` — Wizard interativo de configuração inicial (provider, URL, API key, modelo). Equivalente ao Welcome Wizard do desktop. Usa `NeedsWelcomeWizard()`, `createWizardProvider()`, `validateWizardConnection()`, `saveWelcomeConfig()`.
+22. `assistente providers list` — Lista providers LLM com status de conexão
+23. `assistente providers add` — Wizard interativo para criar provider (tipo, URL, API key, testa, salva)
+24. `assistente providers test <id>` — Testa conexão com provider existente
+25. `assistente providers models <id>` — Lista modelos disponíveis no provider
+26. `assistente providers default <id>` — Define provider padrão
+27. `assistente providers remove <id>` — Remove provider
+
+### Fase 6 — Credenciais e perfis CRUD
+
+28. `assistente credentials list` — Lista credenciais (sem mostrar secrets)
+29. `assistente credentials set <pattern>` — Cria/atualiza credencial (lê secret do stdin ou flag `--value`)
+30. `assistente credentials remove <pattern>` — Remove credencial
+31. `assistente profiles create` — Cria perfil (flags: `--name`, `--model`, `--provider`, `--system-prompt`)
+32. `assistente profiles edit <slug>` — Edita campos do perfil via flags
+33. `assistente profiles duplicate <slug>` — Duplica perfil
+34. `assistente profiles delete <slug>` — Remove perfil
+
+### Fase 7 — MCP, histórico e tools
+
+35. `assistente mcp list` — Lista servidores MCP e status
+36. `assistente mcp add <slug>` — Adiciona servidor (flags: `--command`, `--args`, `--env`)
+37. `assistente mcp connect <slug>` / `disconnect <slug>` — Gerencia conexão
+38. `assistente mcp tools <slug>` — Lista tools do servidor
+39. `assistente mcp remove <slug>` — Remove servidor
+40. `assistente history list` — Lista conversas recentes
+41. `assistente history show <id>` — Exibe mensagens da conversa
+42. `assistente history delete <id>` — Remove conversa
+43. `assistente tools list` — Lista ferramentas disponíveis (built-in + MCP)
+
+### Non-goals para CLI
+
+- TTS/STT (áudio no terminal não faz sentido)
+- Editor Monaco (UI-only)
+- Workspace/abas (conceito de UI)
+- Kanban/Task Lists (complexidade de UI demais para CLI simples)
+- Jobs builder visual (arquivos YAML seriam uma AEP separada)
+- Aparência/temas (N/A)
 
 ## Riscos e mitigações
 
@@ -205,6 +248,9 @@ O `cli.EmitterAdapter` traduz eventos para output formatado:
 - `assistente-cli chat "olá"` retorna resposta streaming no terminal
 - `echo "olá" | assistente-cli chat` funciona em modo pipe
 - `assistente-cli profiles list` lista perfis corretamente
+- `assistente-cli setup` configura provedor LLM do zero em ambiente headless
+- `assistente-cli providers add` cria e testa conexão com novo provedor
+- `assistente-cli credentials set` persiste credenciais de forma segura
 - `go test ./...` sem regressões
 - `internal/app/` não importa Wails (zero `github.com/wailsapp`)
 

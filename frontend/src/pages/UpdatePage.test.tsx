@@ -27,7 +27,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
   },
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   StartUpdate: () => mockStartUpdate(),
 }));
 

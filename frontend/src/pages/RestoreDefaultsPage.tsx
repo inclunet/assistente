@@ -7,7 +7,7 @@ import {
   ClearAllProfiles,
   ClearAllSkills,
   ClearAllChannels,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
 import { Button } from '../components';

@@ -8,7 +8,7 @@ import {
   ImportOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations, SearchConversationHistory } from '@wailsjs/go/main/App';
+import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations, SearchConversationHistory } from '@wailsjs/go/app/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../components/menu';
