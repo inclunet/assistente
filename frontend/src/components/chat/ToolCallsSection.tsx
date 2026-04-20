@@ -6,6 +6,7 @@ import './ToolCallsSection.css';
 /**
  * Representa uma tool call individual parseada do JSON.
  * O campo `result` é adicionado pela consolidação no MessageList.
+ * Campos de metadata (AEP-0039 Fase 5) são opcionais para retrocompatibilidade.
  */
 export interface ParsedToolCall {
   id: string;
@@ -16,6 +17,14 @@ export interface ParsedToolCall {
   };
   /** Resultado retornado pela ferramenta (adicionado pela consolidação) */
   result?: string;
+  /** Origem da ferramenta: builtin, mcp_bridge ou mcp_native (AEP-0039) */
+  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  /** Label do servidor MCP (AEP-0039) */
+  server_label?: string;
+  /** Iteração do agentic loop (0-based) (AEP-0039) */
+  iteration?: number;
+  /** Duração da execução em milissegundos (AEP-0039) */
+  duration_ms?: number;
 }
 
 /**
@@ -171,6 +180,19 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                     <div className="tool-calls-section__item-header">
                       <span className="tool-calls-section__status-icon" aria-hidden="true"><CheckCircleOutlined /></span>
                       <span className="tool-calls-section__name">{tc.function.name}</span>
+                      {tc.origin && (
+                        <span className={`tool-calls-section__origin-badge tool-calls-section__origin-badge--${tc.origin}`}>
+                          {tc.origin === 'mcp_native' ? t('chat.toolOriginMcpNative')
+                            : tc.origin === 'mcp_bridge' ? t('chat.toolOriginMcpBridge')
+                            : t('chat.toolOriginBuiltin')}
+                        </span>
+                      )}
+                      {tc.server_label && (
+                        <span className="tool-calls-section__server-label">{tc.server_label}</span>
+                      )}
+                      {tc.duration_ms != null && tc.duration_ms > 0 && (
+                        <span className="tool-calls-section__duration">{formatDuration(tc.duration_ms)}</span>
+                      )}
                     </div>
 
                     {/* Parâmetros da chamada */}
@@ -240,4 +262,12 @@ function normalizeResult(raw: string): string {
 function formatSize(chars: number): string {
   if (chars < 1024) return `${chars} chars`;
   return `${(chars / 1024).toFixed(1)} KB`;
+}
+
+/**
+ * Formata duração em milissegundos para exibição legível.
+ */
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
