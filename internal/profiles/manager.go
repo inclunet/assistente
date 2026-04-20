@@ -231,7 +231,9 @@ func (m *Manager) SetActive(slug string) error {
 
 		if other.Active {
 			other.Active = false
-			_ = m.Update(otherSlug, other)
+			if updateErr := m.Update(otherSlug, other); updateErr != nil {
+				return fmt.Errorf("failed to deactivate profile %s: %w", otherSlug, updateErr)
+			}
 		}
 	}
 

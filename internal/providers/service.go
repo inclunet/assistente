@@ -301,7 +301,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		credConfigured = err == nil && auth != nil
 	}
 
-	_ = s.registry.Remove(id)
+	if err := s.registry.Remove(id); err != nil {
+		log.Printf("[providers] Aviso: falha ao remover provider antigo '%s': %v", id, err)
+	}
 	if err := s.registry.Register(updated); err != nil {
 		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
 	}
