@@ -84,7 +84,7 @@ vi.mock('./i18n', () => ({
 const mockEditorReadFile = vi.fn().mockResolvedValue('file content');
 const mockRunTerminalCommand = vi.fn().mockResolvedValue(undefined);
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   EditorReadFile: (...args: unknown[]) => mockEditorReadFile(...args),
   RunTerminalCommand: (...args: unknown[]) => mockRunTerminalCommand(...args),
 }));

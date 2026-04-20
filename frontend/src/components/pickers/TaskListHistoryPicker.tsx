@@ -3,7 +3,7 @@ import { UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
-import { GetAllTaskLists } from '@wailsjs/go/main/App';
+import { GetAllTaskLists } from '@wailsjs/go/app/App';
 import { database } from '../../../wailsjs/go/models';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 

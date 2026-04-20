@@ -8,7 +8,7 @@ import {
   AssignConversationToChannel,
   UnassignConversationFromChannel,
   GetMessageChildren,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
 import { llm, main } from '../../wailsjs/go/models';

@@ -8,7 +8,7 @@
 import { STT_PROVIDERS, ISTTProvider, STTProvider } from '../types';
 import { AudioRecorder } from '../AudioRecorder';
 
-import { TranscribeWhisper as WailsTranscribeWhisper } from '@wailsjs/go/main/App';
+import { TranscribeWhisper as WailsTranscribeWhisper } from '@wailsjs/go/app/App';
 
 let TranscribeWhisper: ((audioBase64: string, filename: string) => Promise<{ text: string }>) | null = null;
 

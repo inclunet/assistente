@@ -214,7 +214,7 @@ func TestListPatterns(t *testing.T) {
 
 	patterns := []string{"*.github.com", "gitlab.com", "api.*.internal"}
 	for _, p := range patterns {
-		mgr.RegisterPattern(p, &AuthConfig{Type: "bearer", Token: "test"})
+		_ = mgr.RegisterPattern(p, &AuthConfig{Type: "bearer", Token: "test"})
 	}
 
 	listed := mgr.ListPatterns()
@@ -340,8 +340,8 @@ func TestPriorityOrder(t *testing.T) {
 	auth1 := &AuthConfig{Type: "bearer", Token: "token_from_first"}
 	auth2 := &AuthConfig{Type: "bearer", Token: "token_from_second"}
 
-	mgr.RegisterPattern("*.github.com", auth1)
-	mgr.RegisterPattern("api.*", auth2)
+	_ = mgr.RegisterPattern("*.github.com", auth1)
+	_ = mgr.RegisterPattern("api.*", auth2)
 
 	resolved, _ := mgr.ResolveForURL("https://api.github.com/data")
 	if resolved == nil || resolved.Token != "token_from_first" {
@@ -553,10 +553,10 @@ func TestUpdateExistingPattern(t *testing.T) {
 	mgr := NewManager(nil)
 
 	auth1 := &AuthConfig{Type: "bearer", Token: "old-token"}
-	mgr.RegisterPattern("api.test.com", auth1)
+	_ = mgr.RegisterPattern("api.test.com", auth1)
 
 	auth2 := &AuthConfig{Type: "bearer", Token: "new-token"}
-	mgr.RegisterPattern("api.test.com", auth2)
+	_ = mgr.RegisterPattern("api.test.com", auth2)
 
 	if len(mgr.ListPatterns()) != 1 {
 		t.Fatalf("Esperado 1 padrão, got %d", len(mgr.ListPatterns()))
@@ -684,7 +684,7 @@ func TestConcurrentRegisterAndResolve(t *testing.T) {
 			pattern := fmt.Sprintf("api%d.example.com", idx)
 			token := fmt.Sprintf("token_%d", idx)
 			auth := &AuthConfig{Type: "bearer", Token: token}
-			mgr.RegisterPattern(pattern, auth)
+			_ = mgr.RegisterPattern(pattern, auth)
 			done <- true
 		}(i)
 	}
@@ -694,7 +694,7 @@ func TestConcurrentRegisterAndResolve(t *testing.T) {
 		go func(idx int) {
 			pattern := fmt.Sprintf("api%d.example.com", idx)
 			url := fmt.Sprintf("https://%s/api", pattern)
-			mgr.ResolveForURL(url)
+			_, _ = mgr.ResolveForURL(url)
 			done <- true
 		}(i)
 	}
@@ -714,7 +714,7 @@ func TestConcurrentRegisterAndResolve(t *testing.T) {
 func TestInvalidURL(t *testing.T) {
 	mgr := NewManager(nil)
 
-	mgr.RegisterPattern("*.example.com", &AuthConfig{Type: "bearer", Token: "test"})
+	_ = mgr.RegisterPattern("*.example.com", &AuthConfig{Type: "bearer", Token: "test"})
 
 	// URLs com scheme malformado devem retornar erro
 	invalidURLs := []string{
@@ -736,8 +736,8 @@ func TestNilEncryptionKey(t *testing.T) {
 
 	auth := &AuthConfig{Type: "bearer", Token: "test_secret"}
 
-	mgr1.RegisterPattern("test.com", auth)
-	mgr2.RegisterPattern("test.com", auth)
+	_ = mgr1.RegisterPattern("test.com", auth)
+	_ = mgr2.RegisterPattern("test.com", auth)
 
 	// Keys devem ser diferentes (aleatórias)
 	if string(mgr1.encKey) == string(mgr2.encKey) {
@@ -795,7 +795,7 @@ func TestHeadersPreservation(t *testing.T) {
 		Headers: headers,
 	}
 
-	mgr.RegisterPattern("api.test.com", auth)
+	_ = mgr.RegisterPattern("api.test.com", auth)
 
 	resolved, _ := mgr.ResolveForURL("https://api.test.com/endpoint")
 	if resolved == nil {

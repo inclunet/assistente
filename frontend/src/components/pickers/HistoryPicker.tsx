@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } fro
 import { HistoryOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
-import { GetConversations } from '@wailsjs/go/main/App';
+import { GetConversations } from '@wailsjs/go/app/App';
 import { database } from '../../../wailsjs/go/models';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 

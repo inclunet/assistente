@@ -152,7 +152,7 @@ func TestChatRequest_StructTags(t *testing.T) {
 
 	jsonBytes, _ := json.Marshal(ts)
 	var decoded map[string]interface{}
-	json.Unmarshal(jsonBytes, &decoded)
+	_ = json.Unmarshal(jsonBytes, &decoded)
 
 	// empty_field e count não devem aparecer
 	if _, exists := decoded["empty_field"]; exists {
@@ -203,7 +203,7 @@ func TestStreamChatRequest_NoToolsWhenDisabled(t *testing.T) {
 	jsonStr := string(jsonBytes)
 
 	var decoded map[string]interface{}
-	json.Unmarshal(jsonBytes, &decoded)
+	_ = json.Unmarshal(jsonBytes, &decoded)
 
 	// Verificações: "tools" e "tool_choice" não devem aparecer
 	if _, exists := decoded["tools"]; exists {

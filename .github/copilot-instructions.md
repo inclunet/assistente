@@ -61,7 +61,22 @@ O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven
 - **Conversas são independentes de abas.** Conversas existem no banco sem vínculo com UI. Canais (Telegram, Signal) criam conversas sem abas.
 
 ### Referência
-- Detalhes completos: `aep/0040-backend-driven-messaging.md`
+- Detalhes completos no AEP de backend-driven-messaging em `aep/`.
+
+## AEPs — Architecture Evolution Proposals (OBRIGATÓRIO)
+
+O diretório `aep/` é o repositório único de decisões arquiteturais do projeto. Contém 45+ documentos numerados que definem contratos, protocolos, decisões de design e planos de evolução.
+
+### Regras absolutas
+- **NUNCA crie outro diretório** para AEPs (ex.: `aeps/`, `docs/aep/`, `proposals/`). Tudo fica em `aep/`.
+- **Antes de implementar qualquer feature significativa**, consulte os AEPs relevantes em `aep/` para verificar se já existe decisão arquitetural sobre o tema.
+- **O código DEVE estar alinhado com os AEPs.** Se encontrar divergência entre um AEP e o código:
+  1. NÃO assuma que o código está certo e o AEP desatualizado.
+  2. Pergunte ao usuário: "O AEP `aep/XXXX` diz X, mas o código faz Y. O AEP precisa ser atualizado ou o código precisa ser corrigido?"
+  3. Só prossiga após confirmação.
+- **Ao criar novo AEP**, use numeração sequencial a partir do último existente (consulte `aep/` para o maior número).
+- **Formato**: Markdown, em português, com seções: Resumo, Motivação, Decisões, Fases, Riscos, Critérios de aceitação.
+- **Para descobrir AEPs relevantes**, liste `aep/` e leia os títulos — os nomes dos arquivos descrevem o tema.
 
 ## i18n (Internacionalização — OBRIGATÓRIO)
 - TODAS as strings visíveis ao usuário DEVEM usar `t('namespace.key')` via `react-i18next`

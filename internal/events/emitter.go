@@ -37,7 +37,7 @@ func HandlePanic(emitter Emitter, conversationID uint, source string, r any) {
 	errMsg := fmt.Sprintf("Erro interno inesperado em %s: %v", source, r)
 	log.Printf("🔴 [PANIC RECOVERED] %s (conversa %d): %v", source, conversationID, r)
 	func() {
-		defer func() { recover() }()
+		defer func() { _ = recover() }()
 		if emitter != nil {
 			emitter.Emit("chat:stream", StreamEvent{
 				Done:           true,

@@ -58,7 +58,7 @@ vi.mock('../../services/messageAudio', () => ({
   messageAudioService: { stopCurrentAudio: vi.fn() },
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   UpdateMessage: vi.fn(),
 }));
 

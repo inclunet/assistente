@@ -53,7 +53,7 @@ func TestHTTPRequest_GET(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"message": "success", "data": [1, 2, 3]}`))
+		_, _ = w.Write([]byte(`{"message": "success", "data": [1, 2, 3]}`))
 	}))
 	defer ts.Close()
 
@@ -93,7 +93,7 @@ func TestHTTPRequest_POST_JSON(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"status": "created"}`))
+		_, _ = w.Write([]byte(`{"status": "created"}`))
 	}))
 	defer ts.Close()
 
@@ -223,7 +223,7 @@ func TestHTTPRequest_InvalidURL(t *testing.T) {
 func TestHTTPRequest_ExtractJSON(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"name": "test", "value": 123, "nested": {"key": "data"}}`))
+		_, _ = w.Write([]byte(`{"name": "test", "value": 123, "nested": {"key": "data"}}`))
 	}))
 	defer ts.Close()
 

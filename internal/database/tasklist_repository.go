@@ -662,7 +662,7 @@ func UpdateTaskStatus(id uint, newStatusID int) error {
 	// Se o novo status é o último (ordem máxima), marca como concluído
 	workflow, _ := GetWorkflow(task.TaskListID)
 	var statuses []TaskListWorkflowStatus
-	json.Unmarshal([]byte(workflow.Statuses), &statuses)
+	_ = json.Unmarshal([]byte(workflow.Statuses), &statuses)
 
 	for _, s := range statuses {
 		if s.ID == newStatusID {
@@ -997,7 +997,7 @@ func DeleteTaskNotes(taskID uint) error {
 // GetTaskListStats retorna estatísticas de uma tasklist (total, por status)
 func GetTaskListStats(taskListID uint) (map[string]interface{}, error) {
 	var total int64
-	var byStatus map[string]int64 = make(map[string]int64)
+	byStatus := make(map[string]int64)
 
 	// Total de tasks
 	db.Model(&Task{}).Where("task_list_id = ?", taskListID).Count(&total)

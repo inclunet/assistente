@@ -353,10 +353,11 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		messenger, ok := g.messengers[msg.Channel]
 		g.mu.RUnlock()
 		if ok {
-			messenger.Send(ctx, OutgoingMessage{
+			outMsg := OutgoingMessage{
 				ChatID: msg.From.ID,
 				Text:   fmt.Sprintf("Erro ao processar mensagem: %v", err),
-			})
+			}
+			_ = messenger.Send(ctx, outMsg)
 		}
 	}
 }

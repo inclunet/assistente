@@ -8,7 +8,7 @@
  * Fallback quando backend não tem TTS: frontend usa speakAsRole (WebSpeech/SAPI5)
  */
 
-import { SpeakMessage } from '@wailsjs/go/main/App';
+import { SpeakMessage } from '@wailsjs/go/app/App';
 import { base64ToBlob } from '../../lib/audioUtils';
 
 // ---------------------------------------------------------------------------

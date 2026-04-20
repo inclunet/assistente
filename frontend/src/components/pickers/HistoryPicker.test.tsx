@@ -4,7 +4,7 @@ import { HistoryPicker } from './HistoryPicker';
 
 const getConversationsSpy = vi.fn();
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetConversations: () => getConversationsSpy(),
 }));
 

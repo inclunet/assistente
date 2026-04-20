@@ -1,13 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { STTProviderPicker } from './STTProviderPicker';
-import { GetSpeechProviders } from '@wailsjs/go/main/App';
+import { GetSpeechProviders } from '@wailsjs/go/app/App';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetSpeechProviders: vi.fn().mockResolvedValue([
     { id: 'openai-1', name: 'OpenAI', api_format: 'openai', base_url: 'https://api.openai.com/v1' },
   ]),

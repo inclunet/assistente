@@ -96,7 +96,7 @@ func (w *Watcher) Stop() {
 
 	w.stopped = true
 	close(w.stopCh)
-	w.watcher.Close()
+	_ = w.watcher.Close()
 	log.Printf("[Jobs] Watcher stopped")
 }
 

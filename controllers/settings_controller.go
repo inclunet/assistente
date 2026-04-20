@@ -257,8 +257,8 @@ func (c *SettingsController) ResetDatabase() error {
 		if err := os.Remove(dbPath); err != nil {
 			return fmt.Errorf("erro ao remover banco de dados: %v", err)
 		}
-		os.Remove(dbPath + "-wal")
-		os.Remove(dbPath + "-shm")
+		_ = os.Remove(dbPath + "-wal")
+		_ = os.Remove(dbPath + "-shm")
 	}
 
 	if err := database.Init(); err != nil {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { profiles, llm, speech } from '@wailsjs/go/models';
-import { GetSpeechProviders, GetSTTModels, GetNativeTTSProviders } from '@wailsjs/go/main/App';
+import { GetSpeechProviders, GetSTTModels, GetNativeTTSProviders } from '@wailsjs/go/app/App';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { ProfileInteractionSection } from './ProfileInteractionSection';

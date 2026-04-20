@@ -52,6 +52,80 @@ jobs:
         working-directory: frontend
         run: npm run test
 
+  build-cli:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            ext: ""
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            ext: ""
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            ext: ".exe"
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            ext: ""
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            ext: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build CLI
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          LDFLAGS="-X main.AppVersion=$VERSION"
+          OUTPUT="asst-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
+
+          echo "Building CLI: $OUTPUT"
+          go build -ldflags "$LDFLAGS" -o "$OUTPUT" ./cmd/asst/
+          echo "CLI build OK"
+
+          mkdir -p artifacts
+          mv "$OUTPUT" artifacts/
+
+      - name: Calculate checksum
+        shell: bash
+        working-directory: artifacts
+        run: |
+          for file in *; do
+            if [ -f "$file" ]; then
+              if command -v sha256sum &> /dev/null; then
+                sha256sum "$file" > "${file}.sha256"
+              else
+                shasum -a 256 "$file" > "${file}.sha256"
+              fi
+            fi
+          done
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: artifacts/*
+
   build:
     needs: test
     strategy:
@@ -391,7 +465,7 @@ jobs:
           path: artifacts/*
 
   release:
-    needs: build
+    needs: [build, build-cli]
     runs-on: ubuntu-latest
     
     steps:
@@ -407,9 +481,9 @@ jobs:
         run: |
           mkdir -p release-assets
           
-          # Consolida todos os builds
+          # Consolida todos os builds (desktop + CLI)
           echo "📦 Consolidando artifacts..."
-          for dir in artifacts/build-*; do
+          for dir in artifacts/build-* artifacts/cli-*; do
             if [ -d "$dir" ]; then
               echo "Copiando de $dir"
               find "$dir" -type f -exec cp {} release-assets/ \;
@@ -463,7 +537,7 @@ jobs:
           echo "🔄 Auto-update detectará a nova versão automaticamente via GitHub API"
 
   cleanup:
-    needs: [test, build, release]
+    needs: [test, build, build-cli, release]
     if: failure()
     runs-on: ubuntu-latest
     permissions:

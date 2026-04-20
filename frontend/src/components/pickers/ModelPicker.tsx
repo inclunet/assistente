@@ -1,7 +1,7 @@
 import { useState, useEffect, useImperativeHandle, forwardRef, type ReactNode } from 'react';
 import { CloseCircleOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { GetModels, GetModelsByProvider, GetLLMProvidersWithStatus } from '@wailsjs/go/main/App';
+import { GetModels, GetModelsByProvider, GetLLMProvidersWithStatus } from '@wailsjs/go/app/App';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import './ModelPicker.css';

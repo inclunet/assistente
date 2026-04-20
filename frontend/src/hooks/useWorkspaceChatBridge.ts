@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
-import { RenameConversation } from '@wailsjs/go/main/App';
+import { RenameConversation } from '@wailsjs/go/app/App';
 import { ensureWorkspaceTabConversationId } from '../lib/workspaceConversation';
 import type { TabType } from '../store/workspaceStore';
 

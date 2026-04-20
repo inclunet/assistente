@@ -22,7 +22,7 @@ import {
   ListCredentials,
   UpsertCredential,
   DeleteCredential,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import { channels } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';

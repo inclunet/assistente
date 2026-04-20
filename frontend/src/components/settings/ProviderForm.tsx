@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { EyeOutlined, EyeInvisibleOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/main/App';
+import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/app/App';
 import { Input, Select, Button, FormField } from '../';
 import { PROVIDER_CONFIG } from '../../config/providers';
 export { PROVIDER_CONFIG } from '../../config/providers';

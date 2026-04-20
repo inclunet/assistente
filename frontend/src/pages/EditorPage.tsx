@@ -61,7 +61,7 @@ import {
   EditorWatchFile,
   EditorWriteDraft,
   EditorWriteFile,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import './EditorPage.css';
 
 export default function EditorPage() {

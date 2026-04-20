@@ -12,7 +12,7 @@ import {
   CreateAllowlist,
   UpdateAllowlist,
   DeleteAllowlist,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 
 import { allowlist } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';

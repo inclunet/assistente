@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
 import { useChatStore } from '../../store/chatStore';
 import { useNavigationStore } from '../../store/navigationStore';
-import { ClearConversation, GetActiveProfileSlug } from '@wailsjs/go/main/App';
+import { ClearConversation, GetActiveProfileSlug } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { HistoryPicker, HistoryPickerRef } from '../pickers';
 import { ProfilePicker, ProfilePickerRef } from '../pickers/ProfilePicker';

@@ -13,9 +13,19 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 var db *gorm.DB
+
+// gormLogLevel controla o nível de log do GORM. Padrão: Warn.
+// Use SetLogLevel(logger.Silent) para silenciar completamente (ex.: CLI sem --verbose).
+var gormLogLevel = logger.Warn
+
+// SetLogLevel define o nível de log do GORM antes de Init().
+func SetLogLevel(level logger.LogLevel) {
+	gormLogLevel = level
+}
 
 // ErrConversationDeleted é retornado quando se tenta salvar mensagem em conversa que foi deletada
 // Os chamadores devem verificar esse erro e abortar o processamento graciosamente
@@ -67,7 +77,9 @@ func Init() error {
 		dbPath = resolved.Path
 	}
 
-	db, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	db, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+		Logger: logger.Default.LogMode(gormLogLevel),
+	})
 	if err != nil {
 		return err
 	}
@@ -98,7 +110,7 @@ func Init() error {
 	// Migração: mover refresh_url → refresh_token_enc (coluna renomeada)
 	if db.Migrator().HasColumn(&CredentialEntry{}, "refresh_url") {
 		db.Exec(`UPDATE credential_entries SET refresh_token_enc = refresh_url WHERE refresh_url != '' AND (refresh_token_enc IS NULL OR refresh_token_enc = '')`)
-		db.Migrator().DropColumn(&CredentialEntry{}, "refresh_url")
+		_ = db.Migrator().DropColumn(&CredentialEntry{}, "refresh_url")
 	}
 
 	// Inicializa FTS5 (full-text search) para busca em mensagens
@@ -110,8 +122,8 @@ func Init() error {
 	sqlDB, err := db.DB()
 	if err == nil {
 		var ftsCount, msgCount int
-		sqlDB.QueryRow(`SELECT count(*) FROM chat_messages_fts`).Scan(&ftsCount)
-		sqlDB.QueryRow(`SELECT count(*) FROM chat_messages WHERE role IN ('user','assistant') AND content != ''`).Scan(&msgCount)
+		_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages_fts`).Scan(&ftsCount)
+		_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages WHERE role IN ('user','assistant') AND content != ''`).Scan(&msgCount)
 		if msgCount > 0 && ftsCount < msgCount {
 			log.Printf("[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...", ftsCount, msgCount)
 			if err := RebuildFTSIndex(); err != nil {

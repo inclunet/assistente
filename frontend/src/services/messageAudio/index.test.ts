@@ -6,7 +6,7 @@ import { base64ToBlob } from '../../lib/audioUtils';
 
 const speakMessageMock = vi.fn();
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   SpeakMessage: (...args: unknown[]) => speakMessageMock(...args),
 }));
 

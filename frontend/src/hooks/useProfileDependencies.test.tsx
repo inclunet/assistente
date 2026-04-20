@@ -11,7 +11,7 @@ const getSkillsMock = vi.fn();
 let eventsHandler: (() => void) | null = null;
 const unsubscribeMock = vi.fn();
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetAvailableTools: (...args: unknown[]) => getAvailableToolsMock(...args),
   GetAllowlists: (...args: unknown[]) => getAllowlistsMock(...args),
   GetSkills: (...args: unknown[]) => getSkillsMock(...args),

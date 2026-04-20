@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { GetConversationTokenStats } from '@wailsjs/go/main/App';
+import { GetConversationTokenStats } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { Modal } from '../ui/Modal';
 import { Tabs, TabList, Tab, TabPanel } from '../ui/tabs';

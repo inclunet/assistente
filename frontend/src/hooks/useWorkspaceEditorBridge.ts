@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
 import { useEditorStore, DEFAULT_MD } from '../store/editorStore';
-import { EditorReadFile } from '@wailsjs/go/main/App';
+import { EditorReadFile } from '@wailsjs/go/app/App';
 import { basenameFromPath } from '../utils/path';
 
 /**

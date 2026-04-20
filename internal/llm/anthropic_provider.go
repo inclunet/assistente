@@ -511,7 +511,7 @@ func convertToBetaMessages(msgs []anthropic.MessageParam) []anthropic.BetaMessag
 		for j, block := range msg.Content {
 			data, _ := json.Marshal(block)
 			var betaBlock anthropic.BetaContentBlockParamUnion
-			json.Unmarshal(data, &betaBlock)
+			_ = json.Unmarshal(data, &betaBlock)
 			betaContent[j] = betaBlock
 		}
 		result[i] = anthropic.BetaMessageParam{

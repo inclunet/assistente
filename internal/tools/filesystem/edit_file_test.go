@@ -18,7 +18,7 @@ func TestEditFile_Name(t *testing.T) {
 func TestEditFile_BasicReplace(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "test.go")
-	os.WriteFile(filePath, []byte(`package main
+	_ = os.WriteFile(filePath, []byte(`package main
 
 func main() {
 	fmt.Println("Hello")
@@ -47,7 +47,7 @@ func main() {
 func TestEditFile_MultilineReplace(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "multi.go")
-	os.WriteFile(filePath, []byte(`func old() {
+	_ = os.WriteFile(filePath, []byte(`func old() {
 	return 1
 }
 
@@ -75,7 +75,7 @@ func other() {
 func TestEditFile_AmbiguousMatch(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "dup.txt")
-	os.WriteFile(filePath, []byte("hello world\nhello again\nhello final"), 0644)
+	_ = os.WriteFile(filePath, []byte("hello world\nhello again\nhello final"), 0644)
 
 	tool := NewEditFile(dir, nil)
 	args := `{"path": "dup.txt", "old_string": "hello", "new_string": "bye"}`
@@ -94,7 +94,7 @@ func TestEditFile_AmbiguousMatch(t *testing.T) {
 func TestEditFile_ReplaceAll(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "all.txt")
-	os.WriteFile(filePath, []byte("foo bar foo baz foo"), 0644)
+	_ = os.WriteFile(filePath, []byte("foo bar foo baz foo"), 0644)
 
 	tool := NewEditFile(dir, nil)
 	args := `{"path": "all.txt", "old_string": "foo", "new_string": "qux", "replace_all": true}`
@@ -121,7 +121,7 @@ func TestEditFile_ReplaceAll(t *testing.T) {
 func TestEditFile_NotFound(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "test.txt")
-	os.WriteFile(filePath, []byte("some content"), 0644)
+	_ = os.WriteFile(filePath, []byte("some content"), 0644)
 
 	tool := NewEditFile(dir, nil)
 	args := `{"path": "test.txt", "old_string": "nonexistent text", "new_string": "replacement"}`
@@ -138,7 +138,7 @@ func TestEditFile_WhitespaceHint(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "ws.txt")
 	// Arquivo com tabs — old_string com espaços (whitespace diferente)
-	os.WriteFile(filePath, []byte("\tindented text here"), 0644)
+	_ = os.WriteFile(filePath, []byte("\tindented text here"), 0644)
 
 	tool := NewEditFile(dir, nil)
 	// old_string com espaços em vez de tab — NÃO é substring exata
@@ -194,7 +194,7 @@ func TestEditFile_EmptyOldString(t *testing.T) {
 func TestEditFile_BlocksSensitive(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("SECRET=123"), 0644)
+	_ = os.WriteFile(envPath, []byte("SECRET=123"), 0644)
 
 	tool := NewEditFile(dir, nil)
 	args := `{"path": ".env", "old_string": "SECRET=123", "new_string": "SECRET=456"}`

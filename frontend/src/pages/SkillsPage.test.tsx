@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
   Trans: ({ children, defaults }: { children?: ReactNode; defaults?: string }) => <>{defaults ?? children}</>,
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetSkills: () => mockGetSkills(),
   GetSkill: (slug: string) => mockGetSkill(slug),
   GetSkillSearchPaths: () => mockGetSkillSearchPaths(),

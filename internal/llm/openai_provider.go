@@ -220,7 +220,7 @@ func (p *OpenAIProvider) getModelsHTTP(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("erro ao conectar ao provedor: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("models_endpoint_not_supported")

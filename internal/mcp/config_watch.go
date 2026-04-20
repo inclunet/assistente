@@ -26,7 +26,7 @@ func (m *Manager) WatchConfigs() {
 		log.Printf("[MCP:watch] Erro ao criar watcher: %v", err)
 		return
 	}
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	if err := m.resolver.EnsureHomeDir(); err != nil {
 		log.Printf("[MCP:watch] Erro ao garantir diretório home: %v", err)
@@ -166,7 +166,7 @@ func (m *Manager) syncConfigsFromDisk() {
 		if _, ok := onDisk[slug]; !ok {
 			log.Printf("[MCP:watch] Servidor removido: %s — desconectando", slug)
 			changed = true
-			go m.Disconnect(slug)
+			go func() { _ = m.Disconnect(slug) }()
 			delete(m.servers, slug)
 		}
 	}

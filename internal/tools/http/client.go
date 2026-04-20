@@ -171,7 +171,7 @@ func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 		}
 
 		// Status 5xx, pode tentar retry
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		lastErr = fmt.Errorf("server error: %d", resp.StatusCode)
 	}
 

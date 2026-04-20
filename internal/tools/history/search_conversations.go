@@ -112,18 +112,18 @@ func (t *SearchConversationsTool) Execute(ctx context.Context, args json.RawMess
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Encontrados %d resultados em %d conversas para: %s\n\n", len(results), len(grouped), query))
+	_, _ = fmt.Fprintf(&sb, "Encontrados %d resultados em %d conversas para: %s\n\n", len(results), len(grouped), query)
 
 	for _, convID := range order {
 		g := grouped[convID]
-		sb.WriteString(fmt.Sprintf("── Conversa #%d: %s ──\n", convID, g.Title))
+		_, _ = fmt.Fprintf(&sb, "── Conversa #%d: %s ──\n", convID, g.Title)
 		for _, msg := range g.Messages {
-			sb.WriteString(fmt.Sprintf("  [%s] %s (msg #%d, %s)\n",
+			_, _ = fmt.Fprintf(&sb, "  [%s] %s (msg #%d, %s)\n",
 				msg.Role,
 				msg.Snippet,
 				msg.MessageID,
 				msg.CreatedAt.Format("2006-01-02 15:04"),
-			))
+			)
 		}
 		sb.WriteString("\n")
 	}

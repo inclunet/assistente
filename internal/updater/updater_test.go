@@ -96,7 +96,7 @@ func TestCheckForUpdates_NewVersionAvailable(t *testing.T) {
 			[]string{key},
 		)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -132,7 +132,7 @@ func TestCheckForUpdates_AlreadyUpToDate(t *testing.T) {
 			[]string{key},
 		)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -174,7 +174,7 @@ func TestCheckForUpdates_NoCompatibleBuild(t *testing.T) {
 			[]string{"unknown-platform"}, // Plataforma não compatível
 		)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -196,7 +196,7 @@ func TestCheckForUpdates_NoCompatibleBuild(t *testing.T) {
 func TestCheckForUpdates_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("{invalid json"))
+		_, _ = w.Write([]byte("{invalid json"))
 	}))
 	defer server.Close()
 
@@ -226,7 +226,7 @@ func TestCheckForUpdates_WithGitHubToken(t *testing.T) {
 			[]string{key},
 		)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -234,7 +234,7 @@ func TestCheckForUpdates_WithGitHubToken(t *testing.T) {
 	u.githubAPIURL = server.URL + "/releases/latest"
 	u.SetGitHubToken("ghp_test123")
 
-	u.CheckForUpdates(context.Background())
+	_, _ = u.CheckForUpdates(context.Background())
 
 	if !strings.Contains(tokenReceived, "ghp_test123") {
 		t.Errorf("esperado token no header Authorization, got %q", tokenReceived)
@@ -318,13 +318,13 @@ func TestVerifyChecksum_ValidSHA256(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao criar temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
 
 	content := []byte("test content")
 	if _, err := tmpfile.Write(content); err != nil {
 		t.Fatalf("erro ao escrever temp file: %v", err)
 	}
-	tmpfile.Close()
+	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
 	
@@ -336,7 +336,7 @@ func TestVerifyChecksum_ValidSHA256(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	
 	err = u.verifyChecksum(file, correctHash)
 
@@ -351,10 +351,10 @@ func TestVerifyChecksum_MismatchedHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao criar temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
 
-	tmpfile.Write([]byte("test content"))
-	tmpfile.Close()
+	_, _ = tmpfile.Write([]byte("test content"))
+	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
 	
@@ -362,7 +362,7 @@ func TestVerifyChecksum_MismatchedHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	
 	err = u.verifyChecksum(file, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
 
@@ -380,10 +380,10 @@ func TestVerifyChecksum_InvalidFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao criar temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
 
-	tmpfile.Write([]byte("test"))
-	tmpfile.Close()
+	_, _ = tmpfile.Write([]byte("test"))
+	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
 	
@@ -391,7 +391,7 @@ func TestVerifyChecksum_InvalidFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	
 	err = u.verifyChecksum(file, "invalid-format-no-colon")
 
@@ -406,10 +406,10 @@ func TestVerifyChecksum_UnsupportedAlgorithm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao criar temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
 
-	tmpfile.Write([]byte("test"))
-	tmpfile.Close()
+	_, _ = tmpfile.Write([]byte("test"))
+	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
 	
@@ -417,7 +417,7 @@ func TestVerifyChecksum_UnsupportedAlgorithm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	
 	err = u.verifyChecksum(file, "md5:abcdef123456")
 
@@ -432,10 +432,10 @@ func TestVerifyChecksum_NoChecksum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao criar temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
 
-	tmpfile.Write([]byte("test"))
-	tmpfile.Close()
+	_, _ = tmpfile.Write([]byte("test"))
+	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
 	
@@ -443,7 +443,7 @@ func TestVerifyChecksum_NoChecksum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	
 	err = u.verifyChecksum(file, "")
 
@@ -583,7 +583,7 @@ func TestCheckForUpdates_ReleaseNotes(t *testing.T) {
 			[]string{key},
 		)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -613,7 +613,7 @@ func TestCheckForUpdates_ReleaseDate(t *testing.T) {
 		// Sobrescreve a data no response
 		response["published_at"] = releaseDate
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -640,7 +640,7 @@ func TestApplyUpdate_NoCompatibleBuild(t *testing.T) {
 			[]string{"windows-amd64"},
 		)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -749,7 +749,7 @@ func BenchmarkCheckForUpdates(b *testing.B) {
 			[]string{key},
 		)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -758,6 +758,6 @@ func BenchmarkCheckForUpdates(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		u.CheckForUpdates(context.Background())
+		_, _ = u.CheckForUpdates(context.Background())
 	}
 }

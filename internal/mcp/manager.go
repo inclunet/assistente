@@ -231,7 +231,7 @@ func (m *Manager) Connect(slug string) error {
 	// Se já conectado, desconecta primeiro
 	if _, connected := m.connections[slug]; connected {
 		m.mu.Unlock()
-		m.Disconnect(slug)
+		_ = m.Disconnect(slug)
 		m.mu.Lock()
 	}
 
@@ -370,7 +370,7 @@ func (m *Manager) Connect(slug string) error {
 
 	// Descobre tools, resources e prompts do servidor
 	if err := m.refreshServerOfferings(slug); err != nil {
-		m.Disconnect(slug)
+		_ = m.Disconnect(slug)
 		m.setError(slug, fmt.Sprintf("erro ao descobrir offerings: %v", err))
 		return fmt.Errorf("falha ao descobrir offerings do servidor MCP '%s': %w", slug, err)
 	}
@@ -556,7 +556,7 @@ func (m *Manager) Disconnect(slug string) error {
 
 // Reconnect desconecta e reconecta a um servidor.
 func (m *Manager) Reconnect(slug string) error {
-	m.Disconnect(slug)
+	_ = m.Disconnect(slug)
 	return m.Connect(slug)
 }
 
@@ -689,7 +689,7 @@ func (m *Manager) DeleteConfig(slug string) error {
 	m.mu.Unlock()
 
 	// Desconecta primeiro
-	m.Disconnect(slug)
+	_ = m.Disconnect(slug)
 
 	filename := slug + configExt
 	if m.resolver.Exists(filename) {
@@ -913,7 +913,7 @@ func probeSSESupport(mcpURL string, authClient *http.Client) (bool, string) {
 		}
 		return false, fmt.Sprintf("erro: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	ct := resp.Header.Get("Content-Type")
 	switch {
@@ -1260,7 +1260,7 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		}
 		m.mu.RUnlock()
 
-		m.Disconnect(slug)
+		_ = m.Disconnect(slug)
 
 		if err := m.Connect(slug); err != nil {
 			log.Printf("[MCP] Falha ao reconectar '%s': %v", slug, err)

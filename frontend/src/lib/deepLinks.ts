@@ -4,8 +4,8 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useEditorStore } from '../store/editorStore';
 import { useNavigationStore, type EditableResource } from '../store/navigationStore';
 import { announce } from '../hooks/useAnnouncer';
-import { EditorReadFile } from '@wailsjs/go/main/App';
-import { RunTerminalCommand } from '@wailsjs/go/main/App';
+import { EditorReadFile } from '@wailsjs/go/app/App';
+import { RunTerminalCommand } from '@wailsjs/go/app/App';
 import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
 import i18n from './i18n';
 

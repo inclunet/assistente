@@ -32,7 +32,7 @@ vi.mock('../lib/deepLinks', () => ({
   executeDeepLink: (...args: unknown[]) => mockExecuteDeepLink(...args),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
 }));
 

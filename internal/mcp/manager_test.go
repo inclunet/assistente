@@ -122,7 +122,7 @@ func TestGetWorkspaceRoots(t *testing.T) {
 
 	// Depois de configurar
 	newRoots := []Root{{URI: "file:///test", Name: "test"}}
-	manager.SetWorkspaceRoots(newRoots)
+	_ = manager.SetWorkspaceRoots(newRoots)
 
 	roots = manager.GetWorkspaceRoots()
 	if len(roots) != 1 {
@@ -141,7 +141,7 @@ func TestManagerConcurrency(t *testing.T) {
 
 	// Goroutine 1: Set roots
 	go func() {
-		manager.SetWorkspaceRoots([]Root{
+		_ = manager.SetWorkspaceRoots([]Root{
 			{URI: "file:///test1", Name: "test1"},
 		})
 		done <- true
@@ -193,7 +193,7 @@ func TestEmitEvent(t *testing.T) {
 	manager := NewManager(registry, credMgr, emitFunc)
 
 	// SetWorkspaceRoots deve emitir evento
-	manager.SetWorkspaceRoots([]Root{
+	_ = manager.SetWorkspaceRoots([]Root{
 		{URI: "file:///test", Name: "test"},
 	})
 
@@ -242,7 +242,7 @@ func TestManagerStateConsistency(t *testing.T) {
 
 	// Configura roots
 	roots1 := []Root{{URI: "file:///test1", Name: "test1"}}
-	manager.SetWorkspaceRoots(roots1)
+	_ = manager.SetWorkspaceRoots(roots1)
 
 	// Obtém valores
 	retrieved1 := manager.GetWorkspaceRoots()
@@ -255,7 +255,7 @@ func TestManagerStateConsistency(t *testing.T) {
 		{URI: "file:///test2", Name: "test2"},
 		{URI: "file:///test3", Name: "test3"},
 	}
-	manager.SetWorkspaceRoots(roots2)
+	_ = manager.SetWorkspaceRoots(roots2)
 
 	// Obtém valores novamente
 	retrieved2 := manager.GetWorkspaceRoots()
@@ -392,7 +392,7 @@ func TestCheckAndRefreshToken_SkipsWhenNoRefreshToken(t *testing.T) {
 func TestCheckAndRefreshToken_RefreshesExpiringToken(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "new-access-token",
 			"refresh_token": "new-refresh-token",
 			"token_type":    "Bearer",
@@ -437,7 +437,7 @@ func TestCheckAndRefreshToken_RefreshesExpiringToken(t *testing.T) {
 func TestCheckAndRefreshToken_HandlesRefreshFailure(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, `{"error":"invalid_grant"}`)
+		_, _ = fmt.Fprint(w, `{"error":"invalid_grant"}`)
 	}))
 	defer tokenServer.Close()
 
@@ -473,7 +473,7 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "refreshed",
 			"refresh_token": "new-refresh",
 			"token_type":    "Bearer",

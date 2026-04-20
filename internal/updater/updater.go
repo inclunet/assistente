@@ -294,7 +294,7 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, _ *Manifest) 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var ghRelease struct {
 		Assets []struct {
@@ -404,7 +404,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var ghRelease struct {
 		Assets []struct {
@@ -455,7 +455,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 	if err != nil {
 		return fmt.Errorf("falha ao baixar executável portátil: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("falha ao baixar: status %d", resp.StatusCode)
@@ -467,7 +467,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 		return fmt.Errorf("falha ao criar arquivo temporário: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	// Baixa com progress callback
 	var downloaded int64
@@ -476,7 +476,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
 			if _, err := tmpFile.Write(buf[:n]); err != nil {
-				tmpFile.Close()
+				_ = tmpFile.Close()
 				return fmt.Errorf("falha ao escrever arquivo: %w", err)
 			}
 			downloaded += int64(n)
@@ -489,7 +489,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 			break
 		}
 		if err != nil {
-			tmpFile.Close()
+			_ = tmpFile.Close()
 			return fmt.Errorf("falha ao baixar: %w", err)
 		}
 	}
@@ -510,7 +510,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 	if err != nil {
 		return fmt.Errorf("falha ao abrir arquivo baixado: %w", err)
 	}
-	defer binaryFile.Close()
+	defer func() { _ = binaryFile.Close() }()
 
 	// Aplica a atualização usando go-update
 	err = update.Apply(binaryFile, update.Options{})
@@ -540,7 +540,7 @@ func (u *Updater) applyUpdateInPlace(ctx context.Context, manifest *Manifest) er
 	if err != nil {
 		return fmt.Errorf("falha ao baixar binário: %w", err)
 	}
-	defer binary.Close()
+	defer func() { _ = binary.Close() }()
 
 	// Reporta verificação
 	if u.progressCallback != nil {
@@ -558,7 +558,7 @@ func (u *Updater) applyUpdateInPlace(ctx context.Context, manifest *Manifest) er
 
 	// Reseta para o início do arquivo após verificar checksum
 	if seeker, ok := binary.(io.Seeker); ok {
-		seeker.Seek(0, io.SeekStart)
+		_, _ = seeker.Seek(0, io.SeekStart)
 	}
 
 	// Reporta instalação
@@ -628,7 +628,7 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("status HTTP inesperado ao baixar instalador: %d", resp.StatusCode)
@@ -653,8 +653,8 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 		n, err := resp.Body.Read(buffer)
 		if n > 0 {
 			if _, writeErr := tmpFile.Write(buffer[:n]); writeErr != nil {
-				tmpFile.Close()
-				os.Remove(tmpPath)
+				_ = tmpFile.Close()
+				_ = os.Remove(tmpPath)
 				return "", fmt.Errorf("falha ao escrever no arquivo: %w", writeErr)
 			}
 			bytesDownloaded += int64(n)
@@ -666,8 +666,8 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 			break
 		}
 		if err != nil {
-			tmpFile.Close()
-			os.Remove(tmpPath)
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpPath)
 			return "", fmt.Errorf("falha ao baixar instalador: %w", err)
 		}
 	}
@@ -677,7 +677,7 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 		log.Printf("[Updater] Aviso: falha ao sincronizar arquivo: %v", err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("falha ao fechar arquivo: %w", err)
 	}
 
@@ -699,7 +699,7 @@ func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status HTTP inesperado: %d", resp.StatusCode)
@@ -795,14 +795,14 @@ func (u *Updater) downloadBinary(ctx context.Context, url string) (io.ReadCloser
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("status HTTP inesperado ao baixar binário: %d", resp.StatusCode)
 	}
 
 	// Salva em arquivo temporário para permitir seek
 	tmpFile, err := os.CreateTemp("", "assistente-update-*")
 	if err != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("falha ao criar arquivo temporário: %w", err)
 	}
 
@@ -818,9 +818,9 @@ func (u *Updater) downloadBinary(ctx context.Context, url string) (io.ReadCloser
 		n, err := resp.Body.Read(buffer)
 		if n > 0 {
 			if _, writeErr := tmpFile.Write(buffer[:n]); writeErr != nil {
-				resp.Body.Close()
-				tmpFile.Close()
-				os.Remove(tmpFile.Name())
+				_ = resp.Body.Close()
+				_ = tmpFile.Close()
+				_ = os.Remove(tmpFile.Name())
 				return nil, fmt.Errorf("falha ao escrever no arquivo: %w", writeErr)
 			}
 			bytesDownloaded += int64(n)
@@ -832,17 +832,17 @@ func (u *Updater) downloadBinary(ctx context.Context, url string) (io.ReadCloser
 			break
 		}
 		if err != nil {
-			resp.Body.Close()
-			tmpFile.Close()
-			os.Remove(tmpFile.Name())
+			_ = resp.Body.Close()
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpFile.Name())
 			return nil, fmt.Errorf("falha ao baixar binário: %w", err)
 		}
 	}
 
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Volta ao início do arquivo
-	tmpFile.Seek(0, io.SeekStart)
+	_, _ = tmpFile.Seek(0, io.SeekStart)
 
 	return tmpFile, nil
 }

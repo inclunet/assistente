@@ -18,7 +18,7 @@ func TestGetModelsNoAPIKey(t *testing.T) {
 		t.Logf("Request: %s %s", r.Method, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"object":"list","data":[{"id":"model-a","object":"model"},{"id":"model-b","object":"model"}]}`)
+		_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"model-a","object":"model"},{"id":"model-b","object":"model"}]}`)
 	}))
 	defer srv.Close()
 
@@ -51,7 +51,7 @@ func TestGetModelsNoAPIKey(t *testing.T) {
 func TestGetModelsNilCredManager(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"object":"list","data":[{"id":"test-model","object":"model"}]}`)
+		_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"test-model","object":"model"}]}`)
 	}))
 	defer srv.Close()
 
@@ -107,7 +107,7 @@ func TestGetModelsServerUnavailable(t *testing.T) {
 func TestGetModelsNullBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `null`)
+		_, _ = fmt.Fprint(w, `null`)
 	}))
 	defer srv.Close()
 
@@ -135,7 +135,7 @@ func TestGetModelsNullBody(t *testing.T) {
 func TestGetModelsEmptyObject(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{}`)
+		_, _ = fmt.Fprint(w, `{}`)
 	}))
 	defer srv.Close()
 
@@ -163,7 +163,7 @@ func TestGetModelsEmptyObject(t *testing.T) {
 func TestGetModelsPlainText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, "OK")
+		_, _ = fmt.Fprint(w, "OK")
 	}))
 	defer srv.Close()
 
@@ -191,7 +191,7 @@ func TestGetModelsPlainText(t *testing.T) {
 func TestGetModelsHTML(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, "<html><body>Error</body></html>")
+		_, _ = fmt.Fprint(w, "<html><body>Error</body></html>")
 	}))
 	defer srv.Close()
 
@@ -219,7 +219,7 @@ func TestGetModelsHTML(t *testing.T) {
 func TestGetModelsNoContentType(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Sem Content-Type
-		fmt.Fprint(w, `{"object":"list","data":[{"id":"m1"}]}`)
+		_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"m1"}]}`)
 	}))
 	defer srv.Close()
 

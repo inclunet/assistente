@@ -12,7 +12,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetProfiles: vi.fn().mockResolvedValue([
     {
       slug: 'padrao',
@@ -257,7 +257,7 @@ describe('ProfilesPage', () => {
   it('duplica um perfil via menu de acoes', async () => {
     const user = userEvent.setup();
     const { default: ProfilesPage } = await import('./ProfilesPage');
-    const app = await import('@wailsjs/go/main/App');
+    const app = await import('@wailsjs/go/app/App');
 
     render(<ProfilesPage />);
 

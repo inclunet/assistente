@@ -40,7 +40,7 @@ func TestGenerateRecoveryKeyFormat(t *testing.T) {
 		t.Fatalf("recovery key muito curta: %q", key)
 	}
 	for _, c := range key {
-		if !((c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7') || c == '-') {
+		if (c < 'A' || c > 'Z') && (c < '2' || c > '7') && c != '-' {
 			t.Fatalf("recovery key contém caractere inválido %q em %q (esperado base32 + hífens)", string(c), key)
 		}
 	}

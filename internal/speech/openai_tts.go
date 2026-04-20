@@ -176,7 +176,7 @@ func (c *TTSClient) synthesizeInternal(text string, voice TTSVoice) ([]byte, err
 			return nil, fmt.Errorf("TTS synthesis failed: %w", err)
 		}
 		data, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read TTS response: %w", err)
 		}
@@ -216,10 +216,10 @@ func (c *TTSClient) synthesizeStreamInternal(ctx context.Context, text string, v
 			return fmt.Errorf("TTS stream failed: %w", err)
 		}
 		if err := readStreamChunks(ctx, resp.Body, callbacks); err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return err
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	return nil

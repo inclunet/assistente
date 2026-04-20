@@ -35,7 +35,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetConversations: () => mockGetConversations(),
   DeleteConversation: (id: number) => mockDeleteConversation(id),
   UpdateConversation: (id: number, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),

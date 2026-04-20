@@ -7,7 +7,7 @@ import { VoiceButton } from './VoiceButton';
 import { SlashCommandMenu, countFilteredSkills } from './SlashCommandMenu';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { DIMENSIONS } from '../../constants/chat';
-import { GetUserInvocableSkills } from '@wailsjs/go/main/App';
+import { GetUserInvocableSkills } from '@wailsjs/go/app/App';
 import type { skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 

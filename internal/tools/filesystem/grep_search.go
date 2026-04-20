@@ -286,7 +286,7 @@ func (t *GrepSearch) searchFile(ctx context.Context, filePath string, re *regexp
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Lê todas as linhas para suporte a contexto
 	var lines []string
@@ -395,10 +395,10 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Busca: '%s' em '%s'\n", pattern, basePath))
-	sb.WriteString(fmt.Sprintf("%d arquivo(s) com correspondências (%d arquivos escaneados)\n", len(groups), filesScanned))
+	_, _ = fmt.Fprintf(&sb, "Busca: '%s' em '%s'\n", pattern, basePath)
+	_, _ = fmt.Fprintf(&sb, "%d arquivo(s) com correspondências (%d arquivos escaneados)\n", len(groups), filesScanned)
 	if truncated {
-		sb.WriteString(fmt.Sprintf("(TRUNCADO: limite de %d resultados atingido)\n", maxResults))
+		_, _ = fmt.Fprintf(&sb, "(TRUNCADO: limite de %d resultados atingido)\n", maxResults)
 	}
 	sb.WriteString("\n")
 
