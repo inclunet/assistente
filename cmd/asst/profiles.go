@@ -92,7 +92,6 @@ var profilesActivateCmd = &cobra.Command{
 var profileCreateName string
 var profileCreateModel string
 var profileCreateProvider string
-var profileCreateSystemPrompt string
 var profileCreateTemp float64
 
 var profilesCreateCmd = &cobra.Command{
@@ -102,25 +101,30 @@ var profilesCreateCmd = &cobra.Command{
 
 Exemplos:
   assistente profiles create --name "Coder" --provider openai-default --model gpt-4o
-  assistente profiles create --name "Tradutor" --system-prompt "Você é um tradutor."`,
+  assistente profiles create --name "Escritor" --temperature 0.9`,
+
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if profileCreateName == "" {
 			return fmt.Errorf("--name é obrigatório")
 		}
 
-		p := profiles.Profile{
-			Name: profileCreateName,
-			Chat: profiles.ChatConfig{
-				LLMProvider: profileCreateProvider,
-				Model:       profileCreateModel,
-				Temperature: profileCreateTemp,
-			},
+		p := *profiles.DefaultProfile()
+		p.Name = profileCreateName
+
+		if cmd.Flags().Changed("provider") {
+			p.Chat.LLMProvider = profileCreateProvider
+		}
+		if cmd.Flags().Changed("model") {
+			p.Chat.Model = profileCreateModel
+		}
+		if cmd.Flags().Changed("temperature") {
+			p.Chat.Temperature = profileCreateTemp
 		}
 
 		slug, err := rootApp.CreateProfile(p)
 		if err != nil {
 			return fmt.Errorf("erro ao criar perfil: %w", err)
-		}  
+		}
 
 		fmt.Printf("Perfil '%s' criado (slug: %s).\n", profileCreateName, slug)
 		return nil
@@ -210,7 +214,6 @@ func init() {
 	profilesCreateCmd.Flags().StringVar(&profileCreateName, "name", "", "Nome do perfil (obrigatório)")
 	profilesCreateCmd.Flags().StringVar(&profileCreateModel, "model", "", "Modelo LLM")
 	profilesCreateCmd.Flags().StringVar(&profileCreateProvider, "provider", "", "ID do provider LLM")
-	profilesCreateCmd.Flags().StringVar(&profileCreateSystemPrompt, "system-prompt", "", "System prompt para o perfil")
 	profilesCreateCmd.Flags().Float64Var(&profileCreateTemp, "temperature", 0.7, "Temperatura (0.0-2.0)")
 
 	profilesEditCmd.Flags().StringVar(&profileEditName, "name", "", "Novo nome")

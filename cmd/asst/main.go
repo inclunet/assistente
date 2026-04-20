@@ -43,9 +43,10 @@ var rootCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(context.Background())
 		rootCancel = cancel
 
-		// Cancela o contexto em SIGINT/SIGTERM
+		// Cancela o contexto apenas em SIGTERM.
+		// SIGINT é tratado localmente pelo chat (barge-in) para não encerrar o REPL.
 		rootSigCh = make(chan os.Signal, 1)
-		signal.Notify(rootSigCh, syscall.SIGINT, syscall.SIGTERM)
+		signal.Notify(rootSigCh, syscall.SIGTERM)
 		go func() {
 			<-rootSigCh
 			cancel()

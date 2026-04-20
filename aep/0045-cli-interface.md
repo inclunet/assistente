@@ -6,7 +6,7 @@ Status: concluído
 
 ## Resumo executivo
 
-Adicionar um entrypoint CLI (`cmd/cli/main.go`) que permite usar o assistente via terminal, sem dependência do Wails ou interface gráfica. Para isso, foi necessário reestruturar o projeto: mover a lógica do `App` (antes em `package main` na raiz) para `internal/app/`, tornando-a importável tanto pelo entrypoint desktop (raiz) quanto pelo CLI (`cmd/cli/`).
+Adicionar um entrypoint CLI (`cmd/asst/main.go`) que permite usar o assistente via terminal, sem dependência do Wails ou interface gráfica. Para isso, foi necessário reestruturar o projeto: mover a lógica do `App` (antes em `package main` na raiz) para `internal/app/`, tornando-a importável tanto pelo entrypoint desktop (raiz) quanto pelo CLI (`cmd/asst/`).
 
 **Nota:** O `main.go` desktop permanece na raiz do projeto (não em `cmd/desktop/`) porque `//go:embed` do Go não permite caminhos com `..` — e `frontend/dist` está na raiz.
 
@@ -41,7 +41,7 @@ Casos de uso: automação via scripts, uso em servidores headless, acessibilidad
 | Componente | Acoplamento | Impacto |
 |---|---|---|
 | `main.go` | 100% Wails (`wails.Run`) | Precisa de novo entrypoint |
-| `app.go` + ~50 `app_*.go` | `package main` na raiz | Não pode ser importado por `cmd/cli/`; precisa mover para `internal/app/` |
+| `app.go` + ~50 `app_*.go` | `package main` na raiz | Não pode ser importado por `cmd/asst/`; precisa mover para `internal/app/` |
 | `startup()` | Hardcode `wails.NewEmitterAdapter(ctx)` | Refatorado para `StartupWithAdapters()` que recebe adapters por DI |
 | Imports Wails | 3 arquivos: `main.go`, `adapters/wails/*.go` | Isolados, permanecem fora de `internal/app/` |
 
@@ -49,7 +49,7 @@ Casos de uso: automação via scripts, uso em servidores headless, acessibilidad
 
 ### Reestruturação: `internal/app/` + `cmd/`
 
-Em Go, `package main` não pode ser importado por outro package. Para ter dois entrypoints (`cmd/desktop/` e `cmd/cli/`), a lógica do App precisa ser movida para um package importável.
+Em Go, `package main` não pode ser importado por outro package. Para ter dois entrypoints (`cmd/desktop/` e `cmd/asst/`), a lógica do App precisa ser movida para um package importável.
 
 **Estrutura resultante:**
 
@@ -70,7 +70,7 @@ internal/
   ...                      ← packages existentes (chat, llm, speech, etc.)
 adapters/
   wails/                   ← adapters Wails (importado apenas pelo main.go da raiz)
-  cli/                     ← adapters CLI (importado apenas por cmd/cli/)
+  cli/                     ← adapters CLI (importado apenas por cmd/asst/)
   noop/                    ← adapters noop (testes)
 controllers/               ← inalterado
 ```
@@ -93,9 +93,9 @@ controllers/               ← inalterado
 - Autocompletion de shell
 - Amplamente adotado no ecossistema Go
 
-### Binário separado: `assistente-cli`
+### Binário separado: `asst`
 - Evita carregar dependências de Wails/WebKit/CGO
-- Build independente: `go build -o assistente-cli ./cmd/cli`
+- Build independente: `go build -o asst ./cmd/asst`
 
 ### Escopo incluído
 - Chat interativo (REPL) e não-interativo (pipe/args)
@@ -113,10 +113,10 @@ controllers/               ← inalterado
 
 ```
 main.go (raiz)             ← wails.Run(), embed, OnStartup wrapper com adapters Wails
-cmd/cli/main.go            ← cobra root command
-cmd/cli/chat.go            ← subcomando chat (REPL + pipe)
-cmd/cli/profiles.go        ← subcomando profiles
-cmd/cli/config.go          ← subcomando config
+cmd/asst/main.go            ← cobra root command
+cmd/asst/chat.go            ← subcomando chat (REPL + pipe)
+cmd/asst/profiles.go        ← subcomando profiles
+cmd/asst/config.go          ← subcomando config
 
 internal/app/              ← App struct + StartupWithAdapters() + toda lógica
   app.go
@@ -137,7 +137,7 @@ adapters/cli/dialog.go     ← DialogPort via args/flags
 3. `OnStartup()` chama `app.StartupWithAdapters(ctx, wailsEmitter, wailsWindow, wailsDialog)`
 
 **CLI:**
-1. `cmd/cli/main.go` cria `app.NewApp()`
+1. `cmd/asst/main.go` cria `app.NewApp()`
 2. `app.StartupWithAdapters(ctx, cliEmitter, cliWindow, cliDialog)`
 3. cobra parsea subcomando e delega ao controller apropriado
 
@@ -158,14 +158,14 @@ O `cli.EmitterAdapter` traduz eventos para output formatado:
 2. ✅ `main.go` permanece na raiz (restrição do `//go:embed` impede mover para `cmd/desktop/`)
 3. ✅ Exportar tipos e funções: `NewApp()`, `StartupWithAdapters()`, `Shutdown()`, `Context()`
 4. N/A — `wails.json` não precisa de alteração (main.go continua na raiz)
-5. ✅ `go build .` e `go build ./cmd/cli` compilam; `go test ./...` sem regressões
+5. ✅ `go build .` e `go build ./cmd/asst` compilam; `go test ./...` sem regressões
 
 ### Fase 1 — Adapters CLI e entrypoint ✅
 
 6. ✅ Criar package `adapters/cli/` com 3 implementações (Emitter, Window, Dialog)
-7. ✅ Criar `cmd/cli/main.go` com cobra root command e inicialização via `app.StartupWithAdapters()`
+7. ✅ Criar `cmd/asst/main.go` com cobra root command e inicialização via `app.StartupWithAdapters()`
 8. ✅ EmitterAdapter com `WaitDone()` para sincronização de streaming
-9. ✅ `go build ./cmd/cli` compila; `go test ./...` sem regressões
+9. ✅ `go build ./cmd/asst` compila; `go test ./...` sem regressões
 
 ### Fase 2 — Comandos básicos ✅
 
@@ -244,13 +244,13 @@ Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem 
 ## Critérios de aceitação
 
 - `go build .` (desktop) compila e `wails dev` funciona normalmente
-- `go build ./cmd/cli` compila sem deps Wails
-- `assistente-cli chat "olá"` retorna resposta streaming no terminal
-- `echo "olá" | assistente-cli chat` funciona em modo pipe
-- `assistente-cli profiles list` lista perfis corretamente
-- `assistente-cli setup` configura provedor LLM do zero em ambiente headless
-- `assistente-cli providers add` cria e testa conexão com novo provedor
-- `assistente-cli credentials set` persiste credenciais de forma segura
+- `go build ./cmd/asst` compila sem deps Wails
+- `asst chat "olá"` retorna resposta streaming no terminal
+- `echo "olá" | asst chat` funciona em modo pipe
+- `asst profiles list` lista perfis corretamente
+- `asst setup` configura provedor LLM do zero em ambiente headless
+- `asst providers add` cria e testa conexão com novo provedor
+- `asst credentials set` persiste credenciais de forma segura
 - `go test ./...` sem regressões
 - `internal/app/` não importa Wails (zero `github.com/wailsapp`)
 

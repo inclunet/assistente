@@ -213,6 +213,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		_ = rootApp.SetDefaultProvider(info.ID)
 	}
 
+	// Aplicar modelo selecionado
+	if model != "" {
+		_ = rootApp.SetChatModel(model)
+	}
+
 	fmt.Println()
 	fmt.Printf("Assistente configurado com sucesso!\n")
 	fmt.Printf("  Provedor: %s\n", providerChoice)

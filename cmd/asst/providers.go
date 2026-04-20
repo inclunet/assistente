@@ -210,6 +210,10 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 	} else {
 		// Provedor padrão — usar template
 		err = rootApp.CreateDefaultLLMProvider(providerType, apiKey)
+		if err == nil && model != "" && model != info.DefaultModel {
+			// Aplica o modelo selecionado (CreateDefaultLLMProvider usa o default do template)
+			_ = rootApp.SetChatModel(model)
+		}
 	}
 
 	if err != nil {
