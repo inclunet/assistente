@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Limites padrão do executor
@@ -87,6 +88,7 @@ func (e *Executor) ExecuteOne(ctx context.Context, call ToolCall) ToolExecutionR
 // executeSingle executa uma única tool com timeout e tratamento de erro.
 func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecutionResult {
 	toolName := call.Function.Name
+	start := time.Now()
 
 	// Busca a ferramenta no registry
 	tool, ok := e.registry.Get(toolName)
@@ -98,6 +100,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Ferramenta '%s' não encontrada", toolName),
 				IsError: true,
 			},
+			ErrorKind:  ErrorKindNotFound,
+			Retryable:  false,
+			DurationMs: time.Since(start).Milliseconds(),
 		}
 	}
 
@@ -111,6 +116,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Argumentos inválidos para '%s': JSON malformado", toolName),
 				IsError: true,
 			},
+			ErrorKind:  ErrorKindInvalidArgs,
+			Retryable:  false,
+			DurationMs: time.Since(start).Milliseconds(),
 		}
 	}
 
@@ -130,6 +138,10 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 						Content: fmt.Sprintf("Erro interno em '%s': %v", toolName, r),
 						IsError: true,
 					},
+					Error:      fmt.Errorf("panic: %v", r),
+					ErrorKind:  ErrorKindPanic,
+					Retryable:  false,
+					DurationMs: time.Since(start).Milliseconds(),
 				}
 			}
 		}()
@@ -143,17 +155,20 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					Content: fmt.Sprintf("Erro ao executar '%s': %v", toolName, err),
 					IsError: true,
 				},
-				Error: err,
+				Error:      err,
+				ErrorKind:  ErrorKindUnknown,
+				Retryable:  false,
+				DurationMs: time.Since(start).Milliseconds(),
 			}
 			return
 		}
 
-		// Trunca resultado se necessário
+		// Trunca resultado se necessário (UTF-8 safe)
 		if len(result.Content) > e.config.MaxResultSize {
-			truncated := result.Content[:e.config.MaxResultSize]
+			truncated := truncateUTF8(result.Content, e.config.MaxResultSize)
 			result.Content = truncated + fmt.Sprintf(
 				"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-				len(result.Content)+len(truncated), e.config.MaxResultSize,
+				len(result.Content), e.config.MaxResultSize,
 			)
 			if result.Metadata == nil {
 				result.Metadata = make(map[string]any)
@@ -162,9 +177,10 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		}
 
 		resultCh <- ToolExecutionResult{
-			CallID:   call.ID,
-			ToolName: toolName,
-			Result:   result,
+			CallID:     call.ID,
+			ToolName:   toolName,
+			Result:     result,
+			DurationMs: time.Since(start).Milliseconds(),
 		}
 	}()
 
@@ -173,6 +189,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	case result := <-resultCh:
 		return result
 	case <-toolCtx.Done():
+		elapsed := time.Since(start).Milliseconds()
 		if ctx.Err() != nil {
 			// Contexto pai cancelado (usuário cancelou)
 			return ToolExecutionResult{
@@ -182,7 +199,10 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					Content: fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName),
 					IsError: true,
 				},
-				Error: ctx.Err(),
+				Error:      ctx.Err(),
+				ErrorKind:  ErrorKindTimeout,
+				Retryable:  false,
+				DurationMs: elapsed,
 			}
 		}
 		// Timeout da tool
@@ -193,9 +213,24 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout),
 				IsError: true,
 			},
-			Error: context.DeadlineExceeded,
+			Error:      context.DeadlineExceeded,
+			ErrorKind:  ErrorKindTimeout,
+			Retryable:  true,
+			DurationMs: elapsed,
 		}
 	}
+}
+
+// truncateUTF8 trunca uma string até maxBytes sem cortar runes no meio.
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	// Recua até achar um limite de rune válido
+	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	return s[:maxBytes]
 }
 
 // Config retorna a configuração atual do executor.
