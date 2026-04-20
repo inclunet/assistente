@@ -60,16 +60,22 @@ var rootCmd = &cobra.Command{
 			cliadapter.WithVerbose(verbose),
 		)
 
+		// O nível de log do GORM precisa ser configurado antes do startup,
+		// pois o database.Init() ocorre durante a inicialização do app.
+		if !verbose {
+			database.SetLogLevel(gormlogger.Silent)
+		}
+
 		rootApp.StartupWithAdapters(ctx,
 			cliEmitter,
 			cliadapter.WindowAdapter{},
 			cliadapter.DialogAdapter{},
 		)
 
-		// Silencia logs após startup bem-sucedido (erros de init já foram logados no stderr)
+		// Silencia logs padrão após startup bem-sucedido
+		// para manter visíveis eventuais erros de inicialização.
 		if !verbose {
 			log.SetOutput(io.Discard)
-			database.SetLogLevel(gormlogger.Silent)
 		}
 
 		return nil
