@@ -265,7 +265,7 @@ func (s *Service) RunAgenticLoop(
 			}
 		}
 
-		// 5f. Salva resultados e adiciona ao histórico
+		// 5f. Emit tool_end/failure events e acumula stats
 		var iterationTools []ports.ToolSummary
 		for _, execResult := range execResults {
 			status := "ok"
@@ -277,7 +277,7 @@ func (s *Service) RunAgenticLoop(
 				Name:           execResult.ToolName,
 				CallID:         execResult.CallID,
 				Status:         status,
-				Summary:        truncateString(execResult.Result.Content, 200),
+				Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 				Origin:         OriginBuiltin,
 				DurationMs:     execResult.DurationMs,
 			})
@@ -290,7 +290,7 @@ func (s *Service) RunAgenticLoop(
 					CallID:         execResult.CallID,
 					ErrorKind:      execResult.ErrorKind,
 					Retryable:      execResult.Retryable,
-					Message:        truncateString(execResult.Result.Content, 200),
+					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 					DurationMs:     execResult.DurationMs,
 					Origin:         OriginBuiltin,
 				})
@@ -305,7 +305,23 @@ func (s *Service) RunAgenticLoop(
 			})
 			totalToolCallCount++
 			toolsUsedSet[execResult.ToolName] = struct{}{}
+		}
 
+		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário
+		toolContents := make([]string, len(execResults))
+		for i, r := range execResults {
+			toolContents[i] = r.Result.Content
+		}
+		preCheck := PreCheckContextWindow(params.ContextWindow, params.MaxTokens, messages, toolContents)
+		if preCheck.Truncated {
+			// Aplica conteúdos truncados de volta nos resultados
+			for i := range execResults {
+				execResults[i].Result.Content = toolContents[i]
+			}
+		}
+
+		// 5f-iii. Persiste resultados e adiciona ao histórico
+		for _, execResult := range execResults {
 			_, err := s.msgRepo.AddToolResultMessage(
 				conversationID,
 				turnID,
