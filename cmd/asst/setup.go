@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -13,6 +14,21 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
+
+// setupBackend abstracts the app methods used by the setup wizard (enables testing).
+type setupBackend interface {
+	NeedsWelcomeWizard() bool
+	HasMasterKey() bool
+	SetupMasterPassword(password string) (string, error)
+	TestLLMProvider(req controllers.TestLLMProviderRequest) (bool, error)
+	ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error)
+	CreateDefaultLLMProvider(providerType, apiKey string) error
+	SetDefaultProvider(id string) error
+	SetChatModel(model string) error
+}
+
+// passwordReader abstracts password reading for testing.
+type passwordReader func(prompt string) (string, error)
 
 // providerChoices é a lista ordenada de providers para o wizard interativo.
 var providerChoices = []string{
@@ -42,15 +58,17 @@ Configura:
   - Senha mestre (para proteger credenciais)
   - Provedor LLM (OpenAI, Claude, Ollama, etc.)
   - API key e modelo padrão`,
-	RunE: runSetup,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runSetup(rootApp, readPassword, os.Stdout)
+	},
 }
 
-func runSetup(cmd *cobra.Command, args []string) error {
+func runSetup(svc setupBackend, readPwd passwordReader, out io.Writer) error {
 	reader := bufio.NewReader(os.Stdin)
 
-	if !rootApp.NeedsWelcomeWizard() {
-		fmt.Println("O assistente já está configurado.")
-		fmt.Print("Deseja reconfigurar? (s/N): ")
+	if !svc.NeedsWelcomeWizard() {
+		fmt.Fprintln(out, "O assistente já está configurado.")
+		fmt.Fprint(out, "Deseja reconfigurar? (s/N): ")
 		answer, _ := reader.ReadString('\n')
 		answer = strings.TrimSpace(strings.ToLower(answer))
 		if answer != "s" && answer != "sim" {
@@ -59,48 +77,48 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	// === Passo 1: Senha mestre ===
-	if !rootApp.HasMasterKey() {
-		fmt.Println()
-		fmt.Println("=== Senha Mestre ===")
-		fmt.Println("A senha mestre protege suas credenciais (API keys).")
-		fmt.Println("Ela é necessária para desbloquear o assistente.")
-		fmt.Println()
+	if !svc.HasMasterKey() {
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "=== Senha Mestre ===")
+		fmt.Fprintln(out, "A senha mestre protege suas credenciais (API keys).")
+		fmt.Fprintln(out, "Ela é necessária para desbloquear o assistente.")
+		fmt.Fprintln(out)
 
-		password, err := readMasterPassword(reader)
+		password, err := readMasterPassword(readPwd)
 		if err != nil {
 			return err
 		}
 
-		recoveryKey, err := rootApp.SetupMasterPassword(password)
+		recoveryKey, err := svc.SetupMasterPassword(password)
 		if err != nil {
 			return fmt.Errorf("erro ao configurar senha mestre: %w", err)
 		}
 
-		fmt.Println()
-		fmt.Println("=== Chave de Recuperação ===")
-		fmt.Println("IMPORTANTE: Guarde esta chave em local seguro!")
-		fmt.Println("Ela é a única forma de recuperar suas credenciais se esquecer a senha.")
-		fmt.Println()
-		fmt.Printf("  %s\n", recoveryKey)
-		fmt.Println()
-		fmt.Print("Pressione Enter após anotar a chave...")
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "=== Chave de Recuperação ===")
+		fmt.Fprintln(out, "IMPORTANTE: Guarde esta chave em local seguro!")
+		fmt.Fprintln(out, "Ela é a única forma de recuperar suas credenciais se esquecer a senha.")
+		fmt.Fprintln(out)
+		fmt.Fprintf(out, "  %s\n", recoveryKey)
+		fmt.Fprintln(out)
+		fmt.Fprint(out, "Pressione Enter após anotar a chave...")
 		_, _ = reader.ReadString('\n')
 	} else {
-		fmt.Println("Senha mestre já configurada.")
+		fmt.Fprintln(out, "Senha mestre já configurada.")
 	}
 
 	// === Passo 2: Provedor LLM ===
-	fmt.Println()
-	fmt.Println("=== Provedor LLM ===")
-	fmt.Println("Escolha o provedor de IA que deseja usar:")
-	fmt.Println()
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "=== Provedor LLM ===")
+	fmt.Fprintln(out, "Escolha o provedor de IA que deseja usar:")
+	fmt.Fprintln(out)
 
 	for i, choice := range providerChoices {
-		fmt.Printf("  %2d. %s\n", i+1, choice)
+		fmt.Fprintf(out, "  %2d. %s\n", i+1, choice)
 	}
-	fmt.Println()
+	fmt.Fprintln(out)
 
-	providerChoice, err := readProviderChoice(reader)
+	providerChoice, err := readProviderChoice(reader, out)
 	if err != nil {
 		return err
 	}
@@ -112,9 +130,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	needsAPIKey := providerChoice != "Ollama (Local)"
 
 	if needsAPIKey {
-		fmt.Println()
-		fmt.Printf("Informe a API key para %s.\n", providerChoice)
-		key, readErr := readPassword("API Key: ")
+		fmt.Fprintln(out)
+		fmt.Fprintf(out, "Informe a API key para %s.\n", providerChoice)
+		key, readErr := readPwd("API Key: ")
 		if readErr != nil {
 			return fmt.Errorf("erro ao ler API key: %w", readErr)
 		}
@@ -130,40 +148,40 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		providerType = string(info.Type)
 	}
 
-	fmt.Println()
-	fmt.Print("Testando conexão... ")
+	fmt.Fprintln(out)
+	fmt.Fprint(out, "Testando conexão... ")
 
-	ok, testErr := rootApp.TestLLMProvider(controllers.TestLLMProviderRequest{
+	ok, testErr := svc.TestLLMProvider(controllers.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
 	})
 	if testErr != nil || !ok {
-		fmt.Println("FALHOU")
+		fmt.Fprintln(out, "FALHOU")
 		if testErr != nil {
-			fmt.Printf("Erro: %v\n", testErr)
+			fmt.Fprintf(out, "Erro: %v\n", testErr)
 		}
-		fmt.Print("Deseja continuar mesmo assim? (s/N): ")
+		fmt.Fprint(out, "Deseja continuar mesmo assim? (s/N): ")
 		answer, _ := reader.ReadString('\n')
 		answer = strings.TrimSpace(strings.ToLower(answer))
 		if answer != "s" && answer != "sim" {
 			return fmt.Errorf("configuração cancelada")
 		}
 	} else {
-		fmt.Println("OK")
+		fmt.Fprintln(out, "OK")
 	}
 
 	// === Passo 5: Escolher modelo ===
 	model := info.DefaultModel
 
-	models, modelsErr := rootApp.ListModelsRaw(controllers.TestLLMProviderRequest{
+	models, modelsErr := svc.ListModelsRaw(controllers.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
 	})
 
 	if modelsErr == nil && len(models) > 0 {
-		fmt.Println()
-		fmt.Println("Modelos disponíveis:")
-		fmt.Println()
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Modelos disponíveis:")
+		fmt.Fprintln(out)
 		displayCount := len(models)
 		if displayCount > 20 {
 			displayCount = 20
@@ -173,13 +191,13 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			if models[i] == model {
 				marker = "* "
 			}
-			fmt.Printf("  %s%2d. %s\n", marker, i+1, models[i])
+			fmt.Fprintf(out, "  %s%2d. %s\n", marker, i+1, models[i])
 		}
 		if len(models) > 20 {
-			fmt.Printf("  ... e mais %d modelos.\n", len(models)-20)
+			fmt.Fprintf(out, "  ... e mais %d modelos.\n", len(models)-20)
 		}
-		fmt.Println()
-		fmt.Printf("Escolha o modelo (Enter para '%s'): ", model)
+		fmt.Fprintln(out)
+		fmt.Fprintf(out, "Escolha o modelo (Enter para '%s'): ", model)
 
 		line, _ := reader.ReadString('\n')
 		line = strings.TrimSpace(line)
@@ -191,46 +209,46 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			}
 		}
 	} else if model == "" {
-		fmt.Println()
-		fmt.Print("Modelo (nome exato): ")
+		fmt.Fprintln(out)
+		fmt.Fprint(out, "Modelo (nome exato): ")
 		line, _ := reader.ReadString('\n')
 		model = strings.TrimSpace(line)
 	}
 
 	// === Passo 6: Criar provedor ===
-	fmt.Println()
-	fmt.Print("Criando provedor... ")
+	fmt.Fprintln(out)
+	fmt.Fprint(out, "Criando provedor... ")
 
-	err = rootApp.CreateDefaultLLMProvider(providerType, apiKey)
+	err = svc.CreateDefaultLLMProvider(providerType, apiKey)
 	if err != nil {
-		fmt.Println("FALHOU")
+		fmt.Fprintln(out, "FALHOU")
 		return fmt.Errorf("erro ao criar provedor: %w", err)
 	}
-	fmt.Println("OK")
+	fmt.Fprintln(out, "OK")
 
 	// Definir como padrão
 	if info.ID != "" {
-		_ = rootApp.SetDefaultProvider(info.ID)
+		_ = svc.SetDefaultProvider(info.ID)
 	}
 
 	// Aplicar modelo selecionado
 	if model != "" {
-		_ = rootApp.SetChatModel(model)
+		_ = svc.SetChatModel(model)
 	}
 
-	fmt.Println()
-	fmt.Printf("Assistente configurado com sucesso!\n")
-	fmt.Printf("  Provedor: %s\n", providerChoice)
-	fmt.Printf("  Modelo:   %s\n", model)
-	fmt.Println()
-	fmt.Println("Use 'assistente chat' para começar a conversar.")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "Assistente configurado com sucesso!\n")
+	fmt.Fprintf(out, "  Provedor: %s\n", providerChoice)
+	fmt.Fprintf(out, "  Modelo:   %s\n", model)
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Use 'assistente chat' para começar a conversar.")
 
 	return nil
 }
 
 // readMasterPassword lê e confirma a senha mestre do terminal.
-func readMasterPassword(reader *bufio.Reader) (string, error) {
-	password, err := readPassword("Senha mestre: ")
+func readMasterPassword(readPwd passwordReader) (string, error) {
+	password, err := readPwd("Senha mestre: ")
 	if err != nil {
 		return "", fmt.Errorf("erro ao ler senha: %w", err)
 	}
@@ -238,7 +256,7 @@ func readMasterPassword(reader *bufio.Reader) (string, error) {
 		return "", fmt.Errorf("a senha deve ter pelo menos 8 caracteres")
 	}
 
-	confirm, err := readPassword("Confirmar senha: ")
+	confirm, err := readPwd("Confirmar senha: ")
 	if err != nil {
 		return "", fmt.Errorf("erro ao ler confirmação: %w", err)
 	}
@@ -250,8 +268,8 @@ func readMasterPassword(reader *bufio.Reader) (string, error) {
 }
 
 // readProviderChoice lê a escolha de provider do terminal.
-func readProviderChoice(reader *bufio.Reader) (string, error) {
-	fmt.Printf("Escolha (1-%d): ", len(providerChoices))
+func readProviderChoice(reader *bufio.Reader, out io.Writer) (string, error) {
+	fmt.Fprintf(out, "Escolha (1-%d): ", len(providerChoices))
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return "", fmt.Errorf("erro ao ler escolha: %w", err)

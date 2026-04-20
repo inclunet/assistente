@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,20 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+// chatBackend abstracts the app methods used by chat commands (enables testing).
+type chatBackend interface {
+	SendMessage(conversationID uint, userContent, userMedia string, params app.ChatParams) (uint, error)
+	EnsureConversation(title string) (*app.Conversation, error)
+	GetConversation(id uint) (*app.Conversation, error)
+	CancelStreamingForConversation(conversationID uint)
+	Context() context.Context
+}
+
+// waitDoner abstracts the WaitDone method from the emitter.
+type waitDoner interface {
+	WaitDone() <-chan struct{}
+}
 
 var (
 	chatConversationID uint
@@ -46,10 +61,10 @@ Exemplos:
 
 		// Se ainda não tem mensagem, entra no modo interativo (REPL)
 		if message == "" {
-			return runREPL()
+			return runREPL(rootApp, cliEmitter)
 		}
 
-		return sendAndWait(message)
+		return sendAndWait(rootApp, cliEmitter, message)
 	},
 }
 
@@ -61,8 +76,8 @@ func init() {
 
 // sendAndWait envia uma mensagem e bloqueia até o streaming terminar.
 // Ctrl+C durante a geração cancela o streaming (barge-in) sem encerrar o processo.
-func sendAndWait(message string) error {
-	conv, err := ensureConversation()
+func sendAndWait(svc chatBackend, emitter waitDoner, message string) error {
+	conv, err := ensureConversation(svc)
 	if err != nil {
 		return err
 	}
@@ -76,9 +91,9 @@ func sendAndWait(message string) error {
 	}
 
 	// Prepara o canal de sincronização ANTES de enviar
-	done := cliEmitter.WaitDone()
+	done := emitter.WaitDone()
 
-	_, err = rootApp.SendMessage(conv.ID, message, "", params)
+	_, err = svc.SendMessage(conv.ID, message, "", params)
 	if err != nil {
 		return fmt.Errorf("erro ao enviar mensagem: %w", err)
 	}
@@ -93,26 +108,26 @@ func sendAndWait(message string) error {
 	case <-done:
 		return nil
 	case <-sigCh:
-		rootApp.CancelStreamingForConversation(conv.ID)
+		svc.CancelStreamingForConversation(conv.ID)
 		fmt.Fprintln(os.Stderr, "\n(geração cancelada)")
 		// Aguarda o done do emitter para garantir que o streaming encerrou
 		<-done
 		return nil
-	case <-rootApp.Context().Done():
+	case <-svc.Context().Done():
 		return fmt.Errorf("cancelado")
 	}
 }
 
 // ensureConversation obtém ou cria uma conversa para o chat.
-func ensureConversation() (*app.Conversation, error) {
+func ensureConversation(svc chatBackend) (*app.Conversation, error) {
 	if chatConversationID > 0 {
-		conv, err := rootApp.GetConversation(chatConversationID)
+		conv, err := svc.GetConversation(chatConversationID)
 		if err != nil {
 			return nil, fmt.Errorf("conversa %d não encontrada: %w", chatConversationID, err)
 		}
 		return conv, nil
 	}
-	conv, err := rootApp.EnsureConversation("CLI")
+	conv, err := svc.EnsureConversation("CLI")
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar conversa: %w", err)
 	}
@@ -122,7 +137,7 @@ func ensureConversation() (*app.Conversation, error) {
 }
 
 // runREPL inicia o modo interativo de chat.
-func runREPL() error {
+func runREPL(svc chatBackend, emitter waitDoner) error {
 	fmt.Fprintln(os.Stderr, "Modo interativo. Digite sua mensagem (Ctrl+C para sair).")
 	fmt.Fprintln(os.Stderr, "---")
 
@@ -137,7 +152,7 @@ func runREPL() error {
 		if line == "" {
 			continue
 		}
-		if err := sendAndWait(line); err != nil {
+		if err := sendAndWait(svc, emitter, line); err != nil {
 			fmt.Fprintf(os.Stderr, "Erro: %v\n", err)
 		}
 		fmt.Fprintln(os.Stderr, "---")

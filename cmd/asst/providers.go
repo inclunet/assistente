@@ -77,7 +77,7 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	providerChoice, err := readProviderChoice(reader)
+	providerChoice, err := readProviderChoice(reader, os.Stdout)
 	if err != nil {
 		return err
 	}
