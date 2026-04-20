@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"log"
 	"time"
 
 	"assistente/adapters/wails"
@@ -28,11 +29,13 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup: func(ctx context.Context) {
-			a.StartupWithAdapters(ctx,
+			if err := a.StartupWithAdapters(ctx,
 				wails.NewEmitterAdapter(ctx),
 				wails.NewWindowAdapter(ctx),
 				wails.NewDialogAdapter(ctx),
-			)
+			); err != nil {
+				log.Fatalf("Falha ao inicializar aplicação: %v", err)
+			}
 			// Restaura foco da janela (resolve bug do Wails no Windows)
 			go func() {
 				timer := time.NewTimer(400 * time.Millisecond)

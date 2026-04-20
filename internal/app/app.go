@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 
@@ -160,15 +161,15 @@ func (a *App) Context() context.Context {
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
 // Reutilizado pelo Wails (main.go na raiz) e pelo CLI (cmd/asst/).
-func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) {
+func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) error {
 	a.ctx = ctx
 	a.emitter = emitter
 	a.windowPort = window
 	a.dialogPort = dialog
 
-	// Inicializa o banco de dados
+	// Inicializa o banco de dados (falha crítica: sem DB nada funciona)
 	if err := InitDatabase(); err != nil {
-		log.Printf("Erro ao inicializar banco de dados: %v", err)
+		return fmt.Errorf("erro ao inicializar banco de dados: %w", err)
 	}
 	if err := a.cleanupEditorOrphanDraftsOnStartup(); err != nil {
 		log.Printf("Erro ao limpar drafts órfãos do editor no startup: %v", err)
@@ -433,6 +434,8 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Verifica atualizações no startup (não bloqueante)
 	go a.checkForUpdatesOnStartup()
+
+	return nil
 }
 
 // ShowWindow torna a janela visível (delegado ao WindowPort).

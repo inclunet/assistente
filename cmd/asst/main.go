@@ -66,11 +66,19 @@ var rootCmd = &cobra.Command{
 			database.SetLogLevel(gormlogger.Silent)
 		}
 
-		rootApp.StartupWithAdapters(ctx,
+		if err := rootApp.StartupWithAdapters(ctx,
 			cliEmitter,
 			cliadapter.WindowAdapter{},
 			cliadapter.DialogAdapter{},
-		)
+		); err != nil {
+			signal.Stop(rootSigCh)
+			cancel()
+			rootSigCh = nil
+			rootCancel = nil
+			rootApp = nil
+			cliEmitter = nil
+			return fmt.Errorf("falha ao inicializar aplicação: %w", err)
+		}
 
 		// Silencia logs padrão após startup bem-sucedido
 		// para manter visíveis eventuais erros de inicialização.
