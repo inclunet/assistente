@@ -30,7 +30,7 @@ func (m *mockTool) Execute(ctx context.Context, args json.RawMessage) (ToolResul
 func newRegistry(tools ...Tool) *Registry {
 	r := NewRegistry()
 	for _, t := range tools {
-		r.Register(t)
+		r.MustRegister(t)
 	}
 	return r
 }

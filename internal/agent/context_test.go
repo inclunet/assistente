@@ -122,11 +122,6 @@ func TestPreCheckContextWindow_MinResultSize(t *testing.T) {
 	check := PreCheckContextWindow(1000, 50, msgs, results)
 	// Even if budget is nearly zero, result should be at least minResultContextSize
 	if check.Truncated {
-		// If truncated, the result should still have at least minResultContextSize chars (plus notice)
-		bareLen := len(results[0]) - len("[CONTEXTO TRUNCADO:")
-		if bareLen < 0 {
-			bareLen = 0
-		}
 		// Just verify it's not empty
 		if len(results[0]) < minResultContextSize {
 			t.Errorf("result too small: %d bytes, minimum should be %d", len(results[0]), minResultContextSize)
