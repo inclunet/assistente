@@ -220,6 +220,9 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if activeProfile.Chat.ResponseTimeout > 0 {
 			params.ResponseTimeout = activeProfile.Chat.ResponseTimeout
 		}
+		if activeProfile.Chat.ContextWindow > 0 {
+			params.ContextWindow = activeProfile.Chat.ContextWindow
+		}
 	}
 
 	// 8. Fall back to config default model if still empty
