@@ -97,10 +97,10 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           VERSION=${VERSION#v}
           LDFLAGS="-X main.AppVersion=$VERSION"
-          OUTPUT="assistente-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
+          OUTPUT="asst-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
 
           echo "Building CLI: $OUTPUT"
-          go build -ldflags "$LDFLAGS" -o "$OUTPUT" ./cmd/assistente-cli/
+          go build -ldflags "$LDFLAGS" -o "$OUTPUT" ./cmd/asst/
           echo "CLI build OK"
 
           mkdir -p artifacts
