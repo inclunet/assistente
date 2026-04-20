@@ -88,6 +88,10 @@ func init() {
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(providersCmd)
+	rootCmd.AddCommand(credentialsCmd)
+	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(historyCmd)
+	rootCmd.AddCommand(toolsCmd)
 }
 
 var versionCmd = &cobra.Command{
