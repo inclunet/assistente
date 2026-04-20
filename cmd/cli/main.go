@@ -86,6 +86,8 @@ func init() {
 	rootCmd.AddCommand(profilesCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(completionCmd)
+	rootCmd.AddCommand(setupCmd)
+	rootCmd.AddCommand(providersCmd)
 }
 
 var versionCmd = &cobra.Command{

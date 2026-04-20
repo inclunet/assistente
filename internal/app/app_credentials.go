@@ -197,6 +197,38 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 	a.registerEnvCredentials(a.credMgr)
 }
 
+// HasMasterKey verifica se uma master key (senha mestre) já foi configurada no banco.
+func (a *App) HasMasterKey() bool {
+	store := credentials.NewDBStore()
+	has, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster)
+	if err != nil {
+		return false
+	}
+	return has
+}
+
+// SetupMasterPassword configura a senha mestre pela primeira vez.
+// Retorna a recovery key gerada (que o usuário deve guardar).
+// Após sucesso, o credential manager é reconfigurado com persistência ativada.
+func (a *App) SetupMasterPassword(password string) (string, error) {
+	store := credentials.NewDBStore()
+	result, err := credentials.SetupMasterKey(store, password)
+	if err != nil {
+		return "", err
+	}
+	a.configureCredentialManager(result.DEK, true)
+	return result.RecoveryKey, nil
+}
+
+// CanPersistCredentials retorna true se o credential manager está configurado
+// com persistência ativada (ou seja, a DEK foi carregada ou configurada).
+func (a *App) CanPersistCredentials() bool {
+	if a.credMgr == nil {
+		return false
+	}
+	return a.credMgr.CanPersist()
+}
+
 func (a *App) resolveCredentialRef(ref string) string {
 	if ref == "" || a.credMgr == nil {
 		return ""
