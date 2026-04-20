@@ -192,7 +192,7 @@ func (s *Service) RunAgenticLoop(
 
 		// 5a. Persiste MCP calls nativas desta iteração antes das bridge calls
 		if len(result.NativeMCPEvents) > 0 {
-			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
+			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents, iteration)
 			// AEP-0039: contabiliza MCP native tools
 			for _, ev := range result.NativeMCPEvents {
 				if ev.IsCompleted {
@@ -214,25 +214,8 @@ func (s *Service) RunAgenticLoop(
 			}
 		}
 
-		// 5b. Salva mensagem do assistant com bridge tool_calls no banco
-		toolCallsJSON, _ := json.Marshal(result.ToolCalls)
-		_, err := s.msgRepo.AddAssistantToolMessage(
-			conversationID,
-			turnID,
-			result.FullResponse,
-			string(toolCallsJSON),
-			result.Reasoning,
-			result.Model,
-		)
-		if err != nil {
-			if errors.Is(err, chat.ErrConversationDeleted) {
-				log.Printf("[Agent] conversa %d deletada — abortando", conversationID)
-				return
-			}
-			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
-		}
-
-		// 5c. Adiciona mensagem do assistant ao histórico para próxima iteração
+		// 5b. Adiciona mensagem do assistant ao histórico para próxima iteração
+		// (Persistência no DB movida para após execução — AEP-0039 Fase 5)
 		messages = append(messages, llm.Message{
 			Role:      "assistant",
 			Content:   result.FullResponse,
@@ -320,7 +303,38 @@ func (s *Service) RunAgenticLoop(
 			}
 		}
 
-		// 5f-iii. Persiste resultados e adiciona ao histórico
+		// 5f-iii. AEP-0039 Fase 5: persiste assistant tool_calls com metadata enriquecida
+		enrichedCalls := make([]llm.EnrichedToolCall, len(result.ToolCalls))
+		for i, tc := range result.ToolCalls {
+			enrichedCalls[i] = llm.EnrichedToolCall{
+				ID:        tc.ID,
+				Type:      tc.Type,
+				Function:  tc.Function,
+				Origin:    OriginBuiltin,
+				Iteration: iteration,
+			}
+			if i < len(execResults) {
+				enrichedCalls[i].DurationMs = execResults[i].DurationMs
+			}
+		}
+		toolCallsJSON, _ := json.Marshal(enrichedCalls)
+		_, err := s.msgRepo.AddAssistantToolMessage(
+			conversationID,
+			turnID,
+			result.FullResponse,
+			string(toolCallsJSON),
+			result.Reasoning,
+			result.Model,
+		)
+		if err != nil {
+			if errors.Is(err, chat.ErrConversationDeleted) {
+				log.Printf("[Agent] conversa %d deletada — abortando", conversationID)
+				return
+			}
+			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
+		}
+
+		// 5f-iv. Persiste resultados e adiciona ao histórico
 		for _, execResult := range execResults {
 			_, err := s.msgRepo.AddToolResultMessage(
 				conversationID,
@@ -422,7 +436,11 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 	var savedMsgID uint
 	if conversationID > 0 && result.FullResponse != "" {
 		if len(result.NativeMCPEvents) > 0 && turnID > 0 {
-			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
+			finalIteration := 0
+			if loopStats != nil && loopStats.IterationCount > 0 {
+				finalIteration = loopStats.IterationCount - 1
+			}
+			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents, finalIteration)
 		}
 
 		opts := chat.MessageOptions{
@@ -569,8 +587,9 @@ func (s *Service) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
 
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
 // uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
-func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents []llm.MCPToolEvent) {
-	var toolCalls []llm.ToolCall
+// AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
+func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents []llm.MCPToolEvent, iteration int) {
+	var toolCalls []llm.EnrichedToolCall
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
 			continue
@@ -579,13 +598,16 @@ func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents [
 		if ev.ServerLabel != "" {
 			name = ev.ServerLabel + "/" + ev.Name
 		}
-		toolCalls = append(toolCalls, llm.ToolCall{
+		toolCalls = append(toolCalls, llm.EnrichedToolCall{
 			ID:   ev.ID,
 			Type: "function",
 			Function: llm.FunctionCall{
 				Name:      name,
 				Arguments: ev.Arguments,
 			},
+			Origin:      OriginMCPNative,
+			ServerLabel: ev.ServerLabel,
+			Iteration:   iteration,
 		})
 	}
 	if len(toolCalls) == 0 {
