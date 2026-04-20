@@ -15,7 +15,7 @@ O Assistente também funciona inteiramente via linha de comando — sem interfac
 curl -sSL https://raw.githubusercontent.com/inclunet/assistente/main/install.sh | sh
 ```
 
-O script detecta seu sistema e arquitetura automaticamente, baixa o binário da última release, verifica o checksum SHA256 e instala em `~/.local/bin`.
+O script detecta seu sistema e arquitetura automaticamente, baixa o binário da última release, verifica o checksum SHA256 e instala em `/usr/local/bin` (se gravável) ou `~/.local/bin`. Use `INSTALL_DIR=/caminho` para especificar outro diretório.
 
 ### Windows (PowerShell)
 

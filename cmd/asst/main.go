@@ -33,6 +33,11 @@ var rootCmd = &cobra.Command{
 	Short: "Assistente pessoal via terminal",
 	Long:  "Interface CLI para o assistente pessoal — chat com LLMs, gerenciamento de perfis e configurações.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Comandos anotados com skipInit não precisam do app (version, completion)
+		if cmd.Annotations["skipInit"] == "true" {
+			return nil
+		}
+
 		// Silencia logs de startup quando não está em modo verbose
 		if !verbose {
 			log.SetOutput(io.Discard)
@@ -96,10 +101,9 @@ func init() {
 }
 
 var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Exibe a versão do assistente",
-	// Sobrescreve PersistentPreRunE para não inicializar o app
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },
+	Use:         "version",
+	Short:       "Exibe a versão do assistente",
+	Annotations: map[string]string{"skipInit": "true"},
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("asst %s\n", AppVersion)
 	},
@@ -122,8 +126,7 @@ Exemplos:
 
   # PowerShell (adicione ao $PROFILE):
   asst completion powershell | Out-String | Invoke-Expression`,
-	// Sobrescreve PersistentPreRunE para não inicializar o app
-	PersistentPreRunE:     func(cmd *cobra.Command, args []string) error { return nil },
+	Annotations:           map[string]string{"skipInit": "true"},
 	DisableFlagsInUseLine: true,
 	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),

@@ -139,7 +139,7 @@ func ensureConversation(svc chatBackend) (*app.Conversation, error) {
 
 // runREPL inicia o modo interativo de chat.
 func runREPL(svc chatBackend, emitter waitDoner) error {
-	_, _ = fmt.Fprintln(os.Stderr, "Modo interativo. Digite sua mensagem (Ctrl+C para sair).")
+	_, _ = fmt.Fprintln(os.Stderr, "Modo interativo. Digite sua mensagem (Ctrl+C cancela a geração; Ctrl+D para sair).")
 	_, _ = fmt.Fprintln(os.Stderr, "---")
 
 	scanner := bufio.NewScanner(os.Stdin)
