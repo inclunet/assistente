@@ -26,7 +26,7 @@ type chatBackend interface {
 
 // waitDoner abstracts the WaitDone method from the emitter.
 type waitDoner interface {
-	WaitDone() <-chan struct{}
+	WaitDone(conversationID uint) <-chan struct{}
 }
 
 var (
@@ -95,7 +95,7 @@ func sendAndWait(svc chatBackend, emitter waitDoner, message string) error {
 	}
 
 	// Prepara o canal de sincronização ANTES de enviar
-	done := emitter.WaitDone()
+	done := emitter.WaitDone(conv.ID)
 
 	// Intercepta Ctrl+C para cancelar a geração (barge-in) sem matar o processo.
 	// Registrado ANTES de SendMessage para cobrir latência de rede.

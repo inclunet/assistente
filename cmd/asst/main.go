@@ -38,12 +38,6 @@ var rootCmd = &cobra.Command{
 			return nil
 		}
 
-		// Silencia logs de startup quando não está em modo verbose
-		if !verbose {
-			log.SetOutput(io.Discard)
-			database.SetLogLevel(gormlogger.Silent)
-		}
-
 		// Inicializa o app com adapters CLI
 		ctx, cancel := context.WithCancel(context.Background())
 		rootCancel = cancel
@@ -71,6 +65,12 @@ var rootCmd = &cobra.Command{
 			cliadapter.WindowAdapter{},
 			cliadapter.DialogAdapter{},
 		)
+
+		// Silencia logs após startup bem-sucedido (erros de init já foram logados no stderr)
+		if !verbose {
+			log.SetOutput(io.Discard)
+			database.SetLogLevel(gormlogger.Silent)
+		}
 
 		return nil
 	},

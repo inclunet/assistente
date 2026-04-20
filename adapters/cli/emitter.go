@@ -17,12 +17,13 @@ import (
 // Eventos de streaming de chat são impressos token a token no stdout.
 // Demais eventos são ignorados em modo silencioso ou logados em modo verbose.
 type EmitterAdapter struct {
-	mu          sync.Mutex
-	out         io.Writer // stdout por padrão
-	errOut      io.Writer // stderr por padrão
-	verbose     bool
-	done        chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
-	lastPrinted int          // quantidade de bytes de Content já impressos (para imprimir só o delta)
+	mu             sync.Mutex
+	out            io.Writer // stdout por padrão
+	errOut         io.Writer // stderr por padrão
+	verbose        bool
+	done           chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
+	lastPrinted    int          // quantidade de bytes de Content já impressos (para imprimir só o delta)
+	conversationID uint         // conversa ativa; 0 = aceita qualquer conversa
 }
 
 // EmitterOption configura o EmitterAdapter.
@@ -55,12 +56,14 @@ func NewEmitterAdapter(opts ...EmitterOption) *EmitterAdapter {
 	return e
 }
 
-// WaitDone retorna um canal que é fechado quando o streaming termina
-// (chat:stream com Done=true ou chat:error). Deve ser chamado ANTES de SendMessage.
-func (e *EmitterAdapter) WaitDone() <-chan struct{} {
+// WaitDone retorna um canal que é fechado quando o streaming da conversa especificada
+// termina (chat:stream com Done=true ou chat:error). Deve ser chamado ANTES de SendMessage.
+// Se conversationID é 0, aceita qualquer conversa (compatível com modo REPL).
+func (e *EmitterAdapter) WaitDone(conversationID uint) <-chan struct{} {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.done = make(chan struct{})
+	e.conversationID = conversationID
 	return e.done
 }
 
@@ -103,6 +106,11 @@ func (e *EmitterAdapter) handleStream(data any) {
 		return
 	}
 
+	// Filtra eventos de outras conversas
+	if e.conversationID != 0 && ev.ConversationId != 0 && ev.ConversationId != e.conversationID {
+		return
+	}
+
 	if ev.Error != "" {
 		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
 		e.lastPrinted = 0
@@ -126,6 +134,12 @@ func (e *EmitterAdapter) handleStream(data any) {
 
 // handleError imprime erros no stderr.
 func (e *EmitterAdapter) handleError(data any) {
+	convID := e.errorConversationID(data)
+	// Filtra eventos de outras conversas
+	if e.conversationID != 0 && convID != 0 && convID != e.conversationID {
+		return
+	}
+
 	switch v := data.(type) {
 	case ports.ErrorEvent:
 		if e.verbose && v.ConversationID != 0 {
@@ -178,4 +192,17 @@ func (e *EmitterAdapter) toStreamEvent(data any) (ports.StreamEvent, bool) {
 		return ev, true
 	}
 	return ports.StreamEvent{}, false
+}
+
+// errorConversationID extrai o ConversationID do payload de erro, se disponível.
+func (e *EmitterAdapter) errorConversationID(data any) uint {
+	switch v := data.(type) {
+	case ports.ErrorEvent:
+		return v.ConversationID
+	case *ports.ErrorEvent:
+		if v != nil {
+			return v.ConversationID
+		}
+	}
+	return 0
 }
