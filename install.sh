@@ -47,7 +47,7 @@ detect_arch() {
 # Obter versão latest da API do GitHub
 get_latest_version() {
     if command -v curl > /dev/null 2>&1; then
-        curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
+        curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
     elif command -v wget > /dev/null 2>&1; then
         wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
     else
@@ -60,7 +60,7 @@ download() {
     url="$1"
     dest="$2"
     if command -v curl > /dev/null 2>&1; then
-        curl -sSL -o "$dest" "$url"
+        curl -fsSL -o "$dest" "$url"
     elif command -v wget > /dev/null 2>&1; then
         wget -qO "$dest" "$url"
     fi

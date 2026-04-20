@@ -29,7 +29,7 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "assistente",
+	Use:   "asst",
 	Short: "Assistente pessoal via terminal",
 	Long:  "Interface CLI para o assistente pessoal — chat com LLMs, gerenciamento de perfis e configurações.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -101,7 +101,7 @@ var versionCmd = &cobra.Command{
 	// Sobrescreve PersistentPreRunE para não inicializar o app
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("assistente %s\n", AppVersion)
+		fmt.Printf("asst %s\n", AppVersion)
 	},
 }
 
@@ -112,16 +112,16 @@ var completionCmd = &cobra.Command{
 
 Exemplos:
   # Bash (adicione ao ~/.bashrc):
-  assistente completion bash > /etc/bash_completion.d/assistente
+  asst completion bash > /etc/bash_completion.d/asst
 
   # Zsh (adicione ao ~/.zshrc):
-  assistente completion zsh > "${fpath[1]}/_assistente"
+  asst completion zsh > "${fpath[1]}/_asst"
 
   # Fish:
-  assistente completion fish > ~/.config/fish/completions/assistente.fish
+  asst completion fish > ~/.config/fish/completions/asst.fish
 
   # PowerShell (adicione ao $PROFILE):
-  assistente completion powershell | Out-String | Invoke-Expression`,
+  asst completion powershell | Out-String | Invoke-Expression`,
 	// Sobrescreve PersistentPreRunE para não inicializar o app
 	PersistentPreRunE:     func(cmd *cobra.Command, args []string) error { return nil },
 	DisableFlagsInUseLine: true,

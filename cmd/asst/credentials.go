@@ -54,11 +54,11 @@ var credentialsSetCmd = &cobra.Command{
 
 O valor pode ser passado via:
   --value "sk-..."           (flag)
-  echo "sk-..." | assistente credentials set api.openai.com  (stdin/pipe)
+  echo "sk-..." | asst credentials set api.openai.com  (stdin/pipe)
 
 Exemplos:
-  assistente credentials set api.openai.com --value "sk-abc123"
-  assistente credentials set api.anthropic.com --type bearer --value "sk-ant-..."`,
+  asst credentials set api.openai.com --value "sk-abc123"
+  asst credentials set api.anthropic.com --type bearer --value "sk-ant-..."`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCredentialsSet,
 }

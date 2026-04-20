@@ -28,7 +28,7 @@ var providersListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		items := rootApp.GetLLMProvidersWithStatus()
 		if len(items) == 0 {
-			fmt.Println("Nenhum provedor configurado. Use 'assistente providers add' ou 'assistente setup'.")
+			fmt.Println("Nenhum provedor configurado. Use 'asst providers add' ou 'asst setup'.")
 			return nil
 		}
 

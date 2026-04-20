@@ -41,10 +41,10 @@ var chatCmd = &cobra.Command{
 	Long: `Envia uma mensagem ao assistente e imprime a resposta via streaming no stdout.
 
 Exemplos:
-  assistente chat "Qual a capital da França?"
-  assistente chat --model gpt-4o "Explique recursão"
-  echo "Resuma este texto" | assistente chat
-  assistente chat  (modo interativo)`,
+  asst chat "Qual a capital da França?"
+  asst chat --model gpt-4o "Explique recursão"
+  echo "Resuma este texto" | asst chat
+  asst chat  (modo interativo)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		message := strings.Join(args, " ")
 
@@ -93,15 +93,16 @@ func sendAndWait(svc chatBackend, emitter waitDoner, message string) error {
 	// Prepara o canal de sincronização ANTES de enviar
 	done := emitter.WaitDone()
 
+	// Intercepta Ctrl+C para cancelar a geração (barge-in) sem matar o processo.
+	// Registrado ANTES de SendMessage para cobrir latência de rede.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT)
+	defer signal.Stop(sigCh)
+
 	_, err = svc.SendMessage(conv.ID, message, "", params)
 	if err != nil {
 		return fmt.Errorf("erro ao enviar mensagem: %w", err)
 	}
-
-	// Intercepta Ctrl+C para cancelar a geração (barge-in) sem matar o processo
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT)
-	defer signal.Stop(sigCh)
 
 	// Aguarda fim do streaming ou cancelamento
 	select {

@@ -241,7 +241,7 @@ func runSetup(svc setupBackend, readPwd passwordReader, out io.Writer) error {
 	_, _ = fmt.Fprintf(out, "  Provedor: %s\n", providerChoice)
 	_, _ = fmt.Fprintf(out, "  Modelo:   %s\n", model)
 	_, _ = fmt.Fprintln(out)
-	_, _ = fmt.Fprintln(out, "Use 'assistente chat' para começar a conversar.")
+	_, _ = fmt.Fprintln(out, "Use 'asst chat' para começar a conversar.")
 
 	return nil
 }
