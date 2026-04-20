@@ -239,11 +239,15 @@ export function buildWailsMockScript(): string {
     });
   }
 
-  /* ---------- window.go.main.App ---------- */
+  /* ---------- window.go.{app,main}.App ---------- */
 
+  const appProxy = makeProxy();
   window.go = {
+    app: {
+      App: appProxy,
+    },
     main: {
-      App: makeProxy(),
+      App: appProxy,
     },
   };
 
