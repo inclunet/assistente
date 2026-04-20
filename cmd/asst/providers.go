@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -13,6 +14,18 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+// providersBackend abstracts the app methods used by providers commands.
+type providersBackend interface {
+	GetLLMProvidersWithStatus() []map[string]interface{}
+	TestLLMProvider(req controllers.TestLLMProviderRequest) (bool, error)
+	ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error)
+	CreateDefaultLLMProvider(providerType, apiKey string) error
+	CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[string]interface{}, error)
+	SetDefaultProvider(id string) error
+	SetChatModel(model string) error
+	DeleteLLMProvider(ctx context.Context, id string) error
+}
 
 var providersCmd = &cobra.Command{
 	Use:   "providers",
@@ -26,34 +39,38 @@ var providersListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista provedores LLM com status de conexão",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		items := rootApp.GetLLMProvidersWithStatus()
-		if len(items) == 0 {
-			fmt.Println("Nenhum provedor configurado. Use 'asst providers add' ou 'asst setup'.")
-			return nil
-		}
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "ID\tTIPO\tNOME\tMODELO\tSTATUS\tPADRÃO")
-		for _, p := range items {
-			def := ""
-			if isDefault, ok := p["isDefault"].(bool); ok && isDefault {
-				def = "*"
-			}
-			status := str(p["status"])
-			if status == "" {
-				status = "-"
-			}
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				str(p["id"]),
-				str(p["type"]),
-				str(p["name"]),
-				str(p["defaultModel"]),
-				status,
-				def,
-			)
-		}
-		return w.Flush()
+		return runProvidersList(rootApp, os.Stdout)
 	},
+}
+
+func runProvidersList(svc providersBackend, out io.Writer) error {
+	items := svc.GetLLMProvidersWithStatus()
+	if len(items) == 0 {
+		fmt.Fprintln(out, "Nenhum provedor configurado. Use 'asst providers add' ou 'asst setup'.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "ID\tTIPO\tNOME\tMODELO\tSTATUS\tPADRÃO")
+	for _, p := range items {
+		def := ""
+		if isDefault, ok := p["isDefault"].(bool); ok && isDefault {
+			def = "*"
+		}
+		status := str(p["status"])
+		if status == "" {
+			status = "-"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			str(p["id"]),
+			str(p["type"]),
+			str(p["name"]),
+			str(p["defaultModel"]),
+			status,
+			def,
+		)
+	}
+	return w.Flush()
 }
 
 // ─── add ────────────────────────────────────────────────────────────────────
@@ -63,21 +80,21 @@ var providersAddCmd = &cobra.Command{
 	Short: "Adiciona um novo provedor LLM (interativo)",
 	Long: `Wizard interativo para configurar um novo provedor LLM.
 Solicita tipo, API key e modelo, testa a conexão e salva.`,
-	RunE: runProvidersAdd,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runProvidersAdd(rootApp, os.Stdout, bufio.NewReader(os.Stdin), readPassword)
+	},
 }
 
-func runProvidersAdd(cmd *cobra.Command, args []string) error {
-	reader := bufio.NewReader(os.Stdin)
-
+func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, readPwd passwordReader) error {
 	// Passo 1: Escolher tipo
-	fmt.Println("Escolha o tipo de provedor:")
-	fmt.Println()
+	fmt.Fprintln(out, "Escolha o tipo de provedor:")
+	fmt.Fprintln(out)
 	for i, choice := range providerChoices {
-		fmt.Printf("  %2d. %s\n", i+1, choice)
+		fmt.Fprintf(out, "  %2d. %s\n", i+1, choice)
 	}
-	fmt.Println()
+	fmt.Fprintln(out)
 
-	providerChoice, err := readProviderChoice(reader, os.Stdout)
+	providerChoice, err := readProviderChoice(reader, out)
 	if err != nil {
 		return err
 	}
@@ -91,7 +108,7 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 	// Passo 2: Base URL customizada (se necessário)
 	baseURL := ""
 	if providerChoice == "Azure OpenAI" || providerChoice == "LiteLLM" || info.Type == "custom" {
-		fmt.Print("Base URL: ")
+		fmt.Fprint(out, "Base URL: ")
 		line, _ := reader.ReadString('\n')
 		baseURL = strings.TrimSpace(line)
 		if baseURL == "" {
@@ -104,7 +121,7 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 	needsAPIKey := providerChoice != "Ollama (Local)"
 
 	if needsAPIKey {
-		key, readErr := readPassword("API Key: ")
+		key, readErr := readPwd("API Key: ")
 		if readErr != nil {
 			return fmt.Errorf("erro ao ler API key: %w", readErr)
 		}
@@ -115,7 +132,7 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Passo 4: Testar conexão
-	fmt.Print("Testando conexão... ")
+	fmt.Fprint(out, "Testando conexão... ")
 	testReq := controllers.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
@@ -124,20 +141,20 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 		testReq.BaseURL = baseURL
 	}
 
-	ok, testErr := rootApp.TestLLMProvider(testReq)
+	ok, testErr := svc.TestLLMProvider(testReq)
 	if testErr != nil || !ok {
-		fmt.Println("FALHOU")
+		fmt.Fprintln(out, "FALHOU")
 		if testErr != nil {
-			fmt.Printf("Erro: %v\n", testErr)
+			fmt.Fprintf(out, "Erro: %v\n", testErr)
 		}
-		fmt.Print("Continuar mesmo assim? (s/N): ")
+		fmt.Fprint(out, "Continuar mesmo assim? (s/N): ")
 		answer, _ := reader.ReadString('\n')
 		answer = strings.TrimSpace(strings.ToLower(answer))
 		if answer != "s" && answer != "sim" {
 			return fmt.Errorf("cancelado")
 		}
 	} else {
-		fmt.Println("OK")
+		fmt.Fprintln(out, "OK")
 	}
 
 	// Passo 5: Escolher modelo
@@ -150,10 +167,10 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 		modelsReq.BaseURL = baseURL
 	}
 
-	models, modelsErr := rootApp.ListModelsRaw(modelsReq)
+	models, modelsErr := svc.ListModelsRaw(modelsReq)
 	if modelsErr == nil && len(models) > 0 {
-		fmt.Println()
-		fmt.Println("Modelos disponíveis:")
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Modelos disponíveis:")
 		displayCount := len(models)
 		if displayCount > 20 {
 			displayCount = 20
@@ -163,18 +180,18 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 			if models[i] == model {
 				marker = "* "
 			}
-			fmt.Printf("  %s%2d. %s\n", marker, i+1, models[i])
+			fmt.Fprintf(out, "  %s%2d. %s\n", marker, i+1, models[i])
 		}
 		if len(models) > 20 {
-			fmt.Printf("  ... e mais %d modelos.\n", len(models)-20)
+			fmt.Fprintf(out, "  ... e mais %d modelos.\n", len(models)-20)
 		}
-		fmt.Println()
+		fmt.Fprintln(out)
 
 		defaultHint := ""
 		if model != "" {
 			defaultHint = fmt.Sprintf(" (Enter para '%s')", model)
 		}
-		fmt.Printf("Modelo%s: ", defaultHint)
+		fmt.Fprintf(out, "Modelo%s: ", defaultHint)
 
 		line, _ := reader.ReadString('\n')
 		line = strings.TrimSpace(line)
@@ -186,7 +203,7 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 			}
 		}
 	} else if model == "" {
-		fmt.Print("Modelo (nome exato): ")
+		fmt.Fprint(out, "Modelo (nome exato): ")
 		line, _ := reader.ReadString('\n')
 		model = strings.TrimSpace(line)
 	}
@@ -198,7 +215,7 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 		if apiFormat == "" {
 			apiFormat = "openai"
 		}
-		_, err = rootApp.CreateLLMProvider(controllers.CreateLLMProviderRequest{
+		_, err = svc.CreateLLMProvider(controllers.CreateLLMProviderRequest{
 			ID:           info.ID,
 			Name:         info.Name,
 			Type:         providerType,
@@ -209,10 +226,10 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 		})
 	} else {
 		// Provedor padrão — usar template
-		err = rootApp.CreateDefaultLLMProvider(providerType, apiKey)
+		err = svc.CreateDefaultLLMProvider(providerType, apiKey)
 		if err == nil && model != "" && model != info.DefaultModel {
 			// Aplica o modelo selecionado (CreateDefaultLLMProvider usa o default do template)
-			_ = rootApp.SetChatModel(model)
+			_ = svc.SetChatModel(model)
 		}
 	}
 
@@ -220,7 +237,7 @@ func runProvidersAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("erro ao criar provedor: %w", err)
 	}
 
-	fmt.Printf("Provedor '%s' criado com sucesso.\n", providerChoice)
+	fmt.Fprintf(out, "Provedor '%s' criado com sucesso.\n", providerChoice)
 	return nil
 }
 
@@ -231,23 +248,26 @@ var providersTestCmd = &cobra.Command{
 	Short: "Testa conexão com um provedor",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
-		fmt.Printf("Testando provedor '%s'... ", id)
-
-		ok, err := rootApp.TestLLMProvider(controllers.TestLLMProviderRequest{
-			ProviderID: id,
-		})
-		if err != nil {
-			fmt.Println("FALHOU")
-			return fmt.Errorf("erro: %w", err)
-		}
-		if !ok {
-			fmt.Println("FALHOU")
-			return fmt.Errorf("conexão falhou")
-		}
-		fmt.Println("OK")
-		return nil
+		return runProvidersTest(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runProvidersTest(svc providersBackend, out io.Writer, id string) error {
+	fmt.Fprintf(out, "Testando provedor '%s'... ", id)
+
+	ok, err := svc.TestLLMProvider(controllers.TestLLMProviderRequest{
+		ProviderID: id,
+	})
+	if err != nil {
+		fmt.Fprintln(out, "FALHOU")
+		return fmt.Errorf("erro: %w", err)
+	}
+	if !ok {
+		fmt.Fprintln(out, "FALHOU")
+		return fmt.Errorf("conexão falhou")
+	}
+	fmt.Fprintln(out, "OK")
+	return nil
 }
 
 // ─── models ─────────────────────────────────────────────────────────────────
@@ -257,22 +277,25 @@ var providersModelsCmd = &cobra.Command{
 	Short: "Lista modelos disponíveis de um provedor",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
-		models, err := rootApp.ListModelsRaw(controllers.TestLLMProviderRequest{
-			ProviderID: id,
-		})
-		if err != nil {
-			return fmt.Errorf("erro ao listar modelos: %w", err)
-		}
-		if len(models) == 0 {
-			fmt.Println("Nenhum modelo encontrado.")
-			return nil
-		}
-		for _, m := range models {
-			fmt.Println(m)
-		}
-		return nil
+		return runProvidersModels(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runProvidersModels(svc providersBackend, out io.Writer, id string) error {
+	models, err := svc.ListModelsRaw(controllers.TestLLMProviderRequest{
+		ProviderID: id,
+	})
+	if err != nil {
+		return fmt.Errorf("erro ao listar modelos: %w", err)
+	}
+	if len(models) == 0 {
+		fmt.Fprintln(out, "Nenhum modelo encontrado.")
+		return nil
+	}
+	for _, m := range models {
+		fmt.Fprintln(out, m)
+	}
+	return nil
 }
 
 // ─── default ────────────────────────────────────────────────────────────────
@@ -282,13 +305,16 @@ var providersDefaultCmd = &cobra.Command{
 	Short: "Define o provedor padrão",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
-		if err := rootApp.SetDefaultProvider(id); err != nil {
-			return fmt.Errorf("erro ao definir provedor padrão: %w", err)
-		}
-		fmt.Printf("Provedor '%s' definido como padrão.\n", id)
-		return nil
+		return runProvidersDefault(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runProvidersDefault(svc providersBackend, out io.Writer, id string) error {
+	if err := svc.SetDefaultProvider(id); err != nil {
+		return fmt.Errorf("erro ao definir provedor padrão: %w", err)
+	}
+	fmt.Fprintf(out, "Provedor '%s' definido como padrão.\n", id)
+	return nil
 }
 
 // ─── remove ─────────────────────────────────────────────────────────────────
@@ -298,13 +324,16 @@ var providersRemoveCmd = &cobra.Command{
 	Short: "Remove um provedor LLM",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
-		if err := rootApp.DeleteLLMProvider(context.Background(), id); err != nil {
-			return fmt.Errorf("erro ao remover provedor: %w", err)
-		}
-		fmt.Printf("Provedor '%s' removido.\n", id)
-		return nil
+		return runProvidersRemove(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runProvidersRemove(svc providersBackend, out io.Writer, id string) error {
+	if err := svc.DeleteLLMProvider(context.Background(), id); err != nil {
+		return fmt.Errorf("erro ao remover provedor: %w", err)
+	}
+	fmt.Fprintf(out, "Provedor '%s' removido.\n", id)
+	return nil
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

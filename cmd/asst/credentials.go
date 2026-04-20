@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -10,6 +11,13 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+// credentialsBackend abstracts the app methods used by credentials commands.
+type credentialsBackend interface {
+	ListCredentials() ([]controllers.CredentialSummary, error)
+	UpsertCredential(input controllers.CredentialInput) error
+	DeleteCredential(pattern string) error
+}
 
 var credentialsCmd = &cobra.Command{
 	Use:   "credentials",
@@ -23,26 +31,30 @@ var credentialsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista credenciais registradas (sem exibir secrets)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		items, err := rootApp.ListCredentials()
-		if err != nil {
-			return fmt.Errorf("erro ao listar credenciais: %w", err)
-		}
-		if len(items) == 0 {
-			fmt.Println("Nenhuma credencial registrada.")
-			return nil
-		}
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "PADRÃO\tTIPO\tVALOR (MASCARADO)\tGERENCIADA")
-		for _, c := range items {
-			managed := ""
-			if c.Managed {
-				managed = "sim"
-			}
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.Pattern, c.Type, c.Masked, managed)
-		}
-		return w.Flush()
+		return runCredentialsList(rootApp, os.Stdout)
 	},
+}
+
+func runCredentialsList(svc credentialsBackend, out io.Writer) error {
+	items, err := svc.ListCredentials()
+	if err != nil {
+		return fmt.Errorf("erro ao listar credenciais: %w", err)
+	}
+	if len(items) == 0 {
+		fmt.Fprintln(out, "Nenhuma credencial registrada.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "PADRÃO\tTIPO\tVALOR (MASCARADO)\tGERENCIADA")
+	for _, c := range items {
+		managed := ""
+		if c.Managed {
+			managed = "sim"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.Pattern, c.Type, c.Masked, managed)
+	}
+	return w.Flush()
 }
 
 // ─── set ────────────────────────────────────────────────────────────────────
@@ -60,16 +72,15 @@ Exemplos:
   asst credentials set api.openai.com --value "sk-abc123"
   asst credentials set api.anthropic.com --type bearer --value "sk-ant-..."`,
 	Args: cobra.ExactArgs(1),
-	RunE: runCredentialsSet,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runCredentialsSet(rootApp, os.Stdout, args[0], credSetValue, credSetType, readPassword)
+	},
 }
 
 var credSetValue string
 var credSetType string
 
-func runCredentialsSet(cmd *cobra.Command, args []string) error {
-	pattern := args[0]
-
-	value := credSetValue
+func runCredentialsSet(svc credentialsBackend, out io.Writer, pattern, value, credType string, readPwd passwordReader) error {
 	if value == "" {
 		// Tentar ler do stdin (pipe)
 		stat, _ := os.Stdin.Stat()
@@ -83,7 +94,7 @@ func runCredentialsSet(cmd *cobra.Command, args []string) error {
 	}
 	if value == "" {
 		// Modo interativo: ler senha oculta
-		v, err := readPassword("Valor (secret): ")
+		v, err := readPwd("Valor (secret): ")
 		if err != nil {
 			return fmt.Errorf("erro ao ler valor: %w", err)
 		}
@@ -93,7 +104,6 @@ func runCredentialsSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("valor não pode ser vazio — use --value ou pipe")
 	}
 
-	credType := credSetType
 	if credType == "" {
 		credType = "bearer"
 	}
@@ -104,11 +114,11 @@ func runCredentialsSet(cmd *cobra.Command, args []string) error {
 		Token:   value,
 	}
 
-	if err := rootApp.UpsertCredential(input); err != nil {
+	if err := svc.UpsertCredential(input); err != nil {
 		return fmt.Errorf("erro ao salvar credencial: %w", err)
 	}
 
-	fmt.Printf("Credencial '%s' salva.\n", pattern)
+	fmt.Fprintf(out, "Credencial '%s' salva.\n", pattern)
 	return nil
 }
 
@@ -119,13 +129,16 @@ var credentialsRemoveCmd = &cobra.Command{
 	Short: "Remove uma credencial",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		pattern := args[0]
-		if err := rootApp.DeleteCredential(pattern); err != nil {
-			return fmt.Errorf("erro ao remover credencial: %w", err)
-		}
-		fmt.Printf("Credencial '%s' removida.\n", pattern)
-		return nil
+		return runCredentialsRemove(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runCredentialsRemove(svc credentialsBackend, out io.Writer, pattern string) error {
+	if err := svc.DeleteCredential(pattern); err != nil {
+		return fmt.Errorf("erro ao remover credencial: %w", err)
+	}
+	fmt.Fprintf(out, "Credencial '%s' removida.\n", pattern)
+	return nil
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

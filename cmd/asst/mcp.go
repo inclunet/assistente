@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -10,6 +11,16 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+// mcpBackend abstracts the app methods used by mcp commands.
+type mcpBackend interface {
+	ListMCPServers() []mcpmgr.ServerInfo
+	SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error
+	ConnectMCPServer(slug string) error
+	DisconnectMCPServer(slug string) error
+	GetMCPServerTools(slug string) []mcpmgr.MCPToolInfo
+	DeleteMCPServer(slug string) error
+}
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
@@ -23,24 +34,28 @@ var mcpListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista servidores MCP e status",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		servers := rootApp.ListMCPServers()
-		if len(servers) == 0 {
-			fmt.Println("Nenhum servidor MCP configurado.")
-			return nil
-		}
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "SLUG\tNOME\tTRANSPORTE\tSTATUS\tTOOLS\tATIVO")
-		for _, s := range servers {
-			enabled := ""
-			if s.Enabled {
-				enabled = "sim"
-			}
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
-				s.Slug, s.Name, s.Transport, s.Status, s.ToolCount, enabled)
-		}
-		return w.Flush()
+		return runMCPList(rootApp, os.Stdout)
 	},
+}
+
+func runMCPList(svc mcpBackend, out io.Writer) error {
+	servers := svc.ListMCPServers()
+	if len(servers) == 0 {
+		fmt.Fprintln(out, "Nenhum servidor MCP configurado.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "SLUG\tNOME\tTRANSPORTE\tSTATUS\tTOOLS\tATIVO")
+	for _, s := range servers {
+		enabled := ""
+		if s.Enabled {
+			enabled = "sim"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
+			s.Slug, s.Name, s.Transport, s.Status, s.ToolCount, enabled)
+	}
+	return w.Flush()
 }
 
 // ─── add ────────────────────────────────────────────────────────────────────
@@ -61,42 +76,44 @@ Exemplos:
   assistente mcp add remote-api --url https://mcp.example.com/sse --transport sse`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
+		return runMCPAdd(rootApp, os.Stdout, args[0], mcpAddCommand, mcpAddArgs, mcpAddEnv, mcpAddURL, mcpAddTransport)
+	},
+}
 
-		transport := mcpmgr.TransportStdio
-		if mcpAddTransport != "" {
-			transport = mcpmgr.TransportType(mcpAddTransport)
-		}
+func runMCPAdd(svc mcpBackend, out io.Writer, slug, command, cmdArgs string, envVars []string, url, transport string) error {
+	t := mcpmgr.TransportStdio
+	if transport != "" {
+		t = mcpmgr.TransportType(transport)
+	}
 
-		cfg := mcpmgr.ServerConfig{
-			Name:      slug,
-			Transport: transport,
-			Command:   mcpAddCommand,
-			URL:       mcpAddURL,
-			Enabled:   true,
-		}
+	cfg := mcpmgr.ServerConfig{
+		Name:      slug,
+		Transport: t,
+		Command:   command,
+		URL:       url,
+		Enabled:   true,
+	}
 
-		if mcpAddArgs != "" {
-			cfg.Args = strings.Split(mcpAddArgs, " ")
-		}
+	if cmdArgs != "" {
+		cfg.Args = strings.Split(cmdArgs, " ")
+	}
 
-		if len(mcpAddEnv) > 0 {
-			cfg.Env = make(map[string]string)
-			for _, e := range mcpAddEnv {
-				parts := strings.SplitN(e, "=", 2)
-				if len(parts) == 2 {
-					cfg.Env[parts[0]] = parts[1]
-				}
+	if len(envVars) > 0 {
+		cfg.Env = make(map[string]string)
+		for _, e := range envVars {
+			parts := strings.SplitN(e, "=", 2)
+			if len(parts) == 2 {
+				cfg.Env[parts[0]] = parts[1]
 			}
 		}
+	}
 
-		if err := rootApp.SaveMCPServer(slug, cfg); err != nil {
-			return fmt.Errorf("erro ao salvar servidor: %w", err)
-		}
+	if err := svc.SaveMCPServer(slug, cfg); err != nil {
+		return fmt.Errorf("erro ao salvar servidor: %w", err)
+	}
 
-		fmt.Printf("Servidor MCP '%s' adicionado.\n", slug)
-		return nil
-	},
+	fmt.Fprintf(out, "Servidor MCP '%s' adicionado.\n", slug)
+	return nil
 }
 
 // ─── connect / disconnect ───────────────────────────────────────────────────
@@ -106,15 +123,18 @@ var mcpConnectCmd = &cobra.Command{
 	Short: "Conecta a um servidor MCP",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-		fmt.Printf("Conectando a '%s'... ", slug)
-		if err := rootApp.ConnectMCPServer(slug); err != nil {
-			fmt.Println("FALHOU")
-			return fmt.Errorf("erro: %w", err)
-		}
-		fmt.Println("OK")
-		return nil
+		return runMCPConnect(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runMCPConnect(svc mcpBackend, out io.Writer, slug string) error {
+	fmt.Fprintf(out, "Conectando a '%s'... ", slug)
+	if err := svc.ConnectMCPServer(slug); err != nil {
+		fmt.Fprintln(out, "FALHOU")
+		return fmt.Errorf("erro: %w", err)
+	}
+	fmt.Fprintln(out, "OK")
+	return nil
 }
 
 var mcpDisconnectCmd = &cobra.Command{
@@ -122,13 +142,16 @@ var mcpDisconnectCmd = &cobra.Command{
 	Short: "Desconecta de um servidor MCP",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-		if err := rootApp.DisconnectMCPServer(slug); err != nil {
-			return fmt.Errorf("erro ao desconectar: %w", err)
-		}
-		fmt.Printf("Servidor '%s' desconectado.\n", slug)
-		return nil
+		return runMCPDisconnect(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runMCPDisconnect(svc mcpBackend, out io.Writer, slug string) error {
+	if err := svc.DisconnectMCPServer(slug); err != nil {
+		return fmt.Errorf("erro ao desconectar: %w", err)
+	}
+	fmt.Fprintf(out, "Servidor '%s' desconectado.\n", slug)
+	return nil
 }
 
 // ─── tools ──────────────────────────────────────────────────────────────────
@@ -138,24 +161,27 @@ var mcpToolsCmd = &cobra.Command{
 	Short: "Lista tools de um servidor MCP",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-		tools := rootApp.GetMCPServerTools(slug)
-		if len(tools) == 0 {
-			fmt.Printf("Nenhuma tool no servidor '%s'.\n", slug)
-			return nil
-		}
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "NOME\tDESCRIÇÃO")
-		for _, t := range tools {
-			desc := t.Description
-			if len(desc) > 60 {
-				desc = desc[:57] + "..."
-			}
-			_, _ = fmt.Fprintf(w, "%s\t%s\n", t.Name, desc)
-		}
-		return w.Flush()
+		return runMCPTools(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runMCPTools(svc mcpBackend, out io.Writer, slug string) error {
+	tools := svc.GetMCPServerTools(slug)
+	if len(tools) == 0 {
+		fmt.Fprintf(out, "Nenhuma tool no servidor '%s'.\n", slug)
+		return nil
+	}
+
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "NOME\tDESCRIÇÃO")
+	for _, t := range tools {
+		desc := t.Description
+		if len(desc) > 60 {
+			desc = desc[:57] + "..."
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\n", t.Name, desc)
+	}
+	return w.Flush()
 }
 
 // ─── remove ─────────────────────────────────────────────────────────────────
@@ -165,13 +191,16 @@ var mcpRemoveCmd = &cobra.Command{
 	Short: "Remove um servidor MCP",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-		if err := rootApp.DeleteMCPServer(slug); err != nil {
-			return fmt.Errorf("erro ao remover servidor: %w", err)
-		}
-		fmt.Printf("Servidor MCP '%s' removido.\n", slug)
-		return nil
+		return runMCPRemove(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runMCPRemove(svc mcpBackend, out io.Writer, slug string) error {
+	if err := svc.DeleteMCPServer(slug); err != nil {
+		return fmt.Errorf("erro ao remover servidor: %w", err)
+	}
+	fmt.Fprintf(out, "Servidor MCP '%s' removido.\n", slug)
+	return nil
 }
 
 func init() {
