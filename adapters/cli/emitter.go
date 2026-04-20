@@ -197,7 +197,20 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 			if status == "" {
 				status = "ok"
 			}
-			_, _ = fmt.Fprintf(e.errOut, "[tool:end]   %s — %s\n", name, status)
+			if ev.DurationMs > 0 {
+				_, _ = fmt.Fprintf(e.errOut, "[tool:end]   %s — %s (%dms)\n", name, status, ev.DurationMs)
+			} else {
+				_, _ = fmt.Fprintf(e.errOut, "[tool:end]   %s — %s\n", name, status)
+			}
+			return
+		}
+	case "chat:tool_failure":
+		if ev, ok := e.toToolFailureEvent(data); ok {
+			retry := ""
+			if ev.WillRetry {
+				retry = " [retrying]"
+			}
+			_, _ = fmt.Fprintf(e.errOut, "[tool:FAIL]  %s — %s (retryable=%v)%s\n", ev.Name, ev.ErrorKind, ev.Retryable, retry)
 			return
 		}
 	}
@@ -228,6 +241,19 @@ func (e *EmitterAdapter) toToolEndEvent(data any) (ports.ToolEndEvent, bool) {
 		}
 	}
 	return ports.ToolEndEvent{}, false
+}
+
+// toToolFailureEvent converte o payload genérico para ports.ToolFailureEvent.
+func (e *EmitterAdapter) toToolFailureEvent(data any) (ports.ToolFailureEvent, bool) {
+	switch v := data.(type) {
+	case ports.ToolFailureEvent:
+		return v, true
+	case *ports.ToolFailureEvent:
+		if v != nil {
+			return *v, true
+		}
+	}
+	return ports.ToolFailureEvent{}, false
 }
 
 // handleDone imprime resumo do chat:done no stderr (AEP-0039 Fase 2).
