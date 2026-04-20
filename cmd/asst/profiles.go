@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"text/tabwriter"
 
@@ -9,6 +10,18 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+// profilesBackend abstracts the app methods used by profile commands (enables testing).
+type profilesBackend interface {
+	GetProfiles() ([]profiles.ProfileInfo, error)
+	GetActiveProfileSlug() string
+	GetProfile(slug string) (*profiles.Profile, error)
+	SetActiveProfile(slug string) error
+	CreateProfile(p profiles.Profile) (string, error)
+	UpdateProfile(slug string, p profiles.Profile) error
+	DuplicateProfile(slug string) (string, error)
+	DeleteProfile(slug string) error
+}
 
 var profilesCmd = &cobra.Command{
 	Use:   "profiles",
@@ -20,24 +33,28 @@ var profilesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista todos os perfis disponíveis",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		items, err := rootApp.GetProfiles()
-		if err != nil {
-			return fmt.Errorf("erro ao listar perfis: %w", err)
-		}
-
-		activeSlug := rootApp.GetActiveProfileSlug()
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "SLUG\tNOME\tORIGEM\tATIVO")
-		for _, p := range items {
-			active := ""
-			if p.Slug == activeSlug {
-				active = "*"
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Slug, p.Name, p.Source, active)
-		}
-		return w.Flush()
+		return runProfilesList(rootApp, os.Stdout)
 	},
+}
+
+func runProfilesList(svc profilesBackend, out io.Writer) error {
+	items, err := svc.GetProfiles()
+	if err != nil {
+		return fmt.Errorf("erro ao listar perfis: %w", err)
+	}
+
+	activeSlug := svc.GetActiveProfileSlug()
+
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "SLUG\tNOME\tORIGEM\tATIVO")
+	for _, p := range items {
+		active := ""
+		if p.Slug == activeSlug {
+			active = "*"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Slug, p.Name, p.Source, active)
+	}
+	return w.Flush()
 }
 
 var profilesShowCmd = &cobra.Command{
@@ -45,32 +62,35 @@ var profilesShowCmd = &cobra.Command{
 	Short: "Exibe detalhes de um perfil",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-		profile, err := rootApp.GetProfile(slug)
-		if err != nil {
-			return fmt.Errorf("perfil '%s' não encontrado: %w", slug, err)
-		}
-
-		fmt.Printf("Nome:        %s\n", profile.Name)
-		fmt.Printf("Descrição:   %s\n", profile.Description)
-		fmt.Printf("Ícone:       %s\n", profile.Icon)
-
-		if profile.Chat.LLMProvider != "" {
-			fmt.Printf("Provider:    %s\n", profile.Chat.LLMProvider)
-		}
-		if profile.Chat.Model != "" {
-			fmt.Printf("Modelo:      %s\n", profile.Chat.Model)
-		}
-		fmt.Printf("Temperatura: %.1f\n", profile.Chat.Temperature)
-		if profile.Chat.MaxTokens > 0 {
-			fmt.Printf("Max Tokens:  %d\n", profile.Chat.MaxTokens)
-		}
-		if len(profile.Chat.EnabledTools) > 0 {
-			fmt.Printf("Tools:       %v\n", profile.Chat.EnabledTools)
-		}
-
-		return nil
+		return runProfilesShow(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runProfilesShow(svc profilesBackend, out io.Writer, slug string) error {
+	profile, err := svc.GetProfile(slug)
+	if err != nil {
+		return fmt.Errorf("perfil '%s' não encontrado: %w", slug, err)
+	}
+
+	fmt.Fprintf(out, "Nome:        %s\n", profile.Name)
+	fmt.Fprintf(out, "Descrição:   %s\n", profile.Description)
+	fmt.Fprintf(out, "Ícone:       %s\n", profile.Icon)
+
+	if profile.Chat.LLMProvider != "" {
+		fmt.Fprintf(out, "Provider:    %s\n", profile.Chat.LLMProvider)
+	}
+	if profile.Chat.Model != "" {
+		fmt.Fprintf(out, "Modelo:      %s\n", profile.Chat.Model)
+	}
+	fmt.Fprintf(out, "Temperatura: %.1f\n", profile.Chat.Temperature)
+	if profile.Chat.MaxTokens > 0 {
+		fmt.Fprintf(out, "Max Tokens:  %d\n", profile.Chat.MaxTokens)
+	}
+	if len(profile.Chat.EnabledTools) > 0 {
+		fmt.Fprintf(out, "Tools:       %v\n", profile.Chat.EnabledTools)
+	}
+
+	return nil
 }
 
 var profilesActivateCmd = &cobra.Command{
@@ -78,13 +98,16 @@ var profilesActivateCmd = &cobra.Command{
 	Short: "Ativa um perfil",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-		if err := rootApp.SetActiveProfile(slug); err != nil {
-			return fmt.Errorf("erro ao ativar perfil '%s': %w", slug, err)
-		}
-		fmt.Printf("Perfil '%s' ativado.\n", slug)
-		return nil
+		return runProfilesActivate(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runProfilesActivate(svc profilesBackend, out io.Writer, slug string) error {
+	if err := svc.SetActiveProfile(slug); err != nil {
+		return fmt.Errorf("erro ao ativar perfil '%s': %w", slug, err)
+	}
+	fmt.Fprintf(out, "Perfil '%s' ativado.\n", slug)
+	return nil
 }
 
 // ─── create ─────────────────────────────────────────────────────────────────
@@ -104,31 +127,35 @@ Exemplos:
   assistente profiles create --name "Escritor" --temperature 0.9`,
 
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if profileCreateName == "" {
-			return fmt.Errorf("--name é obrigatório")
-		}
-
-		p := *profiles.DefaultProfile()
-		p.Name = profileCreateName
-
-		if cmd.Flags().Changed("provider") {
-			p.Chat.LLMProvider = profileCreateProvider
-		}
-		if cmd.Flags().Changed("model") {
-			p.Chat.Model = profileCreateModel
-		}
-		if cmd.Flags().Changed("temperature") {
-			p.Chat.Temperature = profileCreateTemp
-		}
-
-		slug, err := rootApp.CreateProfile(p)
-		if err != nil {
-			return fmt.Errorf("erro ao criar perfil: %w", err)
-		}
-
-		fmt.Printf("Perfil '%s' criado (slug: %s).\n", profileCreateName, slug)
-		return nil
+		return runProfilesCreate(rootApp, os.Stdout, cmd)
 	},
+}
+
+func runProfilesCreate(svc profilesBackend, out io.Writer, cmd *cobra.Command) error {
+	if profileCreateName == "" {
+		return fmt.Errorf("--name é obrigatório")
+	}
+
+	p := *profiles.DefaultProfile()
+	p.Name = profileCreateName
+
+	if cmd.Flags().Changed("provider") {
+		p.Chat.LLMProvider = profileCreateProvider
+	}
+	if cmd.Flags().Changed("model") {
+		p.Chat.Model = profileCreateModel
+	}
+	if cmd.Flags().Changed("temperature") {
+		p.Chat.Temperature = profileCreateTemp
+	}
+
+	slug, err := svc.CreateProfile(p)
+	if err != nil {
+		return fmt.Errorf("erro ao criar perfil: %w", err)
+	}
+
+	fmt.Fprintf(out, "Perfil '%s' criado (slug: %s).\n", profileCreateName, slug)
+	return nil
 }
 
 // ─── edit ───────────────────────────────────────────────────────────────────
@@ -149,32 +176,35 @@ Exemplos:
   assistente profiles edit tradutor --name "Tradutor PRO" --temperature 0.3`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-		profile, err := rootApp.GetProfile(slug)
-		if err != nil {
-			return fmt.Errorf("perfil '%s' não encontrado: %w", slug, err)
-		}
-
-		if profileEditName != "" {
-			profile.Name = profileEditName
-		}
-		if profileEditModel != "" {
-			profile.Chat.Model = profileEditModel
-		}
-		if profileEditProvider != "" {
-			profile.Chat.LLMProvider = profileEditProvider
-		}
-		if cmd.Flags().Changed("temperature") {
-			profile.Chat.Temperature = profileEditTemp
-		}
-
-		if err := rootApp.UpdateProfile(slug, *profile); err != nil {
-			return fmt.Errorf("erro ao atualizar perfil: %w", err)
-		}
-
-		fmt.Printf("Perfil '%s' atualizado.\n", slug)
-		return nil
+		return runProfilesEdit(rootApp, os.Stdout, cmd, args[0])
 	},
+}
+
+func runProfilesEdit(svc profilesBackend, out io.Writer, cmd *cobra.Command, slug string) error {
+	profile, err := svc.GetProfile(slug)
+	if err != nil {
+		return fmt.Errorf("perfil '%s' não encontrado: %w", slug, err)
+	}
+
+	if profileEditName != "" {
+		profile.Name = profileEditName
+	}
+	if profileEditModel != "" {
+		profile.Chat.Model = profileEditModel
+	}
+	if profileEditProvider != "" {
+		profile.Chat.LLMProvider = profileEditProvider
+	}
+	if cmd.Flags().Changed("temperature") {
+		profile.Chat.Temperature = profileEditTemp
+	}
+
+	if err := svc.UpdateProfile(slug, *profile); err != nil {
+		return fmt.Errorf("erro ao atualizar perfil: %w", err)
+	}
+
+	fmt.Fprintf(out, "Perfil '%s' atualizado.\n", slug)
+	return nil
 }
 
 // ─── duplicate ──────────────────────────────────────────────────────────────
@@ -184,14 +214,17 @@ var profilesDuplicateCmd = &cobra.Command{
 	Short: "Duplica um perfil existente",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-		newSlug, err := rootApp.DuplicateProfile(slug)
-		if err != nil {
-			return fmt.Errorf("erro ao duplicar perfil '%s': %w", slug, err)
-		}
-		fmt.Printf("Perfil duplicado: %s\n", newSlug)
-		return nil
+		return runProfilesDuplicate(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runProfilesDuplicate(svc profilesBackend, out io.Writer, slug string) error {
+	newSlug, err := svc.DuplicateProfile(slug)
+	if err != nil {
+		return fmt.Errorf("erro ao duplicar perfil '%s': %w", slug, err)
+	}
+	fmt.Fprintf(out, "Perfil duplicado: %s\n", newSlug)
+	return nil
 }
 
 // ─── delete ─────────────────────────────────────────────────────────────────
@@ -201,13 +234,16 @@ var profilesDeleteCmd = &cobra.Command{
 	Short: "Remove um perfil",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
-		if err := rootApp.DeleteProfile(slug); err != nil {
-			return fmt.Errorf("erro ao remover perfil '%s': %w", slug, err)
-		}
-		fmt.Printf("Perfil '%s' removido.\n", slug)
-		return nil
+		return runProfilesDelete(rootApp, os.Stdout, args[0])
 	},
+}
+
+func runProfilesDelete(svc profilesBackend, out io.Writer, slug string) error {
+	if err := svc.DeleteProfile(slug); err != nil {
+		return fmt.Errorf("erro ao remover perfil '%s': %w", slug, err)
+	}
+	fmt.Fprintf(out, "Perfil '%s' removido.\n", slug)
+	return nil
 }
 
 func init() {
