@@ -115,6 +115,13 @@ func (s *Service) RunAgenticLoop(
 		})
 	}
 
+	// AEP-0039 Fase 2: acumula estatísticas de tool calling ao longo do loop
+	var (
+		totalToolCallCount int
+		toolsUsedSet       = map[string]struct{}{}
+		lastUsage          llm.Usage
+	)
+
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Verifica cancelamento
 		if ctx.Err() != nil {
@@ -134,6 +141,11 @@ func (s *Service) RunAgenticLoop(
 
 		result := handler.Result()
 
+		// Acumula usage da última iteração (AEP-0039)
+		if result.Usage.PromptTokens > 0 || result.Usage.CompletionTokens > 0 {
+			lastUsage = result.Usage
+		}
+
 		// 2. Erro?
 		if result.Error != "" {
 			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
@@ -147,32 +159,58 @@ func (s *Service) RunAgenticLoop(
 		}
 
 		// 3. Emite segment_done para verbalização e acumulação de segmentos no frontend
-		if result.FullResponse != "" || !result.IsDone {
-			s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
-				ConversationID: conversationID,
-				Content:        result.FullResponse,
-				Iteration:      iteration,
-				HasMore:        !result.IsDone,
-			})
-
-			// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior).
-			// Apenas para iterações intermediárias (!IsDone); na última iteração,
-			// SaveAndFinish emite chat:speak com origin=assistant_message e messageId real.
-			if s.onSpeechRequest != nil && result.FullResponse != "" && !result.IsDone {
-				s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
-			}
-		}
-
-		// 4. finish_reason="stop" → resposta final
+		//    Para iterações finais (IsDone), emite imediatamente.
+		//    Para iterações com tool calls, emite após execução com ToolsInIteration (AEP-0039).
 		if result.IsDone {
-			s.SaveAndFinish(conversationID, turnID, result, params.ProfileSlug)
+			if result.FullResponse != "" {
+				s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
+					ConversationID: conversationID,
+					Content:        result.FullResponse,
+					Iteration:      iteration,
+					HasMore:        false,
+				})
+			}
+
+			// 4. finish_reason="stop" → resposta final
+			s.SaveAndFinish(conversationID, turnID, result, params.ProfileSlug, &LoopStats{
+				IterationCount: iteration + 1,
+				ToolCallCount:  totalToolCallCount,
+				ToolsUsed:      toolsUsedSet,
+				LastUsage:      lastUsage,
+			})
 			return
 		}
 
+		// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior).
+		if s.onSpeechRequest != nil && result.FullResponse != "" {
+			s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
+		}
+
 		// 5. finish_reason="tool_calls" → executar ferramentas
+		var iterationNativeTools []ports.ToolSummary
+
 		// 5a. Persiste MCP calls nativas desta iteração antes das bridge calls
 		if len(result.NativeMCPEvents) > 0 {
 			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
+			// AEP-0039: contabiliza MCP native tools
+			for _, ev := range result.NativeMCPEvents {
+				if ev.IsCompleted {
+					name := ev.Name
+					if ev.ServerLabel != "" {
+						name = ev.ServerLabel + "/" + ev.Name
+					}
+					status := "ok"
+					if ev.Error != "" {
+						status = "error"
+					}
+					iterationNativeTools = append(iterationNativeTools, ports.ToolSummary{
+						Name:   name,
+						Status: status,
+					})
+					totalToolCallCount++
+					toolsUsedSet[name] = struct{}{}
+				}
+			}
 		}
 
 		// 5b. Salva mensagem do assistant com bridge tool_calls no banco
@@ -206,6 +244,7 @@ func (s *Service) RunAgenticLoop(
 		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
 
 		// 5e. Salva resultados e adiciona ao histórico
+		var iterationTools []ports.ToolSummary
 		for _, execResult := range execResults {
 			status := "ok"
 			if execResult.Result.IsError {
@@ -218,6 +257,14 @@ func (s *Service) RunAgenticLoop(
 				Status:         status,
 				Summary:        truncateString(execResult.Result.Content, 200),
 			})
+
+			// AEP-0039: acumula stats
+			iterationTools = append(iterationTools, ports.ToolSummary{
+				Name:   execResult.ToolName,
+				Status: status,
+			})
+			totalToolCallCount++
+			toolsUsedSet[execResult.ToolName] = struct{}{}
 
 			_, err := s.msgRepo.AddToolResultMessage(
 				conversationID,
@@ -262,6 +309,16 @@ func (s *Service) RunAgenticLoop(
 				})
 			}
 		}
+
+		// 5g. Emite segment_done com resumo de tools da iteração (AEP-0039)
+		allIterTools := append(iterationNativeTools, iterationTools...)
+		s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
+			ConversationID:   conversationID,
+			Content:          result.FullResponse,
+			Iteration:        iteration,
+			HasMore:          true,
+			ToolsInIteration: allIterTools,
+		})
 	}
 
 	// Atingiu limite de iterações
@@ -271,8 +328,19 @@ func (s *Service) RunAgenticLoop(
 		Done:           true,
 		ConversationId: conversationID,
 	})
+	toolsUsedList := make([]string, 0, len(toolsUsedSet))
+	for name := range toolsUsedSet {
+		toolsUsedList = append(toolsUsedList, name)
+	}
 	s.emitter.Emit("chat:done", ports.DoneEvent{
-		ConversationID: conversationID,
+		ConversationID:   conversationID,
+		HadToolCalls:     totalToolCallCount > 0,
+		Reason:           "limit_reached",
+		IterationCount:   maxIterations,
+		ToolCallCount:    totalToolCallCount,
+		ToolsUsed:        toolsUsedList,
+		PromptTokens:     lastUsage.PromptTokens,
+		CompletionTokens: lastUsage.CompletionTokens,
 	})
 
 	if s.triggerSummarize != nil {
@@ -283,9 +351,18 @@ func (s *Service) RunAgenticLoop(
 	}
 }
 
+// LoopStats acumula estatísticas do agentic loop para inclusão no chat:done (AEP-0039 Fase 2).
+type LoopStats struct {
+	IterationCount   int
+	ToolCallCount    int
+	ToolsUsed        map[string]struct{}
+	LastUsage        llm.Usage
+}
+
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
 // Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
-func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResult, profileSlug string) {
+// loopStats é opcional — se nil, os campos enriquecidos do DoneEvent ficam zerados.
+func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResult, profileSlug string, loopStats *LoopStats) {
 	var savedMsgID uint
 	if conversationID > 0 && result.FullResponse != "" {
 		if len(result.NativeMCPEvents) > 0 && turnID > 0 {
@@ -333,11 +410,36 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
 	}
 
-	s.emitter.Emit("chat:done", ports.DoneEvent{
+	doneEvent := ports.DoneEvent{
 		ConversationID:     conversationID,
 		AssistantMessageID: savedMsgID,
 		HadToolCalls:       turnID > 0,
-	})
+		Reason:             "completed",
+	}
+	if loopStats != nil {
+		doneEvent.IterationCount = loopStats.IterationCount
+		doneEvent.ToolCallCount = loopStats.ToolCallCount
+		if len(loopStats.ToolsUsed) > 0 {
+			list := make([]string, 0, len(loopStats.ToolsUsed))
+			for name := range loopStats.ToolsUsed {
+				list = append(list, name)
+			}
+			doneEvent.ToolsUsed = list
+		}
+		if loopStats.LastUsage.PromptTokens > 0 {
+			doneEvent.PromptTokens = loopStats.LastUsage.PromptTokens
+		}
+		if loopStats.LastUsage.CompletionTokens > 0 {
+			doneEvent.CompletionTokens = loopStats.LastUsage.CompletionTokens
+		}
+	}
+	if doneEvent.PromptTokens == 0 && result.Usage.PromptTokens > 0 {
+		doneEvent.PromptTokens = result.Usage.PromptTokens
+	}
+	if doneEvent.CompletionTokens == 0 && result.Usage.CompletionTokens > 0 {
+		doneEvent.CompletionTokens = result.Usage.CompletionTokens
+	}
+	s.emitter.Emit("chat:done", doneEvent)
 
 	if s.triggerSummarize != nil {
 		go func() {
