@@ -159,7 +159,7 @@ func (a *App) Context() context.Context {
 }
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
-// Reutilizado pelo Wails (main.go na raiz) e pelo CLI (cmd/cli/).
+// Reutilizado pelo Wails (main.go na raiz) e pelo CLI (cmd/assistente-cli/).
 func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) {
 	a.ctx = ctx
 	a.emitter = emitter
