@@ -144,18 +144,16 @@ func runCredentialsRemove(svc credentialsBackend, out io.Writer, pattern string)
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 func readStdinLine() (string, error) {
-	buf := make([]byte, 0, 4096)
-	tmp := make([]byte, 256)
-	for {
-		n, err := os.Stdin.Read(tmp)
-		if n > 0 {
-			buf = append(buf, tmp[:n]...)
-		}
-		if err != nil {
-			break
-		}
+	const maxBytes = 64 * 1024 // 64KB — suficiente para qualquer API key/token
+	reader := io.LimitReader(os.Stdin, int64(maxBytes)+1)
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return "", err
 	}
-	return strings.TrimSpace(string(buf)), nil
+	if len(data) > maxBytes {
+		return "", fmt.Errorf("stdin excede o limite máximo de %d bytes", maxBytes)
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 func init() {

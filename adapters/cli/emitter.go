@@ -144,6 +144,7 @@ func (e *EmitterAdapter) handleError(data any) {
 	default:
 		_, _ = fmt.Fprintf(e.errOut, "Erro: %v\n", data)
 	}
+	e.lastPrinted = 0
 	e.signalDone()
 }
 
