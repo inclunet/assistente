@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"unicode/utf8"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -243,7 +244,28 @@ func (s *Service) RunAgenticLoop(
 		s.emitToolStarts(conversationID, result.ToolCalls)
 		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
 
-		// 5e. Salva resultados e adiciona ao histórico
+		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
+		for i, execResult := range execResults {
+			if execResult.Result.IsError && execResult.Retryable && iteration < s.toolExecutor.Config().MaxIterations-1 {
+				// Emite tool_failure com willRetry=true
+				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
+					ConversationID: conversationID,
+					Name:           execResult.ToolName,
+					CallID:         execResult.CallID,
+					ErrorKind:      execResult.ErrorKind,
+					Retryable:      true,
+					Message:        truncateString(execResult.Result.Content, 200),
+					DurationMs:     execResult.DurationMs,
+					Origin:         OriginBuiltin,
+					WillRetry:      true,
+				})
+				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", execResult.ToolName, execResult.ErrorKind)
+				retried := s.toolExecutor.ExecuteOne(ctx, toolCalls[i])
+				execResults[i] = retried
+			}
+		}
+
+		// 5f. Salva resultados e adiciona ao histórico
 		var iterationTools []ports.ToolSummary
 		for _, execResult := range execResults {
 			status := "ok"
@@ -257,12 +279,29 @@ func (s *Service) RunAgenticLoop(
 				Status:         status,
 				Summary:        truncateString(execResult.Result.Content, 200),
 				Origin:         OriginBuiltin,
+				DurationMs:     execResult.DurationMs,
 			})
+
+			// AEP-0039 Fase 3: emite tool_failure para erros classificados (sem retry)
+			if execResult.Result.IsError && execResult.ErrorKind != "" {
+				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
+					ConversationID: conversationID,
+					Name:           execResult.ToolName,
+					CallID:         execResult.CallID,
+					ErrorKind:      execResult.ErrorKind,
+					Retryable:      execResult.Retryable,
+					Message:        truncateString(execResult.Result.Content, 200),
+					DurationMs:     execResult.DurationMs,
+					Origin:         OriginBuiltin,
+				})
+			}
 
 			// AEP-0039: acumula stats
 			iterationTools = append(iterationTools, ports.ToolSummary{
-				Name:   execResult.ToolName,
-				Status: status,
+				Name:       execResult.ToolName,
+				Status:     status,
+				ErrorKind:  execResult.ErrorKind,
+				DurationMs: execResult.DurationMs,
 			})
 			totalToolCallCount++
 			toolsUsedSet[execResult.ToolName] = struct{}{}
@@ -288,7 +327,7 @@ func (s *Service) RunAgenticLoop(
 			})
 		}
 
-		// 5f. Emite token stats atualizadas em tempo real
+		// 5g. Emite token stats atualizadas em tempo real
 		if s.getTokenStats != nil {
 			if stats, err := s.getTokenStats(conversationID); err == nil && stats != nil {
 				s.emitter.Emit("chat:token_stats_update", ports.TokenStatsUpdateEvent{
@@ -589,6 +628,10 @@ func convertToolCalls(llmCalls []llm.ToolCall) []tools.ToolCall {
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
+	}
+	// UTF-8 safe: recua até achar limite de rune válido
+	for maxLen > 0 && !utf8.RuneStart(s[maxLen]) {
+		maxLen--
 	}
 	return s[:maxLen] + "..."
 }
