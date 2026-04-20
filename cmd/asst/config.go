@@ -39,12 +39,12 @@ func runConfigShow(svc configBackend, out io.Writer) error {
 		return fmt.Errorf("erro ao obter perfil ativo: %w", err)
 	}
 
-	fmt.Fprintf(out, "Perfil ativo:  %s\n", profile.Name)
-	fmt.Fprintf(out, "Provider:      %s\n", profile.Chat.LLMProvider)
-	fmt.Fprintf(out, "Modelo:        %s\n", profile.Chat.Model)
-	fmt.Fprintf(out, "Temperatura:   %.1f\n", profile.Chat.Temperature)
-	fmt.Fprintf(out, "Max Tokens:    %d\n", profile.Chat.MaxTokens)
-	fmt.Fprintf(out, "Timeout (s):   %d\n", profile.Chat.ResponseTimeout)
+	_, _ = fmt.Fprintf(out, "Perfil ativo:  %s\n", profile.Name)
+	_, _ = fmt.Fprintf(out, "Provider:      %s\n", profile.Chat.LLMProvider)
+	_, _ = fmt.Fprintf(out, "Modelo:        %s\n", profile.Chat.Model)
+	_, _ = fmt.Fprintf(out, "Temperatura:   %.1f\n", profile.Chat.Temperature)
+	_, _ = fmt.Fprintf(out, "Max Tokens:    %d\n", profile.Chat.MaxTokens)
+	_, _ = fmt.Fprintf(out, "Timeout (s):   %d\n", profile.Chat.ResponseTimeout)
 
 	return nil
 }
@@ -60,7 +60,7 @@ var configProvidersCmd = &cobra.Command{
 func runConfigProviders(svc configBackend, out io.Writer) error {
 	providers := svc.GetLLMProviders()
 	if len(providers) == 0 {
-		fmt.Fprintln(out, "Nenhum provedor LLM configurado.")
+		_, _ = fmt.Fprintln(out, "Nenhum provedor LLM configurado.")
 		return nil
 	}
 
@@ -89,7 +89,7 @@ func runConfigModel(svc configBackend, out io.Writer, model string) error {
 	if err := svc.SetChatModel(model); err != nil {
 		return fmt.Errorf("erro ao definir modelo: %w", err)
 	}
-	fmt.Fprintf(out, "Modelo alterado para '%s'.\n", model)
+	_, _ = fmt.Fprintf(out, "Modelo alterado para '%s'.\n", model)
 	return nil
 }
 

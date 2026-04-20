@@ -41,7 +41,7 @@ var mcpListCmd = &cobra.Command{
 func runMCPList(svc mcpBackend, out io.Writer) error {
 	servers := svc.ListMCPServers()
 	if len(servers) == 0 {
-		fmt.Fprintln(out, "Nenhum servidor MCP configurado.")
+		_, _ = fmt.Fprintln(out, "Nenhum servidor MCP configurado.")
 		return nil
 	}
 
@@ -112,7 +112,7 @@ func runMCPAdd(svc mcpBackend, out io.Writer, slug, command, cmdArgs string, env
 		return fmt.Errorf("erro ao salvar servidor: %w", err)
 	}
 
-	fmt.Fprintf(out, "Servidor MCP '%s' adicionado.\n", slug)
+	_, _ = fmt.Fprintf(out, "Servidor MCP '%s' adicionado.\n", slug)
 	return nil
 }
 
@@ -128,12 +128,12 @@ var mcpConnectCmd = &cobra.Command{
 }
 
 func runMCPConnect(svc mcpBackend, out io.Writer, slug string) error {
-	fmt.Fprintf(out, "Conectando a '%s'... ", slug)
+	_, _ = fmt.Fprintf(out, "Conectando a '%s'... ", slug)
 	if err := svc.ConnectMCPServer(slug); err != nil {
-		fmt.Fprintln(out, "FALHOU")
+		_, _ = fmt.Fprintln(out, "FALHOU")
 		return fmt.Errorf("erro: %w", err)
 	}
-	fmt.Fprintln(out, "OK")
+	_, _ = fmt.Fprintln(out, "OK")
 	return nil
 }
 
@@ -150,7 +150,7 @@ func runMCPDisconnect(svc mcpBackend, out io.Writer, slug string) error {
 	if err := svc.DisconnectMCPServer(slug); err != nil {
 		return fmt.Errorf("erro ao desconectar: %w", err)
 	}
-	fmt.Fprintf(out, "Servidor '%s' desconectado.\n", slug)
+	_, _ = fmt.Fprintf(out, "Servidor '%s' desconectado.\n", slug)
 	return nil
 }
 
@@ -168,7 +168,7 @@ var mcpToolsCmd = &cobra.Command{
 func runMCPTools(svc mcpBackend, out io.Writer, slug string) error {
 	tools := svc.GetMCPServerTools(slug)
 	if len(tools) == 0 {
-		fmt.Fprintf(out, "Nenhuma tool no servidor '%s'.\n", slug)
+		_, _ = fmt.Fprintf(out, "Nenhuma tool no servidor '%s'.\n", slug)
 		return nil
 	}
 
@@ -199,7 +199,7 @@ func runMCPRemove(svc mcpBackend, out io.Writer, slug string) error {
 	if err := svc.DeleteMCPServer(slug); err != nil {
 		return fmt.Errorf("erro ao remover servidor: %w", err)
 	}
-	fmt.Fprintf(out, "Servidor MCP '%s' removido.\n", slug)
+	_, _ = fmt.Fprintf(out, "Servidor MCP '%s' removido.\n", slug)
 	return nil
 }
 

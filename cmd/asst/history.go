@@ -51,7 +51,7 @@ func runHistoryList(svc historyBackend, out io.Writer, search string, limit int)
 			return fmt.Errorf("erro ao buscar: %w", err)
 		}
 		if len(results) == 0 {
-			fmt.Fprintln(out, "Nenhum resultado encontrado.")
+			_, _ = fmt.Fprintln(out, "Nenhum resultado encontrado.")
 			return nil
 		}
 
@@ -73,7 +73,7 @@ func runHistoryList(svc historyBackend, out io.Writer, search string, limit int)
 		return fmt.Errorf("erro ao listar conversas: %w", err)
 	}
 	if len(conversations) == 0 {
-		fmt.Fprintln(out, "Nenhuma conversa no histórico.")
+		_, _ = fmt.Fprintln(out, "Nenhuma conversa no histórico.")
 		return nil
 	}
 
@@ -113,7 +113,7 @@ func runHistoryShow(svc historyBackend, out io.Writer, id uint) error {
 		return fmt.Errorf("conversa não encontrada: %w", err)
 	}
 
-	fmt.Fprintf(out, "=== %s (ID: %d) ===\n\n", conv.Title, conv.ID)
+	_, _ = fmt.Fprintf(out, "=== %s (ID: %d) ===\n\n", conv.Title, conv.ID)
 
 	messages, err := svc.GetMessages(id, nil)
 	if err != nil {
@@ -132,7 +132,7 @@ func fprintMessageNodes(out io.Writer, nodes []chat.MessageNode) {
 		if len(content) > 500 {
 			content = content[:497] + "..."
 		}
-		fmt.Fprintf(out, "[%s] %s\n\n", role, content)
+		_, _ = fmt.Fprintf(out, "[%s] %s\n\n", role, content)
 
 		if len(node.Children) > 0 {
 			fprintMessageNodes(out, node.Children)
@@ -159,7 +159,7 @@ func runHistoryDelete(svc historyBackend, out io.Writer, id uint) error {
 	if err := svc.DeleteConversation(id); err != nil {
 		return fmt.Errorf("erro ao remover conversa: %w", err)
 	}
-	fmt.Fprintf(out, "Conversa %d removida.\n", id)
+	_, _ = fmt.Fprintf(out, "Conversa %d removida.\n", id)
 	return nil
 }
 
