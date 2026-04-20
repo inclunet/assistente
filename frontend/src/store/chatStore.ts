@@ -96,6 +96,20 @@ interface ChatToolEndEvent {
   /** @deprecated Use origin instead (AEP-0039) */
   native?: boolean;
   origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  durationMs?: number;
+}
+
+// AEP-0039 Fase 3: structured failure event (distinct from tool_end with status='error')
+interface ChatToolFailureEvent {
+  conversationId: number;
+  name: string;
+  callId: string;
+  errorKind: 'timeout' | 'invalid_args' | 'not_found' | 'panic' | 'unknown';
+  retryable: boolean;
+  message?: string;
+  durationMs?: number;
+  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  willRetry?: boolean;
 }
 
 interface ChatSegmentDoneEvent {
@@ -103,8 +117,8 @@ interface ChatSegmentDoneEvent {
   hasMore?: boolean;
   content?: string;
   iteration?: number;
-  // AEP-0039 Fase 2
-  toolsInIteration?: Array<{ name: string; status: string }>;
+  // AEP-0039 Fase 2+3
+  toolsInIteration?: Array<{ name: string; status: string; errorKind?: string; durationMs?: number }>;
 }
 
 interface ChatDoneEvent {
