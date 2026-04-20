@@ -805,7 +805,11 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 	})
 
 	server := &http.Server{Handler: mux}
-	go func() { _ = server.Serve(listener) }()
+	go func() {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Printf("[MCP:%s] OAuth callback server error: %v", rt.serverSlug, err)
+		}
+	}()
 	defer func() { _ = server.Shutdown(context.Background()) }()
 
 	log.Printf("[MCP:%s] Abrindo browser para autorização OAuth2 PKCE (redirect=%s)", rt.serverSlug, redirectURL)

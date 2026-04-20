@@ -40,8 +40,9 @@ func runToolsList(svc toolsBackend, out io.Writer) error {
 	_, _ = fmt.Fprintln(w, "NOME\tORIGEM\tDESCRIÇÃO")
 	for _, t := range tools {
 		desc := t.Description
-		if len(desc) > 60 {
-			desc = desc[:57] + "..."
+		descRunes := []rune(desc)
+		if len(descRunes) > 60 {
+			desc = string(descRunes[:57]) + "..."
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", t.Name, t.SourceLabel, desc)
 	}

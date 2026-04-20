@@ -43,7 +43,7 @@ func runConfigShow(svc configBackend, out io.Writer) error {
 	ew.printf("Perfil ativo:  %s\n", profile.Name)
 	ew.printf("Provider:      %s\n", profile.Chat.LLMProvider)
 	ew.printf("Modelo:        %s\n", profile.Chat.Model)
-	ew.printf("Temperatura:   %.1f\n", profile.Chat.Temperature)
+	ew.printf("Temperatura:   %g\n", profile.Chat.Temperature)
 	ew.printf("Max Tokens:    %d\n", profile.Chat.MaxTokens)
 	ew.printf("Timeout (s):   %d\n", profile.Chat.ResponseTimeout)
 

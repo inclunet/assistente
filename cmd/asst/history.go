@@ -59,8 +59,9 @@ func runHistoryList(svc historyBackend, out io.Writer, search string, limit int)
 		_, _ = fmt.Fprintln(w, "CONVERSA\tTÍTULO\tROLE\tTRECHO")
 		for _, r := range results {
 			snippet := r.Snippet
-			if len(snippet) > 60 {
-				snippet = snippet[:57] + "..."
+			snippetRunes := []rune(snippet)
+			if len(snippetRunes) > 60 {
+				snippet = string(snippetRunes[:57]) + "..."
 			}
 			snippet = strings.ReplaceAll(snippet, "\n", " ")
 			_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", r.ConversationID, r.ConversationTitle, r.Role, snippet)
@@ -129,8 +130,9 @@ func fprintMessageNodes(ew *errWriter, nodes []chat.MessageNode) {
 		msg := node.Message
 		role := strings.ToUpper(msg.Role)
 		content := msg.Content
-		if len(content) > 500 {
-			content = content[:497] + "..."
+		contentRunes := []rune(content)
+		if len(contentRunes) > 500 {
+			content = string(contentRunes[:497]) + "..."
 		}
 		ew.printf("[%s] %s\n\n", role, content)
 
