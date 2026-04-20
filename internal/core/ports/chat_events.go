@@ -16,6 +16,14 @@ type DoneEvent struct {
 	ConversationID     uint `json:"conversationId"`
 	AssistantMessageID uint `json:"assistantMessageId,omitempty"`
 	HadToolCalls       bool `json:"hadToolCalls,omitempty"`
+	// AEP-0039 Fase 2: enriched done event
+	Reason           string   `json:"reason,omitempty"`           // "completed" | "limit_reached" | "error"
+	IterationCount   int      `json:"iterationCount,omitempty"`
+	ToolCallCount    int      `json:"toolCallCount,omitempty"`
+	ToolsUsed        []string `json:"toolsUsed,omitempty"`
+	PromptTokens     int      `json:"promptTokens,omitempty"`
+	CompletionTokens int      `json:"completionTokens,omitempty"`
+	ErrorMessage     string   `json:"errorMessage,omitempty"`
 }
 
 // ErrorEvent is the payload for chat:error.
@@ -53,12 +61,20 @@ type ToolEndEvent struct {
 	Native         bool   `json:"native,omitempty"`
 }
 
+// ToolSummary describes a tool invocation within an iteration (AEP-0039 Fase 2).
+type ToolSummary struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // "ok" | "error"
+}
+
 // SegmentDoneEvent is the payload for chat:segment_done.
 type SegmentDoneEvent struct {
 	ConversationID uint   `json:"conversationId"`
 	Content        string `json:"content,omitempty"`
 	Iteration      int    `json:"iteration,omitempty"`
 	HasMore        bool   `json:"hasMore"`
+	// AEP-0039 Fase 2: tools executed in this iteration
+	ToolsInIteration []ToolSummary `json:"toolsInIteration,omitempty"`
 }
 
 // TokenStatsEvent is the payload for chat:token_stats.
