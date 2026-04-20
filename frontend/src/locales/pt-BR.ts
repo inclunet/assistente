@@ -130,6 +130,7 @@ const ptBR = {
       enableAutoReadLabel: 'Habilitar leitura automática de respostas',
       autoReadError: 'Erro ao reproduzir áudio automaticamente',
       toolFailed: 'Ferramenta {{name}} falhou',
+      toolRetrying: 'Ferramenta {{name}} falhou, tentando novamente...',
       toolRunning: 'Executando ferramenta: {{name}}',
       toolDone: 'Ferramenta {{name}} concluída',
       validation: {

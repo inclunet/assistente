@@ -129,6 +129,7 @@ const es = {
       enableAutoReadLabel: 'Habilitar lectura automática de respuestas',
       autoReadError: 'Error al reproducir audio automáticamente',
       toolFailed: 'Herramienta {{name}} falló',
+      toolRetrying: 'Herramienta {{name}} falló, reintentando...',
       toolRunning: 'Ejecutando herramienta: {{name}}',
       toolDone: 'Herramienta {{name}} completada',
       validation: {

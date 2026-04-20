@@ -54,7 +54,7 @@ Se multiplas iteracoes:
 [tools] iteracao 2: 1 tool (write_file) — 0.8s
 ```
 
-Ao final, sempre uma linha de resumo no `chat:done`:
+Ao final, quando houve tool calls, uma linha de resumo no `chat:done`:
 
 ```
 [done] 2 iteracoes, 5 tool calls, completed
@@ -204,7 +204,6 @@ type SegmentDoneEvent struct {
     HasMore        bool   `json:"hasMore"`
     // Novos campos (AEP-0039)
     ToolsInIteration []ToolSummary `json:"toolsInIteration,omitempty"`
-    TokenDelta       int           `json:"tokenDelta,omitempty"`
 }
 
 type ToolSummary struct {

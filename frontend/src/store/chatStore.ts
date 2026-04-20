@@ -402,6 +402,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     let unsubThinking = noop;
     let unsubToolStart = noop;
     let unsubToolEnd = noop;
+    let unsubToolFailure = noop;
     let unsubSegmentDone = noop;
     let unsubDone = noop;
     let unsubError = noop;
@@ -437,6 +438,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       unsubThinking();
       unsubToolStart();
       unsubToolEnd();
+      unsubToolFailure();
       unsubSegmentDone();
       unsubDone();
       unsubError();
@@ -596,6 +598,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         ),
       }));
       if (data.status === 'error') announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
+    });
+
+    // AEP-0039 Fase 3: structured failure listener
+    unsubToolFailure = EventsOn('chat:tool_failure', (data: ChatToolFailureEvent) => {
+      if (data.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+      if (data.willRetry) {
+        announce(i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
+      }
     });
 
     unsubSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
@@ -1191,6 +1202,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       let unsubThinking = noopExt;
       let unsubToolStart = noopExt;
       let unsubToolEnd = noopExt;
+      let unsubToolFailure = noopExt;
       let unsubSegmentDone = noopExt;
       let unsubDone = noopExt;
       let unsubReady = noopExt;
@@ -1226,6 +1238,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         unsubThinking();
         unsubToolStart();
         unsubToolEnd();
+        unsubToolFailure();
         unsubSegmentDone();
         unsubDone();
         unsubReady();
@@ -1378,6 +1391,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }));
         const key = event.status === 'error' ? 'chat.toolFailed' : 'chat.toolDone';
         announce(i18next.t(key, { name: event.name }), event.status === 'error' ? 'assertive' : 'polite');
+      });
+
+      // AEP-0039 Fase 3: structured failure listener
+      unsubToolFailure = EventsOn('chat:tool_failure', (data: ChatToolFailureEvent) => {
+        if (data.conversationId !== conversationId) return;
+        if (!activeListeners.has(conversationIdStr)) return;
+        if (data.willRetry) {
+          announce(i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
+        }
       });
 
       unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {

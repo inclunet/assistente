@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
+	"strings"
 	"unicode/utf8"
 
 	"assistente/internal/chat"
@@ -229,7 +231,8 @@ func (s *Service) RunAgenticLoop(
 
 		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
 		for i, execResult := range execResults {
-			if execResult.Result.IsError && execResult.Retryable && iteration < s.toolExecutor.Config().MaxIterations-1 {
+			if execResult.Result.IsError && execResult.Retryable && iteration < maxIterations-1 {
+				retryOrigin, _ := detectToolOrigin(execResult.ToolName)
 				// Emite tool_failure com willRetry=true
 				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
 					ConversationID: conversationID,
@@ -239,7 +242,7 @@ func (s *Service) RunAgenticLoop(
 					Retryable:      true,
 					Message:        truncateString(execResult.Result.Content, 200),
 					DurationMs:     execResult.DurationMs,
-					Origin:         OriginBuiltin,
+					Origin:         retryOrigin,
 					WillRetry:      true,
 				})
 				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", execResult.ToolName, execResult.ErrorKind)
@@ -251,6 +254,7 @@ func (s *Service) RunAgenticLoop(
 		// 5f. Emit tool_end/failure events e acumula stats
 		var iterationTools []ports.ToolSummary
 		for _, execResult := range execResults {
+			origin, serverLabel := detectToolOrigin(execResult.ToolName)
 			status := "ok"
 			if execResult.Result.IsError {
 				status = "error"
@@ -261,7 +265,8 @@ func (s *Service) RunAgenticLoop(
 				CallID:         execResult.CallID,
 				Status:         status,
 				Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
-				Origin:         OriginBuiltin,
+				Origin:         origin,
+				ServerLabel:    serverLabel,
 				DurationMs:     execResult.DurationMs,
 			})
 
@@ -275,7 +280,7 @@ func (s *Service) RunAgenticLoop(
 					Retryable:      execResult.Retryable,
 					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 					DurationMs:     execResult.DurationMs,
-					Origin:         OriginBuiltin,
+					Origin:         origin,
 				})
 			}
 
@@ -306,12 +311,14 @@ func (s *Service) RunAgenticLoop(
 		// 5f-iii. AEP-0039 Fase 5: persiste assistant tool_calls com metadata enriquecida
 		enrichedCalls := make([]llm.EnrichedToolCall, len(result.ToolCalls))
 		for i, tc := range result.ToolCalls {
+			tcOrigin, tcServerLabel := detectToolOrigin(tc.Function.Name)
 			enrichedCalls[i] = llm.EnrichedToolCall{
-				ID:        tc.ID,
-				Type:      tc.Type,
-				Function:  tc.Function,
-				Origin:    OriginBuiltin,
-				Iteration: iteration,
+				ID:          tc.ID,
+				Type:        tc.Type,
+				Function:    tc.Function,
+				Origin:      tcOrigin,
+				ServerLabel: tcServerLabel,
+				Iteration:   iteration,
 			}
 			if i < len(execResults) {
 				enrichedCalls[i].DurationMs = execResults[i].DurationMs
@@ -402,6 +409,7 @@ func (s *Service) RunAgenticLoop(
 	for name := range toolsUsedSet {
 		toolsUsedList = append(toolsUsedList, name)
 	}
+	sort.Strings(toolsUsedList)
 	s.emitter.Emit("chat:done", ports.DoneEvent{
 		ConversationID:   conversationID,
 		HadToolCalls:     totalToolCallCount > 0,
@@ -431,7 +439,7 @@ type LoopStats struct {
 
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
 // Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
-// loopStats é opcional — se nil, os campos enriquecidos do DoneEvent ficam zerados.
+// loopStats é opcional — se nil, apenas os campos enriquecidos derivados das estatísticas do loop ficam vazios.
 func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResult, profileSlug string, loopStats *LoopStats) {
 	var savedMsgID uint
 	if conversationID > 0 && result.FullResponse != "" {
@@ -484,10 +492,14 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
 	}
 
+	hadTools := turnID > 0
+	if loopStats != nil {
+		hadTools = loopStats.ToolCallCount > 0 || len(result.NativeMCPEvents) > 0
+	}
 	doneEvent := ports.DoneEvent{
 		ConversationID:     conversationID,
 		AssistantMessageID: savedMsgID,
-		HadToolCalls:       turnID > 0,
+		HadToolCalls:       hadTools,
 		Reason:             "completed",
 	}
 	if loopStats != nil {
@@ -498,6 +510,7 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 			for name := range loopStats.ToolsUsed {
 				list = append(list, name)
 			}
+			sort.Strings(list)
 			doneEvent.ToolsUsed = list
 		}
 		if loopStats.LastUsage.PromptTokens > 0 {
@@ -575,14 +588,27 @@ func (s *Service) emitTokenStats(conversationID uint) {
 
 func (s *Service) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
 	for _, call := range calls {
+		origin, serverLabel := detectToolOrigin(call.Function.Name)
 		EmitToolStart(s.emitter, ports.ToolStartEvent{
 			ConversationID: conversationID,
 			Name:           call.Function.Name,
 			CallID:         call.ID,
 			Args:           call.Function.Arguments,
-			Origin:         OriginBuiltin,
+			Origin:         origin,
+			ServerLabel:    serverLabel,
 		})
 	}
+}
+
+// detectToolOrigin determina origin e serverLabel a partir do nome da tool.
+// Tools MCP bridge seguem o formato "mcp_{serverSlug}__{toolName}".
+func detectToolOrigin(toolName string) (origin, serverLabel string) {
+	if strings.HasPrefix(toolName, "mcp_") {
+		if idx := strings.Index(toolName, "__"); idx > 4 {
+			return OriginMCPBridge, toolName[4:idx]
+		}
+	}
+	return OriginBuiltin, ""
 }
 
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:

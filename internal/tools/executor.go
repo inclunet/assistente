@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -148,6 +149,13 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 
 		result, err := tool.Execute(toolCtx, args)
 		if err != nil {
+			// Detect if the error is a timeout (context deadline exceeded)
+			errKind := ErrorKindUnknown
+			retryable := false
+			if errors.Is(err, context.DeadlineExceeded) && toolCtx.Err() != nil {
+				errKind = ErrorKindTimeout
+				retryable = true
+			}
 			resultCh <- ToolExecutionResult{
 				CallID:   call.ID,
 				ToolName: toolName,
@@ -156,8 +164,8 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					IsError: true,
 				},
 				Error:      err,
-				ErrorKind:  ErrorKindUnknown,
-				Retryable:  false,
+				ErrorKind:  errKind,
+				Retryable:  retryable,
 				DurationMs: time.Since(start).Milliseconds(),
 			}
 			return
@@ -191,7 +199,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	case <-toolCtx.Done():
 		elapsed := time.Since(start).Milliseconds()
 		if ctx.Err() != nil {
-			// Contexto pai cancelado (usuário cancelou)
+			// Contexto pai cancelado (usuário cancelou) — não é timeout
 			return ToolExecutionResult{
 				CallID:   call.ID,
 				ToolName: toolName,
@@ -200,7 +208,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					IsError: true,
 				},
 				Error:      ctx.Err(),
-				ErrorKind:  ErrorKindTimeout,
+				ErrorKind:  "",
 				Retryable:  false,
 				DurationMs: elapsed,
 			}

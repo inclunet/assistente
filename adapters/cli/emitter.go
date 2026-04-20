@@ -292,6 +292,17 @@ func (e *EmitterAdapter) toDoneEvent(data any) (ports.DoneEvent, bool) {
 		if v != nil {
 			return *v, true
 		}
+	case map[string]any:
+		// Fallback: desserializa de map (caso venha como JSON decoded)
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ports.DoneEvent{}, false
+		}
+		var ev ports.DoneEvent
+		if err := json.Unmarshal(b, &ev); err != nil {
+			return ports.DoneEvent{}, false
+		}
+		return ev, true
 	}
 	return ports.DoneEvent{}, false
 }

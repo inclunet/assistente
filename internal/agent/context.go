@@ -2,6 +2,7 @@ package agent
 
 import (
 	"log"
+	"strconv"
 	"unicode/utf8"
 
 	"assistente/internal/llm"
@@ -132,7 +133,7 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 
 		if len(r) > maxBytes {
 			toolResults[i] = truncateUTF8Safe(r, maxBytes) +
-				"\n\n[CONTEXTO TRUNCADO: resultado tinha " + intToStr(len(r)) + " bytes, limitado a " + intToStr(maxBytes) + " bytes para caber na janela de contexto]"
+				"\n\n[CONTEXTO TRUNCADO: resultado tinha " + strconv.Itoa(len(r)) + " bytes, limitado a " + strconv.Itoa(maxBytes) + " bytes para caber na janela de contexto]"
 			result.Truncated = true
 		}
 		truncatedTokens += estimateTokens(toolResults[i])
@@ -154,29 +155,4 @@ func truncateUTF8Safe(s string, maxBytes int) string {
 		maxBytes--
 	}
 	return s[:maxBytes]
-}
-
-// intToStr converte int para string sem import de strconv (evita import desnecessário).
-func intToStr(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
-	}
-	buf := make([]byte, 0, 20)
-	for n > 0 {
-		buf = append(buf, byte('0'+n%10))
-		n /= 10
-	}
-	if neg {
-		buf = append(buf, '-')
-	}
-	// reverse
-	for i, j := 0, len(buf)-1; i < j; i, j = i+1, j-1 {
-		buf[i], buf[j] = buf[j], buf[i]
-	}
-	return string(buf)
 }

@@ -157,21 +157,3 @@ func TestTruncateUTF8Safe(t *testing.T) {
 		t.Fatalf("expected 'café', got %q", result)
 	}
 }
-
-func TestIntToStr(t *testing.T) {
-	tests := []struct {
-		input    int
-		expected string
-	}{
-		{0, "0"},
-		{42, "42"},
-		{1000, "1000"},
-		{-5, "-5"},
-	}
-	for _, tt := range tests {
-		got := intToStr(tt.input)
-		if got != tt.expected {
-			t.Errorf("intToStr(%d) = %q, want %q", tt.input, got, tt.expected)
-		}
-	}
-}

@@ -130,6 +130,7 @@ const en = {
       enableAutoReadLabel: 'Enable auto-read of responses',
       autoReadError: 'Error playing audio automatically',
       toolFailed: 'Tool {{name}} failed',
+      toolRetrying: 'Tool {{name}} failed, retrying...',
       toolRunning: 'Running tool: {{name}}',
       toolDone: 'Tool {{name}} completed',
       validation: {

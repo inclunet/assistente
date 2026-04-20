@@ -10,26 +10,26 @@ import (
 
 // ==================== Mock Tool ====================
 
-// mockTool é uma ferramenta de teste que retorna o conteúdo configurado
-type mockTool struct {
+// registryMockTool é uma ferramenta de teste para os testes do Registry
+type registryMockTool struct {
 	name        string
 	description string
 	params      json.RawMessage
 	executeFn   func(ctx context.Context, args json.RawMessage) (ToolResult, error)
 }
 
-func (m *mockTool) Name() string                { return m.name }
-func (m *mockTool) Description() string          { return m.description }
-func (m *mockTool) Parameters() json.RawMessage  { return m.params }
-func (m *mockTool) Execute(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+func (m *registryMockTool) Name() string                { return m.name }
+func (m *registryMockTool) Description() string          { return m.description }
+func (m *registryMockTool) Parameters() json.RawMessage  { return m.params }
+func (m *registryMockTool) Execute(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 	if m.executeFn != nil {
 		return m.executeFn(ctx, args)
 	}
 	return ToolResult{Content: "ok"}, nil
 }
 
-func newMockTool(name string) *mockTool {
-	return &mockTool{
+func newRegistryMockTool(name string) *registryMockTool {
+	return &registryMockTool{
 		name:        name,
 		description: "Mock tool: " + name,
 		params:      json.RawMessage(`{"type":"object","properties":{}}`),
@@ -41,7 +41,7 @@ func newMockTool(name string) *mockTool {
 func TestRegistryRegister(t *testing.T) {
 	r := NewRegistry()
 
-	tool := newMockTool("test_tool")
+	tool := newRegistryMockTool("test_tool")
 	err := r.Register(tool)
 	if err != nil {
 		t.Fatalf("Register falhou: %v", err)
@@ -59,9 +59,9 @@ func TestRegistryRegister(t *testing.T) {
 func TestRegistryDuplicateRegister(t *testing.T) {
 	r := NewRegistry()
 
-	r.MustRegister(newMockTool("dup"))
+	r.MustRegister(newRegistryMockTool("dup"))
 
-	err := r.Register(newMockTool("dup"))
+	err := r.Register(newRegistryMockTool("dup"))
 	if err == nil {
 		t.Error("Esperava erro ao registrar ferramenta duplicada")
 	}
@@ -69,7 +69,7 @@ func TestRegistryDuplicateRegister(t *testing.T) {
 
 func TestRegistryGet(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("find_me"))
+	r.MustRegister(newRegistryMockTool("find_me"))
 
 	tool, ok := r.Get("find_me")
 	if !ok {
@@ -87,9 +87,9 @@ func TestRegistryGet(t *testing.T) {
 
 func TestRegistryAll(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("beta"))
-	r.MustRegister(newMockTool("alpha"))
-	r.MustRegister(newMockTool("gamma"))
+	r.MustRegister(newRegistryMockTool("beta"))
+	r.MustRegister(newRegistryMockTool("alpha"))
+	r.MustRegister(newRegistryMockTool("gamma"))
 
 	all := r.All()
 	if len(all) != 3 {
@@ -104,8 +104,8 @@ func TestRegistryAll(t *testing.T) {
 
 func TestRegistryNames(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("zeta"))
-	r.MustRegister(newMockTool("alpha"))
+	r.MustRegister(newRegistryMockTool("zeta"))
+	r.MustRegister(newRegistryMockTool("alpha"))
 
 	names := r.Names()
 	if len(names) != 2 {
@@ -118,8 +118,8 @@ func TestRegistryNames(t *testing.T) {
 
 func TestRegistryToDefinitions(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("read_file"))
-	r.MustRegister(newMockTool("list_dir"))
+	r.MustRegister(newRegistryMockTool("read_file"))
+	r.MustRegister(newRegistryMockTool("list_dir"))
 
 	defs := r.ToDefinitions()
 	if len(defs) != 2 {
@@ -141,9 +141,9 @@ func TestRegistryToDefinitions(t *testing.T) {
 
 func TestRegistryFilterByNames(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("read_file"))
-	r.MustRegister(newMockTool("write_file"))
-	r.MustRegister(newMockTool("grep_search"))
+	r.MustRegister(newRegistryMockTool("read_file"))
+	r.MustRegister(newRegistryMockTool("write_file"))
+	r.MustRegister(newRegistryMockTool("grep_search"))
 
 	// Filtra apenas 2 das 3
 	defs := r.FilterByNames([]string{"read_file", "grep_search"})
@@ -162,9 +162,9 @@ func TestRegistryFilterByNames(t *testing.T) {
 
 func TestRegistryOptIn_ExcludedFromAll(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("read_file"))
-	r.MustRegister(newMockTool("write_file"))
-	r.MustRegisterOptIn(newMockTool("text_edit"))
+	r.MustRegister(newRegistryMockTool("read_file"))
+	r.MustRegister(newRegistryMockTool("write_file"))
+	r.MustRegisterOptIn(newRegistryMockTool("text_edit"))
 
 	all := r.All()
 	if len(all) != 2 {
@@ -179,8 +179,8 @@ func TestRegistryOptIn_ExcludedFromAll(t *testing.T) {
 
 func TestRegistryOptIn_ExcludedFromToDefinitions(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("read_file"))
-	r.MustRegisterOptIn(newMockTool("text_edit"))
+	r.MustRegister(newRegistryMockTool("read_file"))
+	r.MustRegisterOptIn(newRegistryMockTool("text_edit"))
 
 	defs := r.ToDefinitions()
 	if len(defs) != 1 {
@@ -193,8 +193,8 @@ func TestRegistryOptIn_ExcludedFromToDefinitions(t *testing.T) {
 
 func TestRegistryOptIn_IncludedInFilterByNames(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("read_file"))
-	r.MustRegisterOptIn(newMockTool("text_edit"))
+	r.MustRegister(newRegistryMockTool("read_file"))
+	r.MustRegisterOptIn(newRegistryMockTool("text_edit"))
 
 	defs := r.FilterByNames([]string{"text_edit"})
 	if len(defs) != 1 {
@@ -207,8 +207,8 @@ func TestRegistryOptIn_IncludedInFilterByNames(t *testing.T) {
 
 func TestRegistryOptIn_IncludedInCountAndNames(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("read_file"))
-	r.MustRegisterOptIn(newMockTool("text_edit"))
+	r.MustRegister(newRegistryMockTool("read_file"))
+	r.MustRegisterOptIn(newRegistryMockTool("text_edit"))
 
 	if r.Count() != 2 {
 		t.Errorf("Count esperado 2 (inclui opt-in), obtido %d", r.Count())
@@ -221,7 +221,7 @@ func TestRegistryOptIn_IncludedInCountAndNames(t *testing.T) {
 
 func TestRegistryOptIn_GetStillWorks(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegisterOptIn(newMockTool("text_edit"))
+	r.MustRegisterOptIn(newRegistryMockTool("text_edit"))
 
 	tool, ok := r.Get("text_edit")
 	if !ok {
@@ -234,8 +234,8 @@ func TestRegistryOptIn_GetStillWorks(t *testing.T) {
 
 func TestRegistryOptIn_IsOptIn(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("read_file"))
-	r.MustRegisterOptIn(newMockTool("text_edit"))
+	r.MustRegister(newRegistryMockTool("read_file"))
+	r.MustRegisterOptIn(newRegistryMockTool("text_edit"))
 
 	if r.IsOptIn("read_file") {
 		t.Error("read_file não deveria ser opt-in")
@@ -247,7 +247,7 @@ func TestRegistryOptIn_IsOptIn(t *testing.T) {
 
 func TestRegistryOptIn_UnregisterCleansUp(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegisterOptIn(newMockTool("text_edit"))
+	r.MustRegisterOptIn(newRegistryMockTool("text_edit"))
 
 	if !r.IsOptIn("text_edit") {
 		t.Fatal("text_edit deveria ser opt-in antes de unregister")
@@ -267,7 +267,7 @@ func TestRegistryOptIn_UnregisterCleansUp(t *testing.T) {
 
 func TestExecutorSingleSuccess(t *testing.T) {
 	r := NewRegistry()
-	tool := newMockTool("echo")
+	tool := newRegistryMockTool("echo")
 	tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 		return ToolResult{Content: "hello world"}, nil
 	}
@@ -314,7 +314,7 @@ func TestExecutorToolNotFound(t *testing.T) {
 
 func TestExecutorInvalidJSON(t *testing.T) {
 	r := NewRegistry()
-	r.MustRegister(newMockTool("test"))
+	r.MustRegister(newRegistryMockTool("test"))
 
 	exec := NewExecutor(r, DefaultExecutorConfig())
 	result := exec.ExecuteOne(context.Background(), ToolCall{
@@ -330,7 +330,7 @@ func TestExecutorInvalidJSON(t *testing.T) {
 
 func TestExecutorTimeout(t *testing.T) {
 	r := NewRegistry()
-	tool := newMockTool("slow")
+	tool := newRegistryMockTool("slow")
 	tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 		select {
 		case <-time.After(5 * time.Second):
@@ -358,7 +358,7 @@ func TestExecutorTimeout(t *testing.T) {
 
 func TestExecutorTruncation(t *testing.T) {
 	r := NewRegistry()
-	tool := newMockTool("big_output")
+	tool := newRegistryMockTool("big_output")
 	tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 		// Gera resultado maior que o limite
 		bigContent := make([]byte, 1024)
@@ -392,7 +392,7 @@ func TestExecutorParallel(t *testing.T) {
 
 	// Cria 3 tools que demoram 100ms cada
 	for i := 0; i < 3; i++ {
-		tool := newMockTool(fmt.Sprintf("tool_%d", i))
+		tool := newRegistryMockTool(fmt.Sprintf("tool_%d", i))
 		idx := i
 		tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 			time.Sleep(100 * time.Millisecond)
@@ -432,7 +432,7 @@ func TestExecutorParallel(t *testing.T) {
 
 func TestExecutorPanicRecovery(t *testing.T) {
 	r := NewRegistry()
-	tool := newMockTool("panicker")
+	tool := newRegistryMockTool("panicker")
 	tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 		panic("ferramenta explodiu!")
 	}
@@ -452,7 +452,7 @@ func TestExecutorPanicRecovery(t *testing.T) {
 
 func TestExecutorContextCancellation(t *testing.T) {
 	r := NewRegistry()
-	tool := newMockTool("waiting")
+	tool := newRegistryMockTool("waiting")
 	tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 		<-ctx.Done()
 		return ToolResult{}, ctx.Err()
