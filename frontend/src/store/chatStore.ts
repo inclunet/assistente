@@ -99,12 +99,22 @@ interface ChatSegmentDoneEvent {
   hasMore?: boolean;
   content?: string;
   iteration?: number;
+  // AEP-0039 Fase 2
+  toolsInIteration?: Array<{ name: string; status: string }>;
 }
 
 interface ChatDoneEvent {
   conversationId: number;
   assistantMessageId?: number;
   hadToolCalls?: boolean;
+  // AEP-0039 Fase 2
+  reason?: string;
+  iterationCount?: number;
+  toolCallCount?: number;
+  toolsUsed?: string[];
+  promptTokens?: number;
+  completionTokens?: number;
+  errorMessage?: string;
 }
 
 interface ChatErrorEvent {
