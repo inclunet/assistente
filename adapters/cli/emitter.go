@@ -164,12 +164,70 @@ func (e *EmitterAdapter) handleError(data any) {
 	e.signalDone()
 }
 
-// handleTool imprime informações de tool calling quando verbose.
+// handleTool imprime informações de tool calling quando verbose (AEP-0039 Fase 1).
+// Em modo verbose exibe nome, origin e serverLabel de cada tool event.
 func (e *EmitterAdapter) handleTool(event string, data any) {
 	if !e.verbose {
 		return
 	}
+	switch event {
+	case "chat:tool_start":
+		if ev, ok := e.toToolStartEvent(data); ok {
+			origin := ev.Origin
+			if origin == "" && ev.Native {
+				origin = "mcp_native"
+			}
+			if origin == "" {
+				origin = "builtin"
+			}
+			label := origin
+			if ev.ServerLabel != "" {
+				label = origin + "/" + ev.ServerLabel
+			}
+			_, _ = fmt.Fprintf(e.errOut, "[tool:start] %s (%s)\n", ev.Name, label)
+			return
+		}
+	case "chat:tool_end":
+		if ev, ok := e.toToolEndEvent(data); ok {
+			name := ev.Name
+			if name == "" {
+				name = ev.CallID
+			}
+			status := ev.Status
+			if status == "" {
+				status = "ok"
+			}
+			_, _ = fmt.Fprintf(e.errOut, "[tool:end]   %s — %s\n", name, status)
+			return
+		}
+	}
 	_, _ = fmt.Fprintf(e.errOut, "[tool] %s\n", event)
+}
+
+// toToolStartEvent converte o payload genérico para ports.ToolStartEvent.
+func (e *EmitterAdapter) toToolStartEvent(data any) (ports.ToolStartEvent, bool) {
+	switch v := data.(type) {
+	case ports.ToolStartEvent:
+		return v, true
+	case *ports.ToolStartEvent:
+		if v != nil {
+			return *v, true
+		}
+	}
+	return ports.ToolStartEvent{}, false
+}
+
+// toToolEndEvent converte o payload genérico para ports.ToolEndEvent.
+func (e *EmitterAdapter) toToolEndEvent(data any) (ports.ToolEndEvent, bool) {
+	switch v := data.(type) {
+	case ports.ToolEndEvent:
+		return v, true
+	case *ports.ToolEndEvent:
+		if v != nil {
+			return *v, true
+		}
+	}
+	return ports.ToolEndEvent{}, false
 }
 
 // handleDone imprime resumo do chat:done no stderr (AEP-0039 Fase 2).
