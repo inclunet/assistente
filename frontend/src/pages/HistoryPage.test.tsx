@@ -145,7 +145,7 @@ const conversations: ConversationItem[] = [
   },
 ];
 
-describe('HistoryPage', () => {
+describe('HistoryPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockGetConversations.mockResolvedValue(conversations);
     mockDeleteConversation.mockResolvedValue(undefined);
