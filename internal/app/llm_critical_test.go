@@ -33,16 +33,6 @@ func (e *testEmitter) Emit(event string, data any) {
 	e.events = append(e.events, capturedEvent{event, data})
 }
 
-func (e *testEmitter) last() (string, any) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if len(e.events) == 0 {
-		return "", nil
-	}
-	ev := e.events[len(e.events)-1]
-	return ev.name, ev.data
-}
-
 func (e *testEmitter) count() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()

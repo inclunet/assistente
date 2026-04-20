@@ -66,8 +66,6 @@ func (h *HistoryLoader) Load(conversationID uint) ([]Message, string, error) {
 			}
 			dbMessages = append(dbMessages[:2], dbMessages[total-kept:]...)
 		}
-	} else {
-		// total <= MaxMsgs — use all in context
 	}
 
 	// Garante que a primeira mensagem no contexto é uma user message

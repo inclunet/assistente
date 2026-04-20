@@ -120,15 +120,3 @@ func (a *App) SpeakPreview(providerID, voiceID, model string, rate, volume float
 		SessionID:  sessionID,
 	})
 }
-
-// ============================================================================
-// TTS Client Helpers (usados por outros arquivos root)
-// ============================================================================
-
-func (a *App) createTTSClientForProvider(providerID, model string) *speech.TTSClient {
-	return a.speechSvc.CreateTTSClient(providerID, model)
-}
-
-func (a *App) findOpenAILikeProvider() *llm.ProviderConfig {
-	return a.speechSvc.FindOpenAILikeProvider()
-}

@@ -112,7 +112,7 @@ func TestSaveAndFinish_CallsOnSpeechRequestBeforeChatDone(t *testing.T) {
 
 	// Verificar a ordem: OnSpeechRequest (síncrono) deve ser chamado ANTES de chat:done
 	evts := emitter.getEvents()
-	var doneIdx int = -1
+	doneIdx := -1
 	for i, e := range evts {
 		if e.name == "chat:done" && doneIdx == -1 {
 			doneIdx = i

@@ -18,7 +18,7 @@ func TestClient_ApplyAuth_WithCredential(t *testing.T) {
 		Type:  "bearer",
 		Token: "secret-token-123",
 	}
-	mgr.RegisterPattern("api-token", auth)
+	_ = mgr.RegisterPattern("api-token", auth)
 
 	client := New(&Config{
 		CredentialManager: mgr,
@@ -76,7 +76,7 @@ func TestClient_ApplyAuth_WildcardPattern(t *testing.T) {
 		Type:  "bearer",
 		Token: "wildcard-token",
 	}
-	mgr.RegisterPattern("default-auth", auth)
+	_ = mgr.RegisterPattern("default-auth", auth)
 
 	client := New(&Config{
 		CredentialManager: mgr,
@@ -111,7 +111,7 @@ func TestClient_Do_WithServer(t *testing.T) {
 		Type:  "bearer",
 		Token: "test-token",
 	}
-	mgr.RegisterPattern("test-cred", auth)
+	_ = mgr.RegisterPattern("test-cred", auth)
 
 	client := New(&Config{
 		CredentialManager: mgr,
@@ -138,7 +138,7 @@ func TestClient_ApplyAuth_FallbackResolveForURL(t *testing.T) {
 		Type:  "bearer",
 		Token: "github-token-from-keyring",
 	}
-	mgr.RegisterPattern("api.github.com", auth)
+	_ = mgr.RegisterPattern("api.github.com", auth)
 
 	// Empty domainPatterns simulates how http_request tool creates the client
 	client := New(&Config{
@@ -161,7 +161,7 @@ func TestClient_ApplyAuth_FallbackWildcard(t *testing.T) {
 		Type:  "bearer",
 		Token: "wildcard-github-token",
 	}
-	mgr.RegisterPattern("*.github.com", auth)
+	_ = mgr.RegisterPattern("*.github.com", auth)
 
 	client := New(&Config{
 		CredentialManager: mgr,
@@ -183,7 +183,7 @@ func TestClient_ApplyAuth_ExistingAuthNotOverwritten(t *testing.T) {
 		Type:  "bearer",
 		Token: "from-credential-manager",
 	}
-	mgr.RegisterPattern("api.github.com", auth)
+	_ = mgr.RegisterPattern("api.github.com", auth)
 
 	client := New(&Config{
 		CredentialManager: mgr,

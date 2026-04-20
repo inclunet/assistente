@@ -150,8 +150,8 @@ func TestScheduler_ScheduledJobsReturnsIDs(t *testing.T) {
 		},
 	}
 
-	s.Schedule(job1)
-	s.Schedule(job2)
+	_ = s.Schedule(job1)
+	_ = s.Schedule(job2)
 
 	ids := s.ScheduledJobs()
 	found := make(map[string]bool)
@@ -178,7 +178,7 @@ func TestScheduler_StopCancelsAllIntervals(t *testing.T) {
 			{Type: TriggerInterval, Every: "50ms"},
 		},
 	}
-	s.Schedule(job)
+	_ = s.Schedule(job)
 
 	time.Sleep(150 * time.Millisecond)
 	s.Stop()
@@ -314,7 +314,7 @@ func TestScheduler_IntervalTriggerContext(t *testing.T) {
 			{Type: TriggerInterval, Every: "20ms"},
 		},
 	}
-	s.Schedule(job)
+	_ = s.Schedule(job)
 
 	select {
 	case <-done:

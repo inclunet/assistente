@@ -156,7 +156,7 @@ func TestSpeakMessage_ModelFallbackToVoiceID(t *testing.T) {
 	repo.content[10] = "Teste com piper"
 
 	reg := llm.NewProviderRegistry()
-	reg.Register(&llm.ProviderConfig{
+	_ = reg.Register(&llm.ProviderConfig{
 		ID:      "local-piper",
 		Name:    "Local Piper",
 		BaseURL: "http://localhost:9999",
@@ -186,7 +186,7 @@ func TestSpeakMessage_SpeedNormalization(t *testing.T) {
 	repo.content[11] = "Teste speed"
 
 	reg := llm.NewProviderRegistry()
-	reg.Register(&llm.ProviderConfig{
+	_ = reg.Register(&llm.ProviderConfig{
 		ID:      "test-provider",
 		Name:    "Test Provider",
 		BaseURL: "http://localhost:9999",

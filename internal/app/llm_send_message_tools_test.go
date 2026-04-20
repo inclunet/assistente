@@ -346,20 +346,13 @@ func TestProfile_ChatConfig_Serialization(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Validar que os campos estão corretos após construção
-			if tc.config.DisableTools && tc.config.EnabledTools == nil {
-				// Esperado
-			} else if !tc.config.DisableTools && tc.config.EnabledTools != nil {
-				// Esperado
-			}
-
 			// Simular o contexto que SendMessage usaria
 			disableTools := tc.config.DisableTools
 			enabledTools := tc.config.EnabledTools
 
 			// Regra: se DisableTools=true, ignorar EnabledTools
 			if disableTools {
-				if enabledTools != nil && len(enabledTools) > 0 {
+				if len(enabledTools) > 0 {
 					// Erro: DisableTools=true mas EnabledTools foi definido
 					t.Logf("Warning: DisableTools=true but EnabledTools=%v (será ignorado)", enabledTools)
 				}

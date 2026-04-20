@@ -24,13 +24,13 @@ var toolsListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NOME\tORIGEM\tDESCRIÇÃO")
+		_, _ = fmt.Fprintln(w, "NOME\tORIGEM\tDESCRIÇÃO")
 		for _, t := range tools {
 			desc := t.Description
 			if len(desc) > 60 {
 				desc = desc[:57] + "..."
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\n", t.Name, t.SourceLabel, desc)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", t.Name, t.SourceLabel, desc)
 		}
 		return w.Flush()
 	},

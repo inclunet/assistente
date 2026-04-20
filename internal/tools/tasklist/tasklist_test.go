@@ -944,8 +944,8 @@ func TestTask_ReadWithNotes(t *testing.T) {
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 
-	mgr.CreateTaskNote(task.ID, 1, "First note", "Alice", "")
-	mgr.CreateTaskNote(task.ID, 2, "Customer replied", "Bob", "")
+	mgr.CreateTaskNote(task.ID, 1, "First note", "Alice", "")   //nolint:errcheck
+	mgr.CreateTaskNote(task.ID, 2, "Customer replied", "Bob", "") //nolint:errcheck
 
 	tool := NewTask(mgr)
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
@@ -1294,12 +1294,12 @@ func TestUpsertTask_DedupByCode_TaskIdTakesPrecedence(t *testing.T) {
 	tool := NewTask(mgr)
 
 	// Create two tasks with different codes
-	tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+	_, _ = tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
 		"title":        "First",
 		"code":         "CODE-A",
 	}))
-	tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+	_, _ = tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
 		"title":        "Second",
 		"code":         "CODE-B",
@@ -1345,7 +1345,7 @@ func TestUpsertTask_DedupByCode_UpdatesStatusToo(t *testing.T) {
 	tool := NewTask(mgr)
 
 	// Create task
-	tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+	_, _ = tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
 		"title":        "Work Item",
 		"code":         "WI-500",

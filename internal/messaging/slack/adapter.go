@@ -75,7 +75,7 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 	s.mu.Unlock()
 
 	go s.eventLoop()
-	go socketClient.RunContext(s.ctx)
+	go func() { _ = socketClient.RunContext(s.ctx) }()
 
 	log.Println("[Slack] Conectado via Socket Mode")
 	return nil

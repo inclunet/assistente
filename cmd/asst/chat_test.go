@@ -105,8 +105,8 @@ func TestIsTerminal_Pipe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
-	defer w.Close()
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
 
 	if isTerminal(r) {
 		t.Error("pipe reader should not be detected as terminal")
@@ -405,7 +405,7 @@ func TestRunREPL_ProcessesMultipleLines(t *testing.T) {
 
 	go func() {
 		_, _ = w.WriteString("primeira\nsegunda\n")
-		w.Close()
+		_ = w.Close()
 	}()
 
 	err := runREPL(mock, emitter)
@@ -450,7 +450,7 @@ func TestRunREPL_SkipsEmptyLines(t *testing.T) {
 
 	go func() {
 		_, _ = w.WriteString("\n  \nhello\n")
-		w.Close()
+		_ = w.Close()
 	}()
 
 	err := runREPL(mock, emitter)
@@ -492,7 +492,7 @@ func TestRunREPL_ContinuesAfterSendError(t *testing.T) {
 
 	go func() {
 		_, _ = w.WriteString("first\nsecond\n")
-		w.Close()
+		_ = w.Close()
 	}()
 
 	err := runREPL(mock, emitter)

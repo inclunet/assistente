@@ -229,18 +229,6 @@ func (a *App) CanPersistCredentials() bool {
 	return a.credMgr.CanPersist()
 }
 
-func (a *App) resolveCredentialRef(ref string) string {
-	if ref == "" || a.credMgr == nil {
-		return ""
-	}
-	auth, err := a.credMgr.GetByPattern(ref)
-	if err != nil {
-		log.Printf("[Credentials] Erro ao resolver referência %s: %v", ref, err)
-		return ""
-	}
-	return credentials.ResolveSecretFromAuth(auth)
-}
-
 // ============================================================================
 // Credential UI API
 // ============================================================================

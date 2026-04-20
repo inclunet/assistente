@@ -88,11 +88,6 @@ func (a *App) checkForUpdatesOnStartup() {
 	a.updaterCtrl.CheckForUpdatesOnStartup(a.ctx)
 }
 
-// promptForUpdate delega para o updaterCtrl (chamado por app_welcome.go).
-func (a *App) promptForUpdate(info *updater.UpdateInfo) {
-	a.updaterCtrl.PromptForUpdate(a.ctx, info)
-}
-
 // GetAppVersion retorna a versão atual do aplicativo.
 func (a *App) GetAppVersion() string {
 	return a.updaterCtrl.GetAppVersion()

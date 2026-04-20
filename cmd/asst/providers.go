@@ -33,7 +33,7 @@ var providersListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tTIPO\tNOME\tMODELO\tSTATUS\tPADRÃO")
+		_, _ = fmt.Fprintln(w, "ID\tTIPO\tNOME\tMODELO\tSTATUS\tPADRÃO")
 		for _, p := range items {
 			def := ""
 			if isDefault, ok := p["isDefault"].(bool); ok && isDefault {
@@ -43,7 +43,7 @@ var providersListCmd = &cobra.Command{
 			if status == "" {
 				status = "-"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				str(p["id"]),
 				str(p["type"]),
 				str(p["name"]),

@@ -119,14 +119,14 @@ func TestProviderRouting_ChatProviderHitsCorrectEndpoint(t *testing.T) {
 	googleServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		googleHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
+		_, _ = w.Write(modelsResp)
 	}))
 	defer googleServer.Close()
 
 	litellmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		litellmHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
+		_, _ = w.Write(modelsResp)
 	}))
 	defer litellmServer.Close()
 
@@ -173,14 +173,14 @@ func TestProviderRouting_StreamChatHitsCorrectEndpoint(t *testing.T) {
 	serverA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serverAHits.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.Write([]byte(streamResp))
+		_, _ = w.Write([]byte(streamResp))
 	}))
 	defer serverA.Close()
 
 	serverB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serverBHits.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.Write([]byte(streamResp))
+		_, _ = w.Write([]byte(streamResp))
 	}))
 	defer serverB.Close()
 
@@ -277,22 +277,22 @@ func TestProviderRouting_ChannelProfileUsesOwnProvider(t *testing.T) {
 	googleServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		googleHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
+		_, _ = w.Write(modelsResp)
 	}))
 	defer googleServer.Close()
 
 	litellmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		litellmHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
+		_, _ = w.Write(modelsResp)
 	}))
 	defer litellmServer.Close()
 
 	registry := llm.NewProviderRegistry()
-	registry.Register(&llm.ProviderConfig{
+	_ = registry.Register(&llm.ProviderConfig{
 		ID: "google", Name: "Google", Type: llm.ProviderCustom, BaseURL: googleServer.URL,
 	})
-	registry.Register(&llm.ProviderConfig{
+	_ = registry.Register(&llm.ProviderConfig{
 		ID: "litellm", Name: "LiteLLM", Type: llm.ProviderCustom, BaseURL: litellmServer.URL,
 	})
 
@@ -349,14 +349,14 @@ func TestProviderRouting_RequestContainsCorrectModel(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if m, ok := req["model"].(string); ok {
 			receivedModel = m
 		}
 
 		resp := `{"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"model":"gpt-4o-mini"}`
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(resp))
+		_, _ = w.Write([]byte(resp))
 	}))
 	defer server.Close()
 
@@ -383,7 +383,7 @@ func TestProviderRouting_RequestContainsCorrectModel(t *testing.T) {
 // quando o provedor do perfil não é encontrado, GetChatProvider retorna erro.
 func TestProviderRouting_ErrorWhenProfileProviderMissing(t *testing.T) {
 	registry := llm.NewProviderRegistry()
-	registry.Register(&llm.ProviderConfig{
+	_ = registry.Register(&llm.ProviderConfig{
 		ID: "google", Name: "Google", Type: llm.ProviderCustom, BaseURL: "https://example.com",
 	})
 
@@ -612,36 +612,36 @@ func TestDefaultSentinel_RoutesToCorrectProvider(t *testing.T) {
 	defaultServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defaultHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
+		_, _ = w.Write(modelsResp)
 	}))
 	defer defaultServer.Close()
 
 	otherServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		otherHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
+		_, _ = w.Write(modelsResp)
 	}))
 	defer otherServer.Close()
 
 	registry := llm.NewProviderRegistry()
-	registry.Register(&llm.ProviderConfig{
+	_ = registry.Register(&llm.ProviderConfig{
 		ID: "default-prov", Name: "Default Provider", Type: llm.ProviderCustom,
 		BaseURL: defaultServer.URL, DefaultModel: "default-model", IsDefault: true,
 	})
-	registry.Register(&llm.ProviderConfig{
+	_ = registry.Register(&llm.ProviderConfig{
 		ID: "other-prov", Name: "Other Provider", Type: llm.ProviderCustom,
 		BaseURL: otherServer.URL,
 	})
 
-	database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProvider(&database.LLMProvider{
 		ID: "default-prov", Name: "Default Provider", Type: "custom",
 		BaseURL: defaultServer.URL, DefaultModel: "default-model", IsDefault: true,
 	})
-	database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProvider(&database.LLMProvider{
 		ID: "other-prov", Name: "Other Provider", Type: "custom",
 		BaseURL: otherServer.URL,
 	})
-	database.SetDefaultProvider("default-prov")
+	_ = database.SetDefaultProvider("default-prov")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -695,26 +695,26 @@ func TestDefaultSentinel_ModelSentInRequest(t *testing.T) {
 	var receivedModel string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if m, ok := req["model"].(string); ok {
 			receivedModel = m
 		}
 		resp := `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(resp))
+		_, _ = w.Write([]byte(resp))
 	}))
 	defer server.Close()
 
 	registry := llm.NewProviderRegistry()
-	registry.Register(&llm.ProviderConfig{
+	_ = registry.Register(&llm.ProviderConfig{
 		ID: "my-provider", Name: "My Provider", Type: llm.ProviderCustom,
 		BaseURL: server.URL, DefaultModel: "resolved-model-v2", IsDefault: true,
 	})
-	database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProvider(&database.LLMProvider{
 		ID: "my-provider", Name: "My Provider", Type: "custom",
 		BaseURL: server.URL, DefaultModel: "resolved-model-v2", IsDefault: true,
 	})
-	database.SetDefaultProvider("my-provider")
+	_ = database.SetDefaultProvider("my-provider")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -755,35 +755,35 @@ func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
 	serverA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serverAHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
+		_, _ = w.Write(modelsResp)
 	}))
 	defer serverA.Close()
 
 	serverB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serverBHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
+		_, _ = w.Write(modelsResp)
 	}))
 	defer serverB.Close()
 
 	registry := llm.NewProviderRegistry()
-	registry.Register(&llm.ProviderConfig{
+	_ = registry.Register(&llm.ProviderConfig{
 		ID: "prov-a", Name: "Provider A", Type: llm.ProviderCustom,
 		BaseURL: serverA.URL, DefaultModel: "model-a", IsDefault: true,
 	})
-	registry.Register(&llm.ProviderConfig{
+	_ = registry.Register(&llm.ProviderConfig{
 		ID: "prov-b", Name: "Provider B", Type: llm.ProviderCustom,
 		BaseURL: serverB.URL, DefaultModel: "model-b",
 	})
-	database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProvider(&database.LLMProvider{
 		ID: "prov-a", Name: "Provider A", Type: "custom",
 		BaseURL: serverA.URL, DefaultModel: "model-a", IsDefault: true,
 	})
-	database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProvider(&database.LLMProvider{
 		ID: "prov-b", Name: "Provider B", Type: "custom",
 		BaseURL: serverB.URL, DefaultModel: "model-b",
 	})
-	database.SetDefaultProvider("prov-a")
+	_ = database.SetDefaultProvider("prov-a")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -796,14 +796,14 @@ func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
 		t.Fatalf("round 1: expected prov-a, got %s", resolved.Chat.LLMProvider)
 	}
 	cp1, _ := app.getChatProviderForProvider(resolved.Chat.LLMProvider)
-	cp1.GetModels(t.Context())
+	_, _ = cp1.GetModels(t.Context())
 
 	if serverAHits.Load() != 1 || serverBHits.Load() != 0 {
 		t.Fatalf("round 1: A=%d B=%d", serverAHits.Load(), serverBHits.Load())
 	}
 
 	// Switch default to Provider B
-	database.SetDefaultProvider("prov-b")
+	_ = database.SetDefaultProvider("prov-b")
 
 	// Round 2: same $default profile → now routes to Provider B
 	resolved2 := app.resolveProfileDefaults(profile)
@@ -814,7 +814,7 @@ func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
 		t.Fatalf("round 2: expected model-b, got %s", resolved2.Chat.Model)
 	}
 	cp2, _ := app.getChatProviderForProvider(resolved2.Chat.LLMProvider)
-	cp2.GetModels(t.Context())
+	_, _ = cp2.GetModels(t.Context())
 
 	if serverBHits.Load() != 1 {
 		t.Errorf("round 2: expected 1 hit on B, got %d", serverBHits.Load())
@@ -838,35 +838,35 @@ func TestDefaultSentinel_MixedProfilesRouteCorrectly(t *testing.T) {
 	defaultServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defaultHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
+		_, _ = w.Write(modelsResp)
 	}))
 	defer defaultServer.Close()
 
 	concreteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		concreteHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
+		_, _ = w.Write(modelsResp)
 	}))
 	defer concreteServer.Close()
 
 	registry := llm.NewProviderRegistry()
-	registry.Register(&llm.ProviderConfig{
+	_ = registry.Register(&llm.ProviderConfig{
 		ID: "default-prov", Name: "Default", Type: llm.ProviderCustom,
 		BaseURL: defaultServer.URL, DefaultModel: "dm", IsDefault: true,
 	})
-	registry.Register(&llm.ProviderConfig{
+	_ = registry.Register(&llm.ProviderConfig{
 		ID: "concrete-prov", Name: "Concrete", Type: llm.ProviderCustom,
 		BaseURL: concreteServer.URL,
 	})
-	database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProvider(&database.LLMProvider{
 		ID: "default-prov", Name: "Default", Type: "custom",
 		BaseURL: defaultServer.URL, DefaultModel: "dm", IsDefault: true,
 	})
-	database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProvider(&database.LLMProvider{
 		ID: "concrete-prov", Name: "Concrete", Type: "custom",
 		BaseURL: concreteServer.URL,
 	})
-	database.SetDefaultProvider("default-prov")
+	_ = database.SetDefaultProvider("default-prov")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -892,7 +892,7 @@ func TestDefaultSentinel_MixedProfilesRouteCorrectly(t *testing.T) {
 	// Resolve and route Profile A → default server
 	resolvedA := app.resolveProfileDefaults(profileA)
 	cpA, _ := app.getChatProviderForProvider(resolvedA.Chat.LLMProvider)
-	cpA.GetModels(t.Context())
+	_, _ = cpA.GetModels(t.Context())
 
 	// Resolve and route Profile B → concrete server (no resolution needed)
 	resolvedB := app.resolveProfileDefaults(profileB)
@@ -900,7 +900,7 @@ func TestDefaultSentinel_MixedProfilesRouteCorrectly(t *testing.T) {
 		t.Fatalf("profileB should keep concrete ID, got %s", resolvedB.Chat.LLMProvider)
 	}
 	cpB, _ := app.getChatProviderForProvider(resolvedB.Chat.LLMProvider)
-	cpB.GetModels(t.Context())
+	_, _ = cpB.GetModels(t.Context())
 
 	if defaultHits.Load() != 1 {
 		t.Errorf("default server: expected 1, got %d", defaultHits.Load())
@@ -940,7 +940,7 @@ func (h *testStreamHandler) OnDone(fullResponse string, usage llm.Usage, model s
 
 func newFormatTestSvc(cfg *llm.ProviderConfig) *providers.Service {
 	registry := llm.NewProviderRegistry()
-	registry.Register(cfg)
+	_ = registry.Register(cfg)
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	return providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 }

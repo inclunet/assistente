@@ -211,9 +211,9 @@ func TestSettingsService_ClearAllSkills(t *testing.T) {
 func TestMain(m *testing.M) {
 	// Usa diretório temporário para config durante testes
 	tmpDir, _ := os.MkdirTemp("", "config-test-*")
-	os.Setenv("ASSISTENTE_HOME", tmpDir)
-	defer os.RemoveAll(tmpDir)
-	defer os.Unsetenv("ASSISTENTE_HOME")
+	_ = os.Setenv("ASSISTENTE_HOME", tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	defer func() { _ = os.Unsetenv("ASSISTENTE_HOME") }()
 
 	os.Exit(m.Run())
 }

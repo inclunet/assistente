@@ -46,13 +46,13 @@ func runProfilesList(svc profilesBackend, out io.Writer) error {
 	activeSlug := svc.GetActiveProfileSlug()
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "SLUG\tNOME\tORIGEM\tATIVO")
+	_, _ = fmt.Fprintln(w, "SLUG\tNOME\tORIGEM\tATIVO")
 	for _, p := range items {
 		active := ""
 		if p.Slug == activeSlug {
 			active = "*"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Slug, p.Name, p.Source, active)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Slug, p.Name, p.Source, active)
 	}
 	return w.Flush()
 }
@@ -72,22 +72,22 @@ func runProfilesShow(svc profilesBackend, out io.Writer, slug string) error {
 		return fmt.Errorf("perfil '%s' não encontrado: %w", slug, err)
 	}
 
-	fmt.Fprintf(out, "Nome:        %s\n", profile.Name)
-	fmt.Fprintf(out, "Descrição:   %s\n", profile.Description)
-	fmt.Fprintf(out, "Ícone:       %s\n", profile.Icon)
+	_, _ = fmt.Fprintf(out, "Nome:        %s\n", profile.Name)
+	_, _ = fmt.Fprintf(out, "Descrição:   %s\n", profile.Description)
+	_, _ = fmt.Fprintf(out, "Ícone:       %s\n", profile.Icon)
 
 	if profile.Chat.LLMProvider != "" {
-		fmt.Fprintf(out, "Provider:    %s\n", profile.Chat.LLMProvider)
+		_, _ = fmt.Fprintf(out, "Provider:    %s\n", profile.Chat.LLMProvider)
 	}
 	if profile.Chat.Model != "" {
-		fmt.Fprintf(out, "Modelo:      %s\n", profile.Chat.Model)
+		_, _ = fmt.Fprintf(out, "Modelo:      %s\n", profile.Chat.Model)
 	}
-	fmt.Fprintf(out, "Temperatura: %.1f\n", profile.Chat.Temperature)
+	_, _ = fmt.Fprintf(out, "Temperatura: %.1f\n", profile.Chat.Temperature)
 	if profile.Chat.MaxTokens > 0 {
-		fmt.Fprintf(out, "Max Tokens:  %d\n", profile.Chat.MaxTokens)
+		_, _ = fmt.Fprintf(out, "Max Tokens:  %d\n", profile.Chat.MaxTokens)
 	}
 	if len(profile.Chat.EnabledTools) > 0 {
-		fmt.Fprintf(out, "Tools:       %v\n", profile.Chat.EnabledTools)
+		_, _ = fmt.Fprintf(out, "Tools:       %v\n", profile.Chat.EnabledTools)
 	}
 
 	return nil
@@ -106,7 +106,7 @@ func runProfilesActivate(svc profilesBackend, out io.Writer, slug string) error 
 	if err := svc.SetActiveProfile(slug); err != nil {
 		return fmt.Errorf("erro ao ativar perfil '%s': %w", slug, err)
 	}
-	fmt.Fprintf(out, "Perfil '%s' ativado.\n", slug)
+	_, _ = fmt.Fprintf(out, "Perfil '%s' ativado.\n", slug)
 	return nil
 }
 
@@ -154,7 +154,7 @@ func runProfilesCreate(svc profilesBackend, out io.Writer, cmd *cobra.Command) e
 		return fmt.Errorf("erro ao criar perfil: %w", err)
 	}
 
-	fmt.Fprintf(out, "Perfil '%s' criado (slug: %s).\n", profileCreateName, slug)
+	_, _ = fmt.Fprintf(out, "Perfil '%s' criado (slug: %s).\n", profileCreateName, slug)
 	return nil
 }
 
@@ -203,7 +203,7 @@ func runProfilesEdit(svc profilesBackend, out io.Writer, cmd *cobra.Command, slu
 		return fmt.Errorf("erro ao atualizar perfil: %w", err)
 	}
 
-	fmt.Fprintf(out, "Perfil '%s' atualizado.\n", slug)
+	_, _ = fmt.Fprintf(out, "Perfil '%s' atualizado.\n", slug)
 	return nil
 }
 
@@ -223,7 +223,7 @@ func runProfilesDuplicate(svc profilesBackend, out io.Writer, slug string) error
 	if err != nil {
 		return fmt.Errorf("erro ao duplicar perfil '%s': %w", slug, err)
 	}
-	fmt.Fprintf(out, "Perfil duplicado: %s\n", newSlug)
+	_, _ = fmt.Fprintf(out, "Perfil duplicado: %s\n", newSlug)
 	return nil
 }
 
@@ -242,7 +242,7 @@ func runProfilesDelete(svc profilesBackend, out io.Writer, slug string) error {
 	if err := svc.DeleteProfile(slug); err != nil {
 		return fmt.Errorf("erro ao remover perfil '%s': %w", slug, err)
 	}
-	fmt.Fprintf(out, "Perfil '%s' removido.\n", slug)
+	_, _ = fmt.Fprintf(out, "Perfil '%s' removido.\n", slug)
 	return nil
 }
 

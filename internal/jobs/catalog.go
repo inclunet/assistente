@@ -61,7 +61,7 @@ func GenerateCatalog(toolRegistry *tools.Registry, outputDir string) error {
 
 	if err := os.WriteFile(path, content, 0444); err != nil {
 		// Se o arquivo ja existe como read-only, remover e reescrever
-		os.Chmod(path, 0644)
+		_ = os.Chmod(path, 0644)
 		if err := os.WriteFile(path, content, 0444); err != nil {
 			return fmt.Errorf("write catalog: %w", err)
 		}

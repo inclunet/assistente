@@ -301,7 +301,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		credConfigured = err == nil && auth != nil
 	}
 
-	s.registry.Remove(id)
+	_ = s.registry.Remove(id)
 	if err := s.registry.Register(updated); err != nil {
 		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
 	}
@@ -464,7 +464,7 @@ func (s *Service) TestConnection(ctx context.Context, req TestRequest) (bool, er
 	if err != nil {
 		return false, fmt.Errorf("erro ao conectar: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch {
 	case resp.StatusCode >= 500:
@@ -517,7 +517,7 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 	if err != nil {
 		return nil, fmt.Errorf("erro ao conectar: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, fmt.Errorf("API Key inválida ou não autorizada")

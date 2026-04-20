@@ -47,7 +47,7 @@ func ParseSlashCommand(content string) (slug string, args string, ok bool) {
 
 	// Valida que o slug parece um nome de skill (letras minúsculas, números, hifens)
 	for _, ch := range slug {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
 			return "", "", false
 		}
 	}

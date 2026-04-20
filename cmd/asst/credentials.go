@@ -33,13 +33,13 @@ var credentialsListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "PADRÃO\tTIPO\tVALOR (MASCARADO)\tGERENCIADA")
+		_, _ = fmt.Fprintln(w, "PADRÃO\tTIPO\tVALOR (MASCARADO)\tGERENCIADA")
 		for _, c := range items {
 			managed := ""
 			if c.Managed {
 				managed = "sim"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.Pattern, c.Type, c.Masked, managed)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.Pattern, c.Type, c.Masked, managed)
 		}
 		return w.Flush()
 	},

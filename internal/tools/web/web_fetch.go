@@ -130,7 +130,7 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao acessar URL: %v", err), IsError: true}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Verifica status
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
@@ -350,7 +350,7 @@ func extractMarkdown(n *html.Node, sb *strings.Builder) {
 			if href != "" {
 				// Fecha o link no formato markdown: [texto](url)
 				// Como o texto já foi escrito, vamos apenas adicionar o URL
-				sb.WriteString(fmt.Sprintf(" (%s) ", href))
+				_, _ = fmt.Fprintf(sb, " (%s) ", href)
 			}
 		case "p", "div", "section", "article":
 			sb.WriteString("\n")

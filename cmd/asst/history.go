@@ -39,14 +39,14 @@ var historyListCmd = &cobra.Command{
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "CONVERSA\tTÍTULO\tROLE\tTRECHO")
+			_, _ = fmt.Fprintln(w, "CONVERSA\tTÍTULO\tROLE\tTRECHO")
 			for _, r := range results {
 				snippet := r.Snippet
 				if len(snippet) > 60 {
 					snippet = snippet[:57] + "..."
 				}
 				snippet = strings.ReplaceAll(snippet, "\n", " ")
-				fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", r.ConversationID, r.ConversationTitle, r.Role, snippet)
+				_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", r.ConversationID, r.ConversationTitle, r.Role, snippet)
 			}
 			return w.Flush()
 		}
@@ -66,11 +66,11 @@ var historyListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tTÍTULO\tMENSAGENS\tDATA")
+		_, _ = fmt.Fprintln(w, "ID\tTÍTULO\tMENSAGENS\tDATA")
 		for i := 0; i < limit; i++ {
 			c := conversations[i]
 			date := c.UpdatedAt.Format(time.DateOnly)
-			fmt.Fprintf(w, "%d\t%s\t%d\t%s\n", c.ID, c.Title, c.MessageCount, date)
+			_, _ = fmt.Fprintf(w, "%d\t%s\t%d\t%s\n", c.ID, c.Title, c.MessageCount, date)
 		}
 		return w.Flush()
 	},

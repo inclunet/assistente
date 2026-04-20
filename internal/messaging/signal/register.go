@@ -64,7 +64,7 @@ func Register(apiURL, number, mode, captcha, apiToken string) error {
 		log.Printf("[Signal] Register: erro de rede: %v", err)
 		return fmt.Errorf("erro ao registrar número %s: %w", number, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	log.Printf("[Signal] Register: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
@@ -102,7 +102,7 @@ func Verify(apiURL, number, code, apiToken string) error {
 		log.Printf("[Signal] Verify: erro de rede: %v", err)
 		return fmt.Errorf("erro ao verificar número %s: %w", number, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	log.Printf("[Signal] Verify: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
@@ -141,7 +141,7 @@ func Unregister(apiURL, number string, deleteLocalData bool, apiToken string) er
 		log.Printf("[Signal] Unregister: erro de rede: %v", err)
 		return fmt.Errorf("erro ao descadastrar %s: %w", number, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	log.Printf("[Signal] Unregister: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
@@ -168,7 +168,7 @@ func Unregister(apiURL, number string, deleteLocalData bool, apiToken string) er
 		if err != nil {
 			return fmt.Errorf("descadastrado, mas erro ao limpar dados locais: %w", err)
 		}
-		defer delResp.Body.Close()
+		defer func() { _ = delResp.Body.Close() }()
 
 		delBody, _ := io.ReadAll(delResp.Body)
 		log.Printf("[Signal] Unregister: delete local-data status=%d, body=%s", delResp.StatusCode, truncateStr(string(delBody), 300))
@@ -200,7 +200,7 @@ func GetLinkQRCode(apiURL, deviceName, apiToken string) (string, error) {
 		log.Printf("[Signal] GetLinkQRCode: erro: %v", err)
 		return "", fmt.Errorf("erro ao gerar QR code: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	imgBytes, _ := io.ReadAll(resp.Body)
 	log.Printf("[Signal] GetLinkQRCode: status=%d, content-type=%s, body_len=%d",
@@ -247,7 +247,7 @@ func GetLinkRawURI(apiURL, deviceName, apiToken string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("erro ao gerar URI de vinculação: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	log.Printf("[Signal] GetLinkRawURI: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 300))
@@ -290,7 +290,7 @@ func ListAccounts(apiURL, apiToken string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("erro ao listar contas: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	log.Printf("[Signal] ListAccounts: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 300))
@@ -333,7 +333,7 @@ func CheckAPI(apiURL, apiToken string) (map[string]interface{}, error) {
 			rootResp, rootRespErr := client.Do(ctx, rootReq)
 			if rootRespErr == nil {
 				rootBody, _ := io.ReadAll(rootResp.Body)
-				rootResp.Body.Close()
+				_ = rootResp.Body.Close()
 				log.Printf("[Signal] CheckAPI: GET %s retornou status %d, body=%s",
 					apiURL, rootResp.StatusCode, truncateStr(string(rootBody), 500))
 			} else {
@@ -343,7 +343,7 @@ func CheckAPI(apiURL, apiToken string) (map[string]interface{}, error) {
 
 		return nil, fmt.Errorf("signal-cli-rest-api não acessível em %s: %w", reqURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	log.Printf("[Signal] CheckAPI: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))

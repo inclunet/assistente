@@ -231,7 +231,7 @@ func (m *Manager) SetActive(slug string) error {
 
 		if other.Active {
 			other.Active = false
-			m.Update(otherSlug, other)
+			_ = m.Update(otherSlug, other)
 		}
 	}
 

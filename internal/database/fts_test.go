@@ -27,7 +27,7 @@ func setupTestDBWithFTS(t *testing.T) {
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {
-			sqlDB.Close()
+			_ = sqlDB.Close()
 		}
 		db = nil
 	})

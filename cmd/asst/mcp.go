@@ -30,13 +30,13 @@ var mcpListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "SLUG\tNOME\tTRANSPORTE\tSTATUS\tTOOLS\tATIVO")
+		_, _ = fmt.Fprintln(w, "SLUG\tNOME\tTRANSPORTE\tSTATUS\tTOOLS\tATIVO")
 		for _, s := range servers {
 			enabled := ""
 			if s.Enabled {
 				enabled = "sim"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
 				s.Slug, s.Name, s.Transport, s.Status, s.ToolCount, enabled)
 		}
 		return w.Flush()
@@ -146,13 +146,13 @@ var mcpToolsCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NOME\tDESCRIÇÃO")
+		_, _ = fmt.Fprintln(w, "NOME\tDESCRIÇÃO")
 		for _, t := range tools {
 			desc := t.Description
 			if len(desc) > 60 {
 				desc = desc[:57] + "..."
 			}
-			fmt.Fprintf(w, "%s\t%s\n", t.Name, desc)
+			_, _ = fmt.Fprintf(w, "%s\t%s\n", t.Name, desc)
 		}
 		return w.Flush()
 	},

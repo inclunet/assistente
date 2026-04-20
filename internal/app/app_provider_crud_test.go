@@ -208,7 +208,7 @@ func TestListProvidersWithStatus(t *testing.T) {
 		BaseURL: "https://api.openai.com/v1",
 		APIKey:  "sk-has-key",
 	}
-	app.CreateLLMProvider(req1)
+	_, _ = app.CreateLLMProvider(req1)
 
 	// Criar provider SEM credencial (Ollama local)
 	req2 := CreateLLMProviderRequest{
@@ -218,7 +218,7 @@ func TestListProvidersWithStatus(t *testing.T) {
 		BaseURL: "http://localhost:11434/api",
 		APIKey:  "", // Sem credencial
 	}
-	app.CreateLLMProvider(req2)
+	_, _ = app.CreateLLMProvider(req2)
 
 	// Listar providers
 	providers := app.GetLLMProvidersWithStatus()

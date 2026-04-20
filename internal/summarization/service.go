@@ -113,7 +113,7 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 	}
 
 	for _, m := range messages {
-		sb.WriteString(fmt.Sprintf("**[%s]**: ", m.Role))
+		_, _ = fmt.Fprintf(&sb, "**[%s]**: ", m.Role)
 		content := m.Content
 		if len(content) > 2000 {
 			content = content[:2000] + "... [truncated]"

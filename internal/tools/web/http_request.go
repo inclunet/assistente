@@ -215,7 +215,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao executar requisição: %v", err), IsError: true}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Lê resposta com limite
 	limitedReader := io.LimitReader(resp.Body, httpMaxResponseBody)

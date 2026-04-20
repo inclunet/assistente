@@ -599,9 +599,9 @@ func TestGetUserInvocableSkills(t *testing.T) {
 	if err := os.MkdirAll(skill1Dir, 0755); err != nil {
 		t.Fatalf("Falha ao criar diretório: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(".assistente") })
+	t.Cleanup(func() { _ = os.RemoveAll(".assistente") })
 
-	os.WriteFile(filepath.Join(skill1Dir, "SKILL.md"), []byte(`---
+	_ = os.WriteFile(filepath.Join(skill1Dir, "SKILL.md"), []byte(`---
 name: test-invocable-skill
 version: "1.0.0"
 description: A user invocable skill for testing
@@ -611,8 +611,8 @@ Do something with $ARGUMENTS`), 0644)
 
 	// Skill 2: user-invocable=false
 	skill2Dir := filepath.Join(testSkillsBase, "test-hidden-skill")
-	os.MkdirAll(skill2Dir, 0755)
-	os.WriteFile(filepath.Join(skill2Dir, "SKILL.md"), []byte(`---
+	_ = os.MkdirAll(skill2Dir, 0755)
+	_ = os.WriteFile(filepath.Join(skill2Dir, "SKILL.md"), []byte(`---
 name: test-hidden-skill
 version: "1.0.0"
 description: A hidden skill for testing invocable
@@ -647,17 +647,17 @@ This is hidden from slash menu`), 0644)
 func TestGetSkillFiles(t *testing.T) {
 	testSkillsBase := filepath.Join(".assistente", "skills")
 	skillDir := filepath.Join(testSkillsBase, "test-files-skill")
-	os.MkdirAll(filepath.Join(skillDir, "examples"), 0755)
-	t.Cleanup(func() { os.RemoveAll(".assistente") })
+	_ = os.MkdirAll(filepath.Join(skillDir, "examples"), 0755)
+	t.Cleanup(func() { _ = os.RemoveAll(".assistente") })
 
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+	_ = os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
 name: test-files-skill
 version: "1.0.0"
 description: A skill with supporting files for testing
 ---
 Main skill content`), 0644)
-	os.WriteFile(filepath.Join(skillDir, "README.md"), []byte("# Readme"), 0644)
-	os.WriteFile(filepath.Join(skillDir, "examples", "basic.md"), []byte("# Basic example"), 0644)
+	_ = os.WriteFile(filepath.Join(skillDir, "README.md"), []byte("# Readme"), 0644)
+	_ = os.WriteFile(filepath.Join(skillDir, "examples", "basic.md"), []byte("# Basic example"), 0644)
 
 	mgr := NewManager()
 	files, err := mgr.GetSkillFiles("test-files-skill")

@@ -90,7 +90,7 @@ func (e *EmitterAdapter) Emit(event string, data any) {
 		e.handleTool(event, data)
 	default:
 		if e.verbose {
-			fmt.Fprintf(e.errOut, "[event] %s\n", event)
+			_, _ = fmt.Fprintf(e.errOut, "[event] %s\n", event)
 		}
 	}
 }
@@ -104,14 +104,14 @@ func (e *EmitterAdapter) handleStream(data any) {
 	}
 
 	if ev.Error != "" {
-		fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
+		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
 		e.lastPrinted = 0
 		e.signalDone()
 		return
 	}
 
 	if ev.Done {
-		fmt.Fprintln(e.out)
+		_, _ = fmt.Fprintln(e.out)
 		e.lastPrinted = 0
 		e.signalDone()
 		return
@@ -119,7 +119,7 @@ func (e *EmitterAdapter) handleStream(data any) {
 
 	// Content é acumulado; imprime só o que é novo.
 	if len(ev.Content) > e.lastPrinted {
-		fmt.Fprint(e.out, ev.Content[e.lastPrinted:])
+		_, _ = fmt.Fprint(e.out, ev.Content[e.lastPrinted:])
 		e.lastPrinted = len(ev.Content)
 	}
 }
@@ -129,20 +129,20 @@ func (e *EmitterAdapter) handleError(data any) {
 	switch v := data.(type) {
 	case ports.ErrorEvent:
 		if e.verbose && v.ConversationID != 0 {
-			fmt.Fprintf(e.errOut, "Erro: %s (conversationId=%d)\n", v.Error, v.ConversationID)
+			_, _ = fmt.Fprintf(e.errOut, "Erro: %s (conversationId=%d)\n", v.Error, v.ConversationID)
 		} else {
-			fmt.Fprintf(e.errOut, "Erro: %s\n", v.Error)
+			_, _ = fmt.Fprintf(e.errOut, "Erro: %s\n", v.Error)
 		}
 	case *ports.ErrorEvent:
 		if v == nil {
-			fmt.Fprintln(e.errOut, "Erro: <nil>")
+			_, _ = fmt.Fprintln(e.errOut, "Erro: <nil>")
 		} else if e.verbose && v.ConversationID != 0 {
-			fmt.Fprintf(e.errOut, "Erro: %s (conversationId=%d)\n", v.Error, v.ConversationID)
+			_, _ = fmt.Fprintf(e.errOut, "Erro: %s (conversationId=%d)\n", v.Error, v.ConversationID)
 		} else {
-			fmt.Fprintf(e.errOut, "Erro: %s\n", v.Error)
+			_, _ = fmt.Fprintf(e.errOut, "Erro: %s\n", v.Error)
 		}
 	default:
-		fmt.Fprintf(e.errOut, "Erro: %v\n", data)
+		_, _ = fmt.Fprintf(e.errOut, "Erro: %v\n", data)
 	}
 	e.signalDone()
 }
@@ -152,7 +152,7 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 	if !e.verbose {
 		return
 	}
-	fmt.Fprintf(e.errOut, "[tool] %s\n", event)
+	_, _ = fmt.Fprintf(e.errOut, "[tool] %s\n", event)
 }
 
 // toStreamEvent converte o payload genérico para StreamEvent.

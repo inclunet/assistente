@@ -63,7 +63,7 @@ func MoveFileWithPolicy(oldPath string, newPath string, overwrite bool, policy P
 		if openErr != nil {
 			return fmt.Errorf("falha ao mover arquivo: %w", err)
 		}
-		defer in.Close()
+		defer func() { _ = in.Close() }()
 
 		flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 		if !overwrite {

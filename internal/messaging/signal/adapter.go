@@ -124,9 +124,9 @@ func (s *SignalAdapter) Disconnect() error {
 		s.cancel()
 	}
 	if s.wsConn != nil {
-		s.wsConn.WriteMessage(websocket.CloseMessage,
+		_ = s.wsConn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-		s.wsConn.Close()
+		_ = s.wsConn.Close()
 		s.wsConn = nil
 	}
 	s.status = messaging.StatusDisconnected
@@ -165,7 +165,7 @@ func (s *SignalAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage)
 	if err != nil {
 		return fmt.Errorf("erro ao enviar mensagem Signal para %s: %w", msg.ChatID, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
@@ -187,7 +187,7 @@ func (s *SignalAdapter) downloadAttachment(attachmentID string) ([]byte, error) 
 	if err != nil {
 		return nil, fmt.Errorf("erro ao baixar attachment: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -230,7 +230,7 @@ func (s *SignalAdapter) healthCheckAndDetectMode() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("status %d", resp.StatusCode)
@@ -280,7 +280,7 @@ func (s *SignalAdapter) wsReadLoop() {
 		conn := s.wsConn
 		s.mu.RUnlock()
 		if conn != nil {
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -446,7 +446,7 @@ func (s *SignalAdapter) pollMessages() {
 		}
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -481,7 +481,7 @@ func (s *SignalAdapter) pollMessages() {
 func (s *SignalAdapter) reconnectWebSocket() {
 	s.mu.Lock()
 	if s.wsConn != nil {
-		s.wsConn.Close()
+		_ = s.wsConn.Close()
 		s.wsConn = nil
 	}
 	s.mu.Unlock()

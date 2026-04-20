@@ -61,14 +61,14 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 	ctx := context.Background()
 
 	// Limpar entradas OAuth (client + tokens)
-	m.credMgr.DeletePattern(ctx, clientCredPattern(slug))
-	m.credMgr.DeletePattern(ctx, userTokensPattern(slug))
+	_ = m.credMgr.DeletePattern(ctx, clientCredPattern(slug))
+	_ = m.credMgr.DeletePattern(ctx, userTokensPattern(slug))
 
 	// Limpar entrada legacy por hostname (bearer/basic)
 	cfg, err := m.GetConfig(slug)
 	if err == nil {
 		if hostname := hostnameFromURL(cfg.URL); hostname != "" {
-			m.credMgr.DeletePattern(ctx, hostname)
+			_ = m.credMgr.DeletePattern(ctx, hostname)
 		}
 	}
 

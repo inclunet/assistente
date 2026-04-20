@@ -109,7 +109,7 @@ func sendAndWait(svc chatBackend, emitter waitDoner, message string) error {
 		return nil
 	case <-sigCh:
 		svc.CancelStreamingForConversation(conv.ID)
-		fmt.Fprintln(os.Stderr, "\n(geração cancelada)")
+		_, _ = fmt.Fprintln(os.Stderr, "\n(geração cancelada)")
 		// Aguarda o done do emitter para garantir que o streaming encerrou
 		<-done
 		return nil
@@ -138,13 +138,13 @@ func ensureConversation(svc chatBackend) (*app.Conversation, error) {
 
 // runREPL inicia o modo interativo de chat.
 func runREPL(svc chatBackend, emitter waitDoner) error {
-	fmt.Fprintln(os.Stderr, "Modo interativo. Digite sua mensagem (Ctrl+C para sair).")
-	fmt.Fprintln(os.Stderr, "---")
+	_, _ = fmt.Fprintln(os.Stderr, "Modo interativo. Digite sua mensagem (Ctrl+C para sair).")
+	_, _ = fmt.Fprintln(os.Stderr, "---")
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB para mensagens grandes
 	for {
-		fmt.Fprint(os.Stderr, "> ")
+		_, _ = fmt.Fprint(os.Stderr, "> ")
 		if !scanner.Scan() {
 			break
 		}
@@ -153,9 +153,9 @@ func runREPL(svc chatBackend, emitter waitDoner) error {
 			continue
 		}
 		if err := sendAndWait(svc, emitter, line); err != nil {
-			fmt.Fprintf(os.Stderr, "Erro: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "Erro: %v\n", err)
 		}
-		fmt.Fprintln(os.Stderr, "---")
+		_, _ = fmt.Fprintln(os.Stderr, "---")
 	}
 	return scanner.Err()
 }

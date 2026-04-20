@@ -110,7 +110,7 @@ func Init() error {
 	// Migração: mover refresh_url → refresh_token_enc (coluna renomeada)
 	if db.Migrator().HasColumn(&CredentialEntry{}, "refresh_url") {
 		db.Exec(`UPDATE credential_entries SET refresh_token_enc = refresh_url WHERE refresh_url != '' AND (refresh_token_enc IS NULL OR refresh_token_enc = '')`)
-		db.Migrator().DropColumn(&CredentialEntry{}, "refresh_url")
+		_ = db.Migrator().DropColumn(&CredentialEntry{}, "refresh_url")
 	}
 
 	// Inicializa FTS5 (full-text search) para busca em mensagens
@@ -122,8 +122,8 @@ func Init() error {
 	sqlDB, err := db.DB()
 	if err == nil {
 		var ftsCount, msgCount int
-		sqlDB.QueryRow(`SELECT count(*) FROM chat_messages_fts`).Scan(&ftsCount)
-		sqlDB.QueryRow(`SELECT count(*) FROM chat_messages WHERE role IN ('user','assistant') AND content != ''`).Scan(&msgCount)
+		_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages_fts`).Scan(&ftsCount)
+		_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages WHERE role IN ('user','assistant') AND content != ''`).Scan(&msgCount)
 		if msgCount > 0 && ftsCount < msgCount {
 			log.Printf("[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...", ftsCount, msgCount)
 			if err := RebuildFTSIndex(); err != nil {

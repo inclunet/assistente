@@ -45,13 +45,13 @@ var configProvidersCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tTIPO\tNOME\tBASE URL\tPADRÃO")
+		_, _ = fmt.Fprintln(w, "ID\tTIPO\tNOME\tBASE URL\tPADRÃO")
 		for _, p := range providers {
 			def := ""
 			if p.IsDefault {
 				def = "*"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", p.ID, p.Type, p.Name, p.BaseURL, def)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", p.ID, p.Type, p.Name, p.BaseURL, def)
 		}
 		return w.Flush()
 	},

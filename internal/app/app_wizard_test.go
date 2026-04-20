@@ -645,8 +645,8 @@ func TestSetDefaultProvider_SwitchesCorrectly(t *testing.T) {
 
 	p1 := &database.LLMProvider{ID: "prov-1", Name: "P1", Type: "openai", BaseURL: "https://a.com", IsDefault: true}
 	p2 := &database.LLMProvider{ID: "prov-2", Name: "P2", Type: "openai", BaseURL: "https://b.com", IsDefault: false}
-	database.SaveLLMProvider(p1)
-	database.SaveLLMProvider(p2)
+	_ = database.SaveLLMProvider(p1)
+	_ = database.SaveLLMProvider(p2)
 
 	def, err := database.GetDefaultProvider()
 	if err != nil || def.ID != "prov-1" {
@@ -866,8 +866,8 @@ func TestResolveProfileDefaults_PartialSentinel_OnlyModel(t *testing.T) {
 		ID: "default-prov", Name: "Default", Type: "openai", BaseURL: "https://api.test.com/v1",
 		DefaultModel: "fallback-model", IsDefault: true,
 	}
-	database.SaveLLMProvider(dbProv)
-	database.SetDefaultProvider("default-prov")
+	_ = database.SaveLLMProvider(dbProv)
+	_ = database.SetDefaultProvider("default-prov")
 
 	// Concrete provider but $default model
 	profile := &profiles.Profile{
@@ -907,8 +907,8 @@ func TestResolveProfileDefaults_PartialSentinel_OnlyProvider(t *testing.T) {
 		ID: "default-prov", Name: "Default", Type: "openai", BaseURL: "https://api.test.com/v1",
 		DefaultModel: "fallback-model", IsDefault: true,
 	}
-	database.SaveLLMProvider(dbProv)
-	database.SetDefaultProvider("default-prov")
+	_ = database.SaveLLMProvider(dbProv)
+	_ = database.SetDefaultProvider("default-prov")
 
 	// $default provider but concrete model
 	profile := &profiles.Profile{
@@ -953,7 +953,7 @@ func TestEnsureDefaultProvider_MarksFirstWhenNoneIsDefault(t *testing.T) {
 		BaseURL: legacyProv.BaseURL,
 		Model:   legacyProv.Model,
 	}
-	app.llmRegistry.Register(cfg)
+	_ = app.llmRegistry.Register(cfg)
 
 	// Verify no default exists
 	defProv, _ := database.GetDefaultProvider()
@@ -994,12 +994,12 @@ func TestEnsureDefaultProvider_DoesNotOverrideExistingDefault(t *testing.T) {
 		IsDefault:    true,
 		DefaultModel: "my-model",
 	}
-	database.SaveLLMProvider(prov1)
-	database.SaveLLMProvider(prov2)
-	database.SetDefaultProvider(prov2.ID)
+	_ = database.SaveLLMProvider(prov1)
+	_ = database.SaveLLMProvider(prov2)
+	_ = database.SetDefaultProvider(prov2.ID)
 
 	for _, p := range []*database.LLMProvider{prov1, prov2} {
-		app.llmRegistry.Register(&llm.ProviderConfig{
+		_ = app.llmRegistry.Register(&llm.ProviderConfig{
 			ID:      p.ID,
 			Name:    p.Name,
 			Type:    llm.ProviderType(p.Type),
@@ -1232,7 +1232,7 @@ func modelsJSON(ids ...string) []byte {
 func TestValidateWizardConnection_SuccessWithModels(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsJSON("gpt-4o", "gpt-4o-mini"))
+		_, _ = w.Write(modelsJSON("gpt-4o", "gpt-4o-mini"))
 	}))
 	defer srv.Close()
 
@@ -1259,7 +1259,7 @@ func TestValidateWizardConnection_SuccessWithModels(t *testing.T) {
 func TestValidateWizardConnection_Unauthorized_WithKey(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprint(w, `{"error": "invalid api key"}`)
+		_, _ = fmt.Fprint(w, `{"error": "invalid api key"}`)
 	}))
 	defer srv.Close()
 
@@ -1377,7 +1377,7 @@ func TestValidateWizardConnection_NotFound_ModelsEndpoint(t *testing.T) {
 func TestValidateWizardConnection_EmptyModelsResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"data": []}`))
+		_, _ = w.Write([]byte(`{"data": []}`))
 	}))
 	defer srv.Close()
 
@@ -1400,7 +1400,7 @@ func TestValidateWizardConnection_AuthHeaderSent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsJSON("model-1"))
+		_, _ = w.Write(modelsJSON("model-1"))
 	}))
 	defer srv.Close()
 
@@ -1417,7 +1417,7 @@ func TestValidateWizardConnection_NoAuthHeaderWhenEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsJSON("model-1"))
+		_, _ = w.Write(modelsJSON("model-1"))
 	}))
 	defer srv.Close()
 

@@ -96,9 +96,9 @@ func withStdin(t *testing.T, input string) func() {
 	os.Stdin = r
 	go func() {
 		_, _ = w.WriteString(input)
-		w.Close()
+		_ = w.Close()
 	}()
-	return func() { os.Stdin = oldStdin; r.Close() }
+	return func() { os.Stdin = oldStdin; _ = r.Close() }
 }
 
 // ---------------------------------------------------------------------------

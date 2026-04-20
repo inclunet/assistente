@@ -83,7 +83,7 @@ func TestTestLLMProviderValidatesInvalidUrl(t *testing.T) {
 func TestTestLLMProviderSuccessfulConnection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":[]}`))
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
@@ -110,12 +110,12 @@ func TestTestLLMProviderHitsModelsEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestedPath = r.URL.Path
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":[]}`))
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
 	app := setupTestApp()
-	app.TestLLMProvider(TestLLMProviderRequest{Type: "openai", BaseURL: server.URL, APIKey: "sk-test"})
+	_, _ = app.TestLLMProvider(TestLLMProviderRequest{Type: "openai", BaseURL: server.URL, APIKey: "sk-test"})
 
 	if requestedPath != "/models" {
 		t.Errorf("expected request to /models, got %s", requestedPath)
@@ -131,7 +131,7 @@ func TestTestLLMProviderWithBearerToken(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":[]}`))
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
@@ -160,7 +160,7 @@ func TestTestLLMProviderWithoutApiKey(t *testing.T) {
 			t.Errorf("Expected no Authorization header, got: %s", auth)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":[]}`))
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
@@ -185,7 +185,7 @@ func TestTestLLMProviderWithoutApiKey(t *testing.T) {
 func TestTestLLMProviderUnauthorized(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("Unauthorized"))
+		_, _ = w.Write([]byte("Unauthorized"))
 	}))
 	defer server.Close()
 
@@ -227,7 +227,7 @@ func TestTestLLMProviderForbidden(t *testing.T) {
 func TestTestLLMProviderServerError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Internal Server Error"))
+		_, _ = w.Write([]byte("Internal Server Error"))
 	}))
 	defer server.Close()
 
@@ -252,7 +252,7 @@ func TestTestLLMProviderServerError(t *testing.T) {
 func TestTestLLMProviderNotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("Not Found"))
+		_, _ = w.Write([]byte("Not Found"))
 	}))
 	defer server.Close()
 
@@ -293,7 +293,7 @@ func TestTestLLMProviderConnectionRefused(t *testing.T) {
 func TestTestLLMProviderURLTrailingSlash(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":[]}`))
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
@@ -324,7 +324,7 @@ func TestTestLLMProviderUsesExistingCredential(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":[{"id":"gpt-4o"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o"}]}`))
 	}))
 	defer server.Close()
 
@@ -370,14 +370,14 @@ func TestTestLLMProviderWithoutProviderID_NoAuth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAuth = r.Header.Get("Authorization")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":[]}`))
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
 	app := setupTestApp()
 
 	// Sem provider_id e sem api_key → não deve enviar auth
-	app.TestLLMProvider(TestLLMProviderRequest{
+	_, _ = app.TestLLMProvider(TestLLMProviderRequest{
 		Type:    "ollama",
 		BaseURL: server.URL,
 		APIKey:  "",

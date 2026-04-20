@@ -200,7 +200,7 @@ func (t *TelegramAdapter) downloadFile(fileID string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("erro ao baixar arquivo: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {

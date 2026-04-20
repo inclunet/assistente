@@ -186,7 +186,7 @@ func probeOAuthURL(rawURL string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode != http.StatusUnauthorized
 }
 
@@ -288,14 +288,14 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 			// 404/410 = sessão MCP expirou (Mcp-Session-Id inválido).
 			// Não é problema de auth — propaga para o bridge disparar reconexão.
 			if isSessionExpiredStatus(resp.StatusCode) {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				return nil, &SessionExpiredError{StatusCode: resp.StatusCode}
 			}
 
 			if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
 				return resp, nil
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			// Token foi rejeitado — tenta renovar silenciosamente antes de abrir o browser
 			rt.mu.Lock()
@@ -315,13 +315,13 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 							return nil, err
 						}
 						if isSessionExpiredStatus(resp.StatusCode) {
-							resp.Body.Close()
+							_ = resp.Body.Close()
 							return nil, &SessionExpiredError{StatusCode: resp.StatusCode}
 						}
 						if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
 							return resp, nil
 						}
-						resp.Body.Close()
+						_ = resp.Body.Close()
 					}
 				}
 			}
@@ -334,14 +334,14 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	}
 
 	if isSessionExpiredStatus(resp.StatusCode) {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, &SessionExpiredError{StatusCode: resp.StatusCode}
 	}
 
 	if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
 		return resp, nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Último recurso: autorização completa (abre browser)
 	if err := rt.authorize(req.Context()); err != nil {
@@ -482,7 +482,7 @@ func (rt *pkceRoundTripper) resolveClientID(ctx context.Context) error {
 			return fmt.Errorf("failed to allocate port for DCR redirect_uri: %w", err)
 		}
 		port = l.Addr().(*net.TCPAddr).Port
-		l.Close()
+		_ = l.Close()
 	}
 	redirectURL := fmt.Sprintf("http://%s:%d/callback", callbackHost, port)
 
@@ -517,7 +517,7 @@ func (rt *pkceRoundTripper) reRegisterClient(ctx context.Context) error {
 			return fmt.Errorf("failed to allocate port for DCR redirect_uri: %w", err)
 		}
 		port = l.Addr().(*net.TCPAddr).Port
-		l.Close()
+		_ = l.Close()
 	}
 	redirectURL := fmt.Sprintf("http://%s:%d/callback", callbackHost, port)
 
@@ -590,7 +590,7 @@ func (rt *pkceRoundTripper) authorizeDeviceFlow(parentCtx context.Context) error
 	if err != nil {
 		return fmt.Errorf("device authorization request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
@@ -718,7 +718,7 @@ func (rt *pkceRoundTripper) pollDeviceToken(clientID, deviceCode string) (*devic
 	if err != nil {
 		return nil, fmt.Errorf("device token poll failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
@@ -751,7 +751,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 		}
 		return fmt.Errorf("failed to start loopback listener: %w", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	redirectURL := fmt.Sprintf("http://%s:%d/callback", callbackHost, port)
@@ -788,7 +788,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 				err: fmt.Errorf("authorization error: %s - %s", errParam, q.Get("error_description")),
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprint(w, authErrorHTML)
+			_, _ = fmt.Fprint(w, authErrorHTML)
 			return
 		}
 
@@ -801,12 +801,12 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 
 		resultCh <- &authCallbackResult{code: code}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, authSuccessHTML)
+		_, _ = fmt.Fprint(w, authSuccessHTML)
 	})
 
 	server := &http.Server{Handler: mux}
-	go server.Serve(listener)
-	defer server.Shutdown(context.Background())
+	go func() { _ = server.Serve(listener) }()
+	defer func() { _ = server.Shutdown(context.Background()) }()
 
 	log.Printf("[MCP:%s] Abrindo browser para autorização OAuth2 PKCE (redirect=%s)", rt.serverSlug, redirectURL)
 	if rt.emitEvent != nil {
@@ -904,7 +904,7 @@ func registerDynamicClient(cfg ServerConfig, redirectURL string) (*dcrResponse, 
 	if err != nil {
 		return nil, fmt.Errorf("DCR request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
 	if err != nil {

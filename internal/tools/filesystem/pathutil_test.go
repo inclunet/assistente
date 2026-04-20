@@ -61,7 +61,7 @@ func TestValidatePathWithPolicy_SensitiveFiles(t *testing.T) {
 	// Criar alguns arquivos sensíveis
 	sensitiveFiles := []string{".env", ".env.local", "id_rsa", "server.key", "cert.pem"}
 	for _, name := range sensitiveFiles {
-		os.WriteFile(filepath.Join(workDir, name), []byte("secret"), 0600)
+		_ = os.WriteFile(filepath.Join(workDir, name), []byte("secret"), 0600)
 	}
 
 	tests := []struct {
@@ -201,7 +201,7 @@ func TestValidatePathWithPolicy_ErrorMessages(t *testing.T) {
 	ctx := context.Background()
 
 	// Criar arquivo sensível
-	os.WriteFile(filepath.Join(workDir, ".env"), []byte("secret=value"), 0600)
+	_ = os.WriteFile(filepath.Join(workDir, ".env"), []byte("secret=value"), 0600)
 
 	envPath := filepath.Join(workDir, ".env")
 

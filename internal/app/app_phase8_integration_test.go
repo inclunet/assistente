@@ -84,8 +84,8 @@ func TestPhase8_ProfileSwitching(t *testing.T) {
 		BaseURL: "https://api.anthropic.com/v1",
 	}
 
-	llmRegistry.Register(openai)
-	llmRegistry.Register(claude)
+	_ = llmRegistry.Register(openai)
+	_ = llmRegistry.Register(claude)
 
 	// Profile 1: OpenAI para tudo
 	profile1 := profiles.Profile{
@@ -252,7 +252,7 @@ func TestPhase8_RealWorldScenarios(t *testing.T) {
 		{ID: "ollama-local", Name: "Ollama", Type: llm.ProviderOllama, BaseURL: "http://localhost:11434/api"},
 	}
 	for _, p := range providers {
-		llmRegistry.Register(p)
+		_ = llmRegistry.Register(p)
 	}
 
 	for _, scenario := range scenarios {
@@ -352,7 +352,7 @@ func TestPhase8_NewUserExperience(t *testing.T) {
 		Type:    llm.ProviderOpenAI,
 		BaseURL: "https://api.openai.com/v1",
 	}
-	llmRegistry.Register(openai)
+	_ = llmRegistry.Register(openai)
 
 	if llmRegistry.Get("openai-default") == nil {
 		t.Error("Novo usuário: Provider builtin não disponível")

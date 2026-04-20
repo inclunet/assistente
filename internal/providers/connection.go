@@ -59,7 +59,7 @@ func (s *Service) ProbeConnection(ctx context.Context, baseURL, apiKey string) C
 		result.ErrorDetail = fmt.Sprintf("Não foi possível conectar ao servidor. Verifique se a URL está correta e o servidor está ativo.\n\nDetalhes: %v", err)
 		return result
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	result.URLReachable = true
 	body, _ := io.ReadAll(resp.Body)
@@ -133,7 +133,7 @@ func ValidateURL(ctx context.Context, baseURL string) error {
 	if err != nil {
 		return fmt.Errorf("não foi possível conectar ao servidor. Verifique se a URL está correta e o servidor está ativo")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 500 {
 		return fmt.Errorf("o servidor retornou erro %d. Pode estar com problemas temporários", resp.StatusCode)
