@@ -266,19 +266,27 @@ func (e *EmitterAdapter) handleDone(data any) {
 	if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
 		return
 	}
-	// Só exibe resumo se houve tool calls (evita ruído em respostas simples)
-	if ev.ToolCallCount > 0 || ev.Reason == "limit_reached" || ev.Reason == "error" {
-		reason := ev.Reason
-		if reason == "" {
-			reason = "completed"
+	// Só exibe resumo se houve tool calls (evita ruído em respostas simples).
+	// Usa HadToolCalls como fallback para eventos backward-compatible que não
+	// trazem LoopStats/contadores preenchidos.
+	reason := ev.Reason
+	if reason == "" {
+		reason = "completed"
+	}
+
+	showSummary := ev.ToolCallCount > 0 || ev.HadToolCalls || ev.Reason == "limit_reached" || ev.Reason == "error"
+	if showSummary {
+		if ev.IterationCount > 0 || ev.ToolCallCount > 0 {
+			_, _ = fmt.Fprintf(e.errOut, "[done] %d iterações, %d tool calls, %s\n",
+				ev.IterationCount, ev.ToolCallCount, reason)
+			return
 		}
-		_, _ = fmt.Fprintf(e.errOut, "[done] %d iterações, %d tool calls, %s\n",
-			ev.IterationCount, ev.ToolCallCount, reason)
+		if ev.HadToolCalls {
+			_, _ = fmt.Fprintf(e.errOut, "[done] tool calls executadas, %s\n", reason)
+			return
+		}
+		_, _ = fmt.Fprintf(e.errOut, "[done] %s\n", reason)
 	} else if e.verbose {
-		reason := ev.Reason
-		if reason == "" {
-			reason = "completed"
-		}
 		_, _ = fmt.Fprintf(e.errOut, "[done] %s\n", reason)
 	}
 }
