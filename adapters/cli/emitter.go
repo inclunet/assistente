@@ -91,6 +91,8 @@ func (e *EmitterAdapter) Emit(event string, data any) {
 		e.handleError(data)
 	case event == "chat:done":
 		e.handleDone(data)
+	case event == "chat:segment_done":
+		e.handleSegmentDone(data)
 	case strings.HasPrefix(event, "chat:tool_"):
 		e.handleTool(event, data)
 	default:
@@ -254,6 +256,72 @@ func (e *EmitterAdapter) toToolFailureEvent(data any) (ports.ToolFailureEvent, b
 		}
 	}
 	return ports.ToolFailureEvent{}, false
+}
+
+// handleSegmentDone imprime resumo por iteração no modo padrão (AEP-0039 Fase 2).
+// Em modo padrão: uma linha por iteração com contagem e nomes das tools.
+// Em modo verbose: apenas loga o evento (tools individuais já são exibidos via tool_start/end).
+func (e *EmitterAdapter) handleSegmentDone(data any) {
+	ev, ok := e.toSegmentDoneEvent(data)
+	if !ok {
+		return
+	}
+	// Filtra eventos de outras conversas
+	if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
+		return
+	}
+	// Só exibe linha de tools se é iteração intermediária com tools
+	if !ev.HasMore || len(ev.ToolsInIteration) == 0 {
+		return
+	}
+
+	if e.verbose {
+		// Verbose já exibe cada tool individualmente via tool_start/end;
+		// apenas loga o segment_done como confirmação.
+		_, _ = fmt.Fprintf(e.errOut, "[segment] iteração %d concluída, %d tools\n",
+			ev.Iteration, len(ev.ToolsInIteration))
+		return
+	}
+
+	// Modo padrão: linha compacta com nomes e duração total
+	names := make([]string, 0, len(ev.ToolsInIteration))
+	var totalMs int64
+	for _, t := range ev.ToolsInIteration {
+		names = append(names, t.Name)
+		totalMs += t.DurationMs
+	}
+	nameList := strings.Join(names, ", ")
+
+	if totalMs > 0 {
+		_, _ = fmt.Fprintf(e.errOut, "[tools] iteração %d: %d tools (%s) — %dms\n",
+			ev.Iteration, len(ev.ToolsInIteration), nameList, totalMs)
+	} else {
+		_, _ = fmt.Fprintf(e.errOut, "[tools] iteração %d: %d tools (%s)\n",
+			ev.Iteration, len(ev.ToolsInIteration), nameList)
+	}
+}
+
+// toSegmentDoneEvent converte o payload genérico para ports.SegmentDoneEvent.
+func (e *EmitterAdapter) toSegmentDoneEvent(data any) (ports.SegmentDoneEvent, bool) {
+	switch v := data.(type) {
+	case ports.SegmentDoneEvent:
+		return v, true
+	case *ports.SegmentDoneEvent:
+		if v != nil {
+			return *v, true
+		}
+	case map[string]any:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ports.SegmentDoneEvent{}, false
+		}
+		var ev ports.SegmentDoneEvent
+		if err := json.Unmarshal(b, &ev); err != nil {
+			return ports.SegmentDoneEvent{}, false
+		}
+		return ev, true
+	}
+	return ports.SegmentDoneEvent{}, false
 }
 
 // handleDone imprime resumo do chat:done no stderr (AEP-0039 Fase 2).

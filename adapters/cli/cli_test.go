@@ -87,3 +87,85 @@ func TestWindowAdapter_ShowIsNoop(t *testing.T) {
 	w := cli.WindowAdapter{}
 	w.Show() // não deve panic
 }
+
+func TestEmitterAdapter_SegmentDone_DefaultMode(t *testing.T) {
+	var out, errOut bytes.Buffer
+	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+
+	// Iteração intermediária com 2 tools — deve imprimir linha resumo
+	e.Emit("chat:segment_done", ports.SegmentDoneEvent{
+		ConversationID: 1,
+		Iteration:      1,
+		HasMore:        true,
+		ToolsInIteration: []ports.ToolSummary{
+			{Name: "search_web", Status: "ok", DurationMs: 900},
+			{Name: "read_file", Status: "ok", DurationMs: 200},
+		},
+	})
+
+	if out.Len() > 0 {
+		t.Errorf("stdout deveria estar vazio, obteve %q", out.String())
+	}
+	want := "[tools] iteração 1: 2 tools (search_web, read_file) — 1100ms\n"
+	if got := errOut.String(); got != want {
+		t.Errorf("stderr esperado %q, obteve %q", want, got)
+	}
+}
+
+func TestEmitterAdapter_SegmentDone_FinalIteration_Silent(t *testing.T) {
+	var out, errOut bytes.Buffer
+	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+
+	// Iteração final (HasMore=false) — não deve imprimir nada
+	e.Emit("chat:segment_done", ports.SegmentDoneEvent{
+		ConversationID: 1,
+		Iteration:      2,
+		HasMore:        false,
+	})
+
+	if out.Len() > 0 || errOut.Len() > 0 {
+		t.Errorf("iteração final não deveria produzir output, obteve stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+}
+
+func TestEmitterAdapter_SegmentDone_NoTools_Silent(t *testing.T) {
+	var out, errOut bytes.Buffer
+	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+
+	// Iteração intermediária sem tools — não deve imprimir nada
+	e.Emit("chat:segment_done", ports.SegmentDoneEvent{
+		ConversationID: 1,
+		Iteration:      1,
+		HasMore:        true,
+	})
+
+	if out.Len() > 0 || errOut.Len() > 0 {
+		t.Errorf("sem tools não deveria produzir output, obteve stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+}
+
+func TestEmitterAdapter_SegmentDone_Verbose(t *testing.T) {
+	var out, errOut bytes.Buffer
+	e := cli.NewEmitterAdapter(
+		cli.WithOutput(&out),
+		cli.WithErrOutput(&errOut),
+		cli.WithVerbose(true),
+	)
+
+	e.Emit("chat:segment_done", ports.SegmentDoneEvent{
+		ConversationID: 1,
+		Iteration:      1,
+		HasMore:        true,
+		ToolsInIteration: []ports.ToolSummary{
+			{Name: "search_web", Status: "ok", DurationMs: 500},
+		},
+	})
+
+	if out.Len() > 0 {
+		t.Errorf("stdout deveria estar vazio, obteve %q", out.String())
+	}
+	want := "[segment] iteração 1 concluída, 1 tools\n"
+	if got := errOut.String(); got != want {
+		t.Errorf("stderr esperado %q, obteve %q", want, got)
+	}
+}

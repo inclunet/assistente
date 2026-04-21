@@ -41,7 +41,14 @@ O CLI exibe progresso de tool calls de forma **compacta e acessivel**, sem polui
 
 #### Modo padrao (sem `--verbose`)
 
-No modo padrao, tool events individuais sao silenciados. Apenas o resumo final e exibido no stderr ao receber `chat:done`, quando houve tool calls:
+Uma linha por iteracao no **stderr** ao receber `chat:segment_done` com `HasMore=true`, so quando ha tools:
+
+```
+[tools] iteração 1: 2 tools (search_web, read_file) — 1300ms
+[tools] iteração 2: 1 tool (write_file) — 800ms
+```
+
+Ao final, quando houve tool calls, uma linha de resumo no `chat:done`:
 
 ```
 [done] 2 iterações, 5 tool calls, completed
@@ -70,11 +77,13 @@ Tool failures com indicacao de retry:
 [tool:failure] web_search — timeout (retryable=true) [retrying]
 ```
 
+Ao receber `chat:segment_done`, confirmacao de iteracao concluida:
+
+```
+[segment] iteração 1 concluída, 2 tools
+```
+
 Resumo final identico ao modo padrao.
-
-#### Escopo futuro (nao implementado)
-
-O modo padrao poderia exibir uma linha por iteracao ao receber `chat:segment_done`, acumulando tool events e exibindo contagem + nomes. Isso requer acumulador de estado no adapter e sera avaliado em fase posterior.
 
 #### Regras de acessibilidade
 
@@ -148,7 +157,7 @@ func emitToolEnd(emitter Emitter, opts ToolEndEvent) { ... }
 ### Arquivos
 - Backend: `internal/core/ports/chat_events.go` (estender structs), `service.go`, `agentic_stream_handler.go` + novo `events.go`
 - Frontend: tipos de evento no store + componente de exibicao (consumir `origin`, ignorar `native`)
-- CLI: `adapters/cli/emitter.go` — modo verbose exibe cada tool individual com origin/serverLabel e duracao em ms. Modo padrao silencia tool events individuais (resumo apenas em `chat:done`)
+- CLI: `adapters/cli/emitter.go` — dois niveis de exibicao conforme secao "UX de tool calls no CLI": modo padrao (uma linha por iteracao com contagem e nomes via `chat:segment_done`) e modo verbose (cada tool individual com origin/serverLabel e duracao em ms)
 
 ---
 
