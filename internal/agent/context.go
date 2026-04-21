@@ -143,20 +143,19 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 	availableBytes := availableTokens * charsPerToken
 	truncatedTokens := 0
 
-	// Caso especial: budget zero ou negativo — substitui cada resultado
-	// por um aviso fixo indicando que não há budget disponível.
+	// Caso especial: budget zero ou negativo — remove completamente os resultados
+	// para não adicionar tokens ao prompt quando não há budget disponível.
 	nResults := len(toolResults)
 	if availableBytes <= 0 {
 		for i := range toolResults {
 			if len(toolResults[i]) > 0 {
-				toolResults[i] = "[CONTEXTO TRUNCADO: sem budget disponível]"
+				toolResults[i] = ""
 				result.Truncated = true
 			}
-			truncatedTokens += estimateTokens(toolResults[i])
 		}
-		result.FinalTokens = truncatedTokens
+		result.FinalTokens = 0
 		if result.Truncated {
-			log.Printf("[Agent] context pre-check: truncou %d → %d tokens estimados (budget zero)", resultTokens, truncatedTokens)
+			log.Printf("[Agent] context pre-check: budget zero, %d resultados removidos", nResults)
 		}
 		return result
 	}

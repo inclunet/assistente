@@ -187,7 +187,7 @@ func TestExecuteAll_Parallel(t *testing.T) {
 	tool := &mockTool{
 		name: "delay",
 		exec: func(_ context.Context, args json.RawMessage) (ToolResult, error) {
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			return ToolResult{Content: "ok"}, nil
 		},
 	}
@@ -212,9 +212,10 @@ func TestExecuteAll_Parallel(t *testing.T) {
 			t.Fatalf("unexpected error: %s", r.Result.Content)
 		}
 	}
-	// Se paralelo, deveria levar ~10ms, não ~50ms
-	if elapsed > 200*time.Millisecond {
-		t.Fatalf("execution too slow for parallel: %v", elapsed)
+	// Se paralelo, deveria levar ~100ms; sequencial seria ~500ms.
+	// Limiar de 250ms detecta regressão para execução sequencial.
+	if elapsed > 250*time.Millisecond {
+		t.Fatalf("execution too slow for parallel: %v (sequential would be ~500ms)", elapsed)
 	}
 }
 

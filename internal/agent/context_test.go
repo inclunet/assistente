@@ -110,23 +110,26 @@ func TestPreCheckContextWindow_UTF8Safe(t *testing.T) {
 }
 
 func TestPreCheckContextWindow_MinResultSize(t *testing.T) {
-	// Under extreme pressure, results are truncated proportionally to available budget.
-	// When the budget is smaller than minResultContextSize * len(results), the effective
-	// minimum is reduced to fit within the budget (preventing budget overflow).
+	// Under extreme pressure (budget zero or negative), results are completely
+	// removed to avoid adding tokens when there's no budget available.
 	msgs := []llm.Message{
 		{Role: "user", Content: strings.Repeat("x", 3600)}, // ~900 tokens
 	}
 
-	// Tiny budget remaining
+	// Tiny budget remaining: safeLimit=900, msgTokens=904, reserve=50 → available<0
 	result := strings.Repeat("a", 1000)
 	results := []string{result}
 
 	check := PreCheckContextWindow(1000, 50, msgs, results)
-	if check.Truncated {
-		// Verify the result is not empty — it should have at least some content
-		if len(results[0]) == 0 {
-			t.Error("result was truncated to empty string")
-		}
+	if !check.Truncated {
+		t.Error("expected Truncated=true when budget is zero/negative")
+	}
+	// Budget is zero/negative — result should be completely emptied
+	if len(results[0]) != 0 {
+		t.Errorf("result should be empty when budget is zero, got %d bytes", len(results[0]))
+	}
+	if check.FinalTokens != 0 {
+		t.Errorf("FinalTokens should be 0 when budget is zero, got %d", check.FinalTokens)
 	}
 }
 
