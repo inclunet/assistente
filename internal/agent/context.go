@@ -106,6 +106,12 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 	// Budget disponível = contextLimit * 90% - tokens existentes - tokens de resposta
 	safeLimit := int(float64(contextLimit) * contextSafetyThreshold)
 	availableTokens := safeLimit - existingTokens - maxResponseTokens
+
+	// Reserva overhead por mensagem de tool (~4 tokens cada para role/formatting),
+	// já que cada tool result será adicionado como mensagem separada no prompt.
+	toolMessageOverhead := len(toolResults) * 4
+	availableTokens -= toolMessageOverhead
+
 	if availableTokens < 0 {
 		availableTokens = 0
 	}

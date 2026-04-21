@@ -134,12 +134,10 @@ func TestPreCheckContextWindow_MinResultSize(t *testing.T) {
 }
 
 func TestPreCheckContextWindow_AvailableLessThanResults(t *testing.T) {
-	// When availableBytes < len(toolResults) and scaling zeroes all quotas,
-	// the fallback must not exceed availableBytes (no overflow).
+	// With 50 tool results, overhead alone is 50*4=200 tokens.
 	// estimateMessageTokens("x"*372) = ceil(372/4) + 4 overhead = 97 tokens.
-	// contextWindow=115, safeLimit=int(115*0.9)=103, reserve=5
-	// availableTokens=103-97-5=1 → availableBytes=4.
-	// 50 tool results → availableBytes(4) < nResults(50).
+	// contextWindow=115, safeLimit=103, reserve=5
+	// available=103-97-5-200 = -199 → clamped to 0 → all results emptied.
 	msgs := []llm.Message{
 		{Role: "user", Content: strings.Repeat("x", 372)},
 	}
@@ -156,9 +154,9 @@ func TestPreCheckContextWindow_AvailableLessThanResults(t *testing.T) {
 		totalBytes += len(r)
 	}
 
-	// availableBytes=4; sum of truncated results must not exceed it.
-	if totalBytes > 4 {
-		t.Errorf("total result bytes %d exceeds available budget 4", totalBytes)
+	// Budget is zero (tool overhead alone exceeds available), all results emptied.
+	if totalBytes != 0 {
+		t.Errorf("total result bytes %d should be 0 (budget zero with tool overhead)", totalBytes)
 	}
 	if !check.Truncated {
 		t.Error("expected Truncated=true")
@@ -186,5 +184,42 @@ func TestTruncateUTF8Safe(t *testing.T) {
 	result = truncateUTF8Safe(s, 100)
 	if result != "café" {
 		t.Fatalf("expected 'café', got %q", result)
+	}
+}
+
+func TestPreCheckContextWindow_ToolOverheadReducesBudget(t *testing.T) {
+	// Verify that tool message overhead (4 tokens per result) is subtracted
+	// from the available budget. With many tool results, this matters.
+	msgs := []llm.Message{
+		{Role: "user", Content: "hi"}, // ~1 token + 4 overhead = 5 tokens
+	}
+
+	// 10 small results — each 20 bytes = 5 tokens
+	results := make([]string, 10)
+	for i := range results {
+		results[i] = strings.Repeat("x", 20)
+	}
+
+	// contextLimit=200, safeLimit=180, reserve=50
+	// existingTokens=5, toolOverhead=10*4=40
+	// available=180-5-50-40=85 tokens
+	// resultTokens = 10 * 5 = 50 → fits in 85
+	check := PreCheckContextWindow(200, 50, msgs, results)
+	if check.Truncated {
+		t.Error("should not truncate: results fit with overhead accounted")
+	}
+
+	// Tight budget where overhead tips it over:
+	// contextLimit=110, safeLimit=99, reserve=10
+	// existingTokens=5, toolOverhead=10*4=40
+	// available=99-5-10-40=44 tokens
+	// resultTokens=50 > 44 → must truncate
+	results2 := make([]string, 10)
+	for i := range results2 {
+		results2[i] = strings.Repeat("x", 20)
+	}
+	check2 := PreCheckContextWindow(110, 10, msgs, results2)
+	if !check2.Truncated {
+		t.Error("should truncate when tool overhead reduces budget below result tokens")
 	}
 }
