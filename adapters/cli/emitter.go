@@ -174,9 +174,6 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 	case "chat:tool_start":
 		if ev, ok := e.toToolStartEvent(data); ok {
 			origin := ev.Origin
-			if origin == "" && ev.Native {
-				origin = "mcp_native"
-			}
 			if origin == "" {
 				origin = "builtin"
 			}
