@@ -278,3 +278,29 @@ func TestTruncateUTF8_LargeResult(t *testing.T) {
 		t.Fatal("expected truncation notice in content")
 	}
 }
+
+func TestExecuteContextCancellation(t *testing.T) {
+	tool := &mockTool{
+		name: "waiting",
+		exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+			<-ctx.Done()
+			return ToolResult{}, ctx.Err()
+		},
+	}
+	e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	res := e.ExecuteOne(ctx, ToolCall{
+		ID:       "c1",
+		Function: FunctionCall{Name: "waiting", Arguments: `{}`},
+	})
+
+	if !res.Result.IsError {
+		t.Error("expected IsError=true after cancellation")
+	}
+}

@@ -240,7 +240,7 @@ func (s *Service) RunAgenticLoop(
 					CallID:         execResult.CallID,
 					ErrorKind:      execResult.ErrorKind,
 					Retryable:      true,
-					Message:        truncateString(execResult.Result.Content, 200),
+					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 					DurationMs:     execResult.DurationMs,
 					Origin:         retryOrigin,
 					WillRetry:      true,
@@ -692,12 +692,22 @@ func convertToolCalls(llmCalls []llm.ToolCall) []tools.ToolCall {
 }
 
 func truncateString(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
 	if len(s) <= maxLen {
 		return s
 	}
-	// UTF-8 safe: recua até achar limite de rune válido
-	for maxLen > 0 && !utf8.RuneStart(s[maxLen]) {
-		maxLen--
+
+	const suffix = "..."
+	if maxLen <= len(suffix) {
+		return suffix[:maxLen]
 	}
-	return s[:maxLen] + "..."
+
+	cutoff := maxLen - len(suffix)
+	// UTF-8 safe: recua até achar limite de rune válido
+	for cutoff > 0 && !utf8.RuneStart(s[cutoff]) {
+		cutoff--
+	}
+	return s[:cutoff] + suffix
 }
