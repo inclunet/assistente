@@ -134,19 +134,45 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 		}
 	}
 
+	// Primeira passada: calcula quotas e clampeia ao budget total.
+	quotas := make([]int, nResults)
+	quotaSum := 0
 	for i, r := range toolResults {
-		// Calcula quota proporcional para este resultado
 		proportion := float64(len(r)) / float64(totalSize)
-		maxBytes := int(proportion * float64(availableBytes))
-
-		// Nunca abaixo do mínimo efetivo
-		if maxBytes < effectiveMin {
-			maxBytes = effectiveMin
+		q := int(proportion * float64(availableBytes))
+		if q < effectiveMin {
+			q = effectiveMin
 		}
+		quotas[i] = q
+		quotaSum += q
+	}
+
+	// Se a soma das quotas excede o budget (possível com effectiveMin),
+	// reduz proporcionalmente para caber.
+	if quotaSum > availableBytes && quotaSum > 0 {
+		scale := float64(availableBytes) / float64(quotaSum)
+		quotaSum = 0
+		for i := range quotas {
+			quotas[i] = int(float64(quotas[i]) * scale)
+			if quotas[i] < 1 {
+				quotas[i] = 1
+			}
+			quotaSum += quotas[i]
+		}
+	}
+
+	// Segunda passada: aplica truncamento reservando espaço para o aviso.
+	for i, r := range toolResults {
+		maxBytes := quotas[i]
 
 		if len(r) > maxBytes {
-			toolResults[i] = truncateUTF8Safe(r, maxBytes) +
-				"\n\n[CONTEXTO TRUNCADO: resultado tinha " + strconv.Itoa(len(r)) + " bytes, limitado a " + strconv.Itoa(maxBytes) + " bytes para caber na janela de contexto]"
+			// Reserva bytes para o aviso de truncamento (não ultrapassar maxBytes no total).
+			warning := "\n\n[CONTEXTO TRUNCADO: resultado tinha " + strconv.Itoa(len(r)) + " bytes, limitado a " + strconv.Itoa(maxBytes) + " bytes para caber na janela de contexto]"
+			contentBudget := maxBytes - len(warning)
+			if contentBudget < 1 {
+				contentBudget = 1
+			}
+			toolResults[i] = truncateUTF8Safe(r, contentBudget) + warning
 			result.Truncated = true
 		}
 		truncatedTokens += estimateTokens(toolResults[i])

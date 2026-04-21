@@ -295,18 +295,13 @@ func (s *Service) RunAgenticLoop(
 			toolsUsedSet[execResult.ToolName] = struct{}{}
 		}
 
-		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário
+		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário.
+		// Usa cópia para truncamento; o conteúdo original é preservado para persistência no DB.
 		toolContents := make([]string, len(execResults))
 		for i, r := range execResults {
 			toolContents[i] = r.Result.Content
 		}
 		preCheck := PreCheckContextWindow(params.ContextWindow, params.MaxTokens, messages, toolContents)
-		if preCheck.Truncated {
-			// Aplica conteúdos truncados de volta nos resultados
-			for i := range execResults {
-				execResults[i].Result.Content = toolContents[i]
-			}
-		}
 
 		// 5f-iii. AEP-0039 Fase 5: persiste assistant tool_calls com metadata enriquecida
 		enrichedCalls := make([]llm.EnrichedToolCall, len(result.ToolCalls))
@@ -341,8 +336,10 @@ func (s *Service) RunAgenticLoop(
 			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
 		}
 
-		// 5f-iv. Persiste resultados e adiciona ao histórico
-		for _, execResult := range execResults {
+		// 5f-iv. Persiste resultados originais no DB e adiciona conteúdo (possivelmente
+		// truncado) ao histórico de mensagens enviado ao LLM.
+		for i, execResult := range execResults {
+			// Persiste conteúdo original completo no banco
 			_, err := s.msgRepo.AddToolResultMessage(
 				conversationID,
 				turnID,
@@ -357,9 +354,14 @@ func (s *Service) RunAgenticLoop(
 				log.Printf("[Agent] erro ao salvar resultado de tool %s: %v", execResult.ToolName, err)
 			}
 
+			// Para o histórico LLM, usa versão truncada se pre-check aplicou truncamento
+			content := execResult.Result.Content
+			if preCheck.Truncated {
+				content = toolContents[i]
+			}
 			messages = append(messages, llm.Message{
 				Role:       "tool",
-				Content:    execResult.Result.Content,
+				Content:    content,
 				ToolCallID: execResult.CallID,
 			})
 		}
