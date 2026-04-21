@@ -169,10 +169,12 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 			// Reserva bytes para o aviso de truncamento (não ultrapassar maxBytes no total).
 			warning := "\n\n[CONTEXTO TRUNCADO: resultado tinha " + strconv.Itoa(len(r)) + " bytes, limitado a " + strconv.Itoa(maxBytes) + " bytes para caber na janela de contexto]"
 			contentBudget := maxBytes - len(warning)
-			if contentBudget < 1 {
-				contentBudget = 1
+			if contentBudget >= 1 {
+				toolResults[i] = truncateUTF8Safe(r, contentBudget) + warning
+			} else {
+				// Warning não cabe no budget — trunca sem aviso para respeitar maxBytes.
+				toolResults[i] = truncateUTF8Safe(r, maxBytes)
 			}
-			toolResults[i] = truncateUTF8Safe(r, contentBudget) + warning
 			result.Truncated = true
 		}
 		truncatedTokens += estimateTokens(toolResults[i])

@@ -195,6 +195,19 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	// Aguarda resultado ou timeout/cancelamento
 	select {
 	case result := <-resultCh:
+		// Reclassifica: se a goroutine retornou um erro genérico mas o contexto
+		// já foi cancelado/expirado, normaliza o ErrorKind para consistência.
+		if result.Result.IsError && result.ErrorKind == ErrorKindUnknown {
+			if ctx.Err() != nil {
+				// Contexto pai cancelado — não é retryable
+				result.ErrorKind = ""
+				result.Retryable = false
+			} else if toolCtx.Err() != nil {
+				// Timeout da tool
+				result.ErrorKind = ErrorKindTimeout
+				result.Retryable = true
+			}
+		}
 		return result
 	case <-toolCtx.Done():
 		elapsed := time.Since(start).Milliseconds()
