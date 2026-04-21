@@ -140,9 +140,9 @@ function App() {
         }));
 
         unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
-            const eventData = data as { conversation_id?: number; new_title?: string };
-            if (eventData.conversation_id && eventData.new_title) {
-                handleConversationRenamed(eventData.conversation_id, eventData.new_title);
+            const eventData = data as { conversationId?: number; newTitle?: string };
+            if (eventData.conversationId && eventData.newTitle) {
+                handleConversationRenamed(eventData.conversationId, eventData.newTitle);
             }
         }));
 
