@@ -130,6 +130,38 @@ func TestPreCheckContextWindow_MinResultSize(t *testing.T) {
 	}
 }
 
+func TestPreCheckContextWindow_AvailableLessThanResults(t *testing.T) {
+	// When availableBytes < len(toolResults) and scaling zeroes all quotas,
+	// the fallback must not exceed availableBytes (no overflow).
+	// estimateMessageTokens("x"*372) = ceil(372/4) + 4 overhead = 97 tokens.
+	// contextWindow=115, safeLimit=int(115*0.9)=103, reserve=5
+	// availableTokens=103-97-5=1 → availableBytes=4.
+	// 50 tool results → availableBytes(4) < nResults(50).
+	msgs := []llm.Message{
+		{Role: "user", Content: strings.Repeat("x", 372)},
+	}
+
+	results := make([]string, 50)
+	for i := range results {
+		results[i] = strings.Repeat("a", 100)
+	}
+
+	check := PreCheckContextWindow(115, 5, msgs, results)
+
+	totalBytes := 0
+	for _, r := range results {
+		totalBytes += len(r)
+	}
+
+	// availableBytes=4; sum of truncated results must not exceed it.
+	if totalBytes > 4 {
+		t.Errorf("total result bytes %d exceeds available budget 4", totalBytes)
+	}
+	if !check.Truncated {
+		t.Error("expected Truncated=true")
+	}
+}
+
 func TestTruncateUTF8Safe(t *testing.T) {
 	// "café" in UTF-8: c(1) a(1) f(1) é(2) = 5 bytes
 	s := "café"
