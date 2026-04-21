@@ -164,7 +164,7 @@ func TestEmitterAdapter_SegmentDone_Verbose(t *testing.T) {
 	if out.Len() > 0 {
 		t.Errorf("stdout deveria estar vazio, obteve %q", out.String())
 	}
-	want := "[segment] iteração 1 concluída, 1 tools\n"
+	want := "[segment] iteração 1 concluída, 1 tool\n"
 	if got := errOut.String(); got != want {
 		t.Errorf("stderr esperado %q, obteve %q", want, got)
 	}

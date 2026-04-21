@@ -275,16 +275,22 @@ func (e *EmitterAdapter) handleSegmentDone(data any) {
 		return
 	}
 
+	n := len(ev.ToolsInIteration)
+	toolWord := "tools"
+	if n == 1 {
+		toolWord = "tool"
+	}
+
 	if e.verbose {
 		// Verbose já exibe cada tool individualmente via tool_start/end;
 		// apenas loga o segment_done como confirmação.
-		_, _ = fmt.Fprintf(e.errOut, "[segment] iteração %d concluída, %d tools\n",
-			ev.Iteration, len(ev.ToolsInIteration))
+		_, _ = fmt.Fprintf(e.errOut, "[segment] iteração %d concluída, %d %s\n",
+			ev.Iteration, n, toolWord)
 		return
 	}
 
 	// Modo padrão: linha compacta com nomes e duração total
-	names := make([]string, 0, len(ev.ToolsInIteration))
+	names := make([]string, 0, n)
 	var totalMs int64
 	for _, t := range ev.ToolsInIteration {
 		names = append(names, t.Name)
@@ -293,11 +299,11 @@ func (e *EmitterAdapter) handleSegmentDone(data any) {
 	nameList := strings.Join(names, ", ")
 
 	if totalMs > 0 {
-		_, _ = fmt.Fprintf(e.errOut, "[tools] iteração %d: %d tools (%s) — %dms\n",
-			ev.Iteration, len(ev.ToolsInIteration), nameList, totalMs)
+		_, _ = fmt.Fprintf(e.errOut, "[tools] iteração %d: %d %s (%s) — %dms\n",
+			ev.Iteration, n, toolWord, nameList, totalMs)
 	} else {
-		_, _ = fmt.Fprintf(e.errOut, "[tools] iteração %d: %d tools (%s)\n",
-			ev.Iteration, len(ev.ToolsInIteration), nameList)
+		_, _ = fmt.Fprintf(e.errOut, "[tools] iteração %d: %d %s (%s)\n",
+			ev.Iteration, n, toolWord, nameList)
 	}
 }
 

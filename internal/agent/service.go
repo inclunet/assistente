@@ -158,6 +158,24 @@ func (s *Service) RunAgenticLoop(
 				Error:          result.Error,
 				ConversationId: conversationID,
 			})
+			// Emite chat:done com Reason="error" para que adapters (CLI, frontend)
+			// sempre recebam um evento de encerramento estruturado (AEP-0039).
+			errToolsUsed := make([]string, 0, len(toolsUsedSet))
+			for name := range toolsUsedSet {
+				errToolsUsed = append(errToolsUsed, name)
+			}
+			sort.Strings(errToolsUsed)
+			s.emitter.Emit("chat:done", ports.DoneEvent{
+				ConversationID:   conversationID,
+				HadToolCalls:     totalToolCallCount > 0,
+				Reason:           "error",
+				ErrorMessage:     result.Error,
+				IterationCount:   iteration + 1,
+				ToolCallCount:    totalToolCallCount,
+				ToolsUsed:        errToolsUsed,
+				PromptTokens:     lastUsage.PromptTokens,
+				CompletionTokens: lastUsage.CompletionTokens,
+			})
 			return
 		}
 
