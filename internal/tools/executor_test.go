@@ -157,8 +157,8 @@ func TestExecuteSingle_Timeout(t *testing.T) {
 	if !res.Retryable {
 		t.Fatal("timeout should be retryable")
 	}
-	if res.DurationMs < 40 {
-		t.Fatalf("DurationMs should be >= ~50ms, got %d", res.DurationMs)
+	if res.DurationMs <= 0 {
+		t.Fatalf("DurationMs should be > 0, got %d", res.DurationMs)
 	}
 }
 

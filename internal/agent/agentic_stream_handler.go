@@ -74,9 +74,9 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		errSummary := ""
 		if event.Error != "" {
 			status = "error"
-			errSummary = truncateString(event.Error, 200)
+			errSummary = truncateString(event.Error, MaxResultDisplaySize)
 		}
-		outputSummary := truncateString(event.Output, 200)
+		outputSummary := truncateString(event.Output, MaxResultDisplaySize)
 
 		EmitToolEnd(h.Emitter, ports.ToolEndEvent{
 			ConversationID: h.ConversationID,

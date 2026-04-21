@@ -143,7 +143,8 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 	availableBytes := availableTokens * charsPerToken
 	truncatedTokens := 0
 
-	// Caso especial: budget zero ou negativo — trunca tudo para vazio.
+	// Caso especial: budget zero ou negativo — substitui cada resultado
+	// por um aviso fixo indicando que não há budget disponível.
 	nResults := len(toolResults)
 	if availableBytes <= 0 {
 		for i := range toolResults {
@@ -196,6 +197,21 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 				quotas[i] = 0
 			}
 			quotaSum += quotas[i]
+		}
+	}
+
+	// Se o scaling zerou todas as quotas mas ainda há budget,
+	// distribui os bytes restantes round-robin a partir dos maiores resultados.
+	if quotaSum == 0 && availableBytes > 0 && nResults > 0 {
+		perResult := availableBytes / nResults
+		if perResult < 1 {
+			perResult = 1
+		}
+		for i := range quotas {
+			quotas[i] = perResult
+			if quotas[i] > availableBytes {
+				quotas[i] = availableBytes
+			}
 		}
 	}
 

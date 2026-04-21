@@ -171,13 +171,22 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			return
 		}
 
-		// Trunca resultado se necessário (UTF-8 safe)
+		// Trunca resultado se necessário (UTF-8 safe).
+		// Reserva bytes para o aviso de truncamento, garantindo que
+		// result.Content final ≤ MaxResultSize.
 		if len(result.Content) > e.config.MaxResultSize {
-			truncated := truncateUTF8(result.Content, e.config.MaxResultSize)
-			result.Content = truncated + fmt.Sprintf(
+			origSize := len(result.Content)
+			warning := fmt.Sprintf(
 				"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-				len(result.Content), e.config.MaxResultSize,
+				origSize, e.config.MaxResultSize,
 			)
+			contentBudget := e.config.MaxResultSize - len(warning)
+			if contentBudget >= 1 {
+				result.Content = truncateUTF8(result.Content, contentBudget) + warning
+			} else {
+				// Warning não cabe — trunca sem aviso para respeitar o limite.
+				result.Content = truncateUTF8(result.Content, e.config.MaxResultSize)
+			}
 			if result.Metadata == nil {
 				result.Metadata = make(map[string]any)
 			}
