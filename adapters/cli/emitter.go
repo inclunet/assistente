@@ -210,7 +210,7 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 			if ev.WillRetry {
 				retry = " [retrying]"
 			}
-			_, _ = fmt.Fprintf(e.errOut, "[tool:FAIL]  %s — %s (retryable=%v)%s\n", ev.Name, ev.ErrorKind, ev.Retryable, retry)
+			_, _ = fmt.Fprintf(e.errOut, "[tool:failure] %s — %s (retryable=%v)%s\n", ev.Name, ev.ErrorKind, ev.Retryable, retry)
 			return
 		}
 	}

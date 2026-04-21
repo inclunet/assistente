@@ -37,8 +37,29 @@ func estimateTokens(text string) int {
 func estimateMessageTokens(messages []llm.Message) int {
 	total := 0
 	for _, m := range messages {
-		if s, ok := m.Content.(string); ok {
-			total += estimateTokens(s)
+		switch c := m.Content.(type) {
+		case string:
+			total += estimateTokens(c)
+		case []llm.ContentPart:
+			for _, part := range c {
+				if part.Type == "text" {
+					total += estimateTokens(part.Text)
+				} else if part.Type == "image_url" {
+					// Custo fixo estimado para imagens (~85 tokens para low detail)
+					total += 85
+				}
+			}
+		case []interface{}:
+			// Fallback para conteúdo multimodal deserializado como []interface{}
+			for _, item := range c {
+				if m, ok := item.(map[string]interface{}); ok {
+					if t, ok := m["text"].(string); ok {
+						total += estimateTokens(t)
+					} else if m["type"] == "image_url" {
+						total += 85
+					}
+				}
+			}
 		}
 		for _, tc := range m.ToolCalls {
 			total += estimateTokens(tc.Function.Arguments)
@@ -121,9 +142,25 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 	availableBytes := availableTokens * charsPerToken
 	truncatedTokens := 0
 
+	// Caso especial: budget zero ou negativo — trunca tudo para vazio.
+	nResults := len(toolResults)
+	if availableBytes <= 0 {
+		for i := range toolResults {
+			if len(toolResults[i]) > 0 {
+				toolResults[i] = "[CONTEXTO TRUNCADO: sem budget disponível]"
+				result.Truncated = true
+			}
+			truncatedTokens += estimateTokens(toolResults[i])
+		}
+		result.FinalTokens = truncatedTokens
+		if result.Truncated {
+			log.Printf("[Agent] context pre-check: truncou %d → %d tokens estimados (budget zero)", resultTokens, truncatedTokens)
+		}
+		return result
+	}
+
 	// Calcula quotas respeitando minResultContextSize, mas garante que a soma
 	// das quotas não exceda availableBytes (evita estourar o budget).
-	nResults := len(toolResults)
 	minTotal := nResults * minResultContextSize
 	effectiveMin := minResultContextSize
 	if minTotal > availableBytes && nResults > 0 {
@@ -154,8 +191,8 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 		quotaSum = 0
 		for i := range quotas {
 			quotas[i] = int(float64(quotas[i]) * scale)
-			if quotas[i] < 1 {
-				quotas[i] = 1
+			if quotas[i] < 0 {
+				quotas[i] = 0
 			}
 			quotaSum += quotas[i]
 		}
