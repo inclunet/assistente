@@ -149,7 +149,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 
 		result, err := tool.Execute(toolCtx, args)
 		if err != nil {
-			// Detect if the error is a timeout (context deadline exceeded)
+			// Detecta se o erro é um timeout (context deadline exceeded)
 			errKind := ErrorKindUnknown
 			retryable := false
 			if errors.Is(err, context.DeadlineExceeded) && toolCtx.Err() != nil {

@@ -121,14 +121,27 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 	availableBytes := availableTokens * charsPerToken
 	truncatedTokens := 0
 
+	// Calcula quotas respeitando minResultContextSize, mas garante que a soma
+	// das quotas não exceda availableBytes (evita estourar o budget).
+	nResults := len(toolResults)
+	minTotal := nResults * minResultContextSize
+	effectiveMin := minResultContextSize
+	if minTotal > availableBytes && nResults > 0 {
+		// Quando o budget é menor que o mínimo coletivo, distribui igualmente
+		effectiveMin = availableBytes / nResults
+		if effectiveMin < 1 {
+			effectiveMin = 1
+		}
+	}
+
 	for i, r := range toolResults {
 		// Calcula quota proporcional para este resultado
 		proportion := float64(len(r)) / float64(totalSize)
 		maxBytes := int(proportion * float64(availableBytes))
 
-		// Nunca abaixo do mínimo
-		if maxBytes < minResultContextSize {
-			maxBytes = minResultContextSize
+		// Nunca abaixo do mínimo efetivo
+		if maxBytes < effectiveMin {
+			maxBytes = effectiveMin
 		}
 
 		if len(r) > maxBytes {

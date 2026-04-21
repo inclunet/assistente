@@ -110,7 +110,9 @@ func TestPreCheckContextWindow_UTF8Safe(t *testing.T) {
 }
 
 func TestPreCheckContextWindow_MinResultSize(t *testing.T) {
-	// Even under extreme pressure, results shouldn't be truncated below minResultContextSize
+	// Under extreme pressure, results are truncated proportionally to available budget.
+	// When the budget is smaller than minResultContextSize * len(results), the effective
+	// minimum is reduced to fit within the budget (preventing budget overflow).
 	msgs := []llm.Message{
 		{Role: "user", Content: strings.Repeat("x", 3600)}, // ~900 tokens
 	}
@@ -120,11 +122,10 @@ func TestPreCheckContextWindow_MinResultSize(t *testing.T) {
 	results := []string{result}
 
 	check := PreCheckContextWindow(1000, 50, msgs, results)
-	// Even if budget is nearly zero, result should be at least minResultContextSize
 	if check.Truncated {
-		// Just verify it's not empty
-		if len(results[0]) < minResultContextSize {
-			t.Errorf("result too small: %d bytes, minimum should be %d", len(results[0]), minResultContextSize)
+		// Verify the result is not empty — it should have at least some content
+		if len(results[0]) == 0 {
+			t.Error("result was truncated to empty string")
 		}
 	}
 }

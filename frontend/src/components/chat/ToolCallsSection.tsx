@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, LoadingOutlined, SettingOutlined, ToolOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { formatDuration } from '../../utils/format';
 import './ToolCallsSection.css';
 
 /**
@@ -262,12 +263,4 @@ function normalizeResult(raw: string): string {
 function formatSize(chars: number): string {
   if (chars < 1024) return `${chars} chars`;
   return `${(chars / 1024).toFixed(1)} KB`;
-}
-
-/**
- * Formata duração em milissegundos para exibição legível.
- */
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
 }
