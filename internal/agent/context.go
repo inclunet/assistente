@@ -42,9 +42,10 @@ func estimateMessageTokens(messages []llm.Message) int {
 			total += estimateTokens(c)
 		case []llm.ContentPart:
 			for _, part := range c {
-				if part.Type == "text" {
+				switch part.Type {
+				case "text":
 					total += estimateTokens(part.Text)
-				} else if part.Type == "image_url" {
+				case "image_url":
 					// Custo fixo estimado para imagens (~85 tokens para low detail)
 					total += 85
 				}
