@@ -20,8 +20,9 @@ const (
 	// MaxResultDisplaySize é o tamanho máximo de um resultado para exibição em eventos UI (bytes).
 	MaxResultDisplaySize = 200
 
-	// minResultContextSize é o tamanho mínimo que um resultado de tool pode ter no contexto LLM (bytes).
-	// Mesmo sob pressão de contexto, nunca truncamos abaixo disso.
+	// minResultContextSize é o tamanho mínimo desejado para cada resultado de tool no contexto LLM (bytes).
+	// Sob pressão extrema de contexto, o truncamento efetivo ainda pode ficar abaixo disso
+	// se o orçamento total disponível não for suficiente para garantir esse piso a todos os resultados.
 	minResultContextSize = 512
 )
 
