@@ -248,13 +248,16 @@ func (s *Service) RunAgenticLoop(
 		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
 
 		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
+		retriedCallIDs := make(map[string]struct{})
 		for i, execResult := range execResults {
 			if execResult.Result.IsError && execResult.Retryable && iteration < maxIterations-1 {
+				retriedCallIDs[execResult.CallID] = struct{}{}
 				retryOrigin, retryServerLabel := detectToolOrigin(execResult.ToolName)
+				retryName := extractLogicalToolName(execResult.ToolName)
 				// Emite tool_end para a tentativa que falhou (attempt=0)
 				EmitToolEnd(s.emitter, ports.ToolEndEvent{
 					ConversationID: conversationID,
-					Name:           execResult.ToolName,
+					Name:           retryName,
 					CallID:         execResult.CallID,
 					Status:         "error",
 					Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
@@ -266,7 +269,7 @@ func (s *Service) RunAgenticLoop(
 				// Emite tool_failure com willRetry=true
 				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
 					ConversationID: conversationID,
-					Name:           execResult.ToolName,
+					Name:           retryName,
 					CallID:         execResult.CallID,
 					ErrorKind:      string(execResult.ErrorKind),
 					Retryable:      true,
@@ -276,11 +279,11 @@ func (s *Service) RunAgenticLoop(
 					WillRetry:      true,
 					Attempt:        0,
 				})
-				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", execResult.ToolName, execResult.ErrorKind)
+				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", retryName, execResult.ErrorKind)
 				// Emite tool_start para a nova tentativa (attempt=1)
 				EmitToolStart(s.emitter, ports.ToolStartEvent{
 					ConversationID: conversationID,
-					Name:           execResult.ToolName,
+					Name:           retryName,
 					CallID:         execResult.CallID,
 					Origin:         retryOrigin,
 					ServerLabel:    retryServerLabel,
@@ -295,26 +298,32 @@ func (s *Service) RunAgenticLoop(
 		var iterationTools []ports.ToolSummary
 		for _, execResult := range execResults {
 			origin, serverLabel := detectToolOrigin(execResult.ToolName)
+			logicalName := extractLogicalToolName(execResult.ToolName)
 			status := "ok"
 			if execResult.Result.IsError {
 				status = "error"
 			}
+			attempt := 0
+			if _, wasRetried := retriedCallIDs[execResult.CallID]; wasRetried {
+				attempt = 1
+			}
 			EmitToolEnd(s.emitter, ports.ToolEndEvent{
 				ConversationID: conversationID,
-				Name:           execResult.ToolName,
+				Name:           logicalName,
 				CallID:         execResult.CallID,
 				Status:         status,
 				Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 				Origin:         origin,
 				ServerLabel:    serverLabel,
 				DurationMs:     execResult.DurationMs,
+				Attempt:        attempt,
 			})
 
 			// AEP-0039 Fase 3: emite tool_failure para erros classificados (sem retry)
 			if execResult.Result.IsError && execResult.ErrorKind != "" {
 				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
 					ConversationID: conversationID,
-					Name:           execResult.ToolName,
+					Name:           logicalName,
 					CallID:         execResult.CallID,
 					ErrorKind:      string(execResult.ErrorKind),
 					Retryable:      execResult.Retryable,
@@ -326,7 +335,7 @@ func (s *Service) RunAgenticLoop(
 
 			// AEP-0039: acumula stats
 			iterationTools = append(iterationTools, ports.ToolSummary{
-				Name:       execResult.ToolName,
+				Name:       logicalName,
 				Status:     status,
 				ErrorKind:  string(execResult.ErrorKind),
 				DurationMs: execResult.DurationMs,
@@ -634,9 +643,10 @@ func (s *Service) emitTokenStats(conversationID uint) {
 func (s *Service) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
 	for _, call := range calls {
 		origin, serverLabel := detectToolOrigin(call.Function.Name)
+		name := extractLogicalToolName(call.Function.Name)
 		EmitToolStart(s.emitter, ports.ToolStartEvent{
 			ConversationID: conversationID,
-			Name:           call.Function.Name,
+			Name:           name,
 			CallID:         call.ID,
 			Args:           call.Function.Arguments,
 			Origin:         origin,

@@ -205,16 +205,20 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	select {
 	case result := <-resultCh:
 		// Reclassifica: se a goroutine retornou um erro genérico mas o contexto
-		// já foi cancelado/expirado, normaliza o ErrorKind para consistência.
+		// já foi cancelado/expirado, normaliza o ErrorKind e Result.Content para consistência.
 		if result.Result.IsError && result.ErrorKind == ErrorKindUnknown {
 			if ctx.Err() != nil {
 				// Contexto pai cancelado — não é retryable
 				result.ErrorKind = ""
 				result.Retryable = false
+				result.Result.Content = fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName)
+				result.Error = ctx.Err()
 			} else if toolCtx.Err() != nil {
 				// Timeout da tool
 				result.ErrorKind = ErrorKindTimeout
 				result.Retryable = true
+				result.Result.Content = fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout)
+				result.Error = context.DeadlineExceeded
 			}
 		}
 		return result
