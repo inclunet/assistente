@@ -175,6 +175,9 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 	switch event {
 	case "chat:tool_start":
 		if ev, ok := e.toToolStartEvent(data); ok {
+			if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
+				return
+			}
 			origin := ev.Origin
 			if origin == "" && ev.Native {
 				origin = "mcp_native"
@@ -191,6 +194,9 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 		}
 	case "chat:tool_end":
 		if ev, ok := e.toToolEndEvent(data); ok {
+			if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
+				return
+			}
 			name := ev.Name
 			if name == "" {
 				name = ev.CallID
@@ -208,6 +214,9 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 		}
 	case "chat:tool_failure":
 		if ev, ok := e.toToolFailureEvent(data); ok {
+			if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
+				return
+			}
 			retry := ""
 			if ev.WillRetry {
 				retry = " [retrying]"

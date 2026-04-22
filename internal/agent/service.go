@@ -345,9 +345,12 @@ func (s *Service) RunAgenticLoop(
 		for i, tc := range result.ToolCalls {
 			tcOrigin, tcServerLabel := detectToolOrigin(tc.Function.Name)
 			enrichedCalls[i] = llm.EnrichedToolCall{
-				ID:          tc.ID,
-				Type:        tc.Type,
-				Function:    tc.Function,
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: llm.FunctionCall{
+					Name:      extractLogicalToolName(tc.Function.Name),
+					Arguments: tc.Function.Arguments,
+				},
 				Origin:      tcOrigin,
 				ServerLabel: tcServerLabel,
 				Iteration:   iteration,
@@ -650,6 +653,18 @@ func detectToolOrigin(toolName string) (origin, serverLabel string) {
 	return OriginBuiltin, ""
 }
 
+// extractLogicalToolName retorna o nome lógico da tool, sem prefixo MCP bridge.
+// Para "mcp_github__search_code" retorna "search_code".
+// Para tools builtin/native retorna o nome inalterado.
+func extractLogicalToolName(toolName string) string {
+	if strings.HasPrefix(toolName, "mcp_") {
+		if idx := strings.Index(toolName, "__"); idx > 4 {
+			return toolName[idx+2:]
+		}
+	}
+	return toolName
+}
+
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
 // uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
 // AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
@@ -659,15 +674,11 @@ func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents [
 		if !ev.IsCompleted {
 			continue
 		}
-		name := ev.Name
-		if ev.ServerLabel != "" {
-			name = ev.ServerLabel + "/" + ev.Name
-		}
 		toolCalls = append(toolCalls, llm.EnrichedToolCall{
 			ID:   ev.ID,
 			Type: "function",
 			Function: llm.FunctionCall{
-				Name:      name,
+				Name:      ev.Name,
 				Arguments: ev.Arguments,
 			},
 			Origin:      OriginMCPNative,
