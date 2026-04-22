@@ -48,6 +48,7 @@ type ToolStartEvent struct {
 	ServerLabel    string `json:"serverLabel,omitempty"`
 	Native         bool   `json:"native,omitempty"`          // DEPRECADO (AEP-0039) — usar Origin
 	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
+	Attempt        int    `json:"attempt,omitempty"`          // Tentativa (0=primeira, 1=retry)
 }
 
 // ToolEndEvent is the payload for chat:tool_end.
@@ -62,6 +63,7 @@ type ToolEndEvent struct {
 	Native         bool   `json:"native,omitempty"`          // DEPRECADO (AEP-0039) — usar Origin
 	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
 	DurationMs     int64  `json:"durationMs,omitempty"`       // AEP-0039 Fase 3
+	Attempt        int    `json:"attempt,omitempty"`          // Tentativa (0=primeira, 1=retry)
 }
 
 // ToolFailureEvent is the payload for chat:tool_failure (AEP-0039 Fase 3).
@@ -77,6 +79,7 @@ type ToolFailureEvent struct {
 	DurationMs     int64  `json:"durationMs,omitempty"`
 	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
 	WillRetry      bool   `json:"willRetry,omitempty"`        // true se retry automático será tentado
+	Attempt        int    `json:"attempt,omitempty"`          // Tentativa (0=primeira, 1=retry)
 }
 
 // ToolSummary describes a tool invocation within an iteration (AEP-0039 Fase 2+3).

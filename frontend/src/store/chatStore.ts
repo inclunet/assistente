@@ -83,6 +83,7 @@ interface ChatToolStartEvent {
   /** @deprecated Use origin instead (AEP-0039) */
   native?: boolean;
   origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  attempt?: number;
 }
 
 interface ChatToolEndEvent {
@@ -97,6 +98,7 @@ interface ChatToolEndEvent {
   native?: boolean;
   origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
   durationMs?: number;
+  attempt?: number;
 }
 
 // AEP-0039 Fase 3: structured failure event (distinct from tool_end with status='error')
@@ -110,6 +112,7 @@ interface ChatToolFailureEvent {
   durationMs?: number;
   origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
   willRetry?: boolean;
+  attempt?: number;
 }
 
 interface ChatSegmentDoneEvent {
@@ -579,12 +582,25 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (data.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
       ensureAssistantNode();
-      set((state) => ({
-        activeToolCalls: [
-          ...state.activeToolCalls,
-          { name: data.name, callId: data.callId, args: data.args, status: 'running' as const },
-        ],
-      }));
+      set((state) => {
+        const existing = state.activeToolCalls.findIndex((tc) => tc.callId === data.callId);
+        if (existing >= 0) {
+          // Retry: upsert — reseta status para 'running'
+          return {
+            activeToolCalls: state.activeToolCalls.map((tc) =>
+              tc.callId === data.callId
+                ? { name: data.name, callId: data.callId, args: data.args, status: 'running' as const, summary: undefined }
+                : tc
+            ),
+          };
+        }
+        return {
+          activeToolCalls: [
+            ...state.activeToolCalls,
+            { name: data.name, callId: data.callId, args: data.args, status: 'running' as const },
+          ],
+        };
+      });
     });
 
     unsubToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
@@ -1371,11 +1387,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         ensureAssistantNode();
-        set((state) => ({
-          activeToolCalls: [...state.activeToolCalls, {
-            name: event.name, callId: event.callId, args: event.args, status: 'running' as const,
-          }],
-        }));
+        set((state) => {
+          const existing = state.activeToolCalls.findIndex((tc) => tc.callId === event.callId);
+          if (existing >= 0) {
+            // Retry: upsert — reseta status para 'running'
+            return {
+              activeToolCalls: state.activeToolCalls.map((tc) =>
+                tc.callId === event.callId
+                  ? { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: undefined }
+                  : tc
+              ),
+            };
+          }
+          return {
+            activeToolCalls: [...state.activeToolCalls, {
+              name: event.name, callId: event.callId, args: event.args, status: 'running' as const,
+            }],
+          };
+        });
         announce(i18next.t('chat.toolRunning', { name: event.name }), 'polite');
       });
 

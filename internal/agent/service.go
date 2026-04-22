@@ -251,7 +251,7 @@ func (s *Service) RunAgenticLoop(
 		for i, execResult := range execResults {
 			if execResult.Result.IsError && execResult.Retryable && iteration < maxIterations-1 {
 				retryOrigin, retryServerLabel := detectToolOrigin(execResult.ToolName)
-				// Emite tool_end para a tentativa que falhou
+				// Emite tool_end para a tentativa que falhou (attempt=0)
 				EmitToolEnd(s.emitter, ports.ToolEndEvent{
 					ConversationID: conversationID,
 					Name:           execResult.ToolName,
@@ -261,27 +261,30 @@ func (s *Service) RunAgenticLoop(
 					Origin:         retryOrigin,
 					ServerLabel:    retryServerLabel,
 					DurationMs:     execResult.DurationMs,
+					Attempt:        0,
 				})
 				// Emite tool_failure com willRetry=true
 				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
 					ConversationID: conversationID,
 					Name:           execResult.ToolName,
 					CallID:         execResult.CallID,
-					ErrorKind:      execResult.ErrorKind,
+					ErrorKind:      string(execResult.ErrorKind),
 					Retryable:      true,
 					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 					DurationMs:     execResult.DurationMs,
 					Origin:         retryOrigin,
 					WillRetry:      true,
+					Attempt:        0,
 				})
 				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", execResult.ToolName, execResult.ErrorKind)
-				// Emite tool_start para a nova tentativa
+				// Emite tool_start para a nova tentativa (attempt=1)
 				EmitToolStart(s.emitter, ports.ToolStartEvent{
 					ConversationID: conversationID,
 					Name:           execResult.ToolName,
 					CallID:         execResult.CallID,
 					Origin:         retryOrigin,
 					ServerLabel:    retryServerLabel,
+					Attempt:        1,
 				})
 				retried := s.toolExecutor.ExecuteOne(ctx, toolCalls[i])
 				execResults[i] = retried
@@ -313,7 +316,7 @@ func (s *Service) RunAgenticLoop(
 					ConversationID: conversationID,
 					Name:           execResult.ToolName,
 					CallID:         execResult.CallID,
-					ErrorKind:      execResult.ErrorKind,
+					ErrorKind:      string(execResult.ErrorKind),
 					Retryable:      execResult.Retryable,
 					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 					DurationMs:     execResult.DurationMs,
@@ -325,7 +328,7 @@ func (s *Service) RunAgenticLoop(
 			iterationTools = append(iterationTools, ports.ToolSummary{
 				Name:       execResult.ToolName,
 				Status:     status,
-				ErrorKind:  execResult.ErrorKind,
+				ErrorKind:  string(execResult.ErrorKind),
 				DurationMs: execResult.DurationMs,
 			})
 			totalToolCallCount++
