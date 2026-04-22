@@ -56,8 +56,9 @@ func NewEmitterAdapter(opts ...EmitterOption) *EmitterAdapter {
 	return e
 }
 
-// WaitDone retorna um canal que é fechado quando o streaming da conversa especificada
-// termina (chat:stream com Done=true ou chat:error). Deve ser chamado ANTES de SendMessage.
+// WaitDone retorna um canal que é fechado quando o backend emite chat:done para a
+// conversa especificada (ou chat:error como fallback quando chat:done não é emitido).
+// Deve ser chamado ANTES de SendMessage.
 // Se conversationID é 0, aceita qualquer conversa (compatível com modo REPL).
 func (e *EmitterAdapter) WaitDone(conversationID uint) <-chan struct{} {
 	e.mu.Lock()
@@ -118,7 +119,8 @@ func (e *EmitterAdapter) handleStream(data any) {
 	if ev.Error != "" {
 		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
 		e.lastPrinted = 0
-		e.signalDone()
+		// NÃO chama signalDone aqui: o backend pode emitir chat:done após
+		// chat:stream com Error. Encerramento fica com chat:done/chat:error.
 		return
 	}
 
@@ -165,7 +167,9 @@ func (e *EmitterAdapter) handleError(data any) {
 		_, _ = fmt.Fprintf(e.errOut, "Erro: %v\n", data)
 	}
 	e.lastPrinted = 0
-	e.signalDone()
+	// NÃO chama signalDone aqui: chat:done é a fonte de verdade para término.
+	// O backend pode emitir chat:error seguido de chat:done; fechar aqui
+	// encerraria o CLI antes de processar o resumo final do chat:done.
 }
 
 // handleTool imprime informações de tool calling quando verbose (AEP-0039 Fase 1).
