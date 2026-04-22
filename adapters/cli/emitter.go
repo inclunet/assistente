@@ -344,6 +344,7 @@ func (e *EmitterAdapter) toSegmentDoneEvent(data any) (ports.SegmentDoneEvent, b
 
 // handleDone imprime resumo do chat:done no stderr (AEP-0039 Fase 2).
 func (e *EmitterAdapter) handleDone(data any) {
+	defer e.signalDone()
 	ev, ok := e.toDoneEvent(data)
 	if !ok {
 		return
@@ -375,7 +376,6 @@ func (e *EmitterAdapter) handleDone(data any) {
 	} else if e.verbose {
 		_, _ = fmt.Fprintf(e.errOut, "[done] %s\n", reason)
 	}
-	e.signalDone()
 }
 
 // toDoneEvent converte o payload genérico para ports.DoneEvent.
