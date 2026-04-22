@@ -375,6 +375,7 @@ func (e *EmitterAdapter) handleDone(data any) {
 	} else if e.verbose {
 		_, _ = fmt.Fprintf(e.errOut, "[done] %s\n", reason)
 	}
+	e.signalDone()
 }
 
 // toDoneEvent converte o payload genérico para ports.DoneEvent.

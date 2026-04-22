@@ -619,6 +619,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     });
 
     // AEP-0039 Fase 3: structured failure listener
+    // Centraliza anúncio de falha: tool_end com attempt=0 não anuncia (tool_failure cuida).
     unsubToolFailure = EventsOn('chat:tool_failure', (data: ChatToolFailureEvent) => {
       if (data.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
@@ -1430,6 +1431,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // AEP-0039 Fase 3: structured failure listener
+      // Centraliza anúncio de falha: tool_end com attempt=0 não anuncia (tool_failure cuida).
       unsubToolFailure = EventsOn('chat:tool_failure', (data: ChatToolFailureEvent) => {
         if (data.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
