@@ -91,7 +91,7 @@ type ToolSummary struct {
 type SegmentDoneEvent struct {
 	ConversationID uint   `json:"conversationId"`
 	Content        string `json:"content,omitempty"`
-	Iteration      int    `json:"iteration,omitempty"`
+	Iteration      int    `json:"iteration"`
 	HasMore        bool   `json:"hasMore"`
 	// AEP-0039 Fase 2: tools executed in this iteration
 	ToolsInIteration []ToolSummary `json:"toolsInIteration,omitempty"`

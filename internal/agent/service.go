@@ -250,7 +250,18 @@ func (s *Service) RunAgenticLoop(
 		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
 		for i, execResult := range execResults {
 			if execResult.Result.IsError && execResult.Retryable && iteration < maxIterations-1 {
-				retryOrigin, _ := detectToolOrigin(execResult.ToolName)
+				retryOrigin, retryServerLabel := detectToolOrigin(execResult.ToolName)
+				// Emite tool_end para a tentativa que falhou
+				EmitToolEnd(s.emitter, ports.ToolEndEvent{
+					ConversationID: conversationID,
+					Name:           execResult.ToolName,
+					CallID:         execResult.CallID,
+					Status:         "error",
+					Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
+					Origin:         retryOrigin,
+					ServerLabel:    retryServerLabel,
+					DurationMs:     execResult.DurationMs,
+				})
 				// Emite tool_failure com willRetry=true
 				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
 					ConversationID: conversationID,
@@ -264,6 +275,14 @@ func (s *Service) RunAgenticLoop(
 					WillRetry:      true,
 				})
 				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", execResult.ToolName, execResult.ErrorKind)
+				// Emite tool_start para a nova tentativa
+				EmitToolStart(s.emitter, ports.ToolStartEvent{
+					ConversationID: conversationID,
+					Name:           execResult.ToolName,
+					CallID:         execResult.CallID,
+					Origin:         retryOrigin,
+					ServerLabel:    retryServerLabel,
+				})
 				retried := s.toolExecutor.ExecuteOne(ctx, toolCalls[i])
 				execResults[i] = retried
 			}

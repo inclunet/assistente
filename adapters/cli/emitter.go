@@ -281,11 +281,14 @@ func (e *EmitterAdapter) handleSegmentDone(data any) {
 		toolWord = "tool"
 	}
 
+	// Exibe iteration como 1-based para UX humana (backend emite 0-based)
+	displayIter := ev.Iteration + 1
+
 	if e.verbose {
 		// Verbose já exibe cada tool individualmente via tool_start/end;
 		// apenas loga o segment_done como confirmação.
 		_, _ = fmt.Fprintf(e.errOut, "[segment] iteração %d concluída, %d %s\n",
-			ev.Iteration, n, toolWord)
+			displayIter, n, toolWord)
 		return
 	}
 
@@ -300,10 +303,10 @@ func (e *EmitterAdapter) handleSegmentDone(data any) {
 
 	if totalMs > 0 {
 		_, _ = fmt.Fprintf(e.errOut, "[tools] iteração %d: %d %s (%s) — %dms\n",
-			ev.Iteration, n, toolWord, nameList, totalMs)
+			displayIter, n, toolWord, nameList, totalMs)
 	} else {
 		_, _ = fmt.Fprintf(e.errOut, "[tools] iteração %d: %d %s (%s)\n",
-			ev.Iteration, n, toolWord, nameList)
+			displayIter, n, toolWord, nameList)
 	}
 }
 

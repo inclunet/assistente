@@ -95,7 +95,7 @@ func TestEmitterAdapter_SegmentDone_DefaultMode(t *testing.T) {
 	// Iteração intermediária com 2 tools — deve imprimir linha resumo
 	e.Emit("chat:segment_done", ports.SegmentDoneEvent{
 		ConversationID: 1,
-		Iteration:      1,
+		Iteration:      0,
 		HasMore:        true,
 		ToolsInIteration: []ports.ToolSummary{
 			{Name: "search_web", Status: "ok", DurationMs: 900},
@@ -119,7 +119,7 @@ func TestEmitterAdapter_SegmentDone_FinalIteration_Silent(t *testing.T) {
 	// Iteração final (HasMore=false) — não deve imprimir nada
 	e.Emit("chat:segment_done", ports.SegmentDoneEvent{
 		ConversationID: 1,
-		Iteration:      2,
+		Iteration:      1,
 		HasMore:        false,
 	})
 
@@ -135,7 +135,7 @@ func TestEmitterAdapter_SegmentDone_NoTools_Silent(t *testing.T) {
 	// Iteração intermediária sem tools — não deve imprimir nada
 	e.Emit("chat:segment_done", ports.SegmentDoneEvent{
 		ConversationID: 1,
-		Iteration:      1,
+		Iteration:      0,
 		HasMore:        true,
 	})
 
@@ -154,7 +154,7 @@ func TestEmitterAdapter_SegmentDone_Verbose(t *testing.T) {
 
 	e.Emit("chat:segment_done", ports.SegmentDoneEvent{
 		ConversationID: 1,
-		Iteration:      1,
+		Iteration:      0,
 		HasMore:        true,
 		ToolsInIteration: []ports.ToolSummary{
 			{Name: "search_web", Status: "ok", DurationMs: 500},

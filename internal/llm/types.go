@@ -38,7 +38,7 @@ type EnrichedToolCall struct {
 	Function    FunctionCall `json:"function"`
 	Origin      string       `json:"origin,omitempty"`       // "builtin" | "mcp_bridge" | "mcp_native"
 	ServerLabel string       `json:"server_label,omitempty"` // Label do servidor MCP
-	Iteration   int          `json:"iteration,omitempty"`    // Iteração do agentic loop (0-based)
+	Iteration   int          `json:"iteration"`              // Iteração do agentic loop (0-based)
 	DurationMs  int64        `json:"duration_ms,omitempty"`  // Duração da execução em milissegundos
 }
 
