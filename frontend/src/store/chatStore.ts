@@ -121,7 +121,7 @@ interface ChatSegmentDoneEvent {
   content?: string;
   iteration?: number;
   // AEP-0039 Fase 2+3
-  toolsInIteration?: Array<{ name: string; status: string; errorKind?: string; durationMs?: number }>;
+  toolsInIteration?: Array<{ name: string; status: string; errorKind?: string; durationMs?: number; origin?: string; serverLabel?: string }>;
 }
 
 interface ChatDoneEvent {

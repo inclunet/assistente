@@ -216,20 +216,18 @@ func (s *Service) RunAgenticLoop(
 			// AEP-0039: contabiliza MCP native tools
 			for _, ev := range result.NativeMCPEvents {
 				if ev.IsCompleted {
-					name := ev.Name
-					if ev.ServerLabel != "" {
-						name = ev.ServerLabel + "/" + ev.Name
-					}
 					status := "ok"
 					if ev.Error != "" {
 						status = "error"
 					}
 					iterationNativeTools = append(iterationNativeTools, ports.ToolSummary{
-						Name:   name,
-						Status: status,
+						Name:        ev.Name,
+						Status:      status,
+						Origin:      OriginMCPNative,
+						ServerLabel: ev.ServerLabel,
 					})
 					totalToolCallCount++
-					toolsUsedSet[name] = struct{}{}
+					toolsUsedSet[ev.Name] = struct{}{}
 				}
 			}
 		}
@@ -336,10 +334,12 @@ func (s *Service) RunAgenticLoop(
 
 			// AEP-0039: acumula stats
 			iterationTools = append(iterationTools, ports.ToolSummary{
-				Name:       logicalName,
-				Status:     status,
-				ErrorKind:  string(execResult.ErrorKind),
-				DurationMs: execResult.DurationMs,
+				Name:        logicalName,
+				Status:      status,
+				ErrorKind:   string(execResult.ErrorKind),
+				DurationMs:  execResult.DurationMs,
+				Origin:      origin,
+				ServerLabel: serverLabel,
 			})
 			totalToolCallCount++
 			toolsUsedSet[logicalName] = struct{}{}

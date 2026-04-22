@@ -84,10 +84,12 @@ type ToolFailureEvent struct {
 
 // ToolSummary describes a tool invocation within an iteration (AEP-0039 Fase 2+3).
 type ToolSummary struct {
-	Name       string `json:"name"`
-	Status     string `json:"status"`                       // "ok" | "error"
-	ErrorKind  string `json:"errorKind,omitempty"`           // AEP-0039 Fase 3
-	DurationMs int64  `json:"durationMs,omitempty"`          // AEP-0039 Fase 3
+	Name        string `json:"name"`
+	Status      string `json:"status"`                       // "ok" | "error"
+	ErrorKind   string `json:"errorKind,omitempty"`           // AEP-0039 Fase 3
+	DurationMs  int64  `json:"durationMs,omitempty"`          // AEP-0039 Fase 3
+	Origin      string `json:"origin,omitempty"`              // "builtin" | "mcp_bridge" | "mcp_native"
+	ServerLabel string `json:"serverLabel,omitempty"`
 }
 
 // SegmentDoneEvent is the payload for chat:segment_done.
