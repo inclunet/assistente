@@ -624,7 +624,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!activeListeners.has(conversationIdStr)) return;
       if (data.willRetry) {
         announce(i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
+        return;
       }
+      announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
     });
 
     unsubSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
@@ -1433,7 +1435,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (!activeListeners.has(conversationIdStr)) return;
         if (data.willRetry) {
           announce(i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
+          return;
         }
+        announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
       });
 
       unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {

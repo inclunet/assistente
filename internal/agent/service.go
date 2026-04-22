@@ -329,6 +329,7 @@ func (s *Service) RunAgenticLoop(
 					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 					DurationMs:     execResult.DurationMs,
 					Origin:         origin,
+					Attempt:        attempt,
 				})
 			}
 
