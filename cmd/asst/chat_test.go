@@ -240,6 +240,7 @@ func TestSendAndWait_Success(t *testing.T) {
 			emitter.Emit("chat:stream", ports.StreamEvent{Content: "Olá"})
 			emitter.Emit("chat:stream", ports.StreamEvent{Content: "Olá mundo"})
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
 		return 1, nil
 	}
@@ -325,6 +326,7 @@ func TestSendAndWait_StreamError(t *testing.T) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
 			emitter.Emit("chat:stream", ports.StreamEvent{Error: "rate limit"})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID, Reason: "error"})
 		}()
 		return 1, nil
 	}
@@ -351,6 +353,7 @@ func TestSendAndWait_PassesModelAndProfile(t *testing.T) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
 		return 1, nil
 	}
@@ -393,6 +396,7 @@ func TestRunREPL_ProcessesMultipleLines(t *testing.T) {
 			time.Sleep(2 * time.Millisecond)
 			emitter.Emit("chat:stream", ports.StreamEvent{Content: fmt.Sprintf("resp%d", n)})
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
 		return 1, nil
 	}
@@ -435,10 +439,11 @@ func TestRunREPL_SkipsEmptyLines(t *testing.T) {
 
 	mock := newMockBackend()
 	defer mock.cancel()
-	mock.sendFn = func(uint, string, string, app.ChatParams) (uint, error) {
+	mock.sendFn = func(convID uint, _ string, _ string, _ app.ChatParams) (uint, error) {
 		go func() {
 			time.Sleep(2 * time.Millisecond)
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
 		return 1, nil
 	}
@@ -473,7 +478,7 @@ func TestRunREPL_ContinuesAfterSendError(t *testing.T) {
 	defer mock.cancel()
 
 	callN := 0
-	mock.sendFn = func(uint, string, string, app.ChatParams) (uint, error) {
+	mock.sendFn = func(convID uint, _ string, _ string, _ app.ChatParams) (uint, error) {
 		callN++
 		if callN == 1 {
 			return 0, fmt.Errorf("provider error")
@@ -481,6 +486,7 @@ func TestRunREPL_ContinuesAfterSendError(t *testing.T) {
 		go func() {
 			time.Sleep(2 * time.Millisecond)
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
 		return 1, nil
 	}
