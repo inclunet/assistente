@@ -125,7 +125,9 @@ func (e *EmitterAdapter) handleStream(data any) {
 	if ev.Done {
 		_, _ = fmt.Fprintln(e.out)
 		e.lastPrinted = 0
-		e.signalDone()
+		// NÃO chama signalDone aqui: o resumo final agora é emitido em chat:done,
+		// que é onde signalDone deve ser chamado para garantir que o CLI não
+		// encerre antes de processar/imprimir o chat:done.
 		return
 	}
 
@@ -344,15 +346,16 @@ func (e *EmitterAdapter) toSegmentDoneEvent(data any) (ports.SegmentDoneEvent, b
 
 // handleDone imprime resumo do chat:done no stderr (AEP-0039 Fase 2).
 func (e *EmitterAdapter) handleDone(data any) {
-	defer e.signalDone()
 	ev, ok := e.toDoneEvent(data)
 	if !ok {
 		return
 	}
-	// Filtra eventos de outras conversas
+	// Filtra eventos de outras conversas — NÃO sinaliza done para conversas
+	// que não são a ativa (evita fechar WaitDone prematuramente).
 	if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
 		return
 	}
+	defer e.signalDone()
 	// Só exibe resumo se houve tool calls (evita ruído em respostas simples).
 	// Usa HadToolCalls como fallback para eventos backward-compatible que não
 	// trazem LoopStats/contadores preenchidos.
