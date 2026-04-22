@@ -285,6 +285,7 @@ func (s *Service) RunAgenticLoop(
 					ConversationID: conversationID,
 					Name:           retryName,
 					CallID:         execResult.CallID,
+					Args:           toolCalls[i].Function.Arguments,
 					Origin:         retryOrigin,
 					ServerLabel:    retryServerLabel,
 					Attempt:        1,
@@ -341,7 +342,7 @@ func (s *Service) RunAgenticLoop(
 				DurationMs: execResult.DurationMs,
 			})
 			totalToolCallCount++
-			toolsUsedSet[execResult.ToolName] = struct{}{}
+			toolsUsedSet[logicalName] = struct{}{}
 		}
 
 		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário.

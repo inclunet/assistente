@@ -585,11 +585,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => {
         const existing = state.activeToolCalls.findIndex((tc) => tc.callId === data.callId);
         if (existing >= 0) {
-          // Retry: upsert — reseta status para 'running'
+          // Retry: upsert — reseta status para 'running' sem apagar args anteriores
           return {
             activeToolCalls: state.activeToolCalls.map((tc) =>
               tc.callId === data.callId
-                ? { name: data.name, callId: data.callId, args: data.args, status: 'running' as const, summary: undefined }
+                ? { ...tc, name: data.name, callId: data.callId, args: data.args ?? tc.args, status: 'running' as const, summary: undefined }
                 : tc
             ),
           };
@@ -1390,11 +1390,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         set((state) => {
           const existing = state.activeToolCalls.findIndex((tc) => tc.callId === event.callId);
           if (existing >= 0) {
-            // Retry: upsert — reseta status para 'running'
+            // Retry: upsert — reseta status para 'running' sem apagar args anteriores
             return {
               activeToolCalls: state.activeToolCalls.map((tc) =>
                 tc.callId === event.callId
-                  ? { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: undefined }
+                  ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: undefined }
                   : tc
               ),
             };
