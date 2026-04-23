@@ -56,10 +56,13 @@ func NewEmitterAdapter(opts ...EmitterOption) *EmitterAdapter {
 	return e
 }
 
-// WaitDone retorna um canal que é fechado quando o backend emite chat:done para a
-// conversa especificada. Como fallback, também fecha em chat:error (para cobrir
-// caminhos onde o backend não emite chat:done, ex.: panic recovery, erro antes
-// de iniciar streaming). Deve ser chamado ANTES de SendMessage.
+// WaitDone retorna um canal que é fechado quando o backend sinaliza término:
+//   - chat:done (fonte de verdade — emitido pelo fluxo normal)
+//   - chat:error (fallback — cobre erros pré-streaming sem chat:done)
+//   - chat:stream com Error (fallback — cobre HandlePanic e paths que não emitem chat:done)
+//
+// signalDone() é idempotente: se mais de um evento terminal chegar, o canal já estará fechado.
+// Deve ser chamado ANTES de SendMessage.
 // Se conversationID é 0, aceita qualquer conversa (compatível com modo REPL).
 func (e *EmitterAdapter) WaitDone(conversationID uint) <-chan struct{} {
 	e.mu.Lock()
@@ -120,17 +123,19 @@ func (e *EmitterAdapter) handleStream(data any) {
 	if ev.Error != "" {
 		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
 		e.lastPrinted = 0
-		// NÃO chama signalDone aqui: o backend pode emitir chat:done após
-		// chat:stream com Error. Encerramento fica com chat:done/chat:error.
+		// Fallback: sinaliza done em chat:stream com Error porque há caminhos
+		// no backend (ex.: HandlePanic) que emitem apenas chat:stream terminal
+		// sem emitir chat:done. signalDone() é idempotente.
+		e.signalDone()
 		return
 	}
 
 	if ev.Done {
 		_, _ = fmt.Fprintln(e.out)
 		e.lastPrinted = 0
-		// NÃO chama signalDone aqui: o resumo final agora é emitido em chat:done,
-		// que é onde signalDone deve ser chamado para garantir que o CLI não
-		// encerre antes de processar/imprimir o chat:done.
+		// NÃO chama signalDone aqui: o fluxo normal emite chat:done após
+		// chat:stream Done=true, e signalDone fica com chat:done para garantir
+		// que o CLI processe o resumo final antes de encerrar.
 		return
 	}
 
