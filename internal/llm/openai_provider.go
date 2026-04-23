@@ -597,6 +597,61 @@ func (p *OpenAIProvider) streamChatResponses(
 	handler StreamHandler,
 	tools ...ToolDefinition,
 ) {
+	currentServers := cloneMCPServers(p.mcpServers)
+	log.Printf("[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(currentServers), len(tools))
+
+	const maxAttempts = 10
+	bk := 500 * time.Millisecond
+	maxBk := 8 * time.Second
+	degradeRetries := 0
+	maxDegradeRetries := maxMCPDegradationRetries(len(currentServers))
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return
+		default:
+		}
+
+		respParams := p.buildResponsesParams(ctx, model, messages, params, currentServers, tools...)
+		result := p.doStreamResponses(ctx, respParams, handler, currentServers)
+		if result.done {
+			return
+		}
+		if result.mcpFailure != nil {
+			if degradeRetries < maxDegradeRetries {
+				if remaining, ok := planMCPDegradationRetry(ctx, "openai", attempt, currentServers, result.mcpFailure); ok {
+					currentServers = remaining
+					degradeRetries++
+					continue
+				}
+			}
+			handler.OnError(strings.TrimSpace(result.mcpFailure.Message))
+			return
+		}
+		if result.retry {
+			if attempt < maxAttempts {
+				sleepWithJitter(ctx, bk)
+				bk = nextBackoff(bk, maxBk)
+				continue
+			}
+			handler.OnError("Máximo de tentativas de streaming excedido")
+			return
+		}
+		return
+
+	}
+}
+
+func (p *OpenAIProvider) buildResponsesParams(
+	ctx context.Context,
+	model string,
+	messages []Message,
+	params ChatParams,
+	mcpServers []MCPServerConfig,
+	tools ...ToolDefinition,
+) responses.ResponseNewParams {
 	respParams := responses.ResponseNewParams{
 		Model: shared.ResponsesModel(model),
 		Input: responses.ResponseNewParamsInputUnion{
@@ -623,9 +678,7 @@ func (p *OpenAIProvider) streamChatResponses(
 	}
 
 	var respTools []responses.ToolUnionParam
-
-	// MCP tools nativos (se configurados via WithMCPServers)
-	for _, srv := range p.mcpServers {
+	for _, srv := range mcpServers {
 		mcpTool := responses.ToolParamOfMcp(srv.Name, srv.URL)
 		mcpTool.OfMcp.RequireApproval = responses.ToolMcpRequireApprovalUnionParam{
 			OfMcpToolApprovalSetting: param.NewOpt(string(responses.ToolMcpRequireApprovalMcpToolApprovalSettingNever)),
@@ -651,7 +704,6 @@ func (p *OpenAIProvider) streamChatResponses(
 			srv.Name, srv.URL, srv.AuthToken != "", len(srv.AllowedTools))
 	}
 
-	// Function tools locais
 	for _, tool := range tools {
 		var fnParams map[string]any
 		if len(tool.Function.Parameters) > 0 {
@@ -669,7 +721,6 @@ func (p *OpenAIProvider) streamChatResponses(
 
 	if len(respTools) > 0 {
 		respParams.Tools = respTools
-
 		toolChoice := responses.ToolChoiceOptionsAuto
 		if choice, ok := toolChoiceFromContext(ctx); ok {
 			if s, ok := choice.(string); ok {
@@ -688,38 +739,12 @@ func (p *OpenAIProvider) streamChatResponses(
 		}
 	}
 
-	log.Printf("[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(p.mcpServers), len(tools))
-
-	const maxAttempts = 10
-	bk := 500 * time.Millisecond
-	maxBk := 8 * time.Second
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		select {
-		case <-ctx.Done():
-			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
-			return
-		default:
-		}
-
-		done := p.doStreamResponses(ctx, respParams, handler)
-		if done {
-			return
-		}
-
-		if attempt < maxAttempts {
-			sleepWithJitter(ctx, bk)
-			bk = nextBackoff(bk, maxBk)
-			continue
-		}
-
-		handler.OnError("Máximo de tentativas de streaming excedido")
-	}
+	return respParams
 }
 
 // doStreamResponses executa streaming via Responses API.
 // Trata eventos de texto, function calls locais e MCP (transparente/server-side).
-func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses.ResponseNewParams, handler StreamHandler) bool {
+func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses.ResponseNewParams, handler StreamHandler, mcpServers []MCPServerConfig) mcpStreamAttemptResult {
 	stream := p.client.Responses.NewStreaming(ctx, params)
 
 	var fullResponse strings.Builder
@@ -881,6 +906,13 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.mcp_call.failed":
 			ev := event.AsResponseMcpCallFailed()
 			log.Printf("[OpenAIProvider] MCP call FAILED: itemID=%s", ev.ItemID)
+			fallbackServer := ""
+			if mc, ok := activeMCPCalls[ev.ItemID]; ok {
+				fallbackServer = mc.ServerLabel
+			}
+			if failure := inferMCPFailure(MCPFailureStageCall, "", ev.RawJSON(), fallbackServer, mcpServers); failure != nil && !emittedAnything {
+				return mcpStreamAttemptResult{mcpFailure: failure}
+			}
 
 		case "response.mcp_list_tools.in_progress":
 			log.Printf("[OpenAIProvider] MCP listing tools (server-side)")
@@ -888,6 +920,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			log.Printf("[OpenAIProvider] MCP tool listing done (server-side)")
 		case "response.mcp_list_tools.failed":
 			log.Printf("[OpenAIProvider] MCP tool listing FAILED (server-side)")
+			ev := event.AsResponseMcpListToolsFailed()
+			if failure := inferMCPFailure(MCPFailureStageListTools, "", ev.RawJSON(), "", mcpServers); failure != nil && !emittedAnything {
+				return mcpStreamAttemptResult{mcpFailure: failure}
+			}
 
 		case "response.completed":
 			ev := event.AsResponseCompleted()
@@ -911,8 +947,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				errMsg = ev.Response.Error.Message
 			}
 			log.Printf("[OpenAIProvider] Response FAILED: %s", errMsg)
+			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedAnything {
+				return mcpStreamAttemptResult{mcpFailure: failure}
+			}
 			handler.OnError(errMsg)
-			return true
+			return mcpStreamAttemptResult{done: true}
 
 		default:
 			log.Printf("[OpenAIProvider] Unhandled event type: %s", event.Type)
@@ -922,11 +961,14 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		log.Printf("[OpenAIProvider] Responses stream error: %s", errStr)
+		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
+			return mcpStreamAttemptResult{mcpFailure: failure}
+		}
 		if !emittedAnything && isRetryableError(errStr) {
-			return false
+			return mcpStreamAttemptResult{retry: true}
 		}
 		handler.OnError(errStr)
-		return true
+		return mcpStreamAttemptResult{done: true}
 	}
 
 	log.Printf("[OpenAIProvider] Stream loop ended: %d events, response=%d bytes, reasoning=%d bytes, toolCalls=%d",
@@ -938,11 +980,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	if len(finishedToolCalls) > 0 {
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), lastUsage, lastModel)
-		return true
+		return mcpStreamAttemptResult{done: true}
 	}
 
 	handler.OnDone(fullResponse.String(), lastUsage, lastModel)
-	return true
+	return mcpStreamAttemptResult{done: true}
 }
 
 // convertToResponsesInput converte mensagens internas para o formato Responses API.

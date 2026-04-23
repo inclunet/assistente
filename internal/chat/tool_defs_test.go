@@ -73,6 +73,10 @@ func (m *mockNativeMCPMgr) GetEligibleNativeMCPServers() []mcplib.NativeMCPServe
 	return m.servers
 }
 
+func (m *mockNativeMCPMgr) RecoverServerBestEffort(_ context.Context, _ string) mcplib.RecoveryResult {
+	return mcplib.RecoveryResult{}
+}
+
 // makeToolDefs builds []llm.ToolDefinition with given names.
 func makeToolDefs(names ...string) []llm.ToolDefinition {
 	defs := make([]llm.ToolDefinition, len(names))
@@ -266,8 +270,11 @@ func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 		t.Fatalf("esperava 1 MCPServerConfig, obteve %d", len(result.calledWith))
 	}
 	cfg := result.calledWith[0]
-	if cfg.Name != "Srv" || cfg.URL != "https://srv.io" || cfg.AuthToken != "tok" {
+	if cfg.Slug != "" || cfg.Name != "Srv" || cfg.URL != "https://srv.io" || cfg.AuthToken != "tok" {
 		t.Errorf("MCPServerConfig incorreto: %+v", cfg)
+	}
+	if cfg.Recover == nil {
+		t.Error("callback de recovery deveria ter sido configurado")
 	}
 }
 

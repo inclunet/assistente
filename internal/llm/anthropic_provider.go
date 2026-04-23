@@ -220,6 +220,63 @@ func (p *AnthropicProvider) streamChatWithMCP(
 	handler StreamHandler,
 	tools ...ToolDefinition,
 ) {
+	currentServers := cloneMCPServers(p.mcpServers)
+	log.Printf("[AnthropicProvider] MCP nativo: %d servers, %d tools locais", len(currentServers), len(tools))
+
+	const maxAttempts = 10
+	bk := 500 * time.Millisecond
+	maxBk := 8 * time.Second
+	degradeRetries := 0
+	maxDegradeRetries := maxMCPDegradationRetries(len(currentServers))
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return
+		default:
+		}
+
+		betaParams := p.buildBetaMCPParams(ctx, model, maxTokens, system, msgs, params, currentServers, tools...)
+		result := p.doStreamBeta(ctx, betaParams, handler, currentServers)
+		if result.done {
+			return
+		}
+		if result.mcpFailure != nil {
+			if degradeRetries < maxDegradeRetries {
+				if remaining, ok := planMCPDegradationRetry(ctx, "anthropic", attempt, currentServers, result.mcpFailure); ok {
+					currentServers = remaining
+					degradeRetries++
+					continue
+				}
+			}
+			handler.OnError(strings.TrimSpace(result.mcpFailure.Message))
+			return
+		}
+		if result.retry {
+			if attempt < maxAttempts {
+				sleepWithJitter(ctx, bk)
+				bk = nextBackoff(bk, maxBk)
+				continue
+			}
+			handler.OnError("Máximo de tentativas de streaming excedido")
+			return
+		}
+		return
+
+	}
+}
+
+func (p *AnthropicProvider) buildBetaMCPParams(
+	ctx context.Context,
+	model string,
+	maxTokens int64,
+	system []anthropic.TextBlockParam,
+	msgs []anthropic.MessageParam,
+	params ChatParams,
+	mcpServers []MCPServerConfig,
+	tools ...ToolDefinition,
+) anthropic.BetaMessageNewParams {
 	betaParams := anthropic.BetaMessageNewParams{
 		Model:     anthropic.Model(model),
 		Messages:  convertToBetaMessages(msgs),
@@ -234,7 +291,6 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		}
 		betaParams.System = betaSystem
 	}
-
 	if params.Temperature > 0 {
 		betaParams.Temperature = anthropicparam.NewOpt(params.Temperature)
 	}
@@ -242,8 +298,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		betaParams.TopP = anthropicparam.NewOpt(params.TopP)
 	}
 
-	// Adiciona MCP servers
-	for _, srv := range p.mcpServers {
+	for _, srv := range mcpServers {
 		mcpDef := anthropic.BetaRequestMCPServerURLDefinitionParam{
 			Name: srv.Name,
 			URL:  srv.URL,
@@ -256,10 +311,8 @@ func (p *AnthropicProvider) streamChatWithMCP(
 			srv.Name, srv.URL, srv.AuthToken != "", len(srv.AllowedTools))
 	}
 
-	// Adiciona MCP toolsets — se AllowedTools está definido, desabilita por default
-	// e habilita apenas as tools permitidas pelo perfil.
 	var betaTools []anthropic.BetaToolUnionParam
-	for _, srv := range p.mcpServers {
+	for _, srv := range mcpServers {
 		toolset := anthropic.BetaMCPToolsetParam{
 			MCPServerName: srv.Name,
 		}
@@ -277,7 +330,6 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		betaTools = append(betaTools, anthropic.BetaToolUnionParam{OfMCPToolset: &toolset})
 	}
 
-	// Adiciona tools locais (function calling) junto com MCP toolsets
 	if len(tools) > 0 {
 		for _, tool := range tools {
 			var schema anthropic.BetaToolInputSchemaParam
@@ -306,41 +358,14 @@ func (p *AnthropicProvider) streamChatWithMCP(
 	}
 
 	betaParams.Tools = betaTools
-
-	log.Printf("[AnthropicProvider] MCP nativo: %d servers, %d tools locais", len(p.mcpServers), len(tools))
-
-	const maxAttempts = 10
-	bk := 500 * time.Millisecond
-	maxBk := 8 * time.Second
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		select {
-		case <-ctx.Done():
-			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
-			return
-		default:
-		}
-
-		done := p.doStreamBeta(ctx, betaParams, handler)
-		if done {
-			return
-		}
-
-		if attempt < maxAttempts {
-			sleepWithJitter(ctx, bk)
-			bk = nextBackoff(bk, maxBk)
-			continue
-		}
-
-		handler.OnError("Máximo de tentativas de streaming excedido")
-	}
+	return betaParams
 }
 
 // doStreamBeta executa streaming via Beta Messages API (MCP connector).
 // Eventos de MCP (mcp_tool_use, mcp_tool_result) são transparentes — o Anthropic
 // executa as tool calls MCP server-side. Tool calls locais (tool_use) continuam
 // sendo reportadas via OnToolCalls para execução local.
-func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.BetaMessageNewParams, handler StreamHandler) bool {
+func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.BetaMessageNewParams, handler StreamHandler, mcpServers []MCPServerConfig) mcpStreamAttemptResult {
 	stream := p.client.Beta.Messages.NewStreaming(ctx, params)
 
 	var fullResponse strings.Builder
@@ -483,11 +508,14 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		log.Printf("[AnthropicProvider] Beta stream error: %s", errStr)
+		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
+			return mcpStreamAttemptResult{mcpFailure: failure}
+		}
 		if !emittedAnything && isRetryableError(errStr) {
-			return false
+			return mcpStreamAttemptResult{retry: true}
 		}
 		handler.OnError(errStr)
-		return true
+		return mcpStreamAttemptResult{done: true}
 	}
 
 	if fullReasoning.Len() > 0 {
@@ -496,11 +524,11 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 
 	if stopReason == "tool_use" && len(finishedToolCalls) > 0 {
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), lastUsage, lastModel)
-		return true
+		return mcpStreamAttemptResult{done: true}
 	}
 
 	handler.OnDone(fullResponse.String(), lastUsage, lastModel)
-	return true
+	return mcpStreamAttemptResult{done: true}
 }
 
 // convertToBetaMessages converte MessageParam regulares para BetaMessageParam.
@@ -550,9 +578,9 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 
 	// Acumula tool calls por index (content_block_start → content_block_delta → content_block_stop)
 	type pendingToolCall struct {
-		ID        string
-		Name      string
-		ArgsJSON  strings.Builder
+		ID       string
+		Name     string
+		ArgsJSON strings.Builder
 	}
 	activeToolCalls := make(map[int64]*pendingToolCall)
 	var finishedToolCalls []ToolCall

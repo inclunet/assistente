@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"log"
 	"reflect"
 
@@ -28,6 +29,7 @@ func ChatProviderIsNil(c llm.ChatProvider) bool {
 // Implementado por *mcp.Manager; pode ser mockado em testes.
 type NativeMCPManager interface {
 	GetEligibleNativeMCPServers() []mcplib.NativeMCPServer
+	RecoverServerBestEffort(ctx context.Context, slug string) mcplib.RecoveryResult
 }
 
 // BuildLLMToolDefs constrói a lista de tool definitions para o LLM.
@@ -92,10 +94,16 @@ func ApplyNativeMCP(
 
 	for _, srv := range nativeServers {
 		cfg := llm.MCPServerConfig{
+			Slug:      srv.Slug,
 			Name:      srv.Name,
 			URL:       srv.URL,
 			AuthToken: srv.AuthToken,
 			ToolNames: srv.ToolNames,
+			Recover: func(slug string) func(context.Context) error {
+				return func(ctx context.Context) error {
+					return mcpMgr.RecoverServerBestEffort(ctx, slug).Err
+				}
+			}(srv.Slug),
 		}
 
 		if enabledSet != nil {
