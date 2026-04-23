@@ -134,6 +134,10 @@ export function ChatSessionView({
       const title = payload.title || t('editor.fallback.fromChat');
       const { addTab, setActiveTab } = useWorkspaceStore.getState();
       let targetDocumentId = String(payload.targetDocumentId || '').trim();
+      const ensureActiveEditorTab = async (tabId: string) => {
+        await setActiveTab(tabId);
+        return useWorkspaceStore.getState().workspace?.activeTabId === tabId;
+      };
 
       if (payload.target === 'new_document') {
         const draftId =
@@ -150,7 +154,8 @@ export function ChatSessionView({
           filePath: draftPath,
           draftId,
         });
-        await setActiveTab(tabId);
+        const activated = await ensureActiveEditorTab(tabId);
+        if (!activated) return;
         targetDocumentId = tabId;
       } else {
         if (!targetDocumentId) {
@@ -175,10 +180,12 @@ export function ChatSessionView({
             filePath: draftPath,
             draftId,
           });
-          await setActiveTab(tabId);
+          const activated = await ensureActiveEditorTab(tabId);
+          if (!activated) return;
           targetDocumentId = tabId;
         } else {
-          await setActiveTab(targetDocumentId);
+          const activated = await ensureActiveEditorTab(targetDocumentId);
+          if (!activated) return;
         }
       }
 

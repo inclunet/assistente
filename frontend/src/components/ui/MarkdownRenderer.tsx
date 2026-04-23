@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import MarkdownIt from 'markdown-it';
 import DOMPurify from 'dompurify';
@@ -8,7 +9,6 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { loadMonacoLanguage } from '../../lib/monacoLanguageLoader';
 import { markdownItDeepLink } from '../../lib/markdownItDeepLink';
 import { isDeepLink, parseDeepLink, executeDeepLink } from '../../lib/deepLinks';
-import i18next from 'i18next';
 import {
   buildEditorDestinationSubmenu,
   type EditorSendTargetOption,
@@ -104,6 +104,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   editorTargets = [],
   onSendToEditor,
 }: MarkdownRendererProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const mermaidInitializedRef = useRef(false);
   const editorsRef = useRef<Map<string, MonacoEditor>>(new Map());
@@ -112,8 +113,8 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const navigate = useNavigate();
 
   const canSendToEditor = Boolean(enableSendToEditorButtons && onSendToEditor);
-  const newDocumentLabel = i18next.t('editor.fallback.newDoc');
-  const fallbackDocumentTitle = i18next.t('editor.fallback.title');
+  const newDocumentLabel = t('editor.fallback.newDoc');
+  const fallbackDocumentTitle = t('editor.fallback.title');
 
   const {
     menu: menuState,
@@ -466,10 +467,13 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     [
       canSendToEditor,
       copyToClipboard,
+      editorTargets,
       ensureMonacoEditor,
+      fallbackDocumentTitle,
       fencedCode,
       generateTableMarkdown,
       interactiveButtons,
+      newDocumentLabel,
       onSendToEditor,
       openMenu,
     ]
@@ -736,10 +740,13 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     [
       canSendToEditor,
       copyToClipboard,
+      editorTargets,
       ensureMonacoEditor,
+      fallbackDocumentTitle,
       fencedCode,
       initMermaid,
       interactiveButtons,
+      newDocumentLabel,
       onSendToEditor,
       openMenu,
     ]

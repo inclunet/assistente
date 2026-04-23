@@ -28,6 +28,15 @@ interface BuildEditorDestinationSubmenuParams<TPayload extends object> {
   fallbackDocumentTitle: string;
 }
 
+function normalizeEditorTarget(target: EditorSendTargetOption) {
+  const id = String(target.id || '').trim();
+  if (!id) return null;
+  return {
+    id,
+    title: String(target.title || '').trim(),
+  };
+}
+
 export function buildEditorDestinationSubmenu<TPayload extends object = {}>(
   params: BuildEditorDestinationSubmenuParams<TPayload>,
 ): MenuItem[] {
@@ -52,14 +61,21 @@ export function buildEditorDestinationSubmenu<TPayload extends object = {}>(
         }),
     }));
 
-  const items: MenuItem[] = editorTargets.map((target, index) => ({
-    id: `${baseId}-document-${target.id || index}`,
-    label: String(target.title || '').trim() || fallbackDocumentTitle,
-    submenu: buildFormatItems({
-      target: 'document',
-      targetDocumentId: target.id,
-    }),
-  }));
+  const items = editorTargets
+    .map((target, index) => {
+      const normalized = normalizeEditorTarget(target);
+      if (!normalized) return null;
+      const item: MenuItem = {
+        id: `${baseId}-document-${normalized.id || index}`,
+        label: normalized.title || fallbackDocumentTitle,
+        submenu: buildFormatItems({
+          target: 'document',
+          targetDocumentId: normalized.id,
+        }),
+      };
+      return item;
+    })
+    .filter((item): item is MenuItem => item !== null);
 
   if (items.length > 0) {
     items.push({ id: `${baseId}-separator`, separator: true });
