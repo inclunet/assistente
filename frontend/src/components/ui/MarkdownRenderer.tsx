@@ -117,6 +117,10 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const newDocumentLabel = t('editor.fallback.newDoc');
   const fallbackDocumentTitle = t('editor.fallback.title');
   const markdownFormatLabel = t('editor.sendToEditor.format.markdown');
+  const markdownTableTitle = t('editor.sendToEditor.title.markdownTable');
+  const linkTitle = t('editor.sendToEditor.title.link');
+  const mermaidTitle = t('editor.sendToEditor.title.mermaid');
+  const codeTitle = (language: string) => t('editor.sendToEditor.title.code', { language });
 
   const {
     menu: menuState,
@@ -279,7 +283,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                   label: markdownFormatLabel,
                   payload: {
                     format: 'markdown',
-                    title: `Código ${languageLabel}`,
+                    title: codeTitle(languageLabel),
                     content: fencedCode(lang || 'plaintext', codeText),
                   },
                 }],
@@ -371,7 +375,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                   label: markdownFormatLabel,
                   payload: {
                     format: 'markdown',
-                    title: 'Tabela',
+                    title: markdownTableTitle,
                     content: `\n${mdTable}\n`,
                   },
                 }],
@@ -448,7 +452,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                   label: markdownFormatLabel,
                   payload: {
                     format: 'markdown',
-                    title: 'Link',
+                    title: linkTitle,
                     content: mdLink,
                   },
                 }],
@@ -468,6 +472,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     },
     [
       canSendToEditor,
+      codeTitle,
       copyToClipboard,
       editorTargets,
       ensureMonacoEditor,
@@ -475,6 +480,8 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       fencedCode,
       generateTableMarkdown,
       interactiveButtons,
+      linkTitle,
+      markdownTableTitle,
       newDocumentLabel,
       onSendToEditor,
       openMenu,
@@ -569,7 +576,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                     label: markdownFormatLabel,
                     payload: {
                       format: 'markdown',
-                      title: 'Mermaid',
+                      title: mermaidTitle,
                       content: fencedCode('mermaid', mermaidCode),
                     },
                   }],
@@ -691,7 +698,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                     label: markdownFormatLabel,
                     payload: {
                       format: 'markdown',
-                      title: 'Mermaid',
+                      title: mermaidTitle,
                       content: fencedCode('mermaid', mermaidCode),
                     },
                   }],
@@ -749,6 +756,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       fencedCode,
       initMermaid,
       interactiveButtons,
+      mermaidTitle,
       newDocumentLabel,
       onSendToEditor,
       openMenu,

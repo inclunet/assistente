@@ -283,6 +283,33 @@ export function getMessageMenuItems(
   const markdownTableTitle = i18next.t('editor.sendToEditor.title.markdownTable');
   const htmlTableTitle = i18next.t('editor.sendToEditor.title.htmlTable');
   const linkTitle = i18next.t('editor.sendToEditor.title.link');
+  const codeSingleLabel = (language: string) => i18next.t('editor.sendToEditor.blocks.codeSingle', { language });
+  const codeIndexedLabel = (language: string, index: number) =>
+    i18next.t('editor.sendToEditor.blocks.codeIndexed', { language, index });
+  const codeGroupSingleLabel = i18next.t('editor.sendToEditor.blocks.codeGroupSingle');
+  const codeGroupMultipleLabel = (count: number) =>
+    i18next.t('editor.sendToEditor.blocks.codeGroupMultiple', { count });
+  const codeGroupAriaSingle = i18next.t('editor.sendToEditor.blocks.codeGroupAriaSingle');
+  const codeGroupAriaMultiple = (count: number) =>
+    i18next.t('editor.sendToEditor.blocks.codeGroupAriaMultiple', { count });
+  const codeAriaLabel = (language: string) => i18next.t('editor.sendToEditor.blocks.codeAria', { language });
+  const tableSingleLabel = i18next.t('editor.sendToEditor.blocks.tableSingle');
+  const tableIndexedLabel = (index: number) => i18next.t('editor.sendToEditor.blocks.tableIndexed', { index });
+  const tableGroupSingleLabel = i18next.t('editor.sendToEditor.blocks.tableGroupSingle');
+  const tableGroupMultipleLabel = (count: number) =>
+    i18next.t('editor.sendToEditor.blocks.tableGroupMultiple', { count });
+  const tableGroupAriaSingle = i18next.t('editor.sendToEditor.blocks.tableGroupAriaSingle');
+  const tableGroupAriaMultiple = (count: number) =>
+    i18next.t('editor.sendToEditor.blocks.tableGroupAriaMultiple', { count });
+  const tableAriaLabel = (index: number) => i18next.t('editor.sendToEditor.blocks.tableAria', { index });
+  const linkGroupSingleLabel = i18next.t('editor.sendToEditor.blocks.linkGroupSingle');
+  const linkGroupMultipleLabel = (count: number) =>
+    i18next.t('editor.sendToEditor.blocks.linkGroupMultiple', { count });
+  const linkGroupAriaSingle = i18next.t('editor.sendToEditor.blocks.linkGroupAriaSingle');
+  const linkGroupAriaMultiple = (count: number) =>
+    i18next.t('editor.sendToEditor.blocks.linkGroupAriaMultiple', { count });
+  const linkAriaLabel = (linkText: string) => i18next.t('editor.sendToEditor.blocks.linkAria', { linkText });
+  const sendBlocksLabel = i18next.t('editor.sendToEditor.blocks.sendBlocks');
 
   // Extrai elementos do markdown
   const codeBlocks = extractCodeBlocks(content);
@@ -461,9 +488,9 @@ export function getMessageMenuItems(
         const md = fenceCodeBlock({ code: block.code, language });
         return {
           id: `send-code-${i}`,
-          label: codeBlocks.length === 1 ? `Código ${language}` : `${language} (${i + 1})`,
+          label: codeBlocks.length === 1 ? codeSingleLabel(language) : codeIndexedLabel(language, i + 1),
           icon: '💻',
-          ariaLabel: `Enviar código ${language} ao editor`,
+          ariaLabel: codeAriaLabel(language),
           submenu: buildEditorDestinationSubmenu({
             baseId: `send-code-${i}`,
             editorTargets,
@@ -487,9 +514,9 @@ export function getMessageMenuItems(
 
       submenu.push({
         id: 'send-code',
-        label: codeBlocks.length === 1 ? 'Código' : `Códigos (${codeBlocks.length})`,
+        label: codeBlocks.length === 1 ? codeGroupSingleLabel : codeGroupMultipleLabel(codeBlocks.length),
         icon: '💻',
-        ariaLabel: codeBlocks.length === 1 ? 'Enviar código ao editor' : `Enviar ${codeBlocks.length} códigos ao editor`,
+        ariaLabel: codeBlocks.length === 1 ? codeGroupAriaSingle : codeGroupAriaMultiple(codeBlocks.length),
         submenu: codeMenu,
       });
     }
@@ -500,68 +527,48 @@ export function getMessageMenuItems(
         const html = tableToHTML(table);
         return {
           id: `send-table-${i}`,
-          label: tables.length === 1 ? 'Tabela' : `Tabela ${i + 1}`,
+          label: tables.length === 1 ? tableSingleLabel : tableIndexedLabel(i + 1),
           icon: '📊',
-          ariaLabel: `Enviar tabela ${i + 1} ao editor`,
-          submenu: [
-            {
-              id: `send-table-${i}-md`,
-              label: markdownFormatLabel,
-              icon: '📝',
-              ariaLabel: markdownFormatLabel,
-              submenu: buildEditorDestinationSubmenu({
-                baseId: `send-table-${i}-md`,
-                editorTargets,
-                formats: [{
-                  id: 'markdown',
-              label: markdownFormatLabel,
-                  payload: {
-                    format: 'markdown',
-                    title: markdownTableTitle,
-                    content: md,
-                    kind: 'table',
-                    index: i,
-                  },
-                }],
-                onSendToEditor,
-                newDocumentLabel,
-                fallbackDocumentTitle,
-              }),
-            },
-            { id: `send-table-${i}-sep`, separator: true },
-            {
-              id: `send-table-${i}-html`,
-              label: htmlFormatLabel,
-              icon: '🌐',
-              ariaLabel: htmlFormatLabel,
-              submenu: buildEditorDestinationSubmenu({
-                baseId: `send-table-${i}-html`,
-                editorTargets,
-                formats: [{
-                  id: 'html',
-                  label: htmlFormatLabel,
-                  payload: {
-                    format: 'html',
-                    title: htmlTableTitle,
-                    content: html,
-                    kind: 'table',
-                    index: i,
-                  },
-                }],
-                onSendToEditor,
-                newDocumentLabel,
-                fallbackDocumentTitle,
-              }),
-            },
-          ],
+          ariaLabel: tableAriaLabel(i + 1),
+          submenu: buildEditorDestinationSubmenu({
+            baseId: `send-table-${i}`,
+            editorTargets,
+            formats: [
+              {
+                id: 'markdown',
+                label: markdownFormatLabel,
+                payload: {
+                  format: 'markdown',
+                  title: markdownTableTitle,
+                  content: md,
+                  kind: 'table',
+                  index: i,
+                },
+              },
+              {
+                id: 'html',
+                label: htmlFormatLabel,
+                payload: {
+                  format: 'html',
+                  title: htmlTableTitle,
+                  content: html,
+                  kind: 'table',
+                  index: i,
+                },
+              },
+            ],
+            onSendToEditor,
+            newDocumentLabel,
+            fallbackDocumentTitle,
+          }),
         };
       });
 
       submenu.push({
         id: 'send-tables',
-        label: tables.length === 1 ? 'Tabela' : `Tabelas (${tables.length})`,
+        label: tables.length === 1 ? tableGroupSingleLabel : tableGroupMultipleLabel(tables.length),
         icon: '📊',
-        ariaLabel: tables.length === 1 ? 'Enviar tabela ao editor' : `Enviar ${tables.length} tabelas ao editor`,
+        ariaLabel: tables.length === 1 ? tableGroupAriaSingle : tableGroupAriaMultiple(tables.length),
         submenu: tablesMenu,
       });
     }
@@ -574,7 +581,7 @@ export function getMessageMenuItems(
           id: `send-link-${i}`,
           label,
           icon: '🔗',
-          ariaLabel: `Enviar link ao editor: ${link.text}`,
+          ariaLabel: linkAriaLabel(link.text),
           submenu: buildEditorDestinationSubmenu({
             baseId: `send-link-${i}`,
             editorTargets,
@@ -598,18 +605,18 @@ export function getMessageMenuItems(
 
       submenu.push({
         id: 'send-links',
-        label: links.length === 1 ? 'Link' : `Links (${links.length})`,
+        label: links.length === 1 ? linkGroupSingleLabel : linkGroupMultipleLabel(links.length),
         icon: '🔗',
-        ariaLabel: links.length === 1 ? 'Enviar link ao editor' : `Enviar ${links.length} links ao editor`,
+        ariaLabel: links.length === 1 ? linkGroupAriaSingle : linkGroupAriaMultiple(links.length),
         submenu: linksMenu,
       });
     }
 
     items.push({
       id: 'send-blocks-editor',
-      label: 'Enviar blocos ao editor',
+      label: sendBlocksLabel,
       icon: '🧩',
-      ariaLabel: 'Enviar blocos ao editor',
+      ariaLabel: sendBlocksLabel,
       submenu,
     });
   }

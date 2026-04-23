@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { getMessageMenuItems } from './messageMenuItems';
 import type { Message } from '../store/chatStore';
 import { main } from '../../wailsjs/go/models';
@@ -24,6 +24,8 @@ vi.mock('../services/tts', () => ({
 }));
 
 describe('messageMenuItems', () => {
+  const originalTranslationBundle = structuredClone(i18n.getResourceBundle('en', 'translation') || {});
+
   beforeAll(() => {
     i18n.addResourceBundle('en', 'translation', {
       editor: {
@@ -35,6 +37,11 @@ describe('messageMenuItems', () => {
         },
       },
     }, true, true);
+  });
+
+  afterAll(() => {
+    i18n.removeResourceBundle('en', 'translation');
+    i18n.addResourceBundle('en', 'translation', originalTranslationBundle, true, true);
   });
 
   it('inclui itens basicos e markdown', () => {
