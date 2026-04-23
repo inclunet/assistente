@@ -1,8 +1,19 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+const { i18nTMock } = vi.hoisted(() => ({
+  i18nTMock: vi.fn((key: string) => {
+    if (key === 'editor.sendToEditor.format.markdown') return 'Markdown';
+    if (key === 'editor.sendToEditor.format.plainText') return 'Text';
+    return key;
+  }),
+}));
+vi.mock('i18next', () => ({
+  default: {
+    t: i18nTMock,
+  },
+}));
 import { getMessageMenuItems } from './messageMenuItems';
 import type { Message } from '../store/chatStore';
 import { main } from '../../wailsjs/go/models';
-import i18n from 'i18next';
 
 vi.mock('../services/messageAudio', () => ({
   messageAudioService: {
@@ -24,26 +35,6 @@ vi.mock('../services/tts', () => ({
 }));
 
 describe('messageMenuItems', () => {
-  const originalTranslationBundle = structuredClone(i18n.getResourceBundle('en', 'translation') || {});
-
-  beforeAll(() => {
-    i18n.addResourceBundle('en', 'translation', {
-      editor: {
-        sendToEditor: {
-          format: {
-            markdown: 'Markdown',
-            plainText: 'Text',
-          },
-        },
-      },
-    }, true, true);
-  });
-
-  afterAll(() => {
-    i18n.removeResourceBundle('en', 'translation');
-    i18n.addResourceBundle('en', 'translation', originalTranslationBundle, true, true);
-  });
-
   it('inclui itens basicos e markdown', () => {
     const assistantMessage = new main.EnrichedMessage({
       id: '1',

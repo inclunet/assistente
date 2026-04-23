@@ -57,7 +57,6 @@ describe('editorSendMenu', () => {
     items[3].submenu?.[1].action?.();
     expect(onSendToEditor).toHaveBeenLastCalledWith({
       target: 'new_document',
-      targetDocumentId: undefined,
       format: 'plain',
       title: 'Mensagem (texto)',
       content: 'ola',

@@ -5,18 +5,26 @@ export interface EditorSendTargetOption {
   title: string;
 }
 
-export interface SendToEditorPayload {
-  target: 'document' | 'new_document';
-  targetDocumentId?: string;
+interface SendToEditorPayloadBase {
   format: 'markdown' | 'html' | 'plain';
   title?: string;
   content: string;
 }
 
+export type SendToEditorPayload =
+  | ({
+      target: 'document';
+      targetDocumentId: string;
+    } & SendToEditorPayloadBase)
+  | ({
+      target: 'new_document';
+      targetDocumentId?: never;
+    } & SendToEditorPayloadBase);
+
 export interface EditorSendFormatOption<TPayload extends object = {}> {
   id: string;
   label: string;
-  payload: Omit<SendToEditorPayload, 'target' | 'targetDocumentId'> & TPayload;
+  payload: SendToEditorPayloadBase & TPayload;
 }
 
 interface BuildEditorDestinationSubmenuParams<TPayload extends object> {
@@ -49,16 +57,28 @@ export function buildEditorDestinationSubmenu<TPayload extends object = {}>(
     fallbackDocumentTitle,
   } = params;
 
-  const buildFormatItems = (destination: { target: 'document' | 'new_document'; targetDocumentId?: string }) =>
+  const buildFormatItems = (
+    destination:
+      | { target: 'document'; targetDocumentId: string }
+      | { target: 'new_document' }
+  ) =>
     formats.map((format, formatIndex) => ({
-      id: `${baseId}-${destination.target}-${destination.targetDocumentId || 'new'}-${format.id || formatIndex}`,
+      id: `${baseId}-${destination.target}-${('targetDocumentId' in destination ? destination.targetDocumentId : 'new') || 'new'}-${format.id || formatIndex}`,
       label: format.label,
-      action: () =>
+      action: () => {
+        if (destination.target === 'document') {
+          onSendToEditor({
+            ...format.payload,
+            target: 'document',
+            targetDocumentId: destination.targetDocumentId,
+          });
+          return;
+        }
         onSendToEditor({
           ...format.payload,
-          target: destination.target,
-          targetDocumentId: destination.targetDocumentId,
-        }),
+          target: 'new_document',
+        });
+      },
     }));
 
   const items = editorTargets

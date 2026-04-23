@@ -1278,6 +1278,10 @@ export default function EditorPage() {
     if (!rawContent) return true;
 
     const requestedDocumentId = String(r.targetDocumentId || '').trim();
+    if (r.target === 'document' && !requestedDocumentId) {
+      console.error('[EditorPage] applyInsertRequest rejected: document target requires targetDocumentId');
+      return false;
+    }
     const currentEditorState = useEditorStore.getState();
     let targetTab = requestedDocumentId
       ? currentEditorState.documents[requestedDocumentId] ?? null

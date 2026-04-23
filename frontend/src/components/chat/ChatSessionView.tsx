@@ -133,7 +133,6 @@ export function ChatSessionView({
 
       const title = payload.title || t('editor.fallback.fromChat');
       const { addTab, setActiveTab } = useWorkspaceStore.getState();
-      let targetDocumentId = String(payload.targetDocumentId || '').trim();
       const ensureActiveEditorTab = async (tabId: string) => {
         await setActiveTab(tabId);
         return useWorkspaceStore.getState().workspace?.activeTabId === tabId;
@@ -160,24 +159,22 @@ export function ChatSessionView({
       if (payload.target === 'new_document') {
         const tabId = await createDraftEditorTab();
         if (!tabId) return;
-        targetDocumentId = tabId;
-      } else {
-        if (!targetDocumentId) {
-          const fallbackTarget = editorTargets[0];
-          if (fallbackTarget) {
-            targetDocumentId = fallbackTarget.id;
-          }
-        }
-
-        if (!targetDocumentId) {
-          const tabId = await createDraftEditorTab();
-          if (!tabId) return;
-          targetDocumentId = tabId;
-        } else {
-          const activated = await ensureActiveEditorTab(targetDocumentId);
-          if (!activated) return;
-        }
+        useEditorStore.getState().requestInsert({
+          target: 'document',
+          targetDocumentId: tabId,
+          format: payload.format,
+          title,
+          content,
+          focus: true,
+        });
+        return;
       }
+
+      const targetDocumentId = String(payload.targetDocumentId || '').trim();
+      if (!targetDocumentId) return;
+
+      const activated = await ensureActiveEditorTab(targetDocumentId);
+      if (!activated) return;
 
       useEditorStore.getState().requestInsert({
         target: 'document',
@@ -188,7 +185,7 @@ export function ChatSessionView({
         focus: true,
       });
     },
-    [editorTargets, t],
+    [t],
   );
 
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({

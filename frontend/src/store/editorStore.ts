@@ -6,15 +6,24 @@ export type EditorInsertFormat = 'markdown' | 'html' | 'plain';
 
 export type EditorInsertTarget = 'document' | 'new_document';
 
-export interface EditorInsertRequest {
-  id: string;
-  target: EditorInsertTarget;
-  targetDocumentId?: string;
+interface EditorInsertRequestBase {
   format: EditorInsertFormat;
   content: string;
   title?: string;
   focus?: boolean;
 }
+
+export type EditorInsertRequest =
+  | ({
+      id: string;
+      target: 'document';
+      targetDocumentId: string;
+    } & EditorInsertRequestBase)
+  | ({
+      id: string;
+      target: 'new_document';
+      targetDocumentId?: never;
+    } & EditorInsertRequestBase);
 
 export interface EditorDocument {
   id: string;
@@ -100,15 +109,34 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   requestInsert: (req) => {
     const id = newId();
-    const normalized: EditorInsertRequest = {
+    const base = {
       id,
-      target: req.target,
-      targetDocumentId: req.targetDocumentId,
       format: req.format,
       content: String(req.content ?? ''),
       title: req.title,
       focus: req.focus,
-    };
+    } satisfies EditorInsertRequestBase & { id: string };
+
+    const normalized: EditorInsertRequest | null =
+      req.target === 'document'
+        ? (() => {
+            const targetDocumentId = String(req.targetDocumentId ?? '').trim();
+            if (!targetDocumentId) {
+              console.error('[EditorStore] requestInsert rejected: document target requires targetDocumentId');
+              return null;
+            }
+            return {
+              ...base,
+              target: 'document',
+              targetDocumentId,
+            };
+          })()
+        : {
+            ...base,
+            target: 'new_document',
+          };
+
+    if (!normalized) return id;
     set({ pendingInsert: normalized });
     return id;
   },
