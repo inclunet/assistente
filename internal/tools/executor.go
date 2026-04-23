@@ -211,7 +211,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		if result.Result.IsError && result.ErrorKind == ErrorKindUnknown {
 			if ctx.Err() != nil {
 				// Contexto pai cancelado — não é retryable
-				result.ErrorKind = ""
+				result.ErrorKind = ErrorKindCancelled
 				result.Retryable = false
 				result.Result.Content = fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName)
 				result.Error = ctx.Err()
@@ -236,7 +236,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					IsError: true,
 				},
 				Error:      ctx.Err(),
-				ErrorKind:  "",
+				ErrorKind:  ErrorKindCancelled,
 				Retryable:  false,
 				DurationMs: elapsed,
 			}

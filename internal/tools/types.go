@@ -92,6 +92,7 @@ const (
 	ErrorKindInvalidArgs ErrorKind = "invalid_args" // JSON malformado nos argumentos (não retryable)
 	ErrorKindNotFound   ErrorKind = "not_found"     // Ferramenta não encontrada no registry (não retryable)
 	ErrorKindPanic      ErrorKind = "panic"         // Panic capturado durante execução (não retryable)
+	ErrorKindCancelled  ErrorKind = "cancelled"     // Cancelamento pelo usuário (não retryable)
 	ErrorKindUnknown    ErrorKind = "unknown"       // Erro genérico de execução (não retryable)
 )
 

@@ -218,10 +218,21 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 			if status == "" {
 				status = "ok"
 			}
+			origin := ev.Origin
+			if origin == "" && ev.Native {
+				origin = "mcp_native"
+			}
+			if origin == "" {
+				origin = "builtin"
+			}
+			label := origin
+			if ev.ServerLabel != "" {
+				label = origin + "/" + ev.ServerLabel
+			}
 			if ev.DurationMs > 0 {
-				_, _ = fmt.Fprintf(e.errOut, "[tool:end]   %s — %s (%dms)\n", name, status, ev.DurationMs)
+				_, _ = fmt.Fprintf(e.errOut, "[tool:end]   %s (%s) — %s (%dms)\n", name, label, status, ev.DurationMs)
 			} else {
-				_, _ = fmt.Fprintf(e.errOut, "[tool:end]   %s — %s\n", name, status)
+				_, _ = fmt.Fprintf(e.errOut, "[tool:end]   %s (%s) — %s\n", name, label, status)
 			}
 			return
 		}

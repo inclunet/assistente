@@ -106,7 +106,7 @@ interface ChatToolFailureEvent {
   conversationId: number;
   name: string;
   callId: string;
-  errorKind: 'timeout' | 'invalid_args' | 'not_found' | 'panic' | 'unknown';
+  errorKind: 'timeout' | 'invalid_args' | 'not_found' | 'panic' | 'cancelled' | 'unknown';
   retryable: boolean;
   message?: string;
   durationMs?: number;

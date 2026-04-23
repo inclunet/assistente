@@ -73,7 +73,7 @@ type ToolFailureEvent struct {
 	ConversationID uint   `json:"conversationId"`
 	Name           string `json:"name"`
 	CallID         string `json:"callId"`
-	ErrorKind      string `json:"errorKind"`                  // "timeout" | "invalid_args" | "not_found" | "panic" | "unknown"
+	ErrorKind      string `json:"errorKind"`                  // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "unknown"
 	Retryable      bool   `json:"retryable"`
 	Message        string `json:"message,omitempty"`
 	DurationMs     int64  `json:"durationMs,omitempty"`
