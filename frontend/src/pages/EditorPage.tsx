@@ -1289,7 +1289,7 @@ export default function EditorPage() {
 
     if (r.target === 'new_document' || !targetTab) {
       if (requestedDocumentId) return false;
-      const title = String(r.title || 'Do chat');
+      const title = String(r.title || t('editor.fallback.fromChat'));
       const draftId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `editor-${Date.now()}`;
       const draftPath = String(await EditorGetDraftPath(draftId) ?? '');
       const tabId = await addWorkspaceTab('editor', title, { filePath: draftPath, draftId });

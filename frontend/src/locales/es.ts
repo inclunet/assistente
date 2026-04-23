@@ -607,8 +607,15 @@ const es = {
       options: { useDisk: 'Usar versión del disco', resolveMerge: 'Resolver conflictos (estilo Git)', useMine: 'Usar mi versión', saveAs: 'Guardar como…' },
       fallback: { title: 'Editor', newDoc: 'Nuevo documento', fromChat: 'Desde el chat' },
       sendToEditor: {
+        action: 'Enviar al editor',
         format: { markdown: 'Markdown', plainText: 'Texto', html: 'HTML' },
-        title: { markdownMessage: 'Mensaje (Markdown)', plainTextMessage: 'Mensaje (texto)' },
+        title: {
+          markdownMessage: 'Mensaje (Markdown)',
+          plainTextMessage: 'Mensaje (texto)',
+          markdownTable: 'Tabla (Markdown)',
+          htmlTable: 'Tabla (HTML)',
+          link: 'Enlace',
+        },
       },
       empty: { noTabs: 'Ninguna pestaña abierta' },
       labels: { profile: 'Perfil (editor)' },

@@ -608,8 +608,15 @@ const en = {
       options: { useDisk: 'Use disk version', resolveMerge: 'Resolve conflicts (Git style)', useMine: 'Use my version', saveAs: 'Save as…' },
       fallback: { title: 'Editor', newDoc: 'New document', fromChat: 'From chat' },
       sendToEditor: {
+        action: 'Send to editor',
         format: { markdown: 'Markdown', plainText: 'Text', html: 'HTML' },
-        title: { markdownMessage: 'Message (Markdown)', plainTextMessage: 'Message (text)' },
+        title: {
+          markdownMessage: 'Message (Markdown)',
+          plainTextMessage: 'Message (text)',
+          markdownTable: 'Table (Markdown)',
+          htmlTable: 'Table (HTML)',
+          link: 'Link',
+        },
       },
       empty: { noTabs: 'No tabs open' },
       labels: { profile: 'Profile (editor)' },

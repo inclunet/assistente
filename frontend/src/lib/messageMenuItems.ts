@@ -273,11 +273,15 @@ export function getMessageMenuItems(
   const content = message.content || '';
   const newDocumentLabel = i18next.t('editor.fallback.newDoc');
   const fallbackDocumentTitle = i18next.t('editor.fallback.title');
+  const sendToEditorActionLabel = i18next.t('editor.sendToEditor.action');
   const markdownFormatLabel = i18next.t('editor.sendToEditor.format.markdown');
   const plainTextFormatLabel = i18next.t('editor.sendToEditor.format.plainText');
   const htmlFormatLabel = i18next.t('editor.sendToEditor.format.html');
   const markdownMessageTitle = i18next.t('editor.sendToEditor.title.markdownMessage');
   const plainTextMessageTitle = i18next.t('editor.sendToEditor.title.plainTextMessage');
+  const markdownTableTitle = i18next.t('editor.sendToEditor.title.markdownTable');
+  const htmlTableTitle = i18next.t('editor.sendToEditor.title.htmlTable');
+  const linkTitle = i18next.t('editor.sendToEditor.title.link');
 
   // Extrai elementos do markdown
   const codeBlocks = extractCodeBlocks(content);
@@ -412,9 +416,9 @@ export function getMessageMenuItems(
     ];
     items.push({
       id: 'send-editor',
-      label: 'Enviar ao editor',
+      label: sendToEditorActionLabel,
       icon: '📝',
-      ariaLabel: 'Enviar ao editor',
+      ariaLabel: sendToEditorActionLabel,
       submenu: buildEditorDestinationSubmenu({
         baseId: 'send-editor',
         editorTargets,
@@ -501,9 +505,9 @@ export function getMessageMenuItems(
           submenu: [
             {
               id: `send-table-${i}-md`,
-              label: 'Markdown',
+              label: markdownFormatLabel,
               icon: '📝',
-              ariaLabel: 'Enviar tabela em Markdown ao editor',
+              ariaLabel: markdownFormatLabel,
               submenu: buildEditorDestinationSubmenu({
                 baseId: `send-table-${i}-md`,
                 editorTargets,
@@ -512,7 +516,7 @@ export function getMessageMenuItems(
               label: markdownFormatLabel,
                   payload: {
                     format: 'markdown',
-                    title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
+                    title: markdownTableTitle,
                     content: md,
                     kind: 'table',
                     index: i,
@@ -526,9 +530,9 @@ export function getMessageMenuItems(
             { id: `send-table-${i}-sep`, separator: true },
             {
               id: `send-table-${i}-html`,
-              label: 'HTML',
+              label: htmlFormatLabel,
               icon: '🌐',
-              ariaLabel: 'Enviar tabela em HTML ao editor',
+              ariaLabel: htmlFormatLabel,
               submenu: buildEditorDestinationSubmenu({
                 baseId: `send-table-${i}-html`,
                 editorTargets,
@@ -537,7 +541,7 @@ export function getMessageMenuItems(
                   label: htmlFormatLabel,
                   payload: {
                     format: 'html',
-                    title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
+                    title: htmlTableTitle,
                     content: html,
                     kind: 'table',
                     index: i,
@@ -578,7 +582,7 @@ export function getMessageMenuItems(
               label: markdownFormatLabel,
               payload: {
                 format: 'markdown',
-                title: 'Link',
+                title: linkTitle,
                 content: md,
                 kind: 'link',
                 index: i,

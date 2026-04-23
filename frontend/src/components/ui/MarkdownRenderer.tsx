@@ -113,6 +113,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const navigate = useNavigate();
 
   const canSendToEditor = Boolean(enableSendToEditorButtons && onSendToEditor);
+  const sendToEditorActionLabel = t('editor.sendToEditor.action');
   const newDocumentLabel = t('editor.fallback.newDoc');
   const fallbackDocumentTitle = t('editor.fallback.title');
   const markdownFormatLabel = t('editor.sendToEditor.format.markdown');
@@ -269,7 +270,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           if (canSendToEditor) {
             items.push({
               id: `code-${index}-send`,
-              label: 'Enviar ao editor',
+              label: sendToEditorActionLabel,
               submenu: buildEditorDestinationSubmenu({
                 baseId: `code-${index}-send`,
                 editorTargets,
@@ -361,7 +362,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           if (canSendToEditor) {
             items.push({
               id: `table-${index}-send`,
-              label: 'Enviar ao editor',
+              label: sendToEditorActionLabel,
               submenu: buildEditorDestinationSubmenu({
                 baseId: `table-${index}-send`,
                 editorTargets,
@@ -438,7 +439,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           if (canSendToEditor) {
             items.push({
               id: `link-${index}-send`,
-              label: 'Enviar ao editor',
+              label: sendToEditorActionLabel,
               submenu: buildEditorDestinationSubmenu({
                 baseId: `link-${index}-send`,
                 editorTargets,
@@ -477,6 +478,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       newDocumentLabel,
       onSendToEditor,
       openMenu,
+      sendToEditorActionLabel,
     ]
   );
 
@@ -558,7 +560,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
             if (canSendToEditor) {
               items.push({
                 id: `mermaid-${i}-send`,
-                label: 'Enviar ao editor',
+                label: sendToEditorActionLabel,
                 submenu: buildEditorDestinationSubmenu({
                   baseId: `mermaid-${i}-send`,
                   editorTargets,
@@ -680,7 +682,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               items.push({ separator: true, id: `mermaid-${i}-err-sep-1` });
               items.push({
                 id: `mermaid-${i}-err-send`,
-                label: 'Enviar ao editor',
+                label: sendToEditorActionLabel,
                 submenu: buildEditorDestinationSubmenu({
                   baseId: `mermaid-${i}-err-send`,
                   editorTargets,
@@ -750,6 +752,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       newDocumentLabel,
       onSendToEditor,
       openMenu,
+      sendToEditorActionLabel,
     ]
   );
 

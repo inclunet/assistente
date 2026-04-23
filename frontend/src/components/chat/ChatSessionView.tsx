@@ -138,8 +138,7 @@ export function ChatSessionView({
         await setActiveTab(tabId);
         return useWorkspaceStore.getState().workspace?.activeTabId === tabId;
       };
-
-      if (payload.target === 'new_document') {
+      const createDraftEditorTab = async () => {
         const draftId =
           typeof crypto !== 'undefined' && crypto.randomUUID
             ? crypto.randomUUID()
@@ -155,7 +154,12 @@ export function ChatSessionView({
           draftId,
         });
         const activated = await ensureActiveEditorTab(tabId);
-        if (!activated) return;
+        return activated ? tabId : null;
+      };
+
+      if (payload.target === 'new_document') {
+        const tabId = await createDraftEditorTab();
+        if (!tabId) return;
         targetDocumentId = tabId;
       } else {
         if (!targetDocumentId) {
@@ -166,22 +170,8 @@ export function ChatSessionView({
         }
 
         if (!targetDocumentId) {
-          const draftId =
-            typeof crypto !== 'undefined' && crypto.randomUUID
-              ? crypto.randomUUID()
-              : `editor-${Date.now()}`;
-          const draftPath = String((await EditorGetDraftPath(draftId)) ?? '');
-          const tabId = await addTab('editor', title, { filePath: draftPath, draftId });
-          useEditorStore.getState().createDocument({
-            id: tabId,
-            title,
-            markdown: '',
-            mode: 'markdown',
-            filePath: draftPath,
-            draftId,
-          });
-          const activated = await ensureActiveEditorTab(tabId);
-          if (!activated) return;
+          const tabId = await createDraftEditorTab();
+          if (!tabId) return;
           targetDocumentId = tabId;
         } else {
           const activated = await ensureActiveEditorTab(targetDocumentId);

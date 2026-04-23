@@ -608,8 +608,15 @@ const ptBR = {
       options: { useDisk: 'Usar versão do disco', resolveMerge: 'Resolver conflitos (estilo Git)', useMine: 'Usar minha versão', saveAs: 'Salvar como…' },
       fallback: { title: 'Editor', newDoc: 'Novo documento', fromChat: 'Do chat' },
       sendToEditor: {
+        action: 'Enviar ao editor',
         format: { markdown: 'Markdown', plainText: 'Texto', html: 'HTML' },
-        title: { markdownMessage: 'Mensagem (Markdown)', plainTextMessage: 'Mensagem (texto)' },
+        title: {
+          markdownMessage: 'Mensagem (Markdown)',
+          plainTextMessage: 'Mensagem (texto)',
+          markdownTable: 'Tabela (Markdown)',
+          htmlTable: 'Tabela (HTML)',
+          link: 'Link',
+        },
       },
       empty: { noTabs: 'Nenhuma aba aberta' },
       labels: { profile: 'Perfil (editor)' },
