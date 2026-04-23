@@ -65,7 +65,7 @@ describe('messageMenuItems', () => {
     expect(items.some((item) => item.id === 'code')).toBe(true);
     expect(items.some((item) => item.id === 'links')).toBe(true);
     expect(items.some((item) => item.id === 'table-copy')).toBe(true);
-    expect(i18nTMock).not.toHaveBeenCalledWith('editor.sendToEditor.action', expect.anything());
+    expect(i18nTMock).not.toHaveBeenCalledWith('editor.sendToEditor.action');
   });
 
   it('inclui itens de usuario', () => {
