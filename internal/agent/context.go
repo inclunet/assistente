@@ -27,11 +27,14 @@ const (
 )
 
 // estimateTokens estima tokens de um texto usando heurística chars/token.
+// Usa contagem de runes (caracteres Unicode) para consistência com charsPerToken,
+// evitando distorção em textos com multibyte UTF-8.
 func estimateTokens(text string) int {
-	if len(text) == 0 {
+	charCount := utf8.RuneCountInString(text)
+	if charCount == 0 {
 		return 0
 	}
-	return (len(text) + charsPerToken - 1) / charsPerToken
+	return (charCount + charsPerToken - 1) / charsPerToken
 }
 
 // estimateMessageTokens estima o total de tokens de uma slice de llm.Message.
