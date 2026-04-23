@@ -9,6 +9,7 @@ import { announce } from '../../hooks/useAnnouncer';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
 import { handleError, ErrorSeverity } from '../../utils/errorHandler';
 import { messageAudioService } from '../../services/messageAudio';
+import { ttsService } from '../../services/tts';
 import './MessageNode.css';
 
 export interface MessageNodeProps {
@@ -114,9 +115,10 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 
   // Handler de speak que controla o estado de playback
   const handleSpeak = useCallback(async (message: Message) => {
-    // Se qualquer áudio está tocando (local ou global/autoplay), para
-    if (isPlayingAudio || messageAudioService.isCurrentlyPlaying()) {
+    // Se qualquer áudio está tocando (local, global/autoplay ou TTS API), para
+    if (isPlayingAudio || messageAudioService.isCurrentlyPlaying() || ttsService.isSpeaking()) {
       messageAudioService.stopCurrentAudio();
+      ttsService.stop();
       setIsPlayingAudio(false);
       return;
     }
