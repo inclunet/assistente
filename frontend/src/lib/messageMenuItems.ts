@@ -271,50 +271,60 @@ export function getMessageMenuItems(
 
   const items: MenuItem[] = [];
   const content = message.content || '';
-  const newDocumentLabel = i18next.t('editor.fallback.newDoc');
-  const fallbackDocumentTitle = i18next.t('editor.fallback.title');
-  const sendToEditorActionLabel = i18next.t('editor.sendToEditor.action');
-  const markdownFormatLabel = i18next.t('editor.sendToEditor.format.markdown');
-  const plainTextFormatLabel = i18next.t('editor.sendToEditor.format.plainText');
-  const htmlFormatLabel = i18next.t('editor.sendToEditor.format.html');
-  const markdownMessageTitle = i18next.t('editor.sendToEditor.title.markdownMessage');
-  const plainTextMessageTitle = i18next.t('editor.sendToEditor.title.plainTextMessage');
-  const codeTitle = (language: string) => i18next.t('editor.sendToEditor.title.code', { language });
-  const markdownTableTitle = i18next.t('editor.sendToEditor.title.markdownTable');
-  const htmlTableTitle = i18next.t('editor.sendToEditor.title.htmlTable');
-  const linkTitle = i18next.t('editor.sendToEditor.title.link');
-  const codeSingleLabel = (language: string) => i18next.t('editor.sendToEditor.blocks.codeSingle', { language });
-  const codeIndexedLabel = (language: string, index: number) =>
-    i18next.t('editor.sendToEditor.blocks.codeIndexed', { language, index });
-  const codeGroupSingleLabel = i18next.t('editor.sendToEditor.blocks.codeGroupSingle');
-  const codeGroupMultipleLabel = (count: number) =>
-    i18next.t('editor.sendToEditor.blocks.codeGroupMultiple', { count });
-  const codeGroupAriaSingle = i18next.t('editor.sendToEditor.blocks.codeGroupAriaSingle');
-  const codeGroupAriaMultiple = (count: number) =>
-    i18next.t('editor.sendToEditor.blocks.codeGroupAriaMultiple', { count });
-  const codeAriaLabel = (language: string) => i18next.t('editor.sendToEditor.blocks.codeAria', { language });
-  const tableSingleLabel = i18next.t('editor.sendToEditor.blocks.tableSingle');
-  const tableIndexedLabel = (index: number) => i18next.t('editor.sendToEditor.blocks.tableIndexed', { index });
-  const tableGroupSingleLabel = i18next.t('editor.sendToEditor.blocks.tableGroupSingle');
-  const tableGroupMultipleLabel = (count: number) =>
-    i18next.t('editor.sendToEditor.blocks.tableGroupMultiple', { count });
-  const tableGroupAriaSingle = i18next.t('editor.sendToEditor.blocks.tableGroupAriaSingle');
-  const tableGroupAriaMultiple = (count: number) =>
-    i18next.t('editor.sendToEditor.blocks.tableGroupAriaMultiple', { count });
-  const tableAriaLabel = (index: number) => i18next.t('editor.sendToEditor.blocks.tableAria', { index });
-  const linkGroupSingleLabel = i18next.t('editor.sendToEditor.blocks.linkGroupSingle');
-  const linkGroupMultipleLabel = (count: number) =>
-    i18next.t('editor.sendToEditor.blocks.linkGroupMultiple', { count });
-  const linkGroupAriaSingle = i18next.t('editor.sendToEditor.blocks.linkGroupAriaSingle');
-  const linkGroupAriaMultiple = (count: number) =>
-    i18next.t('editor.sendToEditor.blocks.linkGroupAriaMultiple', { count });
-  const linkAriaLabel = (linkText: string) => i18next.t('editor.sendToEditor.blocks.linkAria', { linkText });
-  const sendBlocksLabel = i18next.t('editor.sendToEditor.blocks.sendBlocks');
 
   // Extrai elementos do markdown
   const codeBlocks = extractCodeBlocks(content);
   const links = extractLinks(content);
   const tables = extractTables(content);
+  const sendToEditorTexts = onSendToEditor
+    ? {
+        newDocumentLabel: i18next.t('editor.fallback.newDoc'),
+        fallbackDocumentTitle: i18next.t('editor.fallback.title'),
+        sendToEditorActionLabel: i18next.t('editor.sendToEditor.action'),
+        markdownFormatLabel: i18next.t('editor.sendToEditor.format.markdown'),
+        plainTextFormatLabel: i18next.t('editor.sendToEditor.format.plainText'),
+        htmlFormatLabel: i18next.t('editor.sendToEditor.format.html'),
+        markdownMessageTitle: i18next.t('editor.sendToEditor.title.markdownMessage'),
+        plainTextMessageTitle: i18next.t('editor.sendToEditor.title.plainTextMessage'),
+        codeTitle: (language: string) => i18next.t('editor.sendToEditor.title.code', { language }),
+        markdownTableTitle: (index?: number) =>
+          typeof index === 'number'
+            ? i18next.t('editor.sendToEditor.title.markdownTableIndexed', { index })
+            : i18next.t('editor.sendToEditor.title.markdownTable'),
+        htmlTableTitle: (index?: number) =>
+          typeof index === 'number'
+            ? i18next.t('editor.sendToEditor.title.htmlTableIndexed', { index })
+            : i18next.t('editor.sendToEditor.title.htmlTable'),
+        linkTitle: i18next.t('editor.sendToEditor.title.link'),
+        codeSingleLabel: (language: string) => i18next.t('editor.sendToEditor.blocks.codeSingle', { language }),
+        codeIndexedLabel: (language: string, index: number) =>
+          i18next.t('editor.sendToEditor.blocks.codeIndexed', { language, index }),
+        codeGroupSingleLabel: i18next.t('editor.sendToEditor.blocks.codeGroupSingle'),
+        codeGroupMultipleLabel: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.codeGroupMultiple', { count }),
+        codeGroupAriaSingle: i18next.t('editor.sendToEditor.blocks.codeGroupAriaSingle'),
+        codeGroupAriaMultiple: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.codeGroupAriaMultiple', { count }),
+        codeAriaLabel: (language: string) => i18next.t('editor.sendToEditor.blocks.codeAria', { language }),
+        tableSingleLabel: i18next.t('editor.sendToEditor.blocks.tableSingle'),
+        tableIndexedLabel: (index: number) => i18next.t('editor.sendToEditor.blocks.tableIndexed', { index }),
+        tableGroupSingleLabel: i18next.t('editor.sendToEditor.blocks.tableGroupSingle'),
+        tableGroupMultipleLabel: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.tableGroupMultiple', { count }),
+        tableGroupAriaSingle: i18next.t('editor.sendToEditor.blocks.tableGroupAriaSingle'),
+        tableGroupAriaMultiple: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.tableGroupAriaMultiple', { count }),
+        tableAriaLabel: (index: number) => i18next.t('editor.sendToEditor.blocks.tableAria', { index }),
+        linkGroupSingleLabel: i18next.t('editor.sendToEditor.blocks.linkGroupSingle'),
+        linkGroupMultipleLabel: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.linkGroupMultiple', { count }),
+        linkGroupAriaSingle: i18next.t('editor.sendToEditor.blocks.linkGroupAriaSingle'),
+        linkGroupAriaMultiple: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.linkGroupAriaMultiple', { count }),
+        linkAriaLabel: (linkText: string) => i18next.t('editor.sendToEditor.blocks.linkAria', { linkText }),
+        sendBlocksLabel: i18next.t('editor.sendToEditor.blocks.sendBlocks'),
+      }
+    : null;
 
   // 1. AÇÃO PRIMÁRIA: Modo de leitura (virtual modal)
   items.push({
@@ -417,26 +427,26 @@ export function getMessageMenuItems(
   });
 
   // 4b. Enviar para o editor (mensagem inteira)
-  if (onSendToEditor) {
+  if (onSendToEditor && sendToEditorTexts) {
     const contentMd = String(message.content || '');
     const contentPlain = stripMarkdown(contentMd);
     const messageFormats: Array<EditorSendFormatOption<{ kind: 'message' }>> = [
       {
         id: 'markdown',
-        label: markdownFormatLabel,
+        label: sendToEditorTexts.markdownFormatLabel,
         payload: {
           format: 'markdown',
-          title: markdownMessageTitle,
+          title: sendToEditorTexts.markdownMessageTitle,
           content: contentMd,
           kind: 'message',
         },
       },
       {
         id: 'plain',
-        label: plainTextFormatLabel,
+        label: sendToEditorTexts.plainTextFormatLabel,
         payload: {
           format: 'plain',
-          title: plainTextMessageTitle,
+          title: sendToEditorTexts.plainTextMessageTitle,
           content: contentPlain,
           kind: 'message',
         },
@@ -444,16 +454,16 @@ export function getMessageMenuItems(
     ];
     items.push({
       id: 'send-editor',
-      label: sendToEditorActionLabel,
+      label: sendToEditorTexts.sendToEditorActionLabel,
       icon: '📝',
-      ariaLabel: sendToEditorActionLabel,
+      ariaLabel: sendToEditorTexts.sendToEditorActionLabel,
       submenu: buildEditorDestinationSubmenu({
         baseId: 'send-editor',
         editorTargets,
         formats: messageFormats,
         onSendToEditor,
-        newDocumentLabel,
-        fallbackDocumentTitle,
+        newDocumentLabel: sendToEditorTexts.newDocumentLabel,
+        fallbackDocumentTitle: sendToEditorTexts.fallbackDocumentTitle,
       }),
     });
   }
@@ -479,7 +489,7 @@ export function getMessageMenuItems(
   }
 
   // Enviar blocos para o editor (acessibilidade: disponível no menu também)
-  if (onSendToEditor && (codeBlocks.length > 0 || links.length > 0 || tables.length > 0)) {
+  if (onSendToEditor && sendToEditorTexts && (codeBlocks.length > 0 || links.length > 0 || tables.length > 0)) {
     const submenu: MenuItem[] = [];
 
     if (codeBlocks.length > 0) {
@@ -488,35 +498,35 @@ export function getMessageMenuItems(
         const md = fenceCodeBlock({ code: block.code, language });
         return {
           id: `send-code-${i}`,
-          label: codeBlocks.length === 1 ? codeSingleLabel(language) : codeIndexedLabel(language, i + 1),
+          label: codeBlocks.length === 1 ? sendToEditorTexts.codeSingleLabel(language) : sendToEditorTexts.codeIndexedLabel(language, i + 1),
           icon: '💻',
-          ariaLabel: codeAriaLabel(language),
+          ariaLabel: sendToEditorTexts.codeAriaLabel(language),
           submenu: buildEditorDestinationSubmenu({
             baseId: `send-code-${i}`,
             editorTargets,
             formats: [{
               id: 'markdown',
-              label: markdownFormatLabel,
+              label: sendToEditorTexts.markdownFormatLabel,
               payload: {
                 format: 'markdown',
-                title: codeTitle(language),
+                title: sendToEditorTexts.codeTitle(language),
                 content: md,
                 kind: 'code',
                 index: i,
               },
             }],
             onSendToEditor,
-            newDocumentLabel,
-            fallbackDocumentTitle,
+            newDocumentLabel: sendToEditorTexts.newDocumentLabel,
+            fallbackDocumentTitle: sendToEditorTexts.fallbackDocumentTitle,
           }),
         };
       });
 
       submenu.push({
         id: 'send-code',
-        label: codeBlocks.length === 1 ? codeGroupSingleLabel : codeGroupMultipleLabel(codeBlocks.length),
+        label: codeBlocks.length === 1 ? sendToEditorTexts.codeGroupSingleLabel : sendToEditorTexts.codeGroupMultipleLabel(codeBlocks.length),
         icon: '💻',
-        ariaLabel: codeBlocks.length === 1 ? codeGroupAriaSingle : codeGroupAriaMultiple(codeBlocks.length),
+        ariaLabel: codeBlocks.length === 1 ? sendToEditorTexts.codeGroupAriaSingle : sendToEditorTexts.codeGroupAriaMultiple(codeBlocks.length),
         submenu: codeMenu,
       });
     }
@@ -527,19 +537,19 @@ export function getMessageMenuItems(
         const html = tableToHTML(table);
         return {
           id: `send-table-${i}`,
-          label: tables.length === 1 ? tableSingleLabel : tableIndexedLabel(i + 1),
+          label: tables.length === 1 ? sendToEditorTexts.tableSingleLabel : sendToEditorTexts.tableIndexedLabel(i + 1),
           icon: '📊',
-          ariaLabel: tableAriaLabel(i + 1),
+          ariaLabel: sendToEditorTexts.tableAriaLabel(i + 1),
           submenu: buildEditorDestinationSubmenu({
             baseId: `send-table-${i}`,
             editorTargets,
             formats: [
               {
                 id: 'markdown',
-                label: markdownFormatLabel,
+                label: sendToEditorTexts.markdownFormatLabel,
                 payload: {
                   format: 'markdown',
-                  title: markdownTableTitle,
+                  title: tables.length > 1 ? sendToEditorTexts.markdownTableTitle(i + 1) : sendToEditorTexts.markdownTableTitle(),
                   content: md,
                   kind: 'table',
                   index: i,
@@ -547,10 +557,10 @@ export function getMessageMenuItems(
               },
               {
                 id: 'html',
-                label: htmlFormatLabel,
+                label: sendToEditorTexts.htmlFormatLabel,
                 payload: {
                   format: 'html',
-                  title: htmlTableTitle,
+                  title: tables.length > 1 ? sendToEditorTexts.htmlTableTitle(i + 1) : sendToEditorTexts.htmlTableTitle(),
                   content: html,
                   kind: 'table',
                   index: i,
@@ -558,17 +568,17 @@ export function getMessageMenuItems(
               },
             ],
             onSendToEditor,
-            newDocumentLabel,
-            fallbackDocumentTitle,
+            newDocumentLabel: sendToEditorTexts.newDocumentLabel,
+            fallbackDocumentTitle: sendToEditorTexts.fallbackDocumentTitle,
           }),
         };
       });
 
       submenu.push({
         id: 'send-tables',
-        label: tables.length === 1 ? tableGroupSingleLabel : tableGroupMultipleLabel(tables.length),
+        label: tables.length === 1 ? sendToEditorTexts.tableGroupSingleLabel : sendToEditorTexts.tableGroupMultipleLabel(tables.length),
         icon: '📊',
-        ariaLabel: tables.length === 1 ? tableGroupAriaSingle : tableGroupAriaMultiple(tables.length),
+        ariaLabel: tables.length === 1 ? sendToEditorTexts.tableGroupAriaSingle : sendToEditorTexts.tableGroupAriaMultiple(tables.length),
         submenu: tablesMenu,
       });
     }
@@ -581,42 +591,42 @@ export function getMessageMenuItems(
           id: `send-link-${i}`,
           label,
           icon: '🔗',
-          ariaLabel: linkAriaLabel(link.text),
+          ariaLabel: sendToEditorTexts.linkAriaLabel(link.text),
           submenu: buildEditorDestinationSubmenu({
             baseId: `send-link-${i}`,
             editorTargets,
             formats: [{
               id: 'markdown',
-              label: markdownFormatLabel,
+              label: sendToEditorTexts.markdownFormatLabel,
               payload: {
                 format: 'markdown',
-                title: linkTitle,
+                title: sendToEditorTexts.linkTitle,
                 content: md,
                 kind: 'link',
                 index: i,
               },
             }],
             onSendToEditor,
-            newDocumentLabel,
-            fallbackDocumentTitle,
+            newDocumentLabel: sendToEditorTexts.newDocumentLabel,
+            fallbackDocumentTitle: sendToEditorTexts.fallbackDocumentTitle,
           }),
         };
       });
 
       submenu.push({
         id: 'send-links',
-        label: links.length === 1 ? linkGroupSingleLabel : linkGroupMultipleLabel(links.length),
+        label: links.length === 1 ? sendToEditorTexts.linkGroupSingleLabel : sendToEditorTexts.linkGroupMultipleLabel(links.length),
         icon: '🔗',
-        ariaLabel: links.length === 1 ? linkGroupAriaSingle : linkGroupAriaMultiple(links.length),
+        ariaLabel: links.length === 1 ? sendToEditorTexts.linkGroupAriaSingle : sendToEditorTexts.linkGroupAriaMultiple(links.length),
         submenu: linksMenu,
       });
     }
 
     items.push({
       id: 'send-blocks-editor',
-      label: sendBlocksLabel,
+      label: sendToEditorTexts.sendBlocksLabel,
       icon: '🧩',
-      ariaLabel: sendBlocksLabel,
+      ariaLabel: sendToEditorTexts.sendBlocksLabel,
       submenu,
     });
   }

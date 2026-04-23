@@ -57,7 +57,7 @@ interface EditorState {
   getActiveDocument: () => EditorDocument | null;
 
   pendingInsert: EditorInsertRequest | null;
-  requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string;
+  requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string | null;
   consumePendingInsert: () => EditorInsertRequest | null;
 
   hydrate: (payload: { documents: Record<string, EditorDocument>; activeDocumentId: string | null }) => void;
@@ -108,9 +108,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   requestInsert: (req) => {
-    const id = newId();
     const base = {
-      id,
+      id: newId(),
       format: req.format,
       content: String(req.content ?? ''),
       title: req.title,
@@ -136,9 +135,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             target: 'new_document',
           };
 
-    if (!normalized) return id;
+    if (!normalized) return null;
     set({ pendingInsert: normalized });
-    return id;
+    return normalized.id;
   },
 
   consumePendingInsert: () => {
