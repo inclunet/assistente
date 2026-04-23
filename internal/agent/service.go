@@ -393,7 +393,8 @@ func (s *Service) RunAgenticLoop(
 		// 5f-iv. Persiste resultados originais no DB e adiciona conteúdo (possivelmente
 		// truncado) ao histórico de mensagens enviado ao LLM.
 		for i, execResult := range execResults {
-			// Persiste conteúdo original completo no banco
+			// Persiste conteúdo original (antes do pre-check de context window, mas
+			// possivelmente já truncado por MaxResultSize do Executor) no banco
 			_, err := s.msgRepo.AddToolResultMessage(
 				conversationID,
 				turnID,
