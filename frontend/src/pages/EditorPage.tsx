@@ -1277,10 +1277,23 @@ export default function EditorPage() {
     const rawContent = String(r?.content ?? '');
     if (!rawContent) return true;
 
-    let targetTab = activeTab;
+    const requestedDocumentId = String(r.targetDocumentId || '').trim();
+    if (r.target === 'document' && !requestedDocumentId) {
+      console.error('[EditorPage] applyInsertRequest rejected: document target requires targetDocumentId');
+      return false;
+    }
+    const currentEditorState = useEditorStore.getState();
+    let targetTab = requestedDocumentId
+      ? currentEditorState.documents[requestedDocumentId] ?? null
+      : activeTab;
+
+    if (requestedDocumentId && currentEditorState.activeDocumentId !== requestedDocumentId) {
+      return false;
+    }
 
     if (r.target === 'new_document' || !targetTab) {
-      const title = String(r.title || 'Do chat');
+      if (requestedDocumentId) return false;
+      const title = String(r.title || t('editor.fallback.fromChat'));
       const draftId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `editor-${Date.now()}`;
       const draftPath = String(await EditorGetDraftPath(draftId) ?? '');
       const tabId = await addWorkspaceTab('editor', title, { filePath: draftPath, draftId });
@@ -1419,15 +1432,18 @@ export default function EditorPage() {
 
     let cancelled = false;
     (async () => {
-      // Tenta algumas vezes para cobrir o tempo de navegação/mount.
-      for (let i = 0; i < 10; i += 1) {
+      // Inserções direcionadas podem precisar esperar a aba/documento terminar de sincronizar.
+      const targetedInsert = !!String(pendingInsert.targetDocumentId || '').trim();
+      const maxAttempts = targetedInsert ? 40 : 10;
+      const delayMs = targetedInsert ? 100 : 60;
+      for (let i = 0; i < maxAttempts; i += 1) {
         if (cancelled) return;
         const ok = await applyInsertRequest(pendingInsert);
         if (ok) {
           setPendingInsert(null);
           return;
         }
-        await new Promise((r) => setTimeout(r, 60));
+        await new Promise((r) => setTimeout(r, delayMs));
       }
 
       // Se falhar, mantém pendente mas avisa.

@@ -4,16 +4,26 @@ export type EditorMode = 'markdown' | 'rich' | 'view';
 
 export type EditorInsertFormat = 'markdown' | 'html' | 'plain';
 
-export type EditorInsertTarget = 'current' | 'new_document';
+export type EditorInsertTarget = 'document' | 'new_document';
 
-export interface EditorInsertRequest {
-  id: string;
-  target: EditorInsertTarget;
+interface EditorInsertRequestBase {
   format: EditorInsertFormat;
   content: string;
   title?: string;
   focus?: boolean;
 }
+
+export type EditorInsertRequest =
+  | ({
+      id: string;
+      target: 'document';
+      targetDocumentId: string;
+    } & EditorInsertRequestBase)
+  | ({
+      id: string;
+      target: 'new_document';
+      targetDocumentId?: never;
+    } & EditorInsertRequestBase);
 
 export interface EditorDocument {
   id: string;
@@ -47,7 +57,7 @@ interface EditorState {
   getActiveDocument: () => EditorDocument | null;
 
   pendingInsert: EditorInsertRequest | null;
-  requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string;
+  requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string | null;
   consumePendingInsert: () => EditorInsertRequest | null;
 
   hydrate: (payload: { documents: Record<string, EditorDocument>; activeDocumentId: string | null }) => void;
@@ -98,17 +108,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   requestInsert: (req) => {
-    const id = newId();
-    const normalized: EditorInsertRequest = {
-      id,
-      target: req.target,
+    const base = {
+      id: newId(),
       format: req.format,
       content: String(req.content ?? ''),
       title: req.title,
       focus: req.focus,
-    };
+    } satisfies EditorInsertRequestBase & { id: string };
+
+    const normalized: EditorInsertRequest | null =
+      req.target === 'document'
+        ? (() => {
+            const targetDocumentId = String(req.targetDocumentId ?? '').trim();
+            if (!targetDocumentId) {
+              console.error('[EditorStore] requestInsert rejected: document target requires targetDocumentId');
+              return null;
+            }
+            return {
+              ...base,
+              target: 'document',
+              targetDocumentId,
+            };
+          })()
+        : {
+            ...base,
+            target: 'new_document',
+          };
+
+    if (!normalized) return null;
     set({ pendingInsert: normalized });
-    return id;
+    return normalized.id;
   },
 
   consumePendingInsert: () => {

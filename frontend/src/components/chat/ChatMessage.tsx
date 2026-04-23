@@ -12,6 +12,7 @@ import { ToolCallsSection, ToolCallStatus } from './ToolCallsSection';
 import { isAgentMessage } from '../../lib/chatUtils';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
+import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatMessage.css';
 
 export interface ChatMessageProps {
@@ -45,12 +46,8 @@ export interface ChatMessageProps {
   isPlayingAudio?: boolean; // Se está reproduzindo áudio desta mensagem
 
   // Envio de blocos para o editor
-  onSendToEditor?: (payload: {
-    target: 'current' | 'new_document';
-    format: 'markdown' | 'html' | 'plain';
-    title?: string;
-    content: string;
-  }) => void;
+  editorTargets?: EditorSendTargetOption[];
+  onSendToEditor?: (payload: SendToEditorPayload) => void;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
@@ -75,6 +72,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   activeToolCalls,
   completedSegments: _completedSegmentsProp,
   isPlayingAudio = false,
+  editorTargets,
   onSendToEditor,
 }) => {
   const { t } = useTranslation();
@@ -442,6 +440,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                         interactiveButtons={!!onSendToEditor}
                         focusableMermaid={!!onSendToEditor}
                         enableSendToEditorButtons={!!onSendToEditor}
+                        editorTargets={editorTargets}
                         onSendToEditor={onSendToEditor}
                       />
                     </div>
@@ -468,6 +467,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                     interactiveButtons={!!onSendToEditor}
                     focusableMermaid={!!onSendToEditor}
                     enableSendToEditorButtons={!!onSendToEditor}
+                    editorTargets={editorTargets}
                     onSendToEditor={onSendToEditor}
                   />
                 </div>
@@ -528,6 +528,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                       interactiveButtons={!!onSendToEditor}
                       focusableMermaid={!!onSendToEditor}
                       enableSendToEditorButtons={!!onSendToEditor}
+                      editorTargets={editorTargets}
                       onSendToEditor={onSendToEditor}
                     />
                   ) : (
