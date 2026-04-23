@@ -144,6 +144,8 @@ export function ChatSessionView({
             : `editor-${Date.now()}`;
         const draftPath = String((await EditorGetDraftPath(draftId)) ?? '');
         const tabId = await addTab('editor', title, { filePath: draftPath, draftId });
+        const activated = await ensureActiveEditorTab(tabId);
+        if (!activated) return null;
         useEditorStore.getState().createDocument({
           id: tabId,
           title,
@@ -152,8 +154,7 @@ export function ChatSessionView({
           filePath: draftPath,
           draftId,
         });
-        const activated = await ensureActiveEditorTab(tabId);
-        return activated ? tabId : null;
+        return tabId;
       };
 
       if (payload.target === 'new_document') {
