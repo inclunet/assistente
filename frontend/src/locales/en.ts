@@ -607,6 +607,10 @@ const en = {
       prompts: { file: 'File', diff: 'Diff (disk → my version)', diskPreview: 'Disk version (preview)', localPreview: 'Your version (preview)', action: 'Action' },
       options: { useDisk: 'Use disk version', resolveMerge: 'Resolve conflicts (Git style)', useMine: 'Use my version', saveAs: 'Save as…' },
       fallback: { title: 'Editor', newDoc: 'New document', fromChat: 'From chat' },
+      sendToEditor: {
+        format: { markdown: 'Markdown', plainText: 'Text', html: 'HTML' },
+        title: { markdownMessage: 'Message (Markdown)', plainTextMessage: 'Message (text)' },
+      },
       empty: { noTabs: 'No tabs open' },
       labels: { profile: 'Profile (editor)' },
       aria: { toolbar: 'Editor toolbar', markdownEditor: 'Markdown editor', preview: 'Rendered preview', richEditor: 'Rich editor' },

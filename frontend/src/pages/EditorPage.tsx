@@ -1428,15 +1428,18 @@ export default function EditorPage() {
 
     let cancelled = false;
     (async () => {
-      // Tenta algumas vezes para cobrir o tempo de navegação/mount.
-      for (let i = 0; i < 10; i += 1) {
+      // Inserções direcionadas podem precisar esperar a aba/documento terminar de sincronizar.
+      const targetedInsert = !!String(pendingInsert.targetDocumentId || '').trim();
+      const maxAttempts = targetedInsert ? 40 : 10;
+      const delayMs = targetedInsert ? 100 : 60;
+      for (let i = 0; i < maxAttempts; i += 1) {
         if (cancelled) return;
         const ok = await applyInsertRequest(pendingInsert);
         if (ok) {
           setPendingInsert(null);
           return;
         }
-        await new Promise((r) => setTimeout(r, 60));
+        await new Promise((r) => setTimeout(r, delayMs));
       }
 
       // Se falhar, mantém pendente mas avisa.

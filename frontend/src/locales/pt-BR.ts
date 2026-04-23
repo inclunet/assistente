@@ -607,6 +607,10 @@ const ptBR = {
       prompts: { file: 'Arquivo', diff: 'Diff (disco → minha versão)', diskPreview: 'Versão do disco (preview)', localPreview: 'Sua versão (preview)', action: 'Ação' },
       options: { useDisk: 'Usar versão do disco', resolveMerge: 'Resolver conflitos (estilo Git)', useMine: 'Usar minha versão', saveAs: 'Salvar como…' },
       fallback: { title: 'Editor', newDoc: 'Novo documento', fromChat: 'Do chat' },
+      sendToEditor: {
+        format: { markdown: 'Markdown', plainText: 'Texto', html: 'HTML' },
+        title: { markdownMessage: 'Mensagem (Markdown)', plainTextMessage: 'Mensagem (texto)' },
+      },
       empty: { noTabs: 'Nenhuma aba aberta' },
       labels: { profile: 'Perfil (editor)' },
       aria: { toolbar: 'Barra de ferramentas do editor', markdownEditor: 'Editor Markdown', preview: 'Visualização renderizada', richEditor: 'Editor rico' },

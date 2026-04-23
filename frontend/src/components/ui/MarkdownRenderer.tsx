@@ -115,6 +115,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const canSendToEditor = Boolean(enableSendToEditorButtons && onSendToEditor);
   const newDocumentLabel = t('editor.fallback.newDoc');
   const fallbackDocumentTitle = t('editor.fallback.title');
+  const markdownFormatLabel = t('editor.sendToEditor.format.markdown');
 
   const {
     menu: menuState,
@@ -274,7 +275,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                 editorTargets,
                 formats: [{
                   id: 'markdown',
-                  label: 'Markdown',
+                  label: markdownFormatLabel,
                   payload: {
                     format: 'markdown',
                     title: `Código ${languageLabel}`,
@@ -366,7 +367,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                 editorTargets,
                 formats: [{
                   id: 'markdown',
-                  label: 'Markdown',
+                  label: markdownFormatLabel,
                   payload: {
                     format: 'markdown',
                     title: 'Tabela',
@@ -443,7 +444,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                 editorTargets,
                 formats: [{
                   id: 'markdown',
-                  label: 'Markdown',
+                  label: markdownFormatLabel,
                   payload: {
                     format: 'markdown',
                     title: 'Link',
@@ -563,7 +564,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                   editorTargets,
                   formats: [{
                     id: 'markdown',
-                    label: 'Markdown',
+                    label: markdownFormatLabel,
                     payload: {
                       format: 'markdown',
                       title: 'Mermaid',
@@ -685,7 +686,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                   editorTargets,
                   formats: [{
                     id: 'markdown',
-                    label: 'Markdown',
+                    label: markdownFormatLabel,
                     payload: {
                       format: 'markdown',
                       title: 'Mermaid',

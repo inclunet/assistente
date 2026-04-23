@@ -271,6 +271,13 @@ export function getMessageMenuItems(
 
   const items: MenuItem[] = [];
   const content = message.content || '';
+  const newDocumentLabel = i18next.t('editor.fallback.newDoc');
+  const fallbackDocumentTitle = i18next.t('editor.fallback.title');
+  const markdownFormatLabel = i18next.t('editor.sendToEditor.format.markdown');
+  const plainTextFormatLabel = i18next.t('editor.sendToEditor.format.plainText');
+  const htmlFormatLabel = i18next.t('editor.sendToEditor.format.html');
+  const markdownMessageTitle = i18next.t('editor.sendToEditor.title.markdownMessage');
+  const plainTextMessageTitle = i18next.t('editor.sendToEditor.title.plainTextMessage');
 
   // Extrai elementos do markdown
   const codeBlocks = extractCodeBlocks(content);
@@ -381,25 +388,23 @@ export function getMessageMenuItems(
   if (onSendToEditor) {
     const contentMd = String(message.content || '');
     const contentPlain = stripMarkdown(contentMd);
-    const newDocumentLabel = i18next.t('editor.fallback.newDoc');
-    const fallbackDocumentTitle = i18next.t('editor.fallback.title');
     const messageFormats: Array<EditorSendFormatOption<{ kind: 'message' }>> = [
       {
         id: 'markdown',
-        label: 'Markdown',
+        label: markdownFormatLabel,
         payload: {
           format: 'markdown',
-          title: 'Mensagem (Markdown)',
+          title: markdownMessageTitle,
           content: contentMd,
           kind: 'message',
         },
       },
       {
         id: 'plain',
-        label: 'Texto',
+        label: plainTextFormatLabel,
         payload: {
           format: 'plain',
-          title: 'Mensagem (texto)',
+          title: plainTextMessageTitle,
           content: contentPlain,
           kind: 'message',
         },
@@ -444,8 +449,6 @@ export function getMessageMenuItems(
   // Enviar blocos para o editor (acessibilidade: disponível no menu também)
   if (onSendToEditor && (codeBlocks.length > 0 || links.length > 0 || tables.length > 0)) {
     const submenu: MenuItem[] = [];
-    const newDocumentLabel = i18next.t('editor.fallback.newDoc');
-    const fallbackDocumentTitle = i18next.t('editor.fallback.title');
 
     if (codeBlocks.length > 0) {
       const codeMenu: MenuItem[] = codeBlocks.map((block, i) => {
@@ -461,7 +464,7 @@ export function getMessageMenuItems(
             editorTargets,
             formats: [{
               id: 'markdown',
-              label: 'Markdown',
+              label: markdownFormatLabel,
               payload: {
                 format: 'markdown',
                 title: `Código ${language}`,
@@ -506,7 +509,7 @@ export function getMessageMenuItems(
                 editorTargets,
                 formats: [{
                   id: 'markdown',
-                  label: 'Markdown',
+              label: markdownFormatLabel,
                   payload: {
                     format: 'markdown',
                     title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
@@ -531,7 +534,7 @@ export function getMessageMenuItems(
                 editorTargets,
                 formats: [{
                   id: 'html',
-                  label: 'HTML',
+                  label: htmlFormatLabel,
                   payload: {
                     format: 'html',
                     title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
@@ -572,7 +575,7 @@ export function getMessageMenuItems(
             editorTargets,
             formats: [{
               id: 'markdown',
-              label: 'Markdown',
+              label: markdownFormatLabel,
               payload: {
                 format: 'markdown',
                 title: 'Link',

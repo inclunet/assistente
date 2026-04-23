@@ -107,7 +107,7 @@ describe('messageMenuItems', () => {
     expect(sendEditor).toBeTruthy();
     expect(sendEditor?.submenu?.map((item) => item.label)).toContain('README.md');
     expect(sendEditor?.submenu?.map((item) => item.label)).toContain('Notas');
-    expect(sendEditor?.submenu?.[0]?.submenu?.map((item) => item.label)).toContain('Markdown');
-    expect(sendEditor?.submenu?.[0]?.submenu?.map((item) => item.label)).toContain('Texto');
+    expect(sendEditor?.submenu?.[0]?.submenu?.map((item) => item.label)).toContain('editor.sendToEditor.format.markdown');
+    expect(sendEditor?.submenu?.[0]?.submenu?.map((item) => item.label)).toContain('editor.sendToEditor.format.plainText');
   });
 });
