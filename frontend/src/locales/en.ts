@@ -130,6 +130,7 @@ const en = {
       enableAutoReadLabel: 'Enable auto-read of responses',
       autoReadError: 'Error playing audio automatically',
       toolFailed: 'Tool {{name}} failed',
+      toolRetrying: 'Tool {{name}} failed, retrying...',
       toolRunning: 'Running tool: {{name}}',
       toolDone: 'Tool {{name}} completed',
       validation: {
@@ -156,6 +157,9 @@ const en = {
       response: 'Response',
       showLess: 'Show less',
       showAll: 'Show all',
+      toolOriginBuiltin: 'Built-in',
+      toolOriginMcpBridge: 'MCP',
+      toolOriginMcpNative: 'MCP Native',
       collapseThread: 'Collapse interactions',
       expandThread: 'Expand interactions',
       interactionCount_one: '{{count}} interaction',

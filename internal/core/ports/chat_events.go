@@ -16,6 +16,14 @@ type DoneEvent struct {
 	ConversationID     uint `json:"conversationId"`
 	AssistantMessageID uint `json:"assistantMessageId,omitempty"`
 	HadToolCalls       bool `json:"hadToolCalls,omitempty"`
+	// AEP-0039 Fase 2: enriched done event
+	Reason           string   `json:"reason,omitempty"`           // "completed" | "limit_reached" | "error"
+	IterationCount   int      `json:"iterationCount,omitempty"`
+	ToolCallCount    int      `json:"toolCallCount,omitempty"`
+	ToolsUsed        []string `json:"toolsUsed,omitempty"`
+	PromptTokens     int      `json:"promptTokens,omitempty"`
+	CompletionTokens int      `json:"completionTokens,omitempty"`
+	ErrorMessage     string   `json:"errorMessage,omitempty"`
 }
 
 // ErrorEvent is the payload for chat:error.
@@ -38,7 +46,9 @@ type ToolStartEvent struct {
 	CallID         string `json:"callId"`
 	Args           string `json:"args,omitempty"`
 	ServerLabel    string `json:"serverLabel,omitempty"`
-	Native         bool   `json:"native,omitempty"`
+	Native         bool   `json:"native,omitempty"`          // DEPRECADO (AEP-0039) — usar Origin
+	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
+	Attempt        int    `json:"attempt"`                     // Tentativa (0=primeira, 1=retry)
 }
 
 // ToolEndEvent is the payload for chat:tool_end.
@@ -50,15 +60,46 @@ type ToolEndEvent struct {
 	Summary        string `json:"summary,omitempty"`
 	Error          string `json:"error,omitempty"`
 	ServerLabel    string `json:"serverLabel,omitempty"`
-	Native         bool   `json:"native,omitempty"`
+	Native         bool   `json:"native,omitempty"`          // DEPRECADO (AEP-0039) — usar Origin
+	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
+	DurationMs     int64  `json:"durationMs,omitempty"`       // AEP-0039 Fase 3
+	Attempt        int    `json:"attempt"`                     // Tentativa (0=primeira, 1=retry)
+}
+
+// ToolFailureEvent is the payload for chat:tool_failure (AEP-0039 Fase 3).
+// Emitted when a tool execution fails with structured error classification.
+// Distinct from tool_end with status="error" — this carries retry context.
+type ToolFailureEvent struct {
+	ConversationID uint   `json:"conversationId"`
+	Name           string `json:"name"`
+	CallID         string `json:"callId"`
+	ErrorKind      string `json:"errorKind"`                  // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "unknown"
+	Retryable      bool   `json:"retryable"`
+	Message        string `json:"message,omitempty"`
+	DurationMs     int64  `json:"durationMs,omitempty"`
+	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
+	WillRetry      bool   `json:"willRetry,omitempty"`        // true se retry automático será tentado
+	Attempt        int    `json:"attempt"`                     // Tentativa (0=primeira, 1=retry)
+}
+
+// ToolSummary describes a tool invocation within an iteration (AEP-0039 Fase 2+3).
+type ToolSummary struct {
+	Name        string `json:"name"`
+	Status      string `json:"status"`                       // "ok" | "error"
+	ErrorKind   string `json:"errorKind,omitempty"`           // AEP-0039 Fase 3
+	DurationMs  int64  `json:"durationMs,omitempty"`          // AEP-0039 Fase 3
+	Origin      string `json:"origin,omitempty"`              // "builtin" | "mcp_bridge" | "mcp_native"
+	ServerLabel string `json:"serverLabel,omitempty"`
 }
 
 // SegmentDoneEvent is the payload for chat:segment_done.
 type SegmentDoneEvent struct {
 	ConversationID uint   `json:"conversationId"`
 	Content        string `json:"content,omitempty"`
-	Iteration      int    `json:"iteration,omitempty"`
+	Iteration      int    `json:"iteration"`
 	HasMore        bool   `json:"hasMore"`
+	// AEP-0039 Fase 2: tools executed in this iteration
+	ToolsInIteration []ToolSummary `json:"toolsInIteration,omitempty"`
 }
 
 // TokenStatsEvent is the payload for chat:token_stats.

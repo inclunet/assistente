@@ -130,6 +130,7 @@ const ptBR = {
       enableAutoReadLabel: 'Habilitar leitura automática de respostas',
       autoReadError: 'Erro ao reproduzir áudio automaticamente',
       toolFailed: 'Ferramenta {{name}} falhou',
+      toolRetrying: 'Ferramenta {{name}} falhou, tentando novamente...',
       toolRunning: 'Executando ferramenta: {{name}}',
       toolDone: 'Ferramenta {{name}} concluída',
       validation: {
@@ -156,6 +157,9 @@ const ptBR = {
       response: 'Resposta',
       showLess: 'Mostrar menos',
       showAll: 'Mostrar tudo',
+      toolOriginBuiltin: 'Integrada',
+      toolOriginMcpBridge: 'MCP',
+      toolOriginMcpNative: 'MCP Nativo',
       collapseThread: 'Recolher interações',
       expandThread: 'Expandir interações',
       interactionCount_one: '{{count}} interação',

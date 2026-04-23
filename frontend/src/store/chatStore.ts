@@ -80,7 +80,10 @@ interface ChatToolStartEvent {
   callId: string;
   args?: string;
   serverLabel?: string;
+  /** @deprecated Use origin instead (AEP-0039) */
   native?: boolean;
+  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  attempt?: number;
 }
 
 interface ChatToolEndEvent {
@@ -91,7 +94,25 @@ interface ChatToolEndEvent {
   summary?: string;
   error?: string;
   serverLabel?: string;
+  /** @deprecated Use origin instead (AEP-0039) */
   native?: boolean;
+  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  durationMs?: number;
+  attempt?: number;
+}
+
+// AEP-0039 Fase 3: structured failure event (distinct from tool_end with status='error')
+interface ChatToolFailureEvent {
+  conversationId: number;
+  name: string;
+  callId: string;
+  errorKind: 'timeout' | 'invalid_args' | 'not_found' | 'panic' | 'cancelled' | 'unknown';
+  retryable: boolean;
+  message?: string;
+  durationMs?: number;
+  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  willRetry?: boolean;
+  attempt?: number;
 }
 
 interface ChatSegmentDoneEvent {
@@ -99,12 +120,22 @@ interface ChatSegmentDoneEvent {
   hasMore?: boolean;
   content?: string;
   iteration?: number;
+  // AEP-0039 Fase 2+3
+  toolsInIteration?: Array<{ name: string; status: string; errorKind?: string; durationMs?: number; origin?: string; serverLabel?: string }>;
 }
 
 interface ChatDoneEvent {
   conversationId: number;
   assistantMessageId?: number;
   hadToolCalls?: boolean;
+  // AEP-0039 Fase 2
+  reason?: string;
+  iterationCount?: number;
+  toolCallCount?: number;
+  toolsUsed?: string[];
+  promptTokens?: number;
+  completionTokens?: number;
+  errorMessage?: string;
 }
 
 interface ChatErrorEvent {
@@ -374,6 +405,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     let unsubThinking = noop;
     let unsubToolStart = noop;
     let unsubToolEnd = noop;
+    let unsubToolFailure = noop;
     let unsubSegmentDone = noop;
     let unsubDone = noop;
     let unsubError = noop;
@@ -409,6 +441,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       unsubThinking();
       unsubToolStart();
       unsubToolEnd();
+      unsubToolFailure();
       unsubSegmentDone();
       unsubDone();
       unsubError();
@@ -549,12 +582,25 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (data.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
       ensureAssistantNode();
-      set((state) => ({
-        activeToolCalls: [
-          ...state.activeToolCalls,
-          { name: data.name, callId: data.callId, args: data.args, status: 'running' as const },
-        ],
-      }));
+      set((state) => {
+        const existing = state.activeToolCalls.findIndex((tc) => tc.callId === data.callId);
+        if (existing >= 0) {
+          // Retry: upsert — reseta status para 'running' sem apagar args anteriores
+          return {
+            activeToolCalls: state.activeToolCalls.map((tc) =>
+              tc.callId === data.callId
+                ? { ...tc, name: data.name, callId: data.callId, args: data.args ?? tc.args, status: 'running' as const, summary: undefined }
+                : tc
+            ),
+          };
+        }
+        return {
+          activeToolCalls: [
+            ...state.activeToolCalls,
+            { name: data.name, callId: data.callId, args: data.args, status: 'running' as const },
+          ],
+        };
+      });
     });
 
     unsubToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
@@ -567,7 +613,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             : tc
         ),
       }));
-      if (data.status === 'error') announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
+      // tool_end apenas atualiza estado visual; anúncio de falha é centralizado em tool_failure.
+    });
+
+    // AEP-0039 Fase 3: structured failure listener
+    // Centraliza anúncio de falha: tool_end com attempt=0 não anuncia (tool_failure cuida).
+    unsubToolFailure = EventsOn('chat:tool_failure', (data: ChatToolFailureEvent) => {
+      if (data.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+      if (data.willRetry) {
+        announce(i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
+        return;
+      }
+      announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
     });
 
     unsubSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
@@ -601,6 +659,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
       if (event.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
+
+      // chat:done com errorMessage: exibe erro na UI (substitui chat:stream terminal)
+      if (event.errorMessage) {
+        ensureAssistantNode();
+        flushPendingUpdate(streamingMsgId, get().updateMessage);
+        get().updateMessage(
+          streamingMsgId,
+          i18next.t('chat.errorPrefix', { message: event.errorMessage }),
+        );
+        set((state) => {
+          if (!state.activeConversation) return state;
+          return {
+            activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+          };
+        });
+        cleanup();
+        return;
+      }
 
       set((state) => {
         if (!state.activeConversation) return state;
@@ -1163,6 +1239,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       let unsubThinking = noopExt;
       let unsubToolStart = noopExt;
       let unsubToolEnd = noopExt;
+      let unsubToolFailure = noopExt;
       let unsubSegmentDone = noopExt;
       let unsubDone = noopExt;
       let unsubReady = noopExt;
@@ -1198,6 +1275,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         unsubThinking();
         unsubToolStart();
         unsubToolEnd();
+        unsubToolFailure();
         unsubSegmentDone();
         unsubDone();
         unsubReady();
@@ -1330,11 +1408,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         ensureAssistantNode();
-        set((state) => ({
-          activeToolCalls: [...state.activeToolCalls, {
-            name: event.name, callId: event.callId, args: event.args, status: 'running' as const,
-          }],
-        }));
+        set((state) => {
+          const existing = state.activeToolCalls.findIndex((tc) => tc.callId === event.callId);
+          if (existing >= 0) {
+            // Retry: upsert — reseta status para 'running' sem apagar args anteriores
+            return {
+              activeToolCalls: state.activeToolCalls.map((tc) =>
+                tc.callId === event.callId
+                  ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: undefined }
+                  : tc
+              ),
+            };
+          }
+          return {
+            activeToolCalls: [...state.activeToolCalls, {
+              name: event.name, callId: event.callId, args: event.args, status: 'running' as const,
+            }],
+          };
+        });
         announce(i18next.t('chat.toolRunning', { name: event.name }), 'polite');
       });
 
@@ -1348,8 +1439,29 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               : tc
           ),
         }));
-        const key = event.status === 'error' ? 'chat.toolFailed' : 'chat.toolDone';
-        announce(i18next.t(key, { name: event.name }), event.status === 'error' ? 'assertive' : 'polite');
+        // tool_end apenas atualiza estado visual; anúncio de falha centralizado em tool_failure.
+        if (event.status !== 'error') {
+          announce(i18next.t('chat.toolDone', { name: event.name }), 'polite');
+          return;
+        }
+        // Fallback retrocompatibilidade: payloads não-enriquecidos (sem attempt)
+        // podem não emitir tool_failure, então anunciamos a falha aqui.
+        const hasStructuredFailureMetadata = 'attempt' in event;
+        if (!hasStructuredFailureMetadata) {
+          announce(i18next.t('chat.toolFailed', { name: event.name }), 'assertive');
+        }
+      });
+
+      // AEP-0039 Fase 3: structured failure listener
+      // Centraliza anúncio de falha: tool_end com attempt=0 não anuncia (tool_failure cuida).
+      unsubToolFailure = EventsOn('chat:tool_failure', (data: ChatToolFailureEvent) => {
+        if (data.conversationId !== conversationId) return;
+        if (!activeListeners.has(conversationIdStr)) return;
+        if (data.willRetry) {
+          announce(i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
+          return;
+        }
+        announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
       });
 
       unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
@@ -1381,6 +1493,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
+
+        // chat:done com errorMessage: exibe erro na UI (substitui chat:stream terminal)
+        if (event.errorMessage) {
+          ensureAssistantNode();
+          flushPendingUpdate(streamingMsgId, get().updateMessage);
+          get().updateMessage(
+            streamingMsgId,
+            i18next.t('chat.errorPrefix', { message: event.errorMessage }),
+          );
+          set((state) => {
+            if (!state.activeConversation) return state;
+            return {
+              activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+            };
+          });
+          cleanup();
+          return;
+        }
 
         set((state) => {
           if (!state.activeConversation) return state;

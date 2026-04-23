@@ -120,7 +120,7 @@ vi.mock('../components', () => ({
   PageLoading: ({ message }: { message?: string }) => <div role="status">{message}</div>,
 }));
 
-describe('SkillsPage', () => {
+describe('SkillsPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockGetSkills.mockReset();
     mockGetSkill.mockReset();

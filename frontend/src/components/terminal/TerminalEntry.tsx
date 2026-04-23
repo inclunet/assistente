@@ -10,17 +10,10 @@ import { forwardRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { HistoryEntry } from '../../store/terminalStore';
 import { playBumpSound } from '../../services/audioFeedback';
+import { formatDuration } from '../../utils/format';
 import './TerminalEntry.css';
 
 // ─── Shared helpers ────────────────────────────────────────────
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  const min = Math.floor(ms / 60000);
-  const sec = Math.floor((ms % 60000) / 1000);
-  return `${min}m ${sec}s`;
-}
 
 /** Trunca texto para o aria-label (screen readers não lidam bem com textos enormes) */
 function truncateForAria(text: string, maxLen: number, truncatedLabel: string): string {

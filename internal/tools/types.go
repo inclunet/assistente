@@ -83,6 +83,19 @@ type FunctionDefinition struct {
 	Parameters json.RawMessage `json:"parameters"`
 }
 
+// ErrorKind classifica o tipo de erro de execução de uma tool (AEP-0039 Fase 3).
+type ErrorKind string
+
+const (
+	ErrorKindNone       ErrorKind = ""              // Sem erro
+	ErrorKindTimeout    ErrorKind = "timeout"       // Timeout de execução (retryable)
+	ErrorKindInvalidArgs ErrorKind = "invalid_args" // JSON malformado nos argumentos (não retryable)
+	ErrorKindNotFound   ErrorKind = "not_found"     // Ferramenta não encontrada no registry (não retryable)
+	ErrorKindPanic      ErrorKind = "panic"         // Panic capturado durante execução (não retryable)
+	ErrorKindCancelled  ErrorKind = "cancelled"     // Cancelamento pelo usuário (não retryable)
+	ErrorKindUnknown    ErrorKind = "unknown"       // Erro genérico de execução (não retryable)
+)
+
 // ToolExecutionResult agrupa o resultado de uma execução com metadados do call original.
 // Usado pelo executor para devolver resultados ao agentic loop.
 type ToolExecutionResult struct {
@@ -97,4 +110,13 @@ type ToolExecutionResult struct {
 
 	// Error é o erro de execução (nil se sucesso)
 	Error error `json:"-"`
+
+	// ErrorKind classifica o tipo de erro (AEP-0039 Fase 3)
+	ErrorKind ErrorKind `json:"error_kind,omitempty"`
+
+	// Retryable indica se o erro permite retry automático (AEP-0039 Fase 3)
+	Retryable bool `json:"retryable,omitempty"`
+
+	// DurationMs é a duração da execução em milissegundos (AEP-0039 Fase 3)
+	DurationMs int64 `json:"duration_ms,omitempty"`
 }

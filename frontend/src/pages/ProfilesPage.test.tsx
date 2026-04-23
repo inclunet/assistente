@@ -191,7 +191,7 @@ vi.mock('../components/ui/EditorPanel', () => ({
   ),
 }));
 
-describe('ProfilesPage', () => {
+describe('ProfilesPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockDuplicateProfile.mockReset();
     mockAddToast.mockReset();

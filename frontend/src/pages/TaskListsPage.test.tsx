@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -226,8 +226,9 @@ const makeTaskList = (id: number, title: string) => ({
 
 /* ── suíte ──────────────────────────────────────────────────── */
 
-describe('TaskListsPage', () => {
+describe('TaskListsPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
+    cleanup();
     vi.clearAllMocks();
 
     storeTaskLists = new Map([

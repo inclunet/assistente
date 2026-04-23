@@ -87,7 +87,7 @@ func TestSaveAndFinish_CallsOnSpeechRequestBeforeChatDone(t *testing.T) {
 	svc.SaveAndFinish(1, 0, AgenticResult{
 		FullResponse: "Olá, mundo!",
 		Model:        "test-model",
-	}, "")
+	}, "", nil)
 
 	// Verificar que speech foi chamado
 	if len(speechCalls) != 1 {
@@ -144,7 +144,7 @@ func TestSaveAndFinish_NilOnSpeechRequest_NoPanic(t *testing.T) {
 	svc.SaveAndFinish(1, 0, AgenticResult{
 		FullResponse: "Sem TTS",
 		Model:        "test-model",
-	}, "")
+	}, "", nil)
 
 	evts := emitter.getEvents()
 	hasDone := false
@@ -174,7 +174,7 @@ func TestSaveAndFinish_EmptyResponse_NoSpeechCall(t *testing.T) {
 	svc.SaveAndFinish(1, 0, AgenticResult{
 		FullResponse: "",
 		Model:        "test-model",
-	}, "")
+	}, "", nil)
 
 	if called {
 		t.Error("OnSpeechRequest não deveria ser chamado com resposta vazia")
@@ -197,7 +197,7 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 	svc.SaveAndFinish(42, 0, AgenticResult{
 		FullResponse: "Resposta com ID",
 		Model:        "test-model",
-	}, "")
+	}, "", nil)
 
 	// msgRepo.CreateMessage retorna nextID=1
 	if gotMsgID != 1 {
