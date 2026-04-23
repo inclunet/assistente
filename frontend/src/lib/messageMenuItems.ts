@@ -279,6 +279,7 @@ export function getMessageMenuItems(
   const htmlFormatLabel = i18next.t('editor.sendToEditor.format.html');
   const markdownMessageTitle = i18next.t('editor.sendToEditor.title.markdownMessage');
   const plainTextMessageTitle = i18next.t('editor.sendToEditor.title.plainTextMessage');
+  const codeTitle = (language: string) => i18next.t('editor.sendToEditor.title.code', { language });
   const markdownTableTitle = i18next.t('editor.sendToEditor.title.markdownTable');
   const htmlTableTitle = i18next.t('editor.sendToEditor.title.htmlTable');
   const linkTitle = i18next.t('editor.sendToEditor.title.link');
@@ -471,7 +472,7 @@ export function getMessageMenuItems(
               label: markdownFormatLabel,
               payload: {
                 format: 'markdown',
-                title: `Código ${language}`,
+                title: codeTitle(language),
                 content: md,
                 kind: 'code',
                 index: i,

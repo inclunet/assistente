@@ -613,6 +613,7 @@ const ptBR = {
         title: {
           markdownMessage: 'Mensagem (Markdown)',
           plainTextMessage: 'Mensagem (texto)',
+          code: 'Código {{language}}',
           markdownTable: 'Tabela (Markdown)',
           htmlTable: 'Tabela (HTML)',
           link: 'Link',

@@ -612,6 +612,7 @@ const es = {
         title: {
           markdownMessage: 'Mensaje (Markdown)',
           plainTextMessage: 'Mensaje (texto)',
+          code: 'Código {{language}}',
           markdownTable: 'Tabla (Markdown)',
           htmlTable: 'Tabla (HTML)',
           link: 'Enlace',

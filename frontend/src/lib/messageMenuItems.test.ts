@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { getMessageMenuItems } from './messageMenuItems';
 import type { Message } from '../store/chatStore';
 import { main } from '../../wailsjs/go/models';
+import i18n from 'i18next';
 
 vi.mock('../services/messageAudio', () => ({
   messageAudioService: {
@@ -23,6 +24,19 @@ vi.mock('../services/tts', () => ({
 }));
 
 describe('messageMenuItems', () => {
+  beforeAll(() => {
+    i18n.addResourceBundle('en', 'translation', {
+      editor: {
+        sendToEditor: {
+          format: {
+            markdown: 'Markdown',
+            plainText: 'Text',
+          },
+        },
+      },
+    }, true, true);
+  });
+
   it('inclui itens basicos e markdown', () => {
     const assistantMessage = new main.EnrichedMessage({
       id: '1',
@@ -107,7 +121,7 @@ describe('messageMenuItems', () => {
     expect(sendEditor).toBeTruthy();
     expect(sendEditor?.submenu?.map((item) => item.label)).toContain('README.md');
     expect(sendEditor?.submenu?.map((item) => item.label)).toContain('Notas');
-    expect(sendEditor?.submenu?.[0]?.submenu?.map((item) => item.label)).toContain('editor.sendToEditor.format.markdown');
-    expect(sendEditor?.submenu?.[0]?.submenu?.map((item) => item.label)).toContain('editor.sendToEditor.format.plainText');
+    expect(sendEditor?.submenu?.[0]?.submenu?.map((item) => item.label)).toContain('Markdown');
+    expect(sendEditor?.submenu?.[0]?.submenu?.map((item) => item.label)).toContain('Text');
   });
 });
