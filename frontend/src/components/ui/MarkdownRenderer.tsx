@@ -271,11 +271,15 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               submenu: buildEditorDestinationSubmenu({
                 baseId: `code-${index}-send`,
                 editorTargets,
-                payload: {
-                  format: 'markdown',
-                  title: `Código ${languageLabel}`,
-                  content: fencedCode(lang || 'plaintext', codeText),
-                },
+                formats: [{
+                  id: 'markdown',
+                  label: 'Markdown',
+                  payload: {
+                    format: 'markdown',
+                    title: `Código ${languageLabel}`,
+                    content: fencedCode(lang || 'plaintext', codeText),
+                  },
+                }],
                 onSendToEditor: (payload) => onSendToEditor?.(payload),
                 newDocumentLabel,
                 fallbackDocumentTitle,
@@ -359,11 +363,15 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               submenu: buildEditorDestinationSubmenu({
                 baseId: `table-${index}-send`,
                 editorTargets,
-                payload: {
-                  format: 'markdown',
-                  title: 'Tabela',
-                  content: `\n${mdTable}\n`,
-                },
+                formats: [{
+                  id: 'markdown',
+                  label: 'Markdown',
+                  payload: {
+                    format: 'markdown',
+                    title: 'Tabela',
+                    content: `\n${mdTable}\n`,
+                  },
+                }],
                 onSendToEditor: (payload) => onSendToEditor?.(payload),
                 newDocumentLabel,
                 fallbackDocumentTitle,
@@ -432,11 +440,15 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               submenu: buildEditorDestinationSubmenu({
                 baseId: `link-${index}-send`,
                 editorTargets,
-                payload: {
-                  format: 'markdown',
-                  title: 'Link',
-                  content: mdLink,
-                },
+                formats: [{
+                  id: 'markdown',
+                  label: 'Markdown',
+                  payload: {
+                    format: 'markdown',
+                    title: 'Link',
+                    content: mdLink,
+                  },
+                }],
                 onSendToEditor: (payload) => onSendToEditor?.(payload),
                 newDocumentLabel,
                 fallbackDocumentTitle,
@@ -545,11 +557,15 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                 submenu: buildEditorDestinationSubmenu({
                   baseId: `mermaid-${i}-send`,
                   editorTargets,
-                  payload: {
-                    format: 'markdown',
-                    title: 'Mermaid',
-                    content: fencedCode('mermaid', mermaidCode),
-                  },
+                  formats: [{
+                    id: 'markdown',
+                    label: 'Markdown',
+                    payload: {
+                      format: 'markdown',
+                      title: 'Mermaid',
+                      content: fencedCode('mermaid', mermaidCode),
+                    },
+                  }],
                   onSendToEditor: (payload) => onSendToEditor?.(payload),
                   newDocumentLabel,
                   fallbackDocumentTitle,
@@ -663,11 +679,15 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                 submenu: buildEditorDestinationSubmenu({
                   baseId: `mermaid-${i}-err-send`,
                   editorTargets,
-                  payload: {
-                    format: 'markdown',
-                    title: 'Mermaid',
-                    content: fencedCode('mermaid', mermaidCode),
-                  },
+                  formats: [{
+                    id: 'markdown',
+                    label: 'Markdown',
+                    payload: {
+                      format: 'markdown',
+                      title: 'Mermaid',
+                      content: fencedCode('mermaid', mermaidCode),
+                    },
+                  }],
                   onSendToEditor: (payload) => onSendToEditor?.(payload),
                   newDocumentLabel,
                   fallbackDocumentTitle,

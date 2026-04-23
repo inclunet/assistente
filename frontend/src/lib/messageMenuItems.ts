@@ -11,6 +11,7 @@ import { stripMarkdown } from './stripMarkdown';
 import i18next from 'i18next';
 import {
   buildEditorDestinationSubmenu,
+  type EditorSendFormatOption,
   type EditorSendTargetOption,
   type SendToEditorPayload,
 } from './editorSendMenu';
@@ -382,51 +383,41 @@ export function getMessageMenuItems(
     const contentPlain = stripMarkdown(contentMd);
     const newDocumentLabel = i18next.t('editor.fallback.newDoc');
     const fallbackDocumentTitle = i18next.t('editor.fallback.title');
+    const messageFormats: Array<EditorSendFormatOption<{ kind: 'message' }>> = [
+      {
+        id: 'markdown',
+        label: 'Markdown',
+        payload: {
+          format: 'markdown',
+          title: 'Mensagem (Markdown)',
+          content: contentMd,
+          kind: 'message',
+        },
+      },
+      {
+        id: 'plain',
+        label: 'Texto',
+        payload: {
+          format: 'plain',
+          title: 'Mensagem (texto)',
+          content: contentPlain,
+          kind: 'message',
+        },
+      },
+    ];
     items.push({
       id: 'send-editor',
       label: 'Enviar ao editor',
       icon: '📝',
       ariaLabel: 'Enviar ao editor',
-      submenu: [
-        {
-          id: 'send-editor-md',
-          label: 'Markdown',
-          icon: '📝',
-          ariaLabel: 'Enviar mensagem em Markdown ao editor',
-          submenu: buildEditorDestinationSubmenu({
-            baseId: 'send-editor-md',
-            editorTargets,
-            payload: {
-              format: 'markdown',
-              title: 'Mensagem (Markdown)',
-              content: contentMd,
-              kind: 'message',
-            },
-            onSendToEditor,
-            newDocumentLabel,
-            fallbackDocumentTitle,
-          }),
-        },
-        {
-          id: 'send-editor-plain',
-          label: 'Texto',
-          icon: '📝',
-          ariaLabel: 'Enviar mensagem em texto ao editor',
-          submenu: buildEditorDestinationSubmenu({
-            baseId: 'send-editor-plain',
-            editorTargets,
-            payload: {
-              format: 'plain',
-              title: 'Mensagem (texto)',
-              content: contentPlain,
-              kind: 'message',
-            },
-            onSendToEditor,
-            newDocumentLabel,
-            fallbackDocumentTitle,
-          }),
-        },
-      ],
+      submenu: buildEditorDestinationSubmenu({
+        baseId: 'send-editor',
+        editorTargets,
+        formats: messageFormats,
+        onSendToEditor,
+        newDocumentLabel,
+        fallbackDocumentTitle,
+      }),
     });
   }
 
@@ -468,13 +459,17 @@ export function getMessageMenuItems(
           submenu: buildEditorDestinationSubmenu({
             baseId: `send-code-${i}`,
             editorTargets,
-            payload: {
-              format: 'markdown',
-              title: `Código ${language}`,
-              content: md,
-              kind: 'code',
-              index: i,
-            },
+            formats: [{
+              id: 'markdown',
+              label: 'Markdown',
+              payload: {
+                format: 'markdown',
+                title: `Código ${language}`,
+                content: md,
+                kind: 'code',
+                index: i,
+              },
+            }],
             onSendToEditor,
             newDocumentLabel,
             fallbackDocumentTitle,
@@ -509,13 +504,17 @@ export function getMessageMenuItems(
               submenu: buildEditorDestinationSubmenu({
                 baseId: `send-table-${i}-md`,
                 editorTargets,
-                payload: {
-                  format: 'markdown',
-                  title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
-                  content: md,
-                  kind: 'table',
-                  index: i,
-                },
+                formats: [{
+                  id: 'markdown',
+                  label: 'Markdown',
+                  payload: {
+                    format: 'markdown',
+                    title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
+                    content: md,
+                    kind: 'table',
+                    index: i,
+                  },
+                }],
                 onSendToEditor,
                 newDocumentLabel,
                 fallbackDocumentTitle,
@@ -530,13 +529,17 @@ export function getMessageMenuItems(
               submenu: buildEditorDestinationSubmenu({
                 baseId: `send-table-${i}-html`,
                 editorTargets,
-                payload: {
-                  format: 'html',
-                  title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
-                  content: html,
-                  kind: 'table',
-                  index: i,
-                },
+                formats: [{
+                  id: 'html',
+                  label: 'HTML',
+                  payload: {
+                    format: 'html',
+                    title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
+                    content: html,
+                    kind: 'table',
+                    index: i,
+                  },
+                }],
                 onSendToEditor,
                 newDocumentLabel,
                 fallbackDocumentTitle,
@@ -567,13 +570,17 @@ export function getMessageMenuItems(
           submenu: buildEditorDestinationSubmenu({
             baseId: `send-link-${i}`,
             editorTargets,
-            payload: {
-              format: 'markdown',
-              title: 'Link',
-              content: md,
-              kind: 'link',
-              index: i,
-            },
+            formats: [{
+              id: 'markdown',
+              label: 'Markdown',
+              payload: {
+                format: 'markdown',
+                title: 'Link',
+                content: md,
+                kind: 'link',
+                index: i,
+              },
+            }],
             onSendToEditor,
             newDocumentLabel,
             fallbackDocumentTitle,

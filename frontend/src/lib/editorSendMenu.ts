@@ -13,10 +13,16 @@ export interface SendToEditorPayload {
   content: string;
 }
 
+export interface EditorSendFormatOption<TPayload extends object = {}> {
+  id: string;
+  label: string;
+  payload: Omit<SendToEditorPayload, 'target' | 'targetDocumentId'> & TPayload;
+}
+
 interface BuildEditorDestinationSubmenuParams<TPayload extends object> {
   baseId: string;
   editorTargets: EditorSendTargetOption[];
-  payload: Omit<SendToEditorPayload, 'target' | 'targetDocumentId'> & TPayload;
+  formats: Array<EditorSendFormatOption<TPayload>>;
   onSendToEditor: (payload: SendToEditorPayload & TPayload) => void;
   newDocumentLabel: string;
   fallbackDocumentTitle: string;
@@ -28,21 +34,31 @@ export function buildEditorDestinationSubmenu<TPayload extends object = {}>(
   const {
     baseId,
     editorTargets,
-    payload,
+    formats,
     onSendToEditor,
     newDocumentLabel,
     fallbackDocumentTitle,
   } = params;
 
+  const buildFormatItems = (destination: { target: 'document' | 'new_document'; targetDocumentId?: string }) =>
+    formats.map((format, formatIndex) => ({
+      id: `${baseId}-${destination.target}-${destination.targetDocumentId || 'new'}-${format.id || formatIndex}`,
+      label: format.label,
+      action: () =>
+        onSendToEditor({
+          ...format.payload,
+          target: destination.target,
+          targetDocumentId: destination.targetDocumentId,
+        }),
+    }));
+
   const items: MenuItem[] = editorTargets.map((target, index) => ({
     id: `${baseId}-document-${target.id || index}`,
     label: String(target.title || '').trim() || fallbackDocumentTitle,
-    action: () =>
-      onSendToEditor({
-        ...payload,
-        target: 'document',
-        targetDocumentId: target.id,
-      }),
+    submenu: buildFormatItems({
+      target: 'document',
+      targetDocumentId: target.id,
+    }),
   }));
 
   if (items.length > 0) {
@@ -52,11 +68,9 @@ export function buildEditorDestinationSubmenu<TPayload extends object = {}>(
   items.push({
     id: `${baseId}-new-document`,
     label: newDocumentLabel,
-    action: () =>
-      onSendToEditor({
-        ...payload,
-        target: 'new_document',
-      }),
+    submenu: buildFormatItems({
+      target: 'new_document',
+    }),
   });
 
   return items;
