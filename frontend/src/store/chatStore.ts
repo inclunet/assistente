@@ -1442,6 +1442,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         // tool_end apenas atualiza estado visual; anúncio de falha centralizado em tool_failure.
         if (event.status !== 'error') {
           announce(i18next.t('chat.toolDone', { name: event.name }), 'polite');
+          return;
+        }
+        // Fallback retrocompatibilidade: payloads não-enriquecidos (sem attempt)
+        // podem não emitir tool_failure, então anunciamos a falha aqui.
+        const hasStructuredFailureMetadata = 'attempt' in event;
+        if (!hasStructuredFailureMetadata) {
+          announce(i18next.t('chat.toolFailed', { name: event.name }), 'assertive');
         }
       });
 
