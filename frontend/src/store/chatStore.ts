@@ -660,6 +660,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (event.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
 
+      // chat:done com errorMessage: exibe erro na UI (substitui chat:stream terminal)
+      if (event.errorMessage) {
+        ensureAssistantNode();
+        flushPendingUpdate(streamingMsgId, get().updateMessage);
+        get().updateMessage(
+          streamingMsgId,
+          i18next.t('chat.errorPrefix', { message: event.errorMessage }),
+        );
+        set((state) => {
+          if (!state.activeConversation) return state;
+          return {
+            activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+          };
+        });
+        cleanup();
+        return;
+      }
+
       set((state) => {
         if (!state.activeConversation) return state;
         return {
@@ -1468,6 +1486,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
+
+        // chat:done com errorMessage: exibe erro na UI (substitui chat:stream terminal)
+        if (event.errorMessage) {
+          ensureAssistantNode();
+          flushPendingUpdate(streamingMsgId, get().updateMessage);
+          get().updateMessage(
+            streamingMsgId,
+            i18next.t('chat.errorPrefix', { message: event.errorMessage }),
+          );
+          set((state) => {
+            if (!state.activeConversation) return state;
+            return {
+              activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+            };
+          });
+          cleanup();
+          return;
+        }
 
         set((state) => {
           if (!state.activeConversation) return state;

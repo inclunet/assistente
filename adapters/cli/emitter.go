@@ -380,6 +380,13 @@ func (e *EmitterAdapter) handleDone(data any) {
 		return
 	}
 	defer e.signalDone()
+
+	// chat:done com ErrorMessage: exibe erro (substitui chat:stream terminal)
+	if ev.ErrorMessage != "" {
+		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.ErrorMessage)
+		e.lastPrinted = 0
+	}
+
 	// Só exibe resumo se houve tool calls (evita ruído em respostas simples).
 	// Usa HadToolCalls como fallback para eventos backward-compatible que não
 	// trazem LoopStats/contadores preenchidos.

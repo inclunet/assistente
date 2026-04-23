@@ -321,12 +321,11 @@ func TestSendAndWait_StreamError(t *testing.T) {
 	mock := newMockBackend()
 	defer mock.cancel()
 
-	// Simulate async streaming error via emitter
+	// Simulate async streaming error via emitter — chat:done é o evento terminal canônico
 	mock.sendFn = func(convID uint, content, media string, params app.ChatParams) (uint, error) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Error: "rate limit"})
-			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID, Reason: "error"})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID, Reason: "error", ErrorMessage: "rate limit"})
 		}()
 		return 1, nil
 	}

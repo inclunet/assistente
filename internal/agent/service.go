@@ -93,11 +93,10 @@ func (s *Service) RunAgenticLoop(
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
 		log.Printf("🔴 [AGENT] streamer nil na conversa %d", conversationID)
-		s.emitter.Emit("chat:stream", events.StreamEvent{
-			Content:        "",
-			Done:           true,
-			Error:          errMsg,
-			ConversationId: conversationID,
+		s.emitter.Emit("chat:done", ports.DoneEvent{
+			ConversationID: conversationID,
+			Reason:         "error",
+			ErrorMessage:   errMsg,
 		})
 		return
 	}
@@ -129,11 +128,21 @@ func (s *Service) RunAgenticLoop(
 		// Verifica cancelamento
 		if ctx.Err() != nil {
 			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
-			s.emitter.Emit("chat:stream", events.StreamEvent{
-				Content:        "",
-				Done:           true,
-				Error:          "Operação cancelada",
-				ConversationId: conversationID,
+			cancelToolsUsed := make([]string, 0, len(toolsUsedSet))
+			for name := range toolsUsedSet {
+				cancelToolsUsed = append(cancelToolsUsed, name)
+			}
+			sort.Strings(cancelToolsUsed)
+			s.emitter.Emit("chat:done", ports.DoneEvent{
+				ConversationID:   conversationID,
+				HadToolCalls:     totalToolCallCount > 0,
+				Reason:           "error",
+				ErrorMessage:     "Operação cancelada",
+				IterationCount:   iteration,
+				ToolCallCount:    totalToolCallCount,
+				ToolsUsed:        cancelToolsUsed,
+				PromptTokens:     lastUsage.PromptTokens,
+				CompletionTokens: lastUsage.CompletionTokens,
 			})
 			return
 		}
@@ -152,14 +161,8 @@ func (s *Service) RunAgenticLoop(
 		// 2. Erro?
 		if result.Error != "" {
 			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
-			s.emitter.Emit("chat:stream", events.StreamEvent{
-				Content:        result.FullResponse,
-				Done:           true,
-				Error:          result.Error,
-				ConversationId: conversationID,
-			})
-			// Emite chat:done com Reason="error" para que adapters (CLI, frontend)
-			// sempre recebam um evento de encerramento estruturado (AEP-0039).
+			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
+			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
 			errToolsUsed := make([]string, 0, len(toolsUsedSet))
 			for name := range toolsUsedSet {
 				errToolsUsed = append(errToolsUsed, name)
