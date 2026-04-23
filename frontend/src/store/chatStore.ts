@@ -613,9 +613,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             : tc
         ),
       }));
-      if (data.status === 'error' && (data.attempt ?? 0) > 0) {
-        announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
-      }
+      // tool_end apenas atualiza estado visual; anúncio de falha é centralizado em tool_failure.
     });
 
     // AEP-0039 Fase 3: structured failure listener
@@ -1423,9 +1421,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               : tc
           ),
         }));
-        if (event.status === 'error' && (event.attempt ?? 0) > 0) {
-          announce(i18next.t('chat.toolFailed', { name: event.name }), 'assertive');
-        } else if (event.status !== 'error') {
+        // tool_end apenas atualiza estado visual; anúncio de falha centralizado em tool_failure.
+        if (event.status !== 'error') {
           announce(i18next.t('chat.toolDone', { name: event.name }), 'polite');
         }
       });

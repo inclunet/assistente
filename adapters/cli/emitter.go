@@ -174,8 +174,10 @@ func (e *EmitterAdapter) handleError(data any) {
 	}
 	e.lastPrinted = 0
 	// Fallback: sinaliza done em chat:error para cobrir caminhos onde o backend
-	// não emite chat:done (panic recovery, erro pré-streaming). Se chat:done
-	// chegar depois, signalDone() é idempotente (canal já fechado).
+	// não emite chat:done (erro pré-streaming, sem provedor, etc.).
+	// Na prática chat:error e chat:done são mutuamente exclusivos: chat:error é
+	// emitido em paths que retornam antes de entrar no agent loop (que emite chat:done).
+	// Se chat:done eventualmente chegar, signalDone() é idempotente (canal já fechado).
 	e.signalDone()
 }
 
