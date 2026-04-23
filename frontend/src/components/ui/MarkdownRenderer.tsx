@@ -8,6 +8,12 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { loadMonacoLanguage } from '../../lib/monacoLanguageLoader';
 import { markdownItDeepLink } from '../../lib/markdownItDeepLink';
 import { isDeepLink, parseDeepLink, executeDeepLink } from '../../lib/deepLinks';
+import i18next from 'i18next';
+import {
+  buildEditorDestinationSubmenu,
+  type EditorSendTargetOption,
+  type SendToEditorPayload,
+} from '../../lib/editorSendMenu';
 import './MarkdownRenderer.css';
 
 type MermaidModule = typeof import('mermaid');
@@ -21,12 +27,8 @@ interface MarkdownRendererProps {
   interactiveButtons?: boolean;
   focusableMermaid?: boolean;
   enableSendToEditorButtons?: boolean;
-  onSendToEditor?: (payload: {
-    target: 'current' | 'new_document';
-    format: 'markdown' | 'html' | 'plain';
-    title?: string;
-    content: string;
-  }) => void;
+  editorTargets?: EditorSendTargetOption[];
+  onSendToEditor?: (payload: SendToEditorPayload) => void;
 }
 
 const md = new MarkdownIt({
@@ -99,6 +101,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   interactiveButtons = false,
   focusableMermaid: _focusableMermaid = false,
   enableSendToEditorButtons = false,
+  editorTargets = [],
   onSendToEditor,
 }: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -109,6 +112,8 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const navigate = useNavigate();
 
   const canSendToEditor = Boolean(enableSendToEditorButtons && onSendToEditor);
+  const newDocumentLabel = i18next.t('editor.fallback.newDoc');
+  const fallbackDocumentTitle = i18next.t('editor.fallback.title');
 
   const {
     menu: menuState,
@@ -263,30 +268,18 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
             items.push({
               id: `code-${index}-send`,
               label: 'Enviar ao editor',
-              submenu: [
-                {
-                  id: `code-${index}-send-current`,
-                  label: 'Inserir no cursor',
-                  action: () =>
-                    onSendToEditor?.({
-                      target: 'current',
-                      format: 'markdown',
-                      title: `Código ${languageLabel}`,
-                      content: fencedCode(lang || 'plaintext', codeText),
-                    }),
+              submenu: buildEditorDestinationSubmenu({
+                baseId: `code-${index}-send`,
+                editorTargets,
+                payload: {
+                  format: 'markdown',
+                  title: `Código ${languageLabel}`,
+                  content: fencedCode(lang || 'plaintext', codeText),
                 },
-                {
-                  id: `code-${index}-send-new`,
-                  label: 'Novo documento',
-                  action: () =>
-                    onSendToEditor?.({
-                      target: 'new_document',
-                      format: 'markdown',
-                      title: `Código ${languageLabel}`,
-                      content: fencedCode(lang || 'plaintext', codeText),
-                    }),
-                },
-              ],
+                onSendToEditor: (payload) => onSendToEditor?.(payload),
+                newDocumentLabel,
+                fallbackDocumentTitle,
+              }),
             });
           }
 
@@ -363,30 +356,18 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
             items.push({
               id: `table-${index}-send`,
               label: 'Enviar ao editor',
-              submenu: [
-                {
-                  id: `table-${index}-send-current`,
-                  label: 'Inserir no cursor',
-                  action: () =>
-                    onSendToEditor?.({
-                      target: 'current',
-                      format: 'markdown',
-                      title: 'Tabela',
-                      content: `\n${mdTable}\n`,
-                    }),
+              submenu: buildEditorDestinationSubmenu({
+                baseId: `table-${index}-send`,
+                editorTargets,
+                payload: {
+                  format: 'markdown',
+                  title: 'Tabela',
+                  content: `\n${mdTable}\n`,
                 },
-                {
-                  id: `table-${index}-send-new`,
-                  label: 'Novo documento',
-                  action: () =>
-                    onSendToEditor?.({
-                      target: 'new_document',
-                      format: 'markdown',
-                      title: 'Tabela',
-                      content: `\n${mdTable}\n`,
-                    }),
-                },
-              ],
+                onSendToEditor: (payload) => onSendToEditor?.(payload),
+                newDocumentLabel,
+                fallbackDocumentTitle,
+              }),
             });
           }
 
@@ -448,30 +429,18 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
             items.push({
               id: `link-${index}-send`,
               label: 'Enviar ao editor',
-              submenu: [
-                {
-                  id: `link-${index}-send-current`,
-                  label: 'Inserir no cursor',
-                  action: () =>
-                    onSendToEditor?.({
-                      target: 'current',
-                      format: 'markdown',
-                      title: 'Link',
-                      content: mdLink,
-                    }),
+              submenu: buildEditorDestinationSubmenu({
+                baseId: `link-${index}-send`,
+                editorTargets,
+                payload: {
+                  format: 'markdown',
+                  title: 'Link',
+                  content: mdLink,
                 },
-                {
-                  id: `link-${index}-send-new`,
-                  label: 'Novo documento',
-                  action: () =>
-                    onSendToEditor?.({
-                      target: 'new_document',
-                      format: 'markdown',
-                      title: 'Link',
-                      content: mdLink,
-                    }),
-                },
-              ],
+                onSendToEditor: (payload) => onSendToEditor?.(payload),
+                newDocumentLabel,
+                fallbackDocumentTitle,
+              }),
             });
           }
 
@@ -573,30 +542,18 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               items.push({
                 id: `mermaid-${i}-send`,
                 label: 'Enviar ao editor',
-                submenu: [
-                  {
-                    id: `mermaid-${i}-send-current`,
-                    label: 'Inserir no cursor',
-                    action: () =>
-                      onSendToEditor?.({
-                        target: 'current',
-                        format: 'markdown',
-                        title: 'Mermaid',
-                        content: fencedCode('mermaid', mermaidCode),
-                      }),
+                submenu: buildEditorDestinationSubmenu({
+                  baseId: `mermaid-${i}-send`,
+                  editorTargets,
+                  payload: {
+                    format: 'markdown',
+                    title: 'Mermaid',
+                    content: fencedCode('mermaid', mermaidCode),
                   },
-                  {
-                    id: `mermaid-${i}-send-new`,
-                    label: 'Novo documento',
-                    action: () =>
-                      onSendToEditor?.({
-                        target: 'new_document',
-                        format: 'markdown',
-                        title: 'Mermaid',
-                        content: fencedCode('mermaid', mermaidCode),
-                      }),
-                  },
-                ],
+                  onSendToEditor: (payload) => onSendToEditor?.(payload),
+                  newDocumentLabel,
+                  fallbackDocumentTitle,
+                }),
               });
             }
 
@@ -703,30 +660,18 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               items.push({
                 id: `mermaid-${i}-err-send`,
                 label: 'Enviar ao editor',
-                submenu: [
-                  {
-                    id: `mermaid-${i}-err-send-current`,
-                    label: 'Inserir no cursor',
-                    action: () =>
-                      onSendToEditor?.({
-                        target: 'current',
-                        format: 'markdown',
-                        title: 'Mermaid',
-                        content: fencedCode('mermaid', mermaidCode),
-                      }),
+                submenu: buildEditorDestinationSubmenu({
+                  baseId: `mermaid-${i}-err-send`,
+                  editorTargets,
+                  payload: {
+                    format: 'markdown',
+                    title: 'Mermaid',
+                    content: fencedCode('mermaid', mermaidCode),
                   },
-                  {
-                    id: `mermaid-${i}-err-send-new`,
-                    label: 'Novo documento',
-                    action: () =>
-                      onSendToEditor?.({
-                        target: 'new_document',
-                        format: 'markdown',
-                        title: 'Mermaid',
-                        content: fencedCode('mermaid', mermaidCode),
-                      }),
-                  },
-                ],
+                  onSendToEditor: (payload) => onSendToEditor?.(payload),
+                  newDocumentLabel,
+                  fallbackDocumentTitle,
+                }),
               });
             }
 

@@ -4,11 +4,12 @@ export type EditorMode = 'markdown' | 'rich' | 'view';
 
 export type EditorInsertFormat = 'markdown' | 'html' | 'plain';
 
-export type EditorInsertTarget = 'current' | 'new_document';
+export type EditorInsertTarget = 'document' | 'new_document';
 
 export interface EditorInsertRequest {
   id: string;
   target: EditorInsertTarget;
+  targetDocumentId?: string;
   format: EditorInsertFormat;
   content: string;
   title?: string;
@@ -102,6 +103,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const normalized: EditorInsertRequest = {
       id,
       target: req.target,
+      targetDocumentId: req.targetDocumentId,
       format: req.format,
       content: String(req.content ?? ''),
       title: req.title,

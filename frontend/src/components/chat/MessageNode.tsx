@@ -9,6 +9,7 @@ import { announce } from '../../hooks/useAnnouncer';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
 import { handleError, ErrorSeverity } from '../../utils/errorHandler';
 import { messageAudioService } from '../../services/messageAudio';
+import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './MessageNode.css';
 
 export interface MessageNodeProps {
@@ -21,12 +22,8 @@ export interface MessageNodeProps {
   onContextMenu?: (e: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
   onDelete?: (message: Message) => void;
-  onSendToEditor?: (payload: {
-    target: 'current' | 'new_document';
-    format: 'markdown' | 'html' | 'plain';
-    title?: string;
-    content: string;
-  }) => void;
+  editorTargets?: EditorSendTargetOption[];
+  onSendToEditor?: (payload: SendToEditorPayload) => void;
 }
 
 export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
@@ -39,6 +36,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   onContextMenu,
   onSpeak,
   onDelete,
+  editorTargets,
   onSendToEditor,
 }) => {
   const { t } = useTranslation();
@@ -481,6 +479,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onThreadToggle={handleToggle}
           onContextMenu={onContextMenu}
           onSpeak={handleSpeak}
+          editorTargets={editorTargets}
           onSendToEditor={onSendToEditor}
           isReading={isReading}
           isEditing={isEditing}

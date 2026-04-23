@@ -1277,9 +1277,18 @@ export default function EditorPage() {
     const rawContent = String(r?.content ?? '');
     if (!rawContent) return true;
 
-    let targetTab = activeTab;
+    const requestedDocumentId = String(r.targetDocumentId || '').trim();
+    const currentEditorState = useEditorStore.getState();
+    let targetTab = requestedDocumentId
+      ? currentEditorState.documents[requestedDocumentId] ?? null
+      : activeTab;
+
+    if (requestedDocumentId && currentEditorState.activeDocumentId !== requestedDocumentId) {
+      return false;
+    }
 
     if (r.target === 'new_document' || !targetTab) {
+      if (requestedDocumentId) return false;
       const title = String(r.title || 'Do chat');
       const draftId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `editor-${Date.now()}`;
       const draftPath = String(await EditorGetDraftPath(draftId) ?? '');

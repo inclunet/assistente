@@ -4,6 +4,7 @@ import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
 import { main } from '../../../wailsjs/go/models';
+import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './MessageList.css';
 
 export interface MessageListProps {
@@ -19,12 +20,8 @@ export interface MessageListProps {
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
   onDelete?: (message: Message) => void;
-  onSendToEditor?: (payload: {
-    target: 'current' | 'new_document';
-    format: 'markdown' | 'html' | 'plain';
-    title?: string;
-    content: string;
-  }) => void;
+  editorTargets?: EditorSendTargetOption[];
+  onSendToEditor?: (payload: SendToEditorPayload) => void;
 }
 
 /**
@@ -158,7 +155,7 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 }
 
 export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
-  { isLoading = false, loadingText, threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak, onDelete, onSendToEditor },
+  { isLoading = false, loadingText, threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak, onDelete, editorTargets, onSendToEditor },
   ref
 ) => {
   const { t } = useTranslation();
@@ -262,6 +259,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
               onContextMenu={onContextMenu}
               onSpeak={onSpeak}
               onDelete={onDelete}
+              editorTargets={editorTargets}
               onSendToEditor={onSendToEditor}
             />
           ))}

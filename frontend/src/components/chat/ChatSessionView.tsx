@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button } from 'antd';
 import { useChatStore } from '../../store/chatStore';
@@ -14,10 +14,11 @@ import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useTabScrollState } from '../../hooks/useTabScrollState';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage } from '@wailsjs/go/app/App';
+import { DeleteMessage, EditorGetDraftPath } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
+import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatSessionView.css';
 
 export interface ChatSessionViewProps {
@@ -70,6 +71,18 @@ export function ChatSessionView({
 
   const startEditing = useChatStore((state) => state.startEditing);
   const startReading = useChatStore((state) => state.startReading);
+  const workspace = useWorkspaceStore((state) => state.workspace);
+
+  const editorTargets = useMemo<EditorSendTargetOption[]>(
+    () =>
+      (workspace?.tabs || [])
+        .filter((tab) => tab.type === 'editor')
+        .map((tab) => ({
+          id: tab.id,
+          title: String(tab.title || '').trim() || t('editor.fallback.title'),
+        })),
+    [workspace, t],
+  );
 
   const { copyMessage, speakMessage } = useMessageActions({
     onAnnounce: announce,
@@ -114,33 +127,71 @@ export function ChatSessionView({
   );
 
   const sendToEditor = useCallback(
-    async (payload: {
-      target: 'current' | 'new_document';
-      format: 'markdown' | 'html' | 'plain';
-      title?: string;
-      content: string;
-    }) => {
+    async (payload: SendToEditorPayload) => {
       const content = String(payload?.content ?? '');
       if (!content) return;
 
+      const title = payload.title || t('editor.fallback.fromChat');
+      const { addTab, setActiveTab } = useWorkspaceStore.getState();
+      let targetDocumentId = String(payload.targetDocumentId || '').trim();
+
+      if (payload.target === 'new_document') {
+        const draftId =
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `editor-${Date.now()}`;
+        const draftPath = String((await EditorGetDraftPath(draftId)) ?? '');
+        const tabId = await addTab('editor', title, { filePath: draftPath, draftId });
+        useEditorStore.getState().createDocument({
+          id: tabId,
+          title,
+          markdown: '',
+          mode: 'markdown',
+          filePath: draftPath,
+          draftId,
+        });
+        await setActiveTab(tabId);
+        targetDocumentId = tabId;
+      } else {
+        if (!targetDocumentId) {
+          const fallbackTarget = editorTargets[0];
+          if (fallbackTarget) {
+            targetDocumentId = fallbackTarget.id;
+          }
+        }
+
+        if (!targetDocumentId) {
+          const draftId =
+            typeof crypto !== 'undefined' && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `editor-${Date.now()}`;
+          const draftPath = String((await EditorGetDraftPath(draftId)) ?? '');
+          const tabId = await addTab('editor', title, { filePath: draftPath, draftId });
+          useEditorStore.getState().createDocument({
+            id: tabId,
+            title,
+            markdown: '',
+            mode: 'markdown',
+            filePath: draftPath,
+            draftId,
+          });
+          await setActiveTab(tabId);
+          targetDocumentId = tabId;
+        } else {
+          await setActiveTab(targetDocumentId);
+        }
+      }
+
       useEditorStore.getState().requestInsert({
-        target: payload.target,
+        target: 'document',
+        targetDocumentId,
         format: payload.format,
-        title: payload.title || t('editor.fallback.fromChat'),
+        title,
         content,
         focus: true,
       });
-
-      const { workspace, addTab, setActiveTab } = useWorkspaceStore.getState();
-      const existingEditor = workspace?.tabs.find((tab) => tab.type === 'editor');
-      if (existingEditor) {
-        void setActiveTab(existingEditor.id);
-      } else {
-        const tabId = await addTab('editor', t('workspace.newEditor', 'Novo documento'));
-        void setActiveTab(tabId);
-      }
     },
-    [t],
+    [editorTargets, t],
   );
 
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
@@ -161,6 +212,7 @@ export function ChatSessionView({
     },
     onDelete: handleDeleteMessage,
     onSendToEditor: (payload) => sendToEditor(payload),
+    editorTargets,
     onPin: (_message) => {
       announce(t('chat.announce.pinComingSoon'));
     },
@@ -329,6 +381,7 @@ export function ChatSessionView({
           onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
           onSpeak={hasVoiceConfig ? speakMessage : undefined}
           onDelete={handleDeleteMessage}
+          editorTargets={editorTargets}
           onSendToEditor={(payload) => sendToEditor(payload)}
         />
 

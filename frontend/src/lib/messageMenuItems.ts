@@ -8,6 +8,12 @@ import type { Code, Link, Table } from 'mdast';
 import { messageAudioService } from '../services/messageAudio';
 import { ttsService } from '../services/tts';
 import { stripMarkdown } from './stripMarkdown';
+import i18next from 'i18next';
+import {
+  buildEditorDestinationSubmenu,
+  type EditorSendTargetOption,
+  type SendToEditorPayload,
+} from './editorSendMenu';
 
 export interface MenuItemsOptions {
   onCopy?: (message: Message, asMarkdown: boolean) => void;
@@ -18,14 +24,11 @@ export interface MenuItemsOptions {
   onDelete?: (message: Message) => void;
   onPin?: (message: Message) => void;
   onAnnounce?: (text: string) => void;
-  onSendToEditor?: (payload: {
-    target: 'current' | 'new_document';
-    format: 'markdown' | 'html' | 'plain';
-    title?: string;
-    content: string;
+  onSendToEditor?: (payload: SendToEditorPayload & {
     kind: 'message' | 'code' | 'table' | 'link';
     index?: number;
   }) => void;
+  editorTargets?: EditorSendTargetOption[];
   onToggleReasoning?: (message: Message) => void; // Mostrar/ocultar reasoning
   isTTSDisabled?: boolean;
   isUser?: boolean;
@@ -258,6 +261,7 @@ export function getMessageMenuItems(
     onPin,
     onAnnounce,
     onSendToEditor,
+    editorTargets = [],
     onToggleReasoning,
     isTTSDisabled = true,
     isUser = false,
@@ -376,6 +380,8 @@ export function getMessageMenuItems(
   if (onSendToEditor) {
     const contentMd = String(message.content || '');
     const contentPlain = stripMarkdown(contentMd);
+    const newDocumentLabel = i18next.t('editor.fallback.newDoc');
+    const fallbackDocumentTitle = i18next.t('editor.fallback.title');
     items.push({
       id: 'send-editor',
       label: 'Enviar ao editor',
@@ -383,61 +389,42 @@ export function getMessageMenuItems(
       ariaLabel: 'Enviar ao editor',
       submenu: [
         {
-          id: 'send-editor-insert-md',
-          label: 'Inserir no cursor (Markdown)',
-          icon: '🧷',
-          ariaLabel: 'Inserir no cursor do editor (Markdown)',
-          action: () =>
-            onSendToEditor({
-              target: 'current',
+          id: 'send-editor-md',
+          label: 'Markdown',
+          icon: '📝',
+          ariaLabel: 'Enviar mensagem em Markdown ao editor',
+          submenu: buildEditorDestinationSubmenu({
+            baseId: 'send-editor-md',
+            editorTargets,
+            payload: {
               format: 'markdown',
               title: 'Mensagem (Markdown)',
               content: contentMd,
               kind: 'message',
-            }),
+            },
+            onSendToEditor,
+            newDocumentLabel,
+            fallbackDocumentTitle,
+          }),
         },
         {
-          id: 'send-editor-new-md',
-          label: 'Novo documento (Markdown)',
-          icon: '📄',
-          ariaLabel: 'Criar novo documento no editor (Markdown)',
-          action: () =>
-            onSendToEditor({
-              target: 'new_document',
-              format: 'markdown',
-              title: 'Mensagem (Markdown)',
-              content: contentMd,
-              kind: 'message',
-            }),
-        },
-        { id: 'send-editor-sep-plain', separator: true },
-        {
-          id: 'send-editor-insert-plain',
-          label: 'Inserir no cursor (texto)',
-          icon: '🧷',
-          ariaLabel: 'Inserir no cursor do editor (texto)',
-          action: () =>
-            onSendToEditor({
-              target: 'current',
+          id: 'send-editor-plain',
+          label: 'Texto',
+          icon: '📝',
+          ariaLabel: 'Enviar mensagem em texto ao editor',
+          submenu: buildEditorDestinationSubmenu({
+            baseId: 'send-editor-plain',
+            editorTargets,
+            payload: {
               format: 'plain',
               title: 'Mensagem (texto)',
               content: contentPlain,
               kind: 'message',
-            }),
-        },
-        {
-          id: 'send-editor-new-plain',
-          label: 'Novo documento (texto)',
-          icon: '📄',
-          ariaLabel: 'Criar novo documento no editor (texto)',
-          action: () =>
-            onSendToEditor({
-              target: 'new_document',
-              format: 'plain',
-              title: 'Mensagem (texto)',
-              content: contentPlain,
-              kind: 'message',
-            }),
+            },
+            onSendToEditor,
+            newDocumentLabel,
+            fallbackDocumentTitle,
+          }),
         },
       ],
     });
@@ -466,6 +453,8 @@ export function getMessageMenuItems(
   // Enviar blocos para o editor (acessibilidade: disponível no menu também)
   if (onSendToEditor && (codeBlocks.length > 0 || links.length > 0 || tables.length > 0)) {
     const submenu: MenuItem[] = [];
+    const newDocumentLabel = i18next.t('editor.fallback.newDoc');
+    const fallbackDocumentTitle = i18next.t('editor.fallback.title');
 
     if (codeBlocks.length > 0) {
       const codeMenu: MenuItem[] = codeBlocks.map((block, i) => {
@@ -476,38 +465,20 @@ export function getMessageMenuItems(
           label: codeBlocks.length === 1 ? `Código ${language}` : `${language} (${i + 1})`,
           icon: '💻',
           ariaLabel: `Enviar código ${language} ao editor`,
-          submenu: [
-            {
-              id: `send-code-${i}-insert`,
-              label: 'Inserir no cursor',
-              icon: '🧷',
-              ariaLabel: 'Inserir código no cursor do editor',
-              action: () =>
-                onSendToEditor({
-                  target: 'current',
-                  format: 'markdown',
-                  title: `Código ${language}`,
-                  content: md,
-                  kind: 'code',
-                  index: i,
-                }),
+          submenu: buildEditorDestinationSubmenu({
+            baseId: `send-code-${i}`,
+            editorTargets,
+            payload: {
+              format: 'markdown',
+              title: `Código ${language}`,
+              content: md,
+              kind: 'code',
+              index: i,
             },
-            {
-              id: `send-code-${i}-new`,
-              label: 'Novo documento',
-              icon: '📄',
-              ariaLabel: 'Criar novo documento com este código',
-              action: () =>
-                onSendToEditor({
-                  target: 'new_document',
-                  format: 'markdown',
-                  title: `Código ${language}`,
-                  content: md,
-                  kind: 'code',
-                  index: i,
-                }),
-            },
-          ],
+            onSendToEditor,
+            newDocumentLabel,
+            fallbackDocumentTitle,
+          }),
         };
       });
 
@@ -532,64 +503,44 @@ export function getMessageMenuItems(
           submenu: [
             {
               id: `send-table-${i}-md`,
-              label: 'Inserir Markdown no cursor',
-              icon: '🧷',
-              ariaLabel: 'Inserir tabela (Markdown) no cursor do editor',
-              action: () =>
-                onSendToEditor({
-                  target: 'current',
+              label: 'Markdown',
+              icon: '📝',
+              ariaLabel: 'Enviar tabela em Markdown ao editor',
+              submenu: buildEditorDestinationSubmenu({
+                baseId: `send-table-${i}-md`,
+                editorTargets,
+                payload: {
                   format: 'markdown',
                   title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
                   content: md,
                   kind: 'table',
                   index: i,
-                }),
-            },
-            {
-              id: `send-table-${i}-md-new`,
-              label: 'Novo documento (Markdown)',
-              icon: '📄',
-              ariaLabel: 'Criar novo documento com a tabela (Markdown)',
-              action: () =>
-                onSendToEditor({
-                  target: 'new_document',
-                  format: 'markdown',
-                  title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
-                  content: md,
-                  kind: 'table',
-                  index: i,
-                }),
+                },
+                onSendToEditor,
+                newDocumentLabel,
+                fallbackDocumentTitle,
+              }),
             },
             { id: `send-table-${i}-sep`, separator: true },
             {
               id: `send-table-${i}-html`,
-              label: 'Inserir HTML no cursor',
-              icon: '🧷',
-              ariaLabel: 'Inserir tabela (HTML) no cursor do editor',
-              action: () =>
-                onSendToEditor({
-                  target: 'current',
+              label: 'HTML',
+              icon: '🌐',
+              ariaLabel: 'Enviar tabela em HTML ao editor',
+              submenu: buildEditorDestinationSubmenu({
+                baseId: `send-table-${i}-html`,
+                editorTargets,
+                payload: {
                   format: 'html',
                   title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
                   content: html,
                   kind: 'table',
                   index: i,
-                }),
-            },
-            {
-              id: `send-table-${i}-html-new`,
-              label: 'Novo documento (HTML)',
-              icon: '📄',
-              ariaLabel: 'Criar novo documento com a tabela (HTML)',
-              action: () =>
-                onSendToEditor({
-                  target: 'new_document',
-                  format: 'html',
-                  title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
-                  content: html,
-                  kind: 'table',
-                  index: i,
-                }),
+                },
+                onSendToEditor,
+                newDocumentLabel,
+                fallbackDocumentTitle,
+              }),
             },
           ],
         };
@@ -613,38 +564,20 @@ export function getMessageMenuItems(
           label,
           icon: '🔗',
           ariaLabel: `Enviar link ao editor: ${link.text}`,
-          submenu: [
-            {
-              id: `send-link-${i}-insert`,
-              label: 'Inserir no cursor',
-              icon: '🧷',
-              ariaLabel: 'Inserir link no cursor do editor',
-              action: () =>
-                onSendToEditor({
-                  target: 'current',
-                  format: 'markdown',
-                  title: 'Link',
-                  content: md,
-                  kind: 'link',
-                  index: i,
-                }),
+          submenu: buildEditorDestinationSubmenu({
+            baseId: `send-link-${i}`,
+            editorTargets,
+            payload: {
+              format: 'markdown',
+              title: 'Link',
+              content: md,
+              kind: 'link',
+              index: i,
             },
-            {
-              id: `send-link-${i}-new`,
-              label: 'Novo documento',
-              icon: '📄',
-              ariaLabel: 'Criar novo documento com este link',
-              action: () =>
-                onSendToEditor({
-                  target: 'new_document',
-                  format: 'markdown',
-                  title: 'Link',
-                  content: md,
-                  kind: 'link',
-                  index: i,
-                }),
-            },
-          ],
+            onSendToEditor,
+            newDocumentLabel,
+            fallbackDocumentTitle,
+          }),
         };
       });
 

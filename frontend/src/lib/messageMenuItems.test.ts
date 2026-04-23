@@ -96,9 +96,16 @@ describe('messageMenuItems', () => {
       {
         isTTSDisabled: true,
         onSendToEditor: vi.fn(),
+        editorTargets: [
+          { id: 'tab-1', title: 'README.md' },
+          { id: 'tab-2', title: 'Notas' },
+        ],
       }
     );
 
-    expect(items.some((item) => item.id === 'send-editor')).toBe(true);
+    const sendEditor = items.find((item) => item.id === 'send-editor');
+    expect(sendEditor).toBeTruthy();
+    expect(sendEditor?.submenu?.[0]?.submenu?.map((item) => item.label)).toContain('README.md');
+    expect(sendEditor?.submenu?.[0]?.submenu?.map((item) => item.label)).toContain('Notas');
   });
 });
