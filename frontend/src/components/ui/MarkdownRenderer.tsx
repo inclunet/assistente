@@ -117,7 +117,9 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const newDocumentLabel = t('editor.fallback.newDoc');
   const fallbackDocumentTitle = t('editor.fallback.title');
   const markdownFormatLabel = t('editor.sendToEditor.format.markdown');
+  const htmlFormatLabel = t('editor.sendToEditor.format.html');
   const markdownTableTitle = t('editor.sendToEditor.title.markdownTable');
+  const htmlTableTitle = t('editor.sendToEditor.title.htmlTable');
   const linkTitle = t('editor.sendToEditor.title.link');
   const mermaidTitle = t('editor.sendToEditor.title.mermaid');
   const codeTitle = (language: string) => t('editor.sendToEditor.title.code', { language });
@@ -167,6 +169,10 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     }
 
     return rows.join('\n');
+  }, []);
+
+  const generateTableHtml = useCallback((tableEl: HTMLTableElement) => {
+    return tableEl.outerHTML;
   }, []);
 
   const loadMonaco = useCallback(async (): Promise<MonacoModule> => {
@@ -355,6 +361,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           e.stopPropagation();
 
           const mdTable = generateTableMarkdown(tableEl);
+          const htmlTable = generateTableHtml(tableEl);
           const items: MenuItem[] = [
             {
               id: `table-${index}-copy`,
@@ -370,15 +377,26 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               submenu: buildEditorDestinationSubmenu({
                 baseId: `table-${index}-send`,
                 editorTargets,
-                formats: [{
-                  id: 'markdown',
-                  label: markdownFormatLabel,
-                  payload: {
-                    format: 'markdown',
-                    title: markdownTableTitle,
-                    content: `\n${mdTable}\n`,
+                formats: [
+                  {
+                    id: 'markdown',
+                    label: markdownFormatLabel,
+                    payload: {
+                      format: 'markdown',
+                      title: markdownTableTitle,
+                      content: `\n${mdTable}\n`,
+                    },
                   },
-                }],
+                  {
+                    id: 'html',
+                    label: htmlFormatLabel,
+                    payload: {
+                      format: 'html',
+                      title: htmlTableTitle,
+                      content: htmlTable,
+                    },
+                  },
+                ],
                 onSendToEditor: (payload) => onSendToEditor?.(payload),
                 newDocumentLabel,
                 fallbackDocumentTitle,
@@ -478,7 +496,10 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       ensureMonacoEditor,
       fallbackDocumentTitle,
       fencedCode,
+      generateTableHtml,
       generateTableMarkdown,
+      htmlFormatLabel,
+      htmlTableTitle,
       interactiveButtons,
       linkTitle,
       markdownFormatLabel,
