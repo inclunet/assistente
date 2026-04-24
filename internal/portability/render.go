@@ -84,20 +84,22 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
       --export-color-info: var(--color-info, currentColor);
       --export-color-info-dim: var(--color-info-dim, transparent);
       --export-radius-card: var(--radius-xl, 12px);
-      --export-radius-inner: var(--radius-lg, 8px);
+      --export-radius-inner: var(--radius-lg, 12px);
+      --export-radius-summary: var(--radius-md, 8px);
+      --export-radius-flag: var(--radius-full, 9999px);
     }
     body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: var(--export-bg-base); color: var(--export-text-primary); }
     .page { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
-    .hero { background: var(--export-bg-surface); border: 1px solid var(--export-border-default); border-radius: 16px; padding: 24px; box-shadow: none; }
+    .hero { background: var(--export-bg-surface); border: 1px solid var(--export-border-default); border-radius: var(--export-radius-card); padding: 24px; box-shadow: none; }
     .hero h1 { margin: 0 0 8px; font-size: 28px; }
     .hero p { margin: 4px 0; color: var(--export-text-secondary); }
-    .conversation { margin-top: 24px; background: var(--export-bg-surface); border: 1px solid var(--export-border-default); border-radius: 16px; overflow: hidden; box-shadow: none; }
+    .conversation { margin-top: 24px; background: var(--export-bg-surface); border: 1px solid var(--export-border-default); border-radius: var(--export-radius-card); overflow: hidden; box-shadow: none; }
     .conversation__header { padding: 20px 24px; border-bottom: 1px solid var(--export-border-subtle); background: var(--export-bg-elevated); }
     .conversation__title { margin: 0 0 8px; font-size: 22px; }
     .conversation__meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--export-text-muted); }
-    .conversation__summary { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--export-bg-elevated); }
+    .conversation__summary { margin-top: 12px; padding: 12px 14px; border-radius: var(--export-radius-summary); background: var(--export-bg-elevated); }
     .messages { padding: 20px; display: grid; gap: 12px; }
-    .message { border-radius: 14px; padding: 14px 16px; border: 1px solid var(--export-border-subtle); background: var(--export-bg-surface); }
+    .message { border-radius: var(--export-radius-inner); padding: 14px 16px; border: 1px solid var(--export-border-subtle); background: var(--export-bg-surface); }
     .message--user { border-color: var(--export-accent); background: var(--export-accent-dim); }
     .message--assistant { border-color: var(--export-color-success); background: var(--export-color-success-dim); }
     .message--tool { border-color: var(--export-color-warning); background: var(--export-color-warning-dim); }
@@ -107,21 +109,21 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
     .message__content, .message__reasoning, .message__details { word-break: break-word; line-height: 1.5; }
     .message__reasoning { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--export-border-strong); color: var(--export-text-secondary); }
     .message__flags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
-    .message__flag { padding: 4px 8px; border-radius: 999px; background: var(--export-bg-hover); color: var(--export-text-secondary); font-size: 12px; border: 1px solid var(--export-border-subtle); }
-    .message__details { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--export-bg-elevated); color: var(--export-text-code); font-family: ui-monospace, monospace; font-size: 12px; border: 1px solid var(--export-border-subtle); }
+    .message__flag { padding: 4px 8px; border-radius: var(--export-radius-flag); background: var(--export-bg-hover); color: var(--export-text-secondary); font-size: 12px; border: 1px solid var(--export-border-subtle); }
+    .message__details { margin-top: 10px; padding: 10px 12px; border-radius: var(--export-radius-summary); background: var(--export-bg-elevated); color: var(--export-text-code); font-family: ui-monospace, monospace; font-size: 12px; border: 1px solid var(--export-border-subtle); }
     .message__content p, .message__reasoning p, .conversation__summary p { margin: 0 0 10px; }
     .message__content p:last-child, .message__reasoning p:last-child, .conversation__summary p:last-child { margin-bottom: 0; }
-    .message__content pre, .message__reasoning pre, .conversation__summary pre { margin: 10px 0 0; overflow-x: auto; padding: 12px; border-radius: 10px; background: var(--export-bg-elevated); color: var(--export-text-code); border: 1px solid var(--export-border-subtle); }
+    .message__content pre, .message__reasoning pre, .conversation__summary pre { margin: 10px 0 0; overflow-x: auto; padding: 12px; border-radius: var(--export-radius-summary); background: var(--export-bg-elevated); color: var(--export-text-code); border: 1px solid var(--export-border-subtle); }
     .message__content code, .message__reasoning code, .conversation__summary code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
     .message__content blockquote, .message__reasoning blockquote, .conversation__summary blockquote { margin: 10px 0 0; padding-left: 12px; border-left: 4px solid var(--export-border-strong); color: var(--export-text-muted); }
     .message__content ul, .message__content ol, .message__reasoning ul, .message__reasoning ol, .conversation__summary ul, .conversation__summary ol { margin: 10px 0 0 20px; }
     .message__content table, .message__reasoning table, .conversation__summary table { margin-top: 10px; width: 100%; border-collapse: collapse; }
     .message__content th, .message__content td, .message__reasoning th, .message__reasoning td, .conversation__summary th, .conversation__summary td { border: 1px solid var(--export-border-strong); padding: 6px 8px; text-align: left; }
-    .message__content img, .message__reasoning img, .conversation__summary img { max-width: 100%; border-radius: 12px; display: block; margin-top: 10px; }
+    .message__content img, .message__reasoning img, .conversation__summary img { max-width: 100%; border-radius: var(--export-radius-inner); display: block; margin-top: 10px; }
     .message__media { margin-top: 12px; display: grid; gap: 10px; }
-    .message__media-card { padding: 12px; border-radius: 12px; background: var(--export-bg-hover); border: 1px solid var(--export-border-strong); }
+    .message__media-card { padding: 12px; border-radius: var(--export-radius-inner); background: var(--export-bg-hover); border: 1px solid var(--export-border-strong); }
     .message__media-card strong { display: block; margin-bottom: 6px; }
-    .message__media-card img, .message__media-card video, .message__media-card audio { width: 100%; max-width: 100%; border-radius: 10px; }
+    .message__media-card img, .message__media-card video, .message__media-card audio { width: 100%; max-width: 100%; border-radius: var(--export-radius-summary); }
     .message__media-card pre { margin: 8px 0 0; white-space: pre-wrap; max-height: 240px; overflow: auto; }
     .message__media-card a { color: var(--export-accent); }
   </style>
@@ -663,7 +665,7 @@ func attachmentTextPreview(media mediaAttachment) string {
 	text := string(decoded)
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	if len(text) > 4000 {
-		text = text[:4000] + "\n\n...[conteudo truncado]"
+		text = text[:4000] + "\n\n...[conteúdo truncado]"
 	}
 	return text
 }
@@ -989,7 +991,7 @@ func writePDFMediaAttachments(pdf *fpdf.Fpdf, useUTF8 bool, msg MessageExport) e
 func writePDFAttachment(pdf *fpdf.Fpdf, useUTF8 bool, media mediaAttachment, key string) error {
 	switch mediaKind(media.MIME) {
 	case "image":
-		if err := writePDFImageAttachment(pdf, media, key); err != nil {
+		if err := writePDFImageAttachment(pdf, useUTF8, media, key); err != nil {
 			writePDFMeta(pdf, useUTF8, fallbackAttachmentName(media)+": "+err.Error())
 			return err
 		}
@@ -1006,7 +1008,7 @@ func writePDFAttachment(pdf *fpdf.Fpdf, useUTF8 bool, media mediaAttachment, key
 	return nil
 }
 
-func writePDFImageAttachment(pdf *fpdf.Fpdf, media mediaAttachment, key string) error {
+func writePDFImageAttachment(pdf *fpdf.Fpdf, useUTF8 bool, media mediaAttachment, key string) error {
 	decoded, err := base64.StdEncoding.DecodeString(media.Data)
 	if err != nil {
 		return err
@@ -1024,7 +1026,7 @@ func writePDFImageAttachment(pdf *fpdf.Fpdf, media mediaAttachment, key string) 
 		return fmt.Errorf("não foi possível registrar imagem no PDF")
 	}
 
-	writePDFMeta(pdf, true, fallbackAttachmentName(media))
+	writePDFMeta(pdf, useUTF8, fallbackAttachmentName(media))
 	pageW, pageH := pdf.GetPageSize()
 	left, _, right, bottom := pdf.GetMargins()
 	maxW := pageW - left - right

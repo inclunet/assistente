@@ -52,7 +52,7 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 		}
 		return string(rendered), nil
 	case portability.FormatPDF:
-		return "", fmt.Errorf("use ExportConversationsToFile para exportacao PDF")
+		return "", fmt.Errorf("use ExportConversationsToFile para exportação PDF")
 	default:
 		return "", fmt.Errorf("formato de exportação ainda não suportado: %s", req.OutputFormat)
 	}
