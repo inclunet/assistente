@@ -76,6 +76,23 @@ func TestInferMCPFailure_MatchesServerFromMessage(t *testing.T) {
 	}
 }
 
+func TestInferMCPFailure_DoesNotAssumeSingleServerForGenericError(t *testing.T) {
+	servers := []MCPServerConfig{
+		{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},
+	}
+
+	failure := inferMCPFailure(
+		MCPFailureStageHandshake,
+		"provider rate limit exceeded",
+		"",
+		"",
+		servers,
+	)
+	if failure != nil {
+		t.Fatalf("não deveria inferir falha MCP para erro genérico, got %+v", failure)
+	}
+}
+
 func TestPlanMCPDegradationRetry_RemovesServerAndCallsRecover(t *testing.T) {
 	called := false
 	servers := []MCPServerConfig{

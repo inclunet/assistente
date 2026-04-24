@@ -829,6 +829,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 					ServerLabel: ev.Item.ServerLabel,
 				}
 				activeMCPCalls[ev.Item.ID] = mc
+				emittedAnything = true
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          mc.ID,
 					Name:        mc.Name,
@@ -848,6 +849,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				if args == "" {
 					args = ev.Item.Arguments
 				}
+				emittedAnything = true
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          ev.Item.ID,
 					Name:        ev.Item.Name,

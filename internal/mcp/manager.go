@@ -211,6 +211,10 @@ func (m *Manager) LoadConfigs() error {
 
 // Connect conecta a um servidor MCP pelo slug.
 func (m *Manager) Connect(slug string) error {
+	return m.connectWithContext(m.ctx, slug)
+}
+
+func (m *Manager) connectWithContext(parentCtx context.Context, slug string) error {
 	m.mu.Lock()
 	status, ok := m.servers[slug]
 	if !ok {
@@ -269,7 +273,7 @@ func (m *Manager) Connect(slug string) error {
 	}
 
 	// Conecta ao servidor com timeout; registra cancel para permitir abortar via Disconnect
-	connectCtx, connectCancel := context.WithTimeout(m.ctx, connectTimeout)
+	connectCtx, connectCancel := context.WithTimeout(parentCtx, connectTimeout)
 	m.mu.Lock()
 	m.connectCancels[slug] = connectCancel
 	m.mu.Unlock()
@@ -297,7 +301,7 @@ func (m *Manager) Connect(slug string) error {
 			client = mcpsdk.NewClient(&mcpsdk.Implementation{Name: "assistente", Version: "1.0.0"}, nil)
 			transport2, err2 := m.createTransport(slug, cfg)
 			if err2 == nil {
-				retryCtx, retryCancel := context.WithTimeout(m.ctx, connectTimeout)
+				retryCtx, retryCancel := context.WithTimeout(parentCtx, connectTimeout)
 				defer retryCancel()
 				session, err = client.Connect(retryCtx, transport2, nil)
 			}
@@ -369,7 +373,7 @@ func (m *Manager) Connect(slug string) error {
 	m.mu.Unlock()
 
 	// Descobre tools, resources e prompts do servidor
-	if err := m.refreshServerOfferings(slug); err != nil {
+	if err := m.refreshServerOfferingsWithContext(parentCtx, slug); err != nil {
 		_ = m.Disconnect(slug)
 		m.setError(slug, fmt.Sprintf("erro ao descobrir offerings: %v", err))
 		return fmt.Errorf("falha ao descobrir offerings do servidor MCP '%s': %w", slug, err)
@@ -386,6 +390,10 @@ func (m *Manager) Connect(slug string) error {
 // já conectado, atualizando o registry e o ServerStatus.
 // Usado pelo Connect inicial e pelo health check periódico.
 func (m *Manager) refreshServerOfferings(slug string) error {
+	return m.refreshServerOfferingsWithContext(m.ctx, slug)
+}
+
+func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, slug string) error {
 	m.mu.RLock()
 	conn, ok := m.connections[slug]
 	if !ok {
@@ -395,7 +403,7 @@ func (m *Manager) refreshServerOfferings(slug string) error {
 	session := conn.session
 	m.mu.RUnlock()
 
-	ctx, cancel := context.WithTimeout(m.ctx, listToolsTimeout)
+	ctx, cancel := context.WithTimeout(parentCtx, listToolsTimeout)
 	defer cancel()
 
 	// Descobre tools
@@ -556,8 +564,12 @@ func (m *Manager) Disconnect(slug string) error {
 
 // Reconnect desconecta e reconecta a um servidor.
 func (m *Manager) Reconnect(slug string) error {
+	return m.reconnectWithContext(m.ctx, slug)
+}
+
+func (m *Manager) reconnectWithContext(ctx context.Context, slug string) error {
 	_ = m.Disconnect(slug)
-	return m.Connect(slug)
+	return m.connectWithContext(ctx, slug)
 }
 
 // List retorna informações de todos os servidores (formato frontend-safe).
@@ -1009,6 +1021,10 @@ func (m *Manager) checkAndRefreshToken(slug string) {
 }
 
 func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, force bool) (bool, error) {
+	if m.credMgr == nil {
+		return false, nil
+	}
+
 	m.mu.RLock()
 	status, ok := m.servers[slug]
 	if !ok || status.Reconnecting {
@@ -1089,20 +1105,6 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 	return true, nil
 }
 
-func runRecoverStepWithContext(ctx context.Context, fn func() error) error {
-	done := make(chan error, 1)
-	go func() {
-		done <- fn()
-	}()
-
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 // RecoverServerBestEffort tenta restaurar um servidor MCP para chamadas futuras do chat.
 // A operação é best-effort: falhas são retornadas, mas não devem interromper a resposta atual.
 func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) RecoveryResult {
@@ -1138,14 +1140,14 @@ func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) Reco
 	}
 
 	if currentStatus == StatusConnected {
-		if err := runRecoverStepWithContext(ctx, func() error { return m.refreshServerOfferings(slug) }); err == nil {
+		if err := m.refreshServerOfferingsWithContext(ctx, slug); err == nil {
 			return result
 		} else if refreshErr == nil {
 			refreshErr = err
 		}
 	}
 
-	if err := runRecoverStepWithContext(ctx, func() error { return m.Reconnect(slug) }); err == nil {
+	if err := m.reconnectWithContext(ctx, slug); err == nil {
 		result.Reconnected = true
 		return result
 	} else if refreshErr == nil {

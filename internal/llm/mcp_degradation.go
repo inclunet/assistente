@@ -60,7 +60,7 @@ func inferMCPFailure(stage MCPFailureStage, message, rawJSON, fallbackServer str
 	if server == "" {
 		server = matchMCPServerInText(strings.ToLower(message+" "+rawJSON), servers)
 	}
-	if server == "" && len(servers) == 1 && (stage != MCPFailureStageUnknown || looksLikeMCPFailure(message+" "+rawJSON)) {
+	if server == "" && len(servers) == 1 && looksLikeMCPFailure(message+" "+rawJSON) {
 		server = servers[0].Name
 	}
 	if server == "" {

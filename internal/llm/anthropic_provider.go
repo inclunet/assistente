@@ -429,6 +429,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 					ServerName: mcpBlock.ServerName,
 					ArgsJSON:   argsStr,
 				}
+				emittedAnything = true
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          mcpBlock.ID,
 					Name:        mcpBlock.Name,
@@ -450,6 +451,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 				if mcpResult.IsError {
 					errMsg = output
 				}
+				emittedAnything = true
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          mcpResult.ToolUseID,
 					Name:        toolName,

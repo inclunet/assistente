@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -348,6 +347,16 @@ func TestCheckAndRefreshToken_SkipsWhenNoTokenStored(t *testing.T) {
 	m.checkAndRefreshToken("test")
 }
 
+func TestCheckAndRefreshToken_SkipsWhenCredManagerIsNil(t *testing.T) {
+	registry := tools.NewRegistry()
+	m := NewManager(registry, nil, func(string, any) {})
+	m.servers["test"] = &ServerStatus{
+		Slug:   "test",
+		Config: ServerConfig{AuthType: AuthOAuth2PKCE},
+	}
+	m.checkAndRefreshToken("test")
+}
+
 func TestCheckAndRefreshToken_SkipsWhenTokenFarFromExpiry(t *testing.T) {
 	m := newTestManager()
 	m.servers["test"] = &ServerStatus{
@@ -586,27 +595,6 @@ func TestRecoverServerBestEffort_RejectsDisabledServer(t *testing.T) {
 	if result.Err == nil {
 		t.Fatal("esperava erro para servidor desabilitado")
 	}
-}
-
-func TestRunRecoverStepWithContext_StopsWaitingOnDeadline(t *testing.T) {
-	block := make(chan struct{})
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-
-	start := time.Now()
-	err := runRecoverStepWithContext(ctx, func() error {
-		<-block
-		return nil
-	})
-	elapsed := time.Since(start)
-
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("erro = %v, want context.DeadlineExceeded", err)
-	}
-	if elapsed > 200*time.Millisecond {
-		t.Fatalf("helper demorou demais para respeitar o deadline: %v", elapsed)
-	}
-	close(block)
 }
 
 // ==================== handleToolCallError Tests ====================

@@ -72,11 +72,11 @@ const (
 
 type MCPAttemptFailure struct {
     ServerName      string
+    ServerSlug      string
     Stage           MCPFailureStage
     Message         string
     Recoverable     bool
     Degradable      bool
-    ProviderFatal   bool
 }
 ```
 

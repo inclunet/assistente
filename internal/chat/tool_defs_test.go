@@ -66,14 +66,16 @@ func (m *mockChatProvider) WithMCPServers(servers []llm.MCPServerConfig) llm.Cha
 
 // mockNativeMCPMgr implements NativeMCPManager.
 type mockNativeMCPMgr struct {
-	servers []mcplib.NativeMCPServer
+	servers            []mcplib.NativeMCPServer
+	recoveredServerIDs []string
 }
 
 func (m *mockNativeMCPMgr) GetEligibleNativeMCPServers() []mcplib.NativeMCPServer {
 	return m.servers
 }
 
-func (m *mockNativeMCPMgr) RecoverServerBestEffort(_ context.Context, _ string) mcplib.RecoveryResult {
+func (m *mockNativeMCPMgr) RecoverServerBestEffort(_ context.Context, slug string) mcplib.RecoveryResult {
+	m.recoveredServerIDs = append(m.recoveredServerIDs, slug)
 	return mcplib.RecoveryResult{}
 }
 
@@ -258,7 +260,7 @@ func TestApplyNativeMCP_RemovesBridgeTools(t *testing.T) {
 func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 	p := &mockChatProvider{supportsNative: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Name: "Srv", URL: "https://srv.io", AuthToken: "tok", ToolNames: []string{"mcp_srv__do"}},
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", AuthToken: "tok", ToolNames: []string{"mcp_srv__do"}},
 	}}
 	defs := makeToolDefs("mcp_srv__do")
 	outP, _ := ApplyNativeMCP(p, defs, mgr, nil, false)
@@ -270,11 +272,17 @@ func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 		t.Fatalf("esperava 1 MCPServerConfig, obteve %d", len(result.calledWith))
 	}
 	cfg := result.calledWith[0]
-	if cfg.Slug != "" || cfg.Name != "Srv" || cfg.URL != "https://srv.io" || cfg.AuthToken != "tok" {
+	if cfg.Slug != "srv" || cfg.Name != "Srv" || cfg.URL != "https://srv.io" || cfg.AuthToken != "tok" {
 		t.Errorf("MCPServerConfig incorreto: %+v", cfg)
 	}
 	if cfg.Recover == nil {
 		t.Error("callback de recovery deveria ter sido configurado")
+	}
+	if err := cfg.Recover(context.Background()); err != nil {
+		t.Fatalf("recover callback retornou erro: %v", err)
+	}
+	if len(mgr.recoveredServerIDs) != 1 || mgr.recoveredServerIDs[0] != "srv" {
+		t.Fatalf("recover deveria usar slug srv, got %+v", mgr.recoveredServerIDs)
 	}
 }
 
