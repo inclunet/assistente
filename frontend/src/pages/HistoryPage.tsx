@@ -74,6 +74,19 @@ interface ImportAnalysis {
   credentialAnalysisError?: string;
 }
 
+interface ImportResultSummary {
+  success: boolean;
+  imported: number;
+  skipped: number;
+  failed: number;
+  skippedEmptyConversations: number;
+  skippedConversationConflict: number;
+  skippedCredentialConflict: number;
+  skippedOther: number;
+  errors?: string[];
+  message: string;
+}
+
 interface ExportRequestPayload {
   conversationIds: string[];
   includeCredentials: boolean;
@@ -140,6 +153,7 @@ export default function HistoryPage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importAnalysis, setImportAnalysis] = useState<ImportAnalysis | null>(null);
+  const [lastImportResult, setLastImportResult] = useState<ImportResultSummary | null>(null);
   const [isAnalyzingImport, setIsAnalyzingImport] = useState(false);
   const [importPassword, setImportPassword] = useState('');
   const [importPasswordError, setImportPasswordError] = useState('');
@@ -390,6 +404,7 @@ export default function HistoryPage() {
     setIsImportModalOpen(false);
     setImportPreview(null);
     setImportAnalysis(null);
+    setLastImportResult(null);
     setImportPassword('');
     setImportPasswordError('');
   }, []);
@@ -410,6 +425,7 @@ export default function HistoryPage() {
     const preview = buildImportPreview(selectedFile.name, selectedFile.content);
     setImportPreview(preview);
     setImportAnalysis(null);
+    setLastImportResult(null);
     setImportPassword('');
     setImportPasswordError('');
     await analyzeImportPayload(selectedFile.content, '');
@@ -456,6 +472,10 @@ export default function HistoryPage() {
   }, [announce, getImportErrorMessage, selectImportFile]);
 
   const handleConfirmImport = useCallback(async () => {
+    if (lastImportResult) {
+      closeImportModal();
+      return;
+    }
     if (!importPreview) return;
     if (importPreview.requiresCredentialPassword && !importPassword.trim()) {
       setImportPasswordError(t('history.importPasswordRequired', 'Informe a senha usada para exportar as credenciais.'));
@@ -469,7 +489,7 @@ export default function HistoryPage() {
     setIsImporting(true);
     setImportPasswordError('');
     try {
-      const result = await ImportData(importPreview.jsonData, importPassword.trim());
+      const result = await ImportData(importPreview.jsonData, importPassword.trim()) as ImportResultSummary;
       const details = [
         result.success
           ? t('history.importSuccess', 'Conversas importadas com sucesso!')
@@ -481,6 +501,36 @@ export default function HistoryPage() {
           skipped: result.skipped,
         }),
       ];
+      if (result.failed > 0) {
+        details.push(t('history.importFailedCount', {
+          defaultValue: 'Falhas: {{count}}',
+          count: result.failed,
+        }));
+      }
+      if (result.skippedEmptyConversations > 0) {
+        details.push(t('history.importSkippedEmptyCount', {
+          defaultValue: 'Vazias descartadas: {{count}}',
+          count: result.skippedEmptyConversations,
+        }));
+      }
+      if (result.skippedConversationConflict > 0) {
+        details.push(t('history.importSkippedConversationConflictCount', {
+          defaultValue: 'Ignoradas por conflito de conversa: {{count}}',
+          count: result.skippedConversationConflict,
+        }));
+      }
+      if (result.skippedCredentialConflict > 0) {
+        details.push(t('history.importSkippedCredentialConflictCount', {
+          defaultValue: 'Credenciais duplicadas ignoradas: {{count}}',
+          count: result.skippedCredentialConflict,
+        }));
+      }
+      if (result.skippedOther > 0) {
+        details.push(t('history.importSkippedOtherCount', {
+          defaultValue: 'Outros descartes: {{count}}',
+          count: result.skippedOther,
+        }));
+      }
 
       if (result.errors?.length) {
         details.push(
@@ -488,8 +538,8 @@ export default function HistoryPage() {
         );
       }
 
+      setLastImportResult(result);
       announce(details.filter(Boolean).join('. '), result.success ? 'polite' : 'assertive');
-      closeImportModal();
       await loadConversations();
     } catch (error) {
       console.error('Erro ao confirmar importação:', error);
@@ -497,7 +547,7 @@ export default function HistoryPage() {
     } finally {
       setIsImporting(false);
     }
-  }, [announce, closeImportModal, importAnalysis?.credentialAnalysisError, importPassword, importPreview, t]);
+  }, [announce, closeImportModal, importAnalysis?.credentialAnalysisError, importPassword, importPreview, lastImportResult, t]);
 
   useEffect(() => {
     if (!isImportModalOpen || !importPreview) return;
@@ -1031,6 +1081,69 @@ export default function HistoryPage() {
             </div>
           )}
 
+          {lastImportResult && (
+            <div className="history-page__import-analysis">
+              <div className="history-page__import-analysis-header">
+                <strong>{t('history.importResultTitle', 'Resultado da importação')}</strong>
+                <span>
+                  {lastImportResult.success
+                    ? t('common.success', 'Sucesso')
+                    : t('history.importPartial', 'Algumas conversas não puderam ser importadas.')}
+                </span>
+              </div>
+
+              <dl className="history-page__import-summary">
+                <div className="history-page__import-row">
+                  <dt>{t('history.importedLabel', 'Importadas')}</dt>
+                  <dd>{lastImportResult.imported}</dd>
+                </div>
+                <div className="history-page__import-row">
+                  <dt>{t('history.skippedLabel', 'Ignoradas')}</dt>
+                  <dd>{lastImportResult.skipped}</dd>
+                </div>
+                <div className="history-page__import-row">
+                  <dt>{t('history.importFailedLabel', 'Falhas')}</dt>
+                  <dd>{lastImportResult.failed}</dd>
+                </div>
+                {lastImportResult.skippedEmptyConversations > 0 && (
+                  <div className="history-page__import-row">
+                    <dt>{t('history.importSkippedEmptyLabel', 'Conversas vazias')}</dt>
+                    <dd>{lastImportResult.skippedEmptyConversations}</dd>
+                  </div>
+                )}
+                {lastImportResult.skippedConversationConflict > 0 && (
+                  <div className="history-page__import-row">
+                    <dt>{t('history.importSkippedConversationConflictLabel', 'Conflitos de conversa')}</dt>
+                    <dd>{lastImportResult.skippedConversationConflict}</dd>
+                  </div>
+                )}
+                {lastImportResult.skippedCredentialConflict > 0 && (
+                  <div className="history-page__import-row">
+                    <dt>{t('history.importSkippedCredentialConflictLabel', 'Credenciais duplicadas')}</dt>
+                    <dd>{lastImportResult.skippedCredentialConflict}</dd>
+                  </div>
+                )}
+                {lastImportResult.skippedOther > 0 && (
+                  <div className="history-page__import-row">
+                    <dt>{t('history.importSkippedOtherLabel', 'Outros descartes')}</dt>
+                    <dd>{lastImportResult.skippedOther}</dd>
+                  </div>
+                )}
+              </dl>
+
+              {!!lastImportResult.errors?.length && (
+                <>
+                  <strong>{t('history.importErrorsLabel', 'Erros')}</strong>
+                  <ul className="history-page__import-list">
+                    {lastImportResult.errors.map((error) => (
+                      <li key={error}>{error}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+
           {importPreview?.requiresCredentialPassword && (
             <FormField
               label={t('history.importPasswordLabel', 'Senha das credenciais')}
@@ -1089,7 +1202,9 @@ export default function HistoryPage() {
               loading={isImporting}
               disabled={isAnalyzingImport}
             >
-              {t('history.importConfirm', 'Importar agora')}
+              {lastImportResult
+                ? t('common.close', 'Fechar')
+                : t('history.importConfirm', 'Importar agora')}
             </Button>
           </div>
         </div>

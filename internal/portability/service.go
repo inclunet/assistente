@@ -97,16 +97,18 @@ func ImportConversations(jsonData string, credMgr *credentials.Manager, credenti
 	for _, conv := range file.Resources.Conversations {
 		if isEmptyConversation(conv) {
 			result.Skipped++
+			result.SkippedEmptyConversations++
 			continue
 		}
 		if _, exists := conversationConflictKeys[conversationConflictIdentifier(conv)]; exists {
 			result.Skipped++
+			result.SkippedConversationConflict++
 			continue
 		}
 		imported, err := importConversation(conv, file.Options.IncludeAudio)
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
-			result.Skipped++
+			result.Failed++
 			continue
 		}
 		if imported {
@@ -117,18 +119,26 @@ func ImportConversations(jsonData string, credMgr *credentials.Manager, credenti
 	if file.Options.IncludeCredentials && file.Resources.Credentials != nil {
 		if credMgr == nil || !credMgr.CanPersist() {
 			result.Errors = append(result.Errors, "cofre de credenciais indisponível para importação")
+			result.Failed++
 			result.Success = false
 		} else {
 			skipped, err := importCredentials(credMgr, file.Resources.Credentials, credentialPassword, credentialConflictPatterns)
 			result.Skipped += skipped
+			result.SkippedCredentialConflict += skipped
 			if err != nil {
 				result.Errors = append(result.Errors, err.Error())
+				result.Failed++
 				result.Success = false
 			}
 		}
 	}
 
-	result.Message = fmt.Sprintf("Importadas %d conversas, %d itens ignorados", result.Imported, result.Skipped)
+	result.SkippedOther = maxInt(result.Skipped-result.SkippedEmptyConversations-result.SkippedConversationConflict-result.SkippedCredentialConflict, 0)
+	if result.Failed > 0 {
+		result.Message = fmt.Sprintf("Importadas %d conversas, %d itens ignorados e %d falha(s)", result.Imported, result.Skipped, result.Failed)
+	} else {
+		result.Message = fmt.Sprintf("Importadas %d conversas, %d itens ignorados", result.Imported, result.Skipped)
+	}
 	if len(result.Errors) > 0 {
 		result.Success = false
 	}
@@ -338,6 +348,13 @@ func importCredentials(credMgr *credentials.Manager, raw any, credentialPassword
 
 func intPtr(v int) *int {
 	return &v
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {

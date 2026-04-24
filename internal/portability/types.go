@@ -95,11 +95,16 @@ type ExportRequest struct {
 }
 
 type ImportResult struct {
-	Success  bool     `json:"success"`
-	Imported int      `json:"imported"`
-	Skipped  int      `json:"skipped"`
-	Errors   []string `json:"errors,omitempty"`
-	Message  string   `json:"message"`
+	Success                     bool     `json:"success"`
+	Imported                    int      `json:"imported"`
+	Skipped                     int      `json:"skipped"`
+	Failed                      int      `json:"failed"`
+	SkippedEmptyConversations   int      `json:"skippedEmptyConversations"`
+	SkippedConversationConflict int      `json:"skippedConversationConflict"`
+	SkippedCredentialConflict   int      `json:"skippedCredentialConflict"`
+	SkippedOther                int      `json:"skippedOther"`
+	Errors                      []string `json:"errors,omitempty"`
+	Message                     string   `json:"message"`
 }
 
 type ImportConflict struct {

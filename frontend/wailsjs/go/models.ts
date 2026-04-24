@@ -1800,6 +1800,11 @@ export namespace main {
 	    success: boolean;
 	    imported: number;
 	    skipped: number;
+	    failed: number;
+	    skippedEmptyConversations: number;
+	    skippedConversationConflict: number;
+	    skippedCredentialConflict: number;
+	    skippedOther: number;
 	    errors?: string[];
 	    message: string;
 	
@@ -1812,6 +1817,11 @@ export namespace main {
 	        this.success = source["success"];
 	        this.imported = source["imported"];
 	        this.skipped = source["skipped"];
+	        this.failed = source["failed"];
+	        this.skippedEmptyConversations = source["skippedEmptyConversations"];
+	        this.skippedConversationConflict = source["skippedConversationConflict"];
+	        this.skippedCredentialConflict = source["skippedCredentialConflict"];
+	        this.skippedOther = source["skippedOther"];
 	        this.errors = source["errors"];
 	        this.message = source["message"];
 	    }

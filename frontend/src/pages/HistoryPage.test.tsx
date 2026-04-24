@@ -45,16 +45,18 @@ vi.mock('react-router-dom', () => ({
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (_key: string, fallbackOrOptions?: string | { defaultValue?: string; count?: number }) => {
+    t: (_key: string, fallbackOrOptions?: string | Record<string, string | number | undefined>) => {
       if (typeof fallbackOrOptions === 'string') {
         return fallbackOrOptions;
       }
       if (fallbackOrOptions && typeof fallbackOrOptions === 'object') {
         const template = fallbackOrOptions.defaultValue ?? _key;
-        if (typeof fallbackOrOptions.count === 'number') {
-          return template.replace('{{count}}', String(fallbackOrOptions.count));
-        }
-        return template;
+        return Object.entries(fallbackOrOptions).reduce((result, [key, value]) => {
+          if (key === 'defaultValue' || value === undefined) {
+            return result;
+          }
+          return result.replaceAll(`{{${key}}}`, String(value));
+        }, template);
       }
       return _key;
     },
@@ -217,7 +219,18 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockExportData.mockResolvedValue('{}');
     mockExportConversationsToFile.mockResolvedValue('C:/tmp/conversas.html');
     mockImportConversations.mockResolvedValue({ success: true, message: 'ok' });
-    mockImportData.mockResolvedValue({ success: true, message: 'ok', imported: 2, skipped: 0, errors: [] });
+    mockImportData.mockResolvedValue({
+      success: true,
+      message: 'ok',
+      imported: 2,
+      skipped: 0,
+      failed: 0,
+      skippedEmptyConversations: 0,
+      skippedConversationConflict: 0,
+      skippedCredentialConflict: 0,
+      skippedOther: 0,
+      errors: [],
+    });
     mockSearchConversationHistory.mockResolvedValue([]);
     mockOpenImportFileDialog.mockReset();
     mockDownloadJSON.mockReset();
@@ -490,7 +503,18 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       name: 'backup.json',
       content: payload,
     });
-    mockImportData.mockResolvedValue({ success: true, message: 'ok', imported: 1, skipped: 0, errors: [] });
+    mockImportData.mockResolvedValue({
+      success: true,
+      message: 'ok',
+      imported: 1,
+      skipped: 0,
+      failed: 0,
+      skippedEmptyConversations: 0,
+      skippedConversationConflict: 0,
+      skippedCredentialConflict: 0,
+      skippedOther: 0,
+      errors: [],
+    });
 
     const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
@@ -508,6 +532,45 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       expect(mockGetConversations).toHaveBeenCalledTimes(2);
     });
     expect(mockAnnounce).toHaveBeenCalledWith(expect.stringContaining('ok'), 'polite');
+  });
+
+  it('mostra detalhamento do resultado apos importar', async () => {
+    const user = userEvent.setup();
+    const payload = JSON.stringify({
+      version: 1,
+      resources: {
+        conversations: [{ messages: [{}] }],
+      },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: payload,
+    });
+    mockImportData.mockResolvedValue({
+      success: true,
+      message: 'ok',
+      imported: 1,
+      skipped: 3,
+      failed: 0,
+      skippedEmptyConversations: 1,
+      skippedConversationConflict: 1,
+      skippedCredentialConflict: 1,
+      skippedOther: 0,
+      errors: [],
+    });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+    await user.click(screen.getByRole('button', { name: 'Importar agora' }));
+
+    await screen.findByText('Resultado da importação');
+    expect(screen.getByText('Conversas vazias')).toBeInTheDocument();
+    expect(screen.getByText('Conflitos de conversa')).toBeInTheDocument();
+    expect(screen.getByText('Credenciais duplicadas')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fechar' })).toBeInTheDocument();
   });
 
   it('reanalisar importacao quando a senha de credenciais muda', async () => {

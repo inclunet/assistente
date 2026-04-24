@@ -1,6 +1,7 @@
 package portability
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -11,6 +12,46 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
+
+type memoryCredentialStore struct {
+	credentials map[string]credentials.StoredCredential
+}
+
+func newMemoryCredentialStore() *memoryCredentialStore {
+	return &memoryCredentialStore{
+		credentials: make(map[string]credentials.StoredCredential),
+	}
+}
+
+func (s *memoryCredentialStore) SaveCredential(_ context.Context, cred credentials.StoredCredential) error {
+	s.credentials[cred.Pattern] = cred
+	return nil
+}
+
+func (s *memoryCredentialStore) ListCredentials(context.Context) ([]credentials.StoredCredential, error) {
+	result := make([]credentials.StoredCredential, 0, len(s.credentials))
+	for _, cred := range s.credentials {
+		result = append(result, cred)
+	}
+	return result, nil
+}
+
+func (s *memoryCredentialStore) DeleteCredential(_ context.Context, pattern string) error {
+	delete(s.credentials, pattern)
+	return nil
+}
+
+func (s *memoryCredentialStore) SaveKeyWrap(context.Context, credentials.KeyWrap) error {
+	return nil
+}
+
+func (s *memoryCredentialStore) GetKeyWrap(context.Context, string) (*credentials.KeyWrap, error) {
+	return nil, nil
+}
+
+func (s *memoryCredentialStore) HasKeyWrap(context.Context, string) (bool, error) {
+	return false, nil
+}
 
 func TestExportConversationUsesIndexesInsteadOfIDs(t *testing.T) {
 	parentID := uint(10)
@@ -279,6 +320,9 @@ func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
 	if result.Imported != 1 || result.Skipped != 1 {
 		t.Fatalf("got imported=%d skipped=%d, want 1/1", result.Imported, result.Skipped)
 	}
+	if result.SkippedEmptyConversations != 1 {
+		t.Fatalf("SkippedEmptyConversations = %d, want 1", result.SkippedEmptyConversations)
+	}
 
 	conversations, err := database.GetConversations()
 	if err != nil {
@@ -289,5 +333,97 @@ func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
 	}
 	if conversations[0].Title != "Com mensagens" {
 		t.Fatalf("unexpected imported conversation: %q", conversations[0].Title)
+	}
+}
+
+func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	now := time.Now().UTC()
+	existingConv := &database.Conversation{
+		Title:     "Duplicada",
+		Channel:   "telegram",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := database.DB().Create(existingConv).Error; err != nil {
+		t.Fatalf("falha ao criar conversa existente: %v", err)
+	}
+
+	credStore := newMemoryCredentialStore()
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credStore, true)
+	if err := credMgr.RegisterPatternWithContext(t.Context(), "api.openai.com", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "secret",
+	}); err != nil {
+		t.Fatalf("falha ao registrar credencial existente: %v", err)
+	}
+
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: now,
+		Options: ExportOptions{
+			IncludeCredentials: true,
+		},
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{Title: "Vazia", CreatedAt: now},
+				{
+					Title:     "Duplicada",
+					Channel:   "telegram",
+					CreatedAt: now,
+					Messages: []MessageExport{
+						{Role: "user", Content: "Oi", CreatedAt: now},
+					},
+				},
+				{
+					Title:     "Nova",
+					CreatedAt: now.Add(time.Second),
+					Messages: []MessageExport{
+						{Role: "user", Content: "Mensagem", CreatedAt: now.Add(time.Second)},
+					},
+				},
+			},
+		},
+	}
+
+	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
+		{Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+	})
+	if err != nil {
+		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
+	}
+	file.Resources.Credentials = blob
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("falha ao serializar export file: %v", err)
+	}
+
+	result, err := ImportConversations(string(raw), credMgr, "senha-teste")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+
+	if result.Imported != 1 {
+		t.Fatalf("Imported = %d, want 1", result.Imported)
+	}
+	if result.Skipped != 3 {
+		t.Fatalf("Skipped = %d, want 3", result.Skipped)
+	}
+	if result.Failed != 0 {
+		t.Fatalf("Failed = %d, want 0", result.Failed)
+	}
+	if result.SkippedEmptyConversations != 1 {
+		t.Fatalf("SkippedEmptyConversations = %d, want 1", result.SkippedEmptyConversations)
+	}
+	if result.SkippedConversationConflict != 1 {
+		t.Fatalf("SkippedConversationConflict = %d, want 1", result.SkippedConversationConflict)
+	}
+	if result.SkippedCredentialConflict != 1 {
+		t.Fatalf("SkippedCredentialConflict = %d, want 1", result.SkippedCredentialConflict)
+	}
+	if result.SkippedOther != 0 {
+		t.Fatalf("SkippedOther = %d, want 0", result.SkippedOther)
 	}
 }
