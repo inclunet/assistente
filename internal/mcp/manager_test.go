@@ -580,6 +580,54 @@ func TestRecoverServerBestEffort_RefreshesOAuthToken(t *testing.T) {
 	}
 }
 
+func TestRecoverServerBestEffort_RefreshesOAuthTokenWithoutExpiryWhenForced(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "recover-access-token",
+			"refresh_token": "recover-refresh-token",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+		})
+	}))
+	defer tokenServer.Close()
+
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug: "test",
+		Config: ServerConfig{
+			Enabled:        true,
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "test-client",
+			OAuth2TokenURL: tokenServer.URL,
+			OAuth2AuthURL:  "http://unused/auth",
+		},
+		Status: StatusDisconnected,
+	}
+
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      "old-access-token",
+		RefreshURL: "old-refresh-token",
+	})
+
+	result := m.RecoverServerBestEffort(context.Background(), "test")
+	if !result.Attempted {
+		t.Fatal("recovery deveria marcar Attempted=true")
+	}
+	if !result.Refreshed {
+		t.Fatal("recovery deveria renovar o token mesmo sem expiry persistido")
+	}
+
+	auth, err := m.credMgr.GetByPattern(userTokensPattern("test"))
+	if err != nil {
+		t.Fatalf("erro ao ler token: %v", err)
+	}
+	if auth.Token != "recover-access-token" {
+		t.Fatalf("token = %q, want %q", auth.Token, "recover-access-token")
+	}
+}
+
 func TestRecoverServerBestEffort_RejectsDisabledServer(t *testing.T) {
 	m := newTestManager()
 	m.servers["disabled"] = &ServerStatus{

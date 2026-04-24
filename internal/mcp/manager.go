@@ -1040,14 +1040,22 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 	}
 
 	auth, err := m.credMgr.GetByPattern(userTokensPattern(slug))
-	if err != nil || auth == nil || auth.ExpiresAt == 0 {
+	if err != nil || auth == nil {
 		return false, nil
 	}
 
-	expiresAt := time.Unix(auth.ExpiresAt, 0)
-	timeUntilExpiry := time.Until(expiresAt)
-	if !force && timeUntilExpiry > tokenRefreshThreshold {
-		return false, nil
+	timeUntilExpiry := time.Duration(0)
+	if auth.ExpiresAt != 0 {
+		expiresAt := time.Unix(auth.ExpiresAt, 0)
+		timeUntilExpiry = time.Until(expiresAt)
+	}
+	if !force {
+		if auth.ExpiresAt == 0 {
+			return false, nil
+		}
+		if timeUntilExpiry > tokenRefreshThreshold {
+			return false, nil
+		}
 	}
 
 	if force {
