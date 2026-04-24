@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,11 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/tools"
 )
+
+// errOutsideAllowedDirs é retornado quando um caminho está fora dos diretórios permitidos.
+// Distingue-se de erros de input inválido (workDir vazio, caminho malformado) para que
+// a exceção de open editors só se aplique a esse caso específico.
+var errOutsideAllowedDirs = errors.New("caminho fora dos diretórios permitidos")
 
 // expandTilde expande ~ e ~/ no início de um caminho para o diretório home do usuário.
 // No Windows, ~ não é expandido pelo sistema — esta função resolve isso de forma portável.
@@ -110,14 +116,14 @@ func validatePath(fullPath, workDir string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("caminho fora dos diretórios permitidos")
+	return errOutsideAllowedDirs
 }
 
 func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, policy Policy, operation string) error {
 	if err := validatePath(fullPath, workDir); err != nil {
-		// Exceção: arquivos abertos em abas de editor podem ser lidos/editados
-		// mesmo fora do workDir (ação explícita do usuário ao abrir no editor).
-		if !isOpenEditorAllowed(ctx, fullPath, operation) {
+		// Exceção de open editors: aplica-se APENAS quando o erro é "fora dos diretórios"
+		// (não para workDir inválido, caminho malformado, etc.) e somente para read/write/edit.
+		if !errors.Is(err, errOutsideAllowedDirs) || !isOpenEditorAllowed(ctx, fullPath, operation) {
 			return err
 		}
 	}
@@ -174,9 +180,9 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 
 	var allowed []string
 	switch operation {
-	case "read", "list", "search", "grep":
+	case "read", "list", "search", "grep", "copy":
 		allowed = ec.Filesystem.Read
-	case "write", "edit", "move":
+	case "write", "edit", "move", "delete", "mkdir":
 		allowed = ec.Filesystem.Write
 	default:
 		// Se a operação não é conhecida, não aplica allowlist.

@@ -67,11 +67,11 @@ func TestValidatePathWithPolicy_SensitiveFiles(t *testing.T) {
 	}
 
 	tests := []struct {
-		filename string
-		policy   Policy
-		op       string
+		filename  string
+		policy    Policy
+		op        string
 		shouldErr bool
-		desc     string
+		desc      string
 	}{
 		// Tool policy (BlockSensitive = true)
 		{".env", ToolPolicy(), "write", true, "ToolPolicy deve bloquear .env em write"},
@@ -128,10 +128,10 @@ func TestValidatePath_HomeDirectory(t *testing.T) {
 // TestValidatePath_InvalidInput testa validação de entrada
 func TestValidatePath_InvalidInput(t *testing.T) {
 	tests := []struct {
-		fullPath string
-		workDir  string
+		fullPath  string
+		workDir   string
 		shouldErr bool
-		desc     string
+		desc      string
 	}{
 		{"", "", true, "paths vazios"},
 		{"/some/path", "", true, "workDir vazio"},
@@ -151,8 +151,8 @@ func TestValidatePath_InvalidInput(t *testing.T) {
 // TestNormalizeForComparison testa normalização de paths
 func TestNormalizeForComparison(t *testing.T) {
 	tests := []struct {
-		input  string
-		desc   string
+		input string
+		desc  string
 	}{
 		{"/path/to/../file.txt", "deve remover .."},
 		{"/path/./to/file.txt", "deve remover ."},
@@ -175,10 +175,10 @@ func TestIsWithinRoot(t *testing.T) {
 	workDir := t.TempDir()
 
 	tests := []struct {
-		absPath   string
-		absRoot   string
-		expected  bool
-		desc      string
+		absPath  string
+		absRoot  string
+		expected bool
+		desc     string
 	}{
 		{filepath.Join(workDir, "file.txt"), workDir, true, "arquivo direto em root"},
 		{filepath.Join(workDir, "sub", "file.txt"), workDir, true, "arquivo em subdir"},
@@ -270,6 +270,9 @@ func TestValidatePathWithPolicy_OpenEditorPaths(t *testing.T) {
 		{"write_open_editor", outsideFile, "write", false},
 		{"edit_open_editor", outsideFile, "edit", false},
 		{"move_open_editor_blocked", outsideFile, "move", true},
+		{"delete_open_editor_blocked", outsideFile, "delete", true},
+		{"copy_open_editor_blocked", outsideFile, "copy", true},
+		{"mkdir_open_editor_blocked", outsideDir, "mkdir", true},
 		{"list_open_editor_blocked", outsideDir, "list", true},
 		{"search_open_editor_blocked", outsideDir, "search", true},
 		{"grep_open_editor_blocked", outsideDir, "grep", true},
@@ -324,5 +327,19 @@ func TestValidatePathWithPolicy_OpenEditorInsideWorkDirUnchanged(t *testing.T) {
 	// Sem open editor paths, arquivo dentro do workDir funciona normalmente
 	if err := validatePathWithPolicy(ctx, insideFile, workDir, ToolPolicy(), "read"); err != nil {
 		t.Errorf("arquivo dentro do workDir deveria ser permitido: %v", err)
+	}
+}
+
+// TestValidatePathWithPolicy_OpenEditorInvalidWorkDirNotBypassed testa que erros de workDir
+// inválido NÃO são bypassados pela exceção de open editor (sentinel error).
+func TestValidatePathWithPolicy_OpenEditorInvalidWorkDirNotBypassed(t *testing.T) {
+	someFile := filepath.Join(t.TempDir(), "file.txt")
+	_ = os.WriteFile(someFile, []byte("data"), 0644)
+
+	ctx := tools.WithOpenEditorPaths(context.Background(), []string{someFile})
+
+	// workDir vazio → erro de input, não "fora dos diretórios" → bypass não se aplica
+	if err := validatePathWithPolicy(ctx, someFile, "", ToolPolicy(), "read"); err == nil {
+		t.Error("workDir inválido deveria retornar erro mesmo com open editor paths")
 	}
 }

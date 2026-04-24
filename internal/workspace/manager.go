@@ -12,18 +12,18 @@ import (
 )
 
 const (
-	assistenteDir  = ".assistente"
-	workspaceFile  = "workspace.yaml"
-	indexFile      = "index.yaml"
-	workspacesDir  = "workspaces"
+	assistenteDir = ".assistente"
+	workspaceFile = "workspace.yaml"
+	indexFile     = "index.yaml"
+	workspacesDir = "workspaces"
 )
 
 // Manager gerencia workspaces: CRUD, persistência YAML e índice global.
 type Manager struct {
-	mu        sync.RWMutex
-	active    *Workspace
+	mu         sync.RWMutex
+	active     *Workspace
 	activePath string // diretório base do workspace ativo (contém .assistente/)
-	homeDir   string // ~/.assistente/
+	homeDir    string // ~/.assistente/
 }
 
 // NewManager cria um novo workspace manager.
@@ -819,6 +819,10 @@ func (m *Manager) OpenEditorFilePaths() []string {
 		}
 		fp, ok := tab.State["filePath"].(string)
 		if !ok || fp == "" {
+			continue
+		}
+		fp = filepath.Clean(fp)
+		if !filepath.IsAbs(fp) {
 			continue
 		}
 		paths = append(paths, fp)
