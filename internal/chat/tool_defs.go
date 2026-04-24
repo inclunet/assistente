@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"log"
 	"reflect"
 
@@ -24,10 +25,25 @@ func ChatProviderIsNil(c llm.ChatProvider) bool {
 	}
 }
 
+// NativeMCPManagerIsNil reports whether m is nil or holds a nil concrete pointer.
+func NativeMCPManagerIsNil(m NativeMCPManager) bool {
+	if m == nil {
+		return true
+	}
+	v := reflect.ValueOf(m)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
 // NativeMCPManager abstrai a consulta de servidores MCP elegíveis para passthrough nativo.
 // Implementado por *mcp.Manager; pode ser mockado em testes.
 type NativeMCPManager interface {
 	GetEligibleNativeMCPServers() []mcplib.NativeMCPServer
+	RecoverServerBestEffort(ctx context.Context, slug string) mcplib.RecoveryResult
 }
 
 // BuildLLMToolDefs constrói a lista de tool definitions para o LLM.
@@ -67,7 +83,7 @@ func ApplyNativeMCP(
 	enabledTools []string,
 	disableTools bool,
 ) (llm.ChatProvider, []llm.ToolDefinition) {
-	if disableTools || mcpMgr == nil || ChatProviderIsNil(streamer) {
+	if disableTools || NativeMCPManagerIsNil(mcpMgr) || ChatProviderIsNil(streamer) {
 		return streamer, toolDefs
 	}
 	if !streamer.SupportsNativeMCP() {
@@ -92,10 +108,16 @@ func ApplyNativeMCP(
 
 	for _, srv := range nativeServers {
 		cfg := llm.MCPServerConfig{
+			Slug:      srv.Slug,
 			Name:      srv.Name,
 			URL:       srv.URL,
 			AuthToken: srv.AuthToken,
 			ToolNames: srv.ToolNames,
+			Recover: func(slug string) func(context.Context) error {
+				return func(ctx context.Context) error {
+					return mcpMgr.RecoverServerBestEffort(ctx, slug).Err
+				}
+			}(srv.Slug),
 		}
 
 		if enabledSet != nil {
