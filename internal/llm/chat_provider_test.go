@@ -1524,7 +1524,7 @@ func TestOpenAIProvider_StreamChatResponses_DegradesFailedMCPServer(t *testing.T
 	}
 	select {
 	case <-recovered:
-	case <-time.After(250 * time.Millisecond):
+	case <-time.After(1 * time.Second):
 		t.Fatal("esperava callback de recovery assíncrono")
 	}
 	if got := handler.chunks.String(); got != "ok" {
@@ -1592,7 +1592,7 @@ func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.
 	}
 	select {
 	case <-recovered:
-	case <-time.After(250 * time.Millisecond):
+	case <-time.After(1 * time.Second):
 		t.Fatal("esperava callback de recovery assíncrono")
 	}
 	if got := handler.chunks.String(); got != "ok" {

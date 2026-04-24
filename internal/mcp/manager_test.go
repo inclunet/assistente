@@ -599,6 +599,11 @@ func TestRecoverServerBestEffort_RejectsDisabledServer(t *testing.T) {
 }
 
 func TestRecoverServerBestEffort_JoinsRefreshAndReconnectErrors(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadGateway)
+	}))
+	defer tokenServer.Close()
+
 	m := newTestManager()
 	m.servers["test"] = &ServerStatus{
 		Slug: "test",
@@ -606,7 +611,7 @@ func TestRecoverServerBestEffort_JoinsRefreshAndReconnectErrors(t *testing.T) {
 			Enabled:        true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
-			OAuth2TokenURL: "http://127.0.0.1:1",
+			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
 		Status: StatusDisconnected,
@@ -625,7 +630,7 @@ func TestRecoverServerBestEffort_JoinsRefreshAndReconnectErrors(t *testing.T) {
 		t.Fatal("esperava erro agregado de refresh + reconnect")
 	}
 	errText := result.Err.Error()
-	if !strings.Contains(errText, "No connection could be made") {
+	if !strings.Contains(errText, "oauth2:") {
 		t.Fatalf("erro deveria incluir falha de refresh, got %q", errText)
 	}
 	if !strings.Contains(errText, "transport desconhecido") {

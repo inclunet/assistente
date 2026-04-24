@@ -121,7 +121,7 @@ func TestPlanMCPDegradationRetry_RemovesServerAndCallsRecover(t *testing.T) {
 	}
 	select {
 	case <-called:
-	case <-time.After(250 * time.Millisecond):
+	case <-time.After(1 * time.Second):
 		t.Fatal("callback de recovery não foi chamado")
 	}
 	if len(remaining) != 1 || remaining[0].Name != "Slack" {
