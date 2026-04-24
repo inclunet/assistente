@@ -36,6 +36,8 @@ type mediaAttachment struct {
 	Data string
 }
 
+const maxAttachmentDecodedBytes = 8 << 20
+
 func RenderConversationExport(file *ExportFile, format string) ([]byte, error) {
 	switch format {
 	case FormatHTML:
@@ -356,7 +358,7 @@ func pdfText(text string, useUTF8 bool) string {
 func roleLabel(role string) string {
 	switch strings.ToLower(strings.TrimSpace(role)) {
 	case "user":
-		return "Usuario"
+		return "Usuário"
 	case "assistant":
 		return "Assistente"
 	case "tool":
@@ -513,6 +515,9 @@ func normalizeBase64Data(data string) (string, bool) {
 	if strings.TrimSpace(compact) == "" {
 		return "", false
 	}
+	if base64.StdEncoding.DecodedLen(len(compact)) > maxAttachmentDecodedBytes {
+		return "", false
+	}
 	decoded, err := base64.StdEncoding.DecodeString(compact)
 	if err != nil {
 		return "", false
@@ -545,15 +550,9 @@ func sanitizeMIMEType(mimeType string) string {
 		return normalized
 	case strings.HasPrefix(normalized, "video/"):
 		return normalized
-	case strings.HasPrefix(normalized, "text/"):
+	case isAllowedTextMIME(normalized):
 		return normalized
-	case strings.HasPrefix(normalized, "application/") && strings.Contains(normalized, "json"):
-		return normalized
-	case strings.HasPrefix(normalized, "application/") && strings.Contains(normalized, "xml"):
-		return normalized
-	case strings.HasPrefix(normalized, "application/") && strings.Contains(normalized, "yaml"):
-		return normalized
-	case strings.HasPrefix(normalized, "application/") && strings.Contains(normalized, "csv"):
+	case isAllowedApplicationMIME(normalized):
 		return normalized
 	}
 
@@ -568,6 +567,32 @@ func sanitizeMIMEType(mimeType string) string {
 func isAllowedImageMIME(mimeType string) bool {
 	switch mimeType {
 	case "image/png", "image/jpeg", "image/jpg", "image/gif":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedTextMIME(mimeType string) bool {
+	switch mimeType {
+	case "text/plain", "text/markdown", "text/csv", "text/xml", "text/yaml":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedApplicationMIME(mimeType string) bool {
+	switch mimeType {
+	case "application/json",
+		"application/ld+json",
+		"application/xml",
+		"application/yaml",
+		"application/x-yaml",
+		"application/csv",
+		"application/pdf",
+		"application/octet-stream",
+		"application/zip":
 		return true
 	default:
 		return false
@@ -620,11 +645,7 @@ func attachmentTextPreview(media mediaAttachment) string {
 }
 
 func isTextLikeMedia(mimeType string) bool {
-	return strings.HasPrefix(mimeType, "text/") ||
-		strings.Contains(mimeType, "json") ||
-		strings.Contains(mimeType, "xml") ||
-		strings.Contains(mimeType, "yaml") ||
-		strings.Contains(mimeType, "csv")
+	return isAllowedTextMIME(mimeType) || isAllowedApplicationMIME(mimeType)
 }
 
 func markdownToHTML(content string) string {

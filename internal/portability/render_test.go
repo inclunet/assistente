@@ -1,6 +1,7 @@
 package portability
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -116,6 +117,48 @@ func TestRenderConversationsHTMLSkipsInvalidBase64AndUnsafeSVG(t *testing.T) {
 	}
 	if !strings.Contains(html, "application/octet-stream") {
 		t.Fatalf("html should degrade unsafe svg mime to octet-stream: %s", html)
+	}
+}
+
+func TestRenderConversationsHTMLRejectsUnsafeTextLikeMime(t *testing.T) {
+	payload := base64.StdEncoding.EncodeToString([]byte("<html><body>unsafe</body></html>"))
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: time.Unix(100, 0),
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Conversa segura",
+					CreatedAt: time.Unix(90, 0),
+					Messages: []MessageExport{
+						{
+							Role:      "assistant",
+							Content:   "ok",
+							Media:     `[{"type":"text/html","name":"unsafe.html","data":"` + payload + `"}]`,
+							CreatedAt: time.Unix(91, 0),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	html, err := RenderConversationsHTML(file)
+	if err != nil {
+		t.Fatalf("RenderConversationsHTML() error = %v", err)
+	}
+	if strings.Contains(html, "data:text/html") {
+		t.Fatalf("html should not keep text/html attachments executable: %s", html)
+	}
+	if !strings.Contains(html, "application/octet-stream") {
+		t.Fatalf("html should degrade unsafe text/html mime to octet-stream: %s", html)
+	}
+}
+
+func TestNormalizeBase64DataRejectsOversizedPayload(t *testing.T) {
+	oversized := strings.Repeat("A", base64.StdEncoding.EncodedLen(maxAttachmentDecodedBytes+1))
+	if _, ok := normalizeBase64Data(oversized); ok {
+		t.Fatal("normalizeBase64Data() should reject oversized payloads")
 	}
 }
 

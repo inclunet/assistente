@@ -50,12 +50,12 @@ vi.mock('react-i18next', () => ({
         return fallbackOrOptions;
       }
       if (fallbackOrOptions && typeof fallbackOrOptions === 'object') {
-        const template = fallbackOrOptions.defaultValue ?? _key;
+        const template = String(fallbackOrOptions.defaultValue ?? _key);
         return Object.entries(fallbackOrOptions).reduce((result, [key, value]) => {
           if (key === 'defaultValue' || value === undefined) {
             return result;
           }
-          return result.replaceAll(`{{${key}}}`, String(value));
+          return result.split(`{{${key}}}`).join(String(value));
         }, template);
       }
       return _key;

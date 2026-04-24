@@ -158,6 +158,9 @@ export default function HistoryPage() {
   const [importPassword, setImportPassword] = useState('');
   const [importPasswordError, setImportPasswordError] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const importAnalysisInFlightRef = useRef(false);
+  const pendingImportAnalysisRef = useRef<{ jsonData: string; password: string } | null>(null);
+  const lastAnalyzedImportRef = useRef<string | null>(null);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
   const moveTabToWorkspace = useWorkspaceStore(state => state.moveTabToWorkspace);
@@ -407,6 +410,8 @@ export default function HistoryPage() {
     setLastImportResult(null);
     setImportPassword('');
     setImportPasswordError('');
+    pendingImportAnalysisRef.current = null;
+    lastAnalyzedImportRef.current = null;
   }, []);
 
   const analyzeImportPayload = useCallback(async (jsonData: string, credentialPassword: string) => {
@@ -420,6 +425,31 @@ export default function HistoryPage() {
     }
   }, []);
 
+  const runLatestImportAnalysis = useCallback(async () => {
+    if (importAnalysisInFlightRef.current) {
+      return;
+    }
+
+    const queuedRequest = pendingImportAnalysisRef.current;
+    if (!queuedRequest) {
+      return;
+    }
+
+    pendingImportAnalysisRef.current = null;
+    importAnalysisInFlightRef.current = true;
+    const queuedRequestKey = `${queuedRequest.jsonData}::${queuedRequest.password}`;
+
+    try {
+      await analyzeImportPayload(queuedRequest.jsonData, queuedRequest.password);
+      lastAnalyzedImportRef.current = queuedRequestKey;
+    } finally {
+      importAnalysisInFlightRef.current = false;
+      if (pendingImportAnalysisRef.current) {
+        void runLatestImportAnalysis();
+      }
+    }
+  }, [analyzeImportPayload]);
+
   const selectImportFile = useCallback(async () => {
     const selectedFile = await openImportFileDialog('.json,application/json');
     const preview = buildImportPreview(selectedFile.name, selectedFile.content);
@@ -429,6 +459,7 @@ export default function HistoryPage() {
     setImportPassword('');
     setImportPasswordError('');
     await analyzeImportPayload(selectedFile.content, '');
+    lastAnalyzedImportRef.current = `${selectedFile.content}::`;
     setIsImportModalOpen(true);
   }, [analyzeImportPayload]);
 
@@ -553,12 +584,24 @@ export default function HistoryPage() {
     if (!isImportModalOpen || !importPreview) return;
     if (!importPreview.requiresCredentialPassword) return;
 
-    const timer = window.setTimeout(() => {
-      void analyzeImportPayload(importPreview.jsonData, importPassword.trim());
-    }, 250);
+    const nextRequest = {
+      jsonData: importPreview.jsonData,
+      password: importPassword.trim(),
+    };
+    const requestKey = `${nextRequest.jsonData}::${nextRequest.password}`;
+    if (lastAnalyzedImportRef.current === requestKey) {
+      return;
+    }
 
-    return () => window.clearTimeout(timer);
-  }, [analyzeImportPayload, importPassword, importPreview, isImportModalOpen]);
+    const timer = window.setTimeout(() => {
+      pendingImportAnalysisRef.current = nextRequest;
+      void runLatestImportAnalysis();
+    }, 600);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [importPassword, importPreview, isImportModalOpen, runLatestImportAnalysis]);
 
   const handleDeleteAction = useCallback(() => {
     if (selectedIds.size > 0) {
