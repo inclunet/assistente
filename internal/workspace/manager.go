@@ -441,7 +441,12 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 		tab.ConversationID = int64(convIDFloat)
 	}
 	if state, ok := updates["state"].(map[string]any); ok {
-		tab.State = state
+		if tab.State == nil {
+			tab.State = make(map[string]any)
+		}
+		for k, v := range state {
+			tab.State[k] = v
+		}
 	}
 	if override, ok := updates["profile_override"].(map[string]any); ok {
 		tab.ProfileOverride = override

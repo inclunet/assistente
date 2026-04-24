@@ -283,9 +283,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Prompt Builder (montagem de system prompt, sem Wails)
 	a.promptBuilder = &prompt.Builder{
-		Skills:    a.skillMgr,
-		Workspace: a.workspaceMgr,
-		Tools:     a.toolRegistry,
+		Skills:          a.skillMgr,
+		Workspace:       a.workspaceMgr,
+		Tools:           a.toolRegistry,
+		OpenEditorPaths: a.workspaceMgr.OpenEditorFilePaths,
 	}
 
 	// Inicializa o Settings Service (config CRUD e reset de dados)

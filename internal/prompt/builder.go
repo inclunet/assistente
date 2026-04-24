@@ -50,6 +50,11 @@ type Builder struct {
 	Skills    SkillReader
 	Workspace WorkspaceReader
 	Tools     *tools.Registry
+
+	// OpenEditorPaths retorna os caminhos absolutos de arquivos abertos em abas de editor.
+	// Se definido e não-vazio, o Build() adiciona uma seção ao system prompt
+	// informando ao modelo que esses arquivos podem ser lidos/editados via tools.
+	OpenEditorPaths func() []string
 }
 
 // TemplateData é um alias para chat.TemplateData — a definição canônica vive em internal/chat
@@ -160,6 +165,24 @@ func (b *Builder) Build(
 	// 4. Resumo da conversa (rolling context)
 	if conversationSummary != "" {
 		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
+	}
+
+	// 5. Arquivos abertos em abas de editor (acessíveis via filesystem tools)
+	if b.OpenEditorPaths != nil {
+		if paths := b.OpenEditorPaths(); len(paths) > 0 {
+			var sb strings.Builder
+			sb.WriteString("\n\n<open_editor_files>\n")
+			sb.WriteString("The following files are currently open in the user's editor tabs. ")
+			sb.WriteString("You CAN read and edit these files using the filesystem tools (read_file, write_file, edit_file), ")
+			sb.WriteString("even if they are outside the working directory:\n")
+			for _, p := range paths {
+				sb.WriteString("- ")
+				sb.WriteString(p)
+				sb.WriteString("\n")
+			}
+			sb.WriteString("</open_editor_files>")
+			parts = append(parts, sb.String())
+		}
 	}
 
 	return chat.InjectSystemPrompt(messages, strings.Join(parts, ""))

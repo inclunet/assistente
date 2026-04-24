@@ -1926,7 +1926,7 @@ export default function EditorPage() {
         setDocMarkdown(id, content);
         useEditorStore.getState().setDocMode(id, preferredMode);
         if (wsActiveTab) {
-          void updateWsTab(wsActiveTab.id, { title });
+          void updateWsTab(wsActiveTab.id, { title, state: { ...wsActiveTab.state, filePath: path } });
         }
       } else {
         const tabId = await addWorkspaceTab('editor', title, { filePath: path });

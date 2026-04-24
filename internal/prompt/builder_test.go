@@ -112,6 +112,61 @@ func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 	}
 }
 
+func TestBuild_OpenEditorFiles_InjectsSection(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+		OpenEditorPaths: func() []string {
+			return []string{"/home/user/doc.txt", "/tmp/notes.md"}
+		},
+	}
+	msgs := []llm.Message{{Role: "user", Content: "leia o doc"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if !strings.Contains(sys, "<open_editor_files>") {
+		t.Error("Expected <open_editor_files> tag in system prompt")
+	}
+	if !strings.Contains(sys, "/home/user/doc.txt") {
+		t.Error("Expected file path in open_editor_files section")
+	}
+	if !strings.Contains(sys, "/tmp/notes.md") {
+		t.Error("Expected second file path in open_editor_files section")
+	}
+	if !strings.Contains(sys, "You CAN read and edit") {
+		t.Error("Expected instruction text about reading/editing")
+	}
+}
+
+func TestBuild_OpenEditorFiles_EmptyPaths_NoSection(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+		OpenEditorPaths: func() []string { return nil },
+	}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if strings.Contains(sys, "<open_editor_files>") {
+		t.Error("Should not include open_editor_files when paths are empty")
+	}
+}
+
+func TestBuild_OpenEditorFiles_NilFunc_NoSection(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+	}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if strings.Contains(sys, "<open_editor_files>") {
+		t.Error("Should not include open_editor_files when OpenEditorPaths is nil")
+	}
+}
+
 func TestBuildSkillsSection_NilSkillReader_ReturnsEmpty(t *testing.T) {
 	b := &prompt.Builder{}
 	if got := b.BuildSkillsSection(nil, false, nil); got != "" {
