@@ -82,6 +82,43 @@ func TestRenderConversationsHTMLSanitizesMarkdownAndAttachmentMIME(t *testing.T)
 	}
 }
 
+func TestRenderConversationsHTMLSkipsInvalidBase64AndUnsafeSVG(t *testing.T) {
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: time.Unix(100, 0),
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Conversa segura",
+					CreatedAt: time.Unix(90, 0),
+					Messages: []MessageExport{
+						{
+							Role:      "assistant",
+							Content:   "ok",
+							Media:     `[{"type":"image/svg+xml","name":"unsafe.svg","data":"PHN2Zz48L3N2Zz4="},{"type":"image/png","name":"broken.png","data":"not-base64"}]`,
+							CreatedAt: time.Unix(91, 0),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	html, err := RenderConversationsHTML(file)
+	if err != nil {
+		t.Fatalf("RenderConversationsHTML() error = %v", err)
+	}
+	if strings.Contains(html, "data:image/svg+xml") {
+		t.Fatalf("html should not render svg as image data uri: %s", html)
+	}
+	if strings.Contains(html, "not-base64") {
+		t.Fatalf("html should skip invalid base64 payloads: %s", html)
+	}
+	if !strings.Contains(html, "application/octet-stream") {
+		t.Fatalf("html should degrade unsafe svg mime to octet-stream: %s", html)
+	}
+}
+
 func TestRenderConversationsPDFReturnsBytes(t *testing.T) {
 	file := &ExportFile{
 		Version:    1,

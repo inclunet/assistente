@@ -314,8 +314,8 @@ func exportCredentials(credMgr *credentials.Manager) ([]CredentialExport, error)
 	return result, nil
 }
 
-func importCredentials(credMgr *credentials.Manager, raw any, credentialPassword string, skipPatterns map[string]struct{}) (int, error) {
-	creds, err := decodeCredentialExports(raw, credentialPassword)
+func importCredentials(credMgr *credentials.Manager, blob *CredentialCipher, credentialPassword string, skipPatterns map[string]struct{}) (int, error) {
+	creds, err := decodeCredentialExports(blob, credentialPassword)
 	if err != nil {
 		return 0, err
 	}
@@ -435,19 +435,12 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 	return analysis, nil
 }
 
-func decodeCredentialExports(raw any, credentialPassword string) ([]CredentialExport, error) {
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return nil, err
+func decodeCredentialExports(blob *CredentialCipher, credentialPassword string) ([]CredentialExport, error) {
+	if blob == nil {
+		return nil, fmt.Errorf("bloco de credenciais ausente")
 	}
-
-	var blob CredentialCipher
-	if err := json.Unmarshal(data, &blob); err != nil {
-		return nil, err
-	}
-
 	var creds []CredentialExport
-	if err := DecryptCredentialsPayload(credentialPassword, &blob, &creds); err != nil {
+	if err := DecryptCredentialsPayload(credentialPassword, blob, &creds); err != nil {
 		return nil, fmt.Errorf("erro ao descriptografar credenciais do arquivo: %w", err)
 	}
 	return creds, nil

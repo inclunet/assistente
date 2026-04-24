@@ -64,7 +64,7 @@ type CredentialExport struct {
 
 type ExportResources struct {
 	Conversations []ConversationExport `json:"conversations,omitempty"`
-	Credentials   any                  `json:"credentials,omitempty"`
+	Credentials   *CredentialCipher    `json:"credentials,omitempty"`
 }
 
 type ExportFile struct {

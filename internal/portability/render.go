@@ -47,7 +47,7 @@ func RenderConversationExport(file *ExportFile, format string) ([]byte, error) {
 	case FormatPDF:
 		return RenderConversationsPDF(file)
 	default:
-		return nil, fmt.Errorf("formato de exportacao nao suportado: %s", format)
+		return nil, fmt.Errorf("formato de exportação não suportado: %s", format)
 	}
 }
 
@@ -57,7 +57,7 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Exportacao de conversas</title>
+  <title>Exportação de conversas</title>
   <style>
     :root { color-scheme: light; }
     body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f5f7fb; color: #1f2937; }
@@ -103,7 +103,7 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
 <body>
   <div class="page">
     <section class="hero">
-      <h1>Exportacao de conversas</h1>
+      <h1>Exportação de conversas</h1>
       <p>Gerado em {{ formatTime .ExportedAt }}</p>
       <p>{{ len .Resources.Conversations }} conversa(s) exportada(s)</p>
       <p>Formato canônico: JSON version {{ .Version }}</p>
@@ -184,13 +184,13 @@ func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetMargins(12, 12, 12)
 	pdf.SetAutoPageBreak(true, 12)
-	pdf.SetTitle("Exportacao de conversas", false)
+	pdf.SetTitle("Exportação de conversas", false)
 	pdf.SetAuthor("Assistente", false)
 
 	useUTF8 := configurePDFFont(pdf)
 
 	pdf.AddPage()
-	writePDFTitle(pdf, useUTF8, "Exportacao de conversas")
+	writePDFTitle(pdf, useUTF8, "Exportação de conversas")
 	writePDFMeta(pdf, useUTF8, fmt.Sprintf("Gerado em %s", formatConversationTime(file.ExportedAt)))
 	writePDFMeta(pdf, useUTF8, fmt.Sprintf("%d conversa(s)", len(file.Resources.Conversations)))
 	pdf.Ln(4)
@@ -232,7 +232,7 @@ func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
 				writePDFIndentedBlock(pdf, useUTF8, "Tool calls", msg.ToolCalls)
 			}
 			if err := writePDFMediaAttachments(pdf, useUTF8, msg); err != nil {
-				writePDFMeta(pdf, useUTF8, "Falha ao renderizar uma ou mais midias anexadas: "+err.Error())
+				writePDFMeta(pdf, useUTF8, "Falha ao renderizar uma ou mais mídias anexadas: "+err.Error())
 			}
 			if msg.AudioMimeType != "" || msg.ToolCallID != "" {
 				flags := make([]string, 0, 3)
@@ -388,7 +388,7 @@ func messageClass(role string) string {
 
 func conversationTitle(title string) string {
 	if strings.TrimSpace(title) == "" {
-		return "Conversa sem titulo"
+		return "Conversa sem título"
 	}
 	return title
 }
@@ -417,23 +417,30 @@ func renderMessageMediaTemplate(msg MessageExport) template.HTML {
 		parts = append(parts, renderAttachmentHTML(media))
 	}
 	if strings.TrimSpace(msg.Audio) != "" && strings.TrimSpace(msg.AudioMimeType) != "" {
+		normalizedAudio, ok := normalizeBase64Data(msg.Audio)
+		if !ok {
+			return template.HTML(strings.Join(parts, ""))
+		}
 		parts = append(parts, renderAttachmentHTML(mediaAttachment{
-			Name: "Audio da mensagem",
+			Name: "Áudio da mensagem",
 			MIME: sanitizeMIMEType(msg.AudioMimeType),
-			Data: msg.Audio,
+			Data: normalizedAudio,
 		}))
 	}
 	return template.HTML(strings.Join(parts, ""))
 }
 
 func hasRichMedia(msg MessageExport) bool {
-	return len(parseMediaAttachments(msg.Media)) > 0 || (strings.TrimSpace(msg.Audio) != "" && strings.TrimSpace(msg.AudioMimeType) != "")
+	return strings.TrimSpace(msg.Media) != "" || (strings.TrimSpace(msg.Audio) != "" && strings.TrimSpace(msg.AudioMimeType) != "")
 }
 
 func renderAttachmentHTML(media mediaAttachment) string {
 	name := template.HTMLEscapeString(fallbackAttachmentName(media))
 	dataURI := buildDataURI(media.MIME, media.Data)
 	displayMIME := template.HTMLEscapeString(sanitizeMIMEType(media.MIME))
+	if dataURI == "" {
+		return `<div class="message__media-card"><strong>` + name + `</strong><div>` + displayMIME + `</div><div>Anexo inválido</div></div>`
+	}
 	switch mediaKind(media.MIME) {
 	case "image":
 		return `<div class="message__media-card"><strong>` + name + `</strong><img src="` + dataURI + `" alt="` + name + `"></div>`
@@ -473,17 +480,44 @@ func parseMediaAttachments(mediaJSON string) []mediaAttachment {
 		if strings.TrimSpace(mime) == "" || strings.TrimSpace(data) == "" {
 			continue
 		}
+		normalizedData, ok := normalizeBase64Data(data)
+		if !ok {
+			continue
+		}
 		result = append(result, mediaAttachment{
 			Name: name,
 			MIME: sanitizeMIMEType(mime),
-			Data: data,
+			Data: normalizedData,
 		})
 	}
 	return result
 }
 
 func buildDataURI(mimeType, data string) string {
-	return "data:" + sanitizeMIMEType(mimeType) + ";base64," + data
+	normalizedData, ok := normalizeBase64Data(data)
+	if !ok {
+		return ""
+	}
+	return "data:" + sanitizeMIMEType(mimeType) + ";base64," + normalizedData
+}
+
+func normalizeBase64Data(data string) (string, bool) {
+	compact := strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\n', '\r', '\t':
+			return -1
+		default:
+			return r
+		}
+	}, data)
+	if strings.TrimSpace(compact) == "" {
+		return "", false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(compact)
+	if err != nil {
+		return "", false
+	}
+	return base64.StdEncoding.EncodeToString(decoded), true
 }
 
 func sanitizeMIMEType(mimeType string) string {
@@ -505,7 +539,7 @@ func sanitizeMIMEType(mimeType string) string {
 	}
 
 	switch {
-	case strings.HasPrefix(normalized, "image/"):
+	case isAllowedImageMIME(normalized):
 		return normalized
 	case strings.HasPrefix(normalized, "audio/"):
 		return normalized
@@ -513,13 +547,13 @@ func sanitizeMIMEType(mimeType string) string {
 		return normalized
 	case strings.HasPrefix(normalized, "text/"):
 		return normalized
-	case strings.Contains(normalized, "json"):
+	case strings.HasPrefix(normalized, "application/") && strings.Contains(normalized, "json"):
 		return normalized
-	case strings.Contains(normalized, "xml"):
+	case strings.HasPrefix(normalized, "application/") && strings.Contains(normalized, "xml"):
 		return normalized
-	case strings.Contains(normalized, "yaml"):
+	case strings.HasPrefix(normalized, "application/") && strings.Contains(normalized, "yaml"):
 		return normalized
-	case strings.Contains(normalized, "csv"):
+	case strings.HasPrefix(normalized, "application/") && strings.Contains(normalized, "csv"):
 		return normalized
 	}
 
@@ -531,6 +565,15 @@ func sanitizeMIMEType(mimeType string) string {
 	}
 }
 
+func isAllowedImageMIME(mimeType string) bool {
+	switch mimeType {
+	case "image/png", "image/jpeg", "image/jpg", "image/gif":
+		return true
+	default:
+		return false
+	}
+}
+
 func fallbackAttachmentName(media mediaAttachment) string {
 	if strings.TrimSpace(media.Name) != "" {
 		return media.Name
@@ -539,9 +582,9 @@ func fallbackAttachmentName(media mediaAttachment) string {
 	case "image":
 		return "Imagem anexada"
 	case "audio":
-		return "Audio anexado"
+		return "Áudio anexado"
 	case "video":
-		return "Video anexado"
+		return "Vídeo anexado"
 	default:
 		return "Arquivo anexado"
 	}
@@ -882,7 +925,7 @@ func writePDFMediaAttachments(pdf *fpdf.Fpdf, useUTF8 bool, msg MessageExport) e
 	}
 	if strings.TrimSpace(msg.Audio) != "" && strings.TrimSpace(msg.AudioMimeType) != "" {
 		if err := writePDFAttachment(pdf, useUTF8, mediaAttachment{
-			Name: "Audio da mensagem",
+			Name: "Áudio da mensagem",
 			MIME: sanitizeMIMEType(msg.AudioMimeType),
 			Data: msg.Audio,
 		}, "audio-message"); err != nil {
@@ -930,7 +973,7 @@ func writePDFImageAttachment(pdf *fpdf.Fpdf, media mediaAttachment, key string) 
 
 	info := pdf.RegisterImageOptionsReader(key+"."+format, fpdf.ImageOptions{ImageType: format}, bytes.NewReader(decoded))
 	if info == nil {
-		return fmt.Errorf("nao foi possivel registrar imagem no PDF")
+		return fmt.Errorf("não foi possível registrar imagem no PDF")
 	}
 
 	writePDFMeta(pdf, true, fallbackAttachmentName(media))
