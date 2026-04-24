@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"assistente/internal/tools"
 )
 
 // TestValidatePath_PathTraversal testa proteção contra path traversal attacks
@@ -237,4 +239,90 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestValidatePathWithPolicy_OpenEditorPaths testa que arquivos abertos em abas de editor
+// podem ser lidos/editados mesmo fora do workDir.
+func TestValidatePathWithPolicy_OpenEditorPaths(t *testing.T) {
+	workDir := t.TempDir()
+	outsideDir := t.TempDir() // diretório fora do workDir
+
+	// Cria arquivo fora do workDir
+	outsideFile := filepath.Join(outsideDir, "doc.txt")
+	_ = os.WriteFile(outsideFile, []byte("conteúdo"), 0644)
+
+	// Confirma que sem open editor paths, o arquivo é bloqueado
+	ctx := context.Background()
+	if err := validatePathWithPolicy(ctx, outsideFile, workDir, ToolPolicy(), "read"); err == nil {
+		t.Fatal("arquivo fora do workDir deveria ser bloqueado sem open editor paths")
+	}
+
+	// Injeta o arquivo como open editor path
+	ctxWithEditors := tools.WithOpenEditorPaths(ctx, []string{outsideFile})
+
+	tests := []struct {
+		name      string
+		path      string
+		op        string
+		shouldErr bool
+	}{
+		{"read_open_editor", outsideFile, "read", false},
+		{"write_open_editor", outsideFile, "write", false},
+		{"edit_open_editor", outsideFile, "edit", false},
+		{"move_open_editor_blocked", outsideFile, "move", true},
+		{"list_open_editor_blocked", outsideDir, "list", true},
+		{"search_open_editor_blocked", outsideDir, "search", true},
+		{"grep_open_editor_blocked", outsideDir, "grep", true},
+		{"other_file_still_blocked", filepath.Join(outsideDir, "other.txt"), "read", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePathWithPolicy(ctxWithEditors, tt.path, workDir, ToolPolicy(), tt.op)
+			if tt.shouldErr && err == nil {
+				t.Errorf("esperado erro para %s com op=%s", tt.path, tt.op)
+			}
+			if !tt.shouldErr && err != nil {
+				t.Errorf("esperado sucesso para %s com op=%s, got: %v", tt.path, tt.op, err)
+			}
+		})
+	}
+}
+
+// TestValidatePathWithPolicy_OpenEditorSensitiveStillBlocked testa que a exceção de open editor
+// NÃO permite acessar arquivos sensíveis via ToolPolicy.
+func TestValidatePathWithPolicy_OpenEditorSensitiveStillBlocked(t *testing.T) {
+	workDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	envFile := filepath.Join(outsideDir, ".env")
+	_ = os.WriteFile(envFile, []byte("SECRET=value"), 0600)
+
+	ctx := tools.WithOpenEditorPaths(context.Background(), []string{envFile})
+
+	// Mesmo sendo open editor file, ToolPolicy bloqueia arquivos sensíveis
+	if err := validatePathWithPolicy(ctx, envFile, workDir, ToolPolicy(), "read"); err == nil {
+		t.Error("arquivo sensível deveria ser bloqueado mesmo como open editor path com ToolPolicy")
+	}
+
+	// EditorPolicy permite
+	if err := validatePathWithPolicy(ctx, envFile, workDir, EditorPolicy(), "read"); err != nil {
+		t.Errorf("EditorPolicy deveria permitir open editor file .env: %v", err)
+	}
+}
+
+// TestValidatePathWithPolicy_OpenEditorInsideWorkDirUnchanged testa que arquivos dentro do
+// workDir continuam funcionando normalmente (regressão).
+func TestValidatePathWithPolicy_OpenEditorInsideWorkDirUnchanged(t *testing.T) {
+	workDir := t.TempDir()
+
+	insideFile := filepath.Join(workDir, "inside.txt")
+	_ = os.WriteFile(insideFile, []byte("ok"), 0644)
+
+	ctx := context.Background()
+
+	// Sem open editor paths, arquivo dentro do workDir funciona normalmente
+	if err := validatePathWithPolicy(ctx, insideFile, workDir, ToolPolicy(), "read"); err != nil {
+		t.Errorf("arquivo dentro do workDir deveria ser permitido: %v", err)
+	}
 }

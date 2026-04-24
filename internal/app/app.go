@@ -378,6 +378,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		MsgGateway:       a.msgGateway,
 		ResponseNotifier: a.responseNotifier,
 		OnSpeechRequest:  speechDispatcher,
+		OpenEditorPaths:  a.workspaceMgr.OpenEditorFilePaths,
 	})
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,

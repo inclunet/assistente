@@ -115,7 +115,11 @@ func validatePath(fullPath, workDir string) error {
 
 func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, policy Policy, operation string) error {
 	if err := validatePath(fullPath, workDir); err != nil {
-		return err
+		// Exceção: arquivos abertos em abas de editor podem ser lidos/editados
+		// mesmo fora do workDir (ação explícita do usuário ao abrir no editor).
+		if !isOpenEditorAllowed(ctx, fullPath, operation) {
+			return err
+		}
 	}
 	if err := validateSkillFilesystemAllowlist(ctx, fullPath, workDir, operation); err != nil {
 		return err
@@ -135,6 +139,18 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 		}
 	}
 	return nil
+}
+
+// isOpenEditorAllowed verifica se o arquivo está aberto em uma aba de editor e se a operação é permitida.
+// Apenas operações de leitura e escrita/edição são permitidas — operações estruturais (list, search,
+// grep, move, delete) não são liberadas apenas por ter o arquivo aberto.
+func isOpenEditorAllowed(ctx context.Context, fullPath, operation string) bool {
+	switch operation {
+	case "read", "write", "edit":
+		return tools.IsOpenEditorFile(ctx, fullPath)
+	default:
+		return false
+	}
 }
 
 func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, operation string) error {

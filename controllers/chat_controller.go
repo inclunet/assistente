@@ -32,6 +32,7 @@ type ChatControllerConfig struct {
 	MsgGateway       *messaging.Gateway
 	ResponseNotifier *messaging.ResponseNotifier
 	OnSpeechRequest  func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
+	OpenEditorPaths  func() []string
 }
 
 // ChatController é o adapter primário (Inbound) para o pipeline de envio de mensagens.
@@ -64,6 +65,7 @@ func NewChatController(cfg ChatControllerConfig) *ChatController {
 			SettingsSvc:     cfg.SettingsSvc,
 			Emitter:         cfg.Emitter,
 			OnSpeechRequest: cfg.OnSpeechRequest,
+			OpenEditorPaths: cfg.OpenEditorPaths,
 		}),
 	}
 }

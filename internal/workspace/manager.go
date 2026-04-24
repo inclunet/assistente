@@ -801,6 +801,31 @@ func (m *Manager) touchIndex(ws *Workspace, basePath string) {
 	_ = m.saveIndex(idx)
 }
 
+// OpenEditorFilePaths retorna os caminhos absolutos de todos os arquivos abertos em abas de editor
+// no workspace ativo. Usado para permitir que filesystem tools acessem esses arquivos
+// mesmo que estejam fora do workDir.
+func (m *Manager) OpenEditorFilePaths() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.active == nil {
+		return nil
+	}
+
+	var paths []string
+	for _, tab := range m.active.Tabs.Items {
+		if tab.Type != TabTypeEditor {
+			continue
+		}
+		fp, ok := tab.State["filePath"].(string)
+		if !ok || fp == "" {
+			continue
+		}
+		paths = append(paths, fp)
+	}
+	return paths
+}
+
 func generateID() string {
 	// ID curto baseado em timestamp + random suffix
 	return fmt.Sprintf("%x", time.Now().UnixNano()&0xFFFFFFFFFF)
