@@ -303,6 +303,32 @@ func TestAnalyzeImportDataWarnsAboutEmptyConversations(t *testing.T) {
 	}
 }
 
+func TestAnalyzeImportDataReportsUnsupportedResourceTypes(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	raw := `{
+		"version": 1,
+		"resources": {
+			"conversations": [],
+			"profiles": [{"slug":"perfil-demo"}],
+			"taskLists": [{"title":"Sprint 42"}],
+			"credentials": null
+		}
+	}`
+
+	analysis, err := AnalyzeImportData(raw, nil, "")
+	if err != nil {
+		t.Fatalf("AnalyzeImportData() error = %v", err)
+	}
+
+	if len(analysis.UnsupportedResourceTypes) != 2 {
+		t.Fatalf("unsupported resource types = %v, want 2 entries", analysis.UnsupportedResourceTypes)
+	}
+	if analysis.UnsupportedResourceTypes[0] != "profiles" || analysis.UnsupportedResourceTypes[1] != "taskLists" {
+		t.Fatalf("unexpected unsupported resource types: %v", analysis.UnsupportedResourceTypes)
+	}
+}
+
 func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
 	setupPortabilityTestDB(t)
 

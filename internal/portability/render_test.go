@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"codeberg.org/go-pdf/fpdf"
 )
 
 func TestRenderConversationsHTMLIncludesConversationContent(t *testing.T) {
@@ -20,10 +22,12 @@ func TestRenderConversationsHTMLIncludesConversationContent(t *testing.T) {
 					CreatedAt: time.Unix(90, 0),
 					Messages: []MessageExport{
 						{
-							Role:      "user",
-							Content:   "# Titulo\n\nTexto com **negrito**.",
-							Media:     `[{"type":"image/png","name":"captura.png","data":"` + tinyPNG + `"}]`,
-							CreatedAt: time.Unix(91, 0),
+							Role:          "user",
+							Content:       "# Titulo\n\nTexto com **negrito**.",
+							Media:         `[{"type":"image/png","name":"captura.png","data":"` + tinyPNG + `"}]`,
+							Audio:         tinyPNG,
+							AudioMimeType: "audio/mpeg",
+							CreatedAt:     time.Unix(91, 0),
 						},
 					},
 				},
@@ -43,6 +47,18 @@ func TestRenderConversationsHTMLIncludesConversationContent(t *testing.T) {
 	}
 	if !strings.Contains(html, "<img src=\"data:image/png;base64,") {
 		t.Fatalf("html should embed attached image: %s", html)
+	}
+	if !strings.Contains(html, "mídia anexada") {
+		t.Fatalf("html should render accented media label: %s", html)
+	}
+	if !strings.Contains(html, "áudio: audio/mpeg") {
+		t.Fatalf("html should render accented audio label: %s", html)
+	}
+	if !strings.Contains(html, "var(--export-bg-base") {
+		t.Fatalf("html should use export css variables: %s", html)
+	}
+	if strings.Contains(html, "#f5f7fb") || strings.Contains(html, "rgba(") {
+		t.Fatalf("html should not include hardcoded export colors: %s", html)
 	}
 }
 
@@ -188,5 +204,21 @@ func TestRenderConversationsPDFReturnsBytes(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(pdfBytes), "%PDF") {
 		t.Fatalf("pdf header missing, got %q", string(pdfBytes[:4]))
+	}
+}
+
+func TestWritePDFMediaAttachmentsRejectsInvalidAudioBase64(t *testing.T) {
+	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.AddPage()
+
+	err := writePDFMediaAttachments(pdf, false, MessageExport{
+		Audio:         "not-base64",
+		AudioMimeType: "audio/mpeg",
+	})
+	if err == nil {
+		t.Fatal("writePDFMediaAttachments() error = nil, want invalid audio error")
+	}
+	if !strings.Contains(err.Error(), "áudio da mensagem inválido") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

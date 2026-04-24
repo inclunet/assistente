@@ -61,45 +61,69 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Exportação de conversas</title>
   <style>
-    :root { color-scheme: light; }
-    body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f5f7fb; color: #1f2937; }
+    :root {
+      color-scheme: light;
+      --export-bg-base: var(--bg-base, Canvas);
+      --export-bg-surface: var(--bg-surface, Canvas);
+      --export-bg-elevated: var(--bg-elevated, transparent);
+      --export-bg-hover: var(--bg-hover, transparent);
+      --export-text-primary: var(--text-primary, CanvasText);
+      --export-text-secondary: var(--text-secondary, currentColor);
+      --export-text-muted: var(--text-muted, currentColor);
+      --export-text-inverse: var(--text-inverse, Canvas);
+      --export-text-code: var(--text-code, currentColor);
+      --export-border-subtle: var(--border-subtle, currentColor);
+      --export-border-default: var(--border-default, currentColor);
+      --export-border-strong: var(--border-strong, currentColor);
+      --export-accent: var(--accent, currentColor);
+      --export-accent-dim: var(--accent-dim, transparent);
+      --export-color-success: var(--color-success, currentColor);
+      --export-color-success-dim: var(--color-success-dim, transparent);
+      --export-color-warning: var(--color-warning, currentColor);
+      --export-color-warning-dim: var(--color-warning-dim, transparent);
+      --export-color-info: var(--color-info, currentColor);
+      --export-color-info-dim: var(--color-info-dim, transparent);
+      --export-radius-card: var(--radius-xl, 12px);
+      --export-radius-inner: var(--radius-lg, 8px);
+    }
+    body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: var(--export-bg-base); color: var(--export-text-primary); }
     .page { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
-    .hero { background: #ffffff; border: 1px solid #d8dee9; border-radius: 16px; padding: 24px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); }
+    .hero { background: var(--export-bg-surface); border: 1px solid var(--export-border-default); border-radius: 16px; padding: 24px; box-shadow: none; }
     .hero h1 { margin: 0 0 8px; font-size: 28px; }
-    .hero p { margin: 4px 0; color: #4b5563; }
-    .conversation { margin-top: 24px; background: #ffffff; border: 1px solid #d8dee9; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06); }
-    .conversation__header { padding: 20px 24px; border-bottom: 1px solid #e5e7eb; background: #f8fafc; }
+    .hero p { margin: 4px 0; color: var(--export-text-secondary); }
+    .conversation { margin-top: 24px; background: var(--export-bg-surface); border: 1px solid var(--export-border-default); border-radius: 16px; overflow: hidden; box-shadow: none; }
+    .conversation__header { padding: 20px 24px; border-bottom: 1px solid var(--export-border-subtle); background: var(--export-bg-elevated); }
     .conversation__title { margin: 0 0 8px; font-size: 22px; }
-    .conversation__meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: #475569; }
-    .conversation__summary { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: #f8fafc; }
+    .conversation__meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--export-text-muted); }
+    .conversation__summary { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--export-bg-elevated); }
     .messages { padding: 20px; display: grid; gap: 12px; }
-    .message { border-radius: 14px; padding: 14px 16px; border: 1px solid #e5e7eb; background: #ffffff; }
-    .message--user { border-color: #bfdbfe; background: #eff6ff; }
-    .message--assistant { border-color: #d1fae5; background: #ecfdf5; }
-    .message--tool { border-color: #fde68a; background: #fffbeb; }
-    .message--system { border-color: #e9d5ff; background: #faf5ff; }
-    .message__meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; font-size: 12px; color: #475569; }
+    .message { border-radius: 14px; padding: 14px 16px; border: 1px solid var(--export-border-subtle); background: var(--export-bg-surface); }
+    .message--user { border-color: var(--export-accent); background: var(--export-accent-dim); }
+    .message--assistant { border-color: var(--export-color-success); background: var(--export-color-success-dim); }
+    .message--tool { border-color: var(--export-color-warning); background: var(--export-color-warning-dim); }
+    .message--system { border-color: var(--export-color-info); background: var(--export-color-info-dim); }
+    .message__meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; font-size: 12px; color: var(--export-text-muted); }
     .message__role { font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
     .message__content, .message__reasoning, .message__details { word-break: break-word; line-height: 1.5; }
-    .message__reasoning { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #cbd5e1; color: #334155; }
+    .message__reasoning { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--export-border-strong); color: var(--export-text-secondary); }
     .message__flags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
-    .message__flag { padding: 4px 8px; border-radius: 999px; background: #e2e8f0; color: #334155; font-size: 12px; }
-    .message__details { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: #0f172a; color: #e2e8f0; font-family: ui-monospace, monospace; font-size: 12px; }
+    .message__flag { padding: 4px 8px; border-radius: 999px; background: var(--export-bg-hover); color: var(--export-text-secondary); font-size: 12px; border: 1px solid var(--export-border-subtle); }
+    .message__details { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--export-bg-elevated); color: var(--export-text-code); font-family: ui-monospace, monospace; font-size: 12px; border: 1px solid var(--export-border-subtle); }
     .message__content p, .message__reasoning p, .conversation__summary p { margin: 0 0 10px; }
     .message__content p:last-child, .message__reasoning p:last-child, .conversation__summary p:last-child { margin-bottom: 0; }
-    .message__content pre, .message__reasoning pre, .conversation__summary pre { margin: 10px 0 0; overflow-x: auto; padding: 12px; border-radius: 10px; background: #0f172a; color: #e2e8f0; }
+    .message__content pre, .message__reasoning pre, .conversation__summary pre { margin: 10px 0 0; overflow-x: auto; padding: 12px; border-radius: 10px; background: var(--export-bg-elevated); color: var(--export-text-code); border: 1px solid var(--export-border-subtle); }
     .message__content code, .message__reasoning code, .conversation__summary code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-    .message__content blockquote, .message__reasoning blockquote, .conversation__summary blockquote { margin: 10px 0 0; padding-left: 12px; border-left: 4px solid #94a3b8; color: #475569; }
+    .message__content blockquote, .message__reasoning blockquote, .conversation__summary blockquote { margin: 10px 0 0; padding-left: 12px; border-left: 4px solid var(--export-border-strong); color: var(--export-text-muted); }
     .message__content ul, .message__content ol, .message__reasoning ul, .message__reasoning ol, .conversation__summary ul, .conversation__summary ol { margin: 10px 0 0 20px; }
     .message__content table, .message__reasoning table, .conversation__summary table { margin-top: 10px; width: 100%; border-collapse: collapse; }
-    .message__content th, .message__content td, .message__reasoning th, .message__reasoning td, .conversation__summary th, .conversation__summary td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+    .message__content th, .message__content td, .message__reasoning th, .message__reasoning td, .conversation__summary th, .conversation__summary td { border: 1px solid var(--export-border-strong); padding: 6px 8px; text-align: left; }
     .message__content img, .message__reasoning img, .conversation__summary img { max-width: 100%; border-radius: 12px; display: block; margin-top: 10px; }
     .message__media { margin-top: 12px; display: grid; gap: 10px; }
-    .message__media-card { padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.72); border: 1px solid #cbd5e1; }
+    .message__media-card { padding: 12px; border-radius: 12px; background: var(--export-bg-hover); border: 1px solid var(--export-border-strong); }
     .message__media-card strong { display: block; margin-bottom: 6px; }
     .message__media-card img, .message__media-card video, .message__media-card audio { width: 100%; max-width: 100%; border-radius: 10px; }
     .message__media-card pre { margin: 8px 0 0; white-space: pre-wrap; max-height: 240px; overflow: auto; }
-    .message__media-card a { color: #1d4ed8; }
+    .message__media-card a { color: var(--export-accent); }
   </style>
 </head>
 <body>
@@ -141,8 +165,8 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
               {{ end }}
               {{ if or .Media .AudioMimeType .ToolCalls .ToolCallID }}
                 <div class="message__flags">
-                  {{ if .Media }}<span class="message__flag">midia anexada</span>{{ end }}
-                  {{ if .AudioMimeType }}<span class="message__flag">audio: {{ .AudioMimeType }}</span>{{ end }}
+                  {{ if .Media }}<span class="message__flag">mídia anexada</span>{{ end }}
+                  {{ if .AudioMimeType }}<span class="message__flag">áudio: {{ .AudioMimeType }}</span>{{ end }}
                   {{ if .ToolCallID }}<span class="message__flag">toolCallId: {{ .ToolCallID }}</span>{{ end }}
                 </div>
               {{ end }}
@@ -945,10 +969,13 @@ func writePDFMediaAttachments(pdf *fpdf.Fpdf, useUTF8 bool, msg MessageExport) e
 		}
 	}
 	if strings.TrimSpace(msg.Audio) != "" && strings.TrimSpace(msg.AudioMimeType) != "" {
-		if err := writePDFAttachment(pdf, useUTF8, mediaAttachment{
+		normalizedAudio, ok := normalizeBase64Data(msg.Audio)
+		if !ok {
+			errs = append(errs, "áudio da mensagem inválido ou acima do limite de exportação")
+		} else if err := writePDFAttachment(pdf, useUTF8, mediaAttachment{
 			Name: "Áudio da mensagem",
 			MIME: sanitizeMIMEType(msg.AudioMimeType),
-			Data: msg.Audio,
+			Data: normalizedAudio,
 		}, "audio-message"); err != nil {
 			errs = append(errs, err.Error())
 		}

@@ -3,10 +3,13 @@
 ## Dependências
 
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Esta AEP foi desenhada para funcionar em conjunto com a AEP-0046. O export não inclui IDs internos (uint ou UUID) justamente para que arquivos exportados antes da migração de IDs possam ser reimportados após a migração sem conflito. Na importação, novos UUIDv7 são gerados automaticamente pelo hook `BeforeCreate` definido na AEP-0046.
+- **AEP-0048**, **AEP-0050**, **AEP-0051** e **AEP-0052**: recursos que hoje ainda vivem fora do banco ou dependem de migrações estruturais complementares ficam para etapas posteriores, depois que essas AEPs forem implementadas.
 
 ## Resumo
 
-Sistema de importação e exportação que permite transferir qualquer recurso do Assistente — desde o sistema inteiro até conversas, credenciais, profiles ou tasks individuais — em formato JSON portável **sem IDs internos**. O export gera um arquivo reutilizável entre instâncias e sobrevive à migração de IDs da AEP-0046. O JSON é o formato canônico para importação; HTML e PDF são formatos derivados apenas para exportação rica. Credenciais sensíveis continuam excluídas por padrão, mas podem ser incluídas opcionalmente em um bloco criptografado com senha de exportação.
+Sistema de importação e exportação em formato JSON portável **sem IDs internos**. O desenho desta AEP cobre a evolução do mecanismo para diferentes tipos de recurso, mas **a implementação deste PR fica restrita ao que já está persistido no banco hoje**, com foco em conversas, mensagens e no bloco portátil de credenciais. O export gera um arquivo reutilizável entre instâncias e sobrevive à migração de IDs da AEP-0046. O JSON é o formato canônico para importação; HTML e PDF são formatos derivados apenas para exportação rica. Credenciais sensíveis continuam excluídas por padrão, mas podem ser incluídas opcionalmente em um bloco criptografado com senha de exportação.
+
+Recursos que ainda dependem de migração para o banco ou de ajustes estruturais adicionais permanecem fora do escopo imediato e serão tratados após as migrações propostas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.
 
 ## Motivação
 
@@ -21,6 +24,19 @@ Sistema de importação e exportação que permite transferir qualquer recurso d
 5. **Preparação para recursos futuros**: Conforme recursos migram de disco para banco (AEP-0046 D11), o sistema de export deve acomodá-los sem reestruturação.
 
 ## Decisões
+
+### D0 — Implementação incremental desta PR: fase DB-only
+
+Embora o formato tenha sido desenhado para acomodar múltiplos tipos de recurso, esta entrega implementa apenas o subconjunto já viável com os dados persistidos no banco na arquitetura atual.
+
+Escopo implementado nesta fase:
+
+- conversas
+- mensagens embutidas nas conversas
+- bloco portátil de credenciais criptografadas
+- exportação derivada em HTML/PDF para conversas
+
+Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arquivo, os que dependem de migração para o banco e os que exigem reestruturações previstas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.
 
 ### D1 — Formato: JSON
 
@@ -208,6 +224,8 @@ O export suporta três modos:
 2. **Por tipo**: exporta todos os recursos de um ou mais tipos (ex: todas as conversas + todos os profiles)
 3. **Individual**: exporta recursos específicos selecionados (ex: conversa "X" + profile "Y" + tasklist "Z")
 
+**Implementação desta PR:** a UI e a app layer expõem apenas o recorte já suportado pelo banco atual, isto é, exportação/importação de conversas selecionadas e do bloco opcional de credenciais portáveis.
+
 Na UI, o usuário seleciona o que exportar via checkboxes. Na API Go, a função recebe um `ExportRequest`:
 
 ```go
@@ -251,6 +269,8 @@ Na importação, cada recurso é verificado contra existentes:
 | `Workspace` | nome | Perguntar: pular, sobrescrever, renomear |
 
 A UI mostra um resumo dos conflitos detectados antes de confirmar a importação. Recursos sem conflito são importados automaticamente.
+
+**Implementação desta PR:** o fluxo atual detecta conflitos de conversa e credenciais e, por segurança, ignora os itens em conflito nesta fase inicial. Estratégias interativas adicionais para outros tipos de recurso permanecem para etapas posteriores.
 
 ### D8 — Referências cruzadas na importação
 
@@ -328,6 +348,8 @@ type ResourceImporter interface {
 
 Cada recurso implementa essas interfaces. Adicionar um novo tipo requer apenas registrar um novo handler.
 
+Até que as migrações arquiteturais das AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052 sejam concluídas, esta extensibilidade permanece como direção de evolução, não como requisito de implementação imediata desta PR.
+
 ## Fases
 
 ### Fase 1 — Backend: estrutura do export
@@ -388,6 +410,8 @@ Cada recurso implementa essas interfaces. Adicionar um novo tipo requer apenas r
 | R6 | Áudio excluído causa perda silenciosa | Média | Baixo | Campo `audioMimeType` preservado como indicador |
 
 ## Critérios de aceitação
+
+Os critérios abaixo descrevem o objetivo final da AEP. Para esta PR, considera-se atendido o subconjunto compatível com a fase DB-only descrita em D0.
 
 1. **Export completo** do sistema gera JSON válido com todos os tipos de recurso
 2. **Export seletivo** permite escolher tipos e recursos individuais

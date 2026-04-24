@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +13,11 @@ import (
 
 	"gorm.io/gorm"
 )
+
+var supportedPortableResourceTypes = map[string]struct{}{
+	"conversations": {},
+	"credentials":   {},
+}
 
 func ExportConversations(ids []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
 	file, err := BuildConversationExportFile(ids, credMgr, req, appVersion)
@@ -76,14 +82,14 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 		ctx = context.Background()
 	}
 
-	var file ExportFile
-	if err := json.Unmarshal([]byte(jsonData), &file); err != nil {
-		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
+	file, _, err := parseExportFile(jsonData)
+	if err != nil {
+		return nil, err
 	}
 	if file.Version != 1 {
 		return nil, fmt.Errorf("versão de exportação não suportada: %d", file.Version)
 	}
-	analysis, err := analyzeImportFile(&file, credMgr, credentialPassword)
+	analysis, err := analyzeImportFile(file, credMgr, credentialPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -154,14 +160,19 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 }
 
 func AnalyzeImportData(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
-	var file ExportFile
-	if err := json.Unmarshal([]byte(jsonData), &file); err != nil {
-		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
+	file, unsupportedResourceTypes, err := parseExportFile(jsonData)
+	if err != nil {
+		return nil, err
 	}
 	if file.Version != 1 {
 		return nil, fmt.Errorf("versão de exportação não suportada: %d", file.Version)
 	}
-	return analyzeImportFile(&file, credMgr, credentialPassword)
+	analysis, err := analyzeImportFile(file, credMgr, credentialPassword)
+	if err != nil {
+		return nil, err
+	}
+	analysis.UnsupportedResourceTypes = unsupportedResourceTypes
+	return analysis, nil
 }
 
 func exportConversation(conv *database.Conversation, includeAudio bool) ConversationExport {
@@ -456,6 +467,56 @@ func decodeCredentialExports(blob *CredentialCipher, credentialPassword string) 
 		return nil, fmt.Errorf("erro ao descriptografar credenciais do arquivo: %w", err)
 	}
 	return creds, nil
+}
+
+func parseExportFile(jsonData string) (*ExportFile, []string, error) {
+	var envelope struct {
+		Resources map[string]json.RawMessage `json:"resources"`
+	}
+	if err := json.Unmarshal([]byte(jsonData), &envelope); err != nil {
+		return nil, nil, fmt.Errorf("erro ao parsear JSON: %w", err)
+	}
+
+	var file ExportFile
+	if err := json.Unmarshal([]byte(jsonData), &file); err != nil {
+		return nil, nil, fmt.Errorf("erro ao parsear JSON: %w", err)
+	}
+
+	return &file, collectUnsupportedResourceTypes(envelope.Resources), nil
+}
+
+func collectUnsupportedResourceTypes(resources map[string]json.RawMessage) []string {
+	if len(resources) == 0 {
+		return nil
+	}
+
+	unsupported := make([]string, 0)
+	for resourceType, raw := range resources {
+		if _, supported := supportedPortableResourceTypes[resourceType]; supported {
+			continue
+		}
+		if !hasPortableResourcePayload(raw) {
+			continue
+		}
+		unsupported = append(unsupported, resourceType)
+	}
+
+	if len(unsupported) == 0 {
+		return nil
+	}
+
+	sort.Strings(unsupported)
+	return unsupported
+}
+
+func hasPortableResourcePayload(raw json.RawMessage) bool {
+	compact := strings.TrimSpace(string(raw))
+	switch compact {
+	case "", "null", "[]", "{}":
+		return false
+	default:
+		return true
+	}
 }
 
 func conversationConflictKey(title, channel string, createdAt time.Time) string {

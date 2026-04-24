@@ -466,6 +466,38 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     expect(screen.getByText('Já existe uma conversa com o mesmo título, canal e data de criação.')).toBeInTheDocument();
   });
 
+  it('avisa quando o arquivo inclui recursos fora do escopo atual', async () => {
+    const user = userEvent.setup();
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: JSON.stringify({
+        version: 1,
+        resources: {
+          conversations: [{ messages: [{}] }],
+          profiles: [{ slug: 'perfil-demo' }],
+          taskLists: [{ title: 'Sprint 42' }],
+        },
+      }),
+    });
+    mockAnalyzeImportData.mockResolvedValueOnce({
+      conflictCount: 0,
+      warnings: [],
+      unsupportedResourceTypes: ['profiles', 'taskLists'],
+      conversationConflicts: [],
+      credentialConflicts: [],
+      credentialAnalysisError: '',
+    });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+
+    await screen.findByText(/profiles, taskLists/);
+    expect(screen.getByText(/AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052/)).toBeInTheDocument();
+  });
+
   it('exige senha ao importar arquivo com credenciais criptografadas', async () => {
     const user = userEvent.setup();
     mockOpenImportFileDialog.mockResolvedValue({

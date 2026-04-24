@@ -124,6 +124,7 @@ type ImportAnalysis struct {
 	ConflictCount              int              `json:"conflictCount"`
 	ConversationConflicts      []ImportConflict `json:"conversationConflicts,omitempty"`
 	CredentialConflicts        []ImportConflict `json:"credentialConflicts,omitempty"`
+	UnsupportedResourceTypes   []string         `json:"unsupportedResourceTypes,omitempty"`
 	Warnings                   []string         `json:"warnings,omitempty"`
 	CredentialAnalysisError    string           `json:"credentialAnalysisError,omitempty"`
 }

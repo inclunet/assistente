@@ -70,6 +70,7 @@ interface ImportAnalysis {
   conflictCount: number;
   conversationConflicts?: ImportConflict[];
   credentialConflicts?: ImportConflict[];
+  unsupportedResourceTypes?: string[];
   warnings?: string[];
   credentialAnalysisError?: string;
 }
@@ -1024,7 +1025,7 @@ export default function HistoryPage() {
           <p className="history-page__import-description">
             {t(
               'history.importDialogDescription',
-              'Revise o arquivo antes de importar. Apenas o JSON canônico é aceito.'
+              'Revise o arquivo antes de importar. Apenas o JSON canônico é aceito nesta fase, com suporte aos recursos já persistidos no banco.'
             )}
           </p>
 
@@ -1092,6 +1093,15 @@ export default function HistoryPage() {
                     : t('history.importNoConflicts', 'Nenhum conflito detectado')}
                 </span>
               </div>
+
+              {!!importAnalysis.unsupportedResourceTypes?.length && (
+                <p className="history-page__import-note">
+                  {t('history.importUnsupportedResourcesNotice', {
+                    defaultValue: 'Este arquivo inclui recursos fora do escopo atual ({{resources}}). Eles serão ignorados nesta fase e poderão ser suportados após as migrações planejadas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.',
+                    resources: importAnalysis.unsupportedResourceTypes.join(', '),
+                  })}
+                </p>
+              )}
 
               {!!importAnalysis.warnings?.length && (
                 <ul className="history-page__import-list history-page__import-list--warning">
