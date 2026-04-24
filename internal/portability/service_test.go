@@ -17,15 +17,31 @@ type memoryCredentialStore struct {
 	credentials map[string]credentials.StoredCredential
 }
 
+type trackingCredentialStore struct {
+	*memoryCredentialStore
+	lastCtx context.Context
+}
+
 func newMemoryCredentialStore() *memoryCredentialStore {
 	return &memoryCredentialStore{
 		credentials: make(map[string]credentials.StoredCredential),
 	}
 }
 
+func newTrackingCredentialStore() *trackingCredentialStore {
+	return &trackingCredentialStore{
+		memoryCredentialStore: newMemoryCredentialStore(),
+	}
+}
+
 func (s *memoryCredentialStore) SaveCredential(_ context.Context, cred credentials.StoredCredential) error {
 	s.credentials[cred.Pattern] = cred
 	return nil
+}
+
+func (s *trackingCredentialStore) SaveCredential(ctx context.Context, cred credentials.StoredCredential) error {
+	s.lastCtx = ctx
+	return s.memoryCredentialStore.SaveCredential(ctx, cred)
 }
 
 func (s *memoryCredentialStore) ListCredentials(context.Context) ([]credentials.StoredCredential, error) {
@@ -425,5 +441,45 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 	}
 	if result.SkippedOther != 0 {
 		t.Fatalf("SkippedOther = %d, want 0", result.SkippedOther)
+	}
+}
+
+func TestImportConversationsPropagatesContextToCredentialPersistence(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	store := newTrackingCredentialStore()
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+
+	now := time.Now().UTC()
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: now,
+		Options: ExportOptions{
+			IncludeCredentials: true,
+		},
+	}
+
+	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
+		{Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+	})
+	if err != nil {
+		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
+	}
+	file.Resources.Credentials = blob
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("falha ao serializar export file: %v", err)
+	}
+
+	type ctxKey string
+	ctx := context.WithValue(context.Background(), ctxKey("source"), "test-import")
+	_, err = ImportConversationsWithContext(ctx, string(raw), credMgr, "senha-teste")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext() error = %v", err)
+	}
+
+	if got := store.lastCtx.Value(ctxKey("source")); got != "test-import" {
+		t.Fatalf("credential persistence ctx value = %v, want test-import", got)
 	}
 }

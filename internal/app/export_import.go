@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -60,11 +61,11 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 // ==================== Import Functions ====================
 
 func (a *App) ImportConversations(jsonData string) (*ImportResult, error) {
-	return portability.ImportConversations(jsonData, a.credMgr, "")
+	return portability.ImportConversationsWithContext(a.importExportContext(), jsonData, a.credMgr, "")
 }
 
 func (a *App) ImportData(jsonData string, credentialExportPassword string) (*ImportResult, error) {
-	return portability.ImportConversations(jsonData, a.credMgr, credentialExportPassword)
+	return portability.ImportConversationsWithContext(a.importExportContext(), jsonData, a.credMgr, credentialExportPassword)
 }
 
 func (a *App) AnalyzeImportData(jsonData string, credentialExportPassword string) (*ImportAnalysis, error) {
@@ -140,4 +141,11 @@ func resolveConversationIDs(req ExportRequest) ([]uint, error) {
 func defaultConversationExportFilename(format string) string {
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	return "conversas_" + timestamp + "." + format
+}
+
+func (a *App) importExportContext() context.Context {
+	if a != nil && a.ctx != nil {
+		return a.ctx
+	}
+	return context.Background()
 }

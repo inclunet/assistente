@@ -68,6 +68,14 @@ func BuildConversationExportFile(ids []uint, credMgr *credentials.Manager, req E
 }
 
 func ImportConversations(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportResult, error) {
+	return ImportConversationsWithContext(context.Background(), jsonData, credMgr, credentialPassword)
+}
+
+func ImportConversationsWithContext(ctx context.Context, jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	var file ExportFile
 	if err := json.Unmarshal([]byte(jsonData), &file); err != nil {
 		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
@@ -122,7 +130,7 @@ func ImportConversations(jsonData string, credMgr *credentials.Manager, credenti
 			result.Failed++
 			result.Success = false
 		} else {
-			skipped, err := importCredentials(credMgr, file.Resources.Credentials, credentialPassword, credentialConflictPatterns)
+			skipped, err := importCredentials(ctx, credMgr, file.Resources.Credentials, credentialPassword, credentialConflictPatterns)
 			result.Skipped += skipped
 			result.SkippedCredentialConflict += skipped
 			if err != nil {
@@ -314,7 +322,11 @@ func exportCredentials(credMgr *credentials.Manager) ([]CredentialExport, error)
 	return result, nil
 }
 
-func importCredentials(credMgr *credentials.Manager, blob *CredentialCipher, credentialPassword string, skipPatterns map[string]struct{}) (int, error) {
+func importCredentials(ctx context.Context, credMgr *credentials.Manager, blob *CredentialCipher, credentialPassword string, skipPatterns map[string]struct{}) (int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	creds, err := decodeCredentialExports(blob, credentialPassword)
 	if err != nil {
 		return 0, err
@@ -338,7 +350,7 @@ func importCredentials(credMgr *credentials.Manager, blob *CredentialCipher, cre
 			ClientID:     cred.ClientID,
 			ClientSecret: cred.ClientSecret,
 		}
-		if err := credMgr.RegisterPatternWithContext(context.Background(), cred.Pattern, auth); err != nil {
+		if err := credMgr.RegisterPatternWithContext(ctx, cred.Pattern, auth); err != nil {
 			return skipped, fmt.Errorf("erro ao importar credencial '%s': %w", cred.Pattern, err)
 		}
 	}
