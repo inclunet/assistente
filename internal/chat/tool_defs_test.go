@@ -201,6 +201,21 @@ func TestApplyNativeMCP_NilMgr(t *testing.T) {
 	}
 }
 
+func TestApplyNativeMCP_TypedNilManagerDoesNotPanic(t *testing.T) {
+	p := &mockChatProvider{supportsNative: true}
+	defs := makeToolDefs("toolA")
+	var mgr *mockNativeMCPMgr
+	var nativeMgr NativeMCPManager = mgr
+
+	outP, outDefs := ApplyNativeMCP(p, defs, nativeMgr, nil, false)
+	if outP != p {
+		t.Error("deveria retornar o mesmo provider quando mcpMgr é typed-nil")
+	}
+	if len(outDefs) != len(defs) {
+		t.Error("deveria preservar toolDefs quando mcpMgr é typed-nil")
+	}
+}
+
 // Regression: typed-nil ChatProvider must not reach SupportsNativeMCP() (method on nil receiver panics).
 func TestApplyNativeMCP_TypedNilProviderDoesNotPanic(t *testing.T) {
 	var p *mockChatProvider

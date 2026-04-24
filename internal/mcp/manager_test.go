@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -594,6 +595,41 @@ func TestRecoverServerBestEffort_RejectsDisabledServer(t *testing.T) {
 	}
 	if result.Err == nil {
 		t.Fatal("esperava erro para servidor desabilitado")
+	}
+}
+
+func TestRecoverServerBestEffort_JoinsRefreshAndReconnectErrors(t *testing.T) {
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug: "test",
+		Config: ServerConfig{
+			Enabled:        true,
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "test-client",
+			OAuth2TokenURL: "http://127.0.0.1:1",
+			OAuth2AuthURL:  "http://unused/auth",
+		},
+		Status: StatusDisconnected,
+	}
+
+	soonExpiry := time.Now().Add(30 * time.Second).Unix()
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      "old-access-token",
+		RefreshURL: "old-refresh-token",
+		ExpiresAt:  soonExpiry,
+	})
+
+	result := m.RecoverServerBestEffort(context.Background(), "test")
+	if result.Err == nil {
+		t.Fatal("esperava erro agregado de refresh + reconnect")
+	}
+	errText := result.Err.Error()
+	if !strings.Contains(errText, "No connection could be made") {
+		t.Fatalf("erro deveria incluir falha de refresh, got %q", errText)
+	}
+	if !strings.Contains(errText, "transport desconhecido") {
+		t.Fatalf("erro deveria incluir falha de reconnect, got %q", errText)
 	}
 }
 

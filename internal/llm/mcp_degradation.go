@@ -107,14 +107,16 @@ func planMCPDegradationRetry(
 		attempt, provider, removed.Name, failure.Stage, failure.Recoverable)
 
 	if removed.Recover != nil {
-		recoveryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
+		go func(provider string, removed MCPServerConfig) {
+			recoveryCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-		if err := removed.Recover(recoveryCtx); err != nil {
-			log.Printf("[MCP-RECOVER] provider=%s server=%s err=%v", provider, removed.Name, err)
-		} else {
-			log.Printf("[MCP-RECOVER] provider=%s server=%s err=nil", provider, removed.Name)
-		}
+			if err := removed.Recover(recoveryCtx); err != nil {
+				log.Printf("[MCP-RECOVER] provider=%s server=%s err=%v", provider, removed.Name, err)
+			} else {
+				log.Printf("[MCP-RECOVER] provider=%s server=%s err=nil", provider, removed.Name)
+			}
+		}(provider, removed)
 	}
 
 	return remaining, true

@@ -1,10 +1,14 @@
 package llm
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"assistente/internal/credentials"
 	mcplib "assistente/internal/mcp"
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/openai/openai-go/responses"
 	"google.golang.org/genai"
 )
 
@@ -73,12 +77,12 @@ func TestNewChatProvider_Factory(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 
 	tests := []struct {
-		name           string
-		format         APIFormat
-		wantOpenAI     bool
-		wantAnthropic  bool
-		wantGoogle     bool
-		wantResponses  bool // useResponses=true
+		name          string
+		format        APIFormat
+		wantOpenAI    bool
+		wantAnthropic bool
+		wantGoogle    bool
+		wantResponses bool // useResponses=true
 	}{
 		{"default_empty", "", true, false, false, false},
 		{"openai", APIFormatOpenAI, true, false, false, false},
@@ -301,7 +305,7 @@ func TestProviderTimeout(t *testing.T) {
 		timeout int
 		wantSec int
 	}{
-		{0, 180},  // default 3min
+		{0, 180}, // default 3min
 		{60, 60},
 		{300, 300},
 	}
@@ -1448,6 +1452,157 @@ func TestMCPToolEvent_MultipleServers(t *testing.T) {
 	}
 	if !servers["Atlassian"] || !servers["Slack"] {
 		t.Errorf("servidores rastreados: %v", servers)
+	}
+}
+
+type providerRetryHandler struct {
+	captureHandler
+	errors []string
+	done   int
+}
+
+func (h *providerRetryHandler) OnError(err string) {
+	h.errors = append(h.errors, err)
+}
+
+func (h *providerRetryHandler) OnDone(fullResponse string, usage Usage, model string) {
+	h.done++
+}
+
+func TestOpenAIProvider_StreamChatResponses_DegradesFailedMCPServer(t *testing.T) {
+	recovered := make(chan struct{}, 1)
+	seen := make([][]string, 0, 2)
+	attempts := 0
+
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "OpenAI", BaseURL: "https://api.openai.com/v1"},
+		useResponses: true,
+		mcpServers: []MCPServerConfig{
+			{
+				Name: "Atlassian",
+				Slug: "atlassian",
+				URL:  "https://mcp.atlassian.com/v1/sse",
+				Recover: func(context.Context) error {
+					recovered <- struct{}{}
+					return nil
+				},
+			},
+			{Name: "Slack", Slug: "slack", URL: "https://mcp.slack.com/mcp"},
+		},
+	}
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, servers []MCPServerConfig) mcpStreamAttemptResult {
+		attempts++
+		slugs := make([]string, 0, len(servers))
+		for _, srv := range servers {
+			slugs = append(slugs, srv.Slug)
+		}
+		seen = append(seen, slugs)
+		if attempts == 1 {
+			return mcpStreamAttemptResult{
+				mcpFailure: &MCPAttemptFailure{
+					ServerName: "Atlassian",
+					ServerSlug: "atlassian",
+					Stage:      MCPFailureStageListTools,
+					Message:    "Falha no Atlassian",
+					Degradable: true,
+				},
+			}
+		}
+		handler.OnChunk("ok")
+		handler.OnDone("ok", Usage{}, "gpt-test")
+		return mcpStreamAttemptResult{done: true}
+	}
+
+	handler := &providerRetryHandler{}
+	provider.streamChatResponses(context.Background(), "gpt-test", []Message{{Role: "user", Content: "oi"}}, ChatParams{}, handler)
+
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if len(seen) != 2 || len(seen[0]) != 2 || len(seen[1]) != 1 || seen[1][0] != "slack" {
+		t.Fatalf("servers por tentativa = %#v", seen)
+	}
+	select {
+	case <-recovered:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("esperava callback de recovery assíncrono")
+	}
+	if got := handler.chunks.String(); got != "ok" {
+		t.Fatalf("chunk final = %q, want %q", got, "ok")
+	}
+	if len(handler.errors) != 0 {
+		t.Fatalf("erros inesperados: %v", handler.errors)
+	}
+	if handler.done != 1 {
+		t.Fatalf("OnDone = %d, want 1", handler.done)
+	}
+}
+
+func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.T) {
+	recovered := make(chan struct{}, 1)
+	seen := make([][]string, 0, 2)
+	attempts := 0
+
+	provider := &AnthropicProvider{
+		provider: &ProviderConfig{ID: "a", Name: "Anthropic", BaseURL: "https://api.anthropic.com"},
+		mcpServers: []MCPServerConfig{
+			{
+				Name: "Atlassian",
+				Slug: "atlassian",
+				URL:  "https://mcp.atlassian.com/v1/sse",
+				Recover: func(context.Context) error {
+					recovered <- struct{}{}
+					return nil
+				},
+			},
+			{Name: "Slack", Slug: "slack", URL: "https://mcp.slack.com/mcp"},
+		},
+	}
+	provider.betaAttemptFn = func(_ context.Context, _ anthropic.BetaMessageNewParams, handler StreamHandler, servers []MCPServerConfig) mcpStreamAttemptResult {
+		attempts++
+		slugs := make([]string, 0, len(servers))
+		for _, srv := range servers {
+			slugs = append(slugs, srv.Slug)
+		}
+		seen = append(seen, slugs)
+		if attempts == 1 {
+			return mcpStreamAttemptResult{
+				mcpFailure: &MCPAttemptFailure{
+					ServerName: "Atlassian",
+					ServerSlug: "atlassian",
+					Stage:      MCPFailureStageHandshake,
+					Message:    "Falha no Atlassian",
+					Degradable: true,
+				},
+			}
+		}
+		handler.OnChunk("ok")
+		handler.OnDone("ok", Usage{}, "claude-test")
+		return mcpStreamAttemptResult{done: true}
+	}
+
+	handler := &providerRetryHandler{}
+	provider.streamChatWithMCP(context.Background(), "claude-test", 256, nil, nil, ChatParams{}, handler)
+
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if len(seen) != 2 || len(seen[0]) != 2 || len(seen[1]) != 1 || seen[1][0] != "slack" {
+		t.Fatalf("servers por tentativa = %#v", seen)
+	}
+	select {
+	case <-recovered:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("esperava callback de recovery assíncrono")
+	}
+	if got := handler.chunks.String(); got != "ok" {
+		t.Fatalf("chunk final = %q, want %q", got, "ok")
+	}
+	if len(handler.errors) != 0 {
+		t.Fatalf("erros inesperados: %v", handler.errors)
+	}
+	if handler.done != 1 {
+		t.Fatalf("OnDone = %d, want 1", handler.done)
 	}
 }
 

@@ -41,11 +41,12 @@ import (
 //   - Multimodalidade: imagens em user messages são convertidas como texto.
 //     A Responses API suporta imagens mas com formato diferente (input_image).
 type OpenAIProvider struct {
-	client       *openai.Client
-	provider     *ProviderConfig
-	credMgr      *credentials.Manager
-	useResponses bool              // true = Responses API first; false = Chat Completions only
-	mcpServers   []MCPServerConfig // MCP servers HTTP (só efetivo quando useResponses=true)
+	client             *openai.Client
+	provider           *ProviderConfig
+	credMgr            *credentials.Manager
+	useResponses       bool              // true = Responses API first; false = Chat Completions only
+	mcpServers         []MCPServerConfig // MCP servers HTTP (só efetivo quando useResponses=true)
+	responsesAttemptFn func(context.Context, responses.ResponseNewParams, StreamHandler, []MCPServerConfig) mcpStreamAttemptResult
 }
 
 // NewOpenAIProvider cria um provider Chat Completions-only (OpenAI-compatible).
@@ -96,11 +97,12 @@ func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider 
 		return p
 	}
 	return &OpenAIProvider{
-		client:       p.client,
-		provider:     p.provider,
-		credMgr:      p.credMgr,
-		useResponses: p.useResponses,
-		mcpServers:   servers,
+		client:             p.client,
+		provider:           p.provider,
+		credMgr:            p.credMgr,
+		useResponses:       p.useResponses,
+		mcpServers:         servers,
+		responsesAttemptFn: p.responsesAttemptFn,
 	}
 }
 
@@ -615,7 +617,11 @@ func (p *OpenAIProvider) streamChatResponses(
 		}
 
 		respParams := p.buildResponsesParams(ctx, model, messages, params, currentServers, tools...)
-		result := p.doStreamResponses(ctx, respParams, handler, currentServers)
+		attemptFn := p.responsesAttemptFn
+		if attemptFn == nil {
+			attemptFn = p.doStreamResponses
+		}
+		result := attemptFn(ctx, respParams, handler, currentServers)
 		if result.done {
 			return
 		}

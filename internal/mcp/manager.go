@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -1144,6 +1145,8 @@ func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) Reco
 			return result
 		} else if refreshErr == nil {
 			refreshErr = err
+		} else {
+			refreshErr = errors.Join(refreshErr, err)
 		}
 	}
 
@@ -1152,6 +1155,8 @@ func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) Reco
 		return result
 	} else if refreshErr == nil {
 		refreshErr = err
+	} else {
+		refreshErr = errors.Join(refreshErr, err)
 	}
 
 	result.Err = refreshErr

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMaxMCPDegradationRetries(t *testing.T) {
@@ -94,14 +95,14 @@ func TestInferMCPFailure_DoesNotAssumeSingleServerForGenericError(t *testing.T) 
 }
 
 func TestPlanMCPDegradationRetry_RemovesServerAndCallsRecover(t *testing.T) {
-	called := false
+	called := make(chan struct{}, 1)
 	servers := []MCPServerConfig{
 		{
 			Name: "Atlassian",
 			Slug: "atlassian",
 			URL:  "https://mcp.atlassian.com/v1/sse",
 			Recover: func(context.Context) error {
-				called = true
+				called <- struct{}{}
 				return nil
 			},
 		},
@@ -118,7 +119,9 @@ func TestPlanMCPDegradationRetry_RemovesServerAndCallsRecover(t *testing.T) {
 	if !ok {
 		t.Fatal("esperava retry planejado")
 	}
-	if !called {
+	select {
+	case <-called:
+	case <-time.After(250 * time.Millisecond):
 		t.Fatal("callback de recovery não foi chamado")
 	}
 	if len(remaining) != 1 || remaining[0].Name != "Slack" {

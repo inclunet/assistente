@@ -18,9 +18,10 @@ import (
 
 // AnthropicProvider implementa ChatProvider usando a SDK anthropic-sdk-go.
 type AnthropicProvider struct {
-	client     *anthropic.Client
-	provider   *ProviderConfig
-	mcpServers []MCPServerConfig // MCP servers HTTP para native connector
+	client        *anthropic.Client
+	provider      *ProviderConfig
+	mcpServers    []MCPServerConfig // MCP servers HTTP para native connector
+	betaAttemptFn func(context.Context, anthropic.BetaMessageNewParams, StreamHandler, []MCPServerConfig) mcpStreamAttemptResult
 }
 
 // NewAnthropicProvider cria um provider Anthropic com a SDK oficial.
@@ -54,9 +55,10 @@ func (p *AnthropicProvider) WithMCPServers(servers []MCPServerConfig) ChatProvid
 		return p
 	}
 	return &AnthropicProvider{
-		client:     p.client,
-		provider:   p.provider,
-		mcpServers: servers,
+		client:        p.client,
+		provider:      p.provider,
+		mcpServers:    servers,
+		betaAttemptFn: p.betaAttemptFn,
 	}
 }
 
@@ -238,7 +240,11 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		}
 
 		betaParams := p.buildBetaMCPParams(ctx, model, maxTokens, system, msgs, params, currentServers, tools...)
-		result := p.doStreamBeta(ctx, betaParams, handler, currentServers)
+		attemptFn := p.betaAttemptFn
+		if attemptFn == nil {
+			attemptFn = p.doStreamBeta
+		}
+		result := attemptFn(ctx, betaParams, handler, currentServers)
 		if result.done {
 			return
 		}
