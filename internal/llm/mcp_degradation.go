@@ -200,18 +200,45 @@ func extractServerLabelFromRawJSON(raw string) string {
 
 func matchMCPServerInText(text string, servers []MCPServerConfig) string {
 	for _, srv := range servers {
-		candidates := []string{
-			strings.ToLower(srv.Name),
-			strings.ToLower(srv.Slug),
-			strings.ToLower(hostnameFromURL(srv.URL)),
+		if name := strings.ToLower(strings.TrimSpace(srv.Name)); name != "" && strings.Contains(text, name) {
+			return srv.Name
 		}
-		for _, candidate := range candidates {
-			if candidate != "" && strings.Contains(text, candidate) {
-				return srv.Name
-			}
+		if slug := strings.ToLower(strings.TrimSpace(srv.Slug)); matchesSlugToken(text, slug) {
+			return srv.Name
+		}
+		if hostname := strings.ToLower(strings.TrimSpace(hostnameFromURL(srv.URL))); hostname != "" && strings.Contains(text, hostname) {
+			return srv.Name
 		}
 	}
 	return ""
+}
+
+func matchesSlugToken(text, slug string) bool {
+	if len(slug) < 3 {
+		return false
+	}
+
+	searchFrom := 0
+	for {
+		idx := strings.Index(text[searchFrom:], slug)
+		if idx == -1 {
+			return false
+		}
+		idx += searchFrom
+		end := idx + len(slug)
+
+		beforeOK := idx == 0 || !isSlugBoundaryChar(text[idx-1])
+		afterOK := end == len(text) || !isSlugBoundaryChar(text[end])
+		if beforeOK && afterOK {
+			return true
+		}
+
+		searchFrom = idx + 1
+	}
+}
+
+func isSlugBoundaryChar(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
 }
 
 func hostnameFromURL(rawURL string) string {

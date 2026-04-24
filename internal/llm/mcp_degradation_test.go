@@ -94,6 +94,27 @@ func TestInferMCPFailure_DoesNotAssumeSingleServerForGenericError(t *testing.T) 
 	}
 }
 
+func TestInferMCPFailure_DoesNotMatchTinySlugAsSubstring(t *testing.T) {
+	servers := []MCPServerConfig{
+		{Name: "Servidor A", Slug: "a", URL: "https://mcp.example.com/a"},
+		{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},
+	}
+
+	failure := inferMCPFailure(
+		MCPFailureStageHandshake,
+		"authentication error while connecting to mcp.atlassian.com",
+		"",
+		"",
+		servers,
+	)
+	if failure == nil {
+		t.Fatal("esperava falha MCP classificada")
+	}
+	if failure.ServerName != "Atlassian" {
+		t.Fatalf("serverName = %q, want %q", failure.ServerName, "Atlassian")
+	}
+}
+
 func TestPlanMCPDegradationRetry_RemovesServerAndCallsRecover(t *testing.T) {
 	called := make(chan struct{}, 1)
 	servers := []MCPServerConfig{
