@@ -989,7 +989,7 @@ func writePDFImageAttachment(pdf *fpdf.Fpdf, media mediaAttachment, key string) 
 		return err
 	}
 	if format != "png" && format != "jpeg" && format != "gif" {
-		return fmt.Errorf("formato de imagem nao suportado no PDF: %s", format)
+		return fmt.Errorf("formato de imagem não suportado no PDF: %s", format)
 	}
 
 	info := pdf.RegisterImageOptionsReader(key+"."+format, fpdf.ImageOptions{ImageType: format}, bytes.NewReader(decoded))

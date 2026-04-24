@@ -74,14 +74,14 @@ func (a *App) AnalyzeImportData(jsonData string, credentialExportPassword string
 
 func (a *App) ExportConversationsToFile(ids []uint, format string) (string, error) {
 	if a.dialogPort == nil {
-		return "", fmt.Errorf("dialogo de sistema nao inicializado")
+		return "", fmt.Errorf("diálogo de sistema não inicializado")
 	}
 
 	req := portability.ExportRequest{OutputFormat: format}
 	switch format {
 	case portability.FormatHTML, portability.FormatPDF:
 	default:
-		return "", fmt.Errorf("formato de exportacao nao suportado: %s", format)
+		return "", fmt.Errorf("formato de exportação não suportado: %s", format)
 	}
 
 	file, err := portability.BuildConversationExportFile(ids, a.credMgr, req, AppVersion)
@@ -108,7 +108,7 @@ func (a *App) ExportConversationsToFile(ids []uint, format string) (string, erro
 	if strings.TrimSpace(path) == "" {
 		return "", nil
 	}
-	if err := os.WriteFile(path, rendered, 0644); err != nil {
+	if err := os.WriteFile(path, rendered, 0600); err != nil {
 		return "", err
 	}
 	return path, nil

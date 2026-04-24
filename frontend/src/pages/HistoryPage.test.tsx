@@ -437,6 +437,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       name: 'backup.json',
       content: JSON.stringify({
         version: 1,
+        options: { includeCredentials: true },
         resources: {
           conversations: [{ messages: [{}] }],
           credentials: { mode: 'encrypted' },
@@ -471,6 +472,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       name: 'backup.json',
       content: JSON.stringify({
         version: 1,
+        options: { includeCredentials: true },
         resources: {
           conversations: [],
           credentials: { mode: 'encrypted' },
@@ -494,6 +496,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     const user = userEvent.setup();
     const payload = JSON.stringify({
       version: 1,
+      options: { includeCredentials: true },
       resources: {
         conversations: [{ messages: [{}] }],
         credentials: { mode: 'encrypted' },
@@ -579,6 +582,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       name: 'backup.json',
       content: JSON.stringify({
         version: 1,
+        options: { includeCredentials: true },
         resources: {
           conversations: [],
           credentials: { mode: 'encrypted' },
@@ -614,5 +618,44 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await waitFor(() => {
       expect(mockAnalyzeImportData).toHaveBeenLastCalledWith(expect.any(String), 'segredo');
     }, { timeout: 1500 });
+  });
+
+  it('nao exige senha quando credentials existe mas includeCredentials esta desabilitado', async () => {
+    const user = userEvent.setup();
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: JSON.stringify({
+        version: 1,
+        options: { includeCredentials: false },
+        resources: {
+          conversations: [{ messages: [{}] }],
+          credentials: { mode: 'encrypted' },
+        },
+      }),
+    });
+    mockImportData.mockResolvedValue({
+      success: true,
+      message: 'ok',
+      imported: 1,
+      skipped: 0,
+      failed: 0,
+      skippedEmptyConversations: 0,
+      skippedConversationConflict: 0,
+      skippedCredentialConflict: 0,
+      skippedOther: 0,
+      errors: [],
+    });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+    expect(screen.queryByPlaceholderText('Digite a senha de exportação')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Importar agora' }));
+
+    await waitFor(() => {
+      expect(mockImportData).toHaveBeenCalledWith(expect.any(String), '');
+    });
   });
 });

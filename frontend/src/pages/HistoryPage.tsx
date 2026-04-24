@@ -114,6 +114,7 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
     return count + item.messages.length;
   }, 0);
   const credentials = resources.credentials;
+  const includesCredentials = options.includeCredentials === true && credentials !== undefined && credentials !== null;
 
   return {
     fileName,
@@ -123,11 +124,23 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
     exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : '',
     conversationCount: conversations.length,
     messageCount,
-    includesCredentials: credentials !== undefined && credentials !== null,
+    includesCredentials,
     requiresCredentialPassword:
-      isRecord(credentials) && credentials.mode === 'encrypted',
+      includesCredentials && isRecord(credentials) && credentials.mode === 'encrypted',
     includeAudio: options.includeAudio === true,
   };
+}
+
+function buildImportAnalysisKey(preview: ImportPreview, password: string): string {
+  return [
+    preview.fileName,
+    preview.exportedAt,
+    preview.version ?? 'unknown',
+    preview.conversationCount,
+    preview.messageCount,
+    preview.includesCredentials ? 'with-credentials' : 'without-credentials',
+    password,
+  ].join('::');
 }
 
 export default function HistoryPage() {
@@ -159,7 +172,7 @@ export default function HistoryPage() {
   const [importPasswordError, setImportPasswordError] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const importAnalysisInFlightRef = useRef(false);
-  const pendingImportAnalysisRef = useRef<{ jsonData: string; password: string } | null>(null);
+  const pendingImportAnalysisRef = useRef<{ jsonData: string; password: string; key: string } | null>(null);
   const lastAnalyzedImportRef = useRef<string | null>(null);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
@@ -437,7 +450,7 @@ export default function HistoryPage() {
 
     pendingImportAnalysisRef.current = null;
     importAnalysisInFlightRef.current = true;
-    const queuedRequestKey = `${queuedRequest.jsonData}::${queuedRequest.password}`;
+    const queuedRequestKey = queuedRequest.key;
 
     try {
       await analyzeImportPayload(queuedRequest.jsonData, queuedRequest.password);
@@ -459,7 +472,7 @@ export default function HistoryPage() {
     setImportPassword('');
     setImportPasswordError('');
     await analyzeImportPayload(selectedFile.content, '');
-    lastAnalyzedImportRef.current = `${selectedFile.content}::`;
+    lastAnalyzedImportRef.current = buildImportAnalysisKey(preview, '');
     setIsImportModalOpen(true);
   }, [analyzeImportPayload]);
 
@@ -587,8 +600,9 @@ export default function HistoryPage() {
     const nextRequest = {
       jsonData: importPreview.jsonData,
       password: importPassword.trim(),
+      key: buildImportAnalysisKey(importPreview, importPassword.trim()),
     };
-    const requestKey = `${nextRequest.jsonData}::${nextRequest.password}`;
+    const requestKey = nextRequest.key;
     if (lastAnalyzedImportRef.current === requestKey) {
       return;
     }
