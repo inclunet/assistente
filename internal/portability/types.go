@@ -103,6 +103,8 @@ type ImportResult struct {
 	SkippedConversationConflict int      `json:"skippedConversationConflict"`
 	SkippedCredentialConflict   int      `json:"skippedCredentialConflict"`
 	SkippedOther                int      `json:"skippedOther"`
+	UnsupportedResourceTypes    []string `json:"unsupportedResourceTypes,omitempty"`
+	Warnings                    []string `json:"warnings,omitempty"`
 	Errors                      []string `json:"errors,omitempty"`
 	Message                     string   `json:"message"`
 }

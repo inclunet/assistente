@@ -3,6 +3,7 @@ package portability
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -329,6 +330,18 @@ func TestAnalyzeImportDataReportsUnsupportedResourceTypes(t *testing.T) {
 	}
 }
 
+func TestAnalyzeImportDataRejectsUnsupportedVersion(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	_, err := AnalyzeImportData(`{"version":2,"resources":{"conversations":[]}}`, nil, "")
+	if err == nil {
+		t.Fatal("AnalyzeImportData() error = nil, want unsupported version error")
+	}
+	if !strings.Contains(err.Error(), "versão de exportação não suportada: 2") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
 	setupPortabilityTestDB(t)
 
@@ -375,6 +388,56 @@ func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
 	}
 	if conversations[0].Title != "Com mensagens" {
 		t.Fatalf("unexpected imported conversation: %q", conversations[0].Title)
+	}
+}
+
+func TestImportConversationsWarnsAboutUnsupportedResourceTypes(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	now := time.Now().UTC()
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: now,
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Com mensagens",
+					CreatedAt: now,
+					Messages: []MessageExport{
+						{Role: "user", Content: "Oi", CreatedAt: now},
+					},
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("falha ao serializar export file: %v", err)
+	}
+
+	rawString := strings.Replace(string(raw), `"resources":{"conversations":[`, `"resources":{"profiles":[{"slug":"perfil-demo"}],"conversations":[`, 1)
+	result, err := ImportConversations(rawString, nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if len(result.UnsupportedResourceTypes) != 1 || result.UnsupportedResourceTypes[0] != "profiles" {
+		t.Fatalf("unexpected unsupported resource types: %v", result.UnsupportedResourceTypes)
+	}
+	if len(result.Warnings) == 0 || !strings.Contains(result.Warnings[0], "fora do escopo atual (profiles)") {
+		t.Fatalf("unexpected warnings: %v", result.Warnings)
+	}
+}
+
+func TestImportConversationsRejectsUnsupportedVersion(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	_, err := ImportConversations(`{"version":2,"resources":{"conversations":[]}}`, nil, "")
+	if err == nil {
+		t.Fatal("ImportConversations() error = nil, want unsupported version error")
+	}
+	if !strings.Contains(err.Error(), "versão de exportação não suportada: 2") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -1805,6 +1805,8 @@ export namespace main {
 	    skippedConversationConflict: number;
 	    skippedCredentialConflict: number;
 	    skippedOther: number;
+	    unsupportedResourceTypes?: string[];
+	    warnings?: string[];
 	    errors?: string[];
 	    message: string;
 	
@@ -1822,6 +1824,8 @@ export namespace main {
 	        this.skippedConversationConflict = source["skippedConversationConflict"];
 	        this.skippedCredentialConflict = source["skippedCredentialConflict"];
 	        this.skippedOther = source["skippedOther"];
+	        this.unsupportedResourceTypes = source["unsupportedResourceTypes"];
+	        this.warnings = source["warnings"];
 	        this.errors = source["errors"];
 	        this.message = source["message"];
 	    }

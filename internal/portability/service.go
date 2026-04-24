@@ -82,7 +82,7 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 		ctx = context.Background()
 	}
 
-	file, _, err := parseExportFile(jsonData)
+	file, unsupportedResourceTypes, err := parseExportFile(jsonData)
 	if err != nil {
 		return nil, err
 	}
@@ -104,8 +104,13 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 	}
 
 	result := &ImportResult{
-		Success: true,
-		Errors:  make([]string, 0),
+		Success:                  true,
+		Errors:                   make([]string, 0),
+		Warnings:                 make([]string, 0),
+		UnsupportedResourceTypes: unsupportedResourceTypes,
+	}
+	if warning := unsupportedResourcesWarning(unsupportedResourceTypes); warning != "" {
+		result.Warnings = append(result.Warnings, warning)
 	}
 
 	for _, conv := range file.Resources.Conversations {
@@ -517,6 +522,16 @@ func hasPortableResourcePayload(raw json.RawMessage) bool {
 	default:
 		return true
 	}
+}
+
+func unsupportedResourcesWarning(resourceTypes []string) string {
+	if len(resourceTypes) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Este arquivo inclui recursos fora do escopo atual (%s). Eles serão ignorados nesta fase e poderão ser suportados após as migrações planejadas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.",
+		strings.Join(resourceTypes, ", "),
+	)
 }
 
 func conversationConflictKey(title, channel string, createdAt time.Time) string {

@@ -1411,6 +1411,7 @@ const es = {
       importChangeFile: 'Cambiar archivo',
       importConfirm: 'Importar ahora',
       importResultTitle: 'Resultado de la importación',
+      importWarningsLabel: 'Avisos',
       importedLabel: 'Importadas',
       skippedLabel: 'Omitidas',
       importFailedLabel: 'Fallos',

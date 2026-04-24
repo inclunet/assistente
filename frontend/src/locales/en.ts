@@ -1412,6 +1412,7 @@ const en = {
       importChangeFile: 'Change file',
       importConfirm: 'Import now',
       importResultTitle: 'Import result',
+      importWarningsLabel: 'Warnings',
       importedLabel: 'Imported',
       skippedLabel: 'Skipped',
       importFailedLabel: 'Failures',

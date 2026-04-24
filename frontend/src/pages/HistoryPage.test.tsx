@@ -229,6 +229,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       skippedConversationConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
+      warnings: [],
       errors: [],
     });
     mockSearchConversationHistory.mockResolvedValue([]);
@@ -548,6 +549,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       skippedConversationConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
+      warnings: [],
       errors: [],
     });
 
@@ -591,6 +593,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       skippedConversationConflict: 1,
       skippedCredentialConflict: 1,
       skippedOther: 0,
+      warnings: [],
       errors: [],
     });
 
@@ -675,6 +678,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       skippedConversationConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
+      warnings: [],
       errors: [],
     });
 
@@ -689,5 +693,44 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await waitFor(() => {
       expect(mockImportData).toHaveBeenCalledWith(expect.any(String), '');
     });
+  });
+
+  it('mostra avisos no resultado final da importacao', async () => {
+    const user = userEvent.setup();
+    const payload = JSON.stringify({
+      version: 1,
+      resources: {
+        conversations: [{ messages: [{}] }],
+      },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: payload,
+    });
+    mockImportData.mockResolvedValue({
+      success: true,
+      message: 'ok',
+      imported: 1,
+      skipped: 0,
+      failed: 0,
+      skippedEmptyConversations: 0,
+      skippedConversationConflict: 0,
+      skippedCredentialConflict: 0,
+      skippedOther: 0,
+      unsupportedResourceTypes: ['profiles'],
+      warnings: ['Este arquivo inclui recursos fora do escopo atual (profiles).'],
+      errors: [],
+    });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+    await user.click(screen.getByRole('button', { name: 'Importar agora' }));
+
+    await screen.findByText('Resultado da importação');
+    expect(screen.getByText('Avisos')).toBeInTheDocument();
+    expect(screen.getByText('Este arquivo inclui recursos fora do escopo atual (profiles).')).toBeInTheDocument();
   });
 });

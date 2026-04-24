@@ -84,6 +84,8 @@ interface ImportResultSummary {
   skippedConversationConflict: number;
   skippedCredentialConflict: number;
   skippedOther: number;
+  unsupportedResourceTypes?: string[];
+  warnings?: string[];
   errors?: string[];
   message: string;
 }
@@ -575,6 +577,9 @@ export default function HistoryPage() {
           defaultValue: 'Outros descartes: {{count}}',
           count: result.skippedOther,
         }));
+      }
+      if (result.warnings?.length) {
+        details.push(...result.warnings);
       }
 
       if (result.errors?.length) {
@@ -1204,6 +1209,17 @@ export default function HistoryPage() {
                   <ul className="history-page__import-list">
                     {lastImportResult.errors.map((error) => (
                       <li key={error}>{error}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {!!lastImportResult.warnings?.length && (
+                <>
+                  <strong>{t('history.importWarningsLabel', 'Avisos')}</strong>
+                  <ul className="history-page__import-list history-page__import-list--warning">
+                    {lastImportResult.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
                     ))}
                   </ul>
                 </>

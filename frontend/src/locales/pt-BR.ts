@@ -1386,6 +1386,7 @@ const ptBR = {
       importChangeFile: 'Trocar arquivo',
       importConfirm: 'Importar agora',
       importResultTitle: 'Resultado da importação',
+      importWarningsLabel: 'Avisos',
       importedLabel: 'Importadas',
       skippedLabel: 'Ignoradas',
       importFailedLabel: 'Falhas',
