@@ -101,3 +101,24 @@ type ImportResult struct {
 	Errors   []string `json:"errors,omitempty"`
 	Message  string   `json:"message"`
 }
+
+type ImportConflict struct {
+	ResourceType string `json:"resourceType"`
+	Identifier   string `json:"identifier"`
+	Reason       string `json:"reason"`
+}
+
+type ImportAnalysis struct {
+	Version                    int              `json:"version"`
+	AppVersion                 string           `json:"appVersion,omitempty"`
+	ConversationCount          int              `json:"conversationCount"`
+	MessageCount               int              `json:"messageCount"`
+	IncludesCredentials        bool             `json:"includesCredentials"`
+	RequiresCredentialPassword bool             `json:"requiresCredentialPassword"`
+	CredentialCount            int              `json:"credentialCount"`
+	ConflictCount              int              `json:"conflictCount"`
+	ConversationConflicts      []ImportConflict `json:"conversationConflicts,omitempty"`
+	CredentialConflicts        []ImportConflict `json:"credentialConflicts,omitempty"`
+	Warnings                   []string         `json:"warnings,omitempty"`
+	CredentialAnalysisError    string           `json:"credentialAnalysisError,omitempty"`
+}

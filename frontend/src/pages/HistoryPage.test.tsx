@@ -6,12 +6,16 @@ import userEvent from '@testing-library/user-event';
 const mockGetConversations = vi.fn();
 const mockDeleteConversation = vi.fn();
 const mockUpdateConversation = vi.fn();
+const mockAnalyzeImportData = vi.fn();
 const mockExportConversations = vi.fn();
+const mockExportData = vi.fn();
 const mockExportConversationsToFile = vi.fn();
 const mockImportConversations = vi.fn();
 const mockImportData = vi.fn();
 const mockSearchConversationHistory = vi.fn();
 const mockOpenImportFileDialog = vi.fn();
+const mockDownloadJSON = vi.fn();
+const mockAnnounce = vi.fn();
 const mockAddTab = vi.fn().mockResolvedValue('tab-1');
 const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
@@ -41,15 +45,29 @@ vi.mock('react-router-dom', () => ({
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (_key: string, fallback?: string) => fallback ?? _key,
+    t: (_key: string, fallbackOrOptions?: string | { defaultValue?: string; count?: number }) => {
+      if (typeof fallbackOrOptions === 'string') {
+        return fallbackOrOptions;
+      }
+      if (fallbackOrOptions && typeof fallbackOrOptions === 'object') {
+        const template = fallbackOrOptions.defaultValue ?? _key;
+        if (typeof fallbackOrOptions.count === 'number') {
+          return template.replace('{{count}}', String(fallbackOrOptions.count));
+        }
+        return template;
+      }
+      return _key;
+    },
   }),
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
+  AnalyzeImportData: (payload: string, password: string) => mockAnalyzeImportData(payload, password),
   GetConversations: () => mockGetConversations(),
   DeleteConversation: (id: number) => mockDeleteConversation(id),
   UpdateConversation: (id: number, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
   ExportConversations: (ids: number[]) => mockExportConversations(ids),
+  ExportData: (payload: unknown) => mockExportData(payload),
   ExportConversationsToFile: (ids: number[], format: string) => mockExportConversationsToFile(ids, format),
   ImportConversations: (payload: string) => mockImportConversations(payload),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
@@ -58,7 +76,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
 }));
 
 vi.mock('../lib/exportImport', () => ({
-  downloadJSON: vi.fn(),
+  downloadJSON: (...args: unknown[]) => mockDownloadJSON(...args),
   generateFilename: vi.fn(() => 'conversas.json'),
   openFileDialog: vi.fn(),
   openImportFileDialog: (...args: unknown[]) => mockOpenImportFileDialog(...args),
@@ -67,6 +85,12 @@ vi.mock('../lib/exportImport', () => ({
 vi.mock('../hooks/useGridFocus', () => ({
   useGridFocus: () => ({
     handleGridReady: vi.fn(),
+  }),
+}));
+
+vi.mock('../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announce: mockAnnounce,
   }),
 }));
 
@@ -182,18 +206,27 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockGetConversations.mockResolvedValue(conversations);
     mockDeleteConversation.mockResolvedValue(undefined);
     mockUpdateConversation.mockResolvedValue(undefined);
+    mockAnalyzeImportData.mockResolvedValue({
+      conflictCount: 0,
+      warnings: [],
+      conversationConflicts: [],
+      credentialConflicts: [],
+      credentialAnalysisError: '',
+    });
     mockExportConversations.mockResolvedValue('{}');
+    mockExportData.mockResolvedValue('{}');
     mockExportConversationsToFile.mockResolvedValue('C:/tmp/conversas.html');
     mockImportConversations.mockResolvedValue({ success: true, message: 'ok' });
     mockImportData.mockResolvedValue({ success: true, message: 'ok', imported: 2, skipped: 0, errors: [] });
     mockSearchConversationHistory.mockResolvedValue([]);
     mockOpenImportFileDialog.mockReset();
+    mockDownloadJSON.mockReset();
+    mockAnnounce.mockReset();
     mockAddTab.mockResolvedValue(undefined);
     mockNavigate.mockReset();
     lastToolbarActions = [];
     mockRequestConfirm.mockReset();
     mockRequestConfirm.mockResolvedValue(true);
-    vi.stubGlobal('alert', vi.fn());
   });
 
   it('nao duplica acao de deletar na toolbar', async () => {
@@ -282,6 +315,63 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     });
   });
 
+  it('abre modal de exportacao JSON pela toolbar', async () => {
+    const user = userEvent.setup();
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    const exportButtons = screen.getAllByRole('button', { name: 'Exportar JSON' });
+    await user.click(exportButtons[0]);
+
+    await screen.findByRole('heading', { name: 'Exportar conversas' });
+    expect(screen.getByText('Exportar agora')).toBeInTheDocument();
+  });
+
+  it('exige senha ao exportar credenciais', async () => {
+    const user = userEvent.setup();
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    const exportButtons = screen.getAllByRole('button', { name: 'Exportar JSON' });
+    await user.click(exportButtons[0]);
+    await screen.findByRole('heading', { name: 'Exportar conversas' });
+    await user.click(screen.getByRole('checkbox', { name: 'Incluir credenciais criptografadas no export' }));
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    expect(mockExportData).not.toHaveBeenCalled();
+    expect(await screen.findByText('Informe uma senha para criptografar as credenciais exportadas.')).toBeInTheDocument();
+  });
+
+  it('exporta JSON usando ExportData e inclui senha de credenciais', async () => {
+    const user = userEvent.setup();
+    mockExportData.mockResolvedValue('{"version":1}');
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'select-two' }));
+    await user.click(screen.getByRole('button', { name: 'Exportar JSON (2)' }));
+
+    await screen.findByRole('heading', { name: 'Exportar conversas' });
+    await user.click(screen.getByRole('checkbox', { name: 'Incluir credenciais criptografadas no export' }));
+    const passwordInput = await screen.findByPlaceholderText('Digite a senha de exportação');
+    await user.type(passwordInput, 'segredo');
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith({
+        conversationIds: ['1', '2'],
+        includeCredentials: true,
+        credentialExportPassword: 'segredo',
+        outputFormat: 'json',
+      });
+    });
+    expect(mockDownloadJSON).toHaveBeenCalledWith('{"version":1}', 'conversas.json');
+  });
+
   it('exporta PDF de uma unica conversa pelo menu da linha', async () => {
     const user = userEvent.setup();
     const { default: HistoryPage } = await import('./HistoryPage');
@@ -323,6 +413,43 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await screen.findByRole('heading', { name: 'Importar conversas' });
     expect(screen.getByText('backup.json')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Importar agora' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockAnalyzeImportData).toHaveBeenCalledWith(expect.any(String), '');
+    });
+  });
+
+  it('mostra conflitos detectados na analise da importacao', async () => {
+    const user = userEvent.setup();
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: JSON.stringify({
+        version: 1,
+        resources: {
+          conversations: [{ messages: [{}] }],
+          credentials: { mode: 'encrypted' },
+        },
+      }),
+    });
+    mockAnalyzeImportData
+      .mockResolvedValueOnce({
+        conflictCount: 1,
+        warnings: ['Informe a senha de exportação para analisar conflitos de credenciais.'],
+        conversationConflicts: [
+          { resourceType: 'conversation', identifier: 'x', reason: 'Já existe uma conversa com o mesmo título, canal e data de criação.' },
+        ],
+        credentialConflicts: [],
+        credentialAnalysisError: '',
+      });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+
+    await screen.findByText('Conflitos detectados');
+    expect(screen.getByText('1 conflito(s)')).toBeInTheDocument();
+    expect(screen.getByText('Já existe uma conversa com o mesmo título, canal e data de criação.')).toBeInTheDocument();
   });
 
   it('exige senha ao importar arquivo com credenciais criptografadas', async () => {
@@ -380,6 +507,49 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await waitFor(() => {
       expect(mockGetConversations).toHaveBeenCalledTimes(2);
     });
-    expect(globalThis.alert).toHaveBeenCalledWith(expect.stringContaining('ok'));
+    expect(mockAnnounce).toHaveBeenCalledWith(expect.stringContaining('ok'), 'polite');
+  });
+
+  it('reanalisar importacao quando a senha de credenciais muda', async () => {
+    const user = userEvent.setup();
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: JSON.stringify({
+        version: 1,
+        resources: {
+          conversations: [],
+          credentials: { mode: 'encrypted' },
+        },
+      }),
+    });
+    mockAnalyzeImportData
+      .mockResolvedValueOnce({
+        conflictCount: 0,
+        warnings: ['Informe a senha de exportação para analisar conflitos de credenciais.'],
+        conversationConflicts: [],
+        credentialConflicts: [],
+        credentialAnalysisError: '',
+      })
+      .mockResolvedValueOnce({
+        conflictCount: 1,
+        warnings: [],
+        conversationConflicts: [],
+        credentialConflicts: [
+          { resourceType: 'credential', identifier: 'api.openai.com', reason: 'Já existe uma credencial registrada com o mesmo pattern.' },
+        ],
+        credentialAnalysisError: '',
+      });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+    const passwordInput = await screen.findByPlaceholderText('Digite a senha de exportação');
+    await user.type(passwordInput, 'segredo');
+
+    await waitFor(() => {
+      expect(mockAnalyzeImportData).toHaveBeenLastCalledWith(expect.any(String), 'segredo');
+    }, { timeout: 1500 });
   });
 });

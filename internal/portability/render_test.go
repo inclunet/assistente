@@ -45,6 +45,43 @@ func TestRenderConversationsHTMLIncludesConversationContent(t *testing.T) {
 	}
 }
 
+func TestRenderConversationsHTMLSanitizesMarkdownAndAttachmentMIME(t *testing.T) {
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: time.Unix(100, 0),
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Conversa segura",
+					CreatedAt: time.Unix(90, 0),
+					Messages: []MessageExport{
+						{
+							Role:      "assistant",
+							Content:   `[link](javascript:alert(1)) <script>alert(1)</script>`,
+							Media:     `[{"type":"image/png\" onerror=\"alert(1)","name":"captura.png","data":"AAAA"}]`,
+							CreatedAt: time.Unix(91, 0),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	html, err := RenderConversationsHTML(file)
+	if err != nil {
+		t.Fatalf("RenderConversationsHTML() error = %v", err)
+	}
+	if strings.Contains(strings.ToLower(html), "javascript:") {
+		t.Fatalf("html should sanitize dangerous urls: %s", html)
+	}
+	if strings.Contains(strings.ToLower(html), "<script") {
+		t.Fatalf("html should strip script tags: %s", html)
+	}
+	if !strings.Contains(html, `data:application/octet-stream;base64,AAAA`) {
+		t.Fatalf("html should sanitize invalid attachment mime types: %s", html)
+	}
+}
+
 func TestRenderConversationsPDFReturnsBytes(t *testing.T) {
 	file := &ExportFile{
 		Version:    1,

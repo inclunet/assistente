@@ -99,3 +99,30 @@
   flex: 1 1 auto;
 }
 
+.history-page__import-analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.history-page__import-analysis-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.history-page__import-list {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-secondary);
+}
+
+.history-page__import-list--warning {
+  color: var(--color-warning);
+}
+

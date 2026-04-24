@@ -401,7 +401,7 @@ func formatConversationTime(t time.Time) string {
 }
 
 func renderMarkdownTemplate(content string) template.HTML {
-	return template.HTML(markdownToHTML(content))
+	return template.HTML(sanitizeRenderedHTML(markdownToHTML(content)))
 }
 
 func renderPreformattedTemplate(content string) template.HTML {
@@ -419,7 +419,7 @@ func renderMessageMediaTemplate(msg MessageExport) template.HTML {
 	if strings.TrimSpace(msg.Audio) != "" && strings.TrimSpace(msg.AudioMimeType) != "" {
 		parts = append(parts, renderAttachmentHTML(mediaAttachment{
 			Name: "Audio da mensagem",
-			MIME: msg.AudioMimeType,
+			MIME: sanitizeMIMEType(msg.AudioMimeType),
 			Data: msg.Audio,
 		}))
 	}
@@ -433,6 +433,7 @@ func hasRichMedia(msg MessageExport) bool {
 func renderAttachmentHTML(media mediaAttachment) string {
 	name := template.HTMLEscapeString(fallbackAttachmentName(media))
 	dataURI := buildDataURI(media.MIME, media.Data)
+	displayMIME := template.HTMLEscapeString(sanitizeMIMEType(media.MIME))
 	switch mediaKind(media.MIME) {
 	case "image":
 		return `<div class="message__media-card"><strong>` + name + `</strong><img src="` + dataURI + `" alt="` + name + `"></div>`
@@ -450,7 +451,7 @@ func renderAttachmentHTML(media mediaAttachment) string {
 				body += "<pre>" + template.HTMLEscapeString(preview) + "</pre>"
 			}
 		}
-		return `<div class="message__media-card"><strong>` + name + `</strong><div>` + template.HTMLEscapeString(media.MIME) + `</div>` + body + `</div>`
+		return `<div class="message__media-card"><strong>` + name + `</strong><div>` + displayMIME + `</div>` + body + `</div>`
 	}
 }
 
@@ -474,7 +475,7 @@ func parseMediaAttachments(mediaJSON string) []mediaAttachment {
 		}
 		result = append(result, mediaAttachment{
 			Name: name,
-			MIME: mime,
+			MIME: sanitizeMIMEType(mime),
 			Data: data,
 		})
 	}
@@ -482,7 +483,52 @@ func parseMediaAttachments(mediaJSON string) []mediaAttachment {
 }
 
 func buildDataURI(mimeType, data string) string {
-	return "data:" + mimeType + ";base64," + data
+	return "data:" + sanitizeMIMEType(mimeType) + ";base64," + data
+}
+
+func sanitizeMIMEType(mimeType string) string {
+	normalized := strings.ToLower(strings.TrimSpace(mimeType))
+	if normalized == "" {
+		return "application/octet-stream"
+	}
+	if strings.ContainsAny(normalized, "\"' ;,\r\n\t<>") {
+		return "application/octet-stream"
+	}
+	for _, r := range normalized {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '/', r == '-', r == '.', r == '+':
+		default:
+			return "application/octet-stream"
+		}
+	}
+
+	switch {
+	case strings.HasPrefix(normalized, "image/"):
+		return normalized
+	case strings.HasPrefix(normalized, "audio/"):
+		return normalized
+	case strings.HasPrefix(normalized, "video/"):
+		return normalized
+	case strings.HasPrefix(normalized, "text/"):
+		return normalized
+	case strings.Contains(normalized, "json"):
+		return normalized
+	case strings.Contains(normalized, "xml"):
+		return normalized
+	case strings.Contains(normalized, "yaml"):
+		return normalized
+	case strings.Contains(normalized, "csv"):
+		return normalized
+	}
+
+	switch normalized {
+	case "application/pdf", "application/octet-stream", "application/zip":
+		return normalized
+	default:
+		return "application/octet-stream"
+	}
 }
 
 func fallbackAttachmentName(media mediaAttachment) string {
@@ -547,6 +593,168 @@ func markdownToHTML(content string) string {
 		return "<p>" + template.HTMLEscapeString(content) + "</p>"
 	}
 	return buf.String()
+}
+
+func sanitizeRenderedHTML(fragment string) string {
+	if strings.TrimSpace(fragment) == "" {
+		return ""
+	}
+
+	doc, err := html.Parse(strings.NewReader("<div>" + fragment + "</div>"))
+	if err != nil {
+		return template.HTMLEscapeString(fragment)
+	}
+
+	root := findHTMLWrapper(doc)
+	if root == nil {
+		return template.HTMLEscapeString(fragment)
+	}
+
+	var sb strings.Builder
+	for child := root.FirstChild; child != nil; child = child.NextSibling {
+		renderSanitizedHTMLNode(child, &sb)
+	}
+	return sb.String()
+}
+
+func findHTMLWrapper(root *html.Node) *html.Node {
+	var wrapper *html.Node
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if wrapper != nil {
+			return
+		}
+		if n.Type == html.ElementNode && n.Data == "div" {
+			wrapper = n
+			return
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(root)
+	return wrapper
+}
+
+func renderSanitizedHTMLNode(n *html.Node, sb *strings.Builder) {
+	switch n.Type {
+	case html.TextNode:
+		sb.WriteString(template.HTMLEscapeString(n.Data))
+		return
+	case html.ElementNode:
+		if isBlockedHTMLTag(n.Data) {
+			return
+		}
+		if !isAllowedHTMLTag(n.Data) {
+			for child := n.FirstChild; child != nil; child = child.NextSibling {
+				renderSanitizedHTMLNode(child, sb)
+			}
+			return
+		}
+
+		sb.WriteString("<")
+		sb.WriteString(n.Data)
+		for _, attr := range sanitizeHTMLAttrs(n) {
+			sb.WriteString(" ")
+			sb.WriteString(attr.Key)
+			sb.WriteString(`="`)
+			sb.WriteString(template.HTMLEscapeString(attr.Val))
+			sb.WriteString(`"`)
+		}
+		if isVoidHTMLTag(n.Data) {
+			sb.WriteString(">")
+			return
+		}
+		sb.WriteString(">")
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			renderSanitizedHTMLNode(child, sb)
+		}
+		sb.WriteString("</")
+		sb.WriteString(n.Data)
+		sb.WriteString(">")
+	default:
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			renderSanitizedHTMLNode(child, sb)
+		}
+	}
+}
+
+func sanitizeHTMLAttrs(n *html.Node) []html.Attribute {
+	attrs := make([]html.Attribute, 0, len(n.Attr))
+	for _, attr := range n.Attr {
+		key := strings.ToLower(strings.TrimSpace(attr.Key))
+		if strings.HasPrefix(key, "on") {
+			continue
+		}
+
+		switch n.Data {
+		case "a":
+			if key == "href" && isSafeRenderedURL(attr.Val, false) {
+				attrs = append(attrs, html.Attribute{Key: key, Val: strings.TrimSpace(attr.Val)})
+			}
+			if key == "title" {
+				attrs = append(attrs, html.Attribute{Key: key, Val: attr.Val})
+			}
+		case "img":
+			if key == "src" && isSafeRenderedURL(attr.Val, false) {
+				attrs = append(attrs, html.Attribute{Key: key, Val: strings.TrimSpace(attr.Val)})
+			}
+			if key == "alt" || key == "title" {
+				attrs = append(attrs, html.Attribute{Key: key, Val: attr.Val})
+			}
+		}
+	}
+	return attrs
+}
+
+func isSafeRenderedURL(raw string, allowData bool) bool {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return false
+	}
+	lower := strings.ToLower(value)
+	if strings.ContainsAny(lower, "\"'<> \r\n\t") {
+		return false
+	}
+	if strings.HasPrefix(lower, "#") || strings.HasPrefix(lower, "/") || strings.HasPrefix(lower, "./") || strings.HasPrefix(lower, "../") {
+		return true
+	}
+	if !strings.Contains(lower, ":") {
+		return true
+	}
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "mailto:") {
+		return true
+	}
+	return allowData && strings.HasPrefix(lower, "data:")
+}
+
+func isAllowedHTMLTag(tag string) bool {
+	switch tag {
+	case "p", "br", "hr", "strong", "em", "code", "pre", "blockquote",
+		"ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td",
+		"a", "img", "h1", "h2", "h3", "h4", "h5", "h6":
+		return true
+	default:
+		return false
+	}
+}
+
+func isBlockedHTMLTag(tag string) bool {
+	switch tag {
+	case "script", "style", "iframe", "object", "embed", "link", "meta":
+		return true
+	default:
+		return false
+	}
+}
+
+func isVoidHTMLTag(tag string) bool {
+	switch tag {
+	case "br", "hr", "img":
+		return true
+	default:
+		return false
+	}
 }
 
 func markdownToPDFText(content string) string {
@@ -675,7 +883,7 @@ func writePDFMediaAttachments(pdf *fpdf.Fpdf, useUTF8 bool, msg MessageExport) e
 	if strings.TrimSpace(msg.Audio) != "" && strings.TrimSpace(msg.AudioMimeType) != "" {
 		if err := writePDFAttachment(pdf, useUTF8, mediaAttachment{
 			Name: "Audio da mensagem",
-			MIME: msg.AudioMimeType,
+			MIME: sanitizeMIMEType(msg.AudioMimeType),
 			Data: msg.Audio,
 		}, "audio-message"); err != nil {
 			errs = append(errs, err.Error())

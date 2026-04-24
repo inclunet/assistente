@@ -1,10 +1,15 @@
 package portability
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
+	"assistente/internal/credentials"
 	"assistente/internal/database"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestExportConversationUsesIndexesInsteadOfIDs(t *testing.T) {
@@ -49,5 +54,240 @@ func TestExportConversationOmitsAudioByDefault(t *testing.T) {
 	}
 	if exported.Messages[0].AudioMimeType != "audio/mpeg" {
 		t.Fatalf("AudioMimeType = %q, want audio/mpeg", exported.Messages[0].AudioMimeType)
+	}
+}
+
+func setupPortabilityTestDB(t *testing.T) {
+	t.Helper()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("falha ao criar banco em memória: %v", err)
+	}
+	if err := db.AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
+		t.Fatalf("falha ao migrar tabelas: %v", err)
+	}
+	database.SetDB(db)
+}
+
+func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	existingCreatedAt := time.Date(2025, 4, 24, 10, 0, 0, 0, time.UTC)
+	existingConv := &database.Conversation{
+		Title:     "Conversa importada",
+		Channel:   "telegram",
+		CreatedAt: existingCreatedAt,
+		UpdatedAt: existingCreatedAt,
+	}
+	if err := database.DB().Create(existingConv).Error; err != nil {
+		t.Fatalf("falha ao criar conversa existente: %v", err)
+	}
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	if err := credMgr.RegisterPatternWithContext(t.Context(), "api.openai.com", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "secret",
+	}); err != nil {
+		t.Fatalf("falha ao registrar credencial existente: %v", err)
+	}
+
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: time.Now().UTC(),
+		Options: ExportOptions{
+			IncludeCredentials: true,
+		},
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Conversa importada",
+					Channel:   "telegram",
+					CreatedAt: existingCreatedAt,
+					Messages: []MessageExport{
+						{Role: "user", Content: "Oi", CreatedAt: existingCreatedAt},
+					},
+				},
+			},
+		},
+	}
+
+	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
+		{Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+	})
+	if err != nil {
+		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
+	}
+	file.Resources.Credentials = blob
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("falha ao serializar export file: %v", err)
+	}
+
+	analysis, err := AnalyzeImportData(string(raw), credMgr, "senha-teste")
+	if err != nil {
+		t.Fatalf("AnalyzeImportData() error = %v", err)
+	}
+
+	if analysis.ConversationCount != 1 || analysis.MessageCount != 1 {
+		t.Fatalf("counts inesperados: %+v", analysis)
+	}
+	if analysis.ConflictCount != 2 {
+		t.Fatalf("ConflictCount = %d, want 2", analysis.ConflictCount)
+	}
+	if len(analysis.ConversationConflicts) != 1 {
+		t.Fatalf("conversation conflicts = %d, want 1", len(analysis.ConversationConflicts))
+	}
+	if len(analysis.CredentialConflicts) != 1 {
+		t.Fatalf("credential conflicts = %d, want 1", len(analysis.CredentialConflicts))
+	}
+}
+
+func TestImportConversationRestoresCreatedAt(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	createdAt := time.Date(2024, 12, 31, 23, 59, 59, 0, time.UTC)
+	imported, err := importConversation(ConversationExport{
+		Title:     "Conversa antiga",
+		CreatedAt: createdAt,
+		Messages: []MessageExport{
+			{Role: "user", Content: "Oi", CreatedAt: createdAt},
+		},
+	}, false)
+	if err != nil {
+		t.Fatalf("importConversation() error = %v", err)
+	}
+	if !imported {
+		t.Fatal("importConversation() = false, want true")
+	}
+
+	conversations, err := database.GetConversations()
+	if err != nil {
+		t.Fatalf("GetConversations() error = %v", err)
+	}
+	if len(conversations) != 1 {
+		t.Fatalf("len(conversations) = %d, want 1", len(conversations))
+	}
+	if !conversations[0].CreatedAt.Equal(createdAt) {
+		t.Fatalf("CreatedAt = %s, want %s", conversations[0].CreatedAt, createdAt)
+	}
+
+	conv, err := database.GetConversation(conversations[0].ID)
+	if err != nil {
+		t.Fatalf("GetConversation() error = %v", err)
+	}
+	if len(conv.Messages) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(conv.Messages))
+	}
+	if !conv.Messages[0].CreatedAt.Equal(createdAt) {
+		t.Fatalf("message CreatedAt = %s, want %s", conv.Messages[0].CreatedAt, createdAt)
+	}
+}
+
+func TestImportConversationRollsBackOnInvalidMessageReference(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	_, err := importConversation(ConversationExport{
+		Title:     "Conversa inválida",
+		CreatedAt: time.Now().UTC(),
+		Messages: []MessageExport{
+			{Role: "user", Content: "Oi", CreatedAt: time.Now().UTC()},
+			{Role: "assistant", Content: "Resposta", ParentIndex: intPtr(99), CreatedAt: time.Now().UTC()},
+		},
+	}, false)
+	if err == nil {
+		t.Fatal("importConversation() error = nil, want invalid reference error")
+	}
+
+	conversations, err := database.GetConversations()
+	if err != nil {
+		t.Fatalf("GetConversations() error = %v", err)
+	}
+	if len(conversations) != 0 {
+		t.Fatalf("len(conversations) = %d, want 0 after rollback", len(conversations))
+	}
+}
+
+func TestAnalyzeImportDataWarnsAboutEmptyConversations(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{Title: "Vazia", CreatedAt: time.Now().UTC()},
+				{
+					Title:     "Com mensagens",
+					CreatedAt: time.Now().UTC(),
+					Messages: []MessageExport{
+						{Role: "user", Content: "Oi", CreatedAt: time.Now().UTC()},
+					},
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("falha ao serializar export file: %v", err)
+	}
+
+	analysis, err := AnalyzeImportData(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("AnalyzeImportData() error = %v", err)
+	}
+	if len(analysis.Warnings) == 0 {
+		t.Fatal("expected warning about empty conversations")
+	}
+	if analysis.Warnings[0] != "1 conversa(s) vazia(s) serão descartadas na importação." {
+		t.Fatalf("unexpected warning: %q", analysis.Warnings[0])
+	}
+}
+
+func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	now := time.Now().UTC()
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: now,
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{Title: "Vazia", CreatedAt: now},
+				{
+					Title:     "Com mensagens",
+					CreatedAt: now,
+					Messages: []MessageExport{
+						{Role: "user", Content: "Oi", CreatedAt: now},
+					},
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("falha ao serializar export file: %v", err)
+	}
+
+	result, err := ImportConversations(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Imported != 1 || result.Skipped != 1 {
+		t.Fatalf("got imported=%d skipped=%d, want 1/1", result.Imported, result.Skipped)
+	}
+
+	conversations, err := database.GetConversations()
+	if err != nil {
+		t.Fatalf("GetConversations() error = %v", err)
+	}
+	if len(conversations) != 1 {
+		t.Fatalf("len(conversations) = %d, want 1", len(conversations))
+	}
+	if conversations[0].Title != "Com mensagens" {
+		t.Fatalf("unexpected imported conversation: %q", conversations[0].Title)
 	}
 }

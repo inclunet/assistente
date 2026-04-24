@@ -26,6 +26,10 @@ export function AddWorkspaceTab(arg1) {
   return window['go']['app']['App']['AddWorkspaceTab'](arg1);
 }
 
+export function AnalyzeImportData(arg1, arg2) {
+  return window['go']['app']['App']['AnalyzeImportData'](arg1, arg2);
+}
+
 export function ApplyUpdate() {
   return window['go']['app']['App']['ApplyUpdate']();
 }
@@ -292,6 +296,10 @@ export function EnsureConversation(arg1) {
 
 export function ExportConversations(arg1) {
   return window['go']['app']['App']['ExportConversations'](arg1);
+}
+
+export function ExportData(arg1) {
+  return window['go']['app']['App']['ExportData'](arg1);
 }
 
 export function ExportConversationsToFile(arg1, arg2) {

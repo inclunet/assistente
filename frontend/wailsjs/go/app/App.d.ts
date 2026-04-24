@@ -29,6 +29,8 @@ export function AddMessageWithTokensAndMedia(arg1:number,arg2:string,arg3:string
 
 export function AddWorkspaceTab(arg1:workspace.Tab):Promise<workspace.Workspace>;
 
+export function AnalyzeImportData(arg1:string,arg2:string):Promise<any>;
+
 export function ApplyUpdate():Promise<void>;
 
 export function AssignConversationToChannel(arg1:number,arg2:string,arg3:string):Promise<void>;
@@ -162,6 +164,8 @@ export function EditorWriteFile(arg1:string,arg2:string):Promise<void>;
 export function EnsureConversation(arg1:string):Promise<database.Conversation>;
 
 export function ExportConversations(arg1:Array<number>):Promise<string>;
+
+export function ExportData(arg1:any):Promise<string>;
 
 export function ExportConversationsToFile(arg1:Array<number>,arg2:string):Promise<string>;
 

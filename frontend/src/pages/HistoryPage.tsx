@@ -10,16 +10,18 @@ import {
   ImportOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ExportConversationsToFile, ImportData, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { AnalyzeImportData, GetConversations, DeleteConversation, UpdateConversation, ExportConversationsToFile, ExportData, ImportData, SearchConversationHistory } from '@wailsjs/go/app/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../components/menu';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components/ui/Button';
+import { Checkbox } from '../components/ui/Checkbox';
 import { FormField } from '../components/ui/FormField';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
+import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useConfirm } from '../hooks/useConfirm';
@@ -49,6 +51,34 @@ interface ImportPreview {
   includesCredentials: boolean;
   requiresCredentialPassword: boolean;
   includeAudio: boolean;
+}
+
+interface ImportConflict {
+  resourceType: string;
+  identifier: string;
+  reason: string;
+}
+
+interface ImportAnalysis {
+  version: number;
+  appVersion?: string;
+  conversationCount: number;
+  messageCount: number;
+  includesCredentials: boolean;
+  requiresCredentialPassword: boolean;
+  credentialCount: number;
+  conflictCount: number;
+  conversationConflicts?: ImportConflict[];
+  credentialConflicts?: ImportConflict[];
+  warnings?: string[];
+  credentialAnalysisError?: string;
+}
+
+interface ExportRequestPayload {
+  conversationIds: string[];
+  includeCredentials: boolean;
+  credentialExportPassword?: string;
+  outputFormat: 'json';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -89,6 +119,7 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
 
 export default function HistoryPage() {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const confirm = useConfirm();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -100,8 +131,16 @@ export default function HistoryPage() {
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportTargetIds, setExportTargetIds] = useState<number[]>([]);
+  const [includeCredentialExport, setIncludeCredentialExport] = useState(false);
+  const [exportPassword, setExportPassword] = useState('');
+  const [exportPasswordError, setExportPasswordError] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [importAnalysis, setImportAnalysis] = useState<ImportAnalysis | null>(null);
+  const [isAnalyzingImport, setIsAnalyzingImport] = useState(false);
   const [importPassword, setImportPassword] = useState('');
   const [importPasswordError, setImportPasswordError] = useState('');
   const [isImporting, setIsImporting] = useState(false);
@@ -251,67 +290,131 @@ export default function HistoryPage() {
     }
   }, [confirm, selectedIds, t]);
 
-  const exportJsonByIds = useCallback(async (idsToExport: number[]) => {
+  const getTargetConversationIds = useCallback(() => (
+    selectedIds.size > 0
+      ? Array.from(selectedIds).map((id) => Number(id))
+      : conversations.map((c) => c.id)
+  ), [conversations, selectedIds]);
+
+  const openExportModal = useCallback((idsToExport: number[]) => {
     if (idsToExport.length === 0) {
-      alert(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'));
+      announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
       return;
     }
+    setExportTargetIds(idsToExport);
+    setIncludeCredentialExport(false);
+    setExportPassword('');
+    setExportPasswordError('');
+    setIsExportModalOpen(true);
+  }, [announce, t]);
 
+  const closeExportModal = useCallback(() => {
+    setIsExportModalOpen(false);
+    setExportTargetIds([]);
+    setIncludeCredentialExport(false);
+    setExportPassword('');
+    setExportPasswordError('');
+  }, []);
+
+  const exportJsonByIds = useCallback(async (idsToExport: number[], options?: {
+    includeCredentials?: boolean;
+    credentialExportPassword?: string;
+  }) => {
     try {
-      const jsonData = await ExportConversations(idsToExport);
+      const payload: ExportRequestPayload = {
+        conversationIds: idsToExport.map((id) => String(id)),
+        includeCredentials: options?.includeCredentials === true,
+        outputFormat: 'json',
+      };
+      if (payload.includeCredentials && options?.credentialExportPassword?.trim()) {
+        payload.credentialExportPassword = options.credentialExportPassword.trim();
+      }
+      const jsonData = await ExportData(payload);
       const filename = generateFilename('conversas');
       downloadJSON(jsonData, filename);
     } catch (error) {
       console.error('Erro ao exportar conversas:', error);
-      alert(t('history.exportError', 'Erro ao exportar conversas'));
+      announce(t('history.exportError', 'Erro ao exportar conversas'), 'assertive');
     }
-  }, [t]);
+  }, [announce, t]);
 
   const exportRichByIds = useCallback(async (idsToExport: number[], format: 'html' | 'pdf') => {
     if (idsToExport.length === 0) {
-      alert(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'));
+      announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
       return;
     }
 
     try {
       const savedPath = await ExportConversationsToFile(idsToExport, format);
       if (!savedPath) return;
-      alert(t('history.exportSaved', { path: savedPath, defaultValue: `Arquivo exportado: ${savedPath}` }));
+      announce(t('history.exportSaved', { path: savedPath, defaultValue: `Arquivo exportado: ${savedPath}` }));
     } catch (error) {
       console.error(`Erro ao exportar conversas em ${format}:`, error);
-      alert(t('history.exportError', 'Erro ao exportar conversas'));
+      announce(t('history.exportError', 'Erro ao exportar conversas'), 'assertive');
     }
-  }, [t]);
+  }, [announce, t]);
 
-  const handleExport = useCallback(async () => {
-    const idsToExport = selectedIds.size > 0
-      ? Array.from(selectedIds).map(id => Number(id))
-      : conversations.map(c => c.id);
-    await exportJsonByIds(idsToExport);
-  }, [conversations, exportJsonByIds, selectedIds]);
+  const handleExport = useCallback(() => {
+    openExportModal(getTargetConversationIds());
+  }, [getTargetConversationIds, openExportModal]);
 
   const handleRichExport = useCallback(async (format: 'html' | 'pdf') => {
-    const idsToExport = selectedIds.size > 0
-      ? Array.from(selectedIds).map(id => Number(id))
-      : conversations.map(c => c.id);
+    const idsToExport = getTargetConversationIds();
     await exportRichByIds(idsToExport, format);
-  }, [conversations, exportRichByIds, selectedIds]);
+  }, [exportRichByIds, getTargetConversationIds]);
+
+  const handleConfirmExport = useCallback(async () => {
+    if (exportTargetIds.length === 0) {
+      announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
+      return;
+    }
+    if (includeCredentialExport && !exportPassword.trim()) {
+      setExportPasswordError(t('history.exportPasswordRequired', 'Informe uma senha para criptografar as credenciais exportadas.'));
+      return;
+    }
+
+    setIsExporting(true);
+    setExportPasswordError('');
+    try {
+      await exportJsonByIds(exportTargetIds, {
+        includeCredentials: includeCredentialExport,
+        credentialExportPassword: exportPassword,
+      });
+      closeExportModal();
+    } finally {
+      setIsExporting(false);
+    }
+  }, [announce, closeExportModal, exportJsonByIds, exportPassword, exportTargetIds, includeCredentialExport, t]);
 
   const closeImportModal = useCallback(() => {
     setIsImportModalOpen(false);
     setImportPreview(null);
+    setImportAnalysis(null);
     setImportPassword('');
     setImportPasswordError('');
+  }, []);
+
+  const analyzeImportPayload = useCallback(async (jsonData: string, credentialPassword: string) => {
+    setIsAnalyzingImport(true);
+    try {
+      const analysis = await AnalyzeImportData(jsonData, credentialPassword);
+      setImportAnalysis(analysis as ImportAnalysis);
+      return analysis as ImportAnalysis;
+    } finally {
+      setIsAnalyzingImport(false);
+    }
   }, []);
 
   const selectImportFile = useCallback(async () => {
     const selectedFile = await openImportFileDialog('.json,application/json');
     const preview = buildImportPreview(selectedFile.name, selectedFile.content);
     setImportPreview(preview);
+    setImportAnalysis(null);
     setImportPassword('');
     setImportPasswordError('');
+    await analyzeImportPayload(selectedFile.content, '');
     setIsImportModalOpen(true);
-  }, []);
+  }, [analyzeImportPayload]);
 
   const getImportErrorMessage = useCallback((error: unknown) => {
     if (error instanceof Error) {
@@ -335,7 +438,7 @@ export default function HistoryPage() {
       console.error('Erro ao importar conversas:', error);
       const message = getImportErrorMessage(error);
       if (message) {
-        alert(message);
+        announce(message, 'assertive');
       }
     }
   };
@@ -347,15 +450,19 @@ export default function HistoryPage() {
       console.error('Erro ao trocar arquivo de importação:', error);
       const message = getImportErrorMessage(error);
       if (message) {
-        alert(message);
+        announce(message, 'assertive');
       }
     }
-  }, [getImportErrorMessage, selectImportFile]);
+  }, [announce, getImportErrorMessage, selectImportFile]);
 
   const handleConfirmImport = useCallback(async () => {
     if (!importPreview) return;
     if (importPreview.requiresCredentialPassword && !importPassword.trim()) {
       setImportPasswordError(t('history.importPasswordRequired', 'Informe a senha usada para exportar as credenciais.'));
+      return;
+    }
+    if (importAnalysis?.credentialAnalysisError) {
+      setImportPasswordError(t('history.importPasswordInvalid', 'Não foi possível validar a senha informada para as credenciais.'));
       return;
     }
 
@@ -381,16 +488,27 @@ export default function HistoryPage() {
         );
       }
 
-      alert(details.filter(Boolean).join('\n\n'));
+      announce(details.filter(Boolean).join('. '), result.success ? 'polite' : 'assertive');
       closeImportModal();
       await loadConversations();
     } catch (error) {
       console.error('Erro ao confirmar importação:', error);
-      alert(t('history.importError', 'Erro ao importar conversas'));
+      announce(t('history.importError', 'Erro ao importar conversas'), 'assertive');
     } finally {
       setIsImporting(false);
     }
-  }, [closeImportModal, importPassword, importPreview, t]);
+  }, [announce, closeImportModal, importAnalysis?.credentialAnalysisError, importPassword, importPreview, t]);
+
+  useEffect(() => {
+    if (!isImportModalOpen || !importPreview) return;
+    if (!importPreview.requiresCredentialPassword) return;
+
+    const timer = window.setTimeout(() => {
+      void analyzeImportPayload(importPreview.jsonData, importPassword.trim());
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [analyzeImportPayload, importPassword, importPreview, isImportModalOpen]);
 
   const handleDeleteAction = useCallback(() => {
     if (selectedIds.size > 0) {
@@ -463,7 +581,7 @@ export default function HistoryPage() {
           {
             id: 'export-json',
             label: t('history.exportJson', 'Exportar JSON'),
-            action: () => void exportJsonByIds([item.id]),
+            action: () => openExportModal([item.id]),
           },
           {
             id: 'export-html',
@@ -489,7 +607,7 @@ export default function HistoryPage() {
 
       return actions;
     },
-    [exportJsonByIds, exportRichByIds, handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
+    [exportRichByIds, handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, openExportModal, workspaces, t]
   );
 
   const getMenuButtonItems = useCallback(
@@ -636,8 +754,11 @@ export default function HistoryPage() {
           {
             key: 'export-json',
             label: selectedIds.size > 0 
-              ? t('history.exportSelected', `Exportar JSON (${selectedIds.size})`)
-              : t('history.exportAll', 'Exportar JSON'),
+              ? t('history.exportJsonSelected', {
+                  count: selectedIds.size,
+                  defaultValue: 'Exportar JSON ({{count}})',
+                })
+              : t('history.exportJson', 'Exportar JSON'),
             icon: <ExportOutlined />,
             onClick: handleExport,
             variant: 'secondary',
@@ -683,6 +804,107 @@ export default function HistoryPage() {
         onFocusChange={handleFocusChange}
         getRowActions={getRowActions}
       />
+
+      <Modal
+        isOpen={isExportModalOpen}
+        onClose={closeExportModal}
+        title={t('history.exportDialogTitle', 'Exportar conversas')}
+        size="md"
+        allowClose={!isExporting}
+      >
+        <div className="history-page__import-modal">
+          <p className="history-page__import-description">
+            {t(
+              'history.exportDialogDescription',
+              'Exporte o JSON canônico das conversas selecionadas. Esse arquivo é o formato suportado para importação.'
+            )}
+          </p>
+
+          <dl className="history-page__import-summary">
+            <div className="history-page__import-row">
+              <dt>{t('history.exportConversationsLabel', 'Conversas')}</dt>
+              <dd>{exportTargetIds.length}</dd>
+            </div>
+            <div className="history-page__import-row">
+              <dt>{t('history.exportFormatLabel', 'Formato')}</dt>
+              <dd>{t('history.exportJson', 'Exportar JSON')}</dd>
+            </div>
+            <div className="history-page__import-row">
+              <dt>{t('history.exportCredentialsLabel', 'Credenciais')}</dt>
+              <dd>
+                {includeCredentialExport
+                  ? t('history.exportCredentialsIncluded', 'Incluir bloco criptografado')
+                  : t('history.exportCredentialsNotIncluded', 'Não incluir')}
+              </dd>
+            </div>
+          </dl>
+
+          <Checkbox
+            checked={includeCredentialExport}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setIncludeCredentialExport(checked);
+              if (!checked) {
+                setExportPassword('');
+                setExportPasswordError('');
+              }
+            }}
+            label={t('history.exportCredentialsOption', 'Incluir credenciais criptografadas no export')}
+          />
+
+          {includeCredentialExport && (
+            <>
+              <p className="history-page__import-note">
+                {t(
+                  'history.exportCredentialsDescription',
+                  'As credenciais serão incluídas em um bloco criptografado. Essa senha será necessária na importação.'
+                )}
+              </p>
+              <FormField
+                label={t('history.exportPasswordLabel', 'Senha de exportação')}
+                description={t(
+                  'history.exportPasswordDescription',
+                  'Use uma senha forte. Sem ela, as credenciais exportadas não poderão ser importadas.'
+                )}
+                error={exportPasswordError || null}
+                required
+              >
+                <Input
+                  type="password"
+                  value={exportPassword}
+                  onChange={(event) => {
+                    setExportPassword(event.target.value);
+                    if (exportPasswordError) {
+                      setExportPasswordError('');
+                    }
+                  }}
+                  placeholder={t('history.exportPasswordPlaceholder', 'Digite a senha de exportação')}
+                />
+              </FormField>
+            </>
+          )}
+
+          <div className="history-page__import-actions">
+            <div className="history-page__import-actions-spacer" />
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={closeExportModal}
+              disabled={isExporting}
+            >
+              {t('common.cancel', 'Cancelar')}
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => void handleConfirmExport()}
+              loading={isExporting}
+            >
+              {t('history.exportConfirm', 'Exportar agora')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={isImportModalOpen}
@@ -744,6 +966,71 @@ export default function HistoryPage() {
             </dl>
           )}
 
+          {isAnalyzingImport && (
+            <p className="history-page__import-note">
+              {t('history.importAnalyzingConflicts', 'Analisando conflitos do arquivo...')}
+            </p>
+          )}
+
+          {importAnalysis && !isAnalyzingImport && (
+            <div className="history-page__import-analysis">
+              <div className="history-page__import-analysis-header">
+                <strong>{t('history.importConflictsTitle', 'Conflitos detectados')}</strong>
+                <span>
+                  {importAnalysis.conflictCount > 0
+                    ? t('history.importConflictCount', {
+                        defaultValue: '{{count}} conflito(s)',
+                        count: importAnalysis.conflictCount,
+                      })
+                    : t('history.importNoConflicts', 'Nenhum conflito detectado')}
+                </span>
+              </div>
+
+              {!!importAnalysis.warnings?.length && (
+                <ul className="history-page__import-list history-page__import-list--warning">
+                  {importAnalysis.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              )}
+
+              {!!importAnalysis.conversationConflicts?.length && (
+                <>
+                  <strong>{t('history.importConversationConflicts', 'Conversas em conflito')}</strong>
+                  <ul className="history-page__import-list">
+                    {importAnalysis.conversationConflicts.map((conflict) => (
+                      <li key={`${conflict.resourceType}-${conflict.identifier}`}>
+                        {conflict.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {!!importAnalysis.credentialConflicts?.length && (
+                <>
+                  <strong>{t('history.importCredentialConflicts', 'Credenciais em conflito')}</strong>
+                  <ul className="history-page__import-list">
+                    {importAnalysis.credentialConflicts.map((conflict) => (
+                      <li key={`${conflict.resourceType}-${conflict.identifier}`}>
+                        <code>{conflict.identifier}</code>: {conflict.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {importAnalysis.conflictCount > 0 && (
+                <p className="history-page__import-note">
+                  {t(
+                    'history.importConflictNotice',
+                    'Os itens em conflito serão ignorados nesta importação para evitar duplicidade.'
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+
           {importPreview?.requiresCredentialPassword && (
             <FormField
               label={t('history.importPasswordLabel', 'Senha das credenciais')}
@@ -800,6 +1087,7 @@ export default function HistoryPage() {
               variant="primary"
               onClick={() => void handleConfirmImport()}
               loading={isImporting}
+              disabled={isAnalyzingImport}
             >
               {t('history.importConfirm', 'Importar agora')}
             </Button>

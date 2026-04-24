@@ -18,6 +18,7 @@ type ExportRequest = portability.ExportRequest
 type ConversationExport = portability.ConversationExport
 type ConversationsExportFile = portability.ExportFile
 type ImportResult = portability.ImportResult
+type ImportAnalysis = portability.ImportAnalysis
 
 // ==================== Export Functions ====================
 
@@ -64,6 +65,10 @@ func (a *App) ImportConversations(jsonData string) (*ImportResult, error) {
 
 func (a *App) ImportData(jsonData string, credentialExportPassword string) (*ImportResult, error) {
 	return portability.ImportConversations(jsonData, a.credMgr, credentialExportPassword)
+}
+
+func (a *App) AnalyzeImportData(jsonData string, credentialExportPassword string) (*ImportAnalysis, error) {
+	return portability.AnalyzeImportData(jsonData, a.credMgr, credentialExportPassword)
 }
 
 func (a *App) ExportConversationsToFile(ids []uint, format string) (string, error) {

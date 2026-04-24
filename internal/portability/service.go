@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+
+	"gorm.io/gorm"
 )
 
 func ExportConversations(ids []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
@@ -72,6 +75,19 @@ func ImportConversations(jsonData string, credMgr *credentials.Manager, credenti
 	if file.Version != 1 {
 		return nil, fmt.Errorf("versão de exportação não suportada: %d", file.Version)
 	}
+	analysis, err := analyzeImportFile(&file, credMgr, credentialPassword)
+	if err != nil {
+		return nil, err
+	}
+
+	conversationConflictKeys := make(map[string]struct{}, len(analysis.ConversationConflicts))
+	for _, conflict := range analysis.ConversationConflicts {
+		conversationConflictKeys[conflict.Identifier] = struct{}{}
+	}
+	credentialConflictPatterns := make(map[string]struct{}, len(analysis.CredentialConflicts))
+	for _, conflict := range analysis.CredentialConflicts {
+		credentialConflictPatterns[conflict.Identifier] = struct{}{}
+	}
 
 	result := &ImportResult{
 		Success: true,
@@ -79,6 +95,14 @@ func ImportConversations(jsonData string, credMgr *credentials.Manager, credenti
 	}
 
 	for _, conv := range file.Resources.Conversations {
+		if isEmptyConversation(conv) {
+			result.Skipped++
+			continue
+		}
+		if _, exists := conversationConflictKeys[conversationConflictIdentifier(conv)]; exists {
+			result.Skipped++
+			continue
+		}
 		imported, err := importConversation(conv, file.Options.IncludeAudio)
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
@@ -95,18 +119,31 @@ func ImportConversations(jsonData string, credMgr *credentials.Manager, credenti
 			result.Errors = append(result.Errors, "cofre de credenciais indisponível para importação")
 			result.Success = false
 		} else {
-			if err := importCredentials(credMgr, file.Resources.Credentials, credentialPassword); err != nil {
+			skipped, err := importCredentials(credMgr, file.Resources.Credentials, credentialPassword, credentialConflictPatterns)
+			result.Skipped += skipped
+			if err != nil {
 				result.Errors = append(result.Errors, err.Error())
 				result.Success = false
 			}
 		}
 	}
 
-	result.Message = fmt.Sprintf("Importadas %d conversas, %d ignoradas", result.Imported, result.Skipped)
+	result.Message = fmt.Sprintf("Importadas %d conversas, %d itens ignorados", result.Imported, result.Skipped)
 	if len(result.Errors) > 0 {
 		result.Success = false
 	}
 	return result, nil
+}
+
+func AnalyzeImportData(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
+	var file ExportFile
+	if err := json.Unmarshal([]byte(jsonData), &file); err != nil {
+		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
+	}
+	if file.Version != 1 {
+		return nil, fmt.Errorf("versão de exportação não suportada: %d", file.Version)
+	}
+	return analyzeImportFile(&file, credMgr, credentialPassword)
 }
 
 func exportConversation(conv *database.Conversation, includeAudio bool) ConversationExport {
@@ -159,67 +196,85 @@ func exportConversation(conv *database.Conversation, includeAudio bool) Conversa
 }
 
 func importConversation(conv ConversationExport, includeAudio bool) (bool, error) {
-	newConv, err := database.CreateConversation(conv.Title, "")
+	err := database.DB().Transaction(func(tx *gorm.DB) error {
+		newConv := &database.Conversation{
+			Title:     conv.Title,
+			Channel:   conv.Channel,
+			ContactID: conv.ContactID,
+			Summary:   conv.Summary,
+		}
+		if !conv.CreatedAt.IsZero() {
+			newConv.CreatedAt = conv.CreatedAt
+			newConv.UpdatedAt = conv.CreatedAt
+		}
+		if err := tx.Create(newConv).Error; err != nil {
+			return fmt.Errorf("erro ao criar conversa '%s': %w", conv.Title, err)
+		}
+
+		idMap := make(map[int]uint, len(conv.Messages))
+		for i, msg := range conv.Messages {
+			parentID, err := resolveImportedMessageReference(msg.ParentIndex, idMap, "pai")
+			if err != nil {
+				return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
+			}
+
+			turnID, err := resolveImportedMessageReference(msg.TurnIndex, idMap, "turno")
+			if err != nil {
+				return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
+			}
+
+			audio := ""
+			if includeAudio {
+				audio = msg.Audio
+			}
+
+			newMsg := &database.ChatMessage{
+				ConversationID:   newConv.ID,
+				ParentID:         parentID,
+				TurnID:           turnID,
+				Role:             msg.Role,
+				Content:          msg.Content,
+				Reasoning:        msg.Reasoning,
+				Media:            msg.Media,
+				Audio:            audio,
+				AudioMimeType:    msg.AudioMimeType,
+				ToolCalls:        msg.ToolCalls,
+				ToolCallID:       msg.ToolCallID,
+				PromptTokens:     msg.PromptTokens,
+				CompletionTokens: msg.CompletionTokens,
+				TotalTokens:      msg.TotalTokens,
+				Model:            msg.Model,
+				Source:           msg.Source,
+			}
+			if !msg.CreatedAt.IsZero() {
+				newMsg.CreatedAt = msg.CreatedAt
+			}
+
+			if err := tx.Create(newMsg).Error; err != nil {
+				return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
+			}
+			idMap[i] = newMsg.ID
+		}
+
+		return nil
+	})
 	if err != nil {
-		return false, fmt.Errorf("erro ao criar conversa '%s': %w", conv.Title, err)
-	}
-	if conv.Channel != "" || conv.ContactID != "" {
-		if err := database.UpdateConversationChannel(newConv.ID, conv.Channel, conv.ContactID); err != nil {
-			return false, fmt.Errorf("erro ao vincular canal da conversa '%s': %w", conv.Title, err)
-		}
-	}
-	if conv.Summary != "" {
-		if err := database.DB().Model(&database.Conversation{}).Where("id = ?", newConv.ID).Update("summary", conv.Summary).Error; err != nil {
-			return false, fmt.Errorf("erro ao salvar resumo da conversa '%s': %w", conv.Title, err)
-		}
-	}
-
-	idMap := make(map[int]uint, len(conv.Messages))
-	for i, msg := range conv.Messages {
-		var parentID *uint
-		if msg.ParentIndex != nil {
-			if mapped, ok := idMap[*msg.ParentIndex]; ok {
-				parentID = &mapped
-			}
-		}
-
-		var turnID *uint
-		if msg.TurnIndex != nil {
-			if mapped, ok := idMap[*msg.TurnIndex]; ok {
-				turnID = &mapped
-			}
-		}
-
-		audio := ""
-		if includeAudio {
-			audio = msg.Audio
-		}
-
-		newMsg, err := database.CreateMessage(database.MessageOptions{
-			ConversationID:   newConv.ID,
-			ParentID:         parentID,
-			TurnID:           turnID,
-			Role:             msg.Role,
-			Content:          msg.Content,
-			Reasoning:        msg.Reasoning,
-			Media:            msg.Media,
-			Audio:            audio,
-			AudioMimeType:    msg.AudioMimeType,
-			ToolCalls:        msg.ToolCalls,
-			ToolCallID:       msg.ToolCallID,
-			PromptTokens:     msg.PromptTokens,
-			CompletionTokens: msg.CompletionTokens,
-			TotalTokens:      msg.TotalTokens,
-			Model:            msg.Model,
-			Source:           msg.Source,
-		})
-		if err != nil {
-			return false, fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
-		}
-		idMap[i] = newMsg.ID
+		return false, err
 	}
 
 	return true, nil
+}
+
+func resolveImportedMessageReference(index *int, idMap map[int]uint, label string) (*uint, error) {
+	if index == nil {
+		return nil, nil
+	}
+
+	mapped, ok := idMap[*index]
+	if !ok {
+		return nil, fmt.Errorf("referência de %s inválida: índice %d", label, *index)
+	}
+	return &mapped, nil
 }
 
 func exportCredentials(credMgr *credentials.Manager) ([]CredentialExport, error) {
@@ -249,23 +304,19 @@ func exportCredentials(credMgr *credentials.Manager) ([]CredentialExport, error)
 	return result, nil
 }
 
-func importCredentials(credMgr *credentials.Manager, raw any, credentialPassword string) error {
-	data, err := json.Marshal(raw)
+func importCredentials(credMgr *credentials.Manager, raw any, credentialPassword string, skipPatterns map[string]struct{}) (int, error) {
+	creds, err := decodeCredentialExports(raw, credentialPassword)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	var blob CredentialCipher
-	if err := json.Unmarshal(data, &blob); err != nil {
-		return err
-	}
-
-	var creds []CredentialExport
-	if err := DecryptCredentialsPayload(credentialPassword, &blob, &creds); err != nil {
-		return fmt.Errorf("erro ao descriptografar credenciais do arquivo: %w", err)
-	}
+	skipped := 0
 
 	for _, cred := range creds {
+		if _, shouldSkip := skipPatterns[cred.Pattern]; shouldSkip {
+			skipped++
+			continue
+		}
 		auth := &credentials.AuthConfig{
 			Type:         cred.AuthType,
 			Token:        cred.Token,
@@ -278,13 +329,131 @@ func importCredentials(credMgr *credentials.Manager, raw any, credentialPassword
 			ClientSecret: cred.ClientSecret,
 		}
 		if err := credMgr.RegisterPatternWithContext(context.Background(), cred.Pattern, auth); err != nil {
-			return fmt.Errorf("erro ao importar credencial '%s': %w", cred.Pattern, err)
+			return skipped, fmt.Errorf("erro ao importar credencial '%s': %w", cred.Pattern, err)
 		}
 	}
 
-	return nil
+	return skipped, nil
 }
 
 func intPtr(v int) *int {
 	return &v
+}
+
+func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
+	analysis := &ImportAnalysis{
+		Version:               file.Version,
+		AppVersion:            file.AppVersion,
+		ConversationCount:     len(file.Resources.Conversations),
+		IncludesCredentials:   file.Options.IncludeCredentials && file.Resources.Credentials != nil,
+		ConversationConflicts: make([]ImportConflict, 0),
+		CredentialConflicts:   make([]ImportConflict, 0),
+		Warnings:              make([]string, 0),
+	}
+
+	for _, conv := range file.Resources.Conversations {
+		analysis.MessageCount += len(conv.Messages)
+	}
+
+	existingConversations, err := database.GetConversations()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao analisar conversas existentes: %w", err)
+	}
+	existingConversationKeys := make(map[string]struct{}, len(existingConversations))
+	for _, conv := range existingConversations {
+		existingConversationKeys[conversationConflictKey(conv.Title, conv.Channel, conv.CreatedAt)] = struct{}{}
+	}
+
+	for _, conv := range file.Resources.Conversations {
+		if isEmptyConversation(conv) {
+			continue
+		}
+		if _, exists := existingConversationKeys[conversationConflictKey(conv.Title, conv.Channel, conv.CreatedAt)]; !exists {
+			continue
+		}
+		analysis.ConversationConflicts = append(analysis.ConversationConflicts, ImportConflict{
+			ResourceType: "conversation",
+			Identifier:   conversationConflictIdentifier(conv),
+			Reason:       "Já existe uma conversa com o mesmo título, canal e data de criação.",
+		})
+	}
+
+	if analysis.IncludesCredentials {
+		analysis.RequiresCredentialPassword = true
+		if credMgr == nil {
+			analysis.Warnings = append(analysis.Warnings, "O cofre de credenciais atual não está disponível para analisar conflitos de credenciais.")
+		} else {
+			if strings.TrimSpace(credentialPassword) == "" {
+				analysis.Warnings = append(analysis.Warnings, "Informe a senha de exportação para analisar conflitos de credenciais.")
+			} else {
+				creds, err := decodeCredentialExports(file.Resources.Credentials, credentialPassword)
+				if err != nil {
+					analysis.CredentialAnalysisError = err.Error()
+					analysis.Warnings = append(analysis.Warnings, "Não foi possível analisar as credenciais com a senha informada.")
+				} else {
+					analysis.CredentialCount = len(creds)
+					existingPatterns := make(map[string]struct{}, len(credMgr.ListPatterns()))
+					for _, pattern := range credMgr.ListPatterns() {
+						existingPatterns[pattern] = struct{}{}
+					}
+					for _, cred := range creds {
+						if _, exists := existingPatterns[cred.Pattern]; !exists {
+							continue
+						}
+						analysis.CredentialConflicts = append(analysis.CredentialConflicts, ImportConflict{
+							ResourceType: "credential",
+							Identifier:   cred.Pattern,
+							Reason:       "Já existe uma credencial registrada com o mesmo pattern.",
+						})
+					}
+				}
+			}
+		}
+	}
+
+	analysis.ConflictCount = len(analysis.ConversationConflicts) + len(analysis.CredentialConflicts)
+	if emptyCount := countEmptyConversations(file.Resources.Conversations); emptyCount > 0 {
+		analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("%d conversa(s) vazia(s) serão descartadas na importação.", emptyCount))
+	}
+	return analysis, nil
+}
+
+func decodeCredentialExports(raw any, credentialPassword string) ([]CredentialExport, error) {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	var blob CredentialCipher
+	if err := json.Unmarshal(data, &blob); err != nil {
+		return nil, err
+	}
+
+	var creds []CredentialExport
+	if err := DecryptCredentialsPayload(credentialPassword, &blob, &creds); err != nil {
+		return nil, fmt.Errorf("erro ao descriptografar credenciais do arquivo: %w", err)
+	}
+	return creds, nil
+}
+
+func conversationConflictKey(title, channel string, createdAt time.Time) string {
+	return strings.TrimSpace(title) + "|" + strings.TrimSpace(channel) + "|" + createdAt.UTC().Format(time.RFC3339Nano)
+}
+
+func conversationConflictIdentifier(conv ConversationExport) string {
+	return conversationConflictKey(conv.Title, conv.Channel, conv.CreatedAt)
+}
+
+func isEmptyConversation(conv ConversationExport) bool {
+	return len(conv.Messages) == 0
+}
+
+func countEmptyConversations(conversations []ConversationExport) int {
+	count := 0
+	for _, conv := range conversations {
+		if isEmptyConversation(conv) {
+			count++
+		}
+	}
+	return count
 }
