@@ -78,7 +78,7 @@ export function useWorkspaceEditorBridge() {
 
   // Sincroniza título e filePath do editorStore → workspace tab
   useEffect(() => {
-    const unsub = useEditorStore.subscribe((state) => {
+    const syncEditorToWs = (state: ReturnType<typeof useEditorStore.getState>) => {
       const ws = useWorkspaceStore.getState();
       const wsTabs = ws.workspace?.tabs || [];
       for (const wsTab of wsTabs) {
@@ -96,10 +96,17 @@ export function useWorkspaceEditorBridge() {
           updates.state = { ...wsTab.state, filePath: docFilePath };
         }
         if (Object.keys(updates).length > 0) {
-          void ws.updateTab(wsTab.id, updates);
+          ws.updateTab(wsTab.id, updates).catch((err: unknown) => {
+            console.warn('[WorkspaceEditorBridge] falha ao sincronizar tab', wsTab.id, err);
+          });
         }
       }
-    });
+    };
+
+    // Sync inicial: propaga filePath que já existe no editorStore mas não no workspace
+    syncEditorToWs(useEditorStore.getState());
+
+    const unsub = useEditorStore.subscribe(syncEditorToWs);
     return unsub;
   }, []);
 

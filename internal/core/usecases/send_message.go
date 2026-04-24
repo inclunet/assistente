@@ -238,13 +238,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 		// filesystem tools possam ler/editar esses arquivos fora do workDir.
 		if uc.openEditorPaths != nil {
 			if paths := uc.openEditorPaths(); len(paths) > 0 {
-				log.Printf("[SendMessage] open editor paths injetados no contexto: %v", paths)
 				agentCtx = tools.WithOpenEditorPaths(agentCtx, paths)
-			} else {
-				log.Printf("[SendMessage] openEditorPaths retornou lista vazia")
 			}
-		} else {
-			log.Printf("[SendMessage] openEditorPaths não configurado (nil)")
 		}
 		go func() {
 			defer func() {

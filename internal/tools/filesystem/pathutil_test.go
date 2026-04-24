@@ -275,7 +275,8 @@ func TestValidatePathWithPolicy_OpenEditorPaths(t *testing.T) {
 		{"mkdir_open_editor_blocked", outsideDir, "mkdir", true},
 		{"list_open_editor_blocked", outsideDir, "list", true},
 		{"search_open_editor_blocked", outsideDir, "search", true},
-		{"grep_open_editor_blocked", outsideDir, "grep", true},
+		{"grep_open_editor_dir_blocked", outsideDir, "grep", true},
+		{"grep_open_editor_file", outsideFile, "grep", false},
 		{"other_file_still_blocked", filepath.Join(outsideDir, "other.txt"), "read", true},
 	}
 

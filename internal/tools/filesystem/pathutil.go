@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -123,14 +122,10 @@ func validatePath(fullPath, workDir string) error {
 func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, policy Policy, operation string) error {
 	if err := validatePath(fullPath, workDir); err != nil {
 		// Exceção de open editors: aplica-se APENAS quando o erro é "fora dos diretórios"
-		// (não para workDir inválido, caminho malformado, etc.) e somente para read/write/edit.
+		// (não para workDir inválido, caminho malformado, etc.) e somente para read/write/edit/grep.
 		if !errors.Is(err, errOutsideAllowedDirs) || !isOpenEditorAllowed(ctx, fullPath, operation) {
-			editorPaths := tools.GetOpenEditorPaths(ctx)
-			log.Printf("[validatePathWithPolicy] BLOQUEADO: path=%s op=%s isOutside=%v editorPaths=%v",
-				fullPath, operation, errors.Is(err, errOutsideAllowedDirs), editorPaths)
 			return err
 		}
-		log.Printf("[validatePathWithPolicy] LIBERADO via open editor: path=%s op=%s", fullPath, operation)
 	}
 	if err := validateSkillFilesystemAllowlist(ctx, fullPath, workDir, operation); err != nil {
 		return err
@@ -153,11 +148,10 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 }
 
 // isOpenEditorAllowed verifica se o arquivo está aberto em uma aba de editor e se a operação é permitida.
-// Apenas operações de leitura e escrita/edição são permitidas — operações estruturais (list, search,
-// grep, move, delete) não são liberadas apenas por ter o arquivo aberto.
+// Leitura, escrita/edição e grep são permitidos; operações estruturais (list, search, move, delete) não.
 func isOpenEditorAllowed(ctx context.Context, fullPath, operation string) bool {
 	switch operation {
-	case "read", "write", "edit":
+	case "read", "write", "edit", "grep":
 		return tools.IsOpenEditorFile(ctx, fullPath)
 	default:
 		return false

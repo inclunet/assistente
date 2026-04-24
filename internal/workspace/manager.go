@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -807,15 +806,6 @@ func (m *Manager) touchIndex(ws *Workspace, basePath string) {
 	_ = m.saveIndex(idx)
 }
 
-// stateKeys retorna as chaves de um map[string]any para diagnóstico.
-func stateKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
 // OpenEditorFilePaths retorna os caminhos absolutos de todos os arquivos abertos em abas de editor
 // no workspace ativo. Usado para permitir que filesystem tools acessem esses arquivos
 // mesmo que estejam fora do workDir.
@@ -824,7 +814,6 @@ func (m *Manager) OpenEditorFilePaths() []string {
 	defer m.mu.RUnlock()
 
 	if m.active == nil {
-		log.Printf("[OpenEditorFilePaths] no active workspace")
 		return nil
 	}
 
@@ -835,17 +824,14 @@ func (m *Manager) OpenEditorFilePaths() []string {
 		}
 		fp, ok := tab.State["filePath"].(string)
 		if !ok || fp == "" {
-			log.Printf("[OpenEditorFilePaths] editor tab %q has no filePath in state (state keys: %v)", tab.ID, stateKeys(tab.State))
 			continue
 		}
 		fp = filepath.Clean(fp)
 		if !filepath.IsAbs(fp) {
-			log.Printf("[OpenEditorFilePaths] editor tab %q has relative path: %s", tab.ID, fp)
 			continue
 		}
 		paths = append(paths, fp)
 	}
-	log.Printf("[OpenEditorFilePaths] returning %d paths: %v", len(paths), paths)
 	return paths
 }
 
