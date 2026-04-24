@@ -74,9 +74,9 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		errSummary := ""
 		if event.Error != "" {
 			status = "error"
-			errSummary = truncateString(event.Error, 200)
+			errSummary = truncateString(event.Error, MaxResultDisplaySize)
 		}
-		outputSummary := truncateString(event.Output, 200)
+		outputSummary := truncateString(event.Output, MaxResultDisplaySize)
 
 		EmitToolEnd(h.Emitter, ports.ToolEndEvent{
 			ConversationID: h.ConversationID,
@@ -88,6 +88,20 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 			ServerLabel:    event.ServerLabel,
 			Origin:         OriginMCPNative,
 		})
+
+		if event.Error != "" {
+			EmitToolFailure(h.Emitter, ports.ToolFailureEvent{
+				ConversationID: h.ConversationID,
+				Name:           event.Name,
+				CallID:         event.ID,
+				ErrorKind:      "unknown",
+				Retryable:      false,
+				Message:        errSummary,
+				WillRetry:      false,
+				Attempt:        0,
+				Origin:         OriginMCPNative,
+			})
+		}
 
 		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
 			event.Name, event.ServerLabel, event.ID, len(event.Output))

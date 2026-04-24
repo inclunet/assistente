@@ -101,6 +101,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Ferramenta '%s' não encontrada", toolName),
 				IsError: true,
 			},
+			Error:      fmt.Errorf("ferramenta '%s' não encontrada", toolName),
 			ErrorKind:  ErrorKindNotFound,
 			Retryable:  false,
 			DurationMs: time.Since(start).Milliseconds(),
@@ -117,6 +118,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Argumentos inválidos para '%s': JSON malformado", toolName),
 				IsError: true,
 			},
+			Error:      fmt.Errorf("argumentos inválidos para '%s': JSON malformado", toolName),
 			ErrorKind:  ErrorKindInvalidArgs,
 			Retryable:  false,
 			DurationMs: time.Since(start).Milliseconds(),
@@ -171,13 +173,22 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			return
 		}
 
-		// Trunca resultado se necessário (UTF-8 safe)
+		// Trunca resultado se necessário (UTF-8 safe).
+		// Reserva bytes para o aviso de truncamento, garantindo que
+		// result.Content final ≤ MaxResultSize.
 		if len(result.Content) > e.config.MaxResultSize {
-			truncated := truncateUTF8(result.Content, e.config.MaxResultSize)
-			result.Content = truncated + fmt.Sprintf(
+			origSize := len(result.Content)
+			warning := fmt.Sprintf(
 				"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-				len(result.Content), e.config.MaxResultSize,
+				origSize, e.config.MaxResultSize,
 			)
+			contentBudget := e.config.MaxResultSize - len(warning)
+			if contentBudget >= 1 {
+				result.Content = truncateUTF8(result.Content, contentBudget) + warning
+			} else {
+				// Warning não cabe — trunca sem aviso para respeitar o limite.
+				result.Content = truncateUTF8(result.Content, e.config.MaxResultSize)
+			}
 			if result.Metadata == nil {
 				result.Metadata = make(map[string]any)
 			}
@@ -195,6 +206,23 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	// Aguarda resultado ou timeout/cancelamento
 	select {
 	case result := <-resultCh:
+		// Reclassifica: se a goroutine retornou um erro genérico mas o contexto
+		// já foi cancelado/expirado, normaliza o ErrorKind e Result.Content para consistência.
+		if result.Result.IsError && result.ErrorKind == ErrorKindUnknown {
+			if ctx.Err() != nil {
+				// Contexto pai cancelado — não é retryable
+				result.ErrorKind = ErrorKindCancelled
+				result.Retryable = false
+				result.Result.Content = fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName)
+				result.Error = ctx.Err()
+			} else if toolCtx.Err() != nil {
+				// Timeout da tool
+				result.ErrorKind = ErrorKindTimeout
+				result.Retryable = true
+				result.Result.Content = fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout)
+				result.Error = context.DeadlineExceeded
+			}
+		}
 		return result
 	case <-toolCtx.Done():
 		elapsed := time.Since(start).Milliseconds()
@@ -208,7 +236,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					IsError: true,
 				},
 				Error:      ctx.Err(),
-				ErrorKind:  "",
+				ErrorKind:  ErrorKindCancelled,
 				Retryable:  false,
 				DurationMs: elapsed,
 			}

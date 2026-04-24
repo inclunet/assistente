@@ -93,11 +93,10 @@ func (s *Service) RunAgenticLoop(
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
 		log.Printf("🔴 [AGENT] streamer nil na conversa %d", conversationID)
-		s.emitter.Emit("chat:stream", events.StreamEvent{
-			Content:        "",
-			Done:           true,
-			Error:          errMsg,
-			ConversationId: conversationID,
+		s.emitter.Emit("chat:done", ports.DoneEvent{
+			ConversationID: conversationID,
+			Reason:         "error",
+			ErrorMessage:   errMsg,
 		})
 		return
 	}
@@ -129,11 +128,21 @@ func (s *Service) RunAgenticLoop(
 		// Verifica cancelamento
 		if ctx.Err() != nil {
 			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
-			s.emitter.Emit("chat:stream", events.StreamEvent{
-				Content:        "",
-				Done:           true,
-				Error:          "Operação cancelada",
-				ConversationId: conversationID,
+			cancelToolsUsed := make([]string, 0, len(toolsUsedSet))
+			for name := range toolsUsedSet {
+				cancelToolsUsed = append(cancelToolsUsed, name)
+			}
+			sort.Strings(cancelToolsUsed)
+			s.emitter.Emit("chat:done", ports.DoneEvent{
+				ConversationID:   conversationID,
+				HadToolCalls:     totalToolCallCount > 0,
+				Reason:           "error",
+				ErrorMessage:     "Operação cancelada",
+				IterationCount:   iteration,
+				ToolCallCount:    totalToolCallCount,
+				ToolsUsed:        cancelToolsUsed,
+				PromptTokens:     lastUsage.PromptTokens,
+				CompletionTokens: lastUsage.CompletionTokens,
 			})
 			return
 		}
@@ -152,11 +161,23 @@ func (s *Service) RunAgenticLoop(
 		// 2. Erro?
 		if result.Error != "" {
 			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
-			s.emitter.Emit("chat:stream", events.StreamEvent{
-				Content:        result.FullResponse,
-				Done:           true,
-				Error:          result.Error,
-				ConversationId: conversationID,
+			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
+			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
+			errToolsUsed := make([]string, 0, len(toolsUsedSet))
+			for name := range toolsUsedSet {
+				errToolsUsed = append(errToolsUsed, name)
+			}
+			sort.Strings(errToolsUsed)
+			s.emitter.Emit("chat:done", ports.DoneEvent{
+				ConversationID:   conversationID,
+				HadToolCalls:     totalToolCallCount > 0,
+				Reason:           "error",
+				ErrorMessage:     result.Error,
+				IterationCount:   iteration + 1,
+				ToolCallCount:    totalToolCallCount,
+				ToolsUsed:        errToolsUsed,
+				PromptTokens:     lastUsage.PromptTokens,
+				CompletionTokens: lastUsage.CompletionTokens,
 			})
 			return
 		}
@@ -198,20 +219,18 @@ func (s *Service) RunAgenticLoop(
 			// AEP-0039: contabiliza MCP native tools
 			for _, ev := range result.NativeMCPEvents {
 				if ev.IsCompleted {
-					name := ev.Name
-					if ev.ServerLabel != "" {
-						name = ev.ServerLabel + "/" + ev.Name
-					}
 					status := "ok"
 					if ev.Error != "" {
 						status = "error"
 					}
 					iterationNativeTools = append(iterationNativeTools, ports.ToolSummary{
-						Name:   name,
-						Status: status,
+						Name:        ev.Name,
+						Status:      status,
+						Origin:      OriginMCPNative,
+						ServerLabel: ev.ServerLabel,
 					})
 					totalToolCallCount++
-					toolsUsedSet[name] = struct{}{}
+					toolsUsedSet[ev.Name] = struct{}{}
 				}
 			}
 		}
@@ -230,22 +249,48 @@ func (s *Service) RunAgenticLoop(
 		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
 
 		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
+		retriedCallIDs := make(map[string]struct{})
 		for i, execResult := range execResults {
 			if execResult.Result.IsError && execResult.Retryable && iteration < maxIterations-1 {
-				retryOrigin, _ := detectToolOrigin(execResult.ToolName)
+				retriedCallIDs[execResult.CallID] = struct{}{}
+				retryOrigin, retryServerLabel := detectToolOrigin(execResult.ToolName)
+				retryName := extractLogicalToolName(execResult.ToolName)
+				// Emite tool_end para a tentativa que falhou (attempt=0)
+				EmitToolEnd(s.emitter, ports.ToolEndEvent{
+					ConversationID: conversationID,
+					Name:           retryName,
+					CallID:         execResult.CallID,
+					Status:         "error",
+					Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
+					Origin:         retryOrigin,
+					ServerLabel:    retryServerLabel,
+					DurationMs:     execResult.DurationMs,
+					Attempt:        0,
+				})
 				// Emite tool_failure com willRetry=true
 				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
 					ConversationID: conversationID,
-					Name:           execResult.ToolName,
+					Name:           retryName,
 					CallID:         execResult.CallID,
-					ErrorKind:      execResult.ErrorKind,
+					ErrorKind:      string(execResult.ErrorKind),
 					Retryable:      true,
-					Message:        truncateString(execResult.Result.Content, 200),
+					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 					DurationMs:     execResult.DurationMs,
 					Origin:         retryOrigin,
 					WillRetry:      true,
+					Attempt:        0,
 				})
-				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", execResult.ToolName, execResult.ErrorKind)
+				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", retryName, execResult.ErrorKind)
+				// Emite tool_start para a nova tentativa (attempt=1)
+				EmitToolStart(s.emitter, ports.ToolStartEvent{
+					ConversationID: conversationID,
+					Name:           retryName,
+					CallID:         execResult.CallID,
+					Args:           toolCalls[i].Function.Arguments,
+					Origin:         retryOrigin,
+					ServerLabel:    retryServerLabel,
+					Attempt:        1,
+				})
 				retried := s.toolExecutor.ExecuteOne(ctx, toolCalls[i])
 				execResults[i] = retried
 			}
@@ -255,67 +300,74 @@ func (s *Service) RunAgenticLoop(
 		var iterationTools []ports.ToolSummary
 		for _, execResult := range execResults {
 			origin, serverLabel := detectToolOrigin(execResult.ToolName)
+			logicalName := extractLogicalToolName(execResult.ToolName)
 			status := "ok"
 			if execResult.Result.IsError {
 				status = "error"
 			}
+			attempt := 0
+			if _, wasRetried := retriedCallIDs[execResult.CallID]; wasRetried {
+				attempt = 1
+			}
 			EmitToolEnd(s.emitter, ports.ToolEndEvent{
 				ConversationID: conversationID,
-				Name:           execResult.ToolName,
+				Name:           logicalName,
 				CallID:         execResult.CallID,
 				Status:         status,
 				Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 				Origin:         origin,
 				ServerLabel:    serverLabel,
 				DurationMs:     execResult.DurationMs,
+				Attempt:        attempt,
 			})
 
 			// AEP-0039 Fase 3: emite tool_failure para erros classificados (sem retry)
 			if execResult.Result.IsError && execResult.ErrorKind != "" {
 				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
 					ConversationID: conversationID,
-					Name:           execResult.ToolName,
+					Name:           logicalName,
 					CallID:         execResult.CallID,
-					ErrorKind:      execResult.ErrorKind,
+					ErrorKind:      string(execResult.ErrorKind),
 					Retryable:      execResult.Retryable,
 					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
 					DurationMs:     execResult.DurationMs,
 					Origin:         origin,
+					Attempt:        attempt,
 				})
 			}
 
 			// AEP-0039: acumula stats
 			iterationTools = append(iterationTools, ports.ToolSummary{
-				Name:       execResult.ToolName,
-				Status:     status,
-				ErrorKind:  execResult.ErrorKind,
-				DurationMs: execResult.DurationMs,
+				Name:        logicalName,
+				Status:      status,
+				ErrorKind:   string(execResult.ErrorKind),
+				DurationMs:  execResult.DurationMs,
+				Origin:      origin,
+				ServerLabel: serverLabel,
 			})
 			totalToolCallCount++
-			toolsUsedSet[execResult.ToolName] = struct{}{}
+			toolsUsedSet[logicalName] = struct{}{}
 		}
 
-		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário
+		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário.
+		// Usa cópia para truncamento; o conteúdo original é preservado para persistência no DB.
 		toolContents := make([]string, len(execResults))
 		for i, r := range execResults {
 			toolContents[i] = r.Result.Content
 		}
 		preCheck := PreCheckContextWindow(params.ContextWindow, params.MaxTokens, messages, toolContents)
-		if preCheck.Truncated {
-			// Aplica conteúdos truncados de volta nos resultados
-			for i := range execResults {
-				execResults[i].Result.Content = toolContents[i]
-			}
-		}
 
 		// 5f-iii. AEP-0039 Fase 5: persiste assistant tool_calls com metadata enriquecida
 		enrichedCalls := make([]llm.EnrichedToolCall, len(result.ToolCalls))
 		for i, tc := range result.ToolCalls {
 			tcOrigin, tcServerLabel := detectToolOrigin(tc.Function.Name)
 			enrichedCalls[i] = llm.EnrichedToolCall{
-				ID:          tc.ID,
-				Type:        tc.Type,
-				Function:    tc.Function,
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: llm.FunctionCall{
+					Name:      extractLogicalToolName(tc.Function.Name),
+					Arguments: tc.Function.Arguments,
+				},
 				Origin:      tcOrigin,
 				ServerLabel: tcServerLabel,
 				Iteration:   iteration,
@@ -341,8 +393,11 @@ func (s *Service) RunAgenticLoop(
 			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
 		}
 
-		// 5f-iv. Persiste resultados e adiciona ao histórico
-		for _, execResult := range execResults {
+		// 5f-iv. Persiste resultados originais no DB e adiciona conteúdo (possivelmente
+		// truncado) ao histórico de mensagens enviado ao LLM.
+		for i, execResult := range execResults {
+			// Persiste conteúdo original (antes do pre-check de context window, mas
+			// possivelmente já truncado por MaxResultSize do Executor) no banco
 			_, err := s.msgRepo.AddToolResultMessage(
 				conversationID,
 				turnID,
@@ -357,9 +412,14 @@ func (s *Service) RunAgenticLoop(
 				log.Printf("[Agent] erro ao salvar resultado de tool %s: %v", execResult.ToolName, err)
 			}
 
+			// Para o histórico LLM, usa versão truncada se pre-check aplicou truncamento
+			content := execResult.Result.Content
+			if preCheck.Truncated {
+				content = toolContents[i]
+			}
 			messages = append(messages, llm.Message{
 				Role:       "tool",
-				Content:    execResult.Result.Content,
+				Content:    content,
 				ToolCallID: execResult.CallID,
 			})
 		}
@@ -589,9 +649,10 @@ func (s *Service) emitTokenStats(conversationID uint) {
 func (s *Service) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
 	for _, call := range calls {
 		origin, serverLabel := detectToolOrigin(call.Function.Name)
+		name := extractLogicalToolName(call.Function.Name)
 		EmitToolStart(s.emitter, ports.ToolStartEvent{
 			ConversationID: conversationID,
-			Name:           call.Function.Name,
+			Name:           name,
 			CallID:         call.ID,
 			Args:           call.Function.Arguments,
 			Origin:         origin,
@@ -611,6 +672,18 @@ func detectToolOrigin(toolName string) (origin, serverLabel string) {
 	return OriginBuiltin, ""
 }
 
+// extractLogicalToolName retorna o nome lógico da tool, sem prefixo MCP bridge.
+// Para "mcp_github__search_code" retorna "search_code".
+// Para tools builtin/native retorna o nome inalterado.
+func extractLogicalToolName(toolName string) string {
+	if strings.HasPrefix(toolName, "mcp_") {
+		if idx := strings.Index(toolName, "__"); idx > 4 {
+			return toolName[idx+2:]
+		}
+	}
+	return toolName
+}
+
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
 // uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
 // AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
@@ -620,15 +693,11 @@ func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents [
 		if !ev.IsCompleted {
 			continue
 		}
-		name := ev.Name
-		if ev.ServerLabel != "" {
-			name = ev.ServerLabel + "/" + ev.Name
-		}
 		toolCalls = append(toolCalls, llm.EnrichedToolCall{
 			ID:   ev.ID,
 			Type: "function",
 			Function: llm.FunctionCall{
-				Name:      name,
+				Name:      ev.Name,
 				Arguments: ev.Arguments,
 			},
 			Origin:      OriginMCPNative,
@@ -690,12 +759,22 @@ func convertToolCalls(llmCalls []llm.ToolCall) []tools.ToolCall {
 }
 
 func truncateString(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
 	if len(s) <= maxLen {
 		return s
 	}
-	// UTF-8 safe: recua até achar limite de rune válido
-	for maxLen > 0 && !utf8.RuneStart(s[maxLen]) {
-		maxLen--
+
+	const suffix = "..."
+	if maxLen <= len(suffix) {
+		return suffix[:maxLen]
 	}
-	return s[:maxLen] + "..."
+
+	cutoff := maxLen - len(suffix)
+	// UTF-8 safe: recua até achar limite de rune válido
+	for cutoff > 0 && !utf8.RuneStart(s[cutoff]) {
+		cutoff--
+	}
+	return s[:cutoff] + suffix
 }

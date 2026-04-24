@@ -255,9 +255,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
     // Content rename events → update matching tab title
     unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
-      const ev = data as { conversation_id?: number; new_title?: string };
-      if (ev.conversation_id && ev.new_title) {
-        get().handleContentRenamed('chat', String(ev.conversation_id), ev.new_title);
+      const ev = data as { conversationId?: number; newTitle?: string };
+      if (ev.conversationId && ev.newTitle) {
+        get().handleContentRenamed('chat', String(ev.conversationId), ev.newTitle);
       }
     }));
 

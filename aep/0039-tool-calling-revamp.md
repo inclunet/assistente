@@ -37,38 +37,50 @@ O projeto possui dois adapters de saida: Wails (GUI/frontend React) e CLI (`adap
 
 ### UX de tool calls no CLI
 
-O CLI deve exibir progresso de tool calls de forma **compacta e acessivel**, sem poluir o historico do terminal. Design em dois niveis:
+O CLI exibe progresso de tool calls de forma **compacta e acessivel**, sem poluir o historico do terminal. Design em dois niveis:
 
 #### Modo padrao (sem `--verbose`)
 
-Uma unica linha por iteracao no **stderr**, so quando ha tools:
+Uma linha por iteracao no **stderr** ao receber `chat:segment_done` com `HasMore=true`, so quando ha tools:
 
 ```
-[tools] 3 executadas em 2.1s (search_web, read_file, write_file)
-```
-
-Se multiplas iteracoes:
-
-```
-[tools] iteracao 1: 2 tools (search_web, read_file) — 1.3s
-[tools] iteracao 2: 1 tool (write_file) — 0.8s
+[tools] iteração 1: 2 tools (search_web, read_file) — 1300ms
+[tools] iteração 2: 1 tool (write_file) — 800ms
 ```
 
 Ao final, quando houve tool calls, uma linha de resumo no `chat:done`:
 
 ```
-[done] 2 iteracoes, 5 tool calls, completed
+[done] 2 iterações, 5 tool calls, completed
+```
+
+Quando apenas `HadToolCalls=true` esta disponivel (sem contadores — backward-compat):
+
+```
+[done] tool calls executadas, completed
 ```
 
 #### Modo verbose (`--verbose`)
 
-Cada tool individual, com origin e duracao:
+Cada tool individual, com origin e duracao em milissegundos:
 
 ```
 [tool:start] search_web (mcp_bridge/perplexity)
-[tool:end]   search_web — ok (0.9s)
+[tool:end]   search_web — ok (900ms)
 [tool:start] read_file (builtin)
-[tool:end]   read_file — ok (0.2s)
+[tool:end]   read_file — ok (200ms)
+```
+
+Tool failures com indicacao de retry:
+
+```
+[tool:failure] web_search — timeout (retryable=true) [retrying]
+```
+
+Ao receber `chat:segment_done`, confirmacao de iteracao concluida:
+
+```
+[segment] iteração 1 concluída, 2 tools
 ```
 
 Resumo final identico ao modo padrao.
@@ -145,7 +157,7 @@ func emitToolEnd(emitter Emitter, opts ToolEndEvent) { ... }
 ### Arquivos
 - Backend: `internal/core/ports/chat_events.go` (estender structs), `service.go`, `agentic_stream_handler.go` + novo `events.go`
 - Frontend: tipos de evento no store + componente de exibicao (consumir `origin`, ignorar `native`)
-- CLI: `adapters/cli/emitter.go` — implementar dois niveis de exibicao conforme secao "UX de tool calls no CLI": modo padrao (uma linha por iteracao com contagem e nomes) e modo verbose (cada tool individual com origin/serverLabel e duracao). O adapter deve acumular tool events durante a iteracao e emitir a linha resumo ao receber `chat:segment_done` com `hasMore=true`
+- CLI: `adapters/cli/emitter.go` — dois niveis de exibicao conforme secao "UX de tool calls no CLI": modo padrao (uma linha por iteracao com contagem e nomes via `chat:segment_done`) e modo verbose (cada tool individual com origin/serverLabel e duracao em ms)
 
 ---
 
@@ -217,7 +229,7 @@ O backend ja possui todos os dados necessarios no momento da emissao: `iteration
 ### Arquivos
 - Backend: `internal/core/ports/chat_events.go` (estender structs), `service.go` (acumular stats durante loop, popular novos campos na emissao)
 - Frontend: store + UI de resumo (opcional) — campos novos sao opcionais, frontend existente continua funcionando
-- CLI: `adapters/cli/emitter.go` — adicionar handler para `chat:done` que exiba a linha de resumo final no stderr (`[done] 2 iteracoes, 5 tool calls, completed`). Hoje o CLI so captura `chat:stream` com Done=true para sinalizar fim — precisa tambem processar `chat:done` enriquecido para exibir reason, contagem de iteracoes e tool calls
+- CLI: `adapters/cli/emitter.go` — handler para `chat:done` exibe resumo final no stderr (`[done] N iterações, M tool calls, reason`). Usa `HadToolCalls` como fallback para backward-compat quando contadores estao zerados
 
 ---
 

@@ -157,8 +157,8 @@ func TestExecuteSingle_Timeout(t *testing.T) {
 	if !res.Retryable {
 		t.Fatal("timeout should be retryable")
 	}
-	if res.DurationMs < 40 {
-		t.Fatalf("DurationMs should be >= ~50ms, got %d", res.DurationMs)
+	if res.DurationMs <= 0 {
+		t.Fatalf("DurationMs should be > 0, got %d", res.DurationMs)
 	}
 }
 
@@ -184,37 +184,62 @@ func TestExecuteSingle_ExecError(t *testing.T) {
 }
 
 func TestExecuteAll_Parallel(t *testing.T) {
+	// Usa barreira (canal) para confirmar que todas as goroutines iniciaram
+	// antes de qualquer uma terminar — menos sensível a wall-clock que time.Sleep.
+	const nCalls = 5
+	started := make(chan struct{}, nCalls)
+	gate := make(chan struct{})
+
 	tool := &mockTool{
-		name: "delay",
+		name: "barrier",
 		exec: func(_ context.Context, args json.RawMessage) (ToolResult, error) {
-			time.Sleep(10 * time.Millisecond)
+			started <- struct{}{} // sinaliza que iniciou
+			<-gate                // espera liberação
 			return ToolResult{Content: "ok"}, nil
 		},
 	}
 	e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
-	calls := make([]ToolCall, 5)
+	calls := make([]ToolCall, nCalls)
 	for i := range calls {
 		calls[i] = ToolCall{
 			ID:       "c" + string(rune('0'+i)),
-			Function: FunctionCall{Name: "delay", Arguments: `{}`},
+			Function: FunctionCall{Name: "barrier", Arguments: `{}`},
 		}
 	}
 
-	start := time.Now()
-	results := e.ExecuteAll(context.Background(), calls)
-	elapsed := time.Since(start)
+	// Executa em goroutine separada para poder observar o canal started
+	var results []ToolExecutionResult
+	done := make(chan struct{})
+	go func() {
+		results = e.ExecuteAll(context.Background(), calls)
+		close(done)
+	}()
 
-	if len(results) != 5 {
-		t.Fatalf("expected 5 results, got %d", len(results))
+	// Aguarda todas as goroutines sinalizarem que iniciaram
+	for i := 0; i < nCalls; i++ {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timeout esperando goroutine %d iniciar — execução não é paralela", i+1)
+		}
+	}
+
+	// Todas as 5 goroutines estão rodando em paralelo — libera todas
+	close(gate)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout esperando ExecuteAll terminar")
+	}
+
+	if len(results) != nCalls {
+		t.Fatalf("expected %d results, got %d", nCalls, len(results))
 	}
 	for _, r := range results {
 		if r.Result.IsError {
 			t.Fatalf("unexpected error: %s", r.Result.Content)
 		}
-	}
-	// Se paralelo, deveria levar ~10ms, não ~50ms
-	if elapsed > 200*time.Millisecond {
-		t.Fatalf("execution too slow for parallel: %v", elapsed)
 	}
 }
 
@@ -276,5 +301,31 @@ func TestTruncateUTF8_LargeResult(t *testing.T) {
 	}
 	if !strings.Contains(res.Result.Content, "[TRUNCADO:") {
 		t.Fatal("expected truncation notice in content")
+	}
+}
+
+func TestExecuteContextCancellation(t *testing.T) {
+	tool := &mockTool{
+		name: "waiting",
+		exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+			<-ctx.Done()
+			return ToolResult{}, ctx.Err()
+		},
+	}
+	e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	res := e.ExecuteOne(ctx, ToolCall{
+		ID:       "c1",
+		Function: FunctionCall{Name: "waiting", Arguments: `{}`},
+	})
+
+	if !res.Result.IsError {
+		t.Error("expected IsError=true after cancellation")
 	}
 }

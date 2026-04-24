@@ -41,6 +41,10 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery | 📋 Open |
 | [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |
 | [0042](0042-chat-surface-context.md) | Chat Surface Context | 🚧 In Progress |
+| [0043](0043-tts-stt-voices.md) | Evolução TTS/STT: Vozes (Assistant + User) | 📝 Draft |
+| [0044](0044-profile-settings-revamp.md) | Profile Settings Revamp (Tabbed Panels) | 📝 Draft |
+| [0045](0045-cli-interface.md) | Interface CLI como alternativa ao Wails | ✅ Done |
+| [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 📝 Draft |
 
 ## Status Legend
 

@@ -47,6 +47,7 @@ type ToolStartEvent struct {
 	Args           string `json:"args,omitempty"`
 	ServerLabel    string `json:"serverLabel,omitempty"`
 	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
+	Attempt        int    `json:"attempt"`                     // Tentativa (0=primeira, 1=retry)
 }
 
 // ToolEndEvent is the payload for chat:tool_end.
@@ -60,6 +61,7 @@ type ToolEndEvent struct {
 	ServerLabel    string `json:"serverLabel,omitempty"`
 	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
 	DurationMs     int64  `json:"durationMs,omitempty"`       // AEP-0039 Fase 3
+	Attempt        int    `json:"attempt"`                     // Tentativa (0=primeira, 1=retry)
 }
 
 // ToolFailureEvent is the payload for chat:tool_failure (AEP-0039 Fase 3).
@@ -69,27 +71,30 @@ type ToolFailureEvent struct {
 	ConversationID uint   `json:"conversationId"`
 	Name           string `json:"name"`
 	CallID         string `json:"callId"`
-	ErrorKind      string `json:"errorKind"`                  // "timeout" | "invalid_args" | "not_found" | "panic" | "unknown"
+	ErrorKind      string `json:"errorKind"`                  // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "unknown"
 	Retryable      bool   `json:"retryable"`
 	Message        string `json:"message,omitempty"`
 	DurationMs     int64  `json:"durationMs,omitempty"`
 	Origin         string `json:"origin,omitempty"`           // "builtin" | "mcp_bridge" | "mcp_native"
 	WillRetry      bool   `json:"willRetry,omitempty"`        // true se retry automático será tentado
+	Attempt        int    `json:"attempt"`                     // Tentativa (0=primeira, 1=retry)
 }
 
 // ToolSummary describes a tool invocation within an iteration (AEP-0039 Fase 2+3).
 type ToolSummary struct {
-	Name       string `json:"name"`
-	Status     string `json:"status"`                       // "ok" | "error"
-	ErrorKind  string `json:"errorKind,omitempty"`           // AEP-0039 Fase 3
-	DurationMs int64  `json:"durationMs,omitempty"`          // AEP-0039 Fase 3
+	Name        string `json:"name"`
+	Status      string `json:"status"`                       // "ok" | "error"
+	ErrorKind   string `json:"errorKind,omitempty"`           // AEP-0039 Fase 3
+	DurationMs  int64  `json:"durationMs,omitempty"`          // AEP-0039 Fase 3
+	Origin      string `json:"origin,omitempty"`              // "builtin" | "mcp_bridge" | "mcp_native"
+	ServerLabel string `json:"serverLabel,omitempty"`
 }
 
 // SegmentDoneEvent is the payload for chat:segment_done.
 type SegmentDoneEvent struct {
 	ConversationID uint   `json:"conversationId"`
 	Content        string `json:"content,omitempty"`
-	Iteration      int    `json:"iteration,omitempty"`
+	Iteration      int    `json:"iteration"`
 	HasMore        bool   `json:"hasMore"`
 	// AEP-0039 Fase 2: tools executed in this iteration
 	ToolsInIteration []ToolSummary `json:"toolsInIteration,omitempty"`
