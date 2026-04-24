@@ -74,7 +74,7 @@ func inferMCPFailure(stage MCPFailureStage, message, rawJSON, fallbackServer str
 
 	fullMessage := strings.TrimSpace(message)
 	if fullMessage == "" {
-		fullMessage = "MCP server failed during " + string(stage)
+		fullMessage = formatMCPFailureUserMessage(matched.Name, stage)
 	}
 
 	return &MCPAttemptFailure{
@@ -121,8 +121,18 @@ func planMCPDegradationRetry(
 }
 
 func removeMCPServer(servers []MCPServerConfig, serverName, serverSlug string) ([]MCPServerConfig, MCPServerConfig, bool) {
+	if serverSlug != "" {
+		for idx, srv := range servers {
+			if srv.Slug == serverSlug {
+				remaining := make([]MCPServerConfig, 0, len(servers)-1)
+				remaining = append(remaining, servers[:idx]...)
+				remaining = append(remaining, servers[idx+1:]...)
+				return remaining, srv, true
+			}
+		}
+	}
 	for idx, srv := range servers {
-		if srv.Name == serverName || (serverSlug != "" && srv.Slug == serverSlug) {
+		if srv.Name == serverName {
 			remaining := make([]MCPServerConfig, 0, len(servers)-1)
 			remaining = append(remaining, servers[:idx]...)
 			remaining = append(remaining, servers[idx+1:]...)
@@ -134,11 +144,29 @@ func removeMCPServer(servers []MCPServerConfig, serverName, serverSlug string) (
 
 func findMCPServer(servers []MCPServerConfig, nameOrSlug string) (MCPServerConfig, bool) {
 	for _, srv := range servers {
-		if srv.Name == nameOrSlug || srv.Slug == nameOrSlug {
+		if srv.Slug == nameOrSlug {
+			return srv, true
+		}
+	}
+	for _, srv := range servers {
+		if srv.Name == nameOrSlug {
 			return srv, true
 		}
 	}
 	return MCPServerConfig{}, false
+}
+
+func formatMCPFailureUserMessage(serverName string, stage MCPFailureStage) string {
+	stageText := "durante a comunicação"
+	switch stage {
+	case MCPFailureStageListTools:
+		stageText = "durante a listagem de ferramentas"
+	case MCPFailureStageCall:
+		stageText = "durante a execução de uma ferramenta"
+	case MCPFailureStageHandshake:
+		stageText = "durante a conexão"
+	}
+	return `Falha no servidor MCP "` + serverName + `" ` + stageText + `. Tente novamente ou verifique as credenciais e a conexão.`
 }
 
 func extractServerLabelFromRawJSON(raw string) string {

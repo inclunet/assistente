@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -45,6 +46,9 @@ func TestInferMCPFailure_UsesRawServerLabel(t *testing.T) {
 	}
 	if !failure.Degradable {
 		t.Fatal("falha deveria ser degradável")
+	}
+	if !strings.Contains(failure.Message, "Atlassian") {
+		t.Fatalf("mensagem deveria citar o servidor, got %q", failure.Message)
 	}
 }
 
@@ -147,5 +151,23 @@ func TestPlanMCPDegradationRetry_RecoveryErrorStillRemovesServer(t *testing.T) {
 	}
 	if len(remaining) != 1 || remaining[0].Name != "Slack" {
 		t.Fatalf("remaining = %+v, want only Slack", remaining)
+	}
+}
+
+func TestRemoveMCPServer_PrefersSlugWhenAvailable(t *testing.T) {
+	servers := []MCPServerConfig{
+		{Name: "Duplicado", Slug: "primeiro"},
+		{Name: "Duplicado", Slug: "segundo"},
+	}
+
+	remaining, removed, ok := removeMCPServer(servers, "Duplicado", "segundo")
+	if !ok {
+		t.Fatal("esperava remoção por slug")
+	}
+	if removed.Slug != "segundo" {
+		t.Fatalf("removed.Slug = %q, want %q", removed.Slug, "segundo")
+	}
+	if len(remaining) != 1 || remaining[0].Slug != "primeiro" {
+		t.Fatalf("remaining = %+v, want only primeiro", remaining)
 	}
 }

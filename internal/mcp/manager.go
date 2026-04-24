@@ -1081,12 +1081,26 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 	if newToken.Expiry.After(time.Now()) {
 		newAuth.ExpiresAt = newToken.Expiry.Unix()
 	}
-	if err := m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern(slug), newAuth); err != nil {
+	if err := m.credMgr.RegisterPatternWithContext(refreshCtx, userTokensPattern(slug), newAuth); err != nil {
 		return false, err
 	}
 
 	log.Printf("[MCP:%s] Token renovado (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
 	return true, nil
+}
+
+func runRecoverStepWithContext(ctx context.Context, fn func() error) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- fn()
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // RecoverServerBestEffort tenta restaurar um servidor MCP para chamadas futuras do chat.
@@ -1124,14 +1138,14 @@ func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) Reco
 	}
 
 	if currentStatus == StatusConnected {
-		if err := m.refreshServerOfferings(slug); err == nil {
+		if err := runRecoverStepWithContext(ctx, func() error { return m.refreshServerOfferings(slug) }); err == nil {
 			return result
 		} else if refreshErr == nil {
 			refreshErr = err
 		}
 	}
 
-	if err := m.Reconnect(slug); err == nil {
+	if err := runRecoverStepWithContext(ctx, func() error { return m.Reconnect(slug) }); err == nil {
 		result.Reconnected = true
 		return result
 	} else if refreshErr == nil {
