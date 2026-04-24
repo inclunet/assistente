@@ -163,6 +163,8 @@ export function EnsureConversation(arg1:string):Promise<database.Conversation>;
 
 export function ExportConversations(arg1:Array<number>):Promise<string>;
 
+export function ExportConversationsToFile(arg1:Array<number>,arg2:string):Promise<string>;
+
 export function ExportWorkspace():Promise<string>;
 
 export function GenerateAndSaveMessageAudio(arg1:number,arg2:string):Promise<main.AudioResult>;
@@ -314,6 +316,8 @@ export function GetUserInvocableSkills():Promise<Array<skills.SkillInfo>>;
 export function GetWorkflow(arg1:number):Promise<database.TaskListWorkflow>;
 
 export function ImportConversations(arg1:string):Promise<main.ImportResult>;
+
+export function ImportData(arg1:string,arg2:string):Promise<main.ImportResult>;
 
 export function ImportWorkspace(arg1:string):Promise<workspace.Workspace>;
 

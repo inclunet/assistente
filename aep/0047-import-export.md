@@ -6,7 +6,7 @@
 
 ## Resumo
 
-Sistema de importação e exportação que permite transferir qualquer recurso do Assistente — desde o sistema inteiro até conversas, credenciais, profiles ou tasks individuais — em formato JSON portável **sem IDs internos**. O export gera um arquivo reutilizável entre instâncias e sobrevive à migração de IDs da AEP-0046. Credenciais criptografadas e áudio de mensagens são excluídos por padrão.
+Sistema de importação e exportação que permite transferir qualquer recurso do Assistente — desde o sistema inteiro até conversas, credenciais, profiles ou tasks individuais — em formato JSON portável **sem IDs internos**. O export gera um arquivo reutilizável entre instâncias e sobrevive à migração de IDs da AEP-0046. O JSON é o formato canônico para importação; HTML e PDF são formatos derivados apenas para exportação rica. Credenciais sensíveis continuam excluídas por padrão, mas podem ser incluídas opcionalmente em um bloco criptografado com senha de exportação.
 
 ## Motivação
 
@@ -131,23 +131,48 @@ Recursos dependentes são embutidos no pai, não exportados como arrays separado
 
 Hierarquia self-referencial (`ChatMessage.parentId`, `Task.parentId`) é expressa via `parentIndex` (índice no array do pai) ou aninhamento em `children`.
 
-### D4 — Credenciais excluídas por padrão
+### D4 — Credenciais: excluídas por padrão, exportáveis com criptografia opcional
 
-Campos criptografados (`tokenEnc`, `passwordEnc`, `headersEnc`, `refreshTokenEnc`, `clientIdEnc`, `clientSecretEnc`) são **omitidos** do export por padrão. Motivos:
+Campos sensíveis de credenciais (`token`, `password`, `headers`, `refreshToken`, `clientId`, `clientSecret`) são **omitidos** do export por padrão. Motivos:
 
-- A DEK é específica da instância — valores criptografados são inúteis em outra instância
-- Descriptografar exigiria a master password no momento do export
-- Risco de vazamento de credenciais em arquivos JSON compartilhados
+- Reduz risco de vazamento em exports compartilhados casualmente
+- Mantém o caminho padrão seguro mesmo para usuários sem familiaridade com criptografia
+- Evita exigir senha de exportação em todo fluxo de backup simples
 
-O que **é** exportado da `CredentialEntry`:
-- `pattern` (identificador natural)
-- `authType`
-- `username` (não criptografado)
-- `expiresAt`
+Quando o usuário marcar `includeCredentials: true`, o export passa a incluir um bloco **criptografado por senha de exportação**, distinto da DEK local. O fluxo é:
 
-`CredentialKeyWrap` **nunca** é exportado — é material criptográfico específico da instância.
+1. O app descriptografa as credenciais usando a DEK local atual
+2. Serializa apenas o subconjunto necessário para portabilidade
+3. Criptografa esse bloco com uma **senha de exportação** informada pelo usuário, usando Argon2id + AES-256-GCM
+4. Salva no JSON apenas o blob criptografado e seus metadados criptográficos
 
-Na importação, credenciais são criadas como "esqueleto" sem valores sensíveis. O usuário precisa reconfigurar tokens/senhas manualmente.
+Exemplo:
+
+```json
+{
+  "options": {
+    "includeCredentials": true
+  },
+  "resources": {
+    "credentials": {
+      "mode": "encrypted",
+      "algorithm": "argon2id-aes-256-gcm",
+      "salt": "...",
+      "ciphertext": "..."
+    }
+  }
+}
+```
+
+`CredentialKeyWrap` **nunca** é exportado — é material criptográfico específico da instância e não participa do formato portável.
+
+Na importação:
+
+- se o arquivo **não** incluir credenciais, nada muda
+- se incluir credenciais criptografadas, o usuário precisa informar a **senha de exportação**
+- após descriptografar, o app recriptografa os valores com a **DEK local da instância de destino**
+
+Isso mantém portabilidade entre máquinas sem acoplar o arquivo à DEK ou ao keyring da máquina de origem.
 
 ### D5 — Áudio excluído por padrão
 
@@ -160,6 +185,20 @@ O campo `audio` (base64) das mensagens é **omitido** por padrão:
 O campo `audioMimeType` é preservado como indicação de que havia áudio originalmente.
 
 Futuramente, uma opção `includeAudio: true` pode ser adicionada para exports completos.
+
+### D5.1 — HTML e PDF são formatos derivados de exportação
+
+O formato **canônico** do sistema é sempre o JSON versionado desta AEP. HTML e PDF existem apenas como saídas derivadas de exportação rica:
+
+- **JSON**: formato fonte para backup, migração e importação
+- **HTML**: formato legível, navegável e compartilhável
+- **PDF**: formato fixo para arquivamento, impressão e distribuição
+
+Consequências:
+
+- **Importação aceita apenas JSON**
+- HTML/PDF não precisam conter todos os campos necessários para roundtrip
+- O pipeline recomendado é: montar modelo canônico → gerar JSON → renderizar representação HTML → opcionalmente converter HTML para PDF
 
 ### D6 — Seleção múltipla de recursos
 
@@ -186,6 +225,9 @@ type ExportRequest struct {
     IncludeContacts  bool
     IncludeWorkspace bool
     IncludeAudio     bool
+    IncludeCredentials bool
+    CredentialExportPassword string
+    OutputFormat    string // "json" | "html" | "pdf"
 }
 ```
 
@@ -352,9 +394,11 @@ Cada recurso implementa essas interfaces. Adicionar um novo tipo requer apenas r
 3. **Import roundtrip**: export → import em instância limpa → dados equivalentes (exceto IDs e credenciais)
 4. **Conflitos** são detectados e apresentados ao usuário antes da importação
 5. **Referências cruzadas** são resolvidas corretamente quando ambos os lados estão no export
-6. **Credenciais** criptografadas nunca aparecem no JSON de export
+6. **Credenciais** sensíveis ficam excluídas por padrão e, quando incluídas, aparecem apenas em bloco criptografado por senha de exportação
 7. **Tokens de canais** nunca aparecem no JSON de export
 8. **Áudio** é excluído por padrão; `audioMimeType` preservado
 9. **Versionamento**: import rejeita `version > 1` com mensagem clara
 10. **i18n**: todas as strings de UI nos 3 locales
 11. **Acessibilidade**: modais de export/import navegáveis por teclado, com announcements
+12. **Importação** aceita apenas o formato JSON canônico
+13. **HTML/PDF** são gerados a partir do mesmo modelo canônico do export JSON

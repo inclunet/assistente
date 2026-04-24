@@ -2,6 +2,11 @@
  * Utilitários para exportação e importação de dados
  */
 
+export interface SelectedImportFile {
+  name: string;
+  content: string;
+}
+
 /**
  * Faz download de um arquivo JSON
  */
@@ -21,6 +26,13 @@ export function downloadJSON(data: string, filename: string) {
  * Abre o diálogo de seleção de arquivo e retorna o conteúdo
  */
 export function openFileDialog(accept: string = '.json'): Promise<string> {
+  return openImportFileDialog(accept).then((file) => file.content);
+}
+
+/**
+ * Abre o diálogo de seleção de arquivo e retorna nome + conteúdo.
+ */
+export function openImportFileDialog(accept: string = '.json'): Promise<SelectedImportFile> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -35,7 +47,10 @@ export function openFileDialog(accept: string = '.json'): Promise<string> {
       
       const reader = new FileReader();
       reader.onload = () => {
-        resolve(reader.result as string);
+        resolve({
+          name: file.name,
+          content: reader.result as string,
+        });
       };
       reader.onerror = () => {
         reject(new Error('Erro ao ler arquivo'));

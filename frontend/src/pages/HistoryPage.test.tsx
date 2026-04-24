@@ -7,14 +7,24 @@ const mockGetConversations = vi.fn();
 const mockDeleteConversation = vi.fn();
 const mockUpdateConversation = vi.fn();
 const mockExportConversations = vi.fn();
+const mockExportConversationsToFile = vi.fn();
 const mockImportConversations = vi.fn();
+const mockImportData = vi.fn();
 const mockSearchConversationHistory = vi.fn();
+const mockOpenImportFileDialog = vi.fn();
 const mockAddTab = vi.fn().mockResolvedValue('tab-1');
 const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
 const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
 
 let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> = [];
+
+type RowAction = {
+  id: string;
+  label?: string;
+  action?: () => void;
+  submenu?: RowAction[];
+};
 
 type ConversationItem = {
   id: number;
@@ -40,9 +50,18 @@ vi.mock('@wailsjs/go/app/App', () => ({
   DeleteConversation: (id: number) => mockDeleteConversation(id),
   UpdateConversation: (id: number, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
   ExportConversations: (ids: number[]) => mockExportConversations(ids),
+  ExportConversationsToFile: (ids: number[], format: string) => mockExportConversationsToFile(ids, format),
   ImportConversations: (payload: string) => mockImportConversations(payload),
+  ImportData: (payload: string, password: string) => mockImportData(payload, password),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../lib/exportImport', () => ({
+  downloadJSON: vi.fn(),
+  generateFilename: vi.fn(() => 'conversas.json'),
+  openFileDialog: vi.fn(),
+  openImportFileDialog: (...args: unknown[]) => mockOpenImportFileDialog(...args),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -117,11 +136,24 @@ vi.mock('../components/ui/DataGrid', () => ({
       {items?.map((item) => (
         <div key={item.id}>
           <span>{item.title}</span>
-          {getRowActions?.(item)?.map((action) => (
-            <button key={action.id} type="button" onClick={action.action}>
-              {action.label}
-            </button>
-          ))}
+          {getRowActions?.(item)?.flatMap((action: RowAction) => {
+            const buttons = [];
+            if (action.action) {
+              buttons.push(
+                <button key={action.id} type="button" onClick={action.action}>
+                  {action.label}
+                </button>
+              );
+            }
+            action.submenu?.forEach((submenuItem) => {
+              buttons.push(
+                <button key={submenuItem.id} type="button" onClick={submenuItem.action}>
+                  {submenuItem.label}
+                </button>
+              );
+            });
+            return buttons;
+          })}
         </div>
       ))}
     </div>
@@ -151,13 +183,17 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockDeleteConversation.mockResolvedValue(undefined);
     mockUpdateConversation.mockResolvedValue(undefined);
     mockExportConversations.mockResolvedValue('{}');
+    mockExportConversationsToFile.mockResolvedValue('C:/tmp/conversas.html');
     mockImportConversations.mockResolvedValue({ success: true, message: 'ok' });
+    mockImportData.mockResolvedValue({ success: true, message: 'ok', imported: 2, skipped: 0, errors: [] });
     mockSearchConversationHistory.mockResolvedValue([]);
+    mockOpenImportFileDialog.mockReset();
     mockAddTab.mockResolvedValue(undefined);
     mockNavigate.mockReset();
     lastToolbarActions = [];
     mockRequestConfirm.mockReset();
     mockRequestConfirm.mockResolvedValue(true);
+    vi.stubGlobal('alert', vi.fn());
   });
 
   it('nao duplica acao de deletar na toolbar', async () => {
@@ -227,5 +263,123 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
         expect.objectContaining({ navigate: expect.any(Function) }),
       );
     });
+  });
+
+  it('exporta HTML das conversas selecionadas pela toolbar', async () => {
+    const user = userEvent.setup();
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+
+    await user.click(screen.getByRole('button', { name: 'select-two' }));
+    const exportHtmlAction = lastToolbarActions.find((action) => action.key === 'export-html');
+    expect(exportHtmlAction).toBeTruthy();
+    exportHtmlAction?.onClick();
+
+    await waitFor(() => {
+      expect(mockExportConversationsToFile).toHaveBeenCalledWith([1, 2], 'html');
+    });
+  });
+
+  it('exporta PDF de uma unica conversa pelo menu da linha', async () => {
+    const user = userEvent.setup();
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+
+    const pdfButtons = screen.getAllByRole('button', { name: 'Exportar PDF' });
+    await user.click(pdfButtons[1]);
+
+    await waitFor(() => {
+      expect(mockExportConversationsToFile).toHaveBeenCalledWith([1], 'pdf');
+    });
+  });
+
+  it('abre modal de importacao com resumo do arquivo', async () => {
+    const user = userEvent.setup();
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: JSON.stringify({
+        version: 1,
+        exportedAt: '2025-01-03T00:00:00Z',
+        appVersion: '1.2.3',
+        options: { includeAudio: false },
+        resources: {
+          conversations: [
+            { messages: [{}, {}] },
+          ],
+        },
+      }),
+    });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+
+    await screen.findByRole('heading', { name: 'Importar conversas' });
+    expect(screen.getByText('backup.json')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Importar agora' })).toBeInTheDocument();
+  });
+
+  it('exige senha ao importar arquivo com credenciais criptografadas', async () => {
+    const user = userEvent.setup();
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: JSON.stringify({
+        version: 1,
+        resources: {
+          conversations: [],
+          credentials: { mode: 'encrypted' },
+        },
+      }),
+    });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+    await screen.findByRole('heading', { name: 'Importar conversas' });
+    await user.click(screen.getByRole('button', { name: 'Importar agora' }));
+
+    expect(mockImportData).not.toHaveBeenCalled();
+    expect(await screen.findByText('Informe a senha usada para exportar as credenciais.')).toBeInTheDocument();
+  });
+
+  it('confirma importacao usando ImportData e recarrega a lista', async () => {
+    const user = userEvent.setup();
+    const payload = JSON.stringify({
+      version: 1,
+      resources: {
+        conversations: [{ messages: [{}] }],
+        credentials: { mode: 'encrypted' },
+      },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: payload,
+    });
+    mockImportData.mockResolvedValue({ success: true, message: 'ok', imported: 1, skipped: 0, errors: [] });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+    const passwordInput = await screen.findByPlaceholderText('Digite a senha de exportação');
+    await user.type(passwordInput, 'segredo');
+    await user.click(screen.getByRole('button', { name: 'Importar agora' }));
+
+    await waitFor(() => {
+      expect(mockImportData).toHaveBeenCalledWith(payload, 'segredo');
+    });
+    await waitFor(() => {
+      expect(mockGetConversations).toHaveBeenCalledTimes(2);
+    });
+    expect(globalThis.alert).toHaveBeenCalledWith(expect.stringContaining('ok'));
   });
 });

@@ -294,6 +294,10 @@ export function ExportConversations(arg1) {
   return window['go']['app']['App']['ExportConversations'](arg1);
 }
 
+export function ExportConversationsToFile(arg1, arg2) {
+  return window['go']['app']['App']['ExportConversationsToFile'](arg1, arg2);
+}
+
 export function ExportWorkspace() {
   return window['go']['app']['App']['ExportWorkspace']();
 }
@@ -596,6 +600,10 @@ export function GetWorkflow(arg1) {
 
 export function ImportConversations(arg1) {
   return window['go']['app']['App']['ImportConversations'](arg1);
+}
+
+export function ImportData(arg1, arg2) {
+  return window['go']['app']['App']['ImportData'](arg1, arg2);
 }
 
 export function ImportWorkspace(arg1) {
