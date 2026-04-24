@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -124,8 +125,12 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 		// Exceção de open editors: aplica-se APENAS quando o erro é "fora dos diretórios"
 		// (não para workDir inválido, caminho malformado, etc.) e somente para read/write/edit.
 		if !errors.Is(err, errOutsideAllowedDirs) || !isOpenEditorAllowed(ctx, fullPath, operation) {
+			editorPaths := tools.GetOpenEditorPaths(ctx)
+			log.Printf("[validatePathWithPolicy] BLOQUEADO: path=%s op=%s isOutside=%v editorPaths=%v",
+				fullPath, operation, errors.Is(err, errOutsideAllowedDirs), editorPaths)
 			return err
 		}
+		log.Printf("[validatePathWithPolicy] LIBERADO via open editor: path=%s op=%s", fullPath, operation)
 	}
 	if err := validateSkillFilesystemAllowlist(ctx, fullPath, workDir, operation); err != nil {
 		return err
