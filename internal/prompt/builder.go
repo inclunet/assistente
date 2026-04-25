@@ -183,9 +183,11 @@ func (b *Builder) Build(
 			sb.WriteString("Any other path remains subject to the normal workspace roots and filesystem access policies:\n")
 			for _, p := range paths {
 				// Escape special chars to prevent prompt injection via filenames.
-				// Apply html.EscapeString first (handles <, >, &, ", ') then replace
-				// any remaining newlines/carriage-returns with underscores.
+				// Apply html.EscapeString first (handles <, >, &, ", ') then strip
+				// backticks (could confuse LLM markdown parsing) and replace
+				// newlines/carriage-returns with underscores.
 				safe := html.EscapeString(p)
+				safe = strings.ReplaceAll(safe, "`", "")
 				safe = strings.ReplaceAll(strings.ReplaceAll(safe, "\n", "_"), "\r", "_")
 				sb.WriteString("- ")
 				sb.WriteString(safe)
