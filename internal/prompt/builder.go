@@ -182,11 +182,11 @@ func (b *Builder) Build(
 			sb.WriteString("If the active skill restricts filesystem access, those restrictions still apply on top of this exception. ")
 			sb.WriteString("Any other path remains subject to the normal workspace roots and filesystem access policies:\n")
 			for _, p := range paths {
-				// Escape newlines/special chars to prevent prompt injection via filenames.
-				// html.EscapeString handles <, >, &, ", ' in addition to newlines/backticks.
-				safe := strings.ReplaceAll(strings.ReplaceAll(p, "\n", "_"), "\r", "_")
-				safe = strings.ReplaceAll(safe, "`", "'")
-				safe = html.EscapeString(safe)
+				// Escape special chars to prevent prompt injection via filenames.
+				// Apply html.EscapeString first (handles <, >, &, ", ') then replace
+				// any remaining newlines/carriage-returns with underscores.
+				safe := html.EscapeString(p)
+				safe = strings.ReplaceAll(strings.ReplaceAll(safe, "\n", "_"), "\r", "_")
 				sb.WriteString("- ")
 				sb.WriteString(safe)
 				sb.WriteString("\n")
