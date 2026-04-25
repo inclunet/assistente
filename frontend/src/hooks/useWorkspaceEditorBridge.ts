@@ -93,7 +93,7 @@ export function useWorkspaceEditorBridge() {
         const wsFilePath = (wsTab.state?.filePath as string) || '';
         const docFilePath = (doc.filePath as string) || '';
         if (docFilePath && docFilePath !== wsFilePath) {
-          updates.state = { ...wsTab.state, filePath: docFilePath };
+          updates.state = { ...(wsTab.state ?? {}), filePath: docFilePath };
         }
         if (Object.keys(updates).length > 0) {
           ws.updateTab(wsTab.id, updates).catch((err: unknown) => {

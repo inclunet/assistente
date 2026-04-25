@@ -538,7 +538,7 @@ export default function EditorPage() {
         // Persiste filePath na aba do workspace (para OpenEditorFilePaths)
         const wsTab = (useWorkspaceStore.getState().workspace?.tabs || []).find((t) => t.id === tabId);
         if (wsTab) {
-          await updateWsTab(tabId, { title, state: { ...wsTab.state, filePath: newPath } }).catch(() => {});
+          await updateWsTab(tabId, { title, state: { ...(wsTab.state ?? {}), filePath: newPath } }).catch(() => {});
         }
 
         const { documents: afterDocs } = useEditorStore.getState();
@@ -1932,7 +1932,7 @@ export default function EditorPage() {
         setDocMarkdown(id, content);
         useEditorStore.getState().setDocMode(id, preferredMode);
         if (wsActiveTab) {
-          await updateWsTab(wsActiveTab.id, { title, state: { ...wsActiveTab.state, filePath: path } });
+          await updateWsTab(wsActiveTab.id, { title, state: { ...(wsActiveTab.state ?? {}), filePath: path } });
         }
       } else {
         const tabId = await addWorkspaceTab('editor', title, { filePath: path });
@@ -2078,7 +2078,7 @@ export default function EditorPage() {
       // Persiste filePath na aba do workspace (para OpenEditorFilePaths)
       const wsTab = (useWorkspaceStore.getState().workspace?.tabs || []).find((t) => t.id === activeTab.id);
       if (wsTab) {
-        await updateWsTab(activeTab.id, { title, state: { ...wsTab.state, filePath: path } }).catch(() => {});
+        await updateWsTab(activeTab.id, { title, state: { ...(wsTab.state ?? {}), filePath: path } }).catch(() => {});
       }
 
       void refreshDiskInfoForTab({ ...activeTab, filePath: path });

@@ -173,8 +173,10 @@ func (b *Builder) Build(
 			var sb strings.Builder
 			sb.WriteString("\n\n<open_editor_files>\n")
 			sb.WriteString("The following files are currently open in the user's editor tabs. ")
-			sb.WriteString("You CAN read and edit these files using the filesystem tools (read_file, write_file, edit_file), ")
-			sb.WriteString("even if they are outside the working directory:\n")
+			sb.WriteString("You CAN read and edit ONLY these exact file paths using the filesystem tools (read_file, write_file, edit_file), ")
+			sb.WriteString("even if one of the listed files is outside the working directory. ")
+			sb.WriteString("This exception applies only to the exact paths listed below — not to their parent directories, sibling files, or other related paths. ")
+			sb.WriteString("Any other path remains subject to the normal workspace roots and filesystem access policies:\n")
 			for _, p := range paths {
 				sb.WriteString("- ")
 				sb.WriteString(p)
