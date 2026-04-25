@@ -614,6 +614,10 @@ export function ImportData(arg1, arg2) {
   return window['go']['app']['App']['ImportData'](arg1, arg2);
 }
 
+export function ImportDataWithResolutions(arg1) {
+  return window['go']['app']['App']['ImportDataWithResolutions'](arg1);
+}
+
 export function ImportWorkspace(arg1) {
   return window['go']['app']['App']['ImportWorkspace'](arg1);
 }

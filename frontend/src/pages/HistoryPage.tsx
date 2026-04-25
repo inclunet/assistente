@@ -10,7 +10,7 @@ import {
   ImportOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { AnalyzeImportData, GetAllTaskLists, GetConversations, DeleteConversation, UpdateConversation, ExportConversationsToFile, ExportData, ImportData, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { AnalyzeImportData, GetAllTaskLists, GetConversations, GetLLMProvidersWithStatus, DeleteConversation, UpdateConversation, ExportConversationsToFile, ExportData, ImportData, ImportDataWithResolutions, SearchConversationHistory } from '@wailsjs/go/app/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../components/menu';
@@ -21,6 +21,7 @@ import { Checkbox } from '../components/ui/Checkbox';
 import { FormField } from '../components/ui/FormField';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
+import { Select } from '../components/ui/Select';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -28,7 +29,7 @@ import { useConfirm } from '../hooks/useConfirm';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { executeDeepLink } from '../lib/deepLinks';
 import { formatRelativeTime } from '../lib/dateUtils';
-import { downloadJSON, openImportFileDialog, generateFilename } from '../lib/exportImport';
+import { downloadJSON, openImportFileDialog, generateFilename, ImportFileError, IMPORT_FILE_ERROR_CODES } from '../lib/exportImport';
 import './HistoryPage.css';
 
 interface Conversation {
@@ -48,6 +49,7 @@ interface ImportPreview {
   exportedAt: string;
   conversationCount: number;
   messageCount: number;
+  providerCount: number;
   taskListCount: number;
   taskCount: number;
   taskNoteCount: number;
@@ -60,6 +62,22 @@ interface ImportConflict {
   resourceType: string;
   identifier: string;
   reason: string;
+  supportedStrategies?: ImportResolutionStrategy[];
+}
+
+type ImportResolutionStrategy = 'skip' | 'overwrite' | 'rename';
+
+interface ImportResolutionDraft {
+  resourceType: string;
+  identifier: string;
+  strategy: ImportResolutionStrategy;
+  renameValue?: string;
+}
+
+interface ImportRequestPayload {
+  jsonData: string;
+  credentialExportPassword?: string;
+  resolutions?: ImportResolutionDraft[];
 }
 
 interface ImportAnalysis {
@@ -67,6 +85,7 @@ interface ImportAnalysis {
   appVersion?: string;
   conversationCount: number;
   messageCount: number;
+  providerCount: number;
   taskListCount: number;
   taskCount: number;
   taskNoteCount: number;
@@ -75,6 +94,7 @@ interface ImportAnalysis {
   credentialCount: number;
   conflictCount: number;
   conversationConflicts?: ImportConflict[];
+  providerConflicts?: ImportConflict[];
   taskListConflicts?: ImportConflict[];
   credentialConflicts?: ImportConflict[];
   unsupportedResourceTypes?: string[];
@@ -89,6 +109,7 @@ interface ImportResultSummary {
   failed: number;
   skippedEmptyConversations: number;
   skippedConversationConflict: number;
+  skippedProviderConflict: number;
   skippedTaskListConflict: number;
   skippedCredentialConflict: number;
   skippedOther: number;
@@ -100,14 +121,21 @@ interface ImportResultSummary {
 
 interface ExportRequestPayload {
   conversationIds: string[];
+  providerIds?: string[];
   taskListIds?: string[];
   includeCredentials: boolean;
   credentialExportPassword?: string;
   outputFormat: 'json';
 }
 
+type ImportResolutionMap = Record<string, ImportResolutionDraft>;
+
 interface TaskListRecord {
   id: number;
+}
+
+interface ProviderRecord {
+  id: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -141,6 +169,7 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
   const options = isRecord(parsed.options) ? parsed.options : {};
   const conversations = Array.isArray(resources.conversations) ? resources.conversations : [];
   const taskLists = Array.isArray(resources.taskLists) ? resources.taskLists : [];
+  const providers = Array.isArray(resources.providers) ? resources.providers : [];
   const messageCount = conversations.reduce((count, item) => {
     if (!isRecord(item) || !Array.isArray(item.messages)) {
       return count;
@@ -168,6 +197,7 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
     exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : '',
     conversationCount: conversations.length,
     messageCount,
+    providerCount: providers.length,
     taskListCount: taskLists.length,
     taskCount: taskCounts.taskCount,
     taskNoteCount: taskCounts.taskNoteCount,
@@ -185,12 +215,67 @@ function buildImportAnalysisKey(preview: ImportPreview, password: string): strin
     preview.version ?? 'unknown',
     preview.conversationCount,
     preview.messageCount,
+    preview.providerCount,
     preview.taskListCount,
     preview.taskCount,
     preview.taskNoteCount,
     preview.includesCredentials ? 'with-credentials' : 'without-credentials',
     password,
   ].join('::');
+}
+
+function buildConflictKey(resourceType: string, identifier: string): string {
+  return `${resourceType}::${identifier}`;
+}
+
+function getConflictResolutionLabelKey(conflict: ImportConflict, strategy: ImportResolutionStrategy): string {
+  if (strategy === 'skip') {
+    return 'history.importResolutionSkip';
+  }
+  if (strategy === 'overwrite') {
+    return 'history.importResolutionOverwrite';
+  }
+  return conflict.resourceType === 'conversation'
+    ? 'history.importResolutionRenameConversation'
+    : 'history.importResolutionRename';
+}
+
+function mergeImportResolutions(analysis: ImportAnalysis | null, current: ImportResolutionMap): ImportResolutionMap {
+  if (!analysis) {
+    return {};
+  }
+
+  const next: ImportResolutionMap = {};
+  const conflictGroups = [
+    ...(analysis.conversationConflicts ?? []),
+    ...(analysis.providerConflicts ?? []),
+    ...(analysis.taskListConflicts ?? []),
+  ];
+
+  conflictGroups.forEach((conflict) => {
+    const key = buildConflictKey(conflict.resourceType, conflict.identifier);
+    const previous = current[key];
+    const supported = conflict.supportedStrategies ?? ['skip'];
+    const fallbackStrategy = (supported.includes('skip') ? 'skip' : (supported[0] ?? 'skip')) as ImportResolutionStrategy;
+    const nextStrategy = previous && supported.includes(previous.strategy) ? previous.strategy : fallbackStrategy;
+    next[key] = {
+      resourceType: conflict.resourceType,
+      identifier: conflict.identifier,
+      strategy: nextStrategy,
+      renameValue: previous?.renameValue ?? '',
+    };
+  });
+
+  return next;
+}
+
+function buildImportResolutionsPayload(resolutions: ImportResolutionMap): ImportResolutionDraft[] {
+  return Object.values(resolutions).map((resolution) => ({
+    resourceType: resolution.resourceType,
+    identifier: resolution.identifier,
+    strategy: resolution.strategy,
+    renameValue: resolution.strategy === 'rename' ? resolution.renameValue?.trim() ?? '' : undefined,
+  }));
 }
 
 export default function HistoryPage() {
@@ -209,6 +294,8 @@ export default function HistoryPage() {
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportTargetIds, setExportTargetIds] = useState<number[]>([]);
+  const [includeProvidersExport, setIncludeProvidersExport] = useState(false);
+  const [exportProviderIds, setExportProviderIds] = useState<string[]>([]);
   const [includeTaskListsExport, setIncludeTaskListsExport] = useState(false);
   const [exportTaskListIds, setExportTaskListIds] = useState<number[]>([]);
   const [includeCredentialExport, setIncludeCredentialExport] = useState(false);
@@ -218,10 +305,12 @@ export default function HistoryPage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importAnalysis, setImportAnalysis] = useState<ImportAnalysis | null>(null);
+  const [importResolutions, setImportResolutions] = useState<ImportResolutionMap>({});
   const [lastImportResult, setLastImportResult] = useState<ImportResultSummary | null>(null);
   const [isAnalyzingImport, setIsAnalyzingImport] = useState(false);
   const [importPassword, setImportPassword] = useState('');
   const [importPasswordError, setImportPasswordError] = useState('');
+  const [importResolutionError, setImportResolutionError] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const importAnalysisInFlightRef = useRef(false);
   const pendingImportAnalysisRef = useRef<{ jsonData: string; password: string; key: string } | null>(null);
@@ -384,6 +473,8 @@ export default function HistoryPage() {
       return;
     }
     setExportTargetIds(idsToExport);
+    setIncludeProvidersExport(false);
+    setExportProviderIds([]);
     setIncludeTaskListsExport(false);
     setExportTaskListIds([]);
     setIncludeCredentialExport(false);
@@ -395,11 +486,22 @@ export default function HistoryPage() {
   const closeExportModal = useCallback(() => {
     setIsExportModalOpen(false);
     setExportTargetIds([]);
+    setIncludeProvidersExport(false);
+    setExportProviderIds([]);
     setIncludeTaskListsExport(false);
     setExportTaskListIds([]);
     setIncludeCredentialExport(false);
     setExportPassword('');
     setExportPasswordError('');
+  }, []);
+
+  const loadExportProviderIds = useCallback(async () => {
+    const providers = await GetLLMProvidersWithStatus() as ProviderRecord[];
+    const ids = (providers || [])
+      .map((provider) => String(provider.id ?? '').trim())
+      .filter((id) => id.length > 0);
+    setExportProviderIds(ids);
+    return ids;
   }, []);
 
   const loadExportTaskListIds = useCallback(async () => {
@@ -411,7 +513,7 @@ export default function HistoryPage() {
     return ids;
   }, []);
 
-  const exportJsonByIds = useCallback(async (idsToExport: number[], taskListIdsToExport: number[], options?: {
+  const exportJsonByIds = useCallback(async (idsToExport: number[], providerIdsToExport: string[], taskListIdsToExport: number[], options?: {
     includeCredentials?: boolean;
     credentialExportPassword?: string;
   }) => {
@@ -421,6 +523,9 @@ export default function HistoryPage() {
         includeCredentials: options?.includeCredentials === true,
         outputFormat: 'json',
       };
+      if (providerIdsToExport.length > 0) {
+        payload.providerIds = providerIdsToExport;
+      }
       if (taskListIdsToExport.length > 0) {
         payload.taskListIds = taskListIdsToExport.map((id) => String(id));
       }
@@ -462,7 +567,7 @@ export default function HistoryPage() {
   }, [exportRichByIds, getTargetConversationIds]);
 
   const handleConfirmExport = useCallback(async () => {
-    if (exportTargetIds.length === 0 && !includeTaskListsExport) {
+    if (exportTargetIds.length === 0 && !includeProvidersExport && !includeTaskListsExport) {
       announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
       return;
     }
@@ -474,12 +579,17 @@ export default function HistoryPage() {
     setIsExporting(true);
     setExportPasswordError('');
     try {
+      let providerIdsToExport: string[] = [];
+      if (includeProvidersExport) {
+        providerIdsToExport = exportProviderIds.length > 0 ? exportProviderIds : await loadExportProviderIds();
+      }
+
       let taskListIdsToExport: number[] = [];
       if (includeTaskListsExport) {
         taskListIdsToExport = exportTaskListIds.length > 0 ? exportTaskListIds : await loadExportTaskListIds();
       }
 
-      await exportJsonByIds(exportTargetIds, taskListIdsToExport, {
+      await exportJsonByIds(exportTargetIds, providerIdsToExport, taskListIdsToExport, {
         includeCredentials: includeCredentialExport,
         credentialExportPassword: exportPassword,
       });
@@ -487,15 +597,17 @@ export default function HistoryPage() {
     } finally {
       setIsExporting(false);
     }
-  }, [announce, closeExportModal, exportJsonByIds, exportPassword, exportTargetIds, exportTaskListIds, includeCredentialExport, includeTaskListsExport, loadExportTaskListIds, t]);
+  }, [announce, closeExportModal, exportJsonByIds, exportPassword, exportProviderIds, exportTargetIds, exportTaskListIds, includeCredentialExport, includeProvidersExport, includeTaskListsExport, loadExportProviderIds, loadExportTaskListIds, t]);
 
   const closeImportModal = useCallback(() => {
     setIsImportModalOpen(false);
     setImportPreview(null);
     setImportAnalysis(null);
+    setImportResolutions({});
     setLastImportResult(null);
     setImportPassword('');
     setImportPasswordError('');
+    setImportResolutionError('');
     pendingImportAnalysisRef.current = null;
     lastAnalyzedImportRef.current = null;
   }, []);
@@ -504,8 +616,10 @@ export default function HistoryPage() {
     setIsAnalyzingImport(true);
     try {
       const analysis = await AnalyzeImportData(jsonData, credentialPassword);
-      setImportAnalysis(analysis as ImportAnalysis);
-      return analysis as ImportAnalysis;
+      const nextAnalysis = analysis as ImportAnalysis;
+      setImportAnalysis(nextAnalysis);
+      setImportResolutions((current) => mergeImportResolutions(nextAnalysis, current));
+      return nextAnalysis;
     } finally {
       setIsAnalyzingImport(false);
     }
@@ -541,20 +655,22 @@ export default function HistoryPage() {
     const preview = buildImportPreview(selectedFile.name, selectedFile.content);
     setImportPreview(preview);
     setImportAnalysis(null);
+    setImportResolutions({});
     setLastImportResult(null);
     setImportPassword('');
     setImportPasswordError('');
+    setImportResolutionError('');
     await analyzeImportPayload(selectedFile.content, '');
     lastAnalyzedImportRef.current = buildImportAnalysisKey(preview, '');
     setIsImportModalOpen(true);
   }, [analyzeImportPayload]);
 
   const getImportErrorMessage = useCallback((error: unknown) => {
-    if (error instanceof Error) {
-      if (error.message === 'Nenhum arquivo selecionado') {
+    if (error instanceof ImportFileError) {
+      if (error.code === IMPORT_FILE_ERROR_CODES.NO_FILE_SELECTED) {
         return '';
       }
-      if (error.message === 'Erro ao ler arquivo') {
+      if (error.code === IMPORT_FILE_ERROR_CODES.FILE_READ_ERROR) {
         return t('history.importReadError', 'Erro ao ler o arquivo selecionado.');
       }
     }
@@ -588,6 +704,28 @@ export default function HistoryPage() {
     }
   }, [announce, getImportErrorMessage, selectImportFile]);
 
+  const updateImportResolution = useCallback((resourceType: string, identifier: string, updates: Partial<ImportResolutionDraft>) => {
+    const key = buildConflictKey(resourceType, identifier);
+    setImportResolutions((current) => {
+      const existing = current[key] ?? {
+        resourceType,
+        identifier,
+        strategy: 'skip' as const,
+        renameValue: '',
+      };
+      return {
+        ...current,
+        [key]: {
+          ...existing,
+          ...updates,
+        },
+      };
+    });
+    if (importResolutionError) {
+      setImportResolutionError('');
+    }
+  }, [importResolutionError]);
+
   const handleConfirmImport = useCallback(async () => {
     if (lastImportResult) {
       closeImportModal();
@@ -603,10 +741,25 @@ export default function HistoryPage() {
       return;
     }
 
+    const resolutionsPayload = buildImportResolutionsPayload(importResolutions);
+    const renameConflict = resolutionsPayload.find((resolution) => resolution.strategy === 'rename' && !resolution.renameValue);
+    if (renameConflict) {
+      setImportResolutionError(t('history.importResolutionRenameRequired', 'Informe um novo valor para cada conflito configurado como renomear.'));
+      return;
+    }
+
     setIsImporting(true);
     setImportPasswordError('');
+    setImportResolutionError('');
     try {
-      const result = await ImportData(importPreview.jsonData, importPassword.trim()) as ImportResultSummary;
+      const hasExplicitResolutions = resolutionsPayload.length > 0;
+      const result = hasExplicitResolutions
+        ? await ImportDataWithResolutions({
+            jsonData: importPreview.jsonData,
+            credentialExportPassword: importPassword.trim(),
+            resolutions: resolutionsPayload,
+          } as ImportRequestPayload) as ImportResultSummary
+        : await ImportData(importPreview.jsonData, importPassword.trim()) as ImportResultSummary;
       const details = [
         result.success
           ? t('history.importSuccess', 'Dados importados com sucesso!')
@@ -634,6 +787,12 @@ export default function HistoryPage() {
         details.push(t('history.importSkippedConversationConflictCount', {
           defaultValue: 'Ignoradas por conflito de conversa: {{count}}',
           count: result.skippedConversationConflict,
+        }));
+      }
+      if (result.skippedProviderConflict > 0) {
+        details.push(t('history.importSkippedProviderConflictCount', {
+          defaultValue: 'Ignoradas por conflito de provider: {{count}}',
+          count: result.skippedProviderConflict,
         }));
       }
       if (result.skippedTaskListConflict > 0) {
@@ -673,7 +832,7 @@ export default function HistoryPage() {
     } finally {
       setIsImporting(false);
     }
-  }, [announce, closeImportModal, importAnalysis?.credentialAnalysisError, importPassword, importPreview, lastImportResult, t]);
+  }, [announce, closeImportModal, importAnalysis?.credentialAnalysisError, importPassword, importPreview, importResolutions, lastImportResult, t]);
 
   useEffect(() => {
     if (!isImportModalOpen || !importPreview) return;
@@ -899,6 +1058,82 @@ export default function HistoryPage() {
     }
   }, []);
 
+  const renderConflictGroup = useCallback((title: string, conflicts: ImportConflict[] | undefined) => {
+    if (!conflicts?.length) {
+      return null;
+    }
+
+    return (
+      <>
+        <strong>{title}</strong>
+        <ul className="history-page__import-list">
+          {conflicts.map((conflict) => {
+            const resolutionKey = buildConflictKey(conflict.resourceType, conflict.identifier);
+            const resolution = importResolutions[resolutionKey] ?? {
+              resourceType: conflict.resourceType,
+              identifier: conflict.identifier,
+              strategy: (conflict.supportedStrategies?.includes('skip') ? 'skip' : (conflict.supportedStrategies?.[0] ?? 'skip')) as ImportResolutionStrategy,
+              renameValue: '',
+            };
+            const resolutionOptions = (conflict.supportedStrategies ?? ['skip']).map((strategy) => ({
+              value: strategy,
+              label: t(getConflictResolutionLabelKey(conflict, strategy), {
+                defaultValue: strategy === 'skip'
+                  ? 'Ignorar nesta importação'
+                  : strategy === 'overwrite'
+                    ? 'Sobrescrever o recurso existente'
+                    : conflict.resourceType === 'conversation'
+                      ? 'Importar com novo título'
+                      : 'Importar com novo identificador',
+              }),
+            }));
+            const renameLabel = conflict.resourceType === 'conversation'
+              ? t('history.importResolutionRenameConversationLabel', 'Novo título')
+              : t('history.importResolutionRenameLabel', 'Novo identificador');
+            const renamePlaceholder = conflict.resourceType === 'conversation'
+              ? t('history.importResolutionRenameConversationPlaceholder', 'Digite o novo título')
+              : t('history.importResolutionRenamePlaceholder', 'Digite o novo identificador');
+
+            return (
+              <li key={resolutionKey}>
+                <div>{conflict.resourceType === 'conversation' ? conflict.reason : <><code>{conflict.identifier}</code>: {conflict.reason}</>}</div>
+                <div className="history-page__import-note">
+                  <Select
+                    aria-label={t('history.importResolutionSelectLabel', {
+                      defaultValue: 'Estratégia para {{identifier}}',
+                      identifier: conflict.identifier,
+                    })}
+                    value={resolution.strategy}
+                    onChange={(event) => {
+                      const nextStrategy = event.target.value as ImportResolutionStrategy;
+                      updateImportResolution(conflict.resourceType, conflict.identifier, {
+                        strategy: nextStrategy,
+                        renameValue: nextStrategy === 'rename' ? resolution.renameValue ?? '' : '',
+                      });
+                    }}
+                    options={resolutionOptions}
+                    fullWidth
+                  />
+                </div>
+                {resolution.strategy === 'rename' && (
+                  <div className="history-page__import-note">
+                    <FormField label={renameLabel}>
+                      <Input
+                        value={resolution.renameValue ?? ''}
+                        onChange={(event) => updateImportResolution(conflict.resourceType, conflict.identifier, { renameValue: event.target.value })}
+                        placeholder={renamePlaceholder}
+                      />
+                    </FormField>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </>
+    );
+  }, [importResolutions, t, updateImportResolution]);
+
   if (loading) {
     return (
       <div className="history-page">
@@ -1014,6 +1249,17 @@ export default function HistoryPage() {
               <dt>{t('history.exportConversationsLabel', 'Conversas')}</dt>
               <dd>{exportTargetIds.length}</dd>
             </div>
+              <div className="history-page__import-row">
+                <dt>{t('history.exportProvidersLabel', 'Providers')}</dt>
+                <dd>
+                  {includeProvidersExport
+                    ? t('history.exportProvidersIncluded', {
+                        defaultValue: '{{count}} incluído(s)',
+                        count: exportProviderIds.length,
+                      })
+                    : t('history.exportProvidersNotIncluded', 'Não incluir')}
+                </dd>
+              </div>
             <div className="history-page__import-row">
               <dt>{t('history.exportTaskListsLabel', 'Tasklists')}</dt>
               <dd>
@@ -1038,6 +1284,34 @@ export default function HistoryPage() {
               </dd>
             </div>
           </dl>
+
+          <Checkbox
+            checked={includeProvidersExport}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setIncludeProvidersExport(checked);
+              if (!checked) {
+                setExportProviderIds([]);
+                return;
+              }
+              void loadExportProviderIds().catch((error) => {
+                console.error('Erro ao carregar providers para exportação:', error);
+                setIncludeProvidersExport(false);
+                setExportProviderIds([]);
+                announce(t('history.exportProvidersLoadError', 'Erro ao carregar providers para exportação'), 'assertive');
+              });
+            }}
+            label={t('history.exportProvidersOption', 'Incluir providers persistidos no banco')}
+          />
+
+          {includeProvidersExport && (
+            <p className="history-page__import-note">
+              {t(
+                'history.exportProvidersDescription',
+                'Os providers persistidos no banco serão adicionados ao mesmo JSON canônico exportado junto com as conversas selecionadas.'
+              )}
+            </p>
+          )}
 
           <Checkbox
             checked={includeTaskListsExport}
@@ -1161,7 +1435,14 @@ export default function HistoryPage() {
               </div>
               <div className="history-page__import-row">
                 <dt>{t('history.importExportedAtLabel', 'Exportado em')}</dt>
-                <dd>{importPreview.exportedAt ? formatRelativeTime(new Date(importPreview.exportedAt).getTime()) : '-'}</dd>
+                <dd>
+                  {importPreview.exportedAt
+                    ? (() => {
+                        const timestamp = Date.parse(importPreview.exportedAt);
+                        return Number.isFinite(timestamp) ? formatRelativeTime(timestamp) : '-';
+                      })()
+                    : '-'}
+                </dd>
               </div>
               <div className="history-page__import-row">
                 <dt>{t('history.importAppVersionLabel', 'Versão do app')}</dt>
@@ -1174,6 +1455,10 @@ export default function HistoryPage() {
               <div className="history-page__import-row">
                 <dt>{t('history.importMessagesLabel', 'Mensagens')}</dt>
                 <dd>{importPreview.messageCount}</dd>
+              </div>
+              <div className="history-page__import-row">
+                <dt>{t('history.importProvidersLabel', 'Providers')}</dt>
+                <dd>{importPreview.providerCount}</dd>
               </div>
               <div className="history-page__import-row">
                 <dt>{t('history.importTaskListsLabel', 'Tasklists')}</dt>
@@ -1243,30 +1528,19 @@ export default function HistoryPage() {
                 </ul>
               )}
 
-              {!!importAnalysis.conversationConflicts?.length && (
-                <>
-                  <strong>{t('history.importConversationConflicts', 'Conversas em conflito')}</strong>
-                  <ul className="history-page__import-list">
-                    {importAnalysis.conversationConflicts.map((conflict) => (
-                      <li key={`${conflict.resourceType}-${conflict.identifier}`}>
-                        {conflict.reason}
-                      </li>
-                    ))}
-                  </ul>
-                </>
+              {renderConflictGroup(
+                t('history.importConversationConflicts', 'Conversas em conflito'),
+                importAnalysis.conversationConflicts,
               )}
 
-              {!!importAnalysis.taskListConflicts?.length && (
-                <>
-                  <strong>{t('history.importTaskListConflicts', 'Tasklists em conflito')}</strong>
-                  <ul className="history-page__import-list">
-                    {importAnalysis.taskListConflicts.map((conflict) => (
-                      <li key={`${conflict.resourceType}-${conflict.identifier}`}>
-                        <code>{conflict.identifier}</code>: {conflict.reason}
-                      </li>
-                    ))}
-                  </ul>
-                </>
+              {renderConflictGroup(
+                t('history.importProviderConflicts', 'Providers em conflito'),
+                importAnalysis.providerConflicts,
+              )}
+
+              {renderConflictGroup(
+                t('history.importTaskListConflicts', 'Tasklists em conflito'),
+                importAnalysis.taskListConflicts,
               )}
 
               {!!importAnalysis.credentialConflicts?.length && (
@@ -1286,9 +1560,12 @@ export default function HistoryPage() {
                 <p className="history-page__import-note">
                   {t(
                     'history.importConflictNotice',
-                    'Os itens em conflito serão ignorados nesta importação para evitar duplicidade.'
+                    'Escolha como tratar cada conflito. Itens sem ação explícita continuam sendo ignorados por segurança.'
                   )}
                 </p>
+              )}
+              {importResolutionError && (
+                <p className="history-page__import-note">{importResolutionError}</p>
               )}
             </div>
           )}
@@ -1327,6 +1604,12 @@ export default function HistoryPage() {
                   <div className="history-page__import-row">
                     <dt>{t('history.importSkippedConversationConflictLabel', 'Conflitos de conversa')}</dt>
                     <dd>{lastImportResult.skippedConversationConflict}</dd>
+                  </div>
+                )}
+                {lastImportResult.skippedProviderConflict > 0 && (
+                  <div className="history-page__import-row">
+                    <dt>{t('history.importSkippedProviderConflictLabel', 'Conflitos de provider')}</dt>
+                    <dd>{lastImportResult.skippedProviderConflict}</dd>
                   </div>
                 )}
                 {lastImportResult.skippedTaskListConflict > 0 && (

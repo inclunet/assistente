@@ -166,9 +166,39 @@ func exportTaskNode(
 }
 
 func importTaskList(taskList TaskListExport) (bool, error) {
-	workflowStatuses, workflowTransitions, err := validateImportedTaskListWorkflow(taskList.Workflow)
+	err := database.DB().Transaction(func(tx *gorm.DB) error {
+		return persistTaskList(tx, taskList, nil)
+	})
 	if err != nil {
 		return false, err
+	}
+
+	return true, nil
+}
+
+func overwriteTaskList(taskList TaskListExport) (bool, error) {
+	existing, err := findExistingTaskListByExport(taskList)
+	if err != nil {
+		return false, err
+	}
+	if existing == nil {
+		return importTaskList(taskList)
+	}
+
+	err = database.DB().Transaction(func(tx *gorm.DB) error {
+		return persistTaskList(tx, taskList, existing)
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.TaskList) error {
+	workflowStatuses, workflowTransitions, err := validateImportedTaskListWorkflow(taskList.Workflow)
+	if err != nil {
+		return err
 	}
 
 	taskStatusIDs := make(map[int]struct{}, len(workflowStatuses))
@@ -176,64 +206,87 @@ func importTaskList(taskList TaskListExport) (bool, error) {
 		taskStatusIDs[status.ID] = struct{}{}
 	}
 
-	err = database.DB().Transaction(func(tx *gorm.DB) error {
-		viewMode := strings.TrimSpace(taskList.PreferredViewMode)
-		if viewMode != "kanban" {
-			viewMode = "list"
-		}
+	viewMode := strings.TrimSpace(taskList.PreferredViewMode)
+	if viewMode != "kanban" {
+		viewMode = "list"
+	}
 
-		createdAt := taskList.CreatedAt
-		if createdAt.IsZero() {
-			createdAt = time.Now()
-		}
+	createdAt := taskList.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
 
-		model := database.TaskList{
-			Title:             taskList.Title,
-			Slug:              database.NormalizeTaskListSlug(taskList.Slug),
-			Description:       taskList.Description,
-			PreferredViewMode: viewMode,
-			ValidationPolicy:  strings.TrimSpace(taskList.ValidationPolicy),
-			CreatedAt:         createdAt,
-			UpdatedAt:         createdAt,
-		}
+	model := database.TaskList{
+		Title:             taskList.Title,
+		Slug:              database.NormalizeTaskListSlug(taskList.Slug),
+		Description:       taskList.Description,
+		PreferredViewMode: viewMode,
+		ValidationPolicy:  strings.TrimSpace(taskList.ValidationPolicy),
+		CreatedAt:         createdAt,
+		UpdatedAt:         createdAt,
+	}
+	if existing == nil {
 		if err := tx.Create(&model).Error; err != nil {
 			return err
 		}
-
-		statusesJSON, err := json.Marshal(workflowStatuses)
-		if err != nil {
+	} else {
+		existing.Title = model.Title
+		existing.Slug = model.Slug
+		existing.Description = model.Description
+		existing.PreferredViewMode = model.PreferredViewMode
+		existing.ValidationPolicy = model.ValidationPolicy
+		existing.CreatedAt = model.CreatedAt
+		existing.UpdatedAt = model.UpdatedAt
+		if err := tx.Save(existing).Error; err != nil {
 			return err
 		}
-		transitionsJSON, err := json.Marshal(workflowTransitions)
-		if err != nil {
+		model.ID = existing.ID
+
+		var taskIDs []uint
+		if err := tx.Model(&database.Task{}).Where("task_list_id = ?", model.ID).Pluck("id", &taskIDs).Error; err != nil {
 			return err
 		}
-
-		workflow := database.TaskListWorkflow{
-			TaskListID:         model.ID,
-			Statuses:           string(statusesJSON),
-			AllowedTransitions: string(transitionsJSON),
-			InitialStatusID:    taskList.Workflow.InitialStatusID,
-			CreatedAt:          createdAt,
-			UpdatedAt:          createdAt,
-		}
-		if err := tx.Create(&workflow).Error; err != nil {
-			return err
-		}
-
-		for _, task := range taskList.Tasks {
-			if err := importTaskNode(tx, model.ID, nil, task, taskStatusIDs); err != nil {
+		if len(taskIDs) > 0 {
+			if err := tx.Where("task_id IN ?", taskIDs).Delete(&database.TaskNote{}).Error; err != nil {
 				return err
 			}
 		}
-
-		return nil
-	})
-	if err != nil {
-		return false, err
+		if err := tx.Where("task_list_id = ?", model.ID).Delete(&database.Task{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("task_list_id = ?", model.ID).Delete(&database.TaskListWorkflow{}).Error; err != nil {
+			return err
+		}
 	}
 
-	return true, nil
+	statusesJSON, err := json.Marshal(workflowStatuses)
+	if err != nil {
+		return err
+	}
+	transitionsJSON, err := json.Marshal(workflowTransitions)
+	if err != nil {
+		return err
+	}
+
+	workflow := database.TaskListWorkflow{
+		TaskListID:         model.ID,
+		Statuses:           string(statusesJSON),
+		AllowedTransitions: string(transitionsJSON),
+		InitialStatusID:    taskList.Workflow.InitialStatusID,
+		CreatedAt:          createdAt,
+		UpdatedAt:          createdAt,
+	}
+	if err := tx.Create(&workflow).Error; err != nil {
+		return err
+	}
+
+	for _, task := range taskList.Tasks {
+		if err := importTaskNode(tx, model.ID, nil, task, taskStatusIDs); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func validateImportedTaskListWorkflow(workflow TaskListWorkflowExport) ([]database.TaskListWorkflowStatus, map[int][]int, error) {
@@ -353,14 +406,14 @@ func importTaskNode(
 }
 
 func taskListConflictIdentifier(taskList TaskListExport) string {
-	if slug := strings.TrimSpace(taskList.Slug); slug != "" {
+	if slug := database.NormalizeTaskListSlug(taskList.Slug); slug != "" {
 		return slug
 	}
 	return strings.TrimSpace(taskList.Title)
 }
 
 func taskListConflictLookupKey(taskList TaskListExport) string {
-	if slug := strings.TrimSpace(taskList.Slug); slug != "" {
+	if slug := database.NormalizeTaskListSlug(taskList.Slug); slug != "" {
 		return "slug:" + slug
 	}
 	return "title:" + strings.TrimSpace(taskList.Title)
@@ -369,13 +422,36 @@ func taskListConflictLookupKey(taskList TaskListExport) string {
 func existingTaskListConflictKeys(taskLists []database.TaskList) map[string]struct{} {
 	keys := make(map[string]struct{}, len(taskLists)*2)
 	for _, taskList := range taskLists {
-		if slug := strings.TrimSpace(taskList.Slug); slug != "" {
+		if slug := database.NormalizeTaskListSlug(taskList.Slug); slug != "" {
 			keys["slug:"+slug] = struct{}{}
 			continue
 		}
 		keys["title:"+strings.TrimSpace(taskList.Title)] = struct{}{}
 	}
 	return keys
+}
+
+func findExistingTaskListByExport(taskList TaskListExport) (*database.TaskList, error) {
+	var existing database.TaskList
+	if slug := strings.TrimSpace(taskList.Slug); slug != "" {
+		err := database.DB().Where("slug = ?", database.NormalizeTaskListSlug(slug)).First(&existing).Error
+		if err == nil {
+			return &existing, nil
+		}
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("erro ao localizar tasklist %q: %w", slug, err)
+	}
+
+	err := database.DB().Where("title = ?", strings.TrimSpace(taskList.Title)).First(&existing).Error
+	if err == nil {
+		return &existing, nil
+	}
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("erro ao localizar tasklist %q: %w", taskList.Title, err)
 }
 
 func countExportedTasks(taskLists []TaskListExport) (int, int) {

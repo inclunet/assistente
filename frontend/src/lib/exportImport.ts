@@ -7,6 +7,23 @@ export interface SelectedImportFile {
   content: string;
 }
 
+export const IMPORT_FILE_ERROR_CODES = {
+  NO_FILE_SELECTED: 'NO_FILE_SELECTED',
+  FILE_READ_ERROR: 'FILE_READ_ERROR',
+} as const;
+
+export type ImportFileErrorCode = typeof IMPORT_FILE_ERROR_CODES[keyof typeof IMPORT_FILE_ERROR_CODES];
+
+export class ImportFileError extends Error {
+  code: ImportFileErrorCode;
+
+  constructor(code: ImportFileErrorCode) {
+    super(code);
+    this.name = 'ImportFileError';
+    this.code = code;
+  }
+}
+
 /**
  * Faz download de um arquivo JSON
  */
@@ -41,7 +58,7 @@ export function openImportFileDialog(accept: string = '.json'): Promise<Selected
     input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) {
-        reject(new Error('Nenhum arquivo selecionado'));
+        reject(new ImportFileError(IMPORT_FILE_ERROR_CODES.NO_FILE_SELECTED));
         return;
       }
       
@@ -53,7 +70,7 @@ export function openImportFileDialog(accept: string = '.json'): Promise<Selected
         });
       };
       reader.onerror = () => {
-        reject(new Error('Erro ao ler arquivo'));
+        reject(new ImportFileError(IMPORT_FILE_ERROR_CODES.FILE_READ_ERROR));
       };
       reader.readAsText(file);
     };

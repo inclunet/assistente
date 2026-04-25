@@ -323,6 +323,8 @@ export function ImportConversations(arg1:string):Promise<main.ImportResult>;
 
 export function ImportData(arg1:string,arg2:string):Promise<main.ImportResult>;
 
+export function ImportDataWithResolutions(arg1:Record<string, any>):Promise<main.ImportResult>;
+
 export function ImportWorkspace(arg1:string):Promise<workspace.Workspace>;
 
 export function InferEventSchema(arg1:string):Promise<Record<string, any>>;

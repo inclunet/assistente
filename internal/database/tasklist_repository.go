@@ -1032,31 +1032,46 @@ func GetTaskListWithHierarchy(id uint) (*TaskList, error) {
 
 	// Busca todas as tasks de uma vez
 	var allTasks []Task
-	db.Where("task_list_id = ?", id).
+	if err := db.Where("task_list_id = ?", id).
 		Order("parent_id ASC, `order` ASC").
-		Find(&allTasks)
+		Find(&allTasks).Error; err != nil {
+		return nil, err
+	}
 
-	// Constrói hierarquia manualmente
+	// Constrói hierarquia manualmente preservando profundidade arbitrária.
 	taskMap := make(map[uint]*Task)
+	childrenByParentID := make(map[uint][]*Task)
+	rootTaskIDs := make([]uint, 0)
 
 	for i := range allTasks {
+		allTasks[i].Subtasks = nil
 		taskMap[allTasks[i].ID] = &allTasks[i]
 	}
 
 	for i := range allTasks {
 		task := &allTasks[i]
 		if task.ParentID != nil {
-			if parent, ok := taskMap[*task.ParentID]; ok {
-				parent.Subtasks = append(parent.Subtasks, *task)
-			}
+			childrenByParentID[*task.ParentID] = append(childrenByParentID[*task.ParentID], task)
+			continue
 		}
+		rootTaskIDs = append(rootTaskIDs, task.ID)
 	}
 
-	rootTasks := make([]Task, 0)
-	for i := range allTasks {
-		task := allTasks[i]
-		if task.ParentID == nil {
-			rootTasks = append(rootTasks, task)
+	var buildTaskTree func(task *Task) Task
+	buildTaskTree = func(task *Task) Task {
+		cloned := *task
+		children := childrenByParentID[task.ID]
+		cloned.Subtasks = make([]Task, 0, len(children))
+		for _, child := range children {
+			cloned.Subtasks = append(cloned.Subtasks, buildTaskTree(child))
+		}
+		return cloned
+	}
+
+	rootTasks := make([]Task, 0, len(rootTaskIDs))
+	for _, rootID := range rootTaskIDs {
+		if rootTask, ok := taskMap[rootID]; ok {
+			rootTasks = append(rootTasks, buildTaskTree(rootTask))
 		}
 	}
 

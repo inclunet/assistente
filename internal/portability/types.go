@@ -49,6 +49,20 @@ type ConversationExport struct {
 	Messages  []MessageExport `json:"messages"`
 }
 
+type ProviderExport struct {
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	Type              string    `json:"type"`
+	APIFormat         string    `json:"apiFormat,omitempty"`
+	BaseURL           string    `json:"baseUrl"`
+	Model             string    `json:"model,omitempty"`
+	DefaultModel      string    `json:"defaultModel,omitempty"`
+	IsDefault         bool      `json:"isDefault,omitempty"`
+	Timeout           int       `json:"timeout,omitempty"`
+	CredentialPattern string    `json:"credentialPattern,omitempty"`
+	CreatedAt         time.Time `json:"createdAt"`
+}
+
 type TaskListWorkflowStatusExport struct {
 	ID    int    `json:"id"`
 	Order int    `json:"order"`
@@ -119,6 +133,7 @@ type CredentialExport struct {
 
 type ExportResources struct {
 	Conversations []ConversationExport `json:"conversations,omitempty"`
+	Providers     []ProviderExport     `json:"providers,omitempty"`
 	TaskLists     []TaskListExport     `json:"taskLists,omitempty"`
 	Credentials   *CredentialCipher    `json:"credentials,omitempty"`
 }
@@ -150,6 +165,27 @@ type ExportRequest struct {
 	OutputFormat             string   `json:"outputFormat,omitempty"`
 }
 
+type ConflictResolutionStrategy string
+
+const (
+	ConflictResolutionSkip      ConflictResolutionStrategy = "skip"
+	ConflictResolutionOverwrite ConflictResolutionStrategy = "overwrite"
+	ConflictResolutionRename    ConflictResolutionStrategy = "rename"
+)
+
+type ImportResolution struct {
+	ResourceType string                     `json:"resourceType"`
+	Identifier   string                     `json:"identifier"`
+	Strategy     ConflictResolutionStrategy `json:"strategy"`
+	RenameValue  string                     `json:"renameValue,omitempty"`
+}
+
+type ImportRequest struct {
+	JSONData                 string             `json:"jsonData"`
+	CredentialExportPassword string             `json:"credentialExportPassword,omitempty"`
+	Resolutions              []ImportResolution `json:"resolutions,omitempty"`
+}
+
 type ImportResult struct {
 	Success                     bool     `json:"success"`
 	Imported                    int      `json:"imported"`
@@ -157,6 +193,7 @@ type ImportResult struct {
 	Failed                      int      `json:"failed"`
 	SkippedEmptyConversations   int      `json:"skippedEmptyConversations"`
 	SkippedConversationConflict int      `json:"skippedConversationConflict"`
+	SkippedProviderConflict     int      `json:"skippedProviderConflict"`
 	SkippedTaskListConflict     int      `json:"skippedTaskListConflict"`
 	SkippedCredentialConflict   int      `json:"skippedCredentialConflict"`
 	SkippedOther                int      `json:"skippedOther"`
@@ -167,9 +204,10 @@ type ImportResult struct {
 }
 
 type ImportConflict struct {
-	ResourceType string `json:"resourceType"`
-	Identifier   string `json:"identifier"`
-	Reason       string `json:"reason"`
+	ResourceType        string                       `json:"resourceType"`
+	Identifier          string                       `json:"identifier"`
+	Reason              string                       `json:"reason"`
+	SupportedStrategies []ConflictResolutionStrategy `json:"supportedStrategies,omitempty"`
 }
 
 type ImportAnalysis struct {
@@ -177,6 +215,7 @@ type ImportAnalysis struct {
 	AppVersion                 string           `json:"appVersion,omitempty"`
 	ConversationCount          int              `json:"conversationCount"`
 	MessageCount               int              `json:"messageCount"`
+	ProviderCount              int              `json:"providerCount"`
 	TaskListCount              int              `json:"taskListCount"`
 	TaskCount                  int              `json:"taskCount"`
 	TaskNoteCount              int              `json:"taskNoteCount"`
@@ -185,6 +224,7 @@ type ImportAnalysis struct {
 	CredentialCount            int              `json:"credentialCount"`
 	ConflictCount              int              `json:"conflictCount"`
 	ConversationConflicts      []ImportConflict `json:"conversationConflicts,omitempty"`
+	ProviderConflicts          []ImportConflict `json:"providerConflicts,omitempty"`
 	TaskListConflicts          []ImportConflict `json:"taskListConflicts,omitempty"`
 	CredentialConflicts        []ImportConflict `json:"credentialConflicts,omitempty"`
 	UnsupportedResourceTypes   []string         `json:"unsupportedResourceTypes,omitempty"`

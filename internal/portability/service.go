@@ -3,6 +3,7 @@ package portability
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -16,16 +17,17 @@ import (
 
 var supportedPortableResourceTypes = map[string]struct{}{
 	"conversations": {},
+	"providers":     {},
 	"taskLists":     {},
 	"credentials":   {},
 }
 
 func ExportConversations(ids []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
-	return ExportPortableData(ids, nil, credMgr, req, appVersion)
+	return ExportPortableData(ids, nil, nil, credMgr, req, appVersion)
 }
 
-func ExportPortableData(conversationIDs, taskListIDs []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
-	file, err := BuildExportFile(conversationIDs, taskListIDs, credMgr, req, appVersion)
+func ExportPortableData(conversationIDs []uint, providerIDs []string, taskListIDs []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
+	file, err := BuildExportFile(conversationIDs, providerIDs, taskListIDs, credMgr, req, appVersion)
 	if err != nil {
 		return "", err
 	}
@@ -38,10 +40,10 @@ func ExportPortableData(conversationIDs, taskListIDs []uint, credMgr *credential
 }
 
 func BuildConversationExportFile(ids []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
-	return BuildExportFile(ids, nil, credMgr, req, appVersion)
+	return BuildExportFile(ids, nil, nil, credMgr, req, appVersion)
 }
 
-func BuildExportFile(conversationIDs, taskListIDs []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
+func BuildExportFile(conversationIDs []uint, providerIDs []string, taskListIDs []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
 	conversations := make([]ConversationExport, 0, len(conversationIDs))
 	for _, id := range conversationIDs {
 		conv, err := database.GetConversation(id)
@@ -49,6 +51,15 @@ func BuildExportFile(conversationIDs, taskListIDs []uint, credMgr *credentials.M
 			return nil, fmt.Errorf("erro ao buscar conversa %d: %w", id, err)
 		}
 		conversations = append(conversations, exportConversation(conv, req.IncludeAudio))
+	}
+
+	providers := make([]ProviderExport, 0, len(providerIDs))
+	for _, id := range providerIDs {
+		provider, err := database.GetLLMProvider(id)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao buscar provider %s: %w", id, err)
+		}
+		providers = append(providers, exportProvider(provider))
 	}
 
 	taskLists := make([]TaskListExport, 0, len(taskListIDs))
@@ -70,6 +81,7 @@ func BuildExportFile(conversationIDs, taskListIDs []uint, credMgr *credentials.M
 		},
 		Resources: ExportResources{
 			Conversations: conversations,
+			Providers:     providers,
 			TaskLists:     taskLists,
 		},
 	}
@@ -93,10 +105,20 @@ func BuildExportFile(conversationIDs, taskListIDs []uint, credMgr *credentials.M
 }
 
 func ImportConversations(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportResult, error) {
-	return ImportConversationsWithContext(context.Background(), jsonData, credMgr, credentialPassword)
+	return ImportConversationsWithResolutions(context.Background(), jsonData, credMgr, credentialPassword, nil)
 }
 
 func ImportConversationsWithContext(ctx context.Context, jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportResult, error) {
+	return ImportConversationsWithResolutions(ctx, jsonData, credMgr, credentialPassword, nil)
+}
+
+func ImportConversationsWithResolutions(
+	ctx context.Context,
+	jsonData string,
+	credMgr *credentials.Manager,
+	credentialPassword string,
+	resolutions []ImportResolution,
+) (*ImportResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -112,6 +134,7 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 	if err != nil {
 		return nil, err
 	}
+	resolutionMap := buildImportResolutionMap(resolutions)
 
 	conversationConflictKeys := make(map[string]struct{}, len(analysis.ConversationConflicts))
 	for _, conflict := range analysis.ConversationConflicts {
@@ -120,6 +143,10 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 	credentialConflictPatterns := make(map[string]struct{}, len(analysis.CredentialConflicts))
 	for _, conflict := range analysis.CredentialConflicts {
 		credentialConflictPatterns[conflict.Identifier] = struct{}{}
+	}
+	providerConflictKeys := make(map[string]struct{}, len(analysis.ProviderConflicts))
+	for _, conflict := range analysis.ProviderConflicts {
+		providerConflictKeys[conflict.Identifier] = struct{}{}
 	}
 	taskListConflictKeys := make(map[string]struct{}, len(analysis.TaskListConflicts))
 	for _, conflict := range analysis.TaskListConflicts {
@@ -143,9 +170,31 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 			continue
 		}
 		if _, exists := conversationConflictKeys[conversationConflictIdentifier(conv)]; exists {
-			result.Skipped++
-			result.SkippedConversationConflict++
-			continue
+			resolution, hasResolution := resolutionMap.lookup("conversation", conversationConflictIdentifier(conv))
+			if !hasResolution || resolution.Strategy == ConflictResolutionSkip {
+				result.Skipped++
+				result.SkippedConversationConflict++
+				continue
+			}
+			resolvedConv, err := applyConversationResolution(conv, resolution)
+			if err != nil {
+				result.Errors = append(result.Errors, err.Error())
+				result.Failed++
+				continue
+			}
+			if resolution.Strategy == ConflictResolutionOverwrite {
+				imported, err := overwriteConversation(resolvedConv, file.Options.IncludeAudio)
+				if err != nil {
+					result.Errors = append(result.Errors, err.Error())
+					result.Failed++
+					continue
+				}
+				if imported {
+					result.Imported++
+				}
+				continue
+			}
+			conv = resolvedConv
 		}
 		imported, err := importConversation(conv, file.Options.IncludeAudio)
 		if err != nil {
@@ -158,11 +207,72 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 		}
 	}
 
+	for _, provider := range file.Resources.Providers {
+		if _, exists := providerConflictKeys[providerConflictIdentifier(provider)]; exists {
+			resolution, hasResolution := resolutionMap.lookup("provider", providerConflictIdentifier(provider))
+			if !hasResolution || resolution.Strategy == ConflictResolutionSkip {
+				result.Skipped++
+				result.SkippedProviderConflict++
+				continue
+			}
+			resolvedProvider, err := applyProviderResolution(provider, resolution)
+			if err != nil {
+				result.Errors = append(result.Errors, err.Error())
+				result.Failed++
+				continue
+			}
+			if resolution.Strategy == ConflictResolutionOverwrite {
+				imported, err := overwriteProvider(resolvedProvider)
+				if err != nil {
+					result.Errors = append(result.Errors, err.Error())
+					result.Failed++
+					continue
+				}
+				if imported {
+					result.Imported++
+				}
+				continue
+			}
+			provider = resolvedProvider
+		}
+		imported, err := importProvider(provider)
+		if err != nil {
+			result.Errors = append(result.Errors, err.Error())
+			result.Failed++
+			continue
+		}
+		if imported {
+			result.Imported++
+		}
+	}
+
 	for _, taskList := range file.Resources.TaskLists {
 		if _, exists := taskListConflictKeys[taskListConflictIdentifier(taskList)]; exists {
-			result.Skipped++
-			result.SkippedTaskListConflict++
-			continue
+			resolution, hasResolution := resolutionMap.lookup("taskList", taskListConflictIdentifier(taskList))
+			if !hasResolution || resolution.Strategy == ConflictResolutionSkip {
+				result.Skipped++
+				result.SkippedTaskListConflict++
+				continue
+			}
+			resolvedTaskList, err := applyTaskListResolution(taskList, resolution)
+			if err != nil {
+				result.Errors = append(result.Errors, err.Error())
+				result.Failed++
+				continue
+			}
+			if resolution.Strategy == ConflictResolutionOverwrite {
+				imported, err := overwriteTaskList(resolvedTaskList)
+				if err != nil {
+					result.Errors = append(result.Errors, err.Error())
+					result.Failed++
+					continue
+				}
+				if imported {
+					result.Imported++
+				}
+				continue
+			}
+			taskList = resolvedTaskList
 		}
 		imported, err := importTaskList(taskList)
 		if err != nil {
@@ -197,6 +307,7 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 		result.Skipped-
 			result.SkippedEmptyConversations-
 			result.SkippedConversationConflict-
+			result.SkippedProviderConflict-
 			result.SkippedTaskListConflict-
 			result.SkippedCredentialConflict,
 		0,
@@ -279,72 +390,119 @@ func exportConversation(conv *database.Conversation, includeAudio bool) Conversa
 
 func importConversation(conv ConversationExport, includeAudio bool) (bool, error) {
 	err := database.DB().Transaction(func(tx *gorm.DB) error {
-		newConv := &database.Conversation{
-			Title:     conv.Title,
-			Channel:   conv.Channel,
-			ContactID: conv.ContactID,
-			Summary:   conv.Summary,
+		newConv, err := createImportedConversation(tx, conv)
+		if err != nil {
+			return err
 		}
-		if !conv.CreatedAt.IsZero() {
-			newConv.CreatedAt = conv.CreatedAt
-			newConv.UpdatedAt = conv.CreatedAt
-		}
-		if err := tx.Create(newConv).Error; err != nil {
-			return fmt.Errorf("erro ao criar conversa '%s': %w", conv.Title, err)
-		}
-
-		idMap := make(map[int]uint, len(conv.Messages))
-		for i, msg := range conv.Messages {
-			parentID, err := resolveImportedMessageReference(msg.ParentIndex, idMap, "pai")
-			if err != nil {
-				return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
-			}
-
-			turnID, err := resolveImportedMessageReference(msg.TurnIndex, idMap, "turno")
-			if err != nil {
-				return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
-			}
-
-			audio := ""
-			if includeAudio {
-				audio = msg.Audio
-			}
-
-			newMsg := &database.ChatMessage{
-				ConversationID:   newConv.ID,
-				ParentID:         parentID,
-				TurnID:           turnID,
-				Role:             msg.Role,
-				Content:          msg.Content,
-				Reasoning:        msg.Reasoning,
-				Media:            msg.Media,
-				Audio:            audio,
-				AudioMimeType:    msg.AudioMimeType,
-				ToolCalls:        msg.ToolCalls,
-				ToolCallID:       msg.ToolCallID,
-				PromptTokens:     msg.PromptTokens,
-				CompletionTokens: msg.CompletionTokens,
-				TotalTokens:      msg.TotalTokens,
-				Model:            msg.Model,
-				Source:           msg.Source,
-			}
-			if !msg.CreatedAt.IsZero() {
-				newMsg.CreatedAt = msg.CreatedAt
-			}
-
-			if err := tx.Create(newMsg).Error; err != nil {
-				return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
-			}
-			idMap[i] = newMsg.ID
-		}
-
-		return nil
+		return importConversationMessages(tx, newConv.ID, conv, includeAudio)
 	})
 	if err != nil {
 		return false, err
 	}
 
 	return true, nil
+}
+
+func overwriteConversation(conv ConversationExport, includeAudio bool) (bool, error) {
+	existing, err := findExistingConversationByExport(conv)
+	if err != nil {
+		return false, err
+	}
+	if existing == nil {
+		return importConversation(conv, includeAudio)
+	}
+
+	err = database.DB().Transaction(func(tx *gorm.DB) error {
+		updatedAt := conv.CreatedAt
+		if updatedAt.IsZero() {
+			updatedAt = time.Now()
+		}
+		existing.Title = conv.Title
+		existing.Channel = conv.Channel
+		existing.ContactID = conv.ContactID
+		existing.Summary = conv.Summary
+		if !conv.CreatedAt.IsZero() {
+			existing.CreatedAt = conv.CreatedAt
+		}
+		existing.UpdatedAt = updatedAt
+		if err := tx.Save(existing).Error; err != nil {
+			return fmt.Errorf("erro ao atualizar conversa '%s': %w", conv.Title, err)
+		}
+		if err := tx.Where("conversation_id = ?", existing.ID).Delete(&database.ChatMessage{}).Error; err != nil {
+			return fmt.Errorf("erro ao limpar mensagens da conversa '%s': %w", conv.Title, err)
+		}
+		return importConversationMessages(tx, existing.ID, conv, includeAudio)
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func createImportedConversation(tx *gorm.DB, conv ConversationExport) (*database.Conversation, error) {
+	newConv := &database.Conversation{
+		Title:     conv.Title,
+		Channel:   conv.Channel,
+		ContactID: conv.ContactID,
+		Summary:   conv.Summary,
+	}
+	if !conv.CreatedAt.IsZero() {
+		newConv.CreatedAt = conv.CreatedAt
+		newConv.UpdatedAt = conv.CreatedAt
+	}
+	if err := tx.Create(newConv).Error; err != nil {
+		return nil, fmt.Errorf("erro ao criar conversa '%s': %w", conv.Title, err)
+	}
+	return newConv, nil
+}
+
+func importConversationMessages(tx *gorm.DB, conversationID uint, conv ConversationExport, includeAudio bool) error {
+	idMap := make(map[int]uint, len(conv.Messages))
+	for i, msg := range conv.Messages {
+		parentID, err := resolveImportedMessageReference(msg.ParentIndex, idMap, "pai")
+		if err != nil {
+			return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
+		}
+
+		turnID, err := resolveImportedMessageReference(msg.TurnIndex, idMap, "turno")
+		if err != nil {
+			return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
+		}
+
+		audio := ""
+		if includeAudio {
+			audio = msg.Audio
+		}
+
+		newMsg := &database.ChatMessage{
+			ConversationID:   conversationID,
+			ParentID:         parentID,
+			TurnID:           turnID,
+			Role:             msg.Role,
+			Content:          msg.Content,
+			Reasoning:        msg.Reasoning,
+			Media:            msg.Media,
+			Audio:            audio,
+			AudioMimeType:    msg.AudioMimeType,
+			ToolCalls:        msg.ToolCalls,
+			ToolCallID:       msg.ToolCallID,
+			PromptTokens:     msg.PromptTokens,
+			CompletionTokens: msg.CompletionTokens,
+			TotalTokens:      msg.TotalTokens,
+			Model:            msg.Model,
+			Source:           msg.Source,
+		}
+		if !msg.CreatedAt.IsZero() {
+			newMsg.CreatedAt = msg.CreatedAt
+		}
+
+		if err := tx.Create(newMsg).Error; err != nil {
+			return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
+		}
+		idMap[i] = newMsg.ID
+	}
+	return nil
 }
 
 func resolveImportedMessageReference(index *int, idMap map[int]uint, label string) (*uint, error) {
@@ -440,9 +598,11 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 		Version:               file.Version,
 		AppVersion:            file.AppVersion,
 		ConversationCount:     len(file.Resources.Conversations),
+		ProviderCount:         len(file.Resources.Providers),
 		TaskListCount:         len(file.Resources.TaskLists),
 		IncludesCredentials:   file.Options.IncludeCredentials && file.Resources.Credentials != nil,
 		ConversationConflicts: make([]ImportConflict, 0),
+		ProviderConflicts:     make([]ImportConflict, 0),
 		TaskListConflicts:     make([]ImportConflict, 0),
 		CredentialConflicts:   make([]ImportConflict, 0),
 		Warnings:              make([]string, 0),
@@ -470,9 +630,30 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 			continue
 		}
 		analysis.ConversationConflicts = append(analysis.ConversationConflicts, ImportConflict{
-			ResourceType: "conversation",
-			Identifier:   conversationConflictIdentifier(conv),
-			Reason:       "Já existe uma conversa com o mesmo título, canal e data de criação.",
+			ResourceType:        "conversation",
+			Identifier:          conversationConflictIdentifier(conv),
+			Reason:              "Já existe uma conversa com o mesmo título, canal e data de criação.",
+			SupportedStrategies: []ConflictResolutionStrategy{ConflictResolutionSkip, ConflictResolutionOverwrite, ConflictResolutionRename},
+		})
+	}
+
+	existingProviders, err := database.GetLLMProviders()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao analisar providers existentes: %w", err)
+	}
+	existingProviderIDs := make(map[string]struct{}, len(existingProviders))
+	for _, provider := range existingProviders {
+		existingProviderIDs[strings.TrimSpace(provider.ID)] = struct{}{}
+	}
+	for _, provider := range file.Resources.Providers {
+		if _, exists := existingProviderIDs[providerConflictIdentifier(provider)]; !exists {
+			continue
+		}
+		analysis.ProviderConflicts = append(analysis.ProviderConflicts, ImportConflict{
+			ResourceType:        "provider",
+			Identifier:          providerConflictIdentifier(provider),
+			Reason:              "Já existe um provider com o mesmo id.",
+			SupportedStrategies: []ConflictResolutionStrategy{ConflictResolutionSkip, ConflictResolutionOverwrite, ConflictResolutionRename},
 		})
 	}
 
@@ -486,9 +667,10 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 			continue
 		}
 		analysis.TaskListConflicts = append(analysis.TaskListConflicts, ImportConflict{
-			ResourceType: "taskList",
-			Identifier:   taskListConflictIdentifier(taskList),
-			Reason:       "Já existe uma tasklist com o mesmo slug, ou com o mesmo título quando o slug está ausente.",
+			ResourceType:        "taskList",
+			Identifier:          taskListConflictIdentifier(taskList),
+			Reason:              "Já existe uma tasklist com o mesmo slug, ou com o mesmo título quando o slug está ausente.",
+			SupportedStrategies: []ConflictResolutionStrategy{ConflictResolutionSkip, ConflictResolutionOverwrite, ConflictResolutionRename},
 		})
 	}
 
@@ -525,7 +707,7 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 		}
 	}
 
-	analysis.ConflictCount = len(analysis.ConversationConflicts) + len(analysis.TaskListConflicts) + len(analysis.CredentialConflicts)
+	analysis.ConflictCount = len(analysis.ConversationConflicts) + len(analysis.ProviderConflicts) + len(analysis.TaskListConflicts) + len(analysis.CredentialConflicts)
 	if emptyCount := countEmptyConversations(file.Resources.Conversations); emptyCount > 0 {
 		analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("%d conversa(s) vazia(s) serão descartadas na importação.", emptyCount))
 	}
@@ -623,4 +805,109 @@ func countEmptyConversations(conversations []ConversationExport) int {
 		}
 	}
 	return count
+}
+
+type importResolutionMap map[string]ImportResolution
+
+func buildImportResolutionMap(resolutions []ImportResolution) importResolutionMap {
+	result := make(importResolutionMap, len(resolutions))
+	for _, resolution := range resolutions {
+		resourceType := strings.TrimSpace(resolution.ResourceType)
+		identifier := strings.TrimSpace(resolution.Identifier)
+		if resourceType == "" || identifier == "" {
+			continue
+		}
+		result[importResolutionMapKey(resourceType, identifier)] = resolution
+	}
+	return result
+}
+
+func (m importResolutionMap) lookup(resourceType, identifier string) (ImportResolution, bool) {
+	resolution, ok := m[importResolutionMapKey(resourceType, identifier)]
+	return resolution, ok
+}
+
+func importResolutionMapKey(resourceType, identifier string) string {
+	return strings.TrimSpace(resourceType) + "|" + strings.TrimSpace(identifier)
+}
+
+func applyConversationResolution(conv ConversationExport, resolution ImportResolution) (ConversationExport, error) {
+	switch resolution.Strategy {
+	case ConflictResolutionOverwrite:
+		return conv, nil
+	case ConflictResolutionRename:
+		renamedTitle := strings.TrimSpace(resolution.RenameValue)
+		if renamedTitle == "" {
+			return ConversationExport{}, fmt.Errorf("resolução de conflito da conversa %q requer um novo título", resolution.Identifier)
+		}
+		conv.Title = renamedTitle
+		if existing, err := findExistingConversationByExport(conv); err != nil {
+			return ConversationExport{}, err
+		} else if existing != nil {
+			return ConversationExport{}, fmt.Errorf("já existe uma conversa com o novo título %q para a mesma data e canal", renamedTitle)
+		}
+		return conv, nil
+	default:
+		return ConversationExport{}, fmt.Errorf("estratégia de conflito não suportada para conversa %q: %s", resolution.Identifier, resolution.Strategy)
+	}
+}
+
+func applyProviderResolution(provider ProviderExport, resolution ImportResolution) (ProviderExport, error) {
+	switch resolution.Strategy {
+	case ConflictResolutionOverwrite:
+		return provider, nil
+	case ConflictResolutionRename:
+		renamedID := strings.TrimSpace(resolution.RenameValue)
+		if renamedID == "" {
+			return ProviderExport{}, fmt.Errorf("resolução de conflito do provider %q requer um novo id", resolution.Identifier)
+		}
+		provider.ID = renamedID
+		if existing, err := findExistingProviderByID(provider.ID); err != nil {
+			return ProviderExport{}, err
+		} else if existing != nil {
+			return ProviderExport{}, fmt.Errorf("já existe um provider com o novo id %q", renamedID)
+		}
+		return provider, nil
+	default:
+		return ProviderExport{}, fmt.Errorf("estratégia de conflito não suportada para provider %q: %s", resolution.Identifier, resolution.Strategy)
+	}
+}
+
+func applyTaskListResolution(taskList TaskListExport, resolution ImportResolution) (TaskListExport, error) {
+	switch resolution.Strategy {
+	case ConflictResolutionOverwrite:
+		return taskList, nil
+	case ConflictResolutionRename:
+		renameValue := strings.TrimSpace(resolution.RenameValue)
+		if renameValue == "" {
+			return TaskListExport{}, fmt.Errorf("resolução de conflito da tasklist %q requer um novo identificador", resolution.Identifier)
+		}
+		if strings.TrimSpace(taskList.Slug) != "" {
+			taskList.Slug = renameValue
+		} else {
+			taskList.Title = renameValue
+		}
+		if existing, err := findExistingTaskListByExport(taskList); err != nil {
+			return TaskListExport{}, err
+		} else if existing != nil {
+			return TaskListExport{}, fmt.Errorf("já existe uma tasklist com o novo identificador %q", renameValue)
+		}
+		return taskList, nil
+	default:
+		return TaskListExport{}, fmt.Errorf("estratégia de conflito não suportada para tasklist %q: %s", resolution.Identifier, resolution.Strategy)
+	}
+}
+
+func findExistingConversationByExport(conv ConversationExport) (*database.Conversation, error) {
+	var existing database.Conversation
+	err := database.DB().
+		Where("title = ? AND channel = ? AND created_at = ?", strings.TrimSpace(conv.Title), strings.TrimSpace(conv.Channel), conv.CreatedAt).
+		First(&existing).Error
+	if err == nil {
+		return &existing, nil
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("erro ao localizar conversa em conflito '%s': %w", conv.Title, err)
 }

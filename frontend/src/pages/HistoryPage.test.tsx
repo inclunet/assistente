@@ -8,11 +8,13 @@ const mockGetAllTaskLists = vi.fn();
 const mockDeleteConversation = vi.fn();
 const mockUpdateConversation = vi.fn();
 const mockAnalyzeImportData = vi.fn();
+const mockGetLLMProvidersWithStatus = vi.fn();
 const mockExportConversations = vi.fn();
 const mockExportData = vi.fn();
 const mockExportConversationsToFile = vi.fn();
 const mockImportConversations = vi.fn();
 const mockImportData = vi.fn();
+const mockImportDataWithResolutions = vi.fn();
 const mockSearchConversationHistory = vi.fn();
 const mockOpenImportFileDialog = vi.fn();
 const mockDownloadJSON = vi.fn();
@@ -21,6 +23,20 @@ const mockAddTab = vi.fn().mockResolvedValue('tab-1');
 const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
 const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
+const mockImportFileErrorCodes = {
+  NO_FILE_SELECTED: 'NO_FILE_SELECTED',
+  FILE_READ_ERROR: 'FILE_READ_ERROR',
+} as const;
+
+class MockImportFileError extends Error {
+  code: string;
+
+  constructor(code: string) {
+    super(code);
+    this.name = 'ImportFileError';
+    this.code = code;
+  }
+}
 
 let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> = [];
 
@@ -75,8 +91,9 @@ vi.mock('@wailsjs/go/app/App', () => ({
   ExportConversationsToFile: (ids: number[], format: string) => mockExportConversationsToFile(ids, format),
   ImportConversations: (payload: string) => mockImportConversations(payload),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
+  ImportDataWithResolutions: (payload: unknown) => mockImportDataWithResolutions(payload),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
-  GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
+  GetLLMProvidersWithStatus: () => mockGetLLMProvidersWithStatus(),
 }));
 
 vi.mock('../lib/exportImport', () => ({
@@ -84,6 +101,8 @@ vi.mock('../lib/exportImport', () => ({
   generateFilename: vi.fn(() => 'conversas.json'),
   openFileDialog: vi.fn(),
   openImportFileDialog: (...args: unknown[]) => mockOpenImportFileDialog(...args),
+  IMPORT_FILE_ERROR_CODES: mockImportFileErrorCodes,
+  ImportFileError: MockImportFileError,
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -209,12 +228,15 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockGetConversations.mockResolvedValue(conversations);
     mockGetAllTaskLists.mockResolvedValue([]);
+    mockGetLLMProvidersWithStatus.mockResolvedValue([]);
     mockDeleteConversation.mockResolvedValue(undefined);
     mockUpdateConversation.mockResolvedValue(undefined);
     mockAnalyzeImportData.mockResolvedValue({
       conflictCount: 0,
       warnings: [],
       conversationConflicts: [],
+      providerConflicts: [],
+      taskListConflicts: [],
       credentialConflicts: [],
       credentialAnalysisError: '',
     });
@@ -222,6 +244,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockExportData.mockResolvedValue('{}');
     mockExportConversationsToFile.mockResolvedValue('C:/tmp/conversas.html');
     mockImportConversations.mockResolvedValue({ success: true, message: 'ok' });
+    mockImportDataWithResolutions.mockReset();
     mockImportData.mockResolvedValue({
       success: true,
       message: 'ok',
@@ -230,6 +253,21 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       failed: 0,
       skippedEmptyConversations: 0,
       skippedConversationConflict: 0,
+      skippedTaskListConflict: 0,
+      skippedCredentialConflict: 0,
+      skippedOther: 0,
+      warnings: [],
+      errors: [],
+    });
+    mockImportDataWithResolutions.mockResolvedValue({
+      success: true,
+      message: 'ok',
+      imported: 2,
+      skipped: 0,
+      failed: 0,
+      skippedEmptyConversations: 0,
+      skippedConversationConflict: 0,
+      skippedProviderConflict: 0,
       skippedTaskListConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
@@ -420,6 +458,36 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     });
   });
 
+  it('exporta JSON incluindo providers persistidos quando a opcao esta marcada', async () => {
+    const user = userEvent.setup();
+    mockExportData.mockResolvedValue('{"version":1}');
+    mockGetLLMProvidersWithStatus.mockResolvedValue([
+      { id: 'openai-custom', name: 'OpenAI Custom' },
+      { id: 'ollama-local', name: 'Ollama Local' },
+    ]);
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    const exportButtons = screen.getAllByRole('button', { name: 'Exportar JSON' });
+    await user.click(exportButtons[0]);
+
+    await screen.findByRole('heading', { name: 'Exportar conversas' });
+    await user.click(screen.getByRole('checkbox', { name: 'Incluir providers persistidos no banco' }));
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockGetLLMProvidersWithStatus).toHaveBeenCalledTimes(1);
+      expect(mockExportData).toHaveBeenCalledWith({
+        conversationIds: ['1', '2'],
+        providerIds: ['openai-custom', 'ollama-local'],
+        includeCredentials: false,
+        outputFormat: 'json',
+      });
+    });
+  });
+
   it('exporta PDF de uma unica conversa pelo menu da linha', async () => {
     const user = userEvent.setup();
     const { default: HistoryPage } = await import('./HistoryPage');
@@ -466,6 +534,29 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     });
   });
 
+  it('nao mostra tempo relativo invalido quando exportedAt e invalido', async () => {
+    const user = userEvent.setup();
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: JSON.stringify({
+        version: 1,
+        exportedAt: 'data-invalida',
+        resources: {
+          conversations: [{ messages: [{}] }],
+        },
+      }),
+    });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+
+    await screen.findByRole('heading', { name: 'Importar conversas' });
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+
   it('mostra conflitos detectados na analise da importacao', async () => {
     const user = userEvent.setup();
     mockOpenImportFileDialog.mockResolvedValue({
@@ -502,6 +593,19 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     expect(screen.getByText('Já existe uma conversa com o mesmo título, canal e data de criação.')).toBeInTheDocument();
   });
 
+  it('ignora erro tipado de nenhum arquivo selecionado', async () => {
+    const user = userEvent.setup();
+    mockOpenImportFileDialog.mockRejectedValue(new MockImportFileError(mockImportFileErrorCodes.NO_FILE_SELECTED));
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+
+    expect(mockAnnounce).not.toHaveBeenCalled();
+  });
+
   it('avisa quando o arquivo inclui recursos fora do escopo atual', async () => {
     const user = userEvent.setup();
     mockOpenImportFileDialog.mockResolvedValue({
@@ -533,6 +637,100 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
 
     await screen.findByText(/profiles/);
     expect(screen.getByText(/AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052/)).toBeInTheDocument();
+  });
+
+  it('mostra providers no resumo do arquivo e conflitos deles na analise', async () => {
+    const user = userEvent.setup();
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: JSON.stringify({
+        version: 1,
+        resources: {
+          conversations: [{ messages: [{}] }],
+          providers: [{ id: 'openai-custom', name: 'OpenAI Custom' }],
+        },
+      }),
+    });
+    mockAnalyzeImportData.mockResolvedValueOnce({
+      conflictCount: 1,
+      warnings: [],
+      conversationConflicts: [],
+      providerConflicts: [
+        { resourceType: 'provider', identifier: 'openai-custom', reason: 'Já existe um provider com o mesmo id.' },
+      ],
+      taskListConflicts: [],
+      credentialConflicts: [],
+      credentialAnalysisError: '',
+    });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+
+    expect(await screen.findByText('Providers')).toBeInTheDocument();
+    expect(screen.getByText('Providers em conflito')).toBeInTheDocument();
+    expect(screen.getByText(/openai-custom/)).toBeInTheDocument();
+  });
+
+  it('envia resolucoes de conflito escolhidas na importacao', async () => {
+    const user = userEvent.setup();
+    const payload = JSON.stringify({
+      version: 1,
+      resources: {
+        providers: [{ id: 'openai-custom', name: 'OpenAI Custom' }],
+      },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: payload,
+    });
+    mockAnalyzeImportData.mockResolvedValueOnce({
+      conflictCount: 1,
+      warnings: [],
+      conversationConflicts: [],
+      providerConflicts: [
+        {
+          resourceType: 'provider',
+          identifier: 'openai-custom',
+          reason: 'Já existe um provider com o mesmo id.',
+          supportedStrategies: ['skip', 'overwrite', 'rename'],
+        },
+      ],
+      taskListConflicts: [],
+      credentialConflicts: [],
+      credentialAnalysisError: '',
+    });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+    await screen.findByText('Providers em conflito');
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Estratégia para openai-custom' }),
+      'rename',
+    );
+    await user.type(screen.getByPlaceholderText('Digite o novo identificador'), 'openai-custom-copy');
+    await user.click(screen.getByRole('button', { name: 'Importar agora' }));
+
+    await waitFor(() => {
+      expect(mockImportDataWithResolutions).toHaveBeenCalledWith({
+        jsonData: payload,
+        credentialExportPassword: '',
+        resolutions: [
+          {
+            resourceType: 'provider',
+            identifier: 'openai-custom',
+            strategy: 'rename',
+            renameValue: 'openai-custom-copy',
+          },
+        ],
+      });
+    });
   });
 
   it('exige senha ao importar arquivo com credenciais criptografadas', async () => {
@@ -583,6 +781,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       failed: 0,
       skippedEmptyConversations: 0,
       skippedConversationConflict: 0,
+      skippedProviderConflict: 0,
       skippedTaskListConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
@@ -624,10 +823,11 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       success: true,
       message: 'ok',
       imported: 1,
-      skipped: 3,
+      skipped: 4,
       failed: 0,
       skippedEmptyConversations: 1,
       skippedConversationConflict: 1,
+      skippedProviderConflict: 1,
       skippedTaskListConflict: 1,
       skippedCredentialConflict: 1,
       skippedOther: 0,
@@ -645,6 +845,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await screen.findByText('Resultado da importação');
     expect(screen.getByText('Conversas vazias')).toBeInTheDocument();
     expect(screen.getByText('Conflitos de conversa')).toBeInTheDocument();
+    expect(screen.getByText('Conflitos de provider')).toBeInTheDocument();
     expect(screen.getByText('Conflitos de tasklist')).toBeInTheDocument();
     expect(screen.getByText('Credenciais duplicadas')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Fechar' })).toBeInTheDocument();
@@ -668,6 +869,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
         conflictCount: 0,
         warnings: ['Informe a senha de exportação para analisar conflitos de credenciais.'],
         conversationConflicts: [],
+        providerConflicts: [],
         taskListConflicts: [],
         credentialConflicts: [],
         credentialAnalysisError: '',
@@ -676,6 +878,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
         conflictCount: 1,
         warnings: [],
         conversationConflicts: [],
+        providerConflicts: [],
         taskListConflicts: [],
         credentialConflicts: [
           { resourceType: 'credential', identifier: 'api.openai.com', reason: 'Já existe uma credencial registrada com o mesmo pattern.' },
@@ -717,6 +920,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       failed: 0,
       skippedEmptyConversations: 0,
       skippedConversationConflict: 0,
+      skippedProviderConflict: 0,
       skippedTaskListConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
@@ -757,6 +961,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       failed: 0,
       skippedEmptyConversations: 0,
       skippedConversationConflict: 0,
+      skippedProviderConflict: 0,
       skippedTaskListConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,

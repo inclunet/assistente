@@ -20,6 +20,8 @@ type ConversationExport = portability.ConversationExport
 type ConversationsExportFile = portability.ExportFile
 type ImportResult = portability.ImportResult
 type ImportAnalysis = portability.ImportAnalysis
+type ImportRequest = portability.ImportRequest
+type ImportResolution = portability.ImportResolution
 
 // ==================== Export Functions ====================
 
@@ -38,15 +40,19 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	providerIDs, err := resolveProviderIDs(req)
+	if err != nil {
+		return "", err
+	}
 	taskListIDs, err := resolveTaskListIDs(req)
 	if err != nil {
 		return "", err
 	}
 	switch req.OutputFormat {
 	case portability.FormatJSON:
-		return portability.ExportPortableData(conversationIDs, taskListIDs, a.credMgr, req, AppVersion)
+		return portability.ExportPortableData(conversationIDs, providerIDs, taskListIDs, a.credMgr, req, AppVersion)
 	case portability.FormatHTML:
-		if len(taskListIDs) > 0 {
+		if len(taskListIDs) > 0 || len(providerIDs) > 0 {
 			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
 		}
 		file, err := portability.BuildConversationExportFile(conversationIDs, a.credMgr, req, AppVersion)
@@ -73,6 +79,16 @@ func (a *App) ImportConversations(jsonData string) (*ImportResult, error) {
 
 func (a *App) ImportData(jsonData string, credentialExportPassword string) (*ImportResult, error) {
 	return portability.ImportConversationsWithContext(a.importExportContext(), jsonData, a.credMgr, credentialExportPassword)
+}
+
+func (a *App) ImportDataWithResolutions(req ImportRequest) (*ImportResult, error) {
+	return portability.ImportConversationsWithResolutions(
+		a.importExportContext(),
+		req.JSONData,
+		a.credMgr,
+		req.CredentialExportPassword,
+		req.Resolutions,
+	)
 }
 
 func (a *App) AnalyzeImportData(jsonData string, credentialExportPassword string) (*ImportAnalysis, error) {
@@ -135,7 +151,7 @@ func resolveConversationIDs(req ExportRequest) ([]uint, error) {
 	}
 
 	if len(req.ConversationIDs) == 0 {
-		if len(req.TaskListIDs) > 0 {
+		if len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0 {
 			return nil, nil
 		}
 		conversations, err := database.GetConversations()
@@ -156,6 +172,34 @@ func resolveConversationIDs(req ExportRequest) ([]uint, error) {
 			return nil, fmt.Errorf("conversationId inválido: %s", raw)
 		}
 		ids = append(ids, uint(id64))
+	}
+	return ids, nil
+}
+
+func resolveProviderIDs(req ExportRequest) ([]string, error) {
+	if req.All {
+		providers, err := database.GetLLMProviders()
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]string, 0, len(providers))
+		for _, provider := range providers {
+			ids = append(ids, provider.ID)
+		}
+		return ids, nil
+	}
+
+	if len(req.ProviderIDs) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(req.ProviderIDs))
+	for _, raw := range req.ProviderIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return nil, fmt.Errorf("providerId inválido: %q", raw)
+		}
+		ids = append(ids, id)
 	}
 	return ids, nil
 }

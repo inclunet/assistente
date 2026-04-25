@@ -127,6 +127,7 @@ func setupPortabilityTestDB(t *testing.T) {
 		t.Fatalf("falha ao criar banco em memória: %v", err)
 	}
 	if err := db.AutoMigrate(
+		&database.LLMProvider{},
 		&database.Conversation{},
 		&database.ChatMessage{},
 		&database.TaskListWorkflow{},
@@ -137,6 +138,29 @@ func setupPortabilityTestDB(t *testing.T) {
 		t.Fatalf("falha ao migrar tabelas: %v", err)
 	}
 	database.SetDB(db)
+}
+
+func createPortableProviderFixture(t *testing.T) *database.LLMProvider {
+	t.Helper()
+
+	provider := &database.LLMProvider{
+		ID:                "openai-custom",
+		Name:              "OpenAI Custom",
+		Type:              "openai",
+		APIFormat:         "openai",
+		BaseURL:           "https://api.openai.example/v1",
+		Model:             "gpt-4.1",
+		DefaultModel:      "gpt-4.1-mini",
+		IsDefault:         true,
+		Timeout:           45,
+		CredentialPattern: "api.openai.example",
+		CreatedAt:         time.Date(2025, 4, 2, 9, 0, 0, 0, time.UTC),
+		UpdatedAt:         time.Date(2025, 4, 2, 9, 0, 0, 0, time.UTC),
+	}
+	if err := database.SaveLLMProvider(provider); err != nil {
+		t.Fatalf("SaveLLMProvider() error = %v", err)
+	}
+	return provider
 }
 
 func createPortableTaskListFixture(t *testing.T) *database.TaskList {
@@ -315,6 +339,9 @@ func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T
 	if len(analysis.ConversationConflicts) != 1 {
 		t.Fatalf("conversation conflicts = %d, want 1", len(analysis.ConversationConflicts))
 	}
+	if len(analysis.ConversationConflicts[0].SupportedStrategies) != 3 {
+		t.Fatalf("ConversationConflicts[0].SupportedStrategies = %v, want 3 opções", analysis.ConversationConflicts[0].SupportedStrategies)
+	}
 	if len(analysis.CredentialConflicts) != 1 {
 		t.Fatalf("credential conflicts = %d, want 1", len(analysis.CredentialConflicts))
 	}
@@ -453,7 +480,7 @@ func TestBuildExportFileIncludesTaskLists(t *testing.T) {
 
 	taskList := createPortableTaskListFixture(t)
 
-	file, err := BuildExportFile(nil, []uint{taskList.ID}, nil, ExportRequest{}, "test")
+	file, err := BuildExportFile(nil, nil, []uint{taskList.ID}, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}
@@ -492,12 +519,67 @@ func TestBuildExportFileIncludesTaskLists(t *testing.T) {
 	}
 }
 
+func TestBuildExportFileIncludesProviders(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	provider := createPortableProviderFixture(t)
+
+	file, err := BuildExportFile(nil, []string{provider.ID}, nil, nil, ExportRequest{}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFile() error = %v", err)
+	}
+
+	if len(file.Resources.Providers) != 1 {
+		t.Fatalf("len(providers) = %d, want 1", len(file.Resources.Providers))
+	}
+	exported := file.Resources.Providers[0]
+	if exported.ID != provider.ID || exported.CredentialPattern != provider.CredentialPattern {
+		t.Fatalf("unexpected provider export: %+v", exported)
+	}
+	if !exported.CreatedAt.Equal(provider.CreatedAt) {
+		t.Fatalf("CreatedAt = %s, want %s", exported.CreatedAt, provider.CreatedAt)
+	}
+}
+
+func TestAnalyzeImportDataDetectsProviderConflicts(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	provider := createPortableProviderFixture(t)
+
+	file, err := BuildExportFile(nil, []string{provider.ID}, nil, nil, ExportRequest{}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFile() error = %v", err)
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	analysis, err := AnalyzeImportData(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("AnalyzeImportData() error = %v", err)
+	}
+
+	if analysis.ProviderCount != 1 {
+		t.Fatalf("ProviderCount = %d, want 1", analysis.ProviderCount)
+	}
+	if len(analysis.ProviderConflicts) != 1 {
+		t.Fatalf("len(ProviderConflicts) = %d, want 1", len(analysis.ProviderConflicts))
+	}
+	if analysis.ProviderConflicts[0].Identifier != provider.ID {
+		t.Fatalf("unexpected provider conflict: %+v", analysis.ProviderConflicts[0])
+	}
+	if len(analysis.ProviderConflicts[0].SupportedStrategies) != 3 {
+		t.Fatalf("ProviderConflicts[0].SupportedStrategies = %v, want 3 opções", analysis.ProviderConflicts[0].SupportedStrategies)
+	}
+}
+
 func TestAnalyzeImportDataDetectsTaskListConflicts(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	taskList := createPortableTaskListFixture(t)
 
-	file, err := BuildExportFile(nil, []uint{taskList.ID}, nil, ExportRequest{}, "test")
+	file, err := BuildExportFile(nil, nil, []uint{taskList.ID}, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}
@@ -522,6 +604,89 @@ func TestAnalyzeImportDataDetectsTaskListConflicts(t *testing.T) {
 	}
 	if analysis.TaskListConflicts[0].Identifier != "sprint-42" {
 		t.Fatalf("unexpected tasklist conflict identifier: %+v", analysis.TaskListConflicts[0])
+	}
+	if len(analysis.TaskListConflicts[0].SupportedStrategies) != 3 {
+		t.Fatalf("TaskListConflicts[0].SupportedStrategies = %v, want 3 opções", analysis.TaskListConflicts[0].SupportedStrategies)
+	}
+}
+
+func TestAnalyzeImportDataDetectsTaskListConflictsWithNormalizedSlug(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	taskList := createPortableTaskListFixture(t)
+
+	file, err := BuildExportFile(nil, nil, []uint{taskList.ID}, nil, ExportRequest{}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFile() error = %v", err)
+	}
+	file.Resources.TaskLists[0].Slug = "  Sprint-42  "
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	analysis, err := AnalyzeImportData(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("AnalyzeImportData() error = %v", err)
+	}
+
+	if len(analysis.TaskListConflicts) != 1 {
+		t.Fatalf("len(TaskListConflicts) = %d, want 1", len(analysis.TaskListConflicts))
+	}
+	if analysis.TaskListConflicts[0].Identifier != "sprint-42" {
+		t.Fatalf("unexpected normalized tasklist conflict identifier: %+v", analysis.TaskListConflicts[0])
+	}
+}
+
+func TestImportConversationsImportsProviders(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	now := time.Now().UTC()
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: now,
+		Resources: ExportResources{
+			Providers: []ProviderExport{
+				{
+					ID:                "ollama-local",
+					Name:              "Ollama Local",
+					Type:              "ollama",
+					APIFormat:         "openai",
+					BaseURL:           "http://localhost:11434/v1",
+					Model:             "llama3.1",
+					DefaultModel:      "llama3.1",
+					IsDefault:         true,
+					Timeout:           30,
+					CredentialPattern: "localhost",
+					CreatedAt:         now.Add(-24 * time.Hour),
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversations(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Imported != 1 || result.Skipped != 0 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	imported, err := database.GetLLMProvider("ollama-local")
+	if err != nil {
+		t.Fatalf("GetLLMProvider() error = %v", err)
+	}
+	if imported.Name != "Ollama Local" || imported.BaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("unexpected imported provider: %+v", imported)
+	}
+	if !imported.CreatedAt.Equal(now.Add(-24 * time.Hour)) {
+		t.Fatalf("CreatedAt = %s, want %s", imported.CreatedAt, now.Add(-24*time.Hour))
 	}
 }
 
@@ -644,6 +809,276 @@ func TestImportConversationsImportsTaskLists(t *testing.T) {
 	}
 	if notes[0].ExternalSource != "jira" || notes[0].ExternalID != "NOTE-99" {
 		t.Fatalf("unexpected imported note: %+v", notes[0])
+	}
+}
+
+func TestImportConversationsWithResolutionsOverwritesConversation(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	createdAt := time.Date(2025, 4, 24, 10, 0, 0, 0, time.UTC)
+	existing := &database.Conversation{
+		Title:     "Conversa importada",
+		Channel:   "telegram",
+		Summary:   "Resumo antigo",
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
+	}
+	if err := database.DB().Create(existing).Error; err != nil {
+		t.Fatalf("Create(existing conversation) error = %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{
+		ConversationID: existing.ID,
+		Role:           "user",
+		Content:        "Mensagem antiga",
+		CreatedAt:      createdAt,
+	}).Error; err != nil {
+		t.Fatalf("Create(existing message) error = %v", err)
+	}
+
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Conversa importada",
+					Channel:   "telegram",
+					Summary:   "Resumo novo",
+					CreatedAt: createdAt,
+					Messages: []MessageExport{
+						{Role: "user", Content: "Nova mensagem", CreatedAt: createdAt.Add(1 * time.Minute)},
+						{Role: "assistant", Content: "Resposta nova", CreatedAt: createdAt.Add(2 * time.Minute)},
+					},
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversationsWithResolutions(t.Context(), string(raw), nil, "", []ImportResolution{
+		{
+			ResourceType: "conversation",
+			Identifier:   conversationConflictIdentifier(file.Resources.Conversations[0]),
+			Strategy:     ConflictResolutionOverwrite,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ImportConversationsWithResolutions() error = %v", err)
+	}
+	if result.Imported != 1 || result.Skipped != 0 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	conversations, err := database.GetConversations()
+	if err != nil {
+		t.Fatalf("GetConversations() error = %v", err)
+	}
+	if len(conversations) != 1 {
+		t.Fatalf("len(conversations) = %d, want 1", len(conversations))
+	}
+
+	imported, err := database.GetConversation(conversations[0].ID)
+	if err != nil {
+		t.Fatalf("GetConversation() error = %v", err)
+	}
+	if imported.Summary != "Resumo novo" {
+		t.Fatalf("Summary = %q, want Resumo novo", imported.Summary)
+	}
+	if len(imported.Messages) != 2 {
+		t.Fatalf("len(Messages) = %d, want 2", len(imported.Messages))
+	}
+	if imported.Messages[0].Content != "Nova mensagem" || imported.Messages[1].Content != "Resposta nova" {
+		t.Fatalf("unexpected messages after overwrite: %+v", imported.Messages)
+	}
+}
+
+func TestImportConversationsWithResolutionsRenamesProvider(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	provider := createPortableProviderFixture(t)
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Providers: []ProviderExport{
+				{
+					ID:                provider.ID,
+					Name:              "OpenAI Renamed Copy",
+					Type:              provider.Type,
+					APIFormat:         provider.APIFormat,
+					BaseURL:           "https://renamed.example/v1",
+					Model:             "gpt-4.1",
+					DefaultModel:      "gpt-4.1",
+					IsDefault:         false,
+					Timeout:           90,
+					CredentialPattern: "api.openai.renamed",
+					CreatedAt:         provider.CreatedAt.Add(1 * time.Hour),
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversationsWithResolutions(t.Context(), string(raw), nil, "", []ImportResolution{
+		{
+			ResourceType: "provider",
+			Identifier:   provider.ID,
+			Strategy:     ConflictResolutionRename,
+			RenameValue:  "openai-custom-copy",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ImportConversationsWithResolutions() error = %v", err)
+	}
+	if result.Imported != 1 || result.Skipped != 0 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	providers, err := database.GetLLMProviders()
+	if err != nil {
+		t.Fatalf("GetLLMProviders() error = %v", err)
+	}
+	if len(providers) != 2 {
+		t.Fatalf("len(providers) = %d, want 2", len(providers))
+	}
+
+	renamed, err := database.GetLLMProvider("openai-custom-copy")
+	if err != nil {
+		t.Fatalf("GetLLMProvider(renamed) error = %v", err)
+	}
+	if renamed.Name != "OpenAI Renamed Copy" || renamed.BaseURL != "https://renamed.example/v1" {
+		t.Fatalf("unexpected renamed provider: %+v", renamed)
+	}
+}
+
+func TestImportConversationsWithResolutionsOverwritesTaskList(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	taskList := createPortableTaskListFixture(t)
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			TaskLists: []TaskListExport{
+				{
+					Title:             "Sprint 42",
+					Slug:              "sprint-42",
+					Description:       "Workflow substituído",
+					PreferredViewMode: "list",
+					ValidationPolicy:  `{"task_code_regex":"^NEW-[0-9]+$"}`,
+					CreatedAt:         taskList.CreatedAt.Add(2 * time.Hour),
+					Workflow: TaskListWorkflowExport{
+						Statuses: []TaskListWorkflowStatusExport{
+							{ID: 1, Order: 0, Label: "Backlog", Color: "var(--color-warning)", Icon: "B"},
+							{ID: 2, Order: 1, Label: "Done", Color: "var(--color-success)", Icon: "D"},
+						},
+						AllowedTransitions: map[int][]int{
+							1: {2},
+							2: {1},
+						},
+						InitialStatusID: 1,
+					},
+					Tasks: []TaskExport{
+						{
+							Title:     "Task nova",
+							Code:      "NEW-1",
+							StatusID:  1,
+							Order:     0,
+							CreatedAt: taskList.CreatedAt.Add(3 * time.Hour),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversationsWithResolutions(t.Context(), string(raw), nil, "", []ImportResolution{
+		{
+			ResourceType: "taskList",
+			Identifier:   "sprint-42",
+			Strategy:     ConflictResolutionOverwrite,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ImportConversationsWithResolutions() error = %v", err)
+	}
+	if result.Imported != 1 || result.Skipped != 0 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	taskLists, err := database.GetAllTaskLists()
+	if err != nil {
+		t.Fatalf("GetAllTaskLists() error = %v", err)
+	}
+	if len(taskLists) != 1 {
+		t.Fatalf("len(taskLists) = %d, want 1", len(taskLists))
+	}
+
+	importedTaskList, err := database.GetTaskListWithHierarchy(taskLists[0].ID)
+	if err != nil {
+		t.Fatalf("GetTaskListWithHierarchy() error = %v", err)
+	}
+	if importedTaskList.Description != "Workflow substituído" {
+		t.Fatalf("Description = %q, want Workflow substituído", importedTaskList.Description)
+	}
+	if importedTaskList.PreferredViewMode != "list" {
+		t.Fatalf("PreferredViewMode = %q, want list", importedTaskList.PreferredViewMode)
+	}
+	if len(importedTaskList.Tasks) != 1 || importedTaskList.Tasks[0].Code != "NEW-1" {
+		t.Fatalf("unexpected tasks after overwrite: %+v", importedTaskList.Tasks)
+	}
+}
+
+func TestGetTaskListWithHierarchyPreservesDeepHierarchy(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	taskList, err := database.CreateTaskList("Deep tree", "", nil, "deep-tree")
+	if err != nil {
+		t.Fatalf("CreateTaskList() error = %v", err)
+	}
+
+	root, err := database.CreateTaskFull(taskList.ID, "Root", "", "ROOT-1", "", "", "", "", "", nil)
+	if err != nil {
+		t.Fatalf("CreateTaskFull(root) error = %v", err)
+	}
+	child, err := database.CreateTaskFull(taskList.ID, "Child", "", "CHILD-1", "", "", "", "", "", &root.ID)
+	if err != nil {
+		t.Fatalf("CreateTaskFull(child) error = %v", err)
+	}
+	_, err = database.CreateTaskFull(taskList.ID, "Grandchild", "", "GRAND-1", "", "", "", "", "", &child.ID)
+	if err != nil {
+		t.Fatalf("CreateTaskFull(grandchild) error = %v", err)
+	}
+
+	hierarchy, err := database.GetTaskListWithHierarchy(taskList.ID)
+	if err != nil {
+		t.Fatalf("GetTaskListWithHierarchy() error = %v", err)
+	}
+
+	if len(hierarchy.Tasks) != 1 {
+		t.Fatalf("len(Tasks) = %d, want 1", len(hierarchy.Tasks))
+	}
+	if len(hierarchy.Tasks[0].Subtasks) != 1 {
+		t.Fatalf("len(root.Subtasks) = %d, want 1", len(hierarchy.Tasks[0].Subtasks))
+	}
+	if len(hierarchy.Tasks[0].Subtasks[0].Subtasks) != 1 {
+		t.Fatalf("len(child.Subtasks) = %d, want 1", len(hierarchy.Tasks[0].Subtasks[0].Subtasks))
+	}
+	if hierarchy.Tasks[0].Subtasks[0].Subtasks[0].Code != "GRAND-1" {
+		t.Fatalf("grandchild code = %q, want GRAND-1", hierarchy.Tasks[0].Subtasks[0].Subtasks[0].Code)
 	}
 }
 
