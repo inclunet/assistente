@@ -137,6 +137,58 @@ func (a *App) ExportConversationsToFile(ids []uint, format string) (string, erro
 	return path, nil
 }
 
+func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("caminho de saída é obrigatório")
+	}
+	if req.OutputFormat == "" {
+		req.OutputFormat = portability.FormatJSON
+	}
+
+	switch req.OutputFormat {
+	case portability.FormatJSON:
+		rendered, err := a.ExportData(req)
+		if err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(path, []byte(rendered), 0600); err != nil {
+			return "", err
+		}
+		return path, nil
+	case portability.FormatHTML, portability.FormatPDF:
+		conversationIDs, err := resolveConversationIDs(req)
+		if err != nil {
+			return "", err
+		}
+		providerIDs, err := resolveProviderIDs(req)
+		if err != nil {
+			return "", err
+		}
+		taskListIDs, err := resolveTaskListIDs(req)
+		if err != nil {
+			return "", err
+		}
+		if len(taskListIDs) > 0 || len(providerIDs) > 0 {
+			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
+		}
+
+		file, err := portability.BuildConversationExportFile(conversationIDs, a.credMgr, req, AppVersion)
+		if err != nil {
+			return "", err
+		}
+		rendered, err := portability.RenderConversationExport(file, req.OutputFormat)
+		if err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(path, rendered, 0600); err != nil {
+			return "", err
+		}
+		return path, nil
+	default:
+		return "", fmt.Errorf("formato de exportação ainda não suportado: %s", req.OutputFormat)
+	}
+}
+
 func resolveConversationIDs(req ExportRequest) ([]uint, error) {
 	if req.All {
 		conversations, err := database.GetConversations()
