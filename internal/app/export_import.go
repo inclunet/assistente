@@ -55,6 +55,10 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 		if len(taskListIDs) > 0 || len(providerIDs) > 0 {
 			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
 		}
+		req, err = normalizeRichConversationExportRequest(req)
+		if err != nil {
+			return "", err
+		}
 		file, err := portability.BuildConversationExportFile(conversationIDs, a.credMgr, req, AppVersion)
 		if err != nil {
 			return "", err
@@ -171,6 +175,10 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 		if len(taskListIDs) > 0 || len(providerIDs) > 0 {
 			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
 		}
+		req, err = normalizeRichConversationExportRequest(req)
+		if err != nil {
+			return "", err
+		}
 
 		file, err := portability.BuildConversationExportFile(conversationIDs, a.credMgr, req, AppVersion)
 		if err != nil {
@@ -187,6 +195,18 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 	default:
 		return "", fmt.Errorf("formato de exportação ainda não suportado: %s", req.OutputFormat)
 	}
+}
+
+func normalizeRichConversationExportRequest(req ExportRequest) (ExportRequest, error) {
+	if req.IncludeCredentials {
+		return req, fmt.Errorf("exportação HTML/PDF não suporta credenciais")
+	}
+	if strings.TrimSpace(req.CredentialExportPassword) != "" {
+		return req, fmt.Errorf("exportação HTML/PDF não usa senha de credenciais")
+	}
+	req.IncludeCredentials = false
+	req.CredentialExportPassword = ""
+	return req, nil
 }
 
 func resolveConversationIDs(req ExportRequest) ([]uint, error) {

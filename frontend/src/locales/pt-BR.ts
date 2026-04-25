@@ -1314,7 +1314,7 @@ const ptBR = {
       exportError: 'Erro ao exportar dados',
       importSuccess: 'Dados importados com sucesso!',
       importPartial: 'Alguns recursos não puderam ser importados.',
-      importError: 'Erro ao importar conversas',
+      importError: 'Erro ao importar dados',
       importReadError: 'Erro ao ler o arquivo selecionado.',
       importInvalidJson: 'O arquivo selecionado não contém um JSON válido.',
       importInvalidFile: 'O arquivo selecionado não é um export canônico suportado.',

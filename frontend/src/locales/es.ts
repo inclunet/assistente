@@ -1339,7 +1339,7 @@ const es = {
       exportError: 'Error al exportar datos',
       importSuccess: '¡Datos importados con éxito!',
       importPartial: 'Algunos recursos no pudieron importarse.',
-      importError: 'Error al importar conversaciones',
+      importError: 'Error al importar datos',
       importReadError: 'Error al leer el archivo seleccionado.',
       importInvalidJson: 'El archivo seleccionado no contiene un JSON válido.',
       importInvalidFile: 'El archivo seleccionado no es una exportación canónica compatible.',

@@ -1340,7 +1340,7 @@ const en = {
       exportError: 'Error exporting data',
       importSuccess: 'Data imported successfully!',
       importPartial: 'Some resources could not be imported.',
-      importError: 'Error importing conversations',
+      importError: 'Error importing data',
       importReadError: 'Error reading the selected file.',
       importInvalidJson: 'The selected file does not contain valid JSON.',
       importInvalidFile: 'The selected file is not a supported canonical export.',
