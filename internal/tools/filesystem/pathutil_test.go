@@ -77,7 +77,7 @@ func TestValidatePathWithPolicy_SensitiveFiles(t *testing.T) {
 		{".env", ToolPolicy(), "write", true, "ToolPolicy deve bloquear .env em write"},
 		{".env.local", ToolPolicy(), "read", true, "ToolPolicy deve bloquear .env em read"},
 		{"id_rsa", ToolPolicy(), "edit", true, "ToolPolicy deve bloquear id_rsa em edit"},
-		{"server.key", ToolPolicy(), "move", true, "ToolPolicy deve bloquear server.key em move"},
+		{"server.key", ToolPolicy(), "move_from", true, "ToolPolicy deve bloquear server.key em move_from"},
 
 		// Editor policy (BlockSensitive = false)
 		{".env", EditorPolicy(), "write", false, "EditorPolicy deve permitir .env em write"},
@@ -207,12 +207,12 @@ func TestValidatePathWithPolicy_ErrorMessages(t *testing.T) {
 
 	envPath := filepath.Join(workDir, ".env")
 
-	operations := []string{"read", "write", "edit", "move"}
+	operations := []string{"read", "write", "edit", "move_from"}
 	expectedMsgs := map[string]string{
-		"read":  "ler",
-		"write": "escrever",
-		"edit":  "editar",
-		"move":  "mover",
+		"read":      "ler",
+		"write":     "escrever",
+		"edit":      "editar",
+		"move_from": "mover",
 	}
 
 	for _, op := range operations {
@@ -269,9 +269,11 @@ func TestValidatePathWithPolicy_OpenEditorPaths(t *testing.T) {
 		{"read_open_editor", outsideFile, "read", false},
 		{"write_open_editor", outsideFile, "write", false},
 		{"edit_open_editor", outsideFile, "edit", false},
-		{"move_open_editor_blocked", outsideFile, "move", true},
+		{"move_from_open_editor_blocked", outsideFile, "move_from", true},
+		{"move_to_open_editor_blocked", outsideFile, "move_to", true},
 		{"delete_open_editor_blocked", outsideFile, "delete", true},
-		{"copy_open_editor_blocked", outsideFile, "copy", true},
+		{"copy_from_open_editor_blocked", outsideFile, "copy_from", true},
+		{"copy_to_open_editor_blocked", outsideFile, "copy_to", true},
 		{"mkdir_open_editor_blocked", outsideDir, "mkdir", true},
 		{"list_open_editor_blocked", outsideDir, "list", true},
 		{"search_open_editor_blocked", outsideDir, "search", true},

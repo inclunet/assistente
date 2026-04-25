@@ -132,13 +132,13 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 	}
 	if policy.BlockSensitive && isSensitiveFile(fullPath) {
 		switch operation {
-		case "read":
+		case "read", "copy_from":
 			return fmt.Errorf("não é permitido ler arquivos sensíveis")
-		case "write":
+		case "write", "copy_to":
 			return fmt.Errorf("não é permitido escrever em arquivos sensíveis")
 		case "edit":
 			return fmt.Errorf("não é permitido editar arquivos sensíveis")
-		case "move":
+		case "move_from", "move_to":
 			return fmt.Errorf("não é permitido mover/renomear arquivos sensíveis")
 		default:
 			return fmt.Errorf("operação não permitida em arquivos sensíveis")
@@ -179,9 +179,9 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 
 	var allowed []string
 	switch operation {
-	case "read", "list", "search", "grep", "copy":
+	case "read", "list", "search", "grep", "copy_from", "move_from":
 		allowed = ec.Filesystem.Read
-	case "write", "edit", "move", "delete", "mkdir":
+	case "write", "edit", "copy_to", "move_to", "delete", "mkdir":
 		allowed = ec.Filesystem.Write
 	default:
 		// Se a operação não é conhecida, não aplica allowlist.

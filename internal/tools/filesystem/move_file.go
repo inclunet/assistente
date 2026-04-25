@@ -76,11 +76,12 @@ func (t *MoveFileTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	}
 
 	// Validate safety
-	// Move precisa de permissão de leitura na origem e escrita no destino.
-	if err := validatePathWithPolicy(ctx, fullFrom, t.workDir, ToolPolicy(), "read"); err != nil {
+	// Move usa operações específicas para que isOpenEditorAllowed bloqueie corretamente
+	// (move_from/move_to não estão na allowlist de open editors).
+	if err := validatePathWithPolicy(ctx, fullFrom, t.workDir, ToolPolicy(), "move_from"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
-	if err := validatePathWithPolicy(ctx, fullTo, t.workDir, ToolPolicy(), "write"); err != nil {
+	if err := validatePathWithPolicy(ctx, fullTo, t.workDir, ToolPolicy(), "move_to"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 

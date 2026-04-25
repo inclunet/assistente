@@ -73,10 +73,10 @@ func (t *CopyFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
-	if err := validatePathWithPolicy(ctx, fullFrom, t.workDir, ToolPolicy(), "copy"); err != nil {
+	if err := validatePathWithPolicy(ctx, fullFrom, t.workDir, ToolPolicy(), "copy_from"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
-	if err := validatePathWithPolicy(ctx, fullTo, t.workDir, ToolPolicy(), "copy"); err != nil {
+	if err := validatePathWithPolicy(ctx, fullTo, t.workDir, ToolPolicy(), "copy_to"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 

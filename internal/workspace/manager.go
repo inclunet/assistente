@@ -822,6 +822,9 @@ func (m *Manager) OpenEditorFilePaths() []string {
 		if tab.Type != TabTypeEditor {
 			continue
 		}
+		if tab.State == nil {
+			continue
+		}
 		fp, ok := tab.State["filePath"].(string)
 		if !ok || fp == "" {
 			continue
