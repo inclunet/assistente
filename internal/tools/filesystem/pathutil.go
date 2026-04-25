@@ -190,9 +190,9 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 
 	var allowed []string
 	switch operation {
-	case "read", "list", "search", "grep", "copy_from", "move_from":
+	case "read", "list", "search", "grep", "copy_from":
 		allowed = ec.Filesystem.Read
-	case "write", "edit", "copy_to", "move_to", "delete", "mkdir":
+	case "write", "edit", "copy_to", "move_from", "move_to", "delete", "mkdir":
 		allowed = ec.Filesystem.Write
 	default:
 		// Se a operação não é conhecida, não aplica allowlist.

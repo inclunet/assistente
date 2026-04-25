@@ -14,7 +14,10 @@ type openEditorPathsKey struct{}
 // Esses caminhos são usados como exceção na validação de paths de filesystem tools:
 // arquivos abertos no editor podem ser lidos/editados mesmo fora do workDir.
 func WithOpenEditorPaths(ctx context.Context, paths []string) context.Context {
-	return context.WithValue(ctx, openEditorPathsKey{}, paths)
+	// Copia o slice para evitar aliasing se o caller mutar o original.
+	cp := make([]string, len(paths))
+	copy(cp, paths)
+	return context.WithValue(ctx, openEditorPathsKey{}, cp)
 }
 
 // GetOpenEditorPaths retorna os caminhos de arquivos abertos em abas de editor, se existirem no ctx.
