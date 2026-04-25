@@ -21,13 +21,16 @@ func WithOpenEditorPaths(ctx context.Context, paths []string) context.Context {
 }
 
 // GetOpenEditorPaths retorna os caminhos de arquivos abertos em abas de editor, se existirem no ctx.
+// Retorna uma cópia defensiva para impedir que callers mutem o slice armazenado no context.
 func GetOpenEditorPaths(ctx context.Context) []string {
 	v := ctx.Value(openEditorPathsKey{})
 	paths, ok := v.([]string)
 	if !ok {
 		return nil
 	}
-	return paths
+	cp := make([]string, len(paths))
+	copy(cp, paths)
+	return cp
 }
 
 // IsOpenEditorFile verifica se fullPath (absoluto) corresponde a um arquivo aberto em aba de editor.

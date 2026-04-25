@@ -535,13 +535,7 @@ export default function EditorPage() {
         setDocDraftId(tabId, null);
         setDocDirty(tabId, false);
 
-        // Persiste filePath na aba do workspace (para OpenEditorFilePaths)
-        const wsTab = (useWorkspaceStore.getState().workspace?.tabs || []).find((t) => t.id === tabId);
-        if (wsTab) {
-          updateWsTab(tabId, { title, state: { ...(wsTab.state ?? {}), filePath: newPath } }).catch((err: unknown) => {
-            console.warn('[EditorPage] falha ao persistir filePath na aba', tabId, err);
-          });
-        }
+        // filePath+title são sincronizados pelo useWorkspaceEditorBridge
 
         const { documents: afterDocs } = useEditorStore.getState();
         const afterTab = afterDocs[tabId] || tab;
@@ -2079,13 +2073,7 @@ export default function EditorPage() {
       renameDocument(activeTab.id, title);
       setDocDirty(activeTab.id, false);
 
-      // Persiste filePath na aba do workspace (para OpenEditorFilePaths)
-      const wsTab = (useWorkspaceStore.getState().workspace?.tabs || []).find((t) => t.id === activeTab.id);
-      if (wsTab) {
-        updateWsTab(activeTab.id, { title, state: { ...(wsTab.state ?? {}), filePath: path } }).catch((err: unknown) => {
-          console.warn('[EditorPage] falha ao persistir filePath na aba', activeTab.id, err);
-        });
-      }
+      // filePath+title são sincronizados pelo useWorkspaceEditorBridge
 
       void refreshDiskInfoForTab({ ...activeTab, filePath: path });
 

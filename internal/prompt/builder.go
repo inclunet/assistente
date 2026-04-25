@@ -177,6 +177,7 @@ func (b *Builder) Build(
 			sb.WriteString("even if one of the listed files is outside the working directory. ")
 			sb.WriteString("This exception applies ONLY to the exact full paths listed below — not to their parent directories, sibling files, or any other related paths. ")
 			sb.WriteString("Structural operations (move_file, copy_file, delete_file, list_directory) are NOT allowed on these files outside the workspace. ")
+			sb.WriteString("Normal tool policies still apply: denylisted or sensitive files (e.g. .env) may still be blocked even if listed here. ")
 			sb.WriteString("If the active skill restricts filesystem access, those restrictions still apply on top of this exception. ")
 			sb.WriteString("Any other path remains subject to the normal workspace roots and filesystem access policies:\n")
 			for _, p := range paths {
