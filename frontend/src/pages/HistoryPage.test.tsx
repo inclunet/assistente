@@ -733,6 +733,77 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     });
   });
 
+  it('envia overwrite para credenciais em conflito quando selecionado', async () => {
+    const user = userEvent.setup();
+    const payload = JSON.stringify({
+      version: 1,
+      options: { includeCredentials: true },
+      resources: {
+        credentials: { mode: 'encrypted' },
+      },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: payload,
+    });
+    mockAnalyzeImportData
+      .mockResolvedValueOnce({
+        conflictCount: 0,
+        warnings: ['Informe a senha de exportação para analisar conflitos de credenciais.'],
+        conversationConflicts: [],
+        providerConflicts: [],
+        taskListConflicts: [],
+        credentialConflicts: [],
+        credentialAnalysisError: '',
+      })
+      .mockResolvedValueOnce({
+        conflictCount: 1,
+        warnings: [],
+        conversationConflicts: [],
+        providerConflicts: [],
+        taskListConflicts: [],
+        credentialConflicts: [
+          {
+            resourceType: 'credential',
+            identifier: 'api.openai.com',
+            reason: 'Já existe uma credencial registrada com o mesmo pattern.',
+            supportedStrategies: ['skip', 'overwrite'],
+          },
+        ],
+        credentialAnalysisError: '',
+      });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+    const passwordInput = await screen.findByPlaceholderText('Digite a senha de exportação');
+    await user.type(passwordInput, 'segredo');
+
+    await screen.findByText('Credenciais em conflito');
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Estratégia para api.openai.com' }),
+      'overwrite',
+    );
+    await user.click(screen.getByRole('button', { name: 'Importar agora' }));
+
+    await waitFor(() => {
+      expect(mockImportDataWithResolutions).toHaveBeenCalledWith({
+        jsonData: payload,
+        credentialExportPassword: 'segredo',
+        resolutions: [
+          {
+            resourceType: 'credential',
+            identifier: 'api.openai.com',
+            strategy: 'overwrite',
+            renameValue: undefined,
+          },
+        ],
+      });
+    });
+  });
+
   it('exige senha ao importar arquivo com credenciais criptografadas', async () => {
     const user = userEvent.setup();
     mockOpenImportFileDialog.mockResolvedValue({

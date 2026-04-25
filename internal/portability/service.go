@@ -291,7 +291,7 @@ func ImportConversationsWithResolutions(
 			result.Failed++
 			result.Success = false
 		} else {
-			imported, skipped, err := importCredentials(ctx, credMgr, file.Resources.Credentials, credentialPassword, credentialConflictPatterns)
+			imported, skipped, err := importCredentials(ctx, credMgr, file.Resources.Credentials, credentialPassword, credentialConflictPatterns, resolutionMap)
 			result.Imported += imported
 			result.Skipped += skipped
 			result.SkippedCredentialConflict += skipped
@@ -544,7 +544,14 @@ func exportCredentials(credMgr *credentials.Manager) ([]CredentialExport, error)
 	return result, nil
 }
 
-func importCredentials(ctx context.Context, credMgr *credentials.Manager, blob *CredentialCipher, credentialPassword string, skipPatterns map[string]struct{}) (int, int, error) {
+func importCredentials(
+	ctx context.Context,
+	credMgr *credentials.Manager,
+	blob *CredentialCipher,
+	credentialPassword string,
+	conflictPatterns map[string]struct{},
+	resolutionMap importResolutionMap,
+) (int, int, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -558,9 +565,15 @@ func importCredentials(ctx context.Context, credMgr *credentials.Manager, blob *
 	imported := 0
 
 	for _, cred := range creds {
-		if _, shouldSkip := skipPatterns[cred.Pattern]; shouldSkip {
-			skipped++
-			continue
+		if _, hasConflict := conflictPatterns[cred.Pattern]; hasConflict {
+			resolution, hasResolution := resolutionMap.lookup("credential", cred.Pattern)
+			if !hasResolution || resolution.Strategy == ConflictResolutionSkip {
+				skipped++
+				continue
+			}
+			if resolution.Strategy != ConflictResolutionOverwrite {
+				return imported, skipped, fmt.Errorf("estratégia de conflito não suportada para credencial %q: %s", cred.Pattern, resolution.Strategy)
+			}
 		}
 		auth := &credentials.AuthConfig{
 			Type:         cred.AuthType,
@@ -697,9 +710,10 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 							continue
 						}
 						analysis.CredentialConflicts = append(analysis.CredentialConflicts, ImportConflict{
-							ResourceType: "credential",
-							Identifier:   cred.Pattern,
-							Reason:       "Já existe uma credencial registrada com o mesmo pattern.",
+							ResourceType:        "credential",
+							Identifier:          cred.Pattern,
+							Reason:              "Já existe uma credencial registrada com o mesmo pattern.",
+							SupportedStrategies: []ConflictResolutionStrategy{ConflictResolutionSkip, ConflictResolutionOverwrite},
 						})
 					}
 				}

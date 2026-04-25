@@ -250,6 +250,7 @@ function mergeImportResolutions(analysis: ImportAnalysis | null, current: Import
     ...(analysis.conversationConflicts ?? []),
     ...(analysis.providerConflicts ?? []),
     ...(analysis.taskListConflicts ?? []),
+    ...(analysis.credentialConflicts ?? []),
   ];
 
   conflictGroups.forEach((conflict) => {
@@ -1543,17 +1544,9 @@ export default function HistoryPage() {
                 importAnalysis.taskListConflicts,
               )}
 
-              {!!importAnalysis.credentialConflicts?.length && (
-                <>
-                  <strong>{t('history.importCredentialConflicts', 'Credenciais em conflito')}</strong>
-                  <ul className="history-page__import-list">
-                    {importAnalysis.credentialConflicts.map((conflict) => (
-                      <li key={`${conflict.resourceType}-${conflict.identifier}`}>
-                        <code>{conflict.identifier}</code>: {conflict.reason}
-                      </li>
-                    ))}
-                  </ul>
-                </>
+              {renderConflictGroup(
+                t('history.importCredentialConflicts', 'Credenciais em conflito'),
+                importAnalysis.credentialConflicts,
               )}
 
               {importAnalysis.conflictCount > 0 && (

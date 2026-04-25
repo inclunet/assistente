@@ -345,6 +345,9 @@ func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T
 	if len(analysis.CredentialConflicts) != 1 {
 		t.Fatalf("credential conflicts = %d, want 1", len(analysis.CredentialConflicts))
 	}
+	if len(analysis.CredentialConflicts[0].SupportedStrategies) != 2 {
+		t.Fatalf("CredentialConflicts[0].SupportedStrategies = %v, want 2 opções", analysis.CredentialConflicts[0].SupportedStrategies)
+	}
 }
 
 func TestImportConversationRestoresCreatedAt(t *testing.T) {
@@ -1322,5 +1325,61 @@ func TestImportConversationsPropagatesContextToCredentialPersistence(t *testing.
 
 	if got := store.lastCtx.Value(ctxKey("source")); got != "test-import" {
 		t.Fatalf("credential persistence ctx value = %v, want test-import", got)
+	}
+}
+
+func TestImportConversationsWithResolutionsOverwritesCredentialConflicts(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	store := newMemoryCredentialStore()
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	if err := credMgr.RegisterPatternWithContext(t.Context(), "api.openai.com", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "token-antigo",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext(existing) error = %v", err)
+	}
+
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: time.Now().UTC(),
+		Options: ExportOptions{
+			IncludeCredentials: true,
+		},
+	}
+
+	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
+		{Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
+	})
+	if err != nil {
+		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
+	}
+	file.Resources.Credentials = blob
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversationsWithResolutions(t.Context(), string(raw), credMgr, "senha-teste", []ImportResolution{
+		{
+			ResourceType: "credential",
+			Identifier:   "api.openai.com",
+			Strategy:     ConflictResolutionOverwrite,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ImportConversationsWithResolutions() error = %v", err)
+	}
+	if result.Imported != 1 || result.Skipped != 0 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	auth, err := credMgr.ResolveForURL("https://api.openai.com/v1/models")
+	if err != nil {
+		t.Fatalf("ResolveForURL() error = %v", err)
+	}
+	if auth == nil || auth.Token != "token-novo" {
+		t.Fatalf("credential token = %v, want token-novo", auth)
 	}
 }

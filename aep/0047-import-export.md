@@ -224,7 +224,7 @@ O export suporta três modos:
 2. **Por tipo**: exporta todos os recursos de um ou mais tipos (ex: todas as conversas + todos os profiles)
 3. **Individual**: exporta recursos específicos selecionados (ex: conversa "X" + profile "Y" + tasklist "Z")
 
-**Implementação desta PR:** a UI e a app layer expõem apenas o recorte já suportado pelo banco atual, isto é, exportação/importação de conversas selecionadas e do bloco opcional de credenciais portáveis.
+**Implementação desta PR:** a UI e a app layer expõem o recorte DB-only já suportado pelo banco atual, isto é, exportação/importação de conversas selecionadas, providers persistidos, tasklists persistidas e do bloco opcional de credenciais portáveis.
 
 Na UI, o usuário seleciona o que exportar via checkboxes. Na API Go, a função recebe um `ExportRequest`:
 
@@ -270,7 +270,7 @@ Na importação, cada recurso é verificado contra existentes:
 
 A UI mostra um resumo dos conflitos detectados antes de confirmar a importação. Recursos sem conflito são importados automaticamente.
 
-**Implementação desta PR:** o fluxo atual detecta conflitos de conversa e credenciais e, por segurança, ignora os itens em conflito nesta fase inicial. Estratégias interativas adicionais para outros tipos de recurso permanecem para etapas posteriores.
+**Implementação desta PR:** o fluxo atual detecta conflitos de conversa, provider, tasklist e credenciais. Para o recorte DB-only, a UI já permite escolher `pular`, `sobrescrever` e, quando aplicável, `renomear` para conversations/providers/tasklists; para credenciais, permite `pular` ou `sobrescrever`. Recursos fora desse recorte permanecem para etapas posteriores.
 
 ### D8 — Referências cruzadas na importação
 
