@@ -86,7 +86,6 @@ export default function EditorPage() {
   const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
   const wsTabs = useWorkspaceStore((s) => s.workspace?.tabs);
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
 
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 

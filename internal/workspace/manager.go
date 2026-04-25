@@ -419,6 +419,11 @@ func (m *Manager) SetActiveTab(tabID string) error {
 }
 
 // UpdateTab atualiza campos de uma aba (título, estado, etc.).
+//
+// state é merge (patch): chaves fornecidas são adicionadas/sobrescritas, chaves omitidas
+// permanecem inalteradas. Para remover uma chave de state, defina-a como nil — o caller
+// pode então limpar nils antes de persistir se necessário. Esse comportamento é intencional
+// para evitar que updates parciais (ex.: salvar filePath) apaguem o restante do state.
 func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
