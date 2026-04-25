@@ -1927,11 +1927,7 @@ export default function EditorPage() {
         renameDocument(id, title);
         setDocMarkdown(id, content);
         useEditorStore.getState().setDocMode(id, preferredMode);
-        if (wsActiveTab) {
-          updateWsTab(wsActiveTab.id, { title, state: { ...(wsActiveTab.state ?? {}), filePath: path } }).catch((err: unknown) => {
-            console.warn('[EditorPage] falha ao persistir filePath na aba', wsActiveTab.id, err);
-          });
-        }
+        // filePath+title são sincronizados pelo useWorkspaceEditorBridge
       } else {
         const tabId = await addWorkspaceTab('editor', title, { filePath: path });
         id = tabId;

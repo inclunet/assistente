@@ -4,6 +4,7 @@
 package prompt
 
 import (
+	"html"
 	"log"
 	"reflect"
 	"strings"
@@ -181,12 +182,14 @@ func (b *Builder) Build(
 			sb.WriteString("If the active skill restricts filesystem access, those restrictions still apply on top of this exception. ")
 			sb.WriteString("Any other path remains subject to the normal workspace roots and filesystem access policies:\n")
 			for _, p := range paths {
-				// Escape newlines/special chars to prevent prompt injection via filenames
+				// Escape newlines/special chars to prevent prompt injection via filenames.
+				// html.EscapeString handles <, >, &, ", ' in addition to newlines/backticks.
 				safe := strings.ReplaceAll(strings.ReplaceAll(p, "\n", "_"), "\r", "_")
 				safe = strings.ReplaceAll(safe, "`", "'")
-				sb.WriteString("- `")
+				safe = html.EscapeString(safe)
+				sb.WriteString("- ")
 				sb.WriteString(safe)
-				sb.WriteString("`\n")
+				sb.WriteString("\n")
 			}
 			sb.WriteString("</open_editor_files>")
 			parts = append(parts, sb.String())

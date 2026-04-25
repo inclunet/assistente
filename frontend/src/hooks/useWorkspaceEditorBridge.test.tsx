@@ -292,8 +292,8 @@ describe('useWorkspaceEditorBridge', () => {
 
       renderHook(() => useWorkspaceEditorBridge());
 
-      // Aguarda um tick para o sync inicial rodar
-      await new Promise(r => setTimeout(r, 50));
+      // Aguarda microtasks pendentes — sem mudanças, nenhum updateTab deve ter sido disparado
+      await act(async () => {});
 
       expect(mockedUpdateWorkspaceTabFn).not.toHaveBeenCalled();
     });
@@ -311,7 +311,8 @@ describe('useWorkspaceEditorBridge', () => {
 
       renderHook(() => useWorkspaceEditorBridge());
 
-      await new Promise(r => setTimeout(r, 50));
+      // Aguarda microtasks pendentes — chat tabs devem ser ignoradas
+      await act(async () => {});
 
       // updateTab não deve ser chamado para abas não-editor
       expect(mockedUpdateWorkspaceTabFn).not.toHaveBeenCalled();
@@ -337,8 +338,11 @@ describe('useWorkspaceEditorBridge', () => {
 
       renderHook(() => useWorkspaceEditorBridge());
 
-      // Esperar que prevEditorTabsRef popule
-      await new Promise(r => setTimeout(r, 50));
+      // Aguarda o bridge sincronizar o filePath (essa atualização popula prevEditorTabsRef
+      // via subscriber do workspaceStore, tornando a detecção de remoção funcional)
+      await vi.waitFor(() => {
+        expect(mockedUpdateWorkspaceTabFn).toHaveBeenCalled();
+      });
 
       // Remover tab-rm do workspace
       act(() => {

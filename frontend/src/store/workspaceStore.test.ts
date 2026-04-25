@@ -328,4 +328,30 @@ describe('updateTab — filePath no state', () => {
     const tab = useWorkspaceStore.getState().workspace?.tabs[0];
     expect(tab?.state).toEqual({ filePath: '/new.md' });
   });
+
+  it('faz merge de state parcial sem perder filePath existente', async () => {
+    setStoreState([
+      {
+        id: 'tab-e2-merge',
+        type: 'editor',
+        title: 'Doc com arquivo',
+        position: 0,
+        state: { filePath: '/persisted.md', sessionId: 'session-1' },
+      },
+    ], 'tab-e2-merge');
+
+    await useWorkspaceStore.getState().updateTab('tab-e2-merge', {
+      state: { scrollTop: 240 },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.state).toEqual({
+      filePath: '/persisted.md',
+      sessionId: 'session-1',
+      scrollTop: 240,
+    });
+    expect(mockedUpdateWorkspaceTab).toHaveBeenCalledWith('tab-e2-merge', {
+      state: { scrollTop: 240 },
+    });
+  });
 });
