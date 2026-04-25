@@ -230,6 +230,83 @@ describe('setActiveTab', () => {
     expect(mockedSetActiveWorkspaceTab).not.toHaveBeenCalled();
     expect(mockedAnnounce).toHaveBeenCalledTimes(1);
   });
+
+  it('aplica optimistic update imediatamente e persiste em background', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+    ], 'tab-1');
+
+    mockedSetActiveWorkspaceTab.mockResolvedValue(undefined as never);
+
+    const promise = useWorkspaceStore.getState().setActiveTab('tab-2');
+
+    // Optimistic: UI atualizada antes do await
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+
+    await promise;
+
+    expect(mockedSetActiveWorkspaceTab).toHaveBeenCalledWith('tab-2');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+  });
+
+  it('faz rollback quando backend falha e aba ativa não mudou', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+    ], 'tab-1');
+
+    mockedSetActiveWorkspaceTab.mockRejectedValue(new Error('backend error'));
+
+    await useWorkspaceStore.getState().setActiveTab('tab-2');
+
+    // Aguarda o .catch processar
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-1');
+    });
+    expect(mockedAnnounce).toHaveBeenCalled();
+  });
+
+  it('não faz rollback quando outra troca já ocorreu antes do erro', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+      { id: 'tab-3', type: 'editor', title: 'Editor', position: 2 },
+    ], 'tab-1');
+
+    // Primeira troca falha, mas com delay para dar tempo de outra troca
+    let rejectFirst: (err: Error) => void;
+    mockedSetActiveWorkspaceTab
+      .mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej; }) as never)
+      .mockResolvedValueOnce(undefined as never);
+
+    // Inicia troca para tab-2 (vai falhar eventualmente)
+    const firstSwitch = useWorkspaceStore.getState().setActiveTab('tab-2');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+
+    // Antes do erro, outra troca ocorre para tab-3
+    await useWorkspaceStore.getState().setActiveTab('tab-3');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-3');
+
+    // Agora a primeira falha
+    rejectFirst!(new Error('backend error'));
+    await firstSwitch;
+
+    // tab-3 deve permanecer (rollback não deve sobrescrever)
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-3');
+    });
+  });
+
+  it('ignora quando tabId já é a aba ativa', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+    ], 'tab-1');
+
+    await useWorkspaceStore.getState().setActiveTab('tab-1');
+
+    expect(mockedSetActiveWorkspaceTab).not.toHaveBeenCalled();
+  });
 });
 
 describe('initialize', () => {

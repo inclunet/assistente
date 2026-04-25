@@ -370,7 +370,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       return;
     }
     // Optimistic update: atualiza UI imediatamente, persiste em background
-    const previousTabId = get().workspace?.activeTabId ?? '';
+    const previousTabId = get().workspace?.activeTabId ?? null;
     set(state => ({
       workspace: state.workspace
         ? { ...state.workspace, activeTabId: tabId }
@@ -384,7 +384,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
             ? { ...state.workspace, activeTabId: previousTabId }
             : null,
         }));
-        announce(i18next.t('workspace.tabSwitchFailed', 'Falha ao trocar de aba'));
+        announce(i18next.t('workspace.tabSwitchFailed'));
       }
     });
   },
