@@ -377,8 +377,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
         ? { ...state.workspace, activeTabId: tabId }
         : null,
     }));
-    return SetActiveWorkspaceTab(tabId).catch(() => {
-      // Rollback: só reverte se o activeTabId atual ainda for o que falhou
+    // Fire-and-forget: UI já atualizada; rollback em caso de falha
+    void SetActiveWorkspaceTab(tabId).catch(() => {
       if (get().workspace?.activeTabId === tabId) {
         set(state => ({
           workspace: state.workspace

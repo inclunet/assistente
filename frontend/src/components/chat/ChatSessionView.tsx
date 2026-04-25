@@ -21,6 +21,8 @@ import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHand
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatSessionView.css';
 
+const EMPTY_MESSAGES: never[] = [];
+
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
@@ -43,7 +45,7 @@ export function ChatSessionView({
 
   const isLoading = useChatStore((s) => s.isLoading);
   const activeConversation = useChatStore((s) => s.activeConversation);
-  const threadedMessages = useChatStore((s) => s.activeConversation?.threadedMessages) || [];
+  const threadedMessages = useChatStore((s) => s.activeConversation?.threadedMessages) ?? EMPTY_MESSAGES;
   const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
   const loadConversation = useChatStore((s) => s.loadConversation);
   const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
