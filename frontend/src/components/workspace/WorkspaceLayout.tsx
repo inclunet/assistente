@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Spin } from 'antd';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useShallow } from 'zustand/shallow';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardShortcuts';
 import { useWorkspaceChatBridge } from '../../hooks/useWorkspaceChatBridge';
@@ -23,7 +24,9 @@ export function WorkspaceLayout() {
   useDocumentTitle();
   const { t } = useTranslation();
   const { pathname } = useLocation();
-  const { workspace, isInitialized, initialize, setupEventListeners } = useWorkspaceStore();
+  const { workspace, isInitialized, initialize, setupEventListeners } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, isInitialized: s.isInitialized, initialize: s.initialize, setupEventListeners: s.setupEventListeners }))
+  );
   useEffect(() => {
     if (!isInitialized) {
       initialize();

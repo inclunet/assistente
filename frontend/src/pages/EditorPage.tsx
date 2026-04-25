@@ -20,7 +20,7 @@ import type {
   WorkspaceChatModalSession,
 } from '../store/workspaceChatModalStore';
 import { useEditorStore, DEFAULT_MD, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
@@ -66,7 +66,7 @@ import './EditorPage.css';
 
 export default function EditorPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
   const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId } = useEditorInlineChatPatch();
@@ -83,7 +83,7 @@ export default function EditorPage() {
   const hydrate = useEditorStore((s) => s.hydrate);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
   const setActiveWsTab = useWorkspaceStore((s) => s.setActiveTab);
-  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsActiveTab = useActiveTab();
   const wsTabs = useWorkspaceStore((s) => s.workspace?.tabs);
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);

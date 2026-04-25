@@ -28,7 +28,7 @@ type UpdatePhase = 'idle' | 'downloading' | 'verifying' | 'installing' | 'comple
 export default function UpdatePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   useContentPageLandmarks({ pageClass: 'update-page' });
 
   const getErrorMessage = (error: unknown) =>

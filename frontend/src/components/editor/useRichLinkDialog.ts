@@ -11,7 +11,7 @@ type Args = {
 };
 
 export function useRichLinkDialog({ editor, readOnly }: Args) {
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
   return useCallback(async () => {

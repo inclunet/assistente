@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } fro
 import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
-import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import type { WorkspaceChatModalAdapter } from '../../store/workspaceChatModalStore';
 import { useRegisterWorkspaceChatAdapter } from '../../hooks/useRegisterWorkspaceChatAdapter';
@@ -29,11 +29,11 @@ interface TaskListViewProps {
  */
 export default function TaskListView({ taskListId }: TaskListViewProps) {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const requestConfirm = useConfirm();
 
-  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsActiveTab = useActiveTab();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const tabProfileSlug = wsActiveTab?.type === 'tasklist'
     ? (wsActiveTab.profileOverride?.slug as string | undefined)

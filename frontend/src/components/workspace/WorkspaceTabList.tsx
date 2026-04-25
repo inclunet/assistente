@@ -7,6 +7,7 @@ import {
   CheckSquareOutlined,
 } from '@ant-design/icons';
 import { useWorkspaceStore, type WorkspaceTab, type TabType } from '../../store/workspaceStore';
+import { useShallow } from 'zustand/shallow';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { playBumpSound } from '../../services/audioFeedback';
@@ -24,7 +25,9 @@ const TAB_TYPE_ICONS: Record<TabType, ReactNode> = {
 
 export function WorkspaceTabList() {
   const { t } = useTranslation();
-  const { workspace, workspaces, setActiveTab, removeTab, updateTab, reorderTabs, moveTabToWorkspace, renameTabContent } = useWorkspaceStore();
+  const { workspace, workspaces, setActiveTab, removeTab, updateTab, reorderTabs, moveTabToWorkspace, renameTabContent } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, setActiveTab: s.setActiveTab, removeTab: s.removeTab, updateTab: s.updateTab, reorderTabs: s.reorderTabs, moveTabToWorkspace: s.moveTabToWorkspace, renameTabContent: s.renameTabContent }))
+  );
   const { announce } = useAnnouncer();
   const tabListRef = useRef<HTMLDivElement>(null);
 

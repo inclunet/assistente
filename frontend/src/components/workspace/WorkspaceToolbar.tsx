@@ -13,6 +13,7 @@ import {
   FolderOutlined,
 } from '@ant-design/icons';
 import { useWorkspaceStore, type TabType } from '../../store/workspaceStore';
+import { useShallow } from 'zustand/shallow';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
 import { Menu, type MenuItem } from '../menu';
 import { ProfilePicker } from '../pickers/ProfilePicker';
@@ -38,7 +39,9 @@ const TAB_TYPE_DEFAULTS: Record<TabType, string> = {
 export function WorkspaceToolbar() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
-  const { workspace, workspaces, addTab, setProfile, createWorkspace, renameWorkspace } = useWorkspaceStore();
+  const { workspace, workspaces, addTab, setProfile, createWorkspace, renameWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, addTab: s.addTab, setProfile: s.setProfile, createWorkspace: s.createWorkspace, renameWorkspace: s.renameWorkspace }))
+  );
 
   const newTabButtonRef = useRef<HTMLButtonElement>(null);
   const wsMenuButtonRef = useRef<HTMLButtonElement>(null);

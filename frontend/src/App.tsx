@@ -39,8 +39,12 @@ function App() {
     const navigate = useNavigate();
     const antLocale = useAntdLocale(i18n.language);
     const { setConfig, setLoading, setError } = useSettingsStore();
-    const { addToast } = useUIStore();
-    const { handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleExternalIncoming } = useChatStore();
+    const addToast = useUIStore((s) => s.addToast);
+    const handleConversationDeleted = useChatStore((s) => s.handleConversationDeleted);
+    const handleConversationCleared = useChatStore((s) => s.handleConversationCleared);
+    const handleConversationRenamed = useChatStore((s) => s.handleConversationRenamed);
+    const handleDatabaseReset = useChatStore((s) => s.handleDatabaseReset);
+    const handleExternalIncoming = useChatStore((s) => s.handleExternalIncoming);
     const wasQuestionnaireOpenRef = useRef(false);
     const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 

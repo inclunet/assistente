@@ -1,12 +1,12 @@
 import { useCallback, useEffect } from 'react';
 import { useChatStore } from '../store/chatStore';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useActiveTab } from '../store/workspaceStore';
 import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
 import { ChatSessionView } from '../components/chat/ChatSessionView';
 
 export default function ChatPage() {
   const sendMessageToConversation = useChatStore((s) => s.sendMessageToConversation);
-  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
+  const activeTab = useActiveTab();
 
   useEffect(() => {
     if (!activeTab || activeTab.type !== 'chat') return;

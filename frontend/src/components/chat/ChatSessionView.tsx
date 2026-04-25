@@ -41,17 +41,15 @@ export function ChatSessionView({
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
 
-  const {
-    isLoading,
-    getThreadedMessages,
-    loadMessageChildren,
-    getActiveConversation,
-    loadConversation,
-    retryMessageToConversation,
-    updateMessage,
-    toggleReasoningExpanded,
-    isReasoningExpanded,
-  } = useChatStore();
+  const isLoading = useChatStore((s) => s.isLoading);
+  const getThreadedMessages = useChatStore((s) => s.getThreadedMessages);
+  const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
+  const getActiveConversation = useChatStore((s) => s.getActiveConversation);
+  const loadConversation = useChatStore((s) => s.loadConversation);
+  const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
+  const updateMessage = useChatStore((s) => s.updateMessage);
+  const toggleReasoningExpanded = useChatStore((s) => s.toggleReasoningExpanded);
+  const isReasoningExpanded = useChatStore((s) => s.isReasoningExpanded);
 
   const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
   useEffect(() => {
@@ -71,17 +69,17 @@ export function ChatSessionView({
 
   const startEditing = useChatStore((state) => state.startEditing);
   const startReading = useChatStore((state) => state.startReading);
-  const workspace = useWorkspaceStore((state) => state.workspace);
+  const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
   const editorTargets = useMemo<EditorSendTargetOption[]>(
     () =>
-      (workspace?.tabs || [])
+      (wsTabs || [])
         .filter((tab) => tab.type === 'editor')
         .map((tab) => ({
           id: tab.id,
           title: String(tab.title || '').trim() || t('editor.fallback.title'),
         })),
-    [workspace, t],
+    [wsTabs, t],
   );
 
   const { copyMessage, speakMessage } = useMessageActions({

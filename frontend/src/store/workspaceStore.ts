@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { shallow } from 'zustand/shallow';
 import {
   GetActiveWorkspace,
   ListWorkspaces,
@@ -483,6 +484,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     return ws.tabs.filter(t => t.type === type);
   },
 }));
+
+/**
+ * Hook estável para obter a aba ativa sem causar re-render desnecessário.
+ * Usa shallow comparison para evitar re-renders quando o conteúdo da aba não mudou.
+ */
+export function useActiveTab() {
+  return useWorkspaceStore((s) => {
+    const ws = s.workspace;
+    if (!ws || !ws.activeTabId) return undefined;
+    return ws.tabs.find(t => t.id === ws.activeTabId);
+  }, shallow);
+}
 
 // HMR: reseta estado do módulo para que o workspace reinicialize após hot reload
 if (import.meta.hot) {

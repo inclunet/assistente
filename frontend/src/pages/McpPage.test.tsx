@@ -62,9 +62,10 @@ vi.mock('../hooks/useConfirm', () => ({
 }));
 
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: vi.fn(),
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: vi.fn() };
+    return selector ? selector(s) : s;
+  },
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({

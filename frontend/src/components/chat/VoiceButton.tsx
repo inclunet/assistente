@@ -14,7 +14,7 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useInteractionProfile } from '../../hooks/useInteractionProfile';
-import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
 import { profiles } from '../../../wailsjs/go/models';
 import './VoiceButton.css';
 
@@ -47,7 +47,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
 
   // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
+  const activeTab = useActiveTab();
   const tabProfileSlug = activeTab?.type === 'chat'
     ? (activeTab.profileOverride?.slug as string | undefined)
     : undefined;

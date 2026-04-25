@@ -64,6 +64,7 @@ vi.mock('../store/workspaceStore', () => ({
     }
     return workspaceStoreState;
   },
+  useActiveTab: () => ({ id: 'chat-tab', type: 'chat' as const, conversationId: 1, title: 'Conversa', position: 0 }),
 }));
 
 vi.mock('../lib/workspaceConversation', () => ({

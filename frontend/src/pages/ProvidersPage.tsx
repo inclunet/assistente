@@ -46,7 +46,7 @@ interface ProviderRow extends Provider {
 export default function ProvidersPage() {
   const { t } = useTranslation();
   const confirm = useConfirm();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'providers-page' });

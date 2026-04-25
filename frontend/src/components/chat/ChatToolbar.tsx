@@ -13,7 +13,7 @@ import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
-import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
 import './ChatToolbar.css';
@@ -27,12 +27,15 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { getActiveConversation, clearMessages, isLoading, loadConversation } = useChatStore();
+  const getActiveConversation = useChatStore((s) => s.getActiveConversation);
+  const clearMessages = useChatStore((s) => s.clearMessages);
+  const isLoading = useChatStore((s) => s.isLoading);
+  const loadConversation = useChatStore((s) => s.loadConversation);
   const { announce } = useAnnouncer();
   const activeConversation = getActiveConversation();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
-  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsActiveTab = useActiveTab();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
 

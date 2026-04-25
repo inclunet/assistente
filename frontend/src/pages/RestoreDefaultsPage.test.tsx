@@ -2,8 +2,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import RestoreDefaultsPage from './RestoreDefaultsPage';
-import { useUIStore } from '../store/uiStore';
-import { useChatStore } from '../store/chatStore';
 import * as AppAPI from '@wailsjs/go/app/App';
 
 vi.mock('react-i18next', () => ({
@@ -32,8 +30,21 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('../store/uiStore');
-vi.mock('../store/chatStore');
+const mockAddToast = vi.fn();
+const mockHandleDatabaseReset = vi.fn();
+
+vi.mock('../store/uiStore', () => ({
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: mockAddToast };
+    return selector ? selector(s) : s;
+  },
+}));
+vi.mock('../store/chatStore', () => ({
+  useChatStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { handleDatabaseReset: mockHandleDatabaseReset };
+    return selector ? selector(s) : s;
+  },
+}));
 vi.mock('@wailsjs/go/app/App');
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
@@ -47,20 +58,9 @@ vi.mock('../hooks/useConfirm', () => ({
   useConfirm: () => mockConfirm,
 }));
 
-const mockAddToast = vi.fn();
-const mockHandleDatabaseReset = vi.fn();
-
 describe('RestoreDefaultsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
-    vi.mocked(useUIStore).mockReturnValue({
-      addToast: mockAddToast,
-    });
-
-    vi.mocked(useChatStore).mockReturnValue({
-      handleDatabaseReset: mockHandleDatabaseReset,
-    });
 
     vi.mocked(AppAPI.ClearMessages).mockResolvedValue(undefined);
     vi.mocked(AppAPI.ClearAllCredentials).mockResolvedValue(undefined);
