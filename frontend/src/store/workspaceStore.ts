@@ -370,18 +370,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       return;
     }
     // Optimistic update: atualiza UI imediatamente, persiste em background
+    const previousTabId = get().workspace?.activeTabId ?? '';
     set(state => ({
       workspace: state.workspace
         ? { ...state.workspace, activeTabId: tabId }
         : null,
     }));
     SetActiveWorkspaceTab(tabId).catch(() => {
-      // Rollback em caso de falha (raro)
-      set(state => ({
-        workspace: state.workspace
-          ? { ...state.workspace, activeTabId: get().workspace?.activeTabId ?? '' }
-          : null,
-      }));
+      // Rollback: só reverte se o activeTabId atual ainda for o que falhou
+      if (get().workspace?.activeTabId === tabId) {
+        set(state => ({
+          workspace: state.workspace
+            ? { ...state.workspace, activeTabId: previousTabId }
+            : null,
+        }));
+        announce(i18next.t('workspace.tabSwitchFailed', 'Falha ao trocar de aba'));
+      }
     });
   },
 

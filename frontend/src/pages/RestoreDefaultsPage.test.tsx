@@ -4,6 +4,11 @@ import userEvent from '@testing-library/user-event';
 import RestoreDefaultsPage from './RestoreDefaultsPage';
 import * as AppAPI from '@wailsjs/go/app/App';
 
+const { mockAddToast, mockHandleDatabaseReset } = vi.hoisted(() => ({
+  mockAddToast: vi.fn(),
+  mockHandleDatabaseReset: vi.fn(),
+}));
+
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
@@ -29,9 +34,6 @@ vi.mock('react-i18next', () => ({
       } as Record<string, string>)[key] ?? key,
   }),
 }));
-
-const mockAddToast = vi.fn();
-const mockHandleDatabaseReset = vi.fn();
 
 vi.mock('../store/uiStore', () => ({
   useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
