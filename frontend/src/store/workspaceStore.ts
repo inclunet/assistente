@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { shallow } from 'zustand/shallow';
+import { useShallow } from 'zustand/shallow';
 import {
   GetActiveWorkspace,
   ListWorkspaces,
@@ -389,8 +389,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
         ? { ...state.workspace, activeTabId: tabId }
         : null,
     }));
-    // Fire-and-forget: UI já atualizada; rollback em caso de falha
-    void SetActiveWorkspaceTab(tabId).catch(() => {
+    // Fire-and-forget: UI já atualizada; rollback em caso de falha.
+    // O await nesta função só cobre o optimistic update (síncrono);
+    // a persistência no backend é assíncrona e não bloqueia callers.
+    void SetActiveWorkspaceTab(tabId).catch((err: unknown) => {
+      console.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
       if (get().workspace?.activeTabId === tabId) {
         // Valida se a aba anterior ainda existe antes de restaurar;
         // se foi removida, usa a primeira aba disponível como fallback.
@@ -518,14 +521,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
 /**
  * Hook estável para obter a aba ativa sem causar re-render desnecessário.
- * Usa shallow comparison para evitar re-renders quando o conteúdo da aba não mudou.
+ * Usa useShallow para evitar re-renders quando o conteúdo da aba não mudou.
  */
-export function useActiveTab() {
-  return useWorkspaceStore((s) => {
-    const ws = s.workspace;
-    if (!ws || !ws.activeTabId) return undefined;
-    return ws.tabs.find(t => t.id === ws.activeTabId);
-  }, shallow);
+export function useActiveTab(): WorkspaceTab | undefined {
+  return useWorkspaceStore(
+    useShallow((s) => {
+      const ws = s.workspace;
+      if (!ws || !ws.activeTabId) return undefined;
+      return ws.tabs.find(t => t.id === ws.activeTabId);
+    })
+  );
 }
 
 // HMR: reseta estado do módulo para que o workspace reinicialize após hot reload
