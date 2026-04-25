@@ -27,12 +27,11 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const getActiveConversation = useChatStore((s) => s.getActiveConversation);
+  const activeConversation = useChatStore((s) => s.activeConversation);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const isLoading = useChatStore((s) => s.isLoading);
   const loadConversation = useChatStore((s) => s.loadConversation);
   const { announce } = useAnnouncer();
-  const activeConversation = getActiveConversation();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
   const wsActiveTab = useActiveTab();
@@ -106,7 +105,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
   const handleClearConversation = useCallback(async () => {
     try {
-      const conv = getActiveConversation();
+      const conv = activeConversation;
 
       if (conv?.id) {
         await ClearConversation(conv.id);
@@ -121,7 +120,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       announce(t('chat.clearError'));
     }
     focusInput();
-  }, [announce, clearMessages, focusInput, getActiveConversation, loadConversation]);
+  }, [announce, activeConversation, clearMessages, focusInput, loadConversation]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

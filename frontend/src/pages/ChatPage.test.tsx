@@ -37,6 +37,7 @@ const chatStoreState = {
   isLoading: false,
   sendMessage: sendMessageMock,
   sendMessageToConversation: sendMessageMock,
+  activeConversation: { id: 1, title: 'Conversa', threadedMessages: [] },
   getThreadedMessages: () => [],
   loadMessageChildren: vi.fn(),
   getActiveConversation: () => ({ id: 1, title: 'Conversa' }),

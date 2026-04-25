@@ -247,6 +247,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     }));
 
     unsubs.push(EventsOn('workspace:tab_activated', (tabId: string) => {
+      if (get().workspace?.activeTabId === tabId) return;
       set(state => ({
         workspace: state.workspace
           ? { ...state.workspace, activeTabId: tabId }
@@ -376,7 +377,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
         ? { ...state.workspace, activeTabId: tabId }
         : null,
     }));
-    SetActiveWorkspaceTab(tabId).catch(() => {
+    return SetActiveWorkspaceTab(tabId).catch(() => {
       // Rollback: só reverte se o activeTabId atual ainda for o que falhou
       if (get().workspace?.activeTabId === tabId) {
         set(state => ({

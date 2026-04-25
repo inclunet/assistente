@@ -42,14 +42,16 @@ export function ChatSessionView({
   const wasLoadingRef = useRef(false);
 
   const isLoading = useChatStore((s) => s.isLoading);
-  const getThreadedMessages = useChatStore((s) => s.getThreadedMessages);
+  const activeConversation = useChatStore((s) => s.activeConversation);
+  const threadedMessages = useChatStore((s) => s.activeConversation?.threadedMessages) || [];
   const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
-  const getActiveConversation = useChatStore((s) => s.getActiveConversation);
   const loadConversation = useChatStore((s) => s.loadConversation);
   const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
   const updateMessage = useChatStore((s) => s.updateMessage);
   const toggleReasoningExpanded = useChatStore((s) => s.toggleReasoningExpanded);
   const isReasoningExpanded = useChatStore((s) => s.isReasoningExpanded);
+  const getActiveConversation = useCallback(() => activeConversation, [activeConversation]);
+  const getThreadedMessages = useCallback(() => threadedMessages, [threadedMessages]);
 
   const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
   useEffect(() => {
@@ -223,8 +225,6 @@ export function ChatSessionView({
     inputRef,
     messagesContainerRef,
   });
-
-  const threadedMessages = getThreadedMessages() || [];
 
   useEffect(() => {
     if (variant !== 'page') return;
