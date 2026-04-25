@@ -133,8 +133,8 @@ func TestBuild_OpenEditorFiles_InjectsSection(t *testing.T) {
 	if !strings.Contains(sys, "/tmp/notes.md") {
 		t.Error("Expected second file path in open_editor_files section")
 	}
-	if !strings.Contains(sys, "You CAN read and edit") {
-		t.Error("Expected instruction text about reading/editing")
+	if !strings.Contains(sys, "You CAN read, edit, and grep") {
+		t.Error("Expected instruction text about reading/editing/grep")
 	}
 }
 

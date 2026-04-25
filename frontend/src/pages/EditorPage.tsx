@@ -538,7 +538,9 @@ export default function EditorPage() {
         // Persiste filePath na aba do workspace (para OpenEditorFilePaths)
         const wsTab = (useWorkspaceStore.getState().workspace?.tabs || []).find((t) => t.id === tabId);
         if (wsTab) {
-          await updateWsTab(tabId, { title, state: { ...(wsTab.state ?? {}), filePath: newPath } }).catch(() => {});
+          updateWsTab(tabId, { title, state: { ...(wsTab.state ?? {}), filePath: newPath } }).catch((err: unknown) => {
+            console.warn('[EditorPage] falha ao persistir filePath na aba', tabId, err);
+          });
         }
 
         const { documents: afterDocs } = useEditorStore.getState();
@@ -1932,7 +1934,9 @@ export default function EditorPage() {
         setDocMarkdown(id, content);
         useEditorStore.getState().setDocMode(id, preferredMode);
         if (wsActiveTab) {
-          await updateWsTab(wsActiveTab.id, { title, state: { ...(wsActiveTab.state ?? {}), filePath: path } }).catch(() => {});
+          updateWsTab(wsActiveTab.id, { title, state: { ...(wsActiveTab.state ?? {}), filePath: path } }).catch((err: unknown) => {
+            console.warn('[EditorPage] falha ao persistir filePath na aba', wsActiveTab.id, err);
+          });
         }
       } else {
         const tabId = await addWorkspaceTab('editor', title, { filePath: path });
@@ -2078,7 +2082,9 @@ export default function EditorPage() {
       // Persiste filePath na aba do workspace (para OpenEditorFilePaths)
       const wsTab = (useWorkspaceStore.getState().workspace?.tabs || []).find((t) => t.id === activeTab.id);
       if (wsTab) {
-        await updateWsTab(activeTab.id, { title, state: { ...(wsTab.state ?? {}), filePath: path } }).catch(() => {});
+        updateWsTab(activeTab.id, { title, state: { ...(wsTab.state ?? {}), filePath: path } }).catch((err: unknown) => {
+          console.warn('[EditorPage] falha ao persistir filePath na aba', activeTab.id, err);
+        });
       }
 
       void refreshDiskInfoForTab({ ...activeTab, filePath: path });
