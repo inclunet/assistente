@@ -16,11 +16,16 @@ import (
 
 var supportedPortableResourceTypes = map[string]struct{}{
 	"conversations": {},
+	"taskLists":     {},
 	"credentials":   {},
 }
 
 func ExportConversations(ids []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
-	file, err := BuildConversationExportFile(ids, credMgr, req, appVersion)
+	return ExportPortableData(ids, nil, credMgr, req, appVersion)
+}
+
+func ExportPortableData(conversationIDs, taskListIDs []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
+	file, err := BuildExportFile(conversationIDs, taskListIDs, credMgr, req, appVersion)
 	if err != nil {
 		return "", err
 	}
@@ -33,13 +38,26 @@ func ExportConversations(ids []uint, credMgr *credentials.Manager, req ExportReq
 }
 
 func BuildConversationExportFile(ids []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
-	conversations := make([]ConversationExport, 0, len(ids))
-	for _, id := range ids {
+	return BuildExportFile(ids, nil, credMgr, req, appVersion)
+}
+
+func BuildExportFile(conversationIDs, taskListIDs []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
+	conversations := make([]ConversationExport, 0, len(conversationIDs))
+	for _, id := range conversationIDs {
 		conv, err := database.GetConversation(id)
 		if err != nil {
 			return nil, fmt.Errorf("erro ao buscar conversa %d: %w", id, err)
 		}
 		conversations = append(conversations, exportConversation(conv, req.IncludeAudio))
+	}
+
+	taskLists := make([]TaskListExport, 0, len(taskListIDs))
+	for _, id := range taskListIDs {
+		taskList, err := exportTaskList(id)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao buscar tasklist %d: %w", id, err)
+		}
+		taskLists = append(taskLists, taskList)
 	}
 
 	file := &ExportFile{
@@ -52,6 +70,7 @@ func BuildConversationExportFile(ids []uint, credMgr *credentials.Manager, req E
 		},
 		Resources: ExportResources{
 			Conversations: conversations,
+			TaskLists:     taskLists,
 		},
 	}
 
@@ -102,6 +121,10 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 	for _, conflict := range analysis.CredentialConflicts {
 		credentialConflictPatterns[conflict.Identifier] = struct{}{}
 	}
+	taskListConflictKeys := make(map[string]struct{}, len(analysis.TaskListConflicts))
+	for _, conflict := range analysis.TaskListConflicts {
+		taskListConflictKeys[conflict.Identifier] = struct{}{}
+	}
 
 	result := &ImportResult{
 		Success:                  true,
@@ -135,13 +158,31 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 		}
 	}
 
+	for _, taskList := range file.Resources.TaskLists {
+		if _, exists := taskListConflictKeys[taskListConflictIdentifier(taskList)]; exists {
+			result.Skipped++
+			result.SkippedTaskListConflict++
+			continue
+		}
+		imported, err := importTaskList(taskList)
+		if err != nil {
+			result.Errors = append(result.Errors, err.Error())
+			result.Failed++
+			continue
+		}
+		if imported {
+			result.Imported++
+		}
+	}
+
 	if file.Options.IncludeCredentials && file.Resources.Credentials != nil {
 		if credMgr == nil || !credMgr.CanPersist() {
 			result.Errors = append(result.Errors, "cofre de credenciais indisponível para importação")
 			result.Failed++
 			result.Success = false
 		} else {
-			skipped, err := importCredentials(ctx, credMgr, file.Resources.Credentials, credentialPassword, credentialConflictPatterns)
+			imported, skipped, err := importCredentials(ctx, credMgr, file.Resources.Credentials, credentialPassword, credentialConflictPatterns)
+			result.Imported += imported
 			result.Skipped += skipped
 			result.SkippedCredentialConflict += skipped
 			if err != nil {
@@ -152,11 +193,18 @@ func ImportConversationsWithContext(ctx context.Context, jsonData string, credMg
 		}
 	}
 
-	result.SkippedOther = maxInt(result.Skipped-result.SkippedEmptyConversations-result.SkippedConversationConflict-result.SkippedCredentialConflict, 0)
+	result.SkippedOther = maxInt(
+		result.Skipped-
+			result.SkippedEmptyConversations-
+			result.SkippedConversationConflict-
+			result.SkippedTaskListConflict-
+			result.SkippedCredentialConflict,
+		0,
+	)
 	if result.Failed > 0 {
-		result.Message = fmt.Sprintf("Importadas %d conversas, %d itens ignorados e %d falha(s)", result.Imported, result.Skipped, result.Failed)
+		result.Message = fmt.Sprintf("Importados %d recursos, %d itens ignorados e %d falha(s)", result.Imported, result.Skipped, result.Failed)
 	} else {
-		result.Message = fmt.Sprintf("Importadas %d conversas, %d itens ignorados", result.Imported, result.Skipped)
+		result.Message = fmt.Sprintf("Importados %d recursos, %d itens ignorados", result.Imported, result.Skipped)
 	}
 	if len(result.Errors) > 0 {
 		result.Success = false
@@ -338,17 +386,18 @@ func exportCredentials(credMgr *credentials.Manager) ([]CredentialExport, error)
 	return result, nil
 }
 
-func importCredentials(ctx context.Context, credMgr *credentials.Manager, blob *CredentialCipher, credentialPassword string, skipPatterns map[string]struct{}) (int, error) {
+func importCredentials(ctx context.Context, credMgr *credentials.Manager, blob *CredentialCipher, credentialPassword string, skipPatterns map[string]struct{}) (int, int, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	creds, err := decodeCredentialExports(blob, credentialPassword)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	skipped := 0
+	imported := 0
 
 	for _, cred := range creds {
 		if _, shouldSkip := skipPatterns[cred.Pattern]; shouldSkip {
@@ -367,11 +416,12 @@ func importCredentials(ctx context.Context, credMgr *credentials.Manager, blob *
 			ClientSecret: cred.ClientSecret,
 		}
 		if err := credMgr.RegisterPatternWithContext(ctx, cred.Pattern, auth); err != nil {
-			return skipped, fmt.Errorf("erro ao importar credencial '%s': %w", cred.Pattern, err)
+			return imported, skipped, fmt.Errorf("erro ao importar credencial '%s': %w", cred.Pattern, err)
 		}
+		imported++
 	}
 
-	return skipped, nil
+	return imported, skipped, nil
 }
 
 func intPtr(v int) *int {
@@ -390,8 +440,10 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 		Version:               file.Version,
 		AppVersion:            file.AppVersion,
 		ConversationCount:     len(file.Resources.Conversations),
+		TaskListCount:         len(file.Resources.TaskLists),
 		IncludesCredentials:   file.Options.IncludeCredentials && file.Resources.Credentials != nil,
 		ConversationConflicts: make([]ImportConflict, 0),
+		TaskListConflicts:     make([]ImportConflict, 0),
 		CredentialConflicts:   make([]ImportConflict, 0),
 		Warnings:              make([]string, 0),
 	}
@@ -399,6 +451,7 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 	for _, conv := range file.Resources.Conversations {
 		analysis.MessageCount += len(conv.Messages)
 	}
+	analysis.TaskCount, analysis.TaskNoteCount = countExportedTasks(file.Resources.TaskLists)
 
 	existingConversations, err := database.GetConversations()
 	if err != nil {
@@ -420,6 +473,22 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 			ResourceType: "conversation",
 			Identifier:   conversationConflictIdentifier(conv),
 			Reason:       "Já existe uma conversa com o mesmo título, canal e data de criação.",
+		})
+	}
+
+	existingTaskLists, err := database.GetAllTaskLists()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao analisar tasklists existentes: %w", err)
+	}
+	existingTaskListKeys := existingTaskListConflictKeys(existingTaskLists)
+	for _, taskList := range file.Resources.TaskLists {
+		if _, exists := existingTaskListKeys[taskListConflictLookupKey(taskList)]; !exists {
+			continue
+		}
+		analysis.TaskListConflicts = append(analysis.TaskListConflicts, ImportConflict{
+			ResourceType: "taskList",
+			Identifier:   taskListConflictIdentifier(taskList),
+			Reason:       "Já existe uma tasklist com o mesmo slug, ou com o mesmo título quando o slug está ausente.",
 		})
 	}
 
@@ -456,7 +525,7 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 		}
 	}
 
-	analysis.ConflictCount = len(analysis.ConversationConflicts) + len(analysis.CredentialConflicts)
+	analysis.ConflictCount = len(analysis.ConversationConflicts) + len(analysis.TaskListConflicts) + len(analysis.CredentialConflicts)
 	if emptyCount := countEmptyConversations(file.Resources.Conversations); emptyCount > 0 {
 		analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("%d conversa(s) vazia(s) serão descartadas na importação.", emptyCount))
 	}

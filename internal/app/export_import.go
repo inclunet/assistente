@@ -34,15 +34,22 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 		req.OutputFormat = portability.FormatJSON
 	}
 
-	ids, err := resolveConversationIDs(req)
+	conversationIDs, err := resolveConversationIDs(req)
+	if err != nil {
+		return "", err
+	}
+	taskListIDs, err := resolveTaskListIDs(req)
 	if err != nil {
 		return "", err
 	}
 	switch req.OutputFormat {
 	case portability.FormatJSON:
-		return portability.ExportConversations(ids, a.credMgr, req, AppVersion)
+		return portability.ExportPortableData(conversationIDs, taskListIDs, a.credMgr, req, AppVersion)
 	case portability.FormatHTML:
-		file, err := portability.BuildConversationExportFile(ids, a.credMgr, req, AppVersion)
+		if len(taskListIDs) > 0 {
+			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
+		}
+		file, err := portability.BuildConversationExportFile(conversationIDs, a.credMgr, req, AppVersion)
 		if err != nil {
 			return "", err
 		}
@@ -115,7 +122,22 @@ func (a *App) ExportConversationsToFile(ids []uint, format string) (string, erro
 }
 
 func resolveConversationIDs(req ExportRequest) ([]uint, error) {
-	if req.All || len(req.ConversationIDs) == 0 {
+	if req.All {
+		conversations, err := database.GetConversations()
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]uint, 0, len(conversations))
+		for _, conv := range conversations {
+			ids = append(ids, conv.ID)
+		}
+		return ids, nil
+	}
+
+	if len(req.ConversationIDs) == 0 {
+		if len(req.TaskListIDs) > 0 {
+			return nil, nil
+		}
 		conversations, err := database.GetConversations()
 		if err != nil {
 			return nil, err
@@ -132,6 +154,34 @@ func resolveConversationIDs(req ExportRequest) ([]uint, error) {
 		id64, err := strconv.ParseUint(raw, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("conversationId inválido: %s", raw)
+		}
+		ids = append(ids, uint(id64))
+	}
+	return ids, nil
+}
+
+func resolveTaskListIDs(req ExportRequest) ([]uint, error) {
+	if req.All {
+		taskLists, err := database.GetAllTaskLists()
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]uint, 0, len(taskLists))
+		for _, taskList := range taskLists {
+			ids = append(ids, taskList.ID)
+		}
+		return ids, nil
+	}
+
+	if len(req.TaskListIDs) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]uint, 0, len(req.TaskListIDs))
+	for _, raw := range req.TaskListIDs {
+		id64, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("taskListId inválido: %s", raw)
 		}
 		ids = append(ids, uint(id64))
 	}

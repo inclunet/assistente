@@ -1803,6 +1803,7 @@ export namespace main {
 	    failed: number;
 	    skippedEmptyConversations: number;
 	    skippedConversationConflict: number;
+	    skippedTaskListConflict: number;
 	    skippedCredentialConflict: number;
 	    skippedOther: number;
 	    unsupportedResourceTypes?: string[];
@@ -1822,6 +1823,7 @@ export namespace main {
 	        this.failed = source["failed"];
 	        this.skippedEmptyConversations = source["skippedEmptyConversations"];
 	        this.skippedConversationConflict = source["skippedConversationConflict"];
+	        this.skippedTaskListConflict = source["skippedTaskListConflict"];
 	        this.skippedCredentialConflict = source["skippedCredentialConflict"];
 	        this.skippedOther = source["skippedOther"];
 	        this.unsupportedResourceTypes = source["unsupportedResourceTypes"];

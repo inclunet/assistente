@@ -4,6 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockGetConversations = vi.fn();
+const mockGetAllTaskLists = vi.fn();
 const mockDeleteConversation = vi.fn();
 const mockUpdateConversation = vi.fn();
 const mockAnalyzeImportData = vi.fn();
@@ -65,6 +66,7 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@wailsjs/go/app/App', () => ({
   AnalyzeImportData: (payload: string, password: string) => mockAnalyzeImportData(payload, password),
+  GetAllTaskLists: () => mockGetAllTaskLists(),
   GetConversations: () => mockGetConversations(),
   DeleteConversation: (id: number) => mockDeleteConversation(id),
   UpdateConversation: (id: number, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
@@ -206,6 +208,7 @@ const conversations: ConversationItem[] = [
 describe('HistoryPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockGetConversations.mockResolvedValue(conversations);
+    mockGetAllTaskLists.mockResolvedValue([]);
     mockDeleteConversation.mockResolvedValue(undefined);
     mockUpdateConversation.mockResolvedValue(undefined);
     mockAnalyzeImportData.mockResolvedValue({
@@ -227,6 +230,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       failed: 0,
       skippedEmptyConversations: 0,
       skippedConversationConflict: 0,
+      skippedTaskListConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
       warnings: [],
@@ -386,6 +390,36 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     expect(mockDownloadJSON).toHaveBeenCalledWith('{"version":1}', 'conversas.json');
   });
 
+  it('exporta JSON incluindo tasklists persistidas quando a opcao esta marcada', async () => {
+    const user = userEvent.setup();
+    mockExportData.mockResolvedValue('{"version":1}');
+    mockGetAllTaskLists.mockResolvedValue([
+      { id: 10, title: 'Sprint 42' },
+      { id: 11, title: 'Backlog' },
+    ]);
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'select-two' }));
+    await user.click(screen.getByRole('button', { name: 'Exportar JSON (2)' }));
+
+    await screen.findByRole('heading', { name: 'Exportar conversas' });
+    await user.click(screen.getByRole('checkbox', { name: 'Incluir tasklists persistidas no banco' }));
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockGetAllTaskLists).toHaveBeenCalledTimes(1);
+      expect(mockExportData).toHaveBeenCalledWith({
+        conversationIds: ['1', '2'],
+        taskListIds: ['10', '11'],
+        includeCredentials: false,
+        outputFormat: 'json',
+      });
+    });
+  });
+
   it('exporta PDF de uma unica conversa pelo menu da linha', async () => {
     const user = userEvent.setup();
     const { default: HistoryPage } = await import('./HistoryPage');
@@ -452,6 +486,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
         conversationConflicts: [
           { resourceType: 'conversation', identifier: 'x', reason: 'Já existe uma conversa com o mesmo título, canal e data de criação.' },
         ],
+        taskListConflicts: [],
         credentialConflicts: [],
         credentialAnalysisError: '',
       });
@@ -483,8 +518,9 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockAnalyzeImportData.mockResolvedValueOnce({
       conflictCount: 0,
       warnings: [],
-      unsupportedResourceTypes: ['profiles', 'taskLists'],
+      unsupportedResourceTypes: ['profiles'],
       conversationConflicts: [],
+      taskListConflicts: [],
       credentialConflicts: [],
       credentialAnalysisError: '',
     });
@@ -495,7 +531,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await screen.findByText('Conversa 1');
     await user.click(screen.getByRole('button', { name: 'Importar' }));
 
-    await screen.findByText(/profiles, taskLists/);
+    await screen.findByText(/profiles/);
     expect(screen.getByText(/AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052/)).toBeInTheDocument();
   });
 
@@ -547,6 +583,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       failed: 0,
       skippedEmptyConversations: 0,
       skippedConversationConflict: 0,
+      skippedTaskListConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
       warnings: [],
@@ -591,6 +628,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       failed: 0,
       skippedEmptyConversations: 1,
       skippedConversationConflict: 1,
+      skippedTaskListConflict: 1,
       skippedCredentialConflict: 1,
       skippedOther: 0,
       warnings: [],
@@ -607,6 +645,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await screen.findByText('Resultado da importação');
     expect(screen.getByText('Conversas vazias')).toBeInTheDocument();
     expect(screen.getByText('Conflitos de conversa')).toBeInTheDocument();
+    expect(screen.getByText('Conflitos de tasklist')).toBeInTheDocument();
     expect(screen.getByText('Credenciais duplicadas')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Fechar' })).toBeInTheDocument();
   });
@@ -629,6 +668,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
         conflictCount: 0,
         warnings: ['Informe a senha de exportação para analisar conflitos de credenciais.'],
         conversationConflicts: [],
+        taskListConflicts: [],
         credentialConflicts: [],
         credentialAnalysisError: '',
       })
@@ -636,6 +676,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
         conflictCount: 1,
         warnings: [],
         conversationConflicts: [],
+        taskListConflicts: [],
         credentialConflicts: [
           { resourceType: 'credential', identifier: 'api.openai.com', reason: 'Já existe uma credencial registrada com o mesmo pattern.' },
         ],
@@ -676,6 +717,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       failed: 0,
       skippedEmptyConversations: 0,
       skippedConversationConflict: 0,
+      skippedTaskListConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
       warnings: [],
@@ -715,6 +757,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       failed: 0,
       skippedEmptyConversations: 0,
       skippedConversationConflict: 0,
+      skippedTaskListConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
       unsupportedResourceTypes: ['profiles'],
@@ -732,5 +775,50 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await screen.findByText('Resultado da importação');
     expect(screen.getByText('Avisos')).toBeInTheDocument();
     expect(screen.getByText('Este arquivo inclui recursos fora do escopo atual (profiles).')).toBeInTheDocument();
+  });
+
+  it('mostra contagens de tasklists no resumo e conflitos delas na analise', async () => {
+    const user = userEvent.setup();
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup.json',
+      content: JSON.stringify({
+        version: 1,
+        resources: {
+          conversations: [{ messages: [{}] }],
+          taskLists: [
+            {
+              tasks: [
+                {
+                  notes: [{}, {}],
+                  children: [{ notes: [{}] }],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    });
+    mockAnalyzeImportData.mockResolvedValueOnce({
+      conflictCount: 1,
+      warnings: [],
+      conversationConflicts: [],
+      taskListConflicts: [
+        { resourceType: 'taskList', identifier: 'sprint-42', reason: 'Já existe uma tasklist com o mesmo slug, ou com o mesmo título quando o slug está ausente.' },
+      ],
+      credentialConflicts: [],
+      credentialAnalysisError: '',
+    });
+
+    const { default: HistoryPage } = await import('./HistoryPage');
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Importar' }));
+
+    expect(await screen.findByText('Tasklists')).toBeInTheDocument();
+    expect(screen.getByText('Tarefas')).toBeInTheDocument();
+    expect(screen.getByText('Notas')).toBeInTheDocument();
+    expect(screen.getByText('Tasklists em conflito')).toBeInTheDocument();
+    expect(screen.getByText(/sprint-42/)).toBeInTheDocument();
   });
 });

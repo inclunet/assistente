@@ -70,6 +70,10 @@ func (s *memoryCredentialStore) HasKeyWrap(context.Context, string) (bool, error
 	return false, nil
 }
 
+func timePtr(v time.Time) *time.Time {
+	return &v
+}
+
 func TestExportConversationUsesIndexesInsteadOfIDs(t *testing.T) {
 	parentID := uint(10)
 	turnID := uint(10)
@@ -122,10 +126,124 @@ func setupPortabilityTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("falha ao criar banco em memória: %v", err)
 	}
-	if err := db.AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
+	if err := db.AutoMigrate(
+		&database.Conversation{},
+		&database.ChatMessage{},
+		&database.TaskListWorkflow{},
+		&database.TaskList{},
+		&database.Task{},
+		&database.TaskNote{},
+	); err != nil {
 		t.Fatalf("falha ao migrar tabelas: %v", err)
 	}
 	database.SetDB(db)
+}
+
+func createPortableTaskListFixture(t *testing.T) *database.TaskList {
+	t.Helper()
+
+	taskList, err := database.CreateTaskList("Sprint 42", "Implementar portability", nil, "sprint-42")
+	if err != nil {
+		t.Fatalf("CreateTaskList() error = %v", err)
+	}
+	if err := database.SetTaskListViewMode(taskList.ID, "kanban"); err != nil {
+		t.Fatalf("SetTaskListViewMode() error = %v", err)
+	}
+
+	policy := `{"task_code_regex":"^TASK-[0-9]+$","allowed_note_sources":["jira"]}`
+	if err := database.SetTaskListValidationPolicy(taskList.ID, policy); err != nil {
+		t.Fatalf("SetTaskListValidationPolicy() error = %v", err)
+	}
+
+	root, err := database.CreateTaskFull(
+		taskList.ID,
+		"Exportar tasklists",
+		"Fechar export/import canônico",
+		"TASK-1",
+		"https://example.invalid/tasks/1",
+		"Leonardo",
+		"leo",
+		"Assistente",
+		"agent",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("CreateTaskFull(root) error = %v", err)
+	}
+	if err := database.UpdateTaskStatus(root.ID, 2); err != nil {
+		t.Fatalf("UpdateTaskStatus(root) error = %v", err)
+	}
+
+	child, err := database.CreateTaskFull(
+		taskList.ID,
+		"Persistir notas",
+		"Importar notas externas também",
+		"TASK-2",
+		"",
+		"",
+		"",
+		"",
+		"",
+		&root.ID,
+	)
+	if err != nil {
+		t.Fatalf("CreateTaskFull(child) error = %v", err)
+	}
+
+	note, err := database.CreateTaskNote(root.ID, database.TaskNoteAgent, "Primeira nota", "Assistente", "agent")
+	if err != nil {
+		t.Fatalf("CreateTaskNote() error = %v", err)
+	}
+
+	taskListCreatedAt := time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC)
+	rootCreatedAt := taskListCreatedAt.Add(2 * time.Hour)
+	childCreatedAt := rootCreatedAt.Add(30 * time.Minute)
+	noteCreatedAt := rootCreatedAt.Add(15 * time.Minute)
+	noteExternalUpdatedAt := noteCreatedAt.Add(10 * time.Minute)
+
+	if err := database.DB().Model(&database.TaskList{}).Where("id = ?", taskList.ID).Updates(map[string]interface{}{
+		"created_at":          taskListCreatedAt,
+		"updated_at":          taskListCreatedAt,
+		"validation_policy":   policy,
+		"preferred_view_mode": "kanban",
+	}).Error; err != nil {
+		t.Fatalf("update tasklist fixture timestamps error = %v", err)
+	}
+	if err := database.DB().Model(&database.TaskListWorkflow{}).Where("task_list_id = ?", taskList.ID).Updates(map[string]interface{}{
+		"created_at": taskListCreatedAt,
+		"updated_at": taskListCreatedAt,
+	}).Error; err != nil {
+		t.Fatalf("update workflow fixture timestamps error = %v", err)
+	}
+	if err := database.DB().Model(&database.Task{}).Where("id = ?", root.ID).Updates(map[string]interface{}{
+		"created_at":   rootCreatedAt,
+		"updated_at":   rootCreatedAt,
+		"completed_at": nil,
+	}).Error; err != nil {
+		t.Fatalf("update root task timestamps error = %v", err)
+	}
+	if err := database.DB().Model(&database.Task{}).Where("id = ?", child.ID).Updates(map[string]interface{}{
+		"created_at": childCreatedAt,
+		"updated_at": childCreatedAt,
+	}).Error; err != nil {
+		t.Fatalf("update child task timestamps error = %v", err)
+	}
+	if err := database.DB().Model(&database.TaskNote{}).Where("id = ?", note.ID).Updates(map[string]interface{}{
+		"created_at":          noteCreatedAt,
+		"updated_at":          noteCreatedAt,
+		"external_source":     "jira",
+		"external_id":         "NOTE-1",
+		"external_parent_id":  "TASK-1",
+		"external_updated_at": noteExternalUpdatedAt,
+	}).Error; err != nil {
+		t.Fatalf("update task note fixture error = %v", err)
+	}
+
+	out, err := database.GetTaskList(taskList.ID)
+	if err != nil {
+		t.Fatalf("GetTaskList() error = %v", err)
+	}
+	return out
 }
 
 func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T) {
@@ -322,11 +440,210 @@ func TestAnalyzeImportDataReportsUnsupportedResourceTypes(t *testing.T) {
 		t.Fatalf("AnalyzeImportData() error = %v", err)
 	}
 
-	if len(analysis.UnsupportedResourceTypes) != 2 {
-		t.Fatalf("unsupported resource types = %v, want 2 entries", analysis.UnsupportedResourceTypes)
+	if len(analysis.UnsupportedResourceTypes) != 1 {
+		t.Fatalf("unsupported resource types = %v, want 1 entry", analysis.UnsupportedResourceTypes)
 	}
-	if analysis.UnsupportedResourceTypes[0] != "profiles" || analysis.UnsupportedResourceTypes[1] != "taskLists" {
+	if analysis.UnsupportedResourceTypes[0] != "profiles" {
 		t.Fatalf("unexpected unsupported resource types: %v", analysis.UnsupportedResourceTypes)
+	}
+}
+
+func TestBuildExportFileIncludesTaskLists(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	taskList := createPortableTaskListFixture(t)
+
+	file, err := BuildExportFile(nil, []uint{taskList.ID}, nil, ExportRequest{}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFile() error = %v", err)
+	}
+
+	if len(file.Resources.TaskLists) != 1 {
+		t.Fatalf("len(taskLists) = %d, want 1", len(file.Resources.TaskLists))
+	}
+	exported := file.Resources.TaskLists[0]
+	if exported.Slug != "sprint-42" {
+		t.Fatalf("Slug = %q, want sprint-42", exported.Slug)
+	}
+	if exported.PreferredViewMode != "kanban" {
+		t.Fatalf("PreferredViewMode = %q, want kanban", exported.PreferredViewMode)
+	}
+	if exported.ValidationPolicy == "" {
+		t.Fatal("ValidationPolicy vazio, want policy JSON")
+	}
+	if len(exported.Workflow.Statuses) != 3 {
+		t.Fatalf("len(workflow.statuses) = %d, want 3", len(exported.Workflow.Statuses))
+	}
+	if len(exported.Tasks) != 1 {
+		t.Fatalf("len(root tasks) = %d, want 1", len(exported.Tasks))
+	}
+	root := exported.Tasks[0]
+	if root.Code != "TASK-1" || root.StatusID != 2 {
+		t.Fatalf("unexpected root task export: %+v", root)
+	}
+	if len(root.Children) != 1 {
+		t.Fatalf("len(children) = %d, want 1", len(root.Children))
+	}
+	if len(root.Notes) != 1 {
+		t.Fatalf("len(notes) = %d, want 1", len(root.Notes))
+	}
+	if root.Notes[0].Source != "jira" || root.Notes[0].ExternalID != "NOTE-1" {
+		t.Fatalf("unexpected note export: %+v", root.Notes[0])
+	}
+}
+
+func TestAnalyzeImportDataDetectsTaskListConflicts(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	taskList := createPortableTaskListFixture(t)
+
+	file, err := BuildExportFile(nil, []uint{taskList.ID}, nil, ExportRequest{}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFile() error = %v", err)
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	analysis, err := AnalyzeImportData(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("AnalyzeImportData() error = %v", err)
+	}
+
+	if analysis.TaskListCount != 1 {
+		t.Fatalf("TaskListCount = %d, want 1", analysis.TaskListCount)
+	}
+	if analysis.TaskCount != 2 || analysis.TaskNoteCount != 1 {
+		t.Fatalf("TaskCount/TaskNoteCount = %d/%d, want 2/1", analysis.TaskCount, analysis.TaskNoteCount)
+	}
+	if len(analysis.TaskListConflicts) != 1 {
+		t.Fatalf("len(TaskListConflicts) = %d, want 1", len(analysis.TaskListConflicts))
+	}
+	if analysis.TaskListConflicts[0].Identifier != "sprint-42" {
+		t.Fatalf("unexpected tasklist conflict identifier: %+v", analysis.TaskListConflicts[0])
+	}
+}
+
+func TestImportConversationsImportsTaskLists(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	now := time.Now().UTC()
+	file := &ExportFile{
+		Version:    1,
+		ExportedAt: now,
+		Resources: ExportResources{
+			TaskLists: []TaskListExport{
+				{
+					Title:             "Sprint 99",
+					Slug:              "sprint-99",
+					Description:       "Fechar lote pre-migracao",
+					PreferredViewMode: "kanban",
+					ValidationPolicy:  `{"task_code_regex":"^TASK-[0-9]+$"}`,
+					CreatedAt:         now.Add(-48 * time.Hour),
+					Workflow: TaskListWorkflowExport{
+						Statuses: []TaskListWorkflowStatusExport{
+							{ID: 1, Order: 0, Label: "A Fazer", Color: "var(--color-warning)", Icon: "⌛"},
+							{ID: 2, Order: 1, Label: "Em Progresso", Color: "var(--color-info)", Icon: "▶️"},
+							{ID: 3, Order: 2, Label: "Concluído", Color: "var(--color-success)", Icon: "✅"},
+						},
+						AllowedTransitions: map[int][]int{
+							1: {2, 3},
+							2: {1, 3},
+							3: {1, 2},
+						},
+						InitialStatusID: 1,
+					},
+					Tasks: []TaskExport{
+						{
+							Title:        "Implementar export",
+							Description:  "Levar tasklists para o JSON",
+							Code:         "TASK-10",
+							StatusID:     2,
+							Order:        0,
+							AssigneeName: "Leonardo",
+							AssigneeID:   "leo",
+							CreatorName:  "Assistente",
+							CreatorID:    "agent",
+							CreatedAt:    now.Add(-47 * time.Hour),
+							Notes: []TaskNoteExport{
+								{
+									Type:              int(database.TaskNoteAgent),
+									Content:           "Nota sincronizada",
+									AuthorName:        "Assistente",
+									AuthorID:          "agent",
+									Source:            "jira",
+									ExternalID:        "NOTE-99",
+									ExternalParentID:  "TASK-10",
+									ExternalUpdatedAt: timePtr(now.Add(-46 * time.Hour)),
+									CreatedAt:         now.Add(-47 * time.Hour).Add(15 * time.Minute),
+								},
+							},
+							Children: []TaskExport{
+								{
+									Title:       "Validar import",
+									Code:        "TASK-11",
+									StatusID:    1,
+									Order:       0,
+									CreatedAt:   now.Add(-46 * time.Hour),
+									CompletedAt: nil,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversations(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Imported != 1 || result.Skipped != 0 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	taskLists, err := database.GetAllTaskLists()
+	if err != nil {
+		t.Fatalf("GetAllTaskLists() error = %v", err)
+	}
+	if len(taskLists) != 1 {
+		t.Fatalf("len(taskLists) = %d, want 1", len(taskLists))
+	}
+	importedTaskList, err := database.GetTaskListWithHierarchy(taskLists[0].ID)
+	if err != nil {
+		t.Fatalf("GetTaskListWithHierarchy() error = %v", err)
+	}
+	if importedTaskList.Slug != "sprint-99" {
+		t.Fatalf("Slug = %q, want sprint-99", importedTaskList.Slug)
+	}
+	if importedTaskList.PreferredViewMode != "kanban" {
+		t.Fatalf("PreferredViewMode = %q, want kanban", importedTaskList.PreferredViewMode)
+	}
+	if !importedTaskList.CreatedAt.Equal(now.Add(-48 * time.Hour)) {
+		t.Fatalf("CreatedAt = %s, want %s", importedTaskList.CreatedAt, now.Add(-48*time.Hour))
+	}
+	if len(importedTaskList.Tasks) != 1 || len(importedTaskList.Tasks[0].Subtasks) != 1 {
+		t.Fatalf("unexpected imported task hierarchy: %+v", importedTaskList.Tasks)
+	}
+	if importedTaskList.Tasks[0].StatusID != 2 {
+		t.Fatalf("root StatusID = %d, want 2", importedTaskList.Tasks[0].StatusID)
+	}
+	notes, err := database.GetTaskNotes(importedTaskList.Tasks[0].ID)
+	if err != nil {
+		t.Fatalf("GetTaskNotes() error = %v", err)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("len(notes) = %d, want 1", len(notes))
+	}
+	if notes[0].ExternalSource != "jira" || notes[0].ExternalID != "NOTE-99" {
+		t.Fatalf("unexpected imported note: %+v", notes[0])
 	}
 }
 

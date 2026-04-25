@@ -10,7 +10,7 @@ import {
   ImportOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { AnalyzeImportData, GetConversations, DeleteConversation, UpdateConversation, ExportConversationsToFile, ExportData, ImportData, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { AnalyzeImportData, GetAllTaskLists, GetConversations, DeleteConversation, UpdateConversation, ExportConversationsToFile, ExportData, ImportData, SearchConversationHistory } from '@wailsjs/go/app/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../components/menu';
@@ -48,6 +48,9 @@ interface ImportPreview {
   exportedAt: string;
   conversationCount: number;
   messageCount: number;
+  taskListCount: number;
+  taskCount: number;
+  taskNoteCount: number;
   includesCredentials: boolean;
   requiresCredentialPassword: boolean;
   includeAudio: boolean;
@@ -64,11 +67,15 @@ interface ImportAnalysis {
   appVersion?: string;
   conversationCount: number;
   messageCount: number;
+  taskListCount: number;
+  taskCount: number;
+  taskNoteCount: number;
   includesCredentials: boolean;
   requiresCredentialPassword: boolean;
   credentialCount: number;
   conflictCount: number;
   conversationConflicts?: ImportConflict[];
+  taskListConflicts?: ImportConflict[];
   credentialConflicts?: ImportConflict[];
   unsupportedResourceTypes?: string[];
   warnings?: string[];
@@ -82,6 +89,7 @@ interface ImportResultSummary {
   failed: number;
   skippedEmptyConversations: number;
   skippedConversationConflict: number;
+  skippedTaskListConflict: number;
   skippedCredentialConflict: number;
   skippedOther: number;
   unsupportedResourceTypes?: string[];
@@ -92,13 +100,35 @@ interface ImportResultSummary {
 
 interface ExportRequestPayload {
   conversationIds: string[];
+  taskListIds?: string[];
   includeCredentials: boolean;
   credentialExportPassword?: string;
   outputFormat: 'json';
 }
 
+interface TaskListRecord {
+  id: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function countTaskTree(items: unknown[]): { taskCount: number; taskNoteCount: number } {
+  return items.reduce<{ taskCount: number; taskNoteCount: number }>((counts, item) => {
+    if (!isRecord(item)) {
+      return counts;
+    }
+
+    const notes = Array.isArray(item.notes) ? item.notes.length : 0;
+    const children = Array.isArray(item.children) ? item.children : [];
+    const childCounts = countTaskTree(children);
+
+    return {
+      taskCount: counts.taskCount + 1 + childCounts.taskCount,
+      taskNoteCount: counts.taskNoteCount + notes + childCounts.taskNoteCount,
+    };
+  }, { taskCount: 0, taskNoteCount: 0 });
 }
 
 function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
@@ -110,12 +140,23 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
   const resources = isRecord(parsed.resources) ? parsed.resources : {};
   const options = isRecord(parsed.options) ? parsed.options : {};
   const conversations = Array.isArray(resources.conversations) ? resources.conversations : [];
+  const taskLists = Array.isArray(resources.taskLists) ? resources.taskLists : [];
   const messageCount = conversations.reduce((count, item) => {
     if (!isRecord(item) || !Array.isArray(item.messages)) {
       return count;
     }
     return count + item.messages.length;
   }, 0);
+  const taskCounts = taskLists.reduce<{ taskCount: number; taskNoteCount: number }>((counts, item) => {
+    if (!isRecord(item) || !Array.isArray(item.tasks)) {
+      return counts;
+    }
+    const treeCounts = countTaskTree(item.tasks);
+    return {
+      taskCount: counts.taskCount + treeCounts.taskCount,
+      taskNoteCount: counts.taskNoteCount + treeCounts.taskNoteCount,
+    };
+  }, { taskCount: 0, taskNoteCount: 0 });
   const credentials = resources.credentials;
   const includesCredentials = options.includeCredentials === true && credentials !== undefined && credentials !== null;
 
@@ -127,6 +168,9 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
     exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : '',
     conversationCount: conversations.length,
     messageCount,
+    taskListCount: taskLists.length,
+    taskCount: taskCounts.taskCount,
+    taskNoteCount: taskCounts.taskNoteCount,
     includesCredentials,
     requiresCredentialPassword:
       includesCredentials && isRecord(credentials) && credentials.mode === 'encrypted',
@@ -141,6 +185,9 @@ function buildImportAnalysisKey(preview: ImportPreview, password: string): strin
     preview.version ?? 'unknown',
     preview.conversationCount,
     preview.messageCount,
+    preview.taskListCount,
+    preview.taskCount,
+    preview.taskNoteCount,
     preview.includesCredentials ? 'with-credentials' : 'without-credentials',
     password,
   ].join('::');
@@ -162,6 +209,8 @@ export default function HistoryPage() {
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportTargetIds, setExportTargetIds] = useState<number[]>([]);
+  const [includeTaskListsExport, setIncludeTaskListsExport] = useState(false);
+  const [exportTaskListIds, setExportTaskListIds] = useState<number[]>([]);
   const [includeCredentialExport, setIncludeCredentialExport] = useState(false);
   const [exportPassword, setExportPassword] = useState('');
   const [exportPasswordError, setExportPasswordError] = useState('');
@@ -335,6 +384,8 @@ export default function HistoryPage() {
       return;
     }
     setExportTargetIds(idsToExport);
+    setIncludeTaskListsExport(false);
+    setExportTaskListIds([]);
     setIncludeCredentialExport(false);
     setExportPassword('');
     setExportPasswordError('');
@@ -344,12 +395,23 @@ export default function HistoryPage() {
   const closeExportModal = useCallback(() => {
     setIsExportModalOpen(false);
     setExportTargetIds([]);
+    setIncludeTaskListsExport(false);
+    setExportTaskListIds([]);
     setIncludeCredentialExport(false);
     setExportPassword('');
     setExportPasswordError('');
   }, []);
 
-  const exportJsonByIds = useCallback(async (idsToExport: number[], options?: {
+  const loadExportTaskListIds = useCallback(async () => {
+    const taskLists = await GetAllTaskLists() as TaskListRecord[];
+    const ids = (taskLists || [])
+      .map((taskList) => Number(taskList.id))
+      .filter((id) => Number.isFinite(id));
+    setExportTaskListIds(ids);
+    return ids;
+  }, []);
+
+  const exportJsonByIds = useCallback(async (idsToExport: number[], taskListIdsToExport: number[], options?: {
     includeCredentials?: boolean;
     credentialExportPassword?: string;
   }) => {
@@ -359,6 +421,9 @@ export default function HistoryPage() {
         includeCredentials: options?.includeCredentials === true,
         outputFormat: 'json',
       };
+      if (taskListIdsToExport.length > 0) {
+        payload.taskListIds = taskListIdsToExport.map((id) => String(id));
+      }
       if (payload.includeCredentials && options?.credentialExportPassword?.trim()) {
         payload.credentialExportPassword = options.credentialExportPassword.trim();
       }
@@ -366,8 +431,8 @@ export default function HistoryPage() {
       const filename = generateFilename('conversas');
       downloadJSON(jsonData, filename);
     } catch (error) {
-      console.error('Erro ao exportar conversas:', error);
-      announce(t('history.exportError', 'Erro ao exportar conversas'), 'assertive');
+      console.error('Erro ao exportar dados:', error);
+      announce(t('history.exportError', 'Erro ao exportar dados'), 'assertive');
     }
   }, [announce, t]);
 
@@ -397,7 +462,7 @@ export default function HistoryPage() {
   }, [exportRichByIds, getTargetConversationIds]);
 
   const handleConfirmExport = useCallback(async () => {
-    if (exportTargetIds.length === 0) {
+    if (exportTargetIds.length === 0 && !includeTaskListsExport) {
       announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
       return;
     }
@@ -409,7 +474,12 @@ export default function HistoryPage() {
     setIsExporting(true);
     setExportPasswordError('');
     try {
-      await exportJsonByIds(exportTargetIds, {
+      let taskListIdsToExport: number[] = [];
+      if (includeTaskListsExport) {
+        taskListIdsToExport = exportTaskListIds.length > 0 ? exportTaskListIds : await loadExportTaskListIds();
+      }
+
+      await exportJsonByIds(exportTargetIds, taskListIdsToExport, {
         includeCredentials: includeCredentialExport,
         credentialExportPassword: exportPassword,
       });
@@ -417,7 +487,7 @@ export default function HistoryPage() {
     } finally {
       setIsExporting(false);
     }
-  }, [announce, closeExportModal, exportJsonByIds, exportPassword, exportTargetIds, includeCredentialExport, t]);
+  }, [announce, closeExportModal, exportJsonByIds, exportPassword, exportTargetIds, exportTaskListIds, includeCredentialExport, includeTaskListsExport, loadExportTaskListIds, t]);
 
   const closeImportModal = useCallback(() => {
     setIsImportModalOpen(false);
@@ -539,11 +609,11 @@ export default function HistoryPage() {
       const result = await ImportData(importPreview.jsonData, importPassword.trim()) as ImportResultSummary;
       const details = [
         result.success
-          ? t('history.importSuccess', 'Conversas importadas com sucesso!')
-          : t('history.importPartial', 'Algumas conversas não puderam ser importadas.'),
+          ? t('history.importSuccess', 'Dados importados com sucesso!')
+          : t('history.importPartial', 'Alguns recursos não puderam ser importados.'),
         result.message,
         t('history.importCounts', {
-          defaultValue: 'Importadas: {{imported}} | Ignoradas: {{skipped}}',
+          defaultValue: 'Importados: {{imported}} | Ignorados: {{skipped}}',
           imported: result.imported,
           skipped: result.skipped,
         }),
@@ -564,6 +634,12 @@ export default function HistoryPage() {
         details.push(t('history.importSkippedConversationConflictCount', {
           defaultValue: 'Ignoradas por conflito de conversa: {{count}}',
           count: result.skippedConversationConflict,
+        }));
+      }
+      if (result.skippedTaskListConflict > 0) {
+        details.push(t('history.importSkippedTaskListConflictCount', {
+          defaultValue: 'Ignoradas por conflito de tasklist: {{count}}',
+          count: result.skippedTaskListConflict,
         }));
       }
       if (result.skippedCredentialConflict > 0) {
@@ -939,6 +1015,17 @@ export default function HistoryPage() {
               <dd>{exportTargetIds.length}</dd>
             </div>
             <div className="history-page__import-row">
+              <dt>{t('history.exportTaskListsLabel', 'Tasklists')}</dt>
+              <dd>
+                {includeTaskListsExport
+                  ? t('history.exportTaskListsIncluded', {
+                      defaultValue: '{{count}} incluída(s)',
+                      count: exportTaskListIds.length,
+                    })
+                  : t('history.exportTaskListsNotIncluded', 'Não incluir')}
+              </dd>
+            </div>
+            <div className="history-page__import-row">
               <dt>{t('history.exportFormatLabel', 'Formato')}</dt>
               <dd>{t('history.exportJson', 'Exportar JSON')}</dd>
             </div>
@@ -951,6 +1038,34 @@ export default function HistoryPage() {
               </dd>
             </div>
           </dl>
+
+          <Checkbox
+            checked={includeTaskListsExport}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setIncludeTaskListsExport(checked);
+              if (!checked) {
+                setExportTaskListIds([]);
+                return;
+              }
+              void loadExportTaskListIds().catch((error) => {
+                console.error('Erro ao carregar tasklists para exportação:', error);
+                setIncludeTaskListsExport(false);
+                setExportTaskListIds([]);
+                announce(t('history.exportTaskListsLoadError', 'Erro ao carregar tasklists para exportação'), 'assertive');
+              });
+            }}
+            label={t('history.exportTaskListsOption', 'Incluir tasklists persistidas no banco')}
+          />
+
+          {includeTaskListsExport && (
+            <p className="history-page__import-note">
+              {t(
+                'history.exportTaskListsDescription',
+                'As tasklists persistidas no banco serão adicionadas ao mesmo JSON canônico exportado junto com as conversas selecionadas.'
+              )}
+            </p>
+          )}
 
           <Checkbox
             checked={includeCredentialExport}
@@ -1061,6 +1176,18 @@ export default function HistoryPage() {
                 <dd>{importPreview.messageCount}</dd>
               </div>
               <div className="history-page__import-row">
+                <dt>{t('history.importTaskListsLabel', 'Tasklists')}</dt>
+                <dd>{importPreview.taskListCount}</dd>
+              </div>
+              <div className="history-page__import-row">
+                <dt>{t('history.importTasksLabel', 'Tarefas')}</dt>
+                <dd>{importPreview.taskCount}</dd>
+              </div>
+              <div className="history-page__import-row">
+                <dt>{t('history.importTaskNotesLabel', 'Notas')}</dt>
+                <dd>{importPreview.taskNoteCount}</dd>
+              </div>
+              <div className="history-page__import-row">
                 <dt>{t('history.importCredentialsLabel', 'Credenciais')}</dt>
                 <dd>
                   {importPreview.includesCredentials
@@ -1129,6 +1256,19 @@ export default function HistoryPage() {
                 </>
               )}
 
+              {!!importAnalysis.taskListConflicts?.length && (
+                <>
+                  <strong>{t('history.importTaskListConflicts', 'Tasklists em conflito')}</strong>
+                  <ul className="history-page__import-list">
+                    {importAnalysis.taskListConflicts.map((conflict) => (
+                      <li key={`${conflict.resourceType}-${conflict.identifier}`}>
+                        <code>{conflict.identifier}</code>: {conflict.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
               {!!importAnalysis.credentialConflicts?.length && (
                 <>
                   <strong>{t('history.importCredentialConflicts', 'Credenciais em conflito')}</strong>
@@ -1160,7 +1300,7 @@ export default function HistoryPage() {
                 <span>
                   {lastImportResult.success
                     ? t('common.success', 'Sucesso')
-                    : t('history.importPartial', 'Algumas conversas não puderam ser importadas.')}
+                    : t('history.importPartial', 'Alguns recursos não puderam ser importados.')}
                 </span>
               </div>
 
@@ -1187,6 +1327,12 @@ export default function HistoryPage() {
                   <div className="history-page__import-row">
                     <dt>{t('history.importSkippedConversationConflictLabel', 'Conflitos de conversa')}</dt>
                     <dd>{lastImportResult.skippedConversationConflict}</dd>
+                  </div>
+                )}
+                {lastImportResult.skippedTaskListConflict > 0 && (
+                  <div className="history-page__import-row">
+                    <dt>{t('history.importSkippedTaskListConflictLabel', 'Conflitos de tasklist')}</dt>
+                    <dd>{lastImportResult.skippedTaskListConflict}</dd>
                   </div>
                 )}
                 {lastImportResult.skippedCredentialConflict > 0 && (

@@ -268,13 +268,13 @@ func UpdateWorkflowFull(
 	}
 
 	for oldID, newID := range statusMigration {
-			if statusIDs[oldID] {
-				return fmt.Errorf("status_migration mapeia ID %d que ainda existe nos novos statuses", oldID)
-			}
-			if !statusIDs[newID] {
-				return fmt.Errorf("status_migration mapeia para ID %d inexistente nos novos statuses", newID)
-			}
+		if statusIDs[oldID] {
+			return fmt.Errorf("status_migration mapeia ID %d que ainda existe nos novos statuses", oldID)
 		}
+		if !statusIDs[newID] {
+			return fmt.Errorf("status_migration mapeia para ID %d inexistente nos novos statuses", newID)
+		}
+	}
 
 	counts, err := GetTaskCountsByStatus(taskListID)
 	if err != nil {
@@ -483,7 +483,7 @@ func CreateTask(taskListID uint, title, description, code, link string, parentID
 	} else {
 		query = query.Where("parent_id IS NULL")
 	}
-	query.Select("COALESCE(MAX(order), -1)").Scan(&maxOrder)
+	query.Select("COALESCE(MAX(`order`), -1)").Scan(&maxOrder)
 
 	task := &Task{
 		TaskListID:  taskListID,
@@ -521,7 +521,7 @@ func CreateTaskFull(taskListID uint, title, description, code, link, assigneeNam
 	} else {
 		query = query.Where("parent_id IS NULL")
 	}
-	query.Select("COALESCE(MAX(order), -1)").Scan(&maxOrder)
+	query.Select("COALESCE(MAX(`order`), -1)").Scan(&maxOrder)
 
 	task := &Task{
 		TaskListID:   taskListID,
@@ -913,15 +913,15 @@ func UpsertTaskNoteByExternal(p UpsertTaskNoteByExternalParams) (*TaskNote, bool
 	}
 
 	note := &TaskNote{
-		TaskID:             p.TaskID,
-		Type:               *p.Type,
-		Content:            p.Content,
-		AuthorName:         strings.TrimSpace(p.AuthorName),
-		AuthorID:           strings.TrimSpace(p.AuthorID),
-		ExternalSource:     src,
-		ExternalID:         ext,
-		ExternalParentID:   strings.TrimSpace(p.ExternalParentID),
-		ExternalUpdatedAt:  p.ExternalUpdatedAt,
+		TaskID:            p.TaskID,
+		Type:              *p.Type,
+		Content:           p.Content,
+		AuthorName:        strings.TrimSpace(p.AuthorName),
+		AuthorID:          strings.TrimSpace(p.AuthorID),
+		ExternalSource:    src,
+		ExternalID:        ext,
+		ExternalParentID:  strings.TrimSpace(p.ExternalParentID),
+		ExternalUpdatedAt: p.ExternalUpdatedAt,
 	}
 
 	if err := db.Create(note).Error; err != nil {
@@ -1033,12 +1033,11 @@ func GetTaskListWithHierarchy(id uint) (*TaskList, error) {
 	// Busca todas as tasks de uma vez
 	var allTasks []Task
 	db.Where("task_list_id = ?", id).
-		Order("parent_id ASC, order ASC").
+		Order("parent_id ASC, `order` ASC").
 		Find(&allTasks)
 
 	// Constrói hierarquia manualmente
 	taskMap := make(map[uint]*Task)
-	var rootTasks []Task
 
 	for i := range allTasks {
 		taskMap[allTasks[i].ID] = &allTasks[i]
@@ -1046,10 +1045,18 @@ func GetTaskListWithHierarchy(id uint) (*TaskList, error) {
 
 	for i := range allTasks {
 		task := &allTasks[i]
+		if task.ParentID != nil {
+			if parent, ok := taskMap[*task.ParentID]; ok {
+				parent.Subtasks = append(parent.Subtasks, *task)
+			}
+		}
+	}
+
+	rootTasks := make([]Task, 0)
+	for i := range allTasks {
+		task := allTasks[i]
 		if task.ParentID == nil {
-			rootTasks = append(rootTasks, *task)
-		} else if parent, ok := taskMap[*task.ParentID]; ok {
-			parent.Subtasks = append(parent.Subtasks, *task)
+			rootTasks = append(rootTasks, task)
 		}
 	}
 
