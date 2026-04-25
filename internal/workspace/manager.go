@@ -12,18 +12,18 @@ import (
 )
 
 const (
-	assistenteDir  = ".assistente"
-	workspaceFile  = "workspace.yaml"
-	indexFile      = "index.yaml"
-	workspacesDir  = "workspaces"
+	assistenteDir = ".assistente"
+	workspaceFile = "workspace.yaml"
+	indexFile     = "index.yaml"
+	workspacesDir = "workspaces"
 )
 
 // Manager gerencia workspaces: CRUD, persistência YAML e índice global.
 type Manager struct {
-	mu        sync.RWMutex
-	active    *Workspace
+	mu         sync.RWMutex
+	active     *Workspace
 	activePath string // diretório base do workspace ativo (contém .assistente/)
-	homeDir   string // ~/.assistente/
+	homeDir    string // ~/.assistente/
 }
 
 // NewManager cria um novo workspace manager.
@@ -441,7 +441,12 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 		tab.ConversationID = int64(convIDFloat)
 	}
 	if state, ok := updates["state"].(map[string]any); ok {
-		tab.State = state
+		if tab.State == nil {
+			tab.State = make(map[string]any)
+		}
+		for k, v := range state {
+			tab.State[k] = v
+		}
 	}
 	if override, ok := updates["profile_override"].(map[string]any); ok {
 		tab.ProfileOverride = override
@@ -799,6 +804,38 @@ func (m *Manager) touchIndex(ws *Workspace, basePath string) {
 	}
 
 	_ = m.saveIndex(idx)
+}
+
+// OpenEditorFilePaths retorna os caminhos absolutos de todos os arquivos abertos em abas de editor
+// no workspace ativo. Usado para permitir que filesystem tools acessem esses arquivos
+// mesmo que estejam fora do workDir.
+func (m *Manager) OpenEditorFilePaths() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.active == nil {
+		return nil
+	}
+
+	var paths []string
+	for _, tab := range m.active.Tabs.Items {
+		if tab.Type != TabTypeEditor {
+			continue
+		}
+		if tab.State == nil {
+			continue
+		}
+		fp, ok := tab.State["filePath"].(string)
+		if !ok || fp == "" {
+			continue
+		}
+		fp = filepath.Clean(fp)
+		if !filepath.IsAbs(fp) {
+			continue
+		}
+		paths = append(paths, fp)
+	}
+	return paths
 }
 
 func generateID() string {

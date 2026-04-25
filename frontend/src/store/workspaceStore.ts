@@ -149,6 +149,18 @@ function clearInitializeRetryTimer() {
   }
 }
 
+/**
+ * Faz merge de `patch` no state existente de uma aba.
+ * Isso garante que chaves como `filePath` não sejam perdidas quando
+ * callers passam apenas um subset do state (ex: { scrollTop: 240 }).
+ */
+function mergeTabState(
+  existing: Record<string, unknown> | undefined,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  return { ...(existing ?? {}), ...patch };
+}
+
 export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   workspace: null,
   workspaces: [],
@@ -403,7 +415,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
                   ...t,
                   ...(updates.title !== undefined ? { title: updates.title as string } : {}),
                   ...(updates.conversation_id !== undefined ? { conversationId: updates.conversation_id as number } : {}),
-                  ...(updates.state !== undefined ? { state: updates.state as Record<string, unknown> } : {}),
+                  ...(updates.state !== undefined ? { state: mergeTabState(t.state, updates.state as Record<string, unknown>) } : {}),
                   ...(updates.profile_override !== undefined ? { profileOverride: updates.profile_override as Record<string, unknown> } : {}),
                 }
               : t

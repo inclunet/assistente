@@ -341,3 +341,94 @@ describe('initialize', () => {
     });
   });
 });
+
+describe('updateTab — filePath no state', () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedUpdateWorkspaceTab.mockReset();
+    mockedUpdateWorkspaceTab.mockResolvedValue(undefined);
+  });
+
+  it('propaga filePath para state da aba editor', async () => {
+    setStoreState([
+      { id: 'tab-e1', type: 'editor', title: 'Novo documento', position: 0, state: {} },
+    ], 'tab-e1');
+
+    await useWorkspaceStore.getState().updateTab('tab-e1', {
+      state: { filePath: '/home/user/readme.md' },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.state?.filePath).toBe('/home/user/readme.md');
+    expect(mockedUpdateWorkspaceTab).toHaveBeenCalledWith('tab-e1', {
+      state: { filePath: '/home/user/readme.md' },
+    });
+  });
+
+  it('preserva state existente ao adicionar filePath', async () => {
+    setStoreState([
+      { id: 'tab-e2', type: 'editor', title: 'Doc', position: 0, state: { draftId: 'draft-1', scrollTop: 100 } },
+    ], 'tab-e2');
+
+    await useWorkspaceStore.getState().updateTab('tab-e2', {
+      state: { draftId: 'draft-1', scrollTop: 100, filePath: '/saved.md' },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.state).toEqual({ draftId: 'draft-1', scrollTop: 100, filePath: '/saved.md' });
+  });
+
+  it('atualiza titulo e state juntos', async () => {
+    setStoreState([
+      { id: 'tab-e3', type: 'editor', title: 'Novo documento', position: 0, state: {} },
+    ], 'tab-e3');
+
+    await useWorkspaceStore.getState().updateTab('tab-e3', {
+      title: 'saved-file.md',
+      state: { filePath: '/saved-file.md' },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.title).toBe('saved-file.md');
+    expect(tab?.state?.filePath).toBe('/saved-file.md');
+  });
+
+  it('aba pristine (sem state) recebe filePath corretamente', async () => {
+    setStoreState([
+      { id: 'tab-pristine', type: 'editor', title: 'Sem state', position: 0 },
+    ], 'tab-pristine');
+
+    await useWorkspaceStore.getState().updateTab('tab-pristine', {
+      state: { filePath: '/new.md' },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.state).toEqual({ filePath: '/new.md' });
+  });
+
+  it('faz merge de state parcial sem perder filePath existente', async () => {
+    setStoreState([
+      {
+        id: 'tab-e2-merge',
+        type: 'editor',
+        title: 'Doc com arquivo',
+        position: 0,
+        state: { filePath: '/persisted.md', sessionId: 'session-1' },
+      },
+    ], 'tab-e2-merge');
+
+    await useWorkspaceStore.getState().updateTab('tab-e2-merge', {
+      state: { scrollTop: 240 },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.state).toEqual({
+      filePath: '/persisted.md',
+      sessionId: 'session-1',
+      scrollTop: 240,
+    });
+    expect(mockedUpdateWorkspaceTab).toHaveBeenCalledWith('tab-e2-merge', {
+      state: { scrollTop: 240 },
+    });
+  });
+});

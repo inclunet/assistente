@@ -208,7 +208,7 @@ export function ChatSessionView({
       announce(t('chat.announce.messageResent'));
     },
     onDelete: handleDeleteMessage,
-    onSendToEditor: (payload) => sendToEditor(payload),
+    onSendToEditor: sendToEditor,
     editorTargets,
     onPin: (_message) => {
       announce(t('chat.announce.pinComingSoon'));
@@ -377,7 +377,7 @@ export function ChatSessionView({
           onSpeak={hasVoiceConfig ? speakMessage : undefined}
           onDelete={handleDeleteMessage}
           editorTargets={editorTargets}
-          onSendToEditor={(payload) => sendToEditor(payload)}
+          onSendToEditor={sendToEditor}
         />
 
         {sendError && lastFailedMessage && (

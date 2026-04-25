@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,11 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/tools"
 )
+
+// errOutsideAllowedDirs é retornado quando um caminho está fora dos diretórios permitidos.
+// Distingue-se de erros de input inválido (workDir vazio, caminho malformado) para que
+// a exceção de open editors só se aplique a esse caso específico.
+var errOutsideAllowedDirs = errors.New("caminho fora dos diretórios permitidos")
 
 // expandTilde expande ~ e ~/ no início de um caminho para o diretório home do usuário.
 // No Windows, ~ não é expandido pelo sistema — esta função resolve isso de forma portável.
@@ -110,31 +116,57 @@ func validatePath(fullPath, workDir string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("caminho fora dos diretórios permitidos")
+	return errOutsideAllowedDirs
 }
 
 func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, policy Policy, operation string) error {
 	if err := validatePath(fullPath, workDir); err != nil {
-		return err
+		// Exceção de open editors: aplica-se APENAS quando o erro é "fora dos diretórios"
+		// (não para workDir inválido, caminho malformado, etc.) e somente para read/write/edit/grep.
+		if !errors.Is(err, errOutsideAllowedDirs) || !isOpenEditorAllowed(ctx, fullPath, operation) {
+			return err
+		}
 	}
 	if err := validateSkillFilesystemAllowlist(ctx, fullPath, workDir, operation); err != nil {
 		return err
 	}
 	if policy.BlockSensitive && isSensitiveFile(fullPath) {
 		switch operation {
-		case "read":
+		case "read", "copy_from":
 			return fmt.Errorf("não é permitido ler arquivos sensíveis")
-		case "write":
+		case "write", "copy_to":
 			return fmt.Errorf("não é permitido escrever em arquivos sensíveis")
 		case "edit":
 			return fmt.Errorf("não é permitido editar arquivos sensíveis")
-		case "move":
+		case "move_from", "move_to":
 			return fmt.Errorf("não é permitido mover/renomear arquivos sensíveis")
 		default:
 			return fmt.Errorf("operação não permitida em arquivos sensíveis")
 		}
 	}
 	return nil
+}
+
+// isOpenEditorAllowed verifica se o arquivo está aberto em uma aba de editor e se a operação é permitida.
+// Leitura, escrita/edição e grep são permitidos; operações estruturais (list, search, move, delete) não.
+// Para grep, rejeita diretórios para evitar WalkDir fora do workDir.
+func isOpenEditorAllowed(ctx context.Context, fullPath, operation string) bool {
+	switch operation {
+	case "read", "write", "edit":
+		return tools.IsOpenEditorFile(ctx, fullPath)
+	case "grep":
+		if !tools.IsOpenEditorFile(ctx, fullPath) {
+			return false
+		}
+		// Rejeita diretórios: exceção de open editors é apenas para arquivos exatos.
+		info, err := os.Stat(fullPath)
+		if err != nil || info.IsDir() {
+			return false
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, operation string) error {
@@ -158,9 +190,9 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 
 	var allowed []string
 	switch operation {
-	case "read", "list", "search", "grep":
+	case "read", "list", "search", "grep", "copy_from":
 		allowed = ec.Filesystem.Read
-	case "write", "edit", "move":
+	case "write", "edit", "copy_to", "move_from", "move_to", "delete", "mkdir":
 		allowed = ec.Filesystem.Write
 	default:
 		// Se a operação não é conhecida, não aplica allowlist.
