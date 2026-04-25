@@ -53,7 +53,6 @@ export function ChatSessionView({
   const toggleReasoningExpanded = useChatStore((s) => s.toggleReasoningExpanded);
   const isReasoningExpanded = useChatStore((s) => s.isReasoningExpanded);
   const getActiveConversation = useCallback(() => activeConversation, [activeConversation]);
-  const getThreadedMessages = useCallback(() => threadedMessages, [threadedMessages]);
 
   const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
   useEffect(() => {

@@ -392,9 +392,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     // Fire-and-forget: UI já atualizada; rollback em caso de falha
     void SetActiveWorkspaceTab(tabId).catch(() => {
       if (get().workspace?.activeTabId === tabId) {
+        // Valida se a aba anterior ainda existe antes de restaurar;
+        // se foi removida, usa a primeira aba disponível como fallback.
+        const tabs = get().workspace?.tabs ?? [];
+        const rollbackId = tabs.some(t => t.id === previousTabId)
+          ? previousTabId
+          : (tabs[0]?.id ?? null);
         set(state => ({
           workspace: state.workspace
-            ? { ...state.workspace, activeTabId: previousTabId }
+            ? { ...state.workspace, activeTabId: rollbackId }
             : null,
         }));
         announce(i18next.t('workspace.tabSwitchFailed'));
