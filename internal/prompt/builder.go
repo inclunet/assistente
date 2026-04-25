@@ -173,7 +173,7 @@ func (b *Builder) Build(
 			var sb strings.Builder
 			sb.WriteString("\n\n<open_editor_files>\n")
 			sb.WriteString("The following files are currently open in the user's editor tabs. ")
-			sb.WriteString("You CAN read, edit, and grep ONLY these exact file paths using the filesystem tools (read_file, write_file, edit_file, grep), ")
+			sb.WriteString("You CAN read, edit, and grep ONLY these exact file paths using the filesystem tools (read_file, write_file, edit_file, grep_search), ")
 			sb.WriteString("even if one of the listed files is outside the working directory. ")
 			sb.WriteString("This exception applies ONLY to the exact full paths listed below — not to their parent directories, sibling files, or any other related paths. ")
 			sb.WriteString("Structural operations (move, copy, delete, list_directory) are NOT allowed on these files. ")
@@ -181,6 +181,7 @@ func (b *Builder) Build(
 			for _, p := range paths {
 				// Escape newlines/special chars to prevent prompt injection via filenames
 				safe := strings.ReplaceAll(strings.ReplaceAll(p, "\n", "_"), "\r", "_")
+				safe = strings.ReplaceAll(safe, "`", "'")
 				sb.WriteString("- `")
 				sb.WriteString(safe)
 				sb.WriteString("`\n")
