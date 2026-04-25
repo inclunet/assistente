@@ -1,6 +1,10 @@
 package portability
 
-import "testing"
+import (
+	"encoding/base64"
+	"strings"
+	"testing"
+)
 
 func TestEncryptDecryptCredentialsPayload(t *testing.T) {
 	type credential struct {
@@ -47,5 +51,33 @@ func TestDecryptCredentialsPayloadWrongPassword(t *testing.T) {
 func TestEncryptCredentialsPayloadRequiresPassword(t *testing.T) {
 	if _, err := EncryptCredentialsPayload("   ", map[string]string{"token": "abc"}); err == nil {
 		t.Fatal("EncryptCredentialsPayload() expected error for empty password")
+	}
+}
+
+func TestDecryptCredentialsPayloadRejectsInvalidSaltShape(t *testing.T) {
+	blob, err := EncryptCredentialsPayload("senha-correta", map[string]string{"token": "abc"})
+	if err != nil {
+		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
+	}
+
+	blob.Salt = base64.StdEncoding.EncodeToString([]byte("short"))
+
+	var output map[string]string
+	if err := DecryptCredentialsPayload("senha-correta", blob, &output); err == nil {
+		t.Fatal("DecryptCredentialsPayload() expected error for invalid salt")
+	}
+}
+
+func TestDecryptCredentialsPayloadRejectsOversizedCiphertext(t *testing.T) {
+	blob, err := EncryptCredentialsPayload("senha-correta", map[string]string{"token": "abc"})
+	if err != nil {
+		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
+	}
+
+	blob.Ciphertext = strings.Repeat("A", base64.StdEncoding.EncodedLen(maxCredentialCiphertextBytes+1))
+
+	var output map[string]string
+	if err := DecryptCredentialsPayload("senha-correta", blob, &output); err == nil {
+		t.Fatal("DecryptCredentialsPayload() expected error for oversized ciphertext")
 	}
 }

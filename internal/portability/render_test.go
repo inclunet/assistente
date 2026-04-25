@@ -178,6 +178,15 @@ func TestNormalizeBase64DataRejectsOversizedPayload(t *testing.T) {
 	}
 }
 
+func TestRoleLabelNormalizesUnicodeFallbackSafely(t *testing.T) {
+	if got := roleLabel("  ánalise "); got != "Ánalise" {
+		t.Fatalf("roleLabel() = %q, want %q", got, "Ánalise")
+	}
+	if got := roleLabel(" "); got != "Mensagem" {
+		t.Fatalf("roleLabel() = %q, want %q", got, "Mensagem")
+	}
+}
+
 func TestRenderConversationsPDFReturnsBytes(t *testing.T) {
 	file := &ExportFile{
 		Version:    1,

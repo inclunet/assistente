@@ -382,7 +382,8 @@ func pdfText(text string, useUTF8 bool) string {
 }
 
 func roleLabel(role string) string {
-	switch strings.ToLower(strings.TrimSpace(role)) {
+	normalized := strings.TrimSpace(role)
+	switch strings.ToLower(normalized) {
 	case "user":
 		return "Usuário"
 	case "assistant":
@@ -392,10 +393,15 @@ func roleLabel(role string) string {
 	case "system":
 		return "Sistema"
 	default:
-		if role == "" {
+		if normalized == "" {
 			return "Mensagem"
 		}
-		return strings.ToUpper(role[:1]) + role[1:]
+		runes := []rune(normalized)
+		if len(runes) == 0 {
+			return "Mensagem"
+		}
+		runes[0] = []rune(strings.ToUpper(string(runes[0])))[0]
+		return string(runes)
 	}
 }
 

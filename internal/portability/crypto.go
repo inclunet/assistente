@@ -14,13 +14,16 @@ import (
 )
 
 const (
-	credentialCipherMode             = "encrypted"
-	credentialCipherAlgorithm        = "argon2id-aes-256-gcm"
-	credentialCipherVersion          = 1
-	credentialArgonTime       uint32 = 3
-	credentialArgonMemory     uint32 = 64 * 1024
-	credentialArgonThreads    uint8  = 4
-	credentialArgonKeyLen            = 32
+	credentialCipherMode                = "encrypted"
+	credentialCipherAlgorithm           = "argon2id-aes-256-gcm"
+	credentialCipherVersion             = 1
+	credentialArgonTime          uint32 = 3
+	credentialArgonMemory        uint32 = 64 * 1024
+	credentialArgonThreads       uint8  = 4
+	credentialArgonKeyLen               = 32
+	credentialSaltLen                   = 16
+	maxCredentialSaltBytes              = 64
+	maxCredentialCiphertextBytes        = 8 * 1024 * 1024
 )
 
 func EncryptCredentialsPayload(password string, payload any) (*CredentialCipher, error) {
@@ -33,7 +36,7 @@ func EncryptCredentialsPayload(password string, payload any) (*CredentialCipher,
 		return nil, err
 	}
 
-	salt := make([]byte, 16)
+	salt := make([]byte, credentialSaltLen)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
 		return nil, err
 	}
@@ -70,9 +73,12 @@ func DecryptCredentialsPayload(password string, blob *CredentialCipher, out any)
 		return errors.New("versão do bloco de credenciais não suportada")
 	}
 
-	salt, err := base64.StdEncoding.DecodeString(blob.Salt)
+	salt, err := decodeBase64WithLimit(blob.Salt, maxCredentialSaltBytes)
 	if err != nil {
 		return err
+	}
+	if len(salt) != credentialSaltLen {
+		return errors.New("salt do bloco de credenciais inválido")
 	}
 
 	key := argon2.IDKey([]byte(password), salt, credentialArgonTime, credentialArgonMemory, credentialArgonThreads, credentialArgonKeyLen)
@@ -82,6 +88,20 @@ func DecryptCredentialsPayload(password string, blob *CredentialCipher, out any)
 	}
 
 	return json.Unmarshal(raw, out)
+}
+
+func decodeBase64WithLimit(encoded string, maxDecodedBytes int) ([]byte, error) {
+	if maxDecodedBytes <= 0 {
+		return nil, errors.New("limite inválido para decodificação base64")
+	}
+	trimmed := strings.TrimSpace(encoded)
+	if trimmed == "" {
+		return nil, errors.New("payload base64 ausente")
+	}
+	if base64.StdEncoding.DecodedLen(len(trimmed)) > maxDecodedBytes {
+		return nil, errors.New("payload base64 excede o limite permitido")
+	}
+	return base64.StdEncoding.DecodeString(trimmed)
 }
 
 func encryptBytes(key []byte, plaintext []byte) (string, error) {
@@ -104,7 +124,7 @@ func encryptBytes(key []byte, plaintext []byte) (string, error) {
 }
 
 func decryptBytes(key []byte, encoded string) ([]byte, error) {
-	data, err := base64.StdEncoding.DecodeString(encoded)
+	data, err := decodeBase64WithLimit(encoded, maxCredentialCiphertextBytes)
 	if err != nil {
 		return nil, err
 	}
