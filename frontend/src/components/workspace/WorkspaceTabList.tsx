@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MessageOutlined,
@@ -23,7 +23,7 @@ const TAB_TYPE_ICONS: Record<TabType, ReactNode> = {
   tasklist: <CheckSquareOutlined />,
 };
 
-export function WorkspaceTabList() {
+export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
   const { t } = useTranslation();
   const { workspace, workspaces, setActiveTab, removeTab, updateTab, reorderTabs, moveTabToWorkspace, renameTabContent } = useWorkspaceStore(
     useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, setActiveTab: s.setActiveTab, removeTab: s.removeTab, updateTab: s.updateTab, reorderTabs: s.reorderTabs, moveTabToWorkspace: s.moveTabToWorkspace, renameTabContent: s.renameTabContent }))
@@ -424,4 +424,4 @@ export function WorkspaceTabList() {
       />
     </>
   );
-}
+});

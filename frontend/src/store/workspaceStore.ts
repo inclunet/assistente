@@ -369,12 +369,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       announce(i18next.t('workspace.closeDialogBeforeChangingTabs'));
       return;
     }
-    await SetActiveWorkspaceTab(tabId);
+    // Optimistic update: atualiza UI imediatamente, persiste em background
     set(state => ({
       workspace: state.workspace
         ? { ...state.workspace, activeTabId: tabId }
         : null,
     }));
+    SetActiveWorkspaceTab(tabId).catch(() => {
+      // Rollback em caso de falha (raro)
+      set(state => ({
+        workspace: state.workspace
+          ? { ...state.workspace, activeTabId: get().workspace?.activeTabId ?? '' }
+          : null,
+      }));
+    });
   },
 
   updateTab: async (tabId, updates) => {

@@ -74,6 +74,7 @@ export default function EditorPage() {
 
   const documents = useEditorStore((s) => s.documents);
   const activeDocumentId = useEditorStore((s) => s.activeDocumentId);
+  const activeDocument = useEditorStore((s) => s.activeDocumentId ? s.documents[s.activeDocumentId] ?? null : null);
   const createDocument = useEditorStore((s) => s.createDocument);
   const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
   const renameDocument = useEditorStore((s) => s.renameDocument);
@@ -93,7 +94,7 @@ export default function EditorPage() {
   const tabProfileSlug = wsActiveTab?.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || 'editor-texto';
 
-  const activeTab = useMemo(() => activeDocumentId ? documents[activeDocumentId] ?? null : null, [documents, activeDocumentId]);
+  const activeTab = activeDocument;
 
 
   const pageRootRef = useRef<HTMLDivElement>(null);
