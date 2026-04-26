@@ -183,6 +183,40 @@ func TestUpdateTab_MergesState(t *testing.T) {
 	}
 }
 
+func TestUpdateTab_NilRemovesStateKey(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	if err := m.AddTab(Tab{
+		ID:    "tab-nil",
+		Type:  TabTypeEditor,
+		Title: "test",
+		State: map[string]any{"filePath": "/tmp/file.go", "draftId": "abc"},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	// Setting a state key to nil should remove it
+	if err := m.UpdateTab("tab-nil", map[string]any{
+		"state": map[string]any{"draftId": nil},
+	}); err != nil {
+		t.Fatalf("UpdateTab: %v", err)
+	}
+
+	tab := m.active.FindTab("tab-nil")
+	if tab == nil {
+		t.Fatal("tab not found after update")
+	}
+	if _, exists := tab.State["draftId"]; exists {
+		t.Error("draftId should have been removed by nil, but still exists")
+	}
+	if tab.State["filePath"] != "/tmp/file.go" {
+		t.Errorf("filePath should be preserved: got %v", tab.State["filePath"])
+	}
+}
+
 func TestUpdateTab_MergesStatePreservesOpenEditorPaths(t *testing.T) {
 	m := NewManager(t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {

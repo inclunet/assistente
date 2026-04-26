@@ -450,7 +450,11 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 			tab.State = make(map[string]any)
 		}
 		for k, v := range state {
-			tab.State[k] = v
+			if v == nil {
+				delete(tab.State, k)
+			} else {
+				tab.State[k] = v
+			}
 		}
 	}
 	if override, ok := updates["profile_override"].(map[string]any); ok {
