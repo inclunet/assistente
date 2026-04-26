@@ -390,8 +390,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
         : null,
     }));
     // Fire-and-forget: UI já atualizada; rollback em caso de falha.
-    // O await nesta função só cobre o optimistic update (síncrono);
-    // a persistência no backend é assíncrona e não bloqueia callers.
+    // A persistência no backend é assíncrona e não bloqueia callers.
     void SetActiveWorkspaceTab(tabId).catch((err: unknown) => {
       console.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
       if (get().workspace?.activeTabId === tabId) {

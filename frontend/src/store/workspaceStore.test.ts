@@ -239,14 +239,16 @@ describe('setActiveTab', () => {
 
     mockedSetActiveWorkspaceTab.mockResolvedValue(undefined as never);
 
-    const promise = useWorkspaceStore.getState().setActiveTab('tab-2');
+    // setActiveTab é síncrono (fire-and-forget para backend)
+    useWorkspaceStore.getState().setActiveTab('tab-2');
 
-    // Optimistic: UI atualizada antes do await
+    // Optimistic: UI atualizada imediatamente
     expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
 
-    await promise;
-
-    expect(mockedSetActiveWorkspaceTab).toHaveBeenCalledWith('tab-2');
+    // Aguarda backend fire-and-forget completar
+    await vi.waitFor(() => {
+      expect(mockedSetActiveWorkspaceTab).toHaveBeenCalledWith('tab-2');
+    });
     expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
   });
 
@@ -258,9 +260,10 @@ describe('setActiveTab', () => {
 
     mockedSetActiveWorkspaceTab.mockRejectedValue(new Error('backend error'));
 
-    await useWorkspaceStore.getState().setActiveTab('tab-2');
+    // setActiveTab é síncrono; o rollback ocorre no .catch assíncrono
+    useWorkspaceStore.getState().setActiveTab('tab-2');
 
-    // Aguarda o .catch processar
+    // Aguarda o .catch processar o rollback
     await vi.waitFor(() => {
       expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-1');
     });
@@ -281,16 +284,15 @@ describe('setActiveTab', () => {
       .mockResolvedValueOnce(undefined as never);
 
     // Inicia troca para tab-2 (vai falhar eventualmente)
-    const firstSwitch = useWorkspaceStore.getState().setActiveTab('tab-2');
+    useWorkspaceStore.getState().setActiveTab('tab-2');
     expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
 
     // Antes do erro, outra troca ocorre para tab-3
-    await useWorkspaceStore.getState().setActiveTab('tab-3');
+    useWorkspaceStore.getState().setActiveTab('tab-3');
     expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-3');
 
     // Agora a primeira falha
     rejectFirst!(new Error('backend error'));
-    await firstSwitch;
 
     // tab-3 deve permanecer (rollback não deve sobrescrever)
     await vi.waitFor(() => {
