@@ -61,7 +61,7 @@ func (t *DeleteFile) Execute(ctx context.Context, args json.RawMessage) (tools.T
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
-	if err := validatePathWithPolicy(ctx, fullPath, t.workDir, ToolPolicy(), "write"); err != nil {
+	if err := validatePathWithPolicy(ctx, fullPath, t.workDir, ToolPolicy(), "delete"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
