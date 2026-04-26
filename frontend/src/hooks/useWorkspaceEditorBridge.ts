@@ -106,7 +106,17 @@ export function useWorkspaceEditorBridge() {
     // Sync inicial: propaga filePath que já existe no editorStore mas não no workspace
     syncEditorToWs(useEditorStore.getState());
 
-    const unsub = useEditorStore.subscribe(syncEditorToWs);
+    // Filtra chamadas: só executa sync quando title ou filePath de algum doc mudar
+    // (evita iteração desnecessária em cada keystroke do editor)
+    let prevKey = '';
+    const unsub = useEditorStore.subscribe((state) => {
+      const key = Object.entries(state.documents)
+        .map(([id, doc]) => `${id}:${doc.title}:${(doc.filePath as string) || ''}`)
+        .join('|');
+      if (key === prevKey) return;
+      prevKey = key;
+      syncEditorToWs(state);
+    });
     return unsub;
   }, []);
 

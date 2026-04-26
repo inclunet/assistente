@@ -4,7 +4,6 @@
 package prompt
 
 import (
-	"html"
 	"log"
 	"reflect"
 	"strings"
@@ -182,13 +181,15 @@ func (b *Builder) Build(
 			sb.WriteString("If the active skill restricts filesystem access, those restrictions still apply on top of this exception. ")
 			sb.WriteString("Any other path remains subject to the normal workspace roots and filesystem access policies:\n")
 			for _, p := range paths {
-				// Escape special chars to prevent prompt injection via filenames.
-				// Apply html.EscapeString first (handles <, >, &, ", ') then strip
-				// backticks (could confuse LLM markdown parsing) and replace
-				// newlines/carriage-returns with underscores.
-				safe := html.EscapeString(p)
-				safe = strings.ReplaceAll(safe, "`", "")
-				safe = strings.ReplaceAll(strings.ReplaceAll(safe, "\n", "_"), "\r", "_")
+				// Sanitize to prevent prompt injection via filenames while keeping
+				// the path usable by filesystem tools (which need the real path).
+				// Strip chars that could break XML-like prompt structure or confuse
+				// LLM markdown parsing; do NOT use html.EscapeString which corrupts
+				// chars like & and " making the path unusable for tool calls.
+				safe := strings.NewReplacer(
+					"<", "", ">", "", "`", "",
+					"\n", "_", "\r", "_",
+				).Replace(p)
 				sb.WriteString("- ")
 				sb.WriteString(safe)
 				sb.WriteString("\n")

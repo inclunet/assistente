@@ -150,6 +150,7 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 // isOpenEditorAllowed verifica se o arquivo está aberto em uma aba de editor e se a operação é permitida.
 // Leitura, escrita/edição e grep são permitidos; operações estruturais (list, search, move, delete) não.
 // Rejeita diretórios para todas as operações — a exceção de open editors é apenas para arquivos exatos.
+// Resolve symlinks: se o target real for arquivo sensível (bypass via symlink), rejeita.
 func isOpenEditorAllowed(ctx context.Context, fullPath, operation string) bool {
 	switch operation {
 	case "read", "write", "edit", "grep":
@@ -160,6 +161,17 @@ func isOpenEditorAllowed(ctx context.Context, fullPath, operation string) bool {
 		info, err := os.Stat(fullPath)
 		if err != nil || info.IsDir() {
 			return false
+		}
+		// Protege contra bypass de sensitive files via symlink:
+		// se o path original não é sensível mas o target resolvido é, rejeita.
+		if !isSensitiveFile(fullPath) {
+			resolved, err := filepath.EvalSymlinks(fullPath)
+			if err != nil {
+				return false
+			}
+			if isSensitiveFile(resolved) {
+				return false
+			}
 		}
 		return true
 	default:
