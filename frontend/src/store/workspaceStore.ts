@@ -135,6 +135,7 @@ function generateTabId(): string {
 
 let initializingPromise: Promise<void> | null = null;
 let initializeRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let activationSeqId = 0;
 const WAILS_BRIDGE_INIT_TIMEOUT_MS = 10000;
 const WAILS_BRIDGE_RETRY_DELAY_MS = 1000;
 
@@ -384,6 +385,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     }
     // Optimistic update: atualiza UI imediatamente, persiste em background
     const previousTabId = get().workspace?.activeTabId ?? null;
+    const mySeq = ++activationSeqId;
     set(state => ({
       workspace: state.workspace
         ? { ...state.workspace, activeTabId: tabId }
@@ -393,9 +395,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     // A persistência no backend é assíncrona e não bloqueia callers.
     void SetActiveWorkspaceTab(tabId).catch((err: unknown) => {
       console.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
-      if (get().workspace?.activeTabId === tabId) {
-        // Valida se a aba anterior ainda existe antes de restaurar;
-        // se foi removida, usa a primeira aba disponível como fallback.
+      // Só faz rollback se nenhuma ativação mais recente ocorreu desde esta.
+      if (activationSeqId === mySeq) {
         const tabs = get().workspace?.tabs ?? [];
         const rollbackId = tabs.some(t => t.id === previousTabId)
           ? previousTabId

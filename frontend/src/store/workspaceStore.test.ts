@@ -300,6 +300,42 @@ describe('setActiveTab', () => {
     });
   });
 
+  it('não faz rollback stale quando usuário volta para mesma aba do request falhado', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+      { id: 'tab-3', type: 'editor', title: 'Editor', position: 2 },
+    ], 'tab-1');
+
+    let rejectFirst: (err: Error) => void;
+    mockedSetActiveWorkspaceTab
+      .mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej; }) as never)
+      .mockResolvedValueOnce(undefined as never)
+      .mockResolvedValueOnce(undefined as never);
+
+    // Ativação A: tab-1 → tab-2 (vai falhar)
+    useWorkspaceStore.getState().setActiveTab('tab-2');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+
+    // Ativação B: tab-2 → tab-3
+    useWorkspaceStore.getState().setActiveTab('tab-3');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-3');
+
+    // Ativação C: tab-3 → tab-2 (volta para mesma aba de A)
+    useWorkspaceStore.getState().setActiveTab('tab-2');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+
+    // A falha agora — activeTabId === 'tab-2' (mesma de A), mas seqId é diferente
+    rejectFirst!(new Error('backend error'));
+
+    // tab-2 deve permanecer (rollback stale de A não deve sobrescrever C)
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+    });
+    // announce NÃO deve ser chamado (rollback não executou)
+    expect(mockedAnnounce).not.toHaveBeenCalled();
+  });
+
   it('ignora quando tabId já é a aba ativa', async () => {
     setStoreState([
       { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
