@@ -149,12 +149,10 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 
 // isOpenEditorAllowed verifica se o arquivo está aberto em uma aba de editor e se a operação é permitida.
 // Leitura, escrita/edição e grep são permitidos; operações estruturais (list, search, move, delete) não.
-// Para grep, rejeita diretórios para evitar WalkDir fora do workDir.
+// Rejeita diretórios para todas as operações — a exceção de open editors é apenas para arquivos exatos.
 func isOpenEditorAllowed(ctx context.Context, fullPath, operation string) bool {
 	switch operation {
-	case "read", "write", "edit":
-		return tools.IsOpenEditorFile(ctx, fullPath)
-	case "grep":
+	case "read", "write", "edit", "grep":
 		if !tools.IsOpenEditorFile(ctx, fullPath) {
 			return false
 		}
