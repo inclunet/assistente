@@ -225,7 +225,7 @@ describe('setActiveTab', () => {
 
     mockedIsModalOpen.mockReturnValue(true);
 
-    await useWorkspaceStore.getState().setActiveTab('tab-2');
+    useWorkspaceStore.getState().setActiveTab('tab-2');
 
     expect(mockedSetActiveWorkspaceTab).not.toHaveBeenCalled();
     expect(mockedAnnounce).toHaveBeenCalledTimes(1);
@@ -305,7 +305,7 @@ describe('setActiveTab', () => {
       { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
     ], 'tab-1');
 
-    await useWorkspaceStore.getState().setActiveTab('tab-1');
+    useWorkspaceStore.getState().setActiveTab('tab-1');
 
     expect(mockedSetActiveWorkspaceTab).not.toHaveBeenCalled();
   });
