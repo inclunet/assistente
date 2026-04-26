@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab, registerTabRenameHandler } from '../store/workspaceStore';
 import { useEditorStore, DEFAULT_MD } from '../store/editorStore';
 import { EditorReadFile } from '@wailsjs/go/app/App';
 import { basenameFromPath } from '../utils/path';
@@ -18,7 +18,7 @@ import { basenameFromPath } from '../utils/path';
  * - F2 rename → renameDocument no editorStore
  */
 export function useWorkspaceEditorBridge() {
-  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
+  const activeTab = useActiveTab();
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 
   const lastSyncedRef = useRef<string | null>(null);
@@ -76,18 +76,46 @@ export function useWorkspaceEditorBridge() {
     }
   }
 
-  // Sincroniza título do editorStore → workspace tab
+  // Sincroniza título e filePath do editorStore → workspace tab
   useEffect(() => {
-    const unsub = useEditorStore.subscribe((state) => {
+    const syncEditorToWs = (state: ReturnType<typeof useEditorStore.getState>) => {
       const ws = useWorkspaceStore.getState();
       const wsTabs = ws.workspace?.tabs || [];
       for (const wsTab of wsTabs) {
         if (wsTab.type !== 'editor') continue;
         const doc = state.documents[wsTab.id];
-        if (doc && doc.title !== wsTab.title) {
-          void ws.updateTab(wsTab.id, { title: doc.title });
+        if (!doc) continue;
+        const updates: Record<string, unknown> = {};
+        if (doc.title !== wsTab.title) {
+          updates.title = doc.title;
+        }
+        // Sincroniza filePath: se o doc tem filePath mas a aba não, propaga para o backend
+        const wsFilePath = (wsTab.state?.filePath as string) || '';
+        const docFilePath = (doc.filePath as string) || '';
+        if (docFilePath && docFilePath !== wsFilePath) {
+          updates.state = { ...(wsTab.state ?? {}), filePath: docFilePath };
+        }
+        if (Object.keys(updates).length > 0) {
+          ws.updateTab(wsTab.id, updates).catch((err: unknown) => {
+            console.warn('[WorkspaceEditorBridge] falha ao sincronizar tab', wsTab.id, err);
+          });
         }
       }
+    };
+
+    // Sync inicial: propaga filePath que já existe no editorStore mas não no workspace
+    syncEditorToWs(useEditorStore.getState());
+
+    // Filtra chamadas: só executa sync quando title ou filePath de algum doc mudar
+    // (evita iteração desnecessária em cada keystroke do editor)
+    let prevKey = '';
+    const unsub = useEditorStore.subscribe((state) => {
+      const key = Object.entries(state.documents)
+        .map(([id, doc]) => `${id}:${doc.title}:${(doc.filePath as string) || ''}`)
+        .join('|');
+      if (key === prevKey) return;
+      prevKey = key;
+      syncEditorToWs(state);
     });
     return unsub;
   }, []);

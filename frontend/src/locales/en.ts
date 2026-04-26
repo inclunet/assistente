@@ -1536,6 +1536,7 @@ const en = {
       editTabTitle: 'Edit tab title',
       closeTab: 'Close tab',
       closeDialogBeforeChangingTabs: 'Close the open dialog before switching tabs.',
+      tabSwitchFailed: 'Failed to switch tab.',
       chatModal: {
         panelNotSupported: 'This panel does not support chat yet.',
         panelLoading: 'Wait for the panel to finish loading or try opening chat again.',

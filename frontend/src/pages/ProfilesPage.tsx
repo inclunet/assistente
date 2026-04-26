@@ -48,7 +48,7 @@ interface ProfileRow extends Profile {
 
 export default function ProfilesPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'profiles-page' });

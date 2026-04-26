@@ -90,7 +90,7 @@ type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying'
 
 export default function ChannelsPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady: channelsHandleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'channels-page' });

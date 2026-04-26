@@ -1510,6 +1510,7 @@ const ptBR = {
       editTabTitle: 'Editar título da aba',
       closeTab: 'Fechar aba',
       closeDialogBeforeChangingTabs: 'Feche o diálogo aberto antes de trocar de aba.',
+      tabSwitchFailed: 'Falha ao trocar de aba.',
       chatModal: {
         panelNotSupported: 'Este painel ainda não suporta o chat.',
         panelLoading: 'Aguarde o painel carregar ou tente abrir o chat de novo.',

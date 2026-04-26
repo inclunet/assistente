@@ -20,7 +20,7 @@ import type {
   WorkspaceChatModalSession,
 } from '../store/workspaceChatModalStore';
 import { useEditorStore, DEFAULT_MD, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
@@ -66,7 +66,7 @@ import './EditorPage.css';
 
 export default function EditorPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
   const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId } = useEditorInlineChatPatch();
@@ -83,17 +83,16 @@ export default function EditorPage() {
   const hydrate = useEditorStore((s) => s.hydrate);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
   const setActiveWsTab = useWorkspaceStore((s) => s.setActiveTab);
-  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsActiveTab = useActiveTab();
   const wsTabs = useWorkspaceStore((s) => s.workspace?.tabs);
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
 
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 
   const tabProfileSlug = wsActiveTab?.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || 'editor-texto';
 
-  const activeTab = useMemo(() => activeDocumentId ? documents[activeDocumentId] ?? null : null, [documents, activeDocumentId]);
+  const activeTab = activeDocumentId ? documents[activeDocumentId] ?? null : null;
 
 
   const pageRootRef = useRef<HTMLDivElement>(null);
@@ -534,6 +533,8 @@ export default function EditorPage() {
         renameDocument(tabId, title);
         setDocDraftId(tabId, null);
         setDocDirty(tabId, false);
+
+        // filePath+title são sincronizados pelo useWorkspaceEditorBridge
 
         const { documents: afterDocs } = useEditorStore.getState();
         const afterTab = afterDocs[tabId] || tab;
@@ -1925,9 +1926,7 @@ export default function EditorPage() {
         renameDocument(id, title);
         setDocMarkdown(id, content);
         useEditorStore.getState().setDocMode(id, preferredMode);
-        if (wsActiveTab) {
-          void updateWsTab(wsActiveTab.id, { title });
-        }
+        // filePath+title são sincronizados pelo useWorkspaceEditorBridge
       } else {
         const tabId = await addWorkspaceTab('editor', title, { filePath: path });
         id = tabId;
@@ -2068,6 +2067,8 @@ export default function EditorPage() {
       setDocFilePath(activeTab.id, path);
       renameDocument(activeTab.id, title);
       setDocDirty(activeTab.id, false);
+
+      // filePath+title são sincronizados pelo useWorkspaceEditorBridge
 
       void refreshDiskInfoForTab({ ...activeTab, filePath: path });
 

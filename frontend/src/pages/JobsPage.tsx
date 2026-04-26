@@ -44,7 +44,7 @@ function statusBadge(status: string, t: (key: string) => string): { label: strin
 
 export default function JobsPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'jobs-page' });

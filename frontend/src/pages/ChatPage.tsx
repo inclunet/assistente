@@ -1,19 +1,15 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import { useChatStore } from '../store/chatStore';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useActiveTab } from '../store/workspaceStore';
 import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
 import { ChatSessionView } from '../components/chat/ChatSessionView';
 
 export default function ChatPage() {
   const sendMessageToConversation = useChatStore((s) => s.sendMessageToConversation);
-  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
+  const activeTab = useActiveTab();
 
-  useEffect(() => {
-    if (!activeTab || activeTab.type !== 'chat') return;
-    void ensureWorkspaceTabHasConversation(activeTab).catch((e) => {
-      console.error('[ChatPage] falha ao garantir conversa:', e);
-    });
-  }, [activeTab?.id, activeTab?.type, activeTab?.conversationId]);
+  // NOTE: loadConversation já é feita pelo useWorkspaceChatBridge (WorkspaceLayout).
+  // Não duplicar aqui — evita 2x GetConversationInfo + GetMessages a cada troca de aba.
 
   const onSend = useCallback(
     async (content: string, mediaFiles?: Parameters<typeof sendMessageToConversation>[2]) => {

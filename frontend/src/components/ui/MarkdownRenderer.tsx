@@ -122,7 +122,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const htmlTableTitle = t('editor.sendToEditor.title.htmlTable');
   const linkTitle = t('editor.sendToEditor.title.link');
   const mermaidTitle = t('editor.sendToEditor.title.mermaid');
-  const codeTitle = (language: string) => t('editor.sendToEditor.title.code', { language });
+  const codeTitle = useCallback((language: string) => t('editor.sendToEditor.title.code', { language }), [t]);
 
   const {
     menu: menuState,

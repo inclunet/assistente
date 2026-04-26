@@ -47,9 +47,11 @@ vi.mock('../store/workspaceStore', () => ({
       updateTab: vi.fn(),
       workspace: { tabs: [], profile: undefined },
       getActiveTab: () => undefined,
+      isInitialized: true,
     }),
     { getState: () => ({ workspace: { tabs: [] }, addTab: vi.fn(), getActiveTab: () => undefined }), subscribe: () => () => {} }
   ),
+  useActiveTab: () => undefined,
 }));
 
 vi.mock('../store/chatStore', () => ({
@@ -75,9 +77,10 @@ vi.mock('../store/questionnaireUIStore', () => ({
 }));
 
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: vi.fn(),
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: vi.fn() };
+    return selector ? selector(s) : s;
+  },
 }));
 
 vi.mock('../hooks/useEditorTabsKeyboardShortcuts', () => ({

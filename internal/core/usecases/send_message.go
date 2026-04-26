@@ -30,6 +30,9 @@ type SendMessageConfig struct {
 	Emitter        ports.Emitter
 	// OnSpeechRequest é chamado após salvar a mensagem do usuário para disparar TTS proativo.
 	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
+	// OpenEditorPaths retorna os caminhos de arquivos abertos em abas de editor.
+	// Filesystem tools podem ler/editar esses arquivos mesmo fora do workDir.
+	OpenEditorPaths func() []string
 }
 
 // SendMessageUseCase orquestra o pipeline completo de envio de mensagem ao LLM.
@@ -45,6 +48,7 @@ type SendMessageUseCase struct {
 	settingsSvc     *config.SettingsService
 	emitter         ports.Emitter
 	onSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
+	openEditorPaths func() []string
 }
 
 // NewSendMessageUseCase cria um SendMessageUseCase com todas as dependências.
@@ -60,6 +64,7 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 		settingsSvc:     cfg.SettingsSvc,
 		emitter:         cfg.Emitter,
 		onSpeechRequest: cfg.OnSpeechRequest,
+		openEditorPaths: cfg.OpenEditorPaths,
 	}
 }
 
@@ -228,6 +233,13 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 				InvokedSkillSlug: invokedSkillSlug,
 				Filesystem:       invokedFilesystemScope,
 			})
+		}
+		// Injeta caminhos de arquivos abertos em abas de editor para que
+		// filesystem tools possam ler/editar esses arquivos fora do workDir.
+		if uc.openEditorPaths != nil {
+			if paths := uc.openEditorPaths(); len(paths) > 0 {
+				agentCtx = tools.WithOpenEditorPaths(agentCtx, paths)
+			}
 		}
 		go func() {
 			defer func() {

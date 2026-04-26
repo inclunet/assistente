@@ -225,10 +225,161 @@ describe('setActiveTab', () => {
 
     mockedIsModalOpen.mockReturnValue(true);
 
-    await useWorkspaceStore.getState().setActiveTab('tab-2');
+    useWorkspaceStore.getState().setActiveTab('tab-2');
 
     expect(mockedSetActiveWorkspaceTab).not.toHaveBeenCalled();
     expect(mockedAnnounce).toHaveBeenCalledTimes(1);
+  });
+
+  it('aplica optimistic update imediatamente e persiste em background', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+    ], 'tab-1');
+
+    mockedSetActiveWorkspaceTab.mockResolvedValue(undefined as never);
+
+    // setActiveTab é síncrono (fire-and-forget para backend)
+    useWorkspaceStore.getState().setActiveTab('tab-2');
+
+    // Optimistic: UI atualizada imediatamente
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+
+    // Aguarda backend fire-and-forget completar
+    await vi.waitFor(() => {
+      expect(mockedSetActiveWorkspaceTab).toHaveBeenCalledWith('tab-2');
+    });
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+  });
+
+  it('faz rollback quando backend falha e aba ativa não mudou', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+    ], 'tab-1');
+
+    mockedSetActiveWorkspaceTab.mockRejectedValue(new Error('backend error'));
+
+    // setActiveTab é síncrono; o rollback ocorre no .catch assíncrono
+    useWorkspaceStore.getState().setActiveTab('tab-2');
+
+    // Aguarda o .catch processar o rollback
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-1');
+    });
+    expect(mockedAnnounce).toHaveBeenCalled();
+  });
+
+  it('não faz rollback quando outra troca já ocorreu antes do erro', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+      { id: 'tab-3', type: 'editor', title: 'Editor', position: 2 },
+    ], 'tab-1');
+
+    // Primeira troca falha, mas com delay para dar tempo de outra troca
+    let rejectFirst: (err: Error) => void;
+    mockedSetActiveWorkspaceTab
+      .mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej; }) as never)
+      .mockResolvedValueOnce(undefined as never);
+
+    // Inicia troca para tab-2 (vai falhar eventualmente)
+    useWorkspaceStore.getState().setActiveTab('tab-2');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+
+    // Antes do erro, outra troca ocorre para tab-3
+    useWorkspaceStore.getState().setActiveTab('tab-3');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-3');
+
+    // Agora a primeira falha
+    rejectFirst!(new Error('backend error'));
+
+    // tab-3 deve permanecer (rollback não deve sobrescrever)
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-3');
+    });
+  });
+
+  it('não faz rollback stale quando usuário volta para mesma aba do request falhado', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+      { id: 'tab-3', type: 'editor', title: 'Editor', position: 2 },
+    ], 'tab-1');
+
+    let rejectFirst: (err: Error) => void;
+    mockedSetActiveWorkspaceTab
+      .mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej; }) as never)
+      .mockResolvedValueOnce(undefined as never)
+      .mockResolvedValueOnce(undefined as never);
+
+    // Ativação A: tab-1 → tab-2 (vai falhar)
+    useWorkspaceStore.getState().setActiveTab('tab-2');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+
+    // Ativação B: tab-2 → tab-3
+    useWorkspaceStore.getState().setActiveTab('tab-3');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-3');
+
+    // Ativação C: tab-3 → tab-2 (volta para mesma aba de A)
+    useWorkspaceStore.getState().setActiveTab('tab-2');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+
+    // A falha agora — activeTabId === 'tab-2' (mesma de A), mas seqId é diferente
+    rejectFirst!(new Error('backend error'));
+
+    // tab-2 deve permanecer (rollback stale de A não deve sobrescrever C)
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+    });
+    // announce NÃO deve ser chamado (rollback não executou)
+    expect(mockedAnnounce).not.toHaveBeenCalled();
+  });
+
+  it('não faz rollback quando workspace mudou antes do erro', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+    ], 'tab-1');
+
+    let rejectFirst: (err: Error) => void;
+    mockedSetActiveWorkspaceTab
+      .mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej; }) as never);
+
+    // Troca para tab-2 (vai falhar eventualmente)
+    useWorkspaceStore.getState().setActiveTab('tab-2');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+
+    // Simula troca de workspace (id diferente)
+    useWorkspaceStore.setState({
+      workspace: {
+        id: 'ws-2',
+        name: 'Outro Workspace',
+        tabs: [
+          { id: 'tab-a', type: 'chat' as const, conversationId: 10, title: 'Chat A', position: 0 },
+        ],
+        activeTabId: 'tab-a',
+      },
+    });
+
+    // Falha do backend chega agora — workspace é outro
+    rejectFirst!(new Error('backend error'));
+
+    // tab-a deve permanecer (rollback ignorado pois workspace mudou)
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-a');
+    });
+    expect(mockedAnnounce).not.toHaveBeenCalled();
+  });
+
+  it('ignora quando tabId já é a aba ativa', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+    ], 'tab-1');
+
+    useWorkspaceStore.getState().setActiveTab('tab-1');
+
+    expect(mockedSetActiveWorkspaceTab).not.toHaveBeenCalled();
   });
 });
 
@@ -261,6 +412,97 @@ describe('initialize', () => {
       expect(mockedGetActiveWorkspace).toHaveBeenCalledTimes(1);
       expect(mockedListWorkspaces).toHaveBeenCalledTimes(1);
       expect(useWorkspaceStore.getState().isInitialized).toBe(true);
+    });
+  });
+});
+
+describe('updateTab — filePath no state', () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedUpdateWorkspaceTab.mockReset();
+    mockedUpdateWorkspaceTab.mockResolvedValue(undefined);
+  });
+
+  it('propaga filePath para state da aba editor', async () => {
+    setStoreState([
+      { id: 'tab-e1', type: 'editor', title: 'Novo documento', position: 0, state: {} },
+    ], 'tab-e1');
+
+    await useWorkspaceStore.getState().updateTab('tab-e1', {
+      state: { filePath: '/home/user/readme.md' },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.state?.filePath).toBe('/home/user/readme.md');
+    expect(mockedUpdateWorkspaceTab).toHaveBeenCalledWith('tab-e1', {
+      state: { filePath: '/home/user/readme.md' },
+    });
+  });
+
+  it('preserva state existente ao adicionar filePath', async () => {
+    setStoreState([
+      { id: 'tab-e2', type: 'editor', title: 'Doc', position: 0, state: { draftId: 'draft-1', scrollTop: 100 } },
+    ], 'tab-e2');
+
+    await useWorkspaceStore.getState().updateTab('tab-e2', {
+      state: { draftId: 'draft-1', scrollTop: 100, filePath: '/saved.md' },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.state).toEqual({ draftId: 'draft-1', scrollTop: 100, filePath: '/saved.md' });
+  });
+
+  it('atualiza titulo e state juntos', async () => {
+    setStoreState([
+      { id: 'tab-e3', type: 'editor', title: 'Novo documento', position: 0, state: {} },
+    ], 'tab-e3');
+
+    await useWorkspaceStore.getState().updateTab('tab-e3', {
+      title: 'saved-file.md',
+      state: { filePath: '/saved-file.md' },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.title).toBe('saved-file.md');
+    expect(tab?.state?.filePath).toBe('/saved-file.md');
+  });
+
+  it('aba pristine (sem state) recebe filePath corretamente', async () => {
+    setStoreState([
+      { id: 'tab-pristine', type: 'editor', title: 'Sem state', position: 0 },
+    ], 'tab-pristine');
+
+    await useWorkspaceStore.getState().updateTab('tab-pristine', {
+      state: { filePath: '/new.md' },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.state).toEqual({ filePath: '/new.md' });
+  });
+
+  it('faz merge de state parcial sem perder filePath existente', async () => {
+    setStoreState([
+      {
+        id: 'tab-e2-merge',
+        type: 'editor',
+        title: 'Doc com arquivo',
+        position: 0,
+        state: { filePath: '/persisted.md', sessionId: 'session-1' },
+      },
+    ], 'tab-e2-merge');
+
+    await useWorkspaceStore.getState().updateTab('tab-e2-merge', {
+      state: { scrollTop: 240 },
+    });
+
+    const tab = useWorkspaceStore.getState().workspace?.tabs[0];
+    expect(tab?.state).toEqual({
+      filePath: '/persisted.md',
+      sessionId: 'session-1',
+      scrollTop: 240,
+    });
+    expect(mockedUpdateWorkspaceTab).toHaveBeenCalledWith('tab-e2-merge', {
+      state: { scrollTop: 240 },
     });
   });
 });

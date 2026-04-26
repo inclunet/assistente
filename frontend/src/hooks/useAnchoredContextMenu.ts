@@ -99,7 +99,7 @@ export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = 
     const reason = closeReasonRef.current;
     closeReasonRef.current = 'dismiss';
 
-    setMenu((prev) => ({ ...prev, visible: false }));
+    setMenu((prev) => (prev.visible ? { ...prev, visible: false } : prev));
 
     window.setTimeout(() => {
       try {
