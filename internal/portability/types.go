@@ -148,6 +148,7 @@ type ExportFile struct {
 
 type ExportRequest struct {
 	All                      bool     `json:"all"`
+	ExplicitSelection        bool     `json:"explicitSelection,omitempty"`
 	ConversationIDs          []string `json:"conversationIds,omitempty"`
 	ProviderIDs              []string `json:"providerIds,omitempty"`
 	ProfileSlugs             []string `json:"profileSlugs,omitempty"`

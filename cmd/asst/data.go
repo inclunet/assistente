@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
 	"assistente/internal/app"
+	"assistente/internal/llm"
 	"assistente/internal/portability"
 
 	"github.com/spf13/cobra"
@@ -18,6 +20,9 @@ type dataBackend interface {
 	ExportDataToFile(req app.ExportRequest, path string) (string, error)
 	AnalyzeImportData(jsonData string, credentialExportPassword string) (*app.ImportAnalysis, error)
 	ImportDataWithResolutions(req app.ImportRequest) (*app.ImportResult, error)
+	GetConversations() ([]app.Conversation, error)
+	GetLLMProviders() []*llm.ProviderConfig
+	GetAllTaskLists() ([]app.TaskList, error)
 }
 
 var dataCmd = &cobra.Command{
@@ -36,6 +41,10 @@ var (
 	dataExportIncludeCredentials bool
 	dataExportCredentialPassword string
 	dataExportIncludeAudio       bool
+	dataExportConversations      bool
+	dataExportProviders          bool
+	dataExportTaskLists          bool
+	dataExportCredentialsOnly    bool
 
 	dataAnalyzeCredentialPassword string
 
@@ -50,6 +59,9 @@ var dataExportCmd = &cobra.Command{
 
 Exemplos:
   asst data export --all --out backup.json
+  asst data export --providers --out providers.json
+  asst data export --tasklists --out tasklists.json
+  asst data export --only-credentials --credential-password "senha" --out credenciais.json
   asst data export --conversation-id 12 --format html
   asst data export --conversation-id 12 --format pdf --out conversa.pdf
   asst data export --all --include-credentials --credential-password "senha" --out backup.json`,
@@ -64,8 +76,24 @@ Exemplos:
 			CredentialExportPassword: dataExportCredentialPassword,
 			IncludeAudio:             dataExportIncludeAudio,
 		}
+		req, err := prepareDataExportRequest(rootApp, req, dataExportSelection{
+			Conversations:   dataExportConversations,
+			Providers:       dataExportProviders,
+			TaskLists:       dataExportTaskLists,
+			CredentialsOnly: dataExportCredentialsOnly,
+		})
+		if err != nil {
+			return err
+		}
 		return runDataExport(rootApp, os.Stdout, req, dataExportOut)
 	},
+}
+
+type dataExportSelection struct {
+	Conversations   bool
+	Providers       bool
+	TaskLists       bool
+	CredentialsOnly bool
 }
 
 var dataAnalyzeCmd = &cobra.Command{
@@ -121,6 +149,72 @@ func runDataExport(svc dataBackend, out io.Writer, req app.ExportRequest, outPat
 	}
 	_, err = io.WriteString(out, rendered)
 	return err
+}
+
+func prepareDataExportRequest(svc dataBackend, req app.ExportRequest, selection dataExportSelection) (app.ExportRequest, error) {
+	hasSpecificIDs := len(req.ConversationIDs) > 0 || len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0
+	hasTypeSelection := selection.Conversations || selection.Providers || selection.TaskLists
+
+	if req.All && (hasSpecificIDs || hasTypeSelection || selection.CredentialsOnly) {
+		return req, fmt.Errorf("--all não pode ser combinado com seleções específicas")
+	}
+	if selection.CredentialsOnly && (hasSpecificIDs || hasTypeSelection || req.All) {
+		return req, fmt.Errorf("--only-credentials não pode ser combinado com outros recursos")
+	}
+
+	if selection.CredentialsOnly {
+		req.IncludeCredentials = true
+		req.ExplicitSelection = true
+		return req, nil
+	}
+
+	if !hasSpecificIDs && !hasTypeSelection {
+		return req, nil
+	}
+
+	req.ExplicitSelection = true
+
+	if selection.Conversations {
+		conversations, err := svc.GetConversations()
+		if err != nil {
+			return req, fmt.Errorf("erro ao listar conversas para exportação: %w", err)
+		}
+		ids := make([]string, 0, len(conversations))
+		for _, conversation := range conversations {
+			ids = append(ids, strconv.FormatUint(uint64(conversation.ID), 10))
+		}
+		req.ConversationIDs = mergeUniqueStrings(req.ConversationIDs, ids)
+	}
+
+	if selection.Providers {
+		providers := svc.GetLLMProviders()
+		ids := make([]string, 0, len(providers))
+		for _, provider := range providers {
+			if provider == nil {
+				continue
+			}
+			id := strings.TrimSpace(provider.ID)
+			if id == "" {
+				continue
+			}
+			ids = append(ids, id)
+		}
+		req.ProviderIDs = mergeUniqueStrings(req.ProviderIDs, ids)
+	}
+
+	if selection.TaskLists {
+		taskLists, err := svc.GetAllTaskLists()
+		if err != nil {
+			return req, fmt.Errorf("erro ao listar task lists para exportação: %w", err)
+		}
+		ids := make([]string, 0, len(taskLists))
+		for _, taskList := range taskLists {
+			ids = append(ids, strconv.FormatUint(uint64(taskList.ID), 10))
+		}
+		req.TaskListIDs = mergeUniqueStrings(req.TaskListIDs, ids)
+	}
+
+	return req, nil
 }
 
 func runDataAnalyze(svc dataBackend, out io.Writer, readFile func(string) ([]byte, error), path string, credentialPassword string) error {
@@ -312,10 +406,44 @@ func fallbackDash(value string) string {
 	return value
 }
 
+func mergeUniqueStrings(existing []string, incoming []string) []string {
+	merged := make([]string, 0, len(existing)+len(incoming))
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+
+	for _, item := range existing {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		merged = append(merged, trimmed)
+	}
+	for _, item := range incoming {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		merged = append(merged, trimmed)
+	}
+
+	return merged
+}
+
 func init() {
 	dataExportCmd.Flags().StringVar(&dataExportFormat, "format", portability.FormatJSON, "Formato de saída: json, html ou pdf")
 	dataExportCmd.Flags().StringVarP(&dataExportOut, "out", "o", "", "Arquivo de saída (obrigatório para PDF)")
 	dataExportCmd.Flags().BoolVar(&dataExportAll, "all", false, "Exporta todas as conversas, providers e task lists persistidos")
+	dataExportCmd.Flags().BoolVar(&dataExportConversations, "conversations", false, "Exporta todas as conversas")
+	dataExportCmd.Flags().BoolVar(&dataExportProviders, "providers", false, "Exporta todos os providers persistidos")
+	dataExportCmd.Flags().BoolVar(&dataExportTaskLists, "tasklists", false, "Exporta todas as task lists persistidas")
+	dataExportCmd.Flags().BoolVar(&dataExportCredentialsOnly, "only-credentials", false, "Exporta apenas o bloco portátil de credenciais")
 	dataExportCmd.Flags().StringSliceVar(&dataExportConversationIDs, "conversation-id", nil, "ID de conversa para exportar (repetível)")
 	dataExportCmd.Flags().StringSliceVar(&dataExportProviderIDs, "provider-id", nil, "ID de provider para exportar (repetível)")
 	dataExportCmd.Flags().StringSliceVar(&dataExportTaskListIDs, "tasklist-id", nil, "ID de task list para exportar (repetível)")

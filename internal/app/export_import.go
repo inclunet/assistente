@@ -223,6 +223,9 @@ func resolveConversationIDs(req ExportRequest) ([]uint, error) {
 	}
 
 	if len(req.ConversationIDs) == 0 {
+		if req.ExplicitSelection {
+			return nil, nil
+		}
 		if len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0 {
 			return nil, nil
 		}

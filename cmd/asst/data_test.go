@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"assistente/internal/app"
+	"assistente/internal/llm"
 	"assistente/internal/portability"
 )
 
@@ -24,6 +25,11 @@ type mockDataBackend struct {
 	lastAnalyzeJSON   string
 	lastAnalyzePwd    string
 	lastImportReq     app.ImportRequest
+	conversations     []app.Conversation
+	conversationsErr  error
+	providers         []*llm.ProviderConfig
+	taskLists         []app.TaskList
+	taskListsErr      error
 }
 
 func (m *mockDataBackend) ExportData(req app.ExportRequest) (string, error) {
@@ -49,6 +55,18 @@ func (m *mockDataBackend) AnalyzeImportData(jsonData string, credentialExportPas
 func (m *mockDataBackend) ImportDataWithResolutions(req app.ImportRequest) (*app.ImportResult, error) {
 	m.lastImportReq = req
 	return m.importResult, m.importErr
+}
+
+func (m *mockDataBackend) GetConversations() ([]app.Conversation, error) {
+	return m.conversations, m.conversationsErr
+}
+
+func (m *mockDataBackend) GetLLMProviders() []*llm.ProviderConfig {
+	return m.providers
+}
+
+func (m *mockDataBackend) GetAllTaskLists() ([]app.TaskList, error) {
+	return m.taskLists, m.taskListsErr
 }
 
 func TestRunDataExport_Stdout(t *testing.T) {
@@ -288,5 +306,96 @@ func TestRunDataAnalyze_ReadError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "erro ao ler arquivo de importação") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPrepareDataExportRequest_ExpandsTypeSelections(t *testing.T) {
+	mock := &mockDataBackend{
+		conversations: []app.Conversation{
+			{ID: 12},
+			{ID: 34},
+		},
+		providers: []*llm.ProviderConfig{
+			{ID: "openai-custom"},
+			{ID: "anthropic-main"},
+		},
+		taskLists: []app.TaskList{
+			{ID: 7},
+		},
+	}
+
+	req, err := prepareDataExportRequest(mock, app.ExportRequest{}, dataExportSelection{
+		Conversations: true,
+		Providers:     true,
+		TaskLists:     true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !req.ExplicitSelection {
+		t.Fatal("expected explicit selection to be enabled")
+	}
+	if strings.Join(req.ConversationIDs, ",") != "12,34" {
+		t.Fatalf("unexpected conversation ids: %#v", req.ConversationIDs)
+	}
+	if strings.Join(req.ProviderIDs, ",") != "openai-custom,anthropic-main" {
+		t.Fatalf("unexpected provider ids: %#v", req.ProviderIDs)
+	}
+	if strings.Join(req.TaskListIDs, ",") != "7" {
+		t.Fatalf("unexpected task list ids: %#v", req.TaskListIDs)
+	}
+}
+
+func TestPrepareDataExportRequest_OnlyCredentials(t *testing.T) {
+	req, err := prepareDataExportRequest(&mockDataBackend{}, app.ExportRequest{}, dataExportSelection{
+		CredentialsOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !req.ExplicitSelection {
+		t.Fatal("expected explicit selection to be enabled")
+	}
+	if !req.IncludeCredentials {
+		t.Fatal("expected credentials export to be enabled")
+	}
+	if len(req.ConversationIDs) != 0 || len(req.ProviderIDs) != 0 || len(req.TaskListIDs) != 0 {
+		t.Fatalf("expected credentials-only export without resource ids, got %#v", req)
+	}
+}
+
+func TestPrepareDataExportRequest_RejectsConflictingSelections(t *testing.T) {
+	_, err := prepareDataExportRequest(&mockDataBackend{}, app.ExportRequest{All: true}, dataExportSelection{
+		Providers: true,
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--all não pode ser combinado") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPrepareDataExportRequest_MergesSpecificAndExpandedIDs(t *testing.T) {
+	mock := &mockDataBackend{
+		providers: []*llm.ProviderConfig{
+			{ID: "openai-custom"},
+			{ID: "anthropic-main"},
+		},
+	}
+
+	req, err := prepareDataExportRequest(mock, app.ExportRequest{
+		ProviderIDs: []string{"anthropic-main", "manual-provider"},
+	}, dataExportSelection{
+		Providers: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if strings.Join(req.ProviderIDs, ",") != "anthropic-main,manual-provider,openai-custom" {
+		t.Fatalf("unexpected merged provider ids: %#v", req.ProviderIDs)
 	}
 }

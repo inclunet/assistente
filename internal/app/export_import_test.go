@@ -47,3 +47,16 @@ func TestNormalizeRichConversationExportRequestClearsCredentialFields(t *testing
 		t.Fatalf("expected empty credential password, got %q", req.CredentialExportPassword)
 	}
 }
+
+func TestResolveConversationIDsRespectsExplicitSelection(t *testing.T) {
+	ids, err := resolveConversationIDs(ExportRequest{
+		ExplicitSelection:  true,
+		IncludeCredentials: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ids != nil {
+		t.Fatalf("expected nil conversation ids, got %#v", ids)
+	}
+}
