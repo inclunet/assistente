@@ -119,9 +119,10 @@ vi.mock('../hooks/useAnnouncer', () => ({
 
 const mockAddToast = vi.fn();
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: mockAddToast,
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: mockAddToast };
+    return selector ? selector(s) : s;
+  },
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({

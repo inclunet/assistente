@@ -1436,6 +1436,7 @@ const es = {
       editTabTitle: 'Editar título de la pestaña',
       closeTab: 'Cerrar pestaña',
       closeDialogBeforeChangingTabs: 'Cierra el diálogo abierto antes de cambiar de pestaña.',
+      tabSwitchFailed: 'Error al cambiar de pestaña.',
       chatModal: {
         panelNotSupported: 'Este panel aún no admite el chat.',
         panelLoading: 'Espera a que el panel termine de cargar o vuelve a abrir el chat.',

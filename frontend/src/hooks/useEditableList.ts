@@ -105,7 +105,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
   operations: EditableListOperations<T, TCreate, TUpdate>,
   options: EditableListOptions<T>
 ): UseEditableListResult<T> {
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
 
   // Estado da lista

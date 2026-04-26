@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore, type WorkspaceTab, registerTabRenameHandler } from '../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab, type WorkspaceTab, registerTabRenameHandler } from '../store/workspaceStore';
 import { useTaskListStore } from '../store/taskListStore';
 
 /**
@@ -13,7 +13,7 @@ import { useTaskListStore } from '../store/taskListStore';
  * 4. Título da tasklist no store é sincronizado de volta ao workspace
  */
 export function useWorkspaceTasklistBridge() {
-  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
+  const activeTab = useActiveTab();
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 

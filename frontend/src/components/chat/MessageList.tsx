@@ -154,7 +154,7 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
   return result;
 }
 
-export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
+export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProps>((
   { isLoading = false, loadingText, threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak, onDelete, editorTargets, onSendToEditor },
   ref
 ) => {
@@ -282,4 +282,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
       </div>
     </div>
   );
-});
+}));
+
+MessageList.displayName = 'MessageList';

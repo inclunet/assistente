@@ -37,7 +37,7 @@ interface TaskListRow extends TaskListWithWorkflow {
 export default function TaskListsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   const requestConfirm = useConfirm();

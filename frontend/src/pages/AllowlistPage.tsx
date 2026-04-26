@@ -44,7 +44,7 @@ export default function AllowlistPage() {
   const { t } = useTranslation();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'allowlist-page' });
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const [focusedRow, setFocusedRow] = useState<AllowlistRow | null>(null);
   const getErrorMessage = (error: unknown) =>

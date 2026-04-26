@@ -21,6 +21,8 @@ import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHand
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatSessionView.css';
 
+const EMPTY_MESSAGES: never[] = [];
+
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
@@ -41,17 +43,16 @@ export function ChatSessionView({
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
 
-  const {
-    isLoading,
-    getThreadedMessages,
-    loadMessageChildren,
-    getActiveConversation,
-    loadConversation,
-    retryMessageToConversation,
-    updateMessage,
-    toggleReasoningExpanded,
-    isReasoningExpanded,
-  } = useChatStore();
+  const isLoading = useChatStore((s) => s.isLoading);
+  const activeConversation = useChatStore((s) => s.activeConversation);
+  const threadedMessages = useChatStore((s) => s.activeConversation?.threadedMessages) ?? EMPTY_MESSAGES;
+  const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
+  const loadConversation = useChatStore((s) => s.loadConversation);
+  const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
+  const updateMessage = useChatStore((s) => s.updateMessage);
+  const toggleReasoningExpanded = useChatStore((s) => s.toggleReasoningExpanded);
+  const isReasoningExpanded = useChatStore((s) => s.isReasoningExpanded);
+  const getActiveConversation = useCallback(() => activeConversation, [activeConversation]);
 
   const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
   useEffect(() => {
@@ -71,17 +72,17 @@ export function ChatSessionView({
 
   const startEditing = useChatStore((state) => state.startEditing);
   const startReading = useChatStore((state) => state.startReading);
-  const workspace = useWorkspaceStore((state) => state.workspace);
+  const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
   const editorTargets = useMemo<EditorSendTargetOption[]>(
     () =>
-      (workspace?.tabs || [])
+      (wsTabs || [])
         .filter((tab) => tab.type === 'editor')
         .map((tab) => ({
           id: tab.id,
           title: String(tab.title || '').trim() || t('editor.fallback.title'),
         })),
-    [workspace, t],
+    [wsTabs, t],
   );
 
   const { copyMessage, speakMessage } = useMessageActions({
@@ -225,8 +226,6 @@ export function ChatSessionView({
     inputRef,
     messagesContainerRef,
   });
-
-  const threadedMessages = getThreadedMessages() || [];
 
   useEffect(() => {
     if (variant !== 'page') return;

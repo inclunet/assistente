@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab, registerTabRenameHandler } from '../store/workspaceStore';
 import { useEditorStore, DEFAULT_MD } from '../store/editorStore';
 import { EditorReadFile } from '@wailsjs/go/app/App';
 import { basenameFromPath } from '../utils/path';
@@ -18,7 +18,7 @@ import { basenameFromPath } from '../utils/path';
  * - F2 rename → renameDocument no editorStore
  */
 export function useWorkspaceEditorBridge() {
-  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
+  const activeTab = useActiveTab();
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 
   const lastSyncedRef = useRef<string | null>(null);

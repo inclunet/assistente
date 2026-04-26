@@ -30,7 +30,7 @@ type AuthorizedContactsResponse = Record<string, AuthorizedContact[]>;
 
 export default function ContactsPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'contacts-page' });

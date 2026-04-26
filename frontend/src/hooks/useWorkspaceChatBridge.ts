@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab, registerTabRenameHandler } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
 import { RenameConversation } from '@wailsjs/go/app/App';
 import { ensureWorkspaceTabConversationId } from '../lib/workspaceConversation';
@@ -21,7 +21,7 @@ const MINI_CHAT_LAZY_CONVERSATION: ReadonlySet<TabType> = new Set(['editor', 'te
  * 5. Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
  */
 export function useWorkspaceChatBridge() {
-  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
+  const activeTab = useActiveTab();
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 
   const lastSyncedRef = useRef<string | null>(null);

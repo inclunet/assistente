@@ -59,7 +59,7 @@ export default function SkillsPage() {
   const confirm = useConfirm();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'skills-page' });
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
 
   const getErrorMessage = (error: unknown) =>

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
 import { useTerminalStore } from '../store/terminalStore';
 
 /**
@@ -10,7 +10,7 @@ import { useTerminalStore } from '../store/terminalStore';
  * - Remoção de aba → fecha sessão via terminalStore.closeSession()
  */
 export function useWorkspaceTerminalBridge() {
-  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
+  const activeTab = useActiveTab();
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 
