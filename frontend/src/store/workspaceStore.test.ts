@@ -336,6 +336,42 @@ describe('setActiveTab', () => {
     expect(mockedAnnounce).not.toHaveBeenCalled();
   });
 
+  it('não faz rollback quando workspace mudou antes do erro', async () => {
+    setStoreState([
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
+    ], 'tab-1');
+
+    let rejectFirst: (err: Error) => void;
+    mockedSetActiveWorkspaceTab
+      .mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej; }) as never);
+
+    // Troca para tab-2 (vai falhar eventualmente)
+    useWorkspaceStore.getState().setActiveTab('tab-2');
+    expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-2');
+
+    // Simula troca de workspace (id diferente)
+    useWorkspaceStore.setState({
+      workspace: {
+        id: 'ws-2',
+        name: 'Outro Workspace',
+        tabs: [
+          { id: 'tab-a', type: 'chat' as const, conversationId: 10, title: 'Chat A', position: 0 },
+        ],
+        activeTabId: 'tab-a',
+      },
+    });
+
+    // Falha do backend chega agora — workspace é outro
+    rejectFirst!(new Error('backend error'));
+
+    // tab-a deve permanecer (rollback ignorado pois workspace mudou)
+    await vi.waitFor(() => {
+      expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-a');
+    });
+    expect(mockedAnnounce).not.toHaveBeenCalled();
+  });
+
   it('ignora quando tabId já é a aba ativa', async () => {
     setStoreState([
       { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },

@@ -385,6 +385,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     }
     // Optimistic update: atualiza UI imediatamente, persiste em background
     const previousTabId = get().workspace?.activeTabId ?? null;
+    const currentWorkspaceId = get().workspace?.id ?? null;
     const mySeq = ++activationSeqId;
     set(state => ({
       workspace: state.workspace
@@ -395,8 +396,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     // A persistência no backend é assíncrona e não bloqueia callers.
     void SetActiveWorkspaceTab(tabId).catch((err: unknown) => {
       console.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
-      // Só faz rollback se nenhuma ativação mais recente ocorreu desde esta.
-      if (activationSeqId === mySeq) {
+      // Só faz rollback se nenhuma ativação mais recente ocorreu desde esta
+      // e o workspace não mudou (evita alterar activeTabId de outro workspace).
+      if (activationSeqId === mySeq && get().workspace?.id === currentWorkspaceId) {
         const tabs = get().workspace?.tabs ?? [];
         const rollbackId = tabs.some(t => t.id === previousTabId)
           ? previousTabId
