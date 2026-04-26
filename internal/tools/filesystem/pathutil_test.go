@@ -346,3 +346,38 @@ func TestValidatePathWithPolicy_OpenEditorInvalidWorkDirNotBypassed(t *testing.T
 		t.Error("workDir inválido deveria retornar erro mesmo com open editor paths")
 	}
 }
+
+// TestIsOpenEditorAllowed_SymlinkToSensitiveBlocked testa que um symlink apontando
+// para arquivo sensível é bloqueado mesmo se o nome do link não é sensível.
+func TestIsOpenEditorAllowed_SymlinkToSensitiveBlocked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	dir := t.TempDir()
+
+	// Cria arquivo sensível real
+	envFile := filepath.Join(dir, ".env")
+	_ = os.WriteFile(envFile, []byte("SECRET=value"), 0600)
+
+	// Cria symlink com nome não-sensível apontando para .env
+	linkFile := filepath.Join(dir, "innocent.txt")
+	if err := os.Symlink(envFile, linkFile); err != nil {
+		t.Fatalf("falha ao criar symlink: %v", err)
+	}
+
+	ctx := tools.WithOpenEditorPaths(context.Background(), []string{linkFile})
+
+	// O symlink aponta para .env → isOpenEditorAllowed deve rejeitar
+	if isOpenEditorAllowed(ctx, linkFile, "read") {
+		t.Error("symlink para arquivo sensível deveria ser bloqueado")
+	}
+
+	// Arquivo não-sensível sem symlink deve funcionar
+	normalFile := filepath.Join(dir, "normal.txt")
+	_ = os.WriteFile(normalFile, []byte("ok"), 0644)
+	ctx2 := tools.WithOpenEditorPaths(context.Background(), []string{normalFile})
+	if !isOpenEditorAllowed(ctx2, normalFile, "read") {
+		t.Error("arquivo normal deveria ser permitido como open editor")
+	}
+}

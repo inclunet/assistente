@@ -184,19 +184,19 @@ func TestBuild_OpenEditorFiles_EscapesSpecialChars(t *testing.T) {
 	msgs := []llm.Message{{Role: "user", Content: "leia"}}
 	result := b.Build(msgs, nil, false, nil, "", "")
 	sys := result[0].Content.(string)
-	// Os caracteres perigosos devem ser escapados, nunca aparecendo literalmente
+	// Os caracteres perigosos devem ser sanitizados, nunca aparecendo literalmente
 	if strings.Contains(sys, "<injected>") {
-		t.Error("Path injection via < should be escaped, not inserted literally")
+		t.Error("Path injection via < should be stripped, not inserted literally")
 	}
 	if strings.Contains(sys, "</open_editor_files>\n<injected>") {
 		t.Error("Newline injection should not break the tag structure")
 	}
-	// O conteúdo escapado deve estar presente
-	if !strings.Contains(sys, "&lt;injected&gt;") {
-		t.Error("< and > should be HTML-escaped in the output")
+	// < e > são removidos; & é preservado (path funcional para tools)
+	if !strings.Contains(sys, "fileinjected.txt") {
+		t.Error("< and > should be stripped from the output, leaving 'fileinjected.txt'")
 	}
-	if !strings.Contains(sys, "a&amp;b") {
-		t.Error("& should be HTML-escaped in the output")
+	if !strings.Contains(sys, "a&b") {
+		t.Error("& should be preserved (path must remain usable by filesystem tools)")
 	}
 }
 
