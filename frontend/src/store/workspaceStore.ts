@@ -111,7 +111,7 @@ interface WorkspaceStore {
   // Tab management
   addTab: (type: TabType, title: string, initialState?: Record<string, unknown>) => Promise<string>;
   removeTab: (tabId: string) => Promise<void>;
-  setActiveTab: (tabId: string) => Promise<void>;
+  setActiveTab: (tabId: string) => void;
   updateTab: (tabId: string, updates: Record<string, unknown>) => Promise<void>;
   reorderTabs: (orderedIds: string[]) => Promise<void>;
   moveTabToWorkspace: (tabId: string, targetWorkspaceId: string) => Promise<void>;
@@ -374,7 +374,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     announce('Aba fechada');
   },
 
-  setActiveTab: async (tabId) => {
+  setActiveTab: (tabId) => {
     if (get().workspace?.activeTabId === tabId) {
       return;
     }
