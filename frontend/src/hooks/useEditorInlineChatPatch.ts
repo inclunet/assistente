@@ -54,7 +54,10 @@ function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId
       messages = allMessages.slice(idx + 1);
     } else {
       // ID not found (list reloaded/compacted) — filter by lexicographic order (UUIDv7 is sortable)
-      messages = allMessages.filter((m) => String(m?.id || '') > afterMessageId);
+      messages = allMessages.filter((m) => {
+        const id = String(m?.id || '');
+        return id && !id.startsWith('streaming-') && id > afterMessageId;
+      });
     }
   }
 

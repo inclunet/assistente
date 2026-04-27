@@ -444,10 +444,13 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	if convID, ok := updates["conversation_id"].(string); ok {
 		tab.ConversationID = convID
 	} else if convIDFloat, ok := updates["conversation_id"].(float64); ok {
-		if convIDFloat <= 0 {
-			tab.ConversationID = ""
+		// Legacy: old workspace files stored conversation_id as a number.
+		// Only accept positive integers; ignore fractional or non-positive values.
+		intVal := int64(convIDFloat)
+		if convIDFloat > 0 && float64(intVal) == convIDFloat {
+			tab.ConversationID = fmt.Sprintf("%d", intVal)
 		} else {
-			tab.ConversationID = fmt.Sprintf("%d", int64(convIDFloat))
+			tab.ConversationID = ""
 		}
 	}
 	if state, ok := updates["state"].(map[string]any); ok {

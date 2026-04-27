@@ -227,6 +227,8 @@ const makeTaskList = (id: string, title: string) => ({
 
 /* ── suíte ──────────────────────────────────────────────────── */
 
+import TaskListsPage from './TaskListsPage';
+
 describe('TaskListsPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     cleanup();
@@ -248,7 +250,6 @@ describe('TaskListsPage', { timeout: 60_000 }, () => {
   });
 
   async function renderPage() {
-    const { default: TaskListsPage } = await import('./TaskListsPage');
     return render(
       <MemoryRouter>
         <TaskListsPage />
