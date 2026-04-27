@@ -51,6 +51,10 @@ vi.mock('../hooks/useGridFocus', () => ({
   }),
 }));
 
+vi.mock('../hooks/useGridPageLandmarks', () => ({
+  useGridPageLandmarks: vi.fn(),
+}));
+
 const mockRequestConfirm = vi.fn(() => Promise.resolve(true));
 
 vi.mock('../hooks/useConfirm', () => ({

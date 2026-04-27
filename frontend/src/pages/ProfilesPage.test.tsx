@@ -110,6 +110,10 @@ vi.mock('../hooks/useGridFocus', () => ({
   }),
 }));
 
+vi.mock('../hooks/useGridPageLandmarks', () => ({
+  useGridPageLandmarks: vi.fn(),
+}));
+
 const mockAnnounce = vi.fn();
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
