@@ -134,7 +134,7 @@ func TestTTSBroker_CancelAfterPublish(t *testing.T) {
 func TestTTSBroker_ZeroMessageID(t *testing.T) {
 	broker := NewTTSBroker()
 
-	// messageID=0 deve ser ignorado
+	// messageID="" deve ser ignorado
 	broker.Prepare("")
 	broker.Publish("", []byte("nope"), "audio/mpeg")
 	broker.Cancel("")

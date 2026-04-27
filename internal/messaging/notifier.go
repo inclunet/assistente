@@ -59,7 +59,7 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 
 // Notify chama todos os callbacks registrados para uma conversa e os remove.
 // Se não há callbacks, não faz nada (zero overhead no fluxo normal do Wails).
-// assistantMessageID é o ID da mensagem do assistente salva no DB (0 se não disponível).
+// assistantMessageID é o ID da mensagem do assistente salva no DB ("" se não disponível).
 func (n *ResponseNotifier) Notify(conversationID string, response string, assistantMessageID string) {
 	n.mu.Lock()
 	cbs, ok := n.callbacks[conversationID]

@@ -370,7 +370,7 @@ export function getMessageMenuItems(
       ariaLabel: 'Baixar audio desta mensagem',
       action: async () => {
         if (!message.content || !message.id) {
-          onAnnounce?.('Mensagem sem conteudo');
+          onAnnounce?.(i18next.t('chat.message.announce.noContent'));
           return;
         }
 
@@ -379,27 +379,27 @@ export function getMessageMenuItems(
           const isBackendId = !!message.id && !message.id.startsWith('streaming-');
           const backendId = isBackendId ? message.id : '';
           if (!backendId) {
-            onAnnounce?.('Nao foi possivel identificar a mensagem');
+            onAnnounce?.(i18next.t('chat.message.announce.cannotIdentifyMessage'));
             return;
           }
 
-          onAnnounce?.('Gerando audio...');
+          onAnnounce?.(i18next.t('chat.message.announce.generatingAudio'));
           const role = message.role === 'user' ? 'user' : 'assistant';
           const voiceCtx = ttsService.getVoiceContext(role);
           const audioBlob = await messageAudioService.getMessageAudioBlob(backendId, voiceCtx);
 
           if (!audioBlob) {
-            onAnnounce?.('Nao foi possivel gerar audio. Verifique a configuracao de voz no perfil ativo.');
+            onAnnounce?.(i18next.t('chat.message.announce.cannotGenerateAudio'));
             return;
           }
 
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
           const filename = `mensagem-${timestamp}.mp3`;
           messageAudioService.downloadAudioBlob(audioBlob, filename);
-          onAnnounce?.('Audio baixado com sucesso');
+          onAnnounce?.(i18next.t('chat.message.announce.audioDownloaded'));
         } catch (error) {
           console.error('Erro ao baixar audio:', error);
-          onAnnounce?.('Erro ao gerar audio');
+          onAnnounce?.(i18next.t('chat.message.announce.audioError'));
         }
       },
     });

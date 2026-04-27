@@ -75,7 +75,7 @@ func SetTaskListSlug(taskListID string, slug string) error {
 }
 
 // ResolveTaskListID resolve identificação por id e/ou slug.
-// Regras: é obrigatório pelo menos um de id (>0) ou slug não vazio.
+// Regras: é obrigatório pelo menos um de id (não vazio) ou slug não vazio.
 // Se ambos forem informados, devem referir-se à mesma lista.
 func ResolveTaskListID(taskListID *string, taskListSlug string) (string, error) {
 	var idVal string
