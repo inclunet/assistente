@@ -13,6 +13,7 @@ import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useTabScrollState } from '../../hooks/useTabScrollState';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
+import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
 import { DeleteMessage, EditorGetDraftPath } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
@@ -200,7 +201,7 @@ export function ChatSessionView({
     },
     onResend: async (message) => {
       const conversationId = getActiveConversation()?.id;
-      if (!conversationId || !message.id) return;
+      if (!conversationId || !isBackendId(message.id)) return;
       await retryMessageToConversation(conversationId, message.id);
       announce(t('chat.announce.messageResent'));
     },
