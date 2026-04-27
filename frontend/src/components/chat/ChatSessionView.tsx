@@ -92,16 +92,14 @@ export function ChatSessionView({
 
   const handleDeleteMessage = useCallback(
     async (message: { id: string | number }) => {
-      let messageId: string | null = null;
+      const messageId = String(message.id);
+      if (!isBackendId(messageId)) return;
       try {
-        messageId = String(message.id) || null;
-        if (messageId) {
-          await DeleteMessage(messageId);
-          announce(t('chat.announce.messageDeleted'));
-          const conv = getActiveConversation();
-          if (conv?.id) {
-            await loadConversation(conv.id);
-          }
+        await DeleteMessage(messageId);
+        announce(t('chat.announce.messageDeleted'));
+        const conv = getActiveConversation();
+        if (conv?.id) {
+          await loadConversation(conv.id);
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
