@@ -325,12 +325,14 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 	}
 
 	placeholders := make([]string, len(insertCols))
+	quotedCols := make([]string, len(insertCols))
 	for i := range insertCols {
 		placeholders[i] = "?"
+		quotedCols[i] = fmt.Sprintf(`"%s"`, insertCols[i])
 	}
 	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
 		newTableName,
-		strings.Join(insertCols, ", "),
+		strings.Join(quotedCols, ", "),
 		strings.Join(placeholders, ", "),
 	)
 
