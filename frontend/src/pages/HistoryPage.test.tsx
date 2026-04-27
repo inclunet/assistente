@@ -22,20 +22,24 @@ const mockAddTab = vi.fn().mockResolvedValue('tab-1');
 const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
 const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
-const mockImportFileErrorCodes = {
-  NO_FILE_SELECTED: 'NO_FILE_SELECTED',
-  FILE_READ_ERROR: 'FILE_READ_ERROR',
-} as const;
+const { mockImportFileErrorCodes, MockImportFileError } = vi.hoisted(() => {
+  const mockImportFileErrorCodes = {
+    NO_FILE_SELECTED: 'NO_FILE_SELECTED',
+    FILE_READ_ERROR: 'FILE_READ_ERROR',
+  } as const;
 
-class MockImportFileError extends Error {
-  code: string;
+  class MockImportFileError extends Error {
+    code: string;
 
-  constructor(code: string) {
-    super(code);
-    this.name = 'ImportFileError';
-    this.code = code;
+    constructor(code: string) {
+      super(code);
+      this.name = 'ImportFileError';
+      this.code = code;
+    }
   }
-}
+
+  return { mockImportFileErrorCodes, MockImportFileError };
+});
 
 let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> = [];
 
