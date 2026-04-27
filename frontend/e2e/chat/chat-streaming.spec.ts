@@ -3,7 +3,7 @@ import { test, expect } from '../fixtures';
 const now = new Date().toISOString();
 
 const baseConversation = {
-  id: '1',
+  id: '01926b90-7a5a-7c4e-8d3f-000000000001',
   title: 'Test Conversation',
   created_at: now,
   updated_at: now,
@@ -13,8 +13,8 @@ const baseConversation = {
 
 const userMessage = {
   message: {
-    id: '1',
-    conversationId: '1',
+    id: '01926b90-7a5a-7c4e-8d3f-000000000010',
+    conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
     role: 'user',
     content: 'Olá!',
     createdAt: now,
@@ -25,7 +25,7 @@ const userMessage = {
 test.describe('Chat — streaming multi-segmento', () => {
   test('exibe segmentos text → tool → text em sequência', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('SendMessage', '2');
+    await wails.setResponse('SendMessage', '01926b90-7a5a-7c4e-8d3f-000000000002');
     await wails.setResponse('EnsureConversation', baseConversation);
 
     await wails.waitForApp();
@@ -37,15 +37,15 @@ test.describe('Chat — streaming multi-segmento', () => {
 
     // Inicia streaming (conteúdo vazio para criar o container do assistente)
     await wails.emit('chat:stream', {
-      conversationId: '1',
-      messageId: '2',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      messageId: '01926b90-7a5a-7c4e-8d3f-000000000002',
       content: '',
       done: false,
     });
 
     // Tool call dentro do stream (conversationId obrigatório para filtro backend-driven)
     await wails.emit('chat:tool_start', {
-      conversationId: '1',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       name: 'search_web',
       callId: 'tc-seg-1',
       args: '{"query":"inteligência artificial"}',
@@ -55,7 +55,7 @@ test.describe('Chat — streaming multi-segmento', () => {
     await expect(toolSection).toBeVisible({ timeout: 5_000 });
 
     await wails.emit('chat:tool_end', {
-      conversationId: '1',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       callId: 'tc-seg-1',
       name: 'search_web',
       status: 'success',
@@ -67,8 +67,8 @@ test.describe('Chat — streaming multi-segmento', () => {
 
     // Texto final pós-tool
     await wails.emit('chat:stream', {
-      conversationId: '1',
-      messageId: '2',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      messageId: '01926b90-7a5a-7c4e-8d3f-000000000002',
       content: 'Baseado na pesquisa, a IA é uma tecnologia que...',
       done: true,
     });
@@ -84,7 +84,7 @@ test.describe('Chat — streaming multi-segmento', () => {
 
   test('chat:done reabilita o input para nova mensagem', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('SendMessage', '2');
+    await wails.setResponse('SendMessage', '01926b90-7a5a-7c4e-8d3f-000000000002');
     await wails.setResponse('EnsureConversation', baseConversation);
 
     await wails.waitForApp();
@@ -96,8 +96,8 @@ test.describe('Chat — streaming multi-segmento', () => {
 
     // Simula stream do backend: resposta do assistente
     await wails.emit('chat:stream', {
-      conversationId: '1',
-      messageId: '2',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      messageId: '01926b90-7a5a-7c4e-8d3f-000000000002',
       content: 'Resposta completa.',
       done: true,
     });
@@ -204,7 +204,7 @@ test.describe('Chat — erro no envio', () => {
     });
 
     await wails.setResponse('EnsureConversation', baseConversation);
-    await wails.setResponse('SendMessage', '2');
+    await wails.setResponse('SendMessage', '01926b90-7a5a-7c4e-8d3f-000000000002');
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
@@ -220,18 +220,18 @@ test.describe('Chat — erro no envio', () => {
     );
 
     await wails.emit('chat:messages_ready', {
-      conversationId: '1',
-      userMessageId: '14535',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      userMessageId: '01926b90-7a5a-7c4e-8d3f-000000014535',
       userContent: 'primeira falha',
     });
     await wails.emit('chat:stream', {
-      conversationId: '1',
-      messageId: '14536',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      messageId: '01926b90-7a5a-7c4e-8d3f-000000014536',
       content: 'resposta parcial',
       done: false,
     });
     await wails.emit('chat:stream', {
-      conversationId: '1',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       error: '500 Internal Server Error',
     });
     await expect(page.locator('.chat-message').filter({ hasText: /500 Internal Server Error/ })).toBeVisible({ timeout: 5_000 });
@@ -245,19 +245,19 @@ test.describe('Chat — erro no envio', () => {
     );
 
     await wails.emit('chat:messages_ready', {
-      conversationId: '1',
-      userMessageId: '14545',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      userMessageId: '01926b90-7a5a-7c4e-8d3f-000000014545',
       userContent: 'segunda tentativa',
     });
     await wails.emit('chat:stream', {
-      conversationId: '1',
-      messageId: '14546',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      messageId: '01926b90-7a5a-7c4e-8d3f-000000014546',
       content: 'resposta final',
       done: true,
     });
     await wails.emit('chat:done', {
-      conversationId: '1',
-      assistantMessageId: '14546',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      assistantmessageId: '01926b90-7a5a-7c4e-8d3f-000000014546',
       hadToolCalls: false,
     });
 
@@ -267,8 +267,8 @@ test.describe('Chat — erro no envio', () => {
 
   test('reenviar mensagem existente após erro usa RetryMessage sem duplicar mensagem do usuário', async ({ page, wails }) => {
     await wails.setResponse('EnsureConversation', baseConversation);
-    await wails.setResponse('SendMessage', '2');
-    await wails.setResponse('RetryMessage', '2');
+    await wails.setResponse('SendMessage', '01926b90-7a5a-7c4e-8d3f-000000000002');
+    await wails.setResponse('RetryMessage', '01926b90-7a5a-7c4e-8d3f-000000000002');
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
@@ -284,18 +284,18 @@ test.describe('Chat — erro no envio', () => {
     );
 
     await wails.emit('chat:messages_ready', {
-      conversationId: '1',
-      userMessageId: '14535',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      userMessageId: '01926b90-7a5a-7c4e-8d3f-000000014535',
       userContent: 'mensagem original',
     });
     await wails.emit('chat:stream', {
-      conversationId: '1',
-      messageId: '14536',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      messageId: '01926b90-7a5a-7c4e-8d3f-000000014536',
       content: 'resposta parcial',
       done: false,
     });
     await wails.emit('chat:stream', {
-      conversationId: '1',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       error: '500 Internal Server Error',
     });
 
@@ -315,14 +315,14 @@ test.describe('Chat — erro no envio', () => {
     );
 
     await wails.emit('chat:stream', {
-      conversationId: '1',
-      messageId: '14537',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      messageId: '01926b90-7a5a-7c4e-8d3f-000000014537',
       content: 'resposta após retry',
       done: true,
     });
     await wails.emit('chat:done', {
-      conversationId: '1',
-      assistantMessageId: '14537',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      assistantmessageId: '01926b90-7a5a-7c4e-8d3f-000000014537',
       hadToolCalls: false,
     });
 
@@ -338,7 +338,7 @@ test.describe('Chat — erro no envio', () => {
 test.describe('Chat — thinking/reasoning', () => {
   test('exibe seção de raciocínio durante streaming', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('SendMessage', '2');
+    await wails.setResponse('SendMessage', '01926b90-7a5a-7c4e-8d3f-000000000002');
     await wails.setResponse('EnsureConversation', baseConversation);
 
     await wails.waitForApp();
@@ -359,7 +359,7 @@ test.describe('Chat — thinking/reasoning', () => {
 
     // Simula início de thinking (conversationId obrigatório)
     await wails.emit('chat:thinking', {
-      conversationId: '1',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       started: true,
       content: 'Analisando a pergunta...',
     });
@@ -370,14 +370,14 @@ test.describe('Chat — thinking/reasoning', () => {
 
     // Finaliza thinking e inicia resposta
     await wails.emit('chat:thinking', {
-      conversationId: '1',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       done: true,
       content: 'Analisando a pergunta... Considerando diferentes perspectivas.',
     });
 
     await wails.emit('chat:stream', {
-      conversationId: '1',
-      messageId: '2',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      messageId: '01926b90-7a5a-7c4e-8d3f-000000000002',
       content: 'Após analisar, a resposta é...',
       done: true,
     });
@@ -394,8 +394,8 @@ test.describe('Chat — thinking/reasoning', () => {
       userMessage,
       {
         message: {
-          id: '2',
-          conversationId: '1',
+          id: '01926b90-7a5a-7c4e-8d3f-000000000002',
+          conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
           role: 'assistant',
           content: 'Resposta final',
           createdAt: now,
