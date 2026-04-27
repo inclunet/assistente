@@ -14,12 +14,12 @@ function messagesFixture() {
   const now = new Date().toISOString();
   return [
     {
-      message: { id: '1', conversationId: 1, role: 'user', content: 'Olá', createdAt: now },
+      message: { id: '1', conversationId: '1', role: 'user', content: 'Olá', createdAt: now },
       children: [],
       childCount: 0,
     },
     {
-      message: { id: '2', conversationId: 1, role: 'assistant', content: 'Oi!', createdAt: now },
+      message: { id: '2', conversationId: '1', role: 'assistant', content: 'Oi!', createdAt: now },
       children: [],
       childCount: 0,
     },
@@ -121,15 +121,15 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
       tabs: {
         active: 'tab-1',
         items: [
-          { id: 'tab-1', type: 'chat', conversation_id: 1, title: 'Aba 1', position: 0 },
-          { id: 'tab-2', type: 'chat', conversation_id: 2, title: 'Aba 2', position: 1 },
+          { id: 'tab-1', type: 'chat', conversation_id: '1', title: 'Aba 1', position: 0 },
+          { id: 'tab-2', type: 'chat', conversation_id: '2', title: 'Aba 2', position: 1 },
         ],
       },
     };
     await wails.setResponse('GetActiveWorkspace', ws);
     await wails.setResponse('SetActiveWorkspaceTab', undefined);
     await wails.setResponse('EnsureConversation', {
-      id: 2, title: 'Aba 2', created_at: now, updated_at: now, messages: [], message_count: 0,
+      id: '2', title: 'Aba 2', created_at: now, updated_at: now, messages: [], message_count: 0,
     });
     await wails.waitForApp();
 

@@ -30,12 +30,14 @@ type MessageLike = {
 /**
  * Returns the max message ID from a list.
  * Works with UUIDv7 (RFC 9562): lexicographic order matches chronological order.
+ * Filters out local streaming placeholder IDs (e.g. "streaming-...") which are
+ * not persisted backend IDs and could corrupt afterMessageId boundary.
  */
 function getMaxMessageId(messages: MessageLike[]): string {
   let maxId = '';
   for (const m of messages) {
     const id = String(m?.id || '');
-    if (id && id > maxId) maxId = id;
+    if (id && !id.startsWith('streaming-') && id > maxId) maxId = id;
   }
   return maxId;
 }

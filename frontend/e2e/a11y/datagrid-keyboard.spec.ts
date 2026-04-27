@@ -29,10 +29,10 @@ const now = new Date().toISOString();
 
 function conversationsFixture() {
   return [
-    { id: 1, title: 'Conversa sobre IA', created_at: now, updated_at: now, message_count: 5 },
-    { id: 2, title: 'Receita de bolo', created_at: now, updated_at: now, message_count: 3 },
-    { id: 3, title: 'Planejamento semanal', created_at: now, updated_at: now, message_count: 8 },
-    { id: 4, title: 'Revisão de código', created_at: now, updated_at: now, message_count: 12 },
+    { id: '1', title: 'Conversa sobre IA', created_at: now, updated_at: now, message_count: 5 },
+    { id: '2', title: 'Receita de bolo', created_at: now, updated_at: now, message_count: 3 },
+    { id: '3', title: 'Planejamento semanal', created_at: now, updated_at: now, message_count: 8 },
+    { id: '4', title: 'Revisão de código', created_at: now, updated_at: now, message_count: 12 },
   ];
 }
 

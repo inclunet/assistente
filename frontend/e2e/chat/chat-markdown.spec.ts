@@ -3,7 +3,7 @@ import { test, expect } from '../fixtures';
 const now = new Date().toISOString();
 
 const baseConversation = {
-  id: 1,
+  id: '1',
   title: 'Test Conversation',
   created_at: now,
   updated_at: now,
@@ -13,8 +13,8 @@ const baseConversation = {
 
 const userMessage = {
   message: {
-    id: 1,
-    conversationId: 1,
+    id: '1',
+    conversationId: '1',
     role: 'user',
     content: 'Teste',
     createdAt: now,
@@ -43,8 +43,8 @@ async function sendAndStream(
   }, { timeout: 5_000 });
 
   await wails.emit('chat:messages_ready', {
-    conversationId: 1,
-    userMessageId: 100,
+    conversationId: '1',
+    userMessageId: '100',
     userContent: 'Teste',
   });
 
@@ -54,8 +54,8 @@ async function sendAndStream(
 
   // Stream com conteúdo
   await wails.emit('chat:stream', {
-    conversationId: 1,
-    messageId: 2,
+    conversationId: '1',
+    messageId: '2',
     token: markdownContent,
     done: false,
     content: markdownContent,
@@ -67,8 +67,8 @@ async function sendAndStream(
 
   // Finaliza stream
   await wails.emit('chat:stream', {
-    conversationId: 1,
-    messageId: 2,
+    conversationId: '1',
+    messageId: '2',
     token: '',
     done: true,
     content: markdownContent,
@@ -80,7 +80,7 @@ async function sendAndStream(
 test.describe('Chat — Renderização Markdown', () => {
   test.beforeEach(async ({ wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('SendMessage', 2);
+    await wails.setResponse('SendMessage', '2');
     await wails.setResponse('EnsureConversation', baseConversation);
   });
 

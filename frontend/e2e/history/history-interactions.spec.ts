@@ -4,21 +4,21 @@ const now = new Date().toISOString();
 
 const sampleConversations = [
   {
-    id: 1,
+    id: '1',
     title: 'Conversa sobre IA',
     created_at: now,
     updated_at: now,
     message_count: 5,
   },
   {
-    id: 2,
+    id: '2',
     title: 'Receita de bolo de chocolate',
     created_at: now,
     updated_at: now,
     message_count: 3,
   },
   {
-    id: 3,
+    id: '3',
     title: 'Debugging React hooks',
     created_at: now,
     updated_at: now,
@@ -31,7 +31,7 @@ test.describe('Histórico — busca e filtro', () => {
     await wails.setResponse('GetConversations', sampleConversations);
     // Resultado da busca: retorna apenas a conversa que match
     await wails.setResponse('SearchConversationHistory', [
-      { conversation_id: 2, snippet: '>>>bolo<<< de chocolate' },
+      { conversation_id: '2', snippet: '>>>bolo<<< de chocolate' },
     ]);
 
     await wails.waitForApp();
@@ -77,7 +77,7 @@ test.describe('Histórico — busca e filtro', () => {
   test('limpar busca restaura todas as conversas', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
     await wails.setResponse('SearchConversationHistory', [
-      { conversation_id: 1, snippet: '>>>IA<<<' },
+      { conversation_id: '1', snippet: '>>>IA<<<' },
     ]);
 
     await wails.waitForApp();
@@ -104,7 +104,7 @@ test.describe('Histórico — abrir conversa', () => {
   test('Enter em linha focada navega para o chat', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
     await wails.setResponse('EnsureConversation', {
-      id: 1,
+      id: '1',
       title: 'Conversa sobre IA',
       created_at: now,
       updated_at: now,
@@ -131,7 +131,7 @@ test.describe('Histórico — abrir conversa', () => {
   test('botão Abrir na toolbar navega para conversa', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
     await wails.setResponse('EnsureConversation', {
-      id: 1,
+      id: '1',
       title: 'Conversa sobre IA',
       created_at: now,
       updated_at: now,
