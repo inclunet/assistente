@@ -2,7 +2,7 @@
 
 ## Resumo
 
-Todas as tabelas do SQLite que usam `uint` auto-increment como chave primária serão migradas para `string` com UUIDv7 (RFC 9562). O banco será recriado limpo (reset aceitável — sem migração de dados existentes). Todas as entidades mudam em um único esforço (big bang). Recursos armazenados em disco (profiles, skills, allowlists, etc.) ficam fora do escopo — receberão UUIDv7 quando forem migrados para o banco em AEPs futuros.
+Todas as tabelas do SQLite que usam `uint` auto-increment como chave primária serão migradas para `string` com UUIDv7 (RFC 9562). Os dados existentes serão preservados através de uma migração automática no startup do app — ao detectar o schema antigo (colunas `id` INTEGER), o banco é convertido in-place dentro de uma transação atômica. Todas as entidades mudam em um único esforço (big bang). Recursos armazenados em disco (profiles, skills, allowlists, etc.) ficam fora do escopo — receberão UUIDv7 quando forem migrados para o banco em AEPs futuros.
 
 ## Motivação
 
@@ -95,22 +95,52 @@ Todas as colunas FK que referenciam PKs migradas mudam de `uint` para `string`:
 | `task_list_workflows.initial_status_id` | `uint` | `string` |
 | `task_list_workflow_statuses.workflow_id` | `uint` | `string` |
 
-### D5 — Migração: reset do banco
+### D5 — Migração automática de dados no startup
 
-A migração de dados existentes **não** será implementada. Na primeira execução com o novo schema:
+Os dados existentes serão preservados. Na primeira execução com o novo schema:
 
-1. O banco antigo (`conversations.db`) será detectado como incompatível (colunas `id` com tipo INTEGER).
-2. O banco antigo será renomeado para `conversations.db.bak` com log de aviso.
-3. Um banco novo será criado com o schema UUIDv7 via `AutoMigrate`.
+1. `database.Init()` abre o banco e executa `PRAGMA table_info(conversations)`.
+2. Se a coluna `id` for do tipo `INTEGER`, dispara `migrateToUUIDv7()` dentro de uma transação.
+3. Para cada tabela (na ordem de dependência), a migração:
+   a. Cria `_tabela_new` com schema UUIDv7 (`id TEXT PRIMARY KEY`)
+   b. Lê todos os registros da tabela antiga
+   c. Insere na tabela nova com `uuid.NewV7()` para cada PK
+   d. Armazena `map[uint]string` (old→new) em memória para resolver FKs
+   e. Dropa a tabela antiga
+   f. Renomeia `_tabela_new` → nome original
+4. Recria FTS5, triggers e índices parciais.
+5. Se qualquer passo falhar, a transação inteira é revertida (banco original intacto).
+6. Um backup `conversations.db.bak` é criado **antes** de iniciar a migração.
 
-Alternativa aceita: o usuário deleta o banco manualmente.
+**Ordem de migração** (por dependência de FKs):
+
+```
+1. credential_entries      (0 FKs — isolada)
+2. credential_key_wraps    (0 FKs — isolada)
+3. conversations           (0 FKs recebidas nesta fase)
+4. chat_messages           (FK: conversation_id, parent_id, turn_id + FTS5)
+5. conversations (2° passe) — atualizar summary_up_to_message_id com mapa de chat_messages
+6. task_lists              (0 FKs recebidas nesta fase)
+7. task_list_workflows     (FK: task_list_id)
+8. tasks                   (FK: task_list_id, parent_id self-ref, status_id)
+9. task_notes              (FK: task_id)
+```
+
+**Detalhes críticos**:
+- **Self-referencing FKs** (`chat_messages.parent_id`, `tasks.parent_id`): O mapa `old→new` é populado durante a inserção na tabela nova. FKs que referenciam a mesma tabela são resolvidas no mesmo passe porque todos os IDs da tabela já foram mapeados.
+- **`conversations.summary_up_to_message_id`**: Referência lógica para `chat_messages.id`. Requer um 2° passe em `conversations` após migrar `chat_messages`.
+- **FTS5**: Dropar antes de migrar `chat_messages`, recriar depois com `content_rowid=rowid`.
+- **Volume esperado**: App pessoal com milhares de registros — migração roda em <1s.
+
+**Complexidade estimada**: ~500-600 linhas Go de código de migração one-shot.
 
 ### D6 — Estratégia: big bang
 
 Todas as entidades mudam em um único esforço coordenado. Não haverá período de coexistência `uint` + `string`. Isso é possível porque:
-- Reset do banco é aceitável (D5)
+- A migração de dados é atômica numa transação SQLite (D5)
 - Bindings Wails são regenerados atomicamente
 - O app não tem API REST externa (sem versionamento de API)
+- Volume de dados é pequeno (app pessoal, milhares de registros)
 
 ### D7 — FTS5: usar `rowid` implícito
 
@@ -201,64 +231,74 @@ Ao migrar, cada recurso receberá um `id` UUIDv7 como PK no banco, e o slug atua
 
 ## Fases
 
-### Fase 1 — Infraestrutura UUID (backend)
+### Fase 1 — Infraestrutura UUID + migração (backend)
 
 1. Adicionar `github.com/google/uuid` ao `go.mod`
 2. Criar `UUIDModel` em `internal/database/models.go` com hook `BeforeCreate`
 3. Verificar se soft delete (`gorm.DeletedAt`) é usado — se sim, incluir no `UUIDModel`
+4. Implementar `migrateToUUIDv7()` em `internal/database/migration.go`:
+   - Detecção de schema antigo via `PRAGMA table_info`
+   - Backup do banco antes de migrar
+   - Transação atômica com create/copy/drop/rename por tabela
+   - Mapas `old→new` em memória para resolução de FKs
+   - Drop/recreate de FTS5 + triggers
+   - Recreate de índices parciais
+5. Testes da migração com banco de teste populado (`migration_test.go`)
 
 ### Fase 2 — Migrar models GORM (backend)
 
-4. Substituir PKs `uint` → `string` (UUIDModel) em todas as 9 entidades
-5. Atualizar todas as FKs correspondentes
-6. Atualizar assinaturas CRUD em:
+6. Substituir PKs `uint` → `string` (UUIDModel) em todas as 9 entidades
+7. Atualizar todas as FKs correspondentes
+8. Atualizar assinaturas CRUD em:
    - `internal/database/database.go` (Conversation, ChatMessage)
    - `internal/database/tasklist_repository.go` (TaskList, Task, TaskNote, Workflow)
    - `internal/credentials/db_store.go` (CredentialEntry, CredentialKeyWrap)
-7. Adaptar FTS5 triggers para usar `rowid` implícito (D7)
+9. Adaptar FTS5 triggers para usar `rowid` implícito (D7)
 
 ### Fase 3 — Migrar contratos de eventos (backend)
 
-8. Atualizar todas as structs em `internal/core/ports/chat_events.go`
-9. Atualizar emitters em `app_chat.go`, `app_speech.go`, channels, etc.
-10. Atualizar interfaces/ports em `internal/core/ports/`
+10. Atualizar todas as structs em `internal/core/ports/chat_events.go`
+11. Atualizar emitters em `app_chat.go`, `app_speech.go`, channels, etc.
+12. Atualizar interfaces/ports em `internal/core/ports/`
 
 ### Fase 4 — Migrar app layer + controllers (backend)
 
-11. Atualizar funções Wails: `SendMessage`, `GetConversation`, `DeleteConversation`, etc.
-12. Atualizar controllers de tasklist, credentials, speech
-13. Atualizar mapeamento `contactID → conversationID` em channels
-14. Regenerar bindings: `wails generate module`
+13. Atualizar funções Wails: `SendMessage`, `GetConversation`, `DeleteConversation`, etc.
+14. Atualizar controllers de tasklist, credentials, speech
+15. Atualizar mapeamento `contactID → conversationID` em channels
+16. Regenerar bindings: `wails generate module`
 
 ### Fase 5 — Migrar frontend
 
-15. Atualizar stores: `chatStore`, `workspaceStore`, `taskListStore`
-16. Atualizar tipos: `tasklist.ts`, event payload types
-17. Atualizar deep links: `deepLinks.ts`
-18. Verificar componentes que recebem IDs como props
-19. Verificar event listeners
+17. Atualizar stores: `chatStore`, `workspaceStore`, `taskListStore`
+18. Atualizar tipos: `tasklist.ts`, event payload types
+19. Atualizar deep links: `deepLinks.ts`
+20. Verificar componentes que recebem IDs como props
+21. Verificar event listeners
 
 ### Fase 6 — Testes
 
-20. Testes Go: ajustar seeds e asserções para UUIDv7
-21. Testes Vitest: ajustar mocks com IDs string
+22. Testes Go: ajustar seeds e asserções para UUIDv7
+23. Testes Vitest: ajustar mocks com IDs string
 
-### Fase 7 — Reset e verificação
+### Fase 7 — Verificação final
 
-22. Implementar detecção de schema antigo em `database.Init()` (renomear para `.bak` ou warning)
-23. Rodar `Check: all` (go test + frontend lint+test+build)
-24. Teste manual completo
+24. Rodar `Check: all` (go test + frontend lint+test+build)
+25. Teste manual completo: abrir app com banco antigo → migração automática → verificar dados
 
 ## Riscos
 
 | # | Risco | Probabilidade | Impacto | Mitigação |
 |---|---|---|---|---|
-| R1 | FTS5 incompatível com PK string | Média | Alto | Usar `rowid` implícito do SQLite para `content_rowid` (D7) |
+| R1 | FTS5 incompatível com PK string | Média | Alto | Usar `rowid` implícito do SQLite para `content_rowid` (D7). Drop/recreate FTS5 durante migração |
 | R2 | Performance de JOINs com string PK | Baixa | Baixo | UUIDv7 são 36 chars fixos; volume do app (milhares de registros) torna impacto negligível |
 | R3 | Bindings Wails desatualizados | Média | Alto | Regeneração de bindings é passo obrigatório da Fase 4 |
-| R4 | Canais com `conversationID` numérico | Alta | Médio | Channels armazenam mapeamento em JSON; precisa atualizar formato. Tratar gracefully: ID não encontrado = criar nova conversa |
+| R4 | Canais com `conversationID` numérico | Alta | Médio | A migração converte IDs nos JSONs de channels. Tratar gracefully: ID não encontrado = criar nova conversa |
 | R5 | Workspaces YAML com IDs numéricos | Alta | Baixo | Tabs com `conversationId` inexistente ficam sem conversa; UX graceful |
 | R6 | EnrichedMessage.id já é string | Baixa | Baixo | Confirmar que a conversão `int → string` no backend pode ser removida (agora já é string nativo) |
+| R7 | Migração falha no meio | Baixa | Alto | Transação atômica SQLite: qualquer erro reverte tudo. Backup `.bak` criado antes de iniciar |
+| R8 | Self-referencing FKs (parent_id) | Média | Médio | Mapa `old→new` populado durante inserção, resolvido no mesmo passe |
+| R9 | summary_up_to_message_id cross-table | Média | Médio | 2° passe em conversations após migrar chat_messages, usando mapa de mensagens |
 
 ## Critérios de aceitação
 
@@ -268,5 +308,8 @@ Ao migrar, cada recurso receberá um `id` UUIDv7 como PK no banco, e o slug atua
 4. **Deep links** com UUID funcionam: `assistente://conversation/{uuid}`
 5. **FTS5** busca por texto retorna resultados corretos
 6. **Eventos** carregam `conversationId` e `messageId` como `string` em ambos os lados
-7. **Banco antigo** é detectado e tratado (renomear `.bak` ou warning)
-8. **Nenhuma regressão** nos fluxos: criar conversa, enviar mensagem, criar task list, buscar mensagem
+7. **Migração automática**: banco antigo (INTEGER PKs) é detectado e convertido no startup, preservando todos os dados
+8. **Backup**: `conversations.db.bak` criado antes da migração
+9. **Rollback seguro**: se a migração falhar, banco original permanece intacto
+10. **Nenhuma regressão** nos fluxos: criar conversa, enviar mensagem, criar task list, buscar mensagem
+11. **Dados preservados**: conversas, mensagens, task lists, credenciais existentes acessíveis após a migração

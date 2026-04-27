@@ -75,15 +75,15 @@ func timePtr(v time.Time) *time.Time {
 }
 
 func TestExportConversationUsesIndexesInsteadOfIDs(t *testing.T) {
-	parentID := uint(10)
-	turnID := uint(10)
-	assistantID := uint(20)
+	parentID := "10"
+	turnID := "10"
+	assistantID := "20"
 
 	conv := &database.Conversation{
 		Title: "Teste",
 		Messages: []database.ChatMessage{
-			{ID: parentID, Role: "user", Content: "Oi", CreatedAt: time.Unix(100, 0)},
-			{ID: assistantID, Role: "assistant", Content: "Ola", ParentID: &parentID, TurnID: &turnID, CreatedAt: time.Unix(101, 0)},
+			{UUIDModel: database.UUIDModel{ID: parentID, CreatedAt: time.Unix(100, 0)}, Role: "user", Content: "Oi"},
+			{UUIDModel: database.UUIDModel{ID: assistantID, CreatedAt: time.Unix(101, 0)}, Role: "assistant", Content: "Ola", ParentID: &parentID, TurnID: &turnID},
 		},
 	}
 
@@ -106,7 +106,7 @@ func TestExportConversationOmitsAudioByDefault(t *testing.T) {
 	conv := &database.Conversation{
 		Title: "Audio",
 		Messages: []database.ChatMessage{
-			{ID: 1, Role: "assistant", Content: "fala", Audio: "base64-audio", AudioMimeType: "audio/mpeg"},
+			{UUIDModel: database.UUIDModel{ID: "1"}, Role: "assistant", Content: "fala", Audio: "base64-audio", AudioMimeType: "audio/mpeg"},
 		},
 	}
 
@@ -275,10 +275,12 @@ func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T
 
 	existingCreatedAt := time.Date(2025, 4, 24, 10, 0, 0, 0, time.UTC)
 	existingConv := &database.Conversation{
-		Title:     "Conversa importada",
-		Channel:   "telegram",
-		CreatedAt: existingCreatedAt,
-		UpdatedAt: existingCreatedAt,
+		UUIDModel: database.UUIDModel{
+			CreatedAt: existingCreatedAt,
+			UpdatedAt: existingCreatedAt,
+		},
+		Title:   "Conversa importada",
+		Channel: "telegram",
 	}
 	if err := database.DB().Create(existingConv).Error; err != nil {
 		t.Fatalf("falha ao criar conversa existente: %v", err)
@@ -483,7 +485,7 @@ func TestBuildExportFileIncludesTaskLists(t *testing.T) {
 
 	taskList := createPortableTaskListFixture(t)
 
-	file, err := BuildExportFile(nil, nil, []uint{taskList.ID}, nil, ExportRequest{}, "test")
+	file, err := BuildExportFile(nil, nil, []string{taskList.ID}, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}
@@ -582,7 +584,7 @@ func TestAnalyzeImportDataDetectsTaskListConflicts(t *testing.T) {
 
 	taskList := createPortableTaskListFixture(t)
 
-	file, err := BuildExportFile(nil, nil, []uint{taskList.ID}, nil, ExportRequest{}, "test")
+	file, err := BuildExportFile(nil, nil, []string{taskList.ID}, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}
@@ -618,7 +620,7 @@ func TestAnalyzeImportDataDetectsTaskListConflictsWithNormalizedSlug(t *testing.
 
 	taskList := createPortableTaskListFixture(t)
 
-	file, err := BuildExportFile(nil, nil, []uint{taskList.ID}, nil, ExportRequest{}, "test")
+	file, err := BuildExportFile(nil, nil, []string{taskList.ID}, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}
@@ -820,20 +822,24 @@ func TestImportConversationsWithResolutionsOverwritesConversation(t *testing.T) 
 
 	createdAt := time.Date(2025, 4, 24, 10, 0, 0, 0, time.UTC)
 	existing := &database.Conversation{
-		Title:     "Conversa importada",
-		Channel:   "telegram",
-		Summary:   "Resumo antigo",
-		CreatedAt: createdAt,
-		UpdatedAt: createdAt,
+		UUIDModel: database.UUIDModel{
+			CreatedAt: createdAt,
+			UpdatedAt: createdAt,
+		},
+		Title:   "Conversa importada",
+		Channel: "telegram",
+		Summary: "Resumo antigo",
 	}
 	if err := database.DB().Create(existing).Error; err != nil {
 		t.Fatalf("Create(existing conversation) error = %v", err)
 	}
 	if err := database.DB().Create(&database.ChatMessage{
+		UUIDModel: database.UUIDModel{
+			CreatedAt: createdAt,
+		},
 		ConversationID: existing.ID,
 		Role:           "user",
 		Content:        "Mensagem antiga",
-		CreatedAt:      createdAt,
 	}).Error; err != nil {
 		t.Fatalf("Create(existing message) error = %v", err)
 	}
@@ -1201,10 +1207,12 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 
 	now := time.Now().UTC()
 	existingConv := &database.Conversation{
-		Title:     "Duplicada",
-		Channel:   "telegram",
-		CreatedAt: now,
-		UpdatedAt: now,
+		UUIDModel: database.UUIDModel{
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Title:   "Duplicada",
+		Channel: "telegram",
 	}
 	if err := database.DB().Create(existingConv).Error; err != nil {
 		t.Fatalf("falha ao criar conversa existente: %v", err)

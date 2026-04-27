@@ -131,16 +131,13 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       messageAudioService.stopCurrentAudio();
       ttsService.stop();
 
-      // Somente IDs numéricos puros são do backend (ex: "42").
-      // IDs locais contêm hífen/letras (ex: "1712345678901-abc3d5e9f").
-      const isBackendId = typeof message.id === 'string'
-        ? /^\d+$/.test(message.id)
-        : typeof message.id === 'number';
-      const numericId = isBackendId ? Number(message.id) : 0;
+      // IDs de streaming (ex: "streaming-abc-1") não existem no backend.
+      const isBackendId = !!message.id && !message.id.startsWith('streaming-');
+      const backendId = isBackendId ? message.id : '';
 
-      if (numericId > 0) {
+      if (backendId) {
         const volume = ttsService.getVolume();
-        const played = await messageAudioService.speakMessage(numericId, volume, voiceCtx);
+        const played = await messageAudioService.speakMessage(backendId, volume, voiceCtx);
         if (played) return;
       }
 

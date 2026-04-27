@@ -137,7 +137,7 @@ func TestSendMessageUseCase_ReturnsErrorWhenNoLLMProviders(t *testing.T) {
 	// ConversationID pode ser qualquer valor pois Count==0 falha antes do check de conv.
 	_, err := uc.Execute(usecases.SendMessageRequest{
 		Ctx:            context.Background(),
-		ConversationID: 1,
+		ConversationID: "1",
 		UserContent:    "hello",
 		Source:         "test",
 	})

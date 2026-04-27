@@ -33,7 +33,7 @@ import { downloadJSON, openImportFileDialog, generateFilename, ImportFileError, 
 import './HistoryPage.css';
 
 interface Conversation {
-  id: number;
+  id: string;
   title: string;
   created_at: string;
   updated_at: string;
@@ -131,7 +131,7 @@ interface ExportRequestPayload {
 type ImportResolutionMap = Record<string, ImportResolutionDraft>;
 
 interface TaskListRecord {
-  id: number;
+  id: string;
 }
 
 interface ProviderRecord {
@@ -287,18 +287,18 @@ export default function HistoryPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
-  const [searchResultIds, setSearchResultIds] = useState<Set<number> | null>(null);
-  const [snippetsMap, setSnippetsMap] = useState<Map<number, string>>(new Map());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [searchResultIds, setSearchResultIds] = useState<Set<string> | null>(null);
+  const [snippetsMap, setSnippetsMap] = useState<Map<string, string>>(new Map());
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportTargetIds, setExportTargetIds] = useState<number[]>([]);
+  const [exportTargetIds, setExportTargetIds] = useState<string[]>([]);
   const [includeProvidersExport, setIncludeProvidersExport] = useState(false);
   const [exportProviderIds, setExportProviderIds] = useState<string[]>([]);
   const [includeTaskListsExport, setIncludeTaskListsExport] = useState(false);
-  const [exportTaskListIds, setExportTaskListIds] = useState<number[]>([]);
+  const [exportTaskListIds, setExportTaskListIds] = useState<string[]>([]);
   const [includeCredentialExport, setIncludeCredentialExport] = useState(false);
   const [exportPassword, setExportPassword] = useState('');
   const [exportPasswordError, setExportPasswordError] = useState('');
@@ -339,8 +339,8 @@ export default function HistoryPage() {
         setSearchResultIds(new Set());
         setSnippetsMap(new Map());
       } else {
-        const ids = new Set<number>();
-        const snippets = new Map<number, string>();
+        const ids = new Set<string>();
+        const snippets = new Map<string, string>();
         for (const r of results) {
           ids.add(r.conversation_id);
           if (!snippets.has(r.conversation_id)) {
@@ -403,7 +403,7 @@ export default function HistoryPage() {
     }
   };
 
-  const handleOpenConversation = useCallback(async (conversationId: number, title?: string) => {
+  const handleOpenConversation = useCallback(async (conversationId: string, title?: string) => {
     await executeDeepLink(
       { type: 'conversation:open', conversationId, title },
       { navigate },
@@ -414,7 +414,7 @@ export default function HistoryPage() {
     navigate('/');
   };
 
-  const handleDeleteConversation = useCallback(async (conversationId: number) => {
+  const handleDeleteConversation = useCallback(async (conversationId: string) => {
     const conv = conversations.find((c) => c.id === conversationId);
     const title = conv?.title || t('history.untitled');
     const ok = await confirm({
@@ -453,7 +453,7 @@ export default function HistoryPage() {
     if (!ok) return;
 
     try {
-      await Promise.all(ids.map((id) => DeleteConversation(Number(id))));
+      await Promise.all(ids.map((id) => DeleteConversation(id)));
       const idSet = new Set(ids);
       setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
       setSelectedIds(new Set());
@@ -464,11 +464,11 @@ export default function HistoryPage() {
 
   const getTargetConversationIds = useCallback(() => (
     selectedIds.size > 0
-      ? Array.from(selectedIds).map((id) => Number(id))
+      ? Array.from(selectedIds)
       : conversations.map((c) => c.id)
   ), [conversations, selectedIds]);
 
-  const openExportModal = useCallback((idsToExport: number[]) => {
+  const openExportModal = useCallback((idsToExport: string[]) => {
     if (idsToExport.length === 0) {
       announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
       return;
@@ -508,19 +508,19 @@ export default function HistoryPage() {
   const loadExportTaskListIds = useCallback(async () => {
     const taskLists = await GetAllTaskLists() as TaskListRecord[];
     const ids = (taskLists || [])
-      .map((taskList) => Number(taskList.id))
-      .filter((id) => Number.isFinite(id));
+      .map((taskList) => String(taskList.id ?? '').trim())
+      .filter((id) => id.length > 0);
     setExportTaskListIds(ids);
     return ids;
   }, []);
 
-  const exportJsonByIds = useCallback(async (idsToExport: number[], providerIdsToExport: string[], taskListIdsToExport: number[], options?: {
+  const exportJsonByIds = useCallback(async (idsToExport: string[], providerIdsToExport: string[], taskListIdsToExport: string[], options?: {
     includeCredentials?: boolean;
     credentialExportPassword?: string;
   }) => {
     try {
       const payload: ExportRequestPayload = {
-        conversationIds: idsToExport.map((id) => String(id)),
+        conversationIds: idsToExport,
         includeCredentials: options?.includeCredentials === true,
         outputFormat: 'json',
       };
@@ -528,7 +528,7 @@ export default function HistoryPage() {
         payload.providerIds = providerIdsToExport;
       }
       if (taskListIdsToExport.length > 0) {
-        payload.taskListIds = taskListIdsToExport.map((id) => String(id));
+        payload.taskListIds = taskListIdsToExport;
       }
       if (payload.includeCredentials && options?.credentialExportPassword?.trim()) {
         payload.credentialExportPassword = options.credentialExportPassword.trim();
@@ -542,7 +542,7 @@ export default function HistoryPage() {
     }
   }, [announce, t]);
 
-  const exportRichByIds = useCallback(async (idsToExport: number[], format: 'html' | 'pdf') => {
+  const exportRichByIds = useCallback(async (idsToExport: string[], format: 'html' | 'pdf') => {
     if (idsToExport.length === 0) {
       announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
       return;
@@ -585,7 +585,7 @@ export default function HistoryPage() {
         providerIdsToExport = exportProviderIds.length > 0 ? exportProviderIds : await loadExportProviderIds();
       }
 
-      let taskListIdsToExport: number[] = [];
+      let taskListIdsToExport: string[] = [];
       if (includeTaskListsExport) {
         taskListIdsToExport = exportTaskListIds.length > 0 ? exportTaskListIds : await loadExportTaskListIds();
       }
@@ -882,7 +882,7 @@ export default function HistoryPage() {
     handleDeleteConversation(item.id);
   }, [handleDeleteConversation]);
 
-  const handleSendToWorkspace = useCallback(async (_conversationId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
+  const handleSendToWorkspace = useCallback(async (_conversationId: string, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
       const tabTitle = title || t('chat.newConversation', 'Nova conversa');
       if (isActive) {
@@ -1224,7 +1224,7 @@ export default function HistoryPage() {
         onDelete={handleDeleteRow}
         selectedIds={selectedIds}
         multiSelect={true}
-        onSelectionChange={setSelectedIds}
+        onSelectionChange={(ids: Set<string | number>) => setSelectedIds(new Set([...ids].map(String)))}
         onGridReady={handleGridReady}
         onFocusChange={handleFocusChange}
         getRowActions={getRowActions}

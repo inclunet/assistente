@@ -22,8 +22,8 @@ type EmitterAdapter struct {
 	errOut         io.Writer // stderr por padrão
 	verbose        bool
 	done           chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
-	lastPrinted    int           // quantidade de bytes de Content já impressos (para imprimir só o delta)
-	conversationID uint          // conversa ativa; 0 = aceita qualquer conversa
+	lastPrinted    int    // quantidade de bytes de Content já impressos (para imprimir só o delta)
+	conversationID string // conversa ativa; "" = aceita qualquer conversa
 }
 
 // EmitterOption configura o EmitterAdapter.
@@ -63,8 +63,8 @@ func NewEmitterAdapter(opts ...EmitterOption) *EmitterAdapter {
 //
 // signalDone() é idempotente: se mais de um evento terminal chegar, o canal já estará fechado.
 // Deve ser chamado ANTES de SendMessage.
-// Se conversationID é 0, aceita qualquer conversa (compatível com modo REPL).
-func (e *EmitterAdapter) WaitDone(conversationID uint) <-chan struct{} {
+// Se conversationID é "", aceita qualquer conversa (compatível com modo REPL).
+func (e *EmitterAdapter) WaitDone(conversationID string) <-chan struct{} {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.done = make(chan struct{})
@@ -116,7 +116,7 @@ func (e *EmitterAdapter) handleStream(data any) {
 	}
 
 	// Filtra eventos de outras conversas
-	if e.conversationID != 0 && ev.ConversationId != 0 && ev.ConversationId != e.conversationID {
+	if e.conversationID != "" && ev.ConversationId != "" && ev.ConversationId != e.conversationID {
 		return
 	}
 
@@ -150,22 +150,22 @@ func (e *EmitterAdapter) handleStream(data any) {
 func (e *EmitterAdapter) handleError(data any) {
 	convID := e.errorConversationID(data)
 	// Filtra eventos de outras conversas
-	if e.conversationID != 0 && convID != 0 && convID != e.conversationID {
+	if e.conversationID != "" && convID != "" && convID != e.conversationID {
 		return
 	}
 
 	switch v := data.(type) {
 	case ports.ErrorEvent:
-		if e.verbose && v.ConversationID != 0 {
-			_, _ = fmt.Fprintf(e.errOut, "Erro: %s (conversationId=%d)\n", v.Error, v.ConversationID)
+		if e.verbose && v.ConversationID != "" {
+			_, _ = fmt.Fprintf(e.errOut, "Erro: %s (conversationId=%s)\n", v.Error, v.ConversationID)
 		} else {
 			_, _ = fmt.Fprintf(e.errOut, "Erro: %s\n", v.Error)
 		}
 	case *ports.ErrorEvent:
 		if v == nil {
 			_, _ = fmt.Fprintln(e.errOut, "Erro: <nil>")
-		} else if e.verbose && v.ConversationID != 0 {
-			_, _ = fmt.Fprintf(e.errOut, "Erro: %s (conversationId=%d)\n", v.Error, v.ConversationID)
+		} else if e.verbose && v.ConversationID != "" {
+			_, _ = fmt.Fprintf(e.errOut, "Erro: %s (conversationId=%s)\n", v.Error, v.ConversationID)
 		} else {
 			_, _ = fmt.Fprintf(e.errOut, "Erro: %s\n", v.Error)
 		}
@@ -190,7 +190,7 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 	switch event {
 	case "chat:tool_start":
 		if ev, ok := e.toToolStartEvent(data); ok {
-			if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
+			if e.conversationID != "" && ev.ConversationID != "" && ev.ConversationID != e.conversationID {
 				return
 			}
 			origin := ev.Origin
@@ -206,7 +206,7 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 		}
 	case "chat:tool_end":
 		if ev, ok := e.toToolEndEvent(data); ok {
-			if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
+			if e.conversationID != "" && ev.ConversationID != "" && ev.ConversationID != e.conversationID {
 				return
 			}
 			name := ev.Name
@@ -234,7 +234,7 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 		}
 	case "chat:tool_failure":
 		if ev, ok := e.toToolFailureEvent(data); ok {
-			if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
+			if e.conversationID != "" && ev.ConversationID != "" && ev.ConversationID != e.conversationID {
 				return
 			}
 			retry := ""
@@ -296,7 +296,7 @@ func (e *EmitterAdapter) handleSegmentDone(data any) {
 		return
 	}
 	// Filtra eventos de outras conversas
-	if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
+	if e.conversationID != "" && ev.ConversationID != "" && ev.ConversationID != e.conversationID {
 		return
 	}
 	// Só exibe linha de tools se é iteração intermediária com tools
@@ -370,7 +370,7 @@ func (e *EmitterAdapter) handleDone(data any) {
 	}
 	// Filtra eventos de outras conversas — NÃO sinaliza done para conversas
 	// que não são a ativa (evita fechar WaitDone prematuramente).
-	if e.conversationID != 0 && ev.ConversationID != 0 && ev.ConversationID != e.conversationID {
+	if e.conversationID != "" && ev.ConversationID != "" && ev.ConversationID != e.conversationID {
 		return
 	}
 	defer e.signalDone()
@@ -455,7 +455,7 @@ func (e *EmitterAdapter) toStreamEvent(data any) (ports.StreamEvent, bool) {
 }
 
 // errorConversationID extrai o ConversationID do payload de erro, se disponível.
-func (e *EmitterAdapter) errorConversationID(data any) uint {
+func (e *EmitterAdapter) errorConversationID(data any) string {
 	switch v := data.(type) {
 	case ports.ErrorEvent:
 		return v.ConversationID
@@ -464,5 +464,5 @@ func (e *EmitterAdapter) errorConversationID(data any) uint {
 			return v.ConversationID
 		}
 	}
-	return 0
+	return ""
 }

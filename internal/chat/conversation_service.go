@@ -2,7 +2,6 @@ package chat
 
 import (
 	"sort"
-	"strconv"
 
 	"assistente/internal/events"
 )
@@ -21,23 +20,11 @@ func NewConversationService(cr ConversationRepository, mr MessageRepository, em 
 
 // EnrichMessage converte Message para o DTO do frontend EnrichedMessage
 func EnrichMessage(msg Message) EnrichedMessage {
-	var parentIDStr *string
-	if msg.ParentID != nil {
-		s := strconv.FormatUint(uint64(*msg.ParentID), 10)
-		parentIDStr = &s
-	}
-
-	var turnID *uint
-	if msg.TurnID != nil {
-		v := uint(*msg.TurnID) // TurnID é sempre uint (nunca negativo)
-		turnID = &v
-	}
-
 	return EnrichedMessage{
-		ID:               strconv.FormatUint(uint64(msg.ID), 10),
+		ID:               msg.ID,
 		ConversationID:   msg.ConversationID,
-		ParentID:         parentIDStr,
-		TurnID:           turnID,
+		ParentID:         msg.ParentID,
+		TurnID:           msg.TurnID,
 		Role:             msg.Role,
 		Content:          msg.Content,
 		Reasoning:        msg.Reasoning,
@@ -59,7 +46,7 @@ func EnrichMessage(msg Message) EnrichedMessage {
 // BuildMessageTree organiza mensagens planas em uma árvore hierárquica
 func BuildMessageTree(messages []Message) []MessageNode {
 
-	childrenMap := make(map[uint][]Message)
+	childrenMap := make(map[string][]Message)
 	var rootMessages []Message
 
 	for _, msg := range messages {
@@ -110,7 +97,7 @@ func BuildMessageTree(messages []Message) []MessageNode {
 // BuildMessageNodes constrói uma lista plana de MessageNode a partir de mensagens brutas,
 // calculando childCount para lazy loading (sem carregá-los na memória).
 // parentID nil = busca raízes (level 0); non-nil = filhos diretos (level 1).
-func BuildMessageNodes(messages []Message, childCounts map[uint]int, parentID *uint) []MessageNode {
+func BuildMessageNodes(messages []Message, childCounts map[string]int, parentID *string) []MessageNode {
 	level := 0
 	if parentID != nil {
 		level = 1

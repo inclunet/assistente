@@ -56,7 +56,7 @@ export namespace channels {
 	    profile?: string;
 	    max_history?: number;
 	    max_contacts?: number;
-	    conversations?: Record<string, number>;
+	    conversations?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChannelConfig(source);
@@ -254,10 +254,10 @@ export namespace contacts {
 export namespace database {
 	
 	export class ChatMessage {
-	    id: number;
-	    conversationId: number;
-	    parentId?: number;
-	    turnId?: number;
+	    id: string;
+	    conversationId: string;
+	    parentId?: string;
+	    turnId?: string;
 	    role: string;
 	    content: string;
 	    reasoning?: string;
@@ -319,7 +319,7 @@ export namespace database {
 		}
 	}
 	export class Conversation {
-	    id: number;
+	    id: string;
 	    title: string;
 	    channel?: string;
 	    contact_id?: string;
@@ -330,7 +330,7 @@ export namespace database {
 	    messages?: ChatMessage[];
 	    message_count: number;
 	    summary?: string;
-	    summary_up_to_message_id?: number;
+	    summary_up_to_message_id?: string;
 	    summarizing_in_progress?: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -371,9 +371,9 @@ export namespace database {
 		}
 	}
 	export class MessageSearchResult {
-	    conversation_id: number;
+	    conversation_id: string;
 	    conversation_title: string;
-	    message_id: number;
+	    message_id: string;
 	    role: string;
 	    snippet: string;
 	    rank: number;
@@ -414,8 +414,8 @@ export namespace database {
 		}
 	}
 	export class TaskNote {
-	    id: number;
-	    task_id: number;
+	    id: string;
+	    task_id: string;
 	    type: number;
 	    content: string;
 	    author_name?: string;
@@ -469,8 +469,8 @@ export namespace database {
 		}
 	}
 	export class TaskListWorkflow {
-	    id: number;
-	    task_list_id: number;
+	    id: string;
+	    task_list_id: string;
 	    statuses: string;
 	    allowed_transitions: string;
 	    initial_status_id: number;
@@ -515,7 +515,7 @@ export namespace database {
 		}
 	}
 	export class TaskList {
-	    id: number;
+	    id: string;
 	    title: string;
 	    slug?: string;
 	    description: string;
@@ -565,14 +565,14 @@ export namespace database {
 		}
 	}
 	export class Task {
-	    id: number;
-	    task_list_id: number;
+	    id: string;
+	    task_list_id: string;
 	    title: string;
 	    description: string;
 	    code?: string;
 	    link?: string;
 	    status_id: number;
-	    parent_id?: number;
+	    parent_id?: string;
 	    order: number;
 	    assignee_name?: string;
 	    assignee_id?: string;
@@ -1403,8 +1403,8 @@ export namespace llm {
 export namespace main {
 	
 	export class ChatSpeakRequest {
-	    conversationId: number;
-	    messageId?: number;
+	    conversationId: string;
+	    messageId?: string;
 	    profileSlug?: string;
 	    role: string;
 	    text: string;
@@ -1478,7 +1478,7 @@ export namespace main {
 	}
 	export class ConversationSummaryInfo {
 	    summary: string;
-	    summary_up_to_message_id: number;
+	    summary_up_to_message_id: string;
 	    summarizing_in_progress: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -1494,9 +1494,9 @@ export namespace main {
 	}
 	export class EnrichedMessage {
 	    id: string;
-	    conversationId: number;
+	    conversationId: string;
 	    parentId?: string;
-	    turnId?: number;
+	    turnId?: string;
 	    role: string;
 	    content: string;
 	    reasoning?: string;
@@ -1596,7 +1596,7 @@ export namespace main {
 		}
 	}
 	export class ConversationWithThreads {
-	    id: number;
+	    id: string;
 	    title: string;
 	    threads: MessageNode[];
 	
@@ -2173,7 +2173,7 @@ export namespace main {
 	    }
 	}
 	export class TokenStatsResult {
-	    conversationId: number;
+	    conversationId: string;
 	    promptTokens: number;
 	    completionTokens: number;
 	    totalTokens: number;
@@ -3647,7 +3647,7 @@ export namespace workspace {
 	export class Tab {
 	    id: string;
 	    type: string;
-	    conversation_id?: number;
+	    conversation_id?: string;
 	    title: string;
 	    position: number;
 	    profile_override?: Record<string, any>;

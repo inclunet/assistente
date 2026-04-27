@@ -22,11 +22,11 @@ var supportedPortableResourceTypes = map[string]struct{}{
 	"credentials":   {},
 }
 
-func ExportConversations(ids []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
+func ExportConversations(ids []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
 	return ExportPortableData(ids, nil, nil, credMgr, req, appVersion)
 }
 
-func ExportPortableData(conversationIDs []uint, providerIDs []string, taskListIDs []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
+func ExportPortableData(conversationIDs []string, providerIDs []string, taskListIDs []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
 	file, err := BuildExportFile(conversationIDs, providerIDs, taskListIDs, credMgr, req, appVersion)
 	if err != nil {
 		return "", err
@@ -39,16 +39,16 @@ func ExportPortableData(conversationIDs []uint, providerIDs []string, taskListID
 	return string(raw), nil
 }
 
-func BuildConversationExportFile(ids []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
+func BuildConversationExportFile(ids []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
 	return BuildExportFile(ids, nil, nil, credMgr, req, appVersion)
 }
 
-func BuildExportFile(conversationIDs []uint, providerIDs []string, taskListIDs []uint, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
+func BuildExportFile(conversationIDs []string, providerIDs []string, taskListIDs []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
 	conversations := make([]ConversationExport, 0, len(conversationIDs))
 	for _, id := range conversationIDs {
 		conv, err := database.GetConversation(id)
 		if err != nil {
-			return nil, fmt.Errorf("erro ao buscar conversa %d: %w", id, err)
+			return nil, fmt.Errorf("erro ao buscar conversa %s: %w", id, err)
 		}
 		conversations = append(conversations, exportConversation(conv, req.IncludeAudio))
 	}
@@ -66,7 +66,7 @@ func BuildExportFile(conversationIDs []uint, providerIDs []string, taskListIDs [
 	for _, id := range taskListIDs {
 		taskList, err := exportTaskList(id)
 		if err != nil {
-			return nil, fmt.Errorf("erro ao buscar tasklist %d: %w", id, err)
+			return nil, fmt.Errorf("erro ao buscar tasklist %s: %w", id, err)
 		}
 		taskLists = append(taskLists, taskList)
 	}
@@ -340,7 +340,7 @@ func AnalyzeImportData(jsonData string, credMgr *credentials.Manager, credential
 }
 
 func exportConversation(conv *database.Conversation, includeAudio bool) ConversationExport {
-	indexByMessageID := make(map[uint]int, len(conv.Messages))
+	indexByMessageID := make(map[string]int, len(conv.Messages))
 	for i, msg := range conv.Messages {
 		indexByMessageID[msg.ID] = i
 	}
@@ -457,8 +457,8 @@ func createImportedConversation(tx *gorm.DB, conv ConversationExport) (*database
 	return newConv, nil
 }
 
-func importConversationMessages(tx *gorm.DB, conversationID uint, conv ConversationExport, includeAudio bool) error {
-	idMap := make(map[int]uint, len(conv.Messages))
+func importConversationMessages(tx *gorm.DB, conversationID string, conv ConversationExport, includeAudio bool) error {
+	idMap := make(map[int]string, len(conv.Messages))
 	for i, msg := range conv.Messages {
 		parentID, err := resolveImportedMessageReference(msg.ParentIndex, idMap, "pai")
 		if err != nil {
@@ -505,7 +505,7 @@ func importConversationMessages(tx *gorm.DB, conversationID uint, conv Conversat
 	return nil
 }
 
-func resolveImportedMessageReference(index *int, idMap map[int]uint, label string) (*uint, error) {
+func resolveImportedMessageReference(index *int, idMap map[int]string, label string) (*string, error) {
 	if index == nil {
 		return nil, nil
 	}

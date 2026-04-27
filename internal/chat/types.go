@@ -6,9 +6,9 @@ import (
 
 type EnrichedMessage struct {
 ID               string    `json:"id"`
-ConversationID   uint      `json:"conversationId"`
+ConversationID   string    `json:"conversationId"`
 ParentID         *string   `json:"parentId,omitempty"`
-TurnID           *uint     `json:"turnId,omitempty"`
+TurnID           *string   `json:"turnId,omitempty"`
 Role             string    `json:"role"`
 Content          string    `json:"content"`
 Reasoning        string    `json:"reasoning,omitempty"`
@@ -34,7 +34,7 @@ ChildCount int             `json:"childCount"`
 }
 
 type ConversationWithThreads struct {
-ID      uint          `json:"id"`
+ID      string        `json:"id"`
 Title   string        `json:"title"`
 Threads []MessageNode `json:"threads"`
 }

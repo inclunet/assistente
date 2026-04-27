@@ -28,6 +28,21 @@ if (typeof HTMLElement !== 'undefined' && !HTMLElement.prototype.scrollIntoView)
 }
 
 vi.mock('monaco-editor', () => ({}));
+
+// @ant-design/icons is extremely slow to transform (~55s).
+// Return null-rendering stubs for any icon import.
+vi.mock('@ant-design/icons', () => {
+  return new Proxy({} as Record<string, unknown>, {
+    get(_target, prop: string) {
+      if (prop === '__esModule') return true;
+      if (prop === 'default') return {};
+      const Stub = () => null;
+      Stub.displayName = prop;
+      return Stub;
+    },
+  });
+});
+
 vi.mock('monaco-editor/esm/vs/editor/editor.api', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/editor.main', () => ({}));

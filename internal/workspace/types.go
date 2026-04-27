@@ -21,7 +21,7 @@ const (
 type Tab struct {
 	ID             string         `json:"id" yaml:"id"`
 	Type           TabType        `json:"type" yaml:"type"`
-	ConversationID int64          `json:"conversation_id,omitempty" yaml:"conversation_id,omitempty"`
+	ConversationID string          `json:"conversation_id,omitempty" yaml:"conversation_id,omitempty"`
 	Title          string         `json:"title" yaml:"title"`
 	Position       int            `json:"position" yaml:"position"`
 	ProfileOverride map[string]any `json:"profile_override,omitempty" yaml:"profile_override,omitempty"`
@@ -115,8 +115,8 @@ func (w *Workspace) FindTab(tabID string) *Tab {
 }
 
 // FindTabByConversation encontra a primeira tab com o conversationId especificado.
-func (w *Workspace) FindTabByConversation(conversationID int64) *Tab {
-	if conversationID == 0 {
+func (w *Workspace) FindTabByConversation(conversationID string) *Tab {
+	if conversationID == "" {
 		return nil
 	}
 	for i := range w.Tabs.Items {

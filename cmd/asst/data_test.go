@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"assistente/internal/app"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/portability"
 )
@@ -312,15 +313,15 @@ func TestRunDataAnalyze_ReadError(t *testing.T) {
 func TestPrepareDataExportRequest_ExpandsTypeSelections(t *testing.T) {
 	mock := &mockDataBackend{
 		conversations: []app.Conversation{
-			{ID: 12},
-			{ID: 34},
+			{UUIDModel: database.UUIDModel{ID: "12"}},
+			{UUIDModel: database.UUIDModel{ID: "34"}},
 		},
 		providers: []*llm.ProviderConfig{
 			{ID: "openai-custom"},
 			{ID: "anthropic-main"},
 		},
 		taskLists: []app.TaskList{
-			{ID: 7},
+			{UUIDModel: database.UUIDModel{ID: "7"}},
 		},
 	}
 

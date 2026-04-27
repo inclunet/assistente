@@ -6,18 +6,18 @@
 // ==================== Workflow Types ====================
 
 export interface TaskListWorkflowStatus {
-  id: number; // Identificador numérico do status (imutável)
-  order: number; // Ordem de exibição
-  label: string; // Nome do status
-  color: string; // Cor CSS (ex: var(--accent), #ff0000)
-  icon: string; // Ícone (emoji ou similar)
+  id: number;
+  order: number;
+  label: string;
+  color: string;
+  icon: string;
 }
 
 export type WorkflowTransitions = Record<number, number[]>;
 
 export interface TaskListWorkflow {
-  id: number;
-  taskListId: number;
+  id: string;
+  taskListId: string;
   statuses: TaskListWorkflowStatus[];
   allowedTransitions: WorkflowTransitions;
   initialStatusId: number;
@@ -37,8 +37,8 @@ export const TASK_NOTE_TYPES = {
 } as const;
 
 export interface TaskNote {
-  id: number;
-  taskId: number;
+  id: string;
+  taskId: string;
   type: TaskNoteType;
   content: string;
   authorName?: string;
@@ -53,14 +53,14 @@ export interface TaskNote {
 }
 
 export interface Task {
-  id: number;
-  taskListId: number;
+  id: string;
+  taskListId: string;
   title: string;
   description: string;
   code?: string;
   link?: string;
   statusId: number;
-  parentId?: number;
+  parentId?: string;
   order: number;
   assigneeName?: string;
   assigneeId?: string;
@@ -89,7 +89,7 @@ export interface TaskListValidationPolicy {
 }
 
 export interface TaskList {
-  id: number;
+  id: string;
   title: string;
   /** Slug estável (minúsculas), opcional */
   slug?: string;
@@ -113,9 +113,9 @@ export interface TaskListWithWorkflow extends TaskList {
 // ==================== UI/Store Types ====================
 
 export interface TaskListState {
-  activeTaskListId?: number;
-  taskLists: Map<number, TaskListWithWorkflow>;
-  expandedTasks: Set<number>;
+  activeTaskListId?: string;
+  taskLists: Map<string, TaskListWithWorkflow>;
+  expandedTasks: Set<string>;
   isLoading: boolean;
   error?: string;
 }
@@ -125,30 +125,30 @@ export interface TaskListState {
 export interface CreateTaskListRequest {
   title: string;
   description?: string;
-  conversationId?: number;
-  templateWorkflowId?: number; // Para clonar workflow de outra tasklist
+  conversationId?: string;
+  templateWorkflowId?: string; // Para clonar workflow de outra tasklist
 }
 
 export interface CreateTaskRequest {
-  taskListId: number;
+  taskListId: string;
   title: string;
   description?: string;
-  parentId?: number;
+  parentId?: string;
 }
 
 export interface UpdateTaskRequest {
-  id: number;
+  id: string;
   title?: string;
   description?: string;
 }
 
 export interface UpdateTaskStatusRequest {
-  id: number;
+  id: string;
   statusId: number;
 }
 
 export interface CreateWorkflowRequest {
-  taskListId: number;
+  taskListId: string;
   statuses: TaskListWorkflowStatus[];
   allowedTransitions: WorkflowTransitions;
   initialStatusId: number;
@@ -165,17 +165,17 @@ export interface TaskListStats {
 // ==================== LLM Tool Parameters ====================
 
 export interface UpsertTaskParams {
-  taskListId: number;
+  taskListId: string;
   title: string;
   description?: string;
   statusId?: number;
-  parentId?: number;
-  taskId?: number; // Se presente, é UPDATE; se ausente, é CREATE
+  parentId?: string;
+  taskId?: string; // Se presente, é UPDATE; se ausente, é CREATE
   dueDate?: string;
 }
 
 export interface GetTaskListParams {
-  taskListId: number;
+  taskListId: string;
   includeSubtasks?: boolean;
 }
 

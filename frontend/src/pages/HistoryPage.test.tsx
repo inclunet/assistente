@@ -48,7 +48,7 @@ type RowAction = {
 };
 
 type ConversationItem = {
-  id: number;
+  id: string;
   title: string;
   created_at: string;
   updated_at: string;
@@ -84,11 +84,11 @@ vi.mock('@wailsjs/go/app/App', () => ({
   AnalyzeImportData: (payload: string, password: string) => mockAnalyzeImportData(payload, password),
   GetAllTaskLists: () => mockGetAllTaskLists(),
   GetConversations: () => mockGetConversations(),
-  DeleteConversation: (id: number) => mockDeleteConversation(id),
-  UpdateConversation: (id: number, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
-  ExportConversations: (ids: number[]) => mockExportConversations(ids),
+  DeleteConversation: (id: string) => mockDeleteConversation(id),
+  UpdateConversation: (id: string, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
+  ExportConversations: (ids: string[]) => mockExportConversations(ids),
   ExportData: (payload: unknown) => mockExportData(payload),
-  ExportConversationsToFile: (ids: number[], format: string) => mockExportConversationsToFile(ids, format),
+  ExportConversationsToFile: (ids: string[], format: string) => mockExportConversationsToFile(ids, format),
   ImportConversations: (payload: string) => mockImportConversations(payload),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
   ImportDataWithResolutions: (payload: unknown) => mockImportDataWithResolutions(payload),
@@ -115,6 +115,10 @@ vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
     announce: mockAnnounce,
   }),
+}));
+
+vi.mock('../hooks/useGridPageLandmarks', () => ({
+  useGridPageLandmarks: vi.fn(),
 }));
 
 const mockRequestConfirm = vi.fn(() => Promise.resolve(true));
@@ -165,10 +169,10 @@ vi.mock('../components/ui/DataGrid', () => ({
     getRowActions?: (item: ConversationItem) => Array<{ id: string; label?: string; action?: () => void }>;
   }) => (
     <div>
-      <button type="button" onClick={() => onSelectionChange?.(new Set([1, 2]))}>
+      <button type="button" onClick={() => onSelectionChange?.(new Set(['1', '2']))}>
         select-two
       </button>
-      <button type="button" onClick={() => onSelectionChange?.(new Set([1]))}>
+      <button type="button" onClick={() => onSelectionChange?.(new Set(['1']))}>
         select-one
       </button>
       <button type="button" onClick={() => onSelectionChange?.(new Set())}>
@@ -209,14 +213,14 @@ vi.mock('../components/ui/DataGrid', () => ({
 
 const conversations: ConversationItem[] = [
   {
-    id: 1,
+    id: '1',
     title: 'Conversa 1',
     created_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
     message_count: 2,
   },
   {
-    id: 2,
+    id: '2',
     title: 'Conversa 2',
     created_at: '2025-01-02T00:00:00Z',
     updated_at: '2025-01-02T00:00:00Z',
@@ -309,8 +313,8 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await user.click(deleteButton);
 
     await waitFor(() => {
-      expect(mockDeleteConversation).toHaveBeenCalledWith(1);
-      expect(mockDeleteConversation).toHaveBeenCalledWith(2);
+      expect(mockDeleteConversation).toHaveBeenCalledWith('1');
+      expect(mockDeleteConversation).toHaveBeenCalledWith('2');
     });
   });
 
@@ -328,7 +332,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await user.click(deleteButtons[0]);
 
     await waitFor(() => {
-      expect(mockDeleteConversation).toHaveBeenCalledWith(2);
+      expect(mockDeleteConversation).toHaveBeenCalledWith('2');
     });
   });
 
@@ -348,7 +352,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
 
     await waitFor(() => {
       expect(mockExecuteDeepLink).toHaveBeenCalledWith(
-        { type: 'conversation:open', conversationId: 1, title: 'Conversa 1' },
+        { type: 'conversation:open', conversationId: '1', title: 'Conversa 1' },
         expect.objectContaining({ navigate: expect.any(Function) }),
       );
     });
@@ -367,7 +371,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     exportHtmlAction?.onClick();
 
     await waitFor(() => {
-      expect(mockExportConversationsToFile).toHaveBeenCalledWith([1, 2], 'html');
+      expect(mockExportConversationsToFile).toHaveBeenCalledWith(['1', '2'], 'html');
     });
   });
 
@@ -499,7 +503,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await user.click(pdfButtons[1]);
 
     await waitFor(() => {
-      expect(mockExportConversationsToFile).toHaveBeenCalledWith([1], 'pdf');
+      expect(mockExportConversationsToFile).toHaveBeenCalledWith(['1'], 'pdf');
     });
   });
 

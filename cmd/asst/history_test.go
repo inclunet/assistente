@@ -28,7 +28,7 @@ type mockHistoryBackend struct {
 	deleteErr     error
 
 	// Capture calls
-	deletedID uint
+	deletedID string
 }
 
 func (m *mockHistoryBackend) SearchConversationHistory(query string, limit int) ([]database.MessageSearchResult, error) {
@@ -39,15 +39,15 @@ func (m *mockHistoryBackend) GetConversations() ([]app.Conversation, error) {
 	return m.conversations, m.convsErr
 }
 
-func (m *mockHistoryBackend) GetConversation(id uint) (*app.Conversation, error) {
+func (m *mockHistoryBackend) GetConversation(id string) (*app.Conversation, error) {
 	return m.conversation, m.convErr
 }
 
-func (m *mockHistoryBackend) GetMessages(conversationID uint, parentID *uint) ([]chat.MessageNode, error) {
+func (m *mockHistoryBackend) GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error) {
 	return m.messages, m.messagesErr
 }
 
-func (m *mockHistoryBackend) DeleteConversation(id uint) error {
+func (m *mockHistoryBackend) DeleteConversation(id string) error {
 	m.deletedID = id
 	return m.deleteErr
 }
@@ -60,8 +60,8 @@ func TestHistoryList_Conversations(t *testing.T) {
 	now := time.Now()
 	mock := &mockHistoryBackend{
 		conversations: []app.Conversation{
-			{ID: 1, Title: "Sobre Go", MessageCount: 10, UpdatedAt: now},
-			{ID: 2, Title: "Projeto React", MessageCount: 5, UpdatedAt: now},
+			{UUIDModel: database.UUIDModel{ID: "1", UpdatedAt: now}, Title: "Sobre Go", MessageCount: 10},
+			{UUIDModel: database.UUIDModel{ID: "2", UpdatedAt: now}, Title: "Projeto React", MessageCount: 5},
 		},
 	}
 
@@ -117,9 +117,9 @@ func TestHistoryList_WithLimit(t *testing.T) {
 	now := time.Now()
 	mock := &mockHistoryBackend{
 		conversations: []app.Conversation{
-			{ID: 1, Title: "First", MessageCount: 3, UpdatedAt: now},
-			{ID: 2, Title: "Second", MessageCount: 5, UpdatedAt: now},
-			{ID: 3, Title: "Third", MessageCount: 7, UpdatedAt: now},
+			{UUIDModel: database.UUIDModel{ID: "1", UpdatedAt: now}, Title: "First", MessageCount: 3},
+			{UUIDModel: database.UUIDModel{ID: "2", UpdatedAt: now}, Title: "Second", MessageCount: 5},
+			{UUIDModel: database.UUIDModel{ID: "3", UpdatedAt: now}, Title: "Third", MessageCount: 7},
 		},
 	}
 
@@ -148,8 +148,8 @@ func TestHistoryList_WithLimit(t *testing.T) {
 func TestHistoryList_Search(t *testing.T) {
 	mock := &mockHistoryBackend{
 		searchResults: []database.MessageSearchResult{
-			{ConversationID: 1, ConversationTitle: "Sobre Go", Role: "user", Snippet: "como usar goroutines"},
-			{ConversationID: 2, ConversationTitle: "Deploy", Role: "assistant", Snippet: "docker compose up"},
+			{ConversationID: "1", ConversationTitle: "Sobre Go", Role: "user", Snippet: "como usar goroutines"},
+			{ConversationID: "2", ConversationTitle: "Deploy", Role: "assistant", Snippet: "docker compose up"},
 		},
 	}
 
@@ -202,7 +202,7 @@ func TestHistoryList_SearchLongSnippet(t *testing.T) {
 	long := strings.Repeat("A", 100)
 	mock := &mockHistoryBackend{
 		searchResults: []database.MessageSearchResult{
-			{ConversationID: 1, ConversationTitle: "Long", Role: "user", Snippet: long},
+			{ConversationID: "1", ConversationTitle: "Long", Role: "user", Snippet: long},
 		},
 	}
 
@@ -222,7 +222,7 @@ func TestHistoryList_SearchLongSnippet(t *testing.T) {
 
 func TestHistoryShow_Success(t *testing.T) {
 	mock := &mockHistoryBackend{
-		conversation: &app.Conversation{ID: 42, Title: "Minha Conversa"},
+		conversation: &app.Conversation{UUIDModel: database.UUIDModel{ID: "42"}, Title: "Minha Conversa"},
 		messages: []chat.MessageNode{
 			{
 				Message: chat.EnrichedMessage{Role: "user", Content: "olá"},
@@ -234,7 +234,7 @@ func TestHistoryShow_Success(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runHistoryShow(mock, &out, 42)
+	err := runHistoryShow(mock, &out, "42")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestHistoryShow_NotFound(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runHistoryShow(mock, &out, 999)
+	err := runHistoryShow(mock, &out, "999")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -271,12 +271,12 @@ func TestHistoryShow_NotFound(t *testing.T) {
 
 func TestHistoryShow_MessagesError(t *testing.T) {
 	mock := &mockHistoryBackend{
-		conversation: &app.Conversation{ID: 1, Title: "Test"},
+		conversation: &app.Conversation{UUIDModel: database.UUIDModel{ID: "1"}, Title: "Test"},
 		messagesErr:  fmt.Errorf("load error"),
 	}
 
 	var out bytes.Buffer
-	err := runHistoryShow(mock, &out, 1)
+	err := runHistoryShow(mock, &out, "1")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -287,7 +287,7 @@ func TestHistoryShow_MessagesError(t *testing.T) {
 
 func TestHistoryShow_NestedMessages(t *testing.T) {
 	mock := &mockHistoryBackend{
-		conversation: &app.Conversation{ID: 1, Title: "Nested"},
+		conversation: &app.Conversation{UUIDModel: database.UUIDModel{ID: "1"}, Title: "Nested"},
 		messages: []chat.MessageNode{
 			{
 				Message: chat.EnrichedMessage{Role: "user", Content: "pergunta"},
@@ -299,7 +299,7 @@ func TestHistoryShow_NestedMessages(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runHistoryShow(mock, &out, 1)
+	err := runHistoryShow(mock, &out, "1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -321,12 +321,12 @@ func TestHistoryDelete_Success(t *testing.T) {
 	mock := &mockHistoryBackend{}
 
 	var out bytes.Buffer
-	err := runHistoryDelete(mock, &out, 42)
+	err := runHistoryDelete(mock, &out, "42")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if mock.deletedID != 42 {
-		t.Errorf("expected deleted ID 42, got %d", mock.deletedID)
+	if mock.deletedID != "42" {
+		t.Errorf("expected deleted ID 42, got %s", mock.deletedID)
 	}
 	if !strings.Contains(out.String(), "Conversa 42 removida") {
 		t.Error("expected success message")
@@ -339,7 +339,7 @@ func TestHistoryDelete_Error(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runHistoryDelete(mock, &out, 999)
+	err := runHistoryDelete(mock, &out, "999")
 	if err == nil {
 		t.Fatal("expected error")
 	}

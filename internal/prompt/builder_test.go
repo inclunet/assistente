@@ -283,12 +283,12 @@ func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 
 func TestBuildTemplateData_NilProfile_NoToolCalling(t *testing.T) {
 	b := &prompt.Builder{}
-	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "default"}, 42)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "default"}, "42")
 	if data.ToolCallingEnabled {
 		t.Error("ToolCallingEnabled should be false")
 	}
-	if data.ConversationID != 42 {
-		t.Errorf("ConversationID should be 42, got %d", data.ConversationID)
+	if data.ConversationID != "42" {
+		t.Errorf("ConversationID should be 42, got %s", data.ConversationID)
 	}
 }
 
@@ -304,7 +304,7 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 		},
 	}
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
-	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, "1")
 	if data.WorkspaceName != "Meu Workspace" {
 		t.Errorf("WorkspaceName: got %q", data.WorkspaceName)
 	}
@@ -321,7 +321,7 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 
 func TestBuildTemplateData_WorkspaceNil_NoTabInfo(t *testing.T) {
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: nil}}
-	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, "1")
 	if data.TabCount != 0 {
 		t.Errorf("TabCount should be 0, got %d", data.TabCount)
 	}
@@ -343,7 +343,7 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 		TabType:            "editor",
 		SurfaceStateJSON:   `{"filePath":"/tmp/readme.md","draftId":"draft-1"}`,
 		SurfaceContextJSON: `{"selectedText":"hello","selectionEmpty":false}`,
-	}, 7)
+	}, "7")
 
 	if data.Surface == nil {
 		t.Fatal("expected Surface to be filled")
@@ -397,7 +397,7 @@ func TestBuildTemplateData_DoesNotReuseActiveTabStateWhenSurfaceTypeDiffers(t *t
 	data := b.BuildTemplateData(nil, llm.ChatParams{
 		ProfileSlug: "terminal",
 		TabType:     "terminal",
-	}, 7)
+	}, "7")
 
 	if data.Surface == nil {
 		t.Fatal("expected Surface to be filled")
@@ -474,7 +474,7 @@ func (f *fakeTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResu
 func TestBuildTemplateData_TypedNilWorkspaceManager(t *testing.T) {
 	var mgr *workspace.Manager
 	b := &prompt.Builder{Workspace: mgr}
-	data := b.BuildTemplateData(nil, llm.ChatParams{}, 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{}, "1")
 	if data.WorkspaceName != "" || data.TabCount != 0 {
 		t.Fatalf("esperava dados de workspace vazios com manager typed-nil, obteve %+v", data)
 	}

@@ -91,11 +91,10 @@ export function ChatSessionView({
 
   const handleDeleteMessage = useCallback(
     async (message: { id: string | number }) => {
-      let messageId: number | null = null;
+      let messageId: string | null = null;
       try {
-        const parsedId = typeof message.id === 'number' ? message.id : parseInt(String(message.id), 10);
-        messageId = Number.isNaN(parsedId) ? null : parsedId;
-        if (messageId !== null) {
+        messageId = String(message.id) || null;
+        if (messageId) {
           await DeleteMessage(messageId);
           announce(t('chat.announce.messageDeleted'));
           const conv = getActiveConversation();
@@ -201,9 +200,8 @@ export function ChatSessionView({
     },
     onResend: async (message) => {
       const conversationId = getActiveConversation()?.id;
-      const messageId = typeof message.id === 'number' ? message.id : parseInt(String(message.id), 10);
-      if (!conversationId || Number.isNaN(messageId)) return;
-      await retryMessageToConversation(conversationId, messageId);
+      if (!conversationId || !message.id) return;
+      await retryMessageToConversation(conversationId, message.id);
       announce(t('chat.announce.messageResent'));
     },
     onDelete: handleDeleteMessage,

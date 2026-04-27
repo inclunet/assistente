@@ -16,12 +16,12 @@ type HistoryLoader struct {
 
 // Load retorna as mensagens filtradas e o resumo da conversa.
 // Os mensagens retornadas estão prontas para conversão ao formato LLM.
-func (h *HistoryLoader) Load(conversationID uint) ([]Message, string, error) {
+func (h *HistoryLoader) Load(conversationID string) ([]Message, string, error) {
 	existingSummary, summaryUpToID, err := h.Repo.GetConversationSummary(conversationID)
 	if err != nil {
-		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %d: %v", conversationID, err)
+		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %s: %v", conversationID, err)
 		existingSummary = ""
-		summaryUpToID = 0
+		summaryUpToID = ""
 	}
 
 	allRootMessages, err := h.Repo.GetMessages(conversationID, nil)
@@ -31,7 +31,7 @@ func (h *HistoryLoader) Load(conversationID uint) ([]Message, string, error) {
 
 	// Filtra mensagens para o contexto: apenas as que vêm depois do resumo
 	var dbMessages []Message
-	if summaryUpToID > 0 {
+	if summaryUpToID != "" {
 		for _, m := range allRootMessages {
 			if m.ID > summaryUpToID {
 				dbMessages = append(dbMessages, m)
@@ -96,7 +96,7 @@ func (h *HistoryLoader) Load(conversationID uint) ([]Message, string, error) {
 	cleaned := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
 		if m.Role == "tool" && m.ToolCallID != "" && !offeredIDs[m.ToolCallID] {
-			log.Printf("[History] removendo tool_result órfão: %s (conversa %d)", m.ToolCallID, conversationID)
+			log.Printf("[History] removendo tool_result órfão: %s (conversa %s)", m.ToolCallID, conversationID)
 			continue
 		}
 		if m.ToolCalls != "" {
@@ -110,7 +110,7 @@ func (h *HistoryLoader) Load(conversationID uint) ([]Message, string, error) {
 					if answeredIDs[tc.ID] {
 						kept = append(kept, tcs[i])
 					} else {
-						log.Printf("[History] removendo tool_use órfão: %s (conversa %d)", tc.ID, conversationID)
+						log.Printf("[History] removendo tool_use órfão: %s (conversa %s)", tc.ID, conversationID)
 					}
 				}
 				if len(kept) == 0 {

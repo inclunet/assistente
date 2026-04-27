@@ -7,52 +7,52 @@ import "assistente/internal/database"
 type TaskListRepository interface {
 	// ── Task List ──────────────────────────────────────────────────────────────
 	CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error)
-	GetTaskList(id uint) (*database.TaskList, error)
+	GetTaskList(id string) (*database.TaskList, error)
 	GetAllTaskLists() ([]database.TaskList, error)
-	UpdateTaskList(id uint, title, description string) error
-	UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error
-	ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error)
-	SetTaskListValidationPolicy(taskListID uint, policyJSON string) error
-	SetTaskListViewMode(id uint, viewMode string) error
-	CloneTaskList(id uint, newTitle string) (*database.TaskList, error)
-	ClearTaskList(id uint) error
-	DeleteTaskList(id uint) error
-	GetTaskListStats(taskListID uint) (map[string]interface{}, error)
-	GetTaskListWithHierarchy(id uint) (*database.TaskList, error)
+	UpdateTaskList(id string, title, description string) error
+	UpdateTaskListFull(id string, title, description, preferredViewMode string, slug *string) error
+	ResolveTaskListRef(taskListID *string, taskListSlug string) (string, error)
+	SetTaskListValidationPolicy(taskListID string, policyJSON string) error
+	SetTaskListViewMode(id string, viewMode string) error
+	CloneTaskList(id string, newTitle string) (*database.TaskList, error)
+	ClearTaskList(id string) error
+	DeleteTaskList(id string) error
+	GetTaskListStats(taskListID string) (map[string]interface{}, error)
+	GetTaskListWithHierarchy(id string) (*database.TaskList, error)
 
 	// ── Workflow ───────────────────────────────────────────────────────────────
-	GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error)
-	UpdateWorkflow(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions map[int][]int) error
-	UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error
-	GetTaskCountsByStatus(taskListID uint) (map[int]int64, error)
-	ReorderWorkflowStatuses(taskListID uint, statusOrder []int) error
-	ValidateStatusTransition(taskListID uint, fromStatusID, toStatusID int) error
+	GetWorkflow(taskListID string) (*database.TaskListWorkflow, error)
+	UpdateWorkflow(taskListID string, statuses []database.TaskListWorkflowStatus, transitions map[int][]int) error
+	UpdateWorkflowFull(taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error
+	GetTaskCountsByStatus(taskListID string) (map[int]int64, error)
+	ReorderWorkflowStatuses(taskListID string, statusOrder []int) error
+	ValidateStatusTransition(taskListID string, fromStatusID, toStatusID int) error
 
 	// ── Task ───────────────────────────────────────────────────────────────────
-	CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error)
-	CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*database.Task, error)
-	GetTask(id uint) (*database.Task, error)
-	GetTasksByTaskListID(taskListID uint) ([]database.Task, error)
-	GetTasksByStatus(taskListID uint, statusID int) ([]database.Task, error)
-	FindTaskByCode(taskListID uint, code string) (*database.Task, error)
-	ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error)
-	ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error)
-	UpdateTask(id uint, title, description, code, link string) error
-	UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error
-	UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error
-	UpdateTaskStatus(id uint, newStatusID int) error
-	ReorderTasks(taskListID uint, statusID int, orderedIDs []uint) error
-	PromoteTask(id uint) error
-	DemoteTask(id uint, parentID uint) error
-	MoveTaskToList(taskID uint, targetTaskListID uint) (*database.Task, error)
-	DeleteTask(id uint) error
-	GetSubtasks(parentID uint) ([]database.Task, error)
+	CreateTask(taskListID string, title, description, code, link string, parentID *string) (*database.Task, error)
+	CreateTaskFull(taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*database.Task, error)
+	GetTask(id string) (*database.Task, error)
+	GetTasksByTaskListID(taskListID string) ([]database.Task, error)
+	GetTasksByStatus(taskListID string, statusID int) ([]database.Task, error)
+	FindTaskByCode(taskListID string, code string) (*database.Task, error)
+	ResolveTaskRef(taskListID *string, taskListSlug string, taskID *string, code string) (string, error)
+	ResolveTaskIDByTaskCode(taskListID *string, taskCode string) (string, error)
+	UpdateTask(id string, title, description, code, link string) error
+	UpdateTaskFull(id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error
+	UpdateTaskAssignee(id string, assigneeName, assigneeID string) error
+	UpdateTaskStatus(id string, newStatusID int) error
+	ReorderTasks(taskListID string, statusID int, orderedIDs []string) error
+	PromoteTask(id string) error
+	DemoteTask(id string, parentID string) error
+	MoveTaskToList(taskID string, targetTaskListID string) (*database.Task, error)
+	DeleteTask(id string) error
+	GetSubtasks(parentID string) ([]database.Task, error)
 
 	// ── Task Note ─────────────────────────────────────────────────────────────
-	CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error)
+	CreateTaskNote(taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error)
 	UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error)
-	GetTaskNotes(taskID uint) ([]database.TaskNote, error)
-	GetTaskNote(noteID uint) (*database.TaskNote, error)
-	UpdateTaskNote(noteID uint, content string) error
-	DeleteTaskNote(noteID uint) error
+	GetTaskNotes(taskID string) ([]database.TaskNote, error)
+	GetTaskNote(noteID string) (*database.TaskNote, error)
+	UpdateTaskNote(noteID string, content string) error
+	DeleteTaskNote(noteID string) error
 }

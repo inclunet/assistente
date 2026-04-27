@@ -5,7 +5,7 @@ package ports
 
 // ThinkingEvent is the payload for chat:thinking.
 type ThinkingEvent struct {
-	ConversationID uint   `json:"conversationId"`
+	ConversationID string   `json:"conversationId"`
 	Content        string `json:"content,omitempty"`
 	Done           bool   `json:"done"`
 	Started        bool   `json:"started,omitempty"`
@@ -13,8 +13,8 @@ type ThinkingEvent struct {
 
 // DoneEvent is the payload for chat:done.
 type DoneEvent struct {
-	ConversationID     uint `json:"conversationId"`
-	AssistantMessageID uint `json:"assistantMessageId,omitempty"`
+	ConversationID string `json:"conversationId"`
+	AssistantMessageID string `json:"assistantMessageId,omitempty"`
 	HadToolCalls       bool `json:"hadToolCalls,omitempty"`
 	// AEP-0039 Fase 2: enriched done event
 	Reason           string   `json:"reason,omitempty"`           // "completed" | "limit_reached" | "error"
@@ -28,20 +28,20 @@ type DoneEvent struct {
 
 // ErrorEvent is the payload for chat:error.
 type ErrorEvent struct {
-	ConversationID uint   `json:"conversationId"`
+	ConversationID string   `json:"conversationId"`
 	Error          string `json:"error"`
 }
 
 // MessagesReadyEvent is the payload for chat:messages_ready.
 type MessagesReadyEvent struct {
-	ConversationID uint   `json:"conversationId"`
-	UserMessageID  uint   `json:"userMessageId"`
+	ConversationID string   `json:"conversationId"`
+	UserMessageID string   `json:"userMessageId"`
 	UserContent    string `json:"userContent"`
 }
 
 // ToolStartEvent is the payload for chat:tool_start.
 type ToolStartEvent struct {
-	ConversationID uint   `json:"conversationId"`
+	ConversationID string   `json:"conversationId"`
 	Name           string `json:"name"`
 	CallID         string `json:"callId"`
 	Args           string `json:"args,omitempty"`
@@ -52,7 +52,7 @@ type ToolStartEvent struct {
 
 // ToolEndEvent is the payload for chat:tool_end.
 type ToolEndEvent struct {
-	ConversationID uint   `json:"conversationId"`
+	ConversationID string   `json:"conversationId"`
 	Name           string `json:"name,omitempty"`
 	CallID         string `json:"callId"`
 	Status         string `json:"status"`
@@ -68,7 +68,7 @@ type ToolEndEvent struct {
 // Emitted when a tool execution fails with structured error classification.
 // Distinct from tool_end with status="error" — this carries retry context.
 type ToolFailureEvent struct {
-	ConversationID uint   `json:"conversationId"`
+	ConversationID string   `json:"conversationId"`
 	Name           string `json:"name"`
 	CallID         string `json:"callId"`
 	ErrorKind      string `json:"errorKind"`                  // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "unknown"
@@ -92,7 +92,7 @@ type ToolSummary struct {
 
 // SegmentDoneEvent is the payload for chat:segment_done.
 type SegmentDoneEvent struct {
-	ConversationID uint   `json:"conversationId"`
+	ConversationID string   `json:"conversationId"`
 	Content        string `json:"content,omitempty"`
 	Iteration      int    `json:"iteration"`
 	HasMore        bool   `json:"hasMore"`
@@ -102,7 +102,7 @@ type SegmentDoneEvent struct {
 
 // TokenStatsEvent is the payload for chat:token_stats.
 type TokenStatsEvent struct {
-	ConversationID   uint    `json:"conversationId"`
+	ConversationID string    `json:"conversationId"`
 	TotalTokens      int     `json:"totalTokens"`
 	ContextLimit     int     `json:"contextLimit"`
 	ContextUsage     float64 `json:"contextUsage"`
@@ -115,7 +115,7 @@ type TokenStatsEvent struct {
 
 // TokenStatsUpdateEvent is the payload for chat:token_stats_update (realtime during agentic loop).
 type TokenStatsUpdateEvent struct {
-	ConversationID              uint     `json:"conversationId"`
+	ConversationID string     `json:"conversationId"`
 	PromptTokens                int      `json:"promptTokens"`
 	CompletionTokens            int      `json:"completionTokens"`
 	TotalTokens                 int      `json:"totalTokens"`
@@ -134,7 +134,7 @@ type TokenStatsUpdateEvent struct {
 
 // ContextWarningEvent is the payload for chat:context_warning.
 type ContextWarningEvent struct {
-	ConversationID uint    `json:"conversationId"`
+	ConversationID string    `json:"conversationId"`
 	Level          string  `json:"level"` // "warning" | "critical"
 	Message        string  `json:"message"`
 	Percentage     float64 `json:"percentage"`
@@ -144,39 +144,39 @@ type ContextWarningEvent struct {
 
 // SummaryStartedEvent is the payload for chat:summary_started.
 type SummaryStartedEvent struct {
-	ConversationID uint `json:"conversationId"`
+	ConversationID string `json:"conversationId"`
 	MessageCount   int  `json:"messageCount"`
 }
 
 // SummaryErrorEvent is the payload for chat:summary_error.
 type SummaryErrorEvent struct {
-	ConversationID uint   `json:"conversationId"`
+	ConversationID string   `json:"conversationId"`
 	Error          string `json:"error"`
 }
 
 // SummaryCompletedEvent is the payload for chat:summary_completed.
 type SummaryCompletedEvent struct {
-	ConversationID      uint `json:"conversationId"`
-	SummaryUpToMessageID uint `json:"summaryUpToMessageId"`
+	ConversationID string `json:"conversationId"`
+	SummaryUpToMessageID string `json:"summaryUpToMessageId"`
 	SummaryLength       int  `json:"summaryLength"`
 	MessageCount        int  `json:"messageCount"`
 }
 
 // MessageDeletedEvent is the payload for message:deleted.
 type MessageDeletedEvent struct {
-	ConversationID uint `json:"conversationId"`
-	MessageID      uint `json:"messageId"`
+	ConversationID string `json:"conversationId"`
+	MessageID string `json:"messageId"`
 }
 
 // MessageUpdatedEvent is the payload for message:updated.
 type MessageUpdatedEvent struct {
-	ConversationID uint   `json:"conversationId"`
-	MessageID      uint   `json:"messageId"`
+	ConversationID string   `json:"conversationId"`
+	MessageID string   `json:"messageId"`
 	Content        string `json:"content"`
 }
 
 // ConversationRenamedEvent is the payload for conversation:renamed.
 type ConversationRenamedEvent struct {
-	ConversationID uint   `json:"conversationId"`
+	ConversationID string   `json:"conversationId"`
 	NewTitle       string `json:"newTitle"`
 }

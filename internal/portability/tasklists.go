@@ -12,13 +12,13 @@ import (
 	"gorm.io/gorm"
 )
 
-func exportTaskList(taskListID uint) (TaskListExport, error) {
+func exportTaskList(taskListID string) (TaskListExport, error) {
 	taskList, err := database.GetTaskList(taskListID)
 	if err != nil {
 		return TaskListExport{}, err
 	}
 	if taskList.Workflow == nil {
-		return TaskListExport{}, fmt.Errorf("tasklist %d sem workflow", taskListID)
+		return TaskListExport{}, fmt.Errorf("tasklist %s sem workflow", taskListID)
 	}
 
 	db := database.DB()
@@ -30,12 +30,12 @@ func exportTaskList(taskListID uint) (TaskListExport, error) {
 		return TaskListExport{}, err
 	}
 
-	taskIDs := make([]uint, 0, len(allTasks))
+	taskIDs := make([]string, 0, len(allTasks))
 	for _, task := range allTasks {
 		taskIDs = append(taskIDs, task.ID)
 	}
 
-	notesByTaskID := make(map[uint][]database.TaskNote, len(taskIDs))
+	notesByTaskID := make(map[string][]database.TaskNote, len(taskIDs))
 	if len(taskIDs) > 0 {
 		var notes []database.TaskNote
 		if err := db.Where("task_id IN ?", taskIDs).
@@ -53,7 +53,7 @@ func exportTaskList(taskListID uint) (TaskListExport, error) {
 		return TaskListExport{}, err
 	}
 
-	childrenByParentID := make(map[uint][]database.Task)
+	childrenByParentID := make(map[string][]database.Task)
 	rootTasks := make([]database.Task, 0)
 	for _, task := range allTasks {
 		if task.ParentID == nil {
@@ -122,8 +122,8 @@ func exportTaskListWorkflow(workflow database.TaskListWorkflow) (TaskListWorkflo
 
 func exportTaskNode(
 	task database.Task,
-	childrenByParentID map[uint][]database.Task,
-	notesByTaskID map[uint][]database.TaskNote,
+	childrenByParentID map[string][]database.Task,
+	notesByTaskID map[string][]database.TaskNote,
 ) TaskExport {
 	exportedNotes := make([]TaskNoteExport, 0, len(notesByTaskID[task.ID]))
 	for _, note := range notesByTaskID[task.ID] {
@@ -217,13 +217,15 @@ func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.Ta
 	}
 
 	model := database.TaskList{
+		UUIDModel: database.UUIDModel{
+			CreatedAt: createdAt,
+			UpdatedAt: createdAt,
+		},
 		Title:             taskList.Title,
 		Slug:              database.NormalizeTaskListSlug(taskList.Slug),
 		Description:       taskList.Description,
 		PreferredViewMode: viewMode,
 		ValidationPolicy:  strings.TrimSpace(taskList.ValidationPolicy),
-		CreatedAt:         createdAt,
-		UpdatedAt:         createdAt,
 	}
 	if existing == nil {
 		if err := tx.Create(&model).Error; err != nil {
@@ -242,7 +244,7 @@ func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.Ta
 		}
 		model.ID = existing.ID
 
-		var taskIDs []uint
+		var taskIDs []string
 		if err := tx.Model(&database.Task{}).Where("task_list_id = ?", model.ID).Pluck("id", &taskIDs).Error; err != nil {
 			return err
 		}
@@ -269,12 +271,14 @@ func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.Ta
 	}
 
 	workflow := database.TaskListWorkflow{
+		UUIDModel: database.UUIDModel{
+			CreatedAt: createdAt,
+			UpdatedAt: createdAt,
+		},
 		TaskListID:         model.ID,
 		Statuses:           string(statusesJSON),
 		AllowedTransitions: string(transitionsJSON),
 		InitialStatusID:    taskList.Workflow.InitialStatusID,
-		CreatedAt:          createdAt,
-		UpdatedAt:          createdAt,
 	}
 	if err := tx.Create(&workflow).Error; err != nil {
 		return err
@@ -336,8 +340,8 @@ func validateImportedTaskListWorkflow(workflow TaskListWorkflowExport) ([]databa
 
 func importTaskNode(
 	tx *gorm.DB,
-	taskListID uint,
-	parentID *uint,
+	taskListID string,
+	parentID *string,
 	task TaskExport,
 	validStatusIDs map[int]struct{},
 ) error {
@@ -351,6 +355,10 @@ func importTaskNode(
 	}
 
 	model := database.Task{
+		UUIDModel: database.UUIDModel{
+			CreatedAt: createdAt,
+			UpdatedAt: createdAt,
+		},
 		TaskListID:   taskListID,
 		Title:        task.Title,
 		Description:  task.Description,
@@ -364,8 +372,6 @@ func importTaskNode(
 		CreatorName:  task.CreatorName,
 		CreatorID:    task.CreatorID,
 		DueDate:      task.DueDate,
-		CreatedAt:    createdAt,
-		UpdatedAt:    createdAt,
 		CompletedAt:  task.CompletedAt,
 	}
 	if err := tx.Create(&model).Error; err != nil {
@@ -378,6 +384,10 @@ func importTaskNode(
 			noteCreatedAt = createdAt
 		}
 		noteModel := database.TaskNote{
+			UUIDModel: database.UUIDModel{
+				CreatedAt: noteCreatedAt,
+				UpdatedAt: noteCreatedAt,
+			},
 			TaskID:            model.ID,
 			Type:              database.TaskNoteType(note.Type),
 			Content:           note.Content,
@@ -387,8 +397,6 @@ func importTaskNode(
 			ExternalID:        note.ExternalID,
 			ExternalParentID:  note.ExternalParentID,
 			ExternalUpdatedAt: note.ExternalUpdatedAt,
-			CreatedAt:         noteCreatedAt,
-			UpdatedAt:         noteCreatedAt,
 		}
 		if err := tx.Create(&noteModel).Error; err != nil {
 			return err

@@ -12,9 +12,9 @@ import (
 )
 
 type taskArgs struct {
-	TaskListID   uint    `json:"task_list_id,omitempty"`
+	TaskListID   string  `json:"task_list_id,omitempty"`
 	TaskListSlug string  `json:"task_list_slug,omitempty"`
-	TaskID       *uint   `json:"task_id,omitempty"`
+	TaskID       *string `json:"task_id,omitempty"`
 	Delete       bool    `json:"delete,omitempty"`
 	Duplicate    bool    `json:"duplicate,omitempty"`
 	Title        string  `json:"title,omitempty"`
@@ -22,7 +22,7 @@ type taskArgs struct {
 	Code         string  `json:"code,omitempty"`
 	Link         string  `json:"link,omitempty"`
 	StatusID     *int    `json:"status_id,omitempty"`
-	ParentID     *uint   `json:"parent_task_id,omitempty"`
+	ParentID     *string `json:"parent_task_id,omitempty"`
 	AssigneeName *string `json:"assignee_name,omitempty"`
 	AssigneeID   *string `json:"assignee_id,omitempty"`
 	CreatorName  *string `json:"creator_name,omitempty"`
@@ -161,8 +161,8 @@ func (t *TaskTool) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		if err != nil {
 			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 		}
-		tgt := uint(0)
-		if tidPtr != nil && (params.TaskListID > 0 || strings.TrimSpace(params.TaskListSlug) != "") {
+		tgt := ""
+		if tidPtr != nil && (params.TaskListID != "" || strings.TrimSpace(params.TaskListSlug) != "") {
 			ip := uintPtrIfPositive(params.TaskListID)
 			targetListID, err := t.mgr.ResolveTaskListRef(ip, params.TaskListSlug)
 			if err != nil {
@@ -195,7 +195,7 @@ func (t *TaskTool) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		}
 
 		moved := false
-		if params.TaskListID > 0 || strings.TrimSpace(params.TaskListSlug) != "" {
+		if params.TaskListID != "" || strings.TrimSpace(params.TaskListSlug) != "" {
 			ip := uintPtrIfPositive(params.TaskListID)
 			targetListID, err := t.mgr.ResolveTaskListRef(ip, params.TaskListSlug)
 			if err != nil {
@@ -203,7 +203,7 @@ func (t *TaskTool) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			}
 			moved, err = t.moveIfNeeded(resolvedID, targetListID)
 			if err != nil {
-				return tools.ToolResult{Content: fmt.Sprintf("Error moving task %d to list %d: %v", resolvedID, targetListID, err), IsError: true}, nil
+				return tools.ToolResult{Content: fmt.Sprintf("Error moving task %s to list %s: %v", resolvedID, targetListID, err), IsError: true}, nil
 			}
 		}
 		return t.updateTask(resolvedID, title, params.Description, params.Code, params.Link, params.StatusID, params.AssigneeName, params.AssigneeID, params.CreatorName, params.CreatorID, moved)
@@ -230,29 +230,29 @@ func (t *TaskTool) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	return t.createTask(createListID, title, params.Description, params.Code, params.Link, params.ParentID, params.StatusID, params.AssigneeName, params.AssigneeID, params.CreatorName, params.CreatorID)
 }
 
-func (t *TaskTool) listIDForStatusValidation(resolvedTaskID uint, p taskArgs, tidPtr *uint) (uint, error) {
-	if tidPtr != nil && (p.TaskListID > 0 || strings.TrimSpace(p.TaskListSlug) != "") {
+func (t *TaskTool) listIDForStatusValidation(resolvedTaskID string, p taskArgs, tidPtr *string) (string, error) {
+	if tidPtr != nil && (p.TaskListID != "" || strings.TrimSpace(p.TaskListSlug) != "") {
 		ip := uintPtrIfPositive(p.TaskListID)
 		return t.mgr.ResolveTaskListRef(ip, p.TaskListSlug)
 	}
 	task, err := t.mgr.GetTask(resolvedTaskID)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	return task.TaskListID, nil
 }
 
 // ==================== Read ====================
 
-func (t *TaskTool) readTask(taskID uint) (tools.ToolResult, error) {
+func (t *TaskTool) readTask(taskID string) (tools.ToolResult, error) {
 	task, err := t.mgr.GetTask(taskID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Task not found (id=%d): %v", taskID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Task not found (id=%s): %v", taskID, err), IsError: true}, nil
 	}
 
 	notes, err := t.mgr.GetTaskNotes(taskID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Error fetching notes for task %d: %v", taskID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Error fetching notes for task %s: %v", taskID, err), IsError: true}, nil
 	}
 
 	typeLabels := map[int]string{1: "internal", 2: "customer", 3: "agent", 4: "system"}
@@ -289,7 +289,7 @@ func (t *TaskTool) readTask(taskID uint) (tools.ToolResult, error) {
 	}
 
 	if len(task.Subtasks) > 0 {
-		subtaskIDs := make([]uint, len(task.Subtasks))
+		subtaskIDs := make([]string, len(task.Subtasks))
 		for i, s := range task.Subtasks {
 			subtaskIDs[i] = s.ID
 		}
@@ -334,26 +334,26 @@ func (t *TaskTool) readTask(taskID uint) (tools.ToolResult, error) {
 
 // ==================== Write ====================
 
-func (t *TaskTool) deleteTask(taskID uint) (tools.ToolResult, error) {
+func (t *TaskTool) deleteTask(taskID string) (tools.ToolResult, error) {
 	task, err := t.mgr.GetTask(taskID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Task not found (id=%d): %v", taskID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Task not found (id=%s): %v", taskID, err), IsError: true}, nil
 	}
 
 	if err := t.mgr.DeleteTask(taskID); err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Error deleting task %d: %v", taskID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Error deleting task %s: %v", taskID, err), IsError: true}, nil
 	}
 
 	return tools.ToolResult{
-		Content:  fmt.Sprintf("Task deleted: '%s' (id=%d)", task.Title, task.ID),
+		Content:  fmt.Sprintf("Task deleted: '%s' (id=%s)", task.Title, task.ID),
 		Metadata: map[string]any{"task_id": taskID, "action": "deleted"},
 	}, nil
 }
 
-func (t *TaskTool) moveIfNeeded(taskID uint, targetListID uint) (bool, error) {
+func (t *TaskTool) moveIfNeeded(taskID string, targetListID string) (bool, error) {
 	task, err := t.mgr.GetTask(taskID)
 	if err != nil {
-		return false, fmt.Errorf("task not found (id=%d): %v", taskID, err)
+		return false, fmt.Errorf("task not found (id=%s): %v", taskID, err)
 	}
 	if task.TaskListID == targetListID {
 		return false, nil
@@ -364,10 +364,10 @@ func (t *TaskTool) moveIfNeeded(taskID uint, targetListID uint) (bool, error) {
 	return true, nil
 }
 
-func (t *TaskTool) validateStatusID(taskListID uint, statusID int) error {
+func (t *TaskTool) validateStatusID(taskListID string, statusID int) error {
 	workflow, err := t.mgr.GetWorkflow(taskListID)
 	if err != nil {
-		return fmt.Errorf("could not load workflow for task list %d: %v", taskListID, err)
+		return fmt.Errorf("could not load workflow for task list %s: %v", taskListID, err)
 	}
 
 	statuses, err := parseWorkflowStatuses(workflow)
@@ -388,10 +388,10 @@ func (t *TaskTool) validateStatusID(taskListID uint, statusID int) error {
 	return fmt.Errorf("invalid status_id %d. Valid statuses: %s", statusID, strings.Join(validLabels, ", "))
 }
 
-func (t *TaskTool) updateTask(taskID uint, title, description, code, link string, statusID *int, assigneeName, assigneeID, creatorName, creatorID *string, moved bool) (tools.ToolResult, error) {
+func (t *TaskTool) updateTask(taskID string, title, description, code, link string, statusID *int, assigneeName, assigneeID, creatorName, creatorID *string, moved bool) (tools.ToolResult, error) {
 	oldTask, err := t.mgr.GetTask(taskID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Task not found (id=%d): %v", taskID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Task not found (id=%s): %v", taskID, err), IsError: true}, nil
 	}
 
 	aName := derefOrKeep(assigneeName, oldTask, func(t *database.Task) string { return t.AssigneeName })
@@ -420,7 +420,7 @@ func (t *TaskTool) updateTask(taskID uint, title, description, code, link string
 
 	if fieldsChanged {
 		if err := t.mgr.UpdateTaskFull(taskID, title, description, code, link, aName, aID, cName, cID); err != nil {
-			return tools.ToolResult{Content: fmt.Sprintf("Error updating task %d: %v", taskID, err), IsError: true}, nil
+			return tools.ToolResult{Content: fmt.Sprintf("Error updating task %s: %v", taskID, err), IsError: true}, nil
 		}
 		t.emitAssigneeChangeNote(oldTask, aName, taskID)
 	}
@@ -433,7 +433,7 @@ func (t *TaskTool) updateTask(taskID uint, title, description, code, link string
 
 	task, err := t.mgr.GetTask(taskID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Task updated (id=%d) but could not fetch result: %v", taskID, err)}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Task updated (id=%s) but could not fetch result: %v", taskID, err)}, nil
 	}
 
 	action := "updated"
@@ -447,10 +447,10 @@ func (t *TaskTool) updateTask(taskID uint, title, description, code, link string
 	}, nil
 }
 
-func (t *TaskTool) duplicateTask(taskListID uint, sourceID uint, title, description, code, link string, parentID *uint, statusID *int, assigneeName, assigneeID, creatorName, creatorID *string) (tools.ToolResult, error) {
+func (t *TaskTool) duplicateTask(taskListID string, sourceID string, title, description, code, link string, parentID *string, statusID *int, assigneeName, assigneeID, creatorName, creatorID *string) (tools.ToolResult, error) {
 	source, err := t.mgr.GetTask(sourceID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Source task not found (id=%d): %v", sourceID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Source task not found (id=%s): %v", sourceID, err), IsError: true}, nil
 	}
 
 	if description == "" {
@@ -461,7 +461,7 @@ func (t *TaskTool) duplicateTask(taskListID uint, sourceID uint, title, descript
 	}
 
 	effectiveListID := taskListID
-	if effectiveListID == 0 {
+	if effectiveListID == "" {
 		effectiveListID = source.TaskListID
 	}
 
@@ -477,19 +477,19 @@ func (t *TaskTool) duplicateTask(taskListID uint, sourceID uint, title, descript
 
 	if statusID != nil && *statusID != task.StatusID {
 		if err := t.mgr.UpdateTaskStatus(task.ID, *statusID); err != nil {
-			return tools.ToolResult{Content: fmt.Sprintf("Task duplicated (id=%d) but status change failed: %v", task.ID, err), IsError: true}, nil
+			return tools.ToolResult{Content: fmt.Sprintf("Task duplicated (id=%s) but status change failed: %v", task.ID, err), IsError: true}, nil
 		}
 		task.StatusID = *statusID
 	}
 
 	resultJSON, _ := json.Marshal(t.taskResultMap(task, "duplicated"))
 	return tools.ToolResult{
-		Content:  fmt.Sprintf("Task duplicated (from id=%d):\n%s", sourceID, string(resultJSON)),
+		Content:  fmt.Sprintf("Task duplicated (from id=%s):\n%s", sourceID, string(resultJSON)),
 		Metadata: map[string]any{"task_id": task.ID, "source_task_id": sourceID, "action": "duplicated"},
 	}, nil
 }
 
-func (t *TaskTool) createTask(taskListID uint, title, description, code, link string, parentID *uint, statusID *int, assigneeName, assigneeID, creatorName, creatorID *string) (tools.ToolResult, error) {
+func (t *TaskTool) createTask(taskListID string, title, description, code, link string, parentID *string, statusID *int, assigneeName, assigneeID, creatorName, creatorID *string) (tools.ToolResult, error) {
 	aName := derefOr(assigneeName, "")
 	aID := derefOr(assigneeID, "")
 	cName := derefOr(creatorName, "")
@@ -508,7 +508,7 @@ func (t *TaskTool) createTask(taskListID uint, title, description, code, link st
 
 	if statusID != nil && *statusID != task.StatusID {
 		if err := t.mgr.UpdateTaskStatus(task.ID, *statusID); err != nil {
-			return tools.ToolResult{Content: fmt.Sprintf("Task created (id=%d) but status change failed: %v", task.ID, err), IsError: true}, nil
+			return tools.ToolResult{Content: fmt.Sprintf("Task created (id=%s) but status change failed: %v", task.ID, err), IsError: true}, nil
 		}
 		task.StatusID = *statusID
 	}
@@ -545,15 +545,15 @@ func (t *TaskTool) taskResultMap(task *database.Task, action string) map[string]
 	return result
 }
 
-func uintPtrIfPositive(id uint) *uint {
-	if id == 0 {
+func uintPtrIfPositive(id string) *string {
+	if id == "" {
 		return nil
 	}
 	return &id
 }
 
-func taskIDPtrForResolve(p *uint) *uint {
-	if p == nil || *p == 0 {
+func taskIDPtrForResolve(p *string) *string {
+	if p == nil || *p == "" {
 		return nil
 	}
 	v := *p
@@ -577,7 +577,7 @@ func derefOrKeep(p *string, task *database.Task, getter func(*database.Task) str
 	return ""
 }
 
-func (t *TaskTool) emitAssigneeChangeNote(oldTask *database.Task, newAssigneeName string, taskID uint) {
+func (t *TaskTool) emitAssigneeChangeNote(oldTask *database.Task, newAssigneeName string, taskID string) {
 	if oldTask == nil {
 		return
 	}

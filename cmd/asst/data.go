@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -181,7 +180,7 @@ func prepareDataExportRequest(svc dataBackend, req app.ExportRequest, selection 
 		}
 		ids := make([]string, 0, len(conversations))
 		for _, conversation := range conversations {
-			ids = append(ids, strconv.FormatUint(uint64(conversation.ID), 10))
+			ids = append(ids, strings.TrimSpace(conversation.ID))
 		}
 		req.ConversationIDs = mergeUniqueStrings(req.ConversationIDs, ids)
 	}
@@ -209,7 +208,7 @@ func prepareDataExportRequest(svc dataBackend, req app.ExportRequest, selection 
 		}
 		ids := make([]string, 0, len(taskLists))
 		for _, taskList := range taskLists {
-			ids = append(ids, strconv.FormatUint(uint64(taskList.ID), 10))
+			ids = append(ids, strings.TrimSpace(taskList.ID))
 		}
 		req.TaskListIDs = mergeUniqueStrings(req.TaskListIDs, ids)
 	}

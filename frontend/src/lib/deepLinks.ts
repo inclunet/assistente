@@ -17,9 +17,9 @@ export const DEEP_LINK_PREFIX = `${DEEP_LINK_PROTOCOL}://`;
 export type TabType = 'tasklist' | 'editor' | 'terminal';
 
 export type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: number; title?: string }
+  | { type: 'conversation:open'; conversationId: string; title?: string }
   | { type: 'conversation:new'; message?: string; title?: string }
-  | { type: 'conversation:send'; conversationId: number; message: string }
+  | { type: 'conversation:send'; conversationId: string; message: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
   | { type: 'resource:new'; resource: EditableResource }
@@ -99,8 +99,8 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
         };
       }
 
-      const id = Number(segments[1]);
-      if (!Number.isInteger(id) || id <= 0) return null;
+      const id = segments[1] || '';
+      if (!id) return null;
 
       // assistente://conversation/{id}/send?message=...
       if (segments[2] === 'send') {
@@ -269,7 +269,7 @@ export async function executeDeepLink(
 
   const wsStore = useWorkspaceStore.getState();
 
-  const openOrCreateChatTab = async (conversationId: number, title?: string) => {
+  const openOrCreateChatTab = async (conversationId: string, title?: string) => {
     const existing = (wsStore.workspace?.tabs || []).find(
       (tab) => tab.type === 'chat' && tab.conversationId === conversationId,
     );

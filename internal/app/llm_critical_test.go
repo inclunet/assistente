@@ -57,14 +57,14 @@ var _ events.Emitter = (*testEmitter)(nil)
 type mockMessageRepo struct {
 	messages []database.ChatMessage
 	summary  string
-	upToID   uint
+	upToID   string
 	err      error
 }
 
 func (r *mockMessageRepo) CreateMessage(opts database.MessageOptions) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *mockMessageRepo) GetMessage(messageID uint) (*database.ChatMessage, error) {
+func (r *mockMessageRepo) GetMessage(messageID string) (*database.ChatMessage, error) {
 	for i := range r.messages {
 		if r.messages[i].ID == messageID {
 			msg := r.messages[i]
@@ -73,31 +73,31 @@ func (r *mockMessageRepo) GetMessage(messageID uint) (*database.ChatMessage, err
 	}
 	return nil, nil
 }
-func (r *mockMessageRepo) GetMessages(conversationID uint, parentID *uint) ([]database.ChatMessage, error) {
+func (r *mockMessageRepo) GetMessages(conversationID string, parentID *string) ([]database.ChatMessage, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
 	return r.messages, nil
 }
-func (r *mockMessageRepo) GetConversationSummary(conversationID uint) (string, uint, error) {
+func (r *mockMessageRepo) GetConversationSummary(conversationID string) (string, string, error) {
 	return r.summary, r.upToID, nil
 }
-func (r *mockMessageRepo) GetDetailedTokenStats(conversationID uint, summaryUpToMessageID uint) (*database.DetailedTokenStats, error) {
+func (r *mockMessageRepo) GetDetailedTokenStats(conversationID string, summaryUpToMessageID string) (*database.DetailedTokenStats, error) {
 	return &database.DetailedTokenStats{}, nil
 }
-func (r *mockMessageRepo) GetContextWindowUsage(conversationID uint, contextLimit int) (float64, int, error) {
+func (r *mockMessageRepo) GetContextWindowUsage(conversationID string, contextLimit int) (float64, int, error) {
 	return 0, 0, nil
 }
-func (r *mockMessageRepo) GetRecentMessagesTokenCount(conversationID uint, messageLimit int) (int, error) {
+func (r *mockMessageRepo) GetRecentMessagesTokenCount(conversationID string, messageLimit int) (int, error) {
 	return 0, nil
 }
-func (r *mockMessageRepo) GetTurnTokenStats(conversationID uint, turnID uint) (*database.TokenStats, error) {
+func (r *mockMessageRepo) GetTurnTokenStats(conversationID string, turnID string) (*database.TokenStats, error) {
 	return &database.TokenStats{}, nil
 }
-func (r *mockMessageRepo) AddAssistantToolMessage(conversationID, turnID uint, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
+func (r *mockMessageRepo) AddAssistantToolMessage(conversationID, turnID string, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *mockMessageRepo) AddToolResultMessage(conversationID, turnID uint, content, toolCallID string) (*database.ChatMessage, error) {
+func (r *mockMessageRepo) AddToolResultMessage(conversationID, turnID string, content, toolCallID string) (*database.ChatMessage, error) {
 	return nil, nil
 }
 func (r *mockMessageRepo) SearchMessages(query string, limit int) ([]database.MessageSearchResult, error) {
@@ -116,27 +116,27 @@ func newMinimalApp() *App {
 }
 
 // userMsg cria um ChatMessage com role=user.
-func userMsg(id uint, content string) database.ChatMessage {
-	return database.ChatMessage{ID: id, Role: "user", Content: content}
+func userMsg(id string, content string) database.ChatMessage {
+	return database.ChatMessage{UUIDModel: database.UUIDModel{ID: id}, Role: "user", Content: content}
 }
 
 // assistantMsg cria um ChatMessage com role=assistant.
-func assistantMsg(id uint, content string) database.ChatMessage {
-	return database.ChatMessage{ID: id, Role: "assistant", Content: content}
+func assistantMsg(id string, content string) database.ChatMessage {
+	return database.ChatMessage{UUIDModel: database.UUIDModel{ID: id}, Role: "assistant", Content: content}
 }
 
 // toolMsg cria um ChatMessage com role=tool.
-func toolMsg(id uint, toolCallID string) database.ChatMessage {
-	return database.ChatMessage{ID: id, Role: "tool", ToolCallID: toolCallID, Content: "resultado"}
+func toolMsg(id string, toolCallID string) database.ChatMessage {
+	return database.ChatMessage{UUIDModel: database.UUIDModel{ID: id}, Role: "tool", ToolCallID: toolCallID, Content: "resultado"}
 }
 
 // assistantWithToolCalls cria um ChatMessage assistant com ToolCalls e sem conteúdo textual.
-func assistantWithToolCalls(id uint, toolCallID string) database.ChatMessage {
+func assistantWithToolCalls(id string, toolCallID string) database.ChatMessage {
 	toolCalls := []map[string]interface{}{
 		{"id": toolCallID, "type": "function", "function": map[string]interface{}{"name": "test", "arguments": "{}"}},
 	}
 	b, _ := json.Marshal(toolCalls)
-	return database.ChatMessage{ID: id, Role: "assistant", Content: "", ToolCalls: string(b)}
+	return database.ChatMessage{UUIDModel: database.UUIDModel{ID: id}, Role: "assistant", Content: "", ToolCalls: string(b)}
 }
 
 // ==================== extractAudioFromMedia ====================
@@ -220,7 +220,7 @@ func TestRecoverFromPanic_EmitsStreamEventWithError(t *testing.T) {
 	em := app.emitter.(*testEmitter)
 
 	func() {
-		defer app.recoverFromPanic(42, "TestSource")
+		defer app.recoverFromPanic("42", "TestSource")
 		panic("algo explodiu")
 	}()
 
@@ -239,8 +239,8 @@ func TestRecoverFromPanic_EmitsStreamEventWithError(t *testing.T) {
 	if ev.Error == "" {
 		t.Error("StreamEvent.Error não deveria ser vazio")
 	}
-	if ev.ConversationId != 42 {
-		t.Errorf("esperava ConversationId=42, obteve %d", ev.ConversationId)
+	if ev.ConversationId != "42" {
+		t.Errorf("esperava ConversationId=42, obteve %s", ev.ConversationId)
 	}
 }
 
@@ -249,7 +249,7 @@ func TestRecoverFromPanic_NoPanic_EmitsNothing(t *testing.T) {
 	em := app.emitter.(*testEmitter)
 
 	func() {
-		defer app.recoverFromPanic(1, "TestSource")
+		defer app.recoverFromPanic("1", "TestSource")
 	}()
 
 	if em.count() != 0 {
@@ -264,7 +264,7 @@ func TestRecoverFromPanic_NilEmitter_DoesNotDoublePanic(t *testing.T) {
 	}
 	// Não deve causar segundo panic
 	func() {
-		defer app.recoverFromPanic(99, "NilEmitterTest")
+		defer app.recoverFromPanic("99", "NilEmitterTest")
 		panic("teste nil emitter")
 	}()
 }
@@ -274,10 +274,10 @@ func TestRecoverFromPanic_NilEmitter_DoesNotDoublePanic(t *testing.T) {
 func TestRegisterStreamingContext_StoresEntry(t *testing.T) {
 	app := newMinimalApp()
 	_, cancel := context.WithCancel(context.Background())
-	app.registerStreamingContext(10, cancel)
+	app.registerStreamingContext("10", cancel)
 
-	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) {
-		if _, ok := m[10]; !ok {
+	app.streamMgr.Mu(func(m map[string]context.CancelFunc) {
+		if _, ok := m["10"]; !ok {
 			t.Error("esperava entry no map após register")
 		}
 	})
@@ -287,10 +287,10 @@ func TestRegisterStreamingContext_OverwriteCancelsPrevious(t *testing.T) {
 	app := newMinimalApp()
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
-	app.registerStreamingContext(10, cancel1)
+	app.registerStreamingContext("10", cancel1)
 
 	_, cancel2 := context.WithCancel(context.Background())
-	app.registerStreamingContext(10, cancel2)
+	app.registerStreamingContext("10", cancel2)
 
 	select {
 	case <-ctx1.Done():
@@ -302,13 +302,13 @@ func TestRegisterStreamingContext_OverwriteCancelsPrevious(t *testing.T) {
 
 func TestRegisterStreamingContext_MultipleConversations_AllStored(t *testing.T) {
 	app := newMinimalApp()
-	for i := uint(1); i <= 5; i++ {
+	for i := 1; i <= 5; i++ {
 		_, cancel := context.WithCancel(context.Background())
-		app.registerStreamingContext(i, cancel)
+		app.registerStreamingContext(fmt.Sprintf("%d", i), cancel)
 	}
 
 	var n int
-	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) { n = len(m) })
+	app.streamMgr.Mu(func(m map[string]context.CancelFunc) { n = len(m) })
 
 	if n != 5 {
 		t.Errorf("esperava 5 entries, obteve %d", n)
@@ -320,11 +320,11 @@ func TestRegisterStreamingContext_MultipleConversations_AllStored(t *testing.T) 
 func TestUnregisterStreamingContext_RemovesEntry(t *testing.T) {
 	app := newMinimalApp()
 	_, cancel := context.WithCancel(context.Background())
-	app.registerStreamingContext(20, cancel)
-	app.unregisterStreamingContext(20)
+	app.registerStreamingContext("20", cancel)
+	app.unregisterStreamingContext("20")
 
-	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) {
-		if _, ok := m[20]; ok {
+	app.streamMgr.Mu(func(m map[string]context.CancelFunc) {
+		if _, ok := m["20"]; ok {
 			t.Error("entry deveria ter sido removida")
 		}
 	})
@@ -332,21 +332,21 @@ func TestUnregisterStreamingContext_RemovesEntry(t *testing.T) {
 
 func TestUnregisterStreamingContext_NonExistent_NoError(t *testing.T) {
 	app := newMinimalApp()
-	app.unregisterStreamingContext(999) // não deve panics ou erro
+	app.unregisterStreamingContext("999") // não deve panics ou erro
 }
 
 func TestUnregisterStreamingContext_OnlyTargetRemoved(t *testing.T) {
 	app := newMinimalApp()
 	_, c1 := context.WithCancel(context.Background())
 	_, c2 := context.WithCancel(context.Background())
-	app.registerStreamingContext(1, c1)
-	app.registerStreamingContext(2, c2)
-	app.unregisterStreamingContext(1)
+	app.registerStreamingContext("1", c1)
+	app.registerStreamingContext("2", c2)
+	app.unregisterStreamingContext("1")
 
 	var has1, has2 bool
-	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) {
-		_, has1 = m[1]
-		_, has2 = m[2]
+	app.streamMgr.Mu(func(m map[string]context.CancelFunc) {
+		_, has1 = m["1"]
+		_, has2 = m["2"]
 	})
 
 	if has1 {
@@ -362,8 +362,8 @@ func TestUnregisterStreamingContext_OnlyTargetRemoved(t *testing.T) {
 func TestCancelStreaming_CancelsContextAndRemovesEntry(t *testing.T) {
 	app := newMinimalApp()
 	ctx, cancel := context.WithCancel(context.Background())
-	app.registerStreamingContext(30, cancel)
-	app.CancelStreamingForConversation(30)
+	app.registerStreamingContext("30", cancel)
+	app.CancelStreamingForConversation("30")
 
 	select {
 	case <-ctx.Done():
@@ -372,7 +372,7 @@ func TestCancelStreaming_CancelsContextAndRemovesEntry(t *testing.T) {
 	}
 
 	var ok bool
-	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) { _, ok = m[30] })
+	app.streamMgr.Mu(func(m map[string]context.CancelFunc) { _, ok = m["30"] })
 	if ok {
 		t.Error("entry deveria ter sido removida do map")
 	}
@@ -385,17 +385,17 @@ func TestCancelStreaming_NotifiesResponseNotifier(t *testing.T) {
 	notifier := app.responseNotifier
 
 	// Registra callback para conversa 30
-	notifier.Register(30, messaging.ResponseCallback{
+	notifier.Register("30", messaging.ResponseCallback{
 		Channel:  "test",
-		Callback: func(_ string, _ uint) {},
+		Callback: func(_ string, _ string) {},
 	})
 	if notifier.PendingCount() != 1 {
 		t.Fatalf("esperava 1 pending antes do cancel, obteve %d", notifier.PendingCount())
 	}
 
 	_, cancel := context.WithCancel(context.Background())
-	app.registerStreamingContext(30, cancel)
-	app.CancelStreamingForConversation(30)
+	app.registerStreamingContext("30", cancel)
+	app.CancelStreamingForConversation("30")
 
 	if notifier.PendingCount() != 0 {
 		t.Errorf("esperava 0 pending após cancel, obteve %d", notifier.PendingCount())
@@ -405,7 +405,7 @@ func TestCancelStreaming_NotifiesResponseNotifier(t *testing.T) {
 func TestCancelStreaming_NonExistent_DoesNotNotify(t *testing.T) {
 	// Cancela conversa que nunca teve streaming registrado — PendingCount deve permanecer 0.
 	app := newMinimalApp()
-	app.CancelStreamingForConversation(999)
+	app.CancelStreamingForConversation("999")
 	if app.responseNotifier.PendingCount() != 0 {
 		t.Errorf("pendingCount deveria ser 0, obteve %d", app.responseNotifier.PendingCount())
 	}
@@ -414,17 +414,17 @@ func TestCancelStreaming_NonExistent_DoesNotNotify(t *testing.T) {
 func TestCancelStreaming_Idempotent_DoesNotPanic(t *testing.T) {
 	app := newMinimalApp()
 	_, cancel := context.WithCancel(context.Background())
-	app.registerStreamingContext(40, cancel)
-	app.CancelStreamingForConversation(40)
-	app.CancelStreamingForConversation(40) // segunda chamada não deve panicar
+	app.registerStreamingContext("40", cancel)
+	app.CancelStreamingForConversation("40")
+	app.CancelStreamingForConversation("40") // segunda chamada não deve panicar
 }
 
 func TestCancelStreaming_NilNotifier_DoesNotPanic(t *testing.T) {
 	app := newMinimalApp()
 	app.responseNotifier = nil
 	_, cancel := context.WithCancel(context.Background())
-	app.registerStreamingContext(5, cancel)
-	app.CancelStreamingForConversation(5)
+	app.registerStreamingContext("5", cancel)
+	app.CancelStreamingForConversation("5")
 }
 
 // ==================== loadConversationHistory ====================
@@ -433,12 +433,12 @@ func TestLoadConversationHistory_SimpleTextMessages(t *testing.T) {
 	app := newMinimalApp()
 	app.msgRepo = &mockMessageRepo{
 		messages: []database.ChatMessage{
-			userMsg(1, "olá"),
-			assistantMsg(2, "oi, como posso ajudar?"),
+			userMsg("1", "olá"),
+			assistantMsg("2", "oi, como posso ajudar?"),
 		},
 	}
 
-	msgs, summary, err := app.loadConversationHistory(1, nil)
+	msgs, summary, err := app.loadConversationHistory("1", nil)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -460,14 +460,14 @@ func TestLoadConversationHistory_SkipsToolMessages(t *testing.T) {
 	app := newMinimalApp()
 	app.msgRepo = &mockMessageRepo{
 		messages: []database.ChatMessage{
-			userMsg(1, "busque algo"),
-			assistantWithToolCalls(2, "call_abc"),
-			toolMsg(3, "call_abc"),
-			assistantMsg(4, "encontrei o resultado"),
+			userMsg("1", "busque algo"),
+			assistantWithToolCalls("2", "call_abc"),
+			toolMsg("3", "call_abc"),
+			assistantMsg("4", "encontrei o resultado"),
 		},
 	}
 
-	msgs, _, err := app.loadConversationHistory(1, nil)
+	msgs, _, err := app.loadConversationHistory("1", nil)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -483,14 +483,14 @@ func TestLoadConversationHistory_SkipsEmptyAssistantWithToolCalls(t *testing.T) 
 	app := newMinimalApp()
 	app.msgRepo = &mockMessageRepo{
 		messages: []database.ChatMessage{
-			userMsg(1, "faça algo"),
-			assistantWithToolCalls(2, "call_xyz"), // assistant vazio com tool_calls
-			toolMsg(3, "call_xyz"),
-			assistantMsg(4, "feito!"),
+			userMsg("1", "faça algo"),
+			assistantWithToolCalls("2", "call_xyz"), // assistant vazio com tool_calls
+			toolMsg("3", "call_xyz"),
+			assistantMsg("4", "feito!"),
 		},
 	}
 
-	msgs, _, err := app.loadConversationHistory(1, nil)
+	msgs, _, err := app.loadConversationHistory("1", nil)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -507,16 +507,16 @@ func TestLoadConversationHistory_RollingContext_ExcludesOldMessages(t *testing.T
 	app.msgRepo = &mockMessageRepo{
 		// upToID=2 significa que msgs ID<=2 já foram resumidas
 		summary: "resumo das mensagens antigas",
-		upToID:  2,
+		upToID:  "2",
 		messages: []database.ChatMessage{
-			userMsg(1, "antiga 1"),
-			assistantMsg(2, "antiga 2"),
-			userMsg(3, "nova 1"),
-			assistantMsg(4, "nova 2"),
+			userMsg("1", "antiga 1"),
+			assistantMsg("2", "antiga 2"),
+			userMsg("3", "nova 1"),
+			assistantMsg("4", "nova 2"),
 		},
 	}
 
-	msgs, summary, err := app.loadConversationHistory(1, nil)
+	msgs, summary, err := app.loadConversationHistory("1", nil)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -524,7 +524,7 @@ func TestLoadConversationHistory_RollingContext_ExcludesOldMessages(t *testing.T
 		t.Errorf("esperava summary, obteve %q", summary)
 	}
 	// Apenas as mensagens com ID > upToID (3 e 4) devem estar no contexto
-	oldIDs := map[uint]bool{1: true, 2: true}
+	oldIDs := map[string]bool{"1": true, "2": true}
 	for _, m := range msgs {
 		// Não há acesso direto ao ID via Message (type alias), portanto verificamos
 		// o conteúdo: as mensagens antigas têm conteúdo "antiga 1" e "antiga 2".
@@ -546,7 +546,7 @@ func TestLoadConversationHistory_RepoError_ReturnsError(t *testing.T) {
 		err: fmt.Errorf("banco indisponível"),
 	}
 
-	_, _, err := app.loadConversationHistory(1, nil)
+	_, _, err := app.loadConversationHistory("1", nil)
 	if err == nil {
 		t.Fatal("esperava erro quando o repositório falha")
 	}
@@ -556,7 +556,7 @@ func TestLoadConversationHistory_EmptyConversation_ReturnsEmpty(t *testing.T) {
 	app := newMinimalApp()
 	app.msgRepo = &mockMessageRepo{messages: []database.ChatMessage{}}
 
-	msgs, _, err := app.loadConversationHistory(1, nil)
+	msgs, _, err := app.loadConversationHistory("1", nil)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -570,12 +570,12 @@ func TestLoadConversationHistory_StartsWithAssistant_AssistantTrimmed(t *testing
 	app := newMinimalApp()
 	app.msgRepo = &mockMessageRepo{
 		messages: []database.ChatMessage{
-			assistantMsg(1, "mensagem inicial do assistant"),
-			userMsg(2, "oi"),
+			assistantMsg("1", "mensagem inicial do assistant"),
+			userMsg("2", "oi"),
 		},
 	}
 
-	msgs, _, err := app.loadConversationHistory(1, nil)
+	msgs, _, err := app.loadConversationHistory("1", nil)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -592,11 +592,11 @@ func TestLoadConversationHistory_MultimodalImageMessage(t *testing.T) {
 	app := newMinimalApp()
 	app.msgRepo = &mockMessageRepo{
 		messages: []database.ChatMessage{
-			{ID: 1, Role: "user", Content: "o que tem na imagem?", Media: media},
+			{UUIDModel: database.UUIDModel{ID: "1"}, Role: "user", Content: "o que tem na imagem?", Media: media},
 		},
 	}
 
-	msgs, _, err := app.loadConversationHistory(1, nil)
+	msgs, _, err := app.loadConversationHistory("1", nil)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -629,11 +629,11 @@ func TestLoadConversationHistory_AudioWAV_SendsAsInputAudio(t *testing.T) {
 	app := newMinimalApp()
 	app.msgRepo = &mockMessageRepo{
 		messages: []database.ChatMessage{
-			{ID: 1, Role: "user", Content: "", Media: media},
+			{UUIDModel: database.UUIDModel{ID: "1"}, Role: "user", Content: "", Media: media},
 		},
 	}
 
-	msgs, _, err := app.loadConversationHistory(1, nil)
+	msgs, _, err := app.loadConversationHistory("1", nil)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -665,11 +665,11 @@ func TestLoadConversationHistory_AudioWithTranscription_SkipsAudioPart(t *testin
 	app := newMinimalApp()
 	app.msgRepo = &mockMessageRepo{
 		messages: []database.ChatMessage{
-			{ID: 1, Role: "user", Content: "o usuário disse: olá", Media: media},
+			{UUIDModel: database.UUIDModel{ID: "1"}, Role: "user", Content: "o usuário disse: olá", Media: media},
 		},
 	}
 
-	msgs, _, err := app.loadConversationHistory(1, nil)
+	msgs, _, err := app.loadConversationHistory("1", nil)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -698,20 +698,20 @@ func TestStreamingContext_ConcurrentRegisterUnregister(t *testing.T) {
 	app := newMinimalApp()
 	var wg sync.WaitGroup
 
-	for i := uint(0); i < 50; i++ {
+	for i := 0; i < 50; i++ {
 		wg.Add(1)
-		go func(id uint) {
+		go func(id string) {
 			defer wg.Done()
 			_, cancel := context.WithCancel(context.Background())
 			app.registerStreamingContext(id, cancel)
 			app.unregisterStreamingContext(id)
-		}(i)
+		}(fmt.Sprintf("%d", i))
 	}
 
 	wg.Wait()
 
 	var n int
-	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) { n = len(m) })
+	app.streamMgr.Mu(func(m map[string]context.CancelFunc) { n = len(m) })
 	if n != 0 {
 		t.Errorf("esperava map vazio após todos os unregisters, obteve %d entries", n)
 	}
@@ -720,23 +720,23 @@ func TestStreamingContext_ConcurrentRegisterUnregister(t *testing.T) {
 func TestCancelStreaming_ConcurrentCancels_DoNotPanic(t *testing.T) {
 	app := newMinimalApp()
 
-	for i := uint(0); i < 20; i++ {
+	for i := 0; i < 20; i++ {
 		_, cancel := context.WithCancel(context.Background())
-		app.registerStreamingContext(i, cancel)
+		app.registerStreamingContext(fmt.Sprintf("%d", i), cancel)
 	}
 
 	var wg sync.WaitGroup
-	for i := uint(0); i < 20; i++ {
+	for i := 0; i < 20; i++ {
 		wg.Add(1)
-		go func(id uint) {
+		go func(id string) {
 			defer wg.Done()
 			app.CancelStreamingForConversation(id)
-		}(i)
+		}(fmt.Sprintf("%d", i))
 	}
 	wg.Wait()
 
 	var n2 int
-	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) { n2 = len(m) })
+	app.streamMgr.Mu(func(m map[string]context.CancelFunc) { n2 = len(m) })
 	if n2 != 0 {
 		t.Errorf("esperava map vazio após cancelamentos, obteve %d entries", n2)
 	}

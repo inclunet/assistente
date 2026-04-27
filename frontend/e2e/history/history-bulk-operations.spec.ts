@@ -3,10 +3,10 @@ import { test, expect } from '../fixtures';
 const now = new Date().toISOString();
 
 const sampleConversations = [
-  { id: 1, title: 'Conversa sobre IA', message_count: 5, created_at: now, updated_at: now },
-  { id: 2, title: 'Projeto React', message_count: 3, created_at: now, updated_at: now },
-  { id: 3, title: 'Debugging hooks', message_count: 8, created_at: now, updated_at: now },
-  { id: 4, title: 'API design', message_count: 2, created_at: now, updated_at: now },
+  { id: '1', title: 'Conversa sobre IA', message_count: 5, created_at: now, updated_at: now },
+  { id: '2', title: 'Projeto React', message_count: 3, created_at: now, updated_at: now },
+  { id: '3', title: 'Debugging hooks', message_count: 8, created_at: now, updated_at: now },
+  { id: '4', title: 'API design', message_count: 2, created_at: now, updated_at: now },
 ];
 
 test.describe('Histórico — seleção múltipla', () => {

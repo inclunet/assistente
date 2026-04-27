@@ -161,7 +161,7 @@ func (s *Service) FindOpenAILikeProvider() *llm.ProviderConfig {
 }
 
 // SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
-func (s *Service) SpeakMessage(messageID uint, providerID string, voiceID string, model string, rate float64) (*AudioResult, error) {
+func (s *Service) SpeakMessage(messageID string, providerID string, voiceID string, model string, rate float64) (*AudioResult, error) {
 	// 1. Checa cache no DB
 	audio, mime, err := s.audioRepo.GetMessageAudio(messageID)
 	if err == nil && audio != "" {
@@ -171,23 +171,23 @@ func (s *Service) SpeakMessage(messageID uint, providerID string, voiceID string
 	// 2. Busca o conteúdo textual da mensagem
 	content, err := s.audioRepo.GetMessageContent(messageID)
 	if err != nil {
-		return nil, fmt.Errorf("mensagem %d não encontrada: %w", messageID, err)
+		return nil, fmt.Errorf("mensagem %s não encontrada: %w", messageID, err)
 	}
 	if strings.TrimSpace(content) == "" {
-		return nil, fmt.Errorf("mensagem %d sem conteúdo textual", messageID)
+		return nil, fmt.Errorf("mensagem %s sem conteúdo textual", messageID)
 	}
 
 	// 3. Gera TTS: roteia entre SAPI5 (local) e provedores API (HTTP)
 	audioData, mimeType, err := s.synthesizeForProvider(content, providerID, voiceID, model, rate)
 	if err != nil {
-		return nil, fmt.Errorf("TTS for message %d: %w", messageID, err)
+		return nil, fmt.Errorf("TTS for message %s: %w", messageID, err)
 	}
 
 	// 4. Persiste no DB
 	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
 	cached := true
 	if saveErr := s.audioRepo.SaveMessageAudio(messageID, audioBase64, mimeType); saveErr != nil {
-		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%d): %v", messageID, saveErr)
+		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%s): %v", messageID, saveErr)
 		cached = false
 	}
 
@@ -265,20 +265,20 @@ func (s *Service) synthesizeAPI(text, providerID, voiceID, model string, rate fl
 }
 
 // GenerateAndSaveMessageAudio gera áudio TTS para uma mensagem e salva no DB.
-func (s *Service) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioResult, error) {
+func (s *Service) GenerateAndSaveMessageAudio(messageID string, text string) (*AudioResult, error) {
 	if !s.EnsureSpeechManager() {
 		return nil, fmt.Errorf("speech manager indisponível")
 	}
 
 	result, err := s.speechManager.Synthesize(text)
 	if err != nil {
-		return nil, fmt.Errorf("generate audio for message %d: %w", messageID, err)
+		return nil, fmt.Errorf("generate audio for message %s: %w", messageID, err)
 	}
 
 	mimeType := "audio/mpeg"
 	cached := true
 	if err := s.audioRepo.SaveMessageAudio(messageID, result.AudioBase64, mimeType); err != nil {
-		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%d): %v — áudio será retornado mas não persistido", messageID, err)
+		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%s): %v — áudio será retornado mas não persistido", messageID, err)
 		cached = false
 	}
 
@@ -589,7 +589,7 @@ func (s *Service) GetAvailableVoices() []TTSVoiceInfo {
 }
 
 // GetMessageAudio retorna o áudio cached de uma mensagem.
-func (s *Service) GetMessageAudio(messageID uint) (*AudioResult, error) {
+func (s *Service) GetMessageAudio(messageID string) (*AudioResult, error) {
 	audio, mime, err := s.audioRepo.GetMessageAudio(messageID)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar áudio: %w", err)
@@ -601,7 +601,7 @@ func (s *Service) GetMessageAudio(messageID uint) (*AudioResult, error) {
 }
 
 // SaveMessageAudio salva áudio (base64) numa mensagem existente.
-func (s *Service) SaveMessageAudio(messageID uint, audioBase64, mimeType string) error {
+func (s *Service) SaveMessageAudio(messageID string, audioBase64, mimeType string) error {
 	return s.audioRepo.SaveMessageAudio(messageID, audioBase64, mimeType)
 }
 

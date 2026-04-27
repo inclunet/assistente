@@ -30,78 +30,78 @@ type serviceTaskListManager struct {
 func (m *serviceTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
 	return m.svc.CreateTaskList(m.ctx, title, description, templateWorkflow, slug)
 }
-func (m *serviceTaskListManager) GetTaskList(id uint) (*database.TaskList, error) {
+func (m *serviceTaskListManager) GetTaskList(id string) (*database.TaskList, error) {
 	return m.svc.GetTaskList(id)
 }
 func (m *serviceTaskListManager) GetAllTaskLists() ([]database.TaskList, error) {
 	return m.svc.GetAllTaskLists()
 }
-func (m *serviceTaskListManager) GetTaskListStats(taskListID uint) (map[string]interface{}, error) {
+func (m *serviceTaskListManager) GetTaskListStats(taskListID string) (map[string]interface{}, error) {
 	return m.svc.GetTaskListStats(taskListID)
 }
-func (m *serviceTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error {
+func (m *serviceTaskListManager) UpdateTaskListFull(id string, title, description, preferredViewMode string, slug *string) error {
 	return m.svc.UpdateTaskListFull(id, title, description, preferredViewMode, slug)
 }
-func (m *serviceTaskListManager) ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error) {
+func (m *serviceTaskListManager) ResolveTaskListRef(taskListID *string, taskListSlug string) (string, error) {
 	return m.svc.ResolveTaskListRef(taskListID, taskListSlug)
 }
-func (m *serviceTaskListManager) SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
+func (m *serviceTaskListManager) SetTaskListValidationPolicy(taskListID string, policyJSON string) error {
 	return m.svc.SetTaskListValidationPolicy(taskListID, policyJSON)
 }
-func (m *serviceTaskListManager) UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+func (m *serviceTaskListManager) UpdateWorkflowFull(taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
 	return m.svc.UpdateWorkflowFull(taskListID, statuses, transitions, initialStatusID, statusMigration)
 }
-func (m *serviceTaskListManager) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
+func (m *serviceTaskListManager) GetTaskCountsByStatus(taskListID string) (map[int]int64, error) {
 	return m.svc.GetTaskCountsByStatus(taskListID)
 }
-func (m *serviceTaskListManager) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error) {
+func (m *serviceTaskListManager) CreateTask(taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
 	return m.svc.CreateTask(taskListID, title, description, code, link, parentID)
 }
-func (m *serviceTaskListManager) CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*database.Task, error) {
+func (m *serviceTaskListManager) CreateTaskFull(taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*database.Task, error) {
 	return m.svc.CreateTaskFull(taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
 }
-func (m *serviceTaskListManager) GetTask(id uint) (*database.Task, error) { return m.svc.GetTask(id) }
-func (m *serviceTaskListManager) FindTaskByCode(taskListID uint, code string) (*database.Task, error) {
+func (m *serviceTaskListManager) GetTask(id string) (*database.Task, error) { return m.svc.GetTask(id) }
+func (m *serviceTaskListManager) FindTaskByCode(taskListID string, code string) (*database.Task, error) {
 	return m.svc.FindTaskByCode(taskListID, code)
 }
-func (m *serviceTaskListManager) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error) {
+func (m *serviceTaskListManager) ResolveTaskRef(taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
 	return m.svc.ResolveTaskRef(taskListID, taskListSlug, taskID, code)
 }
-func (m *serviceTaskListManager) ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error) {
+func (m *serviceTaskListManager) ResolveTaskIDByTaskCode(taskListID *string, taskCode string) (string, error) {
 	return m.svc.ResolveTaskIDByTaskCode(taskListID, taskCode)
 }
-func (m *serviceTaskListManager) UpdateTask(id uint, title, description, code, link string) error {
+func (m *serviceTaskListManager) UpdateTask(id string, title, description, code, link string) error {
 	return m.svc.UpdateTask(id, title, description, code, link)
 }
-func (m *serviceTaskListManager) UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+func (m *serviceTaskListManager) UpdateTaskFull(id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
 	return m.svc.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
 }
-func (m *serviceTaskListManager) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
+func (m *serviceTaskListManager) UpdateTaskAssignee(id string, assigneeName, assigneeID string) error {
 	return m.svc.UpdateTaskAssignee(id, assigneeName, assigneeID)
 }
-func (m *serviceTaskListManager) UpdateTaskStatus(id uint, newStatusID int) error {
+func (m *serviceTaskListManager) UpdateTaskStatus(id string, newStatusID int) error {
 	return m.svc.UpdateTaskStatus(id, newStatusID)
 }
-func (m *serviceTaskListManager) MoveTaskToList(taskID uint, targetTaskListID uint) (*database.Task, error) {
+func (m *serviceTaskListManager) MoveTaskToList(taskID string, targetTaskListID string) (*database.Task, error) {
 	return m.svc.MoveTaskToList(taskID, targetTaskListID)
 }
-func (m *serviceTaskListManager) DeleteTask(id uint) error { return m.svc.DeleteTask(id) }
-func (m *serviceTaskListManager) GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error) {
+func (m *serviceTaskListManager) DeleteTask(id string) error { return m.svc.DeleteTask(id) }
+func (m *serviceTaskListManager) GetWorkflow(taskListID string) (*database.TaskListWorkflow, error) {
 	return m.svc.GetWorkflow(taskListID)
 }
-func (m *serviceTaskListManager) CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
+func (m *serviceTaskListManager) CreateTaskNote(taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
 	return m.svc.CreateTaskNote(taskID, int(noteType), content, authorName, authorID)
 }
 func (m *serviceTaskListManager) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
 	return m.svc.UpsertTaskNoteByExternal(p)
 }
-func (m *serviceTaskListManager) UpdateTaskNote(noteID uint, content string) error {
+func (m *serviceTaskListManager) UpdateTaskNote(noteID string, content string) error {
 	return m.svc.UpdateTaskNote(noteID, content)
 }
-func (m *serviceTaskListManager) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
+func (m *serviceTaskListManager) GetTaskNotes(taskID string) ([]database.TaskNote, error) {
 	return m.svc.GetTaskNotes(taskID)
 }
-func (m *serviceTaskListManager) GetTaskNote(noteID uint) (*database.TaskNote, error) {
+func (m *serviceTaskListManager) GetTaskNote(noteID string) (*database.TaskNote, error) {
 	return m.svc.GetTaskNote(noteID)
 }
 

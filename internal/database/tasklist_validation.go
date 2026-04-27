@@ -33,9 +33,9 @@ func ParseTaskListValidationPolicyJSON(raw string) (*TaskListValidationPolicy, e
 	return &p, nil
 }
 
-func loadTaskListValidationPolicy(taskListID uint) (*TaskListValidationPolicy, error) {
+func loadTaskListValidationPolicy(taskListID string) (*TaskListValidationPolicy, error) {
 	var tl TaskList
-	if err := db.Select("validation_policy").First(&tl, taskListID).Error; err != nil {
+	if err := db.Select("validation_policy").First(&tl, "id = ?", taskListID).Error; err != nil {
 		return nil, err
 	}
 	return ParseTaskListValidationPolicyJSON(tl.ValidationPolicy)
@@ -62,7 +62,7 @@ func ValidateTaskCodeAgainstPolicy(code string, p *TaskListValidationPolicy) err
 }
 
 // ValidateTaskCodeForTaskList aplica task_code_regex quando configurado. Code vazio não é validado.
-func ValidateTaskCodeForTaskList(taskListID uint, code string) error {
+func ValidateTaskCodeForTaskList(taskListID string, code string) error {
 	p, err := loadTaskListValidationPolicy(taskListID)
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func ValidateExternalNoteAgainstPolicy(source, externalID, externalParentID stri
 }
 
 // ValidateExternalNoteForTaskList aplica allowed_note_sources e regexes de nota quando configurados.
-func ValidateExternalNoteForTaskList(taskListID uint, source, externalID, externalParentID string) error {
+func ValidateExternalNoteForTaskList(taskListID string, source, externalID, externalParentID string) error {
 	p, err := loadTaskListValidationPolicy(taskListID)
 	if err != nil {
 		return err
@@ -126,7 +126,7 @@ func ValidateExternalNoteForTaskList(taskListID uint, source, externalID, extern
 }
 
 // SetTaskListValidationPolicy persiste o JSON da política (string vazia = sem regras).
-func SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
+func SetTaskListValidationPolicy(taskListID string, policyJSON string) error {
 	s := strings.TrimSpace(policyJSON)
 	if s != "" {
 		if _, err := ParseTaskListValidationPolicyJSON(s); err != nil {

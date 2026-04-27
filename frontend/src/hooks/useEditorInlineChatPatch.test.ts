@@ -70,12 +70,12 @@ describe('useEditorInlineChatPatch', () => {
   it('resolve waitForChatDone quando evento chega', async () => {
     const { result } = renderHook(() => useEditorInlineChatPatch());
 
-    const promise = result.current.waitForChatDone(42, 1000);
+    const promise = result.current.waitForChatDone("42", 1000);
 
     act(() => {
-      eventHandler?.({ conversationId: 42 });
+      eventHandler?.({ conversationId: "42" });
     });
 
-    await expect(promise).resolves.toBe(42);
+    await expect(promise).resolves.toBe("42");
   });
 });

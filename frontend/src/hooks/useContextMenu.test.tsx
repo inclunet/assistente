@@ -176,10 +176,10 @@ describe('useMessageActions', () => {
     const { result } = renderHook(() => useMessageActions());
 
     await act(async () => {
-      await result.current.speakMessage({ id: 10, content: 'Ola', role: 'assistant' } as never);
+      await result.current.speakMessage({ id: '10', content: 'Ola', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(10, 0.75, {
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith('10', 0.75, {
       providerId: 'test-provider',
       voiceId: 'test-voice',
       model: 'tts-1',
@@ -195,7 +195,7 @@ describe('useMessageActions', () => {
     const { result } = renderHook(() => useMessageActions());
 
     await act(async () => {
-      await result.current.speakMessage({ id: 11, content: 'Teste', role: 'assistant' } as never);
+      await result.current.speakMessage({ id: '11', content: 'Teste', role: 'assistant' } as never);
     });
 
     expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant');
@@ -207,15 +207,16 @@ describe('useMessageActions', () => {
     const { result } = renderHook(() => useMessageActions());
 
     await act(async () => {
-      await result.current.speakMessage({ id: 12, content: 'Teste', role: 'assistant' } as never);
+      await result.current.speakMessage({ id: '12', content: 'Teste', role: 'assistant' } as never);
     });
 
     expect(messageAudioServiceMock.speakMessage).not.toHaveBeenCalled();
     expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
 
-  it('usa fallback para IDs locais (não-numéricos)', async () => {
+  it('usa fallback quando speakMessage retorna falso', async () => {
     ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
+    messageAudioServiceMock.speakMessage.mockResolvedValue(false);
 
     const { result } = renderHook(() => useMessageActions());
 
@@ -223,7 +224,7 @@ describe('useMessageActions', () => {
       await result.current.speakMessage({ id: '1712345678901-abc3d5e9f', content: 'Teste', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.speakMessage).not.toHaveBeenCalled();
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalled();
     expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant');
   });
 
@@ -237,7 +238,7 @@ describe('useMessageActions', () => {
       await result.current.speakMessage({ id: '42', content: 'Ola', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(42, 0.75, {
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith('42', 0.75, {
       providerId: 'test-provider',
       voiceId: 'test-voice',
       model: 'tts-1',

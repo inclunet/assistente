@@ -15,7 +15,7 @@ const mockWsSetActiveTab = vi.fn().mockResolvedValue(undefined);
 const mockWsAddTab = vi.fn().mockResolvedValue(undefined);
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
 
-let mockWsTabs: Array<{ id: string; type: string; conversationId?: number; state?: Record<string, unknown> }> = [];
+let mockWsTabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown> }> = [];
 
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: {
@@ -28,7 +28,7 @@ vi.mock('../store/workspaceStore', () => ({
 }));
 
 const mockLoadConversation = vi.fn().mockResolvedValue(undefined);
-const mockCreateConversation = vi.fn().mockResolvedValue(100);
+const mockCreateConversation = vi.fn().mockResolvedValue("100");
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: {
@@ -36,7 +36,7 @@ vi.mock('../store/chatStore', () => ({
       sendMessage: mockSendMessage,
       loadConversation: mockLoadConversation,
       createConversation: mockCreateConversation,
-      activeConversationId: 1,
+      activeConversationId: "1",
     }),
   },
 }));
@@ -126,28 +126,32 @@ describe('parseDeepLink', () => {
   describe('conversation:open', () => {
     it('faz parse de assistente://conversation/{id}', () => {
       const result = parseDeepLink('assistente://conversation/42');
-      expect(result).toEqual({ type: 'conversation:open', conversationId: 42 });
+      expect(result).toEqual({ type: 'conversation:open', conversationId: "42" });
     });
 
     it('aceita IDs grandes', () => {
       const result = parseDeepLink('assistente://conversation/999999');
-      expect(result).toEqual({ type: 'conversation:open', conversationId: 999999 });
+      expect(result).toEqual({ type: 'conversation:open', conversationId: "999999" });
     });
 
-    it('rejeita ID zero', () => {
-      expect(parseDeepLink('assistente://conversation/0')).toBeNull();
+    it('aceita ID zero como string', () => {
+      const result = parseDeepLink('assistente://conversation/0');
+      expect(result).toEqual({ type: 'conversation:open', conversationId: '0' });
     });
 
-    it('rejeita ID negativo', () => {
-      expect(parseDeepLink('assistente://conversation/-1')).toBeNull();
+    it('aceita ID negativo como string', () => {
+      const result = parseDeepLink('assistente://conversation/-1');
+      expect(result).toEqual({ type: 'conversation:open', conversationId: '-1' });
     });
 
-    it('rejeita ID não numérico', () => {
-      expect(parseDeepLink('assistente://conversation/abc')).toBeNull();
+    it('aceita ID não numérico como string (UUIDs)', () => {
+      const result = parseDeepLink('assistente://conversation/abc');
+      expect(result).toEqual({ type: 'conversation:open', conversationId: 'abc' });
     });
 
-    it('rejeita ID float', () => {
-      expect(parseDeepLink('assistente://conversation/3.14')).toBeNull();
+    it('aceita ID float como string', () => {
+      const result = parseDeepLink('assistente://conversation/3.14');
+      expect(result).toEqual({ type: 'conversation:open', conversationId: '3.14' });
     });
   });
 
@@ -196,7 +200,7 @@ describe('parseDeepLink', () => {
       );
       expect(result).toEqual({
         type: 'conversation:send',
-        conversationId: 10,
+        conversationId: "10",
         message: 'continue aqui',
       });
     });
@@ -205,8 +209,9 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://conversation/10/send')).toBeNull();
     });
 
-    it('rejeita send com ID inválido', () => {
-      expect(parseDeepLink('assistente://conversation/abc/send?message=oi')).toBeNull();
+    it('aceita send com ID alfanumérico', () => {
+      const result = parseDeepLink('assistente://conversation/abc/send?message=oi');
+      expect(result).toEqual({ type: 'conversation:send', conversationId: 'abc', message: 'oi' });
     });
   });
 
@@ -414,7 +419,7 @@ describe('parseDeepLink', () => {
 
 describe('buildDeepLink', () => {
   it('constrói conversation:open', () => {
-    const uri = buildDeepLink({ type: 'conversation:open', conversationId: 42 });
+    const uri = buildDeepLink({ type: 'conversation:open', conversationId: "42" });
     expect(uri).toBe('assistente://conversation/42');
   });
 
@@ -437,7 +442,7 @@ describe('buildDeepLink', () => {
   it('constrói conversation:send', () => {
     const uri = buildDeepLink({
       type: 'conversation:send',
-      conversationId: 10,
+      conversationId: "10",
       message: 'continue aqui',
     });
     expect(uri).toContain('assistente://conversation/10/send?');
@@ -522,10 +527,10 @@ describe('buildDeepLink', () => {
 
 describe('roundtrip build → parse', () => {
   const actions: DeepLinkAction[] = [
-    { type: 'conversation:open', conversationId: 7 },
+    { type: 'conversation:open', conversationId: "7" },
     { type: 'conversation:new', message: 'olá mundo', title: 'Test' },
     { type: 'conversation:new' },
-    { type: 'conversation:send', conversationId: 3, message: 'continue' },
+    { type: 'conversation:send', conversationId: "3", message: 'continue' },
     { type: 'navigate', route: 'history' },
     { type: 'navigate', route: 'tasklists' },
     { type: 'navigate', route: '' },
@@ -557,11 +562,11 @@ describe('roundtrip build → parse', () => {
 
 describe('getDeepLinkTypeClass', () => {
   it('retorna classe correta por tipo', () => {
-    expect(getDeepLinkTypeClass({ type: 'conversation:open', conversationId: 1 }))
+    expect(getDeepLinkTypeClass({ type: 'conversation:open', conversationId: "1" }))
       .toBe('deep-link--conversation');
     expect(getDeepLinkTypeClass({ type: 'conversation:new' }))
       .toBe('deep-link--new-conversation');
-    expect(getDeepLinkTypeClass({ type: 'conversation:send', conversationId: 1, message: 'x' }))
+    expect(getDeepLinkTypeClass({ type: 'conversation:send', conversationId: "1", message: 'x' }))
       .toBe('deep-link--send');
     expect(getDeepLinkTypeClass({ type: 'navigate', route: 'help' }))
       .toBe('deep-link--navigate');
@@ -607,12 +612,12 @@ describe('executeDeepLink', () => {
   describe('conversation:open — dedup', () => {
     it('ativa aba existente se a conversa já está aberta', async () => {
       mockWsTabs = [
-        { id: 'tab-1', type: 'chat', conversationId: 42 },
-        { id: 'tab-2', type: 'chat', conversationId: 99 },
+        { id: 'tab-1', type: 'chat', conversationId: "42" },
+        { id: 'tab-2', type: 'chat', conversationId: "99" },
       ];
 
       await executeDeepLink(
-        { type: 'conversation:open', conversationId: 42 },
+        { type: 'conversation:open', conversationId: "42" },
         deps,
       );
 
@@ -622,10 +627,10 @@ describe('executeDeepLink', () => {
     });
 
     it('abre nova aba se a conversa não está aberta', async () => {
-      mockWsTabs = [{ id: 'tab-1', type: 'chat', conversationId: 99 }];
+      mockWsTabs = [{ id: 'tab-1', type: 'chat', conversationId: "99" }];
 
       await executeDeepLink(
-        { type: 'conversation:open', conversationId: 42 },
+        { type: 'conversation:open', conversationId: "42" },
         deps,
       );
 
@@ -638,7 +643,7 @@ describe('executeDeepLink', () => {
       mockWsTabs = [];
 
       await executeDeepLink(
-        { type: 'conversation:open', conversationId: 7 },
+        { type: 'conversation:open', conversationId: "7" },
         deps,
       );
 
@@ -649,16 +654,16 @@ describe('executeDeepLink', () => {
 
   describe('conversation:send — dedup', () => {
     it('ativa aba existente se a conversa já está aberta', async () => {
-      mockWsTabs = [{ id: 'tab-5', type: 'chat', conversationId: 10 }];
+      mockWsTabs = [{ id: 'tab-5', type: 'chat', conversationId: "10" }];
 
       await executeDeepLink(
-        { type: 'conversation:send', conversationId: 10, message: 'oi' },
+        { type: 'conversation:send', conversationId: "10", message: 'oi' },
         deps,
       );
 
       expect(mockWsSetActiveTab).toHaveBeenCalledWith('tab-5');
       expect(mockWsAddTab).not.toHaveBeenCalled();
-      expect(mockLoadConversation).toHaveBeenCalledWith(10);
+      expect(mockLoadConversation).toHaveBeenCalledWith("10");
       expect(mockSendMessage).toHaveBeenCalledWith('oi');
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
@@ -667,13 +672,13 @@ describe('executeDeepLink', () => {
       mockWsTabs = [];
 
       await executeDeepLink(
-        { type: 'conversation:send', conversationId: 10, message: 'oi' },
+        { type: 'conversation:send', conversationId: "10", message: 'oi' },
         deps,
       );
 
       expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
-      expect(mockLoadConversation).toHaveBeenCalledWith(10);
+      expect(mockLoadConversation).toHaveBeenCalledWith("10");
       expect(mockSendMessage).toHaveBeenCalledWith('oi');
     });
   });
@@ -871,7 +876,7 @@ describe('executeDeepLink', () => {
   describe('announce', () => {
     it('anuncia após cada ação', async () => {
       await executeDeepLink(
-        { type: 'conversation:open', conversationId: 1 },
+        { type: 'conversation:open', conversationId: "1" },
         deps,
       );
       expect(mockAnnounce).toHaveBeenCalled();

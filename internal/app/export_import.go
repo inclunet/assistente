@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -25,7 +24,7 @@ type ImportResolution = portability.ImportResolution
 
 // ==================== Export Functions ====================
 
-func (a *App) ExportConversations(ids []uint) (string, error) {
+func (a *App) ExportConversations(ids []string) (string, error) {
 	return portability.ExportConversations(ids, a.credMgr, portability.ExportRequest{
 		OutputFormat: portability.FormatJSON,
 	}, AppVersion)
@@ -99,7 +98,7 @@ func (a *App) AnalyzeImportData(jsonData string, credentialExportPassword string
 	return portability.AnalyzeImportData(jsonData, a.credMgr, credentialExportPassword)
 }
 
-func (a *App) ExportConversationsToFile(ids []uint, format string) (string, error) {
+func (a *App) ExportConversationsToFile(ids []string, format string) (string, error) {
 	if a.dialogPort == nil {
 		return "", fmt.Errorf("diálogo de sistema não inicializado")
 	}
@@ -209,13 +208,13 @@ func normalizeRichConversationExportRequest(req ExportRequest) (ExportRequest, e
 	return req, nil
 }
 
-func resolveConversationIDs(req ExportRequest) ([]uint, error) {
+func resolveConversationIDs(req ExportRequest) ([]string, error) {
 	if req.All {
 		conversations, err := database.GetConversations()
 		if err != nil {
 			return nil, err
 		}
-		ids := make([]uint, 0, len(conversations))
+		ids := make([]string, 0, len(conversations))
 		for _, conv := range conversations {
 			ids = append(ids, conv.ID)
 		}
@@ -233,20 +232,20 @@ func resolveConversationIDs(req ExportRequest) ([]uint, error) {
 		if err != nil {
 			return nil, err
 		}
-		ids := make([]uint, 0, len(conversations))
+		ids := make([]string, 0, len(conversations))
 		for _, conv := range conversations {
 			ids = append(ids, conv.ID)
 		}
 		return ids, nil
 	}
 
-	ids := make([]uint, 0, len(req.ConversationIDs))
+	ids := make([]string, 0, len(req.ConversationIDs))
 	for _, raw := range req.ConversationIDs {
-		id64, err := strconv.ParseUint(raw, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("conversationId inválido: %s", raw)
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return nil, fmt.Errorf("conversationId inválido: %q", raw)
 		}
-		ids = append(ids, uint(id64))
+		ids = append(ids, id)
 	}
 	return ids, nil
 }
@@ -279,13 +278,13 @@ func resolveProviderIDs(req ExportRequest) ([]string, error) {
 	return ids, nil
 }
 
-func resolveTaskListIDs(req ExportRequest) ([]uint, error) {
+func resolveTaskListIDs(req ExportRequest) ([]string, error) {
 	if req.All {
 		taskLists, err := database.GetAllTaskLists()
 		if err != nil {
 			return nil, err
 		}
-		ids := make([]uint, 0, len(taskLists))
+		ids := make([]string, 0, len(taskLists))
 		for _, taskList := range taskLists {
 			ids = append(ids, taskList.ID)
 		}
@@ -296,13 +295,13 @@ func resolveTaskListIDs(req ExportRequest) ([]uint, error) {
 		return nil, nil
 	}
 
-	ids := make([]uint, 0, len(req.TaskListIDs))
+	ids := make([]string, 0, len(req.TaskListIDs))
 	for _, raw := range req.TaskListIDs {
-		id64, err := strconv.ParseUint(raw, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("taskListId inválido: %s", raw)
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return nil, fmt.Errorf("taskListId inválido: %q", raw)
 		}
-		ids = append(ids, uint(id64))
+		ids = append(ids, id)
 	}
 	return ids, nil
 }

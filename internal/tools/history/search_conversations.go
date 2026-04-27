@@ -99,8 +99,8 @@ func (t *SearchConversationsTool) Execute(ctx context.Context, args json.RawMess
 		Title    string
 		Messages []database.MessageSearchResult
 	}
-	grouped := make(map[uint]*convGroup)
-	var order []uint
+	grouped := make(map[string]*convGroup)
+	var order []string
 	for _, r := range results {
 		g, ok := grouped[r.ConversationID]
 		if !ok {
@@ -116,9 +116,9 @@ func (t *SearchConversationsTool) Execute(ctx context.Context, args json.RawMess
 
 	for _, convID := range order {
 		g := grouped[convID]
-		_, _ = fmt.Fprintf(&sb, "── Conversa #%d: %s ──\n", convID, g.Title)
+		_, _ = fmt.Fprintf(&sb, "── Conversa #%s: %s ──\n", convID, g.Title)
 		for _, msg := range g.Messages {
-			_, _ = fmt.Fprintf(&sb, "  [%s] %s (msg #%d, %s)\n",
+			_, _ = fmt.Fprintf(&sb, "  [%s] %s (msg #%s, %s)\n",
 				msg.Role,
 				msg.Snippet,
 				msg.MessageID,

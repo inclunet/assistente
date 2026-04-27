@@ -42,7 +42,7 @@ type ChannelConfig struct {
 
 	// Conversations mapeia contactID → conversationID (persistido entre reinícios).
 	// Permite reaproveitar conversas existentes ao reiniciar o app.
-	Conversations map[string]uint `json:"conversations,omitempty"`
+	Conversations map[string]string `json:"conversations,omitempty"`
 }
 
 // GetMaxContacts retorna o limite efetivo de contatos (mínimo 1).
@@ -53,16 +53,16 @@ func (c *ChannelConfig) GetMaxContacts() int {
 	return c.MaxContacts
 }
 
-// GetConversationID retorna o conversationID salvo para um contato, ou 0 se não existir.
-func (c *ChannelConfig) GetConversationID(contactID string) uint {
+// GetConversationID retorna o conversationID salvo para um contato, ou "" se não existir.
+func (c *ChannelConfig) GetConversationID(contactID string) string {
 	if c.Conversations == nil {
-		return 0
+		return ""
 	}
 	return c.Conversations[contactID]
 }
 
 // SaveConversationID persiste o mapeamento contactID → conversationID no config do canal.
-func SaveConversationID(channelName, contactID string, conversationID uint) error {
+func SaveConversationID(channelName, contactID string, conversationID string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -71,7 +71,7 @@ func SaveConversationID(channelName, contactID string, conversationID uint) erro
 		return fmt.Errorf("canal %s não encontrado", channelName)
 	}
 	if cfg.Conversations == nil {
-		cfg.Conversations = make(map[string]uint)
+		cfg.Conversations = make(map[string]string)
 	}
 	cfg.Conversations[contactID] = conversationID
 	return saveUnsafe(channelName, cfg)

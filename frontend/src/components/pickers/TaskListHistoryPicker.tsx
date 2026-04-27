@@ -8,8 +8,8 @@ import { database } from '../../../wailsjs/go/models';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 
 export interface TaskListHistoryPickerProps {
-  value?: number;
-  onChange: (taskListId: number, taskList: database.TaskList) => void;
+  value?: string;
+  onChange: (taskListId: string, taskList: database.TaskList) => void;
   label?: string;
   disabled?: boolean;
   maxWidth?: string;
@@ -99,10 +99,9 @@ export const TaskListHistoryPicker = forwardRef<TaskListHistoryPickerRef, TaskLi
   const selectedValue = value ? value.toString() : '';
 
   const handleSelect = (selectedValue: string) => {
-    const id = parseInt(selectedValue, 10);
-    const taskList = taskLists.find(tl => tl.id === id);
+    const taskList = taskLists.find(tl => String(tl.id) === selectedValue);
     if (taskList) {
-      onChange(id, taskList);
+      onChange(selectedValue, taskList);
     }
   };
 

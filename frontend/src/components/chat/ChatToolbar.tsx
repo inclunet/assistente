@@ -153,7 +153,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     focusInput();
   }, [focusInput, wsActiveTab, updateWsTab]);
 
-  const handleHistoryChange = async (conversationId: number, conversation: { title?: string }) => {
+  const handleHistoryChange = async (conversationId: string, conversation: { title?: string }) => {
     const nextTitle = conversation.title || t('chat.newConversation');
     try {
       if (wsActiveTab?.type === 'chat') {

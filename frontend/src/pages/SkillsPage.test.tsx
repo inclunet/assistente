@@ -41,6 +41,14 @@ vi.mock('../hooks/useGridFocus', () => ({
   }),
 }));
 
+vi.mock('../hooks/useGridPageLandmarks', () => ({
+  useGridPageLandmarks: vi.fn(),
+}));
+
+vi.mock('../hooks/useConfirm', () => ({
+  useConfirm: () => vi.fn().mockResolvedValue(true),
+}));
+
 const mockAddToast = vi.fn();
 vi.mock('../store/uiStore', () => ({
   useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {

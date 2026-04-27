@@ -25,7 +25,7 @@ describe('HistoryPicker', () => {
   it('carrega conversas e dispara onChange', async () => {
     getConversationsSpy.mockResolvedValueOnce([
       {
-        id: 1,
+        id: '1',
         title: 'Conversa',
         message_count: 2,
         updated_at: new Date().toISOString(),
@@ -41,6 +41,6 @@ describe('HistoryPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Selecionar' }));
 
-    expect(onChange).toHaveBeenCalledWith(1, expect.objectContaining({ id: 1 }));
+    expect(onChange).toHaveBeenCalledWith('1', expect.objectContaining({ id: '1' }));
   });
 });
