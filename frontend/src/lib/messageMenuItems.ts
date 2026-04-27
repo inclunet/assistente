@@ -365,9 +365,9 @@ export function getMessageMenuItems(
     // 2.1 Baixar audio desta mensagem (usa DB se disponivel)
     items.push({
       id: 'download-audio',
-      label: 'Baixar audio desta mensagem',
+      label: i18next.t('chat.message.downloadAudio'),
       icon: '💾',
-      ariaLabel: 'Baixar audio desta mensagem',
+      ariaLabel: i18next.t('chat.message.downloadAudio'),
       action: async () => {
         if (!message.content || !message.id) {
           onAnnounce?.(i18next.t('chat.message.announce.noContent'));

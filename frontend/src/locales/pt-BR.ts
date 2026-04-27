@@ -170,6 +170,7 @@ const ptBR = {
       editCancelled: 'Edição cancelada',
       copiedWithRole: 'Mensagem copiada com role',
       contentCopied: 'Conteúdo copiado',
+      downloadAudio: 'Baixar áudio desta mensagem',
       reasoningShown: 'Raciocínio exibido',
       reasoningHidden: 'Raciocínio ocultado',
       announce: {

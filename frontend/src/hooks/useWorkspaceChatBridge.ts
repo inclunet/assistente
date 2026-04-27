@@ -72,7 +72,7 @@ export function useWorkspaceChatBridge() {
         if (syncGenerationRef.current !== gen) return;
         const nowTab = useWorkspaceStore.getState().getActiveTab();
         if (!nowTab || nowTab.id !== snapshotTabId) return;
-        if ((nowTab.conversationId || 0) !== id) return;
+        if ((nowTab.conversationId || '') !== id) return;
 
         const chatState = useChatStore.getState();
         if (chatState.activeConversationId !== id) {
@@ -82,7 +82,7 @@ export function useWorkspaceChatBridge() {
         if (syncGenerationRef.current !== gen) return;
         const latestTab = useWorkspaceStore.getState().getActiveTab();
         if (!latestTab || latestTab.id !== snapshotTabId) return;
-        if ((latestTab.conversationId || 0) !== id) return;
+        if ((latestTab.conversationId || '') !== id) return;
         lastSyncedRef.current = `${snapshotTabId}:${id}`;
       } catch (error) {
         console.error('[WorkspaceChatBridge] Erro ao garantir conversa:', error);

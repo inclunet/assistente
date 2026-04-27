@@ -169,6 +169,7 @@ const es = {
       editCancelled: 'Edición cancelada',
       copiedWithRole: 'Mensaje copiado con rol',
       contentCopied: 'Contenido copiado',
+      downloadAudio: 'Descargar audio de este mensaje',
       reasoningShown: 'Razonamiento mostrado',
       reasoningHidden: 'Razonamiento ocultado',
       announce: {
