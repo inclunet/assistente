@@ -361,7 +361,7 @@ describe('TaskListsPage', { timeout: 60_000 }, () => {
     await user.click(cloneBtn);
 
     await waitFor(() => {
-      expect(mockCloneTaskList).toHaveBeenCalledWith('1', 'Lista Alfa tasklist.cloneTitleSuffix');
+      expect(mockCloneTaskList).toHaveBeenCalledWith('1', 'Lista Alfa (Cópia)');
     });
 
     await waitFor(() => {

@@ -19,13 +19,13 @@ const (
 // Toda aba tem um ConversationID dedicado para seu chat inline.
 // Dados específicos do tipo (filePath, sessionId, tasklistId) ficam em State.
 type Tab struct {
-	ID             string         `json:"id" yaml:"id"`
-	Type           TabType        `json:"type" yaml:"type"`
-	ConversationID string          `json:"conversation_id,omitempty" yaml:"conversation_id,omitempty"`
-	Title          string         `json:"title" yaml:"title"`
-	Position       int            `json:"position" yaml:"position"`
+	ID              string         `json:"id" yaml:"id"`
+	Type            TabType        `json:"type" yaml:"type"`
+	ConversationID  string         `json:"conversation_id,omitempty" yaml:"conversation_id,omitempty"`
+	Title           string         `json:"title" yaml:"title"`
+	Position        int            `json:"position" yaml:"position"`
 	ProfileOverride map[string]any `json:"profile_override,omitempty" yaml:"profile_override,omitempty"`
-	State          map[string]any `json:"state,omitempty" yaml:"state,omitempty"`
+	State           map[string]any `json:"state,omitempty" yaml:"state,omitempty"`
 
 	// ContentID: campo legado para migração de workspaces antigos. Ignorado após load.
 	ContentID string `json:"content_id,omitempty" yaml:"content_id,omitempty"`
