@@ -149,6 +149,8 @@ const conversations: ConversationItem[] = [
   },
 ];
 
+import HistoryPage from './HistoryPage';
+
 describe('HistoryPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockGetConversations.mockResolvedValue(conversations);
@@ -165,7 +167,6 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
   });
 
   it('nao duplica acao de deletar na toolbar', async () => {
-    const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
 
     await screen.findByText('Conversa 1');
@@ -176,7 +177,6 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
 
   it('deleta conversas selecionadas ao clicar em Excluir', async () => {
     const user = userEvent.setup();
-    const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
 
     await screen.findByText('Conversa 1');
@@ -195,7 +195,6 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
 
   it('deleta conversa focada quando nao ha selecao', async () => {
     const user = userEvent.setup();
-    const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
 
     await waitFor(() => {
@@ -213,7 +212,6 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
 
   it('aciona abrir conversa via menu de acoes', async () => {
     const user = userEvent.setup();
-    const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
 
     await waitFor(() => {

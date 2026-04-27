@@ -129,6 +129,8 @@ vi.mock('../components', () => ({
   PageLoading: ({ message }: { message?: string }) => <div role="status">{message}</div>,
 }));
 
+import SkillsPage from './SkillsPage';
+
 describe('SkillsPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockGetSkills.mockReset();
@@ -183,8 +185,6 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
   });
 
   it('duplica um skill via menu de acoes', async () => {
-    const { default: SkillsPage } = await import('./SkillsPage');
-
     render(<SkillsPage />);
 
     await screen.findByText('skill-base');

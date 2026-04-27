@@ -39,7 +39,7 @@ export default function HistoryPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [searchResultIds, setSearchResultIds] = useState<Set<string> | null>(null);
   const [snippetsMap, setSnippetsMap] = useState<Map<string, string>>(new Map());
   const [searching, setSearching] = useState(false);
@@ -170,7 +170,7 @@ export default function HistoryPage() {
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
-    const ids = Array.from(selectedIds);
+    const ids = Array.from(selectedIds).map(String);
     const count = ids.length;
     const ok = await confirm({
       title: t('history.confirmDeleteMultipleTitle'),
@@ -476,7 +476,7 @@ export default function HistoryPage() {
         onDelete={handleDeleteRow}
         selectedIds={selectedIds}
         multiSelect={true}
-        onSelectionChange={(ids: Set<string | number>) => setSelectedIds(new Set([...ids].map(String)))}
+        onSelectionChange={setSelectedIds}
         onGridReady={handleGridReady}
         onFocusChange={handleFocusChange}
         getRowActions={getRowActions}
