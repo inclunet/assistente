@@ -394,7 +394,8 @@ export function getMessageMenuItems(
           }
 
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-          const filename = `mensagem-${timestamp}.mp3`;
+          const prefix = i18next.t('chat.message.downloadAudioPrefix', 'message');
+          const filename = `${prefix}-${timestamp}.mp3`;
           messageAudioService.downloadAudioBlob(audioBlob, filename);
           onAnnounce?.(i18next.t('chat.message.announce.audioDownloaded'));
         } catch (error) {

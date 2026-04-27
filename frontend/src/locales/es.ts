@@ -170,6 +170,7 @@ const es = {
       copiedWithRole: 'Mensaje copiado con rol',
       contentCopied: 'Contenido copiado',
       downloadAudio: 'Descargar audio de este mensaje',
+      downloadAudioPrefix: 'mensaje',
       reasoningShown: 'Razonamiento mostrado',
       reasoningHidden: 'Razonamiento ocultado',
       announce: {

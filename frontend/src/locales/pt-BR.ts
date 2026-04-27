@@ -171,6 +171,7 @@ const ptBR = {
       copiedWithRole: 'Mensagem copiada com role',
       contentCopied: 'Conteúdo copiado',
       downloadAudio: 'Baixar áudio desta mensagem',
+      downloadAudioPrefix: 'mensagem',
       reasoningShown: 'Raciocínio exibido',
       reasoningHidden: 'Raciocínio ocultado',
       announce: {

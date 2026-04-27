@@ -50,7 +50,12 @@ function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId
   let messages = allMessages;
   if (afterMessageId) {
     const idx = allMessages.findIndex((m) => String(m?.id || '') === afterMessageId);
-    messages = idx >= 0 ? allMessages.slice(idx + 1) : allMessages;
+    if (idx >= 0) {
+      messages = allMessages.slice(idx + 1);
+    } else {
+      // ID not found (list reloaded/compacted) — filter by lexicographic order (UUIDv7 is sortable)
+      messages = allMessages.filter((m) => String(m?.id || '') > afterMessageId);
+    }
   }
 
   for (let i = messages.length - 1; i >= 0; i--) {

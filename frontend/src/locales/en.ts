@@ -171,6 +171,7 @@ const en = {
       copiedWithRole: 'Message copied with role',
       contentCopied: 'Content copied',
       downloadAudio: 'Download audio for this message',
+      downloadAudioPrefix: 'message',
       reasoningShown: 'Reasoning shown',
       reasoningHidden: 'Reasoning hidden',
       announce: {
