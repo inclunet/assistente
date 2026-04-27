@@ -27,20 +27,20 @@ function messagesFixture() {
   const now = new Date().toISOString();
   return [
     {
-      message: { id: '1', conversationId: '1', role: 'user', content: 'Mensagem do usuário', createdAt: now },
+      message: { id: '01926b90-7a5a-7c4e-8d3f-000000000001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Mensagem do usuário', createdAt: now },
       children: [],
       childCount: 0,
     },
     {
       message: {
-        id: '2', conversationId: '1', role: 'assistant', content: 'Resposta do assistente',
+        id: '01926b90-7a5a-7c4e-8d3f-000000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Resposta do assistente',
         createdAt: now, reasoning: 'Pensamento interno do assistente',
       },
       children: [],
       childCount: 0,
     },
     {
-      message: { id: '3', conversationId: '1', role: 'user', content: 'Segunda mensagem do usuário', createdAt: now },
+      message: { id: '01926b90-7a5a-7c4e-8d3f-000000000003', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Segunda mensagem do usuário', createdAt: now },
       children: [],
       childCount: 0,
     },
@@ -50,12 +50,12 @@ function messagesFixture() {
 async function setupChatWithMessages(wails: Parameters<Parameters<typeof test>[2]>[0]['wails']) {
   const now = new Date().toISOString();
   await wails.setResponse('GetMessages', messagesFixture());
-  await wails.setResponse('SendMessage', '4');
+  await wails.setResponse('SendMessage', '01926b90-7a5a-7c4e-8d3f-000000000004');
   await wails.setResponse('DeleteMessage', undefined);
   await wails.setResponse('UpdateMessage', undefined);
   await wails.setResponse('SpeakMessage', undefined);
   await wails.setResponse('EnsureConversation', {
-    id: '1', title: 'Conversa', created_at: now, updated_at: now,
+    id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
     messages: [], message_count: 3,
   });
   await wails.waitForApp();
