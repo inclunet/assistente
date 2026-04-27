@@ -444,7 +444,11 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	if convID, ok := updates["conversation_id"].(string); ok {
 		tab.ConversationID = convID
 	} else if convIDFloat, ok := updates["conversation_id"].(float64); ok {
-		tab.ConversationID = fmt.Sprintf("%d", int64(convIDFloat))
+		if convIDFloat <= 0 {
+			tab.ConversationID = ""
+		} else {
+			tab.ConversationID = fmt.Sprintf("%d", int64(convIDFloat))
+		}
 	}
 	if state, ok := updates["state"].(map[string]any); ok {
 		if tab.State == nil {

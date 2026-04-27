@@ -259,3 +259,54 @@ func TestUpdateTab_MergesStatePreservesOpenEditorPaths(t *testing.T) {
 		t.Errorf("expected %s, got %s", filepath.Clean(absPath), paths[0])
 	}
 }
+
+func TestUpdateTab_ConversationIDFloat64Zero(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	if err := m.AddTab(Tab{
+		ID:    "tab-conv",
+		Type:  TabTypeChat,
+		Title: "chat",
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	// float64(0) deve virar "" (sem conversa), não "0"
+	if err := m.UpdateTab("tab-conv", map[string]any{
+		"conversation_id": float64(0),
+	}); err != nil {
+		t.Fatalf("UpdateTab: %v", err)
+	}
+
+	tab := m.active.FindTab("tab-conv")
+	if tab.ConversationID != "" {
+		t.Errorf("conversation_id float64(0) deveria virar empty, got %q", tab.ConversationID)
+	}
+
+	// float64 positivo deve virar string do número (legado compatível)
+	if err := m.UpdateTab("tab-conv", map[string]any{
+		"conversation_id": float64(42),
+	}); err != nil {
+		t.Fatalf("UpdateTab: %v", err)
+	}
+
+	tab = m.active.FindTab("tab-conv")
+	if tab.ConversationID != "42" {
+		t.Errorf("conversation_id float64(42) deveria virar \"42\", got %q", tab.ConversationID)
+	}
+
+	// string UUID deve funcionar normalmente
+	if err := m.UpdateTab("tab-conv", map[string]any{
+		"conversation_id": "01970a9e-1234-7000-8000-abcdef123456",
+	}); err != nil {
+		t.Fatalf("UpdateTab: %v", err)
+	}
+
+	tab = m.active.FindTab("tab-conv")
+	if tab.ConversationID != "01970a9e-1234-7000-8000-abcdef123456" {
+		t.Errorf("conversation_id string UUID incorreto, got %q", tab.ConversationID)
+	}
+}
