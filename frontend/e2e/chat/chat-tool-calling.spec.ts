@@ -17,8 +17,8 @@ const toolCallsJson = JSON.stringify([
 const messagesWithToolCalls = [
   {
     message: {
-      id: '1',
-      conversationId: '1',
+      id: '01926b90-0000-7000-8000-000000000010',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       role: 'user',
       content: 'Como está o clima?',
       createdAt: now,
@@ -27,8 +27,8 @@ const messagesWithToolCalls = [
   },
   {
     message: {
-      id: '2',
-      conversationId: '1',
+      id: '01926b90-0000-7000-8000-000000000011',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       role: 'assistant',
       content: 'O clima hoje está ensolarado, 25°C.',
       createdAt: now,
@@ -123,8 +123,8 @@ test.describe('Chat — tool calls (streaming)', () => {
     await wails.setResponse('GetMessages', [
       {
         message: {
-          id: '1',
-          conversationId: '1',
+          id: '01926b90-0000-7000-8000-000000000010',
+          conversationId: '01926b90-0000-7000-8000-000000000001',
           role: 'user',
           content: 'Pesquise algo',
           createdAt: now,
@@ -153,7 +153,7 @@ test.describe('Chat — tool calls (streaming)', () => {
 
     // Backend confirma a mensagem do usuário
     await wails.emit('chat:messages_ready', {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       userMessageId: '100',
       userContent: 'Pesquise o clima',
     });
@@ -164,7 +164,7 @@ test.describe('Chat — tool calls (streaming)', () => {
 
     // Simula início de streaming
     await wails.emit('chat:stream', {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       messageId: '2',
       content: 'Buscando...',
       done: false,
@@ -176,7 +176,7 @@ test.describe('Chat — tool calls (streaming)', () => {
 
     // Simula início de tool call
     await wails.emit('chat:tool_start', {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       name: 'search_web',
       callId: 'tc-live-1',
       args: '{"query":"clima"}',
@@ -191,8 +191,8 @@ test.describe('Chat — tool calls (streaming)', () => {
     await wails.setResponse('GetMessages', [
       {
         message: {
-          id: '1',
-          conversationId: '1',
+          id: '01926b90-0000-7000-8000-000000000010',
+          conversationId: '01926b90-0000-7000-8000-000000000001',
           role: 'user',
           content: 'Pesquise algo',
           createdAt: now,
@@ -220,7 +220,7 @@ test.describe('Chat — tool calls (streaming)', () => {
 
     // Backend confirma a mensagem do usuário
     await wails.emit('chat:messages_ready', {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       userMessageId: '100',
       userContent: 'Pesquise o clima',
     });
@@ -230,7 +230,7 @@ test.describe('Chat — tool calls (streaming)', () => {
     }, { timeout: 5_000 });
 
     await wails.emit('chat:stream', {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       messageId: '2',
       content: 'Buscando...',
       done: false,
@@ -241,7 +241,7 @@ test.describe('Chat — tool calls (streaming)', () => {
     }, { timeout: 5_000 });
 
     await wails.emit('chat:tool_start', {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       name: 'search_web',
       callId: 'tc-live-2',
       args: '{"query":"clima"}',
@@ -255,7 +255,7 @@ test.describe('Chat — tool calls (streaming)', () => {
 
     // Finaliza o tool call (muda de running para done)
     await wails.emit('chat:tool_end', {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       callId: 'tc-live-2',
       name: 'search_web',
       status: 'success',

@@ -3,7 +3,7 @@ import { test, expect } from '../fixtures';
 const now = new Date().toISOString();
 
 const baseConversation = {
-  id: '1',
+  id: '01926b90-0000-7000-8000-000000000001',
   title: 'Test Conversation',
   created_at: now,
   updated_at: now,
@@ -13,8 +13,8 @@ const baseConversation = {
 
 const userMessage = {
   message: {
-    id: '1',
-    conversationId: '1',
+    id: '01926b90-0000-7000-8000-000000000010',
+    conversationId: '01926b90-0000-7000-8000-000000000001',
     role: 'user',
     content: 'Teste',
     createdAt: now,
@@ -43,7 +43,7 @@ async function sendAndStream(
   }, { timeout: 5_000 });
 
   await wails.emit('chat:messages_ready', {
-    conversationId: '1',
+    conversationId: '01926b90-0000-7000-8000-000000000001',
     userMessageId: '100',
     userContent: 'Teste',
   });
@@ -54,7 +54,7 @@ async function sendAndStream(
 
   // Stream com conteúdo
   await wails.emit('chat:stream', {
-    conversationId: '1',
+    conversationId: '01926b90-0000-7000-8000-000000000001',
     messageId: '2',
     token: markdownContent,
     done: false,
@@ -67,7 +67,7 @@ async function sendAndStream(
 
   // Finaliza stream
   await wails.emit('chat:stream', {
-    conversationId: '1',
+    conversationId: '01926b90-0000-7000-8000-000000000001',
     messageId: '2',
     token: '',
     done: true,

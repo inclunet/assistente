@@ -59,18 +59,16 @@ func migrateToUUIDv7() error {
 	// 1. credential_entries
 	credMap, err := migrateTable(tx, "credential_entries", []string{
 		"id TEXT PRIMARY KEY",
-		"name TEXT",
 		"pattern TEXT",
-		"type TEXT",
-		"api_key_enc TEXT",
-		"client_id TEXT",
-		"client_secret_enc TEXT",
-		"access_token_enc TEXT",
+		"auth_type TEXT",
+		"token_enc TEXT",
+		"username TEXT",
+		"password_enc TEXT",
+		"headers_enc TEXT",
+		"expires_at INTEGER DEFAULT 0",
 		"refresh_token_enc TEXT",
-		"token_url TEXT",
-		"token_expiry DATETIME",
-		"scopes TEXT",
-		"extra_enc TEXT",
+		"client_id_enc TEXT",
+		"client_secret_enc TEXT",
 		"created_at DATETIME",
 		"updated_at DATETIME",
 	}, nil)
@@ -82,7 +80,12 @@ func migrateToUUIDv7() error {
 	// 2. credential_key_wraps (sem FKs)
 	kwMap, err := migrateTable(tx, "credential_key_wraps", []string{
 		"id TEXT PRIMARY KEY",
-		"wrapped_key TEXT",
+		"kind TEXT",
+		"salt TEXT",
+		"wrapped_dek TEXT",
+		"argon_time INTEGER DEFAULT 0",
+		"argon_memory INTEGER DEFAULT 0",
+		"argon_threads INTEGER DEFAULT 0",
 		"created_at DATETIME",
 		"updated_at DATETIME",
 	}, nil)
@@ -213,7 +216,7 @@ func migrateToUUIDv7() error {
 		"content TEXT",
 		"author_name TEXT",
 		"author_id TEXT",
-		"source TEXT",
+		"external_source TEXT",
 		"external_id TEXT",
 		"external_parent_id TEXT",
 		"external_updated_at DATETIME",
@@ -226,6 +229,12 @@ func migrateToUUIDv7() error {
 		return fmt.Errorf("erro ao migrar task_notes: %w", err)
 	}
 	log.Printf("[Migration] task_notes: %d registros migrados", len(tnMap))
+
+	// Normalizar campos booleanos: SQLite não tem tipo bool nativo,
+	// valores não-booleanos (ex: 4) causam "couldn't convert X into type bool".
+	if _, err := tx.Exec(`UPDATE conversations SET summarizing_in_progress = CASE WHEN summarizing_in_progress > 0 THEN 1 ELSE 0 END WHERE summarizing_in_progress NOT IN (0, 1)`); err != nil {
+		log.Printf("[Migration] Aviso: normalização de summarizing_in_progress: %v", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("erro ao commit da migração: %w", err)

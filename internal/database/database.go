@@ -112,6 +112,10 @@ func Init() error {
 	ensureTaskNoteExternalUniqueIndex()
 	ensureTaskListSlugUniqueIndex()
 
+	// Normalizar campos booleanos: SQLite armazena bool como INTEGER 0/1,
+	// mas valores corrompidos (ex: 4) causam erro no GORM Scan.
+	db.Exec(`UPDATE conversations SET summarizing_in_progress = CASE WHEN summarizing_in_progress > 0 THEN 1 ELSE 0 END WHERE summarizing_in_progress NOT IN (0, 1)`)
+
 	// Migração: mover refresh_url → refresh_token_enc (coluna renomeada)
 	if db.Migrator().HasColumn(&CredentialEntry{}, "refresh_url") {
 		db.Exec(`UPDATE credential_entries SET refresh_token_enc = refresh_url WHERE refresh_url != '' AND (refresh_token_enc IS NULL OR refresh_token_enc = '')`)

@@ -35,7 +35,7 @@ test.describe('Chat — envio de mensagem', () => {
     const now = new Date().toISOString();
     await wails.setResponse('SendMessage', '42');
     await wails.setResponse('EnsureConversation', {
-      id: '1',
+      id: '01926b90-0000-7000-8000-000000000001',
       title: 'Nova conversa',
       created_at: now,
       updated_at: now,
@@ -56,7 +56,7 @@ test.describe('Chat — envio de mensagem', () => {
 
     // Backend-driven: emite chat:messages_ready como o backend real faria
     await wails.emit('chat:messages_ready', {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       userMessageId: '100',
       userContent: 'Olá, assistente!',
     });
@@ -103,8 +103,8 @@ test.describe('Chat — streaming de resposta', () => {
     await wails.setResponse('GetMessages', [
       {
         message: {
-          id: '1',
-          conversationId: '1',
+          id: '01926b90-0000-7000-8000-000000000010',
+          conversationId: '01926b90-0000-7000-8000-000000000001',
           role: 'user',
           content: 'Olá!',
           createdAt: now,
@@ -114,7 +114,7 @@ test.describe('Chat — streaming de resposta', () => {
     ]);
     await wails.setResponse('SendMessage', '2');
     await wails.setResponse('EnsureConversation', {
-      id: '1',
+      id: '01926b90-0000-7000-8000-000000000001',
       title: 'Test',
       created_at: now,
       updated_at: now,
@@ -129,14 +129,14 @@ test.describe('Chat — streaming de resposta', () => {
 
     // Simula stream do backend: envia conteúdo
     await wails.emit('chat:stream', {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       messageId: '2',
       content: 'Olá! Como posso ajudar?',
       done: false,
     });
 
     await wails.emit('chat:stream', {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       messageId: '2',
       content: 'Olá! Como posso ajudar?',
       done: true,
@@ -172,8 +172,8 @@ test.describe('Chat — acessibilidade', () => {
     await wails.setResponse('GetMessages', [
       {
         message: {
-          id: '1',
-          conversationId: '1',
+          id: '01926b90-0000-7000-8000-000000000010',
+          conversationId: '01926b90-0000-7000-8000-000000000001',
           role: 'user',
           content: 'Teste',
           createdAt: now,
