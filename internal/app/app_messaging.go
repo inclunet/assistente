@@ -87,16 +87,16 @@ func (a *App) GetAvailableChannels() []ChannelInfo {
 }
 
 // AssignConversationToChannel delega para MessagingController.
-func (a *App) AssignConversationToChannel(conversationID uint, channel, contactID string) error {
+func (a *App) AssignConversationToChannel(conversationID string, channel, contactID string) error {
 	return a.msgCtrl.AssignConversationToChannel(conversationID, channel, contactID)
 }
 
 // UnassignConversationFromChannel delega para MessagingController.
-func (a *App) UnassignConversationFromChannel(conversationID uint) error {
+func (a *App) UnassignConversationFromChannel(conversationID string) error {
 	return a.msgCtrl.UnassignConversationFromChannel(conversationID)
 }
 
 // GetConversationChannel delega para MessagingController.
-func (a *App) GetConversationChannel(conversationID uint) (string, string, error) {
+func (a *App) GetConversationChannel(conversationID string) (string, string, error) {
 	return a.msgCtrl.GetConversationChannel(conversationID)
 }

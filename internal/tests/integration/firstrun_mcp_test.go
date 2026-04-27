@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/tools"
@@ -102,8 +101,6 @@ func TestIntegration_FirstMessageMCPServerAvailable(t *testing.T) {
 	// 4. Criar conversa
 	conv := &database.Conversation{
 		Title:     "MCP First Message",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -116,7 +113,6 @@ func TestIntegration_FirstMessageMCPServerAvailable(t *testing.T) {
 		Role:           "user",
 		Content:        "Procure no GitHub por repositórios de Go",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -150,8 +146,6 @@ func TestIntegration_FirstMessageUseMCPTool(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "MCP Tool Use",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -163,7 +157,6 @@ func TestIntegration_FirstMessageUseMCPTool(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Liste os arquivos do diretório /home",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -190,7 +183,6 @@ func TestIntegration_FirstMessageUseMCPTool(t *testing.T) {
 		Content:        "Vou listar o diretório /home via MCP",
 		ToolCalls:      string(toolCallsJSON),
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -210,7 +202,6 @@ func TestIntegration_FirstMessageUseMCPTool(t *testing.T) {
 		Role:           "tool",
 		Content:        result.Content,
 		ToolCallID:     "call_mcp_fs_001",
-		CreatedAt:      time.Now().Add(200 * time.Millisecond),
 	}
 
 	if err := db.Create(toolResult).Error; err != nil {
@@ -223,7 +214,6 @@ func TestIntegration_FirstMessageUseMCPTool(t *testing.T) {
 		Role:           "assistant",
 		Content:        "O diretório /home contém: " + result.Content,
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(300 * time.Millisecond),
 	}
 
 	if err := db.Create(finalMsg).Error; err != nil {
@@ -292,8 +282,6 @@ func TestIntegration_FirstMessageMultipleMCPServers(t *testing.T) {
 	// 3. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Multiple MCP Servers",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -305,7 +293,6 @@ func TestIntegration_FirstMessageMultipleMCPServers(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Procure no GitHub, leia um arquivo local, e busque na web simultaneamente",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -327,7 +314,6 @@ func TestIntegration_FirstMessageMultipleMCPServers(t *testing.T) {
 		Content:        "Buscando em paralelo entre 3 MCP servers",
 		ToolCalls:      string(toolCallsJSON),
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -351,7 +337,6 @@ func TestIntegration_FirstMessageMultipleMCPServers(t *testing.T) {
 			Role:           "tool",
 			Content:        res.content,
 			ToolCallID:     res.callID,
-			CreatedAt:      time.Now().Add(200 * time.Millisecond),
 		}
 
 		if err := db.Create(toolResult).Error; err != nil {
@@ -414,8 +399,6 @@ func TestIntegration_FirstMessageMCPServerOffline(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "MCP Server Offline",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -427,7 +410,6 @@ func TestIntegration_FirstMessageMCPServerOffline(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Execute uma query no banco de dados",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -454,7 +436,6 @@ func TestIntegration_FirstMessageMCPServerOffline(t *testing.T) {
 		Content:        "Vou executar a query no MCP database",
 		ToolCalls:      string(toolCallsJSON),
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -470,7 +451,6 @@ func TestIntegration_FirstMessageMCPServerOffline(t *testing.T) {
 		Role:           "tool",
 		Content:        "Error: " + mcpServerError,
 		ToolCallID:     "call_db_query",
-		CreatedAt:      time.Now().Add(200 * time.Millisecond),
 	}
 
 	if err := db.Create(errorMsg).Error; err != nil {
@@ -483,7 +463,6 @@ func TestIntegration_FirstMessageMCPServerOffline(t *testing.T) {
 		Role:           "assistant",
 		Content:        "O servidor MCP de banco de dados está offline no momento. Gostaria de tentar novamente mais tarde ou usar uma abordagem diferente?",
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(300 * time.Millisecond),
 	}
 
 	if err := db.Create(recoveryMsg).Error; err != nil {
@@ -532,8 +511,6 @@ func TestIntegration_FirstMessageMCPToolMetadata(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "MCP Metadata",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -545,7 +522,6 @@ func TestIntegration_FirstMessageMCPToolMetadata(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Qual é a informação do usuário golang no GitHub?",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -572,7 +548,6 @@ func TestIntegration_FirstMessageMCPToolMetadata(t *testing.T) {
 		Content:        "Buscando info do usuário golang no GitHub",
 		ToolCalls:      string(toolCallsJSON),
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -592,7 +567,6 @@ func TestIntegration_FirstMessageMCPToolMetadata(t *testing.T) {
 		Role:           "tool",
 		Content:        result.Content,
 		ToolCallID:     "call_github_user",
-		CreatedAt:      time.Now().Add(200 * time.Millisecond),
 	}
 
 	if err := db.Create(toolResult).Error; err != nil {
@@ -668,8 +642,6 @@ func TestIntegration_FirstMessageMCPToolNaming(t *testing.T) {
 	// 4. Criar conversa
 	conv := &database.Conversation{
 		Title:     "MCP Naming",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -681,7 +653,6 @@ func TestIntegration_FirstMessageMCPToolNaming(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Use ferramentas de múltiplos servidores MCP",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -703,7 +674,6 @@ func TestIntegration_FirstMessageMCPToolNaming(t *testing.T) {
 		Content:        "Chamando MCP tools",
 		ToolCalls:      string(toolCallsJSON),
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {

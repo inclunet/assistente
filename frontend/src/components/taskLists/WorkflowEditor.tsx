@@ -54,11 +54,9 @@ export default function WorkflowEditor({
   const [isSaving, setIsSaving] = useState(false);
 
   const nextId = useCallback(() => {
-    const existingIds = statuses.map(s => s.id);
-    const removedIds = removedStatuses.map(s => s.id);
-    const allIds = [...existingIds, ...removedIds];
-    return allIds.length === 0 ? 1 : Math.max(...allIds) + 1;
-  }, [statuses, removedStatuses]);
+    const maxId = statuses.reduce((max, s) => Math.max(max, s.id), 0);
+    return maxId + 1;
+  }, [statuses]);
 
   const handleAddStatus = useCallback(() => {
     const newId = nextId();

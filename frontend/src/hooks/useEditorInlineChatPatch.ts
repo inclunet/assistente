@@ -17,7 +17,7 @@ type FindPatchResult =
   | { ok: false; error: string };
 
 type FindLatestEditorPatchOptions = {
-  afterMessageId?: number;
+  afterMessageId?: string;
   timeoutMs?: number;
 };
 
@@ -27,11 +27,11 @@ type MessageLike = {
   content?: string;
 };
 
-function getMaxNumericMessageId(messages: MessageLike[]): number {
-  let maxId = 0;
+function getMaxNumericMessageId(messages: MessageLike[]): string {
+  let maxId = '';
   for (const m of messages) {
-    const n = typeof m?.id === 'number' ? m.id : parseInt(String(m?.id || ''), 10);
-    if (!isNaN(n) && n > maxId) maxId = n;
+    const id = String(m?.id || '');
+    if (id && id > maxId) maxId = id;
   }
   return maxId;
 }
@@ -40,11 +40,11 @@ function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId
   const afterState = useChatStore.getState();
   const allMessages = afterState.getMessages() as MessageLike[];
 
-  const afterMessageId = opts?.afterMessageId || 0;
-  const messages = afterMessageId > 0
+  const afterMessageId = opts?.afterMessageId || '';
+  const messages = afterMessageId
     ? allMessages.filter((m) => {
-        const n = typeof m?.id === 'number' ? m.id : parseInt(String(m?.id || ''), 10);
-        return !isNaN(n) && n > afterMessageId;
+        const id = String(m?.id || '');
+        return id && id > afterMessageId;
       })
     : allMessages;
 
@@ -70,14 +70,14 @@ async function waitForEditorPatch(opts?: FindLatestEditorPatchOptions): Promise<
   return findBodyPatch(opts);
 }
 
-function waitForChatDone(expectedConversationId?: number, timeoutMs = 5 * 60 * 1000): Promise<number> {
-  return new Promise<number>((resolve, reject) => {
+function waitForChatDone(expectedConversationId?: string, timeoutMs = 5 * 60 * 1000): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     let timer: number;
     const unsub = EventsOn('chat:done', (data: unknown) => {
-      const eventData = data as { conversationId?: number };
+      const eventData = data as { conversationId?: string };
       const convId = eventData?.conversationId;
-      if (typeof convId !== 'number') return;
-      if (expectedConversationId && expectedConversationId > 0 && convId !== expectedConversationId) return;
+      if (typeof convId !== 'string') return;
+      if (expectedConversationId && convId !== expectedConversationId) return;
       window.clearTimeout(timer);
       unsub();
       resolve(convId);

@@ -32,13 +32,13 @@ export function useWorkspaceChatBridge() {
     if (!isWsInitialized) return;
     if (!activeTab) return;
 
-    const conversationId = activeTab.conversationId || 0;
+    const conversationId = activeTab.conversationId || '';
     const syncKey = `${activeTab.id}:${conversationId}`;
     if (lastSyncedRef.current === syncKey) return;
 
     const snapshotTabId = activeTab.id;
 
-    if (conversationId > 0) {
+    if (conversationId) {
       const gen = ++syncGenerationRef.current;
       void (async () => {
         try {
@@ -53,7 +53,7 @@ export function useWorkspaceChatBridge() {
         if (syncGenerationRef.current !== gen) return;
         const nowTab = useWorkspaceStore.getState().getActiveTab();
         if (!nowTab || nowTab.id !== snapshotTabId) return;
-        if ((nowTab.conversationId || 0) !== conversationId) return;
+        if ((nowTab.conversationId || '') !== conversationId) return;
         lastSyncedRef.current = syncKey;
       })();
       return;
@@ -108,8 +108,7 @@ export function useWorkspaceChatBridge() {
   // F2 tab rename → rename conversation in backend
   useEffect(() => {
     return registerTabRenameHandler('chat', (id, newTitle) => {
-      const convId = parseInt(id, 10);
-      if (convId) void RenameConversation(convId, newTitle);
+      if (id) void RenameConversation(id, newTitle);
     });
   }, []);
 }

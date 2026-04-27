@@ -25,7 +25,7 @@ type workflowArg struct {
 }
 
 type taskListArgs struct {
-	TaskListID         *uint           `json:"task_list_id,omitempty"`
+	TaskListID         *string         `json:"task_list_id,omitempty"`
 	TaskListSlug       string          `json:"task_list_slug,omitempty"`
 	Slug               *string         `json:"slug,omitempty"`
 	Duplicate          bool            `json:"duplicate,omitempty"`
@@ -180,7 +180,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 
 	// READ modes
 	if !isWrite {
-		if params.TaskListID != nil && *params.TaskListID == 0 && slugRef == "" {
+		if params.TaskListID != nil && *params.TaskListID == "" && slugRef == "" {
 			return tools.ToolResult{Content: "task_list_id must be > 0", IsError: true}, nil
 		}
 		if !hasListRef {
@@ -217,7 +217,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		if title == "" {
 			ex, err := t.mgr.GetTaskList(resolved)
 			if err != nil {
-				return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%d): %v", resolved, err), IsError: true}, nil
+				return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%s): %v", resolved, err), IsError: true}, nil
 			}
 			title = ex.Title
 		}
@@ -251,7 +251,7 @@ func (t *TaskListTool) listAll() (tools.ToolResult, error) {
 	}
 
 	type taskListSummary struct {
-		ID        uint   `json:"id"`
+		ID        string `json:"id"`
 		Title     string `json:"title"`
 		Slug      string `json:"slug,omitempty"`
 		TaskCount int    `json:"task_count"`
@@ -274,10 +274,10 @@ func (t *TaskListTool) listAll() (tools.ToolResult, error) {
 	}, nil
 }
 
-func (t *TaskListTool) statusSummary(taskListID uint) (tools.ToolResult, error) {
+func (t *TaskListTool) statusSummary(taskListID string) (tools.ToolResult, error) {
 	taskList, err := t.mgr.GetTaskList(taskListID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%d): %v", taskListID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%s): %v", taskListID, err), IsError: true}, nil
 	}
 
 	stats, err := t.mgr.GetTaskListStats(taskListID)
@@ -318,10 +318,10 @@ func (t *TaskListTool) statusSummary(taskListID uint) (tools.ToolResult, error) 
 	}, nil
 }
 
-func (t *TaskListTool) fullDetails(taskListID uint) (tools.ToolResult, error) {
+func (t *TaskListTool) fullDetails(taskListID string) (tools.ToolResult, error) {
 	taskList, err := t.mgr.GetTaskList(taskListID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%d): %v", taskListID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%s): %v", taskListID, err), IsError: true}, nil
 	}
 
 	type statusInfo struct {
@@ -329,11 +329,11 @@ func (t *TaskListTool) fullDetails(taskListID uint) (tools.ToolResult, error) {
 		Label string `json:"label"`
 	}
 	type taskInfo struct {
-		ID          uint       `json:"id"`
+		ID          string     `json:"id"`
 		Title       string     `json:"title"`
 		Description string     `json:"description,omitempty"`
 		StatusID    int        `json:"status_id"`
-		ParentID    *uint      `json:"parent_id,omitempty"`
+		ParentID    *string    `json:"parent_id,omitempty"`
 		Subtasks    []taskInfo `json:"subtasks,omitempty"`
 	}
 
@@ -444,10 +444,10 @@ func (t *TaskListTool) createTaskList(title, description, viewMode string, wf *w
 	}, nil
 }
 
-func (t *TaskListTool) duplicateTaskList(sourceID uint, title, description, viewMode string, wfOverride *workflowArg, policyRaw json.RawMessage, newListSlug string) (tools.ToolResult, error) {
+func (t *TaskListTool) duplicateTaskList(sourceID string, title, description, viewMode string, wfOverride *workflowArg, policyRaw json.RawMessage, newListSlug string) (tools.ToolResult, error) {
 	source, err := t.mgr.GetTaskList(sourceID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Source task list not found (id=%d): %v", sourceID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Source task list not found (id=%s): %v", sourceID, err), IsError: true}, nil
 	}
 
 	if description == "" {
@@ -501,15 +501,15 @@ func (t *TaskListTool) duplicateTaskList(sourceID uint, title, description, view
 	result["source_task_list_id"] = sourceID
 	resultJSON, _ := json.Marshal(result)
 	return tools.ToolResult{
-		Content:  fmt.Sprintf("Task list duplicated (from id=%d):\n%s", sourceID, string(resultJSON)),
+		Content:  fmt.Sprintf("Task list duplicated (from id=%s):\n%s", sourceID, string(resultJSON)),
 		Metadata: map[string]any{"task_list_id": newList.ID, "source_task_list_id": sourceID, "action": "duplicated"},
 	}, nil
 }
 
-func (t *TaskListTool) updateTaskList(id uint, title, description, viewMode string, wf *workflowArg, policyRaw json.RawMessage, slugUpdate *string) (tools.ToolResult, error) {
+func (t *TaskListTool) updateTaskList(id string, title, description, viewMode string, wf *workflowArg, policyRaw json.RawMessage, slugUpdate *string) (tools.ToolResult, error) {
 	existing, err := t.mgr.GetTaskList(id)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%d): %v", id, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%s): %v", id, err), IsError: true}, nil
 	}
 
 	if err := t.mgr.UpdateTaskListFull(id, title, description, viewMode, slugUpdate); err != nil {
@@ -657,7 +657,7 @@ func validationPolicyToMap(raw string) map[string]any {
 }
 
 // applyValidationPolicy aplica validation_policy quando o JSON foi enviado (inclui {} para limpar).
-func (t *TaskListTool) applyValidationPolicy(taskListID uint, policyRaw json.RawMessage) (errMsg string, err error) {
+func (t *TaskListTool) applyValidationPolicy(taskListID string, policyRaw json.RawMessage) (errMsg string, err error) {
 	if len(policyRaw) == 0 {
 		return "", nil
 	}
@@ -680,8 +680,8 @@ func (t *TaskListTool) applyValidationPolicy(taskListID uint, policyRaw json.Raw
 	return "", nil
 }
 
-func taskListIDPtrForResolve(p *uint) *uint {
-	if p == nil || *p == 0 {
+func taskListIDPtrForResolve(p *string) *string {
+	if p == nil || *p == "" {
 		return nil
 	}
 	v := *p

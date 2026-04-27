@@ -60,19 +60,19 @@ func (c *SpeechController) SetTTSSpeed(rate int) {
 // Message Audio API (TTS storage)
 // ============================================================================
 
-func (c *SpeechController) GetMessageAudio(messageID uint) (*speech.AudioResult, error) {
+func (c *SpeechController) GetMessageAudio(messageID string) (*speech.AudioResult, error) {
 	return c.speechSvc.GetMessageAudio(messageID)
 }
 
-func (c *SpeechController) SaveMessageAudio(messageID uint, audioBase64, mimeType string) error {
+func (c *SpeechController) SaveMessageAudio(messageID string, audioBase64, mimeType string) error {
 	return c.speechSvc.SaveMessageAudio(messageID, audioBase64, mimeType)
 }
 
-func (c *SpeechController) GenerateAndSaveMessageAudio(messageID uint, text string) (*speech.AudioResult, error) {
+func (c *SpeechController) GenerateAndSaveMessageAudio(messageID string, text string) (*speech.AudioResult, error) {
 	return c.speechSvc.GenerateAndSaveMessageAudio(messageID, text)
 }
 
-func (c *SpeechController) SpeakMessage(messageID uint, providerID, voiceID, model string, rate float64) (*speech.AudioResult, error) {
+func (c *SpeechController) SpeakMessage(messageID string, providerID, voiceID, model string, rate float64) (*speech.AudioResult, error) {
 	return c.speechSvc.SpeakMessage(messageID, providerID, voiceID, model, rate)
 }
 

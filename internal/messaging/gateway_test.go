@@ -102,9 +102,9 @@ func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
 		emitted = append(emitted, event)
 	}
 
-	gateway := NewGateway(notifier, func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
+	gateway := NewGateway(notifier, func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		t.Fatalf("sendMessage não deveria ser chamado para contato não autorizado")
-		return 0, nil
+		return "", nil
 	}, emitEvent, nil, nil, nil)
 
 	incoming := IncomingMessage{
@@ -139,11 +139,11 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
-	var sentConversationID uint
-	sendMessage := func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
+	var sentConversationID string
+	sendMessage := func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		sentConversationID = conversationID
 		if source != "telegram" {
-			return 0, fmt.Errorf("source inesperado: %s", source)
+			return "", fmt.Errorf("source inesperado: %s", source)
 		}
 		return conversationID, nil
 	}
@@ -172,7 +172,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 	}
 
 	gateway.handleIncoming(context.Background(), incoming)
-	if sentConversationID == 0 {
+	if sentConversationID == "" {
 		t.Fatalf("conversationID não foi criado")
 	}
 
@@ -184,7 +184,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 		t.Fatalf("conversa não vinculada corretamente: channel=%s contact=%s", conv.Channel, conv.ContactID)
 	}
 
-	notifier.Notify(sentConversationID, "Resposta", 42)
+	notifier.Notify(sentConversationID, "Resposta", "42")
 
 	select {
 	case sent := <-fake.sentCh:
@@ -214,15 +214,15 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
 	var savedAudio struct {
-		msgID uint
+		msgID string
 		data  string
 		mime  string
 	}
-	var sentConversationID uint
+	var sentConversationID string
 
 	gateway := NewGateway(
 		notifier,
-		func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
+		func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 			sentConversationID = conversationID
 			return conversationID, nil
 		},
@@ -231,7 +231,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 		func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			return []byte("audio-bytes"), nil
 		},
-		func(messageID uint, audioBase64 string, mimeType string) error {
+		func(messageID string, audioBase64 string, mimeType string) error {
 			savedAudio.msgID = messageID
 			savedAudio.data = audioBase64
 			savedAudio.mime = mimeType
@@ -252,11 +252,11 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 	}
 
 	gateway.handleIncoming(context.Background(), incoming)
-	if sentConversationID == 0 {
+	if sentConversationID == "" {
 		t.Fatalf("conversationID não foi criado")
 	}
 
-	notifier.Notify(sentConversationID, "Resposta", 99)
+	notifier.Notify(sentConversationID, "Resposta", "99")
 
 	select {
 	case sent := <-fake.sentCh:
@@ -273,7 +273,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 		t.Fatalf("timeout aguardando envio de áudio")
 	}
 
-	if savedAudio.msgID != 99 || savedAudio.mime != "audio/mpeg" || savedAudio.data == "" {
+	if savedAudio.msgID == "" || savedAudio.mime != "audio/mpeg" || savedAudio.data == "" {
 		t.Fatalf("áudio não foi salvo corretamente: %+v", savedAudio)
 	}
 }
@@ -294,7 +294,7 @@ func TestGateway_ContactLimitRejectsSilently(t *testing.T) {
 	}
 
 	called := 0
-	gateway := NewGateway(NewResponseNotifier(), func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
+	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		called++
 		return conversationID, nil
 	}, emitEvent, nil, nil, nil)
@@ -331,7 +331,7 @@ func TestGateway_AttachmentsConvertedToMediaJSON(t *testing.T) {
 	}
 
 	var capturedMedia string
-	gateway := NewGateway(NewResponseNotifier(), func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
+	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		capturedMedia = media
 		return conversationID, nil
 	}, nil, nil, nil, nil)
@@ -386,7 +386,7 @@ func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
-	gateway := NewGateway(NewResponseNotifier(), func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
+	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		return conversationID, fmt.Errorf("falha de envio")
 	}, nil, nil, nil, nil)
 	gateway.Register("telegram", fake)
@@ -427,10 +427,10 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 	notifier := NewResponseNotifier()
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
-	var sentConversationID uint
+	var sentConversationID string
 	gateway := NewGateway(
 		notifier,
-		func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
+		func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 			sentConversationID = conversationID
 			return conversationID, nil
 		},
@@ -453,11 +453,11 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 	}
 
 	gateway.handleIncoming(context.Background(), incoming)
-	if sentConversationID == 0 {
+	if sentConversationID == "" {
 		t.Fatalf("conversationID não foi criado")
 	}
 
-	notifier.Notify(sentConversationID, "Resposta texto", 50)
+	notifier.Notify(sentConversationID, "Resposta texto", "50")
 
 	select {
 	case sent := <-fake.sentCh:

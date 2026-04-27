@@ -9,7 +9,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  GetConversationTokenStats: (id: number) => getStatsSpy(id),
+  GetConversationTokenStats: (id: string) => getStatsSpy(id),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -19,7 +19,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 describe('TokenStatsModal', () => {
   it('renderiza stats quando aberto', async () => {
     getStatsSpy.mockResolvedValueOnce({
-      conversationId: 1,
+      conversationId: "1",
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
@@ -44,7 +44,7 @@ describe('TokenStatsModal', () => {
 
     render(
       <TokenStatsModal
-        conversationId={1}
+        conversationId={"1"}
         isOpen={true}
         onClose={() => {}}
       />

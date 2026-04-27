@@ -21,7 +21,7 @@ import (
 // SendMessageFunc é a assinatura da função App.SendMessage (ou wrapper).
 // Recebe conversationID (0=criar nova), conteúdo, mídia, params e source.
 // Retorna o conversationID usado.
-type SendMessageFunc func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error)
+type SendMessageFunc func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error)
 
 // emitFunc é a callback para emitir eventos Wails.
 type emitFunc func(event string, data any)
@@ -33,7 +33,7 @@ type emitFunc func(event string, data any)
 type SynthesizeTTSFunc func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error)
 
 // SaveAudioFunc é a assinatura da função que salva áudio no DB.
-type SaveAudioFunc func(messageID uint, audioBase64 string, mimeType string) error
+type SaveAudioFunc func(messageID string, audioBase64 string, mimeType string) error
 
 // ApproveContactFunc é a assinatura da função que solicita aprovação para autorizar um contato.
 // Retorna true se aprovado, false caso contrário.
@@ -222,22 +222,22 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	conversationID := conv.ID
 
 	if created {
-		log.Printf("[Gateway] trace=%s conv=%d channel=%s contact=%s nova conversa criada",
+		log.Printf("[Gateway] trace=%s conv=%s channel=%s contact=%s nova conversa criada",
 			traceID, conversationID, msg.Channel, maskIdentifier(msg.From.ID))
 		// Persiste o mapeamento contactID → conversationID no config do canal
 		if err := channels.SaveConversationID(msg.Channel, msg.From.ID, conversationID); err != nil {
-			log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao persistir conversa no config: %v",
+			log.Printf("[Gateway] trace=%s conv=%s channel=%s erro ao persistir conversa no config: %v",
 				traceID, conversationID, msg.Channel, err)
 		}
 	}
-	log.Printf("[Gateway] trace=%s conv=%d channel=%s contact=%s msg=%s recebida",
+	log.Printf("[Gateway] trace=%s conv=%s channel=%s contact=%s msg=%s recebida",
 		traceID, conversationID, msg.Channel, maskIdentifier(msg.From.ID), msg.ID)
 
 	// 3. Converte attachments em media JSON (mesmo formato que o frontend)
 	mediaJSON := ""
 	if len(msg.Attachments) > 0 {
 		mediaJSON = attachmentsToMediaJSON(msg.Attachments)
-		log.Printf("[Gateway] trace=%s conv=%d attachments=%d convertidos para media JSON", traceID, conversationID, len(msg.Attachments))
+		log.Printf("[Gateway] trace=%s conv=%s attachments=%d convertidos para media JSON", traceID, conversationID, len(msg.Attachments))
 	}
 
 	// 4. Emite evento para o frontend
@@ -264,13 +264,13 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		ChatID:    msg.From.ID,
 		AudioOnly: incomingIsAudio, // hint para o notifier (mantém compatibilidade)
 		TraceID:   traceID,
-		Callback: func(response string, assistantMsgID uint) {
+		Callback: func(response string, assistantMsgID string) {
 			g.mu.RLock()
 			messenger, ok := g.messengers[msg.Channel]
 			g.mu.RUnlock()
 
 			if !ok {
-				log.Printf("[Gateway] trace=%s conv=%d channel=%s messenger não encontrado para resposta",
+				log.Printf("[Gateway] trace=%s conv=%s channel=%s messenger não encontrado para resposta",
 					traceID, conversationID, msg.Channel)
 				return
 			}
@@ -283,14 +283,14 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 
 			// Gera TTS via TTSBroker (com timeout) para não bloquear indefinidamente.
 			// O broker coordena a goroutine de síntese com o envio da mensagem.
-			if g.synthesizeTTS != nil && assistantMsgID > 0 {
+			if g.synthesizeTTS != nil && assistantMsgID != "" {
 				g.ttsBroker.Prepare(assistantMsgID)
 				go func() {
 					ttsCtx, ttsCancel := context.WithTimeout(ctx, 5*time.Second)
 					defer ttsCancel()
 					audioData, ttsErr := g.synthesizeTTS(ttsCtx, response, msg.Channel, incomingIsAudio)
 					if ttsErr != nil {
-						log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao gerar TTS: %v",
+						log.Printf("[Gateway] trace=%s conv=%s channel=%s erro ao gerar TTS: %v",
 							traceID, conversationID, msg.Channel, ttsErr)
 						g.ttsBroker.Cancel(assistantMsgID)
 						return
@@ -311,30 +311,30 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 						Data:     payload.Data,
 					}}
 					outMsg.Text = ""
-					log.Printf("[Gateway] trace=%s conv=%d channel=%s TTS gerado bytes=%d",
+					log.Printf("[Gateway] trace=%s conv=%s channel=%s TTS gerado bytes=%d",
 						traceID, conversationID, msg.Channel, len(payload.Data))
 
 					// Salva o áudio TTS na mensagem do assistente no DB
 					if g.saveAudio != nil {
 						if err := g.saveAudio(assistantMsgID, base64.StdEncoding.EncodeToString(payload.Data), payload.MIMEType); err != nil {
-							log.Printf("[Gateway] trace=%s conv=%d msgID=%d erro ao salvar áudio TTS no DB: %v",
+							log.Printf("[Gateway] trace=%s conv=%s msgID=%s erro ao salvar áudio TTS no DB: %v",
 								traceID, conversationID, assistantMsgID, err)
 						} else {
-							log.Printf("[Gateway] trace=%s conv=%d msgID=%d áudio TTS salvo", traceID, conversationID, assistantMsgID)
+							log.Printf("[Gateway] trace=%s conv=%s msgID=%s áudio TTS salvo", traceID, conversationID, assistantMsgID)
 						}
 					}
 				} else {
-					log.Printf("[Gateway] trace=%s conv=%d channel=%s TTS não disponível (timeout ou não aplicável)",
+					log.Printf("[Gateway] trace=%s conv=%s channel=%s TTS não disponível (timeout ou não aplicável)",
 						traceID, conversationID, msg.Channel)
 				}
 			}
 
 			err := messenger.Send(ctx, outMsg)
 			if err != nil {
-				log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao enviar resposta: %v",
+				log.Printf("[Gateway] trace=%s conv=%s channel=%s erro ao enviar resposta: %v",
 					traceID, conversationID, msg.Channel, err)
 			} else {
-				log.Printf("[Gateway] trace=%s conv=%d channel=%s resposta enviada", traceID, conversationID, msg.Channel)
+				log.Printf("[Gateway] trace=%s conv=%s channel=%s resposta enviada", traceID, conversationID, msg.Channel)
 			}
 		},
 	})
@@ -344,11 +344,11 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	params := llm.ChatParams{}
 	if chCfg, _ := channels.Load(msg.Channel); chCfg != nil && chCfg.Profile != "" {
 		params.ProfileSlug = chCfg.Profile
-		log.Printf("[Gateway] trace=%s conv=%d channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, chCfg.Profile)
+		log.Printf("[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, chCfg.Profile)
 	}
 	_, err = g.sendMessage(conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
-		log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao processar mensagem: %v", traceID, conversationID, msg.Channel, err)
+		log.Printf("[Gateway] trace=%s conv=%s channel=%s erro ao processar mensagem: %v", traceID, conversationID, msg.Channel, err)
 		g.mu.RLock()
 		messenger, ok := g.messengers[msg.Channel]
 		g.mu.RUnlock()

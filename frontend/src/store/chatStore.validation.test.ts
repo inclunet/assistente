@@ -16,7 +16,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   RetryMessage: (...args: unknown[]) => mockRetryMessage(...args),
   GetMessages: (...args: unknown[]) => mockGetMessages(...args),
   GetConversationInfo: (...args: unknown[]) => mockGetConversationInfo(...args),
-  EnsureConversation: vi.fn().mockResolvedValue(1),
+  EnsureConversation: vi.fn().mockResolvedValue("1"),
   AssignConversationToChannel: vi.fn(),
   UnassignConversationFromChannel: vi.fn(),
   GetMessageChildren: vi.fn().mockResolvedValue([]),
@@ -97,7 +97,7 @@ describe('chatStore validation', () => {
     mockHandleChatSpeak.mockClear();
     const mod = await import('./chatStore');
     useChatStore = mod.useChatStore;
-    useChatStore.setState({ activeConversationId: 1 });
+    useChatStore.setState({ activeConversationId: "1" });
   });
 
   afterEach(() => {
@@ -123,9 +123,9 @@ describe('chatStore validation', () => {
   });
 
   it('retry de mensagem existente usa RetryMessage sem criar novo SendMessage', async () => {
-    await useChatStore.getState().retryMessageToConversation(1, 42);
+    await useChatStore.getState().retryMessageToConversation("1", "42");
 
-    expect(mockRetryMessage).toHaveBeenCalledWith(1, 42, expect.any(Object));
+    expect(mockRetryMessage).toHaveBeenCalledWith("1", "42", expect.any(Object));
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
@@ -153,7 +153,7 @@ describe('chatStore validation', () => {
   it('handles chat:error event from backend', async () => {
     // Simulate real Wails behavior: backend emits chat:error, then returns error
     mockSendMessage.mockImplementation(() => {
-      emitEvent('chat:error', { conversationId: 1, error: 'Provedor LLM não disponível' });
+      emitEvent('chat:error', { conversationId: "1", error: 'Provedor LLM não disponível' });
       return Promise.reject(new Error('backend error'));
     });
 
@@ -175,9 +175,9 @@ describe('chatStore validation', () => {
   it('sendMessageToConversation envia usando o conversationId explícito', async () => {
     useChatStore.setState({ activeConversationId: null });
 
-    await useChatStore.getState().sendMessageToConversation(7, 'hello');
+    await useChatStore.getState().sendMessageToConversation("7", 'hello');
 
-    expect(mockSendMessage).toHaveBeenCalledWith(7, 'hello', '', expect.any(Object));
+    expect(mockSendMessage).toHaveBeenCalledWith("7", 'hello', '', expect.any(Object));
   });
 
   it('clearActiveConversation invalida loadConversation pendente', async () => {
@@ -190,7 +190,7 @@ describe('chatStore validation', () => {
       () => new Promise((resolve) => { resolveMessages = resolve; }),
     );
 
-    const pendingLoad = useChatStore.getState().loadConversation(7);
+    const pendingLoad = useChatStore.getState().loadConversation("7");
     useChatStore.getState().clearActiveConversation();
     resolveInfo?.({ title: 'Late conversation' });
     resolveMessages?.([]);
@@ -201,14 +201,14 @@ describe('chatStore validation', () => {
   });
 
   it('repassa parâmetros estruturados de surface no envio', async () => {
-    await useChatStore.getState().sendMessageToConversation(7, 'hello', undefined, {
+    await useChatStore.getState().sendMessageToConversation("7", 'hello', undefined, {
       tabType: 'editor',
       activeFilePath: '/tmp/readme.md',
       surfaceStateJson: '{"filePath":"/tmp/readme.md"}',
       surfaceContextJson: '{"selectedText":"hello"}',
     });
 
-    expect(mockSendMessage).toHaveBeenCalledWith(7, 'hello', '', expect.objectContaining({
+    expect(mockSendMessage).toHaveBeenCalledWith("7", 'hello', '', expect.objectContaining({
       tabType: 'editor',
       activeFilePath: '/tmp/readme.md',
       surfaceStateJson: '{"filePath":"/tmp/readme.md"}',
@@ -219,11 +219,11 @@ describe('chatStore validation', () => {
   it('chat:speak event invokes handleChatSpeak for matching conversation', async () => {
     mockSendMessage.mockImplementation(() => {
       // Simula backend: emite chat:messages_ready, depois chat:speak do user
-      emitEvent('chat:messages_ready', { conversationId: 1, userMessageId: 10, userContent: 'oi' });
-      emitEvent('chat:speak', { conversationId: 1, role: 'user', text: 'oi', strategy: 'announce', origin: 'user_message' });
+      emitEvent('chat:messages_ready', { conversationId: "1", userMessageId: "10", userContent: 'oi' });
+      emitEvent('chat:speak', { conversationId: "1", role: 'user', text: 'oi', strategy: 'announce', origin: 'user_message' });
       // Simula chat:speak do assistant (antes do done)
-      emitEvent('chat:speak', { conversationId: 1, role: 'assistant', text: 'Resposta', strategy: 'webspeech', origin: 'assistant_message' });
-      emitEvent('chat:done', { conversationId: 1, assistantMessageId: 11, hadToolCalls: false });
+      emitEvent('chat:speak', { conversationId: "1", role: 'assistant', text: 'Resposta', strategy: 'webspeech', origin: 'assistant_message' });
+      emitEvent('chat:done', { conversationId: "1", assistantMessageId: "11", hadToolCalls: false });
       return Promise.resolve();
     });
 
@@ -231,12 +231,12 @@ describe('chatStore validation', () => {
 
     expect(mockHandleChatSpeak).toHaveBeenCalledTimes(2);
     expect(mockHandleChatSpeak.mock.calls[0][0]).toMatchObject({
-      conversationId: 1,
+      conversationId: "1",
       role: 'user',
       strategy: 'announce',
     });
     expect(mockHandleChatSpeak.mock.calls[1][0]).toMatchObject({
-      conversationId: 1,
+      conversationId: "1",
       role: 'assistant',
       strategy: 'webspeech',
     });
@@ -244,10 +244,10 @@ describe('chatStore validation', () => {
 
   it('chat:speak event is ignored for different conversation', async () => {
     mockSendMessage.mockImplementation(() => {
-      emitEvent('chat:messages_ready', { conversationId: 1, userMessageId: 10, userContent: 'oi' });
+      emitEvent('chat:messages_ready', { conversationId: "1", userMessageId: "10", userContent: 'oi' });
       // Evento de outra conversa
-      emitEvent('chat:speak', { conversationId: 999, role: 'assistant', text: 'Outro', strategy: 'announce' });
-      emitEvent('chat:done', { conversationId: 1, assistantMessageId: 11, hadToolCalls: false });
+      emitEvent('chat:speak', { conversationId: "999", role: 'assistant', text: 'Outro', strategy: 'announce' });
+      emitEvent('chat:done', { conversationId: "1", assistantMessageId: "11", hadToolCalls: false });
       return Promise.resolve();
     });
 
@@ -258,22 +258,22 @@ describe('chatStore validation', () => {
 
   it('usa placeholder único por envio e finaliza streaming após erro no stream', async () => {
     useChatStore.setState({
-      activeConversationId: 1,
-      activeConversation: { id: 1, title: 'Conversa', threadedMessages: [] },
+      activeConversationId: "1",
+      activeConversation: { id: "1", title: 'Conversa', threadedMessages: [] },
     });
 
     mockSendMessage
       .mockImplementationOnce(() => {
-        emitEvent('chat:messages_ready', { conversationId: 1, userMessageId: 14535, userContent: 'falha 1' });
-        emitEvent('chat:stream', { conversationId: 1, content: 'parcial', done: false });
-        emitEvent('chat:stream', { conversationId: 1, error: '401 Unauthorized' });
+        emitEvent('chat:messages_ready', { conversationId: "1", userMessageId: "14535", userContent: 'falha 1' });
+        emitEvent('chat:stream', { conversationId: "1", content: 'parcial', done: false });
+        emitEvent('chat:stream', { conversationId: "1", error: '401 Unauthorized' });
         return Promise.resolve();
       })
       .mockImplementationOnce(() => {
-        emitEvent('chat:messages_ready', { conversationId: 1, userMessageId: 14545, userContent: 'ok 2' });
-        emitEvent('chat:stream', { conversationId: 1, content: 'resposta final', done: false });
-        emitEvent('chat:stream', { conversationId: 1, messageId: 14546, content: 'resposta final', done: true });
-        emitEvent('chat:done', { conversationId: 1, assistantMessageId: 14546, hadToolCalls: false });
+        emitEvent('chat:messages_ready', { conversationId: "1", userMessageId: "14545", userContent: 'ok 2' });
+        emitEvent('chat:stream', { conversationId: "1", content: 'resposta final', done: false });
+        emitEvent('chat:stream', { conversationId: "1", messageId: "14546", content: 'resposta final', done: true });
+        emitEvent('chat:done', { conversationId: "1", assistantMessageId: "14546", hadToolCalls: false });
         return Promise.resolve();
       });
 
@@ -294,15 +294,15 @@ describe('chatStore validation', () => {
 
   it('não duplica mensagem real quando outro caminho já inseriu o mesmo assistant id', async () => {
     useChatStore.setState({
-      activeConversationId: 1,
+      activeConversationId: "1",
       activeConversation: {
-        id: 1,
+        id: "1",
         title: 'Conversa',
         threadedMessages: [
           {
             message: {
               id: '14731',
-              conversationId: 1,
+              conversationId: "1",
               role: 'assistant',
               content: 'mensagem já sincronizada',
               createdAt: new Date().toISOString(),
@@ -316,10 +316,10 @@ describe('chatStore validation', () => {
     });
 
     mockSendMessage.mockImplementationOnce(() => {
-      emitEvent('chat:messages_ready', { conversationId: 1, userMessageId: 14730, userContent: 'oi' });
-      emitEvent('chat:stream', { conversationId: 1, content: 'resposta parcial', done: false });
-      emitEvent('chat:stream', { conversationId: 1, messageId: 14731, content: 'resposta final', done: true });
-      emitEvent('chat:done', { conversationId: 1, assistantMessageId: 14731, hadToolCalls: false });
+      emitEvent('chat:messages_ready', { conversationId: "1", userMessageId: "14730", userContent: 'oi' });
+      emitEvent('chat:stream', { conversationId: "1", content: 'resposta parcial', done: false });
+      emitEvent('chat:stream', { conversationId: "1", messageId: "14731", content: 'resposta final', done: true });
+      emitEvent('chat:done', { conversationId: "1", assistantMessageId: "14731", hadToolCalls: false });
       return Promise.resolve();
     });
 

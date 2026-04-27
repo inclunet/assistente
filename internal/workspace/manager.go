@@ -306,7 +306,7 @@ func (m *Manager) SetProfile(profileSlug string) error {
 func (m *Manager) findDuplicateTab(tab *Tab) *Tab {
 	switch tab.Type {
 	case TabTypeChat:
-		if tab.ConversationID > 0 {
+		if tab.ConversationID != "" {
 			return m.active.FindTabByConversation(tab.ConversationID)
 		}
 	case TabTypeEditor:
@@ -440,10 +440,10 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	if title, ok := updates["title"].(string); ok {
 		tab.Title = title
 	}
-	if convID, ok := updates["conversation_id"].(int64); ok {
+	if convID, ok := updates["conversation_id"].(string); ok {
 		tab.ConversationID = convID
 	} else if convIDFloat, ok := updates["conversation_id"].(float64); ok {
-		tab.ConversationID = int64(convIDFloat)
+		tab.ConversationID = fmt.Sprintf("%d", int64(convIDFloat))
 	}
 	if state, ok := updates["state"].(map[string]any); ok {
 		if tab.State == nil {
@@ -685,9 +685,9 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		switch t.Type {
 		case TabTypeChat:
 			// content_id era o conversation ID (número como string)
-			if t.ConversationID == 0 {
-				if id := parseIntID(t.ContentID); id > 0 {
-					t.ConversationID = id
+			if t.ConversationID == "" {
+				if t.ContentID != "" {
+					t.ConversationID = t.ContentID
 				}
 			}
 		case TabTypeTerminal:
@@ -721,21 +721,6 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	}
 
 	return &ws, nil
-}
-
-// parseIntID converte string para int64; retorna 0 se inválido.
-func parseIntID(s string) int64 {
-	if s == "" {
-		return 0
-	}
-	var n int64
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0
-		}
-		n = n*10 + int64(c-'0')
-	}
-	return n
 }
 
 func (m *Manager) saveWorkspace(ws *Workspace, basePath string) error {

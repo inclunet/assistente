@@ -33,7 +33,7 @@ func setupTestDBWithFTS(t *testing.T) {
 	})
 }
 
-func seedTestMessages(t *testing.T) (conv1ID, conv2ID uint) {
+func seedTestMessages(t *testing.T) (conv1ID, conv2ID string) {
 	t.Helper()
 
 	conv1 := &Conversation{Title: "Projeto autenticação JWT"}
@@ -42,13 +42,13 @@ func seedTestMessages(t *testing.T) (conv1ID, conv2ID uint) {
 	db.Create(conv2)
 
 	msgs := []ChatMessage{
-		{ConversationID: conv1.ID, Role: "user", Content: "Como implementar autenticação JWT no nosso backend Go?", CreatedAt: time.Now().Add(-5 * time.Hour)},
-		{ConversationID: conv1.ID, Role: "assistant", Content: "Para implementar JWT em Go, recomendo usar a biblioteca golang-jwt. Primeiro crie um middleware que valide o token no header Authorization.", CreatedAt: time.Now().Add(-4 * time.Hour)},
-		{ConversationID: conv1.ID, Role: "user", Content: "E o refresh token, como fazemos?", CreatedAt: time.Now().Add(-3 * time.Hour)},
-		{ConversationID: conv1.ID, Role: "assistant", Content: "O refresh token deve ter expiração mais longa. Armazene no banco com rotação automática. Quando o access token expirar, o client envia o refresh token para obter um novo par.", CreatedAt: time.Now().Add(-2 * time.Hour)},
-		{ConversationID: conv1.ID, Role: "tool", Content: "resultado da tool: arquivo lido com sucesso", CreatedAt: time.Now().Add(-1 * time.Hour)},
-		{ConversationID: conv2.ID, Role: "user", Content: "Preciso fazer deploy da aplicação no Kubernetes com rolling update", CreatedAt: time.Now().Add(-6 * time.Hour)},
-		{ConversationID: conv2.ID, Role: "assistant", Content: "Para rolling update no Kubernetes, configure a strategy no Deployment YAML com maxSurge e maxUnavailable. Use readiness probes para garantir que os pods estejam prontos.", CreatedAt: time.Now().Add(-5 * time.Hour)},
+		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-5 * time.Hour)}, ConversationID: conv1.ID, Role: "user", Content: "Como implementar autenticação JWT no nosso backend Go?"},
+		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-4 * time.Hour)}, ConversationID: conv1.ID, Role: "assistant", Content: "Para implementar JWT em Go, recomendo usar a biblioteca golang-jwt. Primeiro crie um middleware que valide o token no header Authorization."},
+		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-3 * time.Hour)}, ConversationID: conv1.ID, Role: "user", Content: "E o refresh token, como fazemos?"},
+		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-2 * time.Hour)}, ConversationID: conv1.ID, Role: "assistant", Content: "O refresh token deve ter expiração mais longa. Armazene no banco com rotação automática. Quando o access token expirar, o client envia o refresh token para obter um novo par."},
+		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-1 * time.Hour)}, ConversationID: conv1.ID, Role: "tool", Content: "resultado da tool: arquivo lido com sucesso"},
+		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-6 * time.Hour)}, ConversationID: conv2.ID, Role: "user", Content: "Preciso fazer deploy da aplicação no Kubernetes com rolling update"},
+		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-5 * time.Hour)}, ConversationID: conv2.ID, Role: "assistant", Content: "Para rolling update no Kubernetes, configure a strategy no Deployment YAML com maxSurge e maxUnavailable. Use readiness probes para garantir que os pods estejam prontos."},
 	}
 	for i := range msgs {
 		if err := db.Create(&msgs[i]).Error; err != nil {
@@ -203,7 +203,7 @@ func TestFTS5_DeleteMessageRemovesFromIndex(t *testing.T) {
 	conv := &Conversation{Title: "Test"}
 	db.Create(conv)
 
-	msg := &ChatMessage{ConversationID: conv.ID, Role: "user", Content: "palavra unica xyzzy123", CreatedAt: time.Now()}
+	msg := &ChatMessage{ConversationID: conv.ID, Role: "user", Content: "palavra unica xyzzy123"}
 	db.Create(msg)
 
 	results, _ := SearchMessageContent("xyzzy123", 20)

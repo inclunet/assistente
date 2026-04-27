@@ -18,8 +18,6 @@ func TestIntegration_FirstMessageHistoryPersistence(t *testing.T) {
 	// 1. Setup: criar conversa e primeira mensagem
 	conv := &database.Conversation{
 		Title:     "Test History",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -32,7 +30,6 @@ func TestIntegration_FirstMessageHistoryPersistence(t *testing.T) {
 		Role:           "user",
 		Content:        "Olá! Como você funciona?",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -49,7 +46,6 @@ func TestIntegration_FirstMessageHistoryPersistence(t *testing.T) {
 		PromptTokens:     25,
 		CompletionTokens: 30,
 		TotalTokens:      55,
-		CreatedAt:        time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -107,8 +103,6 @@ func TestIntegration_FirstMessageHistoryOrder(t *testing.T) {
 	// 1. Setup: criar conversa
 	conv := &database.Conversation{
 		Title:     "Order Test",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -116,7 +110,6 @@ func TestIntegration_FirstMessageHistoryOrder(t *testing.T) {
 	}
 
 	// 2. Sequência de 5 mensagens com timestamps precisos
-	baseTime := time.Now()
 	messages := []struct {
 		role    string
 		content string
@@ -135,7 +128,6 @@ func TestIntegration_FirstMessageHistoryOrder(t *testing.T) {
 			Role:           msg.role,
 			Content:        msg.content,
 			Source:         "wails",
-			CreatedAt:      baseTime.Add(msg.delay * time.Millisecond),
 		}
 
 		if err := db.Create(chatMsg).Error; err != nil {
@@ -183,8 +175,6 @@ func TestIntegration_FirstMessageHistoryMultipleConversations(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		conv := &database.Conversation{
 			Title:     "Conversa " + string(rune('A'+i)),
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -201,7 +191,6 @@ func TestIntegration_FirstMessageHistoryMultipleConversations(t *testing.T) {
 			Role:           "user",
 			Content:        "Pergunta na conversa " + string(rune('A'+i)),
 			Source:         "wails",
-			CreatedAt:      time.Now(),
 		}
 
 		if err := db.Create(msg).Error; err != nil {
@@ -256,8 +245,6 @@ func TestIntegration_FirstMessageHistoryExpiration(t *testing.T) {
 	// 1. Setup: criar conversa e mensagem com timestamp antigo
 	conv := &database.Conversation{
 		Title:     "Old Conversation",
-		CreatedAt: time.Now().Add(-30 * 24 * time.Hour), // 30 dias atrás
-		UpdatedAt: time.Now().Add(-30 * 24 * time.Hour),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -270,7 +257,6 @@ func TestIntegration_FirstMessageHistoryExpiration(t *testing.T) {
 		Role:           "user",
 		Content:        "Pergunta de um mês atrás",
 		Source:         "wails",
-		CreatedAt:      time.Now().Add(-30 * 24 * time.Hour),
 	}
 
 	if err := db.Create(oldMsg).Error; err != nil {
@@ -307,8 +293,6 @@ func TestIntegration_FirstMessageHistoryWithTools(t *testing.T) {
 	// 1. Setup: criar conversa
 	conv := &database.Conversation{
 		Title:     "With Tools",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -321,7 +305,6 @@ func TestIntegration_FirstMessageHistoryWithTools(t *testing.T) {
 		Role:           "user",
 		Content:        "Qual é a temperatura em São Paulo?",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -336,7 +319,6 @@ func TestIntegration_FirstMessageHistoryWithTools(t *testing.T) {
 		Content:        "Vou buscar a temperatura de São Paulo",
 		ToolCalls:      toolCallsJSON,
 		Source:         "wails",
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -350,7 +332,6 @@ func TestIntegration_FirstMessageHistoryWithTools(t *testing.T) {
 		Content:        "Temperature: 28°C",
 		ToolCallID:     "call_123",
 		Source:         "wails",
-		CreatedAt:      time.Now().Add(200 * time.Millisecond),
 	}
 
 	if err := db.Create(toolResultMsg).Error; err != nil {
@@ -390,11 +371,8 @@ func TestIntegration_FirstMessageHistoryConversationUpdate(t *testing.T) {
 	db := setupIntegrationDB(t)
 
 	// 1. Setup: criar conversa com título genérico
-	createdAt := time.Now()
 	conv := &database.Conversation{
 		Title:     "Nova conversa",
-		CreatedAt: createdAt,
-		UpdatedAt: createdAt,
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -407,7 +385,6 @@ func TestIntegration_FirstMessageHistoryConversationUpdate(t *testing.T) {
 		Role:           "user",
 		Content:        "Como começar a aprender Golang?",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -451,8 +428,6 @@ func TestIntegration_FirstMessageHistoryConcurrentAccess(t *testing.T) {
 	// 1. Setup: criar conversa
 	conv := &database.Conversation{
 		Title:     "Concurrent Test",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -465,7 +440,6 @@ func TestIntegration_FirstMessageHistoryConcurrentAccess(t *testing.T) {
 		Role:           "user",
 		Content:        "Teste de concorrência",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {

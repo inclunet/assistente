@@ -22,7 +22,7 @@ type ResponseCallback struct {
 	AudioOnly bool
 
 	// Callback é chamado com a resposta completa do assistente e o ID da mensagem salva.
-	Callback func(response string, assistantMessageID uint)
+	Callback func(response string, assistantMessageID string)
 }
 
 // ResponseNotifier permite ao Gateway registrar callbacks para capturar respostas
@@ -39,19 +39,19 @@ type ResponseCallback struct {
 // Thread-safe para uso concorrente.
 type ResponseNotifier struct {
 	mu        sync.Mutex
-	callbacks map[uint][]ResponseCallback // conversationID -> callbacks pendentes
+	callbacks map[string][]ResponseCallback // conversationID -> callbacks pendentes
 }
 
 // NewResponseNotifier cria um novo ResponseNotifier.
 func NewResponseNotifier() *ResponseNotifier {
 	return &ResponseNotifier{
-		callbacks: make(map[uint][]ResponseCallback),
+		callbacks: make(map[string][]ResponseCallback),
 	}
 }
 
 // Register registra um callback para ser chamado quando a resposta de uma
 // conversa ficar pronta. O callback é removido automaticamente após ser chamado.
-func (n *ResponseNotifier) Register(conversationID uint, cb ResponseCallback) {
+func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.callbacks[conversationID] = append(n.callbacks[conversationID], cb)
@@ -60,7 +60,7 @@ func (n *ResponseNotifier) Register(conversationID uint, cb ResponseCallback) {
 // Notify chama todos os callbacks registrados para uma conversa e os remove.
 // Se não há callbacks, não faz nada (zero overhead no fluxo normal do Wails).
 // assistantMessageID é o ID da mensagem do assistente salva no DB (0 se não disponível).
-func (n *ResponseNotifier) Notify(conversationID uint, response string, assistantMessageID uint) {
+func (n *ResponseNotifier) Notify(conversationID string, response string, assistantMessageID string) {
 	n.mu.Lock()
 	cbs, ok := n.callbacks[conversationID]
 	if ok {
@@ -83,7 +83,7 @@ func (n *ResponseNotifier) Notify(conversationID uint, response string, assistan
 // Cancel remove todos os callbacks pendentes de uma conversa sem chamá-los.
 // Usado quando o streaming LLM é cancelado (ex: barge-in SIP) e a resposta
 // não será gerada — evita callbacks órfãos que nunca disparariam.
-func (n *ResponseNotifier) Cancel(conversationID uint) {
+func (n *ResponseNotifier) Cancel(conversationID string) {
 	n.mu.Lock()
 	cbs, ok := n.callbacks[conversationID]
 	if ok {
@@ -92,7 +92,7 @@ func (n *ResponseNotifier) Cancel(conversationID uint) {
 	n.mu.Unlock()
 	if ok && len(cbs) > 0 {
 		traceID := cbs[0].TraceID
-		log.Printf("[Messaging] Callbacks cancelados trace=%s conv=%d count=%d (barge-in)",
+		log.Printf("[Messaging] Callbacks cancelados trace=%s conv=%s count=%d (barge-in)",
 			traceID, conversationID, len(cbs))
 	}
 }

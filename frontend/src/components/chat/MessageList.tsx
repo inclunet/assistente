@@ -41,7 +41,7 @@ export interface MessageListProps {
 function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
   if (!nodes || nodes.length === 0) return nodes;
 
-  const turnMap = new Map<number, MessageNode[]>();
+  const turnMap = new Map<string, MessageNode[]>();
   let hasTurns = false;
 
   for (const node of nodes) {
@@ -55,7 +55,7 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 
   if (!hasTurns) return nodes;
 
-  const processedTurnIds = new Set<number>();
+  const processedTurnIds = new Set<string>();
   const result: MessageNode[] = [];
 
   for (const node of nodes) {

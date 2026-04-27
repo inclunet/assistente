@@ -416,31 +416,31 @@ func (c *MessagingController) GetAvailableChannels() []ChannelInfo {
 }
 
 // AssignConversationToChannel vincula uma conversa existente a um canal externo.
-func (c *MessagingController) AssignConversationToChannel(conversationID uint, channel, contactID string) error {
+func (c *MessagingController) AssignConversationToChannel(conversationID string, channel, contactID string) error {
 	if channel == "" || contactID == "" {
 		return fmt.Errorf("canal e contato são obrigatórios")
 	}
 	if _, err := c.convSvc.GetConversationInfo(conversationID); err != nil {
-		return fmt.Errorf("conversa %d não encontrada: %w", conversationID, err)
+		return fmt.Errorf("conversa %s não encontrada: %w", conversationID, err)
 	}
 	if err := c.convSvc.UpdateConversationChannel(conversationID, channel, contactID); err != nil {
 		return fmt.Errorf("erro ao atualizar conversa: %w", err)
 	}
-	log.Printf("[Bridge] Conversa %d atribuída ao canal %s (contato: %s)", conversationID, channel, contactID)
+	log.Printf("[Bridge] Conversa %s atribuída ao canal %s (contato: %s)", conversationID, channel, contactID)
 	return nil
 }
 
 // UnassignConversationFromChannel remove a vinculação de uma conversa com um canal externo.
-func (c *MessagingController) UnassignConversationFromChannel(conversationID uint) error {
+func (c *MessagingController) UnassignConversationFromChannel(conversationID string) error {
 	if err := c.convSvc.UpdateConversationChannel(conversationID, "", ""); err != nil {
 		return fmt.Errorf("erro ao remover canal da conversa: %w", err)
 	}
-	log.Printf("[Bridge] Conversa %d desvinculada de canal externo", conversationID)
+	log.Printf("[Bridge] Conversa %s desvinculada de canal externo", conversationID)
 	return nil
 }
 
 // GetConversationChannel retorna o canal e contato vinculados a uma conversa.
-func (c *MessagingController) GetConversationChannel(conversationID uint) (string, string, error) {
+func (c *MessagingController) GetConversationChannel(conversationID string) (string, string, error) {
 	conv, err := c.convSvc.GetConversationInfo(conversationID)
 	if err != nil {
 		return "", "", err

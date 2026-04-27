@@ -7,8 +7,8 @@ import { database } from '../../../wailsjs/go/models';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 
 export interface HistoryPickerProps {
-  value?: number; // ID da conversa atual
-  onChange: (conversationId: number, conversation: database.Conversation) => void;
+  value?: string; // ID da conversa atual
+  onChange: (conversationId: string, conversation: database.Conversation) => void;
   label?: string;
   description?: string;
   disabled?: boolean;
@@ -125,10 +125,9 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   const selectedValue = value ? value.toString() : '';
 
   const handleSelect = (selectedValue: string) => {
-    const conversationId = parseInt(selectedValue, 10);
-    const conversation = conversations.find(c => c.id === conversationId);
+    const conversation = conversations.find(c => String(c.id) === selectedValue);
     if (conversation) {
-      onChange(conversationId, conversation);
+      onChange(selectedValue, conversation);
     }
   };
 

@@ -40,8 +40,6 @@ func TestIntegration_FirstMessageAgenticLoopDefaultLimit(t *testing.T) {
 	// 3. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Default Agentic Loop",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -54,7 +52,6 @@ func TestIntegration_FirstMessageAgenticLoopDefaultLimit(t *testing.T) {
 		Role:           "user",
 		Content:        "Pesquise algo, calcule, leia arquivo",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -70,7 +67,6 @@ func TestIntegration_FirstMessageAgenticLoopDefaultLimit(t *testing.T) {
 		PromptTokens:     100,
 		CompletionTokens: 200,
 		TotalTokens:      300,
-		CreatedAt:        time.Now().Add(500 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -122,8 +118,6 @@ func TestIntegration_FirstMessageAgenticLoopCustomLimit(t *testing.T) {
 		// Criar conversa
 		conv := &database.Conversation{
 			Title:     "Chat " + l.name,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -135,7 +129,6 @@ func TestIntegration_FirstMessageAgenticLoopCustomLimit(t *testing.T) {
 			Role:           "user",
 			Content:        "Execute múltiplas tool calls",
 			Source:         "wails",
-			CreatedAt:      time.Now(),
 		}
 
 		if err := db.Create(userMsg).Error; err != nil {
@@ -150,7 +143,6 @@ func TestIntegration_FirstMessageAgenticLoopCustomLimit(t *testing.T) {
 			PromptTokens:     150,
 			CompletionTokens: 250,
 			TotalTokens:      400,
-			CreatedAt:        time.Now().Add(1 * time.Second),
 		}
 
 		if err := db.Create(assistantMsg).Error; err != nil {
@@ -188,8 +180,6 @@ func TestIntegration_FirstMessageAgenticLoopHitLimit(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Hit Limit Chat",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -202,7 +192,6 @@ func TestIntegration_FirstMessageAgenticLoopHitLimit(t *testing.T) {
 		Role:           "user",
 		Content:        "Execute 10 operações em sequência",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -218,7 +207,6 @@ func TestIntegration_FirstMessageAgenticLoopHitLimit(t *testing.T) {
 		PromptTokens:     100,
 		CompletionTokens: 150,
 		TotalTokens:      250,
-		CreatedAt:        time.Now().Add(200 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -269,8 +257,6 @@ func TestIntegration_FirstMessageAgenticLoopWithinLimit(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Within Limit Chat",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -283,7 +269,6 @@ func TestIntegration_FirstMessageAgenticLoopWithinLimit(t *testing.T) {
 		Role:           "user",
 		Content:        "Execute 10 operações simples",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -299,7 +284,6 @@ func TestIntegration_FirstMessageAgenticLoopWithinLimit(t *testing.T) {
 		PromptTokens:     150,
 		CompletionTokens: 300,
 		TotalTokens:      450,
-		CreatedAt:        time.Now().Add(800 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -340,8 +324,6 @@ func TestIntegration_FirstMessageAgenticLoopExceedsLimit(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Exceeded Limit Chat",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -354,7 +336,6 @@ func TestIntegration_FirstMessageAgenticLoopExceedsLimit(t *testing.T) {
 		Role:           "user",
 		Content:        "Execute 100 operações complexas",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -370,7 +351,6 @@ func TestIntegration_FirstMessageAgenticLoopExceedsLimit(t *testing.T) {
 		PromptTokens:     200,
 		CompletionTokens: 400,
 		TotalTokens:      600,
-		CreatedAt:        time.Now().Add(2 * time.Second),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -407,8 +387,6 @@ func TestIntegration_FirstMessageAgenticLoopTokenCounting(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Token Count Loop",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -424,7 +402,6 @@ func TestIntegration_FirstMessageAgenticLoopTokenCounting(t *testing.T) {
 		PromptTokens:     50,
 		CompletionTokens: 0,
 		TotalTokens:      50,
-		CreatedAt:        time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -446,7 +423,6 @@ func TestIntegration_FirstMessageAgenticLoopTokenCounting(t *testing.T) {
 		PromptTokens:     300,  // Acumulado de todas as iterações
 		CompletionTokens: 4500, // Acumulado
 		TotalTokens:      4800, // Total dentro do MaxTokens
-		CreatedAt:        time.Now().Add(3 * time.Second),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -496,8 +472,6 @@ func TestIntegration_FirstMessageAgenticLoopTimeoutProtection(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Timeout Protection Loop",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -510,7 +484,6 @@ func TestIntegration_FirstMessageAgenticLoopTimeoutProtection(t *testing.T) {
 		Role:           "user",
 		Content:        "Execute operações lentamente",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -527,7 +500,6 @@ func TestIntegration_FirstMessageAgenticLoopTimeoutProtection(t *testing.T) {
 		PromptTokens:     100,
 		CompletionTokens: 150,
 		TotalTokens:      250,
-		CreatedAt:        time.Now().Add(8500 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {

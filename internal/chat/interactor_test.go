@@ -44,9 +44,9 @@ var _ events.Emitter = (*spyEmitter)(nil)
 // noopConvRepo is a minimal ConversationRepository for tests.
 type noopConvRepo struct{}
 
-func (noopConvRepo) GetConversationInfo(_ uint) (*Conversation, error) { return nil, nil }
-func (noopConvRepo) UpdateConversation(_ uint, _, _ string) error      { return nil }
-func (noopConvRepo) UpdateConversationChannel(_ uint, _, _ string) error {
+func (noopConvRepo) GetConversationInfo(_ string) (*Conversation, error) { return nil, nil }
+func (noopConvRepo) UpdateConversation(_ string, _, _ string) error      { return nil }
+func (noopConvRepo) UpdateConversationChannel(_ string, _, _ string) error {
 	return nil
 }
 
@@ -58,49 +58,49 @@ func newTestInteractor(em events.Emitter) *Interactor {
 }
 
 type retryMessageRepoStub struct {
-	getMessage func(messageID uint) (*database.ChatMessage, error)
+	getMessage func(messageID string) (*database.ChatMessage, error)
 }
 
 func (r *retryMessageRepoStub) CreateMessage(_ MessageOptions) (*Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetMessage(messageID uint) (*Message, error) {
+func (r *retryMessageRepoStub) GetMessage(messageID string) (*Message, error) {
 	if r.getMessage != nil {
 		return r.getMessage(messageID)
 	}
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetMessages(_ uint, _ *uint) ([]Message, error) {
+func (r *retryMessageRepoStub) GetMessages(_ string, _ *string) ([]Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetConversationSummary(_ uint) (string, uint, error) {
-	return "", 0, nil
+func (r *retryMessageRepoStub) GetConversationSummary(_ string) (string, string, error) {
+	return "", "", nil
 }
 
-func (r *retryMessageRepoStub) GetDetailedTokenStats(_ uint, _ uint) (*DetailedTokenStats, error) {
+func (r *retryMessageRepoStub) GetDetailedTokenStats(_ string, _ string) (*DetailedTokenStats, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetContextWindowUsage(_ uint, _ int) (float64, int, error) {
+func (r *retryMessageRepoStub) GetContextWindowUsage(_ string, _ int) (float64, int, error) {
 	return 0, 0, nil
 }
 
-func (r *retryMessageRepoStub) GetRecentMessagesTokenCount(_ uint, _ int) (int, error) {
+func (r *retryMessageRepoStub) GetRecentMessagesTokenCount(_ string, _ int) (int, error) {
 	return 0, nil
 }
 
-func (r *retryMessageRepoStub) GetTurnTokenStats(_ uint, _ uint) (*database.TokenStats, error) {
+func (r *retryMessageRepoStub) GetTurnTokenStats(_ string, _ string) (*database.TokenStats, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) AddAssistantToolMessage(_ uint, _ uint, _, _, _, _ string) (*Message, error) {
+func (r *retryMessageRepoStub) AddAssistantToolMessage(_ string, _ string, _, _, _, _ string) (*Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) AddToolResultMessage(_ uint, _ uint, _, _ string) (*Message, error) {
+func (r *retryMessageRepoStub) AddToolResultMessage(_ string, _ string, _, _ string) (*Message, error) {
 	return nil, nil
 }
 
@@ -127,7 +127,7 @@ func TestPrepareContext_RejectsContentExceedingMaxSize(t *testing.T) {
 	bigContent := strings.Repeat("x", MaxMessageContentSize+1)
 
 	_, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
-		ConversationID: 1,
+		ConversationID: "1",
 		UserContent:    bigContent,
 	})
 
@@ -142,8 +142,8 @@ func TestPrepareContext_RejectsContentExceedingMaxSize(t *testing.T) {
 	if ev == nil {
 		t.Fatal("expected chat:error event to be emitted")
 	}
-	if ev.ConversationID != 1 {
-		t.Errorf("expected conversationId=1, got %d", ev.ConversationID)
+	if ev.ConversationID != "1" {
+		t.Errorf("expected conversationId=1, got %s", ev.ConversationID)
 	}
 }
 
@@ -155,7 +155,7 @@ func TestPrepareContext_AcceptsContentAtExactMaxSize(t *testing.T) {
 
 	// Should fail after size check (at provider check), not AT the size check
 	_, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
-		ConversationID: 1,
+		ConversationID: "1",
 		UserContent:    exactContent,
 	})
 
@@ -172,7 +172,7 @@ func TestPrepareContext_RejectsMediaExceedingMaxSize(t *testing.T) {
 	bigMedia := strings.Repeat("x", MaxMediaSize+1)
 
 	_, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
-		ConversationID: 1,
+		ConversationID: "1",
 		UserContent:    "hello",
 		UserMedia:      bigMedia,
 	})
@@ -195,7 +195,7 @@ func TestPrepareContext_RejectsConversationIDZero(t *testing.T) {
 	inter := newTestInteractor(spy)
 
 	_, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
-		ConversationID: 0,
+		ConversationID: "",
 		UserContent:    "hello",
 	})
 
@@ -210,21 +210,21 @@ func TestPrepareContext_RejectsConversationIDZero(t *testing.T) {
 	if ev == nil {
 		t.Fatal("expected chat:error event to be emitted")
 	}
-	if ev.ConversationID != 0 {
-		t.Errorf("expected conversationId=0, got %d", ev.ConversationID)
+	if ev.ConversationID != "" {
+		t.Errorf("expected conversationId empty, got %s", ev.ConversationID)
 	}
 }
 
 func TestGetRetryableUserMessage_ReturnsDomainErrorWhenMessageNotFound(t *testing.T) {
 	interactor := NewInteractor(InteractorConfig{
 		Repo: &retryMessageRepoStub{
-			getMessage: func(_ uint) (*database.ChatMessage, error) {
+			getMessage: func(_ string) (*database.ChatMessage, error) {
 				return nil, gorm.ErrRecordNotFound
 			},
 		},
 	})
 
-	msg, err := interactor.GetRetryableUserMessage(7, 42)
+	msg, err := interactor.GetRetryableUserMessage("7", "42")
 	if msg != nil {
 		t.Fatalf("expected nil message, got %+v", msg)
 	}
@@ -239,7 +239,7 @@ func TestGetRetryableUserMessage_ReturnsDomainErrorWhenMessageNotFound(t *testin
 func TestGetRetryableUserMessage_ReturnsErrorWhenRepositoryIsUnavailable(t *testing.T) {
 	interactor := NewInteractor(InteractorConfig{})
 
-	msg, err := interactor.GetRetryableUserMessage(7, 42)
+	msg, err := interactor.GetRetryableUserMessage("7", "42")
 	if msg != nil {
 		t.Fatalf("expected nil message, got %+v", msg)
 	}
@@ -295,7 +295,7 @@ func TestPrepareContext_ProfileSlugInheritsProviderAndModelFromActiveProfile(t *
 	})
 
 	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
-		ConversationID: 1,
+		ConversationID: "1",
 		UserContent:    "oi",
 		Params: ChatParams{
 			ProfileSlug: panelSlug,

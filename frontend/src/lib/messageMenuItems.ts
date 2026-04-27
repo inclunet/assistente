@@ -375,11 +375,9 @@ export function getMessageMenuItems(
         }
 
         try {
-          const isBackendId = typeof message.id === 'string'
-            ? /^\d+$/.test(message.id)
-            : typeof message.id === 'number';
-          const numericId = isBackendId ? Number(message.id) : 0;
-          if (numericId <= 0) {
+          const isBackendId = !!message.id;
+          const backendId = isBackendId ? message.id : '';
+          if (!backendId) {
             onAnnounce?.('Nao foi possivel identificar a mensagem');
             return;
           }
@@ -387,7 +385,7 @@ export function getMessageMenuItems(
           onAnnounce?.('Gerando audio...');
           const role = message.role === 'user' ? 'user' : 'assistant';
           const voiceCtx = ttsService.getVoiceContext(role);
-          const audioBlob = await messageAudioService.getMessageAudioBlob(numericId, voiceCtx);
+          const audioBlob = await messageAudioService.getMessageAudioBlob(backendId, voiceCtx);
 
           if (!audioBlob) {
             onAnnounce?.('Nao foi possivel gerar audio. Verifique a configuracao de voz no perfil ativo.');

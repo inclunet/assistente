@@ -42,12 +42,12 @@ func TestResolveTaskIDByIDAndCode(t *testing.T) {
 
 	got, err := ResolveTaskID(nil, "", &idPtr, "")
 	if err != nil || got != id {
-		t.Fatalf("by id only: got %d err %v", got, err)
+		t.Fatalf("by id only: got %s err %v", got, err)
 	}
 
 	got, err = ResolveTaskID(nil, "", &idPtr, "ABC-1")
 	if err != nil || got != id {
-		t.Fatalf("by id+code: got %d err %v", got, err)
+		t.Fatalf("by id+code: got %s err %v", got, err)
 	}
 
 	_, err = ResolveTaskID(nil, "", &idPtr, "WRONG")
@@ -58,12 +58,12 @@ func TestResolveTaskIDByIDAndCode(t *testing.T) {
 	lid := list.ID
 	got, err = ResolveTaskID(&lid, "my-list", &idPtr, "ABC-1")
 	if err != nil || got != id {
-		t.Fatalf("by id+code+list: got %d err %v", got, err)
+		t.Fatalf("by id+code+list: got %s err %v", got, err)
 	}
 
 	got, err = ResolveTaskID(nil, "my-list", nil, "ABC-1")
 	if err != nil || got != id {
-		t.Fatalf("by slug+code: got %d err %v", got, err)
+		t.Fatalf("by slug+code: got %s err %v", got, err)
 	}
 
 	_, err = ResolveTaskID(nil, "", nil, "ABC-1")
@@ -97,7 +97,7 @@ func TestResolveTaskIDByTaskCode_GlobalUnique(t *testing.T) {
 	}
 	got, err := ResolveTaskIDByTaskCode(nil, "FSD-99")
 	if err != nil || got != task.ID {
-		t.Fatalf("got %d err %v", got, err)
+		t.Fatalf("got %s err %v", got, err)
 	}
 }
 
@@ -124,7 +124,7 @@ func TestResolveTaskIDByTaskCode_Ambiguous(t *testing.T) {
 	lid := a.ID
 	got, err := ResolveTaskIDByTaskCode(&lid, "DUP")
 	if err != nil || got != ta.ID {
-		t.Fatalf("got %d err %v want %d", got, err, ta.ID)
+		t.Fatalf("got %s err %v want %s", got, err, ta.ID)
 	}
 }
 

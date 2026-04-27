@@ -436,7 +436,7 @@ func TestRecoverFromPanic(t *testing.T) {
 		}()
 
 		func() {
-			defer app.recoverFromPanic(0, "test")
+			defer app.recoverFromPanic("", "test")
 			panic("test panic")
 		}()
 	})
@@ -449,7 +449,7 @@ func TestRecoverFromPanic(t *testing.T) {
 		}()
 
 		func() {
-			defer app.recoverFromPanic(0, "test")
+			defer app.recoverFromPanic("", "test")
 			panic(fmt.Errorf("test error"))
 		}()
 	})
@@ -462,7 +462,7 @@ func TestRecoverFromPanic(t *testing.T) {
 		}()
 
 		func() {
-			defer app.recoverFromPanic(0, "test")
+			defer app.recoverFromPanic("", "test")
 			var p *int
 			_ = *p // nil pointer dereference
 		}()
@@ -485,7 +485,7 @@ func TestRecoverFromPanic_InGoroutine(t *testing.T) {
 			recovered <- true
 		}()
 
-		defer app.recoverFromPanic(1, "test")
+		defer app.recoverFromPanic("1", "test")
 		panic("simulated panic")
 	}()
 

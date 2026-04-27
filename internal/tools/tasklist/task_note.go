@@ -12,12 +12,12 @@ import (
 )
 
 type taskNoteArgs struct {
-	TaskListID        uint   `json:"task_list_id,omitempty"`
+	TaskListID        string `json:"task_list_id,omitempty"`
 	TaskListSlug      string `json:"task_list_slug,omitempty"`
-	TaskID            *uint  `json:"task_id,omitempty"`
+	TaskID            *string `json:"task_id,omitempty"`
 	TaskCode          string `json:"task_code,omitempty"`
 	Code              string `json:"code,omitempty"`
-	NoteID            *uint  `json:"note_id,omitempty"`
+	NoteID            *string `json:"note_id,omitempty"`
 	Type              *int   `json:"type,omitempty"`
 	Content           string `json:"content"`
 	AuthorName        string `json:"author_name,omitempty"`
@@ -110,7 +110,7 @@ func (t *TaskNoteTool) Parameters() json.RawMessage {
 }
 
 // resolveTaskID resolves which task the note targets. Priority: task_id (with optional consistency checks) > task_code > task_list + code.
-func (t *TaskNoteTool) resolveTaskID(params taskNoteArgs) (uint, error) {
+func (t *TaskNoteTool) resolveTaskID(params taskNoteArgs) (string, error) {
 	listIP := uintPtrIfPositive(params.TaskListID)
 	tidPtr := taskIDPtrForResolve(params.TaskID)
 	taskCodeTrim := strings.TrimSpace(params.TaskCode)
@@ -119,33 +119,33 @@ func (t *TaskNoteTool) resolveTaskID(params taskNoteArgs) (uint, error) {
 	if tidPtr != nil {
 		task, err := t.mgr.GetTask(*tidPtr)
 		if err != nil {
-			return 0, fmt.Errorf("task_id %d não encontrado: %w", *tidPtr, err)
+			return "", fmt.Errorf("task_id %s não encontrado: %w", *tidPtr, err)
 		}
 		if taskCodeTrim != "" && strings.TrimSpace(task.Code) != taskCodeTrim {
-			return 0, fmt.Errorf("task_id %d tem task_code %q, que não coincide com %q", task.ID, task.Code, taskCodeTrim)
+			return "", fmt.Errorf("task_id %s tem task_code %q, que não coincide com %q", task.ID, task.Code, taskCodeTrim)
 		}
 		if codeTrim != "" && task.Code != codeTrim {
-			return 0, fmt.Errorf("task_id %d e code %q não correspondem à mesma task", *tidPtr, codeTrim)
+			return "", fmt.Errorf("task_id %s e code %q não correspondem à mesma task", *tidPtr, codeTrim)
 		}
 		hasListRef := listIP != nil || strings.TrimSpace(params.TaskListSlug) != ""
 		if hasListRef {
 			listID, err := t.mgr.ResolveTaskListRef(listIP, params.TaskListSlug)
 			if err != nil {
-				return 0, err
+				return "", err
 			}
 			if task.TaskListID != listID {
-				return 0, fmt.Errorf("task_id %d e lista referenciada não correspondem à mesma task", *tidPtr)
+				return "", fmt.Errorf("task_id %s e lista referenciada não correspondem à mesma task", *tidPtr)
 			}
 		}
 		return task.ID, nil
 	}
 
 	if taskCodeTrim != "" {
-		var scope *uint
+		var scope *string
 		if listIP != nil || strings.TrimSpace(params.TaskListSlug) != "" {
 			lid, err := t.mgr.ResolveTaskListRef(listIP, params.TaskListSlug)
 			if err != nil {
-				return 0, err
+				return "", err
 			}
 			scope = &lid
 		}
@@ -174,16 +174,16 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if params.NoteID != nil {
 		note, err := t.mgr.GetTaskNote(*params.NoteID)
 		if err != nil {
-			return tools.ToolResult{Content: fmt.Sprintf("Note not found (id=%d): %v", *params.NoteID, err), IsError: true}, nil
+			return tools.ToolResult{Content: fmt.Sprintf("Note not found (id=%s): %v", *params.NoteID, err), IsError: true}, nil
 		}
-		var taskID uint
+		var taskID string
 		if tidPtr != nil || taskCodeTrim != "" || codeTrim != "" || listIP != nil || strings.TrimSpace(params.TaskListSlug) != "" {
 			resolved, err := t.resolveTaskID(params)
 			if err != nil {
 				return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 			}
 			if resolved != note.TaskID {
-				return tools.ToolResult{Content: fmt.Sprintf("note_id %d belongs to task %d, which does not match the resolved task %d", *params.NoteID, note.TaskID, resolved), IsError: true}, nil
+				return tools.ToolResult{Content: fmt.Sprintf("note_id %s belongs to task %s, which does not match the resolved task %s", *params.NoteID, note.TaskID, resolved), IsError: true}, nil
 			}
 			taskID = resolved
 		} else {
@@ -212,7 +212,7 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	return t.createNote(resolvedTaskID, *params.Type, content, params.AuthorName, params.AuthorID)
 }
 
-func (t *TaskNoteTool) upsertExternalNote(taskID uint, content, authorName, authorID, source, externalID, externalParentID, externalUpdatedAtRaw string, typeArg *int) (tools.ToolResult, error) {
+func (t *TaskNoteTool) upsertExternalNote(taskID string, content, authorName, authorID, source, externalID, externalParentID, externalUpdatedAtRaw string, typeArg *int) (tools.ToolResult, error) {
 	var extTime *time.Time
 	if strings.TrimSpace(externalUpdatedAtRaw) != "" {
 		ts, err := parseExternalUpdatedAt(externalUpdatedAtRaw)
@@ -244,7 +244,7 @@ func (t *TaskNoteTool) upsertExternalNote(taskID uint, content, authorName, auth
 		ExternalUpdatedAt:  extTime,
 	})
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Error upserting external note on task %d: %v", taskID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Error upserting external note on task %s: %v", taskID, err), IsError: true}, nil
 	}
 
 	action := "updated"
@@ -281,7 +281,7 @@ func (t *TaskNoteTool) upsertExternalNote(taskID uint, content, authorName, auth
 	resultJSON, _ := json.Marshal(resultMap)
 	md := map[string]any{"note_id": note.ID, "task_id": taskID, "action": action, "source": source, "external_id": externalID}
 	return tools.ToolResult{
-		Content:  fmt.Sprintf("Note %s on task %d (%s):\n%s", action, taskID, typeLabel, string(resultJSON)),
+		Content:  fmt.Sprintf("Note %s on task %s (%s):\n%s", action, taskID, typeLabel, string(resultJSON)),
 		Metadata: md,
 	}, nil
 }
@@ -309,7 +309,7 @@ func parseExternalUpdatedAt(s string) (*time.Time, error) {
 	return nil, fmt.Errorf("could not parse timestamp: %v", lastErr)
 }
 
-func (t *TaskNoteTool) createNote(taskID uint, noteType int, content, authorName, authorID string) (tools.ToolResult, error) {
+func (t *TaskNoteTool) createNote(taskID string, noteType int, content, authorName, authorID string) (tools.ToolResult, error) {
 	if noteType < 1 || noteType > 4 {
 		return tools.ToolResult{Content: "type must be 1 (internal), 2 (customer), 3 (agent), or 4 (system)", IsError: true}, nil
 	}
@@ -319,7 +319,7 @@ func (t *TaskNoteTool) createNote(taskID uint, noteType int, content, authorName
 
 	note, err := t.mgr.CreateTaskNote(taskID, database.TaskNoteType(noteType), content, authorName, authorID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Error creating note on task %d: %v", taskID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Error creating note on task %s: %v", taskID, err), IsError: true}, nil
 	}
 
 	typeLabels := map[int]string{1: "internal note", 2: "customer response", 3: "agent action", 4: "system event"}
@@ -338,23 +338,23 @@ func (t *TaskNoteTool) createNote(taskID uint, noteType int, content, authorName
 	}
 	resultJSON, _ := json.Marshal(resultMap)
 	return tools.ToolResult{
-		Content:  fmt.Sprintf("Note added to task %d (%s):\n%s", taskID, typeLabels[noteType], string(resultJSON)),
+		Content:  fmt.Sprintf("Note added to task %s (%s):\n%s", taskID, typeLabels[noteType], string(resultJSON)),
 		Metadata: map[string]any{"note_id": note.ID, "task_id": taskID, "action": "created"},
 	}, nil
 }
 
-func (t *TaskNoteTool) updateNote(noteID uint, taskID uint, content string) (tools.ToolResult, error) {
+func (t *TaskNoteTool) updateNote(noteID string, taskID string, content string) (tools.ToolResult, error) {
 	existing, err := t.mgr.GetTaskNote(noteID)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Note not found (id=%d): %v", noteID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Note not found (id=%s): %v", noteID, err), IsError: true}, nil
 	}
 
 	if existing.TaskID != taskID {
-		return tools.ToolResult{Content: fmt.Sprintf("Note %d does not belong to task %d", noteID, taskID), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Note %s does not belong to task %s", noteID, taskID), IsError: true}, nil
 	}
 
 	if err := t.mgr.UpdateTaskNote(noteID, content); err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Error updating note %d: %v", noteID, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Error updating note %s: %v", noteID, err), IsError: true}, nil
 	}
 
 	resultMap := map[string]any{
