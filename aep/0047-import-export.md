@@ -2,12 +2,12 @@
 
 ## Dependências
 
-- **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Esta AEP foi desenhada para funcionar em conjunto com a AEP-0046. O export não inclui IDs internos (uint ou UUID) justamente para que arquivos exportados antes da migração de IDs possam ser reimportados após a migração sem conflito. Na importação, novos UUIDv7 são gerados automaticamente pelo hook `BeforeCreate` definido na AEP-0046.
+- **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Esta AEP agora assume que a migração para UUIDv7 já aconteceu e passa a usar esses IDs estáveis como contrato portável. O formato legado sem IDs deixa de ser suportado.
 - **AEP-0048**, **AEP-0050**, **AEP-0051** e **AEP-0052**: recursos que hoje ainda vivem fora do banco ou dependem de migrações estruturais complementares ficam para etapas posteriores, depois que essas AEPs forem implementadas.
 
 ## Resumo
 
-Sistema de importação e exportação em formato JSON portável **sem IDs internos**. O desenho desta AEP cobre a evolução do mecanismo para diferentes tipos de recurso, mas **a implementação deste PR fica restrita ao que já está persistido no banco hoje**, com foco em conversas, mensagens e no bloco portátil de credenciais. O export gera um arquivo reutilizável entre instâncias e sobrevive à migração de IDs da AEP-0046. O JSON é o formato canônico para importação; HTML e PDF são formatos derivados apenas para exportação rica. Credenciais sensíveis continuam excluídas por padrão, mas podem ser incluídas opcionalmente em um bloco criptografado com senha de exportação.
+Sistema de importação e exportação em formato JSON portável com **IDs UUID estáveis**. O desenho desta AEP cobre a evolução do mecanismo para diferentes tipos de recurso, mas **a implementação desta etapa continua restrita ao que já está persistido no banco hoje**, com foco em conversas, mensagens, providers, tasklists e no bloco portátil de credenciais. O export passa a carregar os IDs persistidos como contrato canônico, permitindo importação idempotente, deduplicação determinística e sobrescrita direta por `id`. O JSON é o formato canônico para importação; HTML e PDF são formatos derivados apenas para exportação rica. Credenciais sensíveis continuam excluídas por padrão, mas podem ser incluídas opcionalmente em um bloco criptografado com senha de exportação.
 
 Recursos que ainda dependem de migração para o banco ou de ajustes estruturais adicionais permanecem fora do escopo imediato e serão tratados após as migrações propostas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.
 
@@ -15,7 +15,7 @@ Recursos que ainda dependem de migração para o banco ou de ajustes estruturais
 
 1. **Portabilidade**: Usuários precisam migrar dados entre máquinas, reinstalações ou instâncias do Assistente sem perda de conteúdo.
 
-2. **Sobrevivência à AEP-0046**: A migração de IDs sequenciais para UUIDv7 invalida IDs existentes. Um export sem IDs permite reimportar os dados em um banco com schema novo, gerando UUIDs frescos na importação.
+2. **Idempotência**: Com UUIDv7 estável no banco, o mesmo arquivo deve poder ser importado repetidas vezes sem duplicar dados. A identificação por `id` simplifica fortemente deduplicação, referências internas e sobrescrita.
 
 3. **Backup**: Não existe mecanismo de backup além de copiar manualmente o banco SQLite e os arquivos de configuração. Um export JSON estruturado é mais portável e inspecionável.
 
@@ -25,26 +25,28 @@ Recursos que ainda dependem de migração para o banco ou de ajustes estruturais
 
 ## Decisões
 
-### D0 — Implementação incremental desta PR: fase DB-only
+### D0 — Implementação incremental desta fase: DB-only com IDs estáveis
 
 Embora o formato tenha sido desenhado para acomodar múltiplos tipos de recurso, esta entrega implementa apenas o subconjunto já viável com os dados persistidos no banco na arquitetura atual.
 
 Escopo implementado nesta fase:
 
 - conversas
-- mensagens embutidas nas conversas
+- mensagens
+- providers persistidos
+- tasklists persistidas
 - bloco portátil de credenciais criptografadas
 - exportação derivada em HTML/PDF para conversas
 
 Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arquivo, os que dependem de migração para o banco e os que exigem reestruturações previstas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.
 
-### D1 — Formato: JSON
+### D1 — Formato: JSON versionado com IDs estáveis
 
 O arquivo de export é um único JSON com estrutura definida:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "exportedAt": "2026-04-20T15:30:00Z",
   "appVersion": "1.2.0",
   "options": {
@@ -60,68 +62,73 @@ O arquivo de export é um único JSON com estrutura definida:
 }
 ```
 
-Cada seção em `resources` é um array de objetos do respectivo tipo, **sem campos de ID interno** (PK/FK). Relações são expressas por referências naturais (slug, título, posição ordinal).
+Cada seção em `resources` é um array de objetos do respectivo tipo, incluindo `id` UUID quando o recurso é persistido no banco. Relações entre recursos persistidos também usam esses IDs.
 
-### D2 — Sem IDs internos
+### D2 — IDs estáveis fazem parte do contrato portátil
 
-Nenhum ID de banco (uint ou UUID) é incluído no export. Motivos:
+Os IDs UUID persistidos no banco **são incluídos no export**. Motivos:
 
-- IDs auto-increment são específicos da instância — não portáveis
-- Após AEP-0046, IDs serão UUIDv7 — incompatíveis com exports antigos
-- Na importação, IDs são gerados novos pelo banco (via hook `BeforeCreate` da AEP-0046)
+- após AEP-0046, o ID deixa de ser sequencial/local e passa a ser estável o suficiente para portabilidade
+- a presença do `id` permite importação idempotente e atualização determinística
+- referências internas entre recursos ficam mais simples e explícitas
+- o importador deixa de depender de heurísticas frágeis por título/slug/data
 
-**Relações entre recursos** são resolvidas por chaves naturais:
+**Relações entre recursos** são resolvidas por IDs estáveis sempre que o recurso persistido já existir no banco:
 
 | Relação | Chave natural no export |
 |---|---|
-| `ChatMessage → Conversation` | Mensagens embutidas dentro da conversa (posição no array) |
-| `ChatMessage → ChatMessage` (parent/turn) | Índice ordinal no array de mensagens da conversa |
-| `Task → TaskList` | Tasks embutidas dentro da TaskList |
-| `Task → Task` (subtask) | Índice ordinal ou agrupamento hierárquico via `children` |
-| `TaskNote → Task` | Notes embutidas dentro da Task |
+| `ChatMessage → Conversation` | `conversationId` |
+| `ChatMessage → ChatMessage` (parent/turn) | `parentId` / `turnId` |
+| `Task → TaskList` | `taskListId` |
+| `Task → Task` (subtask) | `parentId` |
+| `TaskNote → Task` | `taskId` |
 | `TaskListWorkflow → TaskList` | Workflow embutido dentro da TaskList |
-| `LLMProvider ← Profile` | `provider.id` (slug) referenciado por nome no profile |
+| `LLMProvider ← Profile` | `provider.id` |
 | `Allowlist ← Profile` | `allowlist` referenciado por slug no profile |
 | `Skill ← Profile` | `skills` referenciados por slug no profile |
 | `CredentialEntry ← LLMProvider` | `credentialPattern` referenciado por pattern |
-| `Conversation ← Channel` | Mapeamento `contactId → conversationTitle` (resolvido na importação) |
+| `Conversation ← Channel` | `conversationId` persistido no canal quando esse recurso migrar para banco |
 | `Profile ← Workspace` | `profile` referenciado por slug |
 
-### D3 — Estrutura hierárquica (embed, não flat)
+### D3 — Estrutura hierárquica com IDs preservados
 
-Recursos dependentes são embutidos no pai, não exportados como arrays separados com FKs:
+Recursos dependentes continuam podendo ser embutidos no pai por ergonomia do arquivo, mas **preservam seus próprios IDs** e suas referências estruturais por ID:
 
 ```json
 {
   "conversations": [
     {
+      "id": "0196abc0-1111-7c00-9000-aaaaaaaaaaaa",
       "title": "Conversa sobre UUIDs",
       "channel": "",
       "summary": "...",
       "createdAt": "2026-04-20T10:00:00Z",
       "messages": [
         {
+          "id": "0196abc0-1111-7c00-9000-bbbbbbbbbbbb",
+          "conversationId": "0196abc0-1111-7c00-9000-aaaaaaaaaaaa",
           "role": "user",
           "content": "Como funciona UUIDv7?",
-          "createdAt": "2026-04-20T10:00:01Z",
-          "parentIndex": null,
-          "turnIndex": null
+          "createdAt": "2026-04-20T10:00:01Z"
         },
         {
+          "id": "0196abc0-1111-7c00-9000-cccccccccccc",
+          "conversationId": "0196abc0-1111-7c00-9000-aaaaaaaaaaaa",
           "role": "assistant",
           "content": "UUIDv7 usa timestamp nos primeiros 48 bits...",
           "model": "gpt-4o",
           "promptTokens": 150,
           "completionTokens": 200,
           "createdAt": "2026-04-20T10:00:05Z",
-          "parentIndex": 0,
-          "turnIndex": 0
+          "parentId": "0196abc0-1111-7c00-9000-bbbbbbbbbbbb",
+          "turnId": "0196abc0-1111-7c00-9000-bbbbbbbbbbbb"
         }
       ]
     }
   ],
   "taskLists": [
     {
+      "id": "0196abc0-1111-7c00-9000-dddddddddddd",
       "title": "Sprint 42",
       "slug": "sprint-42",
       "description": "...",
@@ -132,6 +139,8 @@ Recursos dependentes são embutidos no pai, não exportados como arrays separado
       },
       "tasks": [
         {
+          "id": "0196abc0-1111-7c00-9000-eeeeeeeeeeee",
+          "taskListId": "0196abc0-1111-7c00-9000-dddddddddddd",
           "title": "Implementar export",
           "description": "...",
           "statusIndex": 1,
@@ -145,7 +154,7 @@ Recursos dependentes são embutidos no pai, não exportados como arrays separado
 }
 ```
 
-Hierarquia self-referencial (`ChatMessage.parentId`, `Task.parentId`) é expressa via `parentIndex` (índice no array do pai) ou aninhamento em `children`.
+Hierarquia self-referencial (`ChatMessage.parentId`, `Task.parentId`) é persistida no arquivo pelo próprio `id` do recurso relacionado.
 
 ### D4 — Credenciais: excluídas por padrão, exportáveis com criptografia opcional
 
@@ -249,28 +258,33 @@ type ExportRequest struct {
 }
 ```
 
-### D7 — Importação com resolução de conflitos
+### D7 — Importação idempotente por ID
 
-Na importação, cada recurso é verificado contra existentes:
+Na importação, cada recurso persistido é resolvido primariamente por `id`:
 
 | Recurso | Chave de conflito | Estratégia |
 |---|---|---|
-| `Conversation` | título + channel + createdAt | Perguntar ao usuário |
-| `LLMProvider` | `id` (slug) | Perguntar: pular, sobrescrever, renomear |
+| `Conversation` | `id` | Upsert por ID |
+| `LLMProvider` | `id` | Upsert por ID |
 | `Profile` | slug | Perguntar: pular, sobrescrever, renomear |
 | `Skill` | slug | Perguntar: pular, sobrescrever, renomear |
 | `Allowlist` | slug | Perguntar: pular, sobrescrever, renomear |
 | `MCP Server` | slug | Perguntar: pular, sobrescrever, renomear |
 | `Job` | id | Perguntar: pular, sobrescrever, renomear |
-| `TaskList` | slug (ou título se sem slug) | Perguntar: pular, sobrescrever, renomear |
-| `CredentialEntry` | pattern | Perguntar: pular, sobrescrever (só metadados) |
+| `TaskList` | `id` | Upsert por ID |
+| `CredentialEntry` | `id` | Upsert por ID |
 | `Channel` | nome do canal | Perguntar: pular, sobrescrever |
 | `Contact` | id + canal | Merge (adicionar novos, manter existentes) |
 | `Workspace` | nome | Perguntar: pular, sobrescrever, renomear |
 
-A UI mostra um resumo dos conflitos detectados antes de confirmar a importação. Recursos sem conflito são importados automaticamente.
+A consequência prática é:
 
-**Implementação desta PR:** o fluxo atual detecta conflitos de conversa, provider, tasklist e credenciais. Para o recorte DB-only, a UI já permite escolher `pular`, `sobrescrever` e, quando aplicável, `renomear` para conversations/providers/tasklists; para credenciais, permite `pular` ou `sobrescrever`. Recursos fora desse recorte permanecem para etapas posteriores.
+- reimportar o mesmo arquivo deve ser seguro
+- o import vira idempotente por padrão
+- o modo principal deixa de depender de `skip/overwrite/rename`
+- detecção de conflito por chave natural vira fallback excepcional apenas para recursos legados fora do escopo DB atual
+
+**Implementação desta fase:** o recorte DB-only deve convergir para import idempotente de conversations/messages/providers/tasklists/credentials por `id`, removendo a UI e o backend de resolução interativa de conflitos desses recursos.
 
 ### D8 — Referências cruzadas na importação
 
@@ -298,9 +312,10 @@ Na UI de export, ao detectar que recursos selecionados contêm campos potencialm
 
 ### D10 — Versionamento do formato
 
-O campo `version: 1` no export permite evolução futura:
+O campo `version: 2` no export identifica o novo contrato baseado em IDs estáveis:
 
 - Importação sempre verifica a versão antes de processar
+- O formato legado `version: 1` deixa de ser suportado
 - Versões futuras podem adicionar campos sem quebrar compatibilidade (campos desconhecidos são ignorados)
 - Se uma versão futura fizer mudanças incompatíveis, incrementa o número e o importador antigo rejeita com mensagem clara
 
@@ -321,7 +336,7 @@ Campos que **não** são exportados por serem computados ou estado de runtime:
 | `Conversation` | `summarizingInProgress` | Estado runtime |
 | `ChatMessage` | `audio` | Excluído por padrão (D5) |
 | `Job` | `filePath`, `lastRun`, `status` | Estado runtime |
-| Todos | `id` (PK) | Excluído por design (D2) |
+| Todos | `id` (PK) | **Mantido** no formato portável para idempotência |
 | Todos | `updatedAt` | Pode ser regenerado; `createdAt` é preservado |
 
 ### D13 — Extensibilidade para recursos futuros

@@ -74,7 +74,7 @@ func timePtr(v time.Time) *time.Time {
 	return &v
 }
 
-func TestExportConversationUsesIndexesInsteadOfIDs(t *testing.T) {
+func TestExportConversationPreservesStableIDs(t *testing.T) {
 	parentID := "10"
 	turnID := "10"
 	assistantID := "20"
@@ -91,14 +91,14 @@ func TestExportConversationUsesIndexesInsteadOfIDs(t *testing.T) {
 	if len(exported.Messages) != 2 {
 		t.Fatalf("len(Messages) = %d, want 2", len(exported.Messages))
 	}
-	if exported.Messages[0].ParentIndex != nil {
-		t.Fatalf("root ParentIndex = %v, want nil", *exported.Messages[0].ParentIndex)
+	if exported.Messages[0].ID != parentID {
+		t.Fatalf("root ID = %q, want %q", exported.Messages[0].ID, parentID)
 	}
-	if exported.Messages[1].ParentIndex == nil || *exported.Messages[1].ParentIndex != 0 {
-		t.Fatalf("assistant ParentIndex = %v, want 0", exported.Messages[1].ParentIndex)
+	if exported.Messages[1].ParentID != parentID {
+		t.Fatalf("assistant ParentID = %q, want %q", exported.Messages[1].ParentID, parentID)
 	}
-	if exported.Messages[1].TurnIndex == nil || *exported.Messages[1].TurnIndex != 0 {
-		t.Fatalf("assistant TurnIndex = %v, want 0", exported.Messages[1].TurnIndex)
+	if exported.Messages[1].TurnID != turnID {
+		t.Fatalf("assistant TurnID = %q, want %q", exported.Messages[1].TurnID, turnID)
 	}
 }
 
@@ -134,6 +134,7 @@ func setupPortabilityTestDB(t *testing.T) {
 		&database.TaskList{},
 		&database.Task{},
 		&database.TaskNote{},
+		&database.CredentialEntry{},
 	); err != nil {
 		t.Fatalf("falha ao migrar tabelas: %v", err)
 	}
@@ -286,16 +287,20 @@ func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T
 		t.Fatalf("falha ao criar conversa existente: %v", err)
 	}
 
-	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
 	if err := credMgr.RegisterPatternWithContext(t.Context(), "api.openai.com", &credentials.AuthConfig{
 		Type:  "bearer",
 		Token: "secret",
 	}); err != nil {
 		t.Fatalf("falha ao registrar credencial existente: %v", err)
 	}
+	existingCreds, err := credMgr.ListCredentials()
+	if err != nil || len(existingCreds) != 1 {
+		t.Fatalf("ListCredentials() error = %v, len = %d", err, len(existingCreds))
+	}
 
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Now().UTC(),
 		Options: ExportOptions{
 			IncludeCredentials: true,
@@ -315,7 +320,7 @@ func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+		{ID: existingCreds[0].ID, Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
 	})
 	if err != nil {
 		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
@@ -335,8 +340,8 @@ func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T
 	if analysis.ConversationCount != 1 || analysis.MessageCount != 1 {
 		t.Fatalf("counts inesperados: %+v", analysis)
 	}
-	if analysis.ConflictCount != 2 {
-		t.Fatalf("ConflictCount = %d, want 2", analysis.ConflictCount)
+	if analysis.ConflictCount != 1 {
+		t.Fatalf("ConflictCount = %d, want 1", analysis.ConflictCount)
 	}
 	if len(analysis.ConversationConflicts) != 1 {
 		t.Fatalf("conversation conflicts = %d, want 1", len(analysis.ConversationConflicts))
@@ -344,11 +349,8 @@ func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T
 	if len(analysis.ConversationConflicts[0].SupportedStrategies) != 3 {
 		t.Fatalf("ConversationConflicts[0].SupportedStrategies = %v, want 3 opções", analysis.ConversationConflicts[0].SupportedStrategies)
 	}
-	if len(analysis.CredentialConflicts) != 1 {
-		t.Fatalf("credential conflicts = %d, want 1", len(analysis.CredentialConflicts))
-	}
-	if len(analysis.CredentialConflicts[0].SupportedStrategies) != 2 {
-		t.Fatalf("CredentialConflicts[0].SupportedStrategies = %v, want 2 opções", analysis.CredentialConflicts[0].SupportedStrategies)
+	if len(analysis.CredentialConflicts) != 0 {
+		t.Fatalf("credential conflicts = %d, want 0 for idempotent credential import", len(analysis.CredentialConflicts))
 	}
 }
 
@@ -421,7 +423,7 @@ func TestAnalyzeImportDataWarnsAboutEmptyConversations(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Now().UTC(),
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
@@ -458,7 +460,7 @@ func TestAnalyzeImportDataReportsUnsupportedResourceTypes(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	raw := `{
-		"version": 1,
+		"version": 2,
 		"resources": {
 			"conversations": [],
 			"profiles": [{"slug":"perfil-demo"}],
@@ -568,14 +570,8 @@ func TestAnalyzeImportDataDetectsProviderConflicts(t *testing.T) {
 	if analysis.ProviderCount != 1 {
 		t.Fatalf("ProviderCount = %d, want 1", analysis.ProviderCount)
 	}
-	if len(analysis.ProviderConflicts) != 1 {
-		t.Fatalf("len(ProviderConflicts) = %d, want 1", len(analysis.ProviderConflicts))
-	}
-	if analysis.ProviderConflicts[0].Identifier != provider.ID {
-		t.Fatalf("unexpected provider conflict: %+v", analysis.ProviderConflicts[0])
-	}
-	if len(analysis.ProviderConflicts[0].SupportedStrategies) != 3 {
-		t.Fatalf("ProviderConflicts[0].SupportedStrategies = %v, want 3 opções", analysis.ProviderConflicts[0].SupportedStrategies)
+	if len(analysis.ProviderConflicts) != 0 {
+		t.Fatalf("len(ProviderConflicts) = %d, want 0 for idempotent upsert by id", len(analysis.ProviderConflicts))
 	}
 }
 
@@ -604,14 +600,8 @@ func TestAnalyzeImportDataDetectsTaskListConflicts(t *testing.T) {
 	if analysis.TaskCount != 2 || analysis.TaskNoteCount != 1 {
 		t.Fatalf("TaskCount/TaskNoteCount = %d/%d, want 2/1", analysis.TaskCount, analysis.TaskNoteCount)
 	}
-	if len(analysis.TaskListConflicts) != 1 {
-		t.Fatalf("len(TaskListConflicts) = %d, want 1", len(analysis.TaskListConflicts))
-	}
-	if analysis.TaskListConflicts[0].Identifier != "sprint-42" {
-		t.Fatalf("unexpected tasklist conflict identifier: %+v", analysis.TaskListConflicts[0])
-	}
-	if len(analysis.TaskListConflicts[0].SupportedStrategies) != 3 {
-		t.Fatalf("TaskListConflicts[0].SupportedStrategies = %v, want 3 opções", analysis.TaskListConflicts[0].SupportedStrategies)
+	if len(analysis.TaskListConflicts) != 0 {
+		t.Fatalf("len(TaskListConflicts) = %d, want 0 for idempotent upsert by id", len(analysis.TaskListConflicts))
 	}
 }
 
@@ -636,11 +626,8 @@ func TestAnalyzeImportDataDetectsTaskListConflictsWithNormalizedSlug(t *testing.
 		t.Fatalf("AnalyzeImportData() error = %v", err)
 	}
 
-	if len(analysis.TaskListConflicts) != 1 {
-		t.Fatalf("len(TaskListConflicts) = %d, want 1", len(analysis.TaskListConflicts))
-	}
-	if analysis.TaskListConflicts[0].Identifier != "sprint-42" {
-		t.Fatalf("unexpected normalized tasklist conflict identifier: %+v", analysis.TaskListConflicts[0])
+	if len(analysis.TaskListConflicts) != 0 {
+		t.Fatalf("len(TaskListConflicts) = %d, want 0 for idempotent upsert by id", len(analysis.TaskListConflicts))
 	}
 }
 
@@ -649,7 +636,7 @@ func TestImportConversationsImportsProviders(t *testing.T) {
 
 	now := time.Now().UTC()
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: now,
 		Resources: ExportResources{
 			Providers: []ProviderExport{
@@ -700,7 +687,7 @@ func TestImportConversationsImportsTaskLists(t *testing.T) {
 
 	now := time.Now().UTC()
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: now,
 		Resources: ExportResources{
 			TaskLists: []TaskListExport{
@@ -845,7 +832,7 @@ func TestImportConversationsWithResolutionsOverwritesConversation(t *testing.T) 
 	}
 
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Now().UTC(),
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
@@ -910,7 +897,7 @@ func TestImportConversationsWithResolutionsRenamesProvider(t *testing.T) {
 
 	provider := createPortableProviderFixture(t)
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Now().UTC(),
 		Resources: ExportResources{
 			Providers: []ProviderExport{
@@ -955,11 +942,11 @@ func TestImportConversationsWithResolutionsRenamesProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetLLMProviders() error = %v", err)
 	}
-	if len(providers) != 2 {
-		t.Fatalf("len(providers) = %d, want 2", len(providers))
+	if len(providers) != 1 {
+		t.Fatalf("len(providers) = %d, want 1 after idempotent overwrite by id", len(providers))
 	}
 
-	renamed, err := database.GetLLMProvider("openai-custom-copy")
+	renamed, err := database.GetLLMProvider(provider.ID)
 	if err != nil {
 		t.Fatalf("GetLLMProvider(renamed) error = %v", err)
 	}
@@ -973,7 +960,7 @@ func TestImportConversationsWithResolutionsOverwritesTaskList(t *testing.T) {
 
 	taskList := createPortableTaskListFixture(t)
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Now().UTC(),
 		Resources: ExportResources{
 			TaskLists: []TaskListExport{
@@ -1094,11 +1081,11 @@ func TestGetTaskListWithHierarchyPreservesDeepHierarchy(t *testing.T) {
 func TestAnalyzeImportDataRejectsUnsupportedVersion(t *testing.T) {
 	setupPortabilityTestDB(t)
 
-	_, err := AnalyzeImportData(`{"version":2,"resources":{"conversations":[]}}`, nil, "")
+	_, err := AnalyzeImportData(`{"version":1,"resources":{"conversations":[]}}`, nil, "")
 	if err == nil {
 		t.Fatal("AnalyzeImportData() error = nil, want unsupported version error")
 	}
-	if !strings.Contains(err.Error(), "versão de exportação não suportada: 2") {
+	if !strings.Contains(err.Error(), "versão de exportação não suportada: 1") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1108,7 +1095,7 @@ func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
 
 	now := time.Now().UTC()
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: now,
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
@@ -1157,7 +1144,7 @@ func TestImportConversationsWarnsAboutUnsupportedResourceTypes(t *testing.T) {
 
 	now := time.Now().UTC()
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: now,
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
@@ -1193,11 +1180,11 @@ func TestImportConversationsWarnsAboutUnsupportedResourceTypes(t *testing.T) {
 func TestImportConversationsRejectsUnsupportedVersion(t *testing.T) {
 	setupPortabilityTestDB(t)
 
-	_, err := ImportConversations(`{"version":2,"resources":{"conversations":[]}}`, nil, "")
+	_, err := ImportConversations(`{"version":1,"resources":{"conversations":[]}}`, nil, "")
 	if err == nil {
 		t.Fatal("ImportConversations() error = nil, want unsupported version error")
 	}
-	if !strings.Contains(err.Error(), "versão de exportação não suportada: 2") {
+	if !strings.Contains(err.Error(), "versão de exportação não suportada: 1") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1218,17 +1205,20 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 		t.Fatalf("falha ao criar conversa existente: %v", err)
 	}
 
-	credStore := newMemoryCredentialStore()
-	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credStore, true)
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
 	if err := credMgr.RegisterPatternWithContext(t.Context(), "api.openai.com", &credentials.AuthConfig{
 		Type:  "bearer",
 		Token: "secret",
 	}); err != nil {
 		t.Fatalf("falha ao registrar credencial existente: %v", err)
 	}
+	existingCreds, err := credMgr.ListCredentials()
+	if err != nil || len(existingCreds) != 1 {
+		t.Fatalf("ListCredentials() error = %v, len = %d", err, len(existingCreds))
+	}
 
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: now,
 		Options: ExportOptions{
 			IncludeCredentials: true,
@@ -1256,7 +1246,7 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+		{ID: existingCreds[0].ID, Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
 	})
 	if err != nil {
 		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
@@ -1273,11 +1263,11 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 		t.Fatalf("ImportConversations() error = %v", err)
 	}
 
-	if result.Imported != 1 {
-		t.Fatalf("Imported = %d, want 1", result.Imported)
+	if result.Imported != 2 {
+		t.Fatalf("Imported = %d, want 2", result.Imported)
 	}
-	if result.Skipped != 3 {
-		t.Fatalf("Skipped = %d, want 3", result.Skipped)
+	if result.Skipped != 2 {
+		t.Fatalf("Skipped = %d, want 2", result.Skipped)
 	}
 	if result.Failed != 0 {
 		t.Fatalf("Failed = %d, want 0", result.Failed)
@@ -1288,8 +1278,8 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 	if result.SkippedConversationConflict != 1 {
 		t.Fatalf("SkippedConversationConflict = %d, want 1", result.SkippedConversationConflict)
 	}
-	if result.SkippedCredentialConflict != 1 {
-		t.Fatalf("SkippedCredentialConflict = %d, want 1", result.SkippedCredentialConflict)
+	if result.SkippedCredentialConflict != 0 {
+		t.Fatalf("SkippedCredentialConflict = %d, want 0", result.SkippedCredentialConflict)
 	}
 	if result.SkippedOther != 0 {
 		t.Fatalf("SkippedOther = %d, want 0", result.SkippedOther)
@@ -1304,7 +1294,7 @@ func TestImportConversationsPropagatesContextToCredentialPersistence(t *testing.
 
 	now := time.Now().UTC()
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: now,
 		Options: ExportOptions{
 			IncludeCredentials: true,
@@ -1336,20 +1326,23 @@ func TestImportConversationsPropagatesContextToCredentialPersistence(t *testing.
 	}
 }
 
-func TestImportConversationsWithResolutionsOverwritesCredentialConflicts(t *testing.T) {
+func TestImportConversationsOverwritesCredentialsByID(t *testing.T) {
 	setupPortabilityTestDB(t)
 
-	store := newMemoryCredentialStore()
-	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
 	if err := credMgr.RegisterPatternWithContext(t.Context(), "api.openai.com", &credentials.AuthConfig{
 		Type:  "bearer",
 		Token: "token-antigo",
 	}); err != nil {
 		t.Fatalf("RegisterPatternWithContext(existing) error = %v", err)
 	}
+	existingCreds, err := credMgr.ListCredentials()
+	if err != nil || len(existingCreds) != 1 {
+		t.Fatalf("ListCredentials() error = %v, len = %d", err, len(existingCreds))
+	}
 
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Now().UTC(),
 		Options: ExportOptions{
 			IncludeCredentials: true,
@@ -1357,7 +1350,7 @@ func TestImportConversationsWithResolutionsOverwritesCredentialConflicts(t *test
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
+		{ID: existingCreds[0].ID, Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -1369,15 +1362,9 @@ func TestImportConversationsWithResolutionsOverwritesCredentialConflicts(t *test
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 
-	result, err := ImportConversationsWithResolutions(t.Context(), string(raw), credMgr, "senha-teste", []ImportResolution{
-		{
-			ResourceType: "credential",
-			Identifier:   "api.openai.com",
-			Strategy:     ConflictResolutionOverwrite,
-		},
-	})
+	result, err := ImportConversations(string(raw), credMgr, "senha-teste")
 	if err != nil {
-		t.Fatalf("ImportConversationsWithResolutions() error = %v", err)
+		t.Fatalf("ImportConversations() error = %v", err)
 	}
 	if result.Imported != 1 || result.Skipped != 0 || result.Failed != 0 {
 		t.Fatalf("unexpected result: %+v", result)

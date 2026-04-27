@@ -30,6 +30,11 @@ func importProvider(provider ProviderExport) (bool, error) {
 	if strings.TrimSpace(provider.ID) == "" {
 		return false, fmt.Errorf("provider sem id não pode ser importado")
 	}
+	if existing, err := findExistingProviderByID(provider.ID); err != nil {
+		return false, err
+	} else if existing != nil {
+		return overwriteProvider(provider)
+	}
 
 	err := database.DB().Transaction(func(tx *gorm.DB) error {
 		return persistProvider(tx, provider, nil)

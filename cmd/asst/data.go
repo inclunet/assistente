@@ -18,7 +18,7 @@ type dataBackend interface {
 	ExportData(req app.ExportRequest) (string, error)
 	ExportDataToFile(req app.ExportRequest, path string) (string, error)
 	AnalyzeImportData(jsonData string, credentialExportPassword string) (*app.ImportAnalysis, error)
-	ImportDataWithResolutions(req app.ImportRequest) (*app.ImportResult, error)
+	ImportData(jsonData string, credentialExportPassword string) (*app.ImportResult, error)
 	GetConversations() ([]app.Conversation, error)
 	GetLLMProviders() []*llm.ProviderConfig
 	GetAllTaskLists() ([]app.TaskList, error)
@@ -48,7 +48,6 @@ var (
 	dataAnalyzeCredentialPassword string
 
 	dataImportCredentialPassword string
-	dataImportResolutions        []string
 )
 
 var dataExportCmd = &cobra.Command{
@@ -107,19 +106,10 @@ var dataAnalyzeCmd = &cobra.Command{
 var dataImportCmd = &cobra.Command{
 	Use:   "import <arquivo>",
 	Short: "Importa um arquivo portátil",
-	Long: `Importa um arquivo portátil do assistente.
-
-Resoluções de conflito podem ser passadas repetindo --resolution:
-  --resolution "credential=overwrite=api.openai.com"
-  --resolution "provider=rename=openai-custom=>openai-custom-copia"
-  --resolution "taskList=skip=roadmap-2026"`,
+	Long:  "Importa um arquivo portátil do assistente no modelo UUID versionado.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resolutions, err := parseImportResolutionSpecs(dataImportResolutions)
-		if err != nil {
-			return err
-		}
-		return runDataImport(rootApp, os.Stdout, os.ReadFile, args[0], dataImportCredentialPassword, resolutions)
+		return runDataImport(rootApp, os.Stdout, os.ReadFile, args[0], dataImportCredentialPassword)
 	},
 }
 
@@ -261,17 +251,13 @@ func runDataAnalyze(svc dataBackend, out io.Writer, readFile func(string) ([]byt
 	return nil
 }
 
-func runDataImport(svc dataBackend, out io.Writer, readFile func(string) ([]byte, error), path string, credentialPassword string, resolutions []app.ImportResolution) error {
+func runDataImport(svc dataBackend, out io.Writer, readFile func(string) ([]byte, error), path string, credentialPassword string) error {
 	raw, err := readFile(path)
 	if err != nil {
 		return fmt.Errorf("erro ao ler arquivo de importação: %w", err)
 	}
 
-	result, err := svc.ImportDataWithResolutions(app.ImportRequest{
-		JSONData:                 string(raw),
-		CredentialExportPassword: credentialPassword,
-		Resolutions:              resolutions,
-	})
+	result, err := svc.ImportData(string(raw), credentialPassword)
 	if err != nil {
 		return fmt.Errorf("erro ao importar dados: %w", err)
 	}
@@ -332,63 +318,6 @@ func stringifyStrategies(strategies []portability.ConflictResolutionStrategy) []
 		items = append(items, string(strategy))
 	}
 	return items
-}
-
-func parseImportResolutionSpecs(specs []string) ([]app.ImportResolution, error) {
-	if len(specs) == 0 {
-		return nil, nil
-	}
-
-	resolutions := make([]app.ImportResolution, 0, len(specs))
-	for _, spec := range specs {
-		resolution, err := parseImportResolutionSpec(spec)
-		if err != nil {
-			return nil, err
-		}
-		resolutions = append(resolutions, resolution)
-	}
-	return resolutions, nil
-}
-
-func parseImportResolutionSpec(spec string) (app.ImportResolution, error) {
-	parts := strings.SplitN(spec, "=", 3)
-	if len(parts) != 3 {
-		return app.ImportResolution{}, fmt.Errorf("resolução inválida %q: use tipo=estrategia=identificador ou tipo=rename=identificador=>novo-valor", spec)
-	}
-
-	resourceType := strings.TrimSpace(parts[0])
-	strategy := portability.ConflictResolutionStrategy(strings.TrimSpace(parts[1]))
-	rawValue := strings.TrimSpace(parts[2])
-	if resourceType == "" || rawValue == "" {
-		return app.ImportResolution{}, fmt.Errorf("resolução inválida %q: tipo e identificador são obrigatórios", spec)
-	}
-
-	switch strategy {
-	case portability.ConflictResolutionSkip, portability.ConflictResolutionOverwrite:
-		return app.ImportResolution{
-			ResourceType: resourceType,
-			Identifier:   rawValue,
-			Strategy:     strategy,
-		}, nil
-	case portability.ConflictResolutionRename:
-		renameParts := strings.SplitN(rawValue, "=>", 2)
-		if len(renameParts) != 2 {
-			return app.ImportResolution{}, fmt.Errorf("resolução inválida %q: rename exige identificador=>novo-valor", spec)
-		}
-		identifier := strings.TrimSpace(renameParts[0])
-		renameValue := strings.TrimSpace(renameParts[1])
-		if identifier == "" || renameValue == "" {
-			return app.ImportResolution{}, fmt.Errorf("resolução inválida %q: rename exige identificador e novo valor", spec)
-		}
-		return app.ImportResolution{
-			ResourceType: resourceType,
-			Identifier:   identifier,
-			Strategy:     strategy,
-			RenameValue:  renameValue,
-		}, nil
-	default:
-		return app.ImportResolution{}, fmt.Errorf("estratégia de conflito inválida %q", strategy)
-	}
 }
 
 func yesNo(value bool) string {
@@ -453,7 +382,6 @@ func init() {
 	dataAnalyzeCmd.Flags().StringVar(&dataAnalyzeCredentialPassword, "credential-password", "", "Senha para analisar credenciais criptografadas")
 
 	dataImportCmd.Flags().StringVar(&dataImportCredentialPassword, "credential-password", "", "Senha para importar credenciais criptografadas")
-	dataImportCmd.Flags().StringArrayVar(&dataImportResolutions, "resolution", nil, "Resolução de conflito no formato tipo=estrategia=identificador ou tipo=rename=identificador=>novo-valor")
 
 	dataCmd.AddCommand(dataExportCmd)
 	dataCmd.AddCommand(dataAnalyzeCmd)

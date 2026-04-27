@@ -10,7 +10,7 @@ import {
   ImportOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { AnalyzeImportData, GetAllTaskLists, GetConversations, GetLLMProvidersWithStatus, DeleteConversation, UpdateConversation, ExportConversationsToFile, ExportData, ImportData, ImportDataWithResolutions, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { AnalyzeImportData, GetAllTaskLists, GetConversations, GetLLMProvidersWithStatus, DeleteConversation, UpdateConversation, ExportConversationsToFile, ExportData, ImportData, SearchConversationHistory } from '@wailsjs/go/app/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../components/menu';
@@ -21,7 +21,6 @@ import { Checkbox } from '../components/ui/Checkbox';
 import { FormField } from '../components/ui/FormField';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
-import { Select } from '../components/ui/Select';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -62,22 +61,6 @@ interface ImportConflict {
   resourceType: string;
   identifier: string;
   reason: string;
-  supportedStrategies?: ImportResolutionStrategy[];
-}
-
-type ImportResolutionStrategy = 'skip' | 'overwrite' | 'rename';
-
-interface ImportResolutionDraft {
-  resourceType: string;
-  identifier: string;
-  strategy: ImportResolutionStrategy;
-  renameValue?: string;
-}
-
-interface ImportRequestPayload {
-  jsonData: string;
-  credentialExportPassword?: string;
-  resolutions?: ImportResolutionDraft[];
 }
 
 interface ImportAnalysis {
@@ -127,8 +110,6 @@ interface ExportRequestPayload {
   credentialExportPassword?: string;
   outputFormat: 'json';
 }
-
-type ImportResolutionMap = Record<string, ImportResolutionDraft>;
 
 interface TaskListRecord {
   id: string;
@@ -224,61 +205,6 @@ function buildImportAnalysisKey(preview: ImportPreview, password: string): strin
   ].join('::');
 }
 
-function buildConflictKey(resourceType: string, identifier: string): string {
-  return `${resourceType}::${identifier}`;
-}
-
-function getConflictResolutionLabelKey(conflict: ImportConflict, strategy: ImportResolutionStrategy): string {
-  if (strategy === 'skip') {
-    return 'history.importResolutionSkip';
-  }
-  if (strategy === 'overwrite') {
-    return 'history.importResolutionOverwrite';
-  }
-  return conflict.resourceType === 'conversation'
-    ? 'history.importResolutionRenameConversation'
-    : 'history.importResolutionRename';
-}
-
-function mergeImportResolutions(analysis: ImportAnalysis | null, current: ImportResolutionMap): ImportResolutionMap {
-  if (!analysis) {
-    return {};
-  }
-
-  const next: ImportResolutionMap = {};
-  const conflictGroups = [
-    ...(analysis.conversationConflicts ?? []),
-    ...(analysis.providerConflicts ?? []),
-    ...(analysis.taskListConflicts ?? []),
-    ...(analysis.credentialConflicts ?? []),
-  ];
-
-  conflictGroups.forEach((conflict) => {
-    const key = buildConflictKey(conflict.resourceType, conflict.identifier);
-    const previous = current[key];
-    const supported = conflict.supportedStrategies ?? ['skip'];
-    const fallbackStrategy = (supported.includes('skip') ? 'skip' : (supported[0] ?? 'skip')) as ImportResolutionStrategy;
-    const nextStrategy = previous && supported.includes(previous.strategy) ? previous.strategy : fallbackStrategy;
-    next[key] = {
-      resourceType: conflict.resourceType,
-      identifier: conflict.identifier,
-      strategy: nextStrategy,
-      renameValue: previous?.renameValue ?? '',
-    };
-  });
-
-  return next;
-}
-
-function buildImportResolutionsPayload(resolutions: ImportResolutionMap): ImportResolutionDraft[] {
-  return Object.values(resolutions).map((resolution) => ({
-    resourceType: resolution.resourceType,
-    identifier: resolution.identifier,
-    strategy: resolution.strategy,
-    renameValue: resolution.strategy === 'rename' ? resolution.renameValue?.trim() ?? '' : undefined,
-  }));
-}
-
 export default function HistoryPage() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
@@ -287,7 +213,7 @@ export default function HistoryPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchResultIds, setSearchResultIds] = useState<Set<string> | null>(null);
   const [snippetsMap, setSnippetsMap] = useState<Map<string, string>>(new Map());
   const [searching, setSearching] = useState(false);
@@ -306,12 +232,10 @@ export default function HistoryPage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importAnalysis, setImportAnalysis] = useState<ImportAnalysis | null>(null);
-  const [importResolutions, setImportResolutions] = useState<ImportResolutionMap>({});
   const [lastImportResult, setLastImportResult] = useState<ImportResultSummary | null>(null);
   const [isAnalyzingImport, setIsAnalyzingImport] = useState(false);
   const [importPassword, setImportPassword] = useState('');
   const [importPasswordError, setImportPasswordError] = useState('');
-  const [importResolutionError, setImportResolutionError] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const importAnalysisInFlightRef = useRef(false);
   const pendingImportAnalysisRef = useRef<{ jsonData: string; password: string; key: string } | null>(null);
@@ -464,7 +388,7 @@ export default function HistoryPage() {
 
   const getTargetConversationIds = useCallback(() => (
     selectedIds.size > 0
-      ? Array.from(selectedIds)
+      ? Array.from(selectedIds).map(String)
       : conversations.map((c) => c.id)
   ), [conversations, selectedIds]);
 
@@ -604,11 +528,9 @@ export default function HistoryPage() {
     setIsImportModalOpen(false);
     setImportPreview(null);
     setImportAnalysis(null);
-    setImportResolutions({});
     setLastImportResult(null);
     setImportPassword('');
     setImportPasswordError('');
-    setImportResolutionError('');
     pendingImportAnalysisRef.current = null;
     lastAnalyzedImportRef.current = null;
   }, []);
@@ -619,7 +541,6 @@ export default function HistoryPage() {
       const analysis = await AnalyzeImportData(jsonData, credentialPassword);
       const nextAnalysis = analysis as ImportAnalysis;
       setImportAnalysis(nextAnalysis);
-      setImportResolutions((current) => mergeImportResolutions(nextAnalysis, current));
       return nextAnalysis;
     } finally {
       setIsAnalyzingImport(false);
@@ -656,11 +577,9 @@ export default function HistoryPage() {
     const preview = buildImportPreview(selectedFile.name, selectedFile.content);
     setImportPreview(preview);
     setImportAnalysis(null);
-    setImportResolutions({});
     setLastImportResult(null);
     setImportPassword('');
     setImportPasswordError('');
-    setImportResolutionError('');
     await analyzeImportPayload(selectedFile.content, '');
     lastAnalyzedImportRef.current = buildImportAnalysisKey(preview, '');
     setIsImportModalOpen(true);
@@ -705,28 +624,6 @@ export default function HistoryPage() {
     }
   }, [announce, getImportErrorMessage, selectImportFile]);
 
-  const updateImportResolution = useCallback((resourceType: string, identifier: string, updates: Partial<ImportResolutionDraft>) => {
-    const key = buildConflictKey(resourceType, identifier);
-    setImportResolutions((current) => {
-      const existing = current[key] ?? {
-        resourceType,
-        identifier,
-        strategy: 'skip' as const,
-        renameValue: '',
-      };
-      return {
-        ...current,
-        [key]: {
-          ...existing,
-          ...updates,
-        },
-      };
-    });
-    if (importResolutionError) {
-      setImportResolutionError('');
-    }
-  }, [importResolutionError]);
-
   const handleConfirmImport = useCallback(async () => {
     if (lastImportResult) {
       closeImportModal();
@@ -742,25 +639,10 @@ export default function HistoryPage() {
       return;
     }
 
-    const resolutionsPayload = buildImportResolutionsPayload(importResolutions);
-    const renameConflict = resolutionsPayload.find((resolution) => resolution.strategy === 'rename' && !resolution.renameValue);
-    if (renameConflict) {
-      setImportResolutionError(t('history.importResolutionRenameRequired', 'Informe um novo valor para cada conflito configurado como renomear.'));
-      return;
-    }
-
     setIsImporting(true);
     setImportPasswordError('');
-    setImportResolutionError('');
     try {
-      const hasExplicitResolutions = resolutionsPayload.length > 0;
-      const result = hasExplicitResolutions
-        ? await ImportDataWithResolutions({
-            jsonData: importPreview.jsonData,
-            credentialExportPassword: importPassword.trim(),
-            resolutions: resolutionsPayload,
-          } as ImportRequestPayload) as ImportResultSummary
-        : await ImportData(importPreview.jsonData, importPassword.trim()) as ImportResultSummary;
+      const result = await ImportData(importPreview.jsonData, importPassword.trim()) as ImportResultSummary;
       const details = [
         result.success
           ? t('history.importSuccess', 'Dados importados com sucesso!')
@@ -833,7 +715,7 @@ export default function HistoryPage() {
     } finally {
       setIsImporting(false);
     }
-  }, [announce, closeImportModal, importAnalysis?.credentialAnalysisError, importPassword, importPreview, importResolutions, lastImportResult, t]);
+  }, [announce, closeImportModal, importAnalysis?.credentialAnalysisError, importPassword, importPreview, lastImportResult, t]);
 
   useEffect(() => {
     if (!isImportModalOpen || !importPreview) return;
@@ -1069,71 +951,17 @@ export default function HistoryPage() {
         <strong>{title}</strong>
         <ul className="history-page__import-list">
           {conflicts.map((conflict) => {
-            const resolutionKey = buildConflictKey(conflict.resourceType, conflict.identifier);
-            const resolution = importResolutions[resolutionKey] ?? {
-              resourceType: conflict.resourceType,
-              identifier: conflict.identifier,
-              strategy: (conflict.supportedStrategies?.includes('skip') ? 'skip' : (conflict.supportedStrategies?.[0] ?? 'skip')) as ImportResolutionStrategy,
-              renameValue: '',
-            };
-            const resolutionOptions = (conflict.supportedStrategies ?? ['skip']).map((strategy) => ({
-              value: strategy,
-              label: t(getConflictResolutionLabelKey(conflict, strategy), {
-                defaultValue: strategy === 'skip'
-                  ? 'Ignorar nesta importação'
-                  : strategy === 'overwrite'
-                    ? 'Sobrescrever o recurso existente'
-                    : conflict.resourceType === 'conversation'
-                      ? 'Importar com novo título'
-                      : 'Importar com novo identificador',
-              }),
-            }));
-            const renameLabel = conflict.resourceType === 'conversation'
-              ? t('history.importResolutionRenameConversationLabel', 'Novo título')
-              : t('history.importResolutionRenameLabel', 'Novo identificador');
-            const renamePlaceholder = conflict.resourceType === 'conversation'
-              ? t('history.importResolutionRenameConversationPlaceholder', 'Digite o novo título')
-              : t('history.importResolutionRenamePlaceholder', 'Digite o novo identificador');
-
+            const conflictKey = `${conflict.resourceType}:${conflict.identifier}`;
             return (
-              <li key={resolutionKey}>
+              <li key={conflictKey}>
                 <div>{conflict.resourceType === 'conversation' ? conflict.reason : <><code>{conflict.identifier}</code>: {conflict.reason}</>}</div>
-                <div className="history-page__import-note">
-                  <Select
-                    aria-label={t('history.importResolutionSelectLabel', {
-                      defaultValue: 'Estratégia para {{identifier}}',
-                      identifier: conflict.identifier,
-                    })}
-                    value={resolution.strategy}
-                    onChange={(event) => {
-                      const nextStrategy = event.target.value as ImportResolutionStrategy;
-                      updateImportResolution(conflict.resourceType, conflict.identifier, {
-                        strategy: nextStrategy,
-                        renameValue: nextStrategy === 'rename' ? resolution.renameValue ?? '' : '',
-                      });
-                    }}
-                    options={resolutionOptions}
-                    fullWidth
-                  />
-                </div>
-                {resolution.strategy === 'rename' && (
-                  <div className="history-page__import-note">
-                    <FormField label={renameLabel}>
-                      <Input
-                        value={resolution.renameValue ?? ''}
-                        onChange={(event) => updateImportResolution(conflict.resourceType, conflict.identifier, { renameValue: event.target.value })}
-                        placeholder={renamePlaceholder}
-                      />
-                    </FormField>
-                  </div>
-                )}
               </li>
             );
           })}
         </ul>
       </>
     );
-  }, [importResolutions, t, updateImportResolution]);
+  }, []);
 
   if (loading) {
     return (
@@ -1224,7 +1052,7 @@ export default function HistoryPage() {
         onDelete={handleDeleteRow}
         selectedIds={selectedIds}
         multiSelect={true}
-        onSelectionChange={setSelectedIds}
+        onSelectionChange={(ids: Set<string | number>) => setSelectedIds(new Set([...ids].map(String)))}
         onGridReady={handleGridReady}
         onFocusChange={handleFocusChange}
         getRowActions={getRowActions}
@@ -1553,12 +1381,9 @@ export default function HistoryPage() {
                 <p className="history-page__import-note">
                   {t(
                     'history.importConflictNotice',
-                    'Escolha como tratar cada conflito. Itens sem ação explícita continuam sendo ignorados por segurança.'
+                    'Arquivos UUID válidos devem importar de forma idempotente. Se ainda houver conflitos, revise o arquivo ou a instância atual antes de continuar.'
                   )}
                 </p>
-              )}
-              {importResolutionError && (
-                <p className="history-page__import-note">{importResolutionError}</p>
               )}
             </div>
           )}

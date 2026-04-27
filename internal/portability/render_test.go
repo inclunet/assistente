@@ -13,7 +13,7 @@ func TestRenderConversationsHTMLIncludesConversationContent(t *testing.T) {
 	const tinyPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1EAAAAASUVORK5CYII="
 
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Unix(100, 0),
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
@@ -64,7 +64,7 @@ func TestRenderConversationsHTMLIncludesConversationContent(t *testing.T) {
 
 func TestRenderConversationsHTMLSanitizesMarkdownAndAttachmentMIME(t *testing.T) {
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Unix(100, 0),
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
@@ -101,7 +101,7 @@ func TestRenderConversationsHTMLSanitizesMarkdownAndAttachmentMIME(t *testing.T)
 
 func TestRenderConversationsHTMLSkipsInvalidBase64AndUnsafeSVG(t *testing.T) {
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Unix(100, 0),
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
@@ -139,7 +139,7 @@ func TestRenderConversationsHTMLSkipsInvalidBase64AndUnsafeSVG(t *testing.T) {
 func TestRenderConversationsHTMLRejectsUnsafeTextLikeMime(t *testing.T) {
 	payload := base64.StdEncoding.EncodeToString([]byte("<html><body>unsafe</body></html>"))
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Unix(100, 0),
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
@@ -189,7 +189,7 @@ func TestRoleLabelNormalizesUnicodeFallbackSafely(t *testing.T) {
 
 func TestRenderConversationsPDFReturnsBytes(t *testing.T) {
 	file := &ExportFile{
-		Version:    1,
+		Version:    ExportVersion,
 		ExportedAt: time.Unix(100, 0),
 		Resources: ExportResources{
 			Conversations: []ConversationExport{

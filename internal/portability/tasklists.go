@@ -69,6 +69,7 @@ func exportTaskList(taskListID string) (TaskListExport, error) {
 	}
 
 	return TaskListExport{
+		ID:                taskList.ID,
 		Title:             taskList.Title,
 		Slug:              strings.TrimSpace(taskList.Slug),
 		Description:       taskList.Description,
@@ -114,6 +115,8 @@ func exportTaskListWorkflow(workflow database.TaskListWorkflow) (TaskListWorkflo
 	})
 
 	return TaskListWorkflowExport{
+		ID:                 workflow.ID,
+		TaskListID:         workflow.TaskListID,
 		Statuses:           exportedStatuses,
 		AllowedTransitions: transitions,
 		InitialStatusID:    workflow.InitialStatusID,
@@ -128,6 +131,8 @@ func exportTaskNode(
 	exportedNotes := make([]TaskNoteExport, 0, len(notesByTaskID[task.ID]))
 	for _, note := range notesByTaskID[task.ID] {
 		exportedNotes = append(exportedNotes, TaskNoteExport{
+			ID:                note.ID,
+			TaskID:            note.TaskID,
 			Type:              int(note.Type),
 			Content:           note.Content,
 			AuthorName:        note.AuthorName,
@@ -147,6 +152,9 @@ func exportTaskNode(
 	}
 
 	return TaskExport{
+		ID:           task.ID,
+		TaskListID:   task.TaskListID,
+		ParentID:     derefString(task.ParentID),
 		Title:        task.Title,
 		Description:  task.Description,
 		Code:         task.Code,
@@ -165,7 +173,20 @@ func exportTaskNode(
 	}
 }
 
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func importTaskList(taskList TaskListExport) (bool, error) {
+	if existing, err := findExistingTaskListByExport(taskList); err != nil {
+		return false, err
+	} else if existing != nil {
+		return overwriteTaskList(taskList)
+	}
+
 	err := database.DB().Transaction(func(tx *gorm.DB) error {
 		return persistTaskList(tx, taskList, nil)
 	})
@@ -218,6 +239,7 @@ func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.Ta
 
 	model := database.TaskList{
 		UUIDModel: database.UUIDModel{
+			ID:        strings.TrimSpace(taskList.ID),
 			CreatedAt: createdAt,
 			UpdatedAt: createdAt,
 		},
@@ -272,6 +294,7 @@ func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.Ta
 
 	workflow := database.TaskListWorkflow{
 		UUIDModel: database.UUIDModel{
+			ID:        strings.TrimSpace(taskList.Workflow.ID),
 			CreatedAt: createdAt,
 			UpdatedAt: createdAt,
 		},
@@ -356,6 +379,7 @@ func importTaskNode(
 
 	model := database.Task{
 		UUIDModel: database.UUIDModel{
+			ID:        strings.TrimSpace(task.ID),
 			CreatedAt: createdAt,
 			UpdatedAt: createdAt,
 		},
@@ -385,6 +409,7 @@ func importTaskNode(
 		}
 		noteModel := database.TaskNote{
 			UUIDModel: database.UUIDModel{
+				ID:        strings.TrimSpace(note.ID),
 				CreatedAt: noteCreatedAt,
 				UpdatedAt: noteCreatedAt,
 			},
@@ -440,6 +465,17 @@ func existingTaskListConflictKeys(taskLists []database.TaskList) map[string]stru
 }
 
 func findExistingTaskListByExport(taskList TaskListExport) (*database.TaskList, error) {
+	if id := strings.TrimSpace(taskList.ID); id != "" {
+		var existing database.TaskList
+		err := database.DB().Where("id = ?", id).First(&existing).Error
+		if err == nil {
+			return &existing, nil
+		}
+		if err != gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("erro ao localizar tasklist %q: %w", id, err)
+		}
+	}
+
 	var existing database.TaskList
 	if slug := strings.TrimSpace(taskList.Slug); slug != "" {
 		err := database.DB().Where("slug = ?", database.NormalizeTaskListSlug(slug)).First(&existing).Error

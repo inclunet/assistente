@@ -30,6 +30,7 @@ type AuthConfig struct {
 
 // DomainCredential mapeia um padrão de domínio a credenciais
 type DomainCredential struct {
+	ID      string
 	Pattern string // "*.github.com", "api.example.com", etc
 	regex   *regexp.Regexp
 	Auth    *AuthConfig
@@ -72,11 +73,24 @@ func NewManagerWithStoreAndPersistence(encryptionKey []byte, store Store, persis
 // RegisterPattern registra credenciais para um padrão de domínio
 // Exemplos: "*.github.com", "api.example.com", "github.com"
 func (m *Manager) RegisterPattern(pattern string, auth *AuthConfig) error {
-	return m.RegisterPatternWithContext(context.Background(), pattern, auth)
+	return m.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
+		Pattern: pattern,
+		Auth:    auth,
+	})
 }
 
 // RegisterPatternWithContext registra credenciais com contexto (persistência).
 func (m *Manager) RegisterPatternWithContext(ctx context.Context, pattern string, auth *AuthConfig) error {
+	return m.RegisterStoredCredentialWithContext(ctx, StoredCredential{
+		Pattern: pattern,
+		Auth:    auth,
+	})
+}
+
+// RegisterStoredCredentialWithContext registra credenciais preservando o ID persistido, quando informado.
+func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred StoredCredential) error {
+	pattern := cred.Pattern
+	auth := cred.Auth
 	if pattern == "" || auth == nil {
 		return errors.New("pattern e auth não podem ser vazios")
 	}
@@ -98,20 +112,33 @@ func (m *Manager) RegisterPatternWithContext(ctx context.Context, pattern string
 	defer m.mu.Unlock()
 
 	updated := false
+	storedIndex := -1
 	for i, existing := range m.credentials {
-		if existing.Pattern == pattern {
-			m.credentials[i] = &DomainCredential{Pattern: pattern, regex: regex, Auth: encAuth}
+		if existing.Pattern == pattern || (cred.ID != "" && existing.ID == cred.ID) {
+			m.credentials[i] = &DomainCredential{ID: cred.ID, Pattern: pattern, regex: regex, Auth: encAuth}
 			updated = true
+			storedIndex = i
 			break
 		}
 	}
 	if !updated {
-		m.credentials = append(m.credentials, &DomainCredential{Pattern: pattern, regex: regex, Auth: encAuth})
+		m.credentials = append(m.credentials, &DomainCredential{ID: cred.ID, Pattern: pattern, regex: regex, Auth: encAuth})
+		storedIndex = len(m.credentials) - 1
 	}
 
 	if m.persist && m.store != nil {
-		if err := m.store.SaveCredential(ctx, StoredCredential{Pattern: pattern, Auth: encAuth}); err != nil {
+		if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, Pattern: pattern, Auth: encAuth}); err != nil {
 			return err
+		}
+		if cred.ID == "" && storedIndex >= 0 {
+			if persisted, err := m.store.ListCredentials(ctx); err == nil {
+				for _, entry := range persisted {
+					if entry.Pattern == pattern && entry.ID != "" {
+						m.credentials[storedIndex].ID = entry.ID
+						break
+					}
+				}
+			}
 		}
 	}
 
@@ -174,7 +201,7 @@ func (m *Manager) ListCredentials() ([]StoredCredential, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, StoredCredential{Pattern: dc.Pattern, Auth: auth})
+		result = append(result, StoredCredential{ID: dc.ID, Pattern: dc.Pattern, Auth: auth})
 	}
 
 	return result, nil
@@ -238,7 +265,7 @@ func (m *Manager) LoadFromStore(ctx context.Context) error {
 	}
 
 	for _, entry := range entries {
-		if err := m.registerEncryptedPattern(entry.Pattern, entry.Auth); err != nil {
+		if err := m.registerEncryptedPattern(entry.ID, entry.Pattern, entry.Auth); err != nil {
 			return err
 		}
 	}
@@ -261,7 +288,7 @@ func (m *Manager) Reset(encryptionKey []byte, persist bool) {
 	m.persist = persist && m.store != nil
 }
 
-func (m *Manager) registerEncryptedPattern(pattern string, encAuth *AuthConfig) error {
+func (m *Manager) registerEncryptedPattern(id string, pattern string, encAuth *AuthConfig) error {
 	if pattern == "" || encAuth == nil {
 		return errors.New("pattern e auth não podem ser vazios")
 	}
@@ -277,14 +304,14 @@ func (m *Manager) registerEncryptedPattern(pattern string, encAuth *AuthConfig) 
 
 	updated := false
 	for i, existing := range m.credentials {
-		if existing.Pattern == pattern {
-			m.credentials[i] = &DomainCredential{Pattern: pattern, regex: regex, Auth: encAuth}
+		if existing.Pattern == pattern || (id != "" && existing.ID == id) {
+			m.credentials[i] = &DomainCredential{ID: id, Pattern: pattern, regex: regex, Auth: encAuth}
 			updated = true
 			break
 		}
 	}
 	if !updated {
-		m.credentials = append(m.credentials, &DomainCredential{Pattern: pattern, regex: regex, Auth: encAuth})
+		m.credentials = append(m.credentials, &DomainCredential{ID: id, Pattern: pattern, regex: regex, Auth: encAuth})
 	}
 
 	return nil

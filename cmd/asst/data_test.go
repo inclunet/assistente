@@ -25,7 +25,8 @@ type mockDataBackend struct {
 	lastExportFileReq app.ExportRequest
 	lastAnalyzeJSON   string
 	lastAnalyzePwd    string
-	lastImportReq     app.ImportRequest
+	lastImportJSON    string
+	lastImportPwd     string
 	conversations     []app.Conversation
 	conversationsErr  error
 	providers         []*llm.ProviderConfig
@@ -53,8 +54,9 @@ func (m *mockDataBackend) AnalyzeImportData(jsonData string, credentialExportPas
 	return m.analysis, m.analysisErr
 }
 
-func (m *mockDataBackend) ImportDataWithResolutions(req app.ImportRequest) (*app.ImportResult, error) {
-	m.lastImportReq = req
+func (m *mockDataBackend) ImportData(jsonData string, credentialExportPassword string) (*app.ImportResult, error) {
+	m.lastImportJSON = jsonData
+	m.lastImportPwd = credentialExportPassword
 	return m.importResult, m.importErr
 }
 
@@ -189,7 +191,7 @@ func TestRunDataAnalyze_PrintsConflictsAndWarnings(t *testing.T) {
 	}
 }
 
-func TestRunDataImport_ForwardsResolutions(t *testing.T) {
+func TestRunDataImport_ForwardsPayload(t *testing.T) {
 	mock := &mockDataBackend{
 		importResult: &app.ImportResult{
 			Success:  true,
@@ -206,65 +208,20 @@ func TestRunDataImport_ForwardsResolutions(t *testing.T) {
 		return []byte(`{"version":1}`), nil
 	}
 
-	resolutions := []app.ImportResolution{
-		{
-			ResourceType: "provider",
-			Identifier:   "openai-custom",
-			Strategy:     portability.ConflictResolutionRename,
-			RenameValue:  "openai-custom-copia",
-		},
-	}
-
 	var out bytes.Buffer
-	err := runDataImport(mock, &out, readFile, "backup.json", "segredo", resolutions)
+	err := runDataImport(mock, &out, readFile, "backup.json", "segredo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if mock.lastImportReq.JSONData != `{"version":1}` {
-		t.Fatalf("unexpected import payload: %q", mock.lastImportReq.JSONData)
+	if mock.lastImportJSON != `{"version":1}` {
+		t.Fatalf("unexpected import payload: %q", mock.lastImportJSON)
 	}
-	if mock.lastImportReq.CredentialExportPassword != "segredo" {
-		t.Fatalf("unexpected import password: %q", mock.lastImportReq.CredentialExportPassword)
-	}
-	if len(mock.lastImportReq.Resolutions) != 1 {
-		t.Fatalf("expected 1 resolution, got %d", len(mock.lastImportReq.Resolutions))
-	}
-	if mock.lastImportReq.Resolutions[0].RenameValue != "openai-custom-copia" {
-		t.Fatalf("unexpected rename value: %q", mock.lastImportReq.Resolutions[0].RenameValue)
+	if mock.lastImportPwd != "segredo" {
+		t.Fatalf("unexpected import password: %q", mock.lastImportPwd)
 	}
 	if !strings.Contains(out.String(), "Importação concluída.") {
 		t.Fatalf("expected import message in output, got %q", out.String())
-	}
-}
-
-func TestParseImportResolutionSpec_Rename(t *testing.T) {
-	resolution, err := parseImportResolutionSpec("provider=rename=openai-custom=>openai-custom-copia")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if resolution.ResourceType != "provider" {
-		t.Fatalf("unexpected resource type: %q", resolution.ResourceType)
-	}
-	if resolution.Identifier != "openai-custom" {
-		t.Fatalf("unexpected identifier: %q", resolution.Identifier)
-	}
-	if resolution.Strategy != portability.ConflictResolutionRename {
-		t.Fatalf("unexpected strategy: %q", resolution.Strategy)
-	}
-	if resolution.RenameValue != "openai-custom-copia" {
-		t.Fatalf("unexpected rename value: %q", resolution.RenameValue)
-	}
-}
-
-func TestParseImportResolutionSpec_InvalidStrategy(t *testing.T) {
-	_, err := parseImportResolutionSpec("provider=merge=openai-custom")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "estratégia de conflito inválida") {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -282,7 +239,7 @@ func TestRunDataImport_ReturnsErrorWhenImportFails(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runDataImport(mock, &out, readFile, "backup.json", "", nil)
+	err := runDataImport(mock, &out, readFile, "backup.json", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}

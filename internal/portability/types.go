@@ -6,6 +6,7 @@ const (
 	FormatJSON = "json"
 	FormatHTML = "html"
 	FormatPDF  = "pdf"
+	ExportVersion = 2
 )
 
 type ExportOptions struct {
@@ -22,6 +23,8 @@ type CredentialCipher struct {
 }
 
 type MessageExport struct {
+	ID               string    `json:"id"`
+	ConversationID   string    `json:"conversationId,omitempty"`
 	Role             string    `json:"role"`
 	Content          string    `json:"content"`
 	Reasoning        string    `json:"reasoning,omitempty"`
@@ -36,11 +39,14 @@ type MessageExport struct {
 	Model            string    `json:"model,omitempty"`
 	Source           string    `json:"source,omitempty"`
 	CreatedAt        time.Time `json:"createdAt"`
+	ParentID         string    `json:"parentId,omitempty"`
+	TurnID           string    `json:"turnId,omitempty"`
 	ParentIndex      *int      `json:"parentIndex,omitempty"`
 	TurnIndex        *int      `json:"turnIndex,omitempty"`
 }
 
 type ConversationExport struct {
+	ID        string          `json:"id"`
 	Title     string          `json:"title"`
 	Channel   string          `json:"channel,omitempty"`
 	ContactID string          `json:"contactId,omitempty"`
@@ -72,12 +78,16 @@ type TaskListWorkflowStatusExport struct {
 }
 
 type TaskListWorkflowExport struct {
+	ID                 string                           `json:"id,omitempty"`
+	TaskListID         string                           `json:"taskListId,omitempty"`
 	Statuses           []TaskListWorkflowStatusExport `json:"statuses"`
 	AllowedTransitions map[int][]int                  `json:"allowedTransitions"`
 	InitialStatusID    int                            `json:"initialStatusId"`
 }
 
 type TaskNoteExport struct {
+	ID                string     `json:"id,omitempty"`
+	TaskID            string     `json:"taskId,omitempty"`
 	Type              int        `json:"type"`
 	Content           string     `json:"content"`
 	AuthorName        string     `json:"authorName,omitempty"`
@@ -90,6 +100,9 @@ type TaskNoteExport struct {
 }
 
 type TaskExport struct {
+	ID           string           `json:"id,omitempty"`
+	TaskListID   string           `json:"taskListId,omitempty"`
+	ParentID     string           `json:"parentId,omitempty"`
 	Title        string           `json:"title"`
 	Description  string           `json:"description,omitempty"`
 	Code         string           `json:"code,omitempty"`
@@ -108,6 +121,7 @@ type TaskExport struct {
 }
 
 type TaskListExport struct {
+	ID                string                 `json:"id,omitempty"`
 	Title             string                 `json:"title"`
 	Slug              string                 `json:"slug,omitempty"`
 	Description       string                 `json:"description,omitempty"`
@@ -119,6 +133,7 @@ type TaskListExport struct {
 }
 
 type CredentialExport struct {
+	ID           string            `json:"id,omitempty"`
 	Pattern      string            `json:"pattern"`
 	AuthType     string            `json:"authType"`
 	Token        string            `json:"token,omitempty"`

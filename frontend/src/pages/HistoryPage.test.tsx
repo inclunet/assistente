@@ -14,7 +14,6 @@ const mockExportData = vi.fn();
 const mockExportConversationsToFile = vi.fn();
 const mockImportConversations = vi.fn();
 const mockImportData = vi.fn();
-const mockImportDataWithResolutions = vi.fn();
 const mockSearchConversationHistory = vi.fn();
 const mockOpenImportFileDialog = vi.fn();
 const mockDownloadJSON = vi.fn();
@@ -91,7 +90,6 @@ vi.mock('@wailsjs/go/app/App', () => ({
   ExportConversationsToFile: (ids: string[], format: string) => mockExportConversationsToFile(ids, format),
   ImportConversations: (payload: string) => mockImportConversations(payload),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
-  ImportDataWithResolutions: (payload: unknown) => mockImportDataWithResolutions(payload),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
   GetLLMProvidersWithStatus: () => mockGetLLMProvidersWithStatus(),
 }));
@@ -250,7 +248,6 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockExportData.mockResolvedValue('{}');
     mockExportConversationsToFile.mockResolvedValue('C:/tmp/conversas.html');
     mockImportConversations.mockResolvedValue({ success: true, message: 'ok' });
-    mockImportDataWithResolutions.mockReset();
     mockImportData.mockResolvedValue({
       success: true,
       message: 'ok',
@@ -259,21 +256,6 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       failed: 0,
       skippedEmptyConversations: 0,
       skippedConversationConflict: 0,
-      skippedTaskListConflict: 0,
-      skippedCredentialConflict: 0,
-      skippedOther: 0,
-      warnings: [],
-      errors: [],
-    });
-    mockImportDataWithResolutions.mockResolvedValue({
-      success: true,
-      message: 'ok',
-      imported: 2,
-      skipped: 0,
-      failed: 0,
-      skippedEmptyConversations: 0,
-      skippedConversationConflict: 0,
-      skippedProviderConflict: 0,
       skippedTaskListConflict: 0,
       skippedCredentialConflict: 0,
       skippedOther: 0,
@@ -676,7 +658,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     expect(screen.getByText(/openai-custom/)).toBeInTheDocument();
   });
 
-  it('envia resolucoes de conflito escolhidas na importacao', async () => {
+  it('importa diretamente mesmo quando a analise aponta conflitos', async () => {
     const user = userEvent.setup();
     const payload = JSON.stringify({
       version: 1,
@@ -711,31 +693,14 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await screen.findByText('Conversa 1');
     await user.click(screen.getByRole('button', { name: 'Importar' }));
     await screen.findByText('Providers em conflito');
-
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Estratégia para openai-custom' }),
-      'rename',
-    );
-    await user.type(screen.getByPlaceholderText('Digite o novo identificador'), 'openai-custom-copy');
     await user.click(screen.getByRole('button', { name: 'Importar agora' }));
 
     await waitFor(() => {
-      expect(mockImportDataWithResolutions).toHaveBeenCalledWith({
-        jsonData: payload,
-        credentialExportPassword: '',
-        resolutions: [
-          {
-            resourceType: 'provider',
-            identifier: 'openai-custom',
-            strategy: 'rename',
-            renameValue: 'openai-custom-copy',
-          },
-        ],
-      });
+      expect(mockImportData).toHaveBeenCalledWith(payload, '');
     });
   });
 
-  it('envia overwrite para credenciais em conflito quando selecionado', async () => {
+  it('importa diretamente credenciais com senha informada', async () => {
     const user = userEvent.setup();
     const payload = JSON.stringify({
       version: 1,
@@ -784,25 +749,10 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await user.type(passwordInput, 'segredo');
 
     await screen.findByText('Credenciais em conflito');
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Estratégia para api.openai.com' }),
-      'overwrite',
-    );
     await user.click(screen.getByRole('button', { name: 'Importar agora' }));
 
     await waitFor(() => {
-      expect(mockImportDataWithResolutions).toHaveBeenCalledWith({
-        jsonData: payload,
-        credentialExportPassword: 'segredo',
-        resolutions: [
-          {
-            resourceType: 'credential',
-            identifier: 'api.openai.com',
-            strategy: 'overwrite',
-            renameValue: undefined,
-          },
-        ],
-      });
+      expect(mockImportData).toHaveBeenCalledWith(payload, 'segredo');
     });
   });
 
