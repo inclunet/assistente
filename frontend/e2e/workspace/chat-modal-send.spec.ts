@@ -85,6 +85,6 @@ test('chat modal do terminal cria conversa e envia mensagem', async ({ page, wai
 
   expect(createCalls.length).toBe(1);
   expect(sendCalls.length).toBe(1);
-  expect(sendCalls[0].args[0]).toBe(11);
+  expect(sendCalls[0].args[0]).toBe('11');
   expect(sendCalls[0].args[1]).toBe('teste terminal');
 });

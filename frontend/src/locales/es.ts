@@ -1691,6 +1691,8 @@ const es = {
       description: 'Descripción',
       clone: 'Clonar',
       cloneList: 'Clonar Lista',
+      cloneTitleSuffix: '(Copia)',
+      cloneFallbackTitle: 'Lista',
       delete: 'Eliminar',
       deleteList: 'Eliminar Lista',
       open: 'Abrir',

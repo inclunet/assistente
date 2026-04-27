@@ -1666,6 +1666,8 @@ const ptBR = {
       description: 'Descrição',
       clone: 'Clonar',
       cloneList: 'Clonar Lista',
+      cloneTitleSuffix: '(Cópia)',
+      cloneFallbackTitle: 'Lista',
       delete: 'Deletar',
       deleteList: 'Deletar Lista',
       open: 'Abrir',
