@@ -63,14 +63,14 @@ func (f *fakeTaskListManager) addTaskList(title string, statuses []database.Task
 		AllowedTransitions: string(transitionsJSON),
 		InitialStatusID:    1,
 	}
-	wf.UUIDModel.ID = id
+	wf.ID = id
 	f.workflows[id] = wf
 
 	tl := &database.TaskList{
 		Title:    title,
 		Workflow: wf,
 	}
-	tl.UUIDModel.ID = id
+	tl.ID = id
 	f.taskLists[id] = tl
 	return tl
 }
@@ -96,14 +96,14 @@ func (f *fakeTaskListManager) addTaskListWithTransitions(title string, statuses 
 		AllowedTransitions: string(transitionsJSON),
 		InitialStatusID:    1,
 	}
-	wf.UUIDModel.ID = id
+	wf.ID = id
 	f.workflows[id] = wf
 
 	tl := &database.TaskList{
 		Title:    title,
 		Workflow: wf,
 	}
-	tl.UUIDModel.ID = id
+	tl.ID = id
 	f.taskLists[id] = tl
 	return tl
 }
@@ -116,7 +116,7 @@ func (f *fakeTaskListManager) addTask(taskListID string, title string, statusID 
 		Title:      title,
 		StatusID:   statusID,
 	}
-	task.UUIDModel.ID = id
+	task.ID = id
 	f.tasks[id] = task
 
 	if tl, ok := f.taskLists[taskListID]; ok {
@@ -408,7 +408,7 @@ func (f *fakeTaskListManager) CreateTaskNote(taskID string, noteType database.Ta
 		AuthorName: authorName,
 		AuthorID:   authorID,
 	}
-	note.UUIDModel.ID = id
+	note.ID = id
 	f.notes[taskID] = append(f.notes[taskID], note)
 	sl := f.notes[taskID]
 	return &sl[len(sl)-1], nil
@@ -475,7 +475,7 @@ func (f *fakeTaskListManager) UpsertTaskNoteByExternal(p database.UpsertTaskNote
 		ExternalParentID:    strings.TrimSpace(p.ExternalParentID),
 		ExternalUpdatedAt:   p.ExternalUpdatedAt,
 	}
-	note.UUIDModel.ID = id
+	note.ID = id
 	f.notes[p.TaskID] = append(f.notes[p.TaskID], note)
 	f.extNoteIndex[key] = id
 	sl := f.notes[p.TaskID]
@@ -2297,7 +2297,7 @@ func TestUpsertTaskList_UpdateNotFound(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewTaskList(mgr)
 
-	var id string = "999"
+	id := "999"
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": id,
 		"title":        "Ghost",
@@ -2474,7 +2474,7 @@ func TestUpsertTaskList_DuplicateSourceNotFound(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewTaskList(mgr)
 
-	var ghostID string = "9999"
+	ghostID := "9999"
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": ghostID,
 		"duplicate":    true,
@@ -3631,7 +3631,7 @@ func TestUpsertTask_DuplicateSourceNotFound(t *testing.T) {
 	list := mgr.addTaskList("List", defaultStatuses())
 	tool := NewTask(mgr)
 
-	var ghostID string = "9999"
+	ghostID := "9999"
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": list.ID,
 		"task_id":      ghostID,

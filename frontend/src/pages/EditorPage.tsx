@@ -69,7 +69,7 @@ export default function EditorPage() {
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
-  const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId: getMaxMessageId } = useEditorInlineChatPatch();
+  const { waitForChatDone, waitForEditorPatch, getMaxMessageId } = useEditorInlineChatPatch();
 
 
   const documents = useEditorStore((s) => s.documents);
