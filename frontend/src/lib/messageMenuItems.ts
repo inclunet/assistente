@@ -8,6 +8,7 @@ import type { Code, Link, Table } from 'mdast';
 import { messageAudioService } from '../services/messageAudio';
 import { ttsService } from '../services/tts';
 import { stripMarkdown } from './stripMarkdown';
+import { isBackendId } from './idUtils';
 import i18next from 'i18next';
 import {
   buildEditorDestinationSubmenu,
@@ -375,9 +376,7 @@ export function getMessageMenuItems(
         }
 
         try {
-          // IDs de streaming (ex: "streaming-abc-1") não existem no backend.
-          const isBackendId = !!message.id && !message.id.startsWith('streaming-');
-          const backendId = isBackendId ? message.id : '';
+          const backendId = isBackendId(message.id) ? message.id : '';
           if (!backendId) {
             onAnnounce?.(i18next.t('chat.message.announce.cannotIdentifyMessage'));
             return;

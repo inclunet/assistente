@@ -7,6 +7,7 @@ import { announce } from '../hooks/useAnnouncer';
 import { EditorReadFile } from '@wailsjs/go/app/App';
 import { RunTerminalCommand } from '@wailsjs/go/app/App';
 import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
+import { isBackendId } from './idUtils';
 import i18n from './i18n';
 
 // ─── Protocol ────────────────────────────────────────────────────────
@@ -100,7 +101,7 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
       }
 
       const id = segments[1] || '';
-      if (!id) return null;
+      if (!isBackendId(id)) return null;
 
       // assistente://conversation/{id}/send?message=...
       if (segments[2] === 'send') {
