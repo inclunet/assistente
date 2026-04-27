@@ -29,14 +29,25 @@ func (h *HistoryLoader) Load(conversationID string) ([]Message, string, error) {
 		return nil, "", err
 	}
 
-	// Filtra mensagens para o contexto: apenas as que vêm depois do resumo
+	// Filtra mensagens para o contexto: apenas as que vêm depois do resumo.
+	// Usa índice na lista (já ordenada por created_at ASC) em vez de comparação
+	// lexicográfica de IDs, evitando problemas com UUIDs gerados no mesmo ms.
 	var dbMessages []Message
 	if summaryUpToID != "" {
-		for _, m := range allRootMessages {
-			if m.ID > summaryUpToID {
-				dbMessages = append(dbMessages, m)
+		cutIdx := -1
+		for i, m := range allRootMessages {
+			if m.ID == summaryUpToID {
+				cutIdx = i
+				break
 			}
 		}
+		if cutIdx >= 0 && cutIdx+1 < len(allRootMessages) {
+			dbMessages = allRootMessages[cutIdx+1:]
+		} else if cutIdx < 0 {
+			// summaryUpToID não encontrado (mensagem deletada?): usa tudo
+			dbMessages = allRootMessages
+		}
+		// cutIdx == last index → nenhuma mensagem depois do resumo
 	} else {
 		dbMessages = allRootMessages
 	}
