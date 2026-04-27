@@ -129,9 +129,8 @@ describe('parseDeepLink', () => {
       expect(result).toEqual({ type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a' });
     });
 
-    it('aceita UUIDs v4', () => {
-      const result = parseDeepLink('assistente://conversation/550e8400-e29b-41d4-a716-446655440000');
-      expect(result).toEqual({ type: 'conversation:open', conversationId: '550e8400-e29b-41d4-a716-446655440000' });
+    it('rejeita UUIDs v4 (somente v7 é aceito)', () => {
+      expect(parseDeepLink('assistente://conversation/550e8400-e29b-41d4-a716-446655440000')).toBeNull();
     });
 
     it('rejeita ID numérico (legado)', () => {
