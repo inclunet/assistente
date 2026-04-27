@@ -393,7 +393,8 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 							if newFK, ok := idMap[oldFKID]; ok {
 								insertValues[i] = newFK
 							} else {
-								insertValues[i] = nil // Referência a registro futuro/órfão
+								// Forward ref: gravar old ID como string para o 2° passe resolver
+								insertValues[i] = fmt.Sprintf("%d", oldFKID)
 							}
 						}
 					}
@@ -420,22 +421,15 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 	}
 
 	// Resolver self-references que apontam para registros processados depois
-	// (caso parent_id > id na tabela original)
+	// (caso parent_id > id na tabela original — gravados como string do old ID)
 	for colName, fkMap := range fkMaps {
 		if fkMap == nil { // self-ref
-			updateSQL := fmt.Sprintf(
-				"UPDATE %s SET %s = ? WHERE rowid IN (SELECT n.rowid FROM %s n INNER JOIN %s o ON n.rowid = o.rowid_temp WHERE o.old_fk = ?)",
-				newTableName, colName, newTableName, newTableName,
-			)
-			// Abordagem mais simples: fazer update direto com o mapa completo
 			for oldFK, newFK := range idMap {
 				_, _ = tx.Exec(
-					fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ?", newTableName, colName, colName),
+					fmt.Sprintf(`UPDATE %s SET "%s" = ? WHERE "%s" = ?`, newTableName, colName, colName),
 					newFK, fmt.Sprintf("%d", oldFK),
 				)
 			}
-			// Limpar referências que ficaram como números string
-			_, _ = tx.Exec(updateSQL) // ignorar erro se a query não funcionar
 		}
 	}
 

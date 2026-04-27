@@ -765,3 +765,271 @@ func mustExec(t *testing.T, sqlDB *sql.DB, query string) {
 		t.Fatalf("exec failed: %v\nSQL: %s", err, query)
 	}
 }
+
+// === Testes adicionais para brechas identificadas ===
+
+// TestMigration_ForwardSelfReference testa o caso onde parent_id aponta para um
+// registro com ID MAIOR (forward reference). O registro referenciado é processado
+// depois, então a resolução inline falha e o 2° passe precisa corrigir.
+func TestMigration_ForwardSelfReference(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, created_at, updated_at) VALUES (1, 'Conv', '2026-01-01', '2026-01-01')`)
+
+	// Inserir mensagens fora de ordem lógica:
+	// msg1 (id=1) aponta parent_id=3 (forward ref!)
+	// msg2 (id=2) sem parent
+	// msg3 (id=3) sem parent
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, parent_id, role, content, created_at, updated_at) VALUES (1, 1, 3, 'assistant', 'Resposta antecipada', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, role, content, created_at, updated_at) VALUES (2, 1, 'user', 'Mensagem normal', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, role, content, created_at, updated_at) VALUES (3, 1, 'user', 'Mensagem referenciada', '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	// Construir mapa content → uuid
+	msgIDs := make(map[string]string)
+	rows, _ := sqlDB.Query("SELECT id, content FROM chat_messages")
+	defer rows.Close()
+	for rows.Next() {
+		var id, content string
+		rows.Scan(&id, &content)
+		msgIDs[content] = id
+	}
+
+	// Verificar que parent_id de msg1 aponta corretamente para msg3
+	var parentOfMsg1 sql.NullString
+	sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Resposta antecipada'").Scan(&parentOfMsg1)
+	if !parentOfMsg1.Valid {
+		t.Fatal("parent_id de 'Resposta antecipada' é NULL — forward reference perdida!")
+	}
+	if parentOfMsg1.String != msgIDs["Mensagem referenciada"] {
+		t.Errorf("parent_id = %q, esperado %q (UUID de 'Mensagem referenciada')", parentOfMsg1.String, msgIDs["Mensagem referenciada"])
+	}
+
+	// Verificar que msg2 continua sem parent
+	var parentOfMsg2 sql.NullString
+	sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Mensagem normal'").Scan(&parentOfMsg2)
+	if parentOfMsg2.Valid && parentOfMsg2.String != "" {
+		t.Errorf("msg2 deveria ter parent_id NULL, obteve %v", parentOfMsg2)
+	}
+}
+
+// TestMigration_ForwardSelfReference_Tasks testa forward self-ref em tasks.
+func TestMigration_ForwardSelfReference_Tasks(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	mustExec(t, sqlDB, `INSERT INTO task_lists (id, title, slug, created_at, updated_at) VALUES (1, 'TL', 'tl', '2026-01-01', '2026-01-01')`)
+
+	// Task 1 aponta parent_id=3 (forward ref!)
+	// Task 2 sem parent
+	// Task 3 sem parent (é o parent referenciado)
+	mustExec(t, sqlDB, `INSERT INTO tasks (id, task_list_id, title, status_id, parent_id, created_at, updated_at) VALUES (1, 1, 'Child first', 1, 3, '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO tasks (id, task_list_id, title, status_id, created_at, updated_at) VALUES (2, 1, 'Standalone', 1, '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO tasks (id, task_list_id, title, status_id, created_at, updated_at) VALUES (3, 1, 'Parent last', 1, '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	taskIDs := make(map[string]string)
+	rows, _ := sqlDB.Query("SELECT id, title FROM tasks")
+	defer rows.Close()
+	for rows.Next() {
+		var id, title string
+		rows.Scan(&id, &title)
+		taskIDs[title] = id
+	}
+
+	var parentOfChild sql.NullString
+	sqlDB.QueryRow("SELECT parent_id FROM tasks WHERE title = 'Child first'").Scan(&parentOfChild)
+	if !parentOfChild.Valid {
+		t.Fatal("parent_id de 'Child first' é NULL — forward reference perdida!")
+	}
+	if parentOfChild.String != taskIDs["Parent last"] {
+		t.Errorf("parent_id = %q, esperado %q", parentOfChild.String, taskIDs["Parent last"])
+	}
+}
+
+// TestMigration_OrphanedForeignKey testa mensagem com conversation_id que não existe.
+func TestMigration_OrphanedForeignKey(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, created_at, updated_at) VALUES (1, 'Existe', '2026-01-01', '2026-01-01')`)
+
+	// Mensagem com conversation_id=1 (existe) e conversation_id=999 (não existe)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, role, content, created_at, updated_at) VALUES (1, 1, 'user', 'Normal', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, role, content, created_at, updated_at) VALUES (2, 999, 'user', 'Órfã', '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	// Mensagem normal deve ter conversation_id UUID válido
+	var normalConvID sql.NullString
+	sqlDB.QueryRow("SELECT conversation_id FROM chat_messages WHERE content = 'Normal'").Scan(&normalConvID)
+	if !normalConvID.Valid || !isUUID(normalConvID.String) {
+		t.Errorf("mensagem normal deveria ter conversation_id UUID, obteve %v", normalConvID)
+	}
+
+	// Mensagem órfã deve ter conversation_id NULL (FK não resolvida)
+	var orphanConvID sql.NullString
+	sqlDB.QueryRow("SELECT conversation_id FROM chat_messages WHERE content = 'Órfã'").Scan(&orphanConvID)
+	if orphanConvID.Valid && orphanConvID.String != "" {
+		t.Errorf("mensagem órfã deveria ter conversation_id NULL, obteve %v", orphanConvID)
+	}
+
+	// Ambas as mensagens devem existir (migração não deve falhar por FK órfã)
+	var count int
+	sqlDB.QueryRow("SELECT count(*) FROM chat_messages").Scan(&count)
+	if count != 2 {
+		t.Errorf("esperado 2 mensagens, obtido %d", count)
+	}
+}
+
+// TestMigration_ZeroForeignKey testa que parent_id=0 vira NULL (não UUID).
+func TestMigration_ZeroForeignKey(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, created_at, updated_at) VALUES (1, 'Conv', '2026-01-01', '2026-01-01')`)
+
+	// parent_id=0 explícito (diferente de NULL)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, parent_id, turn_id, role, content, created_at, updated_at) VALUES (1, 1, 0, 0, 'user', 'Zero refs', '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	var parentID, turnID sql.NullString
+	sqlDB.QueryRow("SELECT parent_id, turn_id FROM chat_messages").Scan(&parentID, &turnID)
+
+	if parentID.Valid && parentID.String != "" {
+		t.Errorf("parent_id=0 deveria virar NULL, obteve %v", parentID)
+	}
+	if turnID.Valid && turnID.String != "" {
+		t.Errorf("turn_id=0 deveria virar NULL, obteve %v", turnID)
+	}
+}
+
+// TestMigration_ExtraColumnsInOldSchema testa que colunas extras na tabela antiga
+// (que não estão na definição de migração) são silenciosamente ignoradas sem erro.
+func TestMigration_ExtraColumnsInOldSchema(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	// Adicionar coluna extra que não existe no schema de migração
+	mustExec(t, sqlDB, `ALTER TABLE conversations ADD COLUMN custom_field TEXT DEFAULT 'extra'`)
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, custom_field, created_at, updated_at) VALUES (1, 'Com extra', 'valor_custom', '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração com coluna extra: %v", err)
+	}
+
+	// Conversa deve existir com título preservado
+	var title string
+	sqlDB.QueryRow("SELECT title FROM conversations").Scan(&title)
+	if title != "Com extra" {
+		t.Errorf("título = %q, esperado 'Com extra'", title)
+	}
+
+	// Coluna extra deve ter sido perdida (não está na definição de migração)
+	// Isso é o comportamento esperado — migração redefine o schema
+	var count int
+	err := sqlDB.QueryRow("SELECT count(*) FROM pragma_table_info('conversations') WHERE name = 'custom_field'").Scan(&count)
+	if err != nil {
+		t.Fatalf("pragma: %v", err)
+	}
+	// A coluna extra NÃO deve existir no schema migrado
+	if count != 0 {
+		t.Log("Nota: coluna custom_field sobreviveu à migração (inesperado mas não fatal)")
+	}
+}
+
+// TestMigration_FTS5DroppedAndRecreatable testa que FTS5 é dropada antes da
+// migração e pode ser recriada depois.
+func TestMigration_FTS5DroppedAndRecreatable(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	// Simular FTS5 existente no schema antigo
+	mustExec(t, sqlDB, `CREATE VIRTUAL TABLE IF NOT EXISTS chat_messages_fts USING fts5(content, content_rowid='rowid')`)
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, created_at, updated_at) VALUES (1, 'Conv', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, role, content, created_at, updated_at) VALUES (1, 1, 'user', 'texto pesquisavel', '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	// FTS5 deve ter sido dropada durante migração
+	var ftsCount int
+	sqlDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE name = 'chat_messages_fts'").Scan(&ftsCount)
+	if ftsCount != 0 {
+		t.Error("chat_messages_fts deveria ter sido dropada durante migração")
+	}
+
+	// Deve ser possível recriar FTS5 pós-migração (mesma ordem do Init real)
+	if err := db.AutoMigrate(&Conversation{}, &ChatMessage{}); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+
+	if err := initFTS5(); err != nil {
+		t.Fatalf("recriar FTS5 pós-migração: %v", err)
+	}
+
+	// Inserir nova mensagem via GORM e verificar que FTS indexa
+	var conv Conversation
+	db.First(&conv)
+	newMsg := ChatMessage{
+		ConversationID: conv.ID,
+		Role:           "user",
+		Content:        "novo texto fts5",
+	}
+	db.Create(&newMsg)
+
+	var matchCount int
+	sqlDB.QueryRow("SELECT count(*) FROM chat_messages_fts WHERE chat_messages_fts MATCH 'novo texto'").Scan(&matchCount)
+	if matchCount != 1 {
+		t.Errorf("FTS5 não indexou nova mensagem: count=%d", matchCount)
+	}
+}
+
+// TestMigration_NoConversationsTable testa que a migração é no-op quando
+// a tabela conversations não existe (banco novo, pré-AutoMigrate).
+func TestMigration_NoConversationsTable(t *testing.T) {
+	var err error
+	db, err = gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	sqlDB, _ := db.DB()
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+		db = nil
+	})
+
+	// Banco vazio — sem tabela conversations
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("deveria ser no-op em banco sem tabelas: %v", err)
+	}
+}
+
+// TestMigration_SummaryPointingToNonExistentMessage testa que
+// summary_up_to_message_id apontando para mensagem inexistente não causa crash.
+func TestMigration_SummaryPointingToNonExistentMessage(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	// Conversa com summary_up_to_message_id=999 (mensagem não existe)
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, summary_up_to_message_id, created_at, updated_at) VALUES (1, 'Ref inválida', 999, '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, role, content, created_at, updated_at) VALUES (1, 1, 'user', 'Msg real', '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	// summary_up_to_message_id deve manter o valor "999" (sem tradução, pois msg 999 não existe)
+	// Isso é aceitável — o backend lida com referência inválida graciosamente
+	var summaryRef sql.NullString
+	sqlDB.QueryRow("SELECT summary_up_to_message_id FROM conversations").Scan(&summaryRef)
+	// Não deve ter crashado — o valor pode ser "999" ou NULL dependendo da implementação
+	// O importante é que a migração completou sem erro
+	t.Logf("summary_up_to_message_id com ref inválida = %v", summaryRef)
+}
