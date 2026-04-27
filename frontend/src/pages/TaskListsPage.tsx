@@ -190,7 +190,7 @@ export default function TaskListsPage() {
   const handleCloneTaskList = useCallback(
     async (taskListId: string) => {
       const list = allTaskLists.find((l) => l.id === taskListId);
-      const newTitle = `${list?.title || t('tasklist.cloneFallbackTitle')} ${t('tasklist.cloneTitleSuffix')}`;
+      const newTitle = `${list?.title || t('tasklist.cloneFallbackTitle', 'Lista')} ${t('tasklist.cloneTitleSuffix', '(Cópia)')}`;
 
       try {
         const clonedTaskList = await cloneTaskList(taskListId, newTitle);
