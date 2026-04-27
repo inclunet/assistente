@@ -46,11 +46,13 @@ func migrateToUUIDv7() error {
 		}
 	}()
 
-	// Dropar FTS5 antes de mexer em chat_messages
+	// Dropar FTS5 e triggers antes de mexer em chat_messages.
+	// DROP TABLE chat_messages (abaixo) auto-dropa triggers associados,
+	// mas a virtual table FTS5 é independente e precisa ser dropada explicitamente.
 	_, _ = tx.Exec(`DROP TABLE IF EXISTS chat_messages_fts`)
-	_, _ = tx.Exec(`DROP TRIGGER IF EXISTS chat_messages_ai`)
-	_, _ = tx.Exec(`DROP TRIGGER IF EXISTS chat_messages_ad`)
-	_, _ = tx.Exec(`DROP TRIGGER IF EXISTS chat_messages_au`)
+	_, _ = tx.Exec(`DROP TRIGGER IF EXISTS chat_messages_fts_insert`)
+	_, _ = tx.Exec(`DROP TRIGGER IF EXISTS chat_messages_fts_delete`)
+	_, _ = tx.Exec(`DROP TRIGGER IF EXISTS chat_messages_fts_update`)
 
 	// === Fase 1: Tabelas sem dependências ===
 
@@ -275,11 +277,6 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 		return map[uint]string{}, nil
 	}
 
-	// Obter colunas existentes (validação)
-	if _, err := getTableColumns(tx, tableName); err != nil {
-		return nil, fmt.Errorf("erro ao obter colunas de %s: %w", tableName, err)
-	}
-
 	// Criar tabela nova
 	newTableName := tableName + "_uuid_new"
 	createSQL := fmt.Sprintf("CREATE TABLE %s (%s)", newTableName, strings.Join(newCols, ", "))
@@ -456,28 +453,6 @@ func updateConversationSummaryRefs(tx *sql.Tx, msgMap map[uint]string) error {
 		}
 	}
 	return nil
-}
-
-// getTableColumns retorna as colunas de uma tabela.
-func getTableColumns(tx *sql.Tx, tableName string) ([]string, error) {
-	rows, err := tx.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var cols []string
-	for rows.Next() {
-		var cid int
-		var name, colType string
-		var notNull, pk int
-		var dflt sql.NullString
-		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
-			return nil, err
-		}
-		cols = append(cols, name)
-	}
-	return cols, rows.Err()
 }
 
 // toUint converte um valor de interface{} (retornado pelo Scan) para uint.

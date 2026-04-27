@@ -1014,6 +1014,7 @@ func TestMigration_NoConversationsTable(t *testing.T) {
 
 // TestMigration_SummaryPointingToNonExistentMessage testa que
 // summary_up_to_message_id apontando para mensagem inexistente não causa crash.
+// O valor antigo ("999") permanece como string suja — o backend lida.
 func TestMigration_SummaryPointingToNonExistentMessage(t *testing.T) {
 	sqlDB := createOldSchemaDB(t)
 
@@ -1025,11 +1026,133 @@ func TestMigration_SummaryPointingToNonExistentMessage(t *testing.T) {
 		t.Fatalf("migração: %v", err)
 	}
 
-	// summary_up_to_message_id deve manter o valor "999" (sem tradução, pois msg 999 não existe)
-	// Isso é aceitável — o backend lida com referência inválida graciosamente
+	// O valor "999" não é traduzido (nenhuma msg tem old_id=999).
+	// summary_up_to_message_id fica com o valor antigo copiado como-é.
 	var summaryRef sql.NullString
 	sqlDB.QueryRow("SELECT summary_up_to_message_id FROM conversations").Scan(&summaryRef)
-	// Não deve ter crashado — o valor pode ser "999" ou NULL dependendo da implementação
-	// O importante é que a migração completou sem erro
-	t.Logf("summary_up_to_message_id com ref inválida = %v", summaryRef)
+	if !summaryRef.Valid {
+		t.Fatal("summary_up_to_message_id deveria ter valor (999 como string), mas é NULL")
+	}
+	// Deve ser "999" (string do integer antigo, não traduzido)
+	if summaryRef.String != "999" {
+		t.Errorf("summary_up_to_message_id = %q, esperado \"999\"", summaryRef.String)
+	}
+	if isUUID(summaryRef.String) {
+		t.Error("summary_up_to_message_id não deveria ser UUID (msg 999 não existe)")
+	}
+}
+
+// TestMigration_ForwardTurnID testa turn_id apontando para msg com ID maior (forward ref).
+func TestMigration_ForwardTurnID(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, created_at, updated_at) VALUES (1, 'Conv', '2026-01-01', '2026-01-01')`)
+
+	// msg1 (id=1) tem turn_id=3 (forward ref!)
+	// msg2 (id=2) sem turn_id
+	// msg3 (id=3) sem turn_id (é o target)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, turn_id, role, content, created_at, updated_at) VALUES (1, 1, 3, 'assistant', 'Resposta do turno', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, role, content, created_at, updated_at) VALUES (2, 1, 'user', 'Sem turno', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, role, content, created_at, updated_at) VALUES (3, 1, 'user', 'Inicio do turno', '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	msgIDs := make(map[string]string)
+	rows, _ := sqlDB.Query("SELECT id, content FROM chat_messages")
+	defer rows.Close()
+	for rows.Next() {
+		var id, content string
+		rows.Scan(&id, &content)
+		msgIDs[content] = id
+	}
+
+	// turn_id de msg1 deve apontar para msg3 (resolvido no 2° passe)
+	var turnOfMsg1 sql.NullString
+	sqlDB.QueryRow("SELECT turn_id FROM chat_messages WHERE content = 'Resposta do turno'").Scan(&turnOfMsg1)
+	if !turnOfMsg1.Valid {
+		t.Fatal("turn_id de 'Resposta do turno' é NULL — forward reference perdida!")
+	}
+	if turnOfMsg1.String != msgIDs["Inicio do turno"] {
+		t.Errorf("turn_id = %q, esperado %q", turnOfMsg1.String, msgIDs["Inicio do turno"])
+	}
+
+	// msg2 sem turn_id continua NULL
+	var turnOfMsg2 sql.NullString
+	sqlDB.QueryRow("SELECT turn_id FROM chat_messages WHERE content = 'Sem turno'").Scan(&turnOfMsg2)
+	if turnOfMsg2.Valid && turnOfMsg2.String != "" {
+		t.Errorf("msg2 deveria ter turn_id NULL, obteve %v", turnOfMsg2)
+	}
+}
+
+// TestMigration_PartialSchema testa migração quando algumas tabelas posteriores
+// (task_notes, task_list_workflows) não existem no banco antigo.
+// Isso pode acontecer se o usuário tem uma versão antiga do app que não tinha esses modelos.
+func TestMigration_PartialSchema(t *testing.T) {
+	// Criar banco com apenas conversations + chat_messages (schema mínimo)
+	var err error
+	db, err = gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql.DB: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+		db = nil
+	})
+
+	// Criar APENAS conversations e chat_messages (sem tasks, sem credentials)
+	mustExec(t, sqlDB, `CREATE TABLE conversations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		title TEXT, channel TEXT, contact_id TEXT,
+		summary TEXT, summary_up_to_message_id INTEGER,
+		summarizing_in_progress INTEGER DEFAULT 0,
+		created_at DATETIME, updated_at DATETIME
+	)`)
+	mustExec(t, sqlDB, `CREATE TABLE chat_messages (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		conversation_id INTEGER, parent_id INTEGER, turn_id INTEGER,
+		role TEXT, content TEXT, reasoning TEXT,
+		media TEXT, audio TEXT, audio_mime_type TEXT,
+		tool_calls TEXT, tool_call_id TEXT,
+		prompt_tokens INTEGER DEFAULT 0, completion_tokens INTEGER DEFAULT 0, total_tokens INTEGER DEFAULT 0,
+		model TEXT, source TEXT,
+		created_at DATETIME, updated_at DATETIME
+	)`)
+
+	// Seed dados
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, created_at, updated_at) VALUES (1, 'Antiga', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, role, content, created_at, updated_at) VALUES (1, 1, 'user', 'Msg antiga', '2026-01-01', '2026-01-01')`)
+
+	// Migração deve funcionar mesmo sem as tabelas de tasks/credentials
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração com schema parcial: %v", err)
+	}
+
+	// Verificar que conversations e messages foram migradas
+	var convID string
+	sqlDB.QueryRow("SELECT id FROM conversations").Scan(&convID)
+	if !isUUID(convID) {
+		t.Errorf("conversations.id não é UUID: %q", convID)
+	}
+
+	var msgID, msgConvID string
+	sqlDB.QueryRow("SELECT id, conversation_id FROM chat_messages").Scan(&msgID, &msgConvID)
+	if !isUUID(msgID) {
+		t.Errorf("chat_messages.id não é UUID: %q", msgID)
+	}
+	if msgConvID != convID {
+		t.Errorf("FK conversation_id = %q, esperado %q", msgConvID, convID)
+	}
+
+	// Tabelas que não existiam devem continuar sem existir (sem erro)
+	var taskTableCount int
+	sqlDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='tasks'").Scan(&taskTableCount)
+	if taskTableCount != 0 {
+		t.Error("tabela tasks não deveria existir")
+	}
 }
