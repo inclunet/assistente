@@ -132,7 +132,7 @@ func getColumnType(t *testing.T, sqlDB *sql.DB, table string) string {
 	if err != nil {
 		t.Fatalf("PRAGMA table_info(%s): %v", table, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var cid int
 		var name, colType string
@@ -205,18 +205,22 @@ func TestMigration_ConversationsAndMessages(t *testing.T) {
 
 	// Verificar conversas migradas
 	var convCount int
-	sqlDB.QueryRow("SELECT count(*) FROM conversations").Scan(&convCount)
+	if err := sqlDB.QueryRow("SELECT count(*) FROM conversations").Scan(&convCount); err != nil {
+		t.Fatal(err)
+	}
 	if convCount != 2 {
 		t.Fatalf("conversas: esperado 2, obtido %d", convCount)
 	}
 
 	// Verificar que IDs são UUID
 	rows, _ := sqlDB.Query("SELECT id, title FROM conversations ORDER BY title")
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	convIDs := make(map[string]string) // title → uuid
 	for rows.Next() {
 		var id, title string
-		rows.Scan(&id, &title)
+		if err := rows.Scan(&id, &title); err != nil {
+			t.Fatal(err)
+		}
 		if !isUUID(id) {
 			t.Errorf("conversations.id não é UUID: %q", id)
 		}
@@ -225,30 +229,38 @@ func TestMigration_ConversationsAndMessages(t *testing.T) {
 
 	// Verificar mensagens migradas
 	var msgCount int
-	sqlDB.QueryRow("SELECT count(*) FROM chat_messages").Scan(&msgCount)
+	if err := sqlDB.QueryRow("SELECT count(*) FROM chat_messages").Scan(&msgCount); err != nil {
+		t.Fatal(err)
+	}
 	if msgCount != 4 {
 		t.Fatalf("mensagens: esperado 4, obtido %d", msgCount)
 	}
 
 	// Verificar FK conversation_id aponta para UUID correto
 	var convIDofMsg string
-	sqlDB.QueryRow("SELECT conversation_id FROM chat_messages WHERE content = 'Olá'").Scan(&convIDofMsg)
+	if err := sqlDB.QueryRow("SELECT conversation_id FROM chat_messages WHERE content = 'Olá'").Scan(&convIDofMsg); err != nil {
+		t.Fatal(err)
+	}
 	if convIDofMsg != convIDs["Conv Alpha"] {
 		t.Errorf("mensagem 'Olá' conversation_id = %q, esperado %q", convIDofMsg, convIDs["Conv Alpha"])
 	}
 
 	var convIDofMsg2 string
-	sqlDB.QueryRow("SELECT conversation_id FROM chat_messages WHERE content = 'Teste'").Scan(&convIDofMsg2)
+	if err := sqlDB.QueryRow("SELECT conversation_id FROM chat_messages WHERE content = 'Teste'").Scan(&convIDofMsg2); err != nil {
+		t.Fatal(err)
+	}
 	if convIDofMsg2 != convIDs["Conv Beta"] {
 		t.Errorf("mensagem 'Teste' conversation_id = %q, esperado %q", convIDofMsg2, convIDs["Conv Beta"])
 	}
 
 	// Verificar IDs das mensagens são UUIDs
 	msgRows, _ := sqlDB.Query("SELECT id FROM chat_messages")
-	defer msgRows.Close()
+	defer func() { _ = msgRows.Close() }()
 	for msgRows.Next() {
 		var id string
-		msgRows.Scan(&id)
+		if err := msgRows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
 		if !isUUID(id) {
 			t.Errorf("chat_messages.id não é UUID: %q", id)
 		}
@@ -272,29 +284,37 @@ func TestMigration_SelfReferencingFK_ParentID(t *testing.T) {
 	// Construir mapa content → id
 	msgIDs := make(map[string]string)
 	rows, _ := sqlDB.Query("SELECT id, content FROM chat_messages")
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id, content string
-		rows.Scan(&id, &content)
+		if err := rows.Scan(&id, &content); err != nil {
+			t.Fatal(err)
+		}
 		msgIDs[content] = id
 	}
 
 	// Verificar parent_id chain
 	var parentOfMsg2 sql.NullString
-	sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Msg2'").Scan(&parentOfMsg2)
+	if err := sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Msg2'").Scan(&parentOfMsg2); err != nil {
+		t.Fatal(err)
+	}
 	if !parentOfMsg2.Valid || parentOfMsg2.String != msgIDs["Msg1"] {
 		t.Errorf("Msg2.parent_id = %v, esperado %s", parentOfMsg2, msgIDs["Msg1"])
 	}
 
 	var parentOfMsg3 sql.NullString
-	sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Msg3'").Scan(&parentOfMsg3)
+	if err := sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Msg3'").Scan(&parentOfMsg3); err != nil {
+		t.Fatal(err)
+	}
 	if !parentOfMsg3.Valid || parentOfMsg3.String != msgIDs["Msg2"] {
 		t.Errorf("Msg3.parent_id = %v, esperado %s", parentOfMsg3, msgIDs["Msg2"])
 	}
 
 	// Msg1 não tem parent
 	var parentOfMsg1 sql.NullString
-	sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Msg1'").Scan(&parentOfMsg1)
+	if err := sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Msg1'").Scan(&parentOfMsg1); err != nil {
+		t.Fatal(err)
+	}
 	if parentOfMsg1.Valid && parentOfMsg1.String != "" {
 		t.Errorf("Msg1.parent_id deveria ser NULL, obteve %v", parentOfMsg1)
 	}
@@ -315,15 +335,19 @@ func TestMigration_TurnID_SelfRef(t *testing.T) {
 
 	msgIDs := make(map[string]string)
 	rows, _ := sqlDB.Query("SELECT id, content FROM chat_messages")
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id, content string
-		rows.Scan(&id, &content)
+		if err := rows.Scan(&id, &content); err != nil {
+			t.Fatal(err)
+		}
 		msgIDs[content] = id
 	}
 
 	var turnID sql.NullString
-	sqlDB.QueryRow("SELECT turn_id FROM chat_messages WHERE content = 'Resposta'").Scan(&turnID)
+	if err := sqlDB.QueryRow("SELECT turn_id FROM chat_messages WHERE content = 'Resposta'").Scan(&turnID); err != nil {
+		t.Fatal(err)
+	}
 	if !turnID.Valid || turnID.String != msgIDs["Turno"] {
 		t.Errorf("Resposta.turn_id = %v, esperado %s", turnID, msgIDs["Turno"])
 	}
@@ -345,21 +369,27 @@ func TestMigration_SummaryUpToMessageID(t *testing.T) {
 
 	// Pegar UUID da mensagem que era id=5
 	var msg5UUID string
-	sqlDB.QueryRow("SELECT id FROM chat_messages WHERE content = 'Ultima resumida'").Scan(&msg5UUID)
+	if err := sqlDB.QueryRow("SELECT id FROM chat_messages WHERE content = 'Ultima resumida'").Scan(&msg5UUID); err != nil {
+		t.Fatal(err)
+	}
 	if !isUUID(msg5UUID) {
 		t.Fatalf("msg5 UUID inválido: %q", msg5UUID)
 	}
 
 	// Verificar que summary_up_to_message_id foi atualizado
 	var summaryRef sql.NullString
-	sqlDB.QueryRow("SELECT summary_up_to_message_id FROM conversations WHERE title = 'Resumida'").Scan(&summaryRef)
+	if err := sqlDB.QueryRow("SELECT summary_up_to_message_id FROM conversations WHERE title = 'Resumida'").Scan(&summaryRef); err != nil {
+		t.Fatal(err)
+	}
 	if !summaryRef.Valid || summaryRef.String != msg5UUID {
 		t.Errorf("summary_up_to_message_id = %v, esperado %s", summaryRef, msg5UUID)
 	}
 
 	// Conversa sem resumo mantém NULL
 	var summaryRef2 sql.NullString
-	sqlDB.QueryRow("SELECT summary_up_to_message_id FROM conversations WHERE title = 'Sem resumo'").Scan(&summaryRef2)
+	if err := sqlDB.QueryRow("SELECT summary_up_to_message_id FROM conversations WHERE title = 'Sem resumo'").Scan(&summaryRef2); err != nil {
+		t.Fatal(err)
+	}
 	if summaryRef2.Valid && summaryRef2.String != "" {
 		t.Errorf("conversa sem resumo deveria ter summary_up_to_message_id NULL, obteve %v", summaryRef2)
 	}
@@ -392,10 +422,12 @@ func TestMigration_TaskListFullHierarchy(t *testing.T) {
 	// Construir mapa title → uuid para tasks
 	taskIDs := make(map[string]string)
 	rows, _ := sqlDB.Query("SELECT id, title FROM tasks")
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id, title string
-		rows.Scan(&id, &title)
+		if err := rows.Scan(&id, &title); err != nil {
+			t.Fatal(err)
+		}
 		if !isUUID(id) {
 			t.Errorf("tasks.id não é UUID: %q", id)
 		}
@@ -409,62 +441,80 @@ func TestMigration_TaskListFullHierarchy(t *testing.T) {
 	// Verificar FK task_list_id
 	tlIDs := make(map[string]string) // title → uuid
 	tlRows, _ := sqlDB.Query("SELECT id, title FROM task_lists")
-	defer tlRows.Close()
+	defer func() { _ = tlRows.Close() }()
 	for tlRows.Next() {
 		var id, title string
-		tlRows.Scan(&id, &title)
+		if err := tlRows.Scan(&id, &title); err != nil {
+			t.Fatal(err)
+		}
 		tlIDs[title] = id
 	}
 
 	var parentTaskListID string
-	sqlDB.QueryRow("SELECT task_list_id FROM tasks WHERE title = 'Parent Task'").Scan(&parentTaskListID)
+	if err := sqlDB.QueryRow("SELECT task_list_id FROM tasks WHERE title = 'Parent Task'").Scan(&parentTaskListID); err != nil {
+		t.Fatal(err)
+	}
 	if parentTaskListID != tlIDs["Sprint 1"] {
 		t.Errorf("Parent Task.task_list_id = %q, esperado %q", parentTaskListID, tlIDs["Sprint 1"])
 	}
 
 	// Verificar parent_id chain: Child→Parent, Grandchild→Child
 	var childParent sql.NullString
-	sqlDB.QueryRow("SELECT parent_id FROM tasks WHERE title = 'Child Task'").Scan(&childParent)
+	if err := sqlDB.QueryRow("SELECT parent_id FROM tasks WHERE title = 'Child Task'").Scan(&childParent); err != nil {
+		t.Fatal(err)
+	}
 	if !childParent.Valid || childParent.String != taskIDs["Parent Task"] {
 		t.Errorf("Child.parent_id = %v, esperado %s", childParent, taskIDs["Parent Task"])
 	}
 
 	var grandchildParent sql.NullString
-	sqlDB.QueryRow("SELECT parent_id FROM tasks WHERE title = 'Grandchild'").Scan(&grandchildParent)
+	if err := sqlDB.QueryRow("SELECT parent_id FROM tasks WHERE title = 'Grandchild'").Scan(&grandchildParent); err != nil {
+		t.Fatal(err)
+	}
 	if !grandchildParent.Valid || grandchildParent.String != taskIDs["Child Task"] {
 		t.Errorf("Grandchild.parent_id = %v, esperado %s", grandchildParent, taskIDs["Child Task"])
 	}
 
 	// Parent Task não tem parent
 	var parentParent sql.NullString
-	sqlDB.QueryRow("SELECT parent_id FROM tasks WHERE title = 'Parent Task'").Scan(&parentParent)
+	if err := sqlDB.QueryRow("SELECT parent_id FROM tasks WHERE title = 'Parent Task'").Scan(&parentParent); err != nil {
+		t.Fatal(err)
+	}
 	if parentParent.Valid && parentParent.String != "" {
 		t.Errorf("Parent Task deveria ter parent_id NULL, obteve %v", parentParent)
 	}
 
 	// Verificar workflow FK
 	var wfTaskListID string
-	sqlDB.QueryRow("SELECT task_list_id FROM task_list_workflows WHERE statuses LIKE '%Todo%'").Scan(&wfTaskListID)
+	if err := sqlDB.QueryRow("SELECT task_list_id FROM task_list_workflows WHERE statuses LIKE '%Todo%'").Scan(&wfTaskListID); err != nil {
+		t.Fatal(err)
+	}
 	if wfTaskListID != tlIDs["Sprint 1"] {
 		t.Errorf("workflow.task_list_id = %q, esperado %q", wfTaskListID, tlIDs["Sprint 1"])
 	}
 
 	// Verificar que initial_status_id permanece int (não é FK de banco)
 	var initialStatusID int
-	sqlDB.QueryRow("SELECT initial_status_id FROM task_list_workflows WHERE statuses LIKE '%Todo%'").Scan(&initialStatusID)
+	if err := sqlDB.QueryRow("SELECT initial_status_id FROM task_list_workflows WHERE statuses LIKE '%Todo%'").Scan(&initialStatusID); err != nil {
+		t.Fatal(err)
+	}
 	if initialStatusID != 1 {
 		t.Errorf("initial_status_id = %d, esperado 1", initialStatusID)
 	}
 
 	// Verificar task_notes FK
 	var noteTaskID string
-	sqlDB.QueryRow("SELECT task_id FROM task_notes WHERE content = 'Nota na parent'").Scan(&noteTaskID)
+	if err := sqlDB.QueryRow("SELECT task_id FROM task_notes WHERE content = 'Nota na parent'").Scan(&noteTaskID); err != nil {
+		t.Fatal(err)
+	}
 	if noteTaskID != taskIDs["Parent Task"] {
 		t.Errorf("note.task_id = %q, esperado %q", noteTaskID, taskIDs["Parent Task"])
 	}
 
 	var noteTaskID2 string
-	sqlDB.QueryRow("SELECT task_id FROM task_notes WHERE content = 'Nota na child'").Scan(&noteTaskID2)
+	if err := sqlDB.QueryRow("SELECT task_id FROM task_notes WHERE content = 'Nota na child'").Scan(&noteTaskID2); err != nil {
+		t.Fatal(err)
+	}
 	if noteTaskID2 != taskIDs["Child Task"] {
 		t.Errorf("note2.task_id = %q, esperado %q", noteTaskID2, taskIDs["Child Task"])
 	}
@@ -483,20 +533,26 @@ func TestMigration_CredentialEntries(t *testing.T) {
 
 	// Verificar dados preservados
 	var name, apiKey string
-	sqlDB.QueryRow("SELECT name, api_key_enc FROM credential_entries WHERE name = 'OpenAI'").Scan(&name, &apiKey)
+	if err := sqlDB.QueryRow("SELECT name, api_key_enc FROM credential_entries WHERE name = 'OpenAI'").Scan(&name, &apiKey); err != nil {
+		t.Fatal(err)
+	}
 	if name != "OpenAI" || apiKey != "enc_data_1" {
 		t.Errorf("dados corrompidos: name=%q, api_key_enc=%q", name, apiKey)
 	}
 
 	var wrappedKey string
-	sqlDB.QueryRow("SELECT wrapped_key FROM credential_key_wraps").Scan(&wrappedKey)
+	if err := sqlDB.QueryRow("SELECT wrapped_key FROM credential_key_wraps").Scan(&wrappedKey); err != nil {
+		t.Fatal(err)
+	}
 	if wrappedKey != "wrap_abc" {
 		t.Errorf("wrapped_key = %q, esperado 'wrap_abc'", wrappedKey)
 	}
 
 	// IDs são UUID
 	var credID string
-	sqlDB.QueryRow("SELECT id FROM credential_entries WHERE name = 'OpenAI'").Scan(&credID)
+	if err := sqlDB.QueryRow("SELECT id FROM credential_entries WHERE name = 'OpenAI'").Scan(&credID); err != nil {
+		t.Fatal(err)
+	}
 	if !isUUID(credID) {
 		t.Errorf("credential_entries.id não é UUID: %q", credID)
 	}
@@ -520,10 +576,12 @@ func TestMigration_UniqueUUIDs(t *testing.T) {
 	// Verificar unicidade de IDs em conversations
 	seen := make(map[string]bool)
 	rows, _ := sqlDB.Query("SELECT id FROM conversations")
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
 		if seen[id] {
 			t.Errorf("UUID duplicado em conversations: %s", id)
 		}
@@ -536,10 +594,12 @@ func TestMigration_UniqueUUIDs(t *testing.T) {
 	// Verificar unicidade em chat_messages
 	seen = make(map[string]bool)
 	msgRows, _ := sqlDB.Query("SELECT id FROM chat_messages")
-	defer msgRows.Close()
+	defer func() { _ = msgRows.Close() }()
 	for msgRows.Next() {
 		var id string
-		msgRows.Scan(&id)
+		if err := msgRows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
 		if seen[id] {
 			t.Errorf("UUID duplicado em chat_messages: %s", id)
 		}
@@ -568,7 +628,9 @@ func TestMigration_DataPreservation(t *testing.T) {
 	var title, channel, contactID, summary string
 	var summarizing int
 	var createdAt, updatedAt string
-	sqlDB.QueryRow("SELECT title, channel, contact_id, summary, summarizing_in_progress, created_at, updated_at FROM conversations").Scan(&title, &channel, &contactID, &summary, &summarizing, &createdAt, &updatedAt)
+	if err := sqlDB.QueryRow("SELECT title, channel, contact_id, summary, summarizing_in_progress, created_at, updated_at FROM conversations").Scan(&title, &channel, &contactID, &summary, &summarizing, &createdAt, &updatedAt); err != nil {
+		t.Fatal(err)
+	}
 
 	if title != "Full Conv" || channel != "telegram" || contactID != "user123" || summary != "Resumo completo" || summarizing != 1 {
 		t.Errorf("dados de conversa corrompidos: title=%q channel=%q contact=%q summary=%q summarizing=%d", title, channel, contactID, summary, summarizing)
@@ -576,7 +638,9 @@ func TestMigration_DataPreservation(t *testing.T) {
 
 	var role, content, reasoning, model, source string
 	var pt, ct, tt int
-	sqlDB.QueryRow("SELECT role, content, reasoning, model, source, prompt_tokens, completion_tokens, total_tokens FROM chat_messages").Scan(&role, &content, &reasoning, &model, &source, &pt, &ct, &tt)
+	if err := sqlDB.QueryRow("SELECT role, content, reasoning, model, source, prompt_tokens, completion_tokens, total_tokens FROM chat_messages").Scan(&role, &content, &reasoning, &model, &source, &pt, &ct, &tt); err != nil {
+		t.Fatal(err)
+	}
 	if role != "assistant" || content != "Resposta completa" || reasoning != "Pensei assim" || model != "gpt-4" || source != "api" || pt != 100 || ct != 50 || tt != 150 {
 		t.Errorf("dados de mensagem corrompidos")
 	}
@@ -584,7 +648,9 @@ func TestMigration_DataPreservation(t *testing.T) {
 	var desc, code, link, assignee, creator string
 	var statusID, order int
 	var dueDate, completedAt sql.NullString
-	sqlDB.QueryRow("SELECT description, code, link, status_id, \"order\", assignee_name, creator_name, due_date, completed_at FROM tasks").Scan(&desc, &code, &link, &statusID, &order, &assignee, &creator, &dueDate, &completedAt)
+	if err := sqlDB.QueryRow("SELECT description, code, link, status_id, \"order\", assignee_name, creator_name, due_date, completed_at FROM tasks").Scan(&desc, &code, &link, &statusID, &order, &assignee, &creator, &dueDate, &completedAt); err != nil {
+		t.Fatal(err)
+	}
 	if desc != "Descr longa" || code != "TSK-1" || link != "https://example.com" || statusID != 2 || order != 5 || assignee != "Alice" || creator != "Bob" {
 		t.Errorf("dados de task corrompidos: desc=%q code=%q link=%q status=%d order=%d assignee=%q creator=%q", desc, code, link, statusID, order, assignee, creator)
 	}
@@ -610,7 +676,9 @@ func TestMigration_NullForeignKeys(t *testing.T) {
 	}
 
 	var parentID, turnID sql.NullString
-	sqlDB.QueryRow("SELECT parent_id, turn_id FROM chat_messages").Scan(&parentID, &turnID)
+	if err := sqlDB.QueryRow("SELECT parent_id, turn_id FROM chat_messages").Scan(&parentID, &turnID); err != nil {
+		t.Fatal(err)
+	}
 	if parentID.Valid && parentID.String != "" {
 		t.Errorf("parent_id deveria ser NULL, obteve %v", parentID)
 	}
@@ -619,7 +687,9 @@ func TestMigration_NullForeignKeys(t *testing.T) {
 	}
 
 	var taskParent sql.NullString
-	sqlDB.QueryRow("SELECT parent_id FROM tasks").Scan(&taskParent)
+	if err := sqlDB.QueryRow("SELECT parent_id FROM tasks").Scan(&taskParent); err != nil {
+		t.Fatal(err)
+	}
 	if taskParent.Valid && taskParent.String != "" {
 		t.Errorf("task.parent_id deveria ser NULL, obteve %v", taskParent)
 	}
@@ -691,7 +761,9 @@ func TestMigration_PostMigrationGORMCompatibility(t *testing.T) {
 	}
 
 	var ftsCount int
-	sqlDB.QueryRow("SELECT count(*) FROM chat_messages_fts WHERE chat_messages_fts MATCH 'busca especifica'").Scan(&ftsCount)
+	if err := sqlDB.QueryRow("SELECT count(*) FROM chat_messages_fts WHERE chat_messages_fts MATCH 'busca especifica'").Scan(&ftsCount); err != nil {
+		t.Fatal(err)
+	}
 	if ftsCount != 1 {
 		t.Errorf("FTS5 não indexou nova mensagem: count=%d", ftsCount)
 	}
@@ -716,10 +788,12 @@ func TestMigration_MultipleConversationsWithMessages(t *testing.T) {
 	// Verificar que cada conversa mantém exatamente 5 mensagens com FK correto
 	convIDs := make(map[string]string) // title → uuid
 	rows, _ := sqlDB.Query("SELECT id, title FROM conversations")
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id, title string
-		rows.Scan(&id, &title)
+		if err := rows.Scan(&id, &title); err != nil {
+			t.Fatal(err)
+		}
 		convIDs[title] = id
 	}
 
@@ -728,7 +802,9 @@ func TestMigration_MultipleConversationsWithMessages(t *testing.T) {
 		convUUID := convIDs[convTitle]
 
 		var count int
-		sqlDB.QueryRow("SELECT count(*) FROM chat_messages WHERE conversation_id = ?", convUUID).Scan(&count)
+		if err := sqlDB.QueryRow("SELECT count(*) FROM chat_messages WHERE conversation_id = ?", convUUID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
 		if count != 5 {
 			t.Errorf("%s: esperado 5 mensagens, obtido %d", convTitle, count)
 		}
@@ -738,10 +814,12 @@ func TestMigration_MultipleConversationsWithMessages(t *testing.T) {
 		var contents []string
 		for msgRows.Next() {
 			var content string
-			msgRows.Scan(&content)
+			if err := msgRows.Scan(&content); err != nil {
+				t.Fatal(err)
+			}
 			contents = append(contents, content)
 		}
-		msgRows.Close()
+		_ = msgRows.Close()
 
 		for m := 1; m <= 5; m++ {
 			expected := fmt.Sprintf("Conv%d-Msg%d", c, m)
@@ -791,16 +869,20 @@ func TestMigration_ForwardSelfReference(t *testing.T) {
 	// Construir mapa content → uuid
 	msgIDs := make(map[string]string)
 	rows, _ := sqlDB.Query("SELECT id, content FROM chat_messages")
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id, content string
-		rows.Scan(&id, &content)
+		if err := rows.Scan(&id, &content); err != nil {
+			t.Fatal(err)
+		}
 		msgIDs[content] = id
 	}
 
 	// Verificar que parent_id de msg1 aponta corretamente para msg3
 	var parentOfMsg1 sql.NullString
-	sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Resposta antecipada'").Scan(&parentOfMsg1)
+	if err := sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Resposta antecipada'").Scan(&parentOfMsg1); err != nil {
+		t.Fatal(err)
+	}
 	if !parentOfMsg1.Valid {
 		t.Fatal("parent_id de 'Resposta antecipada' é NULL — forward reference perdida!")
 	}
@@ -810,7 +892,9 @@ func TestMigration_ForwardSelfReference(t *testing.T) {
 
 	// Verificar que msg2 continua sem parent
 	var parentOfMsg2 sql.NullString
-	sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Mensagem normal'").Scan(&parentOfMsg2)
+	if err := sqlDB.QueryRow("SELECT parent_id FROM chat_messages WHERE content = 'Mensagem normal'").Scan(&parentOfMsg2); err != nil {
+		t.Fatal(err)
+	}
 	if parentOfMsg2.Valid && parentOfMsg2.String != "" {
 		t.Errorf("msg2 deveria ter parent_id NULL, obteve %v", parentOfMsg2)
 	}
@@ -835,15 +919,19 @@ func TestMigration_ForwardSelfReference_Tasks(t *testing.T) {
 
 	taskIDs := make(map[string]string)
 	rows, _ := sqlDB.Query("SELECT id, title FROM tasks")
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id, title string
-		rows.Scan(&id, &title)
+		if err := rows.Scan(&id, &title); err != nil {
+			t.Fatal(err)
+		}
 		taskIDs[title] = id
 	}
 
 	var parentOfChild sql.NullString
-	sqlDB.QueryRow("SELECT parent_id FROM tasks WHERE title = 'Child first'").Scan(&parentOfChild)
+	if err := sqlDB.QueryRow("SELECT parent_id FROM tasks WHERE title = 'Child first'").Scan(&parentOfChild); err != nil {
+		t.Fatal(err)
+	}
 	if !parentOfChild.Valid {
 		t.Fatal("parent_id de 'Child first' é NULL — forward reference perdida!")
 	}
@@ -868,21 +956,27 @@ func TestMigration_OrphanedForeignKey(t *testing.T) {
 
 	// Mensagem normal deve ter conversation_id UUID válido
 	var normalConvID sql.NullString
-	sqlDB.QueryRow("SELECT conversation_id FROM chat_messages WHERE content = 'Normal'").Scan(&normalConvID)
+	if err := sqlDB.QueryRow("SELECT conversation_id FROM chat_messages WHERE content = 'Normal'").Scan(&normalConvID); err != nil {
+		t.Fatal(err)
+	}
 	if !normalConvID.Valid || !isUUID(normalConvID.String) {
 		t.Errorf("mensagem normal deveria ter conversation_id UUID, obteve %v", normalConvID)
 	}
 
 	// Mensagem órfã deve ter conversation_id NULL (FK não resolvida)
 	var orphanConvID sql.NullString
-	sqlDB.QueryRow("SELECT conversation_id FROM chat_messages WHERE content = 'Órfã'").Scan(&orphanConvID)
+	if err := sqlDB.QueryRow("SELECT conversation_id FROM chat_messages WHERE content = 'Órfã'").Scan(&orphanConvID); err != nil {
+		t.Fatal(err)
+	}
 	if orphanConvID.Valid && orphanConvID.String != "" {
 		t.Errorf("mensagem órfã deveria ter conversation_id NULL, obteve %v", orphanConvID)
 	}
 
 	// Ambas as mensagens devem existir (migração não deve falhar por FK órfã)
 	var count int
-	sqlDB.QueryRow("SELECT count(*) FROM chat_messages").Scan(&count)
+	if err := sqlDB.QueryRow("SELECT count(*) FROM chat_messages").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
 	if count != 2 {
 		t.Errorf("esperado 2 mensagens, obtido %d", count)
 	}
@@ -902,7 +996,9 @@ func TestMigration_ZeroForeignKey(t *testing.T) {
 	}
 
 	var parentID, turnID sql.NullString
-	sqlDB.QueryRow("SELECT parent_id, turn_id FROM chat_messages").Scan(&parentID, &turnID)
+	if err := sqlDB.QueryRow("SELECT parent_id, turn_id FROM chat_messages").Scan(&parentID, &turnID); err != nil {
+		t.Fatal(err)
+	}
 
 	if parentID.Valid && parentID.String != "" {
 		t.Errorf("parent_id=0 deveria virar NULL, obteve %v", parentID)
@@ -927,7 +1023,9 @@ func TestMigration_ExtraColumnsInOldSchema(t *testing.T) {
 
 	// Conversa deve existir com título preservado
 	var title string
-	sqlDB.QueryRow("SELECT title FROM conversations").Scan(&title)
+	if err := sqlDB.QueryRow("SELECT title FROM conversations").Scan(&title); err != nil {
+		t.Fatal(err)
+	}
 	if title != "Com extra" {
 		t.Errorf("título = %q, esperado 'Com extra'", title)
 	}
@@ -961,7 +1059,9 @@ func TestMigration_FTS5DroppedAndRecreatable(t *testing.T) {
 
 	// FTS5 deve ter sido dropada durante migração
 	var ftsCount int
-	sqlDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE name = 'chat_messages_fts'").Scan(&ftsCount)
+	if err := sqlDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE name = 'chat_messages_fts'").Scan(&ftsCount); err != nil {
+		t.Fatal(err)
+	}
 	if ftsCount != 0 {
 		t.Error("chat_messages_fts deveria ter sido dropada durante migração")
 	}
@@ -986,7 +1086,9 @@ func TestMigration_FTS5DroppedAndRecreatable(t *testing.T) {
 	db.Create(&newMsg)
 
 	var matchCount int
-	sqlDB.QueryRow("SELECT count(*) FROM chat_messages_fts WHERE chat_messages_fts MATCH 'novo texto'").Scan(&matchCount)
+	if err := sqlDB.QueryRow("SELECT count(*) FROM chat_messages_fts WHERE chat_messages_fts MATCH 'novo texto'").Scan(&matchCount); err != nil {
+		t.Fatal(err)
+	}
 	if matchCount != 1 {
 		t.Errorf("FTS5 não indexou nova mensagem: count=%d", matchCount)
 	}
@@ -1029,7 +1131,9 @@ func TestMigration_SummaryPointingToNonExistentMessage(t *testing.T) {
 	// O valor "999" não é traduzido (nenhuma msg tem old_id=999).
 	// summary_up_to_message_id fica com o valor antigo copiado como-é.
 	var summaryRef sql.NullString
-	sqlDB.QueryRow("SELECT summary_up_to_message_id FROM conversations").Scan(&summaryRef)
+	if err := sqlDB.QueryRow("SELECT summary_up_to_message_id FROM conversations").Scan(&summaryRef); err != nil {
+		t.Fatal(err)
+	}
 	if !summaryRef.Valid {
 		t.Fatal("summary_up_to_message_id deveria ter valor (999 como string), mas é NULL")
 	}
@@ -1061,16 +1165,20 @@ func TestMigration_ForwardTurnID(t *testing.T) {
 
 	msgIDs := make(map[string]string)
 	rows, _ := sqlDB.Query("SELECT id, content FROM chat_messages")
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id, content string
-		rows.Scan(&id, &content)
+		if err := rows.Scan(&id, &content); err != nil {
+			t.Fatal(err)
+		}
 		msgIDs[content] = id
 	}
 
 	// turn_id de msg1 deve apontar para msg3 (resolvido no 2° passe)
 	var turnOfMsg1 sql.NullString
-	sqlDB.QueryRow("SELECT turn_id FROM chat_messages WHERE content = 'Resposta do turno'").Scan(&turnOfMsg1)
+	if err := sqlDB.QueryRow("SELECT turn_id FROM chat_messages WHERE content = 'Resposta do turno'").Scan(&turnOfMsg1); err != nil {
+		t.Fatal(err)
+	}
 	if !turnOfMsg1.Valid {
 		t.Fatal("turn_id de 'Resposta do turno' é NULL — forward reference perdida!")
 	}
@@ -1080,7 +1188,9 @@ func TestMigration_ForwardTurnID(t *testing.T) {
 
 	// msg2 sem turn_id continua NULL
 	var turnOfMsg2 sql.NullString
-	sqlDB.QueryRow("SELECT turn_id FROM chat_messages WHERE content = 'Sem turno'").Scan(&turnOfMsg2)
+	if err := sqlDB.QueryRow("SELECT turn_id FROM chat_messages WHERE content = 'Sem turno'").Scan(&turnOfMsg2); err != nil {
+		t.Fatal(err)
+	}
 	if turnOfMsg2.Valid && turnOfMsg2.String != "" {
 		t.Errorf("msg2 deveria ter turn_id NULL, obteve %v", turnOfMsg2)
 	}
@@ -1135,13 +1245,17 @@ func TestMigration_PartialSchema(t *testing.T) {
 
 	// Verificar que conversations e messages foram migradas
 	var convID string
-	sqlDB.QueryRow("SELECT id FROM conversations").Scan(&convID)
+	if err := sqlDB.QueryRow("SELECT id FROM conversations").Scan(&convID); err != nil {
+		t.Fatal(err)
+	}
 	if !isUUID(convID) {
 		t.Errorf("conversations.id não é UUID: %q", convID)
 	}
 
 	var msgID, msgConvID string
-	sqlDB.QueryRow("SELECT id, conversation_id FROM chat_messages").Scan(&msgID, &msgConvID)
+	if err := sqlDB.QueryRow("SELECT id, conversation_id FROM chat_messages").Scan(&msgID, &msgConvID); err != nil {
+		t.Fatal(err)
+	}
 	if !isUUID(msgID) {
 		t.Errorf("chat_messages.id não é UUID: %q", msgID)
 	}
@@ -1151,7 +1265,9 @@ func TestMigration_PartialSchema(t *testing.T) {
 
 	// Tabelas que não existiam devem continuar sem existir (sem erro)
 	var taskTableCount int
-	sqlDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='tasks'").Scan(&taskTableCount)
+	if err := sqlDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='tasks'").Scan(&taskTableCount); err != nil {
+		t.Fatal(err)
+	}
 	if taskTableCount != 0 {
 		t.Error("tabela tasks não deveria existir")
 	}

@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { WorkspaceTab } from '../store/workspaceStore';
 
 const mockCreateConversation = vi.fn();
 const mockUpdateTab = vi.fn();
 const mockLoadConversation = vi.fn();
 
 const hoisted = vi.hoisted(() => {
-  let tabs: Array<{ id: string; conversationId?: number }> = [];
-  let activeConversationId: number | null = null;
-  let activeTab: { id: string; conversationId?: number } | null = null;
+  let tabs: Array<Pick<WorkspaceTab, 'id' | 'conversationId'>> = [];
+  let activeConversationId: string | null = null;
+  let activeTab: Pick<WorkspaceTab, 'id' | 'conversationId'> | null = null;
   return {
     get tabs() {
       return tabs;
@@ -21,7 +22,7 @@ const hoisted = vi.hoisted(() => {
     get activeTab() {
       return activeTab;
     },
-    setActiveId(id: number | null) {
+    setActiveId(id: string | null) {
       activeConversationId = id;
     },
     setActiveTab(tab: typeof activeTab) {
@@ -57,7 +58,7 @@ vi.mock('../store/chatStore', () => ({
       get activeConversationId() {
         return hoisted.activeConversationId;
       },
-      loadConversation: (id: number) => mockLoadConversation(id),
+      loadConversation: (id: string) => mockLoadConversation(id),
     }),
   },
 }));
@@ -70,100 +71,100 @@ describe('ensureWorkspaceTabHasConversation', () => {
     mockCreateConversation.mockReset();
     mockUpdateTab.mockReset();
     mockLoadConversation.mockReset();
-    mockCreateConversation.mockResolvedValue({ id: 99 });
+    mockCreateConversation.mockResolvedValue({ id: 'conv-99' });
     mockUpdateTab.mockResolvedValue(undefined);
-    mockLoadConversation.mockImplementation(async (id: number) => {
+    mockLoadConversation.mockImplementation(async (id: string) => {
       hoisted.setActiveId(id);
     });
   });
 
-  it('dedupe inflight: duas chamadas seguidas à mesma aba partilham uma criação', async () => {
-    hoisted.setTabs([{ id: 'tab-dedupe', conversationId: 0 }]);
+  it('dedupe inflight: duas chamadas seguidas \u00e0 mesma aba partilham uma cria\u00e7\u00e3o', async () => {
+    hoisted.setTabs([{ id: 'tab-dedupe' }]);
     const tab = hoisted.tabs[0]!;
 
-    const p1 = ensureWorkspaceTabHasConversation(tab as any);
-    const p2 = ensureWorkspaceTabHasConversation(tab as any);
+    const p1 = ensureWorkspaceTabHasConversation(tab as WorkspaceTab);
+    const p2 = ensureWorkspaceTabHasConversation(tab as WorkspaceTab);
 
     const [a, b] = await Promise.all([p1, p2]);
-    expect(a).toBe(99);
-    expect(b).toBe(99);
+    expect(a).toBe('conv-99');
+    expect(b).toBe('conv-99');
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
   });
 
-  it('quando a aba já tem conversationId, sincroniza o chatStore se necessário', async () => {
-    hoisted.setTabs([{ id: 'tab-sync', conversationId: 7 }]);
+  it('quando a aba j\u00e1 tem conversationId, sincroniza o chatStore se necess\u00e1rio', async () => {
+    hoisted.setTabs([{ id: 'tab-sync', conversationId: 'conv-7' }]);
     mockLoadConversation.mockClear();
 
-    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as any);
+    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe(7);
+    expect(id).toBe('conv-7');
     expect(mockCreateConversation).not.toHaveBeenCalled();
     expect(mockUpdateTab).not.toHaveBeenCalled();
-    expect(mockLoadConversation).toHaveBeenCalledWith(7);
-    expect(hoisted.activeConversationId).toBe(7);
+    expect(mockLoadConversation).toHaveBeenCalledWith('conv-7');
+    expect(hoisted.activeConversationId).toBe('conv-7');
   });
 
-  it('quando conversationId é 0, cria conversa, atualiza aba e carrega mensagens', async () => {
-    hoisted.setTabs([{ id: 'tab-new', conversationId: 0 }]);
-    hoisted.setActiveTab({ id: 'tab-new', conversationId: 0 });
+  it('quando conversationId est\u00e1 vazio, cria conversa, atualiza aba e carrega mensagens', async () => {
+    hoisted.setTabs([{ id: 'tab-new' }]);
+    hoisted.setActiveTab({ id: 'tab-new' });
 
-    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as any);
+    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe(99);
+    expect(id).toBe('conv-99');
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-    expect(mockUpdateTab).toHaveBeenCalledWith('tab-new', { conversation_id: 99 });
-    expect(mockLoadConversation).toHaveBeenCalledWith(99);
-    expect(hoisted.activeConversationId).toBe(99);
+    expect(mockUpdateTab).toHaveBeenCalledWith('tab-new', { conversation_id: 'conv-99' });
+    expect(mockLoadConversation).toHaveBeenCalledWith('conv-99');
+    expect(hoisted.activeConversationId).toBe('conv-99');
   });
 
-  it('lança se a aba não existe no workspace', async () => {
+  it('lan\u00e7a se a aba n\u00e3o existe no workspace', async () => {
     hoisted.setTabs([]);
-    await expect(ensureWorkspaceTabHasConversation({ id: 'missing' } as any)).rejects.toThrow(
-      /Aba não encontrada/,
+    await expect(ensureWorkspaceTabHasConversation({ id: 'missing' } as WorkspaceTab)).rejects.toThrow(
+      /Aba n\u00e3o encontrada/,
     );
   });
 
-  it('não chama loadConversation quando o chat já está na conversa da aba', async () => {
-    hoisted.setTabs([{ id: 'tab-skip-load', conversationId: 7 }]);
-    hoisted.setActiveId(7);
+  it('n\u00e3o chama loadConversation quando o chat j\u00e1 est\u00e1 na conversa da aba', async () => {
+    hoisted.setTabs([{ id: 'tab-skip-load', conversationId: 'conv-7' }]);
+    hoisted.setActiveId('conv-7');
     mockLoadConversation.mockClear();
 
-    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as any);
+    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe(7);
+    expect(id).toBe('conv-7');
     expect(mockLoadConversation).not.toHaveBeenCalled();
   });
 
-  it('ensureWorkspaceTabConversationId não sincroniza o chatStore quando só precisa do id', async () => {
-    hoisted.setTabs([{ id: 'tab-id-only', conversationId: 7 }]);
+  it('ensureWorkspaceTabConversationId n\u00e3o sincroniza o chatStore quando s\u00f3 precisa do id', async () => {
+    hoisted.setTabs([{ id: 'tab-id-only', conversationId: 'conv-7' }]);
     mockLoadConversation.mockClear();
 
-    const id = await ensureWorkspaceTabConversationId(hoisted.tabs[0] as any);
+    const id = await ensureWorkspaceTabConversationId(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe(7);
+    expect(id).toBe('conv-7');
     expect(mockLoadConversation).not.toHaveBeenCalled();
   });
 
-  it('ensureWorkspaceTabConversationId não carrega o chatStore ao criar nova conversa', async () => {
-    hoisted.setTabs([{ id: 'tab-new-id-only', conversationId: 0 }]);
+  it('ensureWorkspaceTabConversationId n\u00e3o carrega o chatStore ao criar nova conversa', async () => {
+    hoisted.setTabs([{ id: 'tab-new-id-only' }]);
     mockLoadConversation.mockClear();
 
-    const id = await ensureWorkspaceTabConversationId(hoisted.tabs[0] as any);
+    const id = await ensureWorkspaceTabConversationId(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe(99);
+    expect(id).toBe('conv-99');
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-    expect(mockUpdateTab).toHaveBeenCalledWith('tab-new-id-only', { conversation_id: 99 });
+    expect(mockUpdateTab).toHaveBeenCalledWith('tab-new-id-only', { conversation_id: 'conv-99' });
     expect(mockLoadConversation).not.toHaveBeenCalled();
   });
 
-  it('ensureWorkspaceTabHasConversation não sincroniza o chatStore se a aba já não estiver ativa', async () => {
-    hoisted.setTabs([{ id: 'tab-inactive', conversationId: 7 }, { id: 'other-tab', conversationId: 11 }]);
-    hoisted.setActiveTab({ id: 'other-tab', conversationId: 11 });
+  it('ensureWorkspaceTabHasConversation n\u00e3o sincroniza o chatStore se a aba j\u00e1 n\u00e3o estiver ativa', async () => {
+    hoisted.setTabs([{ id: 'tab-inactive', conversationId: 'conv-7' }, { id: 'other-tab', conversationId: 'conv-11' }]);
+    hoisted.setActiveTab({ id: 'other-tab', conversationId: 'conv-11' });
     mockLoadConversation.mockClear();
 
-    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as any);
+    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe(7);
+    expect(id).toBe('conv-7');
     expect(mockLoadConversation).not.toHaveBeenCalled();
   });
 });

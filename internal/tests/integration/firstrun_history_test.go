@@ -109,17 +109,16 @@ func TestIntegration_FirstMessageHistoryOrder(t *testing.T) {
 		t.Fatalf("falha ao criar conversa: %v", err)
 	}
 
-	// 2. Sequência de 5 mensagens com timestamps precisos
+	// 2. Sequência de 5 mensagens
 	messages := []struct {
 		role    string
 		content string
-		delay   time.Duration
 	}{
-		{"user", "Primeira pergunta", 0},
-		{"assistant", "Primeira resposta", 100},
-		{"user", "Segunda pergunta", 200},
-		{"assistant", "Segunda resposta", 300},
-		{"user", "Terceira pergunta", 400},
+		{"user", "Primeira pergunta"},
+		{"assistant", "Primeira resposta"},
+		{"user", "Segunda pergunta"},
+		{"assistant", "Segunda resposta"},
+		{"user", "Terceira pergunta"},
 	}
 
 	for _, msg := range messages {
@@ -135,9 +134,9 @@ func TestIntegration_FirstMessageHistoryOrder(t *testing.T) {
 		}
 	}
 
-	// 3. Carregar histórico com ordem FIFO
+	// 3. Carregar histórico com ordem FIFO (UUIDv7 IDs preservam ordem de inserção)
 	var allMsgs []database.ChatMessage
-	if err := db.Where("conversation_id = ?", conv.ID).Order("created_at ASC").Find(&allMsgs).Error; err != nil {
+	if err := db.Where("conversation_id = ?", conv.ID).Order("id ASC").Find(&allMsgs).Error; err != nil {
 		t.Fatalf("falha ao carregar histórico: %v", err)
 	}
 

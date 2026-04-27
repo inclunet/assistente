@@ -375,7 +375,8 @@ export function getMessageMenuItems(
         }
 
         try {
-          const isBackendId = !!message.id;
+          // IDs de streaming (ex: "streaming-abc-1") não existem no backend.
+          const isBackendId = !!message.id && !message.id.startsWith('streaming-');
           const backendId = isBackendId ? message.id : '';
           if (!backendId) {
             onAnnounce?.('Nao foi possivel identificar a mensagem');

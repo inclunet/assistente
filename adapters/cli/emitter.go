@@ -23,7 +23,7 @@ type EmitterAdapter struct {
 	verbose        bool
 	done           chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
 	lastPrinted    int          // quantidade de bytes de Content já impressos (para imprimir só o delta)
-	conversationID string         // conversa ativa; 0 = aceita qualquer conversa
+	conversationID string         // conversa ativa; "" = aceita qualquer conversa
 }
 
 // EmitterOption configura o EmitterAdapter.
@@ -63,7 +63,7 @@ func NewEmitterAdapter(opts ...EmitterOption) *EmitterAdapter {
 //
 // signalDone() é idempotente: se mais de um evento terminal chegar, o canal já estará fechado.
 // Deve ser chamado ANTES de SendMessage.
-// Se conversationID é 0, aceita qualquer conversa (compatível com modo REPL).
+// Se conversationID é "", aceita qualquer conversa (compatível com modo REPL).
 func (e *EmitterAdapter) WaitDone(conversationID string) <-chan struct{} {
 	e.mu.Lock()
 	defer e.mu.Unlock()

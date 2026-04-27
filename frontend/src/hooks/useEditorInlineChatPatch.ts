@@ -27,7 +27,11 @@ type MessageLike = {
   content?: string;
 };
 
-function getMaxNumericMessageId(messages: MessageLike[]): string {
+/**
+ * Returns the max message ID from a list.
+ * Works with UUIDv7 (RFC 9562): lexicographic order matches chronological order.
+ */
+function getMaxMessageId(messages: MessageLike[]): string {
   let maxId = '';
   for (const m of messages) {
     const id = String(m?.id || '');
@@ -41,12 +45,11 @@ function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId
   const allMessages = afterState.getMessages() as MessageLike[];
 
   const afterMessageId = opts?.afterMessageId || '';
-  const messages = afterMessageId
-    ? allMessages.filter((m) => {
-        const id = String(m?.id || '');
-        return id && id > afterMessageId;
-      })
-    : allMessages;
+  let messages = allMessages;
+  if (afterMessageId) {
+    const idx = allMessages.findIndex((m) => String(m?.id || '') === afterMessageId);
+    messages = idx >= 0 ? allMessages.slice(idx + 1) : allMessages;
+  }
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -95,7 +98,7 @@ export function useEditorInlineChatPatch() {
     return {
       waitForChatDone,
       waitForEditorPatch,
-      getMaxNumericMessageId,
+      getMaxMessageId,
     };
   }, []);
 }

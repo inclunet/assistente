@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MediaCategory } from '../services/mediaService';
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ function emitEvent(name: string, data: unknown) {
 }
 
 describe('chatStore validation', () => {
+  type MessageNode = import('./chatStore').MessageNode;
   let useChatStore: typeof import('./chatStore').useChatStore;
 
   beforeEach(async () => {
@@ -135,7 +137,7 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessage('hello', [{
       id: 'test-1',
       file: fakeFile,
-      category: 'document' as any,
+      category: MediaCategory.DOCUMENT,
       mimeType: 'application/octet-stream',
       extension: '.bin',
       fileName: 'big.bin',
@@ -310,7 +312,7 @@ describe('chatStore validation', () => {
             },
             children: [],
             childCount: 0,
-          } as any,
+          } as unknown as MessageNode,
         ],
       },
     });

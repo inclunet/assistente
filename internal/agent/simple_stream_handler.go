@@ -67,7 +67,7 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 	}
 
 	// Delegate save, notify, and event emission to the Service (same as agentic path).
-	// turnID=0 → the assistant message is a root-level message (no parent thread node).
+	// turnID="" → the assistant message is a root-level message (no parent thread node).
 	h.svc.SaveAndFinish(h.ConversationID, "", AgenticResult{
 		FullResponse: finalContent,
 		Reasoning:    accumulatedReasoning,

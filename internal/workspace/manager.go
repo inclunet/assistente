@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -684,9 +685,9 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		needsSave = true
 		switch t.Type {
 		case TabTypeChat:
-			// content_id era o conversation ID (número como string)
+			// content_id era o conversation ID — migrar apenas se for UUID válido
 			if t.ConversationID == "" {
-				if t.ContentID != "" {
+				if _, err := uuid.Parse(t.ContentID); err == nil {
 					t.ConversationID = t.ContentID
 				}
 			}

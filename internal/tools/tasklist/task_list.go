@@ -181,7 +181,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	// READ modes
 	if !isWrite {
 		if params.TaskListID != nil && *params.TaskListID == "" && slugRef == "" {
-			return tools.ToolResult{Content: "task_list_id must be > 0", IsError: true}, nil
+			return tools.ToolResult{Content: "task_list_id must be a non-empty string", IsError: true}, nil
 		}
 		if !hasListRef {
 			return t.listAll()

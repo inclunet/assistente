@@ -248,7 +248,7 @@ func isUUIDMigrationNeeded(sqlDB *sql.DB) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var cid int
@@ -289,7 +289,7 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 	if err != nil {
 		return nil, fmt.Errorf("erro ao ler %s: %w", tableName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	cols, err := rows.Columns()
 	if err != nil {

@@ -53,7 +53,7 @@ func (c *ChannelConfig) GetMaxContacts() int {
 	return c.MaxContacts
 }
 
-// GetConversationID retorna o conversationID salvo para um contato, ou 0 se não existir.
+// GetConversationID retorna o conversationID salvo para um contato, ou "" se não existir.
 func (c *ChannelConfig) GetConversationID(contactID string) string {
 	if c.Conversations == nil {
 		return ""
