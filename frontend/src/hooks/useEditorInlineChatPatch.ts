@@ -3,6 +3,7 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 
 import { useChatStore } from '../store/chatStore';
 import { extractEditorPatch } from '../lib/editorPatch';
+import { isBackendId } from '../lib/idUtils';
 
 type EditorPatch = {
   v: 1;
@@ -30,14 +31,13 @@ type MessageLike = {
 /**
  * Returns the max message ID from a list.
  * Works with UUIDv7 (RFC 9562): lexicographic order matches chronological order.
- * Filters out local streaming placeholder IDs (e.g. "streaming-...") which are
- * not persisted backend IDs and could corrupt afterMessageId boundary.
+ * Filters out non-backend IDs (streaming placeholders, etc.).
  */
 function getMaxMessageId(messages: MessageLike[]): string {
   let maxId = '';
   for (const m of messages) {
     const id = String(m?.id || '');
-    if (id && !id.startsWith('streaming-') && id > maxId) maxId = id;
+    if (isBackendId(id) && id > maxId) maxId = id;
   }
   return maxId;
 }
@@ -56,7 +56,7 @@ function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId
       // ID not found (list reloaded/compacted) — filter by lexicographic order (UUIDv7 is sortable)
       messages = allMessages.filter((m) => {
         const id = String(m?.id || '');
-        return id && !id.startsWith('streaming-') && id > afterMessageId;
+        return isBackendId(id) && id > afterMessageId;
       });
     }
   }

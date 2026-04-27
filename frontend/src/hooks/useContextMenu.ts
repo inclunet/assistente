@@ -6,6 +6,7 @@ import { ttsService } from '../services/tts';
 import { VoiceRole } from '../services/tts/index';
 import { messageAudioService } from '../services/messageAudio';
 import { stripMarkdown } from '../lib/stripMarkdown';
+import { isBackendId } from '../lib/idUtils';
 import i18next from 'i18next';
 
 export interface UseContextMenuResult {
@@ -131,9 +132,7 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       messageAudioService.stopCurrentAudio();
       ttsService.stop();
 
-      // IDs de streaming (ex: "streaming-abc-1") não existem no backend.
-      const isBackendId = !!message.id && !message.id.startsWith('streaming-');
-      const backendId = isBackendId ? message.id : '';
+      const backendId = isBackendId(message.id) ? message.id : '';
 
       if (backendId) {
         const volume = ttsService.getVolume();
