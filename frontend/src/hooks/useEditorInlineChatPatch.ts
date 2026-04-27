@@ -29,17 +29,16 @@ type MessageLike = {
 };
 
 /**
- * Returns the max message ID from a list.
- * Works with UUIDv7 (RFC 9562): lexicographic order matches chronological order.
- * Filters out non-backend IDs (streaming placeholders, etc.).
+ * Returns the last backend message ID from a list.
+ * Iterates from the end to find the most recent persisted message,
+ * avoiding lexicographic comparison of UUIDs.
  */
 function getMaxMessageId(messages: MessageLike[]): string {
-  let maxId = '';
-  for (const m of messages) {
-    const id = String(m?.id || '');
-    if (isBackendId(id) && id > maxId) maxId = id;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const id = String(messages[i]?.id || '');
+    if (isBackendId(id)) return id;
   }
-  return maxId;
+  return '';
 }
 
 function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId'>): FindPatchResult {
