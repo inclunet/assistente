@@ -19,8 +19,8 @@ let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void;
 type ConversationItem = {
   id: string;
   title: string;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
   message_count: number;
 };
 
@@ -136,15 +136,15 @@ const conversations: ConversationItem[] = [
   {
     id: '1',
     title: 'Conversa 1',
-    created_at: '2025-01-01T00:00:00Z',
-    updated_at: '2025-01-01T00:00:00Z',
+    createdAt: '2025-01-01T00:00:00Z',
+    updatedAt: '2025-01-01T00:00:00Z',
     message_count: 2,
   },
   {
     id: '2',
     title: 'Conversa 2',
-    created_at: '2025-01-02T00:00:00Z',
-    updated_at: '2025-01-02T00:00:00Z',
+    createdAt: '2025-01-02T00:00:00Z',
+    updatedAt: '2025-01-02T00:00:00Z',
     message_count: 5,
   },
 ];

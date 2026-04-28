@@ -36,7 +36,7 @@ export function WorkspaceLayout() {
   useEffect(() => {
     const cleanup = setupEventListeners();
     return cleanup;
-  }, []);
+  }, [setupEventListeners]);
 
   useWorkspaceKeyboardShortcuts();
   useWorkspaceChatBridge();
