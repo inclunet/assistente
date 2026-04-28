@@ -257,7 +257,7 @@ test.describe('Chat — erro no envio', () => {
     });
     await wails.emit('chat:done', {
       conversationId: '01926b90-0000-7000-8000-000000000001',
-      assistantmessageId: '01926b90-7a5a-7c4e-8d3f-000000014546',
+      assistantMessageId: '01926b90-7a5a-7c4e-8d3f-000000014546',
       hadToolCalls: false,
     });
 
@@ -322,7 +322,7 @@ test.describe('Chat — erro no envio', () => {
     });
     await wails.emit('chat:done', {
       conversationId: '01926b90-0000-7000-8000-000000000001',
-      assistantmessageId: '01926b90-7a5a-7c4e-8d3f-000000014537',
+      assistantMessageId: '01926b90-7a5a-7c4e-8d3f-000000014537',
       hadToolCalls: false,
     });
 

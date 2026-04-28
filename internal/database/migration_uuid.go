@@ -242,15 +242,19 @@ func migrateToUUIDv7() error {
 		log.Printf("[Migration] Aviso: normalização de summarizing_in_progress: %v", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("erro ao commit da migração: %w", err)
-	}
-
-	// Persiste mapa de remapeamento old→new para migração de workspaces.
-	// O workspace manager usa esse mapa para atualizar conversation_id e
-	// content_id em workspace.yaml.
+	// Persiste mapa de remapeamento ANTES do commit para minimizar janela de
+	// crash sem remap. Se o commit falhar (rollback), o remap fica no disco
+	// mas será ignorado na próxima abertura (o banco ainda terá IDs INTEGER,
+	// e a migração será retentada do zero). Se o commit tiver sucesso, o remap
+	// já estará disponível para o workspace manager.
 	if err := persistIDRemapFile(sqlDB, convMap, tlMap); err != nil {
 		log.Printf("[Migration] Aviso: não foi possível salvar mapa de remapeamento: %v", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		// Remap órfão pode ficar no disco — será ignorado pois a migração será
+		// retentada na próxima abertura (banco permanece com IDs INTEGER).
+		return fmt.Errorf("erro ao commit da migração: %w", err)
 	}
 
 	log.Println("[Migration] Migração UUIDv7 concluída com sucesso!")
@@ -325,6 +329,7 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 	}
 
 	idMap := make(map[uint]string)
+	orphanFKCount := make(map[string]int)
 
 	// Determinar colunas da nova tabela (sem defaults/types)
 	newColNames := make([]string, len(newCols))
@@ -405,7 +410,8 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 							if newFK, ok := fkMap[oldFKID]; ok {
 								insertValues[i] = newFK
 							} else {
-								insertValues[i] = nil // FK órfã
+								orphanFKCount[colName]++
+								insertValues[i] = nil // FK órfã → NULL
 							}
 						} else {
 							// Self-reference — resolver do próprio idMap
@@ -449,7 +455,23 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 					newFK, fmt.Sprintf("%d", oldFK),
 				)
 			}
+			// Limpar self-refs órfãs que não foram resolvidas pelo segundo passe
+			// (strings numéricas que não estão no idMap → dados inconsistentes pré-migração)
+			// Usa NOT GLOB '*-*' para excluir UUIDs (que contêm hífens)
+			res, _ := tx.Exec(
+				fmt.Sprintf(`UPDATE %s SET "%s" = NULL WHERE typeof("%s") = 'text' AND "%s" GLOB '[0-9]*' AND "%s" NOT GLOB '*-*'`, newTableName, colName, colName, colName, colName),
+			)
+			if res != nil {
+				if cleaned, _ := res.RowsAffected(); cleaned > 0 {
+					log.Printf("[Migration] %s.%s: %d self-refs órfãs limpas para NULL", tableName, colName, cleaned)
+				}
+			}
 		}
+	}
+
+	// Logar FKs órfãs encontradas durante a migração
+	for col, count := range orphanFKCount {
+		log.Printf("[Migration] %s.%s: %d FKs órfãs resolvidas para NULL", tableName, col, count)
 	}
 
 	// Drop tabela antiga, rename nova

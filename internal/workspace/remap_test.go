@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -486,5 +487,135 @@ func TestInitialize_MigratesAllWorkspacesBeforeDeletingRemap(t *testing.T) {
 	remapPath := filepath.Join(remapDir, "uuid-migration-remap.json")
 	if _, err := os.Stat(remapPath); !os.IsNotExist(err) {
 		t.Errorf("remap file should have been deleted after Initialize, stat err: %v", err)
+	}
+}
+
+func TestLoadWorkspaceFile_ReturnsErrMigrationSaveFailedOnSaveError(t *testing.T) {
+	tmp := t.TempDir()
+
+	remapDir := filepath.Join(tmp, assistenteDir)
+	writeRemapFile(t, remapDir, database.IDRemapData{
+		Conversations: map[string]string{
+			"50": "01970a9e-cccc-7000-8000-eeeeeeeeeeee",
+		},
+	})
+
+	ws := Workspace{
+		Tabs: TabsState{
+			Items: []Tab{{
+				ID:        "tab-1",
+				Type:      TabTypeChat,
+				Title:     "Chat",
+				ContentID: "50",
+			}},
+		},
+	}
+	wsPath := writeWorkspaceYAML(t, tmp, ws)
+	withChdirAndConfigReset(t, tmp)
+
+	// Make the workspace.yaml file itself read-only so saveWorkspace fails.
+	// os.Chmod on files works on Windows (sets the read-only attribute).
+	if err := os.Chmod(wsPath, 0444); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(wsPath, 0644) })
+
+	m := NewManager(tmp)
+	loaded, err := m.loadWorkspaceFile(wsPath)
+
+	// Should return the workspace AND an ErrMigrationSaveFailed error
+	if loaded == nil {
+		t.Fatal("workspace should be returned even on save failure")
+	}
+	if !errors.Is(err, ErrMigrationSaveFailed) {
+		t.Errorf("expected ErrMigrationSaveFailed, got: %v", err)
+	}
+
+	// Workspace should be migrated in memory
+	tab := loaded.FindTab("tab-1")
+	if tab == nil {
+		t.Fatal("tab-1 not found")
+	}
+	if tab.ConversationID != "01970a9e-cccc-7000-8000-eeeeeeeeeeee" {
+		t.Errorf("conversation_id: got %q, want %q", tab.ConversationID, "01970a9e-cccc-7000-8000-eeeeeeeeeeee")
+	}
+}
+
+func TestInitialize_PreservesRemapOnPartialSaveFailure(t *testing.T) {
+	// Two workspaces with legacy IDs. ws-2's directory is made read-only
+	// so saving migration fails. The remap file must NOT be deleted.
+	homeDir := t.TempDir()
+
+	remapDir := filepath.Join(homeDir, assistenteDir)
+	writeRemapFile(t, remapDir, database.IDRemapData{
+		Conversations: map[string]string{
+			"10": "01970a9e-aaaa-7000-8000-aaaaaaaaaaaa",
+			"20": "01970a9e-bbbb-7000-8000-bbbbbbbbbbbb",
+		},
+	})
+
+	// ws-1: will be the active workspace, save will succeed
+	ws1Dir := filepath.Join(homeDir, workspacesDir, "ws1")
+	ws1 := Workspace{
+		ID:   "ws-1",
+		Name: "WS 1",
+		Tabs: TabsState{
+			Items: []Tab{{
+				ID:        "tab-1",
+				Type:      TabTypeChat,
+				Title:     "Chat 1",
+				ContentID: "10",
+			}},
+		},
+	}
+	writeWorkspaceYAML(t, ws1Dir, ws1)
+
+	// ws-2: save will fail because .assistente dir is read-only
+	ws2Dir := filepath.Join(homeDir, workspacesDir, "ws2")
+	ws2 := Workspace{
+		ID:   "ws-2",
+		Name: "WS 2",
+		Tabs: TabsState{
+			Items: []Tab{{
+				ID:        "tab-2",
+				Type:      TabTypeChat,
+				Title:     "Chat 2",
+				ContentID: "20",
+			}},
+		},
+	}
+	writeWorkspaceYAML(t, ws2Dir, ws2)
+
+	// Make ws-2's workspace.yaml file read-only so saveWorkspace fails.
+	ws2WsPath := filepath.Join(ws2Dir, assistenteDir, workspaceFile)
+	if err := os.Chmod(ws2WsPath, 0444); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ws2WsPath, 0644) })
+
+	writeIndex(t, homeDir, Index{
+		LastOpened: "ws-1",
+		Workspaces: []IndexEntry{
+			{ID: "ws-1", Name: "WS 1", Path: ws1Dir},
+			{ID: "ws-2", Name: "WS 2", Path: ws2Dir},
+		},
+	})
+
+	withChdirAndConfigReset(t, homeDir)
+
+	m := NewManager(homeDir)
+	if err := m.Initialize(ws1Dir); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	// ws-1 should be migrated successfully
+	if m.Active().FindTab("tab-1").ConversationID != "01970a9e-aaaa-7000-8000-aaaaaaaaaaaa" {
+		t.Errorf("ws-1 tab-1: got %q, want remapped UUID", m.Active().FindTab("tab-1").ConversationID)
+	}
+
+	// Remap file must be PRESERVED because ws-2's save failed
+	remapPath := filepath.Join(remapDir, "uuid-migration-remap.json")
+	if _, err := os.Stat(remapPath); os.IsNotExist(err) {
+		t.Errorf("remap file should be preserved when a workspace migration save failed, but it was deleted")
 	}
 }

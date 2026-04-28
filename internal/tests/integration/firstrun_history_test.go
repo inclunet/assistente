@@ -134,9 +134,9 @@ func TestIntegration_FirstMessageHistoryOrder(t *testing.T) {
 		}
 	}
 
-	// 3. Carregar histórico com ordem FIFO (UUIDv7 IDs preservam ordem de inserção)
+	// 3. Carregar histórico com ordem FIFO (created_at preserva ordem de inserção)
 	var allMsgs []database.ChatMessage
-	if err := db.Where("conversation_id = ?", conv.ID).Order("id ASC").Find(&allMsgs).Error; err != nil {
+	if err := db.Where("conversation_id = ?", conv.ID).Order("created_at ASC").Find(&allMsgs).Error; err != nil {
 		t.Fatalf("falha ao carregar histórico: %v", err)
 	}
 

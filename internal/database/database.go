@@ -136,7 +136,7 @@ func Init() error {
 		if msgCount > 0 && ftsCount < msgCount {
 			log.Printf("[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...", ftsCount, msgCount)
 			if err := RebuildFTSIndex(); err != nil {
-				log.Printf("[Database] Aviso: erro ao reconstruir FTS5: %v", err)
+				log.Printf("[Database] ERRO: falha ao reconstruir FTS5 — busca de histórico pode estar incompleta. Será retentado no próximo startup. Erro: %v", err)
 			} else {
 				log.Printf("[Database] Índice FTS5 reconstruído (%d mensagens)", msgCount)
 			}

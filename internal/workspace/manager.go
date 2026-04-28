@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -21,6 +22,11 @@ const (
 	indexFile     = "index.yaml"
 	workspacesDir = "workspaces"
 )
+
+// ErrMigrationSaveFailed indicates that a workspace was loaded and migrated
+// in memory, but persisting the migrated version to disk failed.
+// The returned *Workspace is still usable; only the on-disk state is stale.
+var ErrMigrationSaveFailed = errors.New("workspace migration save failed")
 
 // isValidUUIDv7 checks if a string is a valid UUIDv7 with RFC 4122 variant.
 func isValidUUIDv7(s string) bool {
@@ -69,7 +75,7 @@ func (m *Manager) Initialize(workDir string) error {
 		wsPath := filepath.Join(workDir, assistenteDir, workspaceFile)
 		if _, err := os.Stat(wsPath); err == nil {
 			ws, err := m.loadWorkspaceFile(wsPath)
-			if err != nil {
+			if err != nil && !errors.Is(err, ErrMigrationSaveFailed) {
 				return fmt.Errorf("failed to load workspace at %s: %w", wsPath, err)
 			}
 			m.active = ws
@@ -97,7 +103,7 @@ func (m *Manager) Initialize(workDir string) error {
 		for _, entry := range idx.Workspaces {
 			if entry.ID == idx.LastOpened {
 				wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
-				if ws, err := m.loadWorkspaceFile(wsPath); err == nil {
+				if ws, err := m.loadWorkspaceFile(wsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
 					m.active = ws
 					m.activePath = entry.Path
 					initOK = true
@@ -112,7 +118,7 @@ func (m *Manager) Initialize(workDir string) error {
 	defaultWsPath := filepath.Join(defaultPath, assistenteDir, workspaceFile)
 
 	if _, err := os.Stat(defaultWsPath); err == nil {
-		if ws, err := m.loadWorkspaceFile(defaultWsPath); err == nil {
+		if ws, err := m.loadWorkspaceFile(defaultWsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
 			m.active = ws
 			m.activePath = defaultPath
 			m.touchIndex(ws, defaultPath)
@@ -183,7 +189,7 @@ func (m *Manager) List() ([]WorkspaceInfo, error) {
 
 		// Tenta carregar mais detalhes
 		wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
-		if ws, err := m.loadWorkspaceFile(wsPath); err == nil {
+		if ws, err := m.loadWorkspaceFile(wsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
 			info.Profile = ws.Profile
 			info.TabCount = len(ws.Tabs.Items)
 		}
@@ -230,7 +236,7 @@ func (m *Manager) Switch(workspaceID string) (*Workspace, error) {
 		if entry.ID == workspaceID {
 			wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
 			ws, err := m.loadWorkspaceFile(wsPath)
-			if err != nil {
+			if err != nil && !errors.Is(err, ErrMigrationSaveFailed) {
 				return nil, fmt.Errorf("failed to load workspace %s: %w", workspaceID, err)
 			}
 
@@ -541,7 +547,7 @@ func (m *Manager) MoveTabToWorkspace(tabID, targetWorkspaceID string) error {
 	// Carrega workspace alvo
 	targetWsFile := filepath.Join(targetPath, assistenteDir, workspaceFile)
 	targetWs, err := m.loadWorkspaceFile(targetWsFile)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrMigrationSaveFailed) {
 		return fmt.Errorf("failed to load target workspace: %w", err)
 	}
 
@@ -719,6 +725,7 @@ func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
 		return
 	}
 
+	allSaved := true
 	idx, _ := m.loadIndex()
 	if idx != nil {
 		for _, entry := range idx.Workspaces {
@@ -729,10 +736,20 @@ func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
 			wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
 			if _, statErr := os.Stat(wsPath); statErr == nil {
 				if _, err := m.loadWorkspaceFile(wsPath); err != nil {
-					log.Printf("[Workspace] Aviso: falha ao migrar workspace %s: %v", entry.ID, err)
+					if errors.Is(err, ErrMigrationSaveFailed) {
+						allSaved = false
+						log.Printf("[Workspace] Aviso: migração do workspace %s não foi persistida: %v", entry.ID, err)
+					} else {
+						log.Printf("[Workspace] Aviso: falha ao migrar workspace %s: %v", entry.ID, err)
+					}
 				}
 			}
 		}
+	}
+
+	if !allSaved {
+		log.Printf("[Workspace] Remap preservado: nem todos os workspaces foram migrados com sucesso")
+		return
 	}
 
 	database.DeleteIDRemapFile(remapDir)
@@ -856,6 +873,7 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	if needsSave {
 		if err := m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))); err != nil {
 			log.Printf("[Workspace] Aviso: falha ao salvar migração de workspace: %v", err)
+			return &ws, fmt.Errorf("%w: %v", ErrMigrationSaveFailed, err)
 		}
 	}
 

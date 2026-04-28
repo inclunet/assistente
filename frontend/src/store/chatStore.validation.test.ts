@@ -275,7 +275,7 @@ describe('chatStore validation', () => {
         emitEvent('chat:messages_ready', { conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", userMessageId: "01926b90-7a5a-7c4e-8d3f-000000014545", userContent: 'ok 2' });
         emitEvent('chat:stream', { conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", content: 'resposta final', done: false });
         emitEvent('chat:stream', { conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", messageId: "01926b90-7a5a-7c4e-8d3f-000000014546", content: 'resposta final', done: true });
-        emitEvent('chat:done', { conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", assistantmessageId: "01926b90-7a5a-7c4e-8d3f-000000014546", hadToolCalls: false });
+        emitEvent('chat:done', { conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", assistantMessageId: "01926b90-7a5a-7c4e-8d3f-000000014546", hadToolCalls: false });
         return Promise.resolve();
       });
 
@@ -321,7 +321,7 @@ describe('chatStore validation', () => {
       emitEvent('chat:messages_ready', { conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", userMessageId: "01926b90-7a5a-7c4e-8d3f-000000014730", userContent: 'oi' });
       emitEvent('chat:stream', { conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", content: 'resposta parcial', done: false });
       emitEvent('chat:stream', { conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", messageId: "01926b90-7a5a-7c4e-8d3f-000000014731", content: 'resposta final', done: true });
-      emitEvent('chat:done', { conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", assistantmessageId: "01926b90-7a5a-7c4e-8d3f-000000014731", hadToolCalls: false });
+      emitEvent('chat:done', { conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", assistantMessageId: "01926b90-7a5a-7c4e-8d3f-000000014731", hadToolCalls: false });
       return Promise.resolve();
     });
 
