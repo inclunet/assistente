@@ -1,6 +1,7 @@
 package portability
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -117,7 +118,7 @@ func findExistingProviderByID(providerID string) (*database.LLMProvider, error) 
 	if err == nil {
 		return &provider, nil
 	}
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("erro ao localizar provider %q: %w", providerID, err)

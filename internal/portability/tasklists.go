@@ -2,6 +2,7 @@ package portability
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -471,7 +472,7 @@ func findExistingTaskListByExport(taskList TaskListExport) (*database.TaskList, 
 		if err == nil {
 			return &existing, nil
 		}
-		if err != gorm.ErrRecordNotFound {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("erro ao localizar tasklist %q: %w", id, err)
 		}
 	}
@@ -482,7 +483,7 @@ func findExistingTaskListByExport(taskList TaskListExport) (*database.TaskList, 
 		if err == nil {
 			return &existing, nil
 		}
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("erro ao localizar tasklist %q: %w", slug, err)
@@ -492,7 +493,7 @@ func findExistingTaskListByExport(taskList TaskListExport) (*database.TaskList, 
 	if err == nil {
 		return &existing, nil
 	}
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("erro ao localizar tasklist %q: %w", taskList.Title, err)

@@ -1043,7 +1043,7 @@ func findExistingConversationByID(id string) (*database.Conversation, error) {
 	if err == nil {
 		return &existing, nil
 	}
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("erro ao localizar conversa %q: %w", id, err)
