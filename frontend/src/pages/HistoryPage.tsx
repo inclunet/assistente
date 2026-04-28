@@ -103,7 +103,8 @@ interface ImportResultSummary {
 }
 
 interface ExportRequestPayload {
-  conversationIds: string[];
+  explicitSelection?: boolean;
+  conversationIds?: string[];
   providerIds?: string[];
   taskListIds?: string[];
   includeCredentials: boolean;
@@ -393,10 +394,6 @@ export default function HistoryPage() {
   ), [conversations, selectedIds]);
 
   const openExportModal = useCallback((idsToExport: string[]) => {
-    if (idsToExport.length === 0) {
-      announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
-      return;
-    }
     setExportTargetIds(idsToExport);
     setIncludeProvidersExport(false);
     setExportProviderIds([]);
@@ -406,7 +403,7 @@ export default function HistoryPage() {
     setExportPassword('');
     setExportPasswordError('');
     setIsExportModalOpen(true);
-  }, [announce, t]);
+  }, []);
 
   const closeExportModal = useCallback(() => {
     setIsExportModalOpen(false);
@@ -444,10 +441,13 @@ export default function HistoryPage() {
   }) => {
     try {
       const payload: ExportRequestPayload = {
-        conversationIds: idsToExport,
+        explicitSelection: true,
         includeCredentials: options?.includeCredentials === true,
         outputFormat: 'json',
       };
+      if (idsToExport.length > 0) {
+        payload.conversationIds = idsToExport;
+      }
       if (providerIdsToExport.length > 0) {
         payload.providerIds = providerIdsToExport;
       }
@@ -458,7 +458,7 @@ export default function HistoryPage() {
         payload.credentialExportPassword = options.credentialExportPassword.trim();
       }
       const jsonData = await ExportData(payload);
-      const filename = generateFilename('conversas');
+      const filename = generateFilename('dados');
       downloadJSON(jsonData, filename);
     } catch (error) {
       console.error('Erro ao exportar dados:', error);
@@ -492,10 +492,6 @@ export default function HistoryPage() {
   }, [exportRichByIds, getTargetConversationIds]);
 
   const handleConfirmExport = useCallback(async () => {
-    if (exportTargetIds.length === 0 && !includeProvidersExport && !includeTaskListsExport) {
-      announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
-      return;
-    }
     if (includeCredentialExport && !exportPassword.trim()) {
       setExportPasswordError(t('history.exportPasswordRequired', 'Informe uma senha para criptografar as credenciais exportadas.'));
       return;
@@ -512,6 +508,16 @@ export default function HistoryPage() {
       let taskListIdsToExport: string[] = [];
       if (includeTaskListsExport) {
         taskListIdsToExport = exportTaskListIds.length > 0 ? exportTaskListIds : await loadExportTaskListIds();
+      }
+
+      const hasResourcesToExport =
+        exportTargetIds.length > 0 ||
+        providerIdsToExport.length > 0 ||
+        taskListIdsToExport.length > 0 ||
+        includeCredentialExport;
+      if (!hasResourcesToExport) {
+        announce(t('history.noDataToExport', 'Nenhum dado selecionado para exportar'), 'assertive');
+        return;
       }
 
       await exportJsonByIds(exportTargetIds, providerIdsToExport, taskListIdsToExport, {
@@ -1011,7 +1017,7 @@ export default function HistoryPage() {
                   count: selectedIds.size,
                   defaultValue: 'Exportar JSON ({{count}})',
                 })
-              : t('history.exportJson', 'Exportar JSON'),
+              : t('history.exportData', 'Exportar dados'),
             icon: <ExportOutlined />,
             onClick: handleExport,
             variant: 'secondary',
@@ -1061,7 +1067,7 @@ export default function HistoryPage() {
       <Modal
         isOpen={isExportModalOpen}
         onClose={closeExportModal}
-        title={t('history.exportDialogTitle', 'Exportar conversas')}
+        title={t('history.exportDialogTitle', 'Exportar dados')}
         size="md"
         allowClose={!isExporting}
       >
@@ -1069,7 +1075,7 @@ export default function HistoryPage() {
           <p className="history-page__import-description">
             {t(
               'history.exportDialogDescription',
-              'Exporte o JSON canônico das conversas selecionadas. Esse arquivo é o formato suportado para importação.'
+              'Exporte o JSON canônico dos dados persistidos no banco. Esse arquivo é o formato suportado para importação.'
             )}
           </p>
 
@@ -1137,7 +1143,7 @@ export default function HistoryPage() {
             <p className="history-page__import-note">
               {t(
                 'history.exportProvidersDescription',
-                'Os providers persistidos no banco serão adicionados ao mesmo JSON canônico exportado junto com as conversas selecionadas.'
+                'Os providers persistidos no banco serão adicionados ao mesmo JSON canônico dos dados selecionados.'
               )}
             </p>
           )}
@@ -1165,7 +1171,7 @@ export default function HistoryPage() {
             <p className="history-page__import-note">
               {t(
                 'history.exportTaskListsDescription',
-                'As tasklists persistidas no banco serão adicionadas ao mesmo JSON canônico exportado junto com as conversas selecionadas.'
+                'As tasklists persistidas no banco serão adicionadas ao mesmo JSON canônico dos dados selecionados.'
               )}
             </p>
           )}
@@ -1240,7 +1246,7 @@ export default function HistoryPage() {
       <Modal
         isOpen={isImportModalOpen}
         onClose={closeImportModal}
-        title={t('history.importDialogTitle', 'Importar conversas')}
+        title={t('history.importDialogTitle', 'Importar dados')}
         size="md"
         allowClose={!isImporting}
       >
