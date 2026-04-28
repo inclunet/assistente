@@ -16,10 +16,10 @@ import { base64ToBlob } from '../../lib/audioUtils';
 // ---------------------------------------------------------------------------
 const MEMORY_CACHE_MAX = 20;
 const MEMORY_CACHE_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
-const memoryCache = new Map<number, Blob>();
+const memoryCache = new Map<string, Blob>();
 let memoryCacheTotalBytes = 0;
 
-function memoryCacheGet(messageId: number): Blob | undefined {
+function memoryCacheGet(messageId: string): Blob | undefined {
   const blob = memoryCache.get(messageId);
   if (blob) {
     // Move para o final (LRU refresh)
@@ -43,7 +43,7 @@ function memoryCacheEvict(): void {
   }
 }
 
-function memoryCacheSet(messageId: number, blob: Blob): void {
+function memoryCacheSet(messageId: string, blob: Blob): void {
   // Se já existe, remove antes (atualiza posição e contagem)
   const existing = memoryCache.get(messageId);
   if (existing) {
@@ -61,7 +61,7 @@ function memoryCacheSet(messageId: number, blob: Blob): void {
 let currentPlayer: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
 let currentAbort: AbortController | null = null;
-let currentMessageId: number | null = null;
+let currentMessageId: string | null = null;
 
 /** Para qualquer áudio em reprodução e resolve Promises pendentes */
 function stopCurrentAudio(): void {
@@ -83,7 +83,7 @@ function stopCurrentAudio(): void {
 }
 
 /** Reproduz um blob de áudio */
-async function playAudioBlob(audioBlob: Blob, volume: number = 1.0, messageId?: number): Promise<void> {
+async function playAudioBlob(audioBlob: Blob, volume: number = 1.0, messageId?: string): Promise<void> {
   stopCurrentAudio();
   // Setar messageId DEPOIS do stop para não ser zerado
   if (messageId != null) currentMessageId = messageId;
@@ -140,7 +140,7 @@ export interface TTSProviderParams {
  *
  * @returns true se reproduziu, false se falhou (chamador deve usar speakAsRole)
  */
-async function speakMessage(messageId: number, volume: number = 1.0, provider?: TTSProviderParams): Promise<boolean> {
+async function speakMessage(messageId: string, volume: number = 1.0, provider?: TTSProviderParams): Promise<boolean> {
   // 1. Cache em memória — instantâneo, sem IPC
   const cached = memoryCacheGet(messageId);
   if (cached) {
@@ -174,7 +174,7 @@ async function speakMessage(messageId: number, volume: number = 1.0, provider?: 
  * Obtém o áudio de uma mensagem como Blob (cache hierárquico).
  * Útil para download. Retorna null se falhar.
  */
-async function getMessageAudioBlob(messageId: number, provider?: TTSProviderParams): Promise<Blob | null> {
+async function getMessageAudioBlob(messageId: string, provider?: TTSProviderParams): Promise<Blob | null> {
   // Checa memória primeiro
   const cached = memoryCacheGet(messageId);
   if (cached) return cached;
@@ -205,7 +205,7 @@ function isCurrentlyPlaying(): boolean {
 }
 
 /** Retorna o messageId sendo reproduzido, ou null */
-function getCurrentPlayingMessageId(): number | null {
+function getCurrentPlayingMessageId(): string | null {
   if (!isCurrentlyPlaying()) return null;
   return currentMessageId;
 }

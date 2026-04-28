@@ -13,7 +13,7 @@ import (
 // Campos são exportados para permitir embeddings em outros pacotes internos.
 type BaseStreamHandler struct {
 	Emitter        Emitter
-	ConversationID uint
+	ConversationID string
 
 	AccumulatedContent   string
 	AccumulatedReasoning string

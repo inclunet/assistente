@@ -65,7 +65,7 @@ type TemplateData = chat.TemplateData
 type TabInfo = chat.TabInfo
 
 // BuildTemplateData monta o TemplateData a partir do perfil ativo e do workspace.
-func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID uint) TemplateData {
+func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
 	enabledToolNames := b.ComputeEnabledToolNames(activeProfile)
 	data := TemplateData{
 		Profile:            activeProfile,

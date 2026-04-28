@@ -6,6 +6,7 @@ import { ttsService } from '../services/tts';
 import { VoiceRole } from '../services/tts/index';
 import { messageAudioService } from '../services/messageAudio';
 import { stripMarkdown } from '../lib/stripMarkdown';
+import { isBackendId } from '../lib/idUtils';
 import i18next from 'i18next';
 
 export interface UseContextMenuResult {
@@ -131,16 +132,11 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       messageAudioService.stopCurrentAudio();
       ttsService.stop();
 
-      // Somente IDs numéricos puros são do backend (ex: "42").
-      // IDs locais contêm hífen/letras (ex: "1712345678901-abc3d5e9f").
-      const isBackendId = typeof message.id === 'string'
-        ? /^\d+$/.test(message.id)
-        : typeof message.id === 'number';
-      const numericId = isBackendId ? Number(message.id) : 0;
+      const backendId = isBackendId(message.id) ? message.id : '';
 
-      if (numericId > 0) {
+      if (backendId) {
         const volume = ttsService.getVolume();
-        const played = await messageAudioService.speakMessage(numericId, volume, voiceCtx);
+        const played = await messageAudioService.speakMessage(backendId, volume, voiceCtx);
         if (played) return;
       }
 

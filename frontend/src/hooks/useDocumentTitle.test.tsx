@@ -37,7 +37,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
   WindowSetTitle: (title: string) => setTitleSpy(title),
 }));
 
-type MockTab = { id: string; type: string; title: string; position: number; conversationId?: number; state?: Record<string, unknown> };
+type MockTab = { id: string; type: string; title: string; position: number; conversationId?: string; state?: Record<string, unknown> };
 let mockActiveTab: MockTab | undefined = undefined;
 
 vi.mock('../store/workspaceStore', () => ({
@@ -60,7 +60,7 @@ describe('useDocumentTitle', () => {
   });
 
   it('usa titulo da aba de chat renomeada', () => {
-    mockActiveTab = { id: '1', type: 'chat', title: 'Conversa Renomeada', conversationId: 1, position: 0 };
+    mockActiveTab = { id: '1', type: 'chat', title: 'Conversa Renomeada', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', position: 0 };
     render(<Fixture />);
 
     expect(document.title).toBe(`Conversa Renomeada ${SEP} Assistente IA`);

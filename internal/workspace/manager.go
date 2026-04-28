@@ -1,13 +1,18 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+	"assistente/internal/configdir"
+	"assistente/internal/database"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,12 +23,24 @@ const (
 	workspacesDir = "workspaces"
 )
 
+// ErrMigrationSaveFailed indicates that a workspace was loaded and migrated
+// in memory, but persisting the migrated version to disk failed.
+// The returned *Workspace is still usable; only the on-disk state is stale.
+var ErrMigrationSaveFailed = errors.New("workspace migration save failed")
+
+// isValidUUIDv7 checks if a string is a valid UUIDv7 with RFC 4122 variant.
+func isValidUUIDv7(s string) bool {
+	parsed, err := uuid.Parse(s)
+	return err == nil && parsed.Version() == 7 && parsed.Variant() == uuid.RFC4122
+}
+
 // Manager gerencia workspaces: CRUD, persistência YAML e índice global.
 type Manager struct {
-	mu         sync.RWMutex
-	active     *Workspace
-	activePath string // diretório base do workspace ativo (contém .assistente/)
-	homeDir    string // ~/.assistente/
+	mu                    sync.RWMutex
+	active                *Workspace
+	activePath            string // diretório base do workspace ativo (contém .assistente/)
+	homeDir               string // ~/.assistente/
+	activeMigrationFailed bool   // true se o workspace ativo falhou ao salvar migração
 }
 
 // NewManager cria um novo workspace manager.
@@ -45,17 +62,30 @@ func (m *Manager) Initialize(workDir string) error {
 		return fmt.Errorf("failed to create workspaces directory: %w", err)
 	}
 
+	// Após carregar o workspace ativo com sucesso, migra todos os workspaces
+	// conhecidos (index) e só então apaga o remap.
+	var initOK bool
+	defer func() {
+		if initOK {
+			m.migrateAllWorkspacesAndCleanupRemap()
+		}
+	}()
+
 	// 1. Se workDir fornecido, verifica se já tem workspace.yaml
 	if workDir != "" {
 		wsPath := filepath.Join(workDir, assistenteDir, workspaceFile)
 		if _, err := os.Stat(wsPath); err == nil {
 			ws, err := m.loadWorkspaceFile(wsPath)
-			if err != nil {
+			if err != nil && !errors.Is(err, ErrMigrationSaveFailed) {
 				return fmt.Errorf("failed to load workspace at %s: %w", wsPath, err)
+			}
+			if errors.Is(err, ErrMigrationSaveFailed) {
+				m.activeMigrationFailed = true
 			}
 			m.active = ws
 			m.activePath = workDir
 			m.touchIndex(ws, workDir)
+			initOK = true
 			return nil
 		}
 
@@ -67,6 +97,7 @@ func (m *Manager) Initialize(workDir string) error {
 		m.active = ws
 		m.activePath = workDir
 		m.touchIndex(ws, workDir)
+		initOK = true
 		return nil
 	}
 
@@ -76,9 +107,13 @@ func (m *Manager) Initialize(workDir string) error {
 		for _, entry := range idx.Workspaces {
 			if entry.ID == idx.LastOpened {
 				wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
-				if ws, err := m.loadWorkspaceFile(wsPath); err == nil {
+				if ws, err := m.loadWorkspaceFile(wsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
+					if errors.Is(err, ErrMigrationSaveFailed) {
+						m.activeMigrationFailed = true
+					}
 					m.active = ws
 					m.activePath = entry.Path
+					initOK = true
 					return nil
 				}
 			}
@@ -90,10 +125,14 @@ func (m *Manager) Initialize(workDir string) error {
 	defaultWsPath := filepath.Join(defaultPath, assistenteDir, workspaceFile)
 
 	if _, err := os.Stat(defaultWsPath); err == nil {
-		if ws, err := m.loadWorkspaceFile(defaultWsPath); err == nil {
+		if ws, err := m.loadWorkspaceFile(defaultWsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
+			if errors.Is(err, ErrMigrationSaveFailed) {
+				m.activeMigrationFailed = true
+			}
 			m.active = ws
 			m.activePath = defaultPath
 			m.touchIndex(ws, defaultPath)
+			initOK = true
 			return nil
 		}
 	}
@@ -106,6 +145,7 @@ func (m *Manager) Initialize(workDir string) error {
 	m.active = ws
 	m.activePath = defaultPath
 	m.touchIndex(ws, defaultPath)
+	initOK = true
 	return nil
 }
 
@@ -159,7 +199,7 @@ func (m *Manager) List() ([]WorkspaceInfo, error) {
 
 		// Tenta carregar mais detalhes
 		wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
-		if ws, err := m.loadWorkspaceFile(wsPath); err == nil {
+		if ws, err := m.loadWorkspaceFile(wsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
 			info.Profile = ws.Profile
 			info.TabCount = len(ws.Tabs.Items)
 		}
@@ -206,7 +246,7 @@ func (m *Manager) Switch(workspaceID string) (*Workspace, error) {
 		if entry.ID == workspaceID {
 			wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
 			ws, err := m.loadWorkspaceFile(wsPath)
-			if err != nil {
+			if err != nil && !errors.Is(err, ErrMigrationSaveFailed) {
 				return nil, fmt.Errorf("failed to load workspace %s: %w", workspaceID, err)
 			}
 
@@ -306,7 +346,7 @@ func (m *Manager) SetProfile(profileSlug string) error {
 func (m *Manager) findDuplicateTab(tab *Tab) *Tab {
 	switch tab.Type {
 	case TabTypeChat:
-		if tab.ConversationID > 0 {
+		if tab.ConversationID != "" {
 			return m.active.FindTabByConversation(tab.ConversationID)
 		}
 	case TabTypeEditor:
@@ -440,10 +480,16 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	if title, ok := updates["title"].(string); ok {
 		tab.Title = title
 	}
-	if convID, ok := updates["conversation_id"].(int64); ok {
-		tab.ConversationID = convID
-	} else if convIDFloat, ok := updates["conversation_id"].(float64); ok {
-		tab.ConversationID = int64(convIDFloat)
+	if convID, ok := updates["conversation_id"].(string); ok {
+		// Only accept valid UUIDv7; legacy numeric strings and other UUID versions are discarded.
+		if isValidUUIDv7(convID) {
+			tab.ConversationID = convID
+		} else {
+			tab.ConversationID = ""
+		}
+	} else if _, ok := updates["conversation_id"].(float64); ok {
+		// Legacy numeric conversation_id — discard (post-UUIDv7 migration, numeric IDs are invalid).
+		tab.ConversationID = ""
 	}
 	if state, ok := updates["state"].(map[string]any); ok {
 		if tab.State == nil {
@@ -511,7 +557,7 @@ func (m *Manager) MoveTabToWorkspace(tabID, targetWorkspaceID string) error {
 	// Carrega workspace alvo
 	targetWsFile := filepath.Join(targetPath, assistenteDir, workspaceFile)
 	targetWs, err := m.loadWorkspaceFile(targetWsFile)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrMigrationSaveFailed) {
 		return fmt.Errorf("failed to load target workspace: %w", err)
 	}
 
@@ -663,6 +709,62 @@ func (m *Manager) newWorkspace(name string) *Workspace {
 	}
 }
 
+// loadIDRemap searches for the UUID migration remap file across all config
+// directories, checking highest-priority first (workdir > home > exe) —
+// the same precedence used by configdir.Resolve() for conversations.db.
+// Returns the parsed data and the directory where it was found,
+// or nil/"" if not found.
+func loadIDRemap() (*database.IDRemapData, string) {
+	paths := configdir.GetBasePaths() // ascending priority: exe, home, workdir
+	for i := len(paths) - 1; i >= 0; i-- {
+		if data := database.LoadIDRemapFile(paths[i]); data != nil {
+			return data, paths[i]
+		}
+	}
+	return nil, ""
+}
+
+// migrateAllWorkspacesAndCleanupRemap loads every workspace in the index,
+// triggering legacy-ID migration via loadWorkspaceFile, then deletes the
+// remap file. This ensures ALL workspaces are migrated before the remap is
+// consumed — not just the first one loaded.
+// Must be called under m.mu lock.
+func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
+	remap, remapDir := loadIDRemap()
+	if remap == nil {
+		return
+	}
+
+	allSaved := true
+	idx, _ := m.loadIndex()
+	if idx != nil {
+		for _, entry := range idx.Workspaces {
+			// Skip active workspace — already loaded by Initialize.
+			if m.active != nil && m.active.ID == entry.ID {
+				continue
+			}
+			wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
+			if _, statErr := os.Stat(wsPath); statErr == nil {
+				if _, err := m.loadWorkspaceFile(wsPath); err != nil {
+					if errors.Is(err, ErrMigrationSaveFailed) {
+						allSaved = false
+						log.Printf("[Workspace] Aviso: migração do workspace %s não foi persistida: %v", entry.ID, err)
+					} else {
+						log.Printf("[Workspace] Aviso: falha ao migrar workspace %s: %v", entry.ID, err)
+					}
+				}
+			}
+		}
+	}
+
+	if !allSaved || m.activeMigrationFailed {
+		log.Printf("[Workspace] Remap preservado: nem todos os workspaces foram migrados com sucesso")
+		return
+	}
+
+	database.DeleteIDRemapFile(remapDir)
+}
+
 func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -676,6 +778,7 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 
 	// Migração de formato antigo: content_id → campos corretos
 	needsSave := false
+	remap, _ := loadIDRemap()
 	for i := range ws.Tabs.Items {
 		t := &ws.Tabs.Items[i]
 		if t.ContentID == "" {
@@ -684,10 +787,14 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		needsSave = true
 		switch t.Type {
 		case TabTypeChat:
-			// content_id era o conversation ID (número como string)
-			if t.ConversationID == 0 {
-				if id := parseIntID(t.ContentID); id > 0 {
-					t.ConversationID = id
+			// content_id era o conversation ID — migrar apenas se for UUIDv7 válido
+			if t.ConversationID == "" {
+				if isValidUUIDv7(t.ContentID) {
+					t.ConversationID = t.ContentID
+				} else if remap != nil {
+					if newID, ok := remap.Conversations[t.ContentID]; ok {
+						t.ConversationID = newID
+					}
 				}
 			}
 		case TabTypeTerminal:
@@ -702,7 +809,20 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 				t.State = map[string]any{}
 			}
 			if _, ok := t.State["tasklistId"]; !ok {
-				t.State["tasklistId"] = t.ContentID
+				// Remap old numeric content_id to new UUIDv7
+				tasklistID := t.ContentID
+				if !isValidUUIDv7(tasklistID) {
+					if remap != nil {
+						if newID, ok := remap.TaskLists[tasklistID]; ok {
+							tasklistID = newID
+						}
+					}
+					// If still not valid after remap attempt, clear it
+					if !isValidUUIDv7(tasklistID) {
+						tasklistID = ""
+					}
+				}
+				t.State["tasklistId"] = tasklistID
 			}
 		case TabTypeEditor:
 			// UUID interno do editor — descartado; filePath vem de state
@@ -710,32 +830,64 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		t.ContentID = "" // limpa campo legado
 	}
 
+	// Sanitize: chat tabs must have valid UUID conversation IDs (post-migration).
+	// Legacy numeric IDs (e.g. "42") are remapped if possible, otherwise cleared
+	// so the frontend creates a fresh conversation.
+	for i := range ws.Tabs.Items {
+		t := &ws.Tabs.Items[i]
+		if t.Type == TabTypeChat && t.ConversationID != "" {
+			if !isValidUUIDv7(t.ConversationID) {
+				if remap != nil {
+					if newID, ok := remap.Conversations[t.ConversationID]; ok {
+						t.ConversationID = newID
+						needsSave = true
+						continue
+					}
+				}
+				t.ConversationID = ""
+				needsSave = true
+			}
+		}
+	}
+
+	// Also remap/clear tasklistId in state for tasklist tabs
+	for i := range ws.Tabs.Items {
+		t := &ws.Tabs.Items[i]
+		if t.Type == TabTypeTasklist && t.State != nil {
+			if tlID, ok := t.State["tasklistId"].(string); ok && tlID != "" && !isValidUUIDv7(tlID) {
+				remapped := false
+				if remap != nil {
+					if newID, ok := remap.TaskLists[tlID]; ok {
+						t.State["tasklistId"] = newID
+						needsSave = true
+						remapped = true
+					}
+				}
+				if !remapped {
+					// Clear invalid tasklistId — frontend will create a new list if needed
+					t.State["tasklistId"] = ""
+					needsSave = true
+				}
+			}
+		}
+	}
+
 	// Ordena tabs por posição
 	sort.Slice(ws.Tabs.Items, func(i, j int) bool {
 		return ws.Tabs.Items[i].Position < ws.Tabs.Items[j].Position
 	})
 
-	// Persiste migração imediatamente para não repetir no próximo load
+	// Persiste migração imediatamente para não repetir no próximo load.
+	// O remap NÃO é apagado aqui — Initialize() cuida de processar todos os
+	// workspaces conhecidos antes de remover o arquivo de remap.
 	if needsSave {
-		_ = m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))) // basePath = dir acima de .assistente/
+		if err := m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))); err != nil {
+			log.Printf("[Workspace] Aviso: falha ao salvar migração de workspace: %v", err)
+			return &ws, fmt.Errorf("%w: %v", ErrMigrationSaveFailed, err)
+		}
 	}
 
 	return &ws, nil
-}
-
-// parseIntID converte string para int64; retorna 0 se inválido.
-func parseIntID(s string) int64 {
-	if s == "" {
-		return 0
-	}
-	var n int64
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0
-		}
-		n = n*10 + int64(c-'0')
-	}
-	return n
 }
 
 func (m *Manager) saveWorkspace(ws *Workspace, basePath string) error {

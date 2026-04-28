@@ -17,10 +17,10 @@ const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
 let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> = [];
 
 type ConversationItem = {
-  id: number;
+  id: string;
   title: string;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
   message_count: number;
 };
 
@@ -37,9 +37,9 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@wailsjs/go/app/App', () => ({
   GetConversations: () => mockGetConversations(),
-  DeleteConversation: (id: number) => mockDeleteConversation(id),
-  UpdateConversation: (id: number, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
-  ExportConversations: (ids: number[]) => mockExportConversations(ids),
+  DeleteConversation: (id: string) => mockDeleteConversation(id),
+  UpdateConversation: (id: string, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
+  ExportConversations: (ids: string[]) => mockExportConversations(ids),
   ImportConversations: (payload: string) => mockImportConversations(payload),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
@@ -49,6 +49,10 @@ vi.mock('../hooks/useGridFocus', () => ({
   useGridFocus: () => ({
     handleGridReady: vi.fn(),
   }),
+}));
+
+vi.mock('../hooks/useGridPageLandmarks', () => ({
+  useGridPageLandmarks: vi.fn(),
 }));
 
 const mockRequestConfirm = vi.fn(() => Promise.resolve(true));
@@ -99,10 +103,10 @@ vi.mock('../components/ui/DataGrid', () => ({
     getRowActions?: (item: ConversationItem) => Array<{ id: string; label?: string; action?: () => void }>;
   }) => (
     <div>
-      <button type="button" onClick={() => onSelectionChange?.(new Set([1, 2]))}>
+      <button type="button" onClick={() => onSelectionChange?.(new Set(items?.map(i => i.id) ?? []))}>
         select-two
       </button>
-      <button type="button" onClick={() => onSelectionChange?.(new Set([1]))}>
+      <button type="button" onClick={() => onSelectionChange?.(new Set(items?.slice(0, 1).map(i => i.id) ?? []))}>
         select-one
       </button>
       <button type="button" onClick={() => onSelectionChange?.(new Set())}>
@@ -130,20 +134,22 @@ vi.mock('../components/ui/DataGrid', () => ({
 
 const conversations: ConversationItem[] = [
   {
-    id: 1,
+    id: '01926b90-7a5a-7c4e-8d3f-000000000001',
     title: 'Conversa 1',
-    created_at: '2025-01-01T00:00:00Z',
-    updated_at: '2025-01-01T00:00:00Z',
+    createdAt: '2025-01-01T00:00:00Z',
+    updatedAt: '2025-01-01T00:00:00Z',
     message_count: 2,
   },
   {
-    id: 2,
+    id: '01926b90-7a5a-7c4e-8d3f-000000000002',
     title: 'Conversa 2',
-    created_at: '2025-01-02T00:00:00Z',
-    updated_at: '2025-01-02T00:00:00Z',
+    createdAt: '2025-01-02T00:00:00Z',
+    updatedAt: '2025-01-02T00:00:00Z',
     message_count: 5,
   },
 ];
+
+import HistoryPage from './HistoryPage';
 
 describe('HistoryPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
@@ -161,7 +167,6 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
   });
 
   it('nao duplica acao de deletar na toolbar', async () => {
-    const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
 
     await screen.findByText('Conversa 1');
@@ -172,7 +177,6 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
 
   it('deleta conversas selecionadas ao clicar em Excluir', async () => {
     const user = userEvent.setup();
-    const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
 
     await screen.findByText('Conversa 1');
@@ -184,14 +188,13 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await user.click(deleteButton);
 
     await waitFor(() => {
-      expect(mockDeleteConversation).toHaveBeenCalledWith(1);
-      expect(mockDeleteConversation).toHaveBeenCalledWith(2);
+      expect(mockDeleteConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000001');
+      expect(mockDeleteConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000002');
     });
   });
 
   it('deleta conversa focada quando nao ha selecao', async () => {
     const user = userEvent.setup();
-    const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
 
     await waitFor(() => {
@@ -203,13 +206,12 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await user.click(deleteButtons[0]);
 
     await waitFor(() => {
-      expect(mockDeleteConversation).toHaveBeenCalledWith(2);
+      expect(mockDeleteConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000002');
     });
   });
 
   it('aciona abrir conversa via menu de acoes', async () => {
     const user = userEvent.setup();
-    const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
 
     await waitFor(() => {
@@ -223,7 +225,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
 
     await waitFor(() => {
       expect(mockExecuteDeepLink).toHaveBeenCalledWith(
-        { type: 'conversation:open', conversationId: 1, title: 'Conversa 1' },
+        { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa 1' },
         expect.objectContaining({ navigate: expect.any(Function) }),
       );
     });

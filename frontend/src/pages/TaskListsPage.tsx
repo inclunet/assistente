@@ -31,7 +31,7 @@ import type { TaskListWithWorkflow } from '../types/tasklist';
 import './TaskListsPage.css';
 
 interface TaskListRow extends TaskListWithWorkflow {
-  id: number;
+  id: string;
 }
 
 export default function TaskListsPage() {
@@ -80,7 +80,7 @@ export default function TaskListsPage() {
 
   useResourceEditRequest('tasklists', {
     onEdit: (id) => {
-      const list = taskLists.get(Number(id));
+      const list = taskLists.get(id);
       if (list) handleOpenEditor(list as TaskListRow);
     },
     onNew: () => handleOpenEditor(),
@@ -152,7 +152,7 @@ export default function TaskListsPage() {
     }
   }, [editTitle, editDescription, editorMode, createTaskList, navigate, addToast, announce, handleCloseEditor, t]);
 
-  const handleOpenTaskList = useCallback(async (taskListId: number) => {
+  const handleOpenTaskList = useCallback(async (taskListId: string) => {
     if (!getCachedTaskList(taskListId)) {
       await loadTaskList(taskListId);
     }
@@ -165,7 +165,7 @@ export default function TaskListsPage() {
   }, [getCachedTaskList, loadTaskList, navigate]);
 
   const handleDeleteTaskList = useCallback(
-    async (taskListId: number) => {
+    async (taskListId: string) => {
       const list = allTaskLists.find((l) => l.id === taskListId);
       const confirmed = await requestConfirm({
         title: t('tasklist.deleteConfirmTitle', 'Deletar Lista'),
@@ -188,9 +188,9 @@ export default function TaskListsPage() {
   );
 
   const handleCloneTaskList = useCallback(
-    async (taskListId: number) => {
+    async (taskListId: string) => {
       const list = allTaskLists.find((l) => l.id === taskListId);
-      const newTitle = `${list?.title || 'Lista'} (Cópia)`;
+      const newTitle = `${list?.title || t('tasklist.cloneFallbackTitle', 'Lista')} ${t('tasklist.cloneTitleSuffix', '(Cópia)')}`;
 
       try {
         const clonedTaskList = await cloneTaskList(taskListId, newTitle);
@@ -253,7 +253,7 @@ export default function TaskListsPage() {
     }
   }, [filteredTaskLists.length]);
 
-  const handleSendToWorkspace = useCallback(async (taskListId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
+  const handleSendToWorkspace = useCallback(async (taskListId: string, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
       if (isActive) {
         await addTab('tasklist', title, { tasklistId: String(taskListId) });

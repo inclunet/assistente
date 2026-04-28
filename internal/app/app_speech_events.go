@@ -59,8 +59,8 @@ const (
 )
 
 type ChatSpeakRequest struct {
-	ConversationID uint            `json:"conversationId"`
-	MessageID      uint            `json:"messageId,omitempty"`
+	ConversationID string            `json:"conversationId"`
+	MessageID string            `json:"messageId,omitempty"`
 	ProfileSlug    string          `json:"profileSlug,omitempty"`
 	Role           string          `json:"role"`
 	Text           string          `json:"text"`
@@ -69,8 +69,8 @@ type ChatSpeakRequest struct {
 }
 
 type ChatSpeakEvent struct {
-	MessageID        uint              `json:"messageId,omitempty"`
-	ConversationID   uint              `json:"conversationId"`
+	MessageID string              `json:"messageId,omitempty"`
+	ConversationID string              `json:"conversationId"`
 	Role             string            `json:"role"`
 	Text             string            `json:"text"`
 	Strategy         ChatSpeakStrategy `json:"strategy"`
@@ -143,7 +143,7 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 	return &event, nil
 }
 
-func (a *App) resolveSpeechProfile(conversationID uint, profileSlug string) (*profiles.Profile, error) {
+func (a *App) resolveSpeechProfile(conversationID string, profileSlug string) (*profiles.Profile, error) {
 	if profileSlug != "" {
 		p, err := a.profileManager.Get(profileSlug)
 		if err != nil {

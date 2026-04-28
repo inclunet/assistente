@@ -50,14 +50,14 @@ import type { database } from '@wailsjs/go/models';
 function normalizeTask(raw: unknown): Task {
   const r = raw as Record<string, unknown>;
   return {
-    id: r.id as number,
-    taskListId: (r.taskListId ?? r.task_list_id) as number,
+    id: r.id as string,
+    taskListId: (r.taskListId ?? r.task_list_id) as string,
     title: (r.title ?? '') as string,
     description: (r.description ?? '') as string,
     code: (r.code ?? '') as string || undefined,
     link: (r.link ?? '') as string || undefined,
     statusId: (r.statusId ?? r.status_id) as number,
-    parentId: (r.parentId ?? r.parent_id) as number | undefined,
+    parentId: (r.parentId ?? r.parent_id) as string | undefined,
     order: (r.order ?? 0) as number,
     assigneeName: (r.assigneeName ?? r.assignee_name ?? '') as string || undefined,
     assigneeId: (r.assigneeId ?? r.assignee_id ?? '') as string || undefined,
@@ -77,8 +77,8 @@ function normalizeTaskNote(raw: unknown): TaskNote {
   const r = raw as Record<string, unknown>;
   const extUpd = r.externalUpdatedAt ?? r.external_updated_at;
   return {
-    id: r.id as number,
-    taskId: (r.taskId ?? r.task_id) as number,
+    id: r.id as string,
+    taskId: (r.taskId ?? r.task_id) as string,
     type: (r.type ?? 1) as TaskNoteType,
     content: (r.content ?? '') as string,
     authorName: (r.authorName ?? r.author_name ?? '') as string || undefined,
@@ -116,8 +116,8 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
   if (!allowedTransitions || typeof allowedTransitions !== 'object') allowedTransitions = {};
 
   const normalizedWorkflow: TaskListWorkflow = {
-    id: rawWf.id as number,
-    taskListId: (rawWf.taskListId ?? rawWf.task_list_id) as number,
+    id: rawWf.id as string,
+    taskListId: (rawWf.taskListId ?? rawWf.task_list_id) as string,
     statuses: statuses as TaskListWorkflowStatus[],
     allowedTransitions: allowedTransitions as WorkflowTransitions,
     initialStatusId: (rawWf.initialStatusId ?? rawWf.initial_status_id) as number,
@@ -142,7 +142,7 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
   }
 
   return {
-    id: r.id as number,
+    id: r.id as string,
     title: (r.title ?? '') as string,
     slug: (() => {
       const s = r.slug ?? r.Slug;
@@ -164,65 +164,65 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
  * O workspace é o dono das tabs; aqui apenas gerenciamos o cache e o conteúdo ativo.
  */
 interface TaskListStoreState {
-  activeTaskListId?: number;
-  taskLists: Map<number, TaskListWithWorkflow>;
-  workflows: Map<number, TaskListWorkflow>;
-  expandedTasks: Set<number>;
+  activeTaskListId?: string;
+  taskLists: Map<string, TaskListWithWorkflow>;
+  workflows: Map<string, TaskListWorkflow>;
+  expandedTasks: Set<string>;
   isLoading: boolean;
   errors: Map<string, string>;
 
   // Active tasklist (driven by workspace bridge)
-  setActiveTaskList: (id: number | undefined) => void;
+  setActiveTaskList: (id: string | undefined) => void;
   getActiveTaskList: () => TaskListWithWorkflow | undefined;
 
   // TaskList management
-  loadTaskList: (taskListId: number) => Promise<TaskListWithWorkflow | null>;
+  loadTaskList: (taskListId: string) => Promise<TaskListWithWorkflow | null>;
   createTaskList: (title: string, description?: string) => Promise<TaskListWithWorkflow | null>;
-  updateTaskList: (taskListId: number, title: string, description?: string) => Promise<void>;
-  deleteTaskList: (taskListId: number) => Promise<void>;
-  clearTaskList: (taskListId: number) => Promise<void>;
-  cloneTaskList: (taskListId: number, newTitle: string) => Promise<TaskListWithWorkflow | null>;
+  updateTaskList: (taskListId: string, title: string, description?: string) => Promise<void>;
+  deleteTaskList: (taskListId: string) => Promise<void>;
+  clearTaskList: (taskListId: string) => Promise<void>;
+  cloneTaskList: (taskListId: string, newTitle: string) => Promise<TaskListWithWorkflow | null>;
   fetchAllTaskLists: () => Promise<database.TaskList[]>;
 
   // View mode
-  setViewMode: (taskListId: number, viewMode: ViewMode) => Promise<void>;
+  setViewMode: (taskListId: string, viewMode: ViewMode) => Promise<void>;
 
   // Workflow management
-  loadWorkflow: (taskListId: number) => Promise<TaskListWorkflow | null>;
-  updateWorkflow: (taskListId: number, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>) => Promise<void>;
-  updateWorkflowFull: (taskListId: number, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>, initialStatusId: number, statusMigration?: Record<number, number>) => Promise<void>;
-  getTaskCountsByStatus: (taskListId: number) => Promise<Record<number, number>>;
-  reorderWorkflowStatuses: (taskListId: number, statusOrder: number[]) => Promise<void>;
+  loadWorkflow: (taskListId: string) => Promise<TaskListWorkflow | null>;
+  updateWorkflow: (taskListId: string, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>) => Promise<void>;
+  updateWorkflowFull: (taskListId: string, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>, initialStatusId: number, statusMigration?: Record<number, number>) => Promise<void>;
+  getTaskCountsByStatus: (taskListId: string) => Promise<Record<number, number>>;
+  reorderWorkflowStatuses: (taskListId: string, statusOrder: number[]) => Promise<void>;
 
   // Task management
-  createTask: (taskListId: number, title: string, description?: string, code?: string, link?: string, parentId?: number) => Promise<Task | null>;
-  updateTask: (taskId: number, title: string, description?: string, code?: string, link?: string) => Promise<void>;
-  updateTaskFull: (taskId: number, title: string, description?: string, code?: string, link?: string, assigneeName?: string, assigneeId?: string, creatorName?: string, creatorId?: string) => Promise<void>;
-  updateTaskAssignee: (taskId: number, assigneeName: string, assigneeId?: string) => Promise<void>;
-  deleteTask: (taskId: number) => Promise<void>;
-  updateTaskStatus: (taskId: number, statusId: number) => Promise<void>;
-  reorderTasks: (taskListId: number, statusId: number, orderedIds: number[]) => Promise<void>;
-  promoteTask: (taskId: number) => Promise<void>;
-  demoteTask: (taskId: number, parentId: number) => Promise<void>;
-  getTaskListTasks: (taskListId: number) => Task[];
+  createTask: (taskListId: string, title: string, description?: string, code?: string, link?: string, parentId?: string) => Promise<Task | null>;
+  updateTask: (taskId: string, title: string, description?: string, code?: string, link?: string) => Promise<void>;
+  updateTaskFull: (taskId: string, title: string, description?: string, code?: string, link?: string, assigneeName?: string, assigneeId?: string, creatorName?: string, creatorId?: string) => Promise<void>;
+  updateTaskAssignee: (taskId: string, assigneeName: string, assigneeId?: string) => Promise<void>;
+  deleteTask: (taskId: string) => Promise<void>;
+  updateTaskStatus: (taskId: string, statusId: number) => Promise<void>;
+  reorderTasks: (taskListId: string, statusId: number, orderedIds: string[]) => Promise<void>;
+  promoteTask: (taskId: string) => Promise<void>;
+  demoteTask: (taskId: string, parentId: string) => Promise<void>;
+  getTaskListTasks: (taskListId: string) => Task[];
 
   // TaskNote management
-  loadTaskNotes: (taskId: number) => Promise<TaskNote[]>;
-  createTaskNote: (taskId: number, type: TaskNoteType, content: string, authorName?: string, authorId?: string) => Promise<TaskNote | null>;
-  updateTaskNote: (noteId: number, content: string) => Promise<void>;
-  deleteTaskNote: (noteId: number) => Promise<void>;
+  loadTaskNotes: (taskId: string) => Promise<TaskNote[]>;
+  createTaskNote: (taskId: string, type: TaskNoteType, content: string, authorName?: string, authorId?: string) => Promise<TaskNote | null>;
+  updateTaskNote: (noteId: string, content: string) => Promise<void>;
+  deleteTaskNote: (noteId: string) => Promise<void>;
 
   // UI helpers
-  toggleTaskExpanded: (taskId: number) => void;
+  toggleTaskExpanded: (taskId: string) => void;
   setError: (key: string, message: string) => void;
   clearError: (key: string) => void;
   clearAllErrors: () => void;
   setLoading: (isLoading: boolean) => void;
 
   // Cache operations
-  invalidateTaskList: (taskListId: number) => void;
+  invalidateTaskList: (taskListId: string) => void;
   cacheTaskList: (taskList: TaskListWithWorkflow) => void;
-  getCachedTaskList: (taskListId: number) => TaskListWithWorkflow | undefined;
+  getCachedTaskList: (taskListId: string) => TaskListWithWorkflow | undefined;
 }
 
 /**
@@ -243,7 +243,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     });
 
     EventsOn('taskList:updated', (data: unknown) => {
-      if (typeof data === 'number') {
+      if (typeof data === 'string') {
         // ReorderTasks envia apenas o ID — recarrega
         get().loadTaskList(data);
       } else if (data && typeof data === 'object') {
@@ -251,7 +251,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     });
 
-    EventsOn('taskList:deleted', (taskListId: number) => {
+    EventsOn('taskList:deleted', (taskListId: string) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         newCache.delete(taskListId);
@@ -298,7 +298,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       });
     });
 
-    EventsOn('task:deleted', (taskId: number) => {
+    EventsOn('task:deleted', (taskId: string) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         for (const [id, taskList] of newCache.entries()) {
@@ -331,7 +331,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     isLoading: false,
     errors: new Map(),
 
-    setActiveTaskList: (id: number | undefined) => {
+    setActiveTaskList: (id: string | undefined) => {
       set({ activeTaskListId: id });
     },
 
@@ -342,7 +342,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     },
 
     // TaskList management
-    loadTaskList: async (taskListId: number) => {
+    loadTaskList: async (taskListId: string) => {
       set({ isLoading: true });
       try {
         const taskList = await GetTaskList(taskListId);
@@ -380,7 +380,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateTaskList: async (taskListId: number, title: string, description?: string) => {
+    updateTaskList: async (taskListId: string, title: string, description?: string) => {
       try {
         await UpdateTaskList(taskListId, title, description || '');
         get().invalidateTaskList(taskListId);
@@ -389,7 +389,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    deleteTaskList: async (taskListId: number) => {
+    deleteTaskList: async (taskListId: string) => {
       try {
         await DeleteTaskList(taskListId);
         set((state) => {
@@ -402,7 +402,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    clearTaskList: async (taskListId: number) => {
+    clearTaskList: async (taskListId: string) => {
       try {
         await ClearTaskList(taskListId);
         set((state) => {
@@ -418,7 +418,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    cloneTaskList: async (taskListId: number, newTitle: string) => {
+    cloneTaskList: async (taskListId: string, newTitle: string) => {
       try {
         const cloned = await CloneTaskList(taskListId, newTitle);
         if (cloned) {
@@ -442,7 +442,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     },
 
     // View mode
-    setViewMode: async (taskListId: number, viewMode: ViewMode) => {
+    setViewMode: async (taskListId: string, viewMode: ViewMode) => {
       try {
         await SetTaskListViewMode(taskListId, viewMode);
         set((state) => {
@@ -461,7 +461,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     },
 
     // Workflow management
-    loadWorkflow: async (taskListId: number) => {
+    loadWorkflow: async (taskListId: string) => {
       try {
         const taskList = await GetTaskList(taskListId);
         if (taskList) {
@@ -476,7 +476,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateWorkflow: async (taskListId: number, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>) => {
+    updateWorkflow: async (taskListId: string, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>) => {
       try {
         const currentWorkflow = get().taskLists.get(taskListId)?.workflow;
         const initialStatusId = currentWorkflow?.initialStatusId ?? statuses[0]?.id ?? 1;
@@ -487,7 +487,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateWorkflowFull: async (taskListId: number, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>, initialStatusId: number, statusMigration?: Record<number, number>) => {
+    updateWorkflowFull: async (taskListId: string, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>, initialStatusId: number, statusMigration?: Record<number, number>) => {
       try {
         await UpdateWorkflowFull(taskListId, statuses as TaskListWorkflowStatus[], transitions, initialStatusId, statusMigration ?? {});
         await get().loadTaskList(taskListId);
@@ -497,7 +497,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    getTaskCountsByStatus: async (taskListId: number) => {
+    getTaskCountsByStatus: async (taskListId: string) => {
       try {
         const counts = await GetTaskCountsByStatus(taskListId);
         return counts ?? {};
@@ -507,7 +507,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    reorderWorkflowStatuses: async (taskListId: number, statusOrder: number[]) => {
+    reorderWorkflowStatuses: async (taskListId: string, statusOrder: number[]) => {
       try {
         await ReorderWorkflowStatuses(taskListId, statusOrder);
         await get().loadTaskList(taskListId);
@@ -517,7 +517,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     },
 
     // Task management
-    createTask: async (taskListId: number, title: string, description?: string, code?: string, link?: string, parentId?: number) => {
+    createTask: async (taskListId: string, title: string, description?: string, code?: string, link?: string, parentId?: string) => {
       try {
         const rawTask = await CreateTask(taskListId, title, description || '', code || '', link || '', parentId);
         if (rawTask) {
@@ -547,7 +547,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateTask: async (taskId: number, title: string, description?: string, code?: string, link?: string) => {
+    updateTask: async (taskId: string, title: string, description?: string, code?: string, link?: string) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         for (const [tlId, taskList] of newCache.entries()) {
@@ -571,7 +571,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateTaskFull: async (taskId: number, title: string, description?: string, code?: string, link?: string, assigneeName?: string, assigneeId?: string, creatorName?: string, creatorId?: string) => {
+    updateTaskFull: async (taskId: string, title: string, description?: string, code?: string, link?: string, assigneeName?: string, assigneeId?: string, creatorName?: string, creatorId?: string) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         for (const [tlId, taskList] of newCache.entries()) {
@@ -605,7 +605,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateTaskAssignee: async (taskId: number, assigneeName: string, assigneeId?: string) => {
+    updateTaskAssignee: async (taskId: string, assigneeName: string, assigneeId?: string) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         for (const [tlId, taskList] of newCache.entries()) {
@@ -633,7 +633,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    deleteTask: async (taskId: number) => {
+    deleteTask: async (taskId: string) => {
       // Optimistic delete
       set((state) => {
         const newCache = new Map(state.taskLists);
@@ -655,7 +655,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateTaskStatus: async (taskId: number, statusId: number) => {
+    updateTaskStatus: async (taskId: string, statusId: number) => {
       // Optimistic update — move visualmente antes de confirmar
       set((state) => {
         const newCache = new Map(state.taskLists);
@@ -680,7 +680,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    reorderTasks: async (taskListId: number, statusId: number, orderedIds: number[]) => {
+    reorderTasks: async (taskListId: string, statusId: number, orderedIds: string[]) => {
       // Optimistic reorder
       set((state) => {
         const taskList = state.taskLists.get(taskListId);
@@ -705,7 +705,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    promoteTask: async (taskId: number) => {
+    promoteTask: async (taskId: string) => {
       try {
         await PromoteTask(taskId);
       } catch (error) {
@@ -713,7 +713,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    demoteTask: async (taskId: number, parentId: number) => {
+    demoteTask: async (taskId: string, parentId: string) => {
       try {
         await DemoteTask(taskId, parentId);
       } catch (error) {
@@ -722,7 +722,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     },
 
     // TaskNote management
-    loadTaskNotes: async (taskId: number) => {
+    loadTaskNotes: async (taskId: string) => {
       try {
         const rawNotes = await GetTaskNotes(taskId);
         return (rawNotes || []).map(normalizeTaskNote);
@@ -732,9 +732,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    createTaskNote: async (taskId: number, type: TaskNoteType, content: string, authorName?: string, authorId?: string) => {
+    createTaskNote: async (taskId: string, type: TaskNoteType, content: string, authorName?: string, authorId?: string) => {
       try {
-        const rawNote = await CreateTaskNote(taskId, type, content, authorName || '', authorId || '');
+        const rawNote = await CreateTaskNote(taskId, String(type), content, authorName || '', authorId || '');
         if (rawNote) {
           return normalizeTaskNote(rawNote);
         }
@@ -745,7 +745,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateTaskNote: async (noteId: number, content: string) => {
+    updateTaskNote: async (noteId: string, content: string) => {
       try {
         await UpdateTaskNote(noteId, content);
       } catch (error) {
@@ -753,7 +753,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    deleteTaskNote: async (noteId: number) => {
+    deleteTaskNote: async (noteId: string) => {
       try {
         await DeleteTaskNote(noteId);
       } catch (error) {
@@ -761,13 +761,13 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    getTaskListTasks: (taskListId: number) => {
+    getTaskListTasks: (taskListId: string) => {
       const taskList = get().taskLists.get(taskListId);
       return taskList?.tasks || [];
     },
 
     // UI helpers
-    toggleTaskExpanded: (taskId: number) => {
+    toggleTaskExpanded: (taskId: string) => {
       set((state) => {
         const expanded = new Set(state.expandedTasks);
         if (expanded.has(taskId)) {
@@ -804,7 +804,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     },
 
     // Cache operations
-    invalidateTaskList: (taskListId: number) => {
+    invalidateTaskList: (taskListId: string) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         newCache.delete(taskListId);
@@ -821,7 +821,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       });
     },
 
-    getCachedTaskList: (taskListId: number) => {
+    getCachedTaskList: (taskListId: string) => {
       return get().taskLists.get(taskListId);
     },
   };

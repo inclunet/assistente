@@ -20,7 +20,7 @@ import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../.
 const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
 
 interface TaskListViewProps {
-  taskListId: number;
+  taskListId: string;
 }
 
 /**

@@ -41,7 +41,7 @@ export function registerTabRenameHandler(
 export interface WorkspaceTab {
   id: string;
   type: TabType;
-  conversationId?: number;
+  conversationId?: string;
   title: string;
   position: number;
   profileOverride?: Record<string, unknown>;
@@ -83,7 +83,7 @@ function frontendTabToBackend(tab: WorkspaceTab): workspace.Tab {
   return new workspace.Tab({
     id: tab.id,
     type: tab.type,
-    conversation_id: tab.conversationId || 0,
+    conversation_id: tab.conversationId || '',
     title: tab.title,
     position: tab.position,
     profile_override: tab.profileOverride,
@@ -270,16 +270,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
     // Content rename events → update matching tab title
     unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
-      const ev = data as { conversationId?: number; newTitle?: string };
+      const ev = data as { conversationId?: string; newTitle?: string };
       if (ev.conversationId && ev.newTitle) {
-        get().handleContentRenamed('chat', String(ev.conversationId), ev.newTitle);
+        get().handleContentRenamed('chat', ev.conversationId, ev.newTitle);
       }
     }));
 
     unsubs.push(EventsOn('taskList:updated', (data: unknown) => {
-      const ev = data as { id?: number; title?: string };
+      const ev = data as { id?: string; title?: string };
       if (ev.id && ev.title) {
-        get().handleContentRenamed('tasklist', String(ev.id), ev.title);
+        get().handleContentRenamed('tasklist', ev.id, ev.title);
       }
     }));
 
@@ -335,12 +335,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     const ws = get().workspace;
     const position = ws ? ws.tabs.length : 0;
 
+    // Extract conversationId from initialState if present
+    let conversationId: string | undefined;
+    let state: Record<string, unknown> | undefined;
+    if (initialState) {
+      const { conversationId: cid, ...rest } = initialState;
+      conversationId = cid as string | undefined;
+      state = Object.keys(rest).length > 0 ? rest : undefined;
+    }
+
     const tab: WorkspaceTab = {
       id: tabId,
       type,
       title,
       position,
-      state: initialState,
+      conversationId,
+      state,
     };
 
     const backendTab = frontendTabToBackend(tab);
@@ -425,7 +435,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
               ? {
                   ...t,
                   ...(updates.title !== undefined ? { title: updates.title as string } : {}),
-                  ...(updates.conversation_id !== undefined ? { conversationId: updates.conversation_id as number } : {}),
+                  ...(updates.conversation_id !== undefined ? { conversationId: updates.conversation_id as string } : {}),
                   ...(updates.state !== undefined ? { state: mergeTabState(t.state, updates.state as Record<string, unknown>) } : {}),
                   ...(updates.profile_override !== undefined ? { profileOverride: updates.profile_override as Record<string, unknown> } : {}),
                 }
@@ -480,7 +490,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       if (tab.type !== type || tab.title === newTitle) continue;
       let matches = false;
       if (type === 'chat') {
-        matches = tab.conversationId === Number(contentId);
+        matches = tab.conversationId === contentId;
       } else if (type === 'tasklist') {
         matches = tab.state?.tasklistId === contentId;
       } else if (type === 'terminal') {
@@ -497,7 +507,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     if (!tab) return;
     let ref: string | undefined;
     if (tab.type === 'chat' && tab.conversationId) {
-      ref = String(tab.conversationId);
+      ref = tab.conversationId;
     } else if (tab.type === 'tasklist') {
       ref = tab.state?.tasklistId as string | undefined;
     } else if (tab.type === 'terminal') {

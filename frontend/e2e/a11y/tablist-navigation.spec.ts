@@ -23,9 +23,9 @@ function multiTabWorkspace() {
     tabs: {
       active: 'tab-1',
       items: [
-        { id: 'tab-1', type: 'chat', conversation_id: 1, title: 'Aba 1', position: 0 },
-        { id: 'tab-2', type: 'chat', conversation_id: 2, title: 'Aba 2', position: 1 },
-        { id: 'tab-3', type: 'chat', conversation_id: 3, title: 'Aba 3', position: 2 },
+        { id: 'tab-1', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1', position: 0 },
+        { id: 'tab-2', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2', position: 1 },
+        { id: 'tab-3', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000003', title: 'Aba 3', position: 2 },
       ],
     },
   };
@@ -37,7 +37,7 @@ test.describe('Tab list — navegação por setas', () => {
     await wails.setResponse('GetActiveWorkspace', ws);
     await wails.setResponse('SetActiveWorkspaceTab', undefined);
     await wails.setResponse('EnsureConversation', {
-      id: 2, title: 'Aba 2',
+      id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2',
       created_at: ws.created_at, updated_at: ws.created_at,
       messages: [], message_count: 0,
     });
@@ -64,7 +64,7 @@ test.describe('Tab list — navegação por setas', () => {
     await wails.setResponse('GetActiveWorkspace', ws);
     await wails.setResponse('SetActiveWorkspaceTab', undefined);
     await wails.setResponse('EnsureConversation', {
-      id: 1, title: 'Aba 1',
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1',
       created_at: ws.created_at, updated_at: ws.created_at,
       messages: [], message_count: 0,
     });
@@ -89,7 +89,7 @@ test.describe('Tab list — navegação por setas', () => {
     await wails.setResponse('GetActiveWorkspace', ws);
     await wails.setResponse('SetActiveWorkspaceTab', undefined);
     await wails.setResponse('EnsureConversation', {
-      id: 1, title: 'Aba 1',
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1',
       created_at: ws.created_at, updated_at: ws.created_at,
       messages: [], message_count: 0,
     });

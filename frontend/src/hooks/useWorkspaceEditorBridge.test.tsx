@@ -157,7 +157,7 @@ describe('useWorkspaceEditorBridge', () => {
 
     it('ignora abas que não são editor', () => {
       setWsState([
-        { id: 'tab-chat', type: 'chat', title: 'Chat', conversationId: 1 },
+        { id: 'tab-chat', type: 'chat', title: 'Chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001" },
       ], 'tab-chat');
 
       renderHook(() => useWorkspaceEditorBridge());
@@ -306,7 +306,7 @@ describe('useWorkspaceEditorBridge', () => {
       });
 
       setWsState([
-        { id: 'tab-chat', type: 'chat', title: 'Chat', conversationId: 1 },
+        { id: 'tab-chat', type: 'chat', title: 'Chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001" },
       ], 'tab-chat');
 
       renderHook(() => useWorkspaceEditorBridge());

@@ -36,7 +36,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
 }));
 
-let storeTaskLists: Map<number, unknown> = new Map();
+let storeTaskLists: Map<string, unknown> = new Map();
 
 vi.mock('../store/taskListStore', () => ({
   useTaskListStore: Object.assign(
@@ -214,7 +214,7 @@ const baseWorkflow = {
   updatedAt: '2024-01-01T00:00:00Z',
 };
 
-const makeTaskList = (id: number, title: string) => ({
+const makeTaskList = (id: string, title: string) => ({
   id,
   title,
   description: `Descrição de ${title}`,
@@ -227,28 +227,29 @@ const makeTaskList = (id: number, title: string) => ({
 
 /* ── suíte ──────────────────────────────────────────────────── */
 
+import TaskListsPage from './TaskListsPage';
+
 describe('TaskListsPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
 
     storeTaskLists = new Map([
-      [1, makeTaskList(1, 'Lista Alfa')],
-      [2, makeTaskList(2, 'Lista Beta')],
+      ['1', makeTaskList('1', 'Lista Alfa')],
+      ['2', makeTaskList('2', 'Lista Beta')],
     ]);
 
-    mockCreateTaskList.mockResolvedValue(makeTaskList(3, 'Lista Nova'));
+    mockCreateTaskList.mockResolvedValue(makeTaskList('3', 'Lista Nova'));
     mockDeleteTaskList.mockResolvedValue(undefined);
-    mockCloneTaskList.mockResolvedValue(makeTaskList(4, 'Lista Alfa (Cópia)'));
-    mockGetCachedTaskList.mockImplementation((id: number) => storeTaskLists.get(id));
-    mockLoadTaskList.mockImplementation(async (id: number) => storeTaskLists.get(id) ?? null);
+    mockCloneTaskList.mockResolvedValue(makeTaskList('4', 'Lista Alfa (Cópia)'));
+    mockGetCachedTaskList.mockImplementation((id: string) => storeTaskLists.get(id));
+    mockLoadTaskList.mockImplementation(async (id: string) => storeTaskLists.get(id) ?? null);
     mockFetchAllTaskLists.mockResolvedValue([]);
     mockAddTab.mockResolvedValue('tab-1');
     mockRequestConfirm.mockResolvedValue(true);
   });
 
   async function renderPage() {
-    const { default: TaskListsPage } = await import('./TaskListsPage');
     return render(
       <MemoryRouter>
         <TaskListsPage />
@@ -360,7 +361,7 @@ describe('TaskListsPage', { timeout: 60_000 }, () => {
     await user.click(cloneBtn);
 
     await waitFor(() => {
-      expect(mockCloneTaskList).toHaveBeenCalledWith(1, 'Lista Alfa (Cópia)');
+      expect(mockCloneTaskList).toHaveBeenCalledWith('1', 'Lista Alfa (Cópia)');
     });
 
     await waitFor(() => {
@@ -388,7 +389,7 @@ describe('TaskListsPage', { timeout: 60_000 }, () => {
     });
 
     await waitFor(() => {
-      expect(mockDeleteTaskList).toHaveBeenCalledWith(1);
+      expect(mockDeleteTaskList).toHaveBeenCalledWith('1');
     });
 
     await waitFor(() => {

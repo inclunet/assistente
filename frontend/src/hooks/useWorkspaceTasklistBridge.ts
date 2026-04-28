@@ -29,8 +29,8 @@ export function useWorkspaceTasklistBridge() {
     const syncKey = `${activeTab.id}:${tasklistId}`;
     if (lastSyncedRef.current === syncKey) return;
 
-    const taskListId = tasklistId ? parseInt(tasklistId, 10) : 0;
-    if (taskListId > 0) {
+    const taskListId = tasklistId || '';
+    if (taskListId) {
       syncExistingTaskList(taskListId);
       lastSyncedRef.current = syncKey;
     } else if (!creatingRef.current) {
@@ -38,7 +38,7 @@ export function useWorkspaceTasklistBridge() {
     }
   }, [activeTab?.id, activeTab?.type, tasklistId, isWsInitialized]);
 
-  async function syncExistingTaskList(id: number) {
+  async function syncExistingTaskList(id: string) {
     const store = useTaskListStore.getState();
     store.setActiveTaskList(id);
 
@@ -74,7 +74,7 @@ export function useWorkspaceTasklistBridge() {
         if (wsTab.type !== 'tasklist') continue;
         const tlIdStr = wsTab.state?.tasklistId as string | undefined;
         if (!tlIdStr) continue;
-        const tlId = parseInt(tlIdStr, 10);
+        const tlId = tlIdStr;
         const tl = state.taskLists.get(tlId);
         if (tl && tl.title !== wsTab.title) {
           void ws.updateTab(wsTab.id, { title: tl.title });
@@ -87,8 +87,7 @@ export function useWorkspaceTasklistBridge() {
   // F2 tab rename → rename tasklist in backend
   useEffect(() => {
     return registerTabRenameHandler('tasklist', (id, newTitle) => {
-      const tlId = parseInt(id, 10);
-      if (tlId) void useTaskListStore.getState().updateTaskList(tlId, newTitle);
+      if (id) void useTaskListStore.getState().updateTaskList(id, newTitle);
     });
   }, []);
 

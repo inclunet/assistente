@@ -44,17 +44,17 @@ func TestResolveTaskListID(t *testing.T) {
 
 	got, err := ResolveTaskListID(&idPtr, "")
 	if err != nil || got != id {
-		t.Fatalf("by id: got %d err %v", got, err)
+		t.Fatalf("by id: got %s err %v", got, err)
 	}
 
 	got, err = ResolveTaskListID(nil, "MY-ALPHA")
 	if err != nil || got != id {
-		t.Fatalf("by slug: got %d err %v", got, err)
+		t.Fatalf("by slug: got %s err %v", got, err)
 	}
 
 	got, err = ResolveTaskListID(&idPtr, "my-alpha")
 	if err != nil || got != id {
-		t.Fatalf("both consistent: got %d err %v", got, err)
+		t.Fatalf("both consistent: got %s err %v", got, err)
 	}
 
 	_, err = ResolveTaskListID(&idPtr, "beta")

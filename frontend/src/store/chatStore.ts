@@ -54,28 +54,28 @@ export interface TurnSegment {
 }
 
 interface ChatMessagesReadyEvent {
-  conversationId: number;
-  userMessageId: number;
+  conversationId: string;
+  userMessageId: string;
   userContent: string;
 }
 
 interface ChatStreamEvent {
-  conversationId: number;
+  conversationId: string;
   content?: string;
   done?: boolean;
   error?: string;
-  messageId?: number;
+  messageId?: string;
 }
 
 interface ChatThinkingEvent {
-  conversationId: number;
+  conversationId: string;
   started?: boolean;
   done?: boolean;
   content?: string;
 }
 
 interface ChatToolStartEvent {
-  conversationId: number;
+  conversationId: string;
   name: string;
   callId: string;
   args?: string;
@@ -87,7 +87,7 @@ interface ChatToolStartEvent {
 }
 
 interface ChatToolEndEvent {
-  conversationId: number;
+  conversationId: string;
   callId: string;
   name?: string;
   status?: string;
@@ -103,7 +103,7 @@ interface ChatToolEndEvent {
 
 // AEP-0039 Fase 3: structured failure event (distinct from tool_end with status='error')
 interface ChatToolFailureEvent {
-  conversationId: number;
+  conversationId: string;
   name: string;
   callId: string;
   errorKind: 'timeout' | 'invalid_args' | 'not_found' | 'panic' | 'cancelled' | 'unknown';
@@ -116,7 +116,7 @@ interface ChatToolFailureEvent {
 }
 
 interface ChatSegmentDoneEvent {
-  conversationId: number;
+  conversationId: string;
   hasMore?: boolean;
   content?: string;
   iteration?: number;
@@ -125,8 +125,8 @@ interface ChatSegmentDoneEvent {
 }
 
 interface ChatDoneEvent {
-  conversationId: number;
-  assistantMessageId?: number;
+  conversationId: string;
+  assistantMessageId?: string;
   hadToolCalls?: boolean;
   // AEP-0039 Fase 2
   reason?: string;
@@ -139,12 +139,12 @@ interface ChatDoneEvent {
 }
 
 interface ChatErrorEvent {
-  conversationId: number;
+  conversationId: string;
   error: string;
 }
 
 export interface ActiveConversation {
-  id: number;
+  id: string;
   title: string;
   threadedMessages: MessageNode[];
   channel?: string;
@@ -186,7 +186,7 @@ let streamingMessageSeq = 0;
 const streamUpdateTimers = new Map<string, NodeJS.Timeout>();
 const pendingStreamUpdates = new Map<string, { messageId: string; content: string }>();
 
-const createStreamingMessageId = (conversationId: number): string => {
+const createStreamingMessageId = (conversationId: string): string => {
   streamingMessageSeq += 1;
   return `streaming-${conversationId}-${streamingMessageSeq}`;
 };
@@ -281,7 +281,7 @@ const flushPendingUpdate = (
 };
 
 interface ChatStore {
-  activeConversationId: number | null;
+  activeConversationId: string | null;
   activeConversation: ActiveConversation | null;
   isLoading: boolean;
   streamingMessageId: string | null;
@@ -304,8 +304,8 @@ interface ChatStore {
   setReadingMessageId: (id: string | null) => void;
   startReading: (id: string) => void;
 
-  createConversation: (title?: string) => Promise<number>;
-  loadConversation: (id: number) => Promise<void>;
+  createConversation: (title?: string) => Promise<string>;
+  loadConversation: (id: string) => Promise<void>;
   /** Limpa a conversa ativa (ex.: ao focar editor/terminal/tasklist sem conversa até abrir o chat modal). */
   clearActiveConversation: () => void;
 
@@ -321,14 +321,14 @@ interface ChatStore {
 
   sendMessage: (content: string, mediaFiles?: MediaFile[], paramsOverride?: Partial<llm.ChatParams>) => Promise<void>;
   sendMessageToConversation: (
-    conversationId: number,
+    conversationId: string,
     content: string,
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
   ) => Promise<void>;
   retryMessageToConversation: (
-    conversationId: number,
-    messageId: number,
+    conversationId: string,
+    messageId: string,
     paramsOverride?: Partial<llm.ChatParams>,
   ) => Promise<void>;
   stopStreaming: () => void;
@@ -338,18 +338,18 @@ interface ChatStore {
   getThreadedMessages: () => MessageNode[] | undefined;
   loadMessageChildren: (messageId: string) => Promise<MessageNode[]>;
 
-  handleConversationDeleted: (conversationId: number) => void;
-  handleConversationCleared: (conversationId: number) => void;
-  handleConversationRenamed: (conversationId: number, newTitle: string) => void;
+  handleConversationDeleted: (conversationId: string) => void;
+  handleConversationCleared: (conversationId: string) => void;
+  handleConversationRenamed: (conversationId: string, newTitle: string) => void;
   handleDatabaseReset: () => void;
 
   assignChannel: (channel: string, contactId: string) => Promise<void>;
   unassignChannel: () => Promise<void>;
 
   reloadMessages: () => Promise<void>;
-  reloadConversationMessages: (conversationId: number) => Promise<void>;
+  reloadConversationMessages: (conversationId: string) => Promise<void>;
   handleExternalIncoming: (data: {
-    channel: string; from: string; fromId?: string; text: string; conversationId: number;
+    channel: string; from: string; fromId?: string; text: string; conversationId: string;
     newConversation?: boolean;
   }) => void;
 }
@@ -358,11 +358,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   let loadConversationSeq = 0;
 
   const sendMessageInternal = async (
-    conversationId: number,
+    conversationId: string,
     content: string,
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
-    retryMessageId?: number,
+    retryMessageId?: string,
   ) => {
     if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
       announce(i18next.t('chat.validation.messageTooLarge', {
@@ -458,7 +458,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     // chat:error → erro de validação do backend (tamanho, provider, etc.)
     unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
-      if (event.conversationId !== conversationId && event.conversationId !== 0) return;
+      if (event.conversationId !== conversationId && event.conversationId !== "") return;
       if (!activeListeners.has(conversationIdStr)) return;
       set((state) => {
         if (!state.activeConversation) return state;
@@ -542,8 +542,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         flushPendingUpdate(streamingMsgId, get().updateMessage);
         if (event.content) get().updateMessage(streamingMsgId, event.content);
 
-        const backendAssistantId = event.messageId && event.messageId > 0
-          ? event.messageId.toString() : null;
+        const backendAssistantId = event.messageId && event.messageId !== ''
+          ? event.messageId : null;
 
         set((state) => {
           if (!state.activeConversation) return state;
@@ -1014,8 +1014,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     sendMessage: async (content, mediaFiles, paramsOverride) => {
-      const conversationId = get().activeConversationId ?? 0;
-      if (conversationId === 0) {
+      const conversationId = get().activeConversationId ?? "";
+      if (conversationId === "") {
         console.error('[Chat] sendMessage sem conversa ativa (use ensureWorkspaceTabHasConversation ao abrir o painel)');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
@@ -1081,13 +1081,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     loadMessageChildren: async (messageId) => {
       try {
-        const messageIdNum = parseInt(messageId, 10);
-        if (isNaN(messageIdNum)) {
+        if (!messageId) {
           console.error('[Chat] Invalid message ID:', messageId);
           return [];
         }
 
-        const backendNodes = await GetMessageChildren(messageIdNum);
+        const backendNodes = await GetMessageChildren(messageId);
         const frontendNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
 
         set((state) => {
@@ -1120,7 +1119,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
     },
 
-    handleConversationDeleted: (conversationId: number) => {
+    handleConversationDeleted: (conversationId: string) => {
       if (get().activeConversationId === conversationId) {
         set({ activeConversationId: null, activeConversation: null });
         announce('Conversa apagada permanentemente');
@@ -1131,7 +1130,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
     },
 
-    handleConversationCleared: (conversationId: number) => {
+    handleConversationCleared: (conversationId: string) => {
       if (get().activeConversationId === conversationId) {
         announce('Mensagens da conversa removidas');
         set((state) => ({
@@ -1146,7 +1145,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
     },
 
-    handleConversationRenamed: (conversationId: number, newTitle: string) => {
+    handleConversationRenamed: (conversationId: string, newTitle: string) => {
       if (get().activeConversationId === conversationId) {
         set((state) => ({
           activeConversation: state.activeConversation
@@ -1213,7 +1212,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
     },
 
-    reloadConversationMessages: async (conversationId: number) => {
+    reloadConversationMessages: async (conversationId: string) => {
       if (get().activeConversationId !== conversationId) return;
       return get().reloadMessages();
     },
@@ -1290,7 +1289,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       // chat:error → erro de validação do backend
       unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
-        if (event.conversationId !== conversationId && event.conversationId !== 0) return;
+        if (event.conversationId !== conversationId && event.conversationId !== "") return;
         if (!activeListeners.has(conversationIdStr)) return;
         set((state) => {
           if (!state.activeConversation) return state;
@@ -1370,8 +1369,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           ensureAssistantNode();
           flushPendingUpdate(streamingMsgId, get().updateMessage);
           if (event.content) get().updateMessage(streamingMsgId, event.content);
-          const backendAssistantId = event.messageId && event.messageId > 0
-            ? event.messageId.toString() : null;
+          const backendAssistantId = event.messageId && event.messageId !== ''
+            ? event.messageId : null;
 
           set((state) => {
             if (!state.activeConversation) return state;

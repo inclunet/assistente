@@ -8,6 +8,7 @@ import type { Code, Link, Table } from 'mdast';
 import { messageAudioService } from '../services/messageAudio';
 import { ttsService } from '../services/tts';
 import { stripMarkdown } from './stripMarkdown';
+import { isBackendId } from './idUtils';
 import i18next from 'i18next';
 import {
   buildEditorDestinationSubmenu,
@@ -365,42 +366,40 @@ export function getMessageMenuItems(
     // 2.1 Baixar audio desta mensagem (usa DB se disponivel)
     items.push({
       id: 'download-audio',
-      label: 'Baixar audio desta mensagem',
+      label: i18next.t('chat.message.downloadAudio'),
       icon: '💾',
-      ariaLabel: 'Baixar audio desta mensagem',
+      ariaLabel: i18next.t('chat.message.downloadAudio'),
       action: async () => {
         if (!message.content || !message.id) {
-          onAnnounce?.('Mensagem sem conteudo');
+          onAnnounce?.(i18next.t('chat.message.announce.noContent'));
           return;
         }
 
         try {
-          const isBackendId = typeof message.id === 'string'
-            ? /^\d+$/.test(message.id)
-            : typeof message.id === 'number';
-          const numericId = isBackendId ? Number(message.id) : 0;
-          if (numericId <= 0) {
-            onAnnounce?.('Nao foi possivel identificar a mensagem');
+          const backendId = isBackendId(message.id) ? message.id : '';
+          if (!backendId) {
+            onAnnounce?.(i18next.t('chat.message.announce.cannotIdentifyMessage'));
             return;
           }
 
-          onAnnounce?.('Gerando audio...');
+          onAnnounce?.(i18next.t('chat.message.announce.generatingAudio'));
           const role = message.role === 'user' ? 'user' : 'assistant';
           const voiceCtx = ttsService.getVoiceContext(role);
-          const audioBlob = await messageAudioService.getMessageAudioBlob(numericId, voiceCtx);
+          const audioBlob = await messageAudioService.getMessageAudioBlob(backendId, voiceCtx);
 
           if (!audioBlob) {
-            onAnnounce?.('Nao foi possivel gerar audio. Verifique a configuracao de voz no perfil ativo.');
+            onAnnounce?.(i18next.t('chat.message.announce.cannotGenerateAudio'));
             return;
           }
 
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-          const filename = `mensagem-${timestamp}.mp3`;
+          const prefix = i18next.t('chat.message.downloadAudioPrefix', 'message');
+          const filename = `${prefix}-${timestamp}.mp3`;
           messageAudioService.downloadAudioBlob(audioBlob, filename);
-          onAnnounce?.('Audio baixado com sucesso');
+          onAnnounce?.(i18next.t('chat.message.announce.audioDownloaded'));
         } catch (error) {
           console.error('Erro ao baixar audio:', error);
-          onAnnounce?.('Erro ao gerar audio');
+          onAnnounce?.(i18next.t('chat.message.announce.audioError'));
         }
       },
     });

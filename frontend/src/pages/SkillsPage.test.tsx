@@ -41,6 +41,14 @@ vi.mock('../hooks/useGridFocus', () => ({
   }),
 }));
 
+vi.mock('../hooks/useGridPageLandmarks', () => ({
+  useGridPageLandmarks: vi.fn(),
+}));
+
+vi.mock('../hooks/useConfirm', () => ({
+  useConfirm: () => vi.fn().mockResolvedValue(true),
+}));
+
 const mockAddToast = vi.fn();
 vi.mock('../store/uiStore', () => ({
   useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
@@ -121,6 +129,8 @@ vi.mock('../components', () => ({
   PageLoading: ({ message }: { message?: string }) => <div role="status">{message}</div>,
 }));
 
+import SkillsPage from './SkillsPage';
+
 describe('SkillsPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockGetSkills.mockReset();
@@ -175,8 +185,6 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
   });
 
   it('duplica um skill via menu de acoes', async () => {
-    const { default: SkillsPage } = await import('./SkillsPage');
-
     render(<SkillsPage />);
 
     await screen.findByText('skill-base');

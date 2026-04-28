@@ -17,20 +17,20 @@ import (
 
 // chatBackend abstracts the app methods used by chat commands (enables testing).
 type chatBackend interface {
-	SendMessage(conversationID uint, userContent, userMedia string, params app.ChatParams) (uint, error)
+	SendMessage(conversationID string, userContent, userMedia string, params app.ChatParams) (string, error)
 	EnsureConversation(title string) (*app.Conversation, error)
-	GetConversation(id uint) (*app.Conversation, error)
-	CancelStreamingForConversation(conversationID uint)
+	GetConversation(id string) (*app.Conversation, error)
+	CancelStreamingForConversation(conversationID string)
 	Context() context.Context
 }
 
 // waitDoner abstracts the WaitDone method from the emitter.
 type waitDoner interface {
-	WaitDone(conversationID uint) <-chan struct{}
+	WaitDone(conversationID string) <-chan struct{}
 }
 
 var (
-	chatConversationID uint
+	chatConversationID string
 	chatModel          string
 	chatProfile        string
 )
@@ -73,7 +73,7 @@ Exemplos:
 }
 
 func init() {
-	chatCmd.Flags().UintVar(&chatConversationID, "conversation", 0, "ID da conversa (0 = nova conversa)")
+	chatCmd.Flags().StringVar(&chatConversationID, "conversation", "", "ID da conversa (vazio = nova conversa)")
 	chatCmd.Flags().StringVar(&chatModel, "model", "", "Modelo LLM a usar (ex: gpt-4o)")
 	chatCmd.Flags().StringVar(&chatProfile, "profile", "", "Slug do perfil a usar")
 }
@@ -125,10 +125,10 @@ func sendAndWait(svc chatBackend, emitter waitDoner, message string) error {
 
 // ensureConversation obtém ou cria uma conversa para o chat.
 func ensureConversation(svc chatBackend) (*app.Conversation, error) {
-	if chatConversationID > 0 {
+	if chatConversationID != "" {
 		conv, err := svc.GetConversation(chatConversationID)
 		if err != nil {
-			return nil, fmt.Errorf("conversa %d não encontrada: %w", chatConversationID, err)
+			return nil, fmt.Errorf("conversa %s não encontrada: %w", chatConversationID, err)
 		}
 		return conv, nil
 	}

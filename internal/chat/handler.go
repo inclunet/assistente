@@ -10,21 +10,21 @@ import (
 var ErrConversationGone = errors.New("conversa deletada ou pai ausente")
 
 // SaveAssistantMessage persiste a resposta final do assistant no banco.
-// Retorna (0, nil) se content for vazio ou conversationID == 0 (noop).
-// Retorna (0, ErrConversationGone) se a conversa foi deletada — o chamador deve abortar.
-// Retorna (0, err) para outros erros de banco.
-func SaveAssistantMessage(msgRepo MessageRepository, opts MessageOptions) (uint, error) {
-	if opts.ConversationID == 0 || opts.Content == "" {
-		return 0, nil
+// Retorna ("", nil) se content for vazio ou conversationID == "" (noop).
+// Retorna ("", ErrConversationGone) se a conversa foi deletada — o chamador deve abortar.
+// Retorna ("", err) para outros erros de banco.
+func SaveAssistantMessage(msgRepo MessageRepository, opts MessageOptions) (string, error) {
+	if opts.ConversationID == "" || opts.Content == "" {
+		return "", nil
 	}
 
 	msg, err := msgRepo.CreateMessage(opts)
 	if err != nil {
 		if errors.Is(err, ErrConversationDeleted) || errors.Is(err, ErrParentMessageDeleted) {
-			log.Printf("[Chat] conversa %d deletada — abortando processamento", opts.ConversationID)
-			return 0, ErrConversationGone
+			log.Printf("[Chat] conversa %s deletada — abortando processamento", opts.ConversationID)
+			return "", ErrConversationGone
 		}
-		return 0, err
+		return "", err
 	}
 
 	return msg.ID, nil

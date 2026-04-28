@@ -48,7 +48,7 @@ func (s *Service) CreateTaskList(ctx context.Context, title, description string,
 	return full, nil
 }
 
-func (s *Service) GetTaskList(id uint) (*database.TaskList, error) {
+func (s *Service) GetTaskList(id string) (*database.TaskList, error) {
 	return s.store.GetTaskList(id)
 }
 
@@ -56,7 +56,7 @@ func (s *Service) GetAllTaskLists() ([]database.TaskList, error) {
 	return s.store.GetAllTaskLists()
 }
 
-func (s *Service) UpdateTaskList(id uint, title, description string) error {
+func (s *Service) UpdateTaskList(id string, title, description string) error {
 	if err := s.store.UpdateTaskList(id, title, description); err != nil {
 		return err
 	}
@@ -65,19 +65,19 @@ func (s *Service) UpdateTaskList(id uint, title, description string) error {
 	return nil
 }
 
-func (s *Service) UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error {
+func (s *Service) UpdateTaskListFull(id string, title, description, preferredViewMode string, slug *string) error {
 	return s.store.UpdateTaskListFull(id, title, description, preferredViewMode, slug)
 }
 
-func (s *Service) ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error) {
+func (s *Service) ResolveTaskListRef(taskListID *string, taskListSlug string) (string, error) {
 	return s.store.ResolveTaskListRef(taskListID, taskListSlug)
 }
 
-func (s *Service) SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
+func (s *Service) SetTaskListValidationPolicy(taskListID string, policyJSON string) error {
 	return s.store.SetTaskListValidationPolicy(taskListID, policyJSON)
 }
 
-func (s *Service) SetTaskListViewMode(id uint, viewMode string) error {
+func (s *Service) SetTaskListViewMode(id string, viewMode string) error {
 	if err := s.store.SetTaskListViewMode(id, viewMode); err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func (s *Service) SetTaskListViewMode(id uint, viewMode string) error {
 }
 
 // CloneTaskList clona uma lista e recarrega o registro completo.
-func (s *Service) CloneTaskList(id uint, newTitle string) (*database.TaskList, error) {
+func (s *Service) CloneTaskList(id string, newTitle string) (*database.TaskList, error) {
 	tl, err := s.store.CloneTaskList(id, newTitle)
 	if err != nil {
 		return nil, err
@@ -103,7 +103,7 @@ func (s *Service) CloneTaskList(id uint, newTitle string) (*database.TaskList, e
 	return full, nil
 }
 
-func (s *Service) ClearTaskList(id uint) error {
+func (s *Service) ClearTaskList(id string) error {
 	if err := s.store.ClearTaskList(id); err != nil {
 		return err
 	}
@@ -111,7 +111,7 @@ func (s *Service) ClearTaskList(id uint) error {
 	return nil
 }
 
-func (s *Service) DeleteTaskList(id uint) error {
+func (s *Service) DeleteTaskList(id string) error {
 	if err := s.store.DeleteTaskList(id); err != nil {
 		return err
 	}
@@ -119,21 +119,21 @@ func (s *Service) DeleteTaskList(id uint) error {
 	return nil
 }
 
-func (s *Service) GetTaskListStats(taskListID uint) (map[string]interface{}, error) {
+func (s *Service) GetTaskListStats(taskListID string) (map[string]interface{}, error) {
 	return s.store.GetTaskListStats(taskListID)
 }
 
-func (s *Service) GetTaskListWithHierarchy(id uint) (*database.TaskList, error) {
+func (s *Service) GetTaskListWithHierarchy(id string) (*database.TaskList, error) {
 	return s.store.GetTaskListWithHierarchy(id)
 }
 
 // ── Workflow ───────────────────────────────────────────────────────────────────
 
-func (s *Service) GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error) {
+func (s *Service) GetWorkflow(taskListID string) (*database.TaskListWorkflow, error) {
 	return s.store.GetWorkflow(taskListID)
 }
 
-func (s *Service) UpdateWorkflow(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions map[int][]int) error {
+func (s *Service) UpdateWorkflow(taskListID string, statuses []database.TaskListWorkflowStatus, transitions map[int][]int) error {
 	if err := s.store.UpdateWorkflow(taskListID, statuses, transitions); err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (s *Service) UpdateWorkflow(taskListID uint, statuses []database.TaskListWo
 	return nil
 }
 
-func (s *Service) UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+func (s *Service) UpdateWorkflowFull(taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
 	if err := s.store.UpdateWorkflowFull(taskListID, statuses, transitions, initialStatusID, statusMigration); err != nil {
 		return err
 	}
@@ -154,11 +154,11 @@ func (s *Service) UpdateWorkflowFull(taskListID uint, statuses []database.TaskLi
 	return nil
 }
 
-func (s *Service) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
+func (s *Service) GetTaskCountsByStatus(taskListID string) (map[int]int64, error) {
 	return s.store.GetTaskCountsByStatus(taskListID)
 }
 
-func (s *Service) ReorderWorkflowStatuses(taskListID uint, statusOrder []int) error {
+func (s *Service) ReorderWorkflowStatuses(taskListID string, statusOrder []int) error {
 	if err := s.store.ReorderWorkflowStatuses(taskListID, statusOrder); err != nil {
 		return err
 	}
@@ -167,13 +167,13 @@ func (s *Service) ReorderWorkflowStatuses(taskListID uint, statusOrder []int) er
 	return nil
 }
 
-func (s *Service) ValidateStatusTransition(taskListID uint, fromStatusID, toStatusID int) error {
+func (s *Service) ValidateStatusTransition(taskListID string, fromStatusID, toStatusID int) error {
 	return s.store.ValidateStatusTransition(taskListID, fromStatusID, toStatusID)
 }
 
 // ── Task ───────────────────────────────────────────────────────────────────────
 
-func (s *Service) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error) {
+func (s *Service) CreateTask(taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
 	task, err := s.store.CreateTask(taskListID, title, description, code, link, parentID)
 	if err != nil {
 		return nil, err
@@ -182,7 +182,7 @@ func (s *Service) CreateTask(taskListID uint, title, description, code, link str
 	return task, nil
 }
 
-func (s *Service) CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*database.Task, error) {
+func (s *Service) CreateTaskFull(taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*database.Task, error) {
 	task, err := s.store.CreateTaskFull(taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
 	if err != nil {
 		return nil, err
@@ -191,31 +191,31 @@ func (s *Service) CreateTaskFull(taskListID uint, title, description, code, link
 	return task, nil
 }
 
-func (s *Service) GetTask(id uint) (*database.Task, error) {
+func (s *Service) GetTask(id string) (*database.Task, error) {
 	return s.store.GetTask(id)
 }
 
-func (s *Service) GetTasksByTaskListID(taskListID uint) ([]database.Task, error) {
+func (s *Service) GetTasksByTaskListID(taskListID string) ([]database.Task, error) {
 	return s.store.GetTasksByTaskListID(taskListID)
 }
 
-func (s *Service) GetTasksByStatus(taskListID uint, statusID int) ([]database.Task, error) {
+func (s *Service) GetTasksByStatus(taskListID string, statusID int) ([]database.Task, error) {
 	return s.store.GetTasksByStatus(taskListID, statusID)
 }
 
-func (s *Service) FindTaskByCode(taskListID uint, code string) (*database.Task, error) {
+func (s *Service) FindTaskByCode(taskListID string, code string) (*database.Task, error) {
 	return s.store.FindTaskByCode(taskListID, code)
 }
 
-func (s *Service) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error) {
+func (s *Service) ResolveTaskRef(taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
 	return s.store.ResolveTaskRef(taskListID, taskListSlug, taskID, code)
 }
 
-func (s *Service) ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error) {
+func (s *Service) ResolveTaskIDByTaskCode(taskListID *string, taskCode string) (string, error) {
 	return s.store.ResolveTaskIDByTaskCode(taskListID, taskCode)
 }
 
-func (s *Service) UpdateTask(id uint, title, description, code, link string) error {
+func (s *Service) UpdateTask(id string, title, description, code, link string) error {
 	if err := s.store.UpdateTask(id, title, description, code, link); err != nil {
 		return err
 	}
@@ -224,7 +224,7 @@ func (s *Service) UpdateTask(id uint, title, description, code, link string) err
 	return nil
 }
 
-func (s *Service) UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+func (s *Service) UpdateTaskFull(id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
 	if err := s.store.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID); err != nil {
 		return err
 	}
@@ -234,7 +234,7 @@ func (s *Service) UpdateTaskFull(id uint, title, description, code, link, assign
 }
 
 // UpdateTaskAssignee atualiza o responsável da task e cria nota de auditoria se houve mudança.
-func (s *Service) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
+func (s *Service) UpdateTaskAssignee(id string, assigneeName, assigneeID string) error {
 	oldTask, _ := s.store.GetTask(id)
 	if err := s.store.UpdateTaskAssignee(id, assigneeName, assigneeID); err != nil {
 		return err
@@ -261,7 +261,7 @@ func (s *Service) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) e
 	return nil
 }
 
-func (s *Service) UpdateTaskStatus(id uint, statusID int) error {
+func (s *Service) UpdateTaskStatus(id string, statusID int) error {
 	if err := s.store.UpdateTaskStatus(id, statusID); err != nil {
 		return err
 	}
@@ -270,7 +270,7 @@ func (s *Service) UpdateTaskStatus(id uint, statusID int) error {
 	return nil
 }
 
-func (s *Service) ReorderTasks(taskListID uint, statusID int, orderedIDs []uint) error {
+func (s *Service) ReorderTasks(taskListID string, statusID int, orderedIDs []string) error {
 	if err := s.store.ReorderTasks(taskListID, statusID, orderedIDs); err != nil {
 		return err
 	}
@@ -278,7 +278,7 @@ func (s *Service) ReorderTasks(taskListID uint, statusID int, orderedIDs []uint)
 	return nil
 }
 
-func (s *Service) PromoteTask(id uint) error {
+func (s *Service) PromoteTask(id string) error {
 	if err := s.store.PromoteTask(id); err != nil {
 		return err
 	}
@@ -287,7 +287,7 @@ func (s *Service) PromoteTask(id uint) error {
 	return nil
 }
 
-func (s *Service) DemoteTask(id uint, parentID uint) error {
+func (s *Service) DemoteTask(id string, parentID string) error {
 	if err := s.store.DemoteTask(id, parentID); err != nil {
 		return err
 	}
@@ -296,7 +296,7 @@ func (s *Service) DemoteTask(id uint, parentID uint) error {
 	return nil
 }
 
-func (s *Service) MoveTaskToList(taskID uint, targetTaskListID uint) (*database.Task, error) {
+func (s *Service) MoveTaskToList(taskID string, targetTaskListID string) (*database.Task, error) {
 	oldTask, err := s.store.GetTask(taskID)
 	if err != nil {
 		return nil, err
@@ -316,7 +316,7 @@ func (s *Service) MoveTaskToList(taskID uint, targetTaskListID uint) (*database.
 	return task, nil
 }
 
-func (s *Service) DeleteTask(id uint) error {
+func (s *Service) DeleteTask(id string) error {
 	if err := s.store.DeleteTask(id); err != nil {
 		return err
 	}
@@ -324,13 +324,13 @@ func (s *Service) DeleteTask(id uint) error {
 	return nil
 }
 
-func (s *Service) GetSubtasks(parentID uint) ([]database.Task, error) {
+func (s *Service) GetSubtasks(parentID string) ([]database.Task, error) {
 	return s.store.GetSubtasks(parentID)
 }
 
 // ── Task Note ─────────────────────────────────────────────────────────────────
 
-func (s *Service) CreateTaskNote(taskID uint, noteType int, content, authorName, authorID string) (*database.TaskNote, error) {
+func (s *Service) CreateTaskNote(taskID string, noteType int, content, authorName, authorID string) (*database.TaskNote, error) {
 	note, err := s.store.CreateTaskNote(taskID, database.TaskNoteType(noteType), content, authorName, authorID)
 	if err != nil {
 		return nil, err
@@ -352,15 +352,15 @@ func (s *Service) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalPa
 	return note, created, nil
 }
 
-func (s *Service) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
+func (s *Service) GetTaskNotes(taskID string) ([]database.TaskNote, error) {
 	return s.store.GetTaskNotes(taskID)
 }
 
-func (s *Service) GetTaskNote(noteID uint) (*database.TaskNote, error) {
+func (s *Service) GetTaskNote(noteID string) (*database.TaskNote, error) {
 	return s.store.GetTaskNote(noteID)
 }
 
-func (s *Service) UpdateTaskNote(noteID uint, content string) error {
+func (s *Service) UpdateTaskNote(noteID string, content string) error {
 	if err := s.store.UpdateTaskNote(noteID, content); err != nil {
 		return err
 	}
@@ -368,7 +368,7 @@ func (s *Service) UpdateTaskNote(noteID uint, content string) error {
 	return nil
 }
 
-func (s *Service) DeleteTaskNote(noteID uint) error {
+func (s *Service) DeleteTaskNote(noteID string) error {
 	if err := s.store.DeleteTaskNote(noteID); err != nil {
 		return err
 	}

@@ -12,7 +12,7 @@ type ImportResult = export.ImportResult
 
 // ==================== Export Functions ====================
 
-func (a *App) ExportConversations(ids []uint) (string, error) {
+func (a *App) ExportConversations(ids []string) (string, error) {
 	return export.ExportConversations(ids)
 }
 

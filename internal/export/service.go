@@ -18,7 +18,7 @@ type Metadata struct {
 
 // ConversationExport representa uma conversa exportada com todas as mensagens.
 type ConversationExport struct {
-	ID        uint                   `json:"id"`
+	ID        string                 `json:"id"`
 	Title     string                 `json:"title"`
 	CreatedAt time.Time              `json:"created_at"`
 	UpdatedAt time.Time              `json:"updated_at"`
@@ -41,13 +41,13 @@ type ImportResult struct {
 }
 
 // ExportConversations serializa as conversas indicadas para JSON.
-func ExportConversations(ids []uint) (string, error) {
+func ExportConversations(ids []string) (string, error) {
 	conversations := make([]ConversationExport, 0, len(ids))
 
 	for _, id := range ids {
 		conv, err := database.GetConversation(id)
 		if err != nil {
-			return "", fmt.Errorf("erro ao buscar conversa %d: %w", id, err)
+			return "", fmt.Errorf("erro ao buscar conversa %s: %w", id, err)
 		}
 
 		conversations = append(conversations, ConversationExport{
@@ -97,10 +97,10 @@ func ImportConversations(jsonData string) (*ImportResult, error) {
 			continue
 		}
 
-		idMap := make(map[uint]uint)
+		idMap := make(map[string]string)
 
 		for _, msg := range conv.Messages {
-			var parentID *uint
+			var parentID *string
 			if msg.ParentID != nil {
 				if newParentID, ok := idMap[*msg.ParentID]; ok {
 					parentID = &newParentID

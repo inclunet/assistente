@@ -69,7 +69,7 @@ export default function EditorPage() {
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
-  const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId } = useEditorInlineChatPatch();
+  const { waitForChatDone, waitForEditorPatch, getMaxMessageId } = useEditorInlineChatPatch();
 
 
   const documents = useEditorStore((s) => s.documents);
@@ -1478,7 +1478,7 @@ export default function EditorPage() {
     const expectedConversationId = session?.conversationId ?? useChatStore.getState().activeConversationId ?? undefined;
 
     const beforeMessages = useChatStore.getState().getMessages();
-    const afterMessageId = getMaxNumericMessageId(beforeMessages as Message[]);
+    const afterMessageId = getMaxMessageId(beforeMessages as Message[]);
 
     const trimmed = String(instruction || '').trim();
     if (!trimmed) return null;

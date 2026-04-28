@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -20,9 +19,9 @@ import (
 type historyBackend interface {
 	SearchConversationHistory(query string, limit int) ([]database.MessageSearchResult, error)
 	GetConversations() ([]app.Conversation, error)
-	GetConversation(id uint) (*app.Conversation, error)
-	GetMessages(conversationID uint, parentID *uint) ([]chat.MessageNode, error)
-	DeleteConversation(id uint) error
+	GetConversation(id string) (*app.Conversation, error)
+	GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error)
+	DeleteConversation(id string) error
 }
 
 var historyCmd = &cobra.Command{
@@ -64,7 +63,7 @@ func runHistoryList(svc historyBackend, out io.Writer, search string, limit int)
 				snippet = string(snippetRunes[:57]) + "..."
 			}
 			snippet = strings.ReplaceAll(snippet, "\n", " ")
-			_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", r.ConversationID, r.ConversationTitle, r.Role, snippet)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.ConversationID, r.ConversationTitle, r.Role, snippet)
 		}
 		return w.Flush()
 	}
@@ -88,7 +87,7 @@ func runHistoryList(svc historyBackend, out io.Writer, search string, limit int)
 	for i := 0; i < display; i++ {
 		c := conversations[i]
 		date := c.UpdatedAt.Format(time.DateOnly)
-		_, _ = fmt.Fprintf(w, "%d\t%s\t%d\t%s\n", c.ID, c.Title, c.MessageCount, date)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", c.ID, c.Title, c.MessageCount, date)
 	}
 	return w.Flush()
 }
@@ -100,15 +99,11 @@ var historyShowCmd = &cobra.Command{
 	Short: "Exibe mensagens de uma conversa",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id, err := strconv.ParseUint(args[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("ID inválido: %s", args[0])
-		}
-		return runHistoryShow(rootApp, os.Stdout, uint(id))
+		return runHistoryShow(rootApp, os.Stdout, args[0])
 	},
 }
 
-func runHistoryShow(svc historyBackend, out io.Writer, id uint) error {
+func runHistoryShow(svc historyBackend, out io.Writer, id string) error {
 	conv, err := svc.GetConversation(id)
 	if err != nil {
 		return fmt.Errorf("conversa não encontrada: %w", err)
@@ -120,7 +115,7 @@ func runHistoryShow(svc historyBackend, out io.Writer, id uint) error {
 	}
 
 	ew := &errWriter{w: out}
-	ew.printf("=== %s (ID: %d) ===\n\n", conv.Title, conv.ID)
+	ew.printf("=== %s (ID: %s) ===\n\n", conv.Title, conv.ID)
 	fprintMessageNodes(ew, messages)
 	return ew.err
 }
@@ -149,19 +144,15 @@ var historyDeleteCmd = &cobra.Command{
 	Short: "Remove uma conversa",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id, err := strconv.ParseUint(args[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("ID inválido: %s", args[0])
-		}
-		return runHistoryDelete(rootApp, os.Stdout, uint(id))
+		return runHistoryDelete(rootApp, os.Stdout, args[0])
 	},
 }
 
-func runHistoryDelete(svc historyBackend, out io.Writer, id uint) error {
+func runHistoryDelete(svc historyBackend, out io.Writer, id string) error {
 	if err := svc.DeleteConversation(id); err != nil {
 		return fmt.Errorf("erro ao remover conversa: %w", err)
 	}
-	_, err := fmt.Fprintf(out, "Conversa %d removida.\n", id)
+	_, err := fmt.Fprintf(out, "Conversa %s removida.\n", id)
 	return err
 }
 
