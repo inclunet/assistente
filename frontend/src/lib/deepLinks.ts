@@ -277,7 +277,7 @@ export async function executeDeepLink(
     if (existing) {
       await wsStore.setActiveTab(existing.id);
     } else {
-      await wsStore.addTab('chat', title || t('chat.newConversation'));
+      await wsStore.addTab('chat', title || t('chat.newConversation'), { conversationId });
     }
   };
 
@@ -291,8 +291,8 @@ export async function executeDeepLink(
 
     case 'conversation:new': {
       const title = action.title || t('chat.newConversation');
-      await useChatStore.getState().createConversation(title);
-      await wsStore.addTab('chat', title);
+      const conversationId = await useChatStore.getState().createConversation(title);
+      await wsStore.addTab('chat', title, { conversationId });
       deps.navigate('/');
       if (action.message) {
         await useChatStore.getState().sendMessage(action.message);

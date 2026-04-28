@@ -70,7 +70,10 @@ O hook gera o UUID automaticamente se `ID` estiver vazio. Permite também atribu
 | `tasks` | `id uint` (auto-increment) | `id text` (UUIDv7) |
 | `task_notes` | `id uint` (auto-increment) | `id text` (UUIDv7) |
 | `task_list_workflows` | `id uint` (auto-increment) | `id text` (UUIDv7) |
-| `task_list_workflow_statuses` | `id uint` (auto-increment) | `id text` (UUIDv7) |
+
+> **Nota**: `task_list_workflow_statuses` **não é uma tabela persistida** — é um
+> struct embutido em JSON dentro de `task_list_workflows.statuses_json`. Os IDs de
+> status permanecem numéricos (`int`) e não são migrados para UUIDv7.
 
 Tabelas **fora do escopo** (já usam string PK):
 - `llm_providers` — slug string (sem mudança)
@@ -89,11 +92,10 @@ Todas as colunas FK que referenciam PKs migradas mudam de `uint` para `string`:
 | `conversations.summary_up_to_message_id` | `*uint` | `*string` |
 | `tasks.task_list_id` | `uint` | `string` |
 | `tasks.parent_id` | `*uint` | `*string` |
-| `tasks.status_id` | `uint` | `string` |
+| `tasks.status_id` | `uint` | `uint` (permanece numérico — referencia status embutido em JSON) |
 | `task_notes.task_id` | `uint` | `string` |
 | `task_list_workflows.task_list_id` | `uint` | `string` |
-| `task_list_workflows.initial_status_id` | `uint` | `string` |
-| `task_list_workflow_statuses.workflow_id` | `uint` | `string` |
+| `task_list_workflows.initial_status_id` | `uint` | `uint` (permanece numérico — referencia status embutido em JSON) |
 
 ### D5 — Migração automática de dados no startup
 
@@ -110,7 +112,7 @@ Os dados existentes serão preservados. Na primeira execução com o novo schema
    f. Renomeia `_tabela_new` → nome original
 4. Recria FTS5, triggers e índices parciais.
 5. Se qualquer passo falhar, a transação inteira é revertida (banco original intacto).
-6. Um backup `conversations.db.bak` é criado **antes** de iniciar a migração.
+6. Um backup `conversations.db.pre-uuid.bak` é criado **antes** de iniciar a migração.
 
 **Ordem de migração** (por dependência de FKs):
 
@@ -309,7 +311,7 @@ Ao migrar, cada recurso receberá um `id` UUIDv7 como PK no banco, e o slug atua
 5. **FTS5** busca por texto retorna resultados corretos
 6. **Eventos** carregam `conversationId` e `messageId` como `string` em ambos os lados
 7. **Migração automática**: banco antigo (INTEGER PKs) é detectado e convertido no startup, preservando todos os dados
-8. **Backup**: `conversations.db.bak` criado antes da migração
+8. **Backup**: `conversations.db.pre-uuid.bak` criado antes da migração
 9. **Rollback seguro**: se a migração falhar, banco original permanece intacto
 10. **Nenhuma regressão** nos fluxos: criar conversa, enviar mensagem, criar task list, buscar mensagem
 11. **Dados preservados**: conversas, mensagens, task lists, credenciais existentes acessíveis após a migração

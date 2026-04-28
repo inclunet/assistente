@@ -28,10 +28,10 @@ const chatStoreState = {
   isLoading: false,
   sendMessage: vi.fn(),
   retryMessageToConversation: vi.fn(),
-  activeConversation: { id: 1, title: 'Conversa', threadedMessages: [] },
+  activeConversation: { id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa', threadedMessages: [] },
   getThreadedMessages: () => [],
   loadMessageChildren: vi.fn(),
-  getActiveConversation: () => ({ id: 1, title: 'Conversa' }),
+  getActiveConversation: () => ({ id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa' }),
   loadConversation: vi.fn(),
   updateMessage: updateMessageMock,
   toggleReasoningExpanded: vi.fn(),
@@ -54,7 +54,7 @@ vi.mock('../../store/editorStore', () => ({
     getState: () => ({
       requestInsert: vi.fn(),
       activeTabId: 'chat-tab',
-      tabs: [{ id: 'chat-tab', conversationId: 10 }],
+      tabs: [{ id: 'chat-tab', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' }],
     }),
   },
 }));

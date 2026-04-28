@@ -28,7 +28,7 @@ vi.mock('../store/workspaceStore', () => ({
 }));
 
 const mockLoadConversation = vi.fn().mockResolvedValue(undefined);
-const mockCreateConversation = vi.fn().mockResolvedValue("100");
+const mockCreateConversation = vi.fn().mockResolvedValue('01926b90-7a5a-7c4e-8d3f-000000000064');
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: {
@@ -628,7 +628,7 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
@@ -641,7 +641,7 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000007' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
     });
   });
@@ -670,7 +670,7 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockLoadConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a');
       expect(mockSendMessage).toHaveBeenCalledWith('oi');
@@ -682,7 +682,7 @@ describe('executeDeepLink', () => {
       await executeDeepLink({ type: 'conversation:new' }, deps);
 
       expect(mockCreateConversation).toHaveBeenCalledWith('Nova Conversa');
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000064' });
       expect(mockNavigate).toHaveBeenCalledWith('/');
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
@@ -694,7 +694,7 @@ describe('executeDeepLink', () => {
       );
 
       expect(mockCreateConversation).toHaveBeenCalled();
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000064' });
       expect(mockSendMessage).toHaveBeenCalledWith('analise isso');
     });
 
@@ -705,7 +705,7 @@ describe('executeDeepLink', () => {
       );
 
       expect(mockCreateConversation).toHaveBeenCalledWith('Minha Análise');
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Minha Análise');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Minha Análise', { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000064' });
     });
   });
 

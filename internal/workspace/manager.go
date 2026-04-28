@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"assistente/internal/database"
 	"gopkg.in/yaml.v3"
 )
 
@@ -689,6 +690,7 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 
 	// Migração de formato antigo: content_id → campos corretos
 	needsSave := false
+	remap := database.LoadIDRemapFile(m.homeDir)
 	for i := range ws.Tabs.Items {
 		t := &ws.Tabs.Items[i]
 		if t.ContentID == "" {
@@ -701,6 +703,10 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 			if t.ConversationID == "" {
 				if isValidUUIDv7(t.ContentID) {
 					t.ConversationID = t.ContentID
+				} else if remap != nil {
+					if newID, ok := remap.Conversations[t.ContentID]; ok {
+						t.ConversationID = newID
+					}
 				}
 			}
 		case TabTypeTerminal:
@@ -715,7 +721,14 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 				t.State = map[string]any{}
 			}
 			if _, ok := t.State["tasklistId"]; !ok {
-				t.State["tasklistId"] = t.ContentID
+				// Remap old numeric content_id to new UUIDv7
+				tasklistID := t.ContentID
+				if !isValidUUIDv7(tasklistID) && remap != nil {
+					if newID, ok := remap.TaskLists[tasklistID]; ok {
+						tasklistID = newID
+					}
+				}
+				t.State["tasklistId"] = tasklistID
 			}
 		case TabTypeEditor:
 			// UUID interno do editor — descartado; filePath vem de state
@@ -724,15 +737,42 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	}
 
 	// Sanitize: chat tabs must have valid UUID conversation IDs (post-migration).
-	// Legacy numeric IDs (e.g. "42") are cleared so the frontend creates a fresh conversation.
+	// Legacy numeric IDs (e.g. "42") are remapped if possible, otherwise cleared
+	// so the frontend creates a fresh conversation.
 	for i := range ws.Tabs.Items {
 		t := &ws.Tabs.Items[i]
 		if t.Type == TabTypeChat && t.ConversationID != "" {
 			if !isValidUUIDv7(t.ConversationID) {
+				if remap != nil {
+					if newID, ok := remap.Conversations[t.ConversationID]; ok {
+						t.ConversationID = newID
+						needsSave = true
+						continue
+					}
+				}
 				t.ConversationID = ""
 				needsSave = true
 			}
 		}
+	}
+
+	// Also remap tasklistId in state for tasklist tabs
+	for i := range ws.Tabs.Items {
+		t := &ws.Tabs.Items[i]
+		if t.Type == TabTypeTasklist && t.State != nil {
+			if tlID, ok := t.State["tasklistId"].(string); ok && tlID != "" && !isValidUUIDv7(tlID) {
+				if remap != nil {
+					if newID, ok := remap.TaskLists[tlID]; ok {
+						t.State["tasklistId"] = newID
+						needsSave = true
+					}
+				}
+			}
+		}
+	}
+
+	if remap != nil && needsSave {
+		database.DeleteIDRemapFile(m.homeDir)
 	}
 
 	// Ordena tabs por posição

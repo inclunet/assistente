@@ -2,9 +2,11 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
@@ -238,6 +240,13 @@ func migrateToUUIDv7() error {
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("erro ao commit da migração: %w", err)
+	}
+
+	// Persiste mapa de remapeamento old→new para migração de workspaces.
+	// O workspace manager usa esse mapa para atualizar conversation_id e
+	// content_id em workspace.yaml.
+	if err := persistIDRemapFile(sqlDB, convMap, tlMap); err != nil {
+		log.Printf("[Migration] Aviso: não foi possível salvar mapa de remapeamento: %v", err)
 	}
 
 	log.Println("[Migration] Migração UUIDv7 concluída com sucesso!")
@@ -498,6 +507,12 @@ func createBackup() error {
 		return nil // Nada para backup
 	}
 
+	// Flush WAL para o arquivo principal antes de copiar,
+	// garantindo que o backup contenha todas as páginas recentes.
+	if _, err := sqlDB.Exec("PRAGMA wal_checkpoint(FULL)"); err != nil {
+		log.Printf("[Migration] Aviso: wal_checkpoint falhou: %v", err)
+	}
+
 	backupPath := dbPath + ".pre-uuid.bak"
 	src, err := os.ReadFile(dbPath)
 	if err != nil {
@@ -508,4 +523,71 @@ func createBackup() error {
 	}
 	log.Printf("[Migration] Backup criado: %s", backupPath)
 	return nil
+}
+
+// IDRemapData contém os mapas de remapeamento old (numérico) → new (UUIDv7).
+type IDRemapData struct {
+	Conversations map[string]string `json:"conversations"` // "42" → "01926b90-..."
+	TaskLists     map[string]string `json:"task_lists"`    // "3"  → "01926b90-..."
+}
+
+const idRemapFilename = "uuid-migration-remap.json"
+
+// persistIDRemapFile salva os mapas de remapeamento em arquivo JSON
+// no diretório do banco, para uso posterior pelo workspace manager.
+func persistIDRemapFile(sqlDB *sql.DB, convMap, tlMap map[uint]string) error {
+	var dbPath string
+	if err := sqlDB.QueryRow("PRAGMA database_list").Scan(new(int), new(string), &dbPath); err != nil {
+		return err
+	}
+	if dbPath == "" || dbPath == ":memory:" {
+		return nil
+	}
+
+	data := IDRemapData{
+		Conversations: make(map[string]string, len(convMap)),
+		TaskLists:     make(map[string]string, len(tlMap)),
+	}
+	for old, newID := range convMap {
+		data.Conversations[fmt.Sprintf("%d", old)] = newID
+	}
+	for old, newID := range tlMap {
+		data.TaskLists[fmt.Sprintf("%d", old)] = newID
+	}
+
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	remapPath := filepath.Join(filepath.Dir(dbPath), idRemapFilename)
+	if err := os.WriteFile(remapPath, b, 0600); err != nil {
+		return err
+	}
+	log.Printf("[Migration] Mapa de remapeamento salvo: %s", remapPath)
+	return nil
+}
+
+// LoadIDRemapFile lê o arquivo de remapeamento de IDs, se existir.
+// Retorna nil se o arquivo não existir (já consumido ou não houve migração).
+func LoadIDRemapFile(dir string) *IDRemapData {
+	remapPath := filepath.Join(dir, idRemapFilename)
+	b, err := os.ReadFile(remapPath)
+	if err != nil {
+		return nil
+	}
+	var data IDRemapData
+	if err := json.Unmarshal(b, &data); err != nil {
+		log.Printf("[Migration] Aviso: erro ao ler mapa de remapeamento: %v", err)
+		return nil
+	}
+	return &data
+}
+
+// DeleteIDRemapFile remove o arquivo de remapeamento após consumo.
+func DeleteIDRemapFile(dir string) {
+	remapPath := filepath.Join(dir, idRemapFilename)
+	if err := os.Remove(remapPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("[Migration] Aviso: erro ao remover mapa de remapeamento: %v", err)
+	}
 }

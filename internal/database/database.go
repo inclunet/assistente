@@ -768,36 +768,43 @@ func GetDetailedTokenStats(conversationID string, summaryUpToMessageID string) (
 	}
 
 	// 3. Contar mensagens in-context vs out-of-context
+	// Usa índice na lista ordenada por created_at (como HistoryLoader.Load)
+	// em vez de comparação lexicográfica de IDs, evitando problemas com
+	// UUIDs gerados no mesmo milissegundo.
 	var messagesInContextCount, messagesOutOfContextCount int
 	var messagesInContextTokens, messagesOutOfContextTokens int
 
-	// Mensagens out of context: aquelas antes de summary_up_to_message_id
 	if summaryUpToMessageID != "" {
-		var result struct {
-			Count int
-			Total int
-		}
-		if err := db.Model(&ChatMessage{}).
-			Where("conversation_id = ? AND id <= ?", conversationID, summaryUpToMessageID).
-			Select("COUNT(*) as count, COALESCE(SUM(total_tokens), 0) as total").
-			Scan(&result).Error; err == nil {
-			messagesOutOfContextCount = result.Count
-			messagesOutOfContextTokens = result.Total
-		}
-	}
+		var allMessages []ChatMessage
+		if err := db.Where("conversation_id = ? AND parent_id IS NULL", conversationID).
+			Order("created_at ASC").
+			Select("id, total_tokens").
+			Find(&allMessages).Error; err == nil {
 
-	// Mensagens in context: aquelas após summary_up_to_message_id
-	if summaryUpToMessageID != "" {
-		var result struct {
-			Count int
-			Total int
-		}
-		if err := db.Model(&ChatMessage{}).
-			Where("conversation_id = ? AND id > ?", conversationID, summaryUpToMessageID).
-			Select("COUNT(*) as count, COALESCE(SUM(total_tokens), 0) as total").
-			Scan(&result).Error; err == nil {
-			messagesInContextCount = result.Count
-			messagesInContextTokens = result.Total
+			cutIdx := -1
+			for i, m := range allMessages {
+				if m.ID == summaryUpToMessageID {
+					cutIdx = i
+					break
+				}
+			}
+
+			if cutIdx >= 0 {
+				// Out of context: mensagens até cutIdx (inclusive)
+				for _, m := range allMessages[:cutIdx+1] {
+					messagesOutOfContextCount++
+					messagesOutOfContextTokens += m.TotalTokens
+				}
+				// In context: mensagens após cutIdx
+				for _, m := range allMessages[cutIdx+1:] {
+					messagesInContextCount++
+					messagesInContextTokens += m.TotalTokens
+				}
+			} else {
+				// summaryUpToMessageID não encontrado: tratar tudo como in-context
+				messagesInContextCount = basicStats.MessageCount
+				messagesInContextTokens = basicStats.TotalTokens
+			}
 		}
 	} else {
 		// Se não há sumarização, todas são in-context
@@ -943,20 +950,56 @@ func IsSummarizingInProgress(conversationID string) (bool, error) {
 	return conv.SummarizingInProgress, nil
 }
 
-// GetMessagesAfterID retorna mensagens raiz de uma conversa com ID > afterID
+// GetMessagesAfterID retorna mensagens raiz de uma conversa criadas após a
+// mensagem afterID. Usa posição na lista ordenada por created_at em vez de
+// comparação lexicográfica de IDs, evitando problemas com UUIDs gerados no
+// mesmo milissegundo. Se afterID for vazio, retorna todas as mensagens raiz.
 func GetMessagesAfterID(conversationID string, afterID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("conversation_id = ? AND parent_id IS NULL AND id > ?", conversationID, afterID).
+	err := db.Where("conversation_id = ? AND parent_id IS NULL", conversationID).
 		Order("created_at ASC").Find(&messages).Error
-	return messages, err
+	if err != nil {
+		return nil, err
+	}
+	if afterID == "" {
+		return messages, nil
+	}
+	for i, m := range messages {
+		if m.ID == afterID {
+			return messages[i+1:], nil
+		}
+	}
+	// afterID não encontrado: retorna todas
+	return messages, nil
 }
 
-// GetMessagesBetweenIDs retorna mensagens raiz com ID entre startAfterID e endID (inclusive)
+// GetMessagesBetweenIDs retorna mensagens raiz criadas após startAfterID até
+// endID (inclusive). Usa posição na lista ordenada por created_at em vez de
+// comparação lexicográfica de IDs.
 func GetMessagesBetweenIDs(conversationID string, startAfterID string, endID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("conversation_id = ? AND parent_id IS NULL AND id > ? AND id <= ?", conversationID, startAfterID, endID).
+	err := db.Where("conversation_id = ? AND parent_id IS NULL", conversationID).
 		Order("created_at ASC").Find(&messages).Error
-	return messages, err
+	if err != nil {
+		return nil, err
+	}
+	startIdx := 0
+	if startAfterID != "" {
+		for i, m := range messages {
+			if m.ID == startAfterID {
+				startIdx = i + 1
+				break
+			}
+		}
+	}
+	var result []ChatMessage
+	for _, m := range messages[startIdx:] {
+		result = append(result, m)
+		if m.ID == endID {
+			break
+		}
+	}
+	return result, nil
 }
 
 // ==================== Utilities ====================
