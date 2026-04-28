@@ -19,6 +19,12 @@ const (
 	workspacesDir = "workspaces"
 )
 
+// isValidUUIDv7 checks if a string is a valid UUIDv7 with RFC 4122 variant.
+func isValidUUIDv7(s string) bool {
+	parsed, err := uuid.Parse(s)
+	return err == nil && parsed.Version() == 7 && parsed.Variant() == uuid.RFC4122
+}
+
 // Manager gerencia workspaces: CRUD, persistência YAML e índice global.
 type Manager struct {
 	mu         sync.RWMutex
@@ -443,7 +449,7 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	}
 	if convID, ok := updates["conversation_id"].(string); ok {
 		// Only accept valid UUIDv7; legacy numeric strings and other UUID versions are discarded.
-		if parsed, err := uuid.Parse(convID); err == nil && parsed.Version() == 7 {
+		if isValidUUIDv7(convID) {
 			tab.ConversationID = convID
 		} else {
 			tab.ConversationID = ""
@@ -693,7 +699,7 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		case TabTypeChat:
 			// content_id era o conversation ID — migrar apenas se for UUIDv7 válido
 			if t.ConversationID == "" {
-				if parsed, err := uuid.Parse(t.ContentID); err == nil && parsed.Version() == 7 {
+				if isValidUUIDv7(t.ContentID) {
 					t.ConversationID = t.ContentID
 				}
 			}
@@ -722,8 +728,7 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	for i := range ws.Tabs.Items {
 		t := &ws.Tabs.Items[i]
 		if t.Type == TabTypeChat && t.ConversationID != "" {
-			parsed, err := uuid.Parse(t.ConversationID)
-			if err != nil || parsed.Version() != 7 {
+			if !isValidUUIDv7(t.ConversationID) {
 				t.ConversationID = ""
 				needsSave = true
 			}
