@@ -55,6 +55,15 @@ func (m *Manager) Initialize(workDir string) error {
 		return fmt.Errorf("failed to create workspaces directory: %w", err)
 	}
 
+	// Após carregar o workspace ativo com sucesso, migra todos os workspaces
+	// conhecidos (index) e só então apaga o remap.
+	var initOK bool
+	defer func() {
+		if initOK {
+			m.migrateAllWorkspacesAndCleanupRemap()
+		}
+	}()
+
 	// 1. Se workDir fornecido, verifica se já tem workspace.yaml
 	if workDir != "" {
 		wsPath := filepath.Join(workDir, assistenteDir, workspaceFile)
@@ -66,6 +75,7 @@ func (m *Manager) Initialize(workDir string) error {
 			m.active = ws
 			m.activePath = workDir
 			m.touchIndex(ws, workDir)
+			initOK = true
 			return nil
 		}
 
@@ -77,6 +87,7 @@ func (m *Manager) Initialize(workDir string) error {
 		m.active = ws
 		m.activePath = workDir
 		m.touchIndex(ws, workDir)
+		initOK = true
 		return nil
 	}
 
@@ -89,6 +100,7 @@ func (m *Manager) Initialize(workDir string) error {
 				if ws, err := m.loadWorkspaceFile(wsPath); err == nil {
 					m.active = ws
 					m.activePath = entry.Path
+					initOK = true
 					return nil
 				}
 			}
@@ -104,6 +116,7 @@ func (m *Manager) Initialize(workDir string) error {
 			m.active = ws
 			m.activePath = defaultPath
 			m.touchIndex(ws, defaultPath)
+			initOK = true
 			return nil
 		}
 	}
@@ -116,6 +129,7 @@ func (m *Manager) Initialize(workDir string) error {
 	m.active = ws
 	m.activePath = defaultPath
 	m.touchIndex(ws, defaultPath)
+	initOK = true
 	return nil
 }
 
@@ -680,16 +694,48 @@ func (m *Manager) newWorkspace(name string) *Workspace {
 }
 
 // loadIDRemap searches for the UUID migration remap file across all config
-// directories (exe, home, workdir) — the same paths where conversations.db
-// may reside. Returns the parsed data and the directory where it was found,
+// directories, checking highest-priority first (workdir > home > exe) —
+// the same precedence used by configdir.Resolve() for conversations.db.
+// Returns the parsed data and the directory where it was found,
 // or nil/"" if not found.
 func loadIDRemap() (*database.IDRemapData, string) {
-	for _, dir := range configdir.GetBasePaths() {
-		if data := database.LoadIDRemapFile(dir); data != nil {
-			return data, dir
+	paths := configdir.GetBasePaths() // ascending priority: exe, home, workdir
+	for i := len(paths) - 1; i >= 0; i-- {
+		if data := database.LoadIDRemapFile(paths[i]); data != nil {
+			return data, paths[i]
 		}
 	}
 	return nil, ""
+}
+
+// migrateAllWorkspacesAndCleanupRemap loads every workspace in the index,
+// triggering legacy-ID migration via loadWorkspaceFile, then deletes the
+// remap file. This ensures ALL workspaces are migrated before the remap is
+// consumed — not just the first one loaded.
+// Must be called under m.mu lock.
+func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
+	remap, remapDir := loadIDRemap()
+	if remap == nil {
+		return
+	}
+
+	idx, _ := m.loadIndex()
+	if idx != nil {
+		for _, entry := range idx.Workspaces {
+			// Skip active workspace — already loaded by Initialize.
+			if m.active != nil && m.active.ID == entry.ID {
+				continue
+			}
+			wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
+			if _, statErr := os.Stat(wsPath); statErr == nil {
+				if _, err := m.loadWorkspaceFile(wsPath); err != nil {
+					log.Printf("[Workspace] Aviso: falha ao migrar workspace %s: %v", entry.ID, err)
+				}
+			}
+		}
+	}
+
+	database.DeleteIDRemapFile(remapDir)
 }
 
 func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
@@ -705,7 +751,7 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 
 	// Migração de formato antigo: content_id → campos corretos
 	needsSave := false
-	remap, remapDir := loadIDRemap()
+	remap, _ := loadIDRemap()
 	for i := range ws.Tabs.Items {
 		t := &ws.Tabs.Items[i]
 		if t.ContentID == "" {
@@ -805,12 +851,11 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	})
 
 	// Persiste migração imediatamente para não repetir no próximo load.
-	// Só apaga o remap após salvar com sucesso para permitir retry.
+	// O remap NÃO é apagado aqui — Initialize() cuida de processar todos os
+	// workspaces conhecidos antes de remover o arquivo de remap.
 	if needsSave {
 		if err := m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))); err != nil {
 			log.Printf("[Workspace] Aviso: falha ao salvar migração de workspace: %v", err)
-		} else if remap != nil && remapDir != "" {
-			database.DeleteIDRemapFile(remapDir)
 		}
 	}
 

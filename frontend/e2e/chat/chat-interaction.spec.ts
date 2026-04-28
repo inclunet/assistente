@@ -2,7 +2,7 @@ import { test, expect } from '../fixtures';
 
 test.describe('Chat — navegação por teclado', () => {
   test('Enter envia a mensagem', async ({ page, wails }) => {
-    await wails.setResponse('SendMessage', '1');
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000001');
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
@@ -37,10 +37,10 @@ test.describe('Chat — navegação por teclado', () => {
 test.describe('Chat — múltiplas interações', () => {
   test('pode enviar várias mensagens em sequência', async ({ page, wails }) => {
     const now = new Date().toISOString();
-    await wails.setResponse('SendMessage', '1');
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000001');
     await wails.setResponse('GetMessages', []);
     await wails.setResponse('EnsureConversation', {
-      id: '1',
+      id: '01926b90-0000-7000-8000-000000000001',
       title: 'Conversa',
       created_at: now,
       updated_at: now,
@@ -59,8 +59,8 @@ test.describe('Chat — múltiplas interações', () => {
 
     // Simula ciclo completo de streaming + conclusão para desbloquear o input
     await wails.emit('chat:stream', {
-      conversationId: '1',
-      messageId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
+      messageId: '01926b90-0000-7000-8000-100000000001',
       token: '',
       done: true,
       content: 'Resposta 1',
@@ -93,7 +93,7 @@ test.describe('Chat — múltiplas interações', () => {
 test.describe('Chat — estado de loading', () => {
   test('desabilita input durante envio', async ({ page, wails }) => {
     // SendMessage retorna uma promise que nunca resolve rápido (simula latência)
-    await wails.setResponse('SendMessage', '1');
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000001');
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');

@@ -44,7 +44,7 @@ async function sendAndStream(
 
   await wails.emit('chat:messages_ready', {
     conversationId: '01926b90-0000-7000-8000-000000000001',
-    userMessageId: '100',
+    userMessageId: '01926b90-0000-7000-8000-100000000100',
     userContent: 'Teste',
   });
 
@@ -55,7 +55,7 @@ async function sendAndStream(
   // Stream com conteúdo
   await wails.emit('chat:stream', {
     conversationId: '01926b90-0000-7000-8000-000000000001',
-    messageId: '2',
+    messageId: '01926b90-0000-7000-8000-100000000002',
     token: markdownContent,
     done: false,
     content: markdownContent,
@@ -68,7 +68,7 @@ async function sendAndStream(
   // Finaliza stream
   await wails.emit('chat:stream', {
     conversationId: '01926b90-0000-7000-8000-000000000001',
-    messageId: '2',
+    messageId: '01926b90-0000-7000-8000-100000000002',
     token: '',
     done: true,
     content: markdownContent,
@@ -80,7 +80,7 @@ async function sendAndStream(
 test.describe('Chat — Renderização Markdown', () => {
   test.beforeEach(async ({ wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('SendMessage', '2');
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000002');
     await wails.setResponse('EnsureConversation', baseConversation);
   });
 

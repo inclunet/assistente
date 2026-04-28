@@ -132,7 +132,7 @@ test.describe('Chat — tool calls (streaming)', () => {
         children: [],
       },
     ]);
-    await wails.setResponse('SendMessage', '2');
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000002');
 
     await wails.waitForApp();
     await page.waitForSelector('.chat-message', { timeout: 5_000 });
@@ -154,7 +154,7 @@ test.describe('Chat — tool calls (streaming)', () => {
     // Backend confirma a mensagem do usuário
     await wails.emit('chat:messages_ready', {
       conversationId: '01926b90-0000-7000-8000-000000000001',
-      userMessageId: '100',
+      userMessageId: '01926b90-0000-7000-8000-100000000100',
       userContent: 'Pesquise o clima',
     });
 
@@ -165,7 +165,7 @@ test.describe('Chat — tool calls (streaming)', () => {
     // Simula início de streaming
     await wails.emit('chat:stream', {
       conversationId: '01926b90-0000-7000-8000-000000000001',
-      messageId: '2',
+      messageId: '01926b90-0000-7000-8000-100000000002',
       content: 'Buscando...',
       done: false,
     });
@@ -200,7 +200,7 @@ test.describe('Chat — tool calls (streaming)', () => {
         children: [],
       },
     ]);
-    await wails.setResponse('SendMessage', '2');
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000002');
 
     await wails.waitForApp();
     await page.waitForSelector('.chat-message', { timeout: 5_000 });
@@ -221,7 +221,7 @@ test.describe('Chat — tool calls (streaming)', () => {
     // Backend confirma a mensagem do usuário
     await wails.emit('chat:messages_ready', {
       conversationId: '01926b90-0000-7000-8000-000000000001',
-      userMessageId: '100',
+      userMessageId: '01926b90-0000-7000-8000-100000000100',
       userContent: 'Pesquise o clima',
     });
 
@@ -231,7 +231,7 @@ test.describe('Chat — tool calls (streaming)', () => {
 
     await wails.emit('chat:stream', {
       conversationId: '01926b90-0000-7000-8000-000000000001',
-      messageId: '2',
+      messageId: '01926b90-0000-7000-8000-100000000002',
       content: 'Buscando...',
       done: false,
     });

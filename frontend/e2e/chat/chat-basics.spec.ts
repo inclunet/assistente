@@ -33,7 +33,7 @@ test.describe('Chat — envio de mensagem', () => {
   test('digitar e enviar mensagem chama SendMessage no backend', async ({ page, wails }) => {
     // Configura mock para retornar uma mensagem do assistente
     const now = new Date().toISOString();
-    await wails.setResponse('SendMessage', '42');
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000042');
     await wails.setResponse('EnsureConversation', {
       id: '01926b90-0000-7000-8000-000000000001',
       title: 'Nova conversa',
@@ -57,7 +57,7 @@ test.describe('Chat — envio de mensagem', () => {
     // Backend-driven: emite chat:messages_ready como o backend real faria
     await wails.emit('chat:messages_ready', {
       conversationId: '01926b90-0000-7000-8000-000000000001',
-      userMessageId: '100',
+      userMessageId: '01926b90-0000-7000-8000-100000000100',
       userContent: 'Olá, assistente!',
     });
 
@@ -83,7 +83,7 @@ test.describe('Chat — envio de mensagem', () => {
   });
 
   test('textarea limpa após envio', async ({ page, wails }) => {
-    await wails.setResponse('SendMessage', '42');
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000042');
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
@@ -112,7 +112,7 @@ test.describe('Chat — streaming de resposta', () => {
         children: [],
       },
     ]);
-    await wails.setResponse('SendMessage', '2');
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000002');
     await wails.setResponse('EnsureConversation', {
       id: '01926b90-0000-7000-8000-000000000001',
       title: 'Test',
@@ -130,14 +130,14 @@ test.describe('Chat — streaming de resposta', () => {
     // Simula stream do backend: envia conteúdo
     await wails.emit('chat:stream', {
       conversationId: '01926b90-0000-7000-8000-000000000001',
-      messageId: '2',
+      messageId: '01926b90-0000-7000-8000-100000000002',
       content: 'Olá! Como posso ajudar?',
       done: false,
     });
 
     await wails.emit('chat:stream', {
       conversationId: '01926b90-0000-7000-8000-000000000001',
-      messageId: '2',
+      messageId: '01926b90-0000-7000-8000-100000000002',
       content: 'Olá! Como posso ajudar?',
       done: true,
     });
