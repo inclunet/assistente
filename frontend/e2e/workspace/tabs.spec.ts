@@ -30,7 +30,7 @@ test.describe('Abas do workspace — renderização', () => {
           {
             id: 'tab-1',
             type: 'chat',
-            conversation_id: '1',
+            conversation_id: '01970a9e-0001-7000-8000-000000000001',
             title: 'Minha conversa',
             position: 0,
           },
@@ -58,21 +58,21 @@ test.describe('Abas do workspace — múltiplas abas', () => {
         {
           id: 'tab-1',
           type: 'chat',
-          conversation_id: '1',
+          conversation_id: '01970a9e-0001-7000-8000-000000000001',
           title: 'Conversa 1',
           position: 0,
         },
         {
           id: 'tab-2',
           type: 'chat',
-          conversation_id: '2',
+          conversation_id: '01970a9e-0002-7000-8000-000000000002',
           title: 'Conversa 2',
           position: 1,
         },
         {
           id: 'tab-3',
           type: 'chat',
-          conversation_id: '3',
+          conversation_id: '01970a9e-0003-7000-8000-000000000003',
           title: 'Conversa 3',
           position: 2,
         },
