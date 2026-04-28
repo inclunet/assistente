@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestOpenEditorFilePaths_NoActiveWorkspace(t *testing.T) {
@@ -286,7 +288,7 @@ func TestUpdateTab_ConversationIDFloat64Zero(t *testing.T) {
 		t.Errorf("conversation_id float64(0) deveria virar empty, got %q", tab.ConversationID)
 	}
 
-	// float64 positivo deve virar string do número (legado compatível)
+	// float64 positivo (legacy) deve virar "" — numeric IDs are invalid post-UUIDv7 migration
 	if err := m.UpdateTab("tab-conv", map[string]any{
 		"conversation_id": float64(42),
 	}); err != nil {
@@ -294,8 +296,20 @@ func TestUpdateTab_ConversationIDFloat64Zero(t *testing.T) {
 	}
 
 	tab = m.active.FindTab("tab-conv")
-	if tab.ConversationID != "42" {
-		t.Errorf("conversation_id float64(42) deveria virar \"42\", got %q", tab.ConversationID)
+	if tab.ConversationID != "" {
+		t.Errorf("conversation_id float64(42) deveria virar empty (legacy), got %q", tab.ConversationID)
+	}
+
+	// non-UUID string should be discarded
+	if err := m.UpdateTab("tab-conv", map[string]any{
+		"conversation_id": "42",
+	}); err != nil {
+		t.Fatalf("UpdateTab: %v", err)
+	}
+
+	tab = m.active.FindTab("tab-conv")
+	if tab.ConversationID != "" {
+		t.Errorf("conversation_id string \"42\" deveria virar empty (non-UUID), got %q", tab.ConversationID)
 	}
 
 	// string UUID deve funcionar normalmente
@@ -308,5 +322,119 @@ func TestUpdateTab_ConversationIDFloat64Zero(t *testing.T) {
 	tab = m.active.FindTab("tab-conv")
 	if tab.ConversationID != "01970a9e-1234-7000-8000-abcdef123456" {
 		t.Errorf("conversation_id string UUID incorreto, got %q", tab.ConversationID)
+	}
+
+	// UUIDv4 must be rejected — only UUIDv7 is accepted post-migration
+	if err := m.UpdateTab("tab-conv", map[string]any{
+		"conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+	}); err != nil {
+		t.Fatalf("UpdateTab: %v", err)
+	}
+
+	tab = m.active.FindTab("tab-conv")
+	if tab.ConversationID != "" {
+		t.Errorf("conversation_id UUIDv4 deveria virar empty, got %q", tab.ConversationID)
+	}
+}
+
+func TestIsValidUUIDv7_VariantCheck(t *testing.T) {
+	// Valid UUIDv7 with RFC4122 variant
+	if !isValidUUIDv7("01970a9e-1234-7000-8000-abcdef123456") {
+		t.Error("expected valid UUIDv7 to pass")
+	}
+
+	// UUIDv4 — wrong version
+	if isValidUUIDv7("550e8400-e29b-41d4-a716-446655440000") {
+		t.Error("UUIDv4 should be rejected")
+	}
+
+	// Not a UUID at all
+	if isValidUUIDv7("42") {
+		t.Error("numeric string should be rejected")
+	}
+	if isValidUUIDv7("") {
+		t.Error("empty string should be rejected")
+	}
+
+	// Nil UUID (version 0, variant 0)
+	if isValidUUIDv7("00000000-0000-0000-0000-000000000000") {
+		t.Error("nil UUID should be rejected")
+	}
+}
+
+func TestTabUnmarshalYAML_NumericConversationID(t *testing.T) {
+	// Legacy workspace.yaml had conversation_id as integer.
+	// The custom UnmarshalYAML should convert it to string.
+	yamlData := `
+id: tab-1
+type: chat
+conversation_id: 42
+title: Conversa
+position: 0
+`
+	var tab Tab
+	if err := yaml.Unmarshal([]byte(yamlData), &tab); err != nil {
+		t.Fatalf("UnmarshalYAML with numeric conversation_id: %v", err)
+	}
+	if tab.ConversationID != "42" {
+		t.Errorf("expected conversation_id '42', got %q", tab.ConversationID)
+	}
+	if tab.ID != "tab-1" {
+		t.Errorf("expected id 'tab-1', got %q", tab.ID)
+	}
+	if tab.Title != "Conversa" {
+		t.Errorf("expected title 'Conversa', got %q", tab.Title)
+	}
+}
+
+func TestTabUnmarshalYAML_StringConversationID(t *testing.T) {
+	// Post-migration: conversation_id is a UUIDv7 string.
+	yamlData := `
+id: tab-2
+type: chat
+conversation_id: "01970a9e-1234-7000-8000-abcdef123456"
+title: Conversa
+position: 1
+`
+	var tab Tab
+	if err := yaml.Unmarshal([]byte(yamlData), &tab); err != nil {
+		t.Fatalf("UnmarshalYAML with string conversation_id: %v", err)
+	}
+	if tab.ConversationID != "01970a9e-1234-7000-8000-abcdef123456" {
+		t.Errorf("expected UUIDv7 conversation_id, got %q", tab.ConversationID)
+	}
+}
+
+func TestTabUnmarshalYAML_NoConversationID(t *testing.T) {
+	yamlData := `
+id: tab-3
+type: editor
+title: Editor
+position: 0
+`
+	var tab Tab
+	if err := yaml.Unmarshal([]byte(yamlData), &tab); err != nil {
+		t.Fatalf("UnmarshalYAML without conversation_id: %v", err)
+	}
+	if tab.ConversationID != "" {
+		t.Errorf("expected empty conversation_id, got %q", tab.ConversationID)
+	}
+}
+
+func TestTabUnmarshalYAML_NumericContentID(t *testing.T) {
+	// Legacy content_id was also numeric.
+	yamlData := `
+id: tab-4
+type: chat
+content_id: 99
+title: Legacy
+position: 0
+`
+	var tab Tab
+	if err := yaml.Unmarshal([]byte(yamlData), &tab); err != nil {
+		t.Fatalf("UnmarshalYAML with numeric content_id: %v", err)
+	}
+	if tab.ContentID != "99" {
+		t.Errorf("expected content_id '99', got %q", tab.ContentID)
 	}
 }

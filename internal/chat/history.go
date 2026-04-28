@@ -44,7 +44,9 @@ func (h *HistoryLoader) Load(conversationID string) ([]Message, string, error) {
 		if cutIdx >= 0 && cutIdx+1 < len(allRootMessages) {
 			dbMessages = allRootMessages[cutIdx+1:]
 		} else if cutIdx < 0 {
-			// summaryUpToID não encontrado (mensagem deletada?): usa tudo
+			// summaryUpToID não encontrado (mensagem deletada?): descartar resumo
+			// para evitar duplicação (resumo + mensagens já resumidas no prompt).
+			existingSummary = ""
 			dbMessages = allRootMessages
 		}
 		// cutIdx == last index → nenhuma mensagem depois do resumo

@@ -28,7 +28,7 @@ describe('HistoryPicker', () => {
         id: '1',
         title: 'Conversa',
         message_count: 2,
-        updated_at: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
     ]);
 

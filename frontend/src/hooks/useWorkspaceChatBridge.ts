@@ -14,7 +14,7 @@ const MINI_CHAT_LAZY_CONVERSATION: ReadonlySet<TabType> = new Set(['editor', 'te
  *
  * Fluxo:
  * 1. Workspace ativa qualquer aba
- * 2. Se conversationId > 0 → chatStore.loadConversation(id)
+ * 2. Se conversationId não vazio (UUIDv7 válido) → chatStore.loadConversation(id)
  * 3. Se conversationId vazio e aba é chat → garante `conversationId` e só sincroniza o chatStore
  *    se a aba continuar ativa ao concluir a criação
  * 4. Se conversationId vazio e aba é editor/terminal/tasklist → clearActiveConversation (conversa criada no requestOpen do chat modal)

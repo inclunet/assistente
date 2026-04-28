@@ -1,11 +1,12 @@
 import { test, expect } from '../fixtures';
 
-const conversationId = '1';
+const conversationId = '01926b90-0000-7000-8000-000000000001';
 const userMessageId = '01926b90-7a5a-7c4e-8d3f-000000000101';
 const assistantMessageId = '01926b90-7a5a-7c4e-8d3f-000000000102';
 const secondUserMessageId = '01926b90-7a5a-7c4e-8d3f-000000000103';
 const parentMessageId = '01926b90-7a5a-7c4e-8d3f-000000000111';
 const threadAssistantMessageId = '01926b90-7a5a-7c4e-8d3f-000000000112';
+const internalThreadMessageId = '01926b90-7a5a-7c4e-8d3f-000000000113';
 const withChildrenMessageId = '01926b90-7a5a-7c4e-8d3f-000000000121';
 const withoutChildrenMessageId = '01926b90-7a5a-7c4e-8d3f-000000000122';
 
@@ -282,7 +283,7 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
 
     const childrenResponse = [
       {
-        message: { id: '1-1', conversationId, role: 'assistant', content: 'Resposta interna', createdAt: now, internal: true },
+        message: { id: internalThreadMessageId, conversationId, role: 'assistant', content: 'Resposta interna', createdAt: now, internal: true },
         children: [],
         childCount: 0,
       },
@@ -326,7 +327,7 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
 
     const childrenResponse = [
       {
-        message: { id: '1-1', conversationId, role: 'assistant', content: 'Resposta interna', createdAt: now, internal: true },
+        message: { id: internalThreadMessageId, conversationId, role: 'assistant', content: 'Resposta interna', createdAt: now, internal: true },
         children: [],
         childCount: 0,
       },

@@ -34,8 +34,8 @@ import './HistoryPage.css';
 interface Conversation {
   id: string;
   title: string;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
   message_count: number;
   snippet?: string;
 }
@@ -315,8 +315,8 @@ export default function HistoryPage() {
       const mapped = (result || []).map((c: Conversation) => ({
         id: c.id,
         title: c.title || t('history.untitled', 'Sem título'),
-        created_at: c.created_at,
-        updated_at: c.updated_at,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
         message_count: c.message_count || 0
       }));
       setConversations(mapped || []);
@@ -888,7 +888,7 @@ export default function HistoryPage() {
       format: (value) => String(value || 0),
     },
     {
-      key: 'created_at',
+      key: 'createdAt',
       label: t('history.created', 'Criada em'),
       width: '20%',
       format: (value) => {
@@ -900,7 +900,7 @@ export default function HistoryPage() {
       },
     },
     {
-      key: 'updated_at',
+      key: 'updatedAt',
       label: t('history.updated', 'Atualizada em'),
       width: '20%',
       format: (value) => {

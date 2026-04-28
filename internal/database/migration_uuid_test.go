@@ -30,15 +30,17 @@ func createOldSchemaDB(t *testing.T) *sql.DB {
 	stmts := []string{
 		`CREATE TABLE credential_entries (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT, pattern TEXT, type TEXT,
-			api_key_enc TEXT, client_id TEXT, client_secret_enc TEXT,
-			access_token_enc TEXT, refresh_token_enc TEXT,
-			token_url TEXT, token_expiry DATETIME, scopes TEXT, extra_enc TEXT,
+			pattern TEXT, auth_type TEXT,
+			token_enc TEXT, username TEXT, password_enc TEXT,
+			headers_enc TEXT, expires_at INTEGER DEFAULT 0,
+			refresh_token_enc TEXT, client_id_enc TEXT, client_secret_enc TEXT,
 			created_at DATETIME, updated_at DATETIME
 		)`,
 		`CREATE TABLE credential_key_wraps (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			wrapped_key TEXT,
+			kind TEXT, salt TEXT, wrapped_dek TEXT,
+			argon_time INTEGER DEFAULT 0, argon_memory INTEGER DEFAULT 0,
+			argon_threads INTEGER DEFAULT 0,
 			created_at DATETIME, updated_at DATETIME
 		)`,
 		`CREATE TABLE conversations (
@@ -88,7 +90,7 @@ func createOldSchemaDB(t *testing.T) *sql.DB {
 			task_id INTEGER, type INTEGER DEFAULT 1,
 			content TEXT,
 			author_name TEXT, author_id TEXT,
-			source TEXT, external_id TEXT,
+			external_source TEXT, external_id TEXT,
 			external_parent_id TEXT, external_updated_at DATETIME,
 			created_at DATETIME, updated_at DATETIME
 		)`,
@@ -523,38 +525,75 @@ func TestMigration_TaskListFullHierarchy(t *testing.T) {
 func TestMigration_CredentialEntries(t *testing.T) {
 	sqlDB := createOldSchemaDB(t)
 
-	mustExec(t, sqlDB, `INSERT INTO credential_entries (id, name, type, api_key_enc, created_at, updated_at) VALUES (1, 'OpenAI', 'api_key', 'enc_data_1', '2026-01-01', '2026-01-01')`)
-	mustExec(t, sqlDB, `INSERT INTO credential_entries (id, name, type, api_key_enc, created_at, updated_at) VALUES (2, 'Azure', 'oauth', 'enc_data_2', '2026-01-02', '2026-01-02')`)
-	mustExec(t, sqlDB, `INSERT INTO credential_key_wraps (id, wrapped_key, created_at, updated_at) VALUES (1, 'wrap_abc', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO credential_entries (id, pattern, auth_type, token_enc, username, password_enc, headers_enc, expires_at, refresh_token_enc, client_id_enc, client_secret_enc, created_at, updated_at) VALUES (1, 'api.openai.com', 'bearer', 'enc_token_1', '', '', '', 0, '', '', '', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO credential_entries (id, pattern, auth_type, token_enc, username, password_enc, headers_enc, expires_at, refresh_token_enc, client_id_enc, client_secret_enc, created_at, updated_at) VALUES (2, 'llm.inclunet.com.br', 'bearer', 'enc_token_2', '', '', '', 0, '', '', '', '2026-01-02', '2026-01-02')`)
+	mustExec(t, sqlDB, `INSERT INTO credential_key_wraps (id, kind, salt, wrapped_dek, argon_time, argon_memory, argon_threads, created_at, updated_at) VALUES (1, 'master', 'salt_abc', 'wrapped_dek_xyz', 3, 65536, 4, '2026-01-01', '2026-01-01')`)
 
 	if err := migrateToUUIDv7(); err != nil {
 		t.Fatalf("migração: %v", err)
 	}
 
-	// Verificar dados preservados
-	var name, apiKey string
-	if err := sqlDB.QueryRow("SELECT name, api_key_enc FROM credential_entries WHERE name = 'OpenAI'").Scan(&name, &apiKey); err != nil {
-		t.Fatal(err)
+	// Verificar credential_entries: todos os campos preservados
+	var pattern, authType, tokenEnc string
+	if err := sqlDB.QueryRow("SELECT pattern, auth_type, token_enc FROM credential_entries WHERE pattern = 'api.openai.com'").Scan(&pattern, &authType, &tokenEnc); err != nil {
+		t.Fatalf("query credential_entries: %v", err)
 	}
-	if name != "OpenAI" || apiKey != "enc_data_1" {
-		t.Errorf("dados corrompidos: name=%q, api_key_enc=%q", name, apiKey)
+	if pattern != "api.openai.com" || authType != "bearer" || tokenEnc != "enc_token_1" {
+		t.Errorf("dados corrompidos: pattern=%q, auth_type=%q, token_enc=%q", pattern, authType, tokenEnc)
 	}
 
-	var wrappedKey string
-	if err := sqlDB.QueryRow("SELECT wrapped_key FROM credential_key_wraps").Scan(&wrappedKey); err != nil {
-		t.Fatal(err)
+	// Verificar segunda credencial
+	var tokenEnc2 string
+	if err := sqlDB.QueryRow("SELECT token_enc FROM credential_entries WHERE pattern = 'llm.inclunet.com.br'").Scan(&tokenEnc2); err != nil {
+		t.Fatalf("query segunda credencial: %v", err)
 	}
-	if wrappedKey != "wrap_abc" {
-		t.Errorf("wrapped_key = %q, esperado 'wrap_abc'", wrappedKey)
+	if tokenEnc2 != "enc_token_2" {
+		t.Errorf("segunda credencial token_enc = %q, esperado 'enc_token_2'", tokenEnc2)
+	}
+
+	// Verificar credential_key_wraps: todos os campos preservados
+	var kind, salt, wrappedDEK string
+	var argonTime, argonMemory, argonThreads int
+	if err := sqlDB.QueryRow("SELECT kind, salt, wrapped_dek, argon_time, argon_memory, argon_threads FROM credential_key_wraps").Scan(&kind, &salt, &wrappedDEK, &argonTime, &argonMemory, &argonThreads); err != nil {
+		t.Fatalf("query credential_key_wraps: %v", err)
+	}
+	if kind != "master" {
+		t.Errorf("kind = %q, esperado 'master'", kind)
+	}
+	if salt != "salt_abc" {
+		t.Errorf("salt = %q, esperado 'salt_abc'", salt)
+	}
+	if wrappedDEK != "wrapped_dek_xyz" {
+		t.Errorf("wrapped_dek = %q, esperado 'wrapped_dek_xyz'", wrappedDEK)
+	}
+	if argonTime != 3 || argonMemory != 65536 || argonThreads != 4 {
+		t.Errorf("argon params: time=%d memory=%d threads=%d, esperado 3/65536/4", argonTime, argonMemory, argonThreads)
 	}
 
 	// IDs são UUID
 	var credID string
-	if err := sqlDB.QueryRow("SELECT id FROM credential_entries WHERE name = 'OpenAI'").Scan(&credID); err != nil {
+	if err := sqlDB.QueryRow("SELECT id FROM credential_entries WHERE pattern = 'api.openai.com'").Scan(&credID); err != nil {
 		t.Fatal(err)
 	}
 	if !isUUID(credID) {
 		t.Errorf("credential_entries.id não é UUID: %q", credID)
+	}
+
+	var kwID string
+	if err := sqlDB.QueryRow("SELECT id FROM credential_key_wraps").Scan(&kwID); err != nil {
+		t.Fatal(err)
+	}
+	if !isUUID(kwID) {
+		t.Errorf("credential_key_wraps.id não é UUID: %q", kwID)
+	}
+
+	// Verificar contagem
+	var credCount int
+	if err := sqlDB.QueryRow("SELECT count(*) FROM credential_entries").Scan(&credCount); err != nil {
+		t.Fatal(err)
+	}
+	if credCount != 2 {
+		t.Errorf("esperado 2 credential_entries, obtido %d", credCount)
 	}
 }
 
@@ -1270,5 +1309,356 @@ func TestMigration_PartialSchema(t *testing.T) {
 	}
 	if taskTableCount != 0 {
 		t.Error("tabela tasks não deveria existir")
+	}
+}
+
+// TestMigration_CredentialColumnsMatchGORMModel verifica que as colunas da tabela
+// migrada correspondem exatamente ao modelo GORM. Este teste existe para prevenir
+// regressões onde a definição de migração diverge do modelo — o que causaria perda
+// silenciosa de dados (DEK, tokens criptografados, etc.).
+func TestMigration_CredentialColumnsMatchGORMModel(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	// AutoMigrate deve rodar sem adicionar colunas novas se a migração estiver correta
+	if err := db.AutoMigrate(&CredentialEntry{}, &CredentialKeyWrap{}); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+
+	// Verificar que credential_entries tem todas as colunas esperadas
+	expectedCredCols := map[string]bool{
+		"id": true, "pattern": true, "auth_type": true, "token_enc": true,
+		"username": true, "password_enc": true, "headers_enc": true,
+		"expires_at": true, "refresh_token_enc": true, "client_id_enc": true,
+		"client_secret_enc": true, "created_at": true, "updated_at": true,
+	}
+	actualCredCols := getTableColumns(t, sqlDB, "credential_entries")
+	for col := range expectedCredCols {
+		if !actualCredCols[col] {
+			t.Errorf("credential_entries: coluna %q ausente após migração", col)
+		}
+	}
+	// Nenhuma coluna fantasma (que existia na migração errada mas não no modelo)
+	phantomCols := []string{"name", "type", "api_key_enc", "client_id", "access_token_enc", "token_url", "token_expiry", "scopes", "extra_enc"}
+	for _, col := range phantomCols {
+		if actualCredCols[col] {
+			t.Errorf("credential_entries: coluna fantasma %q presente — não existe no modelo GORM", col)
+		}
+	}
+
+	// Verificar que credential_key_wraps tem todas as colunas esperadas
+	expectedKWCols := map[string]bool{
+		"id": true, "kind": true, "salt": true, "wrapped_dek": true,
+		"argon_time": true, "argon_memory": true, "argon_threads": true,
+		"created_at": true, "updated_at": true,
+	}
+	actualKWCols := getTableColumns(t, sqlDB, "credential_key_wraps")
+	for col := range expectedKWCols {
+		if !actualKWCols[col] {
+			t.Errorf("credential_key_wraps: coluna %q ausente após migração", col)
+		}
+	}
+	// Nenhuma coluna fantasma
+	if actualKWCols["wrapped_key"] {
+		t.Error("credential_key_wraps: coluna fantasma 'wrapped_key' presente — o campo correto é 'wrapped_dek'")
+	}
+}
+
+// TestMigration_CredentialKeyWrapPreservesAllFields testa que TODOS os campos
+// da credential_key_wraps são preservados — não apenas o ID.
+// Este teste previne o bug onde a DEK era perdida na migração e o app
+// pedia novamente a senha mestre.
+func TestMigration_CredentialKeyWrapPreservesAllFields(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	mustExec(t, sqlDB, `INSERT INTO credential_key_wraps (id, kind, salt, wrapped_dek, argon_time, argon_memory, argon_threads, created_at, updated_at) VALUES (1, 'master', 'base64salt==', 'base64wrappeddek==', 3, 65536, 4, '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO credential_key_wraps (id, kind, salt, wrapped_dek, argon_time, argon_memory, argon_threads, created_at, updated_at) VALUES (2, 'recovery', 'recoverysalt', 'recoverydek', 1, 32768, 2, '2026-01-02', '2026-01-02')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	// Verificar master key wrap
+	var kind, salt, dek string
+	var argonTime, argonMemory, argonThreads int
+	if err := sqlDB.QueryRow("SELECT kind, salt, wrapped_dek, argon_time, argon_memory, argon_threads FROM credential_key_wraps WHERE kind = 'master'").Scan(&kind, &salt, &dek, &argonTime, &argonMemory, &argonThreads); err != nil {
+		t.Fatalf("master key wrap perdida na migração: %v", err)
+	}
+	if salt != "base64salt==" {
+		t.Errorf("master salt = %q, esperado 'base64salt=='", salt)
+	}
+	if dek != "base64wrappeddek==" {
+		t.Errorf("master wrapped_dek = %q, esperado 'base64wrappeddek=='", dek)
+	}
+	if argonTime != 3 || argonMemory != 65536 || argonThreads != 4 {
+		t.Errorf("master argon: time=%d memory=%d threads=%d, esperado 3/65536/4", argonTime, argonMemory, argonThreads)
+	}
+
+	// Verificar recovery key wrap
+	var rKind, rSalt, rDek string
+	if err := sqlDB.QueryRow("SELECT kind, salt, wrapped_dek FROM credential_key_wraps WHERE kind = 'recovery'").Scan(&rKind, &rSalt, &rDek); err != nil {
+		t.Fatalf("recovery key wrap perdida na migração: %v", err)
+	}
+	if rSalt != "recoverysalt" || rDek != "recoverydek" {
+		t.Errorf("recovery dados corrompidos: salt=%q dek=%q", rSalt, rDek)
+	}
+
+	// Ambos devem ter UUID
+	var count int
+	if err := sqlDB.QueryRow("SELECT count(*) FROM credential_key_wraps").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("esperado 2 key wraps, obtido %d", count)
+	}
+}
+
+// TestMigration_CredentialTransportPreservesTokens testa o cenário end-to-end
+// onde credenciais com token_enc são migradas e depois podem ser lidas pelo
+// credential manager via GORM. Este é o caminho que falhava em produção: o
+// CredentialTransport tentava ler token_enc mas o campo estava vazio.
+func TestMigration_CredentialTransportPreservesTokens(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	// Simular credencial real: pattern de domínio + bearer token criptografado
+	mustExec(t, sqlDB, `INSERT INTO credential_entries (id, pattern, auth_type, token_enc, created_at, updated_at) VALUES (1, 'api.openai.com', 'bearer', 'AES256_encrypted_sk_token_data', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO credential_entries (id, pattern, auth_type, token_enc, created_at, updated_at) VALUES (2, 'llm.inclunet.com.br', 'bearer', 'AES256_encrypted_litellm_key', '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	// AutoMigrate (como o app real faz após migração)
+	if err := db.AutoMigrate(&CredentialEntry{}); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+
+	// Ler via GORM como o credential manager faria
+	var entries []CredentialEntry
+	if err := db.Find(&entries).Error; err != nil {
+		t.Fatalf("GORM Find: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("esperado 2 entries, obtido %d", len(entries))
+	}
+
+	found := make(map[string]CredentialEntry)
+	for _, e := range entries {
+		found[e.Pattern] = e
+	}
+
+	openai, ok := found["api.openai.com"]
+	if !ok {
+		t.Fatal("credencial api.openai.com não encontrada via GORM")
+	}
+	if openai.AuthType != "bearer" {
+		t.Errorf("openai AuthType = %q, esperado 'bearer'", openai.AuthType)
+	}
+	if openai.TokenEnc != "AES256_encrypted_sk_token_data" {
+		t.Errorf("openai TokenEnc = %q — token perdido na migração!", openai.TokenEnc)
+	}
+
+	litellm, ok := found["llm.inclunet.com.br"]
+	if !ok {
+		t.Fatal("credencial llm.inclunet.com.br não encontrada via GORM")
+	}
+	if litellm.TokenEnc != "AES256_encrypted_litellm_key" {
+		t.Errorf("litellm TokenEnc = %q — token perdido na migração!", litellm.TokenEnc)
+	}
+}
+
+// getTableColumns retorna um set com os nomes das colunas de uma tabela SQLite.
+func getTableColumns(t *testing.T, sqlDB *sql.DB, table string) map[string]bool {
+	t.Helper()
+	rows, err := sqlDB.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		t.Fatalf("PRAGMA table_info(%s): %v", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+	cols := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		cols[name] = true
+	}
+	return cols
+}
+
+// TestMigration_AllTablesMatchGORMModels verifica que TODAS as tabelas migradas
+// têm as mesmas colunas que os modelos GORM esperam. Após migração + AutoMigrate,
+// nenhuma coluna deveria estar ausente. Este teste genérico previne regressões
+// como a dos credential_entries (onde colunas fantasma causaram perda de dados).
+func TestMigration_AllTablesMatchGORMModels(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	// Inserir ao menos 1 registro em cada tabela para exercitar a cópia de dados
+	mustExec(t, sqlDB, `INSERT INTO credential_entries (id, pattern, auth_type, token_enc, created_at, updated_at) VALUES (1, 'test.com', 'bearer', 'enc', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO credential_key_wraps (id, kind, salt, wrapped_dek, argon_time, argon_memory, argon_threads, created_at, updated_at) VALUES (1, 'master', 's', 'dek', 1, 1, 1, '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, created_at, updated_at) VALUES (1, 'Conv', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO chat_messages (id, conversation_id, role, content, created_at, updated_at) VALUES (1, 1, 'user', 'Hi', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO task_lists (id, title, slug, created_at, updated_at) VALUES (1, 'TL', 'tl', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO task_list_workflows (id, task_list_id, statuses, allowed_transitions, created_at, updated_at) VALUES (1, 1, '[]', '{}', '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO tasks (id, task_list_id, title, status_id, created_at, updated_at) VALUES (1, 1, 'Task', 1, '2026-01-01', '2026-01-01')`)
+	mustExec(t, sqlDB, `INSERT INTO task_notes (id, task_id, type, content, external_source, external_id, created_at, updated_at) VALUES (1, 1, 1, 'Nota', 'jira', 'EXT-1', '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	// AutoMigrate com TODOS os modelos (como o app real faz)
+	if err := db.AutoMigrate(
+		&Conversation{}, &ChatMessage{},
+		&CredentialEntry{}, &CredentialKeyWrap{},
+		&TaskList{}, &TaskListWorkflow{}, &Task{}, &TaskNote{},
+	); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+
+	// Para cada tabela, verificar que as colunas esperadas existem
+	tests := []struct {
+		table    string
+		expected []string
+	}{
+		{"conversations", []string{"id", "title", "channel", "contact_id", "summary", "summary_up_to_message_id", "summarizing_in_progress", "created_at", "updated_at"}},
+		{"chat_messages", []string{"id", "conversation_id", "parent_id", "turn_id", "role", "content", "reasoning", "media", "audio", "audio_mime_type", "tool_calls", "tool_call_id", "prompt_tokens", "completion_tokens", "total_tokens", "model", "source", "created_at"}},
+		{"credential_entries", []string{"id", "pattern", "auth_type", "token_enc", "username", "password_enc", "headers_enc", "expires_at", "refresh_token_enc", "client_id_enc", "client_secret_enc", "created_at", "updated_at"}},
+		{"credential_key_wraps", []string{"id", "kind", "salt", "wrapped_dek", "argon_time", "argon_memory", "argon_threads", "created_at", "updated_at"}},
+		{"task_lists", []string{"id", "title", "slug", "description", "preferred_view_mode", "validation_policy", "created_at", "updated_at"}},
+		{"task_list_workflows", []string{"id", "task_list_id", "statuses", "allowed_transitions", "initial_status_id", "created_at", "updated_at"}},
+		{"tasks", []string{"id", "task_list_id", "title", "description", "code", "link", "status_id", "parent_id", "order", "assignee_name", "assignee_id", "creator_name", "creator_id", "due_date", "created_at", "updated_at", "completed_at"}},
+		{"task_notes", []string{"id", "task_id", "type", "content", "author_name", "author_id", "external_source", "external_id", "external_parent_id", "external_updated_at", "created_at", "updated_at"}},
+	}
+
+	for _, tt := range tests {
+		cols := getTableColumns(t, sqlDB, tt.table)
+		for _, expected := range tt.expected {
+			if !cols[expected] {
+				t.Errorf("%s: coluna %q ausente após migração + AutoMigrate", tt.table, expected)
+			}
+		}
+	}
+
+	// Verificar que os dados foram preservados (leitura via GORM)
+	var convCount int64
+	db.Model(&Conversation{}).Count(&convCount)
+	if convCount != 1 {
+		t.Errorf("conversations: esperado 1, obtido %d", convCount)
+	}
+
+	var msgCount int64
+	db.Model(&ChatMessage{}).Count(&msgCount)
+	if msgCount != 1 {
+		t.Errorf("chat_messages: esperado 1, obtido %d", msgCount)
+	}
+
+	var credCount int64
+	db.Model(&CredentialEntry{}).Count(&credCount)
+	if credCount != 1 {
+		t.Errorf("credential_entries: esperado 1, obtido %d", credCount)
+	}
+
+	var kwCount int64
+	db.Model(&CredentialKeyWrap{}).Count(&kwCount)
+	if kwCount != 1 {
+		t.Errorf("credential_key_wraps: esperado 1, obtido %d", kwCount)
+	}
+
+	var tlCount int64
+	db.Model(&TaskList{}).Count(&tlCount)
+	if tlCount != 1 {
+		t.Errorf("task_lists: esperado 1, obtido %d", tlCount)
+	}
+
+	var wfCount int64
+	db.Model(&TaskListWorkflow{}).Count(&wfCount)
+	if wfCount != 1 {
+		t.Errorf("task_list_workflows: esperado 1, obtido %d", wfCount)
+	}
+
+	var taskCount int64
+	db.Model(&Task{}).Count(&taskCount)
+	if taskCount != 1 {
+		t.Errorf("tasks: esperado 1, obtido %d", taskCount)
+	}
+
+	var noteCount int64
+	db.Model(&TaskNote{}).Count(&noteCount)
+	if noteCount != 1 {
+		t.Errorf("task_notes: esperado 1, obtido %d", noteCount)
+	}
+
+	// Verificar que external_source em task_notes foi preservado
+	var note TaskNote
+	if err := db.First(&note).Error; err != nil {
+		t.Fatalf("leitura task_note: %v", err)
+	}
+	if note.ExternalSource != "jira" {
+		t.Errorf("task_notes.external_source = %q, esperado 'jira' — coluna renomeada perdeu dados!", note.ExternalSource)
+	}
+	if note.ExternalID != "EXT-1" {
+		t.Errorf("task_notes.external_id = %q, esperado 'EXT-1'", note.ExternalID)
+	}
+	if note.Content != "Nota" {
+		t.Errorf("task_notes.content = %q, esperado 'Nota'", note.Content)
+	}
+}
+
+// TestMigration_SummarizingInProgressNormalized testa que valores não-booleanos
+// em summarizing_in_progress são normalizados para 0/1 durante a migração.
+// Bug real: valor "4" causava "sql/driver: couldn't convert 4 into type bool".
+func TestMigration_SummarizingInProgressNormalized(t *testing.T) {
+	sqlDB := createOldSchemaDB(t)
+
+	// Valor correto (0 = false)
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, summarizing_in_progress, created_at, updated_at) VALUES (1, 'Normal false', 0, '2026-01-01', '2026-01-01')`)
+	// Valor correto (1 = true)
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, summarizing_in_progress, created_at, updated_at) VALUES (2, 'Normal true', 1, '2026-01-01', '2026-01-01')`)
+	// Valor corrompido (4 — o caso real do bug)
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, summarizing_in_progress, created_at, updated_at) VALUES (3, 'Corrompido 4', 4, '2026-01-01', '2026-01-01')`)
+	// Outro valor corrompido
+	mustExec(t, sqlDB, `INSERT INTO conversations (id, title, summarizing_in_progress, created_at, updated_at) VALUES (4, 'Corrompido 99', 99, '2026-01-01', '2026-01-01')`)
+
+	if err := migrateToUUIDv7(); err != nil {
+		t.Fatalf("migração: %v", err)
+	}
+
+	// AutoMigrate para que GORM consiga ler
+	if err := db.AutoMigrate(&Conversation{}); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+
+	// Ler TODAS as conversas via GORM — isso falhava com "couldn't convert 4 into type bool"
+	var convs []Conversation
+	if err := db.Order("title").Find(&convs).Error; err != nil {
+		t.Fatalf("GORM Find falhou (provavelmente valor não-booleano): %v", err)
+	}
+	if len(convs) != 4 {
+		t.Fatalf("esperado 4 conversas, obtido %d", len(convs))
+	}
+
+	// Verificar normalização
+	expected := map[string]bool{
+		"Normal false":  false,
+		"Normal true":   true,
+		"Corrompido 4":  true, // 4 > 0 → true
+		"Corrompido 99": true, // 99 > 0 → true
+	}
+	for _, conv := range convs {
+		exp, ok := expected[conv.Title]
+		if !ok {
+			t.Errorf("conversa inesperada: %q", conv.Title)
+			continue
+		}
+		if conv.SummarizingInProgress != exp {
+			t.Errorf("%q: summarizing_in_progress = %v, esperado %v", conv.Title, conv.SummarizingInProgress, exp)
+		}
 	}
 }

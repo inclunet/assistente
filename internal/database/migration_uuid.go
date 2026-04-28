@@ -2,9 +2,11 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
@@ -30,10 +32,14 @@ func migrateToUUIDv7() error {
 
 	log.Println("[Migration] Iniciando migração de IDs INTEGER → UUIDv7...")
 
-	// Backup antes de migrar
+	// Backup antes de migrar.
+	// Decisão de design: falha de backup NÃO aborta a migração.
+	// A transação atômica (tx.Begin / tx.Commit) é o mecanismo primário de
+	// segurança — qualquer erro durante a migração causa rollback completo.
+	// O backup é best-effort para facilitar recuperação manual em cenários
+	// onde o SQLite esteja em estado inconsistente (corrupção prévia, etc.).
 	if err := createBackup(); err != nil {
 		log.Printf("[Migration] Aviso: não foi possível criar backup: %v", err)
-		// Continua mesmo sem backup — a transação protege
 	}
 
 	tx, err := sqlDB.Begin()
@@ -59,18 +65,16 @@ func migrateToUUIDv7() error {
 	// 1. credential_entries
 	credMap, err := migrateTable(tx, "credential_entries", []string{
 		"id TEXT PRIMARY KEY",
-		"name TEXT",
 		"pattern TEXT",
-		"type TEXT",
-		"api_key_enc TEXT",
-		"client_id TEXT",
-		"client_secret_enc TEXT",
-		"access_token_enc TEXT",
+		"auth_type TEXT",
+		"token_enc TEXT",
+		"username TEXT",
+		"password_enc TEXT",
+		"headers_enc TEXT",
+		"expires_at INTEGER DEFAULT 0",
 		"refresh_token_enc TEXT",
-		"token_url TEXT",
-		"token_expiry DATETIME",
-		"scopes TEXT",
-		"extra_enc TEXT",
+		"client_id_enc TEXT",
+		"client_secret_enc TEXT",
 		"created_at DATETIME",
 		"updated_at DATETIME",
 	}, nil)
@@ -82,7 +86,12 @@ func migrateToUUIDv7() error {
 	// 2. credential_key_wraps (sem FKs)
 	kwMap, err := migrateTable(tx, "credential_key_wraps", []string{
 		"id TEXT PRIMARY KEY",
-		"wrapped_key TEXT",
+		"kind TEXT",
+		"salt TEXT",
+		"wrapped_dek TEXT",
+		"argon_time INTEGER DEFAULT 0",
+		"argon_memory INTEGER DEFAULT 0",
+		"argon_threads INTEGER DEFAULT 0",
 		"created_at DATETIME",
 		"updated_at DATETIME",
 	}, nil)
@@ -213,7 +222,7 @@ func migrateToUUIDv7() error {
 		"content TEXT",
 		"author_name TEXT",
 		"author_id TEXT",
-		"source TEXT",
+		"external_source TEXT",
 		"external_id TEXT",
 		"external_parent_id TEXT",
 		"external_updated_at DATETIME",
@@ -227,7 +236,24 @@ func migrateToUUIDv7() error {
 	}
 	log.Printf("[Migration] task_notes: %d registros migrados", len(tnMap))
 
+	// Normalizar campos booleanos: SQLite não tem tipo bool nativo,
+	// valores não-booleanos (ex: 4) causam "couldn't convert X into type bool".
+	if _, err := tx.Exec(`UPDATE conversations SET summarizing_in_progress = CASE WHEN summarizing_in_progress > 0 THEN 1 ELSE 0 END WHERE summarizing_in_progress NOT IN (0, 1)`); err != nil {
+		log.Printf("[Migration] Aviso: normalização de summarizing_in_progress: %v", err)
+	}
+
+	// Persiste mapa de remapeamento ANTES do commit para minimizar janela de
+	// crash sem remap. Se o commit falhar (rollback), o remap fica no disco
+	// mas será ignorado na próxima abertura (o banco ainda terá IDs INTEGER,
+	// e a migração será retentada do zero). Se o commit tiver sucesso, o remap
+	// já estará disponível para o workspace manager.
+	if err := persistIDRemapFile(sqlDB, convMap, tlMap); err != nil {
+		log.Printf("[Migration] Aviso: não foi possível salvar mapa de remapeamento: %v", err)
+	}
+
 	if err := tx.Commit(); err != nil {
+		// Remap órfão pode ficar no disco — será ignorado pois a migração será
+		// retentada na próxima abertura (banco permanece com IDs INTEGER).
 		return fmt.Errorf("erro ao commit da migração: %w", err)
 	}
 
@@ -303,6 +329,7 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 	}
 
 	idMap := make(map[uint]string)
+	orphanFKCount := make(map[string]int)
 
 	// Determinar colunas da nova tabela (sem defaults/types)
 	newColNames := make([]string, len(newCols))
@@ -383,7 +410,8 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 							if newFK, ok := fkMap[oldFKID]; ok {
 								insertValues[i] = newFK
 							} else {
-								insertValues[i] = nil // FK órfã
+								orphanFKCount[colName]++
+								insertValues[i] = nil // FK órfã → NULL
 							}
 						} else {
 							// Self-reference — resolver do próprio idMap
@@ -427,7 +455,23 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 					newFK, fmt.Sprintf("%d", oldFK),
 				)
 			}
+			// Limpar self-refs órfãs que não foram resolvidas pelo segundo passe
+			// (strings numéricas que não estão no idMap → dados inconsistentes pré-migração)
+			// Usa NOT GLOB '*-*' para excluir UUIDs (que contêm hífens)
+			res, _ := tx.Exec(
+				fmt.Sprintf(`UPDATE %s SET "%s" = NULL WHERE typeof("%s") = 'text' AND "%s" GLOB '[0-9]*' AND "%s" NOT GLOB '*-*'`, newTableName, colName, colName, colName, colName),
+			)
+			if res != nil {
+				if cleaned, _ := res.RowsAffected(); cleaned > 0 {
+					log.Printf("[Migration] %s.%s: %d self-refs órfãs limpas para NULL", tableName, colName, cleaned)
+				}
+			}
 		}
+	}
+
+	// Logar FKs órfãs encontradas durante a migração
+	for col, count := range orphanFKCount {
+		log.Printf("[Migration] %s.%s: %d FKs órfãs resolvidas para NULL", tableName, col, count)
 	}
 
 	// Drop tabela antiga, rename nova
@@ -489,6 +533,12 @@ func createBackup() error {
 		return nil // Nada para backup
 	}
 
+	// Flush WAL para o arquivo principal antes de copiar,
+	// garantindo que o backup contenha todas as páginas recentes.
+	if _, err := sqlDB.Exec("PRAGMA wal_checkpoint(FULL)"); err != nil {
+		log.Printf("[Migration] Aviso: wal_checkpoint falhou: %v", err)
+	}
+
 	backupPath := dbPath + ".pre-uuid.bak"
 	src, err := os.ReadFile(dbPath)
 	if err != nil {
@@ -499,4 +549,71 @@ func createBackup() error {
 	}
 	log.Printf("[Migration] Backup criado: %s", backupPath)
 	return nil
+}
+
+// IDRemapData contém os mapas de remapeamento old (numérico) → new (UUIDv7).
+type IDRemapData struct {
+	Conversations map[string]string `json:"conversations"` // "42" → "01926b90-..."
+	TaskLists     map[string]string `json:"task_lists"`    // "3"  → "01926b90-..."
+}
+
+const idRemapFilename = "uuid-migration-remap.json"
+
+// persistIDRemapFile salva os mapas de remapeamento em arquivo JSON
+// no diretório do banco, para uso posterior pelo workspace manager.
+func persistIDRemapFile(sqlDB *sql.DB, convMap, tlMap map[uint]string) error {
+	var dbPath string
+	if err := sqlDB.QueryRow("PRAGMA database_list").Scan(new(int), new(string), &dbPath); err != nil {
+		return err
+	}
+	if dbPath == "" || dbPath == ":memory:" {
+		return nil
+	}
+
+	data := IDRemapData{
+		Conversations: make(map[string]string, len(convMap)),
+		TaskLists:     make(map[string]string, len(tlMap)),
+	}
+	for old, newID := range convMap {
+		data.Conversations[fmt.Sprintf("%d", old)] = newID
+	}
+	for old, newID := range tlMap {
+		data.TaskLists[fmt.Sprintf("%d", old)] = newID
+	}
+
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	remapPath := filepath.Join(filepath.Dir(dbPath), idRemapFilename)
+	if err := os.WriteFile(remapPath, b, 0600); err != nil {
+		return err
+	}
+	log.Printf("[Migration] Mapa de remapeamento salvo: %s", remapPath)
+	return nil
+}
+
+// LoadIDRemapFile lê o arquivo de remapeamento de IDs, se existir.
+// Retorna nil se o arquivo não existir (já consumido ou não houve migração).
+func LoadIDRemapFile(dir string) *IDRemapData {
+	remapPath := filepath.Join(dir, idRemapFilename)
+	b, err := os.ReadFile(remapPath)
+	if err != nil {
+		return nil
+	}
+	var data IDRemapData
+	if err := json.Unmarshal(b, &data); err != nil {
+		log.Printf("[Migration] Aviso: erro ao ler mapa de remapeamento: %v", err)
+		return nil
+	}
+	return &data
+}
+
+// DeleteIDRemapFile remove o arquivo de remapeamento após consumo.
+func DeleteIDRemapFile(dir string) {
+	remapPath := filepath.Join(dir, idRemapFilename)
+	if err := os.Remove(remapPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("[Migration] Aviso: erro ao remover mapa de remapeamento: %v", err)
+	}
 }

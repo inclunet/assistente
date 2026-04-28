@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures';
 
 const now = new Date().toISOString();
-const conversationId = '1';
+const conversationId = '01926b90-0000-7000-8000-000000000001';
 const initialUserMessageId = '01968740-1234-7000-8000-000000000002';
 const initialAssistantMessageId = '01968740-1234-7000-8000-000000000003';
 const firstFailedUserMessageId = '01968740-1234-7000-8000-000000000004';

@@ -483,7 +483,7 @@ func CreateTask(taskListID string, title, description, code, link string, parent
 	} else {
 		query = query.Where("parent_id IS NULL")
 	}
-	query.Select("COALESCE(MAX(`order`), -1)").Scan(&maxOrder)
+	query.Select(`COALESCE(MAX("order"), -1)`).Scan(&maxOrder)
 
 	task := &Task{
 		TaskListID:  taskListID,
@@ -521,7 +521,7 @@ func CreateTaskFull(taskListID string, title, description, code, link, assigneeN
 	} else {
 		query = query.Where("parent_id IS NULL")
 	}
-	query.Select("COALESCE(MAX(`order`), -1)").Scan(&maxOrder)
+	query.Select(`COALESCE(MAX("order"), -1)`).Scan(&maxOrder)
 
 	task := &Task{
 		TaskListID:   taskListID,
@@ -733,7 +733,7 @@ func MoveTaskToList(taskID string, targetTaskListID string) (*Task, error) {
 	var maxOrder int
 	db.Model(&Task{}).
 		Where("task_list_id = ? AND parent_id IS NULL", targetTaskListID).
-		Select("COALESCE(MAX(`order`), -1)").
+		Select(`COALESCE(MAX("order"), -1)`).
 		Scan(&maxOrder)
 
 	updates := map[string]interface{}{
@@ -1033,7 +1033,7 @@ func GetTaskListWithHierarchy(id string) (*TaskList, error) {
 	// Busca todas as tasks de uma vez
 	var allTasks []Task
 	if err := db.Where("task_list_id = ?", id).
-		Order("parent_id ASC, `order` ASC").
+		Order(`"order" ASC, created_at ASC`).
 		Find(&allTasks).Error; err != nil {
 		return nil, err
 	}

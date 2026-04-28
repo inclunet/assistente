@@ -22,13 +22,13 @@ const makeWorkspace = (tabs: Array<{ id: string; title: string; conversation_id:
 });
 
 const threeTabWorkspace = makeWorkspace([
-  { id: 'tab-1', title: 'Conversa 1', conversation_id: '1', position: 0 },
-  { id: 'tab-2', title: 'Conversa 2', conversation_id: '2', position: 1 },
-  { id: 'tab-3', title: 'Conversa 3', conversation_id: '3', position: 2 },
+  { id: 'tab-1', title: 'Conversa 1', conversation_id: '01970a9e-0001-7000-8000-000000000001', position: 0 },
+  { id: 'tab-2', title: 'Conversa 2', conversation_id: '01970a9e-0002-7000-8000-000000000002', position: 1 },
+  { id: 'tab-3', title: 'Conversa 3', conversation_id: '01970a9e-0003-7000-8000-000000000003', position: 2 },
 ]);
 
 const fullTokenStats = {
-  conversationId: '1',
+  conversationId: '01970a9e-0001-7000-8000-000000000001',
   promptTokens: 500,
   completionTokens: 300,
   totalTokens: 800,
@@ -52,8 +52,8 @@ test.describe('Abas — fechar aba', () => {
   test('fechar aba via botão X remove do tablist', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
     await wails.setResponse('RemoveWorkspaceTab', makeWorkspace([
-      { id: 'tab-2', title: 'Conversa 2', conversation_id: '2', position: 0 },
-      { id: 'tab-3', title: 'Conversa 3', conversation_id: '3', position: 1 },
+      { id: 'tab-2', title: 'Conversa 2', conversation_id: '01970a9e-0002-7000-8000-000000000002', position: 0 },
+      { id: 'tab-3', title: 'Conversa 3', conversation_id: '01970a9e-0003-7000-8000-000000000003', position: 1 },
     ], 'tab-2'));
 
     await wails.waitForApp();
@@ -78,7 +78,7 @@ test.describe('Abas — fechar aba', () => {
 
   test('aba única não pode ser fechada (botão X não aparece)', async ({ page, wails }) => {
     const singleTabWorkspace = makeWorkspace([
-      { id: 'tab-1', title: 'Conversa única', conversation_id: '1', position: 0 },
+      { id: 'tab-1', title: 'Conversa única', conversation_id: '01970a9e-0001-7000-8000-000000000001', position: 0 },
     ]);
     await wails.setResponse('GetActiveWorkspace', singleTabWorkspace);
 
@@ -96,8 +96,8 @@ test.describe('Abas — fechar aba', () => {
   test('fechar via context menu', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
     await wails.setResponse('RemoveWorkspaceTab', makeWorkspace([
-      { id: 'tab-1', title: 'Conversa 1', conversation_id: '1', position: 0 },
-      { id: 'tab-3', title: 'Conversa 3', conversation_id: '3', position: 1 },
+      { id: 'tab-1', title: 'Conversa 1', conversation_id: '01970a9e-0001-7000-8000-000000000001', position: 0 },
+      { id: 'tab-3', title: 'Conversa 3', conversation_id: '01970a9e-0003-7000-8000-000000000003', position: 1 },
     ], 'tab-1'));
 
     await wails.waitForApp();
@@ -129,7 +129,7 @@ test.describe('Abas — trocar aba', () => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
     await wails.setResponse('SetActiveWorkspaceTab', undefined);
     await wails.setResponse('EnsureConversation', {
-      id: '2',
+      id: '01970a9e-0002-7000-8000-000000000002',
       title: 'Conversa 2',
       created_at: now,
       updated_at: now,
@@ -381,7 +381,7 @@ test.describe('Abas — close others via context menu', () => {
   test('fechar outras abas mantém apenas a selecionada', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
     await wails.setResponse('RemoveWorkspaceTab', makeWorkspace([
-      { id: 'tab-1', title: 'Conversa 1', conversation_id: '1', position: 0 },
+      { id: 'tab-1', title: 'Conversa 1', conversation_id: '01970a9e-0001-7000-8000-000000000001', position: 0 },
     ]));
 
     await wails.waitForApp();

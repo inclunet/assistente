@@ -22,7 +22,7 @@ const { workspaceState } = vi.hoisted(() => {
         {
           id: 't1',
           type: 'chat' as const,
-          conversationId: 1,
+          conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
           title: 'Chat 1',
           position: 0,
         },

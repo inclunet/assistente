@@ -6,7 +6,7 @@
  *
  * Cada teste pode sobrescrever respostas via page.evaluate():
  *   await page.evaluate(() => {
- *     window.__wailsMock.setResponse('SendMessage', '42');
+ *     window.__wailsMock.setResponse('SendMessage', '01926b90-0000-7000-8000-000000000099');
  *   });
  */
 
@@ -45,7 +45,7 @@ export function buildWailsMockScript(): string {
   const now = new Date().toISOString();
 
   const defaultConversation = {
-    id: '1',
+    id: '01926b90-0000-7000-8000-000000000001',
     title: 'Nova conversa',
     created_at: now,
     updated_at: now,
@@ -65,7 +65,7 @@ export function buildWailsMockScript(): string {
         {
           id: 'tab-1',
           type: 'chat',
-          conversation_id: '1',
+          conversation_id: '01926b90-0000-7000-8000-000000000001',
           title: 'Nova conversa',
           position: 0,
         },
@@ -126,8 +126,8 @@ export function buildWailsMockScript(): string {
     SearchConversationHistory: [],
 
     /* Messages */
-    SendMessage: '1',
-    AddMessage: { id: '1', conversationId: '1', role: 'user', content: '', createdAt: now },
+    SendMessage: '01926b90-0000-7000-8000-000000000002',
+    AddMessage: { id: '01926b90-0000-7000-8000-000000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: '', createdAt: now },
     DeleteMessage: undefined,
     UpdateMessage: undefined,
 
@@ -160,7 +160,7 @@ export function buildWailsMockScript(): string {
     /* Tokens */
     GetAllTokenStats: {},
     GetConversationTokenStats: {
-      conversationId: '1',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       promptTokens: 0,
       completionTokens: 0,
       totalTokens: 0,

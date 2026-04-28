@@ -335,12 +335,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     const ws = get().workspace;
     const position = ws ? ws.tabs.length : 0;
 
+    // Extract conversationId from initialState if present
+    let conversationId: string | undefined;
+    let state: Record<string, unknown> | undefined;
+    if (initialState) {
+      const { conversationId: cid, ...rest } = initialState;
+      conversationId = cid as string | undefined;
+      state = Object.keys(rest).length > 0 ? rest : undefined;
+    }
+
     const tab: WorkspaceTab = {
       id: tabId,
       type,
       title,
       position,
-      state: initialState,
+      conversationId,
+      state,
     };
 
     const backendTab = frontendTabToBackend(tab);

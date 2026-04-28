@@ -15,7 +15,7 @@ import { test, expect } from '../fixtures';
 /** Dados completos para que o TokenStatsModal não crashe ao abrir */
 function fullTokenStats() {
   return {
-    conversationId: '1',
+    conversationId: '01926b90-0000-7000-8000-000000000001',
     promptTokens: 500,
     completionTokens: 300,
     totalTokens: 800,

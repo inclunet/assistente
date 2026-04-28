@@ -3,6 +3,8 @@ package workspace
 import (
 	"fmt"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // TabType define o tipo de conteúdo exibido em uma aba.
@@ -29,6 +31,33 @@ type Tab struct {
 
 	// ContentID: campo legado para migração de workspaces antigos. Ignorado após load.
 	ContentID string `json:"content_id,omitempty" yaml:"content_id,omitempty"`
+}
+
+// UnmarshalYAML handles legacy workspace files where conversation_id was
+// serialized as an integer (!!int). yaml.v3 refuses to unmarshal !!int into a
+// string field, so we patch the node tag before decoding.
+func (t *Tab) UnmarshalYAML(value *yaml.Node) error {
+	// Patch conversation_id and content_id nodes: force !!str so yaml.v3
+	// accepts numeric values into string fields.
+	if value.Kind == yaml.MappingNode {
+		for i := 0; i < len(value.Content)-1; i += 2 {
+			key := value.Content[i].Value
+			if key == "conversation_id" || key == "content_id" {
+				val := value.Content[i+1]
+				if val.Tag == "!!int" || val.Tag == "!!float" {
+					val.Tag = "!!str"
+				}
+			}
+		}
+	}
+
+	type rawTab Tab
+	var raw rawTab
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*t = Tab(raw)
+	return nil
 }
 
 // TabsState armazena qual aba está ativa e a lista de abas.

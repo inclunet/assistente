@@ -324,9 +324,9 @@ export namespace database {
 	    channel?: string;
 	    contact_id?: string;
 	    // Go type: time
-	    created_at: any;
+	    createdAt: any;
 	    // Go type: time
-	    updated_at: any;
+	    updatedAt: any;
 	    messages?: ChatMessage[];
 	    message_count: number;
 	    summary?: string;
@@ -343,8 +343,8 @@ export namespace database {
 	        this.title = source["title"];
 	        this.channel = source["channel"];
 	        this.contact_id = source["contact_id"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
 	        this.message_count = source["message_count"];
 	        this.summary = source["summary"];
@@ -426,9 +426,9 @@ export namespace database {
 	    // Go type: time
 	    external_updated_at?: any;
 	    // Go type: time
-	    created_at: any;
+	    createdAt: any;
 	    // Go type: time
-	    updated_at: any;
+	    updatedAt: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskNote(source);
@@ -446,8 +446,8 @@ export namespace database {
 	        this.external_id = source["external_id"];
 	        this.external_parent_id = source["external_parent_id"];
 	        this.external_updated_at = this.convertValues(source["external_updated_at"], null);
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -475,9 +475,9 @@ export namespace database {
 	    allowed_transitions: string;
 	    initial_status_id: number;
 	    // Go type: time
-	    created_at: any;
+	    createdAt: any;
 	    // Go type: time
-	    updated_at: any;
+	    updatedAt: any;
 	    task_list?: TaskList;
 	
 	    static createFrom(source: any = {}) {
@@ -491,8 +491,8 @@ export namespace database {
 	        this.statuses = source["statuses"];
 	        this.allowed_transitions = source["allowed_transitions"];
 	        this.initial_status_id = source["initial_status_id"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	        this.task_list = this.convertValues(source["task_list"], TaskList);
 	    }
 	
@@ -522,9 +522,9 @@ export namespace database {
 	    preferred_view_mode: string;
 	    validation_policy?: string;
 	    // Go type: time
-	    created_at: any;
+	    createdAt: any;
 	    // Go type: time
-	    updated_at: any;
+	    updatedAt: any;
 	    workflow?: TaskListWorkflow;
 	    tasks?: Task[];
 
@@ -540,8 +540,8 @@ export namespace database {
 	        this.description = source["description"];
 	        this.preferred_view_mode = source["preferred_view_mode"];
 	        this.validation_policy = source["validation_policy"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	        this.workflow = this.convertValues(source["workflow"], TaskListWorkflow);
 	        this.tasks = this.convertValues(source["tasks"], Task);
 	    }
@@ -581,9 +581,9 @@ export namespace database {
 	    // Go type: time
 	    due_date?: any;
 	    // Go type: time
-	    created_at: any;
+	    createdAt: any;
 	    // Go type: time
-	    updated_at: any;
+	    updatedAt: any;
 	    // Go type: time
 	    completed_at?: any;
 	    task_list?: TaskList;
@@ -611,8 +611,8 @@ export namespace database {
 	        this.creator_name = source["creator_name"];
 	        this.creator_id = source["creator_id"];
 	        this.due_date = this.convertValues(source["due_date"], null);
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	        this.completed_at = this.convertValues(source["completed_at"], null);
 	        this.task_list = this.convertValues(source["task_list"], TaskList);
 	        this.parent = this.convertValues(source["parent"], Task);

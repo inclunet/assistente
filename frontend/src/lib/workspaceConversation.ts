@@ -3,6 +3,7 @@ import i18next from 'i18next';
 import type { WorkspaceTab } from '../store/workspaceStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
+import { isBackendId } from './idUtils';
 
 /** Evita duas criações em paralelo para a mesma aba (ex.: bridge + chat modal). */
 const inflight = new Map<string, Promise<string>>();
@@ -22,9 +23,11 @@ export async function ensureWorkspaceTabConversationId(wsTab: WorkspaceTab): Pro
     }
 
     let cid = fresh.conversationId ?? '';
-    if (cid) {
+    if (cid && isBackendId(cid)) {
       return cid;
     }
+    // Legacy numeric ID or invalid format — treat as missing
+    cid = '';
 
     const title = i18next.t('chat.newConversation');
     const conv = await CreateConversation(title, '');
