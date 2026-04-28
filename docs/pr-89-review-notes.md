@@ -1,18 +1,20 @@
 # Review PR 89 — AEP-0046 UUIDv7
 
 Este documento registra o estado do review do PR 89
-(`feat/aep-0046-uuid-migration`) após o commit `29b40529`
-(`fix: address PR review round 3 (findings 1-3)`).
+(`feat/aep-0046-uuid-migration`) após o commit `0cb48720`
+(`fix: use t.Setenv instead of os.Setenv in test (errcheck lint)`), que veio
+logo após `0393142e` (`fix: address PR review round 4 (findings 1-7)`).
 
 ## Veredito
 
-O PR está próximo de merge, mas ainda não está merge-ready. A migração principal
-e os contratos de ID em string estão bem cobertos, porém ainda há um problema de
-segurança/idempotência no consumo do arquivo `uuid-migration-remap.json`: ele
-pode ser removido mesmo após falha parcial na migração de workspaces.
+O PR está muito próximo de merge, mas ainda não está merge-ready. A rodada 4
+corrigiu os achados anteriores, porém sobrou uma variação do problema mais
+importante: o remap é preservado quando um workspace não ativo falha ao salvar,
+mas ainda pode ser removido quando a falha acontece no workspace ativo carregado
+por `Initialize()`.
 
-Recomendação: corrigir o cleanup do remap antes do merge e adicionar teste de
-regressão para falha de persistência de workspace durante a migração.
+Recomendação: corrigir esse caso do workspace ativo e adicionar um teste de
+regressão específico antes do merge.
 
 ## Validação Executada
 
@@ -30,7 +32,7 @@ regressão para falha de persistência de workspace durante a migração.
 
 ## Achados Restantes
 
-### 1. Alta — Remap pode ser apagado mesmo com falha parcial de workspace
+### 1. Alta — Remap ainda pode ser apagado se o workspace ativo falhar ao salvar
 
 Arquivo envolvido:
 
@@ -38,212 +40,63 @@ Arquivo envolvido:
 
 Problema:
 
-`migrateAllWorkspacesAndCleanupRemap()` chama `database.DeleteIDRemapFile()`
-sempre que encontra um remap, mesmo se algum workspace do índice falhar ao
-carregar, parsear ou salvar durante a migração.
+O commit `0393142e` introduziu `ErrMigrationSaveFailed` e preserva o remap
+quando `migrateAllWorkspacesAndCleanupRemap()` encontra falha de salvamento ao
+processar workspaces do índice. Isso corrige o caso de workspace não ativo.
 
-Trecho relevante:
+Ainda há uma lacuna: se o próprio workspace ativo falha ao salvar durante
+`Initialize()`, o erro é aceito para manter o workspace utilizável em memória:
 
 ```go
-func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
-    remap, remapDir := loadIDRemap()
-    if remap == nil {
-        return
-    }
-    // ...
-    database.DeleteIDRemapFile(remapDir)
+ws, err := m.loadWorkspaceFile(wsPath)
+if err != nil && !errors.Is(err, ErrMigrationSaveFailed) {
+    return fmt.Errorf("failed to load workspace at %s: %w", wsPath, err)
 }
+m.active = ws
+m.activePath = workDir
+m.touchIndex(ws, workDir)
+initOK = true
 ```
 
-O problema é agravado porque `loadWorkspaceFile()` não propaga erro de
-persistência quando `needsSave` é verdadeiro:
+Depois disso, o `defer` chama `migrateAllWorkspacesAndCleanupRemap()`. Essa
+função pula o workspace ativo e, se nenhum outro workspace falhar, apaga o remap:
 
 ```go
-if needsSave {
-    if err := m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))); err != nil {
-        log.Printf("[Workspace] Aviso: falha ao salvar migração de workspace: %v", err)
+for _, entry := range idx.Workspaces {
+    // Skip active workspace — already loaded by Initialize.
+    if m.active != nil && m.active.ID == entry.ID {
+        continue
     }
+    // ...
 }
+database.DeleteIDRemapFile(remapDir)
 ```
 
 Impacto:
 
-- Um workspace pode ser remapeado apenas em memória, falhar ao salvar e perder a
-  segunda chance porque o remap foi removido.
+- O workspace ativo pode ser remapeado apenas em memória, falhar ao salvar e
+  perder a segunda chance porque o remap foi removido no cleanup.
 - Na próxima abertura, IDs legados em `conversation_id`, `content_id` ou
-  `state.tasklistId` podem ser limpos ou causar criação de conversas/listas novas.
+  `state.tasklistId` ainda podem ser limpos ou causar criação de conversas/listas
+  novas.
 - A perda é silenciosa e difícil de recuperar sem restaurar o remap manualmente.
 
 Correção sugerida:
 
-- Fazer `loadWorkspaceFile()` retornar erro quando `needsSave == true` e
-  `saveWorkspace()` falhar; ou
-- Separar o resultado em algo como `workspaceMigrated bool` e
-  `workspaceMigrationSaved bool`; e
-- Só apagar `uuid-migration-remap.json` se todos os workspaces conhecidos que
-  precisavam de migração foram salvos com sucesso.
+- Guardar em `Initialize()` se o load do workspace ativo retornou
+  `ErrMigrationSaveFailed`.
+- Se isso acontecer, não executar o cleanup do remap, ou passar essa informação
+  para `migrateAllWorkspacesAndCleanupRemap()`.
+- Alternativamente, fazer o cleanup reprocessar explicitamente o workspace ativo
+  e só apagar o remap se a persistência dele também tiver sido confirmada.
 
 Teste sugerido:
 
-- Criar dois workspaces com IDs legados e um remap.
-- Forçar falha de escrita em um deles.
-- Garantir que o remap permanece no disco.
-- Garantir que, após corrigir a falha e reexecutar, o workspace pendente é
-  migrado e só então o remap é removido.
-
-### 2. Média — Teste ainda assume ordenação FIFO por `id` UUIDv7
-
-Arquivo envolvido:
-
-- `internal/tests/integration/firstrun_history_test.go`
-
-Problema:
-
-O teste usa `Order("id ASC")` e comenta que UUIDv7 preserva ordem de inserção.
-Isso contradiz a própria cautela adicionada no PR: UUIDv7 só ordena bem entre
-milissegundos diferentes; dentro do mesmo milissegundo a parte aleatória pode
-quebrar a ordem lexicográfica.
-
-Impacto:
-
-- Teste frágil/flaky em máquinas rápidas.
-- Invariante enganosa para manutenção futura.
-- O teste não espelha o caminho de produção, que em geral ordena mensagens por
-  `created_at`.
-
-Correção sugerida:
-
-- Trocar para `Order("created_at ASC")`, preferencialmente com desempate estável
-  se necessário.
-- Atualizar o comentário para não afirmar monotonicidade por `id`.
-
-### 3. Média — FKs inválidas e self-refs órfãs podem virar dados sujos/silenciosos
-
-Arquivo envolvido:
-
-- `internal/database/migration_uuid.go`
-
-Problema:
-
-Durante `migrateTable()`, FKs para outras tabelas que não existem no mapa antigo
-viram `NULL`. Para self-references (`parent_id`, `turn_id`) que apontam para uma
-linha inexistente, o placeholder numérico em string pode permanecer na coluna
-TEXT porque o segundo passe só substitui IDs que existem em `idMap`.
-
-Impacto:
-
-- Relações quebradas antes da migração continuam quebradas, mas agora podem ficar
-  invisíveis (`NULL`) ou com valor inválido (`"999"` em coluna de UUID).
-- Como o projeto não aparenta habilitar `PRAGMA foreign_keys`, esse cenário não é
-  bloqueado pelo SQLite.
-
-Correção sugerida:
-
-- Logar contagens de FKs órfãs por tabela/coluna durante a migração.
-- Para self-refs não resolvidas, limpar para `NULL` explicitamente depois do
-  segundo passe.
-- Adicionar teste garantindo que self-ref órfã não permanece como string numérica.
-
-### 4. Média — FTS5 pode ficar vazio se rebuild falhar após migração
-
-Arquivos envolvidos:
-
-- `internal/database/migration_uuid.go`
-- `internal/database/database.go`
-
-Problema:
-
-A migração dropa `chat_messages_fts`. Depois, `Init()` chama `initFTS5()` e, se
-percebe que `ftsCount < msgCount`, chama `RebuildFTSIndex()`. Se o rebuild
-falhar, o erro é apenas logado e o app sobe com a busca full-text incompleta ou
-vazia.
-
-Impacto:
-
-- Busca de histórico por conteúdo pode parecer quebrada após uma migração que
-  terminou "com sucesso".
-
-Correção sugerida:
-
-- Tratar erro de `RebuildFTSIndex()` como fatal imediatamente após uma migração
-  UUID; ou
-- Persistir um marcador de "FTS rebuild pending" e tentar novamente no próximo
-  startup até sucesso.
-
-### 5. Média — Testes frontend usam `assistantmessageId` fora do contrato
-
-Arquivos envolvidos:
-
-- `frontend/e2e/chat/chat-streaming.spec.ts`
-- `frontend/src/store/chatStore.validation.test.ts`
-- `internal/core/ports/chat_events.go`
-
-Problema:
-
-Alguns testes emitem `chat:done` com `assistantmessageId`, mas o contrato Go usa
-`assistantMessageId`. Hoje isso não quebra runtime porque o fluxo atual finaliza
-streaming pelo `messageId` do evento `chat:stream`, mas o teste documenta um
-payload errado.
-
-Impacto:
-
-- Futuras mudanças podem copiar o shape incorreto.
-- Se o frontend passar a consumir `assistantMessageId` em `chat:done`, esses
-  testes deixam de representar o backend real.
-
-Correção sugerida:
-
-- Trocar `assistantmessageId` por `assistantMessageId` nos testes.
-- Se o campo realmente não for usado, considerar teste explícito do shape correto
-  para manter contrato alinhado.
-
-### 6. Baixa — Janela pós-commit sem remap
-
-Arquivo envolvido:
-
-- `internal/database/migration_uuid.go`
-
-Problema:
-
-`migrateToUUIDv7()` faz `tx.Commit()` e só depois chama `persistIDRemapFile()`.
-Um crash ou kill do processo nesse intervalo deixa o banco já migrado para UUID,
-mas sem arquivo de remap para atualizar workspaces legados.
-
-Impacto:
-
-- Workspaces com IDs numéricos podem não ser remapeados após restart.
-- A recuperação exigiria restauração manual do backup ou reconstrução manual do
-  mapa.
-
-Correção sugerida:
-
-- Reduzir a janela persistindo um remap temporário antes do commit e marcando-o
-  como válido após commit; ou
-- Documentar explicitamente essa janela como risco aceito.
-
-### 7. Baixa — Ordenação por `parent_id` de tasks ficou menos significativa
-
-Arquivo envolvido:
-
-- `internal/database/tasklist_repository.go`
-
-Problema:
-
-`GetTaskListWithHierarchy()` usa `Order("parent_id ASC, order ASC")`. Após UUID,
-`parent_id ASC` não carrega mais a semântica aproximada de criação que IDs
-numéricos tinham.
-
-Impacto:
-
-- Provável impacto baixo, porque a hierarquia é reconstruída em memória e `order`
-  ainda ordena dentro do nível.
-- Ainda assim, a ordenação inicial por UUID pode tornar resultados menos
-  previsíveis em cenários de empate/ordem não definida.
-
-Correção sugerida:
-
-- Usar `Order("order ASC, created_at ASC")` ou ordenar subtasks explicitamente
-  por `order`/`created_at` após montar a árvore.
+- Criar workspace ativo com `content_id` legado e remap disponível.
+- Forçar falha de escrita no `workspace.yaml` ativo.
+- Chamar `Initialize(workDir)` apontando para esse workspace.
+- Garantir que `uuid-migration-remap.json` permanece no disco.
+- Repetir a validação também para o caminho sem `workDir`, via `LastOpened`.
 
 ## Pontos Verificados Como Resolvidos
 
@@ -252,24 +105,33 @@ Correção sugerida:
   `conversation_id` ao backend.
 - `loadIDRemap()` agora respeita a prioridade efetiva dos base paths.
 - O cleanup do remap foi movido para depois da tentativa de migrar todos os
-  workspaces conhecidos.
+  workspaces conhecidos e preserva o arquivo quando um workspace não ativo falha
+  ao salvar.
+- `loadWorkspaceFile()` agora propaga `ErrMigrationSaveFailed` em falha de
+  persistência.
 - Fixtures E2E relevantes foram migradas para UUIDv7.
 - `GetDetailedTokenStats()`, `GetMessagesAfterID()` e
   `GetMessagesBetweenIDs()` usam posição em listas ordenadas por `created_at`, e
   não comparação lexicográfica de UUID.
+- `internal/tests/integration/firstrun_history_test.go` deixou de ordenar por
+  `id ASC` e passou a usar `created_at ASC`.
+- FKs órfãs agora são contabilizadas em log, e self-refs órfãs numéricas são
+  limpas para `NULL`.
+- Falha de rebuild FTS5 agora gera log em nível de erro com indicação de retry no
+  próximo startup.
+- Testes frontend usam `assistantMessageId`, alinhado ao contrato Go.
+- `persistIDRemapFile()` foi movido para antes do `tx.Commit()`, reduzindo a
+  janela de crash sem remap.
+- `GetTaskListWithHierarchy()` deixou de ordenar por `parent_id ASC` e passou a
+  ordenar por `"order" ASC, created_at ASC`.
 - A migração adicionou checkpoint WAL antes do backup best-effort.
 - A AEP-0046 deixa claro que IDs de status de workflow continuam numéricos.
 
 ## Checklist Recomendado Antes do Merge
 
-1. Corrigir o cleanup do remap para não remover o arquivo após falha parcial de
-   workspace.
-2. Adicionar teste de regressão para falha de salvamento durante migração de
-   workspace.
-3. Ajustar `Order("id ASC")` no teste de histórico.
-4. Corrigir `assistantmessageId` para `assistantMessageId` nos testes.
-5. Decidir se FKs/self-refs órfãs devem ser logadas, limpas ou tratadas como erro
-   de migração.
-6. Rodar novamente `go test ./...`, `go vet ./...`, `npm run build`,
+1. Corrigir o cleanup do remap quando o workspace ativo retorna
+   `ErrMigrationSaveFailed`.
+2. Adicionar teste de regressão para falha de salvamento do workspace ativo.
+3. Rodar novamente `go test ./...`, `go vet ./...`, `npm run build`,
    `npm run test` e a fatia E2E de chat/workspace/histórico.
 
