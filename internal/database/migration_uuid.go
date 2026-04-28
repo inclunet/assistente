@@ -32,10 +32,14 @@ func migrateToUUIDv7() error {
 
 	log.Println("[Migration] Iniciando migração de IDs INTEGER → UUIDv7...")
 
-	// Backup antes de migrar
+	// Backup antes de migrar.
+	// Decisão de design: falha de backup NÃO aborta a migração.
+	// A transação atômica (tx.Begin / tx.Commit) é o mecanismo primário de
+	// segurança — qualquer erro durante a migração causa rollback completo.
+	// O backup é best-effort para facilitar recuperação manual em cenários
+	// onde o SQLite esteja em estado inconsistente (corrupção prévia, etc.).
 	if err := createBackup(); err != nil {
 		log.Printf("[Migration] Aviso: não foi possível criar backup: %v", err)
-		// Continua mesmo sem backup — a transação protege
 	}
 
 	tx, err := sqlDB.Begin()

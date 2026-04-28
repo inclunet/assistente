@@ -311,7 +311,7 @@ Ao migrar, cada recurso receberá um `id` UUIDv7 como PK no banco, e o slug atua
 5. **FTS5** busca por texto retorna resultados corretos
 6. **Eventos** carregam `conversationId` e `messageId` como `string` em ambos os lados
 7. **Migração automática**: banco antigo (INTEGER PKs) é detectado e convertido no startup, preservando todos os dados
-8. **Backup**: `conversations.db.pre-uuid.bak` criado antes da migração
+8. **Backup**: `conversations.db.pre-uuid.bak` criado antes da migração (best-effort — falha de backup não aborta a migração; a transação atômica é o mecanismo primário de segurança)
 9. **Rollback seguro**: se a migração falhar, banco original permanece intacto
 10. **Nenhuma regressão** nos fluxos: criar conversa, enviar mensagem, criar task list, buscar mensagem
 11. **Dados preservados**: conversas, mensagens, task lists, credenciais existentes acessíveis após a migração

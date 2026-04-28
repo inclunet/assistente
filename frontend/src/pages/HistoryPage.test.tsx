@@ -103,10 +103,10 @@ vi.mock('../components/ui/DataGrid', () => ({
     getRowActions?: (item: ConversationItem) => Array<{ id: string; label?: string; action?: () => void }>;
   }) => (
     <div>
-      <button type="button" onClick={() => onSelectionChange?.(new Set([1, 2]))}>
+      <button type="button" onClick={() => onSelectionChange?.(new Set(items?.map(i => i.id) ?? []))}>
         select-two
       </button>
-      <button type="button" onClick={() => onSelectionChange?.(new Set([1]))}>
+      <button type="button" onClick={() => onSelectionChange?.(new Set(items?.slice(0, 1).map(i => i.id) ?? []))}>
         select-one
       </button>
       <button type="button" onClick={() => onSelectionChange?.(new Set())}>
@@ -134,14 +134,14 @@ vi.mock('../components/ui/DataGrid', () => ({
 
 const conversations: ConversationItem[] = [
   {
-    id: '1',
+    id: '01926b90-7a5a-7c4e-8d3f-000000000001',
     title: 'Conversa 1',
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
     message_count: 2,
   },
   {
-    id: '2',
+    id: '01926b90-7a5a-7c4e-8d3f-000000000002',
     title: 'Conversa 2',
     createdAt: '2025-01-02T00:00:00Z',
     updatedAt: '2025-01-02T00:00:00Z',
@@ -188,8 +188,8 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await user.click(deleteButton);
 
     await waitFor(() => {
-      expect(mockDeleteConversation).toHaveBeenCalledWith('1');
-      expect(mockDeleteConversation).toHaveBeenCalledWith('2');
+      expect(mockDeleteConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000001');
+      expect(mockDeleteConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000002');
     });
   });
 
@@ -206,7 +206,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await user.click(deleteButtons[0]);
 
     await waitFor(() => {
-      expect(mockDeleteConversation).toHaveBeenCalledWith('2');
+      expect(mockDeleteConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000002');
     });
   });
 
@@ -225,7 +225,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
 
     await waitFor(() => {
       expect(mockExecuteDeepLink).toHaveBeenCalledWith(
-        { type: 'conversation:open', conversationId: '1', title: 'Conversa 1' },
+        { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa 1' },
         expect.objectContaining({ navigate: expect.any(Function) }),
       );
     });

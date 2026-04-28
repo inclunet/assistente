@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"gopkg.in/yaml.v3"
 )
@@ -677,6 +679,19 @@ func (m *Manager) newWorkspace(name string) *Workspace {
 	}
 }
 
+// loadIDRemap searches for the UUID migration remap file across all config
+// directories (exe, home, workdir) — the same paths where conversations.db
+// may reside. Returns the parsed data and the directory where it was found,
+// or nil/"" if not found.
+func loadIDRemap() (*database.IDRemapData, string) {
+	for _, dir := range configdir.GetBasePaths() {
+		if data := database.LoadIDRemapFile(dir); data != nil {
+			return data, dir
+		}
+	}
+	return nil, ""
+}
+
 func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -690,7 +705,7 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 
 	// Migração de formato antigo: content_id → campos corretos
 	needsSave := false
-	remap := database.LoadIDRemapFile(m.homeDir)
+	remap, remapDir := loadIDRemap()
 	for i := range ws.Tabs.Items {
 		t := &ws.Tabs.Items[i]
 		if t.ContentID == "" {
@@ -723,9 +738,15 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 			if _, ok := t.State["tasklistId"]; !ok {
 				// Remap old numeric content_id to new UUIDv7
 				tasklistID := t.ContentID
-				if !isValidUUIDv7(tasklistID) && remap != nil {
-					if newID, ok := remap.TaskLists[tasklistID]; ok {
-						tasklistID = newID
+				if !isValidUUIDv7(tasklistID) {
+					if remap != nil {
+						if newID, ok := remap.TaskLists[tasklistID]; ok {
+							tasklistID = newID
+						}
+					}
+					// If still not valid after remap attempt, clear it
+					if !isValidUUIDv7(tasklistID) {
+						tasklistID = ""
 					}
 				}
 				t.State["tasklistId"] = tasklistID
@@ -756,23 +777,26 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		}
 	}
 
-	// Also remap tasklistId in state for tasklist tabs
+	// Also remap/clear tasklistId in state for tasklist tabs
 	for i := range ws.Tabs.Items {
 		t := &ws.Tabs.Items[i]
 		if t.Type == TabTypeTasklist && t.State != nil {
 			if tlID, ok := t.State["tasklistId"].(string); ok && tlID != "" && !isValidUUIDv7(tlID) {
+				remapped := false
 				if remap != nil {
 					if newID, ok := remap.TaskLists[tlID]; ok {
 						t.State["tasklistId"] = newID
 						needsSave = true
+						remapped = true
 					}
+				}
+				if !remapped {
+					// Clear invalid tasklistId — frontend will create a new list if needed
+					t.State["tasklistId"] = ""
+					needsSave = true
 				}
 			}
 		}
-	}
-
-	if remap != nil && needsSave {
-		database.DeleteIDRemapFile(m.homeDir)
 	}
 
 	// Ordena tabs por posição
@@ -780,9 +804,14 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		return ws.Tabs.Items[i].Position < ws.Tabs.Items[j].Position
 	})
 
-	// Persiste migração imediatamente para não repetir no próximo load
+	// Persiste migração imediatamente para não repetir no próximo load.
+	// Só apaga o remap após salvar com sucesso para permitir retry.
 	if needsSave {
-		_ = m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))) // basePath = dir acima de .assistente/
+		if err := m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))); err != nil {
+			log.Printf("[Workspace] Aviso: falha ao salvar migração de workspace: %v", err)
+		} else if remap != nil && remapDir != "" {
+			database.DeleteIDRemapFile(remapDir)
+		}
 	}
 
 	return &ws, nil
