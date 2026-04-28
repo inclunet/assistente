@@ -1,98 +1,36 @@
 # Review PR 89 — AEP-0046 UUIDv7
 
 Este documento registra o estado do review do PR 89
-(`feat/aep-0046-uuid-migration`) após o commit `21c26bae`
-(`fix: address PR review round 2 (findings 1-6)`).
+(`feat/aep-0046-uuid-migration`) após o commit `29b40529`
+(`fix: address PR review round 3 (findings 1-3)`).
 
-## Estado Atual
+## Veredito
 
-As duas rodadas anteriores de achados foram majoritariamente endereçadas:
+O PR está próximo de merge, mas ainda não está merge-ready. A migração principal
+e os contratos de ID em string estão bem cobertos, porém ainda há um problema de
+segurança/idempotência no consumo do arquivo `uuid-migration-remap.json`: ele
+pode ser removido mesmo após falha parcial na migração de workspaces.
 
-- Deep links de conversa criam abas `chat` com `conversationId` e
-  `workspaceStore.addTab()` converte o valor para `conversation_id`.
-- `conversation:new` usa o ID retornado por `chatStore.createConversation()` para
-  abrir a aba já vinculada à conversa correta.
-- `GetDetailedTokenStats()`, `GetMessagesAfterID()` e
-  `GetMessagesBetweenIDs()` usam mensagens ordenadas por `created_at`, sem
-  comparação lexicográfica de UUID.
-- O backup pré-migração faz `PRAGMA wal_checkpoint(FULL)` antes de copiar o
-  banco, e a AEP documenta que a política de backup é best-effort.
-- A AEP-0046 foi ajustada para explicar que IDs de status de workflow continuam
-  numéricos dentro do JSON.
-- `uuid-migration-remap.json` agora é procurado nos diretórios de configuração
-  (`exe`, `home`, `workdir`) em vez de apenas em `homeDir`.
-- O remap só é apagado após `saveWorkspace()` bem-sucedido.
-- `tasklistId` legado sem remap é limpo.
-- Foram adicionados testes Go para remap de workspace e para ordenação por
-  `created_at` com UUIDs fora da ordem lexicográfica.
-- Fixtures em `frontend/src` foram migradas para UUIDv7.
+Recomendação: corrigir o cleanup do remap antes do merge e adicionar teste de
+regressão para falha de persistência de workspace durante a migração.
 
-Validação executada nesta rodada:
+## Validação Executada
 
 - `go test ./...`: passou.
-
-Não rodei TypeScript nem E2E neste worktree.
+- `go vet ./...`: passou.
+- `npm ci`: passou; o grafo npm reportou 12 vulnerabilidades já presentes no
+  conjunto de dependências instaladas.
+- `npm run build`: passou (`tsc` + `vite build`).
+- `npm run test`: passou, 176 arquivos e 1081 testes.
+- E2E focado em UUID/chat/workspace: passou, 35 testes em:
+  - `e2e/chat/chat-streaming.spec.ts`
+  - `e2e/chat/chat-basics.spec.ts`
+  - `e2e/workspace/tabs.spec.ts`
+  - `e2e/history/history.spec.ts`
 
 ## Achados Restantes
 
-### 1. `loadIDRemap()` pode escolher um remap de menor prioridade
-
-Arquivos envolvidos:
-
-- `internal/workspace/manager.go`
-- `internal/configdir/paths.go`
-- `internal/database/migration_uuid.go`
-
-Problema:
-
-`loadIDRemap()` percorre `configdir.GetBasePaths()` na ordem retornada pelo
-resolver:
-
-```go
-func loadIDRemap() (*database.IDRemapData, string) {
-    for _, dir := range configdir.GetBasePaths() {
-        if data := database.LoadIDRemapFile(dir); data != nil {
-            return data, dir
-        }
-    }
-    return nil, ""
-}
-```
-
-`GetBasePaths()` retorna os diretórios em prioridade crescente:
-
-```go
-[]string{cachedExeDir, cachedHomeDir, cachedWorkDir}
-```
-
-O resolver de arquivos usa essa ordem para que o último encontrado vença. Já
-`loadIDRemap()` retorna o primeiro arquivo encontrado. Se existir um
-`uuid-migration-remap.json` antigo em `home` e o remap correto estiver em
-`workdir`, o workspace pode aplicar o mapa errado.
-
-Impacto:
-
-- Workspaces podem ser remapeados com IDs de outra base de dados.
-- O remap correto pode permanecer no diretório de maior prioridade, enquanto o
-  remap errado é apagado após salvar o workspace.
-- É um caso de borda, mas o sistema explicitamente suporta banco em `exe`, `home`
-  e `workdir`, então a busca deve seguir a mesma semântica de prioridade.
-
-Correção sugerida:
-
-- Iterar `configdir.GetBasePaths()` em ordem reversa, respeitando a prioridade
-  efetiva (`workdir`, depois `home`, depois `exe`); ou
-- Resolver o remap a partir do mesmo diretório do `conversations.db` que foi
-  migrado; ou
-- Persistir metadados no remap identificando o caminho/origem do banco e validar
-  antes de aplicar.
-
-Teste sugerido:
-
-- Criar dois remaps, um em `home` e outro em `workdir`, com mapas conflitantes.
-  Garantir que o workspace aplica o remap do `workdir`.
-
-### 2. Remap é apagado após migrar apenas o workspace carregado
+### 1. Alta — Remap pode ser apagado mesmo com falha parcial de workspace
 
 Arquivo envolvido:
 
@@ -100,133 +38,238 @@ Arquivo envolvido:
 
 Problema:
 
-`loadWorkspaceFile()` apaga o `uuid-migration-remap.json` após salvar o workspace
-que acabou de carregar:
+`migrateAllWorkspacesAndCleanupRemap()` chama `database.DeleteIDRemapFile()`
+sempre que encontra um remap, mesmo se algum workspace do índice falhar ao
+carregar, parsear ou salvar durante a migração.
+
+Trecho relevante:
+
+```go
+func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
+    remap, remapDir := loadIDRemap()
+    if remap == nil {
+        return
+    }
+    // ...
+    database.DeleteIDRemapFile(remapDir)
+}
+```
+
+O problema é agravado porque `loadWorkspaceFile()` não propaga erro de
+persistência quando `needsSave` é verdadeiro:
 
 ```go
 if needsSave {
     if err := m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))); err != nil {
         log.Printf("[Workspace] Aviso: falha ao salvar migração de workspace: %v", err)
-    } else if remap != nil && remapDir != "" {
-        database.DeleteIDRemapFile(remapDir)
     }
 }
 ```
 
-Isso corrige o problema de apagar antes de salvar, mas ainda consome o remap no
-primeiro workspace migrado.
-
 Impacto:
 
-- Se houver múltiplos workspaces no índice, só o workspace carregado primeiro terá
-  referências legadas remapeadas.
-- Workspaces abertos posteriormente podem perder `conversation_id`/`tasklistId`
-  legados porque o remap já foi removido.
-- A perda pode ser silenciosa: chat legado vira conversa nova e tasklist legado
-  pode ser limpo.
+- Um workspace pode ser remapeado apenas em memória, falhar ao salvar e perder a
+  segunda chance porque o remap foi removido.
+- Na próxima abertura, IDs legados em `conversation_id`, `content_id` ou
+  `state.tasklistId` podem ser limpos ou causar criação de conversas/listas novas.
+- A perda é silenciosa e difícil de recuperar sem restaurar o remap manualmente.
 
 Correção sugerida:
 
-- Migrar todos os workspaces conhecidos antes de apagar o remap; ou
-- Manter o remap por mais tempo e apagar apenas em uma etapa explícita de cleanup;
-  ou
-- Registrar no remap quais workspaces já foram processados e só removê-lo quando
-  todos os workspaces conhecidos forem salvos.
+- Fazer `loadWorkspaceFile()` retornar erro quando `needsSave == true` e
+  `saveWorkspace()` falhar; ou
+- Separar o resultado em algo como `workspaceMigrated bool` e
+  `workspaceMigrationSaved bool`; e
+- Só apagar `uuid-migration-remap.json` se todos os workspaces conhecidos que
+  precisavam de migração foram salvos com sucesso.
 
 Teste sugerido:
 
-- Criar dois workspaces com IDs legados e um único remap. Carregar o primeiro e
-  depois o segundo. Garantir que ambos são remapeados.
+- Criar dois workspaces com IDs legados e um remap.
+- Forçar falha de escrita em um deles.
+- Garantir que o remap permanece no disco.
+- Garantir que, após corrigir a falha e reexecutar, o workspace pendente é
+  migrado e só então o remap é removido.
 
-### 3. E2E ainda contém IDs numéricos em strings
+### 2. Média — Teste ainda assume ordenação FIFO por `id` UUIDv7
 
-Arquivos com exemplos:
+Arquivo envolvido:
 
-- `frontend/e2e/chat/chat-interaction.spec.ts`
-- `frontend/e2e/chat/chat-basics.spec.ts`
-- `frontend/e2e/chat/chat-markdown.spec.ts`
-- `frontend/e2e/chat/chat-tool-calling.spec.ts`
-- `frontend/e2e/a11y/chat-toolbar.spec.ts`
-- `frontend/e2e/a11y/chat-keyboard-navigation.spec.ts`
-- `frontend/e2e/a11y/menu-keyboard.spec.ts`
-- `frontend/e2e/a11y/landmark-navigation.spec.ts`
-- `frontend/e2e/a11y/tablist-navigation.spec.ts`
-- `frontend/e2e/a11y/message-operations.spec.ts`
-- `frontend/e2e/a11y/modal-focus-trap.spec.ts`
-- `frontend/e2e/history/history-interactions.spec.ts`
+- `internal/tests/integration/firstrun_history_test.go`
 
 Problema:
 
-A varredura de `frontend/src` não encontrou mais `conversationId` numérico em
-strings, mas `frontend/e2e` ainda tem fixtures como:
-
-```ts
-conversationId: '1'
-messageId: '2'
-userMessageId: '100'
-conversation_id: '1'
-```
-
-Em alguns testes isso é apenas fixture isolada, mas em fluxos de streaming pode
-enfraquecer a cobertura. O mock padrão em `frontend/e2e/mocks/wails-runtime.ts`
-usa conversa UUIDv7:
-
-```ts
-conversation_id: '01926b90-0000-7000-8000-000000000001'
-```
-
-Um teste que emite evento para `conversationId: '1'` pode não exercitar o caminho
-real esperado, porque o `chatStore` filtra eventos por conversa ativa.
+O teste usa `Order("id ASC")` e comenta que UUIDv7 preserva ordem de inserção.
+Isso contradiz a própria cautela adicionada no PR: UUIDv7 só ordena bem entre
+milissegundos diferentes; dentro do mesmo milissegundo a parte aleatória pode
+quebrar a ordem lexicográfica.
 
 Impacto:
 
-- Testes E2E podem passar sem validar o caminho real pós-UUIDv7.
-- Regressões em guards como `isBackendId()` podem ficar mascaradas.
-- Eventos emitidos com conversa diferente da ativa podem ser descartados
-  silenciosamente.
+- Teste frágil/flaky em máquinas rápidas.
+- Invariante enganosa para manutenção futura.
+- O teste não espelha o caminho de produção, que em geral ordena mensagens por
+  `created_at`.
 
 Correção sugerida:
 
-- Centralizar constantes UUIDv7 de teste no mock E2E.
-- Trocar `conversationId`, `conversation_id`, `messageId`,
-  `userMessageId` e `assistantMessageId` por UUIDv7 válidos nos testes E2E.
-- Onde o teste intencionalmente cobre ID legado ou sintético, deixar isso
-  explícito no nome/comentário.
+- Trocar para `Order("created_at ASC")`, preferencialmente com desempate estável
+  se necessário.
+- Atualizar o comentário para não afirmar monotonicidade por `id`.
+
+### 3. Média — FKs inválidas e self-refs órfãs podem virar dados sujos/silenciosos
+
+Arquivo envolvido:
+
+- `internal/database/migration_uuid.go`
+
+Problema:
+
+Durante `migrateTable()`, FKs para outras tabelas que não existem no mapa antigo
+viram `NULL`. Para self-references (`parent_id`, `turn_id`) que apontam para uma
+linha inexistente, o placeholder numérico em string pode permanecer na coluna
+TEXT porque o segundo passe só substitui IDs que existem em `idMap`.
+
+Impacto:
+
+- Relações quebradas antes da migração continuam quebradas, mas agora podem ficar
+  invisíveis (`NULL`) ou com valor inválido (`"999"` em coluna de UUID).
+- Como o projeto não aparenta habilitar `PRAGMA foreign_keys`, esse cenário não é
+  bloqueado pelo SQLite.
+
+Correção sugerida:
+
+- Logar contagens de FKs órfãs por tabela/coluna durante a migração.
+- Para self-refs não resolvidas, limpar para `NULL` explicitamente depois do
+  segundo passe.
+- Adicionar teste garantindo que self-ref órfã não permanece como string numérica.
+
+### 4. Média — FTS5 pode ficar vazio se rebuild falhar após migração
+
+Arquivos envolvidos:
+
+- `internal/database/migration_uuid.go`
+- `internal/database/database.go`
+
+Problema:
+
+A migração dropa `chat_messages_fts`. Depois, `Init()` chama `initFTS5()` e, se
+percebe que `ftsCount < msgCount`, chama `RebuildFTSIndex()`. Se o rebuild
+falhar, o erro é apenas logado e o app sobe com a busca full-text incompleta ou
+vazia.
+
+Impacto:
+
+- Busca de histórico por conteúdo pode parecer quebrada após uma migração que
+  terminou "com sucesso".
+
+Correção sugerida:
+
+- Tratar erro de `RebuildFTSIndex()` como fatal imediatamente após uma migração
+  UUID; ou
+- Persistir um marcador de "FTS rebuild pending" e tentar novamente no próximo
+  startup até sucesso.
+
+### 5. Média — Testes frontend usam `assistantmessageId` fora do contrato
+
+Arquivos envolvidos:
+
+- `frontend/e2e/chat/chat-streaming.spec.ts`
+- `frontend/src/store/chatStore.validation.test.ts`
+- `internal/core/ports/chat_events.go`
+
+Problema:
+
+Alguns testes emitem `chat:done` com `assistantmessageId`, mas o contrato Go usa
+`assistantMessageId`. Hoje isso não quebra runtime porque o fluxo atual finaliza
+streaming pelo `messageId` do evento `chat:stream`, mas o teste documenta um
+payload errado.
+
+Impacto:
+
+- Futuras mudanças podem copiar o shape incorreto.
+- Se o frontend passar a consumir `assistantMessageId` em `chat:done`, esses
+  testes deixam de representar o backend real.
+
+Correção sugerida:
+
+- Trocar `assistantmessageId` por `assistantMessageId` nos testes.
+- Se o campo realmente não for usado, considerar teste explícito do shape correto
+  para manter contrato alinhado.
+
+### 6. Baixa — Janela pós-commit sem remap
+
+Arquivo envolvido:
+
+- `internal/database/migration_uuid.go`
+
+Problema:
+
+`migrateToUUIDv7()` faz `tx.Commit()` e só depois chama `persistIDRemapFile()`.
+Um crash ou kill do processo nesse intervalo deixa o banco já migrado para UUID,
+mas sem arquivo de remap para atualizar workspaces legados.
+
+Impacto:
+
+- Workspaces com IDs numéricos podem não ser remapeados após restart.
+- A recuperação exigiria restauração manual do backup ou reconstrução manual do
+  mapa.
+
+Correção sugerida:
+
+- Reduzir a janela persistindo um remap temporário antes do commit e marcando-o
+  como válido após commit; ou
+- Documentar explicitamente essa janela como risco aceito.
+
+### 7. Baixa — Ordenação por `parent_id` de tasks ficou menos significativa
+
+Arquivo envolvido:
+
+- `internal/database/tasklist_repository.go`
+
+Problema:
+
+`GetTaskListWithHierarchy()` usa `Order("parent_id ASC, order ASC")`. Após UUID,
+`parent_id ASC` não carrega mais a semântica aproximada de criação que IDs
+numéricos tinham.
+
+Impacto:
+
+- Provável impacto baixo, porque a hierarquia é reconstruída em memória e `order`
+  ainda ordena dentro do nível.
+- Ainda assim, a ordenação inicial por UUID pode tornar resultados menos
+  previsíveis em cenários de empate/ordem não definida.
+
+Correção sugerida:
+
+- Usar `Order("order ASC, created_at ASC")` ou ordenar subtasks explicitamente
+  por `order`/`created_at` após montar a árvore.
 
 ## Pontos Verificados Como Resolvidos
 
-### Deep links e aba de chat
+- Deep links de conversa criam abas `chat` com `conversationId`.
+- `workspaceStore.addTab()` extrai `conversationId` do estado inicial e envia
+  `conversation_id` ao backend.
+- `loadIDRemap()` agora respeita a prioridade efetiva dos base paths.
+- O cleanup do remap foi movido para depois da tentativa de migrar todos os
+  workspaces conhecidos.
+- Fixtures E2E relevantes foram migradas para UUIDv7.
+- `GetDetailedTokenStats()`, `GetMessagesAfterID()` e
+  `GetMessagesBetweenIDs()` usam posição em listas ordenadas por `created_at`, e
+  não comparação lexicográfica de UUID.
+- A migração adicionou checkpoint WAL antes do backup best-effort.
+- A AEP-0046 deixa claro que IDs de status de workflow continuam numéricos.
 
-`frontend/src/lib/deepLinks.ts` agora cria abas com `{ conversationId }`, e
-`frontend/src/store/workspaceStore.ts` extrai esse campo para
-`WorkspaceTab.conversationId`.
+## Checklist Recomendado Antes do Merge
 
-### Remap básico de workspace
-
-`internal/workspace/manager.go` agora busca remap nos base paths, remapeia
-`content_id`, `conversation_id` e `state.tasklistId`, limpa `tasklistId` inválido
-sem remap, e só apaga o remap após salvar o workspace com sucesso.
-
-### Ordenação por `created_at`
-
-`internal/database/ordering_test.go` cobre:
-
-- `GetMessagesAfterID()` usando ordem de criação, não ordem lexicográfica.
-- `GetMessagesBetweenIDs()` usando ordem de criação.
-- `GetDetailedTokenStats()` cortando por índice do `summaryUpToMessageID`.
-
-### Backup
-
-`internal/database/migration_uuid.go` executa `wal_checkpoint(FULL)` antes de
-copiar o banco. A AEP deixa claro que a migração continua mesmo se o backup
-falhar, usando rollback transacional como proteção principal.
-
-## Checklist Recomendado
-
-1. Ajustar `loadIDRemap()` para respeitar a mesma prioridade do resolver.
-2. Evitar apagar o remap antes de processar todos os workspaces conhecidos.
-3. Migrar fixtures E2E restantes para UUIDv7 ou marcar explicitamente os casos
-   legados/sintéticos.
-4. Rodar `go test ./...`, `npm run build` e a suíte E2E relevante após as
-   correções.
+1. Corrigir o cleanup do remap para não remover o arquivo após falha parcial de
+   workspace.
+2. Adicionar teste de regressão para falha de salvamento durante migração de
+   workspace.
+3. Ajustar `Order("id ASC")` no teste de histórico.
+4. Corrigir `assistantmessageId` para `assistantMessageId` nos testes.
+5. Decidir se FKs/self-refs órfãs devem ser logadas, limpas ou tratadas como erro
+   de migração.
+6. Rodar novamente `go test ./...`, `go vet ./...`, `npm run build`,
+   `npm run test` e a fatia E2E de chat/workspace/histórico.
 
