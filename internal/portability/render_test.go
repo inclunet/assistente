@@ -2,6 +2,7 @@ package portability
 
 import (
 	"encoding/base64"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -198,6 +199,43 @@ func TestRenderConversationsPDFReturnsBytes(t *testing.T) {
 					CreatedAt: time.Unix(90, 0),
 					Messages: []MessageExport{
 						{Role: "assistant", Content: "Conteudo exportado", CreatedAt: time.Unix(91, 0)},
+					},
+				},
+			},
+		},
+	}
+
+	pdfBytes, err := RenderConversationsPDF(file)
+	if err != nil {
+		t.Fatalf("RenderConversationsPDF() error = %v", err)
+	}
+	if len(pdfBytes) == 0 {
+		t.Fatal("RenderConversationsPDF() returned empty content")
+	}
+	if !strings.HasPrefix(string(pdfBytes), "%PDF") {
+		t.Fatalf("pdf header missing, got %q", string(pdfBytes[:4]))
+	}
+}
+
+func TestRenderConversationsPDFFallsBackWhenSystemFontMissing(t *testing.T) {
+	originalCandidates := pdfFontCandidates
+	pdfFontCandidates = func() []string {
+		return []string{filepath.Join(t.TempDir(), "missing.ttf")}
+	}
+	t.Cleanup(func() {
+		pdfFontCandidates = originalCandidates
+	})
+
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Unix(100, 0),
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Conversa PDF sem fonte",
+					CreatedAt: time.Unix(90, 0),
+					Messages: []MessageExport{
+						{Role: "assistant", Content: "Conteúdo com unicode 你好", CreatedAt: time.Unix(91, 0)},
 					},
 				},
 			},

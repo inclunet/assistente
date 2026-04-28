@@ -294,7 +294,20 @@ func configurePDFFont(pdf *fpdf.Fpdf) bool {
 	return false
 }
 
+var pdfFontCandidates = defaultPDFFontCandidates
+
 func loadSystemPDFFont() ([]byte, error) {
+	candidates := pdfFontCandidates()
+	for _, candidate := range candidates {
+		data, err := os.ReadFile(candidate)
+		if err == nil && len(data) > 0 {
+			return data, nil
+		}
+	}
+	return nil, fmt.Errorf("nenhuma fonte TTF encontrada")
+}
+
+func defaultPDFFontCandidates() []string {
 	candidates := []string{}
 	switch runtime.GOOS {
 	case "windows":
@@ -320,14 +333,7 @@ func loadSystemPDFFont() ([]byte, error) {
 			"/usr/share/fonts/TTF/DejaVuSans.ttf",
 		)
 	}
-
-	for _, candidate := range candidates {
-		data, err := os.ReadFile(candidate)
-		if err == nil && len(data) > 0 {
-			return data, nil
-		}
-	}
-	return nil, fmt.Errorf("nenhuma fonte TTF encontrada")
+	return candidates
 }
 
 func writePDFTitle(pdf *fpdf.Fpdf, useUTF8 bool, text string) {
