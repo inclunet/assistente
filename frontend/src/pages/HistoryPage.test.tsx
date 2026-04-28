@@ -7,8 +7,11 @@ const mockGetConversations = vi.fn();
 const mockDeleteConversation = vi.fn();
 const mockUpdateConversation = vi.fn();
 const mockExportConversations = vi.fn();
+const mockExportData = vi.fn();
 const mockImportConversations = vi.fn();
 const mockSearchConversationHistory = vi.fn();
+const mockGetLLMProvidersWithStatus = vi.fn();
+const mockGetAllTaskLists = vi.fn();
 const mockAddTab = vi.fn().mockResolvedValue('tab-1');
 const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
@@ -46,9 +49,11 @@ vi.mock('@wailsjs/go/app/App', () => ({
   DeleteConversation: (id: string) => mockDeleteConversation(id),
   UpdateConversation: (id: string, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
   ExportConversations: (ids: string[]) => mockExportConversations(ids),
+  ExportData: (payload: unknown) => mockExportData(payload),
   ImportConversations: (payload: string) => mockImportConversations(payload),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
-  GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
+  GetLLMProvidersWithStatus: () => mockGetLLMProvidersWithStatus(),
+  GetAllTaskLists: () => mockGetAllTaskLists(),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -163,8 +168,23 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockDeleteConversation.mockResolvedValue(undefined);
     mockUpdateConversation.mockResolvedValue(undefined);
     mockExportConversations.mockResolvedValue('{}');
+    mockExportData.mockResolvedValue('{}');
     mockImportConversations.mockResolvedValue({ success: true, message: 'ok' });
     mockSearchConversationHistory.mockResolvedValue([]);
+    mockGetLLMProvidersWithStatus.mockResolvedValue([]);
+    mockGetAllTaskLists.mockResolvedValue([]);
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:history-export-test'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    Object.defineProperty(HTMLAnchorElement.prototype, 'click', {
+      configurable: true,
+      value: vi.fn(),
+    });
     mockAddTab.mockResolvedValue(undefined);
     mockNavigate.mockReset();
     lastToolbarActions = [];
@@ -235,5 +255,30 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
         expect.objectContaining({ navigate: expect.any(Function) }),
       );
     });
+  });
+
+  it('exporta providers sem exigir conversas selecionadas', async () => {
+    const user = userEvent.setup();
+    mockGetConversations.mockResolvedValue([]);
+    mockGetLLMProvidersWithStatus.mockResolvedValue([
+      { id: 'provider-1', name: 'OpenAI' },
+    ]);
+
+    render(<HistoryPage />);
+
+    const exportButton = await screen.findByRole('button', { name: 'Exportar dados' });
+    await user.click(exportButton);
+    await user.click(screen.getByLabelText('Incluir providers persistidos no banco'));
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        explicitSelection: true,
+        includeCredentials: false,
+        outputFormat: 'json',
+        providerIds: ['provider-1'],
+      }));
+    });
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('conversationIds');
   });
 });
