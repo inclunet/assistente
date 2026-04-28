@@ -130,6 +130,9 @@ func ImportConversationsWithResolutions(
 	if file.Version != ExportVersion {
 		return nil, fmt.Errorf("versão de exportação não suportada: %d", file.Version)
 	}
+	if err := validateCredentialEnvelope(file); err != nil {
+		return nil, err
+	}
 	analysis, err := analyzeImportFile(file, credMgr, credentialPassword)
 	if err != nil {
 		return nil, err
@@ -331,12 +334,22 @@ func AnalyzeImportData(jsonData string, credMgr *credentials.Manager, credential
 	if file.Version != ExportVersion {
 		return nil, fmt.Errorf("versão de exportação não suportada: %d", file.Version)
 	}
+	if err := validateCredentialEnvelope(file); err != nil {
+		return nil, err
+	}
 	analysis, err := analyzeImportFile(file, credMgr, credentialPassword)
 	if err != nil {
 		return nil, err
 	}
 	analysis.UnsupportedResourceTypes = unsupportedResourceTypes
 	return analysis, nil
+}
+
+func validateCredentialEnvelope(file *ExportFile) error {
+	if file.Options.IncludeCredentials && file.Resources.Credentials == nil {
+		return fmt.Errorf("export declara includeCredentials=true, mas resources.credentials está ausente")
+	}
+	return nil
 }
 
 func exportConversation(conv *database.Conversation, includeAudio bool) ConversationExport {

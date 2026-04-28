@@ -1189,6 +1189,30 @@ func TestImportConversationsRejectsUnsupportedVersion(t *testing.T) {
 	}
 }
 
+func TestAnalyzeImportDataRejectsMissingCredentialBlock(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	_, err := AnalyzeImportData(`{"version":2,"options":{"includeCredentials":true},"resources":{"conversations":[]}}`, nil, "")
+	if err == nil {
+		t.Fatal("AnalyzeImportData() error = nil, want missing credential block error")
+	}
+	if !strings.Contains(err.Error(), "resources.credentials está ausente") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestImportConversationsRejectsMissingCredentialBlock(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	_, err := ImportConversations(`{"version":2,"options":{"includeCredentials":true},"resources":{"conversations":[]}}`, nil, "")
+	if err == nil {
+		t.Fatal("ImportConversations() error = nil, want missing credential block error")
+	}
+	if !strings.Contains(err.Error(), "resources.credentials está ausente") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 	setupPortabilityTestDB(t)
 
