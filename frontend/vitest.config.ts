@@ -34,7 +34,7 @@ function antDesignIconsStub() {
           'DeleteOutlined', 'DownOutlined',
           'EditOutlined', 'ExclamationOutlined', 'ExportOutlined',
           'EyeInvisibleOutlined', 'EyeOutlined',
-          'FileOutlined', 'FileTextOutlined', 'FilterOutlined',
+          'FileOutlined', 'FilePdfOutlined', 'FileTextOutlined', 'FilterOutlined',
           'FolderOpenOutlined', 'FolderOutlined',
           'HistoryOutlined',
           'ImportOutlined', 'InfoCircleOutlined', 'InfoOutlined',
