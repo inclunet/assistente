@@ -613,3 +613,71 @@ func TestInitialize_PreservesRemapOnPartialSaveFailure(t *testing.T) {
 		t.Errorf("remap file should be preserved when a workspace migration save failed, but it was deleted")
 	}
 }
+
+// TestInitialize_PreservesRemapOnActiveWorkspaceSaveFailure verifies that when
+// the ACTIVE workspace fails to persist its migration, the remap file is NOT
+// deleted — even if all other workspaces succeed.
+func TestInitialize_PreservesRemapOnActiveWorkspaceSaveFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	homeDir := filepath.Join(tmpDir, "home")
+	activeDir := filepath.Join(tmpDir, "workspaces", "active-ws")
+
+	// Create remap in homeDir/.assistente/ (where configdir resolves it)
+	remapDir := filepath.Join(homeDir, assistenteDir)
+	writeRemapFile(t, remapDir, database.IDRemapData{
+		Conversations: map[string]string{
+			"99": "01970a9e-cccc-7000-8000-cccccccccccc",
+		},
+	})
+
+	// Create workspace with a legacy content_id that needs remapping
+	activeWs := Workspace{
+		ID:   "active-ws",
+		Name: "Active WS",
+		Tabs: TabsState{
+			Items: []Tab{{
+				ID:        "tab-1",
+				Type:      TabTypeChat,
+				Title:     "Chat",
+				ContentID: "99",
+			}},
+		},
+	}
+	activeWsPath := writeWorkspaceYAML(t, activeDir, activeWs)
+
+	// Make workspace.yaml read-only to force save failure
+	if err := os.Chmod(activeWsPath, 0444); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(activeWsPath, 0644) })
+
+	// Write index (no other workspaces)
+	writeIndex(t, homeDir, Index{
+		LastOpened: "active-ws",
+		Workspaces: []IndexEntry{
+			{ID: "active-ws", Name: "Active WS", Path: activeDir},
+		},
+	})
+
+	withChdirAndConfigReset(t, homeDir)
+
+	m := NewManager(homeDir)
+	if err := m.Initialize(activeDir); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	// Active workspace should still be loaded (in-memory migration OK)
+	tab := m.Active().FindTab("tab-1")
+	if tab == nil {
+		t.Fatal("tab-1 not found in active workspace")
+	}
+	if tab.ConversationID != "01970a9e-cccc-7000-8000-cccccccccccc" {
+		t.Errorf("expected remapped UUID, got %q", tab.ConversationID)
+	}
+
+	// Remap file must be PRESERVED because the active workspace's save failed
+	remapPath := filepath.Join(remapDir, "uuid-migration-remap.json")
+	if _, err := os.Stat(remapPath); os.IsNotExist(err) {
+		t.Errorf("remap file should be preserved when active workspace migration save failed, but it was deleted")
+	}
+}

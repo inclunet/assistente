@@ -36,10 +36,11 @@ func isValidUUIDv7(s string) bool {
 
 // Manager gerencia workspaces: CRUD, persistência YAML e índice global.
 type Manager struct {
-	mu         sync.RWMutex
-	active     *Workspace
-	activePath string // diretório base do workspace ativo (contém .assistente/)
-	homeDir    string // ~/.assistente/
+	mu                    sync.RWMutex
+	active                *Workspace
+	activePath            string // diretório base do workspace ativo (contém .assistente/)
+	homeDir               string // ~/.assistente/
+	activeMigrationFailed bool   // true se o workspace ativo falhou ao salvar migração
 }
 
 // NewManager cria um novo workspace manager.
@@ -78,6 +79,9 @@ func (m *Manager) Initialize(workDir string) error {
 			if err != nil && !errors.Is(err, ErrMigrationSaveFailed) {
 				return fmt.Errorf("failed to load workspace at %s: %w", wsPath, err)
 			}
+			if errors.Is(err, ErrMigrationSaveFailed) {
+				m.activeMigrationFailed = true
+			}
 			m.active = ws
 			m.activePath = workDir
 			m.touchIndex(ws, workDir)
@@ -104,6 +108,9 @@ func (m *Manager) Initialize(workDir string) error {
 			if entry.ID == idx.LastOpened {
 				wsPath := filepath.Join(entry.Path, assistenteDir, workspaceFile)
 				if ws, err := m.loadWorkspaceFile(wsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
+					if errors.Is(err, ErrMigrationSaveFailed) {
+						m.activeMigrationFailed = true
+					}
 					m.active = ws
 					m.activePath = entry.Path
 					initOK = true
@@ -119,6 +126,9 @@ func (m *Manager) Initialize(workDir string) error {
 
 	if _, err := os.Stat(defaultWsPath); err == nil {
 		if ws, err := m.loadWorkspaceFile(defaultWsPath); err == nil || errors.Is(err, ErrMigrationSaveFailed) {
+			if errors.Is(err, ErrMigrationSaveFailed) {
+				m.activeMigrationFailed = true
+			}
 			m.active = ws
 			m.activePath = defaultPath
 			m.touchIndex(ws, defaultPath)
@@ -747,7 +757,7 @@ func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
 		}
 	}
 
-	if !allSaved {
+	if !allSaved || m.activeMigrationFailed {
 		log.Printf("[Workspace] Remap preservado: nem todos os workspaces foram migrados com sucesso")
 		return
 	}
