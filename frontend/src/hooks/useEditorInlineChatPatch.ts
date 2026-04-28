@@ -52,11 +52,10 @@ function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId
     if (idx >= 0) {
       messages = allMessages.slice(idx + 1);
     } else {
-      // ID not found (list reloaded/compacted) — filter by lexicographic order (UUIDv7 is sortable)
-      messages = allMessages.filter((m) => {
-        const id = String(m?.id || '');
-        return isBackendId(id) && id > afterMessageId;
-      });
+      // ID not found (list reloaded/compacted) — scan all messages as fallback.
+      // We intentionally avoid lexicographic ID comparison because UUIDv7
+      // ordering within the same millisecond is not guaranteed.
+      messages = allMessages;
     }
   }
 

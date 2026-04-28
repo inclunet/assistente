@@ -6,7 +6,7 @@
  *
  * Cada teste pode sobrescrever respostas via page.evaluate():
  *   await page.evaluate(() => {
- *     window.__wailsMock.setResponse('SendMessage', '42');
+ *     window.__wailsMock.setResponse('SendMessage', '01926b90-0000-7000-8000-000000000099');
  *   });
  */
 

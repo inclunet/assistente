@@ -442,16 +442,15 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 		tab.Title = title
 	}
 	if convID, ok := updates["conversation_id"].(string); ok {
-		tab.ConversationID = convID
-	} else if convIDFloat, ok := updates["conversation_id"].(float64); ok {
-		// Legacy: old workspace files stored conversation_id as a number.
-		// Only accept positive integers; ignore fractional or non-positive values.
-		intVal := int64(convIDFloat)
-		if convIDFloat > 0 && float64(intVal) == convIDFloat {
-			tab.ConversationID = fmt.Sprintf("%d", intVal)
+		// Only accept valid UUIDs; legacy numeric strings (e.g. "42") are discarded.
+		if _, err := uuid.Parse(convID); err == nil {
+			tab.ConversationID = convID
 		} else {
 			tab.ConversationID = ""
 		}
+	} else if _, ok := updates["conversation_id"].(float64); ok {
+		// Legacy numeric conversation_id — discard (post-UUIDv7 migration, numeric IDs are invalid).
+		tab.ConversationID = ""
 	}
 	if state, ok := updates["state"].(map[string]any); ok {
 		if tab.State == nil {
@@ -716,6 +715,18 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 			// UUID interno do editor — descartado; filePath vem de state
 		}
 		t.ContentID = "" // limpa campo legado
+	}
+
+	// Sanitize: chat tabs must have valid UUID conversation IDs (post-migration).
+	// Legacy numeric IDs (e.g. "42") are cleared so the frontend creates a fresh conversation.
+	for i := range ws.Tabs.Items {
+		t := &ws.Tabs.Items[i]
+		if t.Type == TabTypeChat && t.ConversationID != "" {
+			if _, err := uuid.Parse(t.ConversationID); err != nil {
+				t.ConversationID = ""
+				needsSave = true
+			}
+		}
 	}
 
 	// Ordena tabs por posição

@@ -71,7 +71,7 @@ describe('ensureWorkspaceTabHasConversation', () => {
     mockCreateConversation.mockReset();
     mockUpdateTab.mockReset();
     mockLoadConversation.mockReset();
-    mockCreateConversation.mockResolvedValue({ id: 'conv-99' });
+    mockCreateConversation.mockResolvedValue({ id: '01970a9e-0099-7000-8000-000000000099' });
     mockUpdateTab.mockResolvedValue(undefined);
     mockLoadConversation.mockImplementation(async (id: string) => {
       hoisted.setActiveId(id);
@@ -86,22 +86,22 @@ describe('ensureWorkspaceTabHasConversation', () => {
     const p2 = ensureWorkspaceTabHasConversation(tab as WorkspaceTab);
 
     const [a, b] = await Promise.all([p1, p2]);
-    expect(a).toBe('conv-99');
-    expect(b).toBe('conv-99');
+    expect(a).toBe('01970a9e-0099-7000-8000-000000000099');
+    expect(b).toBe('01970a9e-0099-7000-8000-000000000099');
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
   });
 
   it('quando a aba j\u00e1 tem conversationId, sincroniza o chatStore se necess\u00e1rio', async () => {
-    hoisted.setTabs([{ id: 'tab-sync', conversationId: 'conv-7' }]);
+    hoisted.setTabs([{ id: 'tab-sync', conversationId: '01970a9e-0007-7000-8000-000000000007' }]);
     mockLoadConversation.mockClear();
 
     const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe('conv-7');
+    expect(id).toBe('01970a9e-0007-7000-8000-000000000007');
     expect(mockCreateConversation).not.toHaveBeenCalled();
     expect(mockUpdateTab).not.toHaveBeenCalled();
-    expect(mockLoadConversation).toHaveBeenCalledWith('conv-7');
-    expect(hoisted.activeConversationId).toBe('conv-7');
+    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0007-7000-8000-000000000007');
+    expect(hoisted.activeConversationId).toBe('01970a9e-0007-7000-8000-000000000007');
   });
 
   it('quando conversationId est\u00e1 vazio, cria conversa, atualiza aba e carrega mensagens', async () => {
@@ -110,11 +110,11 @@ describe('ensureWorkspaceTabHasConversation', () => {
 
     const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe('conv-99');
+    expect(id).toBe('01970a9e-0099-7000-8000-000000000099');
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-    expect(mockUpdateTab).toHaveBeenCalledWith('tab-new', { conversation_id: 'conv-99' });
-    expect(mockLoadConversation).toHaveBeenCalledWith('conv-99');
-    expect(hoisted.activeConversationId).toBe('conv-99');
+    expect(mockUpdateTab).toHaveBeenCalledWith('tab-new', { conversation_id: '01970a9e-0099-7000-8000-000000000099' });
+    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0099-7000-8000-000000000099');
+    expect(hoisted.activeConversationId).toBe('01970a9e-0099-7000-8000-000000000099');
   });
 
   it('lan\u00e7a se a aba n\u00e3o existe no workspace', async () => {
@@ -125,23 +125,23 @@ describe('ensureWorkspaceTabHasConversation', () => {
   });
 
   it('n\u00e3o chama loadConversation quando o chat j\u00e1 est\u00e1 na conversa da aba', async () => {
-    hoisted.setTabs([{ id: 'tab-skip-load', conversationId: 'conv-7' }]);
-    hoisted.setActiveId('conv-7');
+    hoisted.setTabs([{ id: 'tab-skip-load', conversationId: '01970a9e-0007-7000-8000-000000000007' }]);
+    hoisted.setActiveId('01970a9e-0007-7000-8000-000000000007');
     mockLoadConversation.mockClear();
 
     const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe('conv-7');
+    expect(id).toBe('01970a9e-0007-7000-8000-000000000007');
     expect(mockLoadConversation).not.toHaveBeenCalled();
   });
 
-  it('ensureWorkspaceTabConversationId n\u00e3o sincroniza o chatStore quando s\u00f3 precisa do id', async () => {
-    hoisted.setTabs([{ id: 'tab-id-only', conversationId: 'conv-7' }]);
+  it('ensureWorkspaceTabConversationId não sincroniza o chatStore quando só precisa do id', async () => {
+    hoisted.setTabs([{ id: 'tab-id-only', conversationId: '01970a9e-0007-7000-8000-000000000007' }]);
     mockLoadConversation.mockClear();
 
     const id = await ensureWorkspaceTabConversationId(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe('conv-7');
+    expect(id).toBe('01970a9e-0007-7000-8000-000000000007');
     expect(mockLoadConversation).not.toHaveBeenCalled();
   });
 
@@ -151,20 +151,20 @@ describe('ensureWorkspaceTabHasConversation', () => {
 
     const id = await ensureWorkspaceTabConversationId(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe('conv-99');
+    expect(id).toBe('01970a9e-0099-7000-8000-000000000099');
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-    expect(mockUpdateTab).toHaveBeenCalledWith('tab-new-id-only', { conversation_id: 'conv-99' });
+    expect(mockUpdateTab).toHaveBeenCalledWith('tab-new-id-only', { conversation_id: '01970a9e-0099-7000-8000-000000000099' });
     expect(mockLoadConversation).not.toHaveBeenCalled();
   });
 
   it('ensureWorkspaceTabHasConversation n\u00e3o sincroniza o chatStore se a aba j\u00e1 n\u00e3o estiver ativa', async () => {
-    hoisted.setTabs([{ id: 'tab-inactive', conversationId: 'conv-7' }, { id: 'other-tab', conversationId: 'conv-11' }]);
-    hoisted.setActiveTab({ id: 'other-tab', conversationId: 'conv-11' });
+    hoisted.setTabs([{ id: 'tab-inactive', conversationId: '01970a9e-0007-7000-8000-000000000007' }, { id: 'other-tab', conversationId: '01970a9e-0011-7000-8000-000000000011' }]);
+    hoisted.setActiveTab({ id: 'other-tab', conversationId: '01970a9e-0011-7000-8000-000000000011' });
     mockLoadConversation.mockClear();
 
     const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
-    expect(id).toBe('conv-7');
+    expect(id).toBe('01970a9e-0007-7000-8000-000000000007');
     expect(mockLoadConversation).not.toHaveBeenCalled();
   });
 });

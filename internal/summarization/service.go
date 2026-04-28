@@ -174,10 +174,24 @@ func (s *Service) CheckAndTriggerSummarization(conversationID string) {
 
 	existingSummary, summaryUpToID, _ := s.cfg.Repo.GetConversationSummary(conversationID)
 
+	// Use index-based slicing instead of lexicographic ID comparison.
+	// UUIDv7 ordering within the same millisecond is not guaranteed.
 	var contextMessages []chat.Message
-	for _, m := range allRootMessages {
-		if m.ID > summaryUpToID {
-			contextMessages = append(contextMessages, m)
+	if summaryUpToID == "" {
+		contextMessages = allRootMessages
+	} else {
+		startIdx := -1
+		for i, m := range allRootMessages {
+			if m.ID == summaryUpToID {
+				startIdx = i + 1
+				break
+			}
+		}
+		if startIdx >= 0 && startIdx < len(allRootMessages) {
+			contextMessages = allRootMessages[startIdx:]
+		} else {
+			// summaryUpToID not found (deleted?) — treat all as context
+			contextMessages = allRootMessages
 		}
 	}
 
@@ -230,10 +244,20 @@ func (s *Service) TriggerSummarizationInBackground(
 	}
 
 	var newMessages []chat.Message
-	for _, m := range messagesToSummarize {
-		if m.ID > currentUpToID {
-			newMessages = append(newMessages, m)
+	if currentUpToID == "" {
+		newMessages = messagesToSummarize
+	} else {
+		startIdx := -1
+		for i, m := range messagesToSummarize {
+			if m.ID == currentUpToID {
+				startIdx = i + 1
+				break
+			}
 		}
+		if startIdx >= 0 && startIdx < len(messagesToSummarize) {
+			newMessages = messagesToSummarize[startIdx:]
+		}
+		// If currentUpToID not found, newMessages stays nil → treated as "nothing new"
 	}
 	if len(newMessages) == 0 {
 		log.Printf("[Summary] Nenhuma mensagem nova para resumir (já resumido até ID %s)", currentUpToID)

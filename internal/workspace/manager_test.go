@@ -286,7 +286,7 @@ func TestUpdateTab_ConversationIDFloat64Zero(t *testing.T) {
 		t.Errorf("conversation_id float64(0) deveria virar empty, got %q", tab.ConversationID)
 	}
 
-	// float64 positivo deve virar string do número (legado compatível)
+	// float64 positivo (legacy) deve virar "" — numeric IDs are invalid post-UUIDv7 migration
 	if err := m.UpdateTab("tab-conv", map[string]any{
 		"conversation_id": float64(42),
 	}); err != nil {
@@ -294,8 +294,20 @@ func TestUpdateTab_ConversationIDFloat64Zero(t *testing.T) {
 	}
 
 	tab = m.active.FindTab("tab-conv")
-	if tab.ConversationID != "42" {
-		t.Errorf("conversation_id float64(42) deveria virar \"42\", got %q", tab.ConversationID)
+	if tab.ConversationID != "" {
+		t.Errorf("conversation_id float64(42) deveria virar empty (legacy), got %q", tab.ConversationID)
+	}
+
+	// non-UUID string should be discarded
+	if err := m.UpdateTab("tab-conv", map[string]any{
+		"conversation_id": "42",
+	}); err != nil {
+		t.Fatalf("UpdateTab: %v", err)
+	}
+
+	tab = m.active.FindTab("tab-conv")
+	if tab.ConversationID != "" {
+		t.Errorf("conversation_id string \"42\" deveria virar empty (non-UUID), got %q", tab.ConversationID)
 	}
 
 	// string UUID deve funcionar normalmente
