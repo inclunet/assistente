@@ -44,7 +44,7 @@ test('chat modal do terminal cria conversa e envia mensagem', async ({ page, wai
     },
   ]);
   await wails.setResponse('CreateConversation', {
-    id: '11',
+    id: '01970a9e-0011-7000-8000-000000000011',
     title: 'Nova conversa',
     created_at: now,
     updated_at: now,
@@ -52,7 +52,7 @@ test('chat modal do terminal cria conversa e envia mensagem', async ({ page, wai
     message_count: 0,
   });
   await wails.setResponse('GetConversationInfo', {
-    id: '11',
+    id: '01970a9e-0011-7000-8000-000000000011',
     title: 'Nova conversa',
     created_at: now,
     updated_at: now,
@@ -61,7 +61,7 @@ test('chat modal do terminal cria conversa e envia mensagem', async ({ page, wai
   });
   await wails.setResponse('GetMessages', []);
   await wails.setResponse('UpdateWorkspaceTab', undefined);
-  await wails.setResponse('SendMessage', '101');
+  await wails.setResponse('SendMessage', '01970a9e-0101-7000-8000-000000000101');
 
   await wails.waitForApp();
 
@@ -85,6 +85,6 @@ test('chat modal do terminal cria conversa e envia mensagem', async ({ page, wai
 
   expect(createCalls.length).toBe(1);
   expect(sendCalls.length).toBe(1);
-  expect(sendCalls[0].args[0]).toBe('11');
+  expect(sendCalls[0].args[0]).toBe('01970a9e-0011-7000-8000-000000000011');
   expect(sendCalls[0].args[1]).toBe('teste terminal');
 });
