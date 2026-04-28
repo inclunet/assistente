@@ -362,14 +362,8 @@ func TestLoadIDRemap_HighestPriorityWins(t *testing.T) {
 
 	// Set CWD to tmpWork so configdir resolves workdir=tmpWork, home=tmpHome.
 	// We override the HOME env so configdir picks tmpHome as cachedHomeDir.
-	origHome := os.Getenv("HOME")
-	origUserProfile := os.Getenv("USERPROFILE")
-	os.Setenv("HOME", tmpHome)
-	os.Setenv("USERPROFILE", tmpHome)
-	t.Cleanup(func() {
-		os.Setenv("HOME", origHome)
-		os.Setenv("USERPROFILE", origUserProfile)
-	})
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 
 	withChdirAndConfigReset(t, tmpWork)
 
