@@ -442,8 +442,8 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 		tab.Title = title
 	}
 	if convID, ok := updates["conversation_id"].(string); ok {
-		// Only accept valid UUIDs; legacy numeric strings (e.g. "42") are discarded.
-		if _, err := uuid.Parse(convID); err == nil {
+		// Only accept valid UUIDv7; legacy numeric strings and other UUID versions are discarded.
+		if parsed, err := uuid.Parse(convID); err == nil && parsed.Version() == 7 {
 			tab.ConversationID = convID
 		} else {
 			tab.ConversationID = ""
@@ -691,9 +691,9 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		needsSave = true
 		switch t.Type {
 		case TabTypeChat:
-			// content_id era o conversation ID — migrar apenas se for UUID válido
+			// content_id era o conversation ID — migrar apenas se for UUIDv7 válido
 			if t.ConversationID == "" {
-				if _, err := uuid.Parse(t.ContentID); err == nil {
+				if parsed, err := uuid.Parse(t.ContentID); err == nil && parsed.Version() == 7 {
 					t.ConversationID = t.ContentID
 				}
 			}
@@ -722,7 +722,8 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	for i := range ws.Tabs.Items {
 		t := &ws.Tabs.Items[i]
 		if t.Type == TabTypeChat && t.ConversationID != "" {
-			if _, err := uuid.Parse(t.ConversationID); err != nil {
+			parsed, err := uuid.Parse(t.ConversationID)
+			if err != nil || parsed.Version() != 7 {
 				t.ConversationID = ""
 				needsSave = true
 			}

@@ -321,4 +321,16 @@ func TestUpdateTab_ConversationIDFloat64Zero(t *testing.T) {
 	if tab.ConversationID != "01970a9e-1234-7000-8000-abcdef123456" {
 		t.Errorf("conversation_id string UUID incorreto, got %q", tab.ConversationID)
 	}
+
+	// UUIDv4 must be rejected — only UUIDv7 is accepted post-migration
+	if err := m.UpdateTab("tab-conv", map[string]any{
+		"conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+	}); err != nil {
+		t.Fatalf("UpdateTab: %v", err)
+	}
+
+	tab = m.active.FindTab("tab-conv")
+	if tab.ConversationID != "" {
+		t.Errorf("conversation_id UUIDv4 deveria virar empty, got %q", tab.ConversationID)
+	}
 }

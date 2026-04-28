@@ -58,11 +58,11 @@ func BuildMessageTree(messages []Message) []MessageNode {
 	}
 
 	sort.Slice(rootMessages, func(i, j int) bool {
-		return rootMessages[i].ID < rootMessages[j].ID
+		return rootMessages[i].CreatedAt.Before(rootMessages[j].CreatedAt)
 	})
 	for parentID := range childrenMap {
 		sort.Slice(childrenMap[parentID], func(i, j int) bool {
-			return childrenMap[parentID][i].ID < childrenMap[parentID][j].ID
+			return childrenMap[parentID][i].CreatedAt.Before(childrenMap[parentID][j].CreatedAt)
 		})
 	}
 
