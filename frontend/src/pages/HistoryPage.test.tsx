@@ -31,7 +31,13 @@ vi.mock('react-router-dom', () => ({
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (_key: string, fallback?: string) => fallback ?? _key,
+    t: (key: string, fallback?: string | { defaultValue?: string; count?: number }) => {
+      if (typeof fallback === 'string') return fallback;
+      if (fallback?.defaultValue) {
+        return fallback.defaultValue.replace('{{count}}', String(fallback.count ?? ''));
+      }
+      return key;
+    },
   }),
 }));
 
