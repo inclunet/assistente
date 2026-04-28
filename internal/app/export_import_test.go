@@ -60,3 +60,48 @@ func TestResolveConversationIDsRespectsExplicitSelection(t *testing.T) {
 		t.Fatalf("expected nil conversation ids, got %#v", ids)
 	}
 }
+
+func TestValidateDBOnlyExportRequestRejectsUnsupportedResources(t *testing.T) {
+	err := validateDBOnlyExportRequest(ExportRequest{
+		ProfileSlugs:     []string{"default"},
+		SkillSlugs:       []string{"writer"},
+		AllowlistSlugs:   []string{"safe"},
+		MCPServerSlugs:   []string{"github"},
+		JobIDs:           []string{"job-1"},
+		ChannelNames:     []string{"telegram"},
+		IncludeContacts:  true,
+		IncludeWorkspace: true,
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, want := range []string{
+		"profiles",
+		"skills",
+		"allowlists",
+		"mcpServers",
+		"jobs",
+		"channels",
+		"contacts",
+		"workspace",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing unsupported resource %q", err.Error(), want)
+		}
+	}
+}
+
+func TestValidateDBOnlyExportRequestAllowsSupportedDBOnlyResources(t *testing.T) {
+	err := validateDBOnlyExportRequest(ExportRequest{
+		ExplicitSelection:        true,
+		ConversationIDs:          []string{"01926b90-7a5a-7c4e-8d3f-000000000001"},
+		ProviderIDs:              []string{"01926b90-7a5a-7c4e-8d3f-000000000002"},
+		TaskListIDs:              []string{"01926b90-7a5a-7c4e-8d3f-000000000003"},
+		IncludeCredentials:       true,
+		CredentialExportPassword: "segredo",
+		IncludeAudio:             true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

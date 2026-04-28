@@ -34,6 +34,9 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 	if req.OutputFormat == "" {
 		req.OutputFormat = portability.FormatJSON
 	}
+	if err := validateDBOnlyExportRequest(req); err != nil {
+		return "", err
+	}
 
 	conversationIDs, err := resolveConversationIDs(req)
 	if err != nil {
@@ -147,6 +150,9 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 	if req.OutputFormat == "" {
 		req.OutputFormat = portability.FormatJSON
 	}
+	if err := validateDBOnlyExportRequest(req); err != nil {
+		return "", err
+	}
 
 	switch req.OutputFormat {
 	case portability.FormatJSON:
@@ -206,6 +212,41 @@ func normalizeRichConversationExportRequest(req ExportRequest) (ExportRequest, e
 	req.IncludeCredentials = false
 	req.CredentialExportPassword = ""
 	return req, nil
+}
+
+func validateDBOnlyExportRequest(req ExportRequest) error {
+	unsupported := make([]string, 0)
+	if len(req.ProfileSlugs) > 0 {
+		unsupported = append(unsupported, "profiles")
+	}
+	if len(req.SkillSlugs) > 0 {
+		unsupported = append(unsupported, "skills")
+	}
+	if len(req.AllowlistSlugs) > 0 {
+		unsupported = append(unsupported, "allowlists")
+	}
+	if len(req.MCPServerSlugs) > 0 {
+		unsupported = append(unsupported, "mcpServers")
+	}
+	if len(req.JobIDs) > 0 {
+		unsupported = append(unsupported, "jobs")
+	}
+	if len(req.ChannelNames) > 0 {
+		unsupported = append(unsupported, "channels")
+	}
+	if req.IncludeContacts {
+		unsupported = append(unsupported, "contacts")
+	}
+	if req.IncludeWorkspace {
+		unsupported = append(unsupported, "workspace")
+	}
+	if len(unsupported) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"recursos fora do escopo DB-only da AEP-0047 ainda não são suportados: %s",
+		strings.Join(unsupported, ", "),
+	)
 }
 
 func resolveConversationIDs(req ExportRequest) ([]string, error) {
