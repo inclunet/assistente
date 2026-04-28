@@ -367,51 +367,44 @@ Até que as migrações arquiteturais das AEP-0046, AEP-0048, AEP-0050, AEP-0051
 
 ## Fases
 
-### Fase 1 — Backend: estrutura do export
+### Fase 1 — Backend DB-only
 
-1. Criar pacote `internal/portability/` com tipos `ExportFile`, `ExportRequest`, `ExportResult`
-2. Criar `ExportService` com registry de `ResourceExporter` handlers
-3. Implementar exporters para recursos do banco: Conversation (com mensagens embutidas), LLMProvider, CredentialEntry (sem campos criptografados), TaskList (com workflow, tasks e notes embutidos)
-4. Implementar exporters para recursos em arquivo: Profile, Skill, Allowlist, MCP Server, Job, Channel (sem tokens), Contact, Workspace
-5. Implementar função `ExportAll` que chama todos os exporters
-6. Implementar serialização JSON com `version`, `exportedAt`, `appVersion`, `options`
+1. Criar pacote `internal/portability/` com tipos `ExportFile`, `ExportRequest`, `ImportResult` e `ImportAnalysis`.
+2. Implementar serialização JSON com `version: 2`, `exportedAt`, `appVersion`, `options` e `resources`.
+3. Implementar export/import de conversas e mensagens com IDs UUID preservados, incluindo `parentId` e `turnId`.
+4. Implementar export/import de providers persistidos por ID.
+5. Implementar export/import de tasklists persistidas, incluindo workflow, tasks, subtasks e notes.
+6. Implementar credenciais portáteis como bloco criptografado por senha de exportação; sem senha/bloco válido, o import deve falhar claramente.
+7. Rejeitar seleções de recursos fora do escopo DB-only no export para evitar perda silenciosa de expectativa.
+8. Ignorar seções importadas fora do escopo DB-only com warning claro.
 
-### Fase 2 — Backend: estrutura do import
+### Fase 2 — Export rico derivado
 
-7. Criar `ImportService` com registry de `ResourceImporter` handlers
-8. Implementar detecção de conflitos para cada tipo de recurso
-9. Implementar importação com resolução: pular, sobrescrever, renomear
-10. Implementar resolução de referências cruzadas (D8)
-11. Implementar importação de cada tipo de recurso (ordem de dependência):
-    - Independentes: Allowlist, Skill, MCP, Job, Contact
-    - Credenciais (esqueleto)
-    - LLM Providers
-    - Profiles (referencia providers, skills, allowlists)
-    - TaskLists (com workflow, tasks, notes)
-    - Conversations (com mensagens)
-    - Channels (referencia profiles, conversations)
-    - Workspaces (referencia profiles, conversations, tasklists)
+9. Gerar HTML a partir do modelo canônico de conversas.
+10. Gerar PDF a partir do mesmo modelo canônico de conversas.
+11. Manter HTML/PDF como formatos somente de exportação; importação aceita apenas JSON.
 
-### Fase 3 — App layer (Wails)
+### Fase 3 — App layer e CLI
 
-12. Expor funções Wails: `ExportData(req)`, `ImportPreview(filePath)`, `ImportData(filePath, resolutions)`
-13. `ImportPreview` retorna: recursos encontrados, conflitos detectados, warnings de dados sensíveis
-14. `ImportData` executa a importação com resoluções de conflito fornecidas pelo usuário
+12. Expor funções Wails para `ExportData`, `AnalyzeImportData`, `ImportData`, `ImportDataWithResolutions`, `ExportDataToFile` e `ExportConversationsToFile`.
+13. Implementar CLI `asst data export`, `asst data analyze` e `asst data import` para o recorte DB-only.
+14. Garantir mensagens claras para recursos fora do escopo e versões incompatíveis.
 
-### Fase 4 — Frontend: UI
+### Fase 4 — Frontend DB-only
 
-15. Menu principal: adicionar "Exportar dados..." e "Importar dados..."
-16. Modal de export: tree de checkboxes por tipo de recurso, com seleção individual
-17. Modal de import: preview dos recursos, lista de conflitos com opções (pular/sobrescrever/renomear), warnings de dados sensíveis
-18. Progress feedback via eventos ou loading state
-19. i18n: adicionar chaves nos 3 locales (pt-BR, en, es)
+15. Expor fluxo de export/import de dados DB-only na UI.
+16. Permitir exportar conversas, providers, tasklists e credenciais sem exigir que todos os tipos estejam presentes.
+17. Exigir senha quando credenciais forem incluídas.
+18. Exibir preview de import com contagens, warnings, recursos fora do escopo e necessidade de senha.
+19. i18n: adicionar chaves nos 3 locales (`pt-BR`, `en`, `es`).
+20. Acessibilidade: modais navegáveis por teclado, foco gerenciado e feedback via announcer/toast.
 
 ### Fase 5 — Testes
 
-20. Testes Go: export/import roundtrip para cada tipo de recurso
-21. Testes Go: detecção de conflitos, resolução de referências cruzadas
-22. Testes Go: versionamento (rejeitar versão desconhecida, ignorar campos extras)
-23. Testes Vitest: modais de export/import, interação com conflitos
+21. Testes Go: export/import roundtrip para conversas, providers, tasklists e credenciais.
+22. Testes Go: versionamento (`version: 2` aceito; versões incompatíveis rejeitadas) e campos desconhecidos ignorados quando inofensivos.
+23. Testes Go: recursos fora do escopo no import geram warning; recursos fora do escopo no export são rejeitados.
+24. Testes frontend: modais de export/import, seleção DB-only, senha de credenciais, preview e warnings.
 
 ## Riscos
 
@@ -421,23 +414,25 @@ Até que as migrações arquiteturais das AEP-0046, AEP-0048, AEP-0050, AEP-0051
 | R2 | Referências cruzadas quebradas na importação | Alta | Médio | Warnings ao usuário; campos vazios não impedem import |
 | R3 | Vazamento de dados sensíveis em MCP `env` | Média | Alto | Warning explícito na UI antes de confirmar export |
 | R4 | Conflito de slugs gera confusão | Média | Médio | Preview detalhado antes de importar; opção renomear |
-| R5 | Formato JSON sem IDs dificulta debug | Baixa | Baixo | Índices ordinais e `createdAt` permitem rastreio |
+| R5 | Formato JSON com referências quebradas dificulta debug | Baixa | Baixo | IDs preservados, índices auxiliares e `createdAt` permitem rastreio |
 | R6 | Áudio excluído causa perda silenciosa | Média | Baixo | Campo `audioMimeType` preservado como indicador |
 
 ## Critérios de aceitação
 
-Os critérios abaixo descrevem o objetivo final da AEP. Para esta PR, considera-se atendido o subconjunto compatível com a fase DB-only descrita em D0.
+Os critérios abaixo são os critérios de aceite desta PR, limitada ao recorte
+DB-only descrito em D0.
 
-1. **Export completo** do sistema gera JSON válido com todos os tipos de recurso
-2. **Export seletivo** permite escolher tipos e recursos individuais
-3. **Import roundtrip**: export → import em instância limpa → dados equivalentes (exceto IDs e credenciais)
-4. **Conflitos** são detectados e apresentados ao usuário antes da importação
-5. **Referências cruzadas** são resolvidas corretamente quando ambos os lados estão no export
-6. **Credenciais** sensíveis ficam excluídas por padrão e, quando incluídas, aparecem apenas em bloco criptografado por senha de exportação
-7. **Tokens de canais** nunca aparecem no JSON de export
-8. **Áudio** é excluído por padrão; `audioMimeType` preservado
-9. **Versionamento**: import rejeita `version > 1` com mensagem clara
-10. **i18n**: todas as strings de UI nos 3 locales
-11. **Acessibilidade**: modais de export/import navegáveis por teclado, com announcements
-12. **Importação** aceita apenas o formato JSON canônico
-13. **HTML/PDF** são gerados a partir do mesmo modelo canônico do export JSON
+1. **Export JSON DB-only** gera `version: 2` válido com conversas/mensagens, providers, tasklists e credenciais criptografadas quando selecionadas.
+2. **IDs preservados**: recursos persistidos exportados mantêm seus UUIDs e referências internas por ID.
+3. **Import roundtrip**: export → import em instância limpa → dados equivalentes, com IDs preservados; credenciais só entram quando exportadas com senha e são recriptografadas na instância destino.
+4. **Import idempotente por ID**: reimportar o mesmo arquivo não duplica conversas, providers, tasklists ou credenciais.
+5. **Recursos fora do escopo no export** são rejeitados com mensagem clara.
+6. **Recursos fora do escopo no import** são ignorados com warning claro, sem bloquear os recursos DB-only válidos do arquivo.
+7. **Credenciais** ficam excluídas por padrão e, quando incluídas, aparecem apenas em bloco criptografado por senha de exportação; `CredentialKeyWrap` nunca é exportado.
+8. **Bloco de credenciais obrigatório**: se `includeCredentials: true`, `resources.credentials` deve existir e ser válido.
+9. **Áudio** é excluído por padrão; `audioMimeType` é preservado. Quando `includeAudio` for usado, o comportamento deve ser explícito na UI/CLI.
+10. **Versionamento**: import aceita `version: 2` e rejeita versões incompatíveis com mensagem clara.
+11. **Importação** aceita apenas o formato JSON canônico; HTML/PDF são apenas formatos derivados de exportação.
+12. **HTML/PDF** são gerados a partir do mesmo modelo canônico de conversas do export JSON.
+13. **i18n**: todas as strings de UI novas existem nos 3 locales.
+14. **Acessibilidade**: modais de export/import são navegáveis por teclado, com foco gerenciado e feedback via announcer/toast.
