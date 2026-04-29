@@ -108,39 +108,33 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 		return err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	updated := false
-	storedIndex := -1
-	for i, existing := range m.credentials {
-		if existing.Pattern == pattern || (cred.ID != "" && existing.ID == cred.ID) {
-			m.credentials[i] = &DomainCredential{ID: cred.ID, Pattern: pattern, regex: regex, Auth: encAuth}
-			updated = true
-			storedIndex = i
-			break
-		}
-	}
-	if !updated {
-		m.credentials = append(m.credentials, &DomainCredential{ID: cred.ID, Pattern: pattern, regex: regex, Auth: encAuth})
-		storedIndex = len(m.credentials) - 1
-	}
-
+	persistedID := cred.ID
 	if m.persist && m.store != nil {
 		if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, Pattern: pattern, Auth: encAuth}); err != nil {
 			return err
 		}
-		if cred.ID == "" && storedIndex >= 0 {
+		if cred.ID == "" {
 			if persisted, err := m.store.ListCredentials(ctx); err == nil {
 				for _, entry := range persisted {
 					if entry.Pattern == pattern && entry.ID != "" {
-						m.credentials[storedIndex].ID = entry.ID
+						persistedID = entry.ID
 						break
 					}
 				}
 			}
 		}
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i, existing := range m.credentials {
+		if existing.Pattern == pattern || (persistedID != "" && existing.ID == persistedID) {
+			m.credentials[i] = &DomainCredential{ID: persistedID, Pattern: pattern, regex: regex, Auth: encAuth}
+			return nil
+		}
+	}
+	m.credentials = append(m.credentials, &DomainCredential{ID: persistedID, Pattern: pattern, regex: regex, Auth: encAuth})
 
 	return nil
 }

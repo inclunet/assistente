@@ -147,10 +147,6 @@ func ImportConversationsWithResolutions(
 	for _, conflict := range analysis.CredentialConflicts {
 		credentialConflictIdentifiers[conflict.Identifier] = struct{}{}
 	}
-	providerConflictKeys := make(map[string]struct{}, len(analysis.ProviderConflicts))
-	for _, conflict := range analysis.ProviderConflicts {
-		providerConflictKeys[conflict.Identifier] = struct{}{}
-	}
 	taskListConflictKeys := make(map[string]struct{}, len(analysis.TaskListConflicts))
 	for _, conflict := range analysis.TaskListConflicts {
 		taskListConflictKeys[conflict.Identifier] = struct{}{}
@@ -211,33 +207,6 @@ func ImportConversationsWithResolutions(
 	}
 
 	for _, provider := range file.Resources.Providers {
-		if _, exists := providerConflictKeys[providerConflictIdentifier(provider)]; exists {
-			resolution, hasResolution := resolutionMap.lookup("provider", providerConflictIdentifier(provider))
-			if !hasResolution || resolution.Strategy == ConflictResolutionSkip {
-				result.Skipped++
-				result.SkippedProviderConflict++
-				continue
-			}
-			resolvedProvider, err := applyProviderResolution(provider, resolution)
-			if err != nil {
-				result.Errors = append(result.Errors, err.Error())
-				result.Failed++
-				continue
-			}
-			if resolution.Strategy == ConflictResolutionOverwrite {
-				imported, err := overwriteProvider(resolvedProvider)
-				if err != nil {
-					result.Errors = append(result.Errors, err.Error())
-					result.Failed++
-					continue
-				}
-				if imported {
-					result.Imported++
-				}
-				continue
-			}
-			provider = resolvedProvider
-		}
 		imported, err := importProvider(provider)
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
@@ -643,10 +612,7 @@ func importCredentials(
 	imported := 0
 
 	for _, cred := range creds {
-		identifier := strings.TrimSpace(cred.ID)
-		if identifier == "" {
-			identifier = cred.Pattern
-		}
+		identifier := credentialConflictIdentifier(cred)
 		if _, hasConflict := conflictIdentifiers[identifier]; hasConflict {
 			resolution, hasResolution := resolutionMap.lookup("credential", identifier)
 			if !hasResolution || resolution.Strategy == ConflictResolutionSkip {
@@ -743,31 +709,6 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 		})
 	}
 
-	existingProviders, err := database.GetLLMProviders()
-	if err != nil {
-		return nil, fmt.Errorf("erro ao analisar providers existentes: %w", err)
-	}
-	existingProviderIDs := make(map[string]struct{}, len(existingProviders))
-	for _, provider := range existingProviders {
-		existingProviderIDs[strings.TrimSpace(provider.ID)] = struct{}{}
-	}
-	for _, provider := range file.Resources.Providers {
-		if strings.TrimSpace(provider.ID) != "" {
-			if _, exists := existingProviderIDs[providerConflictIdentifier(provider)]; exists {
-				continue
-			}
-		}
-		if _, exists := existingProviderIDs[providerConflictIdentifier(provider)]; !exists {
-			continue
-		}
-		analysis.ProviderConflicts = append(analysis.ProviderConflicts, ImportConflict{
-			ResourceType:        "provider",
-			Identifier:          providerConflictIdentifier(provider),
-			Reason:              "Já existe um provider com o mesmo id.",
-			SupportedStrategies: []ConflictResolutionStrategy{ConflictResolutionSkip, ConflictResolutionOverwrite, ConflictResolutionRename},
-		})
-	}
-
 	existingTaskLists, err := database.GetAllTaskLists()
 	if err != nil {
 		return nil, fmt.Errorf("erro ao analisar tasklists existentes: %w", err)
@@ -818,12 +759,13 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 								continue
 							}
 						}
-						if _, exists := existingCredentialPatterns[cred.Pattern]; !exists {
+						identifier := credentialConflictIdentifier(cred)
+						if _, exists := existingCredentialPatterns[identifier]; !exists {
 							continue
 						}
 						analysis.CredentialConflicts = append(analysis.CredentialConflicts, ImportConflict{
 							ResourceType:        "credential",
-							Identifier:          cred.Pattern,
+							Identifier:          identifier,
 							Reason:              "Já existe uma credencial registrada com o mesmo pattern.",
 							SupportedStrategies: []ConflictResolutionStrategy{ConflictResolutionSkip, ConflictResolutionOverwrite},
 						})
@@ -868,6 +810,10 @@ func loadExistingCredentialIdentifiers() (map[string]struct{}, map[string]struct
 		}
 	}
 	return ids, patterns, nil
+}
+
+func credentialConflictIdentifier(cred CredentialExport) string {
+	return strings.TrimSpace(cred.Pattern)
 }
 
 func parseExportFile(jsonData string) (*ExportFile, []string, error) {

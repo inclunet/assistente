@@ -1402,3 +1402,62 @@ func TestImportConversationsOverwritesCredentialsByID(t *testing.T) {
 		t.Fatalf("credential token = %v, want token-novo", auth)
 	}
 }
+
+func TestImportConversationsSkipsCredentialConflictByPattern(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
+	if err := credMgr.RegisterPatternWithContext(t.Context(), "api.openai.com", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "token-antigo",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext(existing) error = %v", err)
+	}
+
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Options: ExportOptions{
+			IncludeCredentials: true,
+		},
+	}
+	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
+		{ID: "different-id", Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
+	})
+	if err != nil {
+		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
+	}
+	file.Resources.Credentials = blob
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	analysis, err := AnalyzeImportData(string(raw), credMgr, "senha-teste")
+	if err != nil {
+		t.Fatalf("AnalyzeImportData() error = %v", err)
+	}
+	if len(analysis.CredentialConflicts) != 1 {
+		t.Fatalf("CredentialConflicts len = %d, want 1: %+v", len(analysis.CredentialConflicts), analysis.CredentialConflicts)
+	}
+	if analysis.CredentialConflicts[0].Identifier != "api.openai.com" {
+		t.Fatalf("Credential conflict identifier = %q, want pattern", analysis.CredentialConflicts[0].Identifier)
+	}
+
+	result, err := ImportConversations(string(raw), credMgr, "senha-teste")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Imported != 0 || result.SkippedCredentialConflict != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	auth, err := credMgr.ResolveForURL("https://api.openai.com/v1/models")
+	if err != nil {
+		t.Fatalf("ResolveForURL() error = %v", err)
+	}
+	if auth == nil || auth.Token != "token-antigo" {
+		t.Fatalf("credential token = %v, want token-antigo", auth)
+	}
+}

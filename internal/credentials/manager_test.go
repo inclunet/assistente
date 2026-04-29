@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"testing"
+	"time"
 )
 
 func TestWildcardToRegex(t *testing.T) {
@@ -565,6 +566,75 @@ func TestUpdateExistingPattern(t *testing.T) {
 	resolved, _ := mgr.GetByPattern("api.test.com")
 	if resolved == nil || resolved.Token != "new-token" {
 		t.Errorf("Pattern não foi atualizado: %+v", resolved)
+	}
+}
+
+type reentrantCredentialStore struct {
+	manager *Manager
+	saved   StoredCredential
+}
+
+func (s *reentrantCredentialStore) SaveCredential(_ context.Context, cred StoredCredential) error {
+	s.saved = cred
+	_ = s.manager.ListPatterns()
+	return nil
+}
+
+func (s *reentrantCredentialStore) ListCredentials(context.Context) ([]StoredCredential, error) {
+	if s.saved.Pattern == "" {
+		return nil, nil
+	}
+	cred := s.saved
+	if cred.ID == "" {
+		cred.ID = "persisted-credential-id"
+	}
+	return []StoredCredential{cred}, nil
+}
+
+func (s *reentrantCredentialStore) DeleteCredential(context.Context, string) error {
+	return nil
+}
+
+func (s *reentrantCredentialStore) SaveKeyWrap(context.Context, KeyWrap) error {
+	return nil
+}
+
+func (s *reentrantCredentialStore) GetKeyWrap(context.Context, string) (*KeyWrap, error) {
+	return nil, nil
+}
+
+func (s *reentrantCredentialStore) HasKeyWrap(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func TestRegisterStoredCredentialDoesNotHoldLockDuringStoreIO(t *testing.T) {
+	store := &reentrantCredentialStore{}
+	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	store.manager = mgr
+
+	done := make(chan error, 1)
+	go func() {
+		done <- mgr.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
+			Pattern: "api.example.com",
+			Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+		})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RegisterStoredCredentialWithContext() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RegisterStoredCredentialWithContext() appears to hold manager lock during store I/O")
+	}
+
+	creds, err := mgr.ListCredentials()
+	if err != nil {
+		t.Fatalf("ListCredentials() error = %v", err)
+	}
+	if len(creds) != 1 || creds[0].ID != "persisted-credential-id" {
+		t.Fatalf("expected persisted credential id in memory, got %+v", creds)
 	}
 }
 

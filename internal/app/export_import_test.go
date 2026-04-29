@@ -61,6 +61,32 @@ func TestResolveConversationIDsRespectsExplicitSelection(t *testing.T) {
 	}
 }
 
+func TestResolveConversationIDsAcceptsUUIDStrings(t *testing.T) {
+	const id = "01926b90-7a5a-7c4e-8d3f-000000000001"
+	ids, err := resolveConversationIDs(ExportRequest{
+		ConversationIDs: []string{id},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != id {
+		t.Fatalf("expected UUID string to be preserved, got %#v", ids)
+	}
+}
+
+func TestResolveTaskListIDsAcceptsUUIDStrings(t *testing.T) {
+	const id = "01926b90-7a5a-7c4e-8d3f-000000000003"
+	ids, err := resolveTaskListIDs(ExportRequest{
+		TaskListIDs: []string{id},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != id {
+		t.Fatalf("expected UUID string to be preserved, got %#v", ids)
+	}
+}
+
 func TestValidateDBOnlyExportRequestRejectsUnsupportedResources(t *testing.T) {
 	err := validateDBOnlyExportRequest(ExportRequest{
 		ProfileSlugs:     []string{"default"},
