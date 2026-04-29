@@ -10,14 +10,17 @@
 
 ## Resumo
 
-Introduzir um sistema de contas de usuário no aplicativo, atualmente 100% single-user. Cada usuário terá uma conta local com isolamento criptográfico completo (DEK própria, master key própria, recovery key própria). Todos os recursos do sistema — provedores LLM, conversas, credenciais, listas de tarefas — serão vinculados a um `user_id`.
+Introduzir um sistema de contas e autenticação no aplicativo, atualmente 100% single-user, com separação explícita entre:
 
-A implementação mantém a experiência local transparente (auto-login via keyring) enquanto prepara a arquitetura para:
-- Multi-user local (contas compartilhando a mesma máquina)
-- Futuro deployment em nuvem (server remoto com login convencional)
-- Social login com provedores externos (Google, GitHub, Microsoft)
+- **Cofre (DEK global por instância)**: segredo de infraestrutura da instância (local ou remota) usado para criptografar credenciais e outros dados sensíveis do servidor. A DEK é persistida no keyring do SO quando possível, com recuperação via wraps `master`/`recovery` no banco.
+- **Usuários (identidade)**: contas locais (modo 100% local) usadas para login, ownership lógico (`user_id`) e autorização por roles simples (`admin`/`user`).
 
-Social login é **apenas previsto na modelagem** (campos e interfaces), sem implementação OAuth2 nesta AEP.
+Esta AEP também introduz o primeiro passo real do “split”: no modo local, o backend passa a expor uma **API HTTP** para consumo por outros clientes/instâncias na rede.
+
+Dois modos de autenticação/autorização são suportados:
+
+- **`auth.mode=local`** (100% local): o Assistente emite e valida seus próprios tokens (JWT access + refresh token com rotação) e aplica roles `admin/user`.
+- **`auth.mode=external`** (IdP existente): o Assistente atua como **resource server**, valida JWT do IdP via JWKS e aplica scopes/roles definidos externamente (sem sessão própria do Assistente nesta fase).
 
 ---
 
@@ -33,7 +36,7 @@ Sem `user_id`, todos os recursos (conversas, providers, credenciais) são globai
 
 ### 3. Isolamento criptográfico
 
-O sistema de credenciais usa uma DEK (Data Encryption Key) global. Com contas, cada usuário tem sua própria DEK envolvida por sua própria senha. Um usuário não consegue descriptografar credenciais de outro — nem com acesso direto ao banco.
+O sistema de credenciais já usa uma DEK (Data Encryption Key) global. Nesta AEP, a DEK permanece **global por instância** (cofre de infraestrutura). O isolamento entre usuários é **lógico** (via `user_id` nas tabelas e enforcement em queries/handlers), não criptográfico por usuário.
 
 ### 4. Pré-requisito para migrações DB
 
@@ -46,8 +49,8 @@ As AEPs 0046-0051 migram recursos para banco de dados. Ter `user_id` disponível
 ### Autenticação
 
 - **Zero**: Não existe conceito de usuário, conta, login ou sessão
-- O app abre direto; a única "autenticação" é a master key para descriptografar credenciais
-- Master key armazenada no keyring do SO; se keyring falhar, pede senha novamente
+- O app abre direto; a única "autenticação" hoje é o cofre (DEK) para descriptografar credenciais
+- A DEK é armazenada no keyring do SO quando disponível; se keyring falhar, há fluxo de recuperação via wraps `master`/`recovery`
 
 ### Recursos sem owner
 
@@ -69,90 +72,97 @@ As AEPs 0046-0051 migram recursos para banco de dados. Ter `user_id` disponível
 
 6 etapas: Senha Mestre → Recovery Key → Escolher Provider → URL → API Key → Modelo
 
-Detecção: `NeedsWelcomeWizard()` retorna true se não há master key OU não há providers.
+Detecção: `NeedsWelcomeWizard()` retorna true se o cofre (DEK/wraps) não está inicializado OU não há providers.
 
 ---
 
 ## Decisões
 
-### D1. Senha da conta = Master Key (senha unificada)
+### D1. Cofre (DEK global) é infraestrutura e é separado de usuários
 
-Uma única senha serve para:
-1. **Autenticação**: Hash Argon2id armazenado em `users.password_hash` — verifica identidade
-2. **Criptografia**: Argon2id com salt diferente → chave que wraps a DEK — protege credenciais
+- A DEK permanece **global por instância** (servidor local/daemon ou servidor remoto).
+- O cofre é pré-requisito de infraestrutura para operar credenciais e segredos.
+- Rotação de DEK: **fora de escopo** desta AEP.
 
-O usuário não precisa memorizar duas senhas. A segurança não é reduzida porque os derivados usam salts independentes.
+### D2. Bootstrap obrigatório (ordem fixa)
 
-**Fluxo de login**:
-```
-senha → Argon2id(senha, salt_auth) → compara com password_hash   ✓ identidade
-senha → Argon2id(senha, salt_wrap) → unwrap DEK                  ✓ criptografia
-```
+1. **Inicializar o cofre** (antes de qualquer usuário): gerar DEK global, persistir wraps `master`/`recovery`, salvar DEK no keyring, exibir recovery key uma única vez.
+2. **Criar o usuário admin local** (primeiro user).
+3. Habilitar o restante (sessões, providers, recursos).
 
-### D2. DEK por usuário (isolamento total)
+### D3. Estado `VaultLocked` (sem usuário)
 
-Cada conta tem:
-- Sua própria **DEK** (32 bytes aleatórios, AES-256)
-- Seu próprio **master key wrap** (DEK envolvida pela senha do user)
-- Sua própria **recovery key** (192 bits, exibida uma vez)
+Se a DEK não estiver disponível (keyring vazio + não houve unlock), o servidor entra em `VaultLocked` e expõe apenas endpoints mínimos (sem auth) para recuperar o cofre:
 
-Credenciais de um usuário são inacessíveis a outro, mesmo com acesso ao banco.
+- `GET /vault/status`
+- `POST /vault/unlock` (senha mestre do cofre ou recovery key)
+- `POST /vault/setup` (apenas no primeiro uso, quando ainda não há wraps)
 
-Keyring do SO: `("assistente", "credential_dek_{user_id}")` — uma entrada por user.
+### D4. Dois modos de autenticação/autorização
 
-### D3. Auto-login via keyring (modo local)
+- `auth.mode=local`: o Assistente é a autoridade de sessão e emite tokens próprios.
+- `auth.mode=external`: o Assistente atua como **resource server**, valida JWT do IdP via JWKS e aplica scopes/roles do IdP.
 
-No modo local com um único usuário:
-1. App abre → tenta carregar DEK do keyring
-2. DEK encontrada → identifica user associado → login automático
-3. DEK não encontrada → exibe tela de login (username + senha)
+Sem token exchange nesta fase.
 
-A experiência para quem já usa o app **não muda** — continua abrindo direto.
+### D5. Sessões locais com JWT access + refresh token
 
-### D4. Social login: apenas modelagem
+- Access token: JWT com expiração curta.
+- Refresh token:
+    - armazenado no keyring do SO no cliente
+    - armazenado como **hash** no DB (`sessions.refresh_token_hash`)
+    - **rotate always** no refresh
+    - reuse detectado ⇒ revoga sessão inteira (`sid`) e exige novo login
 
-Campos na tabela `users`:
-- `auth_provider TEXT DEFAULT 'local'` — valores futuros: `google`, `github`, `microsoft`
-- `provider_user_id TEXT` — ID do usuário no provedor externo
+### D6. Claims mínimas do JWT (access)
 
-Nenhuma implementação OAuth2 nesta AEP. Interface `SocialAuthProvider` criada com stubs.
+- Obrigatórias: `iss`, `aud`, `sub` (user_id), `sid` (session_id), `iat`, `exp`.
+- Recomendada: `jti`.
+- Defaults:
+    - `exp`: 10–15 min
+    - clock skew aceito: 60s
 
-### D5. Wizard: Etapa 0 vira "Criar Conta"
+Não incluir PII no JWT.
 
-O welcome wizard atual começa com "Criar Senha Mestre". Com contas:
+### D7. Autorização local por roles simples
 
-| Etapa | Antes | Depois |
-|-------|-------|--------|
-| 0 | Criar senha mestre | **Criar conta** (username + senha) |
-| 1 | Exibir recovery key | Exibir recovery key (sem mudança) |
-| 2-5 | Configurar provider | Configurar provider (sem mudança) |
+- `admin`: acesso total.
+- `user`: acesso normal (sem operações administrativas).
 
-`NeedsWelcomeWizard()` adiciona check: `users count == 0`.
+No modo local, não listar usuários cadastrados: login é sempre por **username manual + senha**.
 
-A criação da conta na Etapa 0 também:
-- Gera DEK + recovery key wraps
-- Salva DEK no keyring
-- Define o user como admin (`is_admin=true`)
-- Configura credential manager com a DEK do user
+### D8. External mode: validação JWKS e enforcement por scopes/roles
 
-### D6. Vinculação incremental de recursos
+- Validar JWT do IdP via JWKS.
+- Enforce server-side por scopes/roles do token.
+- Algoritmos aceitos devem ser controlados via allowlist (ex.: RS256/ES256/EdDSA conforme IdP).
 
-Recursos **no banco** recebem `user_id` nesta AEP:
-- `llm_providers`, `conversations`, `credential_entries`, `credential_key_wraps`, `task_lists`
+### D9. API HTTP local (primeiro passo do split)
 
-Recursos **em filesystem** (profiles, skills, MCP) receberão `user_id` quando migrarem para DB nas AEPs 0049-0051. Esta AEP **não** os modifica.
+O backend local expõe uma API HTTP para consumo por clientes na rede.
 
-### D7. Migração de dados existentes
+Endpoints mínimos (local mode):
 
-Para instalações já em uso (upgrade):
-1. Criar um "default user" a partir dos dados existentes
-2. Wizard pede ao user existente para "adotar" seus dados criando uma conta
-3. Backfill `user_id` em todos os registros com o ID do default user
-4. Se há key wraps existentes, vinculá-los ao default user
+- `POST /auth/login` (username manual + senha; não expõe lista de usuários)
+- `POST /auth/refresh`
+- `POST /auth/logout`
+- `GET /auth/me`
+- `GET /.well-known/jwks.json`
 
-### D8. Herança de user_id por hierarquia
+Segurança:
 
-Nem toda tabela precisa de `user_id` direto:
+- HTTPS é **obrigatório** quando o bind não for localhost.
+- HTTP puro só permitido em `127.0.0.1` e/ou modo dev explícito.
+
+### D10. Vinculação incremental de recursos por `user_id` (isolamento lógico)
+
+Recursos no DB recebem `user_id` nesta AEP:
+
+- `llm_providers`, `conversations`, `credential_entries`, `task_lists`
+
+Recursos em filesystem (profiles, skills, MCP) permanecem fora de escopo nesta AEP.
+
+### D11. Herança de `user_id` por hierarquia
 
 | Tabela | Estratégia |
 |--------|-----------|
@@ -163,19 +173,9 @@ Nem toda tabela precisa de `user_id` direto:
 | `task_notes` | Herda via `task_id → task_list_id` |
 | `task_list_workflows` | Herda via `task_list_id` FK |
 
-### D9. Escopo de queries (session context)
+### D12. Escopo de queries (token context)
 
-Após login, o `user_id` fica disponível no contexto da sessão. Todas as queries de recursos devem filtrar por `user_id`:
-
-```go
-// Antes
-db.Find(&providers)
-
-// Depois
-db.Where("user_id = ?", currentUserID).Find(&providers)
-```
-
-Implementado via middleware/helper no repository layer, não por filtro manual em cada query.
+Todas as queries de recursos devem filtrar por `user_id`, implementado via helper/middleware no repository layer.
 
 ---
 
@@ -188,20 +188,28 @@ Implementado via middleware/helper no repository layer, não por filtro manual e
 | `id` | TEXT | PK | UUIDv7 |
 | `username` | TEXT | UNIQUE NOT NULL | Login identifier, max 64 chars |
 | `display_name` | TEXT | | Nome de exibição (fallback: username) |
-| `email` | TEXT | | Futuro social login |
-| `password_hash` | TEXT | NOT NULL | Argon2id hash |
-| `auth_provider` | TEXT | NOT NULL DEFAULT 'local' | 'local', 'google', 'github', 'microsoft' |
-| `provider_user_id` | TEXT | | ID externo (social login) |
-| `is_admin` | BOOL | NOT NULL DEFAULT false | Primeiro user é admin |
+| `password_hash` | TEXT | NOT NULL | Argon2id hash (autenticação local) |
+| `is_admin` | BOOL | NOT NULL DEFAULT false | Role simples (`admin`/`user`) |
 | `is_active` | BOOL | NOT NULL DEFAULT true | Soft disable |
-| `avatar_url` | TEXT | | Futuro |
 | `last_login_at` | DATETIME | | Último login bem-sucedido |
 | `created_at` | DATETIME | | |
 | `updated_at` | DATETIME | | |
 
 **Índices**:
 - `idx_users_username` — UNIQUE em `username`
-- `idx_users_auth_provider` — em `(auth_provider, provider_user_id)` para social login lookup
+
+### `sessions` (nova, modo local)
+
+| Coluna | Tipo | Constraints | Notas |
+|--------|------|-------------|-------|
+| `id` | TEXT | PK | UUIDv7 |
+| `user_id` | TEXT | FK→users.id, INDEX | Owner da sessão |
+| `refresh_token_hash` | TEXT | UNIQUE | Hash do refresh token |
+| `created_at` | DATETIME | | |
+| `expires_at` | DATETIME | | Expiração do refresh token |
+| `last_used_at` | DATETIME | | Último uso bem-sucedido |
+| `revoked_at` | DATETIME | | Revogação (logout/reuse) |
+| `client_label` | TEXT | | Identificador amigável (opcional) |
 
 ### Alterações em tabelas existentes
 
@@ -210,174 +218,53 @@ Implementado via middleware/helper no repository layer, não por filtro manual e
 | `llm_providers` | `user_id` | TEXT | FK→users.id, INDEX |
 | `conversations` | `user_id` | TEXT | FK→users.id, INDEX |
 | `credential_entries` | `user_id` | TEXT | FK→users.id |
-| `credential_key_wraps` | `user_id` | TEXT | FK→users.id |
 | `task_lists` | `user_id` | TEXT | FK→users.id, INDEX |
 
 **Mudanças de constraints**:
 - `credential_entries`: unique muda de `(pattern)` para `(user_id, pattern)`
-- `credential_key_wraps`: unique muda de `(kind)` para `(user_id, kind)`
 
 ---
 
 ## Fases
 
-### Fase 1 — Tabela `users` + AuthService
+### Fase 0 — Cofre (DEK) + `VaultLocked`
 
-1. Criar `internal/database/models_users.go`:
-   - `UserModel` com todos os campos da tabela
-   - GORM tags para índices e constraints
-2. Adicionar `UserModel` ao `AutoMigrate` em `database.go`
-3. Criar `internal/auth/service.go`:
-   ```go
-   type AuthService interface {
-       CreateUser(ctx context.Context, req CreateUserRequest) (*User, error)
-       Authenticate(ctx context.Context, username, password string) (*User, error)
-       GetCurrentUser(ctx context.Context) (*User, error)
-       GetUserByID(ctx context.Context, id string) (*User, error)
-       GetUserByUsername(ctx context.Context, username string) (*User, error)
-       SetCurrentUser(user *User)
-       UserCount(ctx context.Context) (int64, error)
-   }
-   ```
-4. Implementar `LocalAuthService` com `*gorm.DB`:
-   - `CreateUser`: gera UUIDv7, hash Argon2id, insere no DB
-   - `Authenticate`: busca por username, verifica hash, atualiza `last_login_at`
-   - `GetCurrentUser`: retorna user em memória (set após login/auto-login)
-5. Criar `internal/auth/types.go`:
-   ```go
-   type User struct {
-       ID           string
-       Username     string
-       DisplayName  string
-       Email        string
-       AuthProvider string
-       IsAdmin      bool
-       IsActive     bool
-   }
+1. Manter/estender o cofre global existente (DEK no keyring + wraps `master`/`recovery` no DB).
+2. Implementar estado explícito `VaultLocked` quando a DEK não estiver disponível.
+3. Expor endpoints mínimos (sem auth) para cofre:
+   - `GET /vault/status`
+   - `POST /vault/setup` (primeiro uso)
+   - `POST /vault/unlock`
 
-   type CreateUserRequest struct {
-       Username    string
-       Password    string
-       DisplayName string
-   }
-   ```
+### Fase 1 — Usuários locais (admin/user)
 
-### Fase 2 — Credential system per-user
+4. Criar tabela `users` e `LocalIdentityService` (username/senha com Argon2id).
+5. Criar o primeiro usuário local como admin **somente após o cofre**.
+6. Definir roles simples `admin/user` e enforcement server-side.
 
-6. `credential_key_wraps`: adicionar `user_id TEXT` + migração
-7. `credential_entries`: adicionar `user_id TEXT` + migração
-8. `internal/credentials/keyring.go`:
-   - `SaveDEKToKeychain(userID string, dek []byte)` — chave: `"credential_dek_{userID}"`
-   - `LoadDEKFromKeychain(userID string)` — busca por user
-   - `LoadAnyDEKFromKeychain()` — fallback para auto-login (busca o único user)
-9. `internal/credentials/store.go`:
-   - Interface `Store` ganha `userID` nos métodos relevantes:
-     - `SaveCredential(ctx, userID, cred)` / `ListCredentials(ctx, userID)` / `DeleteCredential(ctx, userID, pattern)`
-     - `SaveKeyWrap(ctx, userID, wrap)` / `GetKeyWrap(ctx, userID, kind)` / `HasKeyWrap(ctx, userID, kind)`
-10. `internal/credentials/manager.go`:
-    - `NewManagerWithStore(userID, dek, store, persist)` — scoped ao user
-    - Todas as operações internas passam `userID` para o store
-11. `internal/credentials/master_key.go`:
-    - `SetupMasterKey(store, userID, password)` — associa wraps ao user
+### Fase 2 — Sessões locais + tokens
 
-### Fase 3 — Vincular recursos ao user
+7. Criar tabela `sessions`.
+8. Implementar `LocalSessionService`:
+   - `IssueSession(userID) -> (access_jwt, refresh_token)`
+   - `Refresh(refresh_token) -> (access_jwt, refresh_token_rotated)` (rotate always)
+   - `Logout(refresh_token)` (revoga)
+9. Implementar assinatura de JWT com Ed25519 e publicação de JWKS (`/.well-known/jwks.json`).
 
-12. Adicionar `user_id TEXT` (nullable) a `llm_providers`, `conversations`, `task_lists`
-13. Criar migração one-time (`internal/auth/migration.go`):
-    - Detecta: tabela `users` vazia + registros existentes sem `user_id`
-    - Fluxo:
-      a. Se há key wraps existentes → apresentar wizard de "adoção" (criar conta para dados existentes)
-      b. Criar default user com dados fornecidos
-      c. `UPDATE llm_providers SET user_id = ? WHERE user_id IS NULL`
-      d. `UPDATE conversations SET user_id = ? WHERE user_id IS NULL`
-      e. `UPDATE credential_entries SET user_id = ? WHERE user_id IS NULL`
-      f. `UPDATE credential_key_wraps SET user_id = ? WHERE user_id IS NULL`
-      g. `UPDATE task_lists SET user_id = ? WHERE user_id IS NULL`
-    - Após backfill: adicionar NOT NULL constraint via GORM
-14. Atualizar repositories/queries existentes para filtrar por `user_id`:
-    - `ProviderService`: `List(userID)`, `Get(userID, providerID)`
-    - Conversation queries: `WHERE user_id = ?`
-    - TaskList queries: `WHERE user_id = ?`
+### Fase 3 — Scoping por `user_id`
 
-### Fase 4 — Welcome wizard adaptado
+10. Adicionar `user_id` em `llm_providers`, `conversations`, `credential_entries`, `task_lists`.
+11. Atualizar repositories/queries para enforcement central de `user_id`.
+12. Migração/backfill para instalações existentes.
 
-15. Modificar `controllers/welcome_controller.go`:
-    - `NeedsWelcomeWizard()`: adicionar `authSvc.UserCount() == 0`
-    - Etapa 0 ("Criar Conta"):
-      - Questionnaire com campos: `username`, `password` (2x), `display_name` (opcional)
-      - `authSvc.CreateUser()` → user criado
-      - `credentials.SetupMasterKey(store, user.ID, password)` → DEK + wraps
-      - `credentials.SaveDEKToKeychain(user.ID, dek)` → keyring
-      - `configureCredentialManager(user.ID, dek, persist)` → manager ativo
-    - Etapas subsequentes: provider e credenciais vinculados ao `user.ID`
-16. Modificar `internal/app/app_credentials.go`:
-    - `initCredentialManager()`:
-      - Tentar `LoadAnyDEKFromKeychain()` → se encontrou, identificar user → auto-login
-      - Se não: aguardar login manual ou wizard
+### Fase 4 — HTTP API local + TLS
 
-### Fase 5 — Frontend: gate de autenticação
+13. Rodar servidor `net/http` embutido no backend com endpoints `/vault/*`, `/auth/*` e `/.well-known/jwks.json`.
+14. HTTPS obrigatório quando bind não for localhost.
 
-17. Criar `frontend/src/store/authStore.ts`:
-    ```typescript
-    interface AuthState {
-        currentUser: User | null;
-        isAuthenticated: boolean;
-        isLoading: boolean;
-        login: (username: string, password: string) => Promise<void>;
-        logout: () => void;
-        checkAutoLogin: () => Promise<void>;
-    }
-    ```
-18. Modificar `frontend/src/App.tsx`:
-    - No startup: `checkAutoLogin()` → se ok, renderiza app normal
-    - Se não autenticado e não precisa de wizard: exibir tela de login mínima
-    - Se precisa de wizard: wizard (como hoje, mas com Etapa 0 de conta)
-19. Criar `frontend/src/components/auth/LoginScreen.tsx`:
-    - Campos: username + senha
-    - Chama backend `Authenticate(username, password)`
-    - Mínimo viável — será expandido quando social login for implementado
-20. Adicionar strings i18n nos 3 locales (`pt-BR.ts`, `en.ts`, `es.ts`):
-    - `auth.login`, `auth.username`, `auth.password`, `auth.loginButton`
-    - `wizard.createAccount`, `wizard.chooseUsername`, etc.
+### Fase 5 — Modo `external` (IdP)
 
-### Fase 6 — Social login (modelagem apenas)
-
-21. Criar `internal/auth/social.go`:
-    ```go
-    type SocialAuthProvider interface {
-        Name() string
-        Authenticate(ctx context.Context, token string) (*SocialUser, error)
-        GetUserInfo(ctx context.Context, accessToken string) (*SocialUser, error)
-    }
-
-    type SocialUser struct {
-        ProviderUserID string
-        Email          string
-        DisplayName    string
-        AvatarURL      string
-    }
-    ```
-22. Documentar providers planejados (Google, GitHub, Microsoft) com comentários no código
-
-### Fase 7 — Testes
-
-23. `internal/auth/service_test.go`:
-    - CreateUser: sucesso, username duplicado, senha fraca (se houver política)
-    - Authenticate: sucesso, username errado, senha errada, user inativo
-    - GetCurrentUser: após login, sem login
-24. `internal/credentials/` tests adaptados:
-    - `manager_test.go`: DEK per user, operações scoped por user_id
-    - `keyring_test.go`: save/load per user, LoadAnyDEK
-    - `store_test.go`: credentials isoladas por user
-    - `master_key_test.go`: SetupMasterKey com userID
-25. `internal/auth/migration_test.go`:
-    - Backfill de user_id em todas as tabelas
-    - Default user criado corretamente
-    - Constraints NOT NULL após backfill
-26. `controllers/welcome_controller_test.go`:
-    - Wizard Etapa 0 cria conta + master key + recovery key
-    - Provider vinculado ao user
-27. Frontend: `authStore.test.ts` — auto-login, login manual, logout
+15. Implementar validação JWKS (IdP) e enforcement por scopes/roles, sem token exchange.
 
 ---
 
@@ -409,19 +296,21 @@ Etapa 5: Modelo
 ### Depois (Wizard com contas)
 
 ```
-Etapa 0: Criar Conta            ← MUDOU
-  → input: username, display_name (opcional), password (2x)
-  → ação: CreateUser() + SetupMasterKey(userID, password) → DEK + recovery
-  → ação: SaveDEKToKeychain(userID, dek)
-  → ação: SetCurrentUser(user)
+Etapa 0: Inicializar Cofre (DEK global)   ← NOVO / OBRIGATÓRIO
+  → input: senha mestre do cofre (2x)
+  → ação: SetupMasterKey(...) → DEK global + wraps (master/recovery) + salva DEK no keyring
 
-Etapa 1: Recovery Key            ← SEM MUDANÇA
+Etapa 1: Recovery Key                     ← SEM MUDANÇA
   → exibição readonly + confirmação
 
-Etapa 2: Escolher Provider       ← SEM MUDANÇA (mas vincula ao userID)
-Etapa 3: URL Custom              ← SEM MUDANÇA
-Etapa 4: API Key                 ← SEM MUDANÇA (credencial vinculada ao userID)
-Etapa 5: Modelo                  ← SEM MUDANÇA
+Etapa 2: Criar Admin Local                ← NOVO
+  → input: username + password (2x)
+  → ação: CreateUser(username, password) com is_admin=true
+
+Etapa 3: Escolher Provider                ← SEM MUDANÇA
+Etapa 4: URL Custom (se necessário)       ← SEM MUDANÇA
+Etapa 5: API Key                          ← SEM MUDANÇA
+Etapa 6: Modelo                           ← SEM MUDANÇA
 ```
 
 ---
@@ -434,26 +323,32 @@ Etapa 5: Modelo                  ← SEM MUDANÇA
 └─────────────────────┬───────────────────────────────────┘
                       │
                       ▼
-              ┌───────────────┐
-              │ users.count() │
-              └───────┬───────┘
-                      │
-            ┌─────────┴─────────┐
-            │ == 0              │ > 0
-            ▼                   ▼
-    ┌───────────────┐  ┌────────────────────┐
-    │ Welcome Wizard│  │ LoadAnyDEKFromKR() │
-    │ (Etapa 0:     │  └────────┬───────────┘
-    │  Criar Conta) │           │
-    └───────────────┘  ┌────────┴────────┐
-                       │ DEK found       │ DEK not found
-                       ▼                 ▼
-              ┌─────────────────┐ ┌────────────────┐
-              │ Identify user   │ │ Login Screen   │
-              │ from keyring    │ │ (username +    │
-              │ → auto-login    │ │  senha)        │
-              │ → load app      │ └────────────────┘
-              └─────────────────┘
+        ┌────────────────────┐
+        │ VaultLocked? (DEK) │
+        └─────────┬──────────┘
+      │
+   ┌──────────────┴──────────────┐
+   │ Sim                         │ Não
+   ▼                             ▼
+┌──────────────────────┐      ┌───────────────────────┐
+│ Tela/fluxo de cofre   │      │ Refresh token existe? │
+│ (/vault/setup/unlock) │      └─────────┬─────────────┘
+└──────────┬───────────┘                │
+     │                              │
+     ▼                    ┌─────────┴─────────┐
+   (Cofre destravado)           │ Sim               │ Não
+        ▼                   ▼
+           ┌───────────────────┐  ┌──────────────────┐
+           │ /auth/refresh OK? │  │ Login Screen      │
+           └─────────┬─────────┘  │ (username + senha)│
+         │            └──────────────────┘
+           ┌─────────┴─────────┐
+           │ Sim               │ Não
+           ▼                   ▼
+    ┌───────────────┐   ┌──────────────────┐
+    │ Auto-login     │   │ Login Screen      │
+    │ (sem prompts)  │   │ (username + senha)│
+    └───────────────┘   └──────────────────┘
 ```
 
 ---
@@ -466,36 +361,32 @@ Etapa 5: Modelo                  ← SEM MUDANÇA
 └──────────────────────┬───────────────────────────────┘
                        │
                        ▼
-              ┌─────────────────┐
-              │ users.count()==0 │
-              │ AND              │
-              │ key_wraps exist  │
-              └────────┬────────┘
-                       │ true
-                       ▼
-          ┌────────────────────────────┐
-          │ Wizard "Adotar Dados"       │
-          │                             │
-          │ "Detectamos dados de uma    │
-          │  instalação anterior.        │
-          │  Crie uma conta para         │
-          │  vincular seus dados."       │
-          │                             │
-          │ → username + senha (mesma   │
-          │   master key atual)         │
-          └────────────┬───────────────┘
-                       │
-                       ▼
-          ┌────────────────────────────┐
-          │ 1. CreateUser(username,pw) │
-          │ 2. Vincular key_wraps      │
-          │ 3. Backfill user_id:       │
-          │    - llm_providers         │
-          │    - conversations         │
-          │    - credential_entries    │
-          │    - task_lists            │
-          │ 4. Auto-login              │
-          └────────────────────────────┘
+                ┌──────────────────────────┐
+                │ Detecta dados legados     │
+                │ (sem users + sem user_id) │
+                └──────────┬───────────────┘
+                     │
+                     ▼
+              ┌──────────────────────────────┐
+              │ 1) Garantir cofre (DEK)      │
+              │    - se keyring falhou:      │
+              │      /vault/unlock (recovery)│
+              └──────────┬───────────────────┘
+                   │
+                   ▼
+              ┌──────────────────────────────┐
+              │ 2) Criar admin local         │
+              │    (username + senha)        │
+              └──────────┬───────────────────┘
+                   │
+                   ▼
+              ┌──────────────────────────────┐
+              │ 3) Backfill user_id          │
+              │    - llm_providers           │
+              │    - conversations           │
+              │    - credential_entries      │
+              │    - task_lists              │
+              └──────────────────────────────┘
 ```
 
 ---
@@ -507,32 +398,25 @@ Etapa 5: Modelo                  ← SEM MUDANÇA
 | Arquivo | Descrição |
 |---------|-----------|
 | `internal/database/models_users.go` | Model GORM `UserModel` |
-| `internal/auth/service.go` | Interface `AuthService` + `LocalAuthService` |
-| `internal/auth/types.go` | Structs `User`, `CreateUserRequest` |
-| `internal/auth/social.go` | Interface `SocialAuthProvider` (stubs) |
-| `internal/auth/migration.go` | Migração: backfill user_id + default user |
-| `internal/auth/service_test.go` | Testes do AuthService |
-| `internal/auth/migration_test.go` | Testes da migração |
-| `frontend/src/store/authStore.ts` | Zustand store de autenticação |
-| `frontend/src/components/auth/LoginScreen.tsx` | Tela de login mínima |
-| `frontend/src/components/auth/LoginScreen.css` | Estilos (variáveis do tema) |
+| `internal/database/models_sessions.go` | Model GORM `SessionModel` (modo local) |
+| `internal/auth/*` | Identidade local, sessões, JWT/JWKS, validadores externos, autorizadores |
+| `internal/httpapi/*` | Servidor HTTP local + handlers `/vault/*`, `/auth/*`, `/.well-known/jwks.json` |
+| `internal/auth/migration.go` | Migração/backfill de `user_id` + adoção de dados legados |
+| `frontend/src/store/authStore.ts` | Store de autenticação (refresh/login/logout) |
+| `frontend/src/components/auth/LoginScreen.tsx` | Tela de login (username manual + senha) |
 
 ### Modificados
 
 | Arquivo | Mudança |
 |---------|---------|
-| `internal/database/database.go` | AutoMigrate de `UserModel`, migração colunas |
-| `internal/database/models.go` | `UserID` em LLMProvider, Conversation, CredentialEntry, CredentialKeyWrap, TaskList |
-| `internal/credentials/manager.go` | Recebe `userID`, operações scoped |
-| `internal/credentials/keyring.go` | `SaveDEK/LoadDEK` com userID suffix |
-| `internal/credentials/store.go` | Interface com `userID` nos métodos |
-| `internal/credentials/master_key.go` | `SetupMasterKey` com `userID` |
-| `internal/app/app_credentials.go` | `initCredentialManager` com auto-login |
-| `controllers/welcome_controller.go` | Etapa 0 → criar conta, `NeedsWelcomeWizard` |
-| `frontend/src/App.tsx` | Gate de autenticação, checkAutoLogin |
-| `frontend/src/locales/pt-BR.ts` | Strings de auth |
-| `frontend/src/locales/en.ts` | Strings de auth |
-| `frontend/src/locales/es.ts` | Strings de auth |
+| `internal/database/database.go` | AutoMigrate de `UserModel`/`SessionModel` e migrações/backfill |
+| `internal/database/models.go` | `user_id` em LLMProvider/Conversation/CredentialEntry/TaskList |
+| `internal/credentials/*` | Mantém cofre global (DEK) + recovery + keyring (sem per-user) |
+| `controllers/welcome_controller.go` | Bootstrap cofre → criar admin → resto do wizard |
+| `frontend/src/App.tsx` | Gate de autenticação + fluxo VaultLocked/login |
+| `frontend/src/locales/pt-BR.ts` | Strings de auth/vault |
+| `frontend/src/locales/en.ts` | Strings de auth/vault |
+| `frontend/src/locales/es.ts` | Strings de auth/vault |
 
 ### Sem alteração
 
@@ -551,43 +435,30 @@ Etapa 5: Modelo                  ← SEM MUDANÇA
 
 | Ameaça | Mitigação |
 |--------|-----------|
-| Brute force de senha | Argon2id (3 iterações, 64 MB, 4 threads) para hash E wrap |
-| Acesso ao DB sem senha | Credenciais criptografadas com DEK; DEK wrapped com senha |
-| User A acessa dados de User B | DEK isolada por user; queries filtradas por user_id |
-| Keyring comprometido | DEK no keyring é proteção de conveniência, não de segurança; a senha ainda é necessária para unwrap |
-| Social login token roubado | Não implementado nesta AEP; quando for, usar PKCE + state parameter |
-
-### Derivação de chaves (mesma senha, usos diferentes)
-
-```
-Senha do usuário
-    │
-    ├──▶ Argon2id(senha, salt_auth)  → password_hash    [autenticação]
-    │    - Armazenado: users.password_hash
-    │    - Parâmetros: t=3, m=64MB, p=4
-    │
-    └──▶ Argon2id(senha, salt_wrap)  → wrap_key → AES-GCM(DEK)  [criptografia]
-         - Armazenado: credential_key_wraps.wrapped_dek
-         - Salt independente: credential_key_wraps.salt
-         - Parâmetros: t=3, m=64MB, p=4
-```
-
-Salts diferentes garantem que comprometer um derivado não compromete o outro.
+| Brute force de senha (login local) | `users.password_hash` com Argon2id (parâmetros conservadores) |
+| Enumeração de usuários | Sem listagem de usuários; login por username manual |
+| Sniffing na LAN (credenciais/tokens) | HTTPS obrigatório fora de localhost |
+| Roubo de refresh token | Hash no DB + rotação sempre + reuse revoga sessão |
+| Acesso ao DB sem cofre | Credenciais permanecem criptografadas com DEK |
+| Keyring indisponível | Fluxo `VaultLocked` + recovery via wraps `master`/`recovery` |
+| Confusão de token (token para outro serviço) | `iss` + `aud` obrigatórios no JWT |
 
 ---
 
 ## Critérios de aceitação
 
-1. **Conta local funcional**: Criar conta com username + senha, login, auto-login via keyring
-2. **DEK isolada**: Cada user tem DEK própria; credenciais de um user inacessíveis a outro
-3. **Migração transparente**: Instalação existente → criar conta → dados vinculados → app funciona
-4. **Wizard adaptado**: Etapa 0 cria conta; demais etapas sem mudança funcional
-5. **Resources scoped**: Providers, conversas, credenciais, task lists filtrados por user_id
-6. **Auto-login**: DEK no keyring → login automático sem pedir senha
-7. **Login manual**: Se keyring vazio → tela de login funcional
-8. **Social login previsto**: Campos na tabela, interface com stubs, sem OAuth2
-9. **Backward compatible**: App com dados existentes migra sem perda
-10. **Testes**: AuthService, credentials per-user, migration, wizard, frontend store
+1. **Bootstrap do cofre**: DEK global + wraps `master/recovery` + keyring é inicializado antes de qualquer usuário.
+2. **VaultLocked**: se a DEK não estiver disponível, `/vault/status` e `/vault/unlock` funcionam sem login.
+3. **Admin local**: criação do primeiro usuário admin ocorre após o cofre.
+4. **Login local**: login por username manual + senha (sem listagem de usuários) funciona.
+5. **Sessões**: `sessions` persiste refresh token hash; logout revoga a sessão.
+6. **Refresh rotation**: refresh rotaciona sempre; reuse revoga sessão inteira.
+7. **JWT access**: JWT tem claims mínimas (`iss/aud/sub/sid/iat/exp`, `jti` recomendado) e expiração curta.
+8. **Scoping por user_id**: providers, conversas, credenciais e task lists filtrados por `user_id` derivado do token.
+9. **API HTTP local**: endpoints `/vault/*`, `/auth/*`, `/.well-known/jwks.json` disponíveis.
+10. **TLS na LAN**: HTTPS obrigatório fora de localhost; HTTP puro só em localhost/dev explícito.
+11. **External mode**: valida JWT do IdP via JWKS e aplica scopes/roles do IdP.
+12. **Compatibilidade**: instalação existente migra sem perda (backfill de `user_id`).
 
 ---
 
@@ -596,11 +467,11 @@ Salts diferentes garantem que comprometer um derivado não compromete o outro.
 | # | Risco | Probabilidade | Impacto | Mitigação |
 |---|-------|---------------|---------|-----------|
 | R1 | Migração perde dados existentes | Baixa | Alto | Backfill idempotente, testes com dados reais, não deleta dados |
-| R2 | Keyring indisponível (CI, containers) | Média | Médio | Fallback para login manual; já tratado no código atual |
+| R2 | Keyring indisponível (CI, containers) | Média | Médio | `VaultLocked` + `/vault/unlock` via wraps `master`/`recovery` |
 | R3 | Performance de Argon2id no login | Baixa | Baixo | Parâmetros conservadores (3 iterações); aceitável para login |
 | R4 | Complexidade de queries com user_id | Média | Médio | Helper/middleware centralizado para scope; não filtrar manualmente |
 | R5 | Migração de constraint unique | Média | Médio | SQLite não suporta ALTER CONSTRAINT; usar GORM AutoMigrate com cuidado |
-| R6 | Dois Argon2id por login (hash + unwrap) | Baixa | Baixo | Total ~1s em hardware moderno; cache DEK em memória |
+| R6 | Complexidade de TLS na LAN | Média | Médio | HTTPS obrigatório fora de localhost; storage TLS separado do cofre |
 
 ---
 
@@ -614,8 +485,8 @@ Salts diferentes garantem que comprometer um derivado não compromete o outro.
 | **0049** (MCP DB) | Sucede esta. Tabela `mcp_servers` terá `user_id` desde o início |
 | **0050** (Profiles DB) | Sucede esta. Tabela `profiles` terá `user_id` desde o início |
 | **0051** (Skills DB) | Sucede esta. Tabela `skills` terá `user_id` desde o início |
-| **0014** (Credential Persistence) | Estende com isolamento per-user |
-| **0022** (Welcome Wizard) | Modifica Etapa 0 para criar conta |
+| **0014** (Credential Persistence) | Base do cofre global (DEK + wraps + keyring) |
+| **0022** (Welcome Wizard) | Wizard passa a: cofre → recovery → admin → provider |
 
 ### Ordem de implementação atualizada
 
