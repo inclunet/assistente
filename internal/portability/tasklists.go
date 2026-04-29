@@ -218,6 +218,15 @@ func overwriteTaskList(taskList TaskListExport) (bool, error) {
 }
 
 func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.TaskList) error {
+	taskListID := strings.TrimSpace(taskList.ID)
+	if taskListID == "" {
+		return fmt.Errorf("tasklist %q sem id não pode ser importada no formato version %d", taskList.Title, ExportVersion)
+	}
+	workflowID := strings.TrimSpace(taskList.Workflow.ID)
+	if workflowID == "" {
+		return fmt.Errorf("workflow da tasklist %q sem id não pode ser importado no formato version %d", taskList.Title, ExportVersion)
+	}
+
 	workflowStatuses, workflowTransitions, err := validateImportedTaskListWorkflow(taskList.Workflow)
 	if err != nil {
 		return err
@@ -240,7 +249,7 @@ func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.Ta
 
 	model := database.TaskList{
 		UUIDModel: database.UUIDModel{
-			ID:        strings.TrimSpace(taskList.ID),
+			ID:        taskListID,
 			CreatedAt: createdAt,
 			UpdatedAt: createdAt,
 		},
@@ -295,7 +304,7 @@ func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.Ta
 
 	workflow := database.TaskListWorkflow{
 		UUIDModel: database.UUIDModel{
-			ID:        strings.TrimSpace(taskList.Workflow.ID),
+			ID:        workflowID,
 			CreatedAt: createdAt,
 			UpdatedAt: createdAt,
 		},
@@ -369,6 +378,10 @@ func importTaskNode(
 	task TaskExport,
 	validStatusIDs map[int]struct{},
 ) error {
+	taskID := strings.TrimSpace(task.ID)
+	if taskID == "" {
+		return fmt.Errorf("task %q sem id não pode ser importada no formato version %d", task.Title, ExportVersion)
+	}
 	if _, exists := validStatusIDs[task.StatusID]; !exists {
 		return fmt.Errorf("task %q referencia status inexistente: %d", task.Title, task.StatusID)
 	}
@@ -380,7 +393,7 @@ func importTaskNode(
 
 	model := database.Task{
 		UUIDModel: database.UUIDModel{
-			ID:        strings.TrimSpace(task.ID),
+			ID:        taskID,
 			CreatedAt: createdAt,
 			UpdatedAt: createdAt,
 		},
@@ -404,13 +417,17 @@ func importTaskNode(
 	}
 
 	for _, note := range task.Notes {
+		noteID := strings.TrimSpace(note.ID)
+		if noteID == "" {
+			return fmt.Errorf("nota da task %q sem id não pode ser importada no formato version %d", task.Title, ExportVersion)
+		}
 		noteCreatedAt := note.CreatedAt
 		if noteCreatedAt.IsZero() {
 			noteCreatedAt = createdAt
 		}
 		noteModel := database.TaskNote{
 			UUIDModel: database.UUIDModel{
-				ID:        strings.TrimSpace(note.ID),
+				ID:        noteID,
 				CreatedAt: noteCreatedAt,
 				UpdatedAt: noteCreatedAt,
 			},

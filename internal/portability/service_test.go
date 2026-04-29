@@ -359,10 +359,11 @@ func TestImportConversationRestoresCreatedAt(t *testing.T) {
 
 	createdAt := time.Date(2024, 12, 31, 23, 59, 59, 0, time.UTC)
 	imported, err := importConversation(ConversationExport{
+		ID:        "01926b90-0000-7000-8000-000000000101",
 		Title:     "Conversa antiga",
 		CreatedAt: createdAt,
 		Messages: []MessageExport{
-			{Role: "user", Content: "Oi", CreatedAt: createdAt},
+			{ID: "01926b90-0000-7000-8000-000000000102", Role: "user", Content: "Oi", CreatedAt: createdAt},
 		},
 	}, false)
 	if err != nil {
@@ -399,11 +400,12 @@ func TestImportConversationRollsBackOnInvalidMessageReference(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	_, err := importConversation(ConversationExport{
+		ID:        "01926b90-0000-7000-8000-000000000111",
 		Title:     "Conversa inválida",
 		CreatedAt: time.Now().UTC(),
 		Messages: []MessageExport{
-			{Role: "user", Content: "Oi", CreatedAt: time.Now().UTC()},
-			{Role: "assistant", Content: "Resposta", ParentIndex: intPtr(99), CreatedAt: time.Now().UTC()},
+			{ID: "01926b90-0000-7000-8000-000000000112", Role: "user", Content: "Oi", CreatedAt: time.Now().UTC()},
+			{ID: "01926b90-0000-7000-8000-000000000113", Role: "assistant", Content: "Resposta", ParentIndex: intPtr(99), CreatedAt: time.Now().UTC()},
 		},
 	}, false)
 	if err == nil {
@@ -692,6 +694,7 @@ func TestImportConversationsImportsTaskLists(t *testing.T) {
 		Resources: ExportResources{
 			TaskLists: []TaskListExport{
 				{
+					ID:                "01926b90-0000-7000-8000-000000000201",
 					Title:             "Sprint 99",
 					Slug:              "sprint-99",
 					Description:       "Fechar lote pre-migracao",
@@ -699,6 +702,7 @@ func TestImportConversationsImportsTaskLists(t *testing.T) {
 					ValidationPolicy:  `{"task_code_regex":"^TASK-[0-9]+$"}`,
 					CreatedAt:         now.Add(-48 * time.Hour),
 					Workflow: TaskListWorkflowExport{
+						ID: "01926b90-0000-7000-8000-000000000202",
 						Statuses: []TaskListWorkflowStatusExport{
 							{ID: 1, Order: 0, Label: "A Fazer", Color: "var(--color-warning)", Icon: "⌛"},
 							{ID: 2, Order: 1, Label: "Em Progresso", Color: "var(--color-info)", Icon: "▶️"},
@@ -713,6 +717,7 @@ func TestImportConversationsImportsTaskLists(t *testing.T) {
 					},
 					Tasks: []TaskExport{
 						{
+							ID:           "01926b90-0000-7000-8000-000000000203",
 							Title:        "Implementar export",
 							Description:  "Levar tasklists para o JSON",
 							Code:         "TASK-10",
@@ -725,6 +730,7 @@ func TestImportConversationsImportsTaskLists(t *testing.T) {
 							CreatedAt:    now.Add(-47 * time.Hour),
 							Notes: []TaskNoteExport{
 								{
+									ID:                "01926b90-0000-7000-8000-000000000204",
 									Type:              int(database.TaskNoteAgent),
 									Content:           "Nota sincronizada",
 									AuthorName:        "Assistente",
@@ -738,6 +744,7 @@ func TestImportConversationsImportsTaskLists(t *testing.T) {
 							},
 							Children: []TaskExport{
 								{
+									ID:          "01926b90-0000-7000-8000-000000000205",
 									Title:       "Validar import",
 									Code:        "TASK-11",
 									StatusID:    1,
@@ -813,10 +820,12 @@ func TestImportConversationsUsesUTCFallbackForTaskListTimestamps(t *testing.T) {
 		Resources: ExportResources{
 			TaskLists: []TaskListExport{
 				{
+					ID:                "01926b90-0000-7000-8000-000000000211",
 					Title:             "Sem timestamps",
 					Slug:              "sem-timestamps",
 					PreferredViewMode: "list",
 					Workflow: TaskListWorkflowExport{
+						ID: "01926b90-0000-7000-8000-000000000212",
 						Statuses: []TaskListWorkflowStatusExport{
 							{ID: 1, Order: 0, Label: "Todo"},
 						},
@@ -824,7 +833,7 @@ func TestImportConversationsUsesUTCFallbackForTaskListTimestamps(t *testing.T) {
 						InitialStatusID:    1,
 					},
 					Tasks: []TaskExport{
-						{Title: "Task sem timestamp", StatusID: 1},
+						{ID: "01926b90-0000-7000-8000-000000000213", Title: "Task sem timestamp", StatusID: 1},
 					},
 				},
 			},
@@ -903,8 +912,8 @@ func TestImportConversationsWithResolutionsOverwritesConversation(t *testing.T) 
 					Summary:   "Resumo novo",
 					CreatedAt: createdAt,
 					Messages: []MessageExport{
-						{Role: "user", Content: "Nova mensagem", CreatedAt: createdAt.Add(1 * time.Minute)},
-						{Role: "assistant", Content: "Resposta nova", CreatedAt: createdAt.Add(2 * time.Minute)},
+						{ID: "01926b90-0000-7000-8000-000000000301", Role: "user", Content: "Nova mensagem", CreatedAt: createdAt.Add(1 * time.Minute)},
+						{ID: "01926b90-0000-7000-8000-000000000302", Role: "assistant", Content: "Resposta nova", CreatedAt: createdAt.Add(2 * time.Minute)},
 					},
 				},
 			},
@@ -1026,6 +1035,7 @@ func TestImportConversationsWithResolutionsOverwritesTaskList(t *testing.T) {
 		Resources: ExportResources{
 			TaskLists: []TaskListExport{
 				{
+					ID:                taskList.ID,
 					Title:             "Sprint 42",
 					Slug:              "sprint-42",
 					Description:       "Workflow substituído",
@@ -1033,6 +1043,7 @@ func TestImportConversationsWithResolutionsOverwritesTaskList(t *testing.T) {
 					ValidationPolicy:  `{"task_code_regex":"^NEW-[0-9]+$"}`,
 					CreatedAt:         taskList.CreatedAt.Add(2 * time.Hour),
 					Workflow: TaskListWorkflowExport{
+						ID: "01926b90-0000-7000-8000-000000000401",
 						Statuses: []TaskListWorkflowStatusExport{
 							{ID: 1, Order: 0, Label: "Backlog", Color: "var(--color-warning)", Icon: "B"},
 							{ID: 2, Order: 1, Label: "Done", Color: "var(--color-success)", Icon: "D"},
@@ -1045,6 +1056,7 @@ func TestImportConversationsWithResolutionsOverwritesTaskList(t *testing.T) {
 					},
 					Tasks: []TaskExport{
 						{
+							ID:        "01926b90-0000-7000-8000-000000000402",
 							Title:     "Task nova",
 							Code:      "NEW-1",
 							StatusID:  1,
@@ -1162,10 +1174,11 @@ func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
 			Conversations: []ConversationExport{
 				{Title: "Vazia", CreatedAt: now},
 				{
+					ID:        "01926b90-0000-7000-8000-000000000501",
 					Title:     "Com mensagens",
 					CreatedAt: now,
 					Messages: []MessageExport{
-						{Role: "user", Content: "Oi", CreatedAt: now},
+						{ID: "01926b90-0000-7000-8000-000000000502", Role: "user", Content: "Oi", CreatedAt: now},
 					},
 				},
 			},
@@ -1210,10 +1223,11 @@ func TestImportConversationsWarnsAboutUnsupportedResourceTypes(t *testing.T) {
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
 				{
+					ID:        "01926b90-0000-7000-8000-000000000511",
 					Title:     "Com mensagens",
 					CreatedAt: now,
 					Messages: []MessageExport{
-						{Role: "user", Content: "Oi", CreatedAt: now},
+						{ID: "01926b90-0000-7000-8000-000000000512", Role: "user", Content: "Oi", CreatedAt: now},
 					},
 				},
 			},
@@ -1274,6 +1288,175 @@ func TestImportConversationsRejectsMissingCredentialBlock(t *testing.T) {
 	}
 }
 
+func TestImportConversationsRejectsMissingStableConversationID(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	now := time.Now().UTC()
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: now,
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Sem id",
+					CreatedAt: now,
+					Messages: []MessageExport{
+						{ID: "01926b90-0000-7000-8000-000000000701", Role: "user", Content: "Oi", CreatedAt: now},
+					},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversations(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Failed != 1 || len(result.Errors) != 1 || !strings.Contains(result.Errors[0], "sem id") {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestImportConversationsRejectsMissingStableMessageID(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	now := time.Now().UTC()
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: now,
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					ID:        "01926b90-0000-7000-8000-000000000711",
+					Title:     "Mensagem sem id",
+					CreatedAt: now,
+					Messages: []MessageExport{
+						{Role: "user", Content: "Oi", CreatedAt: now},
+					},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversations(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Failed != 1 || len(result.Errors) != 1 || !strings.Contains(result.Errors[0], "mensagem 0") {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestImportConversationsRejectsMissingStableTaskListIDs(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	testCases := []struct {
+		name     string
+		taskList TaskListExport
+		want     string
+	}{
+		{
+			name: "tasklist id",
+			taskList: TaskListExport{
+				Title: "Tasklist sem id",
+				Workflow: TaskListWorkflowExport{
+					ID: "01926b90-0000-7000-8000-000000000721",
+					Statuses: []TaskListWorkflowStatusExport{
+						{ID: 1, Label: "Todo"},
+					},
+					InitialStatusID: 1,
+				},
+			},
+			want: "tasklist",
+		},
+		{
+			name: "workflow id",
+			taskList: TaskListExport{
+				ID:    "01926b90-0000-7000-8000-000000000722",
+				Title: "Workflow sem id",
+				Workflow: TaskListWorkflowExport{
+					Statuses: []TaskListWorkflowStatusExport{
+						{ID: 1, Label: "Todo"},
+					},
+					InitialStatusID: 1,
+				},
+			},
+			want: "workflow",
+		},
+		{
+			name: "task id",
+			taskList: TaskListExport{
+				ID:    "01926b90-0000-7000-8000-000000000723",
+				Title: "Task sem id",
+				Workflow: TaskListWorkflowExport{
+					ID: "01926b90-0000-7000-8000-000000000724",
+					Statuses: []TaskListWorkflowStatusExport{
+						{ID: 1, Label: "Todo"},
+					},
+					InitialStatusID: 1,
+				},
+				Tasks: []TaskExport{{Title: "Sem id", StatusID: 1}},
+			},
+			want: "task",
+		},
+		{
+			name: "note id",
+			taskList: TaskListExport{
+				ID:    "01926b90-0000-7000-8000-000000000725",
+				Title: "Nota sem id",
+				Workflow: TaskListWorkflowExport{
+					ID: "01926b90-0000-7000-8000-000000000726",
+					Statuses: []TaskListWorkflowStatusExport{
+						{ID: 1, Label: "Todo"},
+					},
+					InitialStatusID: 1,
+				},
+				Tasks: []TaskExport{
+					{
+						ID:       "01926b90-0000-7000-8000-000000000727",
+						Title:    "Com nota",
+						StatusID: 1,
+						Notes:    []TaskNoteExport{{Type: int(database.TaskNoteAgent), Content: "sem id"}},
+					},
+				},
+			},
+			want: "nota",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			setupPortabilityTestDB(t)
+			file := &ExportFile{
+				Version:    ExportVersion,
+				ExportedAt: time.Now().UTC(),
+				Resources: ExportResources{
+					TaskLists: []TaskListExport{tc.taskList},
+				},
+			}
+			raw, err := json.Marshal(file)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			result, err := ImportConversations(string(raw), nil, "")
+			if err != nil {
+				t.Fatalf("ImportConversations() error = %v", err)
+			}
+			if result.Failed != 1 || len(result.Errors) != 1 || !strings.Contains(result.Errors[0], tc.want) {
+				t.Fatalf("unexpected result: %+v", result)
+			}
+		})
+	}
+}
+
 func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 	setupPortabilityTestDB(t)
 
@@ -1316,14 +1499,15 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 					Channel:   "telegram",
 					CreatedAt: now,
 					Messages: []MessageExport{
-						{Role: "user", Content: "Oi", CreatedAt: now},
+						{ID: "01926b90-0000-7000-8000-000000000601", Role: "user", Content: "Oi", CreatedAt: now},
 					},
 				},
 				{
+					ID:        "01926b90-0000-7000-8000-000000000602",
 					Title:     "Nova",
 					CreatedAt: now.Add(time.Second),
 					Messages: []MessageExport{
-						{Role: "user", Content: "Mensagem", CreatedAt: now.Add(time.Second)},
+						{ID: "01926b90-0000-7000-8000-000000000603", Role: "user", Content: "Mensagem", CreatedAt: now.Add(time.Second)},
 					},
 				},
 			},

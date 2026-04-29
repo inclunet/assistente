@@ -442,9 +442,14 @@ func overwriteConversationByExisting(conv ConversationExport, includeAudio bool,
 }
 
 func createImportedConversation(tx *gorm.DB, conv ConversationExport) (*database.Conversation, error) {
+	conversationID := strings.TrimSpace(conv.ID)
+	if conversationID == "" {
+		return nil, fmt.Errorf("conversa %q sem id não pode ser importada no formato version %d", conv.Title, ExportVersion)
+	}
+
 	newConv := &database.Conversation{
 		UUIDModel: database.UUIDModel{
-			ID: conv.ID,
+			ID: conversationID,
 		},
 		Title:     conv.Title,
 		Channel:   conv.Channel,
@@ -463,10 +468,15 @@ func createImportedConversation(tx *gorm.DB, conv ConversationExport) (*database
 
 func importConversationMessages(tx *gorm.DB, conversationID string, conv ConversationExport, includeAudio bool) error {
 	exportedMessageIDs := make(map[string]struct{}, len(conv.Messages))
-	for _, msg := range conv.Messages {
-		if id := strings.TrimSpace(msg.ID); id != "" {
-			exportedMessageIDs[id] = struct{}{}
+	for i, msg := range conv.Messages {
+		id := strings.TrimSpace(msg.ID)
+		if id == "" {
+			return fmt.Errorf("mensagem %d da conversa %q sem id não pode ser importada no formato version %d", i, conv.Title, ExportVersion)
 		}
+		if _, exists := exportedMessageIDs[id]; exists {
+			return fmt.Errorf("mensagem %d da conversa %q usa id duplicado %q", i, conv.Title, id)
+		}
+		exportedMessageIDs[id] = struct{}{}
 	}
 
 	idMap := make(map[int]string, len(conv.Messages))
