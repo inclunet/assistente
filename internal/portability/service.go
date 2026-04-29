@@ -44,13 +44,9 @@ func BuildConversationExportFile(ids []string, credMgr *credentials.Manager, req
 }
 
 func BuildExportFile(conversationIDs []string, providerIDs []string, taskListIDs []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
-	conversations := make([]ConversationExport, 0, len(conversationIDs))
-	for _, id := range conversationIDs {
-		conv, err := database.GetConversation(id)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao buscar conversa %s: %w", id, err)
-		}
-		conversations = append(conversations, exportConversation(conv, req.IncludeAudio))
+	conversations, err := buildConversationExports(conversationIDs, req.IncludeAudio)
+	if err != nil {
+		return nil, err
 	}
 
 	providers := make([]ProviderExport, 0, len(providerIDs))
@@ -102,6 +98,64 @@ func BuildExportFile(conversationIDs []string, providerIDs []string, taskListIDs
 	}
 
 	return file, nil
+}
+
+func buildConversationExports(conversationIDs []string, includeAudio bool) ([]ConversationExport, error) {
+	if len(conversationIDs) == 0 {
+		return nil, nil
+	}
+
+	uniqueIDs := make([]string, 0, len(conversationIDs))
+	seen := make(map[string]struct{}, len(conversationIDs))
+	for _, rawID := range conversationIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			return nil, fmt.Errorf("erro ao buscar conversa %s: id vazio", rawID)
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+
+	var conversations []database.Conversation
+	if err := database.DB().
+		Where("id IN ?", uniqueIDs).
+		Find(&conversations).Error; err != nil {
+		return nil, fmt.Errorf("erro ao buscar conversas para exportação: %w", err)
+	}
+
+	conversationsByID := make(map[string]*database.Conversation, len(conversations))
+	for i := range conversations {
+		conversationsByID[conversations[i].ID] = &conversations[i]
+	}
+	for _, id := range uniqueIDs {
+		if _, ok := conversationsByID[id]; !ok {
+			return nil, fmt.Errorf("erro ao buscar conversa %s: %w", id, gorm.ErrRecordNotFound)
+		}
+	}
+
+	var messages []database.ChatMessage
+	if err := database.DB().
+		Where("conversation_id IN ?", uniqueIDs).
+		Order("conversation_id ASC, created_at ASC").
+		Find(&messages).Error; err != nil {
+		return nil, fmt.Errorf("erro ao buscar mensagens das conversas para exportação: %w", err)
+	}
+
+	for _, msg := range messages {
+		if conv := conversationsByID[msg.ConversationID]; conv != nil {
+			conv.Messages = append(conv.Messages, msg)
+		}
+	}
+
+	exports := make([]ConversationExport, 0, len(conversationIDs))
+	for _, rawID := range conversationIDs {
+		id := strings.TrimSpace(rawID)
+		exports = append(exports, exportConversation(conversationsByID[id], includeAudio))
+	}
+	return exports, nil
 }
 
 func ImportConversations(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportResult, error) {

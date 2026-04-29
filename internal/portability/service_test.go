@@ -119,6 +119,84 @@ func TestExportConversationOmitsAudioByDefault(t *testing.T) {
 	}
 }
 
+func TestBuildExportFileLoadsConversationsInBatchPreservingRequestedOrder(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	now := time.Date(2026, 4, 29, 14, 0, 0, 0, time.UTC)
+	conversations := []database.Conversation{
+		{
+			UUIDModel: database.UUIDModel{
+				ID:        "01926b90-0000-7000-8000-000000000901",
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			Title: "Primeira",
+		},
+		{
+			UUIDModel: database.UUIDModel{
+				ID:        "01926b90-0000-7000-8000-000000000902",
+				CreatedAt: now.Add(time.Minute),
+				UpdatedAt: now.Add(time.Minute),
+			},
+			Title: "Segunda",
+		},
+	}
+	if err := database.DB().Create(&conversations).Error; err != nil {
+		t.Fatalf("Create(conversations) error = %v", err)
+	}
+
+	messages := []database.ChatMessage{
+		{
+			UUIDModel:      database.UUIDModel{ID: "01926b90-0000-7000-8000-000000000903", CreatedAt: now.Add(2 * time.Minute)},
+			ConversationID: conversations[1].ID,
+			Role:           "assistant",
+			Content:        "segunda mensagem 2",
+		},
+		{
+			UUIDModel:      database.UUIDModel{ID: "01926b90-0000-7000-8000-000000000904", CreatedAt: now.Add(time.Minute)},
+			ConversationID: conversations[1].ID,
+			Role:           "user",
+			Content:        "segunda mensagem 1",
+		},
+		{
+			UUIDModel:      database.UUIDModel{ID: "01926b90-0000-7000-8000-000000000905", CreatedAt: now},
+			ConversationID: conversations[0].ID,
+			Role:           "user",
+			Content:        "primeira mensagem",
+		},
+	}
+	if err := database.DB().Create(&messages).Error; err != nil {
+		t.Fatalf("Create(messages) error = %v", err)
+	}
+
+	file, err := BuildExportFile([]string{conversations[1].ID, conversations[0].ID, conversations[1].ID}, nil, nil, nil, ExportRequest{}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFile() error = %v", err)
+	}
+	if len(file.Resources.Conversations) != 3 {
+		t.Fatalf("len(Conversations) = %d, want 3", len(file.Resources.Conversations))
+	}
+	if file.Resources.Conversations[0].ID != conversations[1].ID || file.Resources.Conversations[1].ID != conversations[0].ID || file.Resources.Conversations[2].ID != conversations[1].ID {
+		t.Fatalf("unexpected conversation order: %+v", file.Resources.Conversations)
+	}
+	if got := file.Resources.Conversations[0].Messages; len(got) != 2 || got[0].Content != "segunda mensagem 1" || got[1].Content != "segunda mensagem 2" {
+		t.Fatalf("messages not ordered by created_at: %+v", got)
+	}
+}
+
+func TestBuildExportFileReturnsClearErrorForMissingConversation(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	missingID := "01926b90-0000-7000-8000-000000000999"
+	_, err := BuildExportFile([]string{missingID}, nil, nil, nil, ExportRequest{}, "test")
+	if err == nil {
+		t.Fatal("BuildExportFile() error = nil, want missing conversation error")
+	}
+	if !strings.Contains(err.Error(), missingID) {
+		t.Fatalf("BuildExportFile() error = %v, want missing ID in error", err)
+	}
+}
+
 func setupPortabilityTestDB(t *testing.T) {
 	t.Helper()
 
