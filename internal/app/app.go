@@ -390,10 +390,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.jobsCtrl = controllers.NewJobsController(controllers.JobsControllerConfig{
 		JobMgr: a.jobMgr,
 	})
-	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{
-		WorkspaceMgr: a.workspaceMgr,
-		Emitter:      a.emitter,
-	})
 	a.tokensCtrl = controllers.NewTokensController(controllers.TokensControllerConfig{
 		ProfileMgr:  a.profileManager,
 		TokenSvc:    a.tokenSvc,
