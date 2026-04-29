@@ -338,18 +338,6 @@ func importConversation(conv ConversationExport, includeAudio bool) (bool, error
 	return true, nil
 }
 
-func overwriteConversation(conv ConversationExport, includeAudio bool) (bool, error) {
-	existing, err := findExistingConversationForImport(conv)
-	if err != nil {
-		return false, err
-	}
-	if existing == nil {
-		return importConversation(conv, includeAudio)
-	}
-
-	return overwriteConversationByExisting(conv, includeAudio, existing)
-}
-
 func overwriteConversationByExisting(conv ConversationExport, includeAudio bool, existing *database.Conversation) (bool, error) {
 	err := database.DB().Transaction(func(tx *gorm.DB) error {
 		updatedAt := conv.CreatedAt
