@@ -123,7 +123,3 @@ func findExistingProviderByID(providerID string) (*database.LLMProvider, error) 
 	}
 	return nil, fmt.Errorf("erro ao localizar provider %q: %w", providerID, err)
 }
-
-func providerConflictIdentifier(provider ProviderExport) string {
-	return strings.TrimSpace(provider.ID)
-}

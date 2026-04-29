@@ -1461,3 +1461,65 @@ func TestImportConversationsSkipsCredentialConflictByPattern(t *testing.T) {
 		t.Fatalf("credential token = %v, want token-antigo", auth)
 	}
 }
+
+func TestImportConversationsOverwritesCredentialConflictByPattern(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
+	if err := credMgr.RegisterPatternWithContext(t.Context(), "api.openai.com", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "token-antigo",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext(existing) error = %v", err)
+	}
+
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Options: ExportOptions{
+			IncludeCredentials: true,
+		},
+	}
+	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
+		{ID: "different-id", Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
+	})
+	if err != nil {
+		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
+	}
+	file.Resources.Credentials = blob
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversationsWithResolutions(t.Context(), string(raw), credMgr, "senha-teste", []ImportResolution{
+		{
+			ResourceType: "credential",
+			Identifier:   "api.openai.com",
+			Strategy:     ConflictResolutionOverwrite,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ImportConversationsWithResolutions() error = %v", err)
+	}
+	if result.Imported != 1 || result.SkippedCredentialConflict != 0 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	auth, err := credMgr.ResolveForURL("https://api.openai.com/v1/models")
+	if err != nil {
+		t.Fatalf("ResolveForURL() error = %v", err)
+	}
+	if auth == nil || auth.Token != "token-novo" {
+		t.Fatalf("credential token = %v, want token-novo", auth)
+	}
+
+	var count int64
+	if err := database.DB().Model(&database.CredentialEntry{}).Where("pattern = ?", "api.openai.com").Count(&count).Error; err != nil {
+		t.Fatalf("Count(CredentialEntry) error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("credential entries with pattern = %d, want 1", count)
+	}
+}

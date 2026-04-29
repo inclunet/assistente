@@ -613,6 +613,7 @@ func importCredentials(
 
 	for _, cred := range creds {
 		identifier := credentialConflictIdentifier(cred)
+		credentialID := strings.TrimSpace(cred.ID)
 		if _, hasConflict := conflictIdentifiers[identifier]; hasConflict {
 			resolution, hasResolution := resolutionMap.lookup("credential", identifier)
 			if !hasResolution || resolution.Strategy == ConflictResolutionSkip {
@@ -622,6 +623,7 @@ func importCredentials(
 			if resolution.Strategy != ConflictResolutionOverwrite {
 				return imported, skipped, fmt.Errorf("estratégia de conflito não suportada para credencial %q: %s", identifier, resolution.Strategy)
 			}
+			credentialID = ""
 		}
 		auth := &credentials.AuthConfig{
 			Type:         cred.AuthType,
@@ -635,7 +637,7 @@ func importCredentials(
 			ClientSecret: cred.ClientSecret,
 		}
 		if err := credMgr.RegisterStoredCredentialWithContext(ctx, credentials.StoredCredential{
-			ID:      strings.TrimSpace(cred.ID),
+			ID:      credentialID,
 			Pattern: cred.Pattern,
 			Auth:    auth,
 		}); err != nil {
@@ -940,27 +942,6 @@ func applyConversationResolution(conv ConversationExport, resolution ImportResol
 		return conv, nil
 	default:
 		return ConversationExport{}, fmt.Errorf("estratégia de conflito não suportada para conversa %q: %s", resolution.Identifier, resolution.Strategy)
-	}
-}
-
-func applyProviderResolution(provider ProviderExport, resolution ImportResolution) (ProviderExport, error) {
-	switch resolution.Strategy {
-	case ConflictResolutionOverwrite:
-		return provider, nil
-	case ConflictResolutionRename:
-		renamedID := strings.TrimSpace(resolution.RenameValue)
-		if renamedID == "" {
-			return ProviderExport{}, fmt.Errorf("resolução de conflito do provider %q requer um novo id", resolution.Identifier)
-		}
-		provider.ID = renamedID
-		if existing, err := findExistingProviderByID(provider.ID); err != nil {
-			return ProviderExport{}, err
-		} else if existing != nil {
-			return ProviderExport{}, fmt.Errorf("já existe um provider com o novo id %q", renamedID)
-		}
-		return provider, nil
-	default:
-		return ProviderExport{}, fmt.Errorf("estratégia de conflito não suportada para provider %q: %s", resolution.Identifier, resolution.Strategy)
 	}
 }
 
