@@ -1,7 +1,18 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { downloadJSON, generateFilename, openFileDialog, openImportFileDialog, ImportFileError, IMPORT_FILE_ERROR_CODES } from './exportImport';
 
+const originalFileReader = globalThis.FileReader;
+
 describe('exportImport', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Object.defineProperty(globalThis, 'FileReader', {
+      value: originalFileReader,
+      configurable: true,
+      writable: true,
+    });
+  });
+
   it('gera filename com prefixo', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-01T12:00:00.000Z'));

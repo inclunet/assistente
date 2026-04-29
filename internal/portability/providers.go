@@ -28,17 +28,18 @@ func exportProvider(provider *database.LLMProvider) ProviderExport {
 }
 
 func importProvider(provider ProviderExport) (bool, error) {
-	if strings.TrimSpace(provider.ID) == "" {
-		return false, fmt.Errorf("provider sem id não pode ser importado")
+	normalized, err := validateProviderExport(provider)
+	if err != nil {
+		return false, err
 	}
-	if existing, err := findExistingProviderByID(provider.ID); err != nil {
+	if existing, err := findExistingProviderByID(normalized.ID); err != nil {
 		return false, err
 	} else if existing != nil {
-		return overwriteProvider(provider)
+		return overwriteProvider(normalized)
 	}
 
-	err := database.DB().Transaction(func(tx *gorm.DB) error {
-		return persistProvider(tx, provider, nil)
+	err = database.DB().Transaction(func(tx *gorm.DB) error {
+		return persistProvider(tx, normalized, nil)
 	})
 	if err != nil {
 		return false, err
@@ -48,16 +49,21 @@ func importProvider(provider ProviderExport) (bool, error) {
 }
 
 func overwriteProvider(provider ProviderExport) (bool, error) {
-	existing, err := findExistingProviderByID(provider.ID)
+	normalized, err := validateProviderExport(provider)
+	if err != nil {
+		return false, err
+	}
+
+	existing, err := findExistingProviderByID(normalized.ID)
 	if err != nil {
 		return false, err
 	}
 	if existing == nil {
-		return importProvider(provider)
+		return importProvider(normalized)
 	}
 
 	err = database.DB().Transaction(func(tx *gorm.DB) error {
-		return persistProvider(tx, provider, existing)
+		return persistProvider(tx, normalized, existing)
 	})
 	if err != nil {
 		return false, err
@@ -69,7 +75,15 @@ func overwriteProvider(provider ProviderExport) (bool, error) {
 func persistProvider(tx *gorm.DB, provider ProviderExport, existing *database.LLMProvider) error {
 	createdAt := provider.CreatedAt
 	if createdAt.IsZero() {
-		createdAt = time.Now().UTC()
+		if existing != nil && !existing.CreatedAt.IsZero() {
+			createdAt = existing.CreatedAt
+		} else {
+			createdAt = time.Now().UTC()
+		}
+	}
+	updatedAt := createdAt
+	if existing != nil && provider.CreatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
 	}
 
 	if provider.IsDefault {
@@ -93,7 +107,7 @@ func persistProvider(tx *gorm.DB, provider ProviderExport, existing *database.LL
 			Timeout:           provider.Timeout,
 			CredentialPattern: provider.CredentialPattern,
 			CreatedAt:         createdAt,
-			UpdatedAt:         createdAt,
+			UpdatedAt:         updatedAt,
 		}
 		return tx.Create(&model).Error
 	}
@@ -108,8 +122,34 @@ func persistProvider(tx *gorm.DB, provider ProviderExport, existing *database.LL
 	existing.Timeout = provider.Timeout
 	existing.CredentialPattern = provider.CredentialPattern
 	existing.CreatedAt = createdAt
-	existing.UpdatedAt = createdAt
+	existing.UpdatedAt = updatedAt
 	return tx.Save(existing).Error
+}
+
+func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
+	normalized := provider
+	normalized.ID = strings.TrimSpace(provider.ID)
+	normalized.Name = strings.TrimSpace(provider.Name)
+	normalized.Type = strings.TrimSpace(provider.Type)
+	normalized.APIFormat = strings.TrimSpace(provider.APIFormat)
+	normalized.BaseURL = strings.TrimSpace(provider.BaseURL)
+	normalized.Model = strings.TrimSpace(provider.Model)
+	normalized.DefaultModel = strings.TrimSpace(provider.DefaultModel)
+	normalized.CredentialPattern = strings.TrimSpace(provider.CredentialPattern)
+
+	if normalized.ID == "" {
+		return ProviderExport{}, fmt.Errorf("provider sem id não pode ser importado")
+	}
+	if normalized.Name == "" {
+		return ProviderExport{}, fmt.Errorf("provider %q sem name não pode ser importado", normalized.ID)
+	}
+	if normalized.Type == "" {
+		return ProviderExport{}, fmt.Errorf("provider %q sem type não pode ser importado", normalized.ID)
+	}
+	if normalized.BaseURL == "" {
+		return ProviderExport{}, fmt.Errorf("provider %q sem baseUrl não pode ser importado", normalized.ID)
+	}
+	return normalized, nil
 }
 
 func findExistingProviderByID(providerID string) (*database.LLMProvider, error) {

@@ -681,6 +681,102 @@ func TestImportConversationsImportsProviders(t *testing.T) {
 	}
 }
 
+func TestImportConversationsRejectsProviderMissingRequiredFields(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	testCases := []struct {
+		name     string
+		provider ProviderExport
+		want     string
+	}{
+		{
+			name:     "name",
+			provider: ProviderExport{ID: "provider-missing-name", Type: "openai", BaseURL: "https://api.example/v1"},
+			want:     "sem name",
+		},
+		{
+			name:     "type",
+			provider: ProviderExport{ID: "provider-missing-type", Name: "Provider", BaseURL: "https://api.example/v1"},
+			want:     "sem type",
+		},
+		{
+			name:     "base url",
+			provider: ProviderExport{ID: "provider-missing-base-url", Name: "Provider", Type: "openai"},
+			want:     "sem baseUrl",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := &ExportFile{
+				Version:    ExportVersion,
+				ExportedAt: time.Now().UTC(),
+				Resources: ExportResources{
+					Providers: []ProviderExport{tc.provider},
+				},
+			}
+			raw, err := json.Marshal(file)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+
+			result, err := ImportConversations(string(raw), nil, "")
+			if err != nil {
+				t.Fatalf("ImportConversations() error = %v", err)
+			}
+			if result.Failed != 1 || len(result.Errors) != 1 || !strings.Contains(result.Errors[0], tc.want) {
+				t.Fatalf("unexpected result: %+v", result)
+			}
+		})
+	}
+}
+
+func TestImportConversationsPreservesProviderCreatedAtWhenOverwriteOmitsTimestamp(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	provider := createPortableProviderFixture(t)
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Providers: []ProviderExport{
+				{
+					ID:                provider.ID,
+					Name:              "OpenAI Custom Atualizado",
+					Type:              provider.Type,
+					APIFormat:         provider.APIFormat,
+					BaseURL:           "https://updated.example/v1",
+					Model:             provider.Model,
+					DefaultModel:      provider.DefaultModel,
+					IsDefault:         provider.IsDefault,
+					Timeout:           provider.Timeout,
+					CredentialPattern: provider.CredentialPattern,
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversations(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	imported, err := database.GetLLMProvider(provider.ID)
+	if err != nil {
+		t.Fatalf("GetLLMProvider() error = %v", err)
+	}
+	if !imported.CreatedAt.Equal(provider.CreatedAt) {
+		t.Fatalf("CreatedAt = %s, want %s", imported.CreatedAt, provider.CreatedAt)
+	}
+}
+
 func TestImportConversationsImportsTaskLists(t *testing.T) {
 	setupPortabilityTestDB(t)
 
@@ -868,6 +964,57 @@ func TestImportConversationsUsesUTCFallbackForTaskListTimestamps(t *testing.T) {
 	}
 	if importedTaskList.Tasks[0].CreatedAt.Location() != time.UTC {
 		t.Fatalf("task CreatedAt location = %s, want UTC", importedTaskList.Tasks[0].CreatedAt.Location())
+	}
+}
+
+func TestImportConversationsPreservesTaskListCreatedAtWhenOverwriteOmitsTimestamp(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	taskList := createPortableTaskListFixture(t)
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			TaskLists: []TaskListExport{
+				{
+					ID:                taskList.ID,
+					Title:             "Sprint 42 Atualizada",
+					Slug:              "sprint-42",
+					Description:       "Sem timestamp no arquivo",
+					PreferredViewMode: "list",
+					Workflow: TaskListWorkflowExport{
+						ID: "01926b90-0000-7000-8000-000000000811",
+						Statuses: []TaskListWorkflowStatusExport{
+							{ID: 1, Order: 0, Label: "Todo"},
+						},
+						InitialStatusID: 1,
+					},
+					Tasks: []TaskExport{
+						{ID: "01926b90-0000-7000-8000-000000000812", Title: "Nova task", StatusID: 1},
+					},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversations(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	imported, err := database.GetTaskListWithHierarchy(taskList.ID)
+	if err != nil {
+		t.Fatalf("GetTaskListWithHierarchy() error = %v", err)
+	}
+	if !imported.CreatedAt.Equal(taskList.CreatedAt) {
+		t.Fatalf("CreatedAt = %s, want %s", imported.CreatedAt, taskList.CreatedAt)
 	}
 }
 

@@ -244,14 +244,22 @@ func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.Ta
 
 	createdAt := taskList.CreatedAt
 	if createdAt.IsZero() {
-		createdAt = time.Now().UTC()
+		if existing != nil && !existing.CreatedAt.IsZero() {
+			createdAt = existing.CreatedAt
+		} else {
+			createdAt = time.Now().UTC()
+		}
+	}
+	updatedAt := createdAt
+	if existing != nil && taskList.CreatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
 	}
 
 	model := database.TaskList{
 		UUIDModel: database.UUIDModel{
 			ID:        taskListID,
 			CreatedAt: createdAt,
-			UpdatedAt: createdAt,
+			UpdatedAt: updatedAt,
 		},
 		Title:             taskList.Title,
 		Slug:              database.NormalizeTaskListSlug(taskList.Slug),
