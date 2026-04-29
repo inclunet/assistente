@@ -1796,10 +1796,155 @@ export namespace main {
 	        this.label = source["label"];
 	    }
 	}
+	export class ImportConflict {
+	    resourceType: string;
+	    identifier: string;
+	    reason: string;
+	    supportedStrategies?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportConflict(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.resourceType = source["resourceType"];
+	        this.identifier = source["identifier"];
+	        this.reason = source["reason"];
+	        this.supportedStrategies = source["supportedStrategies"];
+	    }
+	}
+	export class ImportAnalysis {
+	    version: number;
+	    appVersion?: string;
+	    conversationCount: number;
+	    messageCount: number;
+	    taskListCount: number;
+	    taskCount: number;
+	    taskNoteCount: number;
+	    providerCount: number;
+	    includesCredentials: boolean;
+	    requiresCredentialPassword: boolean;
+	    credentialCount: number;
+	    conflictCount: number;
+	    conversationConflicts?: ImportConflict[];
+	    taskListConflicts?: ImportConflict[];
+	    providerConflicts?: ImportConflict[];
+	    credentialConflicts?: ImportConflict[];
+	    unsupportedResourceTypes?: string[];
+	    warnings?: string[];
+	    credentialAnalysisError?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportAnalysis(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.appVersion = source["appVersion"];
+	        this.conversationCount = source["conversationCount"];
+	        this.messageCount = source["messageCount"];
+	        this.taskListCount = source["taskListCount"];
+	        this.taskCount = source["taskCount"];
+	        this.taskNoteCount = source["taskNoteCount"];
+	        this.providerCount = source["providerCount"];
+	        this.includesCredentials = source["includesCredentials"];
+	        this.requiresCredentialPassword = source["requiresCredentialPassword"];
+	        this.credentialCount = source["credentialCount"];
+	        this.conflictCount = source["conflictCount"];
+	        this.conversationConflicts = this.convertValues(source["conversationConflicts"], ImportConflict);
+	        this.taskListConflicts = this.convertValues(source["taskListConflicts"], ImportConflict);
+	        this.providerConflicts = this.convertValues(source["providerConflicts"], ImportConflict);
+	        this.credentialConflicts = this.convertValues(source["credentialConflicts"], ImportConflict);
+	        this.unsupportedResourceTypes = source["unsupportedResourceTypes"];
+	        this.warnings = source["warnings"];
+	        this.credentialAnalysisError = source["credentialAnalysisError"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ImportResolution {
+	    resourceType: string;
+	    identifier: string;
+	    strategy: string;
+	    renameValue?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportResolution(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.resourceType = source["resourceType"];
+	        this.identifier = source["identifier"];
+	        this.strategy = source["strategy"];
+	        this.renameValue = source["renameValue"];
+	    }
+	}
+	export class ImportRequest {
+	    jsonData: string;
+	    credentialExportPassword?: string;
+	    resolutions?: ImportResolution[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jsonData = source["jsonData"];
+	        this.credentialExportPassword = source["credentialExportPassword"];
+	        this.resolutions = this.convertValues(source["resolutions"], ImportResolution);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ImportResult {
 	    success: boolean;
 	    imported: number;
 	    skipped: number;
+	    failed: number;
+	    skippedEmptyConversations: number;
+	    skippedConversationConflict: number;
+	    skippedProviderConflict: number;
+	    skippedTaskListConflict: number;
+	    skippedCredentialConflict: number;
+	    skippedOther: number;
+	    unsupportedResourceTypes?: string[];
+	    warnings?: string[];
 	    errors?: string[];
 	    message: string;
 	
@@ -1812,6 +1957,15 @@ export namespace main {
 	        this.success = source["success"];
 	        this.imported = source["imported"];
 	        this.skipped = source["skipped"];
+	        this.failed = source["failed"];
+	        this.skippedEmptyConversations = source["skippedEmptyConversations"];
+	        this.skippedConversationConflict = source["skippedConversationConflict"];
+	        this.skippedProviderConflict = source["skippedProviderConflict"];
+	        this.skippedTaskListConflict = source["skippedTaskListConflict"];
+	        this.skippedCredentialConflict = source["skippedCredentialConflict"];
+	        this.skippedOther = source["skippedOther"];
+	        this.unsupportedResourceTypes = source["unsupportedResourceTypes"];
+	        this.warnings = source["warnings"];
 	        this.errors = source["errors"];
 	        this.message = source["message"];
 	    }

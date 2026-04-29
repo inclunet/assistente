@@ -29,6 +29,8 @@ export function AddMessageWithTokensAndMedia(arg1:string,arg2:string,arg3:string
 
 export function AddWorkspaceTab(arg1:workspace.Tab):Promise<workspace.Workspace>;
 
+export function AnalyzeImportData(arg1:string,arg2:string):Promise<any>;
+
 export function ApplyUpdate():Promise<void>;
 
 export function AssignConversationToChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -162,6 +164,10 @@ export function EditorWriteFile(arg1:string,arg2:string):Promise<void>;
 export function EnsureConversation(arg1:string):Promise<database.Conversation>;
 
 export function ExportConversations(arg1:Array<string>):Promise<string>;
+
+export function ExportData(arg1:any):Promise<string>;
+
+export function ExportConversationsToFile(arg1:Array<string>,arg2:string):Promise<string>;
 
 export function ExportWorkspace():Promise<string>;
 
@@ -314,6 +320,10 @@ export function GetUserInvocableSkills():Promise<Array<skills.SkillInfo>>;
 export function GetWorkflow(arg1:string):Promise<database.TaskListWorkflow>;
 
 export function ImportConversations(arg1:string):Promise<main.ImportResult>;
+
+export function ImportData(arg1:string,arg2:string):Promise<main.ImportResult>;
+
+export function ImportDataWithResolutions(arg1:Record<string, any>):Promise<main.ImportResult>;
 
 export function ImportWorkspace(arg1:string):Promise<workspace.Workspace>;
 

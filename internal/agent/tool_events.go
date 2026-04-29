@@ -15,30 +15,20 @@ const (
 // EmitToolStart emits a chat:tool_start event with the Origin field populated.
 // All tool_start emissions MUST go through this helper (AEP-0039).
 func EmitToolStart(emitter events.Emitter, ev ports.ToolStartEvent) {
-	// Normalize Origin: infer from Native flag, or default to OriginBuiltin.
+	// Normalize Origin: default to OriginBuiltin when callers omit it.
 	if ev.Origin == "" {
-		if ev.Native {
-			ev.Origin = OriginMCPNative
-		} else {
-			ev.Origin = OriginBuiltin
-		}
+		ev.Origin = OriginBuiltin
 	}
-	ev.Native = ev.Origin == OriginMCPNative
 	emitter.Emit("chat:tool_start", ev)
 }
 
 // EmitToolEnd emits a chat:tool_end event with the Origin field populated.
 // All tool_end emissions MUST go through this helper (AEP-0039).
 func EmitToolEnd(emitter events.Emitter, ev ports.ToolEndEvent) {
-	// Normalize Origin: infer from Native flag, or default to OriginBuiltin.
+	// Normalize Origin: default to OriginBuiltin when callers omit it.
 	if ev.Origin == "" {
-		if ev.Native {
-			ev.Origin = OriginMCPNative
-		} else {
-			ev.Origin = OriginBuiltin
-		}
+		ev.Origin = OriginBuiltin
 	}
-	ev.Native = ev.Origin == OriginMCPNative
 	emitter.Emit("chat:tool_end", ev)
 }
 

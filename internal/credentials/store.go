@@ -4,6 +4,7 @@ import "context"
 
 // StoredCredential representa credenciais já criptografadas para persistência.
 type StoredCredential struct {
+	ID      string
 	Pattern string
 	Auth    *AuthConfig
 }

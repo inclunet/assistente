@@ -80,8 +80,6 @@ interface ChatToolStartEvent {
   callId: string;
   args?: string;
   serverLabel?: string;
-  /** @deprecated Use origin instead (AEP-0039) */
-  native?: boolean;
   origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
   attempt?: number;
 }
@@ -94,8 +92,6 @@ interface ChatToolEndEvent {
   summary?: string;
   error?: string;
   serverLabel?: string;
-  /** @deprecated Use origin instead (AEP-0039) */
-  native?: boolean;
   origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
   durationMs?: number;
   attempt?: number;

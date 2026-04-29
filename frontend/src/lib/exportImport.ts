@@ -2,6 +2,28 @@
  * Utilitários para exportação e importação de dados
  */
 
+export interface SelectedImportFile {
+  name: string;
+  content: string;
+}
+
+export const IMPORT_FILE_ERROR_CODES = {
+  NO_FILE_SELECTED: 'NO_FILE_SELECTED',
+  FILE_READ_ERROR: 'FILE_READ_ERROR',
+} as const;
+
+export type ImportFileErrorCode = typeof IMPORT_FILE_ERROR_CODES[keyof typeof IMPORT_FILE_ERROR_CODES];
+
+export class ImportFileError extends Error {
+  code: ImportFileErrorCode;
+
+  constructor(code: ImportFileErrorCode) {
+    super(code);
+    this.name = 'ImportFileError';
+    this.code = code;
+  }
+}
+
 /**
  * Faz download de um arquivo JSON
  */
@@ -21,6 +43,13 @@ export function downloadJSON(data: string, filename: string) {
  * Abre o diálogo de seleção de arquivo e retorna o conteúdo
  */
 export function openFileDialog(accept: string = '.json'): Promise<string> {
+  return openImportFileDialog(accept).then((file) => file.content);
+}
+
+/**
+ * Abre o diálogo de seleção de arquivo e retorna nome + conteúdo.
+ */
+export function openImportFileDialog(accept: string = '.json'): Promise<SelectedImportFile> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -29,16 +58,19 @@ export function openFileDialog(accept: string = '.json'): Promise<string> {
     input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) {
-        reject(new Error('Nenhum arquivo selecionado'));
+        reject(new ImportFileError(IMPORT_FILE_ERROR_CODES.NO_FILE_SELECTED));
         return;
       }
       
       const reader = new FileReader();
       reader.onload = () => {
-        resolve(reader.result as string);
+        resolve({
+          name: file.name,
+          content: reader.result as string,
+        });
       };
       reader.onerror = () => {
-        reject(new Error('Erro ao ler arquivo'));
+        reject(new ImportFileError(IMPORT_FILE_ERROR_CODES.FILE_READ_ERROR));
       };
       reader.readAsText(file);
     };
