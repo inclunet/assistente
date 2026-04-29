@@ -804,6 +804,67 @@ func TestImportConversationsImportsTaskLists(t *testing.T) {
 	}
 }
 
+func TestImportConversationsUsesUTCFallbackForTaskListTimestamps(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			TaskLists: []TaskListExport{
+				{
+					Title:             "Sem timestamps",
+					Slug:              "sem-timestamps",
+					PreferredViewMode: "list",
+					Workflow: TaskListWorkflowExport{
+						Statuses: []TaskListWorkflowStatusExport{
+							{ID: 1, Order: 0, Label: "Todo"},
+						},
+						AllowedTransitions: map[int][]int{},
+						InitialStatusID:    1,
+					},
+					Tasks: []TaskExport{
+						{Title: "Task sem timestamp", StatusID: 1},
+					},
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	result, err := ImportConversations(string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	taskLists, err := database.GetAllTaskLists()
+	if err != nil {
+		t.Fatalf("GetAllTaskLists() error = %v", err)
+	}
+	if len(taskLists) != 1 {
+		t.Fatalf("len(taskLists) = %d, want 1", len(taskLists))
+	}
+	importedTaskList, err := database.GetTaskListWithHierarchy(taskLists[0].ID)
+	if err != nil {
+		t.Fatalf("GetTaskListWithHierarchy() error = %v", err)
+	}
+	if importedTaskList.CreatedAt.Location() != time.UTC {
+		t.Fatalf("tasklist CreatedAt location = %s, want UTC", importedTaskList.CreatedAt.Location())
+	}
+	if len(importedTaskList.Tasks) != 1 {
+		t.Fatalf("len(Tasks) = %d, want 1", len(importedTaskList.Tasks))
+	}
+	if importedTaskList.Tasks[0].CreatedAt.Location() != time.UTC {
+		t.Fatalf("task CreatedAt location = %s, want UTC", importedTaskList.Tasks[0].CreatedAt.Location())
+	}
+}
+
 func TestImportConversationsWithResolutionsOverwritesConversation(t *testing.T) {
 	setupPortabilityTestDB(t)
 

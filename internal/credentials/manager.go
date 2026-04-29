@@ -114,13 +114,18 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 			return err
 		}
 		if cred.ID == "" {
-			if persisted, err := m.store.ListCredentials(ctx); err == nil {
-				for _, entry := range persisted {
-					if entry.Pattern == pattern && entry.ID != "" {
-						persistedID = entry.ID
-						break
-					}
+			persisted, err := m.store.ListCredentials(ctx)
+			if err != nil {
+				return fmt.Errorf("listar credenciais persistidas após salvar: %w", err)
+			}
+			for _, entry := range persisted {
+				if entry.Pattern == pattern && entry.ID != "" {
+					persistedID = entry.ID
+					break
 				}
+			}
+			if persistedID == "" {
+				return fmt.Errorf("id da credencial persistida não encontrado após salvar pattern %q", pattern)
 			}
 		}
 	}

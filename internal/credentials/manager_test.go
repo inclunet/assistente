@@ -2,8 +2,10 @@ package credentials
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -572,6 +574,8 @@ func TestUpdateExistingPattern(t *testing.T) {
 type reentrantCredentialStore struct {
 	manager *Manager
 	saved   StoredCredential
+	listErr error
+	noID    bool
 }
 
 func (s *reentrantCredentialStore) SaveCredential(_ context.Context, cred StoredCredential) error {
@@ -585,7 +589,10 @@ func (s *reentrantCredentialStore) ListCredentials(context.Context) ([]StoredCre
 		return nil, nil
 	}
 	cred := s.saved
-	if cred.ID == "" {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	if cred.ID == "" && !s.noID {
 		cred.ID = "persisted-credential-id"
 	}
 	return []StoredCredential{cred}, nil
@@ -635,6 +642,40 @@ func TestRegisterStoredCredentialDoesNotHoldLockDuringStoreIO(t *testing.T) {
 	}
 	if len(creds) != 1 || creds[0].ID != "persisted-credential-id" {
 		t.Fatalf("expected persisted credential id in memory, got %+v", creds)
+	}
+}
+
+func TestRegisterStoredCredentialReturnsListCredentialsError(t *testing.T) {
+	store := &reentrantCredentialStore{listErr: errors.New("store unavailable")}
+	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	store.manager = mgr
+
+	err := mgr.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
+		Pattern: "api.example.com",
+		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "listar credenciais persistidas após salvar") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRegisterStoredCredentialRequiresPersistedIDAfterSave(t *testing.T) {
+	store := &reentrantCredentialStore{noID: true}
+	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	store.manager = mgr
+
+	err := mgr.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
+		Pattern: "api.example.com",
+		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "id da credencial persistida não encontrado") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

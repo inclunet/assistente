@@ -235,7 +235,7 @@ func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.Ta
 
 	createdAt := taskList.CreatedAt
 	if createdAt.IsZero() {
-		createdAt = time.Now()
+		createdAt = time.Now().UTC()
 	}
 
 	model := database.TaskList{
@@ -375,7 +375,7 @@ func importTaskNode(
 
 	createdAt := task.CreatedAt
 	if createdAt.IsZero() {
-		createdAt = time.Now()
+		createdAt = time.Now().UTC()
 	}
 
 	model := database.Task{
