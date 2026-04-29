@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
 import { ChatSessionView } from '../chat/ChatSessionView';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
-import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
 import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
@@ -20,7 +20,7 @@ export function WorkspaceChatModal() {
   const adapterError = useWorkspaceChatModalStore((s) => s.adapterError);
   const close = useWorkspaceChatModalStore((s) => s.close);
   const activeConversation = useChatStore((s) => s.activeConversation);
-  const activeWorkspaceTab = useWorkspaceStore((s) => s.getActiveTab());
+  const activeWorkspaceTab = useActiveTab();
 
   const modalTitle = useMemo(() => {
     const conversationTitle = activeConversation?.title || t('editor.chatModal.conversation');

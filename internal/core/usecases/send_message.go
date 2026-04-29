@@ -29,7 +29,10 @@ type SendMessageConfig struct {
 	SettingsSvc    *config.SettingsService
 	Emitter        ports.Emitter
 	// OnSpeechRequest é chamado após salvar a mensagem do usuário para disparar TTS proativo.
-	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
+	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	// OpenEditorPaths retorna os caminhos de arquivos abertos em abas de editor.
+	// Filesystem tools podem ler/editar esses arquivos mesmo fora do workDir.
+	OpenEditorPaths func() []string
 }
 
 // SendMessageUseCase orquestra o pipeline completo de envio de mensagem ao LLM.
@@ -44,7 +47,8 @@ type SendMessageUseCase struct {
 	speechSvc       *speech.Service
 	settingsSvc     *config.SettingsService
 	emitter         ports.Emitter
-	onSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
+	onSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	openEditorPaths func() []string
 }
 
 // NewSendMessageUseCase cria um SendMessageUseCase com todas as dependências.
@@ -60,14 +64,15 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 		settingsSvc:     cfg.SettingsSvc,
 		emitter:         cfg.Emitter,
 		onSpeechRequest: cfg.OnSpeechRequest,
+		openEditorPaths: cfg.OpenEditorPaths,
 	}
 }
 
 // SendMessageRequest encapsula os parâmetros de entrada do Use Case.
 type SendMessageRequest struct {
 	Ctx            context.Context
-	ConversationID uint
-	RetryMessageID uint
+	ConversationID string
+	RetryMessageID string
 	UserContent    string
 	UserMedia      string
 	Params         llm.ChatParams
@@ -77,7 +82,7 @@ type SendMessageRequest struct {
 // Execute executa o pipeline de mensagem: prepara contexto → persiste → monta prompt
 // → resolve LLM → lança goroutine de streaming (agêntico ou simples).
 // Retorna o conversationID ou erro síncrono (problemas de configuração, banco, etc.).
-func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
+func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	ctx := req.Ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -90,11 +95,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 	}
 
 	var retryUserMsg *chat.Message
-	if req.RetryMessageID > 0 {
+	if req.RetryMessageID != "" {
 		reused, err := uc.chatInteractor.GetRetryableUserMessage(req.ConversationID, req.RetryMessageID)
 		if err != nil {
 			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar mensagem para retry: " + err.Error()})
-			return 0, err
+			return "", err
 		}
 		retryUserMsg = reused
 		req.UserContent = reused.Content
@@ -114,7 +119,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 		DefaultModel:   defaultModel,
 	})
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	activeProfile := pctx.ActiveProfile
 	params := pctx.Params
@@ -123,7 +128,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 	var userMsg *chat.Message
 	var messages []llm.Message
 	var conversationSummary string
-	if req.RetryMessageID > 0 {
+	if req.RetryMessageID != "" {
 		rmsg, err := uc.chatInteractor.ReuseLoadedUserMessage(ctx, chat.RecordUserMessageRequest{
 			ConversationID: req.ConversationID,
 			Source:         req.Source,
@@ -131,7 +136,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 			Transcribe:     uc.whisperTranscribeFunc(),
 		}, retryUserMsg)
 		if err != nil {
-			return 0, err
+			return "", err
 		}
 		userMsg = rmsg.UserMsg
 		messages = rmsg.Messages
@@ -164,7 +169,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 			Transcribe:     uc.whisperTranscribeFunc(),
 		})
 		if err != nil {
-			return 0, err
+			return "", err
 		}
 		userMsg = rmsg.UserMsg
 		messages = rmsg.Messages
@@ -202,7 +207,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
 		errMsg := "Nenhum provedor LLM configurado no perfil ativo."
 		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
-		return 0, fmt.Errorf("%s", errMsg)
+		return "", fmt.Errorf("%s", errMsg)
 	}
 
 	requestStreamer, err := uc.providerSvc.GetChatProvider(activeProfile.Chat.LLMProvider)
@@ -210,7 +215,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
 		log.Printf("[SendMessage] ERRO: %s", errMsg)
 		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
-		return 0, fmt.Errorf("%s", errMsg)
+		return "", fmt.Errorf("%s", errMsg)
 	}
 	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
@@ -229,6 +234,13 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 				Filesystem:       invokedFilesystemScope,
 			})
 		}
+		// Injeta caminhos de arquivos abertos em abas de editor para que
+		// filesystem tools possam ler/editar esses arquivos fora do workDir.
+		if uc.openEditorPaths != nil {
+			if paths := uc.openEditorPaths(); len(paths) > 0 {
+				agentCtx = tools.WithOpenEditorPaths(agentCtx, paths)
+			}
+		}
 		go func() {
 			defer func() {
 				r := recover()
@@ -236,7 +248,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 			}()
 			defer uc.streamMgr.Unregister(req.ConversationID)
 			uc.agentSvc.RunAgenticLoop(agentCtx, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer,
-				func(convID uint, iter int) agent.IterationHandler {
+				func(convID string, iter int) agent.IterationHandler {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter)
 				},
 			)

@@ -74,7 +74,7 @@ describe('MessageNode', () => {
         node={main.MessageNode.createFrom({
           message: new main.EnrichedMessage({
             id: '1',
-            conversationId: 1,
+            conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
             role: 'user',
             content: 'Oi',
             createdAt: new Date().toISOString(),

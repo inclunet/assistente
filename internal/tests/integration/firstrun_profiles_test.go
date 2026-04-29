@@ -3,7 +3,6 @@ package integration
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/profiles"
@@ -52,8 +51,6 @@ func TestIntegration_FirstMessageWithCreativeProfile(t *testing.T) {
 	// 3. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Criative Chat",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -66,7 +63,6 @@ func TestIntegration_FirstMessageWithCreativeProfile(t *testing.T) {
 		Role:           "user",
 		Content:        "Crie uma história criativa",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -84,7 +80,6 @@ func TestIntegration_FirstMessageWithCreativeProfile(t *testing.T) {
 		PromptTokens:     30,
 		CompletionTokens: 150,
 		TotalTokens:      180,
-		CreatedAt:        time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -139,8 +134,6 @@ func TestIntegration_FirstMessageWithDeterministicProfile(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Deterministic Chat",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -153,7 +146,6 @@ func TestIntegration_FirstMessageWithDeterministicProfile(t *testing.T) {
 		Role:           "user",
 		Content:        "Qual é a capital da França?",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -170,7 +162,6 @@ func TestIntegration_FirstMessageWithDeterministicProfile(t *testing.T) {
 		PromptTokens:     20,
 		CompletionTokens: 25,
 		TotalTokens:      45,
-		CreatedAt:        time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -212,8 +203,6 @@ func TestIntegration_FirstMessageWithToolsDisabled(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "No Tools Chat",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -226,7 +215,6 @@ func TestIntegration_FirstMessageWithToolsDisabled(t *testing.T) {
 		Role:           "user",
 		Content:        "Qual é a temperatura em São Paulo?",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -240,7 +228,6 @@ func TestIntegration_FirstMessageWithToolsDisabled(t *testing.T) {
 		Content:        "Desculpe, não tenho acesso a ferramentas neste perfil. Você teria que me informar a temperatura.",
 		ToolCalls:      "", // VAZIO - sem tool calls
 		Source:         "wails",
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -293,8 +280,6 @@ func TestIntegration_FirstMessageWithMCPDisabled(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "No MCP Chat",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -307,7 +292,6 @@ func TestIntegration_FirstMessageWithMCPDisabled(t *testing.T) {
 		Role:           "user",
 		Content:        "Procure no GitHub",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -320,7 +304,6 @@ func TestIntegration_FirstMessageWithMCPDisabled(t *testing.T) {
 		Role:           "assistant",
 		Content:        "MCP está desabilitado neste perfil, então não posso acessar GitHub.",
 		Source:         "wails",
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -373,8 +356,6 @@ func TestIntegration_FirstMessageDifferentModels(t *testing.T) {
 		// 2. Simular primeira mensagem com este modelo
 		conv := &database.Conversation{
 			Title:     "Chat with " + m.name,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -386,7 +367,6 @@ func TestIntegration_FirstMessageDifferentModels(t *testing.T) {
 			Role:           "user",
 			Content:        "Olá",
 			Source:         "wails",
-			CreatedAt:      time.Now(),
 		}
 
 		if err := db.Create(userMsg).Error; err != nil {
@@ -399,7 +379,6 @@ func TestIntegration_FirstMessageDifferentModels(t *testing.T) {
 			Content:        "Olá! Sou " + m.name,
 			Source:         "wails",
 			Model:          m.model,
-			CreatedAt:      time.Now().Add(100 * time.Millisecond),
 		}
 
 		if err := db.Create(assistantMsg).Error; err != nil {
@@ -450,8 +429,6 @@ func TestIntegration_FirstMessageWithContextWindowLimit(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Limited Context Chat",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -464,7 +441,6 @@ func TestIntegration_FirstMessageWithContextWindowLimit(t *testing.T) {
 		Role:           "user",
 		Content:        "Primeira mensagem",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -480,7 +456,6 @@ func TestIntegration_FirstMessageWithContextWindowLimit(t *testing.T) {
 		PromptTokens:     50,
 		CompletionTokens: 30,
 		TotalTokens:      80,
-		CreatedAt:        time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -529,8 +504,6 @@ func TestIntegration_FirstMessageProfileResponseTimeout(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Quick Timeout Chat",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -543,7 +516,6 @@ func TestIntegration_FirstMessageProfileResponseTimeout(t *testing.T) {
 		Role:           "user",
 		Content:        "Teste de timeout",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -556,7 +528,6 @@ func TestIntegration_FirstMessageProfileResponseTimeout(t *testing.T) {
 		Role:           "assistant",
 		Content:        "Resposta rápida",
 		Source:         "wails",
-		CreatedAt:      time.Now().Add(5 * time.Second), // Resposta em 5s < 30s timeout
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -607,8 +578,6 @@ func TestIntegration_FirstMessageProfileParametersPropagation(t *testing.T) {
 	// 3. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Params Propagation Chat",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -621,7 +590,6 @@ func TestIntegration_FirstMessageProfileParametersPropagation(t *testing.T) {
 		Role:           "user",
 		Content:        "Crie um sumário detalhado",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -638,7 +606,6 @@ func TestIntegration_FirstMessageProfileParametersPropagation(t *testing.T) {
 		PromptTokens:     100,
 		CompletionTokens: 150, // Respeitando MaxTokens=2500
 		TotalTokens:      250,
-		CreatedAt:        time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -716,8 +683,6 @@ func TestIntegration_FirstMessageProfileToolEnabling(t *testing.T) {
 		// Criar conversa para este profile
 		conv := &database.Conversation{
 			Title:     "Chat with " + profileName,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -730,7 +695,6 @@ func TestIntegration_FirstMessageProfileToolEnabling(t *testing.T) {
 			Role:           "user",
 			Content:        "Busque informações sobre o clima em São Paulo",
 			Source:         "wails",
-			CreatedAt:      time.Now(),
 		}
 
 		if err := db.Create(userMsg).Error; err != nil {
@@ -743,7 +707,6 @@ func TestIntegration_FirstMessageProfileToolEnabling(t *testing.T) {
 			Role:           "assistant",
 			Content:        "Resposta sobre clima",
 			Source:         "wails",
-			CreatedAt:      time.Now().Add(100 * time.Millisecond),
 		}
 
 		if err := db.Create(assistantMsg).Error; err != nil {
@@ -792,8 +755,6 @@ func TestIntegration_FirstMessageProfileTopP(t *testing.T) {
 		// Criar conversa
 		conv := &database.Conversation{
 			Title:     "Chat " + p.name,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -806,7 +767,6 @@ func TestIntegration_FirstMessageProfileTopP(t *testing.T) {
 			Role:           "user",
 			Content:        "Crie uma história criativa",
 			Source:         "wails",
-			CreatedAt:      time.Now(),
 		}
 
 		if err := db.Create(userMsg).Error; err != nil {
@@ -818,7 +778,6 @@ func TestIntegration_FirstMessageProfileTopP(t *testing.T) {
 			Role:           "assistant",
 			Content:        "Uma história com TopP=" + floatToString(p.topP),
 			Source:         "wails",
-			CreatedAt:      time.Now().Add(100 * time.Millisecond),
 		}
 
 		if err := db.Create(assistantMsg).Error; err != nil {
@@ -900,8 +859,6 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 		// Criar conversa
 		conv := &database.Conversation{
 			Title:     "Chat " + profileName,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -913,7 +870,6 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 			Role:           "user",
 			Content:        "Primeira mensagem",
 			Source:         "wails",
-			CreatedAt:      time.Now(),
 		}
 
 		if err := db.Create(userMsg).Error; err != nil {
@@ -925,7 +881,6 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 			Role:           "assistant",
 			Content:        "Resposta",
 			Source:         "wails",
-			CreatedAt:      time.Now().Add(100 * time.Millisecond),
 		}
 
 		if err := db.Create(assistantMsg).Error; err != nil {
@@ -975,8 +930,6 @@ func TestIntegration_FirstMessageProfileChannelResponseMode(t *testing.T) {
 		// Criar conversa para cada mode
 		conv := &database.Conversation{
 			Title:     "Chat " + mode,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -988,7 +941,6 @@ func TestIntegration_FirstMessageProfileChannelResponseMode(t *testing.T) {
 			Role:           "user",
 			Content:        "Teste de response mode: " + mode,
 			Source:         "telegram", // Via canal
-			CreatedAt:      time.Now(),
 		}
 
 		if err := db.Create(userMsg).Error; err != nil {
@@ -1001,7 +953,6 @@ func TestIntegration_FirstMessageProfileChannelResponseMode(t *testing.T) {
 			Role:           "assistant",
 			Content:        "Resposta com mode=" + mode,
 			Source:         "telegram",
-			CreatedAt:      time.Now().Add(100 * time.Millisecond),
 		}
 
 		if err := db.Create(assistantMsg).Error; err != nil {

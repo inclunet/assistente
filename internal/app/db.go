@@ -29,7 +29,7 @@ func (a *App) GetConversations() ([]Conversation, error) {
 	return database.GetConversations()
 }
 
-func (a *App) GetConversation(id uint) (*Conversation, error) {
+func (a *App) GetConversation(id string) (*Conversation, error) {
 	return database.GetConversation(id)
 }
 
@@ -47,31 +47,31 @@ func (a *App) EnsureConversation(title string) (*Conversation, error) {
 }
 
 // GetMessages retorna mensagens com filtro por parent (API unificada com LAZY LOADING)
-func (a *App) GetMessages(conversationID uint, parentID *uint) ([]chat.MessageNode, error) {
+func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error) {
 	messages, err := database.GetMessages(conversationID, parentID)
 	if err != nil {
 		return nil, err
 	}
 
-	msgIDs := make([]uint, len(messages))
+	msgIDs := make([]string, len(messages))
 	for i, msg := range messages {
 		msgIDs[i] = msg.ID
 	}
 	childCounts, err := database.CountChildren(msgIDs)
 	if err != nil {
-		childCounts = make(map[uint]int)
+		childCounts = make(map[string]int)
 	}
 
 	return chat.BuildMessageNodes(messages, childCounts, parentID), nil
 }
 
 // GetConversationInfo retorna apenas metadados da conversa (sem mensagens)
-func (a *App) GetConversationInfo(id uint) (*Conversation, error) {
+func (a *App) GetConversationInfo(id string) (*Conversation, error) {
 	return database.GetConversationInfo(id)
 }
 
 // GetConversationWithThreads retorna conversa com mensagens raiz (lazy loading)
-func (a *App) GetConversationWithThreads(id uint) (*chat.ConversationWithThreads, error) {
+func (a *App) GetConversationWithThreads(id string) (*chat.ConversationWithThreads, error) {
 	conv, err := database.GetConversationInfo(id)
 	if err != nil {
 		return nil, err
@@ -90,11 +90,11 @@ func (a *App) GetConversationWithThreads(id uint) (*chat.ConversationWithThreads
 }
 
 // GetMessageChildren retorna os filhos de uma mensagem (lazy loading)
-func (a *App) GetMessageChildren(messageID uint) ([]chat.MessageNode, error) {
-	return a.GetMessages(0, &messageID)
+func (a *App) GetMessageChildren(messageID string) ([]chat.MessageNode, error) {
+	return a.GetMessages("", &messageID)
 }
 
-func (a *App) UpdateConversation(id uint, title, model string) error {
+func (a *App) UpdateConversation(id string, title, model string) error {
 	if err := database.UpdateConversation(id, title, model); err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func (a *App) UpdateConversation(id uint, title, model string) error {
 	return nil
 }
 
-func (a *App) DeleteConversation(id uint) error {
+func (a *App) DeleteConversation(id string) error {
 	if err := database.DeleteConversation(id); err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func (a *App) DeleteConversation(id uint) error {
 }
 
 // DeleteMessage exclui uma mensagem e todas as suas filhas (respostas)
-func (a *App) DeleteMessage(messageID uint) error {
+func (a *App) DeleteMessage(messageID string) error {
 	// Solicita confirmação via questionário
 	ctx := a.ctx
 	if a.questionnaireMgr == nil {
@@ -157,7 +157,7 @@ func (a *App) DeleteMessage(messageID uint) error {
 
 	// Prossegue com a exclusão
 	var msg database.ChatMessage
-	if err := database.DB().First(&msg, messageID).Error; err != nil {
+	if err := database.DB().First(&msg, "id = ?", messageID).Error; err != nil {
 		return err
 	}
 	convID := msg.ConversationID
@@ -175,9 +175,9 @@ func (a *App) DeleteMessage(messageID uint) error {
 }
 
 // UpdateMessage atualiza o conteúdo de uma mensagem existente
-func (a *App) UpdateMessage(messageID uint, newContent string) error {
+func (a *App) UpdateMessage(messageID string, newContent string) error {
 	var msg database.ChatMessage
-	if err := database.DB().Select("conversation_id").First(&msg, messageID).Error; err != nil {
+	if err := database.DB().Select("conversation_id").First(&msg, "id = ?", messageID).Error; err != nil {
 		return err
 	}
 
@@ -198,13 +198,13 @@ func (a *App) UpdateMessage(messageID uint, newContent string) error {
 	return nil
 }
 
-func (a *App) UpdateConversationModel(id uint, model string) error {
+func (a *App) UpdateConversationModel(id string, model string) error {
 	return database.UpdateConversation(id, "", model)
 }
 
 // ==================== ChatMessage ====================
 
-func (a *App) CreateMessage(conversationID uint, role, content string) (*ChatMessage, error) {
+func (a *App) CreateMessage(conversationID string, role, content string) (*ChatMessage, error) {
 	return database.CreateMessage(database.MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
@@ -212,23 +212,23 @@ func (a *App) CreateMessage(conversationID uint, role, content string) (*ChatMes
 	})
 }
 
-func (a *App) AddMessage(conversationID uint, role, content string) (*ChatMessage, error) {
+func (a *App) AddMessage(conversationID string, role, content string) (*ChatMessage, error) {
 	return database.AddMessage(conversationID, role, content)
 }
 
-func (a *App) AddMessageWithMedia(conversationID uint, role, content, media string) (*ChatMessage, error) {
+func (a *App) AddMessageWithMedia(conversationID string, role, content, media string) (*ChatMessage, error) {
 	return database.AddMessageWithMedia(conversationID, role, content, media)
 }
 
-func (a *App) AddMessageWithTokens(conversationID uint, role, content string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
+func (a *App) AddMessageWithTokens(conversationID string, role, content string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
 	return database.AddMessageWithTokens(conversationID, role, content, promptTokens, completionTokens, totalTokens, model)
 }
 
-func (a *App) AddMessageWithTokensAndMedia(conversationID uint, role, content, media string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
+func (a *App) AddMessageWithTokensAndMedia(conversationID string, role, content, media string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
 	return database.AddMessageWithTokensAndMedia(conversationID, role, content, media, promptTokens, completionTokens, totalTokens, model)
 }
 
-func (a *App) AddChildMessage(conversationID uint, parentID uint, role, content, model string) (*ChatMessage, error) {
+func (a *App) AddChildMessage(conversationID string, parentID string, role, content, model string) (*ChatMessage, error) {
 	return database.AddChildMessage(conversationID, parentID, role, content, model)
 }
 
@@ -240,11 +240,11 @@ func (a *App) GetAllTokenStats() (map[string]int, error) {
 
 type ConversationSummaryInfo struct {
 	Summary              string `json:"summary"`
-	SummaryUpToMessageID uint   `json:"summary_up_to_message_id"`
+	SummaryUpToMessageID string `json:"summary_up_to_message_id"`
 	SummarizingInProgress bool  `json:"summarizing_in_progress"`
 }
 
-func (a *App) GetConversationSummary(conversationID uint) (*ConversationSummaryInfo, error) {
+func (a *App) GetConversationSummary(conversationID string) (*ConversationSummaryInfo, error) {
 	summary, upToID, err := database.GetConversationSummary(conversationID)
 	if err != nil {
 		return nil, err
@@ -257,11 +257,11 @@ func (a *App) GetConversationSummary(conversationID uint) (*ConversationSummaryI
 	}, nil
 }
 
-func (a *App) RenameConversation(conversationID uint, newTitle string) error {
+func (a *App) RenameConversation(conversationID string, newTitle string) error {
 	return a.UpdateConversation(conversationID, newTitle, "")
 }
 
-func (a *App) ClearConversation(conversationID uint) error {
+func (a *App) ClearConversation(conversationID string) error {
 	if err := database.DeleteAllMessages(conversationID); err != nil {
 		return err
 	}
@@ -273,10 +273,10 @@ func (a *App) ClearConversation(conversationID uint) error {
 	return nil
 }
 
-func (a *App) DeleteMessages(conversationID uint, messageIDs []uint) error {
+func (a *App) DeleteMessages(conversationID string, messageIDs []string) error {
 	for _, msgID := range messageIDs {
 		if err := database.DeleteMessage(msgID); err != nil {
-			return fmt.Errorf("erro ao deletar mensagem %d: %w", msgID, err)
+			return fmt.Errorf("erro ao deletar mensagem %s: %w", msgID, err)
 		}
 	}
 	return nil
@@ -301,7 +301,7 @@ func (a *App) RebuildSearchIndex() error {
 // ==================== Model ====================
 
 // SetConversationModel define o modelo para uma conversa
-func (a *App) SetConversationModel(conversationID uint, model string) error {
+func (a *App) SetConversationModel(conversationID string, model string) error {
 	return database.UpdateConversation(conversationID, "", model)
 }
 

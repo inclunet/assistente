@@ -27,20 +27,20 @@ function messagesFixture() {
   const now = new Date().toISOString();
   return [
     {
-      message: { id: '1', conversationId: 1, role: 'user', content: 'Mensagem do usuário', createdAt: now },
+      message: { id: '01926b90-7a5a-7c4e-8d3f-000000000001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Mensagem do usuário', createdAt: now },
       children: [],
       childCount: 0,
     },
     {
       message: {
-        id: '2', conversationId: 1, role: 'assistant', content: 'Resposta do assistente',
+        id: '01926b90-7a5a-7c4e-8d3f-000000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Resposta do assistente',
         createdAt: now, reasoning: 'Pensamento interno do assistente',
       },
       children: [],
       childCount: 0,
     },
     {
-      message: { id: '3', conversationId: 1, role: 'user', content: 'Segunda mensagem do usuário', createdAt: now },
+      message: { id: '01926b90-7a5a-7c4e-8d3f-000000000003', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Segunda mensagem do usuário', createdAt: now },
       children: [],
       childCount: 0,
     },
@@ -50,12 +50,12 @@ function messagesFixture() {
 async function setupChatWithMessages(wails: Parameters<Parameters<typeof test>[2]>[0]['wails']) {
   const now = new Date().toISOString();
   await wails.setResponse('GetMessages', messagesFixture());
-  await wails.setResponse('SendMessage', 4);
+  await wails.setResponse('SendMessage', '01926b90-7a5a-7c4e-8d3f-000000000004');
   await wails.setResponse('DeleteMessage', undefined);
   await wails.setResponse('UpdateMessage', undefined);
   await wails.setResponse('SpeakMessage', undefined);
   await wails.setResponse('EnsureConversation', {
-    id: 1, title: 'Conversa', created_at: now, updated_at: now,
+    id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
     messages: [], message_count: 3,
   });
   await wails.waitForApp();
@@ -260,12 +260,12 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
     const now = new Date().toISOString();
     const messagesWithChildren = [
       {
-        message: { id: '1', conversationId: 1, role: 'user', content: 'Msg pai', createdAt: now },
+        message: { id: '01926b90-0000-7000-8000-100000000001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Msg pai', createdAt: now },
         children: [],
         childCount: 1,
       },
       {
-        message: { id: '2', conversationId: 1, role: 'assistant', content: 'Resposta', createdAt: now },
+        message: { id: '01926b90-0000-7000-8000-100000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Resposta', createdAt: now },
         children: [],
         childCount: 0,
       },
@@ -273,7 +273,7 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
 
     const childrenResponse = [
       {
-        message: { id: '1-1', conversationId: 1, role: 'assistant', content: 'Resposta interna', createdAt: now, internal: true },
+        message: { id: '01926b90-0000-7000-8000-100000001001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Resposta interna', createdAt: now, internal: true },
         children: [],
         childCount: 0,
       },
@@ -282,7 +282,7 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
     await wails.setResponse('GetMessages', messagesWithChildren);
     await wails.setResponse('GetMessageChildren', childrenResponse);
     await wails.setResponse('EnsureConversation', {
-      id: 1, title: 'Conversa', created_at: now, updated_at: now,
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
     });
     await wails.waitForApp();
@@ -309,7 +309,7 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
     const now = new Date().toISOString();
     const messagesWithChildren = [
       {
-        message: { id: '1', conversationId: 1, role: 'user', content: 'Msg pai', createdAt: now },
+        message: { id: '01926b90-0000-7000-8000-100000000001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Msg pai', createdAt: now },
         children: [],
         childCount: 1,
       },
@@ -317,7 +317,7 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
 
     const childrenResponse = [
       {
-        message: { id: '1-1', conversationId: 1, role: 'assistant', content: 'Resposta interna', createdAt: now, internal: true },
+        message: { id: '01926b90-0000-7000-8000-100000001001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Resposta interna', createdAt: now, internal: true },
         children: [],
         childCount: 0,
       },
@@ -326,7 +326,7 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
     await wails.setResponse('GetMessages', messagesWithChildren);
     await wails.setResponse('GetMessageChildren', childrenResponse);
     await wails.setResponse('EnsureConversation', {
-      id: 1, title: 'Conversa', created_at: now, updated_at: now,
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 1,
     });
     await wails.waitForApp();
@@ -381,8 +381,8 @@ test.describe('MessageNode — PageDown/PageUp navigation', () => {
     const now = new Date().toISOString();
     const manyMessages = Array.from({ length: 15 }, (_, i) => ({
       message: {
-        id: String(i + 1),
-        conversationId: 1,
+        id: `01926b90-0000-7000-8000-1${String(i + 1).padStart(11, '0')}`,
+        conversationId: '01926b90-0000-7000-8000-000000000001',
         role: i % 2 === 0 ? 'user' : 'assistant',
         content: `Mensagem ${i + 1}`,
         createdAt: now,
@@ -393,7 +393,7 @@ test.describe('MessageNode — PageDown/PageUp navigation', () => {
 
     await wails.setResponse('GetMessages', manyMessages);
     await wails.setResponse('EnsureConversation', {
-      id: 1, title: 'Conversa', created_at: now, updated_at: now,
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 15,
     });
     await wails.waitForApp();
@@ -421,12 +421,12 @@ test.describe('MessageNode — ARIA attributes', () => {
     const now = new Date().toISOString();
     const messagesWithAndWithoutChildren = [
       {
-        message: { id: '1', conversationId: 1, role: 'user', content: 'Com filhos', createdAt: now },
+        message: { id: '01926b90-0000-7000-8000-100000000001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Com filhos', createdAt: now },
         children: [],
         childCount: 2,
       },
       {
-        message: { id: '2', conversationId: 1, role: 'assistant', content: 'Sem filhos', createdAt: now },
+        message: { id: '01926b90-0000-7000-8000-100000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Sem filhos', createdAt: now },
         children: [],
         childCount: 0,
       },
@@ -434,7 +434,7 @@ test.describe('MessageNode — ARIA attributes', () => {
 
     await wails.setResponse('GetMessages', messagesWithAndWithoutChildren);
     await wails.setResponse('EnsureConversation', {
-      id: 1, title: 'Conversa', created_at: now, updated_at: now,
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
     });
     await wails.waitForApp();

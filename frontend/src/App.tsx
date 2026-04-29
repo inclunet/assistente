@@ -39,8 +39,12 @@ function App() {
     const navigate = useNavigate();
     const antLocale = useAntdLocale(i18n.language);
     const { setConfig, setLoading, setError } = useSettingsStore();
-    const { addToast } = useUIStore();
-    const { handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleExternalIncoming } = useChatStore();
+    const addToast = useUIStore((s) => s.addToast);
+    const handleConversationDeleted = useChatStore((s) => s.handleConversationDeleted);
+    const handleConversationCleared = useChatStore((s) => s.handleConversationCleared);
+    const handleConversationRenamed = useChatStore((s) => s.handleConversationRenamed);
+    const handleDatabaseReset = useChatStore((s) => s.handleDatabaseReset);
+    const handleExternalIncoming = useChatStore((s) => s.handleExternalIncoming);
     const wasQuestionnaireOpenRef = useRef(false);
     const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 
@@ -126,23 +130,23 @@ function App() {
         const unsubs: Array<() => void> = [];
 
         unsubs.push(EventsOn('conversation:deleted', (data: unknown) => {
-            const eventData = data as { conversation_id?: number };
+            const eventData = data as { conversation_id?: string };
             if (eventData.conversation_id) {
                 handleConversationDeleted(eventData.conversation_id);
             }
         }));
 
         unsubs.push(EventsOn('conversation:cleared', (data: unknown) => {
-            const eventData = data as { conversation_id?: number };
+            const eventData = data as { conversation_id?: string };
             if (eventData.conversation_id) {
                 handleConversationCleared(eventData.conversation_id);
             }
         }));
 
         unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
-            const eventData = data as { conversation_id?: number; new_title?: string };
-            if (eventData.conversation_id && eventData.new_title) {
-                handleConversationRenamed(eventData.conversation_id, eventData.new_title);
+            const eventData = data as { conversationId?: string; newTitle?: string };
+            if (eventData.conversationId && eventData.newTitle) {
+                handleConversationRenamed(eventData.conversationId, eventData.newTitle);
             }
         }));
 
@@ -193,7 +197,7 @@ function App() {
                 from?: string;
                 fromId?: string;
                 text?: string;
-                conversationId?: number;
+                conversationId?: string;
                 newConversation?: boolean;
             };
             handleExternalIncoming({
@@ -201,7 +205,7 @@ function App() {
                 from: eventData.from || '',
                 fromId: eventData.fromId || '',
                 text: eventData.text || '',
-                conversationId: eventData.conversationId || 0,
+                conversationId: eventData.conversationId || '',
                 newConversation: eventData.newConversation || false,
             });
         });

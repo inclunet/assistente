@@ -77,19 +77,19 @@ func (a *App) SetOpenAITTSSpeed(rate int)     { a.speechSvc.SetTTSSpeed(float64(
 // Message Audio API (TTS storage)
 // ============================================================================
 
-func (a *App) GetMessageAudio(messageID uint) (*speech.AudioResult, error) {
+func (a *App) GetMessageAudio(messageID string) (*speech.AudioResult, error) {
 	return a.speechSvc.GetMessageAudio(messageID)
 }
 
-func (a *App) SaveMessageAudio(messageID uint, audioBase64, mimeType string) error {
+func (a *App) SaveMessageAudio(messageID string, audioBase64, mimeType string) error {
 	return a.speechSvc.SaveMessageAudio(messageID, audioBase64, mimeType)
 }
 
-func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*speech.AudioResult, error) {
+func (a *App) GenerateAndSaveMessageAudio(messageID string, text string) (*speech.AudioResult, error) {
 	return a.speechSvc.GenerateAndSaveMessageAudio(messageID, text)
 }
 
-func (a *App) SpeakMessage(messageID uint, providerID, voiceID, model string, rate float64) (*speech.AudioResult, error) {
+func (a *App) SpeakMessage(messageID string, providerID, voiceID, model string, rate float64) (*speech.AudioResult, error) {
 	return a.speechSvc.SpeakMessage(messageID, providerID, voiceID, model, rate)
 }
 

@@ -8,17 +8,17 @@ import (
 
 // SendMessage é o binding Wails para envio de mensagens. Source padrão: "wails".
 // A bridge canal↔Wails é gerenciada internamente pelo ChatController.
-func (a *App) SendMessage(conversationID uint, userContent string, userMedia string, params ChatParams) (uint, error) {
+func (a *App) SendMessage(conversationID string, userContent string, userMedia string, params ChatParams) (string, error) {
 	return a.chatCtrl.SendMessage(a.ctx, conversationID, userContent, userMedia, params)
 }
 
 // RetryMessage reexecuta a resposta a partir de uma mensagem do usuário já persistida.
-func (a *App) RetryMessage(conversationID uint, messageID uint, params ChatParams) (uint, error) {
+func (a *App) RetryMessage(conversationID string, messageID string, params ChatParams) (string, error) {
 	return a.chatCtrl.RetryMessage(a.ctx, conversationID, messageID, params)
 }
 
 // SendMessageFromChannel é chamado pelo Gateway de mensageria.
-func (a *App) SendMessageFromChannel(conversationID uint, content, media string, params ChatParams, source string) (uint, error) {
+func (a *App) SendMessageFromChannel(conversationID string, content, media string, params ChatParams, source string) (string, error) {
 	return a.chatCtrl.SendMessageFromChannel(a.ctx, conversationID, content, media, params, source)
 }
 
@@ -50,7 +50,7 @@ func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, 
 
 // loadConversationHistory carrega o histórico de mensagens de uma conversa.
 // Respeita rolling context: se há resumo, exclui mensagens já resumidas do contexto.
-func (a *App) loadConversationHistory(conversationID uint, profile *profiles.Profile) ([]Message, string, error) {
+func (a *App) loadConversationHistory(conversationID string, profile *profiles.Profile) ([]Message, string, error) {
 	maxCtxMsgs := chat.DefaultMaxContextMessages
 	if profile != nil {
 		maxCtxMsgs = profile.GetMaxContextMessages()

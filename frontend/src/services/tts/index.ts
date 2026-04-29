@@ -268,9 +268,11 @@ class TTSService {
   }
   
   /**
-   * Verifica se está falando
+   * Verifica se está falando (providers locais, API ou streaming backend)
    */
   isSpeaking(): boolean {
+    if (this.activeStreamPlayer !== null) return true;
+    if (this.activeStreamAbort !== null) return true;
     return this.currentProvider?.isSpeaking() || false;
   }
   

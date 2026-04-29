@@ -25,12 +25,12 @@ import './KanbanBoard.css';
 /* ── Tipos ─────────────────────────────────────────────────────── */
 
 interface KanbanBoardProps {
-  taskListId: number;
+  taskListId: string;
   tasks: Task[];
   taskList: TaskListWithWorkflow;
   onTaskCreated?: (task: Task) => void;
   onTaskUpdated?: (task: Task) => void;
-  onTaskDeleted?: (taskId: number) => void;
+  onTaskDeleted?: (taskId: string) => void;
 }
 
 export interface KanbanBoardRef {
@@ -282,7 +282,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   );
 
   // ── Inline rename (F2) ────────────────────────────────────
-  const [renamingTaskId, setRenamingTaskId] = useState<number | null>(null);
+  const [renamingTaskId, setRenamingTaskId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
   const { updateTask } = useTaskListStore();
@@ -535,10 +535,10 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
     async (e: React.DragEvent, colIdx: number) => {
       e.preventDefault();
       setDragOverCol(null);
-      const taskId = Number(e.dataTransfer.getData('text/plain'));
+      const taskId = e.dataTransfer.getData('text/plain');
       if (!taskId) return;
 
-      const task = tasks.find((t) => t.id === taskId);
+      const task = tasks.find((t) => String(t.id) === taskId);
       if (task) {
         await moveTaskToColumn(task, colIdx);
       }

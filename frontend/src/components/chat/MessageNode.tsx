@@ -9,6 +9,8 @@ import { announce } from '../../hooks/useAnnouncer';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
 import { handleError, ErrorSeverity } from '../../utils/errorHandler';
 import { messageAudioService } from '../../services/messageAudio';
+import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
+import { ttsService } from '../../services/tts';
 import './MessageNode.css';
 
 export interface MessageNodeProps {
@@ -21,12 +23,8 @@ export interface MessageNodeProps {
   onContextMenu?: (e: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
   onDelete?: (message: Message) => void;
-  onSendToEditor?: (payload: {
-    target: 'current' | 'new_document';
-    format: 'markdown' | 'html' | 'plain';
-    title?: string;
-    content: string;
-  }) => void;
+  editorTargets?: EditorSendTargetOption[];
+  onSendToEditor?: (payload: SendToEditorPayload) => void;
 }
 
 export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
@@ -39,6 +37,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   onContextMenu,
   onSpeak,
   onDelete,
+  editorTargets,
   onSendToEditor,
 }) => {
   const { t } = useTranslation();
@@ -114,9 +113,10 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 
   // Handler de speak que controla o estado de playback
   const handleSpeak = useCallback(async (message: Message) => {
-    // Se qualquer áudio está tocando (local ou global/autoplay), para
-    if (isPlayingAudio || messageAudioService.isCurrentlyPlaying()) {
+    // Se qualquer áudio está tocando (local, global/autoplay ou TTS API), para
+    if (isPlayingAudio || messageAudioService.isCurrentlyPlaying() || ttsService.isSpeaking()) {
       messageAudioService.stopCurrentAudio();
+      ttsService.stop();
       setIsPlayingAudio(false);
       return;
     }
@@ -165,7 +165,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     if (!editContent.trim()) return;
 
     try {
-      const messageId = Number(node.message.id);
+      const messageId = node.message.id;
       await UpdateMessage(messageId, editContent);
       announce(t('chat.messageEdited'));
       setIsEditing(false);
@@ -481,6 +481,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onThreadToggle={handleToggle}
           onContextMenu={onContextMenu}
           onSpeak={handleSpeak}
+          editorTargets={editorTargets}
           onSendToEditor={onSendToEditor}
           isReading={isReading}
           isEditing={isEditing}

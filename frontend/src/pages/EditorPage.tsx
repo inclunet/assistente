@@ -20,7 +20,7 @@ import type {
   WorkspaceChatModalSession,
 } from '../store/workspaceChatModalStore';
 import { useEditorStore, DEFAULT_MD, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
@@ -66,10 +66,10 @@ import './EditorPage.css';
 
 export default function EditorPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
-  const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId } = useEditorInlineChatPatch();
+  const { waitForChatDone, waitForEditorPatch, getMaxMessageId } = useEditorInlineChatPatch();
 
 
   const documents = useEditorStore((s) => s.documents);
@@ -83,17 +83,16 @@ export default function EditorPage() {
   const hydrate = useEditorStore((s) => s.hydrate);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
   const setActiveWsTab = useWorkspaceStore((s) => s.setActiveTab);
-  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsActiveTab = useActiveTab();
   const wsTabs = useWorkspaceStore((s) => s.workspace?.tabs);
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
 
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 
   const tabProfileSlug = wsActiveTab?.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || 'editor-texto';
 
-  const activeTab = useMemo(() => activeDocumentId ? documents[activeDocumentId] ?? null : null, [documents, activeDocumentId]);
+  const activeTab = activeDocumentId ? documents[activeDocumentId] ?? null : null;
 
 
   const pageRootRef = useRef<HTMLDivElement>(null);
@@ -534,6 +533,8 @@ export default function EditorPage() {
         renameDocument(tabId, title);
         setDocDraftId(tabId, null);
         setDocDirty(tabId, false);
+
+        // filePath+title são sincronizados pelo useWorkspaceEditorBridge
 
         const { documents: afterDocs } = useEditorStore.getState();
         const afterTab = afterDocs[tabId] || tab;
@@ -1277,10 +1278,23 @@ export default function EditorPage() {
     const rawContent = String(r?.content ?? '');
     if (!rawContent) return true;
 
-    let targetTab = activeTab;
+    const requestedDocumentId = String(r.targetDocumentId || '').trim();
+    if (r.target === 'document' && !requestedDocumentId) {
+      console.error('[EditorPage] applyInsertRequest rejected: document target requires targetDocumentId');
+      return false;
+    }
+    const currentEditorState = useEditorStore.getState();
+    let targetTab = requestedDocumentId
+      ? currentEditorState.documents[requestedDocumentId] ?? null
+      : activeTab;
+
+    if (requestedDocumentId && currentEditorState.activeDocumentId !== requestedDocumentId) {
+      return false;
+    }
 
     if (r.target === 'new_document' || !targetTab) {
-      const title = String(r.title || 'Do chat');
+      if (requestedDocumentId) return false;
+      const title = String(r.title || t('editor.fallback.fromChat'));
       const draftId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `editor-${Date.now()}`;
       const draftPath = String(await EditorGetDraftPath(draftId) ?? '');
       const tabId = await addWorkspaceTab('editor', title, { filePath: draftPath, draftId });
@@ -1419,15 +1433,18 @@ export default function EditorPage() {
 
     let cancelled = false;
     (async () => {
-      // Tenta algumas vezes para cobrir o tempo de navegação/mount.
-      for (let i = 0; i < 10; i += 1) {
+      // Inserções direcionadas podem precisar esperar a aba/documento terminar de sincronizar.
+      const targetedInsert = !!String(pendingInsert.targetDocumentId || '').trim();
+      const maxAttempts = targetedInsert ? 40 : 10;
+      const delayMs = targetedInsert ? 100 : 60;
+      for (let i = 0; i < maxAttempts; i += 1) {
         if (cancelled) return;
         const ok = await applyInsertRequest(pendingInsert);
         if (ok) {
           setPendingInsert(null);
           return;
         }
-        await new Promise((r) => setTimeout(r, 60));
+        await new Promise((r) => setTimeout(r, delayMs));
       }
 
       // Se falhar, mantém pendente mas avisa.
@@ -1461,7 +1478,7 @@ export default function EditorPage() {
     const expectedConversationId = session?.conversationId ?? useChatStore.getState().activeConversationId ?? undefined;
 
     const beforeMessages = useChatStore.getState().getMessages();
-    const afterMessageId = getMaxNumericMessageId(beforeMessages as Message[]);
+    const afterMessageId = getMaxMessageId(beforeMessages as Message[]);
 
     const trimmed = String(instruction || '').trim();
     if (!trimmed) return null;
@@ -1909,9 +1926,7 @@ export default function EditorPage() {
         renameDocument(id, title);
         setDocMarkdown(id, content);
         useEditorStore.getState().setDocMode(id, preferredMode);
-        if (wsActiveTab) {
-          void updateWsTab(wsActiveTab.id, { title });
-        }
+        // filePath+title são sincronizados pelo useWorkspaceEditorBridge
       } else {
         const tabId = await addWorkspaceTab('editor', title, { filePath: path });
         id = tabId;
@@ -2052,6 +2067,8 @@ export default function EditorPage() {
       setDocFilePath(activeTab.id, path);
       renameDocument(activeTab.id, title);
       setDocDirty(activeTab.id, false);
+
+      // filePath+title são sincronizados pelo useWorkspaceEditorBridge
 
       void refreshDiskInfoForTab({ ...activeTab, filePath: path });
 

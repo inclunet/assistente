@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button } from 'antd';
 import { useChatStore } from '../../store/chatStore';
@@ -13,12 +13,16 @@ import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useTabScrollState } from '../../hooks/useTabScrollState';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
+import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage } from '@wailsjs/go/app/App';
+import { DeleteMessage, EditorGetDraftPath } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
+import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatSessionView.css';
+
+const EMPTY_MESSAGES: never[] = [];
 
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
@@ -40,17 +44,16 @@ export function ChatSessionView({
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
 
-  const {
-    isLoading,
-    getThreadedMessages,
-    loadMessageChildren,
-    getActiveConversation,
-    loadConversation,
-    retryMessageToConversation,
-    updateMessage,
-    toggleReasoningExpanded,
-    isReasoningExpanded,
-  } = useChatStore();
+  const isLoading = useChatStore((s) => s.isLoading);
+  const activeConversation = useChatStore((s) => s.activeConversation);
+  const threadedMessages = useChatStore((s) => s.activeConversation?.threadedMessages) ?? EMPTY_MESSAGES;
+  const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
+  const loadConversation = useChatStore((s) => s.loadConversation);
+  const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
+  const updateMessage = useChatStore((s) => s.updateMessage);
+  const toggleReasoningExpanded = useChatStore((s) => s.toggleReasoningExpanded);
+  const isReasoningExpanded = useChatStore((s) => s.isReasoningExpanded);
+  const getActiveConversation = useCallback(() => activeConversation, [activeConversation]);
 
   const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
   useEffect(() => {
@@ -70,6 +73,18 @@ export function ChatSessionView({
 
   const startEditing = useChatStore((state) => state.startEditing);
   const startReading = useChatStore((state) => state.startReading);
+  const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
+
+  const editorTargets = useMemo<EditorSendTargetOption[]>(
+    () =>
+      (wsTabs || [])
+        .filter((tab) => tab.type === 'editor')
+        .map((tab) => ({
+          id: tab.id,
+          title: String(tab.title || '').trim() || t('editor.fallback.title'),
+        })),
+    [wsTabs, t],
+  );
 
   const { copyMessage, speakMessage } = useMessageActions({
     onAnnounce: announce,
@@ -77,17 +92,14 @@ export function ChatSessionView({
 
   const handleDeleteMessage = useCallback(
     async (message: { id: string | number }) => {
-      let messageId: number | null = null;
+      const messageId = String(message.id);
+      if (!isBackendId(messageId)) return;
       try {
-        const parsedId = typeof message.id === 'number' ? message.id : parseInt(String(message.id), 10);
-        messageId = Number.isNaN(parsedId) ? null : parsedId;
-        if (messageId !== null) {
-          await DeleteMessage(messageId);
-          announce(t('chat.announce.messageDeleted'));
-          const conv = getActiveConversation();
-          if (conv?.id) {
-            await loadConversation(conv.id);
-          }
+        await DeleteMessage(messageId);
+        announce(t('chat.announce.messageDeleted'));
+        const conv = getActiveConversation();
+        if (conv?.id) {
+          await loadConversation(conv.id);
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -114,31 +126,64 @@ export function ChatSessionView({
   );
 
   const sendToEditor = useCallback(
-    async (payload: {
-      target: 'current' | 'new_document';
-      format: 'markdown' | 'html' | 'plain';
-      title?: string;
-      content: string;
-    }) => {
+    async (payload: SendToEditorPayload) => {
       const content = String(payload?.content ?? '');
       if (!content) return;
 
+      const title = payload.title || t('editor.fallback.fromChat');
+      const { addTab, setActiveTab } = useWorkspaceStore.getState();
+      const ensureActiveEditorTab = async (tabId: string) => {
+        await setActiveTab(tabId);
+        return useWorkspaceStore.getState().workspace?.activeTabId === tabId;
+      };
+      const createDraftEditorTab = async () => {
+        const draftId =
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `editor-${Date.now()}`;
+        const draftPath = String((await EditorGetDraftPath(draftId)) ?? '');
+        const tabId = await addTab('editor', title, { filePath: draftPath, draftId });
+        const activated = await ensureActiveEditorTab(tabId);
+        if (!activated) return null;
+        useEditorStore.getState().createDocument({
+          id: tabId,
+          title,
+          markdown: '',
+          mode: 'markdown',
+          filePath: draftPath,
+          draftId,
+        });
+        return tabId;
+      };
+
+      if (payload.target === 'new_document') {
+        const tabId = await createDraftEditorTab();
+        if (!tabId) return;
+        useEditorStore.getState().requestInsert({
+          target: 'document',
+          targetDocumentId: tabId,
+          format: payload.format,
+          title,
+          content,
+          focus: true,
+        });
+        return;
+      }
+
+      const targetDocumentId = String(payload.targetDocumentId || '').trim();
+      if (!targetDocumentId) return;
+
+      const activated = await ensureActiveEditorTab(targetDocumentId);
+      if (!activated) return;
+
       useEditorStore.getState().requestInsert({
-        target: payload.target,
+        target: 'document',
+        targetDocumentId,
         format: payload.format,
-        title: payload.title || t('editor.fallback.fromChat'),
+        title,
         content,
         focus: true,
       });
-
-      const { workspace, addTab, setActiveTab } = useWorkspaceStore.getState();
-      const existingEditor = workspace?.tabs.find((tab) => tab.type === 'editor');
-      if (existingEditor) {
-        void setActiveTab(existingEditor.id);
-      } else {
-        const tabId = await addTab('editor', t('workspace.newEditor', 'Novo documento'));
-        void setActiveTab(tabId);
-      }
     },
     [t],
   );
@@ -154,13 +199,13 @@ export function ChatSessionView({
     },
     onResend: async (message) => {
       const conversationId = getActiveConversation()?.id;
-      const messageId = typeof message.id === 'number' ? message.id : parseInt(String(message.id), 10);
-      if (!conversationId || Number.isNaN(messageId)) return;
-      await retryMessageToConversation(conversationId, messageId);
+      if (!conversationId || !isBackendId(message.id)) return;
+      await retryMessageToConversation(conversationId, message.id);
       announce(t('chat.announce.messageResent'));
     },
     onDelete: handleDeleteMessage,
-    onSendToEditor: (payload) => sendToEditor(payload),
+    onSendToEditor: sendToEditor,
+    editorTargets,
     onPin: (_message) => {
       announce(t('chat.announce.pinComingSoon'));
     },
@@ -178,8 +223,6 @@ export function ChatSessionView({
     inputRef,
     messagesContainerRef,
   });
-
-  const threadedMessages = getThreadedMessages() || [];
 
   useEffect(() => {
     if (variant !== 'page') return;
@@ -329,7 +372,8 @@ export function ChatSessionView({
           onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
           onSpeak={hasVoiceConfig ? speakMessage : undefined}
           onDelete={handleDeleteMessage}
-          onSendToEditor={(payload) => sendToEditor(payload)}
+          editorTargets={editorTargets}
+          onSendToEditor={sendToEditor}
         />
 
         {sendError && lastFailedMessage && (

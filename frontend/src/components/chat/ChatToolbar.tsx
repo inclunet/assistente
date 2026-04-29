@@ -13,7 +13,7 @@ import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
-import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
 import './ChatToolbar.css';
@@ -27,12 +27,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { getActiveConversation, clearMessages, isLoading, loadConversation } = useChatStore();
+  const activeConversation = useChatStore((s) => s.activeConversation);
+  const clearMessages = useChatStore((s) => s.clearMessages);
+  const isLoading = useChatStore((s) => s.isLoading);
+  const loadConversation = useChatStore((s) => s.loadConversation);
   const { announce } = useAnnouncer();
-  const activeConversation = getActiveConversation();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
-  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsActiveTab = useActiveTab();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
 
@@ -103,7 +105,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
   const handleClearConversation = useCallback(async () => {
     try {
-      const conv = getActiveConversation();
+      const conv = activeConversation;
 
       if (conv?.id) {
         await ClearConversation(conv.id);
@@ -118,7 +120,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       announce(t('chat.clearError'));
     }
     focusInput();
-  }, [announce, clearMessages, focusInput, getActiveConversation, loadConversation]);
+  }, [announce, activeConversation, clearMessages, focusInput, loadConversation]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -151,7 +153,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     focusInput();
   }, [focusInput, wsActiveTab, updateWsTab]);
 
-  const handleHistoryChange = async (conversationId: number, conversation: { title?: string }) => {
+  const handleHistoryChange = async (conversationId: string, conversation: { title?: string }) => {
     const nextTitle = conversation.title || t('chat.newConversation');
     try {
       if (wsActiveTab?.type === 'chat') {

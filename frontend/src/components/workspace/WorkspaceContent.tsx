@@ -1,6 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useActiveTab } from '../../store/workspaceStore';
 import './WorkspaceContent.css';
 
 const ChatPage = lazy(() => import('../../pages/ChatPage'));
@@ -14,7 +14,7 @@ const Loading = () => (
 
 export function WorkspaceContent() {
   const { t } = useTranslation();
-  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
+  const activeTab = useActiveTab();
 
   if (!activeTab) {
     return (
@@ -32,7 +32,7 @@ export function WorkspaceContent() {
         {activeTab.type === 'terminal' && <TerminalPage />}
         {activeTab.type === 'tasklist' && (
           activeTab.state?.tasklistId
-            ? <TaskListView taskListId={parseInt(activeTab.state.tasklistId as string, 10)} />
+            ? <TaskListView taskListId={activeTab.state.tasklistId as string} />
             : <Loading />
         )}
       </Suspense>

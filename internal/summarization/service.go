@@ -17,11 +17,11 @@ import (
 // SummarizationRepository abstrai as operações de persistência necessárias para sumarização.
 // Implementado por DBSummarizationStore; pode ser mockado em testes.
 type SummarizationRepository interface {
-	GetMessages(conversationID uint) ([]chat.Message, error)
-	GetConversationSummary(conversationID uint) (summary string, upToMessageID uint, err error)
-	IsSummarizingInProgress(conversationID uint) (bool, error)
-	SetSummarizingInProgress(conversationID uint, inProgress bool) error
-	UpdateConversationSummary(conversationID uint, summary string, upToMessageID uint) error
+	GetMessages(conversationID string) ([]chat.Message, error)
+	GetConversationSummary(conversationID string) (summary string, upToMessageID string, err error)
+	IsSummarizingInProgress(conversationID string) (bool, error)
+	SetSummarizingInProgress(conversationID string, inProgress bool) error
+	UpdateConversationSummary(conversationID string, summary string, upToMessageID string) error
 }
 
 const (
@@ -153,8 +153,8 @@ func NewService(cfg ServiceConfig) *Service {
 
 // CheckAndTriggerSummarization verifica se a conversa precisa de sumarização e dispara em background.
 // Deve ser chamado APÓS a resposta do LLM ser salva.
-func (s *Service) CheckAndTriggerSummarization(conversationID uint) {
-	if conversationID == 0 {
+func (s *Service) CheckAndTriggerSummarization(conversationID string) {
+	if conversationID == "" {
 		return
 	}
 
@@ -174,10 +174,24 @@ func (s *Service) CheckAndTriggerSummarization(conversationID uint) {
 
 	existingSummary, summaryUpToID, _ := s.cfg.Repo.GetConversationSummary(conversationID)
 
+	// Use index-based slicing instead of lexicographic ID comparison.
+	// UUIDv7 ordering within the same millisecond is not guaranteed.
 	var contextMessages []chat.Message
-	for _, m := range allRootMessages {
-		if m.ID > summaryUpToID {
-			contextMessages = append(contextMessages, m)
+	if summaryUpToID == "" {
+		contextMessages = allRootMessages
+	} else {
+		startIdx := -1
+		for i, m := range allRootMessages {
+			if m.ID == summaryUpToID {
+				startIdx = i + 1
+				break
+			}
+		}
+		if startIdx >= 0 && startIdx < len(allRootMessages) {
+			contextMessages = allRootMessages[startIdx:]
+		} else {
+			// summaryUpToID not found (deleted?) — treat all as context
+			contextMessages = allRootMessages
 		}
 	}
 
@@ -189,7 +203,7 @@ func (s *Service) CheckAndTriggerSummarization(conversationID uint) {
 // TriggerSummarizationInBackground lança uma goroutine para sumarizar mensagens antigas.
 // Respeita MinContextMessages: só mensagens além do threshold mínimo são sumarizadas.
 func (s *Service) TriggerSummarizationInBackground(
-	conversationID uint,
+	conversationID string,
 	profile *profiles.Profile,
 	allRootMessages []chat.Message,
 ) {
@@ -199,7 +213,7 @@ func (s *Service) TriggerSummarizationInBackground(
 		return
 	}
 	if inProgress {
-		log.Printf("[Summary] Sumarização já em andamento para conversa %d", conversationID)
+		log.Printf("[Summary] Sumarização já em andamento para conversa %s", conversationID)
 		return
 	}
 
@@ -230,13 +244,23 @@ func (s *Service) TriggerSummarizationInBackground(
 	}
 
 	var newMessages []chat.Message
-	for _, m := range messagesToSummarize {
-		if m.ID > currentUpToID {
-			newMessages = append(newMessages, m)
+	if currentUpToID == "" {
+		newMessages = messagesToSummarize
+	} else {
+		startIdx := -1
+		for i, m := range messagesToSummarize {
+			if m.ID == currentUpToID {
+				startIdx = i + 1
+				break
+			}
 		}
+		if startIdx >= 0 && startIdx < len(messagesToSummarize) {
+			newMessages = messagesToSummarize[startIdx:]
+		}
+		// If currentUpToID not found, newMessages stays nil → treated as "nothing new"
 	}
 	if len(newMessages) == 0 {
-		log.Printf("[Summary] Nenhuma mensagem nova para resumir (já resumido até ID %d)", currentUpToID)
+		log.Printf("[Summary] Nenhuma mensagem nova para resumir (já resumido até ID %s)", currentUpToID)
 		return
 	}
 
@@ -248,7 +272,7 @@ func (s *Service) TriggerSummarizationInBackground(
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("🔴 [PANIC RECOVERED] executeSummarization (conversa %d): %v", conversationID, r)
+				log.Printf("🔴 [PANIC RECOVERED] executeSummarization (conversa %s): %v", conversationID, r)
 				_ = s.cfg.Repo.SetSummarizingInProgress(conversationID, false)
 			}
 		}()
@@ -258,11 +282,11 @@ func (s *Service) TriggerSummarizationInBackground(
 
 // executeSummarization chama o LLM para gerar o resumo das mensagens fornecidas.
 func (s *Service) executeSummarization(
-	conversationID uint,
+	conversationID string,
 	profile *profiles.Profile,
 	existingSummary string,
 	newMessages []chat.Message,
-	upToMessageID uint,
+	upToMessageID string,
 ) {
 	if s.cfg.ProfileResolver != nil {
 		profile = s.cfg.ProfileResolver(profile)
@@ -283,7 +307,7 @@ func (s *Service) executeSummarization(
 
 	userPrompt := BuildSummarizationUserPrompt(existingSummary, newMessages)
 
-	log.Printf("[Summary] Iniciando sumarização: conversa=%d, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
+	log.Printf("[Summary] Iniciando sumarização: conversa=%s, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
 		conversationID, model, len(newMessages), len(existingSummary))
 
 	provider := s.cfg.LLMRegistry.Get(profile.Chat.LLMProvider)
@@ -326,7 +350,7 @@ func (s *Service) executeSummarization(
 		return
 	}
 
-	log.Printf("[Summary] Resumo salvo: conversa=%d, até msgID=%d, %d chars",
+	log.Printf("[Summary] Resumo salvo: conversa=%s, até msgID=%s, %d chars",
 		conversationID, upToMessageID, len(summary))
 
 	s.cfg.Emitter.Emit("chat:summary_completed", ports.SummaryCompletedEvent{

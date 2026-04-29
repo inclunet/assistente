@@ -33,7 +33,7 @@ type ChatParams = llm.ChatParams
 // does not need to import internal/prompt (which already imports internal/chat).
 type SystemPromptBuilder interface {
 	Build(messages []llm.Message, enabledSkills []string, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string) []llm.Message
-	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID uint) TemplateData
+	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
 }
 
 // InteractorConfig groups all dependencies for Interactor.
@@ -99,7 +99,7 @@ func NewInteractor(cfg InteractorConfig) *Interactor {
 
 // PrepareContextRequest carries the raw inputs for a message send request.
 type PrepareContextRequest struct {
-	ConversationID uint
+	ConversationID string
 	UserContent    string
 	UserMedia      string
 	Params         ChatParams
@@ -141,9 +141,9 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	}
 
 	// 3. Validate conversation ID
-	if req.ConversationID == 0 {
+	if req.ConversationID == "" {
 		const errMsg = "conversationID é obrigatório — conversas devem ser criadas ao criar/resetar a tab"
-		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: 0, Error: errMsg})
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: "", Error: errMsg})
 		return nil, errors.New(errMsg)
 	}
 
@@ -220,6 +220,9 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if activeProfile.Chat.ResponseTimeout > 0 {
 			params.ResponseTimeout = activeProfile.Chat.ResponseTimeout
 		}
+		if activeProfile.Chat.ContextWindow > 0 {
+			params.ContextWindow = activeProfile.Chat.ContextWindow
+		}
 	}
 
 	// 8. Fall back to config default model if still empty
@@ -237,7 +240,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 
 // RecordUserMessageRequest contém a entrada do usuário já processada (incluindo STT) pronta para ser persistida.
 type RecordUserMessageRequest struct {
-	ConversationID uint
+	ConversationID string
 	Content        string
 	Media          string
 	AudioBase64    string
@@ -255,7 +258,7 @@ type RecordUserMessageResponse struct {
 }
 
 // GetRetryableUserMessage retorna uma mensagem existente validando que ela pode ser reenviada.
-func (i *Interactor) GetRetryableUserMessage(conversationID uint, messageID uint) (*Message, error) {
+func (i *Interactor) GetRetryableUserMessage(conversationID string, messageID string) (*Message, error) {
 	if i.repo == nil {
 		return nil, errors.New("repositório de mensagens indisponível")
 	}
@@ -270,10 +273,10 @@ func (i *Interactor) GetRetryableUserMessage(conversationID uint, messageID uint
 		return nil, errors.New("mensagem não encontrada")
 	}
 	if userMsg.ConversationID != conversationID {
-		return nil, fmt.Errorf("mensagem %d não pertence à conversa %d", messageID, conversationID)
+		return nil, fmt.Errorf("mensagem %s não pertence à conversa %s", messageID, conversationID)
 	}
 	if userMsg.Role != "user" {
-		return nil, fmt.Errorf("mensagem %d não é do usuário", messageID)
+		return nil, fmt.Errorf("mensagem %s não é do usuário", messageID)
 	}
 	return userMsg, nil
 }
@@ -332,7 +335,7 @@ func (i *Interactor) ReuseLoadedUserMessage(_ context.Context, req RecordUserMes
 }
 
 // ReuseUserMessage carrega uma mensagem de usuário já persistida para um retry sem duplicá-la no banco.
-func (i *Interactor) ReuseUserMessage(ctx context.Context, req RecordUserMessageRequest, messageID uint) (*RecordUserMessageResponse, error) {
+func (i *Interactor) ReuseUserMessage(ctx context.Context, req RecordUserMessageRequest, messageID string) (*RecordUserMessageResponse, error) {
 	userMsg, err := i.GetRetryableUserMessage(req.ConversationID, messageID)
 	if err != nil {
 		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar mensagem para retry: " + err.Error()})
@@ -391,7 +394,7 @@ type PrepareMessagesRequest struct {
 	Messages            []llm.Message
 	UserContent         string
 	ConversationSummary string
-	ConversationID      uint
+	ConversationID string
 	Params              ChatParams
 	ActiveProfile       *profiles.Profile
 	Transcribe          TranscribeFunc

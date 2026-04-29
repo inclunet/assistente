@@ -11,7 +11,7 @@ type TemplateData struct {
 	ToolCallingEnabled bool
 	EnabledTools       []string
 	EnabledToolCount   int
-	ConversationID     uint
+	ConversationID string
 
 	// Workspace context
 	WorkspaceName    string

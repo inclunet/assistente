@@ -12,19 +12,19 @@ import (
 type stubRepo struct {
 	messages []database.ChatMessage
 	summary  string
-	sumUpTo  uint
+	sumUpTo  string
 }
 
-func (r *stubRepo) GetMessages(_ uint, _ *uint) ([]database.ChatMessage, error) {
+func (r *stubRepo) GetMessages(_ string, _ *string) ([]database.ChatMessage, error) {
 	return r.messages, nil
 }
-func (r *stubRepo) GetConversationSummary(_ uint) (string, uint, error) {
+func (r *stubRepo) GetConversationSummary(_ string) (string, string, error) {
 	return r.summary, r.sumUpTo, nil
 }
 func (r *stubRepo) CreateMessage(_ database.MessageOptions) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *stubRepo) GetMessage(messageID uint) (*database.ChatMessage, error) {
+func (r *stubRepo) GetMessage(messageID string) (*database.ChatMessage, error) {
 	for i := range r.messages {
 		if r.messages[i].ID == messageID {
 			msg := r.messages[i]
@@ -33,18 +33,18 @@ func (r *stubRepo) GetMessage(messageID uint) (*database.ChatMessage, error) {
 	}
 	return nil, nil
 }
-func (r *stubRepo) GetDetailedTokenStats(_ uint, _ uint) (*database.DetailedTokenStats, error) {
+func (r *stubRepo) GetDetailedTokenStats(_ string, _ string) (*database.DetailedTokenStats, error) {
 	return nil, nil
 }
-func (r *stubRepo) GetContextWindowUsage(_ uint, _ int) (float64, int, error) { return 0, 0, nil }
-func (r *stubRepo) GetRecentMessagesTokenCount(_ uint, _ int) (int, error)    { return 0, nil }
-func (r *stubRepo) GetTurnTokenStats(_ uint, _ uint) (*database.TokenStats, error) {
+func (r *stubRepo) GetContextWindowUsage(_ string, _ int) (float64, int, error) { return 0, 0, nil }
+func (r *stubRepo) GetRecentMessagesTokenCount(_ string, _ int) (int, error)    { return 0, nil }
+func (r *stubRepo) GetTurnTokenStats(_ string, _ string) (*database.TokenStats, error) {
 	return nil, nil
 }
-func (r *stubRepo) AddAssistantToolMessage(_ uint, _ uint, _, _, _, _ string) (*database.ChatMessage, error) {
+func (r *stubRepo) AddAssistantToolMessage(_ string, _ string, _, _, _, _ string) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *stubRepo) AddToolResultMessage(_ uint, _ uint, _, _ string) (*database.ChatMessage, error) {
+func (r *stubRepo) AddToolResultMessage(_ string, _ string, _, _ string) (*database.ChatMessage, error) {
 	return nil, nil
 }
 func (r *stubRepo) SearchMessages(_ string, _ int) ([]database.MessageSearchResult, error) {
@@ -81,7 +81,7 @@ func TestWhisperFilename(t *testing.T) {
 
 func TestMediaHistoryLoader_PlainText(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Content: "olá"}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestMediaHistoryLoader_Image(t *testing.T) {
 		{"type": "image/png", "data": "abc123", "name": "foto.png"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestMediaHistoryLoader_AudioSupported(t *testing.T) {
 		{"type": "audio/wav", "data": "wavdata"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestMediaHistoryLoader_AudioUnsupported_Transcribed(t *testing.T) {
 		},
 		MaxMsgs: 100,
 	}
-	msgs, _, err := loader.Load(1)
+	msgs, _, err := loader.Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestMediaHistoryLoader_AudioUnsupported_NoTranscribe_Placeholder(t *testing
 		{"type": "audio/webm", "data": "webmdata"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, Transcribe: nil, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, Transcribe: nil, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestMediaHistoryLoader_AudioSkippedWhenHasTextContent(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{
 		{Role: "user", Content: "transcrição anterior", Media: media},
 	}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestMediaHistoryLoader_Document(t *testing.T) {
 		{"type": "application/pdf", "data": "pdfdata", "name": "doc.pdf"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestMediaHistoryLoader_Video(t *testing.T) {
 		{"type": "video/mp4", "data": "videodata", "name": "vid.mp4"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestMediaHistoryLoader_UnknownType_Placeholder(t *testing.T) {
 		{"type": "application/zip", "data": "zipdata", "name": "file.zip"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestMediaHistoryLoader_ReturnsSummary(t *testing.T) {
 		messages: []database.ChatMessage{{Role: "user", Content: "hi"}},
 		summary:  "resumo anterior",
 	}
-	_, summary, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	_, summary, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestMediaHistoryLoader_FiltersTool(t *testing.T) {
 		{Role: "tool", Content: "result"},
 		{Role: "assistant", Content: "tudo bem"},
 	}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,11 +270,11 @@ func TestMediaHistoryLoader_FiltersEmptyAssistantToolCall(t *testing.T) {
 	// o assistant com content="" + tool_calls não-vazio.
 	repo := &stubRepo{messages: []database.ChatMessage{
 		{Role: "user", Content: "oi"},
-		{ID: 2, Role: "assistant", Content: "", ToolCalls: `[{"id":"x"}]`},
+		{UUIDModel: database.UUIDModel{ID: "2"}, Role: "assistant", Content: "", ToolCalls: `[{"id":"x"}]`},
 		{Role: "tool", Content: "result", ToolCallID: "x"},
 		{Role: "assistant", Content: "resposta final"},
 	}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestMediaHistoryLoader_KeepsAssistantWithTextAndToolCalls(t *testing.T) {
 		{Role: "user", Content: "oi"},
 		{Role: "assistant", Content: "Vou buscar...", ToolCalls: `[{"id":"x"}]`},
 	}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(1)
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
 	if err != nil {
 		t.Fatal(err)
 	}

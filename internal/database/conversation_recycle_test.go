@@ -38,8 +38,8 @@ func TestRecycleOrCreateConversation_CreatesWhenNoCandidates(t *testing.T) {
 	if conv.Title != "Minha Conversa" {
 		t.Errorf("expected title 'Minha Conversa', got %q", conv.Title)
 	}
-	if conv.ID == 0 {
-		t.Error("expected non-zero ID")
+	if conv.ID == "" {
+		t.Error("expected non-empty ID")
 	}
 
 	var count int64
@@ -64,7 +64,7 @@ func TestRecycleOrCreateConversation_RecyclesEmptyOrphan(t *testing.T) {
 	}
 
 	if conv.ID != orphanID {
-		t.Errorf("expected recycled ID %d, got %d", orphanID, conv.ID)
+		t.Errorf("expected recycled ID %s, got %s", orphanID, conv.ID)
 	}
 	if conv.Title != "Reciclada" {
 		t.Errorf("expected title 'Reciclada', got %q", conv.Title)
@@ -127,11 +127,11 @@ func TestRecycleOrCreateConversation_RecyclesOldestFirst(t *testing.T) {
 	}
 
 	if result.ID != first.ID {
-		t.Errorf("expected to recycle oldest (ID=%d), got ID=%d", first.ID, result.ID)
+		t.Errorf("expected to recycle oldest (ID=%s), got ID=%s", first.ID, result.ID)
 	}
 
 	var remaining Conversation
-	if err := db.First(&remaining, second.ID).Error; err != nil {
+	if err := db.First(&remaining, "id = ?", second.ID).Error; err != nil {
 		t.Error("second conversation should still exist")
 	}
 }
@@ -151,12 +151,12 @@ func TestRecycleOrCreateConversation_ResetsSummaryFields(t *testing.T) {
 	}
 
 	if result.ID != conv.ID {
-		t.Fatalf("expected recycled ID %d", conv.ID)
+		t.Fatalf("expected recycled ID %s", conv.ID)
 	}
 	if result.Summary != "" {
 		t.Errorf("expected empty summary, got %q", result.Summary)
 	}
-	if result.SummaryUpToMessageID != 0 {
-		t.Errorf("expected SummaryUpToMessageID=0, got %d", result.SummaryUpToMessageID)
+	if result.SummaryUpToMessageID != "" {
+		t.Errorf("expected SummaryUpToMessageID=empty, got %s", result.SummaryUpToMessageID)
 	}
 }

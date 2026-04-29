@@ -68,7 +68,7 @@ type MediaHistoryLoader struct {
 }
 
 // Load retorna as mensagens formatadas para o LLM e o resumo existente da conversa.
-func (l *MediaHistoryLoader) Load(conversationID uint) ([]llm.Message, string, error) {
+func (l *MediaHistoryLoader) Load(conversationID string) ([]llm.Message, string, error) {
 	h := HistoryLoader{Repo: l.Repo, MaxMsgs: l.MaxMsgs}
 	dbMessages, existingSummary, err := h.Load(conversationID)
 	if err != nil {

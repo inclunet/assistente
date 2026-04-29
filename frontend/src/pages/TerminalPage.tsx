@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import type { WorkspaceChatModalAdapter } from '../store/workspaceChatModalStore';
 import { useRegisterWorkspaceChatAdapter } from '../hooks/useRegisterWorkspaceChatAdapter';
@@ -15,7 +15,7 @@ import './TerminalPage.css';
 
 export default function TerminalPage() {
   const { t } = useTranslation();
-  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsActiveTab = useActiveTab();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const tabProfileSlug = wsActiveTab?.type === 'terminal'
     ? (wsActiveTab.profileOverride?.slug as string | undefined)

@@ -4,6 +4,7 @@ import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
 import { main } from '../../../wailsjs/go/models';
+import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './MessageList.css';
 
 export interface MessageListProps {
@@ -19,12 +20,8 @@ export interface MessageListProps {
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
   onDelete?: (message: Message) => void;
-  onSendToEditor?: (payload: {
-    target: 'current' | 'new_document';
-    format: 'markdown' | 'html' | 'plain';
-    title?: string;
-    content: string;
-  }) => void;
+  editorTargets?: EditorSendTargetOption[];
+  onSendToEditor?: (payload: SendToEditorPayload) => void;
 }
 
 /**
@@ -44,7 +41,7 @@ export interface MessageListProps {
 function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
   if (!nodes || nodes.length === 0) return nodes;
 
-  const turnMap = new Map<number, MessageNode[]>();
+  const turnMap = new Map<string, MessageNode[]>();
   let hasTurns = false;
 
   for (const node of nodes) {
@@ -58,7 +55,7 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 
   if (!hasTurns) return nodes;
 
-  const processedTurnIds = new Set<number>();
+  const processedTurnIds = new Set<string>();
   const result: MessageNode[] = [];
 
   for (const node of nodes) {
@@ -157,8 +154,8 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
   return result;
 }
 
-export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
-  { isLoading = false, loadingText, threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak, onDelete, onSendToEditor },
+export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProps>((
+  { isLoading = false, loadingText, threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak, onDelete, editorTargets, onSendToEditor },
   ref
 ) => {
   const { t } = useTranslation();
@@ -262,6 +259,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
               onContextMenu={onContextMenu}
               onSpeak={onSpeak}
               onDelete={onDelete}
+              editorTargets={editorTargets}
               onSendToEditor={onSendToEditor}
             />
           ))}
@@ -284,4 +282,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
       </div>
     </div>
   );
-});
+}));
+
+MessageList.displayName = 'MessageList';

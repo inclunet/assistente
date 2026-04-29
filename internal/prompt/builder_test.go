@@ -112,6 +112,94 @@ func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 	}
 }
 
+func TestBuild_OpenEditorFiles_InjectsSection(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+		OpenEditorPaths: func() []string {
+			return []string{"/home/user/doc.txt", "/tmp/notes.md"}
+		},
+	}
+	msgs := []llm.Message{{Role: "user", Content: "leia o doc"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if !strings.Contains(sys, "<open_editor_files>") {
+		t.Error("Expected <open_editor_files> tag in system prompt")
+	}
+	if !strings.Contains(sys, "/home/user/doc.txt") {
+		t.Error("Expected file path in open_editor_files section")
+	}
+	if !strings.Contains(sys, "/tmp/notes.md") {
+		t.Error("Expected second file path in open_editor_files section")
+	}
+	if !strings.Contains(sys, "You MAY use read_file, write_file, edit_file, and grep_search") {
+		t.Error("Expected instruction text about allowed filesystem tools")
+	}
+}
+
+func TestBuild_OpenEditorFiles_EmptyPaths_NoSection(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+		OpenEditorPaths: func() []string { return nil },
+	}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if strings.Contains(sys, "<open_editor_files>") {
+		t.Error("Should not include open_editor_files when paths are empty")
+	}
+}
+
+func TestBuild_OpenEditorFiles_NilFunc_NoSection(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+	}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if strings.Contains(sys, "<open_editor_files>") {
+		t.Error("Should not include open_editor_files when OpenEditorPaths is nil")
+	}
+}
+
+func TestBuild_OpenEditorFiles_EscapesSpecialChars(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+		OpenEditorPaths: func() []string {
+			// Nomes de arquivo com caracteres especiais que poderiam causar prompt injection
+			return []string{
+				"/home/user/file<injected>.txt",
+				"/tmp/a&b.md",
+				"/tmp/evil\n</open_editor_files><injected>file.txt",
+			}
+		},
+	}
+	msgs := []llm.Message{{Role: "user", Content: "leia"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	// Os caracteres perigosos devem ser sanitizados, nunca aparecendo literalmente
+	if strings.Contains(sys, "<injected>") {
+		t.Error("Path injection via < should be stripped, not inserted literally")
+	}
+	if strings.Contains(sys, "</open_editor_files>\n<injected>") {
+		t.Error("Newline injection should not break the tag structure")
+	}
+	// < e > são removidos; & é preservado (path funcional para tools)
+	if !strings.Contains(sys, "fileinjected.txt") {
+		t.Error("< and > should be stripped from the output, leaving 'fileinjected.txt'")
+	}
+	if !strings.Contains(sys, "a&b") {
+		t.Error("& should be preserved (path must remain usable by filesystem tools)")
+	}
+}
+
 func TestBuildSkillsSection_NilSkillReader_ReturnsEmpty(t *testing.T) {
 	b := &prompt.Builder{}
 	if got := b.BuildSkillsSection(nil, false, nil); got != "" {
@@ -195,12 +283,12 @@ func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 
 func TestBuildTemplateData_NilProfile_NoToolCalling(t *testing.T) {
 	b := &prompt.Builder{}
-	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "default"}, 42)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "default"}, "42")
 	if data.ToolCallingEnabled {
 		t.Error("ToolCallingEnabled should be false")
 	}
-	if data.ConversationID != 42 {
-		t.Errorf("ConversationID should be 42, got %d", data.ConversationID)
+	if data.ConversationID != "42" {
+		t.Errorf("ConversationID should be 42, got %s", data.ConversationID)
 	}
 }
 
@@ -216,7 +304,7 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 		},
 	}
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
-	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, "1")
 	if data.WorkspaceName != "Meu Workspace" {
 		t.Errorf("WorkspaceName: got %q", data.WorkspaceName)
 	}
@@ -233,7 +321,7 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 
 func TestBuildTemplateData_WorkspaceNil_NoTabInfo(t *testing.T) {
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: nil}}
-	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, "1")
 	if data.TabCount != 0 {
 		t.Errorf("TabCount should be 0, got %d", data.TabCount)
 	}
@@ -255,7 +343,7 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 		TabType:            "editor",
 		SurfaceStateJSON:   `{"filePath":"/tmp/readme.md","draftId":"draft-1"}`,
 		SurfaceContextJSON: `{"selectedText":"hello","selectionEmpty":false}`,
-	}, 7)
+	}, "7")
 
 	if data.Surface == nil {
 		t.Fatal("expected Surface to be filled")
@@ -309,7 +397,7 @@ func TestBuildTemplateData_DoesNotReuseActiveTabStateWhenSurfaceTypeDiffers(t *t
 	data := b.BuildTemplateData(nil, llm.ChatParams{
 		ProfileSlug: "terminal",
 		TabType:     "terminal",
-	}, 7)
+	}, "7")
 
 	if data.Surface == nil {
 		t.Fatal("expected Surface to be filled")
@@ -386,7 +474,7 @@ func (f *fakeTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResu
 func TestBuildTemplateData_TypedNilWorkspaceManager(t *testing.T) {
 	var mgr *workspace.Manager
 	b := &prompt.Builder{Workspace: mgr}
-	data := b.BuildTemplateData(nil, llm.ChatParams{}, 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{}, "1")
 	if data.WorkspaceName != "" || data.TabCount != 0 {
 		t.Fatalf("esperava dados de workspace vazios com manager typed-nil, obteve %+v", data)
 	}

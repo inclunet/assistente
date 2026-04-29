@@ -16,6 +16,7 @@
 import { useEffect, useRef } from 'react';
 import i18next from 'i18next';
 import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
+import { useShallow } from 'zustand/shallow';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import { isModalOpen } from '../components/ui/Modal';
 import { useAnnouncer } from './useAnnouncer';
@@ -31,7 +32,9 @@ const CHORD_MAP: Record<string, { type: TabType; title: string }> = {
 };
 
 export function useWorkspaceKeyboardShortcuts() {
-  const { workspace, addTab, removeTab, setActiveTab, createWorkspace } = useWorkspaceStore();
+  const { workspace, addTab, removeTab, setActiveTab, createWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, addTab: s.addTab, removeTab: s.removeTab, setActiveTab: s.setActiveTab, createWorkspace: s.createWorkspace }))
+  );
   const { announce } = useAnnouncer();
 
   const tabs = workspace?.tabs || [];

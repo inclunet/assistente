@@ -54,66 +54,97 @@ export interface TurnSegment {
 }
 
 interface ChatMessagesReadyEvent {
-  conversationId: number;
-  userMessageId: number;
+  conversationId: string;
+  userMessageId: string;
   userContent: string;
 }
 
 interface ChatStreamEvent {
-  conversationId: number;
+  conversationId: string;
   content?: string;
   done?: boolean;
   error?: string;
-  messageId?: number;
+  messageId?: string;
 }
 
 interface ChatThinkingEvent {
-  conversationId: number;
+  conversationId: string;
   started?: boolean;
   done?: boolean;
   content?: string;
 }
 
 interface ChatToolStartEvent {
-  conversationId: number;
+  conversationId: string;
   name: string;
   callId: string;
   args?: string;
   serverLabel?: string;
+  /** @deprecated Use origin instead (AEP-0039) */
   native?: boolean;
+  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  attempt?: number;
 }
 
 interface ChatToolEndEvent {
-  conversationId: number;
+  conversationId: string;
   callId: string;
   name?: string;
   status?: string;
   summary?: string;
   error?: string;
   serverLabel?: string;
+  /** @deprecated Use origin instead (AEP-0039) */
   native?: boolean;
+  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  durationMs?: number;
+  attempt?: number;
+}
+
+// AEP-0039 Fase 3: structured failure event (distinct from tool_end with status='error')
+interface ChatToolFailureEvent {
+  conversationId: string;
+  name: string;
+  callId: string;
+  errorKind: 'timeout' | 'invalid_args' | 'not_found' | 'panic' | 'cancelled' | 'unknown';
+  retryable: boolean;
+  message?: string;
+  durationMs?: number;
+  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  willRetry?: boolean;
+  attempt?: number;
 }
 
 interface ChatSegmentDoneEvent {
-  conversationId: number;
+  conversationId: string;
   hasMore?: boolean;
   content?: string;
   iteration?: number;
+  // AEP-0039 Fase 2+3
+  toolsInIteration?: Array<{ name: string; status: string; errorKind?: string; durationMs?: number; origin?: string; serverLabel?: string }>;
 }
 
 interface ChatDoneEvent {
-  conversationId: number;
-  assistantMessageId?: number;
+  conversationId: string;
+  assistantMessageId?: string;
   hadToolCalls?: boolean;
+  // AEP-0039 Fase 2
+  reason?: string;
+  iterationCount?: number;
+  toolCallCount?: number;
+  toolsUsed?: string[];
+  promptTokens?: number;
+  completionTokens?: number;
+  errorMessage?: string;
 }
 
 interface ChatErrorEvent {
-  conversationId: number;
+  conversationId: string;
   error: string;
 }
 
 export interface ActiveConversation {
-  id: number;
+  id: string;
   title: string;
   threadedMessages: MessageNode[];
   channel?: string;
@@ -155,7 +186,7 @@ let streamingMessageSeq = 0;
 const streamUpdateTimers = new Map<string, NodeJS.Timeout>();
 const pendingStreamUpdates = new Map<string, { messageId: string; content: string }>();
 
-const createStreamingMessageId = (conversationId: number): string => {
+const createStreamingMessageId = (conversationId: string): string => {
   streamingMessageSeq += 1;
   return `streaming-${conversationId}-${streamingMessageSeq}`;
 };
@@ -250,7 +281,7 @@ const flushPendingUpdate = (
 };
 
 interface ChatStore {
-  activeConversationId: number | null;
+  activeConversationId: string | null;
   activeConversation: ActiveConversation | null;
   isLoading: boolean;
   streamingMessageId: string | null;
@@ -273,8 +304,8 @@ interface ChatStore {
   setReadingMessageId: (id: string | null) => void;
   startReading: (id: string) => void;
 
-  createConversation: (title?: string) => Promise<number>;
-  loadConversation: (id: number) => Promise<void>;
+  createConversation: (title?: string) => Promise<string>;
+  loadConversation: (id: string) => Promise<void>;
   /** Limpa a conversa ativa (ex.: ao focar editor/terminal/tasklist sem conversa até abrir o chat modal). */
   clearActiveConversation: () => void;
 
@@ -290,14 +321,14 @@ interface ChatStore {
 
   sendMessage: (content: string, mediaFiles?: MediaFile[], paramsOverride?: Partial<llm.ChatParams>) => Promise<void>;
   sendMessageToConversation: (
-    conversationId: number,
+    conversationId: string,
     content: string,
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
   ) => Promise<void>;
   retryMessageToConversation: (
-    conversationId: number,
-    messageId: number,
+    conversationId: string,
+    messageId: string,
     paramsOverride?: Partial<llm.ChatParams>,
   ) => Promise<void>;
   stopStreaming: () => void;
@@ -307,18 +338,18 @@ interface ChatStore {
   getThreadedMessages: () => MessageNode[] | undefined;
   loadMessageChildren: (messageId: string) => Promise<MessageNode[]>;
 
-  handleConversationDeleted: (conversationId: number) => void;
-  handleConversationCleared: (conversationId: number) => void;
-  handleConversationRenamed: (conversationId: number, newTitle: string) => void;
+  handleConversationDeleted: (conversationId: string) => void;
+  handleConversationCleared: (conversationId: string) => void;
+  handleConversationRenamed: (conversationId: string, newTitle: string) => void;
   handleDatabaseReset: () => void;
 
   assignChannel: (channel: string, contactId: string) => Promise<void>;
   unassignChannel: () => Promise<void>;
 
   reloadMessages: () => Promise<void>;
-  reloadConversationMessages: (conversationId: number) => Promise<void>;
+  reloadConversationMessages: (conversationId: string) => Promise<void>;
   handleExternalIncoming: (data: {
-    channel: string; from: string; fromId?: string; text: string; conversationId: number;
+    channel: string; from: string; fromId?: string; text: string; conversationId: string;
     newConversation?: boolean;
   }) => void;
 }
@@ -327,11 +358,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   let loadConversationSeq = 0;
 
   const sendMessageInternal = async (
-    conversationId: number,
+    conversationId: string,
     content: string,
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
-    retryMessageId?: number,
+    retryMessageId?: string,
   ) => {
     if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
       announce(i18next.t('chat.validation.messageTooLarge', {
@@ -374,6 +405,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     let unsubThinking = noop;
     let unsubToolStart = noop;
     let unsubToolEnd = noop;
+    let unsubToolFailure = noop;
     let unsubSegmentDone = noop;
     let unsubDone = noop;
     let unsubError = noop;
@@ -409,6 +441,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       unsubThinking();
       unsubToolStart();
       unsubToolEnd();
+      unsubToolFailure();
       unsubSegmentDone();
       unsubDone();
       unsubError();
@@ -425,7 +458,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     // chat:error → erro de validação do backend (tamanho, provider, etc.)
     unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
-      if (event.conversationId !== conversationId && event.conversationId !== 0) return;
+      if (event.conversationId !== conversationId && event.conversationId !== "") return;
       if (!activeListeners.has(conversationIdStr)) return;
       set((state) => {
         if (!state.activeConversation) return state;
@@ -509,8 +542,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         flushPendingUpdate(streamingMsgId, get().updateMessage);
         if (event.content) get().updateMessage(streamingMsgId, event.content);
 
-        const backendAssistantId = event.messageId && event.messageId > 0
-          ? event.messageId.toString() : null;
+        const backendAssistantId = event.messageId && event.messageId !== ''
+          ? event.messageId : null;
 
         set((state) => {
           if (!state.activeConversation) return state;
@@ -549,12 +582,25 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (data.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
       ensureAssistantNode();
-      set((state) => ({
-        activeToolCalls: [
-          ...state.activeToolCalls,
-          { name: data.name, callId: data.callId, args: data.args, status: 'running' as const },
-        ],
-      }));
+      set((state) => {
+        const existing = state.activeToolCalls.findIndex((tc) => tc.callId === data.callId);
+        if (existing >= 0) {
+          // Retry: upsert — reseta status para 'running' sem apagar args anteriores
+          return {
+            activeToolCalls: state.activeToolCalls.map((tc) =>
+              tc.callId === data.callId
+                ? { ...tc, name: data.name, callId: data.callId, args: data.args ?? tc.args, status: 'running' as const, summary: undefined }
+                : tc
+            ),
+          };
+        }
+        return {
+          activeToolCalls: [
+            ...state.activeToolCalls,
+            { name: data.name, callId: data.callId, args: data.args, status: 'running' as const },
+          ],
+        };
+      });
     });
 
     unsubToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
@@ -567,7 +613,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             : tc
         ),
       }));
-      if (data.status === 'error') announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
+      // tool_end apenas atualiza estado visual; anúncio de falha é centralizado em tool_failure.
+    });
+
+    // AEP-0039 Fase 3: structured failure listener
+    // Centraliza anúncio de falha: tool_end com attempt=0 não anuncia (tool_failure cuida).
+    unsubToolFailure = EventsOn('chat:tool_failure', (data: ChatToolFailureEvent) => {
+      if (data.conversationId !== conversationId) return;
+      if (!activeListeners.has(conversationIdStr)) return;
+      if (data.willRetry) {
+        announce(i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
+        return;
+      }
+      announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
     });
 
     unsubSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
@@ -601,6 +659,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
       if (event.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
+
+      // chat:done com errorMessage: exibe erro na UI (substitui chat:stream terminal)
+      if (event.errorMessage) {
+        ensureAssistantNode();
+        flushPendingUpdate(streamingMsgId, get().updateMessage);
+        get().updateMessage(
+          streamingMsgId,
+          i18next.t('chat.errorPrefix', { message: event.errorMessage }),
+        );
+        set((state) => {
+          if (!state.activeConversation) return state;
+          return {
+            activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+          };
+        });
+        cleanup();
+        return;
+      }
 
       set((state) => {
         if (!state.activeConversation) return state;
@@ -938,8 +1014,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     sendMessage: async (content, mediaFiles, paramsOverride) => {
-      const conversationId = get().activeConversationId ?? 0;
-      if (conversationId === 0) {
+      const conversationId = get().activeConversationId ?? "";
+      if (conversationId === "") {
         console.error('[Chat] sendMessage sem conversa ativa (use ensureWorkspaceTabHasConversation ao abrir o painel)');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
@@ -1005,13 +1081,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     loadMessageChildren: async (messageId) => {
       try {
-        const messageIdNum = parseInt(messageId, 10);
-        if (isNaN(messageIdNum)) {
+        if (!messageId) {
           console.error('[Chat] Invalid message ID:', messageId);
           return [];
         }
 
-        const backendNodes = await GetMessageChildren(messageIdNum);
+        const backendNodes = await GetMessageChildren(messageId);
         const frontendNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
 
         set((state) => {
@@ -1044,7 +1119,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
     },
 
-    handleConversationDeleted: (conversationId: number) => {
+    handleConversationDeleted: (conversationId: string) => {
       if (get().activeConversationId === conversationId) {
         set({ activeConversationId: null, activeConversation: null });
         announce('Conversa apagada permanentemente');
@@ -1055,7 +1130,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
     },
 
-    handleConversationCleared: (conversationId: number) => {
+    handleConversationCleared: (conversationId: string) => {
       if (get().activeConversationId === conversationId) {
         announce('Mensagens da conversa removidas');
         set((state) => ({
@@ -1070,7 +1145,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
     },
 
-    handleConversationRenamed: (conversationId: number, newTitle: string) => {
+    handleConversationRenamed: (conversationId: string, newTitle: string) => {
       if (get().activeConversationId === conversationId) {
         set((state) => ({
           activeConversation: state.activeConversation
@@ -1137,7 +1212,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
     },
 
-    reloadConversationMessages: async (conversationId: number) => {
+    reloadConversationMessages: async (conversationId: string) => {
       if (get().activeConversationId !== conversationId) return;
       return get().reloadMessages();
     },
@@ -1163,6 +1238,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       let unsubThinking = noopExt;
       let unsubToolStart = noopExt;
       let unsubToolEnd = noopExt;
+      let unsubToolFailure = noopExt;
       let unsubSegmentDone = noopExt;
       let unsubDone = noopExt;
       let unsubReady = noopExt;
@@ -1198,6 +1274,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         unsubThinking();
         unsubToolStart();
         unsubToolEnd();
+        unsubToolFailure();
         unsubSegmentDone();
         unsubDone();
         unsubReady();
@@ -1212,7 +1289,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       // chat:error → erro de validação do backend
       unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
-        if (event.conversationId !== conversationId && event.conversationId !== 0) return;
+        if (event.conversationId !== conversationId && event.conversationId !== "") return;
         if (!activeListeners.has(conversationIdStr)) return;
         set((state) => {
           if (!state.activeConversation) return state;
@@ -1292,8 +1369,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           ensureAssistantNode();
           flushPendingUpdate(streamingMsgId, get().updateMessage);
           if (event.content) get().updateMessage(streamingMsgId, event.content);
-          const backendAssistantId = event.messageId && event.messageId > 0
-            ? event.messageId.toString() : null;
+          const backendAssistantId = event.messageId && event.messageId !== ''
+            ? event.messageId : null;
 
           set((state) => {
             if (!state.activeConversation) return state;
@@ -1330,11 +1407,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         ensureAssistantNode();
-        set((state) => ({
-          activeToolCalls: [...state.activeToolCalls, {
-            name: event.name, callId: event.callId, args: event.args, status: 'running' as const,
-          }],
-        }));
+        set((state) => {
+          const existing = state.activeToolCalls.findIndex((tc) => tc.callId === event.callId);
+          if (existing >= 0) {
+            // Retry: upsert — reseta status para 'running' sem apagar args anteriores
+            return {
+              activeToolCalls: state.activeToolCalls.map((tc) =>
+                tc.callId === event.callId
+                  ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: undefined }
+                  : tc
+              ),
+            };
+          }
+          return {
+            activeToolCalls: [...state.activeToolCalls, {
+              name: event.name, callId: event.callId, args: event.args, status: 'running' as const,
+            }],
+          };
+        });
         announce(i18next.t('chat.toolRunning', { name: event.name }), 'polite');
       });
 
@@ -1348,8 +1438,29 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               : tc
           ),
         }));
-        const key = event.status === 'error' ? 'chat.toolFailed' : 'chat.toolDone';
-        announce(i18next.t(key, { name: event.name }), event.status === 'error' ? 'assertive' : 'polite');
+        // tool_end apenas atualiza estado visual; anúncio de falha centralizado em tool_failure.
+        if (event.status !== 'error') {
+          announce(i18next.t('chat.toolDone', { name: event.name }), 'polite');
+          return;
+        }
+        // Fallback retrocompatibilidade: payloads não-enriquecidos (sem attempt)
+        // podem não emitir tool_failure, então anunciamos a falha aqui.
+        const hasStructuredFailureMetadata = 'attempt' in event;
+        if (!hasStructuredFailureMetadata) {
+          announce(i18next.t('chat.toolFailed', { name: event.name }), 'assertive');
+        }
+      });
+
+      // AEP-0039 Fase 3: structured failure listener
+      // Centraliza anúncio de falha: tool_end com attempt=0 não anuncia (tool_failure cuida).
+      unsubToolFailure = EventsOn('chat:tool_failure', (data: ChatToolFailureEvent) => {
+        if (data.conversationId !== conversationId) return;
+        if (!activeListeners.has(conversationIdStr)) return;
+        if (data.willRetry) {
+          announce(i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
+          return;
+        }
+        announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
       });
 
       unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
@@ -1381,6 +1492,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
+
+        // chat:done com errorMessage: exibe erro na UI (substitui chat:stream terminal)
+        if (event.errorMessage) {
+          ensureAssistantNode();
+          flushPendingUpdate(streamingMsgId, get().updateMessage);
+          get().updateMessage(
+            streamingMsgId,
+            i18next.t('chat.errorPrefix', { message: event.errorMessage }),
+          );
+          set((state) => {
+            if (!state.activeConversation) return state;
+            return {
+              activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
+            };
+          });
+          cleanup();
+          return;
+        }
 
         set((state) => {
           if (!state.activeConversation) return state;

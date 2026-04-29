@@ -52,7 +52,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const [notes, setNotes] = useState<TaskNote[]>([]);
   const [isLoadingNotes, setIsLoadingNotes] = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
-  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   // Note form state
   const [noteType, setNoteType] = useState<TaskNoteType>(TASK_NOTE_TYPES.INTERNAL);
@@ -110,7 +110,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     setNoteContent('');
   }, [editingNoteId, noteContent, updateTaskNote]);
 
-  const handleDeleteNote = useCallback(async (noteId: number) => {
+  const handleDeleteNote = useCallback(async (noteId: string) => {
     const confirmed = await requestConfirm({
       title: t('tasklist.deleteNote'),
       message: t('tasklist.deleteNoteConfirm'),

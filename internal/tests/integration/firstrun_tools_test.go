@@ -3,7 +3,6 @@ package integration
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/llm"
@@ -53,8 +52,6 @@ func TestIntegration_FirstMessageTriggersTool(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Primeira com Ferramenta",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -68,7 +65,6 @@ func TestIntegration_FirstMessageTriggersTool(t *testing.T) {
 		Role:           "user",
 		Content:        "Qual é o conteúdo do arquivo config.json?",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -100,7 +96,6 @@ func TestIntegration_FirstMessageTriggersTool(t *testing.T) {
 		ToolCalls:      string(toolCallsJSON),
 		Model:          "gpt-4o",
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -149,8 +144,6 @@ func TestIntegration_FirstMessageToolExecution(t *testing.T) {
 	// 1. Setup: conversa, primeira mensagem, tool call
 	conv := &database.Conversation{
 		Title:     "Tool Execution",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -161,7 +154,6 @@ func TestIntegration_FirstMessageToolExecution(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Leia o arquivo main.go para mim",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -189,7 +181,6 @@ func TestIntegration_FirstMessageToolExecution(t *testing.T) {
 		ToolCalls:      string(toolCallsJSON),
 		Model:          "gpt-4o",
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -213,7 +204,6 @@ func main() {
 		Content:        fileContent,          // Resultado da execução
 		ToolCallID:     "call_read_file_001", // Referencia qual chamada executou
 		Source:         "wails",
-		CreatedAt:      time.Now().Add(200 * time.Millisecond),
 	}
 
 	if err := db.Create(toolResultMsg).Error; err != nil {
@@ -252,8 +242,6 @@ func TestIntegration_FirstMessageToolResultIncorporated(t *testing.T) {
 	// 1. Setup: conversa
 	conv := &database.Conversation{
 		Title:     "Tool Result Incorporated",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -267,7 +255,6 @@ func TestIntegration_FirstMessageToolResultIncorporated(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Quanto é 2 + 2?",
-		CreatedAt:      time.Now(),
 	}
 	if err := db.Create(userMsg).Error; err != nil {
 		t.Fatalf("erro ao criar user msg: %v", err)
@@ -292,7 +279,6 @@ func TestIntegration_FirstMessageToolResultIncorporated(t *testing.T) {
 		Content:        "Vou calcular isso para você.",
 		ToolCalls:      string(toolCallsJSON),
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 	if err := db.Create(assistantMsgWithTool).Error; err != nil {
 		t.Fatalf("erro ao criar assistant with tool: %v", err)
@@ -304,7 +290,6 @@ func TestIntegration_FirstMessageToolResultIncorporated(t *testing.T) {
 		Role:           "tool",
 		Content:        "4",
 		ToolCallID:     "call_calc_001",
-		CreatedAt:      time.Now().Add(200 * time.Millisecond),
 	}
 	if err := db.Create(toolResult).Error; err != nil {
 		t.Fatalf("erro ao criar tool result: %v", err)
@@ -317,7 +302,6 @@ func TestIntegration_FirstMessageToolResultIncorporated(t *testing.T) {
 		Role:           "assistant",
 		Content:        "A resposta é 4. 2 + 2 = 4.",
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(300 * time.Millisecond),
 	}
 	if err := db.Create(finalResponse).Error; err != nil {
 		t.Fatalf("erro ao criar final response: %v", err)
@@ -369,8 +353,6 @@ func TestIntegration_FirstMessageMultipleTools(t *testing.T) {
 	// 1. Setup: conversa
 	conv := &database.Conversation{
 		Title:     "Multiple Tools",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -382,7 +364,6 @@ func TestIntegration_FirstMessageMultipleTools(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Leia config.json e main.go simultaneamente",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -417,7 +398,6 @@ func TestIntegration_FirstMessageMultipleTools(t *testing.T) {
 		Content:        "Vou ler ambos arquivos",
 		ToolCalls:      string(toolCallsJSON),
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -439,7 +419,6 @@ func TestIntegration_FirstMessageMultipleTools(t *testing.T) {
 			Role:           "tool",
 			Content:        result.content,
 			ToolCallID:     result.toolCallID,
-			CreatedAt:      time.Now().Add(200 * time.Millisecond),
 		}
 
 		if err := db.Create(toolMsg).Error; err != nil {
@@ -481,8 +460,6 @@ func TestIntegration_FirstMessageToolError(t *testing.T) {
 	// 1. Setup: conversa
 	conv := &database.Conversation{
 		Title:     "Tool Error",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -494,7 +471,6 @@ func TestIntegration_FirstMessageToolError(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Leia um arquivo que não existe: /nonexistent/file.txt",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -521,7 +497,6 @@ func TestIntegration_FirstMessageToolError(t *testing.T) {
 		Content:        "Vou tentar ler este arquivo",
 		ToolCalls:      string(toolCallsJSON),
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -534,7 +509,6 @@ func TestIntegration_FirstMessageToolError(t *testing.T) {
 		Role:           "tool",
 		Content:        "Error: file not found at /nonexistent/file.txt",
 		ToolCallID:     "call_read_bad",
-		CreatedAt:      time.Now().Add(200 * time.Millisecond),
 	}
 
 	if err := db.Create(errorMsg).Error; err != nil {
@@ -547,7 +521,6 @@ func TestIntegration_FirstMessageToolError(t *testing.T) {
 		Role:           "assistant",
 		Content:        "Desculpe, o arquivo /nonexistent/file.txt não foi encontrado. O arquivo não existe no sistema.",
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(300 * time.Millisecond),
 	}
 
 	if err := db.Create(recoveryMsg).Error; err != nil {
@@ -583,8 +556,6 @@ func TestIntegration_FirstMessageToolTokenUsage(t *testing.T) {
 	// 1. Setup
 	conv := &database.Conversation{
 		Title:     "Tool Token Usage",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -596,7 +567,6 @@ func TestIntegration_FirstMessageToolTokenUsage(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Qual é a população do Brasil?",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -618,7 +588,6 @@ func TestIntegration_FirstMessageToolTokenUsage(t *testing.T) {
 		CompletionTokens: 25,
 		TotalTokens:      145,
 		TurnID:           &userMsg.ID,
-		CreatedAt:        time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg1).Error; err != nil {
@@ -631,7 +600,6 @@ func TestIntegration_FirstMessageToolTokenUsage(t *testing.T) {
 		Role:           "tool",
 		Content:        "A população do Brasil é aproximadamente 215 milhões",
 		ToolCallID:     "call_1",
-		CreatedAt:      time.Now().Add(200 * time.Millisecond),
 	}
 
 	if err := db.Create(toolResult).Error; err != nil {
@@ -647,7 +615,6 @@ func TestIntegration_FirstMessageToolTokenUsage(t *testing.T) {
 		CompletionTokens: 18,
 		TotalTokens:      298,
 		TurnID:           &userMsg.ID,
-		CreatedAt:        time.Now().Add(300 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg2).Error; err != nil {

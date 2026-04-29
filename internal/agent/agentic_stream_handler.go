@@ -24,7 +24,7 @@ type AgenticStreamHandler struct {
 }
 
 // NewAgenticStreamHandler cria um handler para uma iteração do agentic loop.
-func NewAgenticStreamHandler(emitter events.Emitter, conversationID uint, iteration int) *AgenticStreamHandler {
+func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iteration int) *AgenticStreamHandler {
 	return &AgenticStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        emitter,
@@ -74,11 +74,11 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		errSummary := ""
 		if event.Error != "" {
 			status = "error"
-			errSummary = truncateString(event.Error, 200)
+			errSummary = truncateString(event.Error, MaxResultDisplaySize)
 		}
-		outputSummary := truncateString(event.Output, 200)
+		outputSummary := truncateString(event.Output, MaxResultDisplaySize)
 
-		h.Emitter.Emit("chat:tool_end", ports.ToolEndEvent{
+		EmitToolEnd(h.Emitter, ports.ToolEndEvent{
 			ConversationID: h.ConversationID,
 			Name:           event.Name,
 			CallID:         event.ID,
@@ -86,19 +86,33 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 			Summary:        outputSummary,
 			Error:          errSummary,
 			ServerLabel:    event.ServerLabel,
-			Native:         true,
+			Origin:         OriginMCPNative,
 		})
+
+		if event.Error != "" {
+			EmitToolFailure(h.Emitter, ports.ToolFailureEvent{
+				ConversationID: h.ConversationID,
+				Name:           event.Name,
+				CallID:         event.ID,
+				ErrorKind:      "unknown",
+				Retryable:      false,
+				Message:        errSummary,
+				WillRetry:      false,
+				Attempt:        0,
+				Origin:         OriginMCPNative,
+			})
+		}
 
 		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
 			event.Name, event.ServerLabel, event.ID, len(event.Output))
 	} else {
-		h.Emitter.Emit("chat:tool_start", ports.ToolStartEvent{
+		EmitToolStart(h.Emitter, ports.ToolStartEvent{
 			ConversationID: h.ConversationID,
 			Name:           event.Name,
 			CallID:         event.ID,
 			Args:           event.Arguments,
 			ServerLabel:    event.ServerLabel,
-			Native:         true,
+			Origin:         OriginMCPNative,
 		})
 
 		log.Printf("[MCP Native] 🔧 %s (server=%s, id=%s)",

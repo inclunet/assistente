@@ -30,6 +30,18 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
+// EnrichedToolCall estende ToolCall com metadata de execução para persistência no DB (AEP-0039 Fase 5).
+// Usado apenas na serialização para o banco; ToolCall regular é usado nas chamadas à API do LLM.
+type EnrichedToolCall struct {
+	ID          string       `json:"id"`
+	Type        string       `json:"type"`
+	Function    FunctionCall `json:"function"`
+	Origin      string       `json:"origin,omitempty"`       // "builtin" | "mcp_bridge" | "mcp_native"
+	ServerLabel string       `json:"server_label,omitempty"` // Label do servidor MCP
+	Iteration   int          `json:"iteration"`              // Iteração do agentic loop (0-based)
+	DurationMs  int64        `json:"duration_ms,omitempty"`  // Duração da execução em milissegundos
+}
+
 // ToolCallDelta representa um delta incremental de tool_call durante streaming.
 // O LLM envia os argumentos em fragmentos que precisam ser acumulados.
 type ToolCallDelta struct {
@@ -196,6 +208,7 @@ type ChatParams struct {
 	ProfileSlug          string  `json:"profileSlug,omitempty"`          // Perfil específico (canais). Vazio = perfil ativo global
 	MaxAgenticIterations int     `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
 	ResponseTimeout      int     `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
+	ContextWindow        int     `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.
 	TabType              string  `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
 	ActiveFilePath       string  `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
 	SurfaceStateJSON     string  `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state

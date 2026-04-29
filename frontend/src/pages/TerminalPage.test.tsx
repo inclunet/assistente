@@ -86,6 +86,7 @@ vi.mock('../store/workspaceStore', () => ({
     }),
     { getState: () => ({ workspace: { tabs: [] }, getActiveTab: () => undefined }), subscribe: () => () => {} }
   ),
+  useActiveTab: () => undefined,
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({

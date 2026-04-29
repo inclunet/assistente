@@ -64,7 +64,7 @@ function statusLabel(status: string, t: (key: string) => string): string {
 
 export default function McpPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'mcp-page' });

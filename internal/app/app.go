@@ -249,7 +249,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.initMessaging()
 
 	// Callback reutilizado pelo agent.Service e ChatController
-	speechDispatcher := func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool) {
+	speechDispatcher := func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool) {
 		if _, err := a.dispatchSpeechEvent(ChatSpeakRequest{
 			ConversationID: conversationID,
 			MessageID:      messageID,
@@ -259,7 +259,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 			Origin:         ChatSpeakOrigin(origin),
 			Interrupt:      &interrupt,
 		}); err != nil {
-			log.Printf("[Speech] WARN: dispatchSpeechEvent falhou (conv=%d msg=%d): %v", conversationID, messageID, err)
+			log.Printf("[Speech] WARN: dispatchSpeechEvent falhou (conv=%s msg=%s): %v", conversationID, messageID, err)
 		}
 	}
 
@@ -283,9 +283,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Prompt Builder (montagem de system prompt, sem Wails)
 	a.promptBuilder = &prompt.Builder{
-		Skills:    a.skillMgr,
-		Workspace: a.workspaceMgr,
-		Tools:     a.toolRegistry,
+		Skills:          a.skillMgr,
+		Workspace:       a.workspaceMgr,
+		Tools:           a.toolRegistry,
+		OpenEditorPaths: a.workspaceMgr.OpenEditorFilePaths,
 	}
 
 	// Inicializa o Settings Service (config CRUD e reset de dados)
@@ -378,6 +379,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		MsgGateway:       a.msgGateway,
 		ResponseNotifier: a.responseNotifier,
 		OnSpeechRequest:  speechDispatcher,
+		OpenEditorPaths:  a.workspaceMgr.OpenEditorFilePaths,
 	})
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,
