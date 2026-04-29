@@ -6,25 +6,19 @@ as mudanças da AEP-0046/PR 89 incorporadas.
 
 ## Veredito
 
-O PR está bem avançado, mas ainda não está merge-ready.
+Após os commits incrementais de correção, os achados deste review foram tratados
+dentro do escopo possível desta PR. O PR fica merge-ready pelo recorte DB-only da
+AEP-0047, condicionado apenas à passagem do CI.
 
-O núcleo DB-only previsto pela AEP-0047 já está largamente implementado:
+O núcleo DB-only previsto pela AEP-0047 está implementado:
 conversas/mensagens, providers persistidos, tasklists persistidas, credenciais
-portáteis criptografadas e export HTML/PDF derivado para conversas. As
-validações principais passaram.
+portáteis criptografadas e export HTML/PDF derivado para conversas.
 
-Ainda faltam ajustes de escopo e acabamento para que o comportamento entregue
-fique alinhado com a AEP atual:
-
-- a UI desktop ainda trata o fluxo como "conversas" e não como "dados",
-  bloqueando exportações que o backend/CLI já suportam, como providers-only,
-  tasklists-only ou credentials-only;
-- campos de `ExportRequest` de recursos fora do escopo DB-only são aceitos e
-  ignorados silenciosamente;
-- a AEP ainda contém critérios/textos antigos que conflitam com o contrato atual
-  de `version: 2` e IDs preservados;
-- há pequenos pontos de robustez no backend e de cobertura frontend para fechar
-  o risco antes do merge.
+Também foram fechados os pontos de acabamento identificados no review: UI de
+dados sem exigir conversas, rejeição explícita de recursos fora do escopo no
+export, AEP alinhada ao contrato `version: 2`, lookups GORM robustos, validação
+do bloco de credenciais, fallback de fonte para PDF, cobertura frontend dos
+novos fluxos e limpeza dos warnings de `HistoryPage.test.tsx`.
 
 ## Escopo DB-only Considerado Para Este PR
 
@@ -64,8 +58,8 @@ migrações/reestruturações das AEPs dependentes ocorrerem.
 
 Observações:
 
-- `HistoryPage.test.tsx` passa, mas ainda emite warnings de React por mocks
-  incompletos de ícones/componentes usados pela página.
+- Os warnings de React em `HistoryPage.test.tsx` foram limpos ao completar o stub
+  de ícones usado pelo Vitest.
 - A única alteração local fora do PR no momento do review era whitespace em
   `internal/speech/speech_manager.go`.
 
@@ -423,6 +417,9 @@ Correção recomendada:
 - Mockar os ícones/componentes ausentes de forma estável ou ajustar o mock de
   `DataGrid`/`Toolbar` para não renderizar nós indefinidos.
 
+Status: resolvido. O stub de `@ant-design/icons` usado pelo Vitest passou a
+exportar `FilePdfOutlined`, eliminando o warning em `HistoryPage.test.tsx`.
+
 ### 9. Baixa — Help do CLI para `--include-audio` está impreciso
 
 Arquivo envolvido:
@@ -439,6 +436,10 @@ Correção recomendada:
 - Ajustar a descrição para deixar claro que o áudio em si pode ser incluído.
 - Alternativamente, se a decisão for não suportar áudio nesta PR, remover a flag
   da UI/CLI e manter apenas `audioMimeType`.
+
+Status: resolvido. A descrição do CLI agora deixa explícito que
+`--include-audio` inclui o conteúdo de áudio das mensagens e preserva
+`audioMimeType`; há teste dedicado para o texto da flag e encaminhamento da opção.
 
 ### 10. Baixa — Código de conflitos/resoluções ainda existe apesar da direção DB-only idempotente
 
@@ -468,6 +469,11 @@ Correção recomendada:
   - documentar que resolução por chave natural fica como fallback transitório;
   - ou remover/ocultar a camada de resolução para o recorte DB-only.
 
+Status: resolvido por documentação arquitetural. A AEP-0047 agora registra que a
+UI e a CLI não expõem resolução interativa no caminho principal DB-only, enquanto
+`ImportDataWithResolutions` e os tipos relacionados podem permanecer como
+compatibilidade transitória para arquivos antigos ou incompletos.
+
 ## Itens Que Devem Ficar Fora Deste PR
 
 Não implementar agora:
@@ -490,20 +496,20 @@ seções importadas com warning claro.
 
 Antes de mergear:
 
-- [ ] Ajustar UI para export DB-only sem exigir conversas.
-- [ ] Renomear textos principais de "conversas" para "dados" onde o fluxo for
+- [x] Ajustar UI para export DB-only sem exigir conversas.
+- [x] Renomear textos principais de "conversas" para "dados" onde o fluxo for
       geral.
-- [ ] Rejeitar explicitamente campos fora do escopo em `ExportRequest`.
-- [ ] Atualizar critérios de aceitação da AEP-0047 para o contrato `version: 2`
+- [x] Rejeitar explicitamente campos fora do escopo em `ExportRequest`.
+- [x] Atualizar critérios de aceitação da AEP-0047 para o contrato `version: 2`
       com IDs preservados.
-- [ ] Padronizar lookups GORM com `errors.Is`.
-- [ ] Validar/exportar PDF no ambiente real de CI/release ou adicionar fallback
+- [x] Padronizar lookups GORM com `errors.Is`.
+- [x] Validar/exportar PDF no ambiente real de CI/release ou adicionar fallback
       de fonte.
-- [ ] Emitir erro/warning para `includeCredentials: true` sem bloco
+- [x] Emitir erro/warning para `includeCredentials: true` sem bloco
       `resources.credentials`.
-- [ ] Adicionar cobertura frontend para providers/tasklists/credenciais/import
+- [x] Adicionar cobertura frontend para providers/tasklists/credenciais/import
       preview.
-- [ ] Limpar warnings de React em `HistoryPage.test.tsx`.
+- [x] Limpar warnings de React em `HistoryPage.test.tsx`.
 
 Depois disso, reexecutar:
 

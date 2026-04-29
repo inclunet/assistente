@@ -209,7 +209,9 @@ O campo `audio` (base64) das mensagens é **omitido** por padrão:
 
 O campo `audioMimeType` é preservado como indicação de que havia áudio originalmente.
 
-Futuramente, uma opção `includeAudio: true` pode ser adicionada para exports completos.
+Nesta fase, `includeAudio: true` está disponível para exports completos e inclui
+o conteúdo base64 do áudio das mensagens. Como isso pode aumentar muito o tamanho
+do arquivo, a opção permanece desligada por padrão e deve ser explícita na UI/CLI.
 
 ### D5.1 — HTML e PDF são formatos derivados de exportação
 
@@ -284,7 +286,12 @@ A consequência prática é:
 - o modo principal deixa de depender de `skip/overwrite/rename`
 - detecção de conflito por chave natural vira fallback excepcional apenas para recursos legados fora do escopo DB atual
 
-**Implementação desta fase:** o recorte DB-only deve convergir para import idempotente de conversations/messages/providers/tasklists/credentials por `id`, removendo a UI e o backend de resolução interativa de conflitos desses recursos.
+**Implementação desta fase:** o recorte DB-only converge para import idempotente
+de conversations/messages/providers/tasklists/credentials por `id`. A UI e a CLI
+não expõem resolução interativa para esses recursos no caminho principal. A API
+`ImportDataWithResolutions` e os tipos de resolução podem permanecer como
+compatibilidade transitória para arquivos antigos ou incompletos, mas não fazem
+parte do comportamento esperado de importação DB-only desta PR.
 
 ### D8 — Referências cruzadas na importação
 

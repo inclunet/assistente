@@ -74,7 +74,7 @@ func (m *mockDataBackend) GetAllTaskLists() ([]app.TaskList, error) {
 
 func TestRunDataExport_Stdout(t *testing.T) {
 	mock := &mockDataBackend{
-		exportOutput: `{"version":1}`,
+		exportOutput: `{"version":2}`,
 	}
 
 	var out bytes.Buffer
@@ -82,12 +82,13 @@ func TestRunDataExport_Stdout(t *testing.T) {
 		OutputFormat:       portability.FormatJSON,
 		ConversationIDs:    []string{"12"},
 		IncludeCredentials: true,
+		IncludeAudio:       true,
 	}, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if out.String() != `{"version":1}` {
+	if out.String() != `{"version":2}` {
 		t.Fatalf("unexpected output: %q", out.String())
 	}
 	if mock.lastExportReq.ConversationIDs[0] != "12" {
@@ -95,6 +96,22 @@ func TestRunDataExport_Stdout(t *testing.T) {
 	}
 	if !mock.lastExportReq.IncludeCredentials {
 		t.Fatal("expected credentials export flag to be forwarded")
+	}
+	if !mock.lastExportReq.IncludeAudio {
+		t.Fatal("expected audio export flag to be forwarded")
+	}
+}
+
+func TestDataExportIncludeAudioHelpIsExplicit(t *testing.T) {
+	flag := dataExportCmd.Flags().Lookup("include-audio")
+	if flag == nil {
+		t.Fatal("expected include-audio flag to exist")
+	}
+	if !strings.Contains(flag.Usage, "conteúdo de áudio") {
+		t.Fatalf("include-audio help should mention audio content, got %q", flag.Usage)
+	}
+	if !strings.Contains(flag.Usage, "audioMimeType") {
+		t.Fatalf("include-audio help should mention audioMimeType, got %q", flag.Usage)
 	}
 }
 
@@ -124,7 +141,7 @@ func TestRunDataExport_ToFile(t *testing.T) {
 func TestRunDataAnalyze_PrintsConflictsAndWarnings(t *testing.T) {
 	mock := &mockDataBackend{
 		analysis: &app.ImportAnalysis{
-			Version:                    1,
+			Version:                    portability.ExportVersion,
 			AppVersion:                 "dev",
 			ConversationCount:          2,
 			MessageCount:               8,
@@ -161,7 +178,7 @@ func TestRunDataAnalyze_PrintsConflictsAndWarnings(t *testing.T) {
 		if path != "import.json" {
 			t.Fatalf("unexpected path: %s", path)
 		}
-		return []byte(`{"version":1}`), nil
+		return []byte(`{"version":2}`), nil
 	}
 
 	var out bytes.Buffer
@@ -171,7 +188,7 @@ func TestRunDataAnalyze_PrintsConflictsAndWarnings(t *testing.T) {
 	}
 
 	output := out.String()
-	if mock.lastAnalyzeJSON != `{"version":1}` {
+	if mock.lastAnalyzeJSON != `{"version":2}` {
 		t.Fatalf("unexpected analyze payload: %q", mock.lastAnalyzeJSON)
 	}
 	if mock.lastAnalyzePwd != "segredo" {
@@ -205,7 +222,7 @@ func TestRunDataImport_ForwardsPayload(t *testing.T) {
 		if path != "backup.json" {
 			t.Fatalf("unexpected path: %s", path)
 		}
-		return []byte(`{"version":1}`), nil
+		return []byte(`{"version":2}`), nil
 	}
 
 	var out bytes.Buffer
@@ -214,7 +231,7 @@ func TestRunDataImport_ForwardsPayload(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if mock.lastImportJSON != `{"version":1}` {
+	if mock.lastImportJSON != `{"version":2}` {
 		t.Fatalf("unexpected import payload: %q", mock.lastImportJSON)
 	}
 	if mock.lastImportPwd != "segredo" {
@@ -235,7 +252,7 @@ func TestRunDataImport_ReturnsErrorWhenImportFails(t *testing.T) {
 	}
 
 	readFile := func(path string) ([]byte, error) {
-		return []byte(`{"version":1}`), nil
+		return []byte(`{"version":2}`), nil
 	}
 
 	var out bytes.Buffer

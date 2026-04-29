@@ -107,7 +107,7 @@ var dataImportCmd = &cobra.Command{
 	Use:   "import <arquivo>",
 	Short: "Importa um arquivo portátil",
 	Long:  "Importa um arquivo portátil do assistente no modelo UUID versionado.",
-	Args: cobra.ExactArgs(1),
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runDataImport(rootApp, os.Stdout, os.ReadFile, args[0], dataImportCredentialPassword)
 	},
@@ -377,7 +377,7 @@ func init() {
 	dataExportCmd.Flags().StringSliceVar(&dataExportTaskListIDs, "tasklist-id", nil, "ID de task list para exportar (repetível)")
 	dataExportCmd.Flags().BoolVar(&dataExportIncludeCredentials, "include-credentials", false, "Inclui credenciais exportáveis")
 	dataExportCmd.Flags().StringVar(&dataExportCredentialPassword, "credential-password", "", "Senha para exportar/descriptografar credenciais")
-	dataExportCmd.Flags().BoolVar(&dataExportIncludeAudio, "include-audio", false, "Inclui metadados de anexos de áudio")
+	dataExportCmd.Flags().BoolVar(&dataExportIncludeAudio, "include-audio", false, "Inclui o conteúdo de áudio das mensagens, além de preservar audioMimeType")
 
 	dataAnalyzeCmd.Flags().StringVar(&dataAnalyzeCredentialPassword, "credential-password", "", "Senha para analisar credenciais criptografadas")
 
