@@ -49,6 +49,9 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 	}
 
 	entry := database.CredentialEntry{
+		UUIDModel: database.UUIDModel{
+			ID: cred.ID,
+		},
 		Pattern:         cred.Pattern,
 		AuthType:        cred.Auth.Type,
 		TokenEnc:        cred.Auth.Token,
@@ -59,6 +62,10 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		RefreshTokenEnc: cred.Auth.RefreshURL,
 		ClientIDEnc:     cred.Auth.ClientID,
 		ClientSecretEnc: cred.Auth.ClientSecret,
+	}
+
+	if cred.ID != "" {
+		return db.WithContext(ctx).Save(&entry).Error
 	}
 
 	return db.WithContext(ctx).Clauses(clause.OnConflict{
@@ -100,6 +107,7 @@ func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, erro
 		}
 
 		result = append(result, StoredCredential{
+			ID:      entry.ID,
 			Pattern: entry.Pattern,
 			Auth:    auth,
 		})

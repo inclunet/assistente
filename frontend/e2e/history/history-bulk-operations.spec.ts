@@ -112,9 +112,9 @@ test.describe('Histórico — bulk delete', () => {
 });
 
 test.describe('Histórico — exportação', () => {
-  test('exportar conversa chama ExportConversations', async ({ page, wails }) => {
+  test('exportar conversa chama ExportData', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
-    await wails.setResponse('ExportConversations', '{"conversations":[]}');
+    await wails.setResponse('ExportData', '{"conversations":[]}');
 
     await wails.waitForApp();
     await page.goto('/#/history');
@@ -130,15 +130,16 @@ test.describe('Histórico — exportação', () => {
     const exportBtn = page.locator('button', { hasText: /export/i });
     if (await exportBtn.count() > 0) {
       await exportBtn.first().click();
+      await page.getByRole('button', { name: /export now|exportar agora/i }).click();
 
       await page.waitForFunction(() => {
         return window.__wailsMock.getCallLog().some(
-          (c: { fn: string }) => c.fn === 'ExportConversations'
+          (c: { fn: string }) => c.fn === 'ExportData'
         );
       }, { timeout: 5_000 });
 
       const log = await wails.getCallLog();
-      const exportCalls = log.filter(c => c.fn === 'ExportConversations');
+      const exportCalls = log.filter(c => c.fn === 'ExportData');
       expect(exportCalls.length).toBeGreaterThanOrEqual(1);
     }
   });

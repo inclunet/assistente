@@ -3,6 +3,7 @@ module assistente
 go 1.24.1
 
 require (
+	codeberg.org/go-pdf/fpdf v0.11.1
 	github.com/KennethanCeyer/ptyx v0.2.0
 	github.com/anthropics/anthropic-sdk-go v1.27.1
 	github.com/danieljoos/wincred v1.2.3
@@ -21,6 +22,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/wailsapp/wails/v2 v2.12.0
+	github.com/yuin/goldmark v1.8.2
 	github.com/zalando/go-keyring v0.2.8
 	golang.design/x/hotkey v0.4.1
 	golang.org/x/crypto v0.44.0

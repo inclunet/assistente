@@ -268,13 +268,13 @@ func UpdateWorkflowFull(
 	}
 
 	for oldID, newID := range statusMigration {
-			if statusIDs[oldID] {
-				return fmt.Errorf("status_migration mapeia ID %d que ainda existe nos novos statuses", oldID)
-			}
-			if !statusIDs[newID] {
-				return fmt.Errorf("status_migration mapeia para ID %d inexistente nos novos statuses", newID)
-			}
+		if statusIDs[oldID] {
+			return fmt.Errorf("status_migration mapeia ID %d que ainda existe nos novos statuses", oldID)
 		}
+		if !statusIDs[newID] {
+			return fmt.Errorf("status_migration mapeia para ID %d inexistente nos novos statuses", newID)
+		}
+	}
 
 	counts, err := GetTaskCountsByStatus(taskListID)
 	if err != nil {
@@ -733,7 +733,7 @@ func MoveTaskToList(taskID string, targetTaskListID string) (*Task, error) {
 	var maxOrder int
 	db.Model(&Task{}).
 		Where("task_list_id = ? AND parent_id IS NULL", targetTaskListID).
-		Select("COALESCE(MAX(`order`), -1)").
+		Select(`COALESCE(MAX("order"), -1)`).
 		Scan(&maxOrder)
 
 	updates := map[string]interface{}{
@@ -913,15 +913,15 @@ func UpsertTaskNoteByExternal(p UpsertTaskNoteByExternalParams) (*TaskNote, bool
 	}
 
 	note := &TaskNote{
-		TaskID:             p.TaskID,
-		Type:               *p.Type,
-		Content:            p.Content,
-		AuthorName:         strings.TrimSpace(p.AuthorName),
-		AuthorID:           strings.TrimSpace(p.AuthorID),
-		ExternalSource:     src,
-		ExternalID:         ext,
-		ExternalParentID:   strings.TrimSpace(p.ExternalParentID),
-		ExternalUpdatedAt:  p.ExternalUpdatedAt,
+		TaskID:            p.TaskID,
+		Type:              *p.Type,
+		Content:           p.Content,
+		AuthorName:        strings.TrimSpace(p.AuthorName),
+		AuthorID:          strings.TrimSpace(p.AuthorID),
+		ExternalSource:    src,
+		ExternalID:        ext,
+		ExternalParentID:  strings.TrimSpace(p.ExternalParentID),
+		ExternalUpdatedAt: p.ExternalUpdatedAt,
 	}
 
 	if err := db.Create(note).Error; err != nil {
@@ -1032,24 +1032,46 @@ func GetTaskListWithHierarchy(id string) (*TaskList, error) {
 
 	// Busca todas as tasks de uma vez
 	var allTasks []Task
-	db.Where("task_list_id = ?", id).
-		Order("\"order\" ASC, created_at ASC").
-		Find(&allTasks)
+	if err := db.Where("task_list_id = ?", id).
+		Order(`"order" ASC, created_at ASC`).
+		Find(&allTasks).Error; err != nil {
+		return nil, err
+	}
 
-	// Constrói hierarquia manualmente
+	// Constrói hierarquia manualmente preservando profundidade arbitrária.
 	taskMap := make(map[string]*Task)
-	var rootTasks []Task
+	childrenByParentID := make(map[string][]*Task)
+	rootTaskIDs := make([]string, 0)
 
 	for i := range allTasks {
+		allTasks[i].Subtasks = nil
 		taskMap[allTasks[i].ID] = &allTasks[i]
 	}
 
 	for i := range allTasks {
 		task := &allTasks[i]
-		if task.ParentID == nil {
-			rootTasks = append(rootTasks, *task)
-		} else if parent, ok := taskMap[*task.ParentID]; ok {
-			parent.Subtasks = append(parent.Subtasks, *task)
+		if task.ParentID != nil {
+			childrenByParentID[*task.ParentID] = append(childrenByParentID[*task.ParentID], task)
+			continue
+		}
+		rootTaskIDs = append(rootTaskIDs, task.ID)
+	}
+
+	var buildTaskTree func(task *Task) Task
+	buildTaskTree = func(task *Task) Task {
+		cloned := *task
+		children := childrenByParentID[task.ID]
+		cloned.Subtasks = make([]Task, 0, len(children))
+		for _, child := range children {
+			cloned.Subtasks = append(cloned.Subtasks, buildTaskTree(child))
+		}
+		return cloned
+	}
+
+	rootTasks := make([]Task, 0, len(rootTaskIDs))
+	for _, rootID := range rootTaskIDs {
+		if rootTask, ok := taskMap[rootID]; ok {
+			rootTasks = append(rootTasks, buildTaskTree(rootTask))
 		}
 	}
 

@@ -22,8 +22,8 @@ type EmitterAdapter struct {
 	errOut         io.Writer // stderr por padrão
 	verbose        bool
 	done           chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
-	lastPrinted    int          // quantidade de bytes de Content já impressos (para imprimir só o delta)
-	conversationID string         // conversa ativa; "" = aceita qualquer conversa
+	lastPrinted    int    // quantidade de bytes de Content já impressos (para imprimir só o delta)
+	conversationID string // conversa ativa; "" = aceita qualquer conversa
 }
 
 // EmitterOption configura o EmitterAdapter.
@@ -194,9 +194,6 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 				return
 			}
 			origin := ev.Origin
-			if origin == "" && ev.Native {
-				origin = "mcp_native"
-			}
 			if origin == "" {
 				origin = "builtin"
 			}
@@ -221,9 +218,6 @@ func (e *EmitterAdapter) handleTool(event string, data any) {
 				status = "ok"
 			}
 			origin := ev.Origin
-			if origin == "" && ev.Native {
-				origin = "mcp_native"
-			}
 			if origin == "" {
 				origin = "builtin"
 			}
