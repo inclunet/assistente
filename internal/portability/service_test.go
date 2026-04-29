@@ -271,7 +271,7 @@ func createPortableTaskListFixture(t *testing.T) *database.TaskList {
 	return out
 }
 
-func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T) {
+func TestAnalyzeImportDataDoesNotDetectNaturalConversationConflicts(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	existingCreatedAt := time.Date(2025, 4, 24, 10, 0, 0, 0, time.UTC)
@@ -340,14 +340,11 @@ func TestAnalyzeImportDataDetectsConversationAndCredentialConflicts(t *testing.T
 	if analysis.ConversationCount != 1 || analysis.MessageCount != 1 {
 		t.Fatalf("counts inesperados: %+v", analysis)
 	}
-	if analysis.ConflictCount != 1 {
-		t.Fatalf("ConflictCount = %d, want 1", analysis.ConflictCount)
+	if analysis.ConflictCount != 0 {
+		t.Fatalf("ConflictCount = %d, want 0", analysis.ConflictCount)
 	}
-	if len(analysis.ConversationConflicts) != 1 {
-		t.Fatalf("conversation conflicts = %d, want 1", len(analysis.ConversationConflicts))
-	}
-	if len(analysis.ConversationConflicts[0].SupportedStrategies) != 3 {
-		t.Fatalf("ConversationConflicts[0].SupportedStrategies = %v, want 3 opções", analysis.ConversationConflicts[0].SupportedStrategies)
+	if len(analysis.ConversationConflicts) != 0 {
+		t.Fatalf("conversation conflicts = %d, want 0", len(analysis.ConversationConflicts))
 	}
 	if len(analysis.CredentialConflicts) != 0 {
 		t.Fatalf("credential conflicts = %d, want 0 for idempotent credential import", len(analysis.CredentialConflicts))
@@ -874,7 +871,7 @@ func TestImportConversationsUsesUTCFallbackForTaskListTimestamps(t *testing.T) {
 	}
 }
 
-func TestImportConversationsWithResolutionsOverwritesConversation(t *testing.T) {
+func TestImportConversationsOverwritesConversationByID(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	createdAt := time.Date(2025, 4, 24, 10, 0, 0, 0, time.UTC)
@@ -907,6 +904,7 @@ func TestImportConversationsWithResolutionsOverwritesConversation(t *testing.T) 
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
 				{
+					ID:        existing.ID,
 					Title:     "Conversa importada",
 					Channel:   "telegram",
 					Summary:   "Resumo novo",
@@ -925,13 +923,7 @@ func TestImportConversationsWithResolutionsOverwritesConversation(t *testing.T) 
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 
-	result, err := ImportConversationsWithResolutions(t.Context(), string(raw), nil, "", []ImportResolution{
-		{
-			ResourceType: "conversation",
-			Identifier:   conversationConflictIdentifier(file.Resources.Conversations[0]),
-			Strategy:     ConflictResolutionOverwrite,
-		},
-	})
+	result, err := ImportConversationsWithResolutions(t.Context(), string(raw), nil, "", nil)
 	if err != nil {
 		t.Fatalf("ImportConversationsWithResolutions() error = %v", err)
 	}
@@ -1025,7 +1017,7 @@ func TestImportConversationsWithResolutionsRenamesProvider(t *testing.T) {
 	}
 }
 
-func TestImportConversationsWithResolutionsOverwritesTaskList(t *testing.T) {
+func TestImportConversationsOverwritesTaskListByID(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	taskList := createPortableTaskListFixture(t)
@@ -1074,13 +1066,7 @@ func TestImportConversationsWithResolutionsOverwritesTaskList(t *testing.T) {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 
-	result, err := ImportConversationsWithResolutions(t.Context(), string(raw), nil, "", []ImportResolution{
-		{
-			ResourceType: "taskList",
-			Identifier:   "sprint-42",
-			Strategy:     ConflictResolutionOverwrite,
-		},
-	})
+	result, err := ImportConversationsWithResolutions(t.Context(), string(raw), nil, "", nil)
 	if err != nil {
 		t.Fatalf("ImportConversationsWithResolutions() error = %v", err)
 	}
@@ -1495,6 +1481,7 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 			Conversations: []ConversationExport{
 				{Title: "Vazia", CreatedAt: now},
 				{
+					ID:        existingConv.ID,
 					Title:     "Duplicada",
 					Channel:   "telegram",
 					CreatedAt: now,
@@ -1532,11 +1519,11 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 		t.Fatalf("ImportConversations() error = %v", err)
 	}
 
-	if result.Imported != 2 {
-		t.Fatalf("Imported = %d, want 2", result.Imported)
+	if result.Imported != 3 {
+		t.Fatalf("Imported = %d, want 3", result.Imported)
 	}
-	if result.Skipped != 2 {
-		t.Fatalf("Skipped = %d, want 2", result.Skipped)
+	if result.Skipped != 1 {
+		t.Fatalf("Skipped = %d, want 1", result.Skipped)
 	}
 	if result.Failed != 0 {
 		t.Fatalf("Failed = %d, want 0", result.Failed)
@@ -1544,8 +1531,8 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 	if result.SkippedEmptyConversations != 1 {
 		t.Fatalf("SkippedEmptyConversations = %d, want 1", result.SkippedEmptyConversations)
 	}
-	if result.SkippedConversationConflict != 1 {
-		t.Fatalf("SkippedConversationConflict = %d, want 1", result.SkippedConversationConflict)
+	if result.SkippedConversationConflict != 0 {
+		t.Fatalf("SkippedConversationConflict = %d, want 0", result.SkippedConversationConflict)
 	}
 	if result.SkippedCredentialConflict != 0 {
 		t.Fatalf("SkippedCredentialConflict = %d, want 0", result.SkippedCredentialConflict)

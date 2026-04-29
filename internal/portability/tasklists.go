@@ -456,32 +456,6 @@ func importTaskNode(
 	return nil
 }
 
-func taskListConflictIdentifier(taskList TaskListExport) string {
-	if slug := database.NormalizeTaskListSlug(taskList.Slug); slug != "" {
-		return slug
-	}
-	return strings.TrimSpace(taskList.Title)
-}
-
-func taskListConflictLookupKey(taskList TaskListExport) string {
-	if slug := database.NormalizeTaskListSlug(taskList.Slug); slug != "" {
-		return "slug:" + slug
-	}
-	return "title:" + strings.TrimSpace(taskList.Title)
-}
-
-func existingTaskListConflictKeys(taskLists []database.TaskList) map[string]struct{} {
-	keys := make(map[string]struct{}, len(taskLists)*2)
-	for _, taskList := range taskLists {
-		if slug := database.NormalizeTaskListSlug(taskList.Slug); slug != "" {
-			keys["slug:"+slug] = struct{}{}
-			continue
-		}
-		keys["title:"+strings.TrimSpace(taskList.Title)] = struct{}{}
-	}
-	return keys
-}
-
 func findExistingTaskListByExport(taskList TaskListExport) (*database.TaskList, error) {
 	if id := strings.TrimSpace(taskList.ID); id != "" {
 		var existing database.TaskList
@@ -493,27 +467,7 @@ func findExistingTaskListByExport(taskList TaskListExport) (*database.TaskList, 
 			return nil, fmt.Errorf("erro ao localizar tasklist %q: %w", id, err)
 		}
 	}
-
-	var existing database.TaskList
-	if slug := strings.TrimSpace(taskList.Slug); slug != "" {
-		err := database.DB().Where("slug = ?", database.NormalizeTaskListSlug(slug)).First(&existing).Error
-		if err == nil {
-			return &existing, nil
-		}
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("erro ao localizar tasklist %q: %w", slug, err)
-	}
-
-	err := database.DB().Where("title = ?", strings.TrimSpace(taskList.Title)).First(&existing).Error
-	if err == nil {
-		return &existing, nil
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
-	return nil, fmt.Errorf("erro ao localizar tasklist %q: %w", taskList.Title, err)
+	return nil, nil
 }
 
 func countExportedTasks(taskLists []TaskListExport) (int, int) {
