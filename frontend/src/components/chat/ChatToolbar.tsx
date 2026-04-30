@@ -21,22 +21,24 @@ import './ChatToolbar.css';
 export interface ChatToolbarProps {
   inputRef?: React.RefObject<HTMLTextAreaElement>;
   conversationId?: string | null;
+  enableShortcuts?: boolean;
 }
 
 export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   inputRef,
   conversationId,
+  enableShortcuts = true,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const fallbackActiveConversation = useChatStore((s) => s.activeConversation);
-  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId[conversationId] ?? null : null);
+  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId?.[conversationId] ?? null : null);
   const activeConversation = conversationId ? session?.conversation ?? null : fallbackActiveConversation;
   const clearMessages = useChatStore((s) => s.clearMessages);
   const fallbackIsLoading = useChatStore((s) => s.isLoading);
   const isLoading = conversationId ? session?.isLoading ?? false : fallbackIsLoading;
   const loadConversation = useChatStore((s) => s.loadConversation);
-  const loadConversationSession = useChatStore((s) => s.loadConversationSession);
+  const loadConversationSession = useChatStore((s) => s.loadConversationSession ?? ((id: string) => s.loadConversation(id)));
   const { announce } = useAnnouncer();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
@@ -129,6 +131,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   }, [announce, activeConversation, clearMessages, conversationId, focusInput, loadConversationSession]);
 
   useEffect(() => {
+    if (!enableShortcuts) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'l') {
         e.preventDefault();
@@ -148,7 +151,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleClearConversation]);
+  }, [enableShortcuts, handleClearConversation]);
 
   const handleProfileChange = useCallback((slug: string) => {
     if (wsActiveTab) {

@@ -10,6 +10,7 @@ import { ChatInput } from './ChatInput';
 import { ChatToolbar } from './ChatToolbar';
 import { ContextMenu } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
+import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useTabScrollState } from '../../hooks/useTabScrollState';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
@@ -45,9 +46,11 @@ export function ChatSessionView({
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
+  const { isActive: isPanelActive } = useWorkspacePanel();
+  const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
   const fallbackActiveConversation = useChatStore((s) => s.activeConversation);
-  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId[conversationId] ?? null : null);
+  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId?.[conversationId] ?? null : null);
   const activeConversation = conversationId ? session?.conversation ?? null : fallbackActiveConversation;
   const threadedMessages = activeConversation?.threadedMessages ?? EMPTY_MESSAGES;
   const fallbackIsLoading = useChatStore((s) => s.isLoading);
@@ -65,9 +68,12 @@ export function ChatSessionView({
     await useChatStore.getState().loadOlderMessages();
   }, [conversationId, loadOlderMessagesForConversation]);
   const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
-  const loadConversationSession = useChatStore((s) => s.loadConversationSession);
+  const loadConversationSession = useChatStore((s) => s.loadConversationSession ?? ((id: string) => s.loadConversation(id)));
   const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
   const updateMessage = useChatStore((s) => s.updateMessage);
+  const updateConversationMessage = useChatStore((s) => s.updateConversationMessage);
+  const toggleConversationReasoningExpanded = useChatStore((s) => s.toggleConversationReasoningExpanded);
+  const isConversationReasoningExpanded = useChatStore((s) => s.isConversationReasoningExpanded);
   const toggleReasoningExpanded = useChatStore((s) => s.toggleReasoningExpanded);
   const isReasoningExpanded = useChatStore((s) => s.isReasoningExpanded);
   const getActiveConversation = useCallback(() => activeConversation, [activeConversation]);
@@ -95,7 +101,9 @@ export function ChatSessionView({
   const [sendError, setSendError] = useState<string | null>(null);
 
   const startEditing = useChatStore((state) => state.startEditing);
+  const startConversationEditing = useChatStore((state) => state.startConversationEditing);
   const startReading = useChatStore((state) => state.startReading);
+  const startConversationReading = useChatStore((state) => state.startConversationReading);
   const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
   const editorTargets = useMemo<EditorSendTargetOption[]>(
@@ -214,11 +222,19 @@ export function ChatSessionView({
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
     onCopy: copyMessage,
     onReadMessage: (message) => {
-      startReading(message.id);
+      if (activeConversation?.id) {
+        startConversationReading(activeConversation.id, message.id);
+      } else {
+        startReading(message.id);
+      }
     },
     onSpeak: speakMessage,
     onEdit: (message) => {
-      startEditing(message.id);
+      if (activeConversation?.id) {
+        startConversationEditing(activeConversation.id, message.id);
+      } else {
+        startEditing(message.id);
+      }
     },
     onResend: async (message) => {
       const conversationId = getActiveConversation()?.id;
@@ -233,28 +249,41 @@ export function ChatSessionView({
       announce(t('chat.announce.pinComingSoon'));
     },
     onToggleReasoning: (message) => {
-      toggleReasoningExpanded(message.id);
-      const isExpanded = isReasoningExpanded(message.id);
+      const targetConversationId = activeConversation?.id;
+      const isExpanded = targetConversationId
+        ? isConversationReasoningExpanded(targetConversationId, message.id)
+        : isReasoningExpanded(message.id);
+      if (targetConversationId) {
+        toggleConversationReasoningExpanded(targetConversationId, message.id);
+      } else {
+        toggleReasoningExpanded(message.id);
+      }
       announce(isExpanded ? t('chat.reasoningHidden') : t('chat.reasoningShown'));
     },
-    isReasoningExpanded: (messageId: string) => isReasoningExpanded(messageId),
+    isReasoningExpanded: (messageId: string) => (
+      activeConversation?.id
+        ? isConversationReasoningExpanded(activeConversation.id, messageId)
+        : isReasoningExpanded(messageId)
+    ),
     isTTSDisabled,
   });
 
   useChatKeyboardNav({
-    enabled: true,
+    enabled: isInteractiveSurface,
     inputRef,
     messagesContainerRef,
   });
 
   useEffect(() => {
-    if (variant !== 'page') return;
+    if (variant !== 'page' || !isInteractiveSurface) return;
+    let focusTimer: ReturnType<typeof setTimeout> | null = null;
     const checkTimer = setInterval(() => {
       const inputElement = inputRef.current;
       if (inputElement && !hasAutoFocusedRef.current) {
         hasAutoFocusedRef.current = true;
         clearInterval(checkTimer);
-        setTimeout(() => {
+        focusTimer = setTimeout(() => {
+          if (typeof document === 'undefined') return;
           const active = document.activeElement as HTMLElement | null;
           const hasMeaningfulFocus =
             !!active &&
@@ -271,10 +300,15 @@ export function ChatSessionView({
 
     return () => {
       clearInterval(checkTimer);
+      if (focusTimer) clearTimeout(focusTimer);
     };
-  }, [variant]);
+  }, [isInteractiveSurface, variant]);
 
   useEffect(() => {
+    if (!isInteractiveSurface) {
+      wasLoadingRef.current = isLoading;
+      return;
+    }
     if (wasLoadingRef.current && !isLoading) {
       const active = document.activeElement as HTMLElement | null;
       const isEditingMessage = active?.closest('.chat-message--editing') !== null;
@@ -286,10 +320,10 @@ export function ChatSessionView({
       }
     }
     wasLoadingRef.current = isLoading;
-  }, [isLoading]);
+  }, [isInteractiveSurface, isLoading]);
 
   useEffect(() => {
-    if (!shortcutsOpen) return;
+    if (!shortcutsOpen || !isInteractiveSurface) return;
     const handleKeyPress = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInputElement = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
@@ -302,13 +336,17 @@ export function ChatSessionView({
 
     document.addEventListener('keypress', handleKeyPress);
     return () => document.removeEventListener('keypress', handleKeyPress);
-  }, [shortcutsHelpOpen, shortcutsOpen]);
+  }, [isInteractiveSurface, shortcutsHelpOpen, shortcutsOpen]);
 
   useEffect(() => {
     const handleMessageUpdated = (data: unknown) => {
       const eventData = data as { message_id?: number | string; content?: string };
       if (eventData.message_id && eventData.content !== undefined) {
-        updateMessage(String(eventData.message_id), eventData.content);
+        if (conversationId) {
+          updateConversationMessage(conversationId, String(eventData.message_id), eventData.content);
+        } else {
+          updateMessage(String(eventData.message_id), eventData.content);
+        }
       }
     };
 
@@ -316,7 +354,7 @@ export function ChatSessionView({
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [updateMessage]);
+  }, [conversationId, updateConversationMessage, updateMessage]);
 
   useEffect(() => {
     if (sendError && retryButtonRef.current) {
@@ -325,6 +363,7 @@ export function ChatSessionView({
   }, [sendError]);
 
   useEffect(() => {
+    if (!isInteractiveSurface) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && sendError) {
         setSendError(null);
@@ -335,7 +374,7 @@ export function ChatSessionView({
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [sendError, announce, t]);
+  }, [isInteractiveSurface, sendError, announce, t]);
 
   const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
     try {
@@ -383,7 +422,7 @@ export function ChatSessionView({
   return (
     <div className={rootClass}>
       <div className="ws-content-toolbar">
-        <ChatToolbar inputRef={inputRef} conversationId={conversationId} />
+        <ChatToolbar inputRef={inputRef} conversationId={conversationId} enableShortcuts={isInteractiveSurface} />
       </div>
       <div className="ws-content-area">
         <MessageList

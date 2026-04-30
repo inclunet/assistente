@@ -14,10 +14,10 @@ const MINI_CHAT_LAZY_CONVERSATION: ReadonlySet<TabType> = new Set(['editor', 'te
  *
  * Fluxo:
  * 1. Workspace ativa qualquer aba
- * 2. Se conversationId não vazio (UUIDv7 válido) → chatStore.loadConversation(id)
+ * 2. Se aba de chat tem conversationId válido → ativa a sessão dessa conversa
  * 3. Se conversationId vazio e aba é chat → garante `conversationId` e só sincroniza o chatStore
  *    se a aba continuar ativa ao concluir a criação
- * 4. Se conversationId vazio e aba é editor/terminal/tasklist → clearActiveConversation (conversa criada no requestOpen do chat modal)
+ * 4. Se aba é editor/terminal/tasklist → carrega a sessão em background apenas quando já houver conversa
  * 5. Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
  */
 export function useWorkspaceChatBridge() {
@@ -38,13 +38,20 @@ export function useWorkspaceChatBridge() {
 
     const snapshotTabId = activeTab.id;
 
+    if (conversationId && MINI_CHAT_LAZY_CONVERSATION.has(activeTab.type)) {
+      void useChatStore.getState().loadConversationSession(conversationId, { activate: false });
+      useChatStore.getState().setActiveConversationId(null);
+      lastSyncedRef.current = syncKey;
+      return;
+    }
+
     if (conversationId) {
       const gen = ++syncGenerationRef.current;
       void (async () => {
         try {
           const chatState = useChatStore.getState();
           if (chatState.activeConversationId !== conversationId) {
-            await useChatStore.getState().loadConversation(conversationId);
+            await chatState.loadConversationSession(conversationId, { activate: true });
           }
         } catch (error) {
           console.error('[WorkspaceChatBridge] Erro ao carregar conversa:', error);
@@ -60,7 +67,7 @@ export function useWorkspaceChatBridge() {
     }
 
     if (MINI_CHAT_LAZY_CONVERSATION.has(activeTab.type)) {
-      useChatStore.getState().clearActiveConversation();
+      useChatStore.getState().setActiveConversationId(null);
       lastSyncedRef.current = syncKey;
       return;
     }
@@ -76,7 +83,7 @@ export function useWorkspaceChatBridge() {
 
         const chatState = useChatStore.getState();
         if (chatState.activeConversationId !== id) {
-          await chatState.loadConversation(id);
+          await chatState.loadConversationSession(id, { activate: true });
         }
 
         if (syncGenerationRef.current !== gen) return;

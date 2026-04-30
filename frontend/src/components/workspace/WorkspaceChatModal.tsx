@@ -20,7 +20,7 @@ export function WorkspaceChatModal() {
   const adapterError = useWorkspaceChatModalStore((s) => s.adapterError);
   const close = useWorkspaceChatModalStore((s) => s.close);
   const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
-  const session = useChatStore((s) => boundConversationId ? s.sessionsByConversationId[boundConversationId] ?? null : null);
+  const session = useChatStore((s) => boundConversationId ? s.sessionsByConversationId?.[boundConversationId] ?? null : null);
   const activeConversation = session?.conversation ?? null;
   const activeWorkspaceTab = useActiveTab();
 

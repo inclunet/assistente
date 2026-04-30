@@ -337,10 +337,14 @@ interface ChatStore {
 
   setContextProfileSlug: (slug: string | null) => void;
   setEditingMessageId: (id: string | null) => void;
+  setConversationEditingMessageId: (conversationId: string, id: string | null) => void;
   startEditing: (id: string) => void;
+  startConversationEditing: (conversationId: string, id: string) => void;
   consumeSkipFocusRestore: () => boolean;
   setReadingMessageId: (id: string | null) => void;
+  setConversationReadingMessageId: (conversationId: string, id: string | null) => void;
   startReading: (id: string) => void;
+  startConversationReading: (conversationId: string, id: string) => void;
 
   createConversation: (title?: string) => Promise<string>;
   loadConversation: (id: string) => Promise<void>;
@@ -358,11 +362,16 @@ interface ChatStore {
   updateConversationMessageReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
   addInternalMessage: (message: Message) => void;
   clearMessages: () => void;
+  clearConversationMessages: (conversationId: string) => void;
 
   toggleThreadExpanded: (messageId: string) => void;
+  toggleConversationThreadExpanded: (conversationId: string, messageId: string) => void;
   isThreadExpanded: (messageId: string) => boolean;
+  isConversationThreadExpanded: (conversationId: string, messageId: string) => boolean;
   toggleReasoningExpanded: (messageId: string) => void;
+  toggleConversationReasoningExpanded: (conversationId: string, messageId: string) => void;
   isReasoningExpanded: (messageId: string) => boolean;
+  isConversationReasoningExpanded: (conversationId: string, messageId: string) => boolean;
 
   sendMessage: (content: string, mediaFiles?: MediaFile[], paramsOverride?: Partial<llm.ChatParams>) => Promise<void>;
   sendMessageToConversation: (
@@ -987,29 +996,57 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     setContextProfileSlug: (slug) => set({ contextProfileSlug: slug }),
 
-    setEditingMessageId: (id) => set((state) => (
-      state.activeConversationId
-        ? patchSession(state, state.activeConversationId, { editingMessageId: id })
-        : { editingMessageId: id }
-    )),
+    setEditingMessageId: (id) => {
+      const conversationId = get().activeConversationId;
+      if (conversationId) {
+        get().setConversationEditingMessageId(conversationId, id);
+        return;
+      }
+      set({ editingMessageId: id });
+    },
 
-    startEditing: (id) => set((state) => (
-      state.activeConversationId
-        ? patchSession(state, state.activeConversationId, { editingMessageId: id, skipFocusRestore: true })
-        : { editingMessageId: id, skipFocusRestore: true }
-    )),
+    setConversationEditingMessageId: (conversationId, id) => {
+      set((state) => patchSession(state, conversationId, { editingMessageId: id }));
+    },
 
-    setReadingMessageId: (id) => set((state) => (
-      state.activeConversationId
-        ? patchSession(state, state.activeConversationId, { readingMessageId: id })
-        : { readingMessageId: id }
-    )),
+    startEditing: (id) => {
+      const conversationId = get().activeConversationId;
+      if (conversationId) {
+        get().startConversationEditing(conversationId, id);
+        return;
+      }
+      set({ editingMessageId: id, skipFocusRestore: true });
+    },
 
-    startReading: (id) => set((state) => (
-      state.activeConversationId
-        ? patchSession(state, state.activeConversationId, { readingMessageId: id, skipFocusRestore: true })
-        : { readingMessageId: id, skipFocusRestore: true }
-    )),
+    startConversationEditing: (conversationId, id) => {
+      set((state) => patchSession(state, conversationId, { editingMessageId: id, skipFocusRestore: true }));
+    },
+
+    setReadingMessageId: (id) => {
+      const conversationId = get().activeConversationId;
+      if (conversationId) {
+        get().setConversationReadingMessageId(conversationId, id);
+        return;
+      }
+      set({ readingMessageId: id });
+    },
+
+    setConversationReadingMessageId: (conversationId, id) => {
+      set((state) => patchSession(state, conversationId, { readingMessageId: id }));
+    },
+
+    startReading: (id) => {
+      const conversationId = get().activeConversationId;
+      if (conversationId) {
+        get().startConversationReading(conversationId, id);
+        return;
+      }
+      set({ readingMessageId: id, skipFocusRestore: true });
+    },
+
+    startConversationReading: (conversationId, id) => {
+      set((state) => patchSession(state, conversationId, { readingMessageId: id, skipFocusRestore: true }));
+    },
 
     consumeSkipFocusRestore: () => {
       const state = get();
@@ -1335,14 +1372,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     clearMessages: () => {
-      set((state) => {
-        if (!state.activeConversationId) return state;
-        const session = getSession(state, state.activeConversationId);
-        if (!session.conversation) return state;
-        return patchSession(state, state.activeConversationId, {
-          conversation: { ...session.conversation, threadedMessages: [] },
-        });
-      });
+      const conversationId = get().activeConversationId;
+      if (!conversationId) return;
+      get().clearConversationMessages(conversationId);
+    },
+
+    clearConversationMessages: (conversationId) => {
+      set((state) => patchConversation(state, conversationId, (conversation) => ({
+        ...conversation,
+        threadedMessages: [],
+      })));
     },
 
     sendMessage: async (content, mediaFiles, paramsOverride) => {
@@ -1388,14 +1427,26 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     getMessages: () => flattenThreadedMessages(get().activeConversation?.threadedMessages),
 
     toggleThreadExpanded: (messageId) => {
+      const conversationId = get().activeConversationId;
+      if (conversationId) {
+        get().toggleConversationThreadExpanded(conversationId, messageId);
+        return;
+      }
       set((state) => {
-        const session = getActiveSession(state);
-        const expanded = new Set(session?.expandedThreads ?? state.expandedThreads);
+        const expanded = new Set(state.expandedThreads);
         if (expanded.has(messageId)) expanded.delete(messageId);
         else expanded.add(messageId);
-        return state.activeConversationId
-          ? patchSession(state, state.activeConversationId, { expandedThreads: expanded })
-          : { expandedThreads: expanded };
+        return { expandedThreads: expanded };
+      });
+    },
+
+    toggleConversationThreadExpanded: (conversationId, messageId) => {
+      set((state) => {
+        const session = getSession(state, conversationId);
+        const expanded = new Set(session.expandedThreads);
+        if (expanded.has(messageId)) expanded.delete(messageId);
+        else expanded.add(messageId);
+        return patchSession(state, conversationId, { expandedThreads: expanded });
       });
     },
 
@@ -1404,15 +1455,31 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return getActiveSession(state)?.expandedThreads.has(messageId) ?? state.expandedThreads.has(messageId);
     },
 
+    isConversationThreadExpanded: (conversationId, messageId) => (
+      get().sessionsByConversationId[conversationId]?.expandedThreads.has(messageId) ?? false
+    ),
+
     toggleReasoningExpanded: (messageId) => {
+      const conversationId = get().activeConversationId;
+      if (conversationId) {
+        get().toggleConversationReasoningExpanded(conversationId, messageId);
+        return;
+      }
       set((state) => {
-        const session = getActiveSession(state);
-        const expanded = new Set(session?.expandedReasonings ?? state.expandedReasonings);
+        const expanded = new Set(state.expandedReasonings);
         if (expanded.has(messageId)) expanded.delete(messageId);
         else expanded.add(messageId);
-        return state.activeConversationId
-          ? patchSession(state, state.activeConversationId, { expandedReasonings: expanded })
-          : { expandedReasonings: expanded };
+        return { expandedReasonings: expanded };
+      });
+    },
+
+    toggleConversationReasoningExpanded: (conversationId, messageId) => {
+      set((state) => {
+        const session = getSession(state, conversationId);
+        const expanded = new Set(session.expandedReasonings);
+        if (expanded.has(messageId)) expanded.delete(messageId);
+        else expanded.add(messageId);
+        return patchSession(state, conversationId, { expandedReasonings: expanded });
       });
     },
 
@@ -1420,6 +1487,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const state = get();
       return getActiveSession(state)?.expandedReasonings.has(messageId) ?? state.expandedReasonings.has(messageId);
     },
+
+    isConversationReasoningExpanded: (conversationId, messageId) => (
+      get().sessionsByConversationId[conversationId]?.expandedReasonings.has(messageId) ?? false
+    ),
 
     getThreadedMessages: () => get().activeConversation?.threadedMessages,
 
