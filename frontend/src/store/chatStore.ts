@@ -2,13 +2,9 @@ import { create } from 'zustand';
 import {
   SendMessage,
   RetryMessage,
-  GetRecentMessages,
-  GetMessagesBefore,
-  GetConversationInfo,
   EnsureConversation,
   AssignConversationToChannel,
   UnassignConversationFromChannel,
-  GetMessageChildren,
 } from '@wailsjs/go/app/App';
 import { MediaFile } from '../services/mediaService';
 import { llm } from '../../wailsjs/go/models';
@@ -22,13 +18,18 @@ import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
 import { startChatEventController, stopAllChatEventControllers } from '../services/chatEventController';
 import { handleExternalChatIncoming } from '../services/externalChatController';
 import {
+  loadConversationSnapshot,
+  loadMessageChildrenNodes,
+  loadOlderConversationMessages,
+  reloadConversationSnapshot,
+} from '../services/chatSessionLoader';
+import {
   appendInternalMessageToTree,
   attachChildrenToMessage,
   flattenThreadedMessages,
   hasMessageId,
   updateMessageContentInTree,
   updateMessageReasoningInTree,
-  withOriginalIndex,
   type Message,
   type MessageNode,
   type TurnSegment,
@@ -384,24 +385,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const seq = options.activate === false ? loadConversationSeq : ++loadConversationSeq;
 
       try {
-        const requestedLimit = INITIAL_MESSAGE_WINDOW_SIZE + 1;
-        const [conv, backendNodes] = await Promise.all([
-          GetConversationInfo(id),
-          GetRecentMessages(id, requestedLimit),
-        ]);
+        const snapshot = await loadConversationSnapshot(id, INITIAL_MESSAGE_WINDOW_SIZE);
         if (seq !== loadConversationSeq) return;
-        const fetchedNodes = backendNodes || [];
-        const hasOlderMessages = fetchedNodes.length > INITIAL_MESSAGE_WINDOW_SIZE;
-        const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
-        const messageNodes: MessageNode[] = visibleNodes.map(withOriginalIndex);
         set((state) => {
           if (options.activate !== false && seq !== loadConversationSeq) return state;
           const conversation = {
             id,
-            title: conv?.title || 'Conversa',
-            threadedMessages: messageNodes,
-            channel: conv?.channel || undefined,
-            contactId: conv?.contact_id || undefined,
+            title: snapshot.title,
+            threadedMessages: snapshot.threadedMessages,
+            channel: snapshot.channel,
+            contactId: snapshot.contactId,
           };
           const sessionsByConversationId = {
             ...state.sessionsByConversationId,
@@ -409,7 +402,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               ...getSession(state, id),
               conversation,
               isLoading: state.loadingConversationIds.has(id),
-              hasOlderMessages,
+              hasOlderMessages: snapshot.hasOlderMessages,
               isLoadingOlderMessages: false,
             },
           };
@@ -456,12 +449,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       set((current) => patchSession(current, conversationId, { isLoadingOlderMessages: true }));
       try {
-        const requestedLimit = INITIAL_MESSAGE_WINDOW_SIZE + 1;
-        const backendNodes = await GetMessagesBefore(conversation.id, firstMessageId, requestedLimit);
-        const fetchedNodes = backendNodes || [];
-        const hasOlderMessages = fetchedNodes.length > INITIAL_MESSAGE_WINDOW_SIZE;
-        const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
-        const olderNodes: MessageNode[] = visibleNodes.map(withOriginalIndex);
+        const olderMessages = await loadOlderConversationMessages(
+          conversation.id,
+          firstMessageId,
+          INITIAL_MESSAGE_WINDOW_SIZE,
+        );
 
         set((current) => {
           const currentSession = getSession(current, conversation.id);
@@ -469,13 +461,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             return patchSession(current, conversationId, { isLoadingOlderMessages: false });
           }
           const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
-          const dedupedOlderNodes = olderNodes.filter((node) => !existingIds.has(node.message.id));
+          const dedupedOlderNodes = olderMessages.nodes.filter((node) => !existingIds.has(node.message.id));
           return patchSession(current, conversation.id, {
             conversation: {
               ...currentSession.conversation,
               threadedMessages: [...dedupedOlderNodes, ...currentSession.conversation.threadedMessages],
             },
-            hasOlderMessages,
+            hasOlderMessages: olderMessages.hasOlderMessages,
             isLoadingOlderMessages: false,
           });
         });
@@ -600,9 +592,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           console.error('[Chat] Invalid message ID:', messageId);
           return [];
         }
-
-        const backendNodes = await GetMessageChildren(messageId);
-        const frontendNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
+        const frontendNodes = await loadMessageChildrenNodes(messageId);
 
         set((state) => {
           const targetConversationId = Object.entries(state.sessionsByConversationId).find(([, session]) => (
@@ -703,21 +693,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     reloadConversationMessages: async (conversationId: string) => {
       if (!conversationId) return;
       try {
-        const requestedLimit = INITIAL_MESSAGE_WINDOW_SIZE + 1;
-        const backendNodes = await GetRecentMessages(conversationId, requestedLimit);
-        const fetchedNodes = backendNodes || [];
-        const hasOlderMessages = fetchedNodes.length > INITIAL_MESSAGE_WINDOW_SIZE;
-        const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
-        const messageNodes: MessageNode[] = visibleNodes.map(withOriginalIndex);
+        const snapshot = await reloadConversationSnapshot(conversationId, INITIAL_MESSAGE_WINDOW_SIZE);
         set((state) => {
           const session = getSession(state, conversationId);
           if (!session.conversation) return state;
           return patchSession(state, conversationId, {
             conversation: {
               ...session.conversation,
-              threadedMessages: messageNodes,
+              threadedMessages: snapshot.threadedMessages,
             },
-            hasOlderMessages,
+            hasOlderMessages: snapshot.hasOlderMessages,
           });
         });
       } catch (err) {
