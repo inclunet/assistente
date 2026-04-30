@@ -14,7 +14,6 @@ import { playSendSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
 import { isChatConversationActive } from '../services/chatArbitration';
-import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
 import { startChatEventController, stopAllChatEventControllers } from '../services/chatEventController';
 import { handleExternalChatIncoming } from '../services/externalChatController';
 import {
@@ -24,6 +23,14 @@ import {
   reloadConversationSnapshot,
 } from '../services/chatSessionLoader';
 import {
+  getChatSession,
+  patchChatConversation,
+  patchChatSession,
+  removeChatSession,
+  type ActiveConversation,
+  type ChatConversationSession,
+} from '../services/chatSessionRegistry';
+import {
   appendInternalMessageToTree,
   attachChildrenToMessage,
   flattenThreadedMessages,
@@ -32,7 +39,6 @@ import {
   updateMessageReasoningInTree,
   type Message,
   type MessageNode,
-  type TurnSegment,
 } from '../lib/chatMessageTree';
 
 const MAX_MESSAGE_CONTENT_SIZE = 512 * 1024;       // must match backend MaxMessageContentSize
@@ -47,48 +53,7 @@ interface MediaData {
 }
 
 export type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
-
-export interface ActiveConversation {
-  id: string;
-  title: string;
-  threadedMessages: MessageNode[];
-  channel?: string;
-  contactId?: string;
-}
-
-export interface ChatConversationSession {
-  conversation: ActiveConversation | null;
-  isLoading: boolean;
-  hasOlderMessages: boolean;
-  isLoadingOlderMessages: boolean;
-  streamingMessageId: string | null;
-  streamingReasoning: string | null;
-  isThinking: boolean;
-  activeToolCalls: ToolCallStatus[];
-  completedSegments: TurnSegment[];
-  expandedThreads: Set<string>;
-  expandedReasonings: Set<string>;
-  editingMessageId: string | null;
-  readingMessageId: string | null;
-  skipFocusRestore: boolean;
-}
-
-const createEmptyChatSession = (): ChatConversationSession => ({
-  conversation: null,
-  isLoading: false,
-  hasOlderMessages: false,
-  isLoadingOlderMessages: false,
-  streamingMessageId: null,
-  streamingReasoning: null,
-  isThinking: false,
-  activeToolCalls: [],
-  completedSegments: [],
-  expandedThreads: new Set<string>(),
-  expandedReasonings: new Set<string>(),
-  editingMessageId: null,
-  readingMessageId: null,
-  skipFocusRestore: false,
-});
+export type { ActiveConversation, ChatConversationSession } from '../services/chatSessionRegistry';
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
@@ -175,7 +140,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   let loadConversationSeq = 0;
 
   const getSession = (state: ChatStore, conversationId: string): ChatConversationSession => (
-    state.sessionsByConversationId[conversationId] ?? createEmptyChatSession()
+    getChatSession(state, conversationId)
   );
 
   const patchSession = (
@@ -183,17 +148,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     conversationId: string,
     patch: Partial<ChatConversationSession> | ((session: ChatConversationSession) => ChatConversationSession),
   ): Partial<ChatStore> => {
-    const currentSession = getSession(state, conversationId);
-    const nextSession = typeof patch === 'function'
-      ? patch(currentSession)
-      : { ...currentSession, ...patch };
-    const sessionsByConversationId = {
-      ...state.sessionsByConversationId,
-      [conversationId]: nextSession,
-    };
-    return {
-      sessionsByConversationId,
-    };
+    return patchChatSession(state, conversationId, patch);
   };
 
   const patchConversation = (
@@ -201,11 +156,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     conversationId: string,
     updater: (conversation: ActiveConversation) => ActiveConversation,
   ): Partial<ChatStore> => {
-    const session = getSession(state, conversationId);
-    if (!session.conversation) return state;
-    return patchSession(state, conversationId, {
-      conversation: updater(session.conversation),
-    });
+    return patchChatConversation(state, conversationId, updater);
   };
 
   const setConversationLoading = (conversationId: string, isLoading: boolean) => {
@@ -619,13 +570,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     handleConversationDeleted: (conversationId: string) => {
       if (get().sessionsByConversationId[conversationId]) {
-        set((state) => {
-          const sessionsByConversationId = { ...state.sessionsByConversationId };
-          delete sessionsByConversationId[conversationId];
-          return {
-            sessionsByConversationId,
-          };
-        });
+        set((state) => removeChatSession(state, conversationId));
       }
       if (isChatConversationActive(conversationId)) {
         announce('Conversa apagada permanentemente');
