@@ -21,6 +21,7 @@ import { stripMarkdown } from '../lib/stripMarkdown';
 import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
 import { handleChatSpeak } from '../services/chatSpeak';
 import type { ChatSpeakEvent } from '../services/chatSpeak';
+import { useWorkspaceStore } from './workspaceStore';
 
 const MAX_MESSAGE_CONTENT_SIZE = 512 * 1024;       // must match backend MaxMessageContentSize
 const MAX_MEDIA_SIZE = 20 * 1024 * 1024;            // must match backend MaxMediaSize
@@ -376,6 +377,34 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     });
   };
 
+  const getConversationAnnouncementLabel = (conversationId: string): string => {
+    const workspace = useWorkspaceStore.getState().workspace;
+    const tab = workspace?.tabs.find((candidate) => candidate.conversationId === conversationId);
+    const activeConversation = get().activeConversation;
+    const title = tab?.title || (activeConversation?.id === conversationId ? activeConversation.title : '');
+    return String(title || i18next.t('chat.conversation', { defaultValue: 'Conversa' })).trim();
+  };
+
+  const announceForActiveConversation = (
+    conversationId: string,
+    message: string,
+    priority: 'polite' | 'assertive' = 'polite',
+  ) => {
+    if (get().activeConversationId === conversationId) {
+      announce(message, priority);
+    }
+  };
+
+  const announceBackgroundResponseDone = (conversationId: string) => {
+    if (get().activeConversationId === conversationId) return;
+    announce(
+      i18next.t('chat.announce.backgroundResponseDone', {
+        title: getConversationAnnouncementLabel(conversationId),
+      }),
+      'polite',
+    );
+  };
+
   const sendMessageInternal = async (
     conversationId: string,
     content: string,
@@ -545,7 +574,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         ensureAssistantNode();
         if (!streamingAnnounced) {
           streamingAnnounced = true;
-          announce(i18next.t('chat.announce.assistantResponding'), 'polite');
+          announceForActiveConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite');
         }
         debouncedUpdateMessage(streamingMsgId, event.content, get().updateMessage);
       }
@@ -598,7 +627,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       ensureAssistantNode();
       if (event.started) {
         set({ isThinking: true, streamingReasoning: event.content || '' });
-        announce(i18next.t('chat.announce.modelThinking'), 'polite');
+        announceForActiveConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite');
       } else if (event.done) {
         set({ isThinking: false });
         if (event.content) get().updateMessageReasoning(streamingMsgId, event.content);
@@ -651,7 +680,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (data.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
       if (data.willRetry) {
-        announce(i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
+        announceForActiveConversation(conversationId, i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
         return;
       }
       announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
@@ -674,7 +703,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               result: tc.summary,
             })),
           });
-          announce(toolCount === 1 ? state.activeToolCalls[0].name : `${toolCount} ferramentas`, 'polite');
+          announceForActiveConversation(
+            conversationId,
+            toolCount === 1 ? state.activeToolCalls[0].name : `${toolCount} ferramentas`,
+            'polite',
+          );
         }
         if (data.content) {
           newSegments.push({ type: 'text', content: data.content });
@@ -731,6 +764,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         });
       }
 
+      announceBackgroundResponseDone(conversationId);
       cleanup();
     });
 
@@ -1385,7 +1419,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           ensureAssistantNode();
           if (!streamingAnnounced) {
             streamingAnnounced = true;
-            announce(i18next.t('chat.announce.assistantResponding'), 'polite');
+            announceForActiveConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite');
           }
           debouncedUpdateMessage(streamingMsgId, event.content, get().updateMessage);
         }
@@ -1433,7 +1467,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         ensureAssistantNode();
         if (event.started) {
           set({ isThinking: true, streamingReasoning: event.content || '' });
-          announce(i18next.t('chat.announce.modelThinking'), 'polite');
+          announceForActiveConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite');
         } else if (event.done) {
           set({ isThinking: false });
           if (event.content) get().updateMessageReasoning(streamingMsgId, event.content);
@@ -1464,7 +1498,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }],
           };
         });
-        announce(i18next.t('chat.toolRunning', { name: event.name }), 'polite');
+        announceForActiveConversation(conversationId, i18next.t('chat.toolRunning', { name: event.name }), 'polite');
       });
 
       unsubToolEnd = EventsOn('chat:tool_end', (event: ChatToolEndEvent) => {
@@ -1479,7 +1513,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }));
         // tool_end apenas atualiza estado visual; anúncio de falha centralizado em tool_failure.
         if (event.status !== 'error') {
-          announce(i18next.t('chat.toolDone', { name: event.name }), 'polite');
+          announceForActiveConversation(conversationId, i18next.t('chat.toolDone', { name: event.name }), 'polite');
           return;
         }
         // Fallback retrocompatibilidade: payloads não-enriquecidos (sem attempt)
@@ -1496,7 +1530,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (data.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         if (data.willRetry) {
-          announce(i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
+          announceForActiveConversation(conversationId, i18next.t('chat.toolRetrying', { name: data.name }), 'polite');
           return;
         }
         announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
@@ -1572,6 +1606,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           });
         }
 
+        announceBackgroundResponseDone(conversationId);
         cleanup();
       });
 

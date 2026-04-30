@@ -176,6 +176,7 @@ const es = {
       announce: {
         assistantResponding: 'El asistente está respondiendo',
         modelThinking: 'El modelo está pensando...',
+        backgroundResponseDone: 'La pestaña {{title}} terminó de responder',
         messageDeleted: 'Mensaje eliminado',
         deleteCancelled: 'Eliminación cancelada',
         messageResent: 'Mensaje reenviado',

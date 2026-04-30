@@ -177,6 +177,7 @@ const ptBR = {
       announce: {
         assistantResponding: 'Assistente está respondendo',
         modelThinking: 'O modelo está pensando...',
+        backgroundResponseDone: 'Aba {{title}} terminou de responder',
         messageDeleted: 'Mensagem excluída',
         deleteCancelled: 'Exclusão cancelada',
         messageResent: 'Mensagem reenviada',

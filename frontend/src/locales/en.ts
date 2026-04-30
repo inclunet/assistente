@@ -177,6 +177,7 @@ const en = {
       announce: {
         assistantResponding: 'Assistant is responding',
         modelThinking: 'The model is thinking...',
+        backgroundResponseDone: 'Tab {{title}} finished responding',
         messageDeleted: 'Message deleted',
         deleteCancelled: 'Deletion canceled',
         messageResent: 'Message resent',
