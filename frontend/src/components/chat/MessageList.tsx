@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo, forwardRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useMemo, forwardRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
@@ -179,6 +179,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const effectiveLoadingText = loadingText ?? t('chat.typing');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const internalContainerRef = useRef<HTMLDivElement>(null);
+  const pendingScrollRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   
   // Use external ref if provided, otherwise use internal ref
   const containerRef = (ref as React.RefObject<HTMLDivElement>) || internalContainerRef;
@@ -212,8 +213,33 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     messagesEndRef.current?.scrollIntoView({ behavior });
   };
 
-  useEffect(() => {
-    // Scroll to bottom when messages change
+  const handleLoadOlder = () => {
+    const container = containerRef.current;
+    const snapshot = container
+      ? { scrollHeight: container.scrollHeight, scrollTop: container.scrollTop }
+      : null;
+    pendingScrollRestoreRef.current = snapshot;
+
+    const result = onLoadOlder?.();
+    void Promise.resolve(result).finally(() => {
+      window.setTimeout(() => {
+        if (pendingScrollRestoreRef.current === snapshot) {
+          pendingScrollRestoreRef.current = null;
+        }
+      }, 0);
+    });
+  };
+
+  useLayoutEffect(() => {
+    const pendingRestore = pendingScrollRestoreRef.current;
+    const container = containerRef.current;
+    if (pendingRestore && container) {
+      const heightDelta = container.scrollHeight - pendingRestore.scrollHeight;
+      container.scrollTop = pendingRestore.scrollTop + heightDelta;
+      pendingScrollRestoreRef.current = null;
+      return;
+    }
+
     scrollToBottom();
   }, [displayMessages]);
 
@@ -256,7 +282,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
             <button
               type="button"
               className="message-list__load-older-button"
-              onClick={() => void onLoadOlder()}
+              onClick={handleLoadOlder}
               disabled={isLoadingOlderMessages}
               aria-busy={isLoadingOlderMessages}
             >

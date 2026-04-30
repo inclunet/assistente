@@ -532,7 +532,7 @@ func ClearAllConversations() error {
 // GetMessages retorna mensagens de uma conversa com filtro opcional por parent
 func GetMessages(conversationID string, parentID *string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	query := db.Order("created_at ASC")
+	query := db.Order("created_at ASC, id ASC")
 
 	if parentID != nil {
 		query = query.Where("parent_id = ?", *parentID)
@@ -559,7 +559,7 @@ func GetRecentRootMessages(conversationID string, limit int) ([]ChatMessage, err
 
 	var messages []ChatMessage
 	err := db.Where("conversation_id = ? AND parent_id IS NULL", conversationID).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Limit(limit).
 		Find(&messages).Error
 	if err != nil {
@@ -586,13 +586,19 @@ func GetRootMessagesBefore(conversationID string, beforeID string, limit int) ([
 	}
 
 	var before ChatMessage
-	if err := db.Select("created_at").First(&before, "id = ? AND conversation_id = ?", beforeID, conversationID).Error; err != nil {
+	if err := db.Select("id", "created_at").First(&before, "id = ? AND conversation_id = ?", beforeID, conversationID).Error; err != nil {
 		return nil, err
 	}
 
 	var messages []ChatMessage
-	err := db.Where("conversation_id = ? AND parent_id IS NULL AND created_at < ?", conversationID, before.CreatedAt).
-		Order("created_at DESC").
+	err := db.Where(
+		"conversation_id = ? AND parent_id IS NULL AND (created_at < ? OR (created_at = ? AND id < ?))",
+		conversationID,
+		before.CreatedAt,
+		before.CreatedAt,
+		before.ID,
+	).
+		Order("created_at DESC, id DESC").
 		Limit(limit).
 		Find(&messages).Error
 	if err != nil {
@@ -608,7 +614,7 @@ func GetRootMessagesBefore(conversationID string, beforeID string, limit int) ([
 // GetAllConversationMessages retorna todas as mensagens de uma conversa (incluindo filhas)
 func GetAllConversationMessages(conversationID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("conversation_id = ?", conversationID).Order("created_at ASC").Find(&messages).Error
+	err := db.Where("conversation_id = ?", conversationID).Order("created_at ASC, id ASC").Find(&messages).Error
 	return messages, err
 }
 
