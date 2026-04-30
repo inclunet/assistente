@@ -23,6 +23,7 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   // Guarda referência ao elemento que abriu o menu para restaurar foco
   const triggerElementRef = useRef<HTMLElement | null>(null);
+  const triggerConversationIdRef = useRef<string | null>(null);
 
   const showMenu = useCallback(
     (event: React.MouseEvent, message: Message, isUser: boolean) => {
@@ -30,6 +31,7 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
       
       // Guarda o elemento que abriu o menu (ou o target do evento)
       triggerElementRef.current = (event.currentTarget as HTMLElement) || (event.target as HTMLElement);
+      triggerConversationIdRef.current = String(message.conversationId || '') || null;
       
       // Verifica estado de expansão do reasoning no momento de mostrar o menu
       const reasoningExpanded = options.isReasoningExpanded 
@@ -58,9 +60,13 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
     // Restaura foco ao elemento que abriu o menu (exceto se edição foi iniciada)
     setTimeout(() => {
       // Verifica se deve pular a restauração de foco (ex: edição iniciada)
-      const shouldSkip = useChatStore.getState().consumeSkipFocusRestore();
+      const conversationId = triggerConversationIdRef.current;
+      const shouldSkip = conversationId
+        ? useChatStore.getState().consumeSkipFocusRestore(conversationId)
+        : false;
       if (shouldSkip) {
         triggerElementRef.current = null;
+        triggerConversationIdRef.current = null;
         return;
       }
       
@@ -68,6 +74,7 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
         triggerElementRef.current.focus();
         triggerElementRef.current = null;
       }
+      triggerConversationIdRef.current = null;
     }, 10);
   }, []);
 

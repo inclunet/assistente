@@ -96,9 +96,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   useEffect(() => {
     const unsub = useChatStore.subscribe((state) => {
       const session = messageConversationId ? state.sessionsByConversationId[messageConversationId] : null;
-      const streamingMessageId = session?.streamingMessageId ?? state.streamingMessageId;
-      const completedSegments = session?.completedSegments ?? state.completedSegments;
-      const activeToolCalls = session?.activeToolCalls ?? state.activeToolCalls;
+      const streamingMessageId = session?.streamingMessageId ?? null;
+      const completedSegments = session?.completedSegments ?? [];
+      const activeToolCalls = session?.activeToolCalls ?? [];
 
       if (streamingMessageId === messageId) {
         setLiveSegments(prev =>
@@ -116,10 +116,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     // Sync initial state
     const initial = useChatStore.getState();
     const initialSession = messageConversationId ? initial.sessionsByConversationId[messageConversationId] : null;
-    const initialStreamingMessageId = initialSession?.streamingMessageId ?? initial.streamingMessageId;
+    const initialStreamingMessageId = initialSession?.streamingMessageId ?? null;
     if (initialStreamingMessageId === messageId) {
-      setLiveSegments(initialSession?.completedSegments ?? initial.completedSegments);
-      setLiveToolCalls(initialSession?.activeToolCalls ?? initial.activeToolCalls);
+      setLiveSegments(initialSession?.completedSegments ?? []);
+      setLiveToolCalls(initialSession?.activeToolCalls ?? []);
     }
 
     return unsub;
@@ -172,7 +172,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
       // Desarma tracking após obter o estado final (best-effort).
       const session = messageConversationId ? state.sessionsByConversationId[messageConversationId] : null;
-      const streamingMessageId = session?.streamingMessageId ?? state.streamingMessageId;
+      const streamingMessageId = session?.streamingMessageId ?? null;
       if (!nextIsStreaming && streamingMessageId !== messageId) {
         trackingRef.current = false;
       }
@@ -183,7 +183,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
     const unsub = useChatStore.subscribe((state) => {
       const session = messageConversationId ? state.sessionsByConversationId[messageConversationId] : null;
-      const streamingMessageId = session?.streamingMessageId ?? state.streamingMessageId;
+      const streamingMessageId = session?.streamingMessageId ?? null;
       if (streamingMessageId === messageId) trackingRef.current = true;
       if (!trackingRef.current) return;
       sync(state);

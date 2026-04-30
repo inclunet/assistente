@@ -27,7 +27,6 @@ vi.mock('../../services/tts', () => ({
 }));
 
 const chatStoreState = {
-  isLoading: false,
   retryMessageToConversation: vi.fn(),
   sessionsByConversationId: {
     [conversationId]: {
@@ -152,7 +151,6 @@ describe('ChatSessionView', () => {
   beforeEach(() => {
     showMenuMock.mockReset();
     hideMenuMock.mockReset();
-    chatStoreState.isLoading = false;
     chatStoreState.sessionsByConversationId[conversationId].isLoading = false;
   });
 

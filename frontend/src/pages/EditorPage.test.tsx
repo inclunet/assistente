@@ -58,7 +58,6 @@ vi.mock('../store/chatStore', () => ({
   useChatStore: Object.assign(
     (selector?: (s: Record<string, unknown>) => unknown) => {
       const state: Record<string, unknown> = {
-        isLoading: false,
         createConversation: vi.fn(),
         getConversationMessages: () => [],
       };

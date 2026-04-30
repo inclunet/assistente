@@ -15,36 +15,18 @@ vi.mock('./ChatMessage', () => ({
 type ChatStoreState = {
   sessionsByConversationId: Record<string, unknown>;
   toggleConversationThreadExpanded: () => void;
-  editingMessageId: string | null;
   setConversationEditingMessageId: (conversationId: string, id: string | null) => void;
-  readingMessageId: string | null;
   setConversationReadingMessageId: (conversationId: string, id: string | null) => void;
-  streamingMessageId: string | null;
-  streamingReasoning: string;
-  isThinking: boolean;
   toggleConversationReasoningExpanded: () => void;
-  activeToolCalls: Array<unknown>;
-  completedSegments: Array<unknown>;
-  expandedThreads: Set<string>;
-  expandedReasonings: Set<string>;
 };
 
 vi.mock('../../store/chatStore', () => ({
   useChatStore: (selector: (state: ChatStoreState) => unknown) => selector({
     sessionsByConversationId: {},
     toggleConversationThreadExpanded: vi.fn(),
-    editingMessageId: null,
     setConversationEditingMessageId: vi.fn(),
-    readingMessageId: null,
     setConversationReadingMessageId: vi.fn(),
-    streamingMessageId: null,
-    streamingReasoning: '',
-    isThinking: false,
     toggleConversationReasoningExpanded: vi.fn(),
-    activeToolCalls: [],
-    completedSegments: [],
-    expandedThreads: new Set<string>(),
-    expandedReasonings: new Set<string>(),
   }),
 }));
 

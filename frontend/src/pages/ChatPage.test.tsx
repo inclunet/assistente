@@ -36,7 +36,6 @@ vi.mock('../services/tts', () => ({
 }));
 
 const chatStoreState = {
-  isLoading: false,
   sendMessageToConversation: sendMessageMock,
   sessionsByConversationId: {
     [conversationId]: {

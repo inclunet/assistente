@@ -187,32 +187,13 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello');
 
     expect(mockAnnounce).toHaveBeenCalledWith('Provedor LLM não disponível');
-    expect(useChatStore.getState().isLoading).toBe(false);
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.isLoading).toBe(false);
   });
 
   it('sendMessageToConversation envia usando o conversationId explícito', async () => {
     await useChatStore.getState().sendMessageToConversation("01926b90-7a5a-7c4e-8d3f-000000000007", 'hello');
 
     expect(mockSendMessage).toHaveBeenCalledWith("01926b90-7a5a-7c4e-8d3f-000000000007", 'hello', '', expect.any(Object));
-  });
-
-  it('clearActiveConversation invalida loadConversation pendente', async () => {
-    let resolveInfo: ((value: unknown) => void) | undefined;
-    let resolveMessages: ((value: unknown) => void) | undefined;
-    mockGetConversationInfo.mockImplementation(
-      () => new Promise((resolve) => { resolveInfo = resolve; }),
-    );
-    mockGetMessages.mockImplementation(
-      () => new Promise((resolve) => { resolveMessages = resolve; }),
-    );
-
-    const pendingLoad = useChatStore.getState().loadConversationSession("01926b90-7a5a-7c4e-8d3f-000000000007", { activate: true });
-    useChatStore.getState().clearActiveConversation();
-    resolveInfo?.({ title: 'Late conversation' });
-    resolveMessages?.([]);
-    await pendingLoad;
-
-    expect(useChatStore.getState().sessionsByConversationId["01926b90-7a5a-7c4e-8d3f-000000000007"]).toBeUndefined();
   });
 
   it('repassa parâmetros estruturados de surface no envio', async () => {
