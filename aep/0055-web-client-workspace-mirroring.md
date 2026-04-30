@@ -101,6 +101,26 @@ Se necessário, evoluir para lock por arquivo por mirror session.
 - Mesmo no espelho, o web deve continuar enviando `surfaceStateJson`/`surfaceContextJson` quando disparar chat.
 - Quando o contexto envolver editor/terminal, o web não deve “inventar” acesso local: qualquer dado que dependa do ambiente do desktop deve ser obtido via agent.
 
+### D13. O web suporta `auth.mode=external` e também `auth.mode=local`
+- **Preferência**: `auth.mode=external` (OIDC/IdP) para ambiente gerenciado.
+- **Obrigatório**: quando o servidor estiver configurado em `auth.mode=local`, o cliente web deve conseguir autenticar e operar normalmente.
+
+### D14. Storage de sessão no browser (modo local)
+No modo `auth.mode=local`, o web precisa de uma estratégia segura de sessão:
+- **Access token**: mantido apenas em memória (não persistir em `localStorage`).
+- **Refresh token**: armazenado em **cookie `HttpOnly` + `Secure` + `SameSite`** emitido pelo servidor.
+- O endpoint de refresh usa o cookie e retorna um novo access token.
+
+### D15. CORS e CSRF
+- Como a SPA web roda em origem diferente da API, o servidor deve ter uma política de CORS **restritiva** (allowlist de origins do web).
+- No modo `auth.mode=local` (refresh em cookie), o servidor deve proteger endpoints state-changing contra CSRF.
+	- Recomendação: `SameSite` + token CSRF (double-submit ou equivalente) para chamadas que dependem de cookie.
+
+### D16. Autenticação de streaming/mirroring (alto nível)
+- Conexões de streaming (chat) e mirror devem estar autenticadas e associadas a `user_id`.
+- O servidor deve rejeitar conexões sem credenciais válidas e encerrar sessões quando houver revogação.
+- Não é objetivo desta AEP padronizar o schema completo das mensagens WS; apenas garantir autenticação, correlação e limites (ver D11).
+
 ---
 
 ## Fases
@@ -128,6 +148,8 @@ Se necessário, evoluir para lock por arquivo por mirror session.
 - **Disponibilidade**: o agent pode cair; o web precisa lidar com offline.
 - **Exfiltração acidental**: sem roots/policy, o espelho pode dar acesso amplo ao disco; roots e defesa em profundidade são obrigatórios.
 - **Backpressure**: terminal output pode explodir memória; limites e chunking são mandatórios.
+- **Session storage inseguro**: persistir tokens no browser (ex.: `localStorage`) aumenta o impacto de XSS; o modo local deve preferir refresh em cookie `HttpOnly`.
+- **CORS/CSRF**: web separado exige políticas explícitas para evitar abuso cross-site.
 
 ---
 
@@ -141,3 +163,5 @@ Se necessário, evoluir para lock por arquivo por mirror session.
 6. **Revogação**: usuário revoga um agent e sessões de mirror são encerradas.
 7. **Roots enforced**: o agent recusa operações fora das roots; tentativa é auditável e não vaza dados.
 8. **Limites**: terminal output e leitura de arquivos respeitam limites e sinalizam truncamento quando aplicável.
+9. **Auth local no web**: em `auth.mode=local`, o web autentica e mantém sessão sem armazenar refresh token em JS.
+10. **CORS/CSRF**: API rejeita origins não autorizadas e endpoints com cookie são protegidos contra CSRF.
