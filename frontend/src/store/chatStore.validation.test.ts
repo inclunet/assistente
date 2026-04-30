@@ -106,7 +106,6 @@ describe('chatStore validation', () => {
     const mod = await import('./chatStore');
     useChatStore = mod.useChatStore;
     useChatStore.setState({
-      activeConversationId: defaultConversationId,
       sessionsByConversationId: {
         [defaultConversationId]: {
           conversation: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
@@ -192,8 +191,6 @@ describe('chatStore validation', () => {
   });
 
   it('sendMessageToConversation envia usando o conversationId explícito', async () => {
-    useChatStore.setState({ activeConversationId: null });
-
     await useChatStore.getState().sendMessageToConversation("01926b90-7a5a-7c4e-8d3f-000000000007", 'hello');
 
     expect(mockSendMessage).toHaveBeenCalledWith("01926b90-7a5a-7c4e-8d3f-000000000007", 'hello', '', expect.any(Object));
@@ -215,8 +212,7 @@ describe('chatStore validation', () => {
     resolveMessages?.([]);
     await pendingLoad;
 
-    expect(useChatStore.getState().activeConversationId).toBeNull();
-    expect(useChatStore.getState().activeConversation).toBeNull();
+    expect(useChatStore.getState().sessionsByConversationId["01926b90-7a5a-7c4e-8d3f-000000000007"]).toBeUndefined();
   });
 
   it('repassa parâmetros estruturados de surface no envio', async () => {
@@ -277,7 +273,6 @@ describe('chatStore validation', () => {
 
   it('usa placeholder único por envio e finaliza streaming após erro no stream', async () => {
     useChatStore.setState({
-      activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       sessionsByConversationId: {
         "01926b90-7a5a-7c4e-8d3f-000000000001": {
           ...useChatStore.getState().sessionsByConversationId["01926b90-7a5a-7c4e-8d3f-000000000001"],
@@ -304,7 +299,7 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'falha 1');
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'ok 2');
 
-    const threaded = useChatStore.getState().activeConversation?.threadedMessages ?? [];
+    const threaded = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages ?? [];
     const ids = threaded.map((node) => String(node.message.id));
     expect(new Set(ids).size).toBe(ids.length);
 
@@ -336,7 +331,6 @@ describe('chatStore validation', () => {
       ],
     };
     useChatStore.setState({
-      activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       sessionsByConversationId: {
         "01926b90-7a5a-7c4e-8d3f-000000000001": {
           ...useChatStore.getState().sessionsByConversationId["01926b90-7a5a-7c4e-8d3f-000000000001"],
@@ -355,7 +349,7 @@ describe('chatStore validation', () => {
 
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'oi');
 
-    const threaded = useChatStore.getState().activeConversation?.threadedMessages ?? [];
+    const threaded = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages ?? [];
     const assistant14731 = threaded.filter((node) => String(node.message.id) === '01926b90-7a5a-7c4e-8d3f-000000014731');
     expect(assistant14731).toHaveLength(1);
   });

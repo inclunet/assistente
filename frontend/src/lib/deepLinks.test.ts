@@ -36,7 +36,6 @@ vi.mock('../store/chatStore', () => ({
       sendMessageToConversation: mockSendMessageToConversation,
       loadConversationSession: mockLoadConversation,
       createConversation: mockCreateConversation,
-      activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
     }),
   },
 }));

@@ -18,6 +18,7 @@ type FindPatchResult =
   | { ok: false; error: string };
 
 type FindLatestEditorPatchOptions = {
+  conversationId: string;
   afterMessageId?: string;
   timeoutMs?: number;
 };
@@ -41,9 +42,9 @@ function getMaxMessageId(messages: MessageLike[]): string {
   return '';
 }
 
-function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId'>): FindPatchResult {
+function findBodyPatch(opts: Pick<FindLatestEditorPatchOptions, 'conversationId' | 'afterMessageId'>): FindPatchResult {
   const afterState = useChatStore.getState();
-  const allMessages = afterState.getMessages() as MessageLike[];
+  const allMessages = afterState.getConversationMessages(opts.conversationId) as MessageLike[];
 
   const afterMessageId = opts?.afterMessageId || '';
   let messages = allMessages;
@@ -70,7 +71,7 @@ function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId
   return { ok: false, error: 'Nenhum patch encontrado' };
 }
 
-async function waitForEditorPatch(opts?: FindLatestEditorPatchOptions): Promise<FindPatchResult> {
+async function waitForEditorPatch(opts: FindLatestEditorPatchOptions): Promise<FindPatchResult> {
   const timeoutMs = typeof opts?.timeoutMs === 'number' ? opts.timeoutMs : 5000;
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {

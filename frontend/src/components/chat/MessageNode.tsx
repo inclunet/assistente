@@ -48,41 +48,30 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   const conversationId = String(node.message.conversationId || '');
   const session = useChatStore(state => conversationId ? state.sessionsByConversationId[conversationId] ?? null : null);
   
-  const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
   const toggleConversationThreadExpanded = useChatStore(state => state.toggleConversationThreadExpanded);
-  const fallbackEditingMessageId = useChatStore(state => state.editingMessageId);
-  const setEditingMessageId = useChatStore(state => state.setEditingMessageId);
   const setConversationEditingMessageId = useChatStore(state => state.setConversationEditingMessageId);
-  const fallbackReadingMessageId = useChatStore(state => state.readingMessageId);
-  const setReadingMessageId = useChatStore(state => state.setReadingMessageId);
   const setConversationReadingMessageId = useChatStore(state => state.setConversationReadingMessageId);
-  const fallbackStreamingMessageId = useChatStore(state => state.streamingMessageId);
-  const fallbackStreamingReasoning = useChatStore(state => state.streamingReasoning);
-  const fallbackIsThinkingGlobal = useChatStore(state => state.isThinking);
-  const toggleReasoningExpanded = useChatStore(state => state.toggleReasoningExpanded);
   const toggleConversationReasoningExpanded = useChatStore(state => state.toggleConversationReasoningExpanded);
-  const fallbackActiveToolCalls = useChatStore(state => state.activeToolCalls);
-  const fallbackCompletedSegments = useChatStore(state => state.completedSegments);
-  const editingMessageId = session?.editingMessageId ?? fallbackEditingMessageId;
-  const readingMessageId = session?.readingMessageId ?? fallbackReadingMessageId;
-  const streamingMessageId = session?.streamingMessageId ?? fallbackStreamingMessageId;
-  const streamingReasoning = session?.streamingReasoning ?? fallbackStreamingReasoning;
-  const isThinkingGlobal = session?.isThinking ?? fallbackIsThinkingGlobal;
-  const activeToolCalls = session?.activeToolCalls ?? fallbackActiveToolCalls;
-  const completedSegments = session?.completedSegments ?? fallbackCompletedSegments;
+  const editingMessageId = session?.editingMessageId ?? null;
+  const readingMessageId = session?.readingMessageId ?? null;
+  const streamingMessageId = session?.streamingMessageId ?? null;
+  const streamingReasoning = session?.streamingReasoning ?? null;
+  const isThinkingGlobal = session?.isThinking ?? false;
+  const activeToolCalls = session?.activeToolCalls ?? [];
+  const completedSegments = session?.completedSegments ?? [];
 
   // OTIMIZADO: Seletores que retornam apenas valores booleanos para este nó específico
   // Evita re-renders quando outras threads/reasonings são expandidas/colapsadas
   const isExpanded = useChatStore(
     useCallback(state => {
       const scopedSession = conversationId ? state.sessionsByConversationId[conversationId] : null;
-      return scopedSession?.expandedThreads.has(messageId) ?? state.expandedThreads.has(messageId);
+      return scopedSession?.expandedThreads.has(messageId) ?? false;
     }, [conversationId, messageId])
   );
   const reasoningExpanded = useChatStore(
     useCallback(state => {
       const scopedSession = conversationId ? state.sessionsByConversationId[conversationId] : null;
-      return scopedSession?.expandedReasonings.has(messageId) ?? state.expandedReasonings.has(messageId);
+      return scopedSession?.expandedReasonings.has(messageId) ?? false;
     }, [conversationId, messageId])
   );
   
@@ -114,11 +103,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       // Limpa o estado na store
       if (conversationId) {
         setConversationReadingMessageId(conversationId, null);
-      } else {
-        setReadingMessageId(null);
       }
     }
-  }, [conversationId, readingMessageId, node.message.id, node.message.internal, isReading, setConversationReadingMessageId, setReadingMessageId]);
+  }, [conversationId, readingMessageId, node.message.id, node.message.internal, isReading, setConversationReadingMessageId]);
 
   // Detecta edição acionada externamente (pelo menu de contexto)
   useEffect(() => {
@@ -132,11 +119,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       // Limpa o estado na store
       if (conversationId) {
         setConversationEditingMessageId(conversationId, null);
-      } else {
-        setEditingMessageId(null);
       }
     }
-  }, [conversationId, editingMessageId, node.message.id, node.message.role, node.message.internal, node.message.isStreaming, node.message.content, isEditing, setConversationEditingMessageId, setEditingMessageId]);
+  }, [conversationId, editingMessageId, node.message.id, node.message.role, node.message.internal, node.message.isStreaming, node.message.content, isEditing, setConversationEditingMessageId]);
 
   // Handler de speak que controla o estado de playback
   const handleSpeak = useCallback(async (message: Message) => {
@@ -165,11 +150,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     const wasExpanded = isExpanded;
     
     // Alterna expansão na store
-    if (conversationId) {
-      toggleConversationThreadExpanded(conversationId, node.message.id);
-    } else {
-      toggleThreadExpanded(node.message.id);
-    }
+    if (!conversationId) return;
+    toggleConversationThreadExpanded(conversationId, node.message.id);
     
     // Aguarda um tick para garantir atualização do estado
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -187,7 +169,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         setIsLoading(false);
       }
     }
-  }, [conversationId, hasChildren, isExpanded, toggleConversationThreadExpanded, toggleThreadExpanded, node.message.id, node.childCount, children.length, onLoadChildren]);
+  }, [conversationId, hasChildren, isExpanded, toggleConversationThreadExpanded, node.message.id, node.childCount, children.length, onLoadChildren]);
 
   const isInternal = node.message.internal || level > 0;
 
@@ -349,11 +331,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     if ((key === 'r' || key === 'R') && node.message.role === 'assistant' && node.message.reasoning) {
       e.preventDefault();
       e.stopPropagation();
-      if (conversationId) {
-        toggleConversationReasoningExpanded(conversationId, node.message.id);
-      } else {
-        toggleReasoningExpanded(node.message.id);
-      }
+      if (!conversationId) return;
+      toggleConversationReasoningExpanded(conversationId, node.message.id);
       // O estado é lido pela store, então precisamos verificar o novo estado
       const isNowExpanded = !reasoningExpanded; // Toggle do estado atual
       announce(isNowExpanded ? t('chat.reasoningShown') : t('chat.reasoningHidden'));
@@ -407,8 +386,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       if (isExpanded && hasChildren) {
         if (conversationId) {
           toggleConversationThreadExpanded(conversationId, node.message.id);
-        } else {
-          toggleThreadExpanded(node.message.id);
         }
       } else if (level > 0) {
         focusParent();
@@ -423,8 +400,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         e.stopPropagation();
         if (conversationId) {
           toggleConversationThreadExpanded(conversationId, node.message.id);
-        } else {
-          toggleThreadExpanded(node.message.id);
         }
       } else if (level > 0) {
         e.preventDefault();
@@ -539,8 +514,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onToggleReasoning={() => {
             if (conversationId) {
               toggleConversationReasoningExpanded(conversationId, node.message.id);
-            } else {
-              toggleReasoningExpanded(node.message.id);
             }
           }}
           // Tool calling - passa apenas para a mensagem em streaming

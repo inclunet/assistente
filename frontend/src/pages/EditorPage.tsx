@@ -1471,13 +1471,10 @@ export default function EditorPage() {
   ): Promise<WorkspaceChatSendPlan> => {
     if (!activeTab) return null;
 
-    // Não bloquear pelo `isLoading` global: o chat modal partilha o chatStore e um estado
-    // preso (ou outro painel) desativava o input sem feedback claro; `sendMessage` já
-    // trata pedidos em paralelo / substitui listeners.
+    const expectedConversationId = session?.conversationId || wsActiveTab?.conversationId || undefined;
+    if (!expectedConversationId) return null;
 
-    const expectedConversationId = session?.conversationId ?? useChatStore.getState().activeConversationId ?? undefined;
-
-    const beforeMessages = useChatStore.getState().getMessages();
+    const beforeMessages = useChatStore.getState().getConversationMessages(expectedConversationId);
     const afterMessageId = getMaxMessageId(beforeMessages as Message[]);
 
     const trimmed = String(instruction || '').trim();
@@ -1757,7 +1754,7 @@ export default function EditorPage() {
         paramsOverride: surfaceParams,
         afterSend: async () => {
           try {
-            await donePromise;
+            const completedConversationId = await donePromise;
 
             if (runId !== inlineChatRunIdRef.current) return;
 
@@ -1773,6 +1770,7 @@ export default function EditorPage() {
 
             // Fallback (sem tool calling): extrai patch do corpo da resposta e confirma.
             const extracted = await waitForEditorPatch({
+              conversationId: completedConversationId,
               afterMessageId,
               timeoutMs: 8000,
             });

@@ -40,7 +40,6 @@ export function useWorkspaceChatBridge() {
 
     if (conversationId && MINI_CHAT_LAZY_CONVERSATION.has(activeTab.type)) {
       void useChatStore.getState().loadConversationSession(conversationId, { activate: false });
-      useChatStore.getState().setActiveConversationId(null);
       lastSyncedRef.current = syncKey;
       return;
     }
@@ -49,10 +48,7 @@ export function useWorkspaceChatBridge() {
       const gen = ++syncGenerationRef.current;
       void (async () => {
         try {
-          const chatState = useChatStore.getState();
-          if (chatState.activeConversationId !== conversationId) {
-            await chatState.loadConversationSession(conversationId, { activate: true });
-          }
+          await useChatStore.getState().loadConversationSession(conversationId, { activate: true });
         } catch (error) {
           console.error('[WorkspaceChatBridge] Erro ao carregar conversa:', error);
           return;
@@ -67,7 +63,6 @@ export function useWorkspaceChatBridge() {
     }
 
     if (MINI_CHAT_LAZY_CONVERSATION.has(activeTab.type)) {
-      useChatStore.getState().setActiveConversationId(null);
       lastSyncedRef.current = syncKey;
       return;
     }
@@ -81,10 +76,7 @@ export function useWorkspaceChatBridge() {
         if (!nowTab || nowTab.id !== snapshotTabId) return;
         if ((nowTab.conversationId || '') !== id) return;
 
-        const chatState = useChatStore.getState();
-        if (chatState.activeConversationId !== id) {
-          await chatState.loadConversationSession(id, { activate: true });
-        }
+        await useChatStore.getState().loadConversationSession(id, { activate: true });
 
         if (syncGenerationRef.current !== gen) return;
         const latestTab = useWorkspaceStore.getState().getActiveTab();
