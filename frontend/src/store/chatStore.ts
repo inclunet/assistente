@@ -280,6 +280,7 @@ interface ChatStore {
   activeConversationId: string | null;
   activeConversation: ActiveConversation | null;
   isLoading: boolean;
+  loadingConversationIds: Set<string>;
   streamingMessageId: string | null;
   isInitialized: boolean;
   expandedThreads: Set<string>;
@@ -353,6 +354,28 @@ interface ChatStore {
 export const useChatStore = create<ChatStore>()((set, get) => {
   let loadConversationSeq = 0;
 
+  const isConversationActive = (state: ChatStore, conversationId: string): boolean => (
+    state.activeConversationId === conversationId
+  );
+
+  const setConversationLoading = (conversationId: string, isLoading: boolean) => {
+    set((state) => {
+      const loadingConversationIds = new Set(state.loadingConversationIds);
+      if (isLoading) {
+        loadingConversationIds.add(conversationId);
+      } else {
+        loadingConversationIds.delete(conversationId);
+      }
+      const activeConversationLoading = state.activeConversationId
+        ? loadingConversationIds.has(state.activeConversationId)
+        : false;
+      return {
+        loadingConversationIds,
+        isLoading: activeConversationLoading,
+      };
+    });
+  };
+
   const sendMessageInternal = async (
     conversationId: string,
     content: string,
@@ -385,7 +408,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const conversationIdStr = conversationId.toString();
 
     // Backend-driven: sem addMessage local — user msg vem do chat:messages_ready, assistant do chat:stream
-    set({ isLoading: true, completedSegments: [], activeToolCalls: [] });
+    setConversationLoading(conversationId, true);
+    set((state) => (
+      isConversationActive(state, conversationId)
+        ? { completedSegments: [], activeToolCalls: [] }
+        : state
+    ));
     playSendSound();
 
     // ID determinístico para placeholder de streaming (substituído pelo ID real do backend em chat:done)
@@ -422,10 +450,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
       const assistantNode = new main.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
       set((state) => ({
-        activeConversation: state.activeConversation
+        activeConversation: isConversationActive(state, conversationId) && state.activeConversation
           ? { ...state.activeConversation, threadedMessages: [...state.activeConversation.threadedMessages, assistantNode] }
           : state.activeConversation,
-        streamingMessageId: streamingMsgId,
+        streamingMessageId: isConversationActive(state, conversationId) ? streamingMsgId : state.streamingMessageId,
       }));
     };
 
@@ -443,7 +471,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       unsubError();
       unsubSpeak();
       activeListeners.delete(conversationIdStr);
-      set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
+      setConversationLoading(conversationId, false);
+      set((state) => (
+        isConversationActive(state, conversationId)
+          ? { streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] }
+          : state
+      ));
     };
 
     const existingCleanup = activeListeners.get(conversationIdStr);
@@ -457,7 +490,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (event.conversationId !== conversationId && event.conversationId !== "") return;
       if (!activeListeners.has(conversationIdStr)) return;
       set((state) => {
-        if (!state.activeConversation) return state;
+        if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
         return {
           activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
         };
@@ -494,7 +527,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
       const userNode = new main.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
       set((state) => ({
-        activeConversation: state.activeConversation
+        activeConversation: isConversationActive(state, conversationId) && state.activeConversation
           ? {
               ...state.activeConversation,
               threadedMessages: [...state.activeConversation.threadedMessages, userNode],
@@ -525,7 +558,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           i18next.t('chat.errorPrefix', { message: event.error }),
         );
         set((state) => {
-          if (!state.activeConversation) return state;
+          if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
           return {
             activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
           };
@@ -542,7 +575,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           ? event.messageId : null;
 
         set((state) => {
-          if (!state.activeConversation) return state;
+          if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
           const nextConversation = finalizeStreamingNode(state.activeConversation, streamingMsgId, backendAssistantId);
           return {
             activeConversation: nextConversation,
@@ -665,7 +698,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           i18next.t('chat.errorPrefix', { message: event.errorMessage }),
         );
         set((state) => {
-          if (!state.activeConversation) return state;
+          if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
           return {
             activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
           };
@@ -675,7 +708,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
 
       set((state) => {
-        if (!state.activeConversation) return state;
+        if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
         return {
           activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
         };
@@ -749,12 +782,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         i18next.t('chat.sendErrorPrefix', { message: errorMsg }),
       );
       set((state) => {
-        if (!state.activeConversation) return state;
+        if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
         return {
           activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
         };
       });
-      set({ isLoading: false, streamingMessageId: null });
+      setConversationLoading(conversationId, false);
+      set((state) => (
+        isConversationActive(state, conversationId)
+          ? { streamingMessageId: null }
+          : state
+      ));
     }
   };
 
@@ -762,6 +800,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     activeConversationId: null,
     activeConversation: null,
     isLoading: false,
+    loadingConversationIds: new Set(),
     streamingMessageId: null,
     isInitialized: false,
     expandedThreads: new Set<string>(),
@@ -823,6 +862,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         activeConversationId: null,
         activeConversation: null,
         isLoading: false,
+        loadingConversationIds: new Set(),
         streamingMessageId: null,
         streamingReasoning: null,
         isThinking: false,
@@ -853,6 +893,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             channel: conv?.channel || undefined,
             contactId: conv?.contact_id || undefined,
           },
+          isLoading: get().loadingConversationIds.has(id),
           isInitialized: true,
         });
       } catch (error) {
@@ -861,6 +902,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         set({
           activeConversationId: id,
           activeConversation: { id, title: 'Conversa', threadedMessages: [] },
+          isLoading: get().loadingConversationIds.has(id),
           isInitialized: true,
         });
       }
@@ -1158,6 +1200,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         activeConversationId: null,
         activeConversation: null,
         isLoading: false,
+        loadingConversationIds: new Set(),
         streamingMessageId: null,
         isInitialized: false,
         expandedThreads: new Set<string>(),
