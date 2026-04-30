@@ -58,7 +58,7 @@ vi.mock('../store/chatStore', () => ({
       get activeConversationId() {
         return hoisted.activeConversationId;
       },
-      loadConversation: (id: string) => mockLoadConversation(id),
+      loadConversationSession: (id: string, options?: { activate?: boolean }) => mockLoadConversation(id, options),
     }),
   },
 }));
@@ -100,7 +100,7 @@ describe('ensureWorkspaceTabHasConversation', () => {
     expect(id).toBe('01970a9e-0007-7000-8000-000000000007');
     expect(mockCreateConversation).not.toHaveBeenCalled();
     expect(mockUpdateTab).not.toHaveBeenCalled();
-    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0007-7000-8000-000000000007');
+    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0007-7000-8000-000000000007', { activate: true });
     expect(hoisted.activeConversationId).toBe('01970a9e-0007-7000-8000-000000000007');
   });
 
@@ -113,7 +113,7 @@ describe('ensureWorkspaceTabHasConversation', () => {
     expect(id).toBe('01970a9e-0099-7000-8000-000000000099');
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
     expect(mockUpdateTab).toHaveBeenCalledWith('tab-new', { conversation_id: '01970a9e-0099-7000-8000-000000000099' });
-    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0099-7000-8000-000000000099');
+    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0099-7000-8000-000000000099', { activate: true });
     expect(hoisted.activeConversationId).toBe('01970a9e-0099-7000-8000-000000000099');
   });
 

@@ -11,11 +11,13 @@ vi.mock('../hooks/useAnnouncer', () => ({
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
 const mockRetryMessage = vi.fn().mockResolvedValue(undefined);
 const mockGetMessages = vi.fn().mockResolvedValue([]);
+const mockGetRecentMessages = vi.fn().mockResolvedValue([]);
 const mockGetConversationInfo = vi.fn().mockResolvedValue({});
 vi.mock('@wailsjs/go/app/App', () => ({
   SendMessage: (...args: unknown[]) => mockSendMessage(...args),
   RetryMessage: (...args: unknown[]) => mockRetryMessage(...args),
   GetMessages: (...args: unknown[]) => mockGetMessages(...args),
+  GetRecentMessages: (...args: unknown[]) => mockGetRecentMessages(...args),
   GetConversationInfo: (...args: unknown[]) => mockGetConversationInfo(...args),
   EnsureConversation: vi.fn().mockResolvedValue("01926b90-7a5a-7c4e-8d3f-000000000001"),
   AssignConversationToChannel: vi.fn(),
@@ -94,12 +96,34 @@ describe('chatStore validation', () => {
     mockRetryMessage.mockClear();
     mockGetMessages.mockReset();
     mockGetMessages.mockResolvedValue([]);
+    mockGetRecentMessages.mockReset();
+    mockGetRecentMessages.mockResolvedValue([]);
     mockGetConversationInfo.mockReset();
     mockGetConversationInfo.mockResolvedValue({});
     mockHandleChatSpeak.mockClear();
     const mod = await import('./chatStore');
     useChatStore = mod.useChatStore;
-    useChatStore.setState({ activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001" });
+    useChatStore.setState({
+      activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
+      sessionsByConversationId: {
+        "01926b90-7a5a-7c4e-8d3f-000000000001": {
+          conversation: { id: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Conversa', threadedMessages: [] },
+          isLoading: false,
+          hasOlderMessages: false,
+          isLoadingOlderMessages: false,
+          streamingMessageId: null,
+          streamingReasoning: null,
+          isThinking: false,
+          activeToolCalls: [],
+          completedSegments: [],
+          expandedThreads: new Set<string>(),
+          expandedReasonings: new Set<string>(),
+          editingMessageId: null,
+          readingMessageId: null,
+          skipFocusRestore: false,
+        },
+      },
+    });
   });
 
   afterEach(() => {
@@ -261,7 +285,12 @@ describe('chatStore validation', () => {
   it('usa placeholder único por envio e finaliza streaming após erro no stream', async () => {
     useChatStore.setState({
       activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
-      activeConversation: { id: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Conversa', threadedMessages: [] },
+      sessionsByConversationId: {
+        "01926b90-7a5a-7c4e-8d3f-000000000001": {
+          ...useChatStore.getState().sessionsByConversationId["01926b90-7a5a-7c4e-8d3f-000000000001"],
+          conversation: { id: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Conversa', threadedMessages: [] },
+        },
+      },
     });
 
     mockSendMessage
@@ -295,25 +324,31 @@ describe('chatStore validation', () => {
   });
 
   it('não duplica mensagem real quando outro caminho já inseriu o mesmo assistant id', async () => {
+    const conversation = {
+      id: "01926b90-7a5a-7c4e-8d3f-000000000001",
+      title: 'Conversa',
+      threadedMessages: [
+        {
+          message: {
+            id: '01926b90-7a5a-7c4e-8d3f-000000014731',
+            conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
+            role: 'assistant',
+            content: 'mensagem já sincronizada',
+            createdAt: new Date().toISOString(),
+            isStreaming: false,
+          },
+          children: [],
+          childCount: 0,
+        } as unknown as MessageNode,
+      ],
+    };
     useChatStore.setState({
       activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
-      activeConversation: {
-        id: "01926b90-7a5a-7c4e-8d3f-000000000001",
-        title: 'Conversa',
-        threadedMessages: [
-          {
-            message: {
-              id: '01926b90-7a5a-7c4e-8d3f-000000014731',
-              conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
-              role: 'assistant',
-              content: 'mensagem já sincronizada',
-              createdAt: new Date().toISOString(),
-              isStreaming: false,
-            },
-            children: [],
-            childCount: 0,
-          } as unknown as MessageNode,
-        ],
+      sessionsByConversationId: {
+        "01926b90-7a5a-7c4e-8d3f-000000000001": {
+          ...useChatStore.getState().sessionsByConversationId["01926b90-7a5a-7c4e-8d3f-000000000001"],
+          conversation,
+        },
       },
     });
 

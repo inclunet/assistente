@@ -49,16 +49,12 @@ export function ChatSessionView({
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
-  const fallbackActiveConversation = useChatStore((s) => s.activeConversation);
-  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId?.[conversationId] ?? null : null);
-  const activeConversation = conversationId ? session?.conversation ?? null : fallbackActiveConversation;
+  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId[conversationId] ?? null : null);
+  const activeConversation = session?.conversation ?? null;
   const threadedMessages = activeConversation?.threadedMessages ?? EMPTY_MESSAGES;
-  const fallbackIsLoading = useChatStore((s) => s.isLoading);
-  const fallbackHasOlderMessages = useChatStore((s) => s.hasOlderMessages);
-  const fallbackIsLoadingOlderMessages = useChatStore((s) => s.isLoadingOlderMessages);
-  const isLoading = conversationId ? session?.isLoading ?? false : fallbackIsLoading;
-  const hasOlderMessages = conversationId ? session?.hasOlderMessages ?? false : fallbackHasOlderMessages;
-  const isLoadingOlderMessages = conversationId ? session?.isLoadingOlderMessages ?? false : fallbackIsLoadingOlderMessages;
+  const isLoading = session?.isLoading ?? false;
+  const hasOlderMessages = session?.hasOlderMessages ?? false;
+  const isLoadingOlderMessages = session?.isLoadingOlderMessages ?? false;
   const loadOlderMessagesForConversation = useChatStore((s) => s.loadOlderMessagesForConversation);
   const loadOlderMessages = useCallback(async () => {
     if (conversationId) {
@@ -68,14 +64,12 @@ export function ChatSessionView({
     await useChatStore.getState().loadOlderMessages();
   }, [conversationId, loadOlderMessagesForConversation]);
   const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
-  const loadConversationSession = useChatStore((s) => s.loadConversationSession ?? ((id: string) => s.loadConversation(id)));
+  const loadConversationSession = useChatStore((s) => s.loadConversationSession);
   const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
   const updateMessage = useChatStore((s) => s.updateMessage);
   const updateConversationMessage = useChatStore((s) => s.updateConversationMessage);
   const toggleConversationReasoningExpanded = useChatStore((s) => s.toggleConversationReasoningExpanded);
   const isConversationReasoningExpanded = useChatStore((s) => s.isConversationReasoningExpanded);
-  const toggleReasoningExpanded = useChatStore((s) => s.toggleReasoningExpanded);
-  const isReasoningExpanded = useChatStore((s) => s.isReasoningExpanded);
   const getActiveConversation = useCallback(() => activeConversation, [activeConversation]);
 
   useEffect(() => {
@@ -100,9 +94,7 @@ export function ChatSessionView({
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
 
-  const startEditing = useChatStore((state) => state.startEditing);
   const startConversationEditing = useChatStore((state) => state.startConversationEditing);
-  const startReading = useChatStore((state) => state.startReading);
   const startConversationReading = useChatStore((state) => state.startConversationReading);
   const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
@@ -224,16 +216,12 @@ export function ChatSessionView({
     onReadMessage: (message) => {
       if (activeConversation?.id) {
         startConversationReading(activeConversation.id, message.id);
-      } else {
-        startReading(message.id);
       }
     },
     onSpeak: speakMessage,
     onEdit: (message) => {
       if (activeConversation?.id) {
         startConversationEditing(activeConversation.id, message.id);
-      } else {
-        startEditing(message.id);
       }
     },
     onResend: async (message) => {
@@ -250,20 +238,15 @@ export function ChatSessionView({
     },
     onToggleReasoning: (message) => {
       const targetConversationId = activeConversation?.id;
-      const isExpanded = targetConversationId
-        ? isConversationReasoningExpanded(targetConversationId, message.id)
-        : isReasoningExpanded(message.id);
-      if (targetConversationId) {
-        toggleConversationReasoningExpanded(targetConversationId, message.id);
-      } else {
-        toggleReasoningExpanded(message.id);
-      }
+      if (!targetConversationId) return;
+      const isExpanded = isConversationReasoningExpanded(targetConversationId, message.id);
+      toggleConversationReasoningExpanded(targetConversationId, message.id);
       announce(isExpanded ? t('chat.reasoningHidden') : t('chat.reasoningShown'));
     },
     isReasoningExpanded: (messageId: string) => (
       activeConversation?.id
         ? isConversationReasoningExpanded(activeConversation.id, messageId)
-        : isReasoningExpanded(messageId)
+        : false
     ),
     isTTSDisabled,
   });

@@ -7,6 +7,8 @@ const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
 const speakMessageMock = vi.fn();
+const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
+const activeConversation = { id: conversationId, title: 'Conversa', threadedMessages: [] };
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -28,16 +30,27 @@ const chatStoreState = {
   isLoading: false,
   sendMessage: vi.fn(),
   retryMessageToConversation: vi.fn(),
-  activeConversation: { id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa', threadedMessages: [] },
+  sessionsByConversationId: {
+    [conversationId]: {
+      conversation: activeConversation,
+      isLoading: false,
+      hasOlderMessages: false,
+      isLoadingOlderMessages: false,
+    },
+  },
+  activeConversation,
   getThreadedMessages: () => [],
   loadMessageChildren: vi.fn(),
-  getActiveConversation: () => ({ id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa' }),
-  loadConversation: vi.fn(),
+  getActiveConversation: () => activeConversation,
+  loadConversationSession: vi.fn(),
   updateMessage: updateMessageMock,
+  updateConversationMessage: updateMessageMock,
   toggleReasoningExpanded: vi.fn(),
   isReasoningExpanded: () => false,
-  startEditing: vi.fn(),
-  startReading: vi.fn(),
+  toggleConversationReasoningExpanded: vi.fn(),
+  isConversationReasoningExpanded: () => false,
+  startConversationEditing: vi.fn(),
+  startConversationReading: vi.fn(),
 };
 
 vi.mock('../../store/chatStore', () => ({
@@ -147,11 +160,12 @@ describe('ChatSessionView', () => {
     showMenuMock.mockReset();
     hideMenuMock.mockReset();
     chatStoreState.isLoading = false;
+    chatStoreState.sessionsByConversationId[conversationId].isLoading = false;
   });
 
   it('embedded: aciona menu de contexto via MessageList', async () => {
     const onSend = vi.fn();
-    render(<ChatSessionView variant="embedded" onSend={onSend} showShortcutsHelp={false} />);
+    render(<ChatSessionView variant="embedded" conversationId={conversationId} onSend={onSend} showShortcutsHelp={false} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'open-menu' }));
 
@@ -162,7 +176,7 @@ describe('ChatSessionView', () => {
   it('embedded: mostra banner de erro e retry quando onSend falha', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValueOnce(new Error('fail'));
-    render(<ChatSessionView variant="embedded" onSend={onSend} showShortcutsHelp={false} />);
+    render(<ChatSessionView variant="embedded" conversationId={conversationId} onSend={onSend} showShortcutsHelp={false} />);
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
@@ -180,8 +194,8 @@ describe('ChatSessionView', () => {
   it('embedded: mantém envio habilitado mesmo com isLoading global ativo', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue(undefined);
-    chatStoreState.isLoading = true;
-    render(<ChatSessionView variant="embedded" onSend={onSend} showShortcutsHelp={false} />);
+    chatStoreState.sessionsByConversationId[conversationId].isLoading = true;
+    render(<ChatSessionView variant="embedded" conversationId={conversationId} onSend={onSend} showShortcutsHelp={false} />);
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 

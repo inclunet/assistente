@@ -46,7 +46,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   // IMPORTANTE: messageId deve ser definido primeiro, pois é usado em hooks abaixo
   const messageId = node.message.id;
   const conversationId = String(node.message.conversationId || '');
-  const session = useChatStore(state => conversationId ? state.sessionsByConversationId?.[conversationId] ?? null : null);
+  const session = useChatStore(state => conversationId ? state.sessionsByConversationId[conversationId] ?? null : null);
   
   const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
   const toggleConversationThreadExpanded = useChatStore(state => state.toggleConversationThreadExpanded);
@@ -75,13 +75,13 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   // Evita re-renders quando outras threads/reasonings são expandidas/colapsadas
   const isExpanded = useChatStore(
     useCallback(state => {
-      const scopedSession = conversationId ? state.sessionsByConversationId?.[conversationId] : null;
+      const scopedSession = conversationId ? state.sessionsByConversationId[conversationId] : null;
       return scopedSession?.expandedThreads.has(messageId) ?? state.expandedThreads.has(messageId);
     }, [conversationId, messageId])
   );
   const reasoningExpanded = useChatStore(
     useCallback(state => {
-      const scopedSession = conversationId ? state.sessionsByConversationId?.[conversationId] : null;
+      const scopedSession = conversationId ? state.sessionsByConversationId[conversationId] : null;
       return scopedSession?.expandedReasonings.has(messageId) ?? state.expandedReasonings.has(messageId);
     }, [conversationId, messageId])
   );

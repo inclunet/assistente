@@ -31,14 +31,11 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const fallbackActiveConversation = useChatStore((s) => s.activeConversation);
-  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId?.[conversationId] ?? null : null);
-  const activeConversation = conversationId ? session?.conversation ?? null : fallbackActiveConversation;
-  const clearMessages = useChatStore((s) => s.clearMessages);
+  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId[conversationId] ?? null : null);
+  const activeConversation = session?.conversation ?? null;
   const clearConversationMessages = useChatStore((s) => s.clearConversationMessages);
-  const fallbackIsLoading = useChatStore((s) => s.isLoading);
-  const isLoading = conversationId ? session?.isLoading ?? false : fallbackIsLoading;
-  const loadConversationSession = useChatStore((s) => s.loadConversationSession ?? ((id: string) => s.loadConversation(id)));
+  const isLoading = session?.isLoading ?? false;
+  const loadConversationSession = useChatStore((s) => s.loadConversationSession);
   const { announce } = useAnnouncer();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
@@ -118,9 +115,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       if (conv?.id) {
         await ClearConversation(conv.id);
         await loadConversationSession(conv.id, { activate: !conversationId });
-      } else {
-        if (conversationId) clearConversationMessages(conversationId);
-        else clearMessages();
+      } else if (conversationId) {
+        clearConversationMessages(conversationId);
       }
 
       announce(t('chat.conversationCleared'));
@@ -129,7 +125,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       announce(t('chat.clearError'));
     }
     focusInput();
-  }, [announce, activeConversation, clearConversationMessages, clearMessages, conversationId, focusInput, loadConversationSession]);
+  }, [announce, activeConversation, clearConversationMessages, conversationId, focusInput, loadConversationSession]);
 
   useEffect(() => {
     if (!enableShortcuts) return;
