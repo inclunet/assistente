@@ -7,6 +7,17 @@
   background: var(--bg-base);
 }
 
+.ws-content__panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ws-content__panel[hidden] {
+  display: none;
+}
+
 .ws-content-toolbar {
   flex-shrink: 0;
 }
