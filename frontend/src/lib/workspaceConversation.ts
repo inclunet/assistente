@@ -55,7 +55,8 @@ export async function ensureWorkspaceTabHasConversation(wsTab: WorkspaceTab): Pr
   }
   const chat = useChatStore.getState();
   if (chat.activeConversationId !== cid) {
-    await chat.loadConversation(cid);
+    const loadSession = chat.loadConversationSession ?? ((id: string) => chat.loadConversation(id));
+    await loadSession(cid, { activate: true });
   }
   return cid;
 }

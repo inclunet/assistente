@@ -35,9 +35,9 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const session = useChatStore((s) => conversationId ? s.sessionsByConversationId?.[conversationId] ?? null : null);
   const activeConversation = conversationId ? session?.conversation ?? null : fallbackActiveConversation;
   const clearMessages = useChatStore((s) => s.clearMessages);
+  const clearConversationMessages = useChatStore((s) => s.clearConversationMessages);
   const fallbackIsLoading = useChatStore((s) => s.isLoading);
   const isLoading = conversationId ? session?.isLoading ?? false : fallbackIsLoading;
-  const loadConversation = useChatStore((s) => s.loadConversation);
   const loadConversationSession = useChatStore((s) => s.loadConversationSession ?? ((id: string) => s.loadConversation(id)));
   const { announce } = useAnnouncer();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
@@ -119,7 +119,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         await ClearConversation(conv.id);
         await loadConversationSession(conv.id, { activate: !conversationId });
       } else {
-        clearMessages();
+        if (conversationId) clearConversationMessages(conversationId);
+        else clearMessages();
       }
 
       announce(t('chat.conversationCleared'));
@@ -128,7 +129,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       announce(t('chat.clearError'));
     }
     focusInput();
-  }, [announce, activeConversation, clearMessages, conversationId, focusInput, loadConversationSession]);
+  }, [announce, activeConversation, clearConversationMessages, clearMessages, conversationId, focusInput, loadConversationSession]);
 
   useEffect(() => {
     if (!enableShortcuts) return;
@@ -167,7 +168,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     try {
       if (wsActiveTab?.type === 'chat') {
         await Promise.all([
-          loadConversation(nextConversationId),
+          loadConversationSession(nextConversationId, { activate: true }),
           updateWsTab(wsActiveTab.id, {
             conversation_id: nextConversationId,
             title: nextTitle,
