@@ -1623,22 +1623,22 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const convId = get().activeConversationId;
       if (!convId) return;
       await AssignConversationToChannel(convId, channel, contactId);
-      set((state) => ({
-        activeConversation: state.activeConversation
-          ? { ...state.activeConversation, channel, contactId }
-          : null,
-      }));
+      set((state) => patchConversation(state, convId, (conversation) => ({
+        ...conversation,
+        channel,
+        contactId,
+      })));
     },
 
     unassignChannel: async () => {
       const convId = get().activeConversationId;
       if (!convId) return;
       await UnassignConversationFromChannel(convId);
-      set((state) => ({
-        activeConversation: state.activeConversation
-          ? { ...state.activeConversation, channel: undefined, contactId: undefined }
-          : null,
-      }));
+      set((state) => patchConversation(state, convId, (conversation) => ({
+        ...conversation,
+        channel: undefined,
+        contactId: undefined,
+      })));
     },
 
     reloadMessages: async () => {
