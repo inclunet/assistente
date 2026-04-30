@@ -16,6 +16,9 @@ export interface MessageListProps {
   onLoadChildren?: (messageId: string) => Promise<MessageNode[]>;
   // Callback quando chega ao fim da lista principal
   onReachEnd?: () => void;
+  hasOlderMessages?: boolean;
+  isLoadingOlderMessages?: boolean;
+  onLoadOlder?: () => Promise<void> | void;
   // Callbacks de ações
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
@@ -155,7 +158,21 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 }
 
 export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProps>((
-  { isLoading = false, loadingText, threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak, onDelete, editorTargets, onSendToEditor },
+  {
+    isLoading = false,
+    loadingText,
+    threadedMessages,
+    onLoadChildren,
+    onReachEnd,
+    hasOlderMessages = false,
+    isLoadingOlderMessages = false,
+    onLoadOlder,
+    onContextMenu,
+    onSpeak,
+    onDelete,
+    editorTargets,
+    onSendToEditor,
+  },
   ref
 ) => {
   const { t } = useTranslation();
@@ -234,6 +251,19 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       aria-label={t('chat.messageListLabel')}
     >
       <div className="message-list__messages">
+        {hasOlderMessages && onLoadOlder && (
+          <div className="message-list__load-older">
+            <button
+              type="button"
+              className="message-list__load-older-button"
+              onClick={() => void onLoadOlder()}
+              disabled={isLoadingOlderMessages}
+              aria-busy={isLoadingOlderMessages}
+            >
+              {isLoadingOlderMessages ? t('chat.loadingOlderMessages') : t('chat.loadOlderMessages')}
+            </button>
+          </div>
+        )}
         <div 
           role="list" 
           aria-label={t('chat.messagesRegion')}

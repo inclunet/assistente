@@ -113,6 +113,8 @@ const es = {
       thinking: 'Pensando...',
       characters: 'caracteres',
       lines: 'líneas',
+      loadOlderMessages: 'Cargar mensajes anteriores',
+      loadingOlderMessages: 'Cargando mensajes anteriores...',
       modelThinking: 'El modelo está pensando',
       modelReasoning: 'Razonamiento del modelo',
       reasoning: 'Razonamiento',

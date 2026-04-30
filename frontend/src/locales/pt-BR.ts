@@ -114,6 +114,8 @@ const ptBR = {
       thinking: 'Pensando...',
       characters: 'caracteres',
       lines: 'linhas',
+      loadOlderMessages: 'Carregar mensagens anteriores',
+      loadingOlderMessages: 'Carregando mensagens anteriores...',
       modelThinking: 'O modelo está pensando',
       modelReasoning: 'Raciocínio do modelo',
       reasoning: 'Raciocínio',

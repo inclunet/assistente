@@ -114,6 +114,8 @@ const en = {
       thinking: 'Thinking...',
       characters: 'characters',
       lines: 'lines',
+      loadOlderMessages: 'Load earlier messages',
+      loadingOlderMessages: 'Loading earlier messages...',
       modelThinking: 'The model is thinking',
       modelReasoning: 'Model reasoning',
       reasoning: 'Reasoning',

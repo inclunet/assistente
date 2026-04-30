@@ -47,6 +47,9 @@ export function ChatSessionView({
   const isLoading = useChatStore((s) => s.isLoading);
   const activeConversation = useChatStore((s) => s.activeConversation);
   const threadedMessages = useChatStore((s) => s.activeConversation?.threadedMessages) ?? EMPTY_MESSAGES;
+  const hasOlderMessages = useChatStore((s) => s.hasOlderMessages);
+  const isLoadingOlderMessages = useChatStore((s) => s.isLoadingOlderMessages);
+  const loadOlderMessages = useChatStore((s) => s.loadOlderMessages);
   const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
   const loadConversation = useChatStore((s) => s.loadConversation);
   const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
@@ -368,6 +371,9 @@ export function ChatSessionView({
           onLoadChildren={loadMessageChildren}
           onReachEnd={handleReachEnd}
           isLoading={isLoading}
+          hasOlderMessages={hasOlderMessages}
+          isLoadingOlderMessages={isLoadingOlderMessages}
+          onLoadOlder={loadOlderMessages}
           ref={messagesContainerRef}
           onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
           onSpeak={hasVoiceConfig ? speakMessage : undefined}

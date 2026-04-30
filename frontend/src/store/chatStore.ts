@@ -3,6 +3,8 @@ import {
   SendMessage,
   RetryMessage,
   GetMessages,
+  GetRecentMessages,
+  GetMessagesBefore,
   GetConversationInfo,
   EnsureConversation,
   AssignConversationToChannel,
@@ -26,6 +28,7 @@ import { useWorkspaceStore } from './workspaceStore';
 const MAX_MESSAGE_CONTENT_SIZE = 512 * 1024;       // must match backend MaxMessageContentSize
 const MAX_MEDIA_SIZE = 20 * 1024 * 1024;            // must match backend MaxMediaSize
 const STREAM_UPDATE_DEBOUNCE_MS = 16;
+const INITIAL_MESSAGE_WINDOW_SIZE = 120;
 
 interface MediaData {
   name: string;
@@ -282,6 +285,8 @@ interface ChatStore {
   activeConversation: ActiveConversation | null;
   isLoading: boolean;
   loadingConversationIds: Set<string>;
+  hasOlderMessages: boolean;
+  isLoadingOlderMessages: boolean;
   streamingMessageId: string | null;
   isInitialized: boolean;
   expandedThreads: Set<string>;
@@ -304,6 +309,7 @@ interface ChatStore {
 
   createConversation: (title?: string) => Promise<string>;
   loadConversation: (id: string) => Promise<void>;
+  loadOlderMessages: () => Promise<void>;
   /** Limpa a conversa ativa (ex.: ao focar editor/terminal/tasklist sem conversa até abrir o chat modal). */
   clearActiveConversation: () => void;
 
@@ -835,6 +841,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     activeConversation: null,
     isLoading: false,
     loadingConversationIds: new Set(),
+    hasOlderMessages: false,
+    isLoadingOlderMessages: false,
     streamingMessageId: null,
     isInitialized: false,
     expandedThreads: new Set<string>(),
@@ -897,6 +905,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         activeConversation: null,
         isLoading: false,
         loadingConversationIds: new Set(),
+        hasOlderMessages: false,
+        isLoadingOlderMessages: false,
         streamingMessageId: null,
         streamingReasoning: null,
         isThinking: false,
@@ -912,12 +922,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const seq = ++loadConversationSeq;
 
       try {
+        const requestedLimit = INITIAL_MESSAGE_WINDOW_SIZE + 1;
         const [conv, backendNodes] = await Promise.all([
           GetConversationInfo(id),
-          GetMessages(id, null),
+          GetRecentMessages(id, requestedLimit),
         ]);
         if (seq !== loadConversationSeq) return;
-        const messageNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
+        const fetchedNodes = backendNodes || [];
+        const hasOlderMessages = fetchedNodes.length > INITIAL_MESSAGE_WINDOW_SIZE;
+        const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
+        const messageNodes: MessageNode[] = visibleNodes.map(withOriginalIndex);
         set({
           activeConversationId: id,
           activeConversation: {
@@ -928,6 +942,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             contactId: conv?.contact_id || undefined,
           },
           isLoading: get().loadingConversationIds.has(id),
+          hasOlderMessages,
+          isLoadingOlderMessages: false,
           isInitialized: true,
         });
       } catch (error) {
@@ -937,8 +953,48 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           activeConversationId: id,
           activeConversation: { id, title: 'Conversa', threadedMessages: [] },
           isLoading: get().loadingConversationIds.has(id),
+          hasOlderMessages: false,
+          isLoadingOlderMessages: false,
           isInitialized: true,
         });
+      }
+    },
+
+    loadOlderMessages: async () => {
+      const state = get();
+      const conversation = state.activeConversation;
+      if (!conversation || state.isLoadingOlderMessages || !state.hasOlderMessages) return;
+
+      const firstMessageId = conversation.threadedMessages[0]?.message.id;
+      if (!firstMessageId) return;
+
+      set({ isLoadingOlderMessages: true });
+      try {
+        const requestedLimit = INITIAL_MESSAGE_WINDOW_SIZE + 1;
+        const backendNodes = await GetMessagesBefore(conversation.id, firstMessageId, requestedLimit);
+        const fetchedNodes = backendNodes || [];
+        const hasOlderMessages = fetchedNodes.length > INITIAL_MESSAGE_WINDOW_SIZE;
+        const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
+        const olderNodes: MessageNode[] = visibleNodes.map(withOriginalIndex);
+
+        set((current) => {
+          if (current.activeConversationId !== conversation.id || !current.activeConversation) {
+            return { isLoadingOlderMessages: false };
+          }
+          const existingIds = new Set(current.activeConversation.threadedMessages.map((node) => node.message.id));
+          const dedupedOlderNodes = olderNodes.filter((node) => !existingIds.has(node.message.id));
+          return {
+            activeConversation: {
+              ...current.activeConversation,
+              threadedMessages: [...dedupedOlderNodes, ...current.activeConversation.threadedMessages],
+            },
+            hasOlderMessages,
+            isLoadingOlderMessages: false,
+          };
+        });
+      } catch (error) {
+        console.error('[Chat] Erro ao carregar mensagens anteriores:', error);
+        set({ isLoadingOlderMessages: false });
       }
     },
 
@@ -1235,6 +1291,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         activeConversation: null,
         isLoading: false,
         loadingConversationIds: new Set(),
+        hasOlderMessages: false,
+        isLoadingOlderMessages: false,
         streamingMessageId: null,
         isInitialized: false,
         expandedThreads: new Set<string>(),
@@ -1273,12 +1331,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const { activeConversationId } = get();
       if (!activeConversationId) return;
       try {
-        const backendNodes = await GetMessages(activeConversationId, null);
-        const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
+        const requestedLimit = INITIAL_MESSAGE_WINDOW_SIZE + 1;
+        const backendNodes = await GetRecentMessages(activeConversationId, requestedLimit);
+        const fetchedNodes = backendNodes || [];
+        const hasOlderMessages = fetchedNodes.length > INITIAL_MESSAGE_WINDOW_SIZE;
+        const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
+        const messageNodes: MessageNode[] = visibleNodes.map(withOriginalIndex);
         set((state) => ({
           activeConversation: state.activeConversation
             ? { ...state.activeConversation, threadedMessages: messageNodes }
             : null,
+          hasOlderMessages,
         }));
       } catch (err) {
         console.error('[Chat] Erro ao recarregar mensagens:', err);
