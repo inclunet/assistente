@@ -550,6 +550,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }
 
     const conversationIdStr = conversationId.toString();
+    set((state) => {
+      if (state.sessionsByConversationId[conversationId]?.conversation) return state;
+      if (state.activeConversation?.id !== conversationId) return state;
+      return patchSession(state, conversationId, {
+        conversation: state.activeConversation,
+      });
+    });
 
     // Backend-driven: sem addMessage local — user msg vem do chat:messages_ready, assistant do chat:stream
     setConversationLoading(conversationId, true);
