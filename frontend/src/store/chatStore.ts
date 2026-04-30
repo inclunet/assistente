@@ -20,6 +20,7 @@ import { messageAudioService } from '../services/messageAudio';
 import { isChatConversationActive } from '../services/chatArbitration';
 import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
 import { startChatEventController, stopAllChatEventControllers } from '../services/chatEventController';
+import { handleExternalChatIncoming } from '../services/externalChatController';
 import {
   appendInternalMessageToTree,
   attachChildrenToMessage,
@@ -725,16 +726,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleExternalIncoming: (data) => {
-      const { channel, from, text, conversationId } = data;
-      if (!conversationId) return;
-      if (!get().sessionsByConversationId[conversationId]?.conversation) {
-        void get().loadConversationSession(conversationId, { activate: false });
-      }
-
-      startChatEventController({
-        conversationId,
-        external: { channel, from, text },
-        adapter: chatEventAdapter,
+      handleExternalChatIncoming(data, {
+        hasConversationSession: (conversationId) => !!get().sessionsByConversationId[conversationId]?.conversation,
+        loadConversationSession: (conversationId) => get().loadConversationSession(conversationId, { activate: false }),
+        chatEventAdapter,
       });
     },
   };
