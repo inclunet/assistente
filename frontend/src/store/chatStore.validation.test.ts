@@ -70,6 +70,8 @@ vi.mock('../services/chatSpeak', () => ({
   handleChatSpeak: (...args: unknown[]) => Promise.resolve(mockHandleChatSpeak(...args)),
 }));
 
+const defaultConversationId = "01926b90-7a5a-7c4e-8d3f-000000000001";
+
 vi.mock('i18next', () => ({
   default: {
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -104,10 +106,10 @@ describe('chatStore validation', () => {
     const mod = await import('./chatStore');
     useChatStore = mod.useChatStore;
     useChatStore.setState({
-      activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
+      activeConversationId: defaultConversationId,
       sessionsByConversationId: {
-        "01926b90-7a5a-7c4e-8d3f-000000000001": {
-          conversation: { id: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Conversa', threadedMessages: [] },
+        [defaultConversationId]: {
+          conversation: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
           isLoading: false,
           hasOlderMessages: false,
           isLoadingOlderMessages: false,
@@ -133,7 +135,7 @@ describe('chatStore validation', () => {
   it('rejects message exceeding max content size', async () => {
     const bigContent = 'x'.repeat(512 * 1024 + 1);
 
-    await useChatStore.getState().sendMessage(bigContent);
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, bigContent);
 
     expect(mockAnnounce).toHaveBeenCalledTimes(1);
     expect(mockAnnounce.mock.calls[0][0]).toContain('grande');
@@ -143,7 +145,7 @@ describe('chatStore validation', () => {
   it('accepts message at exact max content size', async () => {
     const exactContent = 'x'.repeat(512 * 1024);
 
-    await useChatStore.getState().sendMessage(exactContent);
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, exactContent);
 
     expect(mockSendMessage).toHaveBeenCalled();
   });
@@ -158,7 +160,7 @@ describe('chatStore validation', () => {
   it('rejects media exceeding max size', async () => {
     const fakeFile = new File([new ArrayBuffer(15 * 1024 * 1024)], 'big.bin', { type: 'application/octet-stream' });
 
-    await useChatStore.getState().sendMessage('hello', [{
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', [{
       id: 'test-1',
       file: fakeFile,
       category: MediaCategory.DOCUMENT,
@@ -183,19 +185,10 @@ describe('chatStore validation', () => {
       return Promise.reject(new Error('backend error'));
     });
 
-    await useChatStore.getState().sendMessage('hello');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello');
 
     expect(mockAnnounce).toHaveBeenCalledWith('Provedor LLM não disponível');
     expect(useChatStore.getState().isLoading).toBe(false);
-  });
-
-  it('rejects when no active conversation', async () => {
-    useChatStore.setState({ activeConversationId: null });
-
-    await useChatStore.getState().sendMessage('hello');
-
-    expect(mockSendMessage).not.toHaveBeenCalled();
-    expect(mockAnnounce).toHaveBeenCalled();
   });
 
   it('sendMessageToConversation envia usando o conversationId explícito', async () => {
@@ -216,7 +209,7 @@ describe('chatStore validation', () => {
       () => new Promise((resolve) => { resolveMessages = resolve; }),
     );
 
-    const pendingLoad = useChatStore.getState().loadConversation("01926b90-7a5a-7c4e-8d3f-000000000007");
+    const pendingLoad = useChatStore.getState().loadConversationSession("01926b90-7a5a-7c4e-8d3f-000000000007", { activate: true });
     useChatStore.getState().clearActiveConversation();
     resolveInfo?.({ title: 'Late conversation' });
     resolveMessages?.([]);
@@ -253,7 +246,7 @@ describe('chatStore validation', () => {
       return Promise.resolve();
     });
 
-    await useChatStore.getState().sendMessage('oi');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'oi');
 
     expect(mockHandleChatSpeak).toHaveBeenCalledTimes(2);
     expect(mockHandleChatSpeak.mock.calls[0][0]).toMatchObject({
@@ -277,7 +270,7 @@ describe('chatStore validation', () => {
       return Promise.resolve();
     });
 
-    await useChatStore.getState().sendMessage('oi');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'oi');
 
     expect(mockHandleChatSpeak).not.toHaveBeenCalled();
   });
@@ -308,8 +301,8 @@ describe('chatStore validation', () => {
         return Promise.resolve();
       });
 
-    await useChatStore.getState().sendMessage('falha 1');
-    await useChatStore.getState().sendMessage('ok 2');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'falha 1');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'ok 2');
 
     const threaded = useChatStore.getState().activeConversation?.threadedMessages ?? [];
     const ids = threaded.map((node) => String(node.message.id));
@@ -360,7 +353,7 @@ describe('chatStore validation', () => {
       return Promise.resolve();
     });
 
-    await useChatStore.getState().sendMessage('oi');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'oi');
 
     const threaded = useChatStore.getState().activeConversation?.threadedMessages ?? [];
     const assistant14731 = threaded.filter((node) => String(node.message.id) === '01926b90-7a5a-7c4e-8d3f-000000014731');

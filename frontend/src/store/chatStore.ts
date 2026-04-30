@@ -347,7 +347,6 @@ interface ChatStore {
   startConversationReading: (conversationId: string, id: string) => void;
 
   createConversation: (title?: string) => Promise<string>;
-  loadConversation: (id: string) => Promise<void>;
   loadConversationSession: (id: string, options?: { activate?: boolean }) => Promise<void>;
   getConversationSession: (conversationId: string | null | undefined) => ChatConversationSession | null;
   setActiveConversationId: (conversationId: string | null) => void;
@@ -373,7 +372,6 @@ interface ChatStore {
   isReasoningExpanded: (messageId: string) => boolean;
   isConversationReasoningExpanded: (conversationId: string, messageId: string) => boolean;
 
-  sendMessage: (content: string, mediaFiles?: MediaFile[], paramsOverride?: Partial<llm.ChatParams>) => Promise<void>;
   sendMessageToConversation: (
     conversationId: string,
     content: string,
@@ -1092,10 +1090,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => syncActiveSessionFields(state, state.sessionsByConversationId, null));
     },
 
-    loadConversation: async (id) => {
-      await get().loadConversationSession(id, { activate: true });
-    },
-
     loadConversationSession: async (id, options = { activate: true }) => {
       // Para TTS/áudio da conversa anterior ao trocar
       if (options.activate !== false) {
@@ -1385,16 +1379,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         ...conversation,
         threadedMessages: [],
       })));
-    },
-
-    sendMessage: async (content, mediaFiles, paramsOverride) => {
-      const conversationId = get().activeConversationId ?? "";
-      if (conversationId === "") {
-        console.error('[Chat] sendMessage sem conversa ativa (use ensureWorkspaceTabHasConversation ao abrir o painel)');
-        announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
-        return;
-      }
-      await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride);
     },
 
     sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride) => {
