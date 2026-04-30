@@ -17,8 +17,8 @@ import i18next from 'i18next';
 import { playSendSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
+import { isChatConversationActive } from '../services/chatArbitration';
 import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
-import { useWorkspaceStore } from './workspaceStore';
 import { startChatEventController, stopAllChatEventControllers } from '../services/chatEventController';
 import {
   appendInternalMessageToTree,
@@ -221,37 +221,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     });
   };
 
-  const getConversationAnnouncementLabel = (conversationId: string): string => {
-    const workspace = useWorkspaceStore.getState().workspace;
-    const tab = workspace?.tabs.find((candidate) => candidate.conversationId === conversationId);
-    const title = tab?.title || get().sessionsByConversationId[conversationId]?.conversation?.title || '';
-    return String(title || i18next.t('chat.conversation', { defaultValue: 'Conversa' })).trim();
-  };
-
-  const isWorkspaceConversationActive = (conversationId: string): boolean => (
-    useWorkspaceStore.getState().getActiveTab?.()?.conversationId === conversationId
-  );
-
-  const announceForActiveConversation = (
-    conversationId: string,
-    message: string,
-    priority: 'polite' | 'assertive' = 'polite',
-  ) => {
-    if (isWorkspaceConversationActive(conversationId)) {
-      announce(message, priority);
-    }
-  };
-
-  const announceBackgroundResponseDone = (conversationId: string) => {
-    if (isWorkspaceConversationActive(conversationId)) return;
-    announce(
-      i18next.t('chat.announce.backgroundResponseDone', {
-        title: getConversationAnnouncementLabel(conversationId),
-      }),
-      'polite',
-    );
-  };
-
   const chatEventAdapter = {
     getSession: (conversationId: string) => getSession(get(), conversationId),
     patchSession: (conversationId: string, patch: Partial<ChatConversationSession>) => {
@@ -270,9 +239,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       get().updateConversationMessageReasoning(conversationId, messageId, reasoning);
     },
     setConversationLoading,
-    isConversationActive: isWorkspaceConversationActive,
-    announceForActiveConversation,
-    announceBackgroundResponseDone,
   };
 
   const sendMessageInternal = async (
@@ -670,7 +636,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           };
         });
       }
-      if (isWorkspaceConversationActive(conversationId)) {
+      if (isChatConversationActive(conversationId)) {
         announce('Conversa apagada permanentemente');
         setTimeout(() => {
           const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
@@ -690,7 +656,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           })),
         }));
       }
-      if (isWorkspaceConversationActive(conversationId)) {
+      if (isChatConversationActive(conversationId)) {
         setTimeout(() => {
           const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
           if (input) input.focus();

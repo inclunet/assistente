@@ -15,7 +15,11 @@ import {
   type TurnSegment,
 } from '../lib/chatMessageTree';
 import { stripMarkdown } from '../lib/stripMarkdown';
-import { playReceiveSound } from './audioFeedback';
+import {
+  announceChatBackgroundResponseDone,
+  announceForActiveChatConversation,
+  playChatReceiveSoundIfActive,
+} from './chatArbitration';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
 
 const STREAM_UPDATE_DEBOUNCE_MS = 16;
@@ -97,13 +101,6 @@ export interface ChatEventControllerAdapter {
   updateMessage: (conversationId: string, messageId: string, content: string) => void;
   updateReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
   setConversationLoading: (conversationId: string, isLoading: boolean) => void;
-  isConversationActive: (conversationId: string) => boolean;
-  announceForActiveConversation: (
-    conversationId: string,
-    message: string,
-    priority?: 'polite' | 'assertive',
-  ) => void;
-  announceBackgroundResponseDone: (conversationId: string) => void;
 }
 
 interface ChatEventControllerOptions {
@@ -323,7 +320,7 @@ export function startChatEventController({
       ensureAssistantNode();
       if (!streamingAnnounced) {
         streamingAnnounced = true;
-        adapter.announceForActiveConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite');
+        announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite');
       }
       debouncedUpdateMessage(streamingMsgId, event.content, (_messageId, nextContent) => updateStreamingMessage(nextContent));
     }
@@ -345,7 +342,7 @@ export function startChatEventController({
 
       const flatMessages = flattenThreadedMessages(adapter.getSession(conversationId).conversation?.threadedMessages);
       const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || streamingMsgId));
-      if (finalMessage?.content && adapter.isConversationActive(conversationId)) playReceiveSound();
+      if (finalMessage?.content) playChatReceiveSoundIfActive(conversationId);
     }
   });
 
@@ -358,7 +355,7 @@ export function startChatEventController({
         isThinking: true,
         streamingReasoning: event.content || '',
       });
-      adapter.announceForActiveConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite');
     } else if (event.done) {
       adapter.patchSession(conversationId, { isThinking: false });
       if (event.content) adapter.updateReasoning(conversationId, streamingMsgId, event.content);
@@ -383,7 +380,7 @@ export function startChatEventController({
         : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const }],
     });
     if (external) {
-      adapter.announceForActiveConversation(conversationId, i18next.t('chat.toolRunning', { name: event.name }), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRunning', { name: event.name }), 'polite');
     }
   });
 
@@ -400,7 +397,7 @@ export function startChatEventController({
     });
     if (!external) return;
     if (event.status !== 'error') {
-      adapter.announceForActiveConversation(conversationId, i18next.t('chat.toolDone', { name: event.name }), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.toolDone', { name: event.name }), 'polite');
       return;
     }
     if (!('attempt' in event)) {
@@ -412,7 +409,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     if (event.willRetry) {
-      adapter.announceForActiveConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite');
       return;
     }
     announce(i18next.t('chat.toolFailed', { name: event.name }), 'assertive');
@@ -437,7 +434,7 @@ export function startChatEventController({
         })),
       });
       if (!external) {
-        adapter.announceForActiveConversation(
+        announceForActiveChatConversation(
           conversationId,
           toolCount === 1 ? session.activeToolCalls[0].name : `${toolCount} ferramentas`,
           'polite',
@@ -486,7 +483,7 @@ export function startChatEventController({
       });
     }
 
-    adapter.announceBackgroundResponseDone(conversationId);
+    announceChatBackgroundResponseDone(conversationId, adapter.getSession(conversationId).conversation?.title);
     cleanup();
   });
 

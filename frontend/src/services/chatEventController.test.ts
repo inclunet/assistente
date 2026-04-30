@@ -39,9 +39,13 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
   },
 }));
 
-const mockPlayReceiveSound = vi.fn();
-vi.mock('./audioFeedback', () => ({
-  playReceiveSound: (...args: unknown[]) => mockPlayReceiveSound(...args),
+const mockPlayChatReceiveSoundIfActive = vi.fn();
+const mockAnnounceForActiveChatConversation = vi.fn();
+const mockAnnounceChatBackgroundResponseDone = vi.fn();
+vi.mock('./chatArbitration', () => ({
+  playChatReceiveSoundIfActive: (...args: unknown[]) => mockPlayChatReceiveSoundIfActive(...args),
+  announceForActiveChatConversation: (...args: unknown[]) => mockAnnounceForActiveChatConversation(...args),
+  announceChatBackgroundResponseDone: (...args: unknown[]) => mockAnnounceChatBackgroundResponseDone(...args),
 }));
 
 const mockHandleChatSpeak = vi.fn().mockResolvedValue(undefined);
@@ -108,12 +112,10 @@ function emitEvent(name: string, data: unknown) {
   for (const listener of listeners) listener(data);
 }
 
-function createAdapter(initialConversationIds: string[], activeConversationId: string | null = null) {
+function createAdapter(initialConversationIds: string[]) {
   const sessions: Record<string, TestSession> = Object.fromEntries(
     initialConversationIds.map((conversationId) => [conversationId, createSession(conversationId)]),
   );
-  const announceForActiveConversation = vi.fn();
-  const announceBackgroundResponseDone = vi.fn();
 
   const adapter: ChatEventControllerAdapter = {
     getSession: (conversationId) => sessions[conversationId] ?? createSession(conversationId),
@@ -161,16 +163,11 @@ function createAdapter(initialConversationIds: string[], activeConversationId: s
         isLoading,
       };
     },
-    isConversationActive: (conversationId) => conversationId === activeConversationId,
-    announceForActiveConversation,
-    announceBackgroundResponseDone,
   };
 
   return {
     adapter,
     sessions,
-    announceForActiveConversation,
-    announceBackgroundResponseDone,
   };
 }
 
@@ -181,7 +178,9 @@ describe('chatEventController', () => {
     mockAnnounce.mockClear();
     mockGetMessages.mockReset();
     mockGetMessages.mockResolvedValue([]);
-    mockPlayReceiveSound.mockClear();
+    mockPlayChatReceiveSoundIfActive.mockClear();
+    mockAnnounceForActiveChatConversation.mockClear();
+    mockAnnounceChatBackgroundResponseDone.mockClear();
     mockHandleChatSpeak.mockClear();
   });
 
@@ -193,7 +192,7 @@ describe('chatEventController', () => {
   });
 
   it('mantém eventos isolados por conversationId', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1', 'conversation-2'], 'conversation-1');
+    const { adapter, sessions } = createAdapter(['conversation-1', 'conversation-2']);
 
     startChatEventController({ conversationId: 'conversation-1', initialUserContent: 'oi 1', adapter });
     startChatEventController({ conversationId: 'conversation-2', initialUserContent: 'oi 2', adapter });
@@ -220,7 +219,7 @@ describe('chatEventController', () => {
       'assistant-1',
     ]);
     expect(sessions['conversation-2'].conversation?.threadedMessages).toEqual([]);
-    expect(mockPlayReceiveSound).toHaveBeenCalledTimes(1);
+    expect(mockPlayChatReceiveSoundIfActive).toHaveBeenCalledWith('conversation-1');
   });
 
   it('reiniciar a mesma conversa cancela o controller anterior', () => {
@@ -240,7 +239,7 @@ describe('chatEventController', () => {
   });
 
   it('processa messages_ready, stream e done atualizando a sessão correta', () => {
-    const { adapter, sessions, announceBackgroundResponseDone } = createAdapter(['conversation-1']);
+    const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', initialUserContent: 'fallback', adapter });
 
@@ -270,7 +269,7 @@ describe('chatEventController', () => {
     expect(messages[1].message.content).toBe('parcial');
     expect(messages[1].message.isStreaming).toBe(false);
     expect(sessions['conversation-1'].isLoading).toBe(false);
-    expect(announceBackgroundResponseDone).toHaveBeenCalledWith('conversation-1');
+    expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith('conversation-1', 'Conversa conversation-1');
   });
 
   it('mantém chat:speak ativo até o done e ignora eventos depois do cleanup', async () => {
