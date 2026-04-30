@@ -68,6 +68,39 @@ Se necessário, evoluir para lock por arquivo por mirror session.
 - O servidor só permite mirroring quando `user_id` do web coincide com `user_id` do agent.
 - Revogação: o usuário pode revogar um agent e invalidar sessões/tokens.
 
+### D7. Pareamento do agent sem prompt (mesma conta)
+- O agent mantém uma conexão outbound (WebSocket) autenticada no servidor usando o mesmo modelo de auth/sessão da AEP-0052.
+- Não há confirmação interativa no desktop para iniciar um mirror: a autorização é derivada do `user_id` e das policies.
+- O servidor deve oferecer revogação (desconectar agent, invalidar sessão/token do agent) para cortar o acesso.
+
+### D8. Lifecycle de `mirror_session`
+- `mirror_session` é efêmera e existe enquanto:
+	- o browser está conectado;
+	- o agent está conectado;
+	- e o servidor mantém a sessão válida.
+- Queda do agent encerra (ou pausa) a sessão; o web deve tratar como offline e permitir reconectar.
+- O servidor persiste por usuário o “último alvo” (ex.: `last_agent_id` + `last_workspace_id`) para reabrir o último workspace ao entrar no web.
+
+### D9. Policy de execução: web não executa tools, apenas aciona agent quando espelhado
+- No modo padrão (sem mirror): o web não possui ferramentas locais; apenas consome recursos e ações expostas na Resource API.
+- No modo espelho: operações de filesystem/editor/terminal são executadas no agent, e o servidor atua como relay.
+- O servidor aplica autorização por ação/tool e por `workspace_roots` anunciados pelo agent.
+
+### D10. Escopo de filesystem (roots) é obrigatório no espelho
+- O agent deve anunciar roots permitidas por workspace e rejeitar qualquer operação fora dessas roots.
+- O servidor deve reforçar a policy (defesa em profundidade): não encaminhar requests claramente fora das roots.
+
+### D11. Streaming e limites (backpressure)
+- Terminal output e eventos de workspace devem suportar:
+	- chunking/paginação;
+	- limites de tamanho por mensagem;
+	- backpressure (evitar crescimento ilimitado de buffers no servidor).
+- Resultados grandes (ex.: leitura de arquivo) devem ter limite e estratégia explícita (ex.: truncamento + indicação de que foi truncado).
+
+### D12. Surface Context no web permanece alinhado à AEP-0042
+- Mesmo no espelho, o web deve continuar enviando `surfaceStateJson`/`surfaceContextJson` quando disparar chat.
+- Quando o contexto envolver editor/terminal, o web não deve “inventar” acesso local: qualquer dado que dependa do ambiente do desktop deve ser obtido via agent.
+
 ---
 
 ## Fases
@@ -93,6 +126,8 @@ Se necessário, evoluir para lock por arquivo por mirror session.
 - **Latência e UX**: espelho depende de rede; precisa de indicadores de conexão e reconexão.
 - **Segurança**: mirror session é canal sensível; exige correlação forte e policy por tool.
 - **Disponibilidade**: o agent pode cair; o web precisa lidar com offline.
+- **Exfiltração acidental**: sem roots/policy, o espelho pode dar acesso amplo ao disco; roots e defesa em profundidade são obrigatórios.
+- **Backpressure**: terminal output pode explodir memória; limites e chunking são mandatórios.
 
 ---
 
@@ -104,3 +139,5 @@ Se necessário, evoluir para lock por arquivo por mirror session.
 4. **Terminal**: web envia input; recebe output do terminal do desktop.
 5. **Editor/filesystem**: web edita um arquivo e a alteração aparece no disco do desktop (aplicada pelo agent).
 6. **Revogação**: usuário revoga um agent e sessões de mirror são encerradas.
+7. **Roots enforced**: o agent recusa operações fora das roots; tentativa é auditável e não vaza dados.
+8. **Limites**: terminal output e leitura de arquivos respeitam limites e sinalizam truncamento quando aplicável.
