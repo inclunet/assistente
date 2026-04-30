@@ -26,6 +26,7 @@ const EMPTY_MESSAGES: never[] = [];
 
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
+  conversationId?: string | null;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
   onSend: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
   showShortcutsHelp?: boolean;
@@ -33,6 +34,7 @@ export interface ChatSessionViewProps {
 
 export function ChatSessionView({
   variant = 'page',
+  conversationId,
   onSend,
   showShortcutsHelp,
 }: ChatSessionViewProps) {
@@ -44,19 +46,37 @@ export function ChatSessionView({
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
 
-  const isLoading = useChatStore((s) => s.isLoading);
-  const activeConversation = useChatStore((s) => s.activeConversation);
-  const threadedMessages = useChatStore((s) => s.activeConversation?.threadedMessages) ?? EMPTY_MESSAGES;
-  const hasOlderMessages = useChatStore((s) => s.hasOlderMessages);
-  const isLoadingOlderMessages = useChatStore((s) => s.isLoadingOlderMessages);
-  const loadOlderMessages = useChatStore((s) => s.loadOlderMessages);
+  const fallbackActiveConversation = useChatStore((s) => s.activeConversation);
+  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId[conversationId] ?? null : null);
+  const activeConversation = conversationId ? session?.conversation ?? null : fallbackActiveConversation;
+  const threadedMessages = activeConversation?.threadedMessages ?? EMPTY_MESSAGES;
+  const fallbackIsLoading = useChatStore((s) => s.isLoading);
+  const fallbackHasOlderMessages = useChatStore((s) => s.hasOlderMessages);
+  const fallbackIsLoadingOlderMessages = useChatStore((s) => s.isLoadingOlderMessages);
+  const isLoading = conversationId ? session?.isLoading ?? false : fallbackIsLoading;
+  const hasOlderMessages = conversationId ? session?.hasOlderMessages ?? false : fallbackHasOlderMessages;
+  const isLoadingOlderMessages = conversationId ? session?.isLoadingOlderMessages ?? false : fallbackIsLoadingOlderMessages;
+  const loadOlderMessagesForConversation = useChatStore((s) => s.loadOlderMessagesForConversation);
+  const loadOlderMessages = useCallback(async () => {
+    if (conversationId) {
+      await loadOlderMessagesForConversation(conversationId);
+      return;
+    }
+    await useChatStore.getState().loadOlderMessages();
+  }, [conversationId, loadOlderMessagesForConversation]);
   const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
-  const loadConversation = useChatStore((s) => s.loadConversation);
+  const loadConversationSession = useChatStore((s) => s.loadConversationSession);
   const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
   const updateMessage = useChatStore((s) => s.updateMessage);
   const toggleReasoningExpanded = useChatStore((s) => s.toggleReasoningExpanded);
   const isReasoningExpanded = useChatStore((s) => s.isReasoningExpanded);
   const getActiveConversation = useCallback(() => activeConversation, [activeConversation]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    if (session?.conversation) return;
+    void loadConversationSession(conversationId, { activate: variant === 'page' });
+  }, [conversationId, loadConversationSession, session?.conversation, variant]);
 
   const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
   useEffect(() => {
@@ -102,7 +122,7 @@ export function ChatSessionView({
         announce(t('chat.announce.messageDeleted'));
         const conv = getActiveConversation();
         if (conv?.id) {
-          await loadConversation(conv.id);
+          await loadConversationSession(conv.id, { activate: !conversationId || variant === 'page' });
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -125,7 +145,7 @@ export function ChatSessionView({
         });
       }
     },
-    [announce, getActiveConversation, loadConversation, t],
+    [announce, conversationId, getActiveConversation, loadConversationSession, t, variant],
   );
 
   const sendToEditor = useCallback(
@@ -363,7 +383,7 @@ export function ChatSessionView({
   return (
     <div className={rootClass}>
       <div className="ws-content-toolbar">
-        <ChatToolbar inputRef={inputRef} />
+        <ChatToolbar inputRef={inputRef} conversationId={conversationId} />
       </div>
       <div className="ws-content-area">
         <MessageList

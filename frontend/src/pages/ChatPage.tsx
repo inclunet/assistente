@@ -7,6 +7,7 @@ import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext
 export default function ChatPage() {
   const sendMessageToConversation = useChatStore((s) => s.sendMessageToConversation);
   const { tab } = useWorkspacePanel();
+  const conversationId = tab?.type === 'chat' ? tab.conversationId : undefined;
 
   // NOTE: loadConversation já é feita pelo useWorkspaceChatBridge (WorkspaceLayout).
   // Não duplicar aqui — evita 2x GetConversationInfo + GetMessages a cada troca de aba.
@@ -25,5 +26,5 @@ export default function ChatPage() {
     [tab, sendMessageToConversation],
   );
 
-  return <ChatSessionView variant="page" onSend={onSend} />;
+  return <ChatSessionView variant="page" conversationId={conversationId} onSend={onSend} />;
 }

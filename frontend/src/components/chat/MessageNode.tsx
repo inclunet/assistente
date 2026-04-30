@@ -45,26 +45,41 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   
   // IMPORTANTE: messageId deve ser definido primeiro, pois é usado em hooks abaixo
   const messageId = node.message.id;
+  const conversationId = String(node.message.conversationId || '');
+  const session = useChatStore(state => conversationId ? state.sessionsByConversationId[conversationId] ?? null : null);
   
   const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
-  const editingMessageId = useChatStore(state => state.editingMessageId);
+  const fallbackEditingMessageId = useChatStore(state => state.editingMessageId);
   const setEditingMessageId = useChatStore(state => state.setEditingMessageId);
-  const readingMessageId = useChatStore(state => state.readingMessageId);
+  const fallbackReadingMessageId = useChatStore(state => state.readingMessageId);
   const setReadingMessageId = useChatStore(state => state.setReadingMessageId);
-  const streamingMessageId = useChatStore(state => state.streamingMessageId);
-  const streamingReasoning = useChatStore(state => state.streamingReasoning);
-  const isThinkingGlobal = useChatStore(state => state.isThinking);
+  const fallbackStreamingMessageId = useChatStore(state => state.streamingMessageId);
+  const fallbackStreamingReasoning = useChatStore(state => state.streamingReasoning);
+  const fallbackIsThinkingGlobal = useChatStore(state => state.isThinking);
   const toggleReasoningExpanded = useChatStore(state => state.toggleReasoningExpanded);
-  const activeToolCalls = useChatStore(state => state.activeToolCalls);
-  const completedSegments = useChatStore(state => state.completedSegments);
+  const fallbackActiveToolCalls = useChatStore(state => state.activeToolCalls);
+  const fallbackCompletedSegments = useChatStore(state => state.completedSegments);
+  const editingMessageId = session?.editingMessageId ?? fallbackEditingMessageId;
+  const readingMessageId = session?.readingMessageId ?? fallbackReadingMessageId;
+  const streamingMessageId = session?.streamingMessageId ?? fallbackStreamingMessageId;
+  const streamingReasoning = session?.streamingReasoning ?? fallbackStreamingReasoning;
+  const isThinkingGlobal = session?.isThinking ?? fallbackIsThinkingGlobal;
+  const activeToolCalls = session?.activeToolCalls ?? fallbackActiveToolCalls;
+  const completedSegments = session?.completedSegments ?? fallbackCompletedSegments;
 
   // OTIMIZADO: Seletores que retornam apenas valores booleanos para este nó específico
   // Evita re-renders quando outras threads/reasonings são expandidas/colapsadas
   const isExpanded = useChatStore(
-    useCallback(state => state.expandedThreads.has(messageId), [messageId])
+    useCallback(state => {
+      const scopedSession = conversationId ? state.sessionsByConversationId[conversationId] : null;
+      return scopedSession?.expandedThreads.has(messageId) ?? state.expandedThreads.has(messageId);
+    }, [conversationId, messageId])
   );
   const reasoningExpanded = useChatStore(
-    useCallback(state => state.expandedReasonings.has(messageId), [messageId])
+    useCallback(state => {
+      const scopedSession = conversationId ? state.sessionsByConversationId[conversationId] : null;
+      return scopedSession?.expandedReasonings.has(messageId) ?? state.expandedReasonings.has(messageId);
+    }, [conversationId, messageId])
   );
   
   const [isLoading, setIsLoading] = useState(false);

@@ -19,7 +19,9 @@ export function WorkspaceChatModal() {
   const focusNonce = useWorkspaceChatModalStore((s) => s.focusNonce);
   const adapterError = useWorkspaceChatModalStore((s) => s.adapterError);
   const close = useWorkspaceChatModalStore((s) => s.close);
-  const activeConversation = useChatStore((s) => s.activeConversation);
+  const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
+  const session = useChatStore((s) => boundConversationId ? s.sessionsByConversationId[boundConversationId] ?? null : null);
+  const activeConversation = session?.conversation ?? null;
   const activeWorkspaceTab = useActiveTab();
 
   const modalTitle = useMemo(() => {
@@ -129,7 +131,12 @@ export function WorkspaceChatModal() {
         )}
 
         <div className="workspace-chat-modal__session">
-          <ChatSessionView variant="embedded" onSend={handleSend} showShortcutsHelp={false} />
+          <ChatSessionView
+            variant="embedded"
+            conversationId={boundConversationId}
+            onSend={handleSend}
+            showShortcutsHelp={false}
+          />
         </div>
       </div>
     </Modal>

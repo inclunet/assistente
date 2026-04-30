@@ -151,6 +151,40 @@ export interface ActiveConversation {
   contactId?: string;
 }
 
+export interface ChatConversationSession {
+  conversation: ActiveConversation | null;
+  isLoading: boolean;
+  hasOlderMessages: boolean;
+  isLoadingOlderMessages: boolean;
+  streamingMessageId: string | null;
+  streamingReasoning: string | null;
+  isThinking: boolean;
+  activeToolCalls: ToolCallStatus[];
+  completedSegments: TurnSegment[];
+  expandedThreads: Set<string>;
+  expandedReasonings: Set<string>;
+  editingMessageId: string | null;
+  readingMessageId: string | null;
+  skipFocusRestore: boolean;
+}
+
+const createEmptyChatSession = (): ChatConversationSession => ({
+  conversation: null,
+  isLoading: false,
+  hasOlderMessages: false,
+  isLoadingOlderMessages: false,
+  streamingMessageId: null,
+  streamingReasoning: null,
+  isThinking: false,
+  activeToolCalls: [],
+  completedSegments: [],
+  expandedThreads: new Set<string>(),
+  expandedReasonings: new Set<string>(),
+  editingMessageId: null,
+  readingMessageId: null,
+  skipFocusRestore: false,
+});
+
 function flattenThreadedMessages(nodes: MessageNode[] | undefined): Message[] {
   if (!nodes || nodes.length === 0) return [];
   const flat: Message[] = [];
@@ -283,6 +317,7 @@ const flushPendingUpdate = (
 interface ChatStore {
   activeConversationId: string | null;
   activeConversation: ActiveConversation | null;
+  sessionsByConversationId: Record<string, ChatConversationSession>;
   isLoading: boolean;
   loadingConversationIds: Set<string>;
   hasOlderMessages: boolean;
@@ -309,12 +344,18 @@ interface ChatStore {
 
   createConversation: (title?: string) => Promise<string>;
   loadConversation: (id: string) => Promise<void>;
+  loadConversationSession: (id: string, options?: { activate?: boolean }) => Promise<void>;
+  getConversationSession: (conversationId: string | null | undefined) => ChatConversationSession | null;
+  setActiveConversationId: (conversationId: string | null) => void;
   loadOlderMessages: () => Promise<void>;
+  loadOlderMessagesForConversation: (conversationId: string) => Promise<void>;
   /** Limpa a conversa ativa (ex.: ao focar editor/terminal/tasklist sem conversa até abrir o chat modal). */
   clearActiveConversation: () => void;
 
   updateMessage: (messageId: string, content: string) => void;
+  updateConversationMessage: (conversationId: string, messageId: string, content: string) => void;
   updateMessageReasoning: (messageId: string, reasoning: string) => void;
+  updateConversationMessageReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
   addInternalMessage: (message: Message) => void;
   clearMessages: () => void;
 
@@ -361,9 +402,71 @@ interface ChatStore {
 export const useChatStore = create<ChatStore>()((set, get) => {
   let loadConversationSeq = 0;
 
-  const isConversationActive = (state: ChatStore, conversationId: string): boolean => (
-    state.activeConversationId === conversationId
+  const getSession = (state: ChatStore, conversationId: string): ChatConversationSession => (
+    state.sessionsByConversationId[conversationId] ?? createEmptyChatSession()
   );
+
+  const getActiveSession = (state: ChatStore): ChatConversationSession | null => (
+    state.activeConversationId ? state.sessionsByConversationId[state.activeConversationId] ?? null : null
+  );
+
+  const syncActiveSessionFields = (
+    state: ChatStore,
+    sessionsByConversationId: Record<string, ChatConversationSession> = state.sessionsByConversationId,
+    activeConversationId: string | null = state.activeConversationId,
+  ): Partial<ChatStore> => {
+    const activeSession = activeConversationId ? sessionsByConversationId[activeConversationId] : null;
+    return {
+      activeConversationId,
+      activeConversation: activeSession?.conversation ?? null,
+      isLoading: activeSession?.isLoading ?? false,
+      hasOlderMessages: activeSession?.hasOlderMessages ?? false,
+      isLoadingOlderMessages: activeSession?.isLoadingOlderMessages ?? false,
+      streamingMessageId: activeSession?.streamingMessageId ?? null,
+      streamingReasoning: activeSession?.streamingReasoning ?? null,
+      isThinking: activeSession?.isThinking ?? false,
+      activeToolCalls: activeSession?.activeToolCalls ?? [],
+      completedSegments: activeSession?.completedSegments ?? [],
+      expandedThreads: activeSession?.expandedThreads ?? new Set<string>(),
+      expandedReasonings: activeSession?.expandedReasonings ?? new Set<string>(),
+      editingMessageId: activeSession?.editingMessageId ?? null,
+      readingMessageId: activeSession?.readingMessageId ?? null,
+      skipFocusRestore: activeSession?.skipFocusRestore ?? false,
+    };
+  };
+
+  const patchSession = (
+    state: ChatStore,
+    conversationId: string,
+    patch: Partial<ChatConversationSession> | ((session: ChatConversationSession) => ChatConversationSession),
+  ): Partial<ChatStore> => {
+    const currentSession = getSession(state, conversationId);
+    const nextSession = typeof patch === 'function'
+      ? patch(currentSession)
+      : { ...currentSession, ...patch };
+    const sessionsByConversationId = {
+      ...state.sessionsByConversationId,
+      [conversationId]: nextSession,
+    };
+    return {
+      sessionsByConversationId,
+      ...(state.activeConversationId === conversationId
+        ? syncActiveSessionFields(state, sessionsByConversationId, state.activeConversationId)
+        : {}),
+    };
+  };
+
+  const patchConversation = (
+    state: ChatStore,
+    conversationId: string,
+    updater: (conversation: ActiveConversation) => ActiveConversation,
+  ): Partial<ChatStore> => {
+    const session = getSession(state, conversationId);
+    if (!session.conversation) return state;
+    return patchSession(state, conversationId, {
+      conversation: updater(session.conversation),
+    });
+  };
 
   const setConversationLoading = (conversationId: string, isLoading: boolean) => {
     set((state) => {
@@ -373,12 +476,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       } else {
         loadingConversationIds.delete(conversationId);
       }
-      const activeConversationLoading = state.activeConversationId
-        ? loadingConversationIds.has(state.activeConversationId)
-        : false;
       return {
         loadingConversationIds,
-        isLoading: activeConversationLoading,
+        ...patchSession(state, conversationId, { isLoading }),
       };
     });
   };
@@ -444,11 +544,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     // Backend-driven: sem addMessage local — user msg vem do chat:messages_ready, assistant do chat:stream
     setConversationLoading(conversationId, true);
-    set((state) => (
-      isConversationActive(state, conversationId)
-        ? { completedSegments: [], activeToolCalls: [] }
-        : state
-    ));
+    set((state) => patchSession(state, conversationId, { completedSegments: [], activeToolCalls: [] }));
     playSendSound();
 
     // ID determinístico para placeholder de streaming (substituído pelo ID real do backend em chat:done)
@@ -484,12 +580,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         createdAt: new Date().toISOString(),
       });
       const assistantNode = new main.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
-      set((state) => ({
-        activeConversation: isConversationActive(state, conversationId) && state.activeConversation
-          ? { ...state.activeConversation, threadedMessages: [...state.activeConversation.threadedMessages, assistantNode] }
-          : state.activeConversation,
-        streamingMessageId: isConversationActive(state, conversationId) ? streamingMsgId : state.streamingMessageId,
-      }));
+      set((state) => {
+        const session = getSession(state, conversationId);
+        if (!session.conversation) return state;
+        return patchSession(state, conversationId, {
+          conversation: {
+            ...session.conversation,
+            threadedMessages: [...session.conversation.threadedMessages, assistantNode],
+          },
+          streamingMessageId: streamingMsgId,
+        });
+      });
     };
 
     const cleanup = () => {
@@ -507,11 +608,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       unsubSpeak();
       activeListeners.delete(conversationIdStr);
       setConversationLoading(conversationId, false);
-      set((state) => (
-        isConversationActive(state, conversationId)
-          ? { streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] }
-          : state
-      ));
+      set((state) => patchSession(state, conversationId, {
+        streamingMessageId: null,
+        streamingReasoning: null,
+        isThinking: false,
+        activeToolCalls: [],
+        completedSegments: [],
+      }));
     };
 
     const existingCleanup = activeListeners.get(conversationIdStr);
@@ -524,12 +627,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
       if (event.conversationId !== conversationId && event.conversationId !== "") return;
       if (!activeListeners.has(conversationIdStr)) return;
-      set((state) => {
-        if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
-        return {
-          activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
-        };
-      });
+      set((state) => patchConversation(
+        state,
+        conversationId,
+        (conversation) => finalizeStreamingNode(conversation, streamingMsgId),
+      ));
       announce(event.error);
       cleanup();
     });
@@ -549,7 +651,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (data.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
       if (!data.userMessageId) return;
-      if (hasMessageId(get().activeConversation?.threadedMessages, String(data.userMessageId))) return;
+      if (hasMessageId(get().sessionsByConversationId[conversationId]?.conversation?.threadedMessages, String(data.userMessageId))) return;
       const userMsg = new main.EnrichedMessage({
         id: data.userMessageId.toString(),
         role: 'user',
@@ -561,14 +663,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         createdAt: new Date().toISOString(),
       });
       const userNode = new main.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
-      set((state) => ({
-        activeConversation: isConversationActive(state, conversationId) && state.activeConversation
-          ? {
-              ...state.activeConversation,
-              threadedMessages: [...state.activeConversation.threadedMessages, userNode],
-            }
-          : state.activeConversation,
-      }));
+      set((state) => {
+        const session = getSession(state, conversationId);
+        if (!session.conversation) return state;
+        return patchSession(state, conversationId, {
+          conversation: {
+            ...session.conversation,
+            threadedMessages: [...session.conversation.threadedMessages, userNode],
+          },
+        });
+      });
     });
 
     // chat:stream → cria placeholder de assistant na primeira chunk, atualiza conteúdo
@@ -582,43 +686,53 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           streamingAnnounced = true;
           announceForActiveConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite');
         }
-        debouncedUpdateMessage(streamingMsgId, event.content, get().updateMessage);
+        debouncedUpdateMessage(
+          streamingMsgId,
+          event.content,
+          (messageId, nextContent) => get().updateConversationMessage(conversationId, messageId, nextContent),
+        );
       }
 
       if (event.error) {
         ensureAssistantNode();
-        flushPendingUpdate(streamingMsgId, get().updateMessage);
-        get().updateMessage(
+        flushPendingUpdate(
+          streamingMsgId,
+          (messageId, nextContent) => get().updateConversationMessage(conversationId, messageId, nextContent),
+        );
+        get().updateConversationMessage(
+          conversationId,
           streamingMsgId,
           i18next.t('chat.errorPrefix', { message: event.error }),
         );
-        set((state) => {
-          if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
-          return {
-            activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
-          };
-        });
+        set((state) => patchConversation(
+          state,
+          conversationId,
+          (conversation) => finalizeStreamingNode(conversation, streamingMsgId),
+        ));
         cleanup();
       }
 
       if (event.done) {
         ensureAssistantNode();
-        flushPendingUpdate(streamingMsgId, get().updateMessage);
-        if (event.content) get().updateMessage(streamingMsgId, event.content);
+        flushPendingUpdate(
+          streamingMsgId,
+          (messageId, nextContent) => get().updateConversationMessage(conversationId, messageId, nextContent),
+        );
+        if (event.content) get().updateConversationMessage(conversationId, streamingMsgId, event.content);
 
         const backendAssistantId = event.messageId && event.messageId !== ''
           ? event.messageId : null;
 
-        set((state) => {
-          if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
-          const nextConversation = finalizeStreamingNode(state.activeConversation, streamingMsgId, backendAssistantId);
-          return {
-            activeConversation: nextConversation,
-          };
-        });
+        set((state) => patchConversation(
+          state,
+          conversationId,
+          (conversation) => finalizeStreamingNode(conversation, streamingMsgId, backendAssistantId),
+        ));
 
         const currentState = get();
-        const flatMessages = flattenThreadedMessages(currentState.activeConversation?.threadedMessages);
+        const flatMessages = flattenThreadedMessages(
+          currentState.sessionsByConversationId[conversationId]?.conversation?.threadedMessages,
+        );
         const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || streamingMsgId));
         if (finalMessage?.content) {
           const isActiveConv = currentState.activeConversationId === conversationId;
@@ -632,13 +746,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!activeListeners.has(conversationIdStr)) return;
       ensureAssistantNode();
       if (event.started) {
-        set({ isThinking: true, streamingReasoning: event.content || '' });
+        set((state) => patchSession(state, conversationId, {
+          isThinking: true,
+          streamingReasoning: event.content || '',
+        }));
         announceForActiveConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite');
       } else if (event.done) {
-        set({ isThinking: false });
-        if (event.content) get().updateMessageReasoning(streamingMsgId, event.content);
+        set((state) => patchSession(state, conversationId, { isThinking: false }));
+        if (event.content) get().updateConversationMessageReasoning(conversationId, streamingMsgId, event.content);
       } else {
-        set({ streamingReasoning: event.content || '' });
+        set((state) => patchSession(state, conversationId, { streamingReasoning: event.content || '' }));
       }
     });
 
@@ -647,36 +764,40 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!activeListeners.has(conversationIdStr)) return;
       ensureAssistantNode();
       set((state) => {
-        const existing = state.activeToolCalls.findIndex((tc) => tc.callId === data.callId);
+        const session = getSession(state, conversationId);
+        const existing = session.activeToolCalls.findIndex((tc) => tc.callId === data.callId);
         if (existing >= 0) {
           // Retry: upsert — reseta status para 'running' sem apagar args anteriores
-          return {
-            activeToolCalls: state.activeToolCalls.map((tc) =>
+          return patchSession(state, conversationId, {
+            activeToolCalls: session.activeToolCalls.map((tc) =>
               tc.callId === data.callId
                 ? { ...tc, name: data.name, callId: data.callId, args: data.args ?? tc.args, status: 'running' as const, summary: undefined }
                 : tc
             ),
-          };
+          });
         }
-        return {
+        return patchSession(state, conversationId, {
           activeToolCalls: [
-            ...state.activeToolCalls,
+            ...session.activeToolCalls,
             { name: data.name, callId: data.callId, args: data.args, status: 'running' as const },
           ],
-        };
+        });
       });
     });
 
     unsubToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
       if (data.conversationId !== conversationId) return;
       if (!activeListeners.has(conversationIdStr)) return;
-      set((state) => ({
-        activeToolCalls: state.activeToolCalls.map((tc) =>
-          tc.callId === data.callId
-            ? { ...tc, status: (data.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: data.summary }
-            : tc
-        ),
-      }));
+      set((state) => {
+        const session = getSession(state, conversationId);
+        return patchSession(state, conversationId, {
+          activeToolCalls: session.activeToolCalls.map((tc) =>
+            tc.callId === data.callId
+              ? { ...tc, status: (data.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: data.summary }
+              : tc
+          ),
+        });
+      });
       // tool_end apenas atualiza estado visual; anúncio de falha é centralizado em tool_failure.
     });
 
@@ -697,12 +818,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!activeListeners.has(conversationIdStr)) return;
       if (data.hasMore) {
         const state = get();
-        const newSegments: TurnSegment[] = [...state.completedSegments];
-        if (state.activeToolCalls.length > 0) {
-          const toolCount = state.activeToolCalls.length;
+        const session = getSession(state, conversationId);
+        const newSegments: TurnSegment[] = [...session.completedSegments];
+        if (session.activeToolCalls.length > 0) {
+          const toolCount = session.activeToolCalls.length;
           newSegments.push({
             type: 'tool_calls',
-            toolCalls: state.activeToolCalls.map(tc => ({
+            toolCalls: session.activeToolCalls.map(tc => ({
               id: tc.callId,
               type: 'function',
               function: { name: tc.name, arguments: tc.args || '' },
@@ -711,16 +833,22 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           });
           announceForActiveConversation(
             conversationId,
-            toolCount === 1 ? state.activeToolCalls[0].name : `${toolCount} ferramentas`,
+            toolCount === 1 ? session.activeToolCalls[0].name : `${toolCount} ferramentas`,
             'polite',
           );
         }
         if (data.content) {
           newSegments.push({ type: 'text', content: data.content });
         }
-        set({ completedSegments: newSegments, activeToolCalls: [] });
-        flushPendingUpdate(streamingMsgId, get().updateMessage);
-        get().updateMessage(streamingMsgId, '');
+        set((current) => patchSession(current, conversationId, {
+          completedSegments: newSegments,
+          activeToolCalls: [],
+        }));
+        flushPendingUpdate(
+          streamingMsgId,
+          (messageId, nextContent) => get().updateConversationMessage(conversationId, messageId, nextContent),
+        );
+        get().updateConversationMessage(conversationId, streamingMsgId, '');
       }
     });
 
@@ -731,39 +859,43 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       // chat:done com errorMessage: exibe erro na UI (substitui chat:stream terminal)
       if (event.errorMessage) {
         ensureAssistantNode();
-        flushPendingUpdate(streamingMsgId, get().updateMessage);
-        get().updateMessage(
+        flushPendingUpdate(
+          streamingMsgId,
+          (messageId, nextContent) => get().updateConversationMessage(conversationId, messageId, nextContent),
+        );
+        get().updateConversationMessage(
+          conversationId,
           streamingMsgId,
           i18next.t('chat.errorPrefix', { message: event.errorMessage }),
         );
-        set((state) => {
-          if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
-          return {
-            activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
-          };
-        });
+        set((state) => patchConversation(
+          state,
+          conversationId,
+          (conversation) => finalizeStreamingNode(conversation, streamingMsgId),
+        ));
         cleanup();
         return;
       }
 
-      set((state) => {
-        if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
-        return {
-          activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
-        };
-      });
+      set((state) => patchConversation(
+        state,
+        conversationId,
+        (conversation) => finalizeStreamingNode(conversation, streamingMsgId),
+      ));
 
-      if (event.hadToolCalls && get().activeConversationId === conversationId) {
+      if (event.hadToolCalls) {
         GetMessages(conversationId, null).then((backendNodes) => {
           const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
           set((state) => {
-            if (state.activeConversationId !== conversationId) return state;
-            return {
-              activeConversation: state.activeConversation
-                ? { ...state.activeConversation, threadedMessages: messageNodes }
-                : null,
+            const session = getSession(state, conversationId);
+            if (!session.conversation) return state;
+            return patchSession(state, conversationId, {
+              conversation: {
+                ...session.conversation,
+                threadedMessages: messageNodes,
+              },
               completedSegments: [],
-            };
+            });
           });
         }).catch((err) => {
           console.error('[Chat] Erro ao recarregar mensagens:', err);
@@ -817,28 +949,25 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       cleanup();
       const errorMsg = getErrorMessage(error);
       ensureAssistantNode();
-      get().updateMessage(
+      get().updateConversationMessage(
+        conversationId,
         streamingMsgId,
         i18next.t('chat.sendErrorPrefix', { message: errorMsg }),
       );
-      set((state) => {
-        if (!isConversationActive(state, conversationId) || !state.activeConversation) return state;
-        return {
-          activeConversation: finalizeStreamingNode(state.activeConversation, streamingMsgId),
-        };
-      });
-      setConversationLoading(conversationId, false);
-      set((state) => (
-        isConversationActive(state, conversationId)
-          ? { streamingMessageId: null }
-          : state
+      set((state) => patchConversation(
+        state,
+        conversationId,
+        (conversation) => finalizeStreamingNode(conversation, streamingMsgId),
       ));
+      setConversationLoading(conversationId, false);
+      set((state) => patchSession(state, conversationId, { streamingMessageId: null }));
     }
   };
 
   return {
     activeConversationId: null,
     activeConversation: null,
+    sessionsByConversationId: {},
     isLoading: false,
     loadingConversationIds: new Set(),
     hasOlderMessages: false,
@@ -858,30 +987,63 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     setContextProfileSlug: (slug) => set({ contextProfileSlug: slug }),
 
-    setEditingMessageId: (id) => set({ editingMessageId: id }),
+    setEditingMessageId: (id) => set((state) => (
+      state.activeConversationId
+        ? patchSession(state, state.activeConversationId, { editingMessageId: id })
+        : { editingMessageId: id }
+    )),
 
-    startEditing: (id) => set({ editingMessageId: id, skipFocusRestore: true }),
+    startEditing: (id) => set((state) => (
+      state.activeConversationId
+        ? patchSession(state, state.activeConversationId, { editingMessageId: id, skipFocusRestore: true })
+        : { editingMessageId: id, skipFocusRestore: true }
+    )),
 
-    setReadingMessageId: (id) => set({ readingMessageId: id }),
+    setReadingMessageId: (id) => set((state) => (
+      state.activeConversationId
+        ? patchSession(state, state.activeConversationId, { readingMessageId: id })
+        : { readingMessageId: id }
+    )),
 
-    startReading: (id) => set({ readingMessageId: id, skipFocusRestore: true }),
+    startReading: (id) => set((state) => (
+      state.activeConversationId
+        ? patchSession(state, state.activeConversationId, { readingMessageId: id, skipFocusRestore: true })
+        : { readingMessageId: id, skipFocusRestore: true }
+    )),
 
     consumeSkipFocusRestore: () => {
-      const shouldSkip = get().skipFocusRestore;
-      if (shouldSkip) set({ skipFocusRestore: false });
+      const state = get();
+      const shouldSkip = state.skipFocusRestore;
+      if (shouldSkip) {
+        set((current) => (
+          current.activeConversationId
+            ? patchSession(current, current.activeConversationId, { skipFocusRestore: false })
+            : { skipFocusRestore: false }
+        ));
+      }
       return shouldSkip;
     },
 
     createConversation: async (title) => {
       const conv = await EnsureConversation(title || 'Nova Conversa');
-      set({
-        activeConversationId: conv.id,
-        activeConversation: {
+      set((state) => {
+        const conversation = {
           id: conv.id,
           title: conv.title || title || 'Nova Conversa',
           threadedMessages: [],
-        },
-        isInitialized: true,
+        };
+        const sessionsByConversationId = {
+          ...state.sessionsByConversationId,
+          [conv.id]: {
+            ...getSession(state, conv.id),
+            conversation,
+          },
+        };
+        return {
+          sessionsByConversationId,
+          ...syncActiveSessionFields(state, sessionsByConversationId, conv.id),
+          isInitialized: true,
+        };
       });
       return conv.id;
     },
@@ -889,37 +1051,21 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     clearActiveConversation: () => {
       messageAudioService.stopCurrentAudio();
       ttsService.stop();
-      // Invalida loads pendentes para não restaurarem uma conversa antiga após troca de aba.
       loadConversationSeq++;
-      const prevId = get().activeConversationId;
-      if (prevId) {
-        const key = String(prevId);
-        const cleanup = activeListeners.get(key);
-        if (cleanup) {
-          cleanup();
-          activeListeners.delete(key);
-        }
-      }
-      set({
-        activeConversationId: null,
-        activeConversation: null,
-        isLoading: false,
-        loadingConversationIds: new Set(),
-        hasOlderMessages: false,
-        isLoadingOlderMessages: false,
-        streamingMessageId: null,
-        streamingReasoning: null,
-        isThinking: false,
-        activeToolCalls: [],
-        completedSegments: [],
-      });
+      set((state) => syncActiveSessionFields(state, state.sessionsByConversationId, null));
     },
 
     loadConversation: async (id) => {
+      await get().loadConversationSession(id, { activate: true });
+    },
+
+    loadConversationSession: async (id, options = { activate: true }) => {
       // Para TTS/áudio da conversa anterior ao trocar
-      messageAudioService.stopCurrentAudio();
-      ttsService.stop();
-      const seq = ++loadConversationSeq;
+      if (options.activate !== false) {
+        messageAudioService.stopCurrentAudio();
+        ttsService.stop();
+      }
+      const seq = options.activate === false ? loadConversationSeq : ++loadConversationSeq;
 
       try {
         const requestedLimit = INITIAL_MESSAGE_WINDOW_SIZE + 1;
@@ -932,43 +1078,83 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const hasOlderMessages = fetchedNodes.length > INITIAL_MESSAGE_WINDOW_SIZE;
         const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
         const messageNodes: MessageNode[] = visibleNodes.map(withOriginalIndex);
-        set({
-          activeConversationId: id,
-          activeConversation: {
+        set((state) => {
+          if (options.activate !== false && seq !== loadConversationSeq) return state;
+          const conversation = {
             id,
             title: conv?.title || 'Conversa',
             threadedMessages: messageNodes,
             channel: conv?.channel || undefined,
             contactId: conv?.contact_id || undefined,
-          },
-          isLoading: get().loadingConversationIds.has(id),
-          hasOlderMessages,
-          isLoadingOlderMessages: false,
-          isInitialized: true,
+          };
+          const sessionsByConversationId = {
+            ...state.sessionsByConversationId,
+            [id]: {
+              ...getSession(state, id),
+              conversation,
+              isLoading: state.loadingConversationIds.has(id),
+              hasOlderMessages,
+              isLoadingOlderMessages: false,
+            },
+          };
+          return {
+            sessionsByConversationId,
+            ...(options.activate !== false
+              ? syncActiveSessionFields(state, sessionsByConversationId, id)
+              : {}),
+            isInitialized: true,
+          };
         });
       } catch (error) {
-        if (seq !== loadConversationSeq) return;
+        if (options.activate !== false && seq !== loadConversationSeq) return;
         console.error('[Chat] Erro ao carregar conversa:', error);
-        set({
-          activeConversationId: id,
-          activeConversation: { id, title: 'Conversa', threadedMessages: [] },
-          isLoading: get().loadingConversationIds.has(id),
-          hasOlderMessages: false,
-          isLoadingOlderMessages: false,
-          isInitialized: true,
+        set((state) => {
+          const sessionsByConversationId = {
+            ...state.sessionsByConversationId,
+            [id]: {
+              ...getSession(state, id),
+              conversation: { id, title: 'Conversa', threadedMessages: [] },
+              isLoading: state.loadingConversationIds.has(id),
+              hasOlderMessages: false,
+              isLoadingOlderMessages: false,
+            },
+          };
+          return {
+            sessionsByConversationId,
+            ...(options.activate !== false
+              ? syncActiveSessionFields(state, sessionsByConversationId, id)
+              : {}),
+            isInitialized: true,
+          };
         });
       }
     },
 
+    getConversationSession: (conversationId) => {
+      if (!conversationId) return null;
+      return get().sessionsByConversationId[conversationId] ?? null;
+    },
+
+    setActiveConversationId: (conversationId) => {
+      set((state) => syncActiveSessionFields(state, state.sessionsByConversationId, conversationId));
+    },
+
     loadOlderMessages: async () => {
+      const conversationId = get().activeConversationId;
+      if (!conversationId) return;
+      await get().loadOlderMessagesForConversation(conversationId);
+    },
+
+    loadOlderMessagesForConversation: async (conversationId) => {
       const state = get();
-      const conversation = state.activeConversation;
-      if (!conversation || state.isLoadingOlderMessages || !state.hasOlderMessages) return;
+      const session = getSession(state, conversationId);
+      const conversation = session.conversation;
+      if (!conversation || session.isLoadingOlderMessages || !session.hasOlderMessages) return;
 
       const firstMessageId = conversation.threadedMessages[0]?.message.id;
       if (!firstMessageId) return;
 
-      set({ isLoadingOlderMessages: true });
+      set((current) => patchSession(current, conversationId, { isLoadingOlderMessages: true }));
       try {
         const requestedLimit = INITIAL_MESSAGE_WINDOW_SIZE + 1;
         const backendNodes = await GetMessagesBefore(conversation.id, firstMessageId, requestedLimit);
@@ -978,29 +1164,37 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const olderNodes: MessageNode[] = visibleNodes.map(withOriginalIndex);
 
         set((current) => {
-          if (current.activeConversationId !== conversation.id || !current.activeConversation) {
-            return { isLoadingOlderMessages: false };
+          const currentSession = getSession(current, conversation.id);
+          if (!currentSession.conversation) {
+            return patchSession(current, conversationId, { isLoadingOlderMessages: false });
           }
-          const existingIds = new Set(current.activeConversation.threadedMessages.map((node) => node.message.id));
+          const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
           const dedupedOlderNodes = olderNodes.filter((node) => !existingIds.has(node.message.id));
-          return {
-            activeConversation: {
-              ...current.activeConversation,
-              threadedMessages: [...dedupedOlderNodes, ...current.activeConversation.threadedMessages],
+          return patchSession(current, conversation.id, {
+            conversation: {
+              ...currentSession.conversation,
+              threadedMessages: [...dedupedOlderNodes, ...currentSession.conversation.threadedMessages],
             },
             hasOlderMessages,
             isLoadingOlderMessages: false,
-          };
+          });
         });
       } catch (error) {
         console.error('[Chat] Erro ao carregar mensagens anteriores:', error);
-        set({ isLoadingOlderMessages: false });
+        set((current) => patchSession(current, conversationId, { isLoadingOlderMessages: false }));
       }
     },
 
     updateMessage: (messageId, content) => {
+      const conversationId = get().activeConversationId;
+      if (!conversationId) return;
+      get().updateConversationMessage(conversationId, messageId, content);
+    },
+
+    updateConversationMessage: (conversationId, messageId, content) => {
       set((state) => {
-        if (!state.activeConversation) return state;
+        const session = getSession(state, conversationId);
+        if (!session.conversation) return state;
         const updateNodeContent = (n: MessageNode): boolean => {
           if (n.message.id === messageId) {
             n.message.content = content;
@@ -1013,16 +1207,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
           return false;
         };
-        state.activeConversation.threadedMessages.forEach((node) => updateNodeContent(node));
-        return {
-          activeConversation: { ...state.activeConversation },
-        };
+        session.conversation.threadedMessages.forEach((node) => updateNodeContent(node));
+        return patchSession(state, conversationId, {
+          conversation: { ...session.conversation },
+        });
       });
     },
 
     updateMessageReasoning: (messageId, reasoning) => {
+      const conversationId = get().activeConversationId;
+      if (!conversationId) return;
+      get().updateConversationMessageReasoning(conversationId, messageId, reasoning);
+    },
+
+    updateConversationMessageReasoning: (conversationId, messageId, reasoning) => {
       set((state) => {
-        if (!state.activeConversation) return state;
+        const session = getSession(state, conversationId);
+        if (!session.conversation) return state;
         const updateNodeReasoning = (n: MessageNode): boolean => {
           if (n.message.id === messageId) {
             n.message.reasoning = reasoning;
@@ -1035,10 +1236,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
           return false;
         };
-        state.activeConversation.threadedMessages.forEach((node) => updateNodeReasoning(node));
-        return {
-          activeConversation: { ...state.activeConversation },
-        };
+        session.conversation.threadedMessages.forEach((node) => updateNodeReasoning(node));
+        return patchSession(state, conversationId, {
+          conversation: { ...session.conversation },
+        });
       });
     },
 
@@ -1134,11 +1335,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     clearMessages: () => {
-      set((state) => ({
-        activeConversation: state.activeConversation
-          ? { ...state.activeConversation, threadedMessages: [] }
-          : null,
-      }));
+      set((state) => {
+        if (!state.activeConversationId) return state;
+        const session = getSession(state, state.activeConversationId);
+        if (!session.conversation) return state;
+        return patchSession(state, state.activeConversationId, {
+          conversation: { ...session.conversation, threadedMessages: [] },
+        });
+      });
     },
 
     sendMessage: async (content, mediaFiles, paramsOverride) => {
@@ -1157,8 +1361,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }
-      if (get().activeConversationId !== conversationId) {
-        await get().loadConversation(conversationId);
+      if (!get().sessionsByConversationId[conversationId]?.conversation) {
+        await get().loadConversationSession(conversationId, { activate: false });
       }
       await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride);
     },
@@ -1169,8 +1373,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }
-      if (get().activeConversationId !== conversationId) {
-        await get().loadConversation(conversationId);
+      if (!get().sessionsByConversationId[conversationId]?.conversation) {
+        await get().loadConversationSession(conversationId, { activate: false });
       }
       await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId);
     },
@@ -1185,25 +1389,37 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     toggleThreadExpanded: (messageId) => {
       set((state) => {
-        const expanded = new Set(state.expandedThreads);
+        const session = getActiveSession(state);
+        const expanded = new Set(session?.expandedThreads ?? state.expandedThreads);
         if (expanded.has(messageId)) expanded.delete(messageId);
         else expanded.add(messageId);
-        return { expandedThreads: expanded };
+        return state.activeConversationId
+          ? patchSession(state, state.activeConversationId, { expandedThreads: expanded })
+          : { expandedThreads: expanded };
       });
     },
 
-    isThreadExpanded: (messageId) => get().expandedThreads.has(messageId),
+    isThreadExpanded: (messageId) => {
+      const state = get();
+      return getActiveSession(state)?.expandedThreads.has(messageId) ?? state.expandedThreads.has(messageId);
+    },
 
     toggleReasoningExpanded: (messageId) => {
       set((state) => {
-        const expanded = new Set(state.expandedReasonings);
+        const session = getActiveSession(state);
+        const expanded = new Set(session?.expandedReasonings ?? state.expandedReasonings);
         if (expanded.has(messageId)) expanded.delete(messageId);
         else expanded.add(messageId);
-        return { expandedReasonings: expanded };
+        return state.activeConversationId
+          ? patchSession(state, state.activeConversationId, { expandedReasonings: expanded })
+          : { expandedReasonings: expanded };
       });
     },
 
-    isReasoningExpanded: (messageId) => get().expandedReasonings.has(messageId),
+    isReasoningExpanded: (messageId) => {
+      const state = get();
+      return getActiveSession(state)?.expandedReasonings.has(messageId) ?? state.expandedReasonings.has(messageId);
+    },
 
     getThreadedMessages: () => get().activeConversation?.threadedMessages,
 
@@ -1218,7 +1434,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const frontendNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
 
         set((state) => {
-          if (!state.activeConversation) return state;
+          const targetConversationId = Object.entries(state.sessionsByConversationId).find(([, session]) => (
+            hasMessageId(session.conversation?.threadedMessages, messageId)
+          ))?.[0] ?? state.activeConversationId;
+          if (!targetConversationId) return state;
+          const session = getSession(state, targetConversationId);
+          if (!session.conversation) return state;
 
           const updateTreeWithChildren = (nodes: MessageNode[]): MessageNode[] => {
             return nodes.map(node => {
@@ -1232,12 +1453,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             });
           };
 
-          return {
-            activeConversation: {
-              ...state.activeConversation,
-              threadedMessages: updateTreeWithChildren(state.activeConversation.threadedMessages),
+          return patchSession(state, targetConversationId, {
+            conversation: {
+              ...session.conversation,
+              threadedMessages: updateTreeWithChildren(session.conversation.threadedMessages),
             },
-          };
+          });
         });
 
         return frontendNodes;
@@ -1248,8 +1469,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleConversationDeleted: (conversationId: string) => {
+      if (get().sessionsByConversationId[conversationId]) {
+        set((state) => {
+          const sessionsByConversationId = { ...state.sessionsByConversationId };
+          delete sessionsByConversationId[conversationId];
+          const nextActiveId = state.activeConversationId === conversationId ? null : state.activeConversationId;
+          return {
+            sessionsByConversationId,
+            ...syncActiveSessionFields(state, sessionsByConversationId, nextActiveId),
+          };
+        });
+      }
       if (get().activeConversationId === conversationId) {
-        set({ activeConversationId: null, activeConversation: null });
         announce('Conversa apagada permanentemente');
         setTimeout(() => {
           const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
@@ -1259,13 +1490,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleConversationCleared: (conversationId: string) => {
-      if (get().activeConversationId === conversationId) {
+      if (get().sessionsByConversationId[conversationId]) {
         announce('Mensagens da conversa removidas');
         set((state) => ({
-          activeConversation: state.activeConversation
-            ? { ...state.activeConversation, threadedMessages: [], title: 'Conversa limpa' }
-            : null,
+          ...patchConversation(state, conversationId, (conversation) => ({
+            ...conversation,
+            threadedMessages: [],
+            title: 'Conversa limpa',
+          })),
         }));
+      }
+      if (get().activeConversationId === conversationId) {
         setTimeout(() => {
           const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
           if (input) input.focus();
@@ -1274,13 +1509,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleConversationRenamed: (conversationId: string, newTitle: string) => {
-      if (get().activeConversationId === conversationId) {
-        set((state) => ({
-          activeConversation: state.activeConversation
-            ? { ...state.activeConversation, title: newTitle }
-            : null,
-        }));
-      }
+      set((state) => patchConversation(state, conversationId, (conversation) => ({
+        ...conversation,
+        title: newTitle,
+      })));
     },
 
     handleDatabaseReset: () => {
@@ -1289,6 +1521,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set({
         activeConversationId: null,
         activeConversation: null,
+        sessionsByConversationId: {},
         isLoading: false,
         loadingConversationIds: new Set(),
         hasOlderMessages: false,
@@ -1330,27 +1563,32 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     reloadMessages: async () => {
       const { activeConversationId } = get();
       if (!activeConversationId) return;
+      return get().reloadConversationMessages(activeConversationId);
+    },
+
+    reloadConversationMessages: async (conversationId: string) => {
+      if (!conversationId) return;
       try {
         const requestedLimit = INITIAL_MESSAGE_WINDOW_SIZE + 1;
-        const backendNodes = await GetRecentMessages(activeConversationId, requestedLimit);
+        const backendNodes = await GetRecentMessages(conversationId, requestedLimit);
         const fetchedNodes = backendNodes || [];
         const hasOlderMessages = fetchedNodes.length > INITIAL_MESSAGE_WINDOW_SIZE;
         const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
         const messageNodes: MessageNode[] = visibleNodes.map(withOriginalIndex);
-        set((state) => ({
-          activeConversation: state.activeConversation
-            ? { ...state.activeConversation, threadedMessages: messageNodes }
-            : null,
-          hasOlderMessages,
-        }));
+        set((state) => {
+          const session = getSession(state, conversationId);
+          if (!session.conversation) return state;
+          return patchSession(state, conversationId, {
+            conversation: {
+              ...session.conversation,
+              threadedMessages: messageNodes,
+            },
+            hasOlderMessages,
+          });
+        });
       } catch (err) {
         console.error('[Chat] Erro ao recarregar mensagens:', err);
       }
-    },
-
-    reloadConversationMessages: async (conversationId: string) => {
-      if (get().activeConversationId !== conversationId) return;
-      return get().reloadMessages();
     },
 
     handleExternalIncoming: (data) => {
