@@ -24,6 +24,19 @@ import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
 import { handleChatSpeak } from '../services/chatSpeak';
 import type { ChatSpeakEvent } from '../services/chatSpeak';
 import { useWorkspaceStore } from './workspaceStore';
+import {
+  appendInternalMessageToTree,
+  attachChildrenToMessage,
+  finalizeStreamingNode,
+  flattenThreadedMessages,
+  hasMessageId,
+  updateMessageContentInTree,
+  updateMessageReasoningInTree,
+  withOriginalIndex,
+  type Message,
+  type MessageNode,
+  type TurnSegment,
+} from '../lib/chatMessageTree';
 
 const MAX_MESSAGE_CONTENT_SIZE = 512 * 1024;       // must match backend MaxMessageContentSize
 const MAX_MEDIA_SIZE = 20 * 1024 * 1024;            // must match backend MaxMediaSize
@@ -37,25 +50,7 @@ interface MediaData {
   size: number;
 }
 
-export type MessageNode = main.MessageNode & {
-  originalIndex?: number;
-  isExpanded?: boolean;
-};
-
-export type Message = main.EnrichedMessage & {
-  _turnSegments?: TurnSegment[];
-};
-
-export interface TurnSegment {
-  type: 'text' | 'tool_calls';
-  content?: string;
-  toolCalls?: Array<{
-    id: string;
-    type: string;
-    function: { name: string; arguments: string };
-    result?: string;
-  }>;
-}
+export type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
 
 interface ChatMessagesReadyEvent {
   conversationId: string;
@@ -185,25 +180,6 @@ const createEmptyChatSession = (): ChatConversationSession => ({
   skipFocusRestore: false,
 });
 
-function flattenThreadedMessages(nodes: MessageNode[] | undefined): Message[] {
-  if (!nodes || nodes.length === 0) return [];
-  const flat: Message[] = [];
-  function traverse(node: MessageNode) {
-    flat.push(node.message);
-    if (node.children && node.children.length > 0) {
-      node.children.forEach(traverse);
-    }
-  }
-  nodes.forEach(traverse);
-  return flat;
-}
-
-const withOriginalIndex = (node: main.MessageNode, index: number): MessageNode => {
-  const typed = node as MessageNode;
-  typed.originalIndex = index;
-  return typed;
-};
-
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
@@ -223,47 +199,6 @@ const pendingStreamUpdates = new Map<string, { messageId: string; content: strin
 const createStreamingMessageId = (conversationId: string): string => {
   streamingMessageSeq += 1;
   return `streaming-${conversationId}-${streamingMessageSeq}`;
-};
-
-const hasMessageId = (
-  nodes: MessageNode[] | undefined,
-  targetId: string,
-  excludeId?: string,
-): boolean => {
-  if (!nodes || nodes.length === 0) return false;
-  for (const node of nodes) {
-    const id = String(node.message.id);
-    if (id === targetId && id !== excludeId) return true;
-    if (node.children?.length && hasMessageId(node.children, targetId, excludeId)) return true;
-  }
-  return false;
-};
-
-const finalizeStreamingNode = (
-  conversation: ActiveConversation,
-  syntheticId: string,
-  finalId?: string | null,
-): ActiveConversation => {
-  const collidesWithExistingRealId = !!finalId && hasMessageId(conversation.threadedMessages, finalId, syntheticId);
-  const markDone = (nodes: MessageNode[]): MessageNode[] => nodes.flatMap((node) => {
-    const id = String(node.message.id);
-    if (id === syntheticId) {
-      if (collidesWithExistingRealId) {
-        return [];
-      }
-      node.message.isStreaming = false;
-      if (finalId) node.message.id = finalId;
-    } else if (collidesWithExistingRealId && finalId && id === finalId) {
-      node.message.isStreaming = false;
-    }
-    if (node.children?.length) node.children = markDone(node.children);
-    return [node];
-  });
-
-  return {
-    ...conversation,
-    threadedMessages: markDone(conversation.threadedMessages),
-  };
 };
 
 const fileToBase64 = (file: File): Promise<string> => {
@@ -1077,21 +1012,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => {
         const session = getSession(state, conversationId);
         if (!session.conversation) return state;
-        const updateNodeContent = (n: MessageNode): boolean => {
-          if (n.message.id === messageId) {
-            n.message.content = content;
-            return true;
-          }
-          if (n.children && n.children.length > 0) {
-            for (const child of n.children) {
-              if (updateNodeContent(child)) return true;
-            }
-          }
-          return false;
-        };
-        session.conversation.threadedMessages.forEach((node) => updateNodeContent(node));
         return patchSession(state, conversationId, {
-          conversation: { ...session.conversation },
+          conversation: {
+            ...session.conversation,
+            threadedMessages: updateMessageContentInTree(session.conversation.threadedMessages, messageId, content),
+          },
         });
       });
     },
@@ -1100,114 +1025,26 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => {
         const session = getSession(state, conversationId);
         if (!session.conversation) return state;
-        const updateNodeReasoning = (n: MessageNode): boolean => {
-          if (n.message.id === messageId) {
-            n.message.reasoning = reasoning;
-            return true;
-          }
-          if (n.children && n.children.length > 0) {
-            for (const child of n.children) {
-              if (updateNodeReasoning(child)) return true;
-            }
-          }
-          return false;
-        };
-        session.conversation.threadedMessages.forEach((node) => updateNodeReasoning(node));
         return patchSession(state, conversationId, {
-          conversation: { ...session.conversation },
+          conversation: {
+            ...session.conversation,
+            threadedMessages: updateMessageReasoningInTree(session.conversation.threadedMessages, messageId, reasoning),
+          },
         });
       });
     },
 
     addInternalMessage: (message) => {
-      const parentId = message.parentId?.toString();
       const conversationId = String(message.conversationId || '');
       if (!conversationId) return;
 
       set((state) => {
         const session = getSession(state, conversationId);
         if (!session.conversation) return state;
-
-        if (!parentId) {
-          const newNode = new main.MessageNode({
-            message,
-            children: [],
-            level: 0,
-            childCount: 0,
-          });
-          return patchSession(state, conversationId, {
-            conversation: {
-              ...session.conversation,
-              threadedMessages: [...session.conversation.threadedMessages, newNode],
-            },
-          });
-        }
-
-        const addToTree = (nodes: MessageNode[], targetParentId: string, level: number): { nodes: MessageNode[], found: boolean } => {
-          let found = false;
-          const updatedNodes = nodes.map(node => {
-            if (node.message.id === targetParentId) {
-              found = true;
-              const existsInChildren = (node.children || []).some(child => child.message.id === message.id);
-              if (existsInChildren) return node;
-              const newChildNode = new main.MessageNode({
-                message,
-                children: [],
-                level: level + 1,
-                childCount: 0,
-              });
-              return new main.MessageNode({
-                ...node,
-                children: [...(node.children || []), newChildNode],
-                childCount: (node.childCount || 0) + 1,
-              });
-            }
-            if (node.children && node.children.length > 0) {
-              const result = addToTree(node.children, targetParentId, level + 1);
-              if (result.found) {
-                found = true;
-                return new main.MessageNode({ ...node, children: result.nodes });
-              }
-            }
-            return node;
-          });
-          return { nodes: updatedNodes, found };
-        };
-
-        const result = addToTree(session.conversation.threadedMessages, parentId, 0);
-        if (result.found) {
-          return patchSession(state, conversationId, {
-            conversation: { ...session.conversation, threadedMessages: result.nodes },
-          });
-        }
-
-        // Fallback: last user message
-        const findLastUserMessage = (nodes: MessageNode[]): MessageNode | null => {
-          for (let i = nodes.length - 1; i >= 0; i--) {
-            if (nodes[i].message.role === 'user') return nodes[i];
-          }
-          return null;
-        };
-        const lastUserMessage = findLastUserMessage(session.conversation.threadedMessages);
-        if (lastUserMessage) {
-          const fallbackResult = addToTree(session.conversation.threadedMessages, lastUserMessage.message.id, 0);
-          if (fallbackResult.found) {
-            return patchSession(state, conversationId, {
-              conversation: { ...session.conversation, threadedMessages: fallbackResult.nodes },
-            });
-          }
-        }
-
-        const newNode = new main.MessageNode({
-          message,
-          children: [],
-          level: message.parentId ? 1 : 0,
-          childCount: 0,
-        });
         return patchSession(state, conversationId, {
           conversation: {
             ...session.conversation,
-            threadedMessages: [...session.conversation.threadedMessages, newNode],
+            threadedMessages: appendInternalMessageToTree(session.conversation.threadedMessages, message),
           },
         });
       });
@@ -1298,22 +1135,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const session = getSession(state, targetConversationId);
           if (!session.conversation) return state;
 
-          const updateTreeWithChildren = (nodes: MessageNode[]): MessageNode[] => {
-            return nodes.map(node => {
-              if (node.message.id === messageId) {
-                return new main.MessageNode({ ...node, children: frontendNodes });
-              }
-              if (node.children && node.children.length > 0) {
-                return new main.MessageNode({ ...node, children: updateTreeWithChildren(node.children) });
-              }
-              return node;
-            });
-          };
-
           return patchSession(state, targetConversationId, {
             conversation: {
               ...session.conversation,
-              threadedMessages: updateTreeWithChildren(session.conversation.threadedMessages),
+              threadedMessages: attachChildrenToMessage(session.conversation.threadedMessages, messageId, frontendNodes),
             },
           });
         });
