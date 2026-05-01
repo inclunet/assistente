@@ -134,7 +134,7 @@ export function ChatSessionProvider({
   const materializedSurfaceSessionKeysRef = useRef(new Set<string>());
 
   useEffect(() => {
-    if (!normalizedConversationId || surfaceSession || materializedSurfaceSessionKeysRef.current.has(sessionKey)) return;
+    if (!normalizedConversationId || surfaceSession) return;
     ensureConversationSurfaceSession(normalizedConversationId, sessionKey, {
       sessionKey,
       conversationId: normalizedConversationId,

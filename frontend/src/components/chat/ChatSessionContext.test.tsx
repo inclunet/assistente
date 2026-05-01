@@ -55,6 +55,9 @@ vi.mock('../workspace/WorkspacePanelContext', () => ({
 
 import { ChatSessionProvider, useChatSession } from './ChatSessionContext';
 
+const embeddedSurfaceId = 'embedded:workspace-chat-modal:tab-chat';
+const embeddedSessionKey = `${embeddedSurfaceId}:${currentConversationId}`;
+
 function Probe() {
   const { retryMessageToConversation } = useChatSession();
   return (
@@ -72,6 +75,7 @@ describe('ChatSessionProvider', () => {
     ensureConversationSurfaceSessionMock.mockClear();
     removeConversationSurfaceSessionMock.mockClear();
     retryMessageToConversationMock.mockClear();
+    chatStoreState.surfaceSessionsByKey = {};
   });
 
   it('materializa sessão de superfície ao montar sessionKey não padrão', async () => {
@@ -79,7 +83,7 @@ describe('ChatSessionProvider', () => {
       <ChatSessionProvider
         conversationId={currentConversationId}
         surfaceType="embedded"
-        surfaceId="embedded:workspace-chat-modal:tab-chat"
+        surfaceId={embeddedSurfaceId}
       >
         <Probe />
       </ChatSessionProvider>,
@@ -88,11 +92,11 @@ describe('ChatSessionProvider', () => {
     await waitFor(() => {
       expect(ensureConversationSurfaceSessionMock).toHaveBeenCalledWith(
         currentConversationId,
-        `embedded:workspace-chat-modal:tab-chat:${currentConversationId}`,
+        embeddedSessionKey,
         expect.objectContaining({
           conversationId: currentConversationId,
-          sessionKey: `embedded:workspace-chat-modal:tab-chat:${currentConversationId}`,
-          surfaceId: 'embedded:workspace-chat-modal:tab-chat',
+          sessionKey: embeddedSessionKey,
+          surfaceId: embeddedSurfaceId,
           surfaceType: 'embedded',
           tabId: 'tab-chat',
         }),
@@ -102,8 +106,68 @@ describe('ChatSessionProvider', () => {
     unmount();
 
     expect(removeConversationSurfaceSessionMock).toHaveBeenCalledWith(
-      `embedded:workspace-chat-modal:tab-chat:${currentConversationId}`,
+      embeddedSessionKey,
     );
+  });
+
+  it('rematerializa superfície quando ela desaparece da store enquanto provider segue montado', async () => {
+    const { rerender } = render(
+      <ChatSessionProvider
+        conversationId={currentConversationId}
+        surfaceType="embedded"
+        surfaceId={embeddedSurfaceId}
+      >
+        <Probe />
+      </ChatSessionProvider>,
+    );
+
+    await waitFor(() => {
+      expect(ensureConversationSurfaceSessionMock).toHaveBeenCalledTimes(1);
+    });
+
+    chatStoreState.surfaceSessionsByKey = {
+      [embeddedSessionKey]: {
+        sessionKey: embeddedSessionKey,
+        conversationId: currentConversationId,
+        isLoading: false,
+        hasOlderMessages: false,
+        isLoadingOlderMessages: false,
+        streamingMessageId: null,
+        streamingReasoning: null,
+        isThinking: false,
+        activeToolCalls: [],
+        completedSegments: [],
+        expandedThreads: new Set(),
+        expandedReasonings: new Set(),
+        editingMessageId: null,
+        readingMessageId: null,
+        skipFocusRestore: false,
+      },
+    };
+    rerender(
+      <ChatSessionProvider
+        conversationId={currentConversationId}
+        surfaceType="embedded"
+        surfaceId={embeddedSurfaceId}
+      >
+        <Probe />
+      </ChatSessionProvider>,
+    );
+
+    chatStoreState.surfaceSessionsByKey = {};
+    rerender(
+      <ChatSessionProvider
+        conversationId={currentConversationId}
+        surfaceType="embedded"
+        surfaceId={embeddedSurfaceId}
+      >
+        <Probe />
+      </ChatSessionProvider>,
+    );
+
+    await waitFor(() => {
+      expect(ensureConversationSurfaceSessionMock).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('normaliza origin do retry usando a conversa alvo', async () => {
@@ -112,7 +176,7 @@ describe('ChatSessionProvider', () => {
       <ChatSessionProvider
         conversationId={currentConversationId}
         surfaceType="embedded"
-        surfaceId="embedded:workspace-chat-modal:tab-chat"
+        surfaceId={embeddedSurfaceId}
       >
         <Probe />
       </ChatSessionProvider>,
@@ -127,8 +191,8 @@ describe('ChatSessionProvider', () => {
       {
         origin: expect.objectContaining({
           conversationId: targetConversationId,
-          sessionKey: `embedded:workspace-chat-modal:tab-chat:${targetConversationId}`,
-          surfaceId: 'embedded:workspace-chat-modal:tab-chat',
+          sessionKey: `${embeddedSurfaceId}:${targetConversationId}`,
+          surfaceId: embeddedSurfaceId,
           surfaceType: 'embedded',
           tabId: 'tab-chat',
         }),
