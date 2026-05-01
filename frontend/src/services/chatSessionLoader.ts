@@ -4,6 +4,7 @@ import {
   GetMessagesBefore,
   GetRecentMessages,
 } from '@wailsjs/go/app/App';
+import i18next from 'i18next';
 import {
   withOriginalIndex,
   type MessageNode,
@@ -36,7 +37,7 @@ export async function loadConversationSnapshot(
   const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
 
   return {
-    title: conversationInfo?.title || 'Conversa',
+    title: conversationInfo?.title || i18next.t('chat.conversation'),
     channel: conversationInfo?.channel || undefined,
     contactId: conversationInfo?.contact_id || undefined,
     threadedMessages: visibleNodes.map(withOriginalIndex),

@@ -19,6 +19,12 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetMessageChildren: (...args: unknown[]) => mockGetMessageChildren(...args),
 }));
 
+vi.mock('i18next', () => ({
+  default: {
+    t: (key: string) => (key === 'chat.conversation' ? 'Conversation fallback' : key),
+  },
+}));
+
 const node = (id: string) => new main.MessageNode({
   message: new main.EnrichedMessage({ id, role: 'user', content: id }),
   children: [],
@@ -49,6 +55,15 @@ describe('chatSessionLoader', () => {
     });
     expect(snapshot.threadedMessages.map((item) => item.message.id)).toEqual(['visible-1', 'visible-2']);
     expect(snapshot.threadedMessages[0].originalIndex).toBe(0);
+  });
+
+  it('usa i18n quando snapshot não tem título', async () => {
+    mockGetConversationInfo.mockResolvedValue({ title: '' });
+    mockGetRecentMessages.mockResolvedValue([]);
+
+    const snapshot = await loadConversationSnapshot('conversation-1', 2);
+
+    expect(snapshot.title).toBe('Conversation fallback');
   });
 
   it('carrega mensagens anteriores antes do cursor', async () => {
