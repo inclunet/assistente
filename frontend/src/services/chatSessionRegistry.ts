@@ -163,10 +163,14 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
   const nextSurfaceSession = toSurfaceSession(nextSession, conversationId, sessionKey);
 
   const timelinesByConversationId = { ...(state.timelinesByConversationId ?? {}) };
-  if (nextSession.conversation) {
-    timelinesByConversationId[conversationId] = nextSession.conversation;
-  } else {
-    delete timelinesByConversationId[conversationId];
+  const shouldPatchTimeline = typeof patch === 'function'
+    || Object.prototype.hasOwnProperty.call(patch, 'conversation');
+  if (shouldPatchTimeline) {
+    if (nextSession.conversation) {
+      timelinesByConversationId[conversationId] = nextSession.conversation;
+    } else {
+      delete timelinesByConversationId[conversationId];
+    }
   }
 
   return {

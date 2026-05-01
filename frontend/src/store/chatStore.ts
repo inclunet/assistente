@@ -220,7 +220,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   };
 
   const chatEventAdapter = {
-    getSession: (conversationId: string) => getSession(get(), conversationId),
+    getSession: (conversationId: string, sessionKey?: string) => getSession(get(), conversationId, sessionKey),
     patchSession: (conversationId: string, patch: Partial<ChatConversationSession>) => {
       set((state) => patchSession(state, conversationId, patch, patch.surfaceOrigin?.sessionKey));
     },

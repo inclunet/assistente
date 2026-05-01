@@ -155,4 +155,23 @@ describe('chatSessionRegistry', () => {
     expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').conversation?.title).toBe('Timeline atualizada');
     expect(getChatSession(next, 'conversation-1', 'tab-b:conversation-1').conversation?.title).toBe('Timeline atualizada');
   });
+
+  it('não apaga timeline ao aplicar patch visual sem conversation', () => {
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        'conversation-1': conversation('conversation-1'),
+      },
+      surfaceSessionsByKey: {},
+    };
+
+    const next = {
+      ...state,
+      ...patchChatSession(state, 'conversation-1', { isThinking: true }, 'tab-a:conversation-1'),
+    };
+
+    expect(getConversationTimeline(next, 'conversation-1')?.title).toBe('Conversa conversation-1');
+    expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').isThinking).toBe(true);
+    expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').conversation?.title).toBe('Conversa conversation-1');
+  });
 });
