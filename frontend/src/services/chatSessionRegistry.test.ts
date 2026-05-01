@@ -4,6 +4,7 @@ import {
   getChatSurfaceSessionsForConversation,
   getChatSession,
   getConversationTimeline,
+  normalizeChatSurfaceOrigin,
   patchChatConversation,
   patchChatSession,
   removeChatSession,
@@ -30,6 +31,34 @@ describe('chatSessionRegistry', () => {
       isLoading: false,
       activeToolCalls: [],
       completedSegments: [],
+    });
+  });
+
+  it('normaliza origin recalculando sessionKey quando a conversa muda', () => {
+    const origin = {
+      sessionKey: 'tab-a:old-conversation',
+      conversationId: 'old-conversation',
+      surfaceId: 'tab-a',
+      surfaceType: 'page' as const,
+    };
+
+    expect(normalizeChatSurfaceOrigin(origin, 'new-conversation')).toMatchObject({
+      conversationId: 'new-conversation',
+      sessionKey: 'tab-a:new-conversation',
+    });
+  });
+
+  it('normaliza origin preservando sessionKey quando a conversa já corresponde', () => {
+    const origin = {
+      sessionKey: 'tab-a:conversation-1',
+      conversationId: 'conversation-1',
+      surfaceId: 'tab-a',
+      surfaceType: 'page' as const,
+    };
+
+    expect(normalizeChatSurfaceOrigin(origin, 'conversation-1')).toMatchObject({
+      conversationId: 'conversation-1',
+      sessionKey: 'tab-a:conversation-1',
     });
   });
 

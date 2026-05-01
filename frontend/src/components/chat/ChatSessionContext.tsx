@@ -27,7 +27,7 @@ const composeChatSession = (
   timeline: ConversationTimeline | null,
   surfaceSession: ChatSurfaceSession | null,
 ): ChatConversationSession => {
-  const session = surfaceSession ?? compatibilitySession ?? createEmptyChatSession(conversationId, sessionKey);
+  const session = surfaceSession ?? createEmptyChatSession(conversationId, sessionKey);
   return {
     ...session,
     sessionKey: session.sessionKey ?? sessionKey,

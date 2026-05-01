@@ -33,7 +33,9 @@ export const normalizeChatSurfaceOrigin = (
     ? {
       ...origin,
       conversationId,
-      sessionKey: origin.conversationId ? origin.sessionKey : buildChatSessionKey(origin.surfaceId, conversationId),
+      sessionKey: origin.conversationId === conversationId
+        ? origin.sessionKey
+        : buildChatSessionKey(origin.surfaceId, conversationId),
     }
     : undefined
 );
