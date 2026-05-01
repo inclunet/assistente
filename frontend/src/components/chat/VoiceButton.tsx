@@ -14,7 +14,8 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useInteractionProfile } from '../../hooks/useInteractionProfile';
-import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { profiles } from '../../../wailsjs/go/models';
 import './VoiceButton.css';
 
@@ -47,9 +48,9 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
 
   // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const activeTab = useActiveTab();
-  const tabProfileSlug = activeTab?.type === 'chat'
-    ? (activeTab.profileOverride?.slug as string | undefined)
+  const { tab: panelTab, isActive: isPanelActive } = useWorkspacePanel();
+  const tabProfileSlug = panelTab?.type === 'chat'
+    ? (panelTab.profileOverride?.slug as string | undefined)
     : undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || null;
 
@@ -114,18 +115,26 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   // Estado de escuta ativa (para VAD e Wakeword)
   // isWakewordListening é específico para quando está escutando a palavra de ativação
   const isListeningState = isListening || (mode === 'vad' && isActive) || isWakewordListening;
+  const isDisabled = disabled || !isPanelActive;
+
+  useEffect(() => {
+    if (isPanelActive) return;
+    if (!isActive && !isListeningState && !isPTTActive) return;
+    cancelInteraction();
+    setIsPTTActive(false);
+  }, [cancelInteraction, isActive, isListeningState, isPTTActive, isPanelActive]);
 
   // === Handlers para modo PTT ===
   
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (disabled || mode !== 'ptt') return;
+    if (isDisabled || mode !== 'ptt') return;
     
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     
     setIsPTTActive(true);
     startInteraction();
-  }, [disabled, mode, startInteraction]);
+  }, [isDisabled, mode, startInteraction]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (mode !== 'ptt' || !isPTTActive) return;
@@ -147,19 +156,19 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   // === Handler para modos Toggle, VAD e Wakeword ===
   
   const handleClick = useCallback(() => {
-    if (disabled) return;
+    if (isDisabled) return;
     
     // Toggle, VAD e Wakeword usam o mesmo comportamento de toggle
     if (mode === 'toggle' || mode === 'vad' || mode === 'wakeword') {
       toggleInteraction();
     }
     // No modo PTT, o click é tratado pelo pointer events
-  }, [disabled, mode, toggleInteraction]);
+  }, [isDisabled, mode, toggleInteraction]);
 
   // === Keyboard handlers ===
   
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (disabled) return;
+    if (isDisabled) return;
     
     // Ignora eventos de repetição de tecla (key repeat do OS)
     if (e.repeat) return;
@@ -185,7 +194,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
       cancelInteraction();
       setIsPTTActive(false);
     }
-  }, [disabled, mode, isPTTActive, isActive, isListeningState, startInteraction, toggleInteraction, cancelInteraction]);
+  }, [isDisabled, mode, isPTTActive, isActive, isListeningState, startInteraction, toggleInteraction, cancelInteraction]);
 
   const handleKeyUp = useCallback((e: React.KeyboardEvent) => {
     if (mode === 'ptt' && isPTTActive && (e.key === ' ' || e.key === 'Enter')) {
@@ -362,7 +371,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
         ref={buttonRef}
         type="button"
         className={`voice-button ${isRecordingState ? 'voice-button--recording' : ''} ${isListeningState && !isRecordingState ? 'voice-button--listening' : ''} ${isProcessingState ? 'voice-button--processing' : ''} ${getModeClass()}`}
-        disabled={disabled || isProcessingState}
+        disabled={isDisabled || isProcessingState}
         aria-label={getAriaLabel()}
         aria-pressed={isRecordingState || isListeningState}
         // Pointer events para PTT

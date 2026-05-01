@@ -114,6 +114,8 @@ const ptBR = {
       thinking: 'Pensando...',
       characters: 'caracteres',
       lines: 'linhas',
+      loadOlderMessages: 'Carregar mensagens anteriores',
+      loadingOlderMessages: 'Carregando mensagens anteriores...',
       modelThinking: 'O modelo está pensando',
       modelReasoning: 'Raciocínio do modelo',
       reasoning: 'Raciocínio',
@@ -140,6 +142,8 @@ const ptBR = {
       errors: {
         noActiveConversation:
           'Nenhuma conversa ativa. Abra uma aba de chat ou aguarde o workspace sincronizar.',
+        tabCannotSend: 'A aba ativa não suporta envio de mensagens.',
+        chatTabNotReady: 'Conversa da aba de chat ainda não está pronta.',
       },
       stopReading: 'Parar leitura',
       stopReadingLabel: 'Parar leitura de texto',
@@ -177,6 +181,7 @@ const ptBR = {
       announce: {
         assistantResponding: 'Assistente está respondendo',
         modelThinking: 'O modelo está pensando...',
+        backgroundResponseDone: 'Aba {{title}} terminou de responder',
         messageDeleted: 'Mensagem excluída',
         deleteCancelled: 'Exclusão cancelada',
         messageResent: 'Mensagem reenviada',
@@ -188,6 +193,10 @@ const ptBR = {
         cannotGenerateAudio: 'Não foi possível gerar áudio. Verifique a configuração de voz no perfil ativo.',
         audioDownloaded: 'Áudio baixado com sucesso',
         audioError: 'Erro ao gerar áudio',
+        conversationDeletedPermanently: 'Conversa apagada permanentemente',
+        conversationMessagesRemoved: 'Mensagens da conversa removidas',
+        databaseReset: 'Banco de dados resetado. Conversas reinicializadas.',
+        externalMessage: '{{from}} via {{channel}}: {{message}}',
       },
       contextMenuAriaLabel: 'Ações da mensagem',
     },

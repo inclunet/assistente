@@ -2,10 +2,11 @@ import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
-import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import type { WorkspaceChatModalAdapter } from '../store/workspaceChatModalStore';
 import { useRegisterWorkspaceChatAdapter } from '../hooks/useRegisterWorkspaceChatAdapter';
+import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
@@ -15,10 +16,10 @@ import './TerminalPage.css';
 
 export default function TerminalPage() {
   const { t } = useTranslation();
-  const wsActiveTab = useActiveTab();
+  const { tab: panelTab, isActive } = useWorkspacePanel();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const tabProfileSlug = wsActiveTab?.type === 'terminal'
-    ? (wsActiveTab.profileOverride?.slug as string | undefined)
+  const tabProfileSlug = panelTab?.type === 'terminal'
+    ? (panelTab.profileOverride?.slug as string | undefined)
     : undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -41,14 +42,15 @@ export default function TerminalPage() {
   }, [setupEventListeners]);
 
   useEffect(() => {
-    if (activeSessionId && inputRef.current) {
+    if (isActive && activeSessionId && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [activeSessionId]);
+  }, [activeSessionId, isActive]);
 
   // Ctrl+C para interromper (único atalho que faz sentido no terminal embarcado)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActive) return;
       if (e.ctrlKey && e.key === 'c' && !e.shiftKey && !e.altKey) {
         const selection = window.getSelection();
         const hasSelection = selection && selection.toString().length > 0;
@@ -61,7 +63,7 @@ export default function TerminalPage() {
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [interrupt]);
+  }, [interrupt, isActive]);
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
   const currentHistory = activeSessionId ? (historyBySession[activeSessionId] || []) : [];
@@ -88,7 +90,7 @@ export default function TerminalPage() {
   }, []);
 
   const terminalChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
-    if (!wsActiveTab || wsActiveTab.type !== 'terminal') return null;
+    if (!panelTab || panelTab.type !== 'terminal') return null;
 
     return {
       prepare: async () => {
@@ -116,7 +118,7 @@ export default function TerminalPage() {
         return {
           content: instruction,
           mediaFiles: media,
-          paramsOverride: buildChatSurfaceParams(wsActiveTab, {
+          paramsOverride: buildChatSurfaceParams(panelTab, {
             profileSlug: effectiveProfileSlug || undefined,
             context: {
               historyPreview: contextDisplay,
@@ -126,9 +128,9 @@ export default function TerminalPage() {
         };
       },
     };
-  }, [wsActiveTab, currentHistory, effectiveProfileSlug, t]);
+  }, [panelTab, currentHistory, effectiveProfileSlug, t]);
 
-  useRegisterWorkspaceChatAdapter(wsActiveTab?.id, terminalChatModalAdapter);
+  useRegisterWorkspaceChatAdapter(panelTab?.id, terminalChatModalAdapter);
 
   return (
     <div className="terminal-page">

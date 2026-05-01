@@ -2,10 +2,11 @@ import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } fro
 import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
-import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import type { WorkspaceChatModalAdapter } from '../../store/workspaceChatModalStore';
 import { useRegisterWorkspaceChatAdapter } from '../../hooks/useRegisterWorkspaceChatAdapter';
+import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -33,10 +34,10 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const { announce } = useAnnouncer();
   const requestConfirm = useConfirm();
 
-  const wsActiveTab = useActiveTab();
+  const { tab: panelTab, isActive } = useWorkspacePanel();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const tabProfileSlug = wsActiveTab?.type === 'tasklist'
-    ? (wsActiveTab.profileOverride?.slug as string | undefined)
+  const tabProfileSlug = panelTab?.type === 'tasklist'
+    ? (panelTab.profileOverride?.slug as string | undefined)
     : undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
@@ -70,9 +71,10 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }, []);
 
   useEffect(() => {
+    if (!isActive) return;
     registerDefaultFocus(focusContentArea);
     return () => unregisterDefaultFocus(focusContentArea);
-  }, [focusContentArea]);
+  }, [focusContentArea, isActive]);
 
   const tasks = useMemo(() => taskList?.tasks || [], [taskList?.tasks]);
   const currentViewMode: ViewMode = taskList?.preferredViewMode || 'list';
@@ -187,7 +189,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }, [handleOpenCreateTask, handleClear, handleClone]);
 
   const tasklistChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
-    if (!wsActiveTab || wsActiveTab.type !== 'tasklist' || !taskList) return null;
+    if (!panelTab || panelTab.type !== 'tasklist' || !taskList) return null;
 
     return {
       prepare: async () => {
@@ -210,7 +212,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
         return {
           content: instruction,
           mediaFiles: media,
-          paramsOverride: buildChatSurfaceParams(wsActiveTab, {
+          paramsOverride: buildChatSurfaceParams(panelTab, {
             profileSlug: effectiveProfileSlug || undefined,
             context: {
               taskListId,
@@ -222,9 +224,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
         };
       },
     };
-  }, [wsActiveTab, taskList, tasks, effectiveProfileSlug, t]);
+  }, [panelTab, taskList, tasks, effectiveProfileSlug, t]);
 
-  useRegisterWorkspaceChatAdapter(wsActiveTab?.id, tasklistChatModalAdapter);
+  useRegisterWorkspaceChatAdapter(panelTab?.id, tasklistChatModalAdapter);
 
   const handleDelete = useCallback(async () => {
     const confirmed = await requestConfirm({

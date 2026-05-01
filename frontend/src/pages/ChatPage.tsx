@@ -1,29 +1,32 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../store/chatStore';
-import { useActiveTab } from '../store/workspaceStore';
 import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
 import { ChatSessionView } from '../components/chat/ChatSessionView';
+import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext';
 
 export default function ChatPage() {
+  const { t } = useTranslation();
   const sendMessageToConversation = useChatStore((s) => s.sendMessageToConversation);
-  const activeTab = useActiveTab();
+  const { tab } = useWorkspacePanel();
+  const conversationId = tab?.type === 'chat' ? tab.conversationId : undefined;
 
   // NOTE: loadConversation já é feita pelo useWorkspaceChatBridge (WorkspaceLayout).
   // Não duplicar aqui — evita 2x GetConversationInfo + GetMessages a cada troca de aba.
 
   const onSend = useCallback(
     async (content: string, mediaFiles?: Parameters<typeof sendMessageToConversation>[2]) => {
-      if (!activeTab || activeTab.type !== 'chat') {
-        throw new Error('A aba ativa não suporta envio de mensagens.');
+      if (!tab || tab.type !== 'chat') {
+        throw new Error(t('chat.errors.tabCannotSend'));
       }
-      const conversationId = await ensureWorkspaceTabHasConversation(activeTab);
+      const conversationId = await ensureWorkspaceTabHasConversation(tab);
       if (!conversationId) {
-        throw new Error('Conversa da aba de chat ainda não está pronta.');
+        throw new Error(t('chat.errors.chatTabNotReady'));
       }
       await sendMessageToConversation(conversationId, content, mediaFiles);
     },
-    [activeTab, sendMessageToConversation],
+    [tab, sendMessageToConversation, t],
   );
 
-  return <ChatSessionView variant="page" onSend={onSend} />;
+  return <ChatSessionView variant="page" conversationId={conversationId} onSend={onSend} />;
 }

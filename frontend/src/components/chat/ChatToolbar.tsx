@@ -20,17 +20,22 @@ import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
   inputRef?: React.RefObject<HTMLTextAreaElement>;
+  conversationId?: string | null;
+  enableShortcuts?: boolean;
 }
 
 export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   inputRef,
+  conversationId,
+  enableShortcuts = true,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const activeConversation = useChatStore((s) => s.activeConversation);
-  const clearMessages = useChatStore((s) => s.clearMessages);
-  const isLoading = useChatStore((s) => s.isLoading);
-  const loadConversation = useChatStore((s) => s.loadConversation);
+  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId[conversationId] ?? null : null);
+  const activeConversation = session?.conversation ?? null;
+  const clearConversationMessages = useChatStore((s) => s.clearConversationMessages);
+  const isLoading = session?.isLoading ?? false;
+  const loadConversationSession = useChatStore((s) => s.loadConversationSession);
   const { announce } = useAnnouncer();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
@@ -109,9 +114,9 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
       if (conv?.id) {
         await ClearConversation(conv.id);
-        await loadConversation(conv.id);
-      } else {
-        clearMessages();
+        await loadConversationSession(conv.id, { activate: true });
+      } else if (conversationId) {
+        clearConversationMessages(conversationId);
       }
 
       announce(t('chat.conversationCleared'));
@@ -120,9 +125,10 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       announce(t('chat.clearError'));
     }
     focusInput();
-  }, [announce, activeConversation, clearMessages, focusInput, loadConversation]);
+  }, [announce, activeConversation, clearConversationMessages, conversationId, focusInput, loadConversationSession]);
 
   useEffect(() => {
+    if (!enableShortcuts) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'l') {
         e.preventDefault();
@@ -142,7 +148,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleClearConversation]);
+  }, [enableShortcuts, handleClearConversation]);
 
   const handleProfileChange = useCallback((slug: string) => {
     if (wsActiveTab) {
@@ -153,19 +159,19 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     focusInput();
   }, [focusInput, wsActiveTab, updateWsTab]);
 
-  const handleHistoryChange = async (conversationId: string, conversation: { title?: string }) => {
+  const handleHistoryChange = async (nextConversationId: string, conversation: { title?: string }) => {
     const nextTitle = conversation.title || t('chat.newConversation');
     try {
       if (wsActiveTab?.type === 'chat') {
         await Promise.all([
-          loadConversation(conversationId),
+          loadConversationSession(nextConversationId, { activate: true }),
           updateWsTab(wsActiveTab.id, {
-            conversation_id: conversationId,
+            conversation_id: nextConversationId,
             title: nextTitle,
           }),
         ]);
       } else {
-        await loadConversation(conversationId);
+        await loadConversationSession(nextConversationId, { activate: true });
       }
       announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
     } catch (error) {

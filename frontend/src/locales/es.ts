@@ -113,6 +113,8 @@ const es = {
       thinking: 'Pensando...',
       characters: 'caracteres',
       lines: 'líneas',
+      loadOlderMessages: 'Cargar mensajes anteriores',
+      loadingOlderMessages: 'Cargando mensajes anteriores...',
       modelThinking: 'El modelo está pensando',
       modelReasoning: 'Razonamiento del modelo',
       reasoning: 'Razonamiento',
@@ -139,6 +141,8 @@ const es = {
       errors: {
         noActiveConversation:
           'No hay conversación activa. Abre una pestaña de chat o espera a que el workspace termine de sincronizar.',
+        tabCannotSend: 'La pestaña activa no admite el envío de mensajes.',
+        chatTabNotReady: 'La conversación de la pestaña de chat aún no está lista.',
       },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',
@@ -176,6 +180,7 @@ const es = {
       announce: {
         assistantResponding: 'El asistente está respondiendo',
         modelThinking: 'El modelo está pensando...',
+        backgroundResponseDone: 'La pestaña {{title}} terminó de responder',
         messageDeleted: 'Mensaje eliminado',
         deleteCancelled: 'Eliminación cancelada',
         messageResent: 'Mensaje reenviado',
@@ -187,6 +192,10 @@ const es = {
         cannotGenerateAudio: 'No se pudo generar audio. Verifique la configuración de voz en el perfil activo.',
         audioDownloaded: 'Audio descargado con éxito',
         audioError: 'Error al generar audio',
+        conversationDeletedPermanently: 'Conversación eliminada permanentemente',
+        conversationMessagesRemoved: 'Mensajes de la conversación eliminados',
+        databaseReset: 'Base de datos restablecida. Conversaciones reinicializadas.',
+        externalMessage: '{{from}} vía {{channel}}: {{message}}',
       },
       contextMenuAriaLabel: 'Acciones del mensaje',
     },

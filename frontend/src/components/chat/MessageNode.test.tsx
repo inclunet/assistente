@@ -13,36 +13,20 @@ vi.mock('./ChatMessage', () => ({
 }));
 
 type ChatStoreState = {
-  toggleThreadExpanded: () => void;
-  editingMessageId: string | null;
-  setEditingMessageId: (id: string | null) => void;
-  readingMessageId: string | null;
-  setReadingMessageId: (id: string | null) => void;
-  streamingMessageId: string | null;
-  streamingReasoning: string;
-  isThinking: boolean;
-  toggleReasoningExpanded: () => void;
-  activeToolCalls: Array<unknown>;
-  completedSegments: Array<unknown>;
-  expandedThreads: Set<string>;
-  expandedReasonings: Set<string>;
+  sessionsByConversationId: Record<string, unknown>;
+  toggleConversationThreadExpanded: () => void;
+  setConversationEditingMessageId: (conversationId: string, id: string | null) => void;
+  setConversationReadingMessageId: (conversationId: string, id: string | null) => void;
+  toggleConversationReasoningExpanded: () => void;
 };
 
 vi.mock('../../store/chatStore', () => ({
   useChatStore: (selector: (state: ChatStoreState) => unknown) => selector({
-    toggleThreadExpanded: vi.fn(),
-    editingMessageId: null,
-    setEditingMessageId: vi.fn(),
-    readingMessageId: null,
-    setReadingMessageId: vi.fn(),
-    streamingMessageId: null,
-    streamingReasoning: '',
-    isThinking: false,
-    toggleReasoningExpanded: vi.fn(),
-    activeToolCalls: [],
-    completedSegments: [],
-    expandedThreads: new Set<string>(),
-    expandedReasonings: new Set<string>(),
+    sessionsByConversationId: {},
+    toggleConversationThreadExpanded: vi.fn(),
+    setConversationEditingMessageId: vi.fn(),
+    setConversationReadingMessageId: vi.fn(),
+    toggleConversationReasoningExpanded: vi.fn(),
   }),
 }));
 

@@ -58,15 +58,12 @@ vi.mock('../store/chatStore', () => ({
   useChatStore: Object.assign(
     (selector?: (s: Record<string, unknown>) => unknown) => {
       const state: Record<string, unknown> = {
-        sendMessage: vi.fn(),
-        isLoading: false,
-        activeConversationId: null,
         createConversation: vi.fn(),
-        getMessages: () => [],
+        getConversationMessages: () => [],
       };
       return typeof selector === 'function' ? selector(state) : state;
     },
-    { getState: () => ({ sendMessage: vi.fn(), activeConversationId: null, createConversation: vi.fn(), getMessages: () => [] }) },
+    { getState: () => ({ createConversation: vi.fn(), getConversationMessages: () => [] }) },
   ),
 }));
 

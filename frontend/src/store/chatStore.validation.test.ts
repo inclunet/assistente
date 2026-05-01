@@ -11,11 +11,13 @@ vi.mock('../hooks/useAnnouncer', () => ({
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
 const mockRetryMessage = vi.fn().mockResolvedValue(undefined);
 const mockGetMessages = vi.fn().mockResolvedValue([]);
+const mockGetRecentMessages = vi.fn().mockResolvedValue([]);
 const mockGetConversationInfo = vi.fn().mockResolvedValue({});
 vi.mock('@wailsjs/go/app/App', () => ({
   SendMessage: (...args: unknown[]) => mockSendMessage(...args),
   RetryMessage: (...args: unknown[]) => mockRetryMessage(...args),
   GetMessages: (...args: unknown[]) => mockGetMessages(...args),
+  GetRecentMessages: (...args: unknown[]) => mockGetRecentMessages(...args),
   GetConversationInfo: (...args: unknown[]) => mockGetConversationInfo(...args),
   EnsureConversation: vi.fn().mockResolvedValue("01926b90-7a5a-7c4e-8d3f-000000000001"),
   AssignConversationToChannel: vi.fn(),
@@ -68,6 +70,8 @@ vi.mock('../services/chatSpeak', () => ({
   handleChatSpeak: (...args: unknown[]) => Promise.resolve(mockHandleChatSpeak(...args)),
 }));
 
+const defaultConversationId = "01926b90-7a5a-7c4e-8d3f-000000000001";
+
 vi.mock('i18next', () => ({
   default: {
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -94,12 +98,33 @@ describe('chatStore validation', () => {
     mockRetryMessage.mockClear();
     mockGetMessages.mockReset();
     mockGetMessages.mockResolvedValue([]);
+    mockGetRecentMessages.mockReset();
+    mockGetRecentMessages.mockResolvedValue([]);
     mockGetConversationInfo.mockReset();
     mockGetConversationInfo.mockResolvedValue({});
     mockHandleChatSpeak.mockClear();
     const mod = await import('./chatStore');
     useChatStore = mod.useChatStore;
-    useChatStore.setState({ activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001" });
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          conversation: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
+          isLoading: false,
+          hasOlderMessages: false,
+          isLoadingOlderMessages: false,
+          streamingMessageId: null,
+          streamingReasoning: null,
+          isThinking: false,
+          activeToolCalls: [],
+          completedSegments: [],
+          expandedThreads: new Set<string>(),
+          expandedReasonings: new Set<string>(),
+          editingMessageId: null,
+          readingMessageId: null,
+          skipFocusRestore: false,
+        },
+      },
+    });
   });
 
   afterEach(() => {
@@ -109,7 +134,7 @@ describe('chatStore validation', () => {
   it('rejects message exceeding max content size', async () => {
     const bigContent = 'x'.repeat(512 * 1024 + 1);
 
-    await useChatStore.getState().sendMessage(bigContent);
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, bigContent);
 
     expect(mockAnnounce).toHaveBeenCalledTimes(1);
     expect(mockAnnounce.mock.calls[0][0]).toContain('grande');
@@ -119,7 +144,7 @@ describe('chatStore validation', () => {
   it('accepts message at exact max content size', async () => {
     const exactContent = 'x'.repeat(512 * 1024);
 
-    await useChatStore.getState().sendMessage(exactContent);
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, exactContent);
 
     expect(mockSendMessage).toHaveBeenCalled();
   });
@@ -134,7 +159,7 @@ describe('chatStore validation', () => {
   it('rejects media exceeding max size', async () => {
     const fakeFile = new File([new ArrayBuffer(15 * 1024 * 1024)], 'big.bin', { type: 'application/octet-stream' });
 
-    await useChatStore.getState().sendMessage('hello', [{
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', [{
       id: 'test-1',
       file: fakeFile,
       category: MediaCategory.DOCUMENT,
@@ -159,47 +184,16 @@ describe('chatStore validation', () => {
       return Promise.reject(new Error('backend error'));
     });
 
-    await useChatStore.getState().sendMessage('hello');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello');
 
     expect(mockAnnounce).toHaveBeenCalledWith('Provedor LLM não disponível');
-    expect(useChatStore.getState().isLoading).toBe(false);
-  });
-
-  it('rejects when no active conversation', async () => {
-    useChatStore.setState({ activeConversationId: null });
-
-    await useChatStore.getState().sendMessage('hello');
-
-    expect(mockSendMessage).not.toHaveBeenCalled();
-    expect(mockAnnounce).toHaveBeenCalled();
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.isLoading).toBe(false);
   });
 
   it('sendMessageToConversation envia usando o conversationId explícito', async () => {
-    useChatStore.setState({ activeConversationId: null });
-
     await useChatStore.getState().sendMessageToConversation("01926b90-7a5a-7c4e-8d3f-000000000007", 'hello');
 
     expect(mockSendMessage).toHaveBeenCalledWith("01926b90-7a5a-7c4e-8d3f-000000000007", 'hello', '', expect.any(Object));
-  });
-
-  it('clearActiveConversation invalida loadConversation pendente', async () => {
-    let resolveInfo: ((value: unknown) => void) | undefined;
-    let resolveMessages: ((value: unknown) => void) | undefined;
-    mockGetConversationInfo.mockImplementation(
-      () => new Promise((resolve) => { resolveInfo = resolve; }),
-    );
-    mockGetMessages.mockImplementation(
-      () => new Promise((resolve) => { resolveMessages = resolve; }),
-    );
-
-    const pendingLoad = useChatStore.getState().loadConversation("01926b90-7a5a-7c4e-8d3f-000000000007");
-    useChatStore.getState().clearActiveConversation();
-    resolveInfo?.({ title: 'Late conversation' });
-    resolveMessages?.([]);
-    await pendingLoad;
-
-    expect(useChatStore.getState().activeConversationId).toBeNull();
-    expect(useChatStore.getState().activeConversation).toBeNull();
   });
 
   it('repassa parâmetros estruturados de surface no envio', async () => {
@@ -229,7 +223,7 @@ describe('chatStore validation', () => {
       return Promise.resolve();
     });
 
-    await useChatStore.getState().sendMessage('oi');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'oi');
 
     expect(mockHandleChatSpeak).toHaveBeenCalledTimes(2);
     expect(mockHandleChatSpeak.mock.calls[0][0]).toMatchObject({
@@ -253,15 +247,19 @@ describe('chatStore validation', () => {
       return Promise.resolve();
     });
 
-    await useChatStore.getState().sendMessage('oi');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'oi');
 
     expect(mockHandleChatSpeak).not.toHaveBeenCalled();
   });
 
   it('usa placeholder único por envio e finaliza streaming após erro no stream', async () => {
     useChatStore.setState({
-      activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
-      activeConversation: { id: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Conversa', threadedMessages: [] },
+      sessionsByConversationId: {
+        "01926b90-7a5a-7c4e-8d3f-000000000001": {
+          ...useChatStore.getState().sessionsByConversationId["01926b90-7a5a-7c4e-8d3f-000000000001"],
+          conversation: { id: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Conversa', threadedMessages: [] },
+        },
+      },
     });
 
     mockSendMessage
@@ -279,10 +277,10 @@ describe('chatStore validation', () => {
         return Promise.resolve();
       });
 
-    await useChatStore.getState().sendMessage('falha 1');
-    await useChatStore.getState().sendMessage('ok 2');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'falha 1');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'ok 2');
 
-    const threaded = useChatStore.getState().activeConversation?.threadedMessages ?? [];
+    const threaded = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages ?? [];
     const ids = threaded.map((node) => String(node.message.id));
     expect(new Set(ids).size).toBe(ids.length);
 
@@ -295,25 +293,30 @@ describe('chatStore validation', () => {
   });
 
   it('não duplica mensagem real quando outro caminho já inseriu o mesmo assistant id', async () => {
+    const conversation = {
+      id: "01926b90-7a5a-7c4e-8d3f-000000000001",
+      title: 'Conversa',
+      threadedMessages: [
+        {
+          message: {
+            id: '01926b90-7a5a-7c4e-8d3f-000000014731',
+            conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
+            role: 'assistant',
+            content: 'mensagem já sincronizada',
+            createdAt: new Date().toISOString(),
+            isStreaming: false,
+          },
+          children: [],
+          childCount: 0,
+        } as unknown as MessageNode,
+      ],
+    };
     useChatStore.setState({
-      activeConversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
-      activeConversation: {
-        id: "01926b90-7a5a-7c4e-8d3f-000000000001",
-        title: 'Conversa',
-        threadedMessages: [
-          {
-            message: {
-              id: '01926b90-7a5a-7c4e-8d3f-000000014731',
-              conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
-              role: 'assistant',
-              content: 'mensagem já sincronizada',
-              createdAt: new Date().toISOString(),
-              isStreaming: false,
-            },
-            children: [],
-            childCount: 0,
-          } as unknown as MessageNode,
-        ],
+      sessionsByConversationId: {
+        "01926b90-7a5a-7c4e-8d3f-000000000001": {
+          ...useChatStore.getState().sessionsByConversationId["01926b90-7a5a-7c4e-8d3f-000000000001"],
+          conversation,
+        },
       },
     });
 
@@ -325,9 +328,9 @@ describe('chatStore validation', () => {
       return Promise.resolve();
     });
 
-    await useChatStore.getState().sendMessage('oi');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'oi');
 
-    const threaded = useChatStore.getState().activeConversation?.threadedMessages ?? [];
+    const threaded = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages ?? [];
     const assistant14731 = threaded.filter((node) => String(node.message.id) === '01926b90-7a5a-7c4e-8d3f-000000014731');
     expect(assistant14731).toHaveLength(1);
   });

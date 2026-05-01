@@ -15,6 +15,8 @@ import { announce } from '../hooks/useAnnouncer';
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
 let announceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingOutput = '';
+let terminalEventListenerRefCount = 0;
+let terminalEventListenerCleanup: (() => void) | null = null;
 
 function scheduleOutputAnnounce(chunk: string) {
   pendingOutput += chunk;
@@ -147,6 +149,17 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   },
 
   setupEventListeners: () => {
+    terminalEventListenerRefCount += 1;
+    if (terminalEventListenerCleanup) {
+      return () => {
+        terminalEventListenerRefCount = Math.max(0, terminalEventListenerRefCount - 1);
+        if (terminalEventListenerRefCount === 0 && terminalEventListenerCleanup) {
+          terminalEventListenerCleanup();
+          terminalEventListenerCleanup = null;
+        }
+      };
+    }
+
     const unsubs: Array<() => void> = [];
 
     // Sessão criada
@@ -294,8 +307,16 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       });
     }));
 
-    return () => {
+    terminalEventListenerCleanup = () => {
       unsubs.forEach(fn => fn());
+    };
+
+    return () => {
+      terminalEventListenerRefCount = Math.max(0, terminalEventListenerRefCount - 1);
+      if (terminalEventListenerRefCount === 0 && terminalEventListenerCleanup) {
+        terminalEventListenerCleanup();
+        terminalEventListenerCleanup = null;
+      }
     };
   },
 }));

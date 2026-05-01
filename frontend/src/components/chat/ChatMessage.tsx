@@ -79,6 +79,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const messageId = message.id;
+  const messageConversationId = String(message.conversationId || '');
 
   // Snapshot live de campos que são atualizados in-place na store.
   // Isso garante que aria-label e conteúdo reflitam streaming mesmo com React.memo acima.
@@ -94,12 +95,17 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   useEffect(() => {
     const unsub = useChatStore.subscribe((state) => {
-      if (state.streamingMessageId === messageId) {
+      const session = messageConversationId ? state.sessionsByConversationId[messageConversationId] : null;
+      const streamingMessageId = session?.streamingMessageId ?? null;
+      const completedSegments = session?.completedSegments ?? [];
+      const activeToolCalls = session?.activeToolCalls ?? [];
+
+      if (streamingMessageId === messageId) {
         setLiveSegments(prev =>
-          prev !== state.completedSegments ? state.completedSegments : prev
+          prev !== completedSegments ? completedSegments : prev
         );
         setLiveToolCalls(prev =>
-          prev !== state.activeToolCalls ? state.activeToolCalls : prev
+          prev !== activeToolCalls ? activeToolCalls : prev
         );
       } else {
         setLiveSegments(prev => prev.length > 0 ? [] : prev);
@@ -109,13 +115,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
     // Sync initial state
     const initial = useChatStore.getState();
-    if (initial.streamingMessageId === messageId) {
-      setLiveSegments(initial.completedSegments);
-      setLiveToolCalls(initial.activeToolCalls);
+    const initialSession = messageConversationId ? initial.sessionsByConversationId[messageConversationId] : null;
+    const initialStreamingMessageId = initialSession?.streamingMessageId ?? null;
+    if (initialStreamingMessageId === messageId) {
+      setLiveSegments(initialSession?.completedSegments ?? []);
+      setLiveToolCalls(initialSession?.activeToolCalls ?? []);
     }
 
     return unsub;
-  }, [messageId]);
+  }, [messageConversationId, messageId]);
 
   useEffect(() => {
     const trackingRef = { current: !!isStreaming };
@@ -138,7 +146,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         return null;
       };
 
-      const conv = state.activeConversation;
+      const conv = messageConversationId
+        ? state.sessionsByConversationId[messageConversationId]?.conversation
+        : null;
       if (conv?.threadedMessages) {
         const hit = visit(conv.threadedMessages as ThreadedNode[]);
         if (hit) return hit;
@@ -161,7 +171,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       setLiveToolCallsRaw((prev) => (prev === nextToolCalls ? prev : nextToolCalls));
 
       // Desarma tracking após obter o estado final (best-effort).
-      if (!nextIsStreaming && state.streamingMessageId !== messageId) {
+      const session = messageConversationId ? state.sessionsByConversationId[messageConversationId] : null;
+      const streamingMessageId = session?.streamingMessageId ?? null;
+      if (!nextIsStreaming && streamingMessageId !== messageId) {
         trackingRef.current = false;
       }
     };
@@ -170,13 +182,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     sync(useChatStore.getState());
 
     const unsub = useChatStore.subscribe((state) => {
-      if (state.streamingMessageId === messageId) trackingRef.current = true;
+      const session = messageConversationId ? state.sessionsByConversationId[messageConversationId] : null;
+      const streamingMessageId = session?.streamingMessageId ?? null;
+      if (streamingMessageId === messageId) trackingRef.current = true;
       if (!trackingRef.current) return;
       sync(state);
     });
 
     return unsub;
-  }, [messageId, isStreaming]);
+  }, [messageConversationId, messageId, isStreaming]);
 
   const completedSegments = liveSegments.length > 0 ? liveSegments : _completedSegmentsProp;
   const effectiveToolCalls = liveToolCalls.length > 0 ? liveToolCalls : activeToolCalls;

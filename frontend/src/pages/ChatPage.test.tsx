@@ -9,8 +9,10 @@ const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
 const speakMessageMock = vi.fn();
 const ensureWorkspaceTabHasConversationMock = vi.fn().mockResolvedValue('01926b90-7a5a-7c4e-8d3f-000000000001');
+const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
+const activeConversation = { id: conversationId, title: 'Conversa', threadedMessages: [] };
 const workspaceStoreState = {
-  getActiveTab: () => ({ id: 'chat-tab', type: 'chat' as const, conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa', position: 0 }),
+  getActiveTab: () => ({ id: 'chat-tab', type: 'chat' as const, conversationId, title: 'Conversa', position: 0 }),
 };
 
 vi.mock('react-router-dom', () => ({
@@ -34,19 +36,22 @@ vi.mock('../services/tts', () => ({
 }));
 
 const chatStoreState = {
-  isLoading: false,
-  sendMessage: sendMessageMock,
   sendMessageToConversation: sendMessageMock,
-  activeConversation: { id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa', threadedMessages: [] },
-  getThreadedMessages: () => [],
+  sessionsByConversationId: {
+    [conversationId]: {
+      conversation: activeConversation,
+      isLoading: false,
+      hasOlderMessages: false,
+      isLoadingOlderMessages: false,
+    },
+  },
   loadMessageChildren: vi.fn(),
-  getActiveConversation: () => ({ id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa' }),
-  loadConversation: vi.fn(),
-  updateMessage: updateMessageMock,
-  toggleReasoningExpanded: vi.fn(),
-  isReasoningExpanded: () => false,
-  startEditing: vi.fn(),
-  startReading: vi.fn(),
+  loadConversationSession: vi.fn(),
+  updateConversationMessage: updateMessageMock,
+  toggleConversationReasoningExpanded: vi.fn(),
+  isConversationReasoningExpanded: () => false,
+  startConversationEditing: vi.fn(),
+  startConversationReading: vi.fn(),
 };
 
 vi.mock('../store/chatStore', () => ({
