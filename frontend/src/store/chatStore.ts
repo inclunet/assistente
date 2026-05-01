@@ -16,6 +16,7 @@ import { messageAudioService } from '../services/messageAudio';
 import { isChatConversationActive } from '../services/chatArbitration';
 import { startChatEventController, stopAllChatEventControllers, stopChatEventController } from '../services/chatEventController';
 import { handleExternalChatIncoming } from '../services/externalChatController';
+import { createConversationTurnQueue } from '../services/chatTurnQueue';
 import {
   loadConversationSnapshot,
   loadMessageChildrenNodes,
@@ -131,6 +132,7 @@ interface ChatStore {
     paramsOverride?: Partial<llm.ChatParams>,
     options?: { origin?: ChatSurfaceOrigin },
   ) => Promise<void>;
+  cancelConversationTurn: (conversationId: string) => void;
 
   getConversationMessages: (conversationId: string) => Message[];
   getConversationThreadedMessages: (conversationId: string) => MessageNode[] | undefined;
@@ -152,6 +154,7 @@ interface ChatStore {
 
 export const useChatStore = create<ChatStore>()((set, get) => {
   let loadConversationSeq = 0;
+  const turnQueue = createConversationTurnQueue();
 
   const getSession = (state: ChatStore, conversationId: string): ChatConversationSession => (
     getChatSession(state, conversationId)
@@ -488,7 +491,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!get().sessionsByConversationId[conversationId]?.conversation) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
-      await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
+      await turnQueue.enqueue(conversationId, () => (
+        sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options)
+      ));
     },
 
     retryMessageToConversation: async (conversationId, messageId, paramsOverride, options) => {
@@ -500,7 +505,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!get().sessionsByConversationId[conversationId]?.conversation) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
-      await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
+      await turnQueue.enqueue(conversationId, () => (
+        sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options)
+      ));
+    },
+
+    cancelConversationTurn: (conversationId) => {
+      turnQueue.clear(conversationId);
+      stopChatEventController(conversationId);
+      setConversationLoading(conversationId, false);
     },
 
     getConversationMessages: (conversationId) => (
@@ -573,6 +586,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleConversationDeleted: (conversationId: string) => {
+      turnQueue.clear(conversationId);
       stopChatEventController(conversationId);
       if (get().sessionsByConversationId[conversationId]) {
         set((state) => removeChatSession(state, conversationId));

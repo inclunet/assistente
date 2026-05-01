@@ -86,6 +86,22 @@ function emitEvent(name: string, data: unknown) {
   for (const cb of cbs) cb(data);
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe('chatStore validation', () => {
   type MessageNode = import('./chatStore').MessageNode;
   let useChatStore: typeof import('./chatStore').useChatStore;
@@ -224,6 +240,53 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', undefined, undefined, { origin });
 
     expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.surfaceOrigin).toEqual(origin);
+  });
+
+  it('serializa envios concorrentes da mesma conversa', async () => {
+    const firstSend = deferred<void>();
+    mockSendMessage
+      .mockImplementationOnce(() => firstSend.promise)
+      .mockResolvedValueOnce(undefined);
+
+    const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const second = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'segunda');
+
+    await flushMicrotasks();
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage.mock.calls[0][1]).toBe('primeira');
+
+    firstSend.resolve();
+    await first;
+    await second;
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(2);
+    expect(mockSendMessage.mock.calls[1][1]).toBe('segunda');
+  });
+
+  it('mantem envios de conversas diferentes em paralelo', async () => {
+    const firstSend = deferred<void>();
+    const otherConversationId = '01926b90-7a5a-7c4e-8d3f-000000000007';
+    useChatStore.setState({
+      sessionsByConversationId: {
+        ...useChatStore.getState().sessionsByConversationId,
+        [otherConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: { id: otherConversationId, title: 'Outra', threadedMessages: [] },
+        },
+      },
+    });
+    mockSendMessage
+      .mockImplementationOnce(() => firstSend.promise)
+      .mockResolvedValueOnce(undefined);
+
+    const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const second = useChatStore.getState().sendMessageToConversation(otherConversationId, 'segunda');
+
+    await flushMicrotasks();
+    expect(mockSendMessage).toHaveBeenCalledTimes(2);
+
+    firstSend.resolve();
+    await Promise.all([first, second]);
   });
 
   it('chat:speak event invokes handleChatSpeak for matching conversation', async () => {
