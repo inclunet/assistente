@@ -368,6 +368,38 @@ describe('chatStore validation', () => {
     expect(useChatStore.getState().surfaceSessionsByKey[surfaceSessionKey]?.isLoading).toBe(false);
   });
 
+  it('limpa mensagens usando timeline mesmo sem sessão legada', async () => {
+    useChatStore.setState({
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [
+            {
+              message: {
+                id: 'message-1',
+                conversationId: defaultConversationId,
+                role: 'user',
+                content: 'oi',
+                createdAt: new Date().toISOString(),
+              },
+              children: [],
+              childCount: 0,
+            } as unknown as MessageNode,
+          ],
+        },
+      },
+      surfaceSessionsByKey: {},
+    });
+
+    useChatStore.getState().handleConversationCleared(defaultConversationId);
+
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages).toEqual([]);
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.title).toBe('chat.conversationCleared');
+    expect(mockAnnounce).toHaveBeenCalledWith('chat.announce.conversationMessagesRemoved');
+  });
+
   it('serializa envios concorrentes da mesma conversa', async () => {
     const firstSend = deferred<void>();
     mockSendMessage

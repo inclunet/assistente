@@ -38,6 +38,7 @@ vi.mock('../services/tts', () => ({
 const chatStoreState = {
   sendMessageToConversation: sendMessageMock,
   ensureConversationSurfaceSession: vi.fn(),
+  removeConversationSurfaceSession: vi.fn(),
   sessionsByConversationId: {
     [conversationId]: {
       conversation: activeConversation,

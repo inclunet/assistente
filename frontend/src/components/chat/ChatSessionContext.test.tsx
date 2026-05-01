@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const currentConversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const targetConversationId = '01926b90-7a5a-7c4e-8d3f-000000000002';
 const ensureConversationSurfaceSessionMock = vi.fn();
+const removeConversationSurfaceSessionMock = vi.fn();
 const retryMessageToConversationMock = vi.fn().mockResolvedValue(undefined);
 
 const chatStoreState = {
@@ -20,6 +21,7 @@ const chatStoreState = {
   timelinesByConversationId: {},
   surfaceSessionsByKey: {},
   ensureConversationSurfaceSession: ensureConversationSurfaceSessionMock,
+  removeConversationSurfaceSession: removeConversationSurfaceSessionMock,
   retryMessageToConversation: retryMessageToConversationMock,
   loadOlderMessagesForConversation: vi.fn(),
   loadMessageChildren: vi.fn(),
@@ -68,11 +70,12 @@ function Probe() {
 describe('ChatSessionProvider', () => {
   beforeEach(() => {
     ensureConversationSurfaceSessionMock.mockClear();
+    removeConversationSurfaceSessionMock.mockClear();
     retryMessageToConversationMock.mockClear();
   });
 
   it('materializa sessão de superfície ao montar sessionKey não padrão', async () => {
-    render(
+    const { unmount } = render(
       <ChatSessionProvider
         conversationId={currentConversationId}
         surfaceType="embedded"
@@ -95,6 +98,12 @@ describe('ChatSessionProvider', () => {
         }),
       );
     });
+
+    unmount();
+
+    expect(removeConversationSurfaceSessionMock).toHaveBeenCalledWith(
+      `embedded:workspace-chat-modal:tab-chat:${currentConversationId}`,
+    );
   });
 
   it('normaliza origin do retry usando a conversa alvo', async () => {

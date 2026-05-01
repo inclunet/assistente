@@ -108,6 +108,7 @@ interface ChatStore {
   setConversationReadingMessageId: (conversationId: string, id: string | null, sessionKey?: string) => void;
   startConversationReading: (conversationId: string, id: string, sessionKey?: string) => void;
   ensureConversationSurfaceSession: (conversationId: string, sessionKey: string, origin?: ChatSurfaceOrigin) => void;
+  removeConversationSurfaceSession: (sessionKey: string) => void;
 
   createConversation: (title?: string) => Promise<string>;
   loadConversationSession: (id: string, options?: { activate?: boolean }) => Promise<void>;
@@ -406,6 +407,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             [sessionKey]: surfaceSession,
           },
         };
+      });
+    },
+
+    removeConversationSurfaceSession: (sessionKey) => {
+      set((state) => {
+        if (!state.surfaceSessionsByKey[sessionKey]) return state;
+        const surfaceSessionsByKey = { ...state.surfaceSessionsByKey };
+        delete surfaceSessionsByKey[sessionKey];
+        return { surfaceSessionsByKey };
       });
     },
 
@@ -709,7 +719,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleConversationCleared: (conversationId: string) => {
-      if (get().sessionsByConversationId[conversationId]) {
+      if (getConversationTimeline(get(), conversationId)) {
         announce(i18next.t('chat.announce.conversationMessagesRemoved'));
         set((state) => ({
           ...patchConversation(state, conversationId, (conversation) => ({
@@ -787,7 +797,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     handleExternalIncoming: (data) => {
       void handleExternalChatIncoming(data, {
-        hasConversationSession: (conversationId) => !!get().sessionsByConversationId[conversationId]?.conversation,
+        hasConversationSession: (conversationId) => !!getConversationTimeline(get(), conversationId),
         loadConversationSession: (conversationId) => get().loadConversationSession(conversationId, { activate: false }),
         chatEventAdapter,
       });

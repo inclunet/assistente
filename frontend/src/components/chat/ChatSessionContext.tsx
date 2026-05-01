@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import {
   type ActiveConversation,
@@ -114,6 +114,7 @@ export function ChatSessionProvider({
   const loadConversationSession = useChatStore((state) => state.loadConversationSession);
   const retryMessageToConversationBase = useChatStore((state) => state.retryMessageToConversation);
   const ensureConversationSurfaceSession = useChatStore((state) => state.ensureConversationSurfaceSession);
+  const removeConversationSurfaceSession = useChatStore((state) => state.removeConversationSurfaceSession);
   const updateConversationMessage = useChatStore((state) => state.updateConversationMessage);
   const clearConversationMessages = useChatStore((state) => state.clearConversationMessages);
   const startConversationEditingBase = useChatStore((state) => state.startConversationEditing);
@@ -130,8 +131,10 @@ export function ChatSessionProvider({
     }
   }, [loadOlderMessagesForConversation, normalizedConversationId]);
 
+  const materializedSurfaceSessionKeysRef = useRef(new Set<string>());
+
   useEffect(() => {
-    if (!normalizedConversationId || surfaceSession) return;
+    if (!normalizedConversationId || surfaceSession || materializedSurfaceSessionKeysRef.current.has(sessionKey)) return;
     ensureConversationSurfaceSession(normalizedConversationId, sessionKey, {
       sessionKey,
       conversationId: normalizedConversationId,
@@ -139,6 +142,7 @@ export function ChatSessionProvider({
       surfaceId,
       surfaceType,
     });
+    materializedSurfaceSessionKeysRef.current.add(sessionKey);
   }, [
     ensureConversationSurfaceSession,
     normalizedConversationId,
@@ -148,6 +152,14 @@ export function ChatSessionProvider({
     surfaceType,
     tabId,
   ]);
+
+  useEffect(() => (
+    () => {
+      if (!materializedSurfaceSessionKeysRef.current.has(sessionKey)) return;
+      materializedSurfaceSessionKeysRef.current.delete(sessionKey);
+      removeConversationSurfaceSession(sessionKey);
+    }
+  ), [removeConversationSurfaceSession, sessionKey]);
 
   const buildOriginForConversation = useCallback((
     targetConversationId: string,
