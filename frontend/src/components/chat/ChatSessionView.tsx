@@ -94,6 +94,10 @@ function ChatSessionViewContent({
     startConversationEditing,
     startConversationReading,
     origin,
+    draftMessage,
+    draftMediaFiles,
+    setDraftMessage,
+    setDraftMediaFiles,
   } = useChatSession();
   const getSessionConversation = useCallback(() => conversation, [conversation]);
 
@@ -474,6 +478,10 @@ function ChatSessionViewContent({
           disabled={variant === 'embedded' ? false : isLoading}
           ref={inputRef}
           voiceEnabled={true}
+          message={draftMessage}
+          mediaFiles={draftMediaFiles}
+          onMessageChange={setDraftMessage}
+          onMediaFilesChange={setDraftMediaFiles}
           onArrowUp={() => {
             const container = messagesContainerRef.current;
             if (container) {

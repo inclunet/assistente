@@ -1,5 +1,6 @@
 import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
 import type { MessageNode, TurnSegment } from '../lib/chatMessageTree';
+import type { MediaFile } from './mediaService';
 
 export interface ActiveConversation {
   id: string;
@@ -53,6 +54,8 @@ export interface ChatSurfaceSession {
   isThinking: boolean;
   activeToolCalls: ToolCallStatus[];
   completedSegments: TurnSegment[];
+  draftMessage: string;
+  draftMediaFiles: MediaFile[];
   expandedThreads: Set<string>;
   expandedReasonings: Set<string>;
   editingMessageId: string | null;
@@ -87,6 +90,8 @@ export const createEmptyChatSurfaceSession = (
   isThinking: false,
   activeToolCalls: [],
   completedSegments: [],
+  draftMessage: '',
+  draftMediaFiles: [],
   expandedThreads: new Set<string>(),
   expandedReasonings: new Set<string>(),
   editingMessageId: null,

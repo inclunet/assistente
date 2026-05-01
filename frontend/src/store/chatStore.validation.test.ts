@@ -153,6 +153,8 @@ describe('chatStore validation', () => {
           isThinking: false,
           activeToolCalls: [],
           completedSegments: [],
+          draftMessage: '',
+          draftMediaFiles: [],
           expandedThreads: new Set<string>(),
           expandedReasonings: new Set<string>(),
           editingMessageId: null,
@@ -425,6 +427,30 @@ describe('chatStore validation', () => {
     emitEvent('chat:done', { conversationId: defaultConversationId });
     send.resolve();
     await pending;
+  });
+
+  it('mantém rascunho e anexos isolados por superfície', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const otherSessionKey = `tab-b:${defaultConversationId}`;
+    const mediaFile = {
+      id: 'media-1',
+    } as unknown as import('../services/mediaService').MediaFile;
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
+        [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
+      },
+    });
+
+    useChatStore.getState().setConversationDraftMessage(defaultConversationId, 'rascunho A', originSessionKey);
+    useChatStore.getState().setConversationDraftMediaFiles(defaultConversationId, [mediaFile], originSessionKey);
+
+    const state = useChatStore.getState();
+    expect(state.surfaceSessionsByKey[originSessionKey]?.draftMessage).toBe('rascunho A');
+    expect(state.surfaceSessionsByKey[originSessionKey]?.draftMediaFiles).toEqual([mediaFile]);
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.draftMessage).toBe('');
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.draftMediaFiles).toEqual([]);
   });
 
   it('sincroniza flags de paginação nas superfícies ao carregar conversa', async () => {

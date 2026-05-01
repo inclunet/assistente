@@ -107,6 +107,9 @@ interface ChatStore {
   consumeSkipFocusRestore: (conversationId: string) => boolean;
   setConversationReadingMessageId: (conversationId: string, id: string | null, sessionKey?: string) => void;
   startConversationReading: (conversationId: string, id: string, sessionKey?: string) => void;
+  setConversationDraftMessage: (conversationId: string, message: string, sessionKey?: string) => void;
+  setConversationDraftMediaFiles: (conversationId: string, mediaFiles: MediaFile[], sessionKey?: string) => void;
+  clearConversationDraft: (conversationId: string, sessionKey?: string) => void;
   ensureConversationSurfaceSession: (conversationId: string, sessionKey: string, origin?: ChatSurfaceOrigin) => void;
   removeConversationSurfaceSession: (sessionKey: string) => void;
 
@@ -434,6 +437,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     startConversationReading: (conversationId, id, sessionKey) => {
       set((state) => patchSession(state, conversationId, { readingMessageId: id, skipFocusRestore: true }, sessionKey));
+    },
+
+    setConversationDraftMessage: (conversationId, message, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { draftMessage: message }, sessionKey));
+    },
+
+    setConversationDraftMediaFiles: (conversationId, mediaFiles, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { draftMediaFiles: mediaFiles }, sessionKey));
+    },
+
+    clearConversationDraft: (conversationId, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { draftMessage: '', draftMediaFiles: [] }, sessionKey));
     },
 
     ensureConversationSurfaceSession: (conversationId, sessionKey, origin) => {

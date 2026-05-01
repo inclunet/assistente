@@ -69,4 +69,28 @@ describe('ChatInput', () => {
 
     expect(screen.getByTestId('voice-button')).toBeInTheDocument();
   });
+
+  it('usa estado controlado para rascunho e anexos', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const onMessageChange = vi.fn();
+    const onMediaFilesChange = vi.fn();
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message="Rascunho da superfície"
+        mediaFiles={[]}
+        onMessageChange={onMessageChange}
+        onMediaFilesChange={onMediaFilesChange}
+      />,
+    );
+
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    expect(textarea).toHaveValue('Rascunho da superfície');
+
+    fireEvent.change(textarea, { target: { value: 'Novo rascunho' } });
+
+    expect(onMessageChange).toHaveBeenCalledWith('Novo rascunho');
+    expect(onMediaFilesChange).not.toHaveBeenCalled();
+  });
 });

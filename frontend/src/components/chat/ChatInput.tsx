@@ -19,15 +19,30 @@ export interface ChatInputProps {
   onArrowUp?: () => void;
   /** Se o controle de voz está habilitado */
   voiceEnabled?: boolean;
+  message?: string;
+  mediaFiles?: MediaFile[];
+  onMessageChange?: (message: string) => void;
+  onMediaFilesChange?: (mediaFiles: MediaFile[]) => void;
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
-  { onSend, disabled = false, placeholder, maxFiles = 5, onArrowUp, voiceEnabled = false },
+  {
+    onSend,
+    disabled = false,
+    placeholder,
+    maxFiles = 5,
+    onArrowUp,
+    voiceEnabled = false,
+    message: controlledMessage,
+    mediaFiles: controlledMediaFiles,
+    onMessageChange,
+    onMediaFilesChange,
+  },
   ref
 ) => {
   const { t } = useTranslation();
-  const [message, setMessage] = useState('');
-  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  const [localMessage, setLocalMessage] = useState('');
+  const [localMediaFiles, setLocalMediaFiles] = useState<MediaFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -41,6 +56,22 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   
   // Use external ref if provided, otherwise use internal ref
   const textareaRef = (ref as React.RefObject<HTMLTextAreaElement>) || internalTextareaRef;
+  const message = controlledMessage ?? localMessage;
+  const mediaFiles = controlledMediaFiles ?? localMediaFiles;
+  const setMessage = useCallback((nextMessage: string) => {
+    if (onMessageChange) {
+      onMessageChange(nextMessage);
+      return;
+    }
+    setLocalMessage(nextMessage);
+  }, [onMessageChange]);
+  const setMediaFiles = useCallback((nextMediaFiles: MediaFile[]) => {
+    if (onMediaFilesChange) {
+      onMediaFilesChange(nextMediaFiles);
+      return;
+    }
+    setLocalMediaFiles(nextMediaFiles);
+  }, [onMediaFilesChange]);
 
   // Carrega skills invocáveis quando o componente monta
   useEffect(() => {
@@ -131,7 +162,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       const remainingSlots = maxFiles - mediaFiles.length;
       const filesToProcess = files.slice(0, remainingSlots);
       const processed = await processMediaFiles(filesToProcess);
-      setMediaFiles(prev => [...prev, ...processed]);
+      setMediaFiles([...mediaFiles, ...processed]);
     } catch (error) {
       console.error('Erro ao processar arquivos:', error);
     } finally {
@@ -140,7 +171,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   };
 
   const handleRemoveMedia = (id: string) => {
-    setMediaFiles(prev => prev.filter(m => m.id !== id));
+    setMediaFiles(mediaFiles.filter(m => m.id !== id));
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {

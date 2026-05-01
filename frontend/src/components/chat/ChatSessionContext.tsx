@@ -18,6 +18,7 @@ import {
   type ConversationTimeline,
 } from '../../services/chatSessionRegistry';
 import type { ToolCallStatus } from './ToolCallsSection';
+import type { MediaFile } from '../../services/mediaService';
 
 const EMPTY_MESSAGES: never[] = [];
 
@@ -46,6 +47,11 @@ export interface ChatSessionContextValue {
   isLoading: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
+  draftMessage: string;
+  draftMediaFiles: MediaFile[];
+  setDraftMessage: (message: string) => void;
+  setDraftMediaFiles: (mediaFiles: MediaFile[]) => void;
+  clearDraft: () => void;
   loadOlderMessages: () => Promise<void>;
   loadConversationSession: (conversationId: string, options?: { activate?: boolean }) => Promise<void>;
   loadMessageChildren: ReturnType<typeof useChatStore.getState>['loadMessageChildren'];
@@ -106,6 +112,8 @@ export function ChatSessionProvider({
   const isLoading = session?.isLoading ?? false;
   const hasOlderMessages = session?.hasOlderMessages ?? false;
   const isLoadingOlderMessages = session?.isLoadingOlderMessages ?? false;
+  const draftMessage = session?.draftMessage ?? '';
+  const draftMediaFiles = session?.draftMediaFiles ?? [];
 
   const loadOlderMessagesForConversation = useChatStore((state) => state.loadOlderMessagesForConversation);
   const loadMessageChildren = useChatStore((state) => state.loadMessageChildren);
@@ -117,6 +125,9 @@ export function ChatSessionProvider({
   const clearConversationMessages = useChatStore((state) => state.clearConversationMessages);
   const startConversationEditingBase = useChatStore((state) => state.startConversationEditing);
   const startConversationReadingBase = useChatStore((state) => state.startConversationReading);
+  const setConversationDraftMessage = useChatStore((state) => state.setConversationDraftMessage);
+  const setConversationDraftMediaFiles = useChatStore((state) => state.setConversationDraftMediaFiles);
+  const clearConversationDraft = useChatStore((state) => state.clearConversationDraft);
   const setConversationEditingMessageIdBase = useChatStore((state) => state.setConversationEditingMessageId);
   const setConversationReadingMessageIdBase = useChatStore((state) => state.setConversationReadingMessageId);
   const toggleConversationThreadExpandedBase = useChatStore((state) => state.toggleConversationThreadExpanded);
@@ -128,6 +139,21 @@ export function ChatSessionProvider({
       await loadOlderMessagesForConversation(normalizedConversationId, sessionKey);
     }
   }, [loadOlderMessagesForConversation, normalizedConversationId, sessionKey]);
+
+  const setDraftMessage = useCallback((message: string) => {
+    if (!normalizedConversationId) return;
+    setConversationDraftMessage(normalizedConversationId, message, sessionKey);
+  }, [normalizedConversationId, sessionKey, setConversationDraftMessage]);
+
+  const setDraftMediaFiles = useCallback((mediaFiles: MediaFile[]) => {
+    if (!normalizedConversationId) return;
+    setConversationDraftMediaFiles(normalizedConversationId, mediaFiles, sessionKey);
+  }, [normalizedConversationId, sessionKey, setConversationDraftMediaFiles]);
+
+  const clearDraft = useCallback(() => {
+    if (!normalizedConversationId) return;
+    clearConversationDraft(normalizedConversationId, sessionKey);
+  }, [clearConversationDraft, normalizedConversationId, sessionKey]);
 
   const materializedSurfaceSessionKeysRef = useRef(new Set<string>());
 
@@ -236,6 +262,11 @@ export function ChatSessionProvider({
     isLoading,
     hasOlderMessages,
     isLoadingOlderMessages,
+    draftMessage,
+    draftMediaFiles,
+    setDraftMessage,
+    setDraftMediaFiles,
+    clearDraft,
     loadOlderMessages,
     loadConversationSession,
     loadMessageChildren,
@@ -251,7 +282,10 @@ export function ChatSessionProvider({
     isConversationReasoningExpanded,
   }), [
     clearConversationMessages,
+    clearDraft,
     conversation,
+    draftMediaFiles,
+    draftMessage,
     hasOlderMessages,
     isConversationReasoningExpanded,
     isLoading,
@@ -263,6 +297,8 @@ export function ChatSessionProvider({
     retryMessageToConversation,
     session,
     sessionKey,
+    setDraftMediaFiles,
+    setDraftMessage,
     setConversationEditingMessageId,
     setConversationReadingMessageId,
     startConversationEditing,
