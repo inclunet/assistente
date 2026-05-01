@@ -8,6 +8,12 @@ Reorientar o workspace para ser um shell fino responsável por abas, foco, estad
 
 O objetivo é remover o modelo em que o workspace e stores globais assumem uma única superfície ativa para todos os domínios. Cada aba visitada pode permanecer montada durante a sessão, com controller próprio e estado visual próprio. Serviços verdadeiramente globais, como announcer, TTS e STT, continuam únicos e passam a ser arbitrados por política central.
 
+Esta AEP é a fundação arquitetural do PR de abas autocontidas. Ela define o alvo geral e registra o primeiro corte de implementação. As mudanças restantes devem ser executadas em AEPs menores e sequenciais, para manter cada PR revisável:
+
+- AEP-0057: identidade de sessão de chat por `tabId + conversationId`;
+- AEP-0058: arbitragem global de announcer, TTS e STT;
+- AEP-0059: performance de conversas longas.
+
 Esta AEP usa o número 0056 porque as AEPs 0053, 0054 e 0055 estão sendo tratadas em outros PRs.
 
 ## Motivação
@@ -93,6 +99,7 @@ Após separar os controllers por domínio, aplicar otimizações focadas:
 - Atualizar AEP-0040 para permitir controllers por aba/conversa, mantendo contrato compartilhado de envio.
 - Atualizar instruções de agentes (`CLAUDE.md`, `.github/copilot-instructions.md`) para refletir a nova regra.
 - Registrar esta AEP como plano guarda-chuva da mudança.
+- Registrar AEPs filhas para os próximos PRs: AEP-0057, AEP-0058 e AEP-0059.
 
 ### Fase 2 — Workspace shell e keep-alive
 
@@ -109,18 +116,24 @@ Após separar os controllers por domínio, aplicar otimizações focadas:
 
 ### Fase 4 — Chat autocontido por conversa
 
-- Extrair controller de chat por `conversationId`.
-- Manter estado visual e streaming escopados por conversa/aba.
+Esta fase passa a ser detalhada pela AEP-0057.
+
+- Definir identidade canônica de sessão como `tabId + conversationId`.
+- Separar estado visual e streaming por instância de aba.
 - Permitir envio simultâneo em conversas diferentes.
 - Garantir que retry e nova mensagem continuem delegando ao contrato compartilhado.
 
 ### Fase 5 — Arbitragem global de acessibilidade e voz
+
+Esta fase passa a ser detalhada pela AEP-0058.
 
 - Centralizar política de anúncios para aba ativa/inativa.
 - Garantir TTS exclusivo com fila/arbitragem e perfil efetivo da aba origem.
 - Garantir STT local apenas na aba ativa.
 
 ### Fase 6 — Otimizações específicas
+
+Esta fase passa a ser detalhada pela AEP-0059.
 
 - Adicionar paginação de mensagens e carregamento incremental.
 - Ajustar scroll e renderização de conversas longas.
