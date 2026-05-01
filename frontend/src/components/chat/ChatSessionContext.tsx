@@ -11,6 +11,7 @@ import {
   buildChatSessionKey,
   createEmptyChatSession,
   getChatSession,
+  normalizeChatSurfaceOrigin,
   type ChatSurfaceSession,
   type ChatSurfaceOrigin,
   type ChatSurfaceType,
@@ -112,6 +113,7 @@ export function ChatSessionProvider({
   const loadMessageChildren = useChatStore((state) => state.loadMessageChildren);
   const loadConversationSession = useChatStore((state) => state.loadConversationSession);
   const retryMessageToConversationBase = useChatStore((state) => state.retryMessageToConversation);
+  const ensureConversationSurfaceSession = useChatStore((state) => state.ensureConversationSurfaceSession);
   const updateConversationMessage = useChatStore((state) => state.updateConversationMessage);
   const clearConversationMessages = useChatStore((state) => state.clearConversationMessages);
   const startConversationEditingBase = useChatStore((state) => state.startConversationEditing);
@@ -128,20 +130,50 @@ export function ChatSessionProvider({
     }
   }, [loadOlderMessagesForConversation, normalizedConversationId]);
 
+  useEffect(() => {
+    if (!normalizedConversationId || surfaceSession) return;
+    ensureConversationSurfaceSession(normalizedConversationId, sessionKey, {
+      sessionKey,
+      conversationId: normalizedConversationId,
+      tabId,
+      surfaceId,
+      surfaceType,
+    });
+  }, [
+    ensureConversationSurfaceSession,
+    normalizedConversationId,
+    sessionKey,
+    surfaceId,
+    surfaceSession,
+    surfaceType,
+    tabId,
+  ]);
+
+  const buildOriginForConversation = useCallback((
+    targetConversationId: string,
+    providedOrigin?: ChatSurfaceOrigin,
+  ): ChatSurfaceOrigin => {
+    const fallbackOrigin: ChatSurfaceOrigin = {
+      sessionKey: targetConversationId === normalizedConversationId
+        ? sessionKey
+        : buildChatSessionKey(surfaceId, targetConversationId),
+      conversationId: targetConversationId,
+      tabId,
+      surfaceId,
+      surfaceType,
+    };
+
+    return normalizeChatSurfaceOrigin(providedOrigin ?? fallbackOrigin, targetConversationId) ?? fallbackOrigin;
+  }, [normalizedConversationId, sessionKey, surfaceId, surfaceType, tabId]);
+
   const retryMessageToConversation = useCallback<ChatSessionContextValue['retryMessageToConversation']>(
     (targetConversationId, messageId, paramsOverride, options) => (
       retryMessageToConversationBase(targetConversationId, messageId, paramsOverride, {
         ...options,
-        origin: options?.origin ?? {
-          sessionKey,
-          conversationId: normalizedConversationId,
-          tabId,
-          surfaceId,
-          surfaceType,
-        },
+        origin: buildOriginForConversation(targetConversationId, options?.origin),
       })
     ),
-    [normalizedConversationId, retryMessageToConversationBase, sessionKey, surfaceId, surfaceType, tabId],
+    [buildOriginForConversation, retryMessageToConversationBase],
   );
 
   const startConversationEditing = useCallback<ChatSessionContextValue['startConversationEditing']>(

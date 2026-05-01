@@ -27,6 +27,7 @@ import {
   reloadConversationSnapshot,
 } from '../services/chatSessionLoader';
 import {
+  createEmptyChatSurfaceSession,
   getChatSession,
   getConversationTimeline,
   patchChatConversation,
@@ -106,6 +107,7 @@ interface ChatStore {
   consumeSkipFocusRestore: (conversationId: string) => boolean;
   setConversationReadingMessageId: (conversationId: string, id: string | null, sessionKey?: string) => void;
   startConversationReading: (conversationId: string, id: string, sessionKey?: string) => void;
+  ensureConversationSurfaceSession: (conversationId: string, sessionKey: string, origin?: ChatSurfaceOrigin) => void;
 
   createConversation: (title?: string) => Promise<string>;
   loadConversationSession: (id: string, options?: { activate?: boolean }) => Promise<void>;
@@ -376,6 +378,27 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     startConversationReading: (conversationId, id, sessionKey) => {
       set((state) => patchSession(state, conversationId, { readingMessageId: id, skipFocusRestore: true }, sessionKey));
+    },
+
+    ensureConversationSurfaceSession: (conversationId, sessionKey, origin) => {
+      set((state) => {
+        if (state.surfaceSessionsByKey[sessionKey]) return state;
+        const compatibilitySession = state.sessionsByConversationId[conversationId];
+        const surfaceSession = {
+          ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+          surfaceOrigin: origin,
+          isLoading: compatibilitySession?.isLoading ?? state.loadingConversationIds.has(conversationId),
+          hasOlderMessages: compatibilitySession?.hasOlderMessages ?? false,
+          isLoadingOlderMessages: compatibilitySession?.isLoadingOlderMessages ?? false,
+          queuedTurnCount: compatibilitySession?.queuedTurnCount ?? 0,
+        };
+        return {
+          surfaceSessionsByKey: {
+            ...state.surfaceSessionsByKey,
+            [sessionKey]: surfaceSession,
+          },
+        };
+      });
     },
 
     consumeSkipFocusRestore: (conversationId) => {

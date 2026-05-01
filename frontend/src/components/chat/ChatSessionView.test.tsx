@@ -28,6 +28,7 @@ vi.mock('../../services/tts', () => ({
 
 const chatStoreState = {
   retryMessageToConversation: vi.fn(),
+  ensureConversationSurfaceSession: vi.fn(),
   sessionsByConversationId: {
     [conversationId]: {
       conversation: activeConversation,
@@ -36,6 +37,8 @@ const chatStoreState = {
       isLoadingOlderMessages: false,
     },
   },
+  timelinesByConversationId: {},
+  surfaceSessionsByKey: {},
   loadMessageChildren: vi.fn(),
   loadConversationSession: vi.fn(),
   updateConversationMessage: updateMessageMock,
