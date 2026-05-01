@@ -87,10 +87,10 @@ function emitEvent(name: string, data: unknown) {
 }
 
 function deferred<T>() {
-  let resolve!: (value: T) => void;
+  let resolve!: (value?: T) => void;
   let reject!: (reason?: unknown) => void;
   const promise = new Promise<T>((res, rej) => {
-    resolve = res;
+    resolve = (value?: T) => res(value as T);
     reject = rej;
   });
   return { promise, resolve, reject };
