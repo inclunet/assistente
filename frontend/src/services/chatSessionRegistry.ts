@@ -157,6 +157,13 @@ export function getConversationTimeline(
     ?? null;
 }
 
+export function getCompatibilityChatSession(
+  state: ChatSessionRegistryState,
+  conversationId: string,
+): ChatConversationSession | null {
+  return state.sessionsByConversationId[conversationId] ?? null;
+}
+
 export function getChatSurfaceSessionsForConversation(
   state: ChatSessionRegistryState,
   conversationId: string,

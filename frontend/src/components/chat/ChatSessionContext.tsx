@@ -10,6 +10,8 @@ import {
 import {
   buildChatSessionKey,
   createEmptyChatSession,
+  getCompatibilityChatSession,
+  getConversationTimeline,
   getChatSession,
   normalizeChatSurfaceOrigin,
   type ChatSurfaceSession,
@@ -97,10 +99,10 @@ export function ChatSessionProvider({
   const sessionKey = explicitSessionKey ?? buildChatSessionKey(surfaceId, normalizedConversationId);
 
   const compatibilitySession = useChatStore((state) => (
-    normalizedConversationId ? state.sessionsByConversationId[normalizedConversationId] ?? null : null
+    normalizedConversationId ? getCompatibilityChatSession(state, normalizedConversationId) : null
   ));
   const timeline = useChatStore((state) => (
-    normalizedConversationId ? state.timelinesByConversationId?.[normalizedConversationId] ?? null : null
+    normalizedConversationId ? getConversationTimeline(state, normalizedConversationId) : null
   ));
   const surfaceSession = useChatStore((state) => (
     normalizedConversationId ? state.surfaceSessionsByKey?.[sessionKey] ?? null : null
@@ -352,10 +354,10 @@ export function useChatNodeSessionState(fallbackConversationId: string, messageI
   const context = useOptionalChatSession();
   const conversationId = context?.conversationId || fallbackConversationId;
   const compatibilitySession = useChatStore((state) => (
-    conversationId ? state.sessionsByConversationId[conversationId] ?? null : null
+    conversationId ? getCompatibilityChatSession(state, conversationId) : null
   ));
   const timeline = useChatStore((state) => (
-    conversationId ? state.timelinesByConversationId?.[conversationId] ?? null : null
+    conversationId ? getConversationTimeline(state, conversationId) : null
   ));
   const surfaceSession = useChatStore((state) => {
     const sessionKey = context?.origin.sessionKey;
