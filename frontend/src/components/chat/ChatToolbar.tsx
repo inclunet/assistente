@@ -2,7 +2,6 @@ import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
-import { useChatStore } from '../../store/chatStore';
 import { useNavigationStore } from '../../store/navigationStore';
 import { ClearConversation, GetActiveProfileSlug } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
@@ -16,6 +15,7 @@ import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
+import { useChatSession } from './ChatSessionContext';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
@@ -31,11 +31,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId[conversationId] ?? null : null);
-  const activeConversation = session?.conversation ?? null;
-  const clearConversationMessages = useChatStore((s) => s.clearConversationMessages);
-  const isLoading = session?.isLoading ?? false;
-  const loadConversationSession = useChatStore((s) => s.loadConversationSession);
+  const {
+    conversationId: sessionConversationId,
+    conversation: activeConversation,
+    isLoading,
+    clearConversationMessages,
+    loadConversationSession,
+  } = useChatSession();
+  const effectiveConversationId = sessionConversationId || conversationId || null;
   const { announce } = useAnnouncer();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
@@ -115,8 +118,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       if (conv?.id) {
         await ClearConversation(conv.id);
         await loadConversationSession(conv.id, { activate: true });
-      } else if (conversationId) {
-        clearConversationMessages(conversationId);
+      } else if (effectiveConversationId) {
+        clearConversationMessages(effectiveConversationId);
       }
 
       announce(t('chat.conversationCleared'));
@@ -125,7 +128,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       announce(t('chat.clearError'));
     }
     focusInput();
-  }, [announce, activeConversation, clearConversationMessages, conversationId, focusInput, loadConversationSession]);
+  }, [announce, activeConversation, clearConversationMessages, effectiveConversationId, focusInput, loadConversationSession]);
 
   useEffect(() => {
     if (!enableShortcuts) return;

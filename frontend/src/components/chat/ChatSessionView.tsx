@@ -1,13 +1,13 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button } from 'antd';
-import { useChatStore } from '../../store/chatStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { ttsService } from '../../services/tts';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar } from './ChatToolbar';
+import { ChatSessionProvider, useChatSession } from './ChatSessionContext';
 import { ContextMenu } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
@@ -23,8 +23,6 @@ import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHand
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatSessionView.css';
 
-const EMPTY_MESSAGES: never[] = [];
-
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
   conversationId?: string | null;
@@ -34,6 +32,24 @@ export interface ChatSessionViewProps {
 }
 
 export function ChatSessionView({
+  variant = 'page',
+  conversationId,
+  onSend,
+  showShortcutsHelp,
+}: ChatSessionViewProps) {
+  return (
+    <ChatSessionProvider conversationId={conversationId} surfaceType={variant}>
+      <ChatSessionViewContent
+        variant={variant}
+        conversationId={conversationId}
+        onSend={onSend}
+        showShortcutsHelp={showShortcutsHelp}
+      />
+    </ChatSessionProvider>
+  );
+}
+
+function ChatSessionViewContent({
   variant = 'page',
   conversationId,
   onSend,
@@ -49,24 +65,23 @@ export function ChatSessionView({
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
-  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId[conversationId] ?? null : null);
-  const conversation = session?.conversation ?? null;
-  const threadedMessages = conversation?.threadedMessages ?? EMPTY_MESSAGES;
-  const isLoading = session?.isLoading ?? false;
-  const hasOlderMessages = session?.hasOlderMessages ?? false;
-  const isLoadingOlderMessages = session?.isLoadingOlderMessages ?? false;
-  const loadOlderMessagesForConversation = useChatStore((s) => s.loadOlderMessagesForConversation);
-  const loadOlderMessages = useCallback(async () => {
-    if (conversationId) {
-      await loadOlderMessagesForConversation(conversationId);
-    }
-  }, [conversationId, loadOlderMessagesForConversation]);
-  const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
-  const loadConversationSession = useChatStore((s) => s.loadConversationSession);
-  const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
-  const updateConversationMessage = useChatStore((s) => s.updateConversationMessage);
-  const toggleConversationReasoningExpanded = useChatStore((s) => s.toggleConversationReasoningExpanded);
-  const isConversationReasoningExpanded = useChatStore((s) => s.isConversationReasoningExpanded);
+  const {
+    session,
+    conversation,
+    threadedMessages,
+    isLoading,
+    hasOlderMessages,
+    isLoadingOlderMessages,
+    loadOlderMessages,
+    loadMessageChildren,
+    loadConversationSession,
+    retryMessageToConversation,
+    updateConversationMessage,
+    toggleConversationReasoningExpanded,
+    isConversationReasoningExpanded,
+    startConversationEditing,
+    startConversationReading,
+  } = useChatSession();
   const getSessionConversation = useCallback(() => conversation, [conversation]);
 
   useEffect(() => {
@@ -91,8 +106,6 @@ export function ChatSessionView({
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
 
-  const startConversationEditing = useChatStore((state) => state.startConversationEditing);
-  const startConversationReading = useChatStore((state) => state.startConversationReading);
   const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
   const editorTargets = useMemo<EditorSendTargetOption[]>(

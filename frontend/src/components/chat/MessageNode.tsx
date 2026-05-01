@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType, Message } from '../../store/chatStore';
-import { useChatStore } from '../../store/chatStore';
+import { useChatNodeSessionState } from './ChatSessionContext';
 import { playBumpSound } from '../../services/audioFeedback';
 import { UpdateMessage } from '@wailsjs/go/app/App';
 import { announce } from '../../hooks/useAnnouncer';
@@ -45,35 +45,23 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   
   // IMPORTANTE: messageId deve ser definido primeiro, pois é usado em hooks abaixo
   const messageId = node.message.id;
-  const conversationId = String(node.message.conversationId || '');
-  const session = useChatStore(state => conversationId ? state.sessionsByConversationId[conversationId] ?? null : null);
-  
-  const toggleConversationThreadExpanded = useChatStore(state => state.toggleConversationThreadExpanded);
-  const setConversationEditingMessageId = useChatStore(state => state.setConversationEditingMessageId);
-  const setConversationReadingMessageId = useChatStore(state => state.setConversationReadingMessageId);
-  const toggleConversationReasoningExpanded = useChatStore(state => state.toggleConversationReasoningExpanded);
-  const editingMessageId = session?.editingMessageId ?? null;
-  const readingMessageId = session?.readingMessageId ?? null;
-  const streamingMessageId = session?.streamingMessageId ?? null;
-  const streamingReasoning = session?.streamingReasoning ?? null;
-  const isThinkingGlobal = session?.isThinking ?? false;
-  const activeToolCalls = session?.activeToolCalls ?? [];
-  const completedSegments = session?.completedSegments ?? [];
-
-  // OTIMIZADO: Seletores que retornam apenas valores booleanos para este nó específico
-  // Evita re-renders quando outras threads/reasonings são expandidas/colapsadas
-  const isExpanded = useChatStore(
-    useCallback(state => {
-      const scopedSession = conversationId ? state.sessionsByConversationId[conversationId] : null;
-      return scopedSession?.expandedThreads.has(messageId) ?? false;
-    }, [conversationId, messageId])
-  );
-  const reasoningExpanded = useChatStore(
-    useCallback(state => {
-      const scopedSession = conversationId ? state.sessionsByConversationId[conversationId] : null;
-      return scopedSession?.expandedReasonings.has(messageId) ?? false;
-    }, [conversationId, messageId])
-  );
+  const fallbackConversationId = String(node.message.conversationId || '');
+  const {
+    conversationId,
+    editingMessageId,
+    readingMessageId,
+    streamingMessageId,
+    streamingReasoning,
+    isThinking: isThinkingGlobal,
+    activeToolCalls,
+    completedSegments,
+    isExpanded,
+    reasoningExpanded,
+    setConversationEditingMessageId,
+    setConversationReadingMessageId,
+    toggleConversationThreadExpanded,
+    toggleConversationReasoningExpanded,
+  } = useChatNodeSessionState(fallbackConversationId, messageId);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
