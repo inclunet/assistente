@@ -135,6 +135,10 @@ const en = {
       toolRetrying: 'Tool {{name}} failed, retrying...',
       toolRunning: 'Running tool: {{name}}',
       toolDone: 'Tool {{name}} completed',
+      queue: {
+        pending_one: '{{count}} turn queued',
+        pending_other: '{{count}} turns queued',
+      },
       validation: {
         messageTooLarge: 'Message too large ({{size}} bytes). Maximum allowed: {{max}} bytes',
         mediaTooLarge: 'Media files too large (~{{size}}MB). Maximum allowed: {{max}}MB',

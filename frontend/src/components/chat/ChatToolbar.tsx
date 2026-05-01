@@ -33,12 +33,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const navigate = useNavigate();
   const {
     conversationId: sessionConversationId,
+    session,
     conversation: activeConversation,
     isLoading,
     clearConversationMessages,
     loadConversationSession,
   } = useChatSession();
   const effectiveConversationId = sessionConversationId || conversationId || null;
+  const queuedTurnCount = session?.queuedTurnCount ?? 0;
   const { announce } = useAnnouncer();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
@@ -190,9 +192,16 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         ariaLabel={t('chat.toolbarLabel')}
         isLoading={isLoading}
         left={
-          <h2 className="chat-toolbar__title" id="chat-heading">
-            {conversationTitle}
-          </h2>
+          <div className="chat-toolbar__heading">
+            <h2 className="chat-toolbar__title" id="chat-heading">
+              {conversationTitle}
+            </h2>
+            {queuedTurnCount > 0 && (
+              <span className="chat-toolbar__queue-status" role="status" aria-live="polite">
+                {t('chat.queue.pending', { count: queuedTurnCount })}
+              </span>
+            )}
+          </div>
         }
         right={
           <>

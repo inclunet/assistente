@@ -135,6 +135,10 @@ const ptBR = {
       toolRetrying: 'Ferramenta {{name}} falhou, tentando novamente...',
       toolRunning: 'Executando ferramenta: {{name}}',
       toolDone: 'Ferramenta {{name}} concluída',
+      queue: {
+        pending_one: '{{count}} turno na fila',
+        pending_other: '{{count}} turnos na fila',
+      },
       validation: {
         messageTooLarge: 'Mensagem muito grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
         mediaTooLarge: 'Arquivos de mídia muito grandes (~{{size}}MB). Máximo permitido: {{max}}MB',

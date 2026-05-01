@@ -25,6 +25,7 @@ export interface ChatSurfaceSession {
   sessionKey?: string;
   conversationId?: string | null;
   surfaceOrigin?: ChatSurfaceOrigin;
+  queuedTurnCount?: number;
   isLoading: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
@@ -58,6 +59,7 @@ export const createEmptyChatSurfaceSession = (
 ): ChatSurfaceSession => ({
   sessionKey,
   conversationId,
+  queuedTurnCount: 0,
   isLoading: false,
   hasOlderMessages: false,
   isLoadingOlderMessages: false,

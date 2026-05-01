@@ -191,6 +191,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     });
   };
 
+  const adjustQueuedTurnCount = (conversationId: string, delta: number) => {
+    set((state) => {
+      const session = getSession(state, conversationId);
+      const queuedTurnCount = Math.max(0, (session.queuedTurnCount ?? 0) + delta);
+      return patchSession(state, conversationId, { queuedTurnCount });
+    });
+  };
+
   const chatEventAdapter = {
     getSession: (conversationId: string) => getSession(get(), conversationId),
     patchSession: (conversationId: string, patch: Partial<ChatConversationSession>) => {
@@ -491,9 +499,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!get().sessionsByConversationId[conversationId]?.conversation) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
-      await turnQueue.enqueue(conversationId, () => (
-        sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options)
-      ));
+      const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
+      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1);
+      await turnQueue.enqueue(conversationId, async () => {
+        if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1);
+        await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
+      });
     },
 
     retryMessageToConversation: async (conversationId, messageId, paramsOverride, options) => {
@@ -505,15 +516,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!get().sessionsByConversationId[conversationId]?.conversation) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
-      await turnQueue.enqueue(conversationId, () => (
-        sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options)
-      ));
+      const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
+      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1);
+      await turnQueue.enqueue(conversationId, async () => {
+        if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1);
+        await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
+      });
     },
 
     cancelConversationTurn: (conversationId) => {
       turnQueue.clear(conversationId);
       stopChatEventController(conversationId);
       setConversationLoading(conversationId, false);
+      set((state) => patchSession(state, conversationId, { queuedTurnCount: 0 }));
     },
 
     getConversationMessages: (conversationId) => (

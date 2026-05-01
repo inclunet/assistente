@@ -254,6 +254,7 @@ describe('chatStore validation', () => {
     await flushMicrotasks();
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
     expect(mockSendMessage.mock.calls[0][1]).toBe('primeira');
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
 
     firstSend.resolve();
     await first;
@@ -261,6 +262,28 @@ describe('chatStore validation', () => {
 
     expect(mockSendMessage).toHaveBeenCalledTimes(2);
     expect(mockSendMessage.mock.calls[1][1]).toBe('segunda');
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+  });
+
+  it('serializa retry atrás de envio ativo da mesma conversa', async () => {
+    const firstSend = deferred<void>();
+    mockSendMessage.mockImplementationOnce(() => firstSend.promise);
+    mockRetryMessage.mockResolvedValueOnce(undefined);
+
+    const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const retry = useChatStore.getState().retryMessageToConversation(defaultConversationId, 'message-1');
+
+    await flushMicrotasks();
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockRetryMessage).not.toHaveBeenCalled();
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+
+    firstSend.resolve();
+    await first;
+    await retry;
+
+    expect(mockRetryMessage).toHaveBeenCalledWith(defaultConversationId, 'message-1', expect.any(Object));
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
   });
 
   it('mantem envios de conversas diferentes em paralelo', async () => {
