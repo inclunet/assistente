@@ -308,7 +308,11 @@ export function startChatEventController({
       },
     });
     if (external && event.userContent) {
-      announce(`${external.from} via ${external.channel}: ${stripMarkdown(event.userContent)}`);
+      announce(i18next.t('chat.announce.externalMessage', {
+        from: external.from,
+        channel: external.channel,
+        message: stripMarkdown(event.userContent),
+      }));
     }
   });
 

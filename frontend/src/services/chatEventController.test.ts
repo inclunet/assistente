@@ -58,6 +58,7 @@ vi.mock('i18next', () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
       if (key === 'chat.errorPrefix') return `Erro: ${opts?.message}`;
       if (key === 'chat.sendErrorPrefix') return `Falha ao enviar: ${opts?.message}`;
+      if (key === 'chat.announce.externalMessage') return `${opts?.from} via ${opts?.channel}: ${opts?.message}`;
       return key;
     },
   },

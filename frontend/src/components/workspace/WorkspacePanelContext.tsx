@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 import { useActiveTab, type WorkspaceTab } from '../../store/workspaceStore';
 
 interface WorkspacePanelContextValue {
-  tab: WorkspaceTab;
+  tab?: WorkspaceTab;
   isActive: boolean;
 }
 

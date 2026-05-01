@@ -18,7 +18,7 @@ export interface ExternalChatControllerAdapter {
   chatEventAdapter: ChatEventControllerAdapter;
 }
 
-export function handleExternalChatIncoming(
+export async function handleExternalChatIncoming(
   data: ExternalChatIncomingData,
   adapter: ExternalChatControllerAdapter,
 ) {
@@ -26,7 +26,7 @@ export function handleExternalChatIncoming(
   if (!conversationId) return;
 
   if (!adapter.hasConversationSession(conversationId)) {
-    void adapter.loadConversationSession(conversationId);
+    await adapter.loadConversationSession(conversationId);
   }
 
   startChatEventController({

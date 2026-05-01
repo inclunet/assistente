@@ -305,11 +305,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     createConversation: async (title) => {
-      const conv = await EnsureConversation(title || 'Nova Conversa');
+      const defaultTitle = i18next.t('chat.newConversation');
+      const conv = await EnsureConversation(title || defaultTitle);
       set((state) => {
         const conversation = {
           id: conv.id,
-          title: conv.title || title || 'Nova Conversa',
+          title: conv.title || title || defaultTitle,
           threadedMessages: [],
         };
         const sessionsByConversationId = {
@@ -337,7 +338,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       try {
         const snapshot = await loadConversationSnapshot(id, INITIAL_MESSAGE_WINDOW_SIZE);
-        if (seq !== loadConversationSeq) return;
+        if (options.activate !== false && seq !== loadConversationSeq) return;
         set((state) => {
           if (options.activate !== false && seq !== loadConversationSeq) return state;
           const conversation = {
@@ -370,7 +371,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             ...state.sessionsByConversationId,
             [id]: {
               ...getSession(state, id),
-              conversation: { id, title: 'Conversa', threadedMessages: [] },
+              conversation: { id, title: i18next.t('chat.conversation'), threadedMessages: [] },
               isLoading: state.loadingConversationIds.has(id),
               hasOlderMessages: false,
               isLoadingOlderMessages: false,
@@ -573,7 +574,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         set((state) => removeChatSession(state, conversationId));
       }
       if (isChatConversationActive(conversationId)) {
-        announce('Conversa apagada permanentemente');
+        announce(i18next.t('chat.announce.conversationDeletedPermanently'));
         setTimeout(() => {
           const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
           if (input) input.focus();
@@ -583,12 +584,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     handleConversationCleared: (conversationId: string) => {
       if (get().sessionsByConversationId[conversationId]) {
-        announce('Mensagens da conversa removidas');
+        announce(i18next.t('chat.announce.conversationMessagesRemoved'));
         set((state) => ({
           ...patchConversation(state, conversationId, (conversation) => ({
             ...conversation,
             threadedMessages: [],
-            title: 'Conversa limpa',
+            title: i18next.t('chat.conversationCleared'),
           })),
         }));
       }
@@ -614,7 +615,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         loadingConversationIds: new Set(),
         isInitialized: false,
       });
-      announce('Banco de dados resetado. Conversas reinicializadas.');
+      announce(i18next.t('chat.announce.databaseReset'));
     },
 
     assignConversationChannel: async (conversationId, channel, contactId) => {
@@ -656,7 +657,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleExternalIncoming: (data) => {
-      handleExternalChatIncoming(data, {
+      void handleExternalChatIncoming(data, {
         hasConversationSession: (conversationId) => !!get().sessionsByConversationId[conversationId]?.conversation,
         loadConversationSession: (conversationId) => get().loadConversationSession(conversationId, { activate: false }),
         chatEventAdapter,

@@ -35,10 +35,10 @@ describe('externalChatController', () => {
     mockStartChatEventController.mockClear();
   });
 
-  it('ignora eventos sem conversationId', () => {
+  it('ignora eventos sem conversationId', async () => {
     const adapter = createAdapter(false);
 
-    handleExternalChatIncoming({
+    await handleExternalChatIncoming({
       channel: 'telegram',
       from: 'Maria',
       text: 'oi',
@@ -50,10 +50,10 @@ describe('externalChatController', () => {
     expect(mockStartChatEventController).not.toHaveBeenCalled();
   });
 
-  it('carrega sessão ausente e inicia controller externo', () => {
+  it('carrega sessão ausente e inicia controller externo', async () => {
     const adapter = createAdapter(false);
 
-    handleExternalChatIncoming({
+    await handleExternalChatIncoming({
       channel: 'telegram',
       from: 'Maria',
       text: 'oi',
@@ -68,10 +68,10 @@ describe('externalChatController', () => {
     });
   });
 
-  it('não recarrega sessão já existente', () => {
+  it('não recarrega sessão já existente', async () => {
     const adapter = createAdapter(true);
 
-    handleExternalChatIncoming({
+    await handleExternalChatIncoming({
       channel: 'slack',
       from: 'Joao',
       text: 'ola',

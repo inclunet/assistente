@@ -142,6 +142,8 @@ const en = {
       errors: {
         noActiveConversation:
           'No active conversation. Open a chat tab or wait for the workspace to finish syncing.',
+        tabCannotSend: 'The active tab does not support sending messages.',
+        chatTabNotReady: 'The chat tab conversation is not ready yet.',
       },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',
@@ -191,6 +193,10 @@ const en = {
         cannotGenerateAudio: 'Could not generate audio. Check the voice settings in the active profile.',
         audioDownloaded: 'Audio downloaded successfully',
         audioError: 'Error generating audio',
+        conversationDeletedPermanently: 'Conversation permanently deleted',
+        conversationMessagesRemoved: 'Conversation messages removed',
+        databaseReset: 'Database reset. Conversations reinitialized.',
+        externalMessage: '{{from}} via {{channel}}: {{message}}',
       },
       contextMenuAriaLabel: 'Message actions',
     },

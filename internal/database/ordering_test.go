@@ -175,3 +175,101 @@ func TestGetDetailedTokenStats_NoSummary(t *testing.T) {
 		t.Errorf("out-of-context count: expected 0, got %d", stats.MessagesOutOfContextCount)
 	}
 }
+
+func createConvWithSameTimestampRootMessages(t *testing.T) (convID string, msgIDs []string) {
+	t.Helper()
+
+	conv := &Conversation{Title: "pagination-test"}
+	if err := db.Create(conv).Error; err != nil {
+		t.Fatalf("failed to create conversation: %v", err)
+	}
+	convID = conv.ID
+
+	createdAt := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+	ids := []string{
+		"01971000-0000-7000-8000-000000000001",
+		"01971000-0000-7000-8000-000000000002",
+		"01971000-0000-7000-8000-000000000003",
+		"01971000-0000-7000-8000-000000000004",
+		"01971000-0000-7000-8000-000000000005",
+	}
+
+	for i, id := range ids {
+		msg := ChatMessage{
+			UUIDModel: UUIDModel{
+				ID:        id,
+				CreatedAt: createdAt,
+			},
+			ConversationID: convID,
+			Role:           "user",
+			Content:        "root message",
+			TotalTokens:    i + 1,
+		}
+		if err := db.Create(&msg).Error; err != nil {
+			t.Fatalf("failed to create root message %d: %v", i, err)
+		}
+	}
+
+	childID := "01971000-0000-7000-8000-000000000099"
+	child := ChatMessage{
+		UUIDModel: UUIDModel{
+			ID:        childID,
+			CreatedAt: createdAt,
+		},
+		ConversationID: convID,
+		ParentID:       &ids[2],
+		Role:           "assistant",
+		Content:        "child message",
+	}
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatalf("failed to create child message: %v", err)
+	}
+
+	return convID, ids
+}
+
+func TestGetRecentRootMessages_LimitAndStableOrder(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	msgs, err := GetRecentRootMessages(convID, 3)
+	if err != nil {
+		t.Fatalf("GetRecentRootMessages: %v", err)
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("expected 3 recent root messages, got %d", len(msgs))
+	}
+
+	expected := ids[2:5]
+	for i, id := range expected {
+		if msgs[i].ID != id {
+			t.Errorf("msgs[%d]: expected %s, got %s", i, id, msgs[i].ID)
+		}
+		if msgs[i].ParentID != nil {
+			t.Errorf("msgs[%d]: expected root message, got parent %s", i, *msgs[i].ParentID)
+		}
+	}
+}
+
+func TestGetRootMessagesBefore_CursorLimitAndStableOrder(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	msgs, err := GetRootMessagesBefore(convID, ids[3], 2)
+	if err != nil {
+		t.Fatalf("GetRootMessagesBefore: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 root messages before cursor, got %d", len(msgs))
+	}
+
+	expected := []string{ids[1], ids[2]}
+	for i, id := range expected {
+		if msgs[i].ID != id {
+			t.Errorf("msgs[%d]: expected %s, got %s", i, id, msgs[i].ID)
+		}
+		if msgs[i].ParentID != nil {
+			t.Errorf("msgs[%d]: expected root message, got parent %s", i, *msgs[i].ParentID)
+		}
+	}
+}

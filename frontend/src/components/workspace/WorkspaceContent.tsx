@@ -74,26 +74,12 @@ export function WorkspaceContent() {
 
   const mountedPanels = useMemo(() => {
     const panels: Array<{ key: string; tab: WorkspaceTab }> = [];
-    let editorPanel: WorkspaceTab | null = null;
 
     for (const tab of tabs) {
       const shouldMount = tab.id === activeTab?.id || visitedTabIds.has(tab.id);
       if (!shouldMount) continue;
 
-      if (tab.type === 'editor') {
-        if (tab.id === activeTab?.id) {
-          editorPanel = tab;
-        } else if (!editorPanel) {
-          editorPanel = tab;
-        }
-        continue;
-      }
-
       panels.push({ key: tab.id, tab });
-    }
-
-    if (editorPanel) {
-      panels.push({ key: 'editor', tab: editorPanel });
     }
 
     return panels;
