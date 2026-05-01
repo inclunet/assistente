@@ -550,7 +550,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }
-      if (!get().sessionsByConversationId[conversationId]?.conversation) {
+      if (!getConversationTimeline(get(), conversationId)) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
       const sessionKey = options?.origin?.sessionKey;
@@ -572,7 +572,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }
-      if (!get().sessionsByConversationId[conversationId]?.conversation) {
+      if (!getConversationTimeline(get(), conversationId)) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
       const sessionKey = options?.origin?.sessionKey;
@@ -704,6 +704,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleDatabaseReset: () => {
+      turnQueue.clearAll();
       stopAllChatEventControllers();
       set({
         sessionsByConversationId: {},

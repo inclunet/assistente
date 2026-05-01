@@ -121,4 +121,44 @@ describe('chatTurnQueue', () => {
     queue.clear('conversation-1');
     expect(queue.isQueued('conversation-1')).toBe(false);
   });
+
+  it('invalida pendentes de todas as conversas', async () => {
+    const queue = createConversationTurnQueue();
+    const first = deferred<void>();
+    const second = deferred<void>();
+    const calls: string[] = [];
+
+    const firstRun = queue.enqueue('conversation-1', async () => {
+      calls.push('first:start');
+      await first.promise;
+      calls.push('first:end');
+    });
+    const firstPending = queue.enqueue('conversation-1', async () => {
+      calls.push('first:pending');
+    });
+    const secondRun = queue.enqueue('conversation-2', async () => {
+      calls.push('second:start');
+      await second.promise;
+      calls.push('second:end');
+    });
+    const secondPending = queue.enqueue('conversation-2', async () => {
+      calls.push('second:pending');
+    });
+
+    await flushMicrotasks();
+    queue.clearAll();
+
+    expect(queue.isQueued('conversation-1')).toBe(true);
+    expect(queue.isQueued('conversation-2')).toBe(true);
+
+    first.resolve();
+    second.resolve();
+    await Promise.all([firstRun, secondRun]);
+    await expect(firstPending).rejects.toBeInstanceOf(ConversationTurnQueueClearedError);
+    await expect(secondPending).rejects.toBeInstanceOf(ConversationTurnQueueClearedError);
+
+    expect(calls).toEqual(['first:start', 'second:start', 'first:end', 'second:end']);
+    expect(queue.isQueued('conversation-1')).toBe(false);
+    expect(queue.isQueued('conversation-2')).toBe(false);
+  });
 });

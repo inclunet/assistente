@@ -1,6 +1,7 @@
 export interface ConversationTurnQueue {
   enqueue: <T>(conversationId: string, task: () => Promise<T>) => Promise<T>;
   clear: (conversationId: string) => void;
+  clearAll: () => void;
   isQueued: (conversationId: string) => boolean;
 }
 
@@ -51,21 +52,28 @@ export function createConversationTurnQueue(): ConversationTurnQueue {
     return run;
   };
 
+  const clear = (conversationId: string) => {
+    const state = tails.get(conversationId);
+    if (state) {
+      state.generation += 1;
+      const generation = state.generation;
+      const tail = state.tail
+        .catch(() => undefined)
+        .finally(() => {
+          if (tails.get(conversationId) === state && state.tail === tail && state.generation === generation) {
+            tails.delete(conversationId);
+          }
+        });
+      state.tail = tail;
+    }
+  };
+
   return {
     enqueue,
-    clear: (conversationId) => {
-      const state = tails.get(conversationId);
-      if (state) {
-        state.generation += 1;
-        const generation = state.generation;
-        const tail = state.tail
-          .catch(() => undefined)
-          .finally(() => {
-            if (tails.get(conversationId) === state && state.tail === tail && state.generation === generation) {
-              tails.delete(conversationId);
-            }
-          });
-        state.tail = tail;
+    clear,
+    clearAll: () => {
+      for (const conversationId of Array.from(tails.keys())) {
+        clear(conversationId);
       }
     },
     isQueued: (conversationId) => tails.has(conversationId),

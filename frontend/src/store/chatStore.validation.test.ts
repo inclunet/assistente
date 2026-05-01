@@ -293,6 +293,62 @@ describe('chatStore validation', () => {
     expect(useChatStore.getState().surfaceSessionsByKey[orphanSessionKey]).toBeUndefined();
   });
 
+  it('envia sem recarregar quando timeline já está carregada sem sessão legada', async () => {
+    useChatStore.setState({
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
+      },
+      surfaceSessionsByKey: {},
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello');
+
+    expect(mockGetConversationInfo).not.toHaveBeenCalled();
+    expect(mockGetMessages).not.toHaveBeenCalled();
+    expect(mockGetRecentMessages).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith(defaultConversationId, 'hello', '', expect.any(Object));
+  });
+
+  it('faz retry sem recarregar quando timeline já está carregada sem sessão legada', async () => {
+    useChatStore.setState({
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
+      },
+      surfaceSessionsByKey: {},
+    });
+
+    await useChatStore.getState().retryMessageToConversation(defaultConversationId, 'message-1');
+
+    expect(mockGetConversationInfo).not.toHaveBeenCalled();
+    expect(mockGetMessages).not.toHaveBeenCalled();
+    expect(mockGetRecentMessages).not.toHaveBeenCalled();
+    expect(mockRetryMessage).toHaveBeenCalledWith(defaultConversationId, 'message-1', expect.any(Object));
+  });
+
+  it('reset do banco invalida turnos pendentes', async () => {
+    const firstSend = deferred<void>();
+    mockSendMessage.mockImplementationOnce(() => firstSend.promise);
+
+    const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const second = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'segunda');
+
+    await flushMicrotasks();
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+
+    useChatStore.getState().handleDatabaseReset();
+    firstSend.resolve();
+
+    await first;
+    await second;
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(useChatStore.getState().sessionsByConversationId).toEqual({});
+    expect(useChatStore.getState().timelinesByConversationId).toEqual({});
+    expect(useChatStore.getState().surfaceSessionsByKey).toEqual({});
+  });
+
   it('serializa envios concorrentes da mesma conversa', async () => {
     const firstSend = deferred<void>();
     mockSendMessage
