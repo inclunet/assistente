@@ -151,6 +151,61 @@ describe('chatSessionRegistry', () => {
     expect(getChatSession(state, 'conversation-1', 'tab-b:conversation-1').expandedThreads.has('message-2')).toBe(true);
   });
 
+  it('mantém painéis independentes com timeline compartilhada', () => {
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        'conversation-1': {
+          ...conversation('conversation-1'),
+          title: 'Timeline compartilhada',
+        },
+      },
+      surfaceSessionsByKey: {
+        'tab-a:conversation-1': {
+          ...createEmptyChatSession('conversation-1', 'tab-a:conversation-1'),
+          draftMessage: 'rascunho A',
+          draftMediaFiles: [{ id: 'media-a' } as unknown as import('./mediaService').MediaFile],
+          scrollTop: 120,
+          scrollAnchorMessageId: 'message-a',
+          expandedThreads: new Set(['thread-a']),
+          editingMessageId: 'edit-a',
+          isLoading: true,
+        },
+        'tab-b:conversation-1': {
+          ...createEmptyChatSession('conversation-1', 'tab-b:conversation-1'),
+          draftMessage: 'rascunho B',
+          draftMediaFiles: [],
+          scrollTop: 540,
+          scrollAnchorMessageId: 'message-b',
+          expandedThreads: new Set(['thread-b']),
+          editingMessageId: null,
+          isLoading: false,
+        },
+      },
+    };
+
+    const tabA = getChatSession(state, 'conversation-1', 'tab-a:conversation-1');
+    const tabB = getChatSession(state, 'conversation-1', 'tab-b:conversation-1');
+
+    expect(tabA.conversation).toBe(tabB.conversation);
+    expect(tabA.conversation?.title).toBe('Timeline compartilhada');
+    expect(tabA.draftMessage).toBe('rascunho A');
+    expect(tabB.draftMessage).toBe('rascunho B');
+    expect(tabA.draftMediaFiles).toHaveLength(1);
+    expect(tabB.draftMediaFiles).toHaveLength(0);
+    expect(tabA.scrollTop).toBe(120);
+    expect(tabB.scrollTop).toBe(540);
+    expect(tabA.scrollAnchorMessageId).toBe('message-a');
+    expect(tabB.scrollAnchorMessageId).toBe('message-b');
+    expect(tabA.expandedThreads.has('thread-a')).toBe(true);
+    expect(tabA.expandedThreads.has('thread-b')).toBe(false);
+    expect(tabB.expandedThreads.has('thread-b')).toBe(true);
+    expect(tabA.editingMessageId).toBe('edit-a');
+    expect(tabB.editingMessageId).toBeNull();
+    expect(tabA.isLoading).toBe(true);
+    expect(tabB.isLoading).toBe(false);
+  });
+
   it('não herda estado visual de compatibilidade em sessionKey não padrão', () => {
     const state: ChatSessionRegistryState = {
       sessionsByConversationId: {
