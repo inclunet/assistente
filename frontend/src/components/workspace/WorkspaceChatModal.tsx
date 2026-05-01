@@ -8,6 +8,7 @@ import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import type { MediaFile } from '../../services/mediaService';
+import type { ChatSurfaceOrigin } from '../../services/chatSessionRegistry';
 
 import './WorkspaceChatModal.css';
 
@@ -54,7 +55,7 @@ export function WorkspaceChatModal() {
   }, [isOpen, focusNonce]);
 
   const handleSend = useCallback(
-    async (content: string, mediaFiles?: MediaFile[]) => {
+    async (content: string, mediaFiles?: MediaFile[], origin?: ChatSurfaceOrigin) => {
       const {
         boundTabId: tabId,
         boundConversationId: storedConversationId,
@@ -97,11 +98,19 @@ export function WorkspaceChatModal() {
       if (!sendPlan) return;
 
       try {
+        const sendOrigin = origin
+          ? {
+            ...origin,
+            conversationId: targetConversationId,
+            sessionKey: origin.conversationId ? origin.sessionKey : `${origin.surfaceId}:${targetConversationId}`,
+          }
+          : undefined;
         await useChatStore.getState().sendMessageToConversation(
           targetConversationId,
           sendPlan.content,
           sendPlan.mediaFiles,
           sendPlan.paramsOverride,
+          { origin: sendOrigin },
         );
         await sendPlan.afterSend?.();
       } catch (error) {

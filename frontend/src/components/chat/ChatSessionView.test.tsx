@@ -190,6 +190,9 @@ describe('ChatSessionView', () => {
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
-    expect(onSend).toHaveBeenCalledWith('oi', undefined);
+    expect(onSend).toHaveBeenCalledWith('oi', undefined, expect.objectContaining({
+      conversationId,
+      surfaceType: 'embedded',
+    }));
   });
 });

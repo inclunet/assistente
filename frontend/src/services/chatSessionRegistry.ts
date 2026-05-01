@@ -10,10 +10,21 @@ export interface ActiveConversation {
 }
 
 export type ConversationTimeline = ActiveConversation;
+export type ChatSessionKey = string;
+export type ChatSurfaceType = 'page' | 'embedded' | 'modal' | 'external';
+
+export interface ChatSurfaceOrigin {
+  sessionKey: ChatSessionKey;
+  conversationId: string | null;
+  tabId?: string;
+  surfaceId: string;
+  surfaceType: ChatSurfaceType;
+}
 
 export interface ChatSurfaceSession {
   sessionKey?: string;
   conversationId?: string | null;
+  surfaceOrigin?: ChatSurfaceOrigin;
   isLoading: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;

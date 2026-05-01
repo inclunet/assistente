@@ -31,6 +31,7 @@ import {
   type ActiveConversation,
   type ChatConversationSession,
   type ChatSurfaceSession,
+  type ChatSurfaceOrigin,
   type ConversationTimeline,
 } from '../services/chatSessionRegistry';
 import {
@@ -56,7 +57,13 @@ interface MediaData {
 }
 
 export type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
-export type { ActiveConversation, ChatConversationSession, ChatSurfaceSession, ConversationTimeline } from '../services/chatSessionRegistry';
+export type {
+  ActiveConversation,
+  ChatConversationSession,
+  ChatSurfaceOrigin,
+  ChatSurfaceSession,
+  ConversationTimeline,
+} from '../services/chatSessionRegistry';
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
@@ -116,11 +123,13 @@ interface ChatStore {
     content: string,
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
+    options?: { origin?: ChatSurfaceOrigin },
   ) => Promise<void>;
   retryMessageToConversation: (
     conversationId: string,
     messageId: string,
     paramsOverride?: Partial<llm.ChatParams>,
+    options?: { origin?: ChatSurfaceOrigin },
   ) => Promise<void>;
 
   getConversationMessages: (conversationId: string) => Message[];
@@ -205,6 +214,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
     retryMessageId?: string,
+    options?: { origin?: ChatSurfaceOrigin },
   ) => {
     if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
       announce(i18next.t('chat.validation.messageTooLarge', {
@@ -232,6 +242,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const controller = startChatEventController({
       conversationId,
       initialUserContent: content,
+      origin: options?.origin,
       adapter: chatEventAdapter,
     });
 
@@ -468,7 +479,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       })));
     },
 
-    sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride) => {
+    sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride, options) => {
       if (!conversationId) {
         console.error('[Chat] sendMessageToConversation sem conversationId explícito');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
@@ -477,10 +488,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!get().sessionsByConversationId[conversationId]?.conversation) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
-      await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride);
+      await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
     },
 
-    retryMessageToConversation: async (conversationId, messageId, paramsOverride) => {
+    retryMessageToConversation: async (conversationId, messageId, paramsOverride, options) => {
       if (!conversationId || !messageId) {
         console.error('[Chat] retryMessageToConversation sem conversationId/messageId válido');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
@@ -489,7 +500,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!get().sessionsByConversationId[conversationId]?.conversation) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
-      await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId);
+      await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
     },
 
     getConversationMessages: (conversationId) => (

@@ -7,7 +7,7 @@ export {
   useChatNodeSessionState,
   useChatMessageLiveState,
 } from './ChatSessionContext';
-export type { ChatSessionKey, ChatSurfaceOrigin, ChatSurfaceType } from './ChatSessionContext';
+export type { ChatSessionKey, ChatSurfaceOrigin, ChatSurfaceType } from '../../services/chatSessionRegistry';
 export { ChatInput } from './ChatInput';
 export { ChatMessage } from './ChatMessage';
 export { TokenStatsButton } from './TokenStatsButton';

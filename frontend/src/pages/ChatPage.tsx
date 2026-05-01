@@ -4,6 +4,7 @@ import { useChatStore } from '../store/chatStore';
 import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
 import { ChatSessionView } from '../components/chat/ChatSessionView';
 import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext';
+import type { ChatSurfaceOrigin } from '../services/chatSessionRegistry';
 
 export default function ChatPage() {
   const { t } = useTranslation();
@@ -15,7 +16,7 @@ export default function ChatPage() {
   // Não duplicar aqui — evita 2x GetConversationInfo + GetMessages a cada troca de aba.
 
   const onSend = useCallback(
-    async (content: string, mediaFiles?: Parameters<typeof sendMessageToConversation>[2]) => {
+    async (content: string, mediaFiles?: Parameters<typeof sendMessageToConversation>[2], origin?: ChatSurfaceOrigin) => {
       if (!tab || tab.type !== 'chat') {
         throw new Error(t('chat.errors.tabCannotSend'));
       }
@@ -23,7 +24,14 @@ export default function ChatPage() {
       if (!conversationId) {
         throw new Error(t('chat.errors.chatTabNotReady'));
       }
-      await sendMessageToConversation(conversationId, content, mediaFiles);
+      const sendOrigin = origin
+        ? {
+          ...origin,
+          conversationId,
+          sessionKey: origin.conversationId ? origin.sessionKey : `${origin.surfaceId}:${conversationId}`,
+        }
+        : undefined;
+      await sendMessageToConversation(conversationId, content, mediaFiles, undefined, { origin: sendOrigin });
     },
     [tab, sendMessageToConversation, t],
   );

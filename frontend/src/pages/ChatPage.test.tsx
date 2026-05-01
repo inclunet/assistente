@@ -211,7 +211,19 @@ describe('ChatPage', () => {
 
     await waitFor(() => {
       expect(ensureWorkspaceTabHasConversationMock).toHaveBeenCalled();
-      expect(sendMessageMock).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000002a', 'oi', undefined);
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-00000000002a',
+        'oi',
+        undefined,
+        undefined,
+        {
+          origin: expect.objectContaining({
+            conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
+            sessionKey: 'chat-tab:01926b90-7a5a-7c4e-8d3f-00000000002a',
+            tabId: 'chat-tab',
+          }),
+        },
+      );
     });
   });
 

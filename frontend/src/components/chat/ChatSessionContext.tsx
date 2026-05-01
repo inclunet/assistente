@@ -7,21 +7,15 @@ import {
   type TurnSegment,
   useChatStore,
 } from '../../store/chatStore';
-import { getChatSession } from '../../services/chatSessionRegistry';
+import {
+  getChatSession,
+  type ChatSessionKey,
+  type ChatSurfaceOrigin,
+  type ChatSurfaceType,
+} from '../../services/chatSessionRegistry';
 import type { ToolCallStatus } from './ToolCallsSection';
 
 const EMPTY_MESSAGES: never[] = [];
-
-export type ChatSurfaceType = 'page' | 'embedded' | 'modal' | 'external';
-export type ChatSessionKey = string;
-
-export interface ChatSurfaceOrigin {
-  sessionKey: ChatSessionKey;
-  conversationId: string | null;
-  tabId?: string;
-  surfaceId: string;
-  surfaceType: ChatSurfaceType;
-}
 
 export interface ChatSessionContextValue {
   origin: ChatSurfaceOrigin;

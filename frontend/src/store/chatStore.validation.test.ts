@@ -212,6 +212,20 @@ describe('chatStore validation', () => {
     }));
   });
 
+  it('registra origem de superfície no controller de envio', async () => {
+    const origin = {
+      sessionKey: 'tab-chat:01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: defaultConversationId,
+      tabId: 'tab-chat',
+      surfaceId: 'tab-chat',
+      surfaceType: 'page' as const,
+    };
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', undefined, undefined, { origin });
+
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.surfaceOrigin).toEqual(origin);
+  });
+
   it('chat:speak event invokes handleChatSpeak for matching conversation', async () => {
     mockSendMessage.mockImplementation(() => {
       // Simula backend: emite chat:messages_ready, depois chat:speak do user

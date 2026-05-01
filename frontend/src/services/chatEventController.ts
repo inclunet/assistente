@@ -21,6 +21,7 @@ import {
   playChatReceiveSoundIfActive,
 } from './chatArbitration';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
+import type { ChatSurfaceOrigin } from './chatSessionRegistry';
 
 const STREAM_UPDATE_DEBOUNCE_MS = 16;
 
@@ -89,6 +90,7 @@ export interface ChatEventSession {
   conversation: ChatTreeConversation | null;
   activeToolCalls: ToolCallStatus[];
   completedSegments: TurnSegment[];
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 export interface ChatEventControllerAdapter {
@@ -111,6 +113,7 @@ interface ChatEventControllerOptions {
     from: string;
     text: string;
   };
+  origin?: ChatSurfaceOrigin;
   adapter: ChatEventControllerAdapter;
 }
 
@@ -187,6 +190,7 @@ export function startChatEventController({
   conversationId,
   initialUserContent = '',
   external,
+  origin,
   adapter,
 }: ChatEventControllerOptions): ChatEventControllerHandle {
   const conversationIdStr = conversationId.toString();
@@ -196,7 +200,7 @@ export function startChatEventController({
   let assistantNodeCreated = false;
 
   adapter.setConversationLoading(conversationId, true);
-  adapter.patchSession(conversationId, { completedSegments: [], activeToolCalls: [] });
+  adapter.patchSession(conversationId, { completedSegments: [], activeToolCalls: [], surfaceOrigin: origin });
 
   const noop = () => { /* no-op */ };
   let unsubMessagesReady = noop;

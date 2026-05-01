@@ -8,6 +8,7 @@ import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar } from './ChatToolbar';
 import { ChatSessionProvider, useChatSession } from './ChatSessionContext';
+import type { ChatSurfaceOrigin } from '../../services/chatSessionRegistry';
 import { ContextMenu } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
@@ -27,7 +28,7 @@ export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
   conversationId?: string | null;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
-  onSend: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
+  onSend: (content: string, mediaFiles?: MediaFile[], origin?: ChatSurfaceOrigin) => Promise<void>;
   showShortcutsHelp?: boolean;
 }
 
@@ -81,6 +82,7 @@ function ChatSessionViewContent({
     isConversationReasoningExpanded,
     startConversationEditing,
     startConversationReading,
+    origin,
   } = useChatSession();
   const getSessionConversation = useCallback(() => conversation, [conversation]);
 
@@ -237,7 +239,7 @@ function ChatSessionViewContent({
     onResend: async (message) => {
       const conversationId = getSessionConversation()?.id;
       if (!conversationId || !isBackendId(message.id)) return;
-      await retryMessageToConversation(conversationId, message.id);
+      await retryMessageToConversation(conversationId, message.id, undefined, { origin });
       announce(t('chat.announce.messageResent'));
     },
     onDelete: handleDeleteMessage,
@@ -369,7 +371,7 @@ function ChatSessionViewContent({
     try {
       setSendError(null);
       setLastFailedMessage(null);
-      await onSend(content, mediaFiles);
+      await onSend(content, mediaFiles, origin);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[ChatSessionView] send error:', errorMessage);
@@ -390,7 +392,7 @@ function ChatSessionViewContent({
 
     try {
       setSendError(null);
-      await onSend(lastFailedMessage.content, lastFailedMessage.media);
+      await onSend(lastFailedMessage.content, lastFailedMessage.media, origin);
       setLastFailedMessage(null);
     } catch (error) {
       handleError(error, {
