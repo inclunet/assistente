@@ -239,7 +239,38 @@ describe('chatStore validation', () => {
 
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', undefined, undefined, { origin });
 
-    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.surfaceOrigin).toEqual(origin);
+    expect(useChatStore.getState().surfaceSessionsByKey[origin.sessionKey]?.surfaceOrigin).toEqual(origin);
+  });
+
+  it('propaga eventos sem origem para superfícies existentes da conversa', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
+      },
+      surfaceSessionsByKey: {
+        [`tab-a:${defaultConversationId}`]: createEmptyChatSession(defaultConversationId, `tab-a:${defaultConversationId}`),
+        [`tab-b:${defaultConversationId}`]: createEmptyChatSession(defaultConversationId, `tab-b:${defaultConversationId}`),
+      },
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello');
+    emitEvent('chat:tool_start', {
+      conversationId: defaultConversationId,
+      name: 'search_web',
+      callId: 'tool-1',
+      args: '{}',
+    });
+    await flushMicrotasks();
+
+    expect(useChatStore.getState().surfaceSessionsByKey[`tab-a:${defaultConversationId}`]?.activeToolCalls[0]).toMatchObject({
+      callId: 'tool-1',
+      status: 'running',
+    });
+    expect(useChatStore.getState().surfaceSessionsByKey[`tab-b:${defaultConversationId}`]?.activeToolCalls[0]).toMatchObject({
+      callId: 'tool-1',
+      status: 'running',
+    });
   });
 
   it('serializa envios concorrentes da mesma conversa', async () => {

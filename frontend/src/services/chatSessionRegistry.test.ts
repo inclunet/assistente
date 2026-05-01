@@ -122,6 +122,59 @@ describe('chatSessionRegistry', () => {
     expect(getChatSession(state, 'conversation-1', 'tab-b:conversation-1').expandedThreads.has('message-2')).toBe(true);
   });
 
+  it('não herda estado visual de compatibilidade em sessionKey não padrão', () => {
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {
+        'conversation-1': {
+          ...createEmptyChatSession('conversation-1'),
+          conversation: conversation('conversation-1'),
+          expandedThreads: new Set(['message-from-default']),
+          editingMessageId: 'editing-default',
+        },
+      },
+      timelinesByConversationId: {
+        'conversation-1': conversation('conversation-1'),
+      },
+      surfaceSessionsByKey: {},
+    };
+
+    const defaultSession = getChatSession(state, 'conversation-1');
+    const surfaceSession = getChatSession(state, 'conversation-1', 'tab-a:conversation-1');
+
+    expect(defaultSession.expandedThreads.has('message-from-default')).toBe(true);
+    expect(surfaceSession.expandedThreads.has('message-from-default')).toBe(false);
+    expect(surfaceSession.editingMessageId).toBeNull();
+    expect(surfaceSession.conversation?.title).toBe('Conversa conversation-1');
+  });
+
+  it('não grava estado visual de sessionKey não padrão em sessionsByConversationId', () => {
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {
+        'conversation-1': {
+          ...createEmptyChatSession('conversation-1'),
+          conversation: conversation('conversation-1'),
+        },
+      },
+      timelinesByConversationId: {
+        'conversation-1': conversation('conversation-1'),
+      },
+      surfaceSessionsByKey: {},
+    };
+
+    const next = {
+      ...state,
+      ...patchChatSession(state, 'conversation-1', {
+        editingMessageId: 'message-from-tab',
+        expandedThreads: new Set(['message-from-tab']),
+      }, 'tab-a:conversation-1'),
+    };
+
+    expect(next.sessionsByConversationId['conversation-1'].editingMessageId).toBeNull();
+    expect(next.sessionsByConversationId['conversation-1'].expandedThreads.has('message-from-tab')).toBe(false);
+    expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').editingMessageId).toBe('message-from-tab');
+    expect(getConversationTimeline(next, 'conversation-1')?.title).toBe('Conversa conversation-1');
+  });
+
   it('atualiza timeline uma vez sem sobrescrever sessões visuais interessadas', () => {
     const state: ChatSessionRegistryState = {
       sessionsByConversationId: {},

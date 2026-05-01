@@ -222,7 +222,41 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   const chatEventAdapter = {
     getSession: (conversationId: string, sessionKey?: string) => getSession(get(), conversationId, sessionKey),
     patchSession: (conversationId: string, patch: Partial<ChatConversationSession>) => {
-      set((state) => patchSession(state, conversationId, patch, patch.surfaceOrigin?.sessionKey));
+      set((state) => {
+        const targetSessionKey = patch.surfaceOrigin?.sessionKey;
+        if (targetSessionKey) {
+          return patchSession(state, conversationId, patch, targetSessionKey);
+        }
+
+        const basePatches = patchSession(state, conversationId, patch);
+        const existingSurfaceSessionsByKey = basePatches.surfaceSessionsByKey ?? state.surfaceSessionsByKey;
+        const surfaceSessionsByKey = { ...existingSurfaceSessionsByKey };
+        const surfacePatch: Partial<ChatSurfaceSession> = { ...patch };
+        delete (surfacePatch as Partial<ChatConversationSession>).conversation;
+        let hasMatchingSurfaceSession = false;
+
+        for (const [sessionKey, session] of Object.entries(existingSurfaceSessionsByKey)) {
+          if (session.conversationId !== conversationId) {
+            continue;
+          }
+
+          hasMatchingSurfaceSession = true;
+          surfaceSessionsByKey[sessionKey] = {
+            ...session,
+            ...surfacePatch,
+            surfaceOrigin: patch.surfaceOrigin ?? session.surfaceOrigin,
+          };
+        }
+
+        if (!hasMatchingSurfaceSession) {
+          return basePatches;
+        }
+
+        return {
+          ...basePatches,
+          surfaceSessionsByKey,
+        };
+      });
     },
     patchConversation: (
       conversationId: string,

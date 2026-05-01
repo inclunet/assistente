@@ -123,8 +123,12 @@ export function getChatSession(
 ): ChatConversationSession {
   const compatibilitySession = state.sessionsByConversationId[conversationId];
   const timeline = state.timelinesByConversationId?.[conversationId] ?? compatibilitySession?.conversation ?? null;
+  const defaultSessionKey = getDefaultChatSessionKey(conversationId);
+  const shouldUseCompatibilityFallback = sessionKey === defaultSessionKey;
   const surfaceSession = state.surfaceSessionsByKey?.[sessionKey]
-    ?? (compatibilitySession ? toSurfaceSession(compatibilitySession, conversationId, sessionKey) : null)
+    ?? (shouldUseCompatibilityFallback && compatibilitySession
+      ? toSurfaceSession(compatibilitySession, conversationId, sessionKey)
+      : null)
     ?? createEmptyChatSurfaceSession(conversationId, sessionKey);
 
   return {
@@ -161,6 +165,8 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
     ? patch(currentSession)
     : { ...currentSession, ...patch };
   const nextSurfaceSession = toSurfaceSession(nextSession, conversationId, sessionKey);
+  const defaultSessionKey = getDefaultChatSessionKey(conversationId);
+  const isDefaultSession = sessionKey === defaultSessionKey;
 
   const timelinesByConversationId = { ...(state.timelinesByConversationId ?? {}) };
   const shouldPatchTimeline = typeof patch === 'function'
@@ -172,11 +178,18 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
       delete timelinesByConversationId[conversationId];
     }
   }
+  const compatibilitySession = state.sessionsByConversationId[conversationId] ?? createEmptyChatSession(conversationId);
+  const nextCompatibilitySession = isDefaultSession
+    ? nextSession
+    : {
+      ...compatibilitySession,
+      conversation: nextSession.conversation,
+    };
 
   return {
     sessionsByConversationId: {
       ...state.sessionsByConversationId,
-      [conversationId]: nextSession,
+      [conversationId]: nextCompatibilitySession,
     },
     timelinesByConversationId,
     surfaceSessionsByKey: {
