@@ -170,10 +170,12 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
   const defaultSessionKey = getDefaultChatSessionKey(conversationId);
   const isDefaultSession = sessionKey === defaultSessionKey;
 
-  const timelinesByConversationId = { ...(state.timelinesByConversationId ?? {}) };
   const shouldPatchTimeline = typeof patch === 'function'
     || Object.prototype.hasOwnProperty.call(patch, 'conversation');
+  const currentTimelinesByConversationId = state.timelinesByConversationId ?? {};
+  let timelinesByConversationId = currentTimelinesByConversationId;
   if (shouldPatchTimeline) {
+    timelinesByConversationId = { ...currentTimelinesByConversationId };
     if (nextSession.conversation) {
       timelinesByConversationId[conversationId] = nextSession.conversation;
     } else {
