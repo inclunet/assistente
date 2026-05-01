@@ -667,9 +667,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     handleConversationDeleted: (conversationId: string) => {
       turnQueue.clear(conversationId);
       stopChatEventController(conversationId);
-      if (get().sessionsByConversationId[conversationId]) {
-        set((state) => removeChatSession(state, conversationId));
-      }
+      set((state) => removeChatSession(state, conversationId));
       if (isChatConversationActive(conversationId)) {
         announce(i18next.t('chat.announce.conversationDeletedPermanently'));
         setTimeout(() => {

@@ -273,6 +273,26 @@ describe('chatStore validation', () => {
     });
   });
 
+  it('remove timeline e superfícies órfãs ao deletar conversa', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const orphanConversationId = '01926b90-7a5a-7c4e-8d3f-000000000099';
+    const orphanSessionKey = `tab-chat:${orphanConversationId}`;
+    useChatStore.setState({
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        [orphanConversationId]: { id: orphanConversationId, title: 'Órfã', threadedMessages: [] },
+      },
+      surfaceSessionsByKey: {
+        [orphanSessionKey]: createEmptyChatSession(orphanConversationId, orphanSessionKey),
+      },
+    });
+
+    useChatStore.getState().handleConversationDeleted(orphanConversationId);
+
+    expect(useChatStore.getState().timelinesByConversationId[orphanConversationId]).toBeUndefined();
+    expect(useChatStore.getState().surfaceSessionsByKey[orphanSessionKey]).toBeUndefined();
+  });
+
   it('serializa envios concorrentes da mesma conversa', async () => {
     const firstSend = deferred<void>();
     mockSendMessage
