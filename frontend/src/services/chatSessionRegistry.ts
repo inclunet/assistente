@@ -103,6 +103,23 @@ export function getChatSession(
   };
 }
 
+export function getConversationTimeline(
+  state: ChatSessionRegistryState,
+  conversationId: string,
+): ConversationTimeline | null {
+  return state.timelinesByConversationId?.[conversationId]
+    ?? state.sessionsByConversationId[conversationId]?.conversation
+    ?? null;
+}
+
+export function getChatSurfaceSessionsForConversation(
+  state: ChatSessionRegistryState,
+  conversationId: string,
+): ChatSurfaceSession[] {
+  return Object.values(state.surfaceSessionsByKey ?? {})
+    .filter((session) => session.conversationId === conversationId);
+}
+
 export function patchChatSession<TState extends ChatSessionRegistryState>(
   state: TState,
   conversationId: string,
@@ -140,11 +157,24 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
   conversationId: string,
   updater: (conversation: ActiveConversation) => ActiveConversation,
 ): Partial<TState> {
-  const session = getChatSession(state, conversationId);
-  if (!session.conversation) return state;
-  return patchChatSession(state, conversationId, {
-    conversation: updater(session.conversation),
-  }) as Partial<TState>;
+  const timeline = getConversationTimeline(state, conversationId);
+  if (!timeline) return state;
+  const conversation = updater(timeline);
+  const currentSession = getChatSession(state, conversationId);
+  return {
+    sessionsByConversationId: {
+      ...state.sessionsByConversationId,
+      [conversationId]: {
+        ...currentSession,
+        conversation,
+      },
+    },
+    timelinesByConversationId: {
+      ...(state.timelinesByConversationId ?? {}),
+      [conversationId]: conversation,
+    },
+    surfaceSessionsByKey: state.surfaceSessionsByKey ?? {},
+  } as Partial<TState>;
 }
 
 export function removeChatSession<TState extends ChatSessionRegistryState>(

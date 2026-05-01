@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   createEmptyChatSession,
+  getChatSurfaceSessionsForConversation,
   getChatSession,
+  getConversationTimeline,
   patchChatConversation,
   patchChatSession,
   removeChatSession,
@@ -118,5 +120,39 @@ describe('chatSessionRegistry', () => {
     expect(getChatSession(state, 'conversation-1', 'tab-a:conversation-1').expandedThreads.has('message-1')).toBe(true);
     expect(getChatSession(state, 'conversation-1', 'tab-b:conversation-1').expandedThreads.has('message-1')).toBe(false);
     expect(getChatSession(state, 'conversation-1', 'tab-b:conversation-1').expandedThreads.has('message-2')).toBe(true);
+  });
+
+  it('atualiza timeline uma vez sem sobrescrever sessões visuais interessadas', () => {
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        'conversation-1': conversation('conversation-1'),
+      },
+      surfaceSessionsByKey: {
+        'tab-a:conversation-1': {
+          ...createEmptyChatSession('conversation-1', 'tab-a:conversation-1'),
+          expandedThreads: new Set(['message-1']),
+        },
+        'tab-b:conversation-1': {
+          ...createEmptyChatSession('conversation-1', 'tab-b:conversation-1'),
+          expandedThreads: new Set(['message-2']),
+        },
+      },
+    };
+
+    const next = {
+      ...state,
+      ...patchChatConversation(state, 'conversation-1', (current) => ({
+        ...current,
+        title: 'Timeline atualizada',
+      })),
+    };
+
+    expect(getConversationTimeline(next, 'conversation-1')?.title).toBe('Timeline atualizada');
+    expect(getChatSurfaceSessionsForConversation(next, 'conversation-1')).toHaveLength(2);
+    expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').expandedThreads.has('message-1')).toBe(true);
+    expect(getChatSession(next, 'conversation-1', 'tab-b:conversation-1').expandedThreads.has('message-2')).toBe(true);
+    expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').conversation?.title).toBe('Timeline atualizada');
+    expect(getChatSession(next, 'conversation-1', 'tab-b:conversation-1').conversation?.title).toBe('Timeline atualizada');
   });
 });

@@ -24,6 +24,7 @@ import {
 } from '../services/chatSessionLoader';
 import {
   getChatSession,
+  getConversationTimeline,
   patchChatConversation,
   patchChatSession,
   removeChatSession,
@@ -492,7 +493,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     getConversationMessages: (conversationId) => (
-      flattenThreadedMessages(get().sessionsByConversationId[conversationId]?.conversation?.threadedMessages)
+      flattenThreadedMessages(getConversationTimeline(get(), conversationId)?.threadedMessages)
     ),
 
     toggleConversationThreadExpanded: (conversationId, messageId) => {
@@ -524,7 +525,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     ),
 
     getConversationThreadedMessages: (conversationId) => (
-      get().sessionsByConversationId[conversationId]?.conversation?.threadedMessages
+      getConversationTimeline(get(), conversationId)?.threadedMessages
     ),
 
     loadMessageChildren: async (messageId) => {
@@ -536,7 +537,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const frontendNodes = await loadMessageChildrenNodes(messageId);
 
         set((state) => {
-          const targetConversationId = Object.entries(state.sessionsByConversationId).find(([, session]) => (
+          const targetConversationId = Object.entries(state.timelinesByConversationId).find(([, timeline]) => (
+            hasMessageId(timeline.threadedMessages, messageId)
+          ))?.[0] ?? Object.entries(state.sessionsByConversationId).find(([, session]) => (
             hasMessageId(session.conversation?.threadedMessages, messageId)
           ))?.[0];
           if (!targetConversationId) return state;
