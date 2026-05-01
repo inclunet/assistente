@@ -164,6 +164,20 @@ const flushPendingUpdate = (
   }
 };
 
+const discardPendingUpdate = (messageId: string) => {
+  const existingTimer = streamUpdateTimers.get(messageId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    streamUpdateTimers.delete(messageId);
+  }
+  pendingStreamUpdates.delete(messageId);
+};
+
+export function stopChatEventController(conversationId: string) {
+  const cleanup = activeControllers.get(conversationId.toString());
+  if (cleanup) cleanup();
+}
+
 export function stopAllChatEventControllers() {
   activeControllers.forEach((cleanup) => cleanup());
   activeControllers.clear();
@@ -236,6 +250,7 @@ export function startChatEventController({
     unsubDone();
     unsubError();
     unsubSpeak();
+    discardPendingUpdate(streamingMsgId);
     activeControllers.delete(conversationIdStr);
     adapter.setConversationLoading(conversationId, false);
     adapter.patchSession(conversationId, {

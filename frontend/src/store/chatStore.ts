@@ -14,7 +14,7 @@ import { playSendSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
 import { isChatConversationActive } from '../services/chatArbitration';
-import { startChatEventController, stopAllChatEventControllers } from '../services/chatEventController';
+import { startChatEventController, stopAllChatEventControllers, stopChatEventController } from '../services/chatEventController';
 import { handleExternalChatIncoming } from '../services/externalChatController';
 import {
   loadConversationSnapshot,
@@ -570,6 +570,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleConversationDeleted: (conversationId: string) => {
+      stopChatEventController(conversationId);
       if (get().sessionsByConversationId[conversationId]) {
         set((state) => removeChatSession(state, conversationId));
       }

@@ -302,6 +302,23 @@ describe('chatEventController', () => {
     expect(mockHandleChatSpeak.mock.calls[0][0]).toMatchObject({ text: 'antes do done' });
   });
 
+  it('descarta update de streaming pendente ao limpar controller', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    const handle = startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      content: 'conteúdo atrasado',
+      done: false,
+    });
+    handle.cleanup();
+    vi.runOnlyPendingTimers();
+
+    const assistantMessage = sessions['conversation-1'].conversation?.threadedMessages[0]?.message;
+    expect(assistantMessage?.content).toBe('');
+  });
+
   it('entrada externa anuncia origem e usa a sessão por conversationId', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 

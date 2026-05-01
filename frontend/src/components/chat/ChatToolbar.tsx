@@ -114,7 +114,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
       if (conv?.id) {
         await ClearConversation(conv.id);
-        await loadConversationSession(conv.id, { activate: !conversationId });
+        await loadConversationSession(conv.id, { activate: true });
       } else if (conversationId) {
         clearConversationMessages(conversationId);
       }
@@ -171,7 +171,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
           }),
         ]);
       } else {
-        await loadConversationSession(nextConversationId, { activate: !conversationId });
+        await loadConversationSession(nextConversationId, { activate: true });
       }
       announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
     } catch (error) {
