@@ -24,8 +24,13 @@ export function WorkspaceChatModal() {
   const adapterError = useWorkspaceChatModalStore((s) => s.adapterError);
   const close = useWorkspaceChatModalStore((s) => s.close);
   const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
-  const session = useChatStore((s) => boundConversationId ? s.sessionsByConversationId[boundConversationId] ?? null : null);
-  const activeConversation = session?.conversation ?? null;
+  const activeConversation = useChatStore((s) => (
+    boundConversationId
+      ? s.timelinesByConversationId?.[boundConversationId]
+        ?? s.sessionsByConversationId[boundConversationId]?.conversation
+        ?? null
+      : null
+  ));
   const activeWorkspaceTab = useActiveTab();
   const modalSurfaceId = useMemo(
     () => `embedded:workspace-chat-modal:${boundTabId ?? 'standalone'}`,
