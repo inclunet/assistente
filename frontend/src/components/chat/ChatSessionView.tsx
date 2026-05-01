@@ -1,13 +1,14 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button } from 'antd';
-import { useChatStore } from '../../store/chatStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { ttsService } from '../../services/tts';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar } from './ChatToolbar';
+import { ChatSessionProvider, useChatSession } from './ChatSessionContext';
+import type { ChatSurfaceOrigin } from '../../services/chatSessionRegistry';
 import { ContextMenu } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
@@ -23,17 +24,44 @@ import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHand
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatSessionView.css';
 
-const EMPTY_MESSAGES: never[] = [];
-
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
   conversationId?: string | null;
+  surfaceId?: string;
+  sessionKey?: string;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
-  onSend: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
+  onSend: (content: string, mediaFiles?: MediaFile[], origin?: ChatSurfaceOrigin) => Promise<void>;
   showShortcutsHelp?: boolean;
 }
 
 export function ChatSessionView({
+  variant = 'page',
+  conversationId,
+  surfaceId,
+  sessionKey,
+  onSend,
+  showShortcutsHelp,
+}: ChatSessionViewProps) {
+  return (
+    <ChatSessionProvider
+      conversationId={conversationId}
+      surfaceType={variant}
+      surfaceId={surfaceId}
+      sessionKey={sessionKey}
+    >
+      <ChatSessionViewContent
+        variant={variant}
+        conversationId={conversationId}
+        surfaceId={surfaceId}
+        sessionKey={sessionKey}
+        onSend={onSend}
+        showShortcutsHelp={showShortcutsHelp}
+      />
+    </ChatSessionProvider>
+  );
+}
+
+function ChatSessionViewContent({
   variant = 'page',
   conversationId,
   onSend,
@@ -49,24 +77,24 @@ export function ChatSessionView({
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
-  const session = useChatStore((s) => conversationId ? s.sessionsByConversationId[conversationId] ?? null : null);
-  const conversation = session?.conversation ?? null;
-  const threadedMessages = conversation?.threadedMessages ?? EMPTY_MESSAGES;
-  const isLoading = session?.isLoading ?? false;
-  const hasOlderMessages = session?.hasOlderMessages ?? false;
-  const isLoadingOlderMessages = session?.isLoadingOlderMessages ?? false;
-  const loadOlderMessagesForConversation = useChatStore((s) => s.loadOlderMessagesForConversation);
-  const loadOlderMessages = useCallback(async () => {
-    if (conversationId) {
-      await loadOlderMessagesForConversation(conversationId);
-    }
-  }, [conversationId, loadOlderMessagesForConversation]);
-  const loadMessageChildren = useChatStore((s) => s.loadMessageChildren);
-  const loadConversationSession = useChatStore((s) => s.loadConversationSession);
-  const retryMessageToConversation = useChatStore((s) => s.retryMessageToConversation);
-  const updateConversationMessage = useChatStore((s) => s.updateConversationMessage);
-  const toggleConversationReasoningExpanded = useChatStore((s) => s.toggleConversationReasoningExpanded);
-  const isConversationReasoningExpanded = useChatStore((s) => s.isConversationReasoningExpanded);
+  const {
+    session,
+    conversation,
+    threadedMessages,
+    isLoading,
+    hasOlderMessages,
+    isLoadingOlderMessages,
+    loadOlderMessages,
+    loadMessageChildren,
+    loadConversationSession,
+    retryMessageToConversation,
+    updateConversationMessage,
+    toggleConversationReasoningExpanded,
+    isConversationReasoningExpanded,
+    startConversationEditing,
+    startConversationReading,
+    origin,
+  } = useChatSession();
   const getSessionConversation = useCallback(() => conversation, [conversation]);
 
   useEffect(() => {
@@ -91,8 +119,6 @@ export function ChatSessionView({
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
 
-  const startConversationEditing = useChatStore((state) => state.startConversationEditing);
-  const startConversationReading = useChatStore((state) => state.startConversationReading);
   const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
   const editorTargets = useMemo<EditorSendTargetOption[]>(
@@ -224,7 +250,7 @@ export function ChatSessionView({
     onResend: async (message) => {
       const conversationId = getSessionConversation()?.id;
       if (!conversationId || !isBackendId(message.id)) return;
-      await retryMessageToConversation(conversationId, message.id);
+      await retryMessageToConversation(conversationId, message.id, undefined, { origin });
       announce(t('chat.announce.messageResent'));
     },
     onDelete: handleDeleteMessage,
@@ -356,7 +382,7 @@ export function ChatSessionView({
     try {
       setSendError(null);
       setLastFailedMessage(null);
-      await onSend(content, mediaFiles);
+      await onSend(content, mediaFiles, origin);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[ChatSessionView] send error:', errorMessage);
@@ -377,7 +403,7 @@ export function ChatSessionView({
 
     try {
       setSendError(null);
-      await onSend(lastFailedMessage.content, lastFailedMessage.media);
+      await onSend(lastFailedMessage.content, lastFailedMessage.media, origin);
       setLastFailedMessage(null);
     } catch (error) {
       handleError(error, {

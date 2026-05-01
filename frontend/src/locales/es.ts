@@ -134,6 +134,10 @@ const es = {
       toolRetrying: 'Herramienta {{name}} falló, reintentando...',
       toolRunning: 'Ejecutando herramienta: {{name}}',
       toolDone: 'Herramienta {{name}} completada',
+      queue: {
+        pending_one: '{{count}} turno en cola',
+        pending_other: '{{count}} turnos en cola',
+      },
       validation: {
         messageTooLarge: 'Mensaje demasiado grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
         mediaTooLarge: 'Archivos de medios demasiado grandes (~{{size}}MB). Máximo permitido: {{max}}MB',

@@ -37,6 +37,8 @@ vi.mock('../services/tts', () => ({
 
 const chatStoreState = {
   sendMessageToConversation: sendMessageMock,
+  ensureConversationSurfaceSession: vi.fn(),
+  removeConversationSurfaceSession: vi.fn(),
   sessionsByConversationId: {
     [conversationId]: {
       conversation: activeConversation,
@@ -45,6 +47,8 @@ const chatStoreState = {
       isLoadingOlderMessages: false,
     },
   },
+  timelinesByConversationId: {},
+  surfaceSessionsByKey: {},
   loadMessageChildren: vi.fn(),
   loadConversationSession: vi.fn(),
   updateConversationMessage: updateMessageMock,
@@ -211,7 +215,21 @@ describe('ChatPage', () => {
 
     await waitFor(() => {
       expect(ensureWorkspaceTabHasConversationMock).toHaveBeenCalled();
-      expect(sendMessageMock).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000002a', 'oi', undefined);
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-00000000002a',
+        'oi',
+        undefined,
+        undefined,
+        {
+          origin: expect.objectContaining({
+            conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
+            sessionKey: 'page:tab:chat-tab:01926b90-7a5a-7c4e-8d3f-00000000002a',
+            surfaceId: 'page:tab:chat-tab',
+            surfaceType: 'page',
+            tabId: 'chat-tab',
+          }),
+        },
+      );
     });
   });
 

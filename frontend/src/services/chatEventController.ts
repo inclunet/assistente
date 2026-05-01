@@ -21,6 +21,7 @@ import {
   playChatReceiveSoundIfActive,
 } from './chatArbitration';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
+import type { ChatSurfaceOrigin } from './chatSessionRegistry';
 
 const STREAM_UPDATE_DEBOUNCE_MS = 16;
 
@@ -89,10 +90,11 @@ export interface ChatEventSession {
   conversation: ChatTreeConversation | null;
   activeToolCalls: ToolCallStatus[];
   completedSegments: TurnSegment[];
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 export interface ChatEventControllerAdapter {
-  getSession: (conversationId: string) => ChatEventSession;
+  getSession: (conversationId: string, sessionKey?: string) => ChatEventSession;
   patchSession: (conversationId: string, patch: Partial<ChatEventSession> & Record<string, unknown>) => void;
   patchConversation: (
     conversationId: string,
@@ -100,7 +102,7 @@ export interface ChatEventControllerAdapter {
   ) => void;
   updateMessage: (conversationId: string, messageId: string, content: string) => void;
   updateReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
-  setConversationLoading: (conversationId: string, isLoading: boolean) => void;
+  setConversationLoading: (conversationId: string, isLoading: boolean, sessionKey?: string) => void;
 }
 
 interface ChatEventControllerOptions {
@@ -111,6 +113,7 @@ interface ChatEventControllerOptions {
     from: string;
     text: string;
   };
+  origin?: ChatSurfaceOrigin;
   adapter: ChatEventControllerAdapter;
 }
 
@@ -187,6 +190,7 @@ export function startChatEventController({
   conversationId,
   initialUserContent = '',
   external,
+  origin,
   adapter,
 }: ChatEventControllerOptions): ChatEventControllerHandle {
   const conversationIdStr = conversationId.toString();
@@ -194,9 +198,13 @@ export function startChatEventController({
   let cleanupExecuted = false;
   let streamingAnnounced = false;
   let assistantNodeCreated = false;
+  const getCurrentSession = () => adapter.getSession(conversationId, origin?.sessionKey);
+  const patchCurrentSession = (patch: Partial<ChatEventSession> & Record<string, unknown>) => {
+    adapter.patchSession(conversationId, origin ? { ...patch, surfaceOrigin: origin } : patch);
+  };
 
-  adapter.setConversationLoading(conversationId, true);
-  adapter.patchSession(conversationId, { completedSegments: [], activeToolCalls: [] });
+  adapter.setConversationLoading(conversationId, true, origin?.sessionKey);
+  patchCurrentSession({ completedSegments: [], activeToolCalls: [], isLoading: true });
 
   const noop = () => { /* no-op */ };
   let unsubMessagesReady = noop;
@@ -226,9 +234,9 @@ export function startChatEventController({
       createdAt: new Date().toISOString(),
     }) as Message;
     const assistantNode = new main.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
-    const session = adapter.getSession(conversationId);
+    const session = getCurrentSession();
     if (!session.conversation) return;
-    adapter.patchSession(conversationId, {
+    patchCurrentSession({
       conversation: {
         ...session.conversation,
         threadedMessages: [...session.conversation.threadedMessages, assistantNode as MessageNode],
@@ -252,8 +260,9 @@ export function startChatEventController({
     unsubSpeak();
     discardPendingUpdate(streamingMsgId);
     activeControllers.delete(conversationIdStr);
-    adapter.setConversationLoading(conversationId, false);
-    adapter.patchSession(conversationId, {
+    adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
+    patchCurrentSession({
+      isLoading: false,
       streamingMessageId: null,
       streamingReasoning: null,
       isThinking: false,
@@ -301,7 +310,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     if (!event.userMessageId) return;
-    if (hasMessageId(adapter.getSession(conversationId).conversation?.threadedMessages, String(event.userMessageId))) return;
+    if (hasMessageId(getCurrentSession().conversation?.threadedMessages, String(event.userMessageId))) return;
     const userMsg = new main.EnrichedMessage({
       id: event.userMessageId.toString(),
       role: 'user',
@@ -314,9 +323,9 @@ export function startChatEventController({
       source: external?.channel,
     }) as Message;
     const userNode = new main.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
-    const session = adapter.getSession(conversationId);
+    const session = getCurrentSession();
     if (!session.conversation) return;
-    adapter.patchSession(conversationId, {
+    patchCurrentSession({
       conversation: {
         ...session.conversation,
         threadedMessages: [...session.conversation.threadedMessages, userNode as MessageNode],
@@ -359,7 +368,7 @@ export function startChatEventController({
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       finalizeStreaming(backendAssistantId);
 
-      const flatMessages = flattenThreadedMessages(adapter.getSession(conversationId).conversation?.threadedMessages);
+      const flatMessages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
       const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || streamingMsgId));
       if (finalMessage?.content) playChatReceiveSoundIfActive(conversationId);
     }
@@ -370,16 +379,16 @@ export function startChatEventController({
     if (!isActive()) return;
     ensureAssistantNode();
     if (event.started) {
-      adapter.patchSession(conversationId, {
+      patchCurrentSession({
         isThinking: true,
         streamingReasoning: event.content || '',
       });
       announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite');
     } else if (event.done) {
-      adapter.patchSession(conversationId, { isThinking: false });
+      patchCurrentSession({ isThinking: false });
       if (event.content) adapter.updateReasoning(conversationId, streamingMsgId, event.content);
     } else {
-      adapter.patchSession(conversationId, { streamingReasoning: event.content || '' });
+      patchCurrentSession({ streamingReasoning: event.content || '' });
     }
   });
 
@@ -387,9 +396,9 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     ensureAssistantNode();
-    const session = adapter.getSession(conversationId);
+    const session = getCurrentSession();
     const existing = session.activeToolCalls.findIndex((tc) => tc.callId === event.callId);
-    adapter.patchSession(conversationId, {
+    patchCurrentSession({
       activeToolCalls: existing >= 0
         ? session.activeToolCalls.map((tc) =>
           tc.callId === event.callId
@@ -406,8 +415,8 @@ export function startChatEventController({
   unsubToolEnd = EventsOn('chat:tool_end', (event: ChatToolEndEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    const session = adapter.getSession(conversationId);
-    adapter.patchSession(conversationId, {
+    const session = getCurrentSession();
+    patchCurrentSession({
       activeToolCalls: session.activeToolCalls.map((tc) =>
         tc.callId === event.callId
           ? { ...tc, status: (event.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: event.summary }
@@ -439,7 +448,7 @@ export function startChatEventController({
     if (!isActive()) return;
     if (!event.hasMore) return;
 
-    const session = adapter.getSession(conversationId);
+    const session = getCurrentSession();
     const newSegments: TurnSegment[] = [...session.completedSegments];
     if (session.activeToolCalls.length > 0) {
       const toolCount = session.activeToolCalls.length;
@@ -463,7 +472,7 @@ export function startChatEventController({
     if (event.content) {
       newSegments.push({ type: 'text', content: event.content });
     }
-    adapter.patchSession(conversationId, {
+    patchCurrentSession({
       completedSegments: newSegments,
       activeToolCalls: [],
     });
@@ -488,9 +497,9 @@ export function startChatEventController({
 
     if (event.hadToolCalls) {
       GetMessages(conversationId, null).then((backendNodes) => {
-        const conversation = adapter.getSession(conversationId).conversation;
+        const conversation = getCurrentSession().conversation;
         if (!conversation) return;
-        adapter.patchSession(conversationId, {
+        patchCurrentSession({
           conversation: {
             ...conversation,
             threadedMessages: backendNodes.map(withOriginalIndex),
@@ -502,7 +511,7 @@ export function startChatEventController({
       });
     }
 
-    announceChatBackgroundResponseDone(conversationId, adapter.getSession(conversationId).conversation?.title);
+    announceChatBackgroundResponseDone(conversationId, getCurrentSession().conversation?.title);
     cleanup();
   });
 
@@ -517,8 +526,8 @@ export function startChatEventController({
       ensureAssistantNode();
       updateStreamingMessage(i18next.t('chat.sendErrorPrefix', { message }));
       finalizeStreaming();
-      adapter.setConversationLoading(conversationId, false);
-      adapter.patchSession(conversationId, { streamingMessageId: null });
+      adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
+      patchCurrentSession({ isLoading: false, streamingMessageId: null });
     },
   };
 }

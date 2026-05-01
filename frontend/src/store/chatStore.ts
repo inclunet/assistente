@@ -17,18 +17,27 @@ import { isChatConversationActive } from '../services/chatArbitration';
 import { startChatEventController, stopAllChatEventControllers, stopChatEventController } from '../services/chatEventController';
 import { handleExternalChatIncoming } from '../services/externalChatController';
 import {
+  createConversationTurnQueue,
+  isConversationTurnQueueClearedError,
+} from '../services/chatTurnQueue';
+import {
   loadConversationSnapshot,
   loadMessageChildrenNodes,
   loadOlderConversationMessages,
   reloadConversationSnapshot,
 } from '../services/chatSessionLoader';
 import {
+  createEmptyChatSurfaceSession,
   getChatSession,
+  getConversationTimeline,
   patchChatConversation,
   patchChatSession,
   removeChatSession,
   type ActiveConversation,
   type ChatConversationSession,
+  type ChatSurfaceSession,
+  type ChatSurfaceOrigin,
+  type ConversationTimeline,
 } from '../services/chatSessionRegistry';
 import {
   appendInternalMessageToTree,
@@ -53,7 +62,13 @@ interface MediaData {
 }
 
 export type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
-export type { ActiveConversation, ChatConversationSession } from '../services/chatSessionRegistry';
+export type {
+  ActiveConversation,
+  ChatConversationSession,
+  ChatSurfaceOrigin,
+  ChatSurfaceSession,
+  ConversationTimeline,
+} from '../services/chatSessionRegistry';
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
@@ -80,43 +95,50 @@ const fileToBase64 = (file: File): Promise<string> => {
 
 interface ChatStore {
   sessionsByConversationId: Record<string, ChatConversationSession>;
+  timelinesByConversationId: Record<string, ConversationTimeline>;
+  surfaceSessionsByKey: Record<string, ChatSurfaceSession>;
   loadingConversationIds: Set<string>;
   isInitialized: boolean;
   contextProfileSlug: string | null;
 
   setContextProfileSlug: (slug: string | null) => void;
-  setConversationEditingMessageId: (conversationId: string, id: string | null) => void;
-  startConversationEditing: (conversationId: string, id: string) => void;
+  setConversationEditingMessageId: (conversationId: string, id: string | null, sessionKey?: string) => void;
+  startConversationEditing: (conversationId: string, id: string, sessionKey?: string) => void;
   consumeSkipFocusRestore: (conversationId: string) => boolean;
-  setConversationReadingMessageId: (conversationId: string, id: string | null) => void;
-  startConversationReading: (conversationId: string, id: string) => void;
+  setConversationReadingMessageId: (conversationId: string, id: string | null, sessionKey?: string) => void;
+  startConversationReading: (conversationId: string, id: string, sessionKey?: string) => void;
+  ensureConversationSurfaceSession: (conversationId: string, sessionKey: string, origin?: ChatSurfaceOrigin) => void;
+  removeConversationSurfaceSession: (sessionKey: string) => void;
 
   createConversation: (title?: string) => Promise<string>;
   loadConversationSession: (id: string, options?: { activate?: boolean }) => Promise<void>;
   getConversationSession: (conversationId: string | null | undefined) => ChatConversationSession | null;
-  loadOlderMessagesForConversation: (conversationId: string) => Promise<void>;
+  loadOlderMessagesForConversation: (conversationId: string, sessionKey?: string) => Promise<void>;
 
   updateConversationMessage: (conversationId: string, messageId: string, content: string) => void;
   updateConversationMessageReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
   addInternalMessage: (message: Message) => void;
   clearConversationMessages: (conversationId: string) => void;
 
-  toggleConversationThreadExpanded: (conversationId: string, messageId: string) => void;
-  isConversationThreadExpanded: (conversationId: string, messageId: string) => boolean;
-  toggleConversationReasoningExpanded: (conversationId: string, messageId: string) => void;
-  isConversationReasoningExpanded: (conversationId: string, messageId: string) => boolean;
+  toggleConversationThreadExpanded: (conversationId: string, messageId: string, sessionKey?: string) => void;
+  isConversationThreadExpanded: (conversationId: string, messageId: string, sessionKey?: string) => boolean;
+  toggleConversationReasoningExpanded: (conversationId: string, messageId: string, sessionKey?: string) => void;
+  isConversationReasoningExpanded: (conversationId: string, messageId: string, sessionKey?: string) => boolean;
 
   sendMessageToConversation: (
     conversationId: string,
     content: string,
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
+    options?: { origin?: ChatSurfaceOrigin },
   ) => Promise<void>;
   retryMessageToConversation: (
     conversationId: string,
     messageId: string,
     paramsOverride?: Partial<llm.ChatParams>,
+    options?: { origin?: ChatSurfaceOrigin },
   ) => Promise<void>;
+  cancelConversationTurn: (conversationId: string) => void;
 
   getConversationMessages: (conversationId: string) => Message[];
   getConversationThreadedMessages: (conversationId: string) => MessageNode[] | undefined;
@@ -138,17 +160,19 @@ interface ChatStore {
 
 export const useChatStore = create<ChatStore>()((set, get) => {
   let loadConversationSeq = 0;
+  const turnQueue = createConversationTurnQueue();
 
-  const getSession = (state: ChatStore, conversationId: string): ChatConversationSession => (
-    getChatSession(state, conversationId)
+  const getSession = (state: ChatStore, conversationId: string, sessionKey?: string): ChatConversationSession => (
+    getChatSession(state, conversationId, sessionKey)
   );
 
   const patchSession = (
     state: ChatStore,
     conversationId: string,
     patch: Partial<ChatConversationSession> | ((session: ChatConversationSession) => ChatConversationSession),
+    sessionKey?: string,
   ): Partial<ChatStore> => {
-    return patchChatSession(state, conversationId, patch);
+    return patchChatSession(state, conversationId, patch, sessionKey);
   };
 
   const patchConversation = (
@@ -159,7 +183,47 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     return patchChatConversation(state, conversationId, updater);
   };
 
-  const setConversationLoading = (conversationId: string, isLoading: boolean) => {
+  const syncConversationPaginationFlags = (
+    state: ChatStore,
+    patches: Partial<ChatStore>,
+    conversationId: string,
+    flags: Pick<ChatSurfaceSession, 'hasOlderMessages' | 'isLoadingOlderMessages'>,
+  ): Partial<ChatStore> => {
+    const existingSurfaceSessionsByKey = patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey;
+    let surfaceSessionsByKey = existingSurfaceSessionsByKey;
+
+    for (const [surfaceSessionKey, surfaceSession] of Object.entries(existingSurfaceSessionsByKey)) {
+      if (surfaceSession.conversationId !== conversationId) {
+        continue;
+      }
+
+      if (
+        surfaceSession.hasOlderMessages === flags.hasOlderMessages
+        && surfaceSession.isLoadingOlderMessages === flags.isLoadingOlderMessages
+      ) {
+        continue;
+      }
+
+      if (surfaceSessionsByKey === existingSurfaceSessionsByKey) {
+        surfaceSessionsByKey = { ...existingSurfaceSessionsByKey };
+      }
+      surfaceSessionsByKey[surfaceSessionKey] = {
+        ...surfaceSession,
+        ...flags,
+      };
+    }
+
+    if (surfaceSessionsByKey === existingSurfaceSessionsByKey) {
+      return patches;
+    }
+
+    return {
+      ...patches,
+      surfaceSessionsByKey,
+    };
+  };
+
+  const setConversationLoading = (conversationId: string, isLoading: boolean, sessionKey?: string) => {
     set((state) => {
       const loadingConversationIds = new Set(state.loadingConversationIds);
       if (isLoading) {
@@ -167,17 +231,90 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       } else {
         loadingConversationIds.delete(conversationId);
       }
+      const patches = patchSession(state, conversationId, { isLoading }, sessionKey);
+      if (sessionKey) {
+        return {
+          loadingConversationIds,
+          ...patches,
+        };
+      }
+
+      const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey) };
+      for (const [sessionKey, session] of Object.entries(surfaceSessionsByKey)) {
+        if (session.conversationId === conversationId) {
+          surfaceSessionsByKey[sessionKey] = { ...session, isLoading };
+        }
+      }
       return {
         loadingConversationIds,
-        ...patchSession(state, conversationId, { isLoading }),
+        ...patches,
+        surfaceSessionsByKey,
+      };
+    });
+  };
+
+  const adjustQueuedTurnCount = (conversationId: string, delta: number, sessionKey?: string) => {
+    set((state) => {
+      const session = getSession(state, conversationId, sessionKey);
+      const queuedTurnCount = Math.max(0, (session.queuedTurnCount ?? 0) + delta);
+      return patchSession(state, conversationId, { queuedTurnCount }, sessionKey);
+    });
+  };
+
+  const resetQueuedTurnCount = (conversationId: string) => {
+    set((state) => {
+      const patches = patchSession(state, conversationId, { queuedTurnCount: 0 });
+      const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey) };
+      for (const [sessionKey, session] of Object.entries(surfaceSessionsByKey)) {
+        if (session.conversationId === conversationId) {
+          surfaceSessionsByKey[sessionKey] = { ...session, queuedTurnCount: 0 };
+        }
+      }
+      return {
+        ...patches,
+        surfaceSessionsByKey,
       };
     });
   };
 
   const chatEventAdapter = {
-    getSession: (conversationId: string) => getSession(get(), conversationId),
+    getSession: (conversationId: string, sessionKey?: string) => getSession(get(), conversationId, sessionKey),
     patchSession: (conversationId: string, patch: Partial<ChatConversationSession>) => {
-      set((state) => patchSession(state, conversationId, patch));
+      set((state) => {
+        const targetSessionKey = patch.surfaceOrigin?.sessionKey;
+        if (targetSessionKey) {
+          return patchSession(state, conversationId, patch, targetSessionKey);
+        }
+
+        const basePatches = patchSession(state, conversationId, patch);
+        const existingSurfaceSessionsByKey = basePatches.surfaceSessionsByKey ?? state.surfaceSessionsByKey;
+        const surfaceSessionsByKey = { ...existingSurfaceSessionsByKey };
+        const surfacePatch: Partial<ChatSurfaceSession> = { ...patch };
+        delete (surfacePatch as Partial<ChatConversationSession>).conversation;
+        let hasMatchingSurfaceSession = false;
+
+        for (const [sessionKey, session] of Object.entries(existingSurfaceSessionsByKey)) {
+          if (session.conversationId !== conversationId) {
+            continue;
+          }
+
+          hasMatchingSurfaceSession = true;
+          surfaceSessionsByKey[sessionKey] = {
+            ...session,
+            ...surfacePatch,
+            surfaceOrigin: patch.surfaceOrigin ?? session.surfaceOrigin,
+          };
+        }
+
+        if (!hasMatchingSurfaceSession) {
+          return basePatches;
+        }
+
+        return {
+          ...basePatches,
+          surfaceSessionsByKey,
+        };
+      });
     },
     patchConversation: (
       conversationId: string,
@@ -200,6 +337,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
     retryMessageId?: string,
+    options?: { origin?: ChatSurfaceOrigin },
   ) => {
     if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
       announce(i18next.t('chat.validation.messageTooLarge', {
@@ -227,6 +365,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const controller = startChatEventController({
       conversationId,
       initialUserContent: content,
+      origin: options?.origin,
       adapter: chatEventAdapter,
     });
 
@@ -273,26 +412,58 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
   return {
     sessionsByConversationId: {},
+    timelinesByConversationId: {},
+    surfaceSessionsByKey: {},
     loadingConversationIds: new Set(),
     isInitialized: false,
     contextProfileSlug: null,
 
     setContextProfileSlug: (slug) => set({ contextProfileSlug: slug }),
 
-    setConversationEditingMessageId: (conversationId, id) => {
-      set((state) => patchSession(state, conversationId, { editingMessageId: id }));
+    setConversationEditingMessageId: (conversationId, id, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { editingMessageId: id }, sessionKey));
     },
 
-    startConversationEditing: (conversationId, id) => {
-      set((state) => patchSession(state, conversationId, { editingMessageId: id, skipFocusRestore: true }));
+    startConversationEditing: (conversationId, id, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { editingMessageId: id, skipFocusRestore: true }, sessionKey));
     },
 
-    setConversationReadingMessageId: (conversationId, id) => {
-      set((state) => patchSession(state, conversationId, { readingMessageId: id }));
+    setConversationReadingMessageId: (conversationId, id, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { readingMessageId: id }, sessionKey));
     },
 
-    startConversationReading: (conversationId, id) => {
-      set((state) => patchSession(state, conversationId, { readingMessageId: id, skipFocusRestore: true }));
+    startConversationReading: (conversationId, id, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { readingMessageId: id, skipFocusRestore: true }, sessionKey));
+    },
+
+    ensureConversationSurfaceSession: (conversationId, sessionKey, origin) => {
+      set((state) => {
+        if (state.surfaceSessionsByKey[sessionKey]) return state;
+        const compatibilitySession = state.sessionsByConversationId[conversationId];
+        const surfaceSession = {
+          ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+          surfaceOrigin: origin,
+          isLoading: false,
+          hasOlderMessages: compatibilitySession?.hasOlderMessages ?? false,
+          isLoadingOlderMessages: compatibilitySession?.isLoadingOlderMessages ?? false,
+          queuedTurnCount: compatibilitySession?.queuedTurnCount ?? 0,
+        };
+        return {
+          surfaceSessionsByKey: {
+            ...state.surfaceSessionsByKey,
+            [sessionKey]: surfaceSession,
+          },
+        };
+      });
+    },
+
+    removeConversationSurfaceSession: (sessionKey) => {
+      set((state) => {
+        if (!state.surfaceSessionsByKey[sessionKey]) return state;
+        const surfaceSessionsByKey = { ...state.surfaceSessionsByKey };
+        delete surfaceSessionsByKey[sessionKey];
+        return { surfaceSessionsByKey };
+      });
     },
 
     consumeSkipFocusRestore: (conversationId) => {
@@ -313,15 +484,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           title: conv.title || title || defaultTitle,
           threadedMessages: [],
         };
-        const sessionsByConversationId = {
-          ...state.sessionsByConversationId,
-          [conv.id]: {
-            ...getSession(state, conv.id),
-            conversation,
-          },
-        };
         return {
-          sessionsByConversationId,
+          ...patchSession(state, conv.id, { conversation }),
           isInitialized: true,
         };
       });
@@ -348,18 +512,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             channel: snapshot.channel,
             contactId: snapshot.contactId,
           };
-          const sessionsByConversationId = {
-            ...state.sessionsByConversationId,
-            [id]: {
-              ...getSession(state, id),
-              conversation,
-              isLoading: state.loadingConversationIds.has(id),
+          const patches = patchSession(state, id, {
+            conversation,
+            isLoading: state.loadingConversationIds.has(id),
+            hasOlderMessages: snapshot.hasOlderMessages,
+            isLoadingOlderMessages: false,
+          });
+          return {
+            ...syncConversationPaginationFlags(state, patches, id, {
               hasOlderMessages: snapshot.hasOlderMessages,
               isLoadingOlderMessages: false,
-            },
-          };
-          return {
-            sessionsByConversationId,
+            }),
             isInitialized: true,
           };
         });
@@ -367,18 +530,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (options.activate !== false && seq !== loadConversationSeq) return;
         console.error('[Chat] Erro ao carregar conversa:', error);
         set((state) => {
-          const sessionsByConversationId = {
-            ...state.sessionsByConversationId,
-            [id]: {
-              ...getSession(state, id),
-              conversation: { id, title: i18next.t('chat.conversation'), threadedMessages: [] },
-              isLoading: state.loadingConversationIds.has(id),
+          const patches = patchSession(state, id, {
+            conversation: { id, title: i18next.t('chat.conversation'), threadedMessages: [] },
+            isLoading: state.loadingConversationIds.has(id),
+            hasOlderMessages: false,
+            isLoadingOlderMessages: false,
+          });
+          return {
+            ...syncConversationPaginationFlags(state, patches, id, {
               hasOlderMessages: false,
               isLoadingOlderMessages: false,
-            },
-          };
-          return {
-            sessionsByConversationId,
+            }),
             isInitialized: true,
           };
         });
@@ -390,16 +552,26 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return get().sessionsByConversationId[conversationId] ?? null;
     },
 
-    loadOlderMessagesForConversation: async (conversationId) => {
+    loadOlderMessagesForConversation: async (conversationId, sessionKey) => {
       const state = get();
-      const session = getSession(state, conversationId);
+      const session = getSession(state, conversationId, sessionKey);
       const conversation = session.conversation;
       if (!conversation || session.isLoadingOlderMessages || !session.hasOlderMessages) return;
 
       const firstMessageId = conversation.threadedMessages[0]?.message.id;
       if (!firstMessageId) return;
 
-      set((current) => patchSession(current, conversationId, { isLoadingOlderMessages: true }));
+      set((current) => {
+        const currentSession = getSession(current, conversationId, sessionKey);
+        const patches = patchSession(current, conversationId, {
+          hasOlderMessages: currentSession.hasOlderMessages,
+          isLoadingOlderMessages: true,
+        }, sessionKey);
+        return syncConversationPaginationFlags(current, patches, conversationId, {
+          hasOlderMessages: currentSession.hasOlderMessages,
+          isLoadingOlderMessages: true,
+        });
+      });
       try {
         const olderMessages = await loadOlderConversationMessages(
           conversation.id,
@@ -408,24 +580,46 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         );
 
         set((current) => {
-          const currentSession = getSession(current, conversation.id);
+          const currentSession = getSession(current, conversation.id, sessionKey);
           if (!currentSession.conversation) {
-            return patchSession(current, conversationId, { isLoadingOlderMessages: false });
+            const fallbackSession = getSession(current, conversationId, sessionKey);
+            const patches = patchSession(current, conversationId, {
+              hasOlderMessages: fallbackSession.hasOlderMessages,
+              isLoadingOlderMessages: false,
+            }, sessionKey);
+            return syncConversationPaginationFlags(current, patches, conversationId, {
+              hasOlderMessages: fallbackSession.hasOlderMessages,
+              isLoadingOlderMessages: false,
+            });
           }
           const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
           const dedupedOlderNodes = olderMessages.nodes.filter((node) => !existingIds.has(node.message.id));
-          return patchSession(current, conversation.id, {
+          const patches = patchSession(current, conversation.id, {
             conversation: {
               ...currentSession.conversation,
               threadedMessages: [...dedupedOlderNodes, ...currentSession.conversation.threadedMessages],
             },
             hasOlderMessages: olderMessages.hasOlderMessages,
             isLoadingOlderMessages: false,
+          }, sessionKey);
+          return syncConversationPaginationFlags(current, patches, conversation.id, {
+            hasOlderMessages: olderMessages.hasOlderMessages,
+            isLoadingOlderMessages: false,
           });
         });
       } catch (error) {
         console.error('[Chat] Erro ao carregar mensagens anteriores:', error);
-        set((current) => patchSession(current, conversationId, { isLoadingOlderMessages: false }));
+        set((current) => {
+          const currentSession = getSession(current, conversationId, sessionKey);
+          const patches = patchSession(current, conversationId, {
+            hasOlderMessages: currentSession.hasOlderMessages,
+            isLoadingOlderMessages: false,
+          }, sessionKey);
+          return syncConversationPaginationFlags(current, patches, conversationId, {
+            hasOlderMessages: currentSession.hasOlderMessages,
+            isLoadingOlderMessages: false,
+          });
+        });
       }
     },
 
@@ -478,64 +672,91 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       })));
     },
 
-    sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride) => {
+    sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride, options) => {
       if (!conversationId) {
         console.error('[Chat] sendMessageToConversation sem conversationId explícito');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }
-      if (!get().sessionsByConversationId[conversationId]?.conversation) {
+      if (!getConversationTimeline(get(), conversationId)) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
-      await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride);
+      const sessionKey = options?.origin?.sessionKey;
+      const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
+      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+      try {
+        await turnQueue.enqueue(conversationId, async () => {
+          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
+          await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
+        });
+      } catch (error) {
+        if (!isConversationTurnQueueClearedError(error)) throw error;
+      }
     },
 
-    retryMessageToConversation: async (conversationId, messageId, paramsOverride) => {
+    retryMessageToConversation: async (conversationId, messageId, paramsOverride, options) => {
       if (!conversationId || !messageId) {
         console.error('[Chat] retryMessageToConversation sem conversationId/messageId válido');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }
-      if (!get().sessionsByConversationId[conversationId]?.conversation) {
+      if (!getConversationTimeline(get(), conversationId)) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
-      await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId);
+      const sessionKey = options?.origin?.sessionKey;
+      const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
+      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+      try {
+        await turnQueue.enqueue(conversationId, async () => {
+          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
+          await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
+        });
+      } catch (error) {
+        if (!isConversationTurnQueueClearedError(error)) throw error;
+      }
+    },
+
+    cancelConversationTurn: (conversationId) => {
+      turnQueue.clear(conversationId);
+      stopChatEventController(conversationId);
+      setConversationLoading(conversationId, false);
+      resetQueuedTurnCount(conversationId);
     },
 
     getConversationMessages: (conversationId) => (
-      flattenThreadedMessages(get().sessionsByConversationId[conversationId]?.conversation?.threadedMessages)
+      flattenThreadedMessages(getConversationTimeline(get(), conversationId)?.threadedMessages)
     ),
 
-    toggleConversationThreadExpanded: (conversationId, messageId) => {
+    toggleConversationThreadExpanded: (conversationId, messageId, sessionKey) => {
       set((state) => {
-        const session = getSession(state, conversationId);
+        const session = getSession(state, conversationId, sessionKey);
         const expanded = new Set(session.expandedThreads);
         if (expanded.has(messageId)) expanded.delete(messageId);
         else expanded.add(messageId);
-        return patchSession(state, conversationId, { expandedThreads: expanded });
+        return patchSession(state, conversationId, { expandedThreads: expanded }, sessionKey);
       });
     },
 
-    isConversationThreadExpanded: (conversationId, messageId) => (
-      get().sessionsByConversationId[conversationId]?.expandedThreads.has(messageId) ?? false
+    isConversationThreadExpanded: (conversationId, messageId, sessionKey) => (
+      getSession(get(), conversationId, sessionKey).expandedThreads.has(messageId) ?? false
     ),
 
-    toggleConversationReasoningExpanded: (conversationId, messageId) => {
+    toggleConversationReasoningExpanded: (conversationId, messageId, sessionKey) => {
       set((state) => {
-        const session = getSession(state, conversationId);
+        const session = getSession(state, conversationId, sessionKey);
         const expanded = new Set(session.expandedReasonings);
         if (expanded.has(messageId)) expanded.delete(messageId);
         else expanded.add(messageId);
-        return patchSession(state, conversationId, { expandedReasonings: expanded });
+        return patchSession(state, conversationId, { expandedReasonings: expanded }, sessionKey);
       });
     },
 
-    isConversationReasoningExpanded: (conversationId, messageId) => (
-      get().sessionsByConversationId[conversationId]?.expandedReasonings.has(messageId) ?? false
+    isConversationReasoningExpanded: (conversationId, messageId, sessionKey) => (
+      getSession(get(), conversationId, sessionKey).expandedReasonings.has(messageId) ?? false
     ),
 
     getConversationThreadedMessages: (conversationId) => (
-      get().sessionsByConversationId[conversationId]?.conversation?.threadedMessages
+      getConversationTimeline(get(), conversationId)?.threadedMessages
     ),
 
     loadMessageChildren: async (messageId) => {
@@ -547,7 +768,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const frontendNodes = await loadMessageChildrenNodes(messageId);
 
         set((state) => {
-          const targetConversationId = Object.entries(state.sessionsByConversationId).find(([, session]) => (
+          const targetConversationId = Object.entries(state.timelinesByConversationId).find(([, timeline]) => (
+            hasMessageId(timeline.threadedMessages, messageId)
+          ))?.[0] ?? Object.entries(state.sessionsByConversationId).find(([, session]) => (
             hasMessageId(session.conversation?.threadedMessages, messageId)
           ))?.[0];
           if (!targetConversationId) return state;
@@ -570,10 +793,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleConversationDeleted: (conversationId: string) => {
+      turnQueue.clear(conversationId);
       stopChatEventController(conversationId);
-      if (get().sessionsByConversationId[conversationId]) {
-        set((state) => removeChatSession(state, conversationId));
-      }
+      set((state) => removeChatSession(state, conversationId));
       if (isChatConversationActive(conversationId)) {
         announce(i18next.t('chat.announce.conversationDeletedPermanently'));
         setTimeout(() => {
@@ -584,7 +806,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleConversationCleared: (conversationId: string) => {
-      if (get().sessionsByConversationId[conversationId]) {
+      if (getConversationTimeline(get(), conversationId)) {
         announce(i18next.t('chat.announce.conversationMessagesRemoved'));
         set((state) => ({
           ...patchConversation(state, conversationId, (conversation) => ({
@@ -610,9 +832,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleDatabaseReset: () => {
+      turnQueue.clearAll();
       stopAllChatEventControllers();
       set({
         sessionsByConversationId: {},
+        timelinesByConversationId: {},
+        surfaceSessionsByKey: {},
         loadingConversationIds: new Set(),
         isInitialized: false,
       });
@@ -659,7 +884,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     handleExternalIncoming: (data) => {
       void handleExternalChatIncoming(data, {
-        hasConversationSession: (conversationId) => !!get().sessionsByConversationId[conversationId]?.conversation,
+        hasConversationSession: (conversationId) => !!getConversationTimeline(get(), conversationId),
         loadConversationSession: (conversationId) => get().loadConversationSession(conversationId, { activate: false }),
         chatEventAdapter,
       });

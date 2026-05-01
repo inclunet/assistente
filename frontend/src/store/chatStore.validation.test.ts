@@ -12,12 +12,14 @@ const mockSendMessage = vi.fn().mockResolvedValue(undefined);
 const mockRetryMessage = vi.fn().mockResolvedValue(undefined);
 const mockGetMessages = vi.fn().mockResolvedValue([]);
 const mockGetRecentMessages = vi.fn().mockResolvedValue([]);
+const mockGetMessagesBefore = vi.fn().mockResolvedValue([]);
 const mockGetConversationInfo = vi.fn().mockResolvedValue({});
 vi.mock('@wailsjs/go/app/App', () => ({
   SendMessage: (...args: unknown[]) => mockSendMessage(...args),
   RetryMessage: (...args: unknown[]) => mockRetryMessage(...args),
   GetMessages: (...args: unknown[]) => mockGetMessages(...args),
   GetRecentMessages: (...args: unknown[]) => mockGetRecentMessages(...args),
+  GetMessagesBefore: (...args: unknown[]) => mockGetMessagesBefore(...args),
   GetConversationInfo: (...args: unknown[]) => mockGetConversationInfo(...args),
   EnsureConversation: vi.fn().mockResolvedValue("01926b90-7a5a-7c4e-8d3f-000000000001"),
   AssignConversationToChannel: vi.fn(),
@@ -72,6 +74,20 @@ vi.mock('../services/chatSpeak', () => ({
 
 const defaultConversationId = "01926b90-7a5a-7c4e-8d3f-000000000001";
 
+function createMessageNode(id: string, conversationId = defaultConversationId) {
+  return {
+    message: {
+      id,
+      conversationId,
+      role: 'user',
+      content: id,
+      createdAt: new Date().toISOString(),
+    },
+    children: [],
+    childCount: 0,
+  };
+}
+
 vi.mock('i18next', () => ({
   default: {
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -84,6 +100,22 @@ vi.mock('i18next', () => ({
 function emitEvent(name: string, data: unknown) {
   const cbs = eventListeners.get(name) || [];
   for (const cb of cbs) cb(data);
+}
+
+function deferred<T>() {
+  let resolve!: (value?: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = (value?: T) => res(value as T);
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe('chatStore validation', () => {
@@ -100,6 +132,8 @@ describe('chatStore validation', () => {
     mockGetMessages.mockResolvedValue([]);
     mockGetRecentMessages.mockReset();
     mockGetRecentMessages.mockResolvedValue([]);
+    mockGetMessagesBefore.mockReset();
+    mockGetMessagesBefore.mockResolvedValue([]);
     mockGetConversationInfo.mockReset();
     mockGetConversationInfo.mockResolvedValue({});
     mockHandleChatSpeak.mockClear();
@@ -108,6 +142,8 @@ describe('chatStore validation', () => {
     useChatStore.setState({
       sessionsByConversationId: {
         [defaultConversationId]: {
+          sessionKey: `conversation:${defaultConversationId}`,
+          conversationId: defaultConversationId,
           conversation: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
           isLoading: false,
           hasOlderMessages: false,
@@ -210,6 +246,349 @@ describe('chatStore validation', () => {
       surfaceStateJson: '{"filePath":"/tmp/readme.md"}',
       surfaceContextJson: '{"selectedText":"hello"}',
     }));
+  });
+
+  it('registra origem de superfície no controller de envio', async () => {
+    const origin = {
+      sessionKey: 'tab-chat:01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: defaultConversationId,
+      tabId: 'tab-chat',
+      surfaceId: 'tab-chat',
+      surfaceType: 'page' as const,
+    };
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', undefined, undefined, { origin });
+
+    expect(useChatStore.getState().surfaceSessionsByKey[origin.sessionKey]?.surfaceOrigin).toEqual(origin);
+  });
+
+  it('propaga eventos sem origem para superfícies existentes da conversa', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
+      },
+      surfaceSessionsByKey: {
+        [`tab-a:${defaultConversationId}`]: createEmptyChatSession(defaultConversationId, `tab-a:${defaultConversationId}`),
+        [`tab-b:${defaultConversationId}`]: createEmptyChatSession(defaultConversationId, `tab-b:${defaultConversationId}`),
+      },
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello');
+    emitEvent('chat:tool_start', {
+      conversationId: defaultConversationId,
+      name: 'search_web',
+      callId: 'tool-1',
+      args: '{}',
+    });
+    await flushMicrotasks();
+
+    expect(useChatStore.getState().surfaceSessionsByKey[`tab-a:${defaultConversationId}`]?.activeToolCalls[0]).toMatchObject({
+      callId: 'tool-1',
+      status: 'running',
+    });
+    expect(useChatStore.getState().surfaceSessionsByKey[`tab-b:${defaultConversationId}`]?.activeToolCalls[0]).toMatchObject({
+      callId: 'tool-1',
+      status: 'running',
+    });
+  });
+
+  it('remove timeline e superfícies órfãs ao deletar conversa', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const orphanConversationId = '01926b90-7a5a-7c4e-8d3f-000000000099';
+    const orphanSessionKey = `tab-chat:${orphanConversationId}`;
+    useChatStore.setState({
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        [orphanConversationId]: { id: orphanConversationId, title: 'Órfã', threadedMessages: [] },
+      },
+      surfaceSessionsByKey: {
+        [orphanSessionKey]: createEmptyChatSession(orphanConversationId, orphanSessionKey),
+      },
+    });
+
+    useChatStore.getState().handleConversationDeleted(orphanConversationId);
+
+    expect(useChatStore.getState().timelinesByConversationId[orphanConversationId]).toBeUndefined();
+    expect(useChatStore.getState().surfaceSessionsByKey[orphanSessionKey]).toBeUndefined();
+  });
+
+  it('envia sem recarregar quando timeline já está carregada sem sessão legada', async () => {
+    useChatStore.setState({
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
+      },
+      surfaceSessionsByKey: {},
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello');
+
+    expect(mockGetConversationInfo).not.toHaveBeenCalled();
+    expect(mockGetMessages).not.toHaveBeenCalled();
+    expect(mockGetRecentMessages).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith(defaultConversationId, 'hello', '', expect.any(Object));
+  });
+
+  it('faz retry sem recarregar quando timeline já está carregada sem sessão legada', async () => {
+    useChatStore.setState({
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
+      },
+      surfaceSessionsByKey: {},
+    });
+
+    await useChatStore.getState().retryMessageToConversation(defaultConversationId, 'message-1');
+
+    expect(mockGetConversationInfo).not.toHaveBeenCalled();
+    expect(mockGetMessages).not.toHaveBeenCalled();
+    expect(mockGetRecentMessages).not.toHaveBeenCalled();
+    expect(mockRetryMessage).toHaveBeenCalledWith(defaultConversationId, 'message-1', expect.any(Object));
+  });
+
+  it('reset do banco invalida turnos pendentes', async () => {
+    const firstSend = deferred<void>();
+    mockSendMessage.mockImplementationOnce(() => firstSend.promise);
+
+    const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const second = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'segunda');
+
+    await flushMicrotasks();
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+
+    useChatStore.getState().handleDatabaseReset();
+    firstSend.resolve();
+
+    await first;
+    await second;
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(useChatStore.getState().sessionsByConversationId).toEqual({});
+    expect(useChatStore.getState().timelinesByConversationId).toEqual({});
+    expect(useChatStore.getState().surfaceSessionsByKey).toEqual({});
+  });
+
+  it('propaga fim de loading para superfícies materializadas da conversa', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const surfaceSessionKey = `tab-chat:${defaultConversationId}`;
+    useChatStore.setState({
+      loadingConversationIds: new Set([defaultConversationId]),
+      surfaceSessionsByKey: {
+        [surfaceSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, surfaceSessionKey),
+          isLoading: true,
+        },
+      },
+    });
+
+    useChatStore.getState().cancelConversationTurn(defaultConversationId);
+
+    expect(useChatStore.getState().loadingConversationIds.has(defaultConversationId)).toBe(false);
+    expect(useChatStore.getState().surfaceSessionsByKey[surfaceSessionKey]?.isLoading).toBe(false);
+  });
+
+  it('mantém loading visual restrito à superfície de origem', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const send = deferred<void>();
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const otherSessionKey = `tab-b:${defaultConversationId}`;
+    mockSendMessage.mockImplementationOnce(() => send.promise);
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
+        [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
+      },
+    });
+
+    const pending = useChatStore.getState().sendMessageToConversation(
+      defaultConversationId,
+      'mensagem',
+      undefined,
+      undefined,
+      {
+        origin: {
+          surfaceId: 'tab-a',
+          surfaceType: 'page',
+          sessionKey: originSessionKey,
+          conversationId: defaultConversationId,
+        },
+      },
+    );
+
+    await flushMicrotasks();
+
+    const state = useChatStore.getState();
+    expect(state.surfaceSessionsByKey[originSessionKey]?.isLoading).toBe(true);
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.isLoading).toBe(false);
+
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+    send.resolve();
+    await pending;
+  });
+
+  it('sincroniza flags de paginação nas superfícies ao carregar conversa', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const surfaceSessionKey = `tab-a:${defaultConversationId}`;
+    mockGetConversationInfo.mockResolvedValueOnce({ title: 'Conversa carregada' });
+    mockGetRecentMessages.mockResolvedValueOnce([]);
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [surfaceSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, surfaceSessionKey),
+          hasOlderMessages: true,
+          isLoadingOlderMessages: true,
+        },
+      },
+    });
+
+    await useChatStore.getState().loadConversationSession(defaultConversationId);
+
+    const surfaceSession = useChatStore.getState().surfaceSessionsByKey[surfaceSessionKey];
+    expect(surfaceSession?.hasOlderMessages).toBe(false);
+    expect(surfaceSession?.isLoadingOlderMessages).toBe(false);
+  });
+
+  it('carrega mensagens antigas usando a sessão de superfície chamadora', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const otherSessionKey = `tab-b:${defaultConversationId}`;
+    mockGetMessagesBefore.mockResolvedValueOnce([createMessageNode('older-message')]);
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [createMessageNode('first-message') as unknown as MessageNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          hasOlderMessages: true,
+        },
+        [otherSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, otherSessionKey),
+          hasOlderMessages: true,
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, originSessionKey);
+
+    expect(mockGetMessagesBefore).toHaveBeenCalledWith(
+      defaultConversationId,
+      'first-message',
+      expect.any(Number),
+    );
+    const state = useChatStore.getState();
+    expect(state.timelinesByConversationId[defaultConversationId]?.threadedMessages[0]?.message.id).toBe('older-message');
+    expect(state.surfaceSessionsByKey[originSessionKey]?.hasOlderMessages).toBe(false);
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.hasOlderMessages).toBe(false);
+    expect(state.surfaceSessionsByKey[originSessionKey]?.isLoadingOlderMessages).toBe(false);
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.isLoadingOlderMessages).toBe(false);
+  });
+
+  it('limpa mensagens usando timeline mesmo sem sessão legada', async () => {
+    useChatStore.setState({
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [
+            {
+              message: {
+                id: 'message-1',
+                conversationId: defaultConversationId,
+                role: 'user',
+                content: 'oi',
+                createdAt: new Date().toISOString(),
+              },
+              children: [],
+              childCount: 0,
+            } as unknown as MessageNode,
+          ],
+        },
+      },
+      surfaceSessionsByKey: {},
+    });
+
+    useChatStore.getState().handleConversationCleared(defaultConversationId);
+
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages).toEqual([]);
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.title).toBe('chat.conversationCleared');
+    expect(mockAnnounce).toHaveBeenCalledWith('chat.announce.conversationMessagesRemoved');
+  });
+
+  it('serializa envios concorrentes da mesma conversa', async () => {
+    const firstSend = deferred<void>();
+    mockSendMessage
+      .mockImplementationOnce(() => firstSend.promise)
+      .mockResolvedValueOnce(undefined);
+
+    const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const second = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'segunda');
+
+    await flushMicrotasks();
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage.mock.calls[0][1]).toBe('primeira');
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+
+    firstSend.resolve();
+    await first;
+    await second;
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(2);
+    expect(mockSendMessage.mock.calls[1][1]).toBe('segunda');
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+  });
+
+  it('serializa retry atrás de envio ativo da mesma conversa', async () => {
+    const firstSend = deferred<void>();
+    mockSendMessage.mockImplementationOnce(() => firstSend.promise);
+    mockRetryMessage.mockResolvedValueOnce(undefined);
+
+    const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const retry = useChatStore.getState().retryMessageToConversation(defaultConversationId, 'message-1');
+
+    await flushMicrotasks();
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockRetryMessage).not.toHaveBeenCalled();
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+
+    firstSend.resolve();
+    await first;
+    await retry;
+
+    expect(mockRetryMessage).toHaveBeenCalledWith(defaultConversationId, 'message-1', expect.any(Object));
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+  });
+
+  it('mantem envios de conversas diferentes em paralelo', async () => {
+    const firstSend = deferred<void>();
+    const otherConversationId = '01926b90-7a5a-7c4e-8d3f-000000000007';
+    useChatStore.setState({
+      sessionsByConversationId: {
+        ...useChatStore.getState().sessionsByConversationId,
+        [otherConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: { id: otherConversationId, title: 'Outra', threadedMessages: [] },
+        },
+      },
+    });
+    mockSendMessage
+      .mockImplementationOnce(() => firstSend.promise)
+      .mockResolvedValueOnce(undefined);
+
+    const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const second = useChatStore.getState().sendMessageToConversation(otherConversationId, 'segunda');
+
+    await flushMicrotasks();
+    expect(mockSendMessage).toHaveBeenCalledTimes(2);
+
+    firstSend.resolve();
+    await Promise.all([first, second]);
   });
 
   it('chat:speak event invokes handleChatSpeak for matching conversation', async () => {

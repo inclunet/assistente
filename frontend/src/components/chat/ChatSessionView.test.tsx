@@ -28,6 +28,8 @@ vi.mock('../../services/tts', () => ({
 
 const chatStoreState = {
   retryMessageToConversation: vi.fn(),
+  ensureConversationSurfaceSession: vi.fn(),
+  removeConversationSurfaceSession: vi.fn(),
   sessionsByConversationId: {
     [conversationId]: {
       conversation: activeConversation,
@@ -36,6 +38,8 @@ const chatStoreState = {
       isLoadingOlderMessages: false,
     },
   },
+  timelinesByConversationId: {},
+  surfaceSessionsByKey: {},
   loadMessageChildren: vi.fn(),
   loadConversationSession: vi.fn(),
   updateConversationMessage: updateMessageMock,
@@ -186,10 +190,23 @@ describe('ChatSessionView', () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue(undefined);
     chatStoreState.sessionsByConversationId[conversationId].isLoading = true;
-    render(<ChatSessionView variant="embedded" conversationId={conversationId} onSend={onSend} showShortcutsHelp={false} />);
+    render(
+      <ChatSessionView
+        variant="embedded"
+        conversationId={conversationId}
+        surfaceId="embedded:workspace-chat-modal:tab-1"
+        onSend={onSend}
+        showShortcutsHelp={false}
+      />,
+    );
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
-    expect(onSend).toHaveBeenCalledWith('oi', undefined);
+    expect(onSend).toHaveBeenCalledWith('oi', undefined, expect.objectContaining({
+      conversationId,
+      sessionKey: `embedded:workspace-chat-modal:tab-1:${conversationId}`,
+      surfaceId: 'embedded:workspace-chat-modal:tab-1',
+      surfaceType: 'embedded',
+    }));
   });
 });

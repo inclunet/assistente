@@ -8,6 +8,10 @@ import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import type { MediaFile } from '../../services/mediaService';
+import {
+  normalizeChatSurfaceOrigin,
+  type ChatSurfaceOrigin,
+} from '../../services/chatSessionRegistry';
 
 import './WorkspaceChatModal.css';
 
@@ -20,9 +24,18 @@ export function WorkspaceChatModal() {
   const adapterError = useWorkspaceChatModalStore((s) => s.adapterError);
   const close = useWorkspaceChatModalStore((s) => s.close);
   const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
-  const session = useChatStore((s) => boundConversationId ? s.sessionsByConversationId[boundConversationId] ?? null : null);
-  const activeConversation = session?.conversation ?? null;
+  const activeConversation = useChatStore((s) => (
+    boundConversationId
+      ? s.timelinesByConversationId?.[boundConversationId]
+        ?? s.sessionsByConversationId[boundConversationId]?.conversation
+        ?? null
+      : null
+  ));
   const activeWorkspaceTab = useActiveTab();
+  const modalSurfaceId = useMemo(
+    () => `embedded:workspace-chat-modal:${boundTabId ?? 'standalone'}`,
+    [boundTabId],
+  );
 
   const modalTitle = useMemo(() => {
     const conversationTitle = activeConversation?.title || t('editor.chatModal.conversation');
@@ -54,7 +67,7 @@ export function WorkspaceChatModal() {
   }, [isOpen, focusNonce]);
 
   const handleSend = useCallback(
-    async (content: string, mediaFiles?: MediaFile[]) => {
+    async (content: string, mediaFiles?: MediaFile[], origin?: ChatSurfaceOrigin) => {
       const {
         boundTabId: tabId,
         boundConversationId: storedConversationId,
@@ -97,11 +110,13 @@ export function WorkspaceChatModal() {
       if (!sendPlan) return;
 
       try {
+        const sendOrigin = normalizeChatSurfaceOrigin(origin, targetConversationId);
         await useChatStore.getState().sendMessageToConversation(
           targetConversationId,
           sendPlan.content,
           sendPlan.mediaFiles,
           sendPlan.paramsOverride,
+          { origin: sendOrigin },
         );
         await sendPlan.afterSend?.();
       } catch (error) {
@@ -134,6 +149,7 @@ export function WorkspaceChatModal() {
           <ChatSessionView
             variant="embedded"
             conversationId={boundConversationId}
+            surfaceId={modalSurfaceId}
             onSend={handleSend}
             showShortcutsHelp={false}
           />
