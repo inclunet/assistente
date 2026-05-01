@@ -190,9 +190,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       } else {
         loadingConversationIds.delete(conversationId);
       }
+      const patches = patchSession(state, conversationId, { isLoading });
+      const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey) };
+      for (const [sessionKey, session] of Object.entries(surfaceSessionsByKey)) {
+        if (session.conversationId === conversationId) {
+          surfaceSessionsByKey[sessionKey] = { ...session, isLoading };
+        }
+      }
       return {
         loadingConversationIds,
-        ...patchSession(state, conversationId, { isLoading }),
+        ...patches,
+        surfaceSessionsByKey,
       };
     });
   };

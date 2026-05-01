@@ -349,6 +349,25 @@ describe('chatStore validation', () => {
     expect(useChatStore.getState().surfaceSessionsByKey).toEqual({});
   });
 
+  it('propaga fim de loading para superfícies materializadas da conversa', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const surfaceSessionKey = `tab-chat:${defaultConversationId}`;
+    useChatStore.setState({
+      loadingConversationIds: new Set([defaultConversationId]),
+      surfaceSessionsByKey: {
+        [surfaceSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, surfaceSessionKey),
+          isLoading: true,
+        },
+      },
+    });
+
+    useChatStore.getState().cancelConversationTurn(defaultConversationId);
+
+    expect(useChatStore.getState().loadingConversationIds.has(defaultConversationId)).toBe(false);
+    expect(useChatStore.getState().surfaceSessionsByKey[surfaceSessionKey]?.isLoading).toBe(false);
+  });
+
   it('serializa envios concorrentes da mesma conversa', async () => {
     const firstSend = deferred<void>();
     mockSendMessage
