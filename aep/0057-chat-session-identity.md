@@ -1,122 +1,170 @@
-# AEP-0057: Identidade de Sessao de Chat por Aba
+# AEP-0057: Sessoes de Superficie e Timeline de Chat
 
 ## Status: Draft
 
 ## Resumo
 
-Definir a identidade canônica de uma sessão de chat no frontend como `tabId + conversationId`, e não apenas `conversationId`.
+Separar o chat em tres conceitos distintos:
 
-O `conversationId` continua sendo a identidade persistida da conversa no backend e no banco. O `tabId` passa a identificar a instância visual e interativa da conversa dentro do workspace. Essa separação permite que cada aba seja autocontida, mantenha seu próprio estado visual e participe de eventos globais sem depender de um singleton de chat ativo.
+- `ConversationTimeline`: estado canonico e persistido da conversa, identificado por `conversationId`;
+- `ChatSurfaceSession`: estado visual e interativo de uma superficie, identificado por `sessionKey`;
+- `ConversationTurnQueue`: fila ordenada de execucao de turnos por conversa.
+
+O objetivo nao e criar um "array de chat stores" indexado pela UI. O objetivo e fazer cada painel de chat enxergar uma sessao autocontida por meio de um provider/controller, enquanto mensagens e eventos persistidos continuam pertencendo a uma timeline compartilhada por `conversationId`.
 
 Esta AEP detalha a fase de chat autocontido prevista na AEP-0056.
 
 ## Motivação
 
-A migração do chat para sessões por `conversationId` eliminou o problema mais grave do singleton global, mas ainda deixa uma ambiguidade arquitetural: duas abas que apontem para a mesma conversa compartilham a mesma sessão frontend.
+A migracao do chat para sessoes por `conversationId` eliminou o problema mais grave do singleton global, mas ainda deixa um cheiro arquitetural: a UI consulta um registry global por chave em varios componentes. Isso faz a arquitetura parecer um conjunto de stores indexadas manualmente, em vez de paineis autocontidos.
 
-Esse compartilhamento pode ser útil para dados persistidos, mas é inadequado para estado visual e ciclo de vida de UI. Scroll, seleção, foco, expansão de threads, mensagem em edição, leitura virtual, loading local e estado de streaming pertencem à instância da aba. Quando isso fica indexado só por `conversationId`, uma aba pode interferir em outra ou impedir que o workspace trate cada painel como autocontido.
+Ao mesmo tempo, duplicar a conversa inteira por aba tambem seria incorreto. Duas superficies podem apontar para a mesma conversa: por exemplo, uma aba de chat e um chat embutido no editor usando a mesma `conversationId`. Nessa situacao, as duas superficies devem ver a mesma timeline canonica de mensagens, mas nao devem compartilhar scroll, foco, input, selecao, expansoes ou erros locais.
 
-A decisão `tabId + conversationId` também cria a base para TTS/STT/announcer saberem a origem real de uma ação e para permitir envio paralelo entre superfícies sem depender de uma conversa ativa global.
+Tambem ha uma diferenca entre paralelismo entre conversas e concorrencia dentro da mesma conversa. Conversas diferentes podem responder em paralelo. A mesma conversa deve preservar ordem de turnos. Quando duas superficies enviam interacoes para a mesma conversa, o comportamento correto e serializar esses turnos por uma fila da conversa, e nao deixar dois LLMs competirem pela mesma timeline sem ordem definida.
 
 ## Decisões
 
-### 1. Separar identidade persistida e identidade de sessão
+### 1. Separar timeline, sessao visual e fila de turnos
 
-- `conversationId` identifica a conversa persistida no backend.
-- `tabId` identifica a instância da aba no workspace.
-- `sessionKey` identifica a sessão frontend e deve ser derivada de `tabId + conversationId`.
+- `conversationId` identifica a `ConversationTimeline`.
+- `sessionKey` identifica a `ChatSurfaceSession`.
+- `ConversationTurnQueue` e identificada por `conversationId`.
 
-O formato da chave é detalhe interno do frontend. A regra arquitetural é que qualquer estado visual ou interativo da sessão use a identidade composta.
+Esses tres conceitos podem compartilhar infraestrutura, mas nao devem ser confundidos nos componentes de UI.
 
-### 2. Dados persistidos continuam por conversa
+### 2. Timeline canonica por conversa
 
-Mensagens, título, áudio salvo, tool calls, reasoning persistido e estatísticas continuam pertencendo ao `conversationId`.
+Mensagens, titulo, audio salvo, tool calls, reasoning persistido, estatisticas e eventos salvos pertencem ao `conversationId`.
 
-Quando duas abas exibirem a mesma conversa, elas podem compartilhar dados persistidos carregados do backend, mas não devem compartilhar estado visual ou ciclo de vida de UI.
+Quando duas superficies exibem a mesma conversa, elas compartilham a timeline canonica. Uma mensagem criada em uma superficie deve aparecer nas outras superficies interessadas na mesma conversa, respeitando a politica de janela/renderizacao de cada uma.
 
-### 3. Estado visual passa a ser por sessão de aba
+### 3. Sessao visual por superficie
 
-Devem ser escopados por `sessionKey`:
+O estado visual e interativo deve ser escopado por `sessionKey`. A chave deve ser derivada de `tabId + conversationId` quando houver aba, ou de um identificador equivalente de superficie quando a conversa estiver em modal, painel embutido ou canal externo representado na UI.
 
-- `isLoading` e busy state da superfície;
-- `streamingMessageId` e segmentos em construção;
-- janela de mensagens carregada;
-- cursor/paginação de mensagens antigas;
-- scroll e âncora visual;
-- expansão de threads;
-- expansão de reasoning;
-- mensagem em edição;
+Devem pertencer a `ChatSurfaceSession`:
+
+- input local e midias anexadas ainda nao enviadas;
+- scroll e ancora visual;
+- janela de mensagens renderizada;
+- cursor/paginacao de mensagens antigas;
+- expansao de threads;
+- expansao de reasoning;
+- mensagem em edicao;
 - modo de leitura/foco;
-- erros de envio e retry local.
+- erros locais e estado de retry;
+- busy/queued state da superficie.
 
-### 4. Eventos continuam globais, mas são roteados por origem
+### 4. Provider/controller como fronteira da UI
 
-O backend continua emitindo eventos globais com `conversationId`, conforme AEP-0040. O frontend deve rotear esses eventos para todas as sessões interessadas naquela conversa.
+Componentes de chat nao devem consultar diretamente mapas globais como `sessionsByConversationId[conversationId]` ou `sessionsBySessionKey[sessionKey]`.
 
-Eventos que representem uma ação iniciada por aba devem carregar, quando disponível, metadado de origem (`tabId`, `surfaceId` ou equivalente). Quando esse metadado não existir, o roteador deve atualizar as sessões interessadas pelo `conversationId` sem assumir aba ativa global.
+Cada superficie deve montar um `ChatSessionProvider` ou controller equivalente que recebe `conversationId`, `tabId`/`surfaceId` e `surfaceType`, cria a sessao visual e expoe uma API local, como `useChatSession()`.
 
-### 5. Envio usa sessão de origem
+O registry global e permitido como infraestrutura interna do dominio de chat, mas nao deve ser o modelo mental nem a API primaria dos componentes de UI.
 
-Enviar mensagem sempre parte de uma sessão de aba. A chamada compartilhada ao backend continua sendo única (`SendMessage`), mas o frontend deve associar o envio ao `sessionKey` de origem para:
+### 5. Fila serial por conversa
 
-- liberar ou bloquear apenas a superfície correta;
-- anexar `surfaceStateJson` e `surfaceContextJson` corretos;
-- direcionar erros e retry para a aba que iniciou o envio;
-- permitir envio simultâneo em outras sessões compatíveis.
+Conversas diferentes podem processar turnos em paralelo. A mesma conversa deve processar turnos em ordem por uma `ConversationTurnQueue`.
 
-### 6. Cache compartilhado é permitido, estado visual compartilhado não
+Se duas superficies enviarem mensagens para a mesma conversa:
 
-É permitido manter cache de dados persistidos por `conversationId` para evitar chamadas duplicadas. Esse cache deve ser tratado como fonte de dados, não como sessão de UI.
+- o primeiro turno entra em execucao;
+- o segundo turno entra na fila da mesma conversa, ou fica bloqueado na UI em uma primeira implementacao simples;
+- quando o primeiro turno termina, o proximo turno e processado com a timeline atualizada;
+- ambas as superficies interessadas veem a timeline resultante, mantendo estado visual independente.
+
+Processar dois turnos da mesma conversa simultaneamente nao e permitido nesta AEP, porque criaria ambiguidade de contexto e ordenacao.
+
+### 6. Cancelamento e uma intencao explicita
+
+Novo envio comum nao deve cancelar silenciosamente um turno em andamento da mesma conversa.
+
+Cancelamento continua existindo para:
+
+- botao/acao explicita de parar geracao;
+- barge-in por voz/SIP;
+- fluxo explicito de "enviar interrompendo a resposta atual".
+
+O `StreamingManager` ou componente equivalente deve distinguir "registrar novo turno" de "cancelar turno atual".
+
+### 7. Eventos carregam timeline e origem
+
+Eventos de chat continuam globais e devem carregar `conversationId`, conforme AEP-0040.
+
+Eventos iniciados por uma superficie Wails devem carregar tambem origem quando disponivel:
+
+- `sessionKey`;
+- `tabId` ou `surfaceId`;
+- `surfaceType`;
+- `profileSlug`;
+- identificador de turno, quando existir.
+
+O roteador frontend deve atualizar a timeline canonica por `conversationId` e notificar as sessoes visuais interessadas. Eventos sem origem conhecida, como canais externos, continuam roteados por `conversationId` e `source`.
 
 ## Fases
 
-### Fase 1 — Tipos e registry
+### Fase 1 — Reformular fronteira de sessao
 
-- Criar tipo explícito para `ChatSessionKey`.
-- Introduzir helpers para derivar `sessionKey` a partir de `tabId` e `conversationId`.
-- Separar no registry o que é cache por conversa e o que é sessão por aba.
-- Atualizar testes unitários para cobrir duas abas apontando para a mesma conversa.
+- Criar tipos explicitos para `ConversationTimeline`, `ChatSurfaceSession`, `ConversationTurnQueue`, `ChatSessionKey` e `ChatSurfaceOrigin`.
+- Introduzir helpers para derivar `sessionKey` a partir de `tabId`/`surfaceId` e `conversationId`.
+- Criar `ChatSessionProvider`/`useChatSession()` como fronteira primaria da UI.
+- Atualizar testes para duas superficies apontando para a mesma conversa.
 
-### Fase 2 — Store e selectors
+### Fase 2 — Separar timeline de estado visual
 
-- Migrar `sessionsByConversationId` para estrutura por `sessionKey`.
-- Expor selectors por `tabId + conversationId`.
-- Remover fallbacks que consultem uma conversa ativa global.
-- Garantir que componentes de chat recebam a sessão a partir do contexto do painel.
+- Separar cache/timeline por `conversationId` de estado visual por `sessionKey`.
+- Remover acesso direto da UI a registries globais.
+- Migrar `ChatSessionView`, `ChatToolbar`, `MessageList`, `MessageNode` e `ChatMessage` para `useChatSession()`.
+- Garantir que fechar uma aba remove apenas sua sessao visual.
 
-### Fase 3 — Loader e paginação
+### Fase 3 — Fila de turnos por conversa
 
-- Ajustar carregamento inicial para preencher cache persistido por `conversationId` e sessão visual por `sessionKey`.
-- Manter estado de janela/paginação por sessão.
-- Evitar reload desnecessário quando outra aba já carregou a mesma conversa.
+- Introduzir ou adaptar a fila de turnos por `conversationId`.
+- Permitir execucao paralela entre conversas diferentes.
+- Serializar envios da mesma conversa.
+- Separar cancelamento explicito de novo envio comum.
 
-### Fase 4 — Event router
+### Fase 4 — Contrato de origem e eventos
 
-- Roteador global recebe eventos por `conversationId`.
-- Eventos atualizam cache persistido quando aplicável.
-- Sessões interessadas são notificadas sem depender da aba ativa.
-- Eventos com origem conhecida atualizam primeiro a sessão de origem.
+- Ampliar `SendMessage`/`RetryMessage` para receber origem de superficie sem criar outro metodo de envio.
+- Propagar origem ate os eventos `chat:*`.
+- Adicionar identificador de turno quando necessario para correlacionar fila, streaming e retry.
+- Manter compatibilidade conceitual com canais externos via `source`/`surfaceType`.
 
-### Fase 5 — Envio paralelo e retry
+### Fase 5 — Loader, paginacao e janela
 
-- Associar `SendMessage` ao `sessionKey` de origem.
-- Permitir que sessões independentes enviem em paralelo.
-- Garantir que erro e retry fiquem na sessão que iniciou o envio.
-- Validar envio simultâneo em duas abas diferentes.
+- Ajustar carregamento inicial para preencher timeline por `conversationId`.
+- Manter janela, cursor e ancora visual por `sessionKey`.
+- Evitar reload desnecessario quando outra superficie ja carregou a mesma timeline.
+- Preparar a base para a AEP-0059.
+
+### Fase 6 — Retry, erro e UI de fila
+
+- Direcionar erro/retry para a sessao de origem quando houver origem.
+- Refletir mensagens persistidas em todas as superficies interessadas.
+- Expor estado de turno em fila ou bloqueado por conversa.
+- Validar envio em duas conversas diferentes e envio serializado na mesma conversa.
 
 ## Riscos
 
-- Duplicar estado persistido por sessão pode aumentar consumo de memória se a separação entre cache e UI não for clara.
-- Eventos sem origem por aba podem atualizar mais sessões do que o necessário.
-- Duas abas da mesma conversa podem exibir momentos diferentes da mesma timeline se a política de sincronização não for explícita.
-- A migração pode reintroduzir dependência de aba ativa se selectors antigos permanecerem no código.
+- Separar timeline e sessao visual aumenta a complexidade inicial do dominio de chat.
+- Uma fila por conversa exige UX clara para turnos aguardando execucao.
+- Eventos sem origem podem atualizar mais sessoes do que o necessario.
+- Se componentes continuarem consultando registries globais, a arquitetura continuara parecendo um array de stores.
+- Cancelamento implicito pode reaparecer se `StreamingManager` continuar tratando novo registro como overwrite.
+- Mostrar turnos em fila antes de persistir mensagens pode violar a regra backend-driven se nao houver evento backend adequado.
 
 ## Critérios de aceitação
 
 - Duas abas com conversas diferentes podem enviar e receber respostas simultaneamente.
-- Duas abas com a mesma conversa não compartilham scroll, foco, edição, expansão de threads ou erros locais.
+- Duas superficies com a mesma conversa compartilham a timeline canonica de mensagens.
+- Duas superficies com a mesma conversa nao compartilham scroll, foco, input, edicao, expansao de threads ou erros locais.
+- Envio comum para conversa ocupada nao cancela silenciosamente o turno atual.
+- A mesma conversa processa turnos de forma serializada e ordenada.
 - `SendMessage` continua sendo a única chamada de envio frontend-backend.
 - Eventos de chat não dependem de `activeConversationId` global.
-- Fechar uma aba remove apenas sua sessão visual.
-- Cache persistido por `conversationId` não força estado visual compartilhado.
-- Testes cobrem isolamento por `tabId + conversationId`.
+- Componentes de UI usam `ChatSessionProvider`/`useChatSession()` em vez de acessar registries globais diretamente.
+- Fechar uma aba remove apenas sua sessao visual.
+- Cache/timeline por `conversationId` nao força estado visual compartilhado.
+- Testes cobrem isolamento por superficie, timeline compartilhada e fila por conversa.
