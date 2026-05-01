@@ -200,14 +200,14 @@ export function WorkspaceLayout() {
         id: 'contentToolbar',
         label: t('landmarks.contentToolbar', 'Barra de ferramentas do conteúdo'),
         focus: () => {
-          const toolbar = document.querySelector('.ws-content .ws-content-toolbar') as Element | null;
+          const toolbar = document.querySelector('.ws-content__panel[data-active="true"] .ws-content-toolbar') as Element | null;
           if (!toolbar) return false;
           const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
           if (!btn) return false;
           btn.focus();
           return true;
         },
-        contains: () => !!document.activeElement?.closest?.('.ws-content-toolbar'),
+        contains: () => !!document.activeElement?.closest?.('.ws-content__panel[data-active="true"] .ws-content-toolbar'),
       },
       // 4. Content Area (genérico, foco inteligente por tipo de aba)
       {
@@ -217,7 +217,7 @@ export function WorkspaceLayout() {
           if (document.querySelector('.ws-tabs__tab-edit')) {
             return false;
           }
-          const area = document.querySelector('.ws-content .ws-content-area') as HTMLElement | null;
+          const area = document.querySelector('.ws-content__panel[data-active="true"] .ws-content-area') as HTMLElement | null;
           if (!area) return false;
 
           // Chat/Terminal: foca no textarea do input
@@ -238,7 +238,7 @@ export function WorkspaceLayout() {
           area.focus();
           return true;
         },
-        contains: () => !!document.activeElement?.closest?.('.ws-content-area'),
+        contains: () => !!document.activeElement?.closest?.('.ws-content__panel[data-active="true"] .ws-content-area'),
       },
     ];
   }, [t, isWorkspaceRoute, pathname]);

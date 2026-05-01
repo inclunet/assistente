@@ -26,12 +26,16 @@ function messagesFixture() {
   ];
 }
 
+function activeChatTextarea(page: import('@playwright/test').Page) {
+  return page.locator('.ws-content__panel[data-active="true"] .chat-input__textarea');
+}
+
 test.describe('Landmark navigation — F6 / Shift+F6', () => {
   test('página foca no textarea (área padrão) ao carregar', async ({ page, wails }) => {
     await wails.waitForApp();
 
     // contentArea é a landmark padrão → foca no textarea do chat
-    const textarea = page.locator('.chat-input__textarea');
+    const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
   });
 
@@ -40,7 +44,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
     await wails.waitForApp();
 
     // Garante que o foco inicial é no textarea (contentArea)
-    const textarea = page.locator('.chat-input__textarea');
+    const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
 
     // Coleta quais landmarks recebem foco ao pressionar F6 repetidamente.
@@ -78,7 +82,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
   test('Shift+F6 navega na direção reversa', async ({ page, wails }) => {
     await wails.waitForApp();
 
-    const textarea = page.locator('.chat-input__textarea');
+    const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
 
     // Shift+F6 deve ir para a landmark anterior (contentToolbar ou workspaceTabs)
@@ -98,7 +102,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
   test('Escape retorna à área padrão (textarea do chat)', async ({ page, wails }) => {
     await wails.waitForApp();
 
-    const textarea = page.locator('.chat-input__textarea');
+    const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
 
     // Navega para outra landmark
@@ -141,7 +145,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
     await tab2.click();
 
     // O foco deve ir à área padrão (textarea)
-    const textarea = page.locator('.chat-input__textarea');
+    const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
   });
 });
