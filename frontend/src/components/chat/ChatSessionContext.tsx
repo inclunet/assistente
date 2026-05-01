@@ -49,9 +49,12 @@ export interface ChatSessionContextValue {
   isLoadingOlderMessages: boolean;
   draftMessage: string;
   draftMediaFiles: MediaFile[];
+  scrollTop: number;
+  scrollAnchorMessageId: string | null;
   setDraftMessage: (message: string) => void;
   setDraftMediaFiles: (mediaFiles: MediaFile[]) => void;
   clearDraft: () => void;
+  setScrollState: (scrollState: { scrollTop: number; scrollAnchorMessageId: string | null }) => void;
   loadOlderMessages: () => Promise<void>;
   loadConversationSession: (conversationId: string, options?: { activate?: boolean }) => Promise<void>;
   loadMessageChildren: ReturnType<typeof useChatStore.getState>['loadMessageChildren'];
@@ -114,6 +117,8 @@ export function ChatSessionProvider({
   const isLoadingOlderMessages = session?.isLoadingOlderMessages ?? false;
   const draftMessage = session?.draftMessage ?? '';
   const draftMediaFiles = session?.draftMediaFiles ?? [];
+  const scrollTop = session?.scrollTop ?? 0;
+  const scrollAnchorMessageId = session?.scrollAnchorMessageId ?? null;
 
   const loadOlderMessagesForConversation = useChatStore((state) => state.loadOlderMessagesForConversation);
   const loadMessageChildren = useChatStore((state) => state.loadMessageChildren);
@@ -128,6 +133,7 @@ export function ChatSessionProvider({
   const setConversationDraftMessage = useChatStore((state) => state.setConversationDraftMessage);
   const setConversationDraftMediaFiles = useChatStore((state) => state.setConversationDraftMediaFiles);
   const clearConversationDraft = useChatStore((state) => state.clearConversationDraft);
+  const setConversationScrollState = useChatStore((state) => state.setConversationScrollState);
   const setConversationEditingMessageIdBase = useChatStore((state) => state.setConversationEditingMessageId);
   const setConversationReadingMessageIdBase = useChatStore((state) => state.setConversationReadingMessageId);
   const toggleConversationThreadExpandedBase = useChatStore((state) => state.toggleConversationThreadExpanded);
@@ -154,6 +160,11 @@ export function ChatSessionProvider({
     if (!normalizedConversationId) return;
     clearConversationDraft(normalizedConversationId, sessionKey);
   }, [clearConversationDraft, normalizedConversationId, sessionKey]);
+
+  const setScrollState = useCallback((scrollState: { scrollTop: number; scrollAnchorMessageId: string | null }) => {
+    if (!normalizedConversationId) return;
+    setConversationScrollState(normalizedConversationId, scrollState, sessionKey);
+  }, [normalizedConversationId, sessionKey, setConversationScrollState]);
 
   const materializedSurfaceSessionKeysRef = useRef(new Set<string>());
 
@@ -264,9 +275,12 @@ export function ChatSessionProvider({
     isLoadingOlderMessages,
     draftMessage,
     draftMediaFiles,
+    scrollTop,
+    scrollAnchorMessageId,
     setDraftMessage,
     setDraftMediaFiles,
     clearDraft,
+    setScrollState,
     loadOlderMessages,
     loadConversationSession,
     loadMessageChildren,
@@ -297,8 +311,11 @@ export function ChatSessionProvider({
     retryMessageToConversation,
     session,
     sessionKey,
+    scrollAnchorMessageId,
+    scrollTop,
     setDraftMediaFiles,
     setDraftMessage,
+    setScrollState,
     setConversationEditingMessageId,
     setConversationReadingMessageId,
     startConversationEditing,

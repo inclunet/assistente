@@ -13,7 +13,6 @@ import { ContextMenu } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
-import { useTabScrollState } from '../../hooks/useTabScrollState';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
@@ -70,7 +69,8 @@ function ChatSessionViewContent({
   const { t } = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  useTabScrollState(messagesContainerRef);
+  const scrollFrameRef = useRef<number | null>(null);
+  const restoredScrollSessionKeyRef = useRef<string | null>(null);
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
@@ -96,8 +96,11 @@ function ChatSessionViewContent({
     origin,
     draftMessage,
     draftMediaFiles,
+    scrollTop,
+    scrollAnchorMessageId,
     setDraftMessage,
     setDraftMediaFiles,
+    setScrollState,
   } = useChatSession();
   const getSessionConversation = useCallback(() => conversation, [conversation]);
 
@@ -106,6 +109,61 @@ function ChatSessionViewContent({
     if (session?.conversation) return;
     void loadConversationSession(conversationId, { activate: variant === 'page' });
   }, [conversationId, loadConversationSession, session?.conversation, variant]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || (scrollTop <= 0 && !scrollAnchorMessageId)) return;
+    const restoreKey = `${origin.sessionKey}:${conversationId ?? 'none'}`;
+    if (restoredScrollSessionKeyRef.current === restoreKey) return;
+    restoredScrollSessionKeyRef.current = restoreKey;
+    requestAnimationFrame(() => {
+      const currentContainer = messagesContainerRef.current;
+      if (!currentContainer) return;
+      if (scrollTop > 0) {
+        currentContainer.scrollTop = scrollTop;
+        return;
+      }
+      currentContainer
+        .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(scrollAnchorMessageId ?? '')}"]`)
+        ?.scrollIntoView({ block: 'start' });
+    });
+  }, [conversationId, origin.sessionKey, scrollAnchorMessageId, scrollTop]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || !conversationId) return;
+
+    const getAnchorMessageId = () => {
+      const nodes = Array.from(container.querySelectorAll<HTMLElement>('[data-message-node]'));
+      const containerTop = container.getBoundingClientRect().top;
+      const anchor = nodes.find((node) => node.getBoundingClientRect().bottom >= containerTop);
+      return anchor?.dataset.messageId ?? null;
+    };
+
+    const handleScroll = () => {
+      if (scrollFrameRef.current !== null) return;
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        setScrollState({
+          scrollTop: container.scrollTop,
+          scrollAnchorMessageId: getAnchorMessageId(),
+        });
+      });
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+      setScrollState({
+        scrollTop: container.scrollTop,
+        scrollAnchorMessageId: getAnchorMessageId(),
+      });
+    };
+  }, [conversationId, setScrollState]);
 
   const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
   useEffect(() => {

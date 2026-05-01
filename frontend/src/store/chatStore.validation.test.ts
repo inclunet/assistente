@@ -155,6 +155,8 @@ describe('chatStore validation', () => {
           completedSegments: [],
           draftMessage: '',
           draftMediaFiles: [],
+          scrollTop: 0,
+          scrollAnchorMessageId: null,
           expandedThreads: new Set<string>(),
           expandedReasonings: new Set<string>(),
           editingMessageId: null,
@@ -451,6 +453,30 @@ describe('chatStore validation', () => {
     expect(state.surfaceSessionsByKey[originSessionKey]?.draftMediaFiles).toEqual([mediaFile]);
     expect(state.surfaceSessionsByKey[otherSessionKey]?.draftMessage).toBe('');
     expect(state.surfaceSessionsByKey[otherSessionKey]?.draftMediaFiles).toEqual([]);
+  });
+
+  it('mantém scroll e âncora visual isolados por superfície', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const otherSessionKey = `tab-b:${defaultConversationId}`;
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
+        [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
+      },
+    });
+
+    useChatStore.getState().setConversationScrollState(
+      defaultConversationId,
+      { scrollTop: 320, scrollAnchorMessageId: 'message-7' },
+      originSessionKey,
+    );
+
+    const state = useChatStore.getState();
+    expect(state.surfaceSessionsByKey[originSessionKey]?.scrollTop).toBe(320);
+    expect(state.surfaceSessionsByKey[originSessionKey]?.scrollAnchorMessageId).toBe('message-7');
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.scrollTop).toBe(0);
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.scrollAnchorMessageId).toBeNull();
   });
 
   it('sincroniza flags de paginação nas superfícies ao carregar conversa', async () => {

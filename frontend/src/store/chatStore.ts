@@ -110,6 +110,11 @@ interface ChatStore {
   setConversationDraftMessage: (conversationId: string, message: string, sessionKey?: string) => void;
   setConversationDraftMediaFiles: (conversationId: string, mediaFiles: MediaFile[], sessionKey?: string) => void;
   clearConversationDraft: (conversationId: string, sessionKey?: string) => void;
+  setConversationScrollState: (
+    conversationId: string,
+    scrollState: { scrollTop: number; scrollAnchorMessageId: string | null },
+    sessionKey?: string,
+  ) => void;
   ensureConversationSurfaceSession: (conversationId: string, sessionKey: string, origin?: ChatSurfaceOrigin) => void;
   removeConversationSurfaceSession: (sessionKey: string) => void;
 
@@ -449,6 +454,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     clearConversationDraft: (conversationId, sessionKey) => {
       set((state) => patchSession(state, conversationId, { draftMessage: '', draftMediaFiles: [] }, sessionKey));
+    },
+
+    setConversationScrollState: (conversationId, scrollState, sessionKey) => {
+      set((state) => patchSession(state, conversationId, scrollState, sessionKey));
     },
 
     ensureConversationSurfaceSession: (conversationId, sessionKey, origin) => {

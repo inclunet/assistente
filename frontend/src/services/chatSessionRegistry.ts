@@ -56,6 +56,8 @@ export interface ChatSurfaceSession {
   completedSegments: TurnSegment[];
   draftMessage: string;
   draftMediaFiles: MediaFile[];
+  scrollTop: number;
+  scrollAnchorMessageId: string | null;
   expandedThreads: Set<string>;
   expandedReasonings: Set<string>;
   editingMessageId: string | null;
@@ -92,6 +94,8 @@ export const createEmptyChatSurfaceSession = (
   completedSegments: [],
   draftMessage: '',
   draftMediaFiles: [],
+  scrollTop: 0,
+  scrollAnchorMessageId: null,
   expandedThreads: new Set<string>(),
   expandedReasonings: new Set<string>(),
   editingMessageId: null,
