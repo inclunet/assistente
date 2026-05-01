@@ -125,9 +125,9 @@ export function ChatSessionProvider({
 
   const loadOlderMessages = useCallback(async () => {
     if (normalizedConversationId) {
-      await loadOlderMessagesForConversation(normalizedConversationId);
+      await loadOlderMessagesForConversation(normalizedConversationId, sessionKey);
     }
-  }, [loadOlderMessagesForConversation, normalizedConversationId]);
+  }, [loadOlderMessagesForConversation, normalizedConversationId, sessionKey]);
 
   const materializedSurfaceSessionKeysRef = useRef(new Set<string>());
 
