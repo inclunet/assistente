@@ -41,8 +41,8 @@ export const normalizeChatSurfaceOrigin = (
 );
 
 export interface ChatSurfaceSession {
-  sessionKey?: string;
-  conversationId?: string | null;
+  sessionKey: string;
+  conversationId: string | null;
   surfaceOrigin?: ChatSurfaceOrigin;
   queuedTurnCount?: number;
   isLoading: boolean;

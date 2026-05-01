@@ -102,7 +102,7 @@ export interface ChatEventControllerAdapter {
   ) => void;
   updateMessage: (conversationId: string, messageId: string, content: string) => void;
   updateReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
-  setConversationLoading: (conversationId: string, isLoading: boolean) => void;
+  setConversationLoading: (conversationId: string, isLoading: boolean, sessionKey?: string) => void;
 }
 
 interface ChatEventControllerOptions {
@@ -203,7 +203,7 @@ export function startChatEventController({
     adapter.patchSession(conversationId, origin ? { ...patch, surfaceOrigin: origin } : patch);
   };
 
-  adapter.setConversationLoading(conversationId, true);
+  adapter.setConversationLoading(conversationId, true, origin?.sessionKey);
   patchCurrentSession({ completedSegments: [], activeToolCalls: [], isLoading: true });
 
   const noop = () => { /* no-op */ };
@@ -260,7 +260,7 @@ export function startChatEventController({
     unsubSpeak();
     discardPendingUpdate(streamingMsgId);
     activeControllers.delete(conversationIdStr);
-    adapter.setConversationLoading(conversationId, false);
+    adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
     patchCurrentSession({
       isLoading: false,
       streamingMessageId: null,
@@ -526,7 +526,7 @@ export function startChatEventController({
       ensureAssistantNode();
       updateStreamingMessage(i18next.t('chat.sendErrorPrefix', { message }));
       finalizeStreaming();
-      adapter.setConversationLoading(conversationId, false);
+      adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
       patchCurrentSession({ isLoading: false, streamingMessageId: null });
     },
   };

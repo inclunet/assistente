@@ -84,9 +84,7 @@ export function ChatSessionProvider({
   const surfaceId = explicitSurfaceId
     ?? (tabId
       ? `${surfaceType}:tab:${tabId}`
-      : normalizedConversationId
-        ? `${surfaceType}:conversation:${normalizedConversationId}`
-        : `${surfaceType}:standalone`);
+      : `${surfaceType}:standalone`);
   const sessionKey = explicitSessionKey ?? buildChatSessionKey(surfaceId, normalizedConversationId);
 
   const compatibilitySession = useChatStore((state) => (

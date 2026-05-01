@@ -124,6 +124,8 @@ describe('chatStore validation', () => {
     useChatStore.setState({
       sessionsByConversationId: {
         [defaultConversationId]: {
+          sessionKey: `conversation:${defaultConversationId}`,
+          conversationId: defaultConversationId,
           conversation: { id: defaultConversationId, title: 'Conversa', threadedMessages: [] },
           isLoading: false,
           hasOlderMessages: false,
@@ -366,6 +368,45 @@ describe('chatStore validation', () => {
 
     expect(useChatStore.getState().loadingConversationIds.has(defaultConversationId)).toBe(false);
     expect(useChatStore.getState().surfaceSessionsByKey[surfaceSessionKey]?.isLoading).toBe(false);
+  });
+
+  it('mantém loading visual restrito à superfície de origem', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const send = deferred<void>();
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const otherSessionKey = `tab-b:${defaultConversationId}`;
+    mockSendMessage.mockImplementationOnce(() => send.promise);
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
+        [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
+      },
+    });
+
+    const pending = useChatStore.getState().sendMessageToConversation(
+      defaultConversationId,
+      'mensagem',
+      undefined,
+      undefined,
+      {
+        origin: {
+          surfaceId: 'tab-a',
+          surfaceType: 'page',
+          sessionKey: originSessionKey,
+          conversationId: defaultConversationId,
+        },
+      },
+    );
+
+    await flushMicrotasks();
+
+    const state = useChatStore.getState();
+    expect(state.surfaceSessionsByKey[originSessionKey]?.isLoading).toBe(true);
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.isLoading).toBe(false);
+
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+    send.resolve();
+    await pending;
   });
 
   it('limpa mensagens usando timeline mesmo sem sessão legada', async () => {

@@ -183,7 +183,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     return patchChatConversation(state, conversationId, updater);
   };
 
-  const setConversationLoading = (conversationId: string, isLoading: boolean) => {
+  const setConversationLoading = (conversationId: string, isLoading: boolean, sessionKey?: string) => {
     set((state) => {
       const loadingConversationIds = new Set(state.loadingConversationIds);
       if (isLoading) {
@@ -191,7 +191,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       } else {
         loadingConversationIds.delete(conversationId);
       }
-      const patches = patchSession(state, conversationId, { isLoading });
+      const patches = patchSession(state, conversationId, { isLoading }, sessionKey);
+      if (sessionKey) {
+        return {
+          loadingConversationIds,
+          ...patches,
+        };
+      }
+
       const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey) };
       for (const [sessionKey, session] of Object.entries(surfaceSessionsByKey)) {
         if (session.conversationId === conversationId) {
@@ -396,7 +403,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const surfaceSession = {
           ...createEmptyChatSurfaceSession(conversationId, sessionKey),
           surfaceOrigin: origin,
-          isLoading: compatibilitySession?.isLoading ?? state.loadingConversationIds.has(conversationId),
+          isLoading: false,
           hasOlderMessages: compatibilitySession?.hasOlderMessages ?? false,
           isLoadingOlderMessages: compatibilitySession?.isLoadingOlderMessages ?? false,
           queuedTurnCount: compatibilitySession?.queuedTurnCount ?? 0,
