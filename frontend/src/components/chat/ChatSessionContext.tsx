@@ -65,19 +65,28 @@ const ChatSessionContext = createContext<ChatSessionContextValue | null>(null);
 export interface ChatSessionProviderProps {
   conversationId?: string | null;
   surfaceType?: ChatSurfaceType;
+  surfaceId?: string;
+  sessionKey?: string;
   children: React.ReactNode;
 }
 
 export function ChatSessionProvider({
   conversationId = null,
   surfaceType = 'page',
+  surfaceId: explicitSurfaceId,
+  sessionKey: explicitSessionKey,
   children,
 }: ChatSessionProviderProps) {
   const { tab } = useWorkspacePanel();
   const normalizedConversationId = conversationId || null;
   const tabId = tab?.id;
-  const surfaceId = tabId || normalizedConversationId || `${surfaceType}:standalone`;
-  const sessionKey = buildChatSessionKey(surfaceId, normalizedConversationId);
+  const surfaceId = explicitSurfaceId
+    ?? (tabId
+      ? `${surfaceType}:tab:${tabId}`
+      : normalizedConversationId
+        ? `${surfaceType}:conversation:${normalizedConversationId}`
+        : `${surfaceType}:standalone`);
+  const sessionKey = explicitSessionKey ?? buildChatSessionKey(surfaceId, normalizedConversationId);
 
   const compatibilitySession = useChatStore((state) => (
     normalizedConversationId ? state.sessionsByConversationId[normalizedConversationId] ?? null : null

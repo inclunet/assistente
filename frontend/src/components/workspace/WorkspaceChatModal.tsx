@@ -27,6 +27,10 @@ export function WorkspaceChatModal() {
   const session = useChatStore((s) => boundConversationId ? s.sessionsByConversationId[boundConversationId] ?? null : null);
   const activeConversation = session?.conversation ?? null;
   const activeWorkspaceTab = useActiveTab();
+  const modalSurfaceId = useMemo(
+    () => `embedded:workspace-chat-modal:${boundTabId ?? 'standalone'}`,
+    [boundTabId],
+  );
 
   const modalTitle = useMemo(() => {
     const conversationTitle = activeConversation?.title || t('editor.chatModal.conversation');
@@ -140,6 +144,7 @@ export function WorkspaceChatModal() {
           <ChatSessionView
             variant="embedded"
             conversationId={boundConversationId}
+            surfaceId={modalSurfaceId}
             onSend={handleSend}
             showShortcutsHelp={false}
           />

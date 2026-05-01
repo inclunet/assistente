@@ -27,6 +27,8 @@ import './ChatSessionView.css';
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
   conversationId?: string | null;
+  surfaceId?: string;
+  sessionKey?: string;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
   onSend: (content: string, mediaFiles?: MediaFile[], origin?: ChatSurfaceOrigin) => Promise<void>;
   showShortcutsHelp?: boolean;
@@ -35,14 +37,23 @@ export interface ChatSessionViewProps {
 export function ChatSessionView({
   variant = 'page',
   conversationId,
+  surfaceId,
+  sessionKey,
   onSend,
   showShortcutsHelp,
 }: ChatSessionViewProps) {
   return (
-    <ChatSessionProvider conversationId={conversationId} surfaceType={variant}>
+    <ChatSessionProvider
+      conversationId={conversationId}
+      surfaceType={variant}
+      surfaceId={surfaceId}
+      sessionKey={sessionKey}
+    >
       <ChatSessionViewContent
         variant={variant}
         conversationId={conversationId}
+        surfaceId={surfaceId}
+        sessionKey={sessionKey}
         onSend={onSend}
         showShortcutsHelp={showShortcutsHelp}
       />
