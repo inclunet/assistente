@@ -8,7 +8,10 @@ import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import type { MediaFile } from '../../services/mediaService';
-import type { ChatSurfaceOrigin } from '../../services/chatSessionRegistry';
+import {
+  normalizeChatSurfaceOrigin,
+  type ChatSurfaceOrigin,
+} from '../../services/chatSessionRegistry';
 
 import './WorkspaceChatModal.css';
 
@@ -98,13 +101,7 @@ export function WorkspaceChatModal() {
       if (!sendPlan) return;
 
       try {
-        const sendOrigin = origin
-          ? {
-            ...origin,
-            conversationId: targetConversationId,
-            sessionKey: origin.conversationId ? origin.sessionKey : `${origin.surfaceId}:${targetConversationId}`,
-          }
-          : undefined;
+        const sendOrigin = normalizeChatSurfaceOrigin(origin, targetConversationId);
         await useChatStore.getState().sendMessageToConversation(
           targetConversationId,
           sendPlan.content,

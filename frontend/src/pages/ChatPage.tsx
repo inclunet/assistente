@@ -4,7 +4,10 @@ import { useChatStore } from '../store/chatStore';
 import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
 import { ChatSessionView } from '../components/chat/ChatSessionView';
 import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext';
-import type { ChatSurfaceOrigin } from '../services/chatSessionRegistry';
+import {
+  normalizeChatSurfaceOrigin,
+  type ChatSurfaceOrigin,
+} from '../services/chatSessionRegistry';
 
 export default function ChatPage() {
   const { t } = useTranslation();
@@ -24,13 +27,7 @@ export default function ChatPage() {
       if (!conversationId) {
         throw new Error(t('chat.errors.chatTabNotReady'));
       }
-      const sendOrigin = origin
-        ? {
-          ...origin,
-          conversationId,
-          sessionKey: origin.conversationId ? origin.sessionKey : `${origin.surfaceId}:${conversationId}`,
-        }
-        : undefined;
+      const sendOrigin = normalizeChatSurfaceOrigin(origin, conversationId);
       await sendMessageToConversation(conversationId, content, mediaFiles, undefined, { origin: sendOrigin });
     },
     [tab, sendMessageToConversation, t],

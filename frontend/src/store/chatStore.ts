@@ -16,7 +16,10 @@ import { messageAudioService } from '../services/messageAudio';
 import { isChatConversationActive } from '../services/chatArbitration';
 import { startChatEventController, stopAllChatEventControllers, stopChatEventController } from '../services/chatEventController';
 import { handleExternalChatIncoming } from '../services/externalChatController';
-import { createConversationTurnQueue } from '../services/chatTurnQueue';
+import {
+  createConversationTurnQueue,
+  isConversationTurnQueueClearedError,
+} from '../services/chatTurnQueue';
 import {
   loadConversationSnapshot,
   loadMessageChildrenNodes,
@@ -98,11 +101,11 @@ interface ChatStore {
   contextProfileSlug: string | null;
 
   setContextProfileSlug: (slug: string | null) => void;
-  setConversationEditingMessageId: (conversationId: string, id: string | null) => void;
-  startConversationEditing: (conversationId: string, id: string) => void;
+  setConversationEditingMessageId: (conversationId: string, id: string | null, sessionKey?: string) => void;
+  startConversationEditing: (conversationId: string, id: string, sessionKey?: string) => void;
   consumeSkipFocusRestore: (conversationId: string) => boolean;
-  setConversationReadingMessageId: (conversationId: string, id: string | null) => void;
-  startConversationReading: (conversationId: string, id: string) => void;
+  setConversationReadingMessageId: (conversationId: string, id: string | null, sessionKey?: string) => void;
+  startConversationReading: (conversationId: string, id: string, sessionKey?: string) => void;
 
   createConversation: (title?: string) => Promise<string>;
   loadConversationSession: (id: string, options?: { activate?: boolean }) => Promise<void>;
@@ -114,10 +117,10 @@ interface ChatStore {
   addInternalMessage: (message: Message) => void;
   clearConversationMessages: (conversationId: string) => void;
 
-  toggleConversationThreadExpanded: (conversationId: string, messageId: string) => void;
-  isConversationThreadExpanded: (conversationId: string, messageId: string) => boolean;
-  toggleConversationReasoningExpanded: (conversationId: string, messageId: string) => void;
-  isConversationReasoningExpanded: (conversationId: string, messageId: string) => boolean;
+  toggleConversationThreadExpanded: (conversationId: string, messageId: string, sessionKey?: string) => void;
+  isConversationThreadExpanded: (conversationId: string, messageId: string, sessionKey?: string) => boolean;
+  toggleConversationReasoningExpanded: (conversationId: string, messageId: string, sessionKey?: string) => void;
+  isConversationReasoningExpanded: (conversationId: string, messageId: string, sessionKey?: string) => boolean;
 
   sendMessageToConversation: (
     conversationId: string,
@@ -156,16 +159,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   let loadConversationSeq = 0;
   const turnQueue = createConversationTurnQueue();
 
-  const getSession = (state: ChatStore, conversationId: string): ChatConversationSession => (
-    getChatSession(state, conversationId)
+  const getSession = (state: ChatStore, conversationId: string, sessionKey?: string): ChatConversationSession => (
+    getChatSession(state, conversationId, sessionKey)
   );
 
   const patchSession = (
     state: ChatStore,
     conversationId: string,
     patch: Partial<ChatConversationSession> | ((session: ChatConversationSession) => ChatConversationSession),
+    sessionKey?: string,
   ): Partial<ChatStore> => {
-    return patchChatSession(state, conversationId, patch);
+    return patchChatSession(state, conversationId, patch, sessionKey);
   };
 
   const patchConversation = (
@@ -191,18 +195,34 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     });
   };
 
-  const adjustQueuedTurnCount = (conversationId: string, delta: number) => {
+  const adjustQueuedTurnCount = (conversationId: string, delta: number, sessionKey?: string) => {
     set((state) => {
-      const session = getSession(state, conversationId);
+      const session = getSession(state, conversationId, sessionKey);
       const queuedTurnCount = Math.max(0, (session.queuedTurnCount ?? 0) + delta);
-      return patchSession(state, conversationId, { queuedTurnCount });
+      return patchSession(state, conversationId, { queuedTurnCount }, sessionKey);
+    });
+  };
+
+  const resetQueuedTurnCount = (conversationId: string) => {
+    set((state) => {
+      const patches = patchSession(state, conversationId, { queuedTurnCount: 0 });
+      const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey) };
+      for (const [sessionKey, session] of Object.entries(surfaceSessionsByKey)) {
+        if (session.conversationId === conversationId) {
+          surfaceSessionsByKey[sessionKey] = { ...session, queuedTurnCount: 0 };
+        }
+      }
+      return {
+        ...patches,
+        surfaceSessionsByKey,
+      };
     });
   };
 
   const chatEventAdapter = {
     getSession: (conversationId: string) => getSession(get(), conversationId),
     patchSession: (conversationId: string, patch: Partial<ChatConversationSession>) => {
-      set((state) => patchSession(state, conversationId, patch));
+      set((state) => patchSession(state, conversationId, patch, patch.surfaceOrigin?.sessionKey));
     },
     patchConversation: (
       conversationId: string,
@@ -308,20 +328,20 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     setContextProfileSlug: (slug) => set({ contextProfileSlug: slug }),
 
-    setConversationEditingMessageId: (conversationId, id) => {
-      set((state) => patchSession(state, conversationId, { editingMessageId: id }));
+    setConversationEditingMessageId: (conversationId, id, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { editingMessageId: id }, sessionKey));
     },
 
-    startConversationEditing: (conversationId, id) => {
-      set((state) => patchSession(state, conversationId, { editingMessageId: id, skipFocusRestore: true }));
+    startConversationEditing: (conversationId, id, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { editingMessageId: id, skipFocusRestore: true }, sessionKey));
     },
 
-    setConversationReadingMessageId: (conversationId, id) => {
-      set((state) => patchSession(state, conversationId, { readingMessageId: id }));
+    setConversationReadingMessageId: (conversationId, id, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { readingMessageId: id }, sessionKey));
     },
 
-    startConversationReading: (conversationId, id) => {
-      set((state) => patchSession(state, conversationId, { readingMessageId: id, skipFocusRestore: true }));
+    startConversationReading: (conversationId, id, sessionKey) => {
+      set((state) => patchSession(state, conversationId, { readingMessageId: id, skipFocusRestore: true }, sessionKey));
     },
 
     consumeSkipFocusRestore: (conversationId) => {
@@ -499,12 +519,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!get().sessionsByConversationId[conversationId]?.conversation) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
+      const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
-      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1);
-      await turnQueue.enqueue(conversationId, async () => {
-        if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1);
-        await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
-      });
+      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+      try {
+        await turnQueue.enqueue(conversationId, async () => {
+          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
+          await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
+        });
+      } catch (error) {
+        if (!isConversationTurnQueueClearedError(error)) throw error;
+      }
     },
 
     retryMessageToConversation: async (conversationId, messageId, paramsOverride, options) => {
@@ -516,51 +541,56 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!get().sessionsByConversationId[conversationId]?.conversation) {
         await get().loadConversationSession(conversationId, { activate: false });
       }
+      const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
-      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1);
-      await turnQueue.enqueue(conversationId, async () => {
-        if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1);
-        await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
-      });
+      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+      try {
+        await turnQueue.enqueue(conversationId, async () => {
+          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
+          await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
+        });
+      } catch (error) {
+        if (!isConversationTurnQueueClearedError(error)) throw error;
+      }
     },
 
     cancelConversationTurn: (conversationId) => {
       turnQueue.clear(conversationId);
       stopChatEventController(conversationId);
       setConversationLoading(conversationId, false);
-      set((state) => patchSession(state, conversationId, { queuedTurnCount: 0 }));
+      resetQueuedTurnCount(conversationId);
     },
 
     getConversationMessages: (conversationId) => (
       flattenThreadedMessages(getConversationTimeline(get(), conversationId)?.threadedMessages)
     ),
 
-    toggleConversationThreadExpanded: (conversationId, messageId) => {
+    toggleConversationThreadExpanded: (conversationId, messageId, sessionKey) => {
       set((state) => {
-        const session = getSession(state, conversationId);
+        const session = getSession(state, conversationId, sessionKey);
         const expanded = new Set(session.expandedThreads);
         if (expanded.has(messageId)) expanded.delete(messageId);
         else expanded.add(messageId);
-        return patchSession(state, conversationId, { expandedThreads: expanded });
+        return patchSession(state, conversationId, { expandedThreads: expanded }, sessionKey);
       });
     },
 
-    isConversationThreadExpanded: (conversationId, messageId) => (
-      get().sessionsByConversationId[conversationId]?.expandedThreads.has(messageId) ?? false
+    isConversationThreadExpanded: (conversationId, messageId, sessionKey) => (
+      getSession(get(), conversationId, sessionKey).expandedThreads.has(messageId) ?? false
     ),
 
-    toggleConversationReasoningExpanded: (conversationId, messageId) => {
+    toggleConversationReasoningExpanded: (conversationId, messageId, sessionKey) => {
       set((state) => {
-        const session = getSession(state, conversationId);
+        const session = getSession(state, conversationId, sessionKey);
         const expanded = new Set(session.expandedReasonings);
         if (expanded.has(messageId)) expanded.delete(messageId);
         else expanded.add(messageId);
-        return patchSession(state, conversationId, { expandedReasonings: expanded });
+        return patchSession(state, conversationId, { expandedReasonings: expanded }, sessionKey);
       });
     },
 
-    isConversationReasoningExpanded: (conversationId, messageId) => (
-      get().sessionsByConversationId[conversationId]?.expandedReasonings.has(messageId) ?? false
+    isConversationReasoningExpanded: (conversationId, messageId, sessionKey) => (
+      getSession(get(), conversationId, sessionKey).expandedReasonings.has(messageId) ?? false
     ),
 
     getConversationThreadedMessages: (conversationId) => (

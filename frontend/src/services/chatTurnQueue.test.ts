@@ -1,5 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
-import { createConversationTurnQueue } from './chatTurnQueue';
+import { describe, expect, it } from 'vitest';
+import {
+  ConversationTurnQueueClearedError,
+  createConversationTurnQueue,
+} from './chatTurnQueue';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -79,13 +82,42 @@ describe('chatTurnQueue', () => {
     expect(calls).toEqual(['first:start', 'second:start']);
   });
 
-  it('permite limpar a marca de fila para cancelamento explicito', () => {
+  it('invalida pendentes sem liberar paralelismo durante turno ativo', async () => {
     const queue = createConversationTurnQueue();
-    const task = vi.fn(() => new Promise<void>(() => undefined));
+    const first = deferred<void>();
+    const calls: string[] = [];
 
-    void queue.enqueue('conversation-1', task);
+    const firstRun = queue.enqueue('conversation-1', async () => {
+      calls.push('first:start');
+      await first.promise;
+      calls.push('first:end');
+    });
+    const secondRun = queue.enqueue('conversation-1', async () => {
+      calls.push('second:start');
+    });
+
+    await flushMicrotasks();
+    queue.clear('conversation-1');
     expect(queue.isQueued('conversation-1')).toBe(true);
 
+    const thirdRun = queue.enqueue('conversation-1', async () => {
+      calls.push('third:start');
+    });
+
+    await flushMicrotasks();
+    expect(calls).toEqual(['first:start']);
+
+    first.resolve();
+    await firstRun;
+    await expect(secondRun).rejects.toBeInstanceOf(ConversationTurnQueueClearedError);
+    await thirdRun;
+
+    expect(calls).toEqual(['first:start', 'first:end', 'third:start']);
+    expect(queue.isQueued('conversation-1')).toBe(false);
+  });
+
+  it('limpa fila inexistente sem efeito colateral', () => {
+    const queue = createConversationTurnQueue();
     queue.clear('conversation-1');
     expect(queue.isQueued('conversation-1')).toBe(false);
   });

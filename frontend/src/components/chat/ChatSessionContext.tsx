@@ -8,9 +8,9 @@ import {
   useChatStore,
 } from '../../store/chatStore';
 import {
+  buildChatSessionKey,
   createEmptyChatSession,
   getChatSession,
-  type ChatSessionKey,
   type ChatSurfaceSession,
   type ChatSurfaceOrigin,
   type ChatSurfaceType,
@@ -62,10 +62,6 @@ export interface ChatSessionContextValue {
 
 const ChatSessionContext = createContext<ChatSessionContextValue | null>(null);
 
-const buildSessionKey = (surfaceId: string, conversationId: string | null): ChatSessionKey => (
-  `${surfaceId}:${conversationId || 'none'}`
-);
-
 export interface ChatSessionProviderProps {
   conversationId?: string | null;
   surfaceType?: ChatSurfaceType;
@@ -81,7 +77,7 @@ export function ChatSessionProvider({
   const normalizedConversationId = conversationId || null;
   const tabId = tab?.id;
   const surfaceId = tabId || normalizedConversationId || `${surfaceType}:standalone`;
-  const sessionKey = buildSessionKey(surfaceId, normalizedConversationId);
+  const sessionKey = buildChatSessionKey(surfaceId, normalizedConversationId);
 
   const compatibilitySession = useChatStore((state) => (
     normalizedConversationId ? state.sessionsByConversationId[normalizedConversationId] ?? null : null
@@ -106,22 +102,73 @@ export function ChatSessionProvider({
   const loadOlderMessagesForConversation = useChatStore((state) => state.loadOlderMessagesForConversation);
   const loadMessageChildren = useChatStore((state) => state.loadMessageChildren);
   const loadConversationSession = useChatStore((state) => state.loadConversationSession);
-  const retryMessageToConversation = useChatStore((state) => state.retryMessageToConversation);
+  const retryMessageToConversationBase = useChatStore((state) => state.retryMessageToConversation);
   const updateConversationMessage = useChatStore((state) => state.updateConversationMessage);
   const clearConversationMessages = useChatStore((state) => state.clearConversationMessages);
-  const startConversationEditing = useChatStore((state) => state.startConversationEditing);
-  const startConversationReading = useChatStore((state) => state.startConversationReading);
-  const setConversationEditingMessageId = useChatStore((state) => state.setConversationEditingMessageId);
-  const setConversationReadingMessageId = useChatStore((state) => state.setConversationReadingMessageId);
-  const toggleConversationThreadExpanded = useChatStore((state) => state.toggleConversationThreadExpanded);
-  const toggleConversationReasoningExpanded = useChatStore((state) => state.toggleConversationReasoningExpanded);
-  const isConversationReasoningExpanded = useChatStore((state) => state.isConversationReasoningExpanded);
+  const startConversationEditingBase = useChatStore((state) => state.startConversationEditing);
+  const startConversationReadingBase = useChatStore((state) => state.startConversationReading);
+  const setConversationEditingMessageIdBase = useChatStore((state) => state.setConversationEditingMessageId);
+  const setConversationReadingMessageIdBase = useChatStore((state) => state.setConversationReadingMessageId);
+  const toggleConversationThreadExpandedBase = useChatStore((state) => state.toggleConversationThreadExpanded);
+  const toggleConversationReasoningExpandedBase = useChatStore((state) => state.toggleConversationReasoningExpanded);
+  const isConversationReasoningExpandedBase = useChatStore((state) => state.isConversationReasoningExpanded);
 
   const loadOlderMessages = useCallback(async () => {
     if (normalizedConversationId) {
       await loadOlderMessagesForConversation(normalizedConversationId);
     }
   }, [loadOlderMessagesForConversation, normalizedConversationId]);
+
+  const retryMessageToConversation = useCallback<ChatSessionContextValue['retryMessageToConversation']>(
+    (targetConversationId, messageId, paramsOverride, options) => (
+      retryMessageToConversationBase(targetConversationId, messageId, paramsOverride, {
+        ...options,
+        origin: options?.origin ?? {
+          sessionKey,
+          conversationId: normalizedConversationId,
+          tabId,
+          surfaceId,
+          surfaceType,
+        },
+      })
+    ),
+    [normalizedConversationId, retryMessageToConversationBase, sessionKey, surfaceId, surfaceType, tabId],
+  );
+
+  const startConversationEditing = useCallback<ChatSessionContextValue['startConversationEditing']>(
+    (targetConversationId, id) => startConversationEditingBase(targetConversationId, id, sessionKey),
+    [sessionKey, startConversationEditingBase],
+  );
+
+  const startConversationReading = useCallback<ChatSessionContextValue['startConversationReading']>(
+    (targetConversationId, id) => startConversationReadingBase(targetConversationId, id, sessionKey),
+    [sessionKey, startConversationReadingBase],
+  );
+
+  const setConversationEditingMessageId = useCallback<ChatSessionContextValue['setConversationEditingMessageId']>(
+    (targetConversationId, id) => setConversationEditingMessageIdBase(targetConversationId, id, sessionKey),
+    [sessionKey, setConversationEditingMessageIdBase],
+  );
+
+  const setConversationReadingMessageId = useCallback<ChatSessionContextValue['setConversationReadingMessageId']>(
+    (targetConversationId, id) => setConversationReadingMessageIdBase(targetConversationId, id, sessionKey),
+    [sessionKey, setConversationReadingMessageIdBase],
+  );
+
+  const toggleConversationThreadExpanded = useCallback<ChatSessionContextValue['toggleConversationThreadExpanded']>(
+    (targetConversationId, messageId) => toggleConversationThreadExpandedBase(targetConversationId, messageId, sessionKey),
+    [sessionKey, toggleConversationThreadExpandedBase],
+  );
+
+  const toggleConversationReasoningExpanded = useCallback<ChatSessionContextValue['toggleConversationReasoningExpanded']>(
+    (targetConversationId, messageId) => toggleConversationReasoningExpandedBase(targetConversationId, messageId, sessionKey),
+    [sessionKey, toggleConversationReasoningExpandedBase],
+  );
+
+  const isConversationReasoningExpanded = useCallback<ChatSessionContextValue['isConversationReasoningExpanded']>(
+    (targetConversationId, messageId) => isConversationReasoningExpandedBase(targetConversationId, messageId, sessionKey),
+    [isConversationReasoningExpandedBase, sessionKey],
+  );
 
   const value = useMemo<ChatSessionContextValue>(() => ({
     origin: {
@@ -221,18 +268,8 @@ export function useChatNodeSessionState(fallbackConversationId: string, messageI
       )
       : null
   ), [compatibilitySession, context?.origin.sessionKey, conversationId, surfaceSession, timeline]);
-  const isExpanded = useChatStore(
-    useCallback((state) => {
-      const scopedSession = conversationId ? getChatSession(state, conversationId) : null;
-      return scopedSession?.expandedThreads.has(messageId) ?? false;
-    }, [conversationId, messageId]),
-  );
-  const reasoningExpanded = useChatStore(
-    useCallback((state) => {
-      const scopedSession = conversationId ? getChatSession(state, conversationId) : null;
-      return scopedSession?.expandedReasonings.has(messageId) ?? false;
-    }, [conversationId, messageId]),
-  );
+  const isExpanded = session?.expandedThreads.has(messageId) ?? false;
+  const reasoningExpanded = session?.expandedReasonings.has(messageId) ?? false;
   const setConversationEditingMessageId = useChatStore((state) => state.setConversationEditingMessageId);
   const setConversationReadingMessageId = useChatStore((state) => state.setConversationReadingMessageId);
   const toggleConversationThreadExpanded = useChatStore((state) => state.toggleConversationThreadExpanded);
@@ -260,6 +297,7 @@ export function useChatMessageLiveState(message: Message) {
   const context = useOptionalChatSession();
   const messageId = message.id;
   const messageConversationId = context?.conversationId || String(message.conversationId || '');
+  const sessionKey = context?.origin.sessionKey;
   const { isStreaming } = message;
   const [liveContent, setLiveContent] = useState<string | null>(null);
   const [liveIsStreaming, setLiveIsStreaming] = useState<boolean | null>(null);
@@ -270,7 +308,7 @@ export function useChatMessageLiveState(message: Message) {
 
   useEffect(() => {
     const unsub = useChatStore.subscribe((state) => {
-      const session = messageConversationId ? getChatSession(state, messageConversationId) : null;
+      const session = messageConversationId ? getChatSession(state, messageConversationId, sessionKey) : null;
       const streamingMessageId = session?.streamingMessageId ?? null;
       const completedSegments = session?.completedSegments ?? [];
       const activeToolCalls = session?.activeToolCalls ?? [];
@@ -285,7 +323,7 @@ export function useChatMessageLiveState(message: Message) {
     });
 
     const initial = useChatStore.getState();
-    const initialSession = messageConversationId ? getChatSession(initial, messageConversationId) : null;
+    const initialSession = messageConversationId ? getChatSession(initial, messageConversationId, sessionKey) : null;
     const initialStreamingMessageId = initialSession?.streamingMessageId ?? null;
     if (initialStreamingMessageId === messageId) {
       setLiveSegments(initialSession?.completedSegments ?? []);
@@ -293,7 +331,7 @@ export function useChatMessageLiveState(message: Message) {
     }
 
     return unsub;
-  }, [messageConversationId, messageId]);
+  }, [messageConversationId, messageId, sessionKey]);
 
   useEffect(() => {
     const trackingRef = { current: !!isStreaming };
@@ -317,7 +355,7 @@ export function useChatMessageLiveState(message: Message) {
       };
 
       const conv = messageConversationId
-        ? getChatSession(state, messageConversationId).conversation
+        ? getChatSession(state, messageConversationId, sessionKey).conversation
         : null;
       if (conv?.threadedMessages) {
         const hit = visit(conv.threadedMessages as ThreadedNode[]);
@@ -340,7 +378,7 @@ export function useChatMessageLiveState(message: Message) {
       setLiveReasoning((prev) => (prev === nextReasoning ? prev : nextReasoning));
       setLiveToolCallsRaw((prev) => (prev === nextToolCalls ? prev : nextToolCalls));
 
-      const session = messageConversationId ? getChatSession(state, messageConversationId) : null;
+      const session = messageConversationId ? getChatSession(state, messageConversationId, sessionKey) : null;
       const streamingMessageId = session?.streamingMessageId ?? null;
       if (!nextIsStreaming && streamingMessageId !== messageId) {
         trackingRef.current = false;
@@ -350,7 +388,7 @@ export function useChatMessageLiveState(message: Message) {
     sync(useChatStore.getState());
 
     const unsub = useChatStore.subscribe((state) => {
-      const session = messageConversationId ? getChatSession(state, messageConversationId) : null;
+      const session = messageConversationId ? getChatSession(state, messageConversationId, sessionKey) : null;
       const streamingMessageId = session?.streamingMessageId ?? null;
       if (streamingMessageId === messageId) trackingRef.current = true;
       if (!trackingRef.current) return;
@@ -358,7 +396,7 @@ export function useChatMessageLiveState(message: Message) {
     });
 
     return unsub;
-  }, [messageConversationId, messageId, isStreaming]);
+  }, [messageConversationId, messageId, isStreaming, sessionKey]);
 
   return {
     liveContent,

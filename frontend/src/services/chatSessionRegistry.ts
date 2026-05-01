@@ -21,6 +21,23 @@ export interface ChatSurfaceOrigin {
   surfaceType: ChatSurfaceType;
 }
 
+export const buildChatSessionKey = (surfaceId: string, conversationId: string | null): ChatSessionKey => (
+  `${surfaceId}:${conversationId || 'none'}`
+);
+
+export const normalizeChatSurfaceOrigin = (
+  origin: ChatSurfaceOrigin | undefined,
+  conversationId: string,
+): ChatSurfaceOrigin | undefined => (
+  origin
+    ? {
+      ...origin,
+      conversationId,
+      sessionKey: origin.conversationId ? origin.sessionKey : buildChatSessionKey(origin.surfaceId, conversationId),
+    }
+    : undefined
+);
+
 export interface ChatSurfaceSession {
   sessionKey?: string;
   conversationId?: string | null;
