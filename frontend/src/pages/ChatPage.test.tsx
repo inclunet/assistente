@@ -219,7 +219,9 @@ describe('ChatPage', () => {
         {
           origin: expect.objectContaining({
             conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
-            sessionKey: 'chat-tab:01926b90-7a5a-7c4e-8d3f-00000000002a',
+            sessionKey: 'page:tab:chat-tab:01926b90-7a5a-7c4e-8d3f-00000000002a',
+            surfaceId: 'page:tab:chat-tab',
+            surfaceType: 'page',
             tabId: 'chat-tab',
           }),
         },
