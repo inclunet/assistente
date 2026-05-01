@@ -9,8 +9,11 @@ export interface ActiveConversation {
   contactId?: string;
 }
 
-export interface ChatConversationSession {
-  conversation: ActiveConversation | null;
+export type ConversationTimeline = ActiveConversation;
+
+export interface ChatSurfaceSession {
+  sessionKey?: string;
+  conversationId?: string | null;
   isLoading: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
@@ -26,12 +29,24 @@ export interface ChatConversationSession {
   skipFocusRestore: boolean;
 }
 
-export interface ChatSessionRegistryState {
-  sessionsByConversationId: Record<string, ChatConversationSession>;
+export interface ChatConversationSession extends ChatSurfaceSession {
+  conversation: ConversationTimeline | null;
 }
 
-export const createEmptyChatSession = (): ChatConversationSession => ({
-  conversation: null,
+export interface ChatSessionRegistryState {
+  sessionsByConversationId: Record<string, ChatConversationSession>;
+  timelinesByConversationId?: Record<string, ConversationTimeline>;
+  surfaceSessionsByKey?: Record<string, ChatSurfaceSession>;
+}
+
+export const getDefaultChatSessionKey = (conversationId: string): string => `conversation:${conversationId}`;
+
+export const createEmptyChatSurfaceSession = (
+  conversationId: string | null = null,
+  sessionKey = conversationId ? getDefaultChatSessionKey(conversationId) : 'chat:none',
+): ChatSurfaceSession => ({
+  sessionKey,
+  conversationId,
   isLoading: false,
   hasOlderMessages: false,
   isLoadingOlderMessages: false,
@@ -47,27 +62,75 @@ export const createEmptyChatSession = (): ChatConversationSession => ({
   skipFocusRestore: false,
 });
 
+export const createEmptyChatSession = (
+  conversationId: string | null = null,
+  sessionKey = conversationId ? getDefaultChatSessionKey(conversationId) : 'chat:none',
+): ChatConversationSession => ({
+  ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+  conversation: null,
+});
+
+const toSurfaceSession = (
+  session: ChatConversationSession,
+  conversationId: string | null,
+  sessionKey: string,
+): ChatSurfaceSession => {
+  const {
+    conversation: _conversation,
+    ...surface
+  } = session;
+  return {
+    ...surface,
+    sessionKey,
+    conversationId,
+  };
+};
+
 export function getChatSession(
   state: ChatSessionRegistryState,
   conversationId: string,
+  sessionKey = getDefaultChatSessionKey(conversationId),
 ): ChatConversationSession {
-  return state.sessionsByConversationId[conversationId] ?? createEmptyChatSession();
+  const compatibilitySession = state.sessionsByConversationId[conversationId];
+  const timeline = state.timelinesByConversationId?.[conversationId] ?? compatibilitySession?.conversation ?? null;
+  const surfaceSession = state.surfaceSessionsByKey?.[sessionKey]
+    ?? (compatibilitySession ? toSurfaceSession(compatibilitySession, conversationId, sessionKey) : null)
+    ?? createEmptyChatSurfaceSession(conversationId, sessionKey);
+
+  return {
+    ...surfaceSession,
+    conversation: timeline,
+  };
 }
 
 export function patchChatSession<TState extends ChatSessionRegistryState>(
   state: TState,
   conversationId: string,
   patch: Partial<ChatConversationSession> | ((session: ChatConversationSession) => ChatConversationSession),
-): Pick<TState, 'sessionsByConversationId'> {
-  const currentSession = getChatSession(state, conversationId);
+  sessionKey = getDefaultChatSessionKey(conversationId),
+): Pick<TState, 'sessionsByConversationId'> & Pick<ChatSessionRegistryState, 'timelinesByConversationId' | 'surfaceSessionsByKey'> {
+  const currentSession = getChatSession(state, conversationId, sessionKey);
   const nextSession = typeof patch === 'function'
     ? patch(currentSession)
     : { ...currentSession, ...patch };
+  const nextSurfaceSession = toSurfaceSession(nextSession, conversationId, sessionKey);
+
+  const timelinesByConversationId = { ...(state.timelinesByConversationId ?? {}) };
+  if (nextSession.conversation) {
+    timelinesByConversationId[conversationId] = nextSession.conversation;
+  } else {
+    delete timelinesByConversationId[conversationId];
+  }
 
   return {
     sessionsByConversationId: {
       ...state.sessionsByConversationId,
       [conversationId]: nextSession,
+    },
+    timelinesByConversationId,
+    surfaceSessionsByKey: {
+      ...(state.surfaceSessionsByKey ?? {}),
+      [sessionKey]: nextSurfaceSession,
     },
   };
 }
@@ -87,8 +150,13 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
 export function removeChatSession<TState extends ChatSessionRegistryState>(
   state: TState,
   conversationId: string,
-): Pick<TState, 'sessionsByConversationId'> {
+): Pick<TState, 'sessionsByConversationId'> & Pick<ChatSessionRegistryState, 'timelinesByConversationId' | 'surfaceSessionsByKey'> {
   const sessionsByConversationId = { ...state.sessionsByConversationId };
   delete sessionsByConversationId[conversationId];
-  return { sessionsByConversationId };
+  const timelinesByConversationId = { ...(state.timelinesByConversationId ?? {}) };
+  delete timelinesByConversationId[conversationId];
+  const surfaceSessionsByKey = Object.fromEntries(
+    Object.entries(state.surfaceSessionsByKey ?? {}).filter(([, session]) => session.conversationId !== conversationId),
+  );
+  return { sessionsByConversationId, timelinesByConversationId, surfaceSessionsByKey };
 }

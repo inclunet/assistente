@@ -17,7 +17,11 @@ const conversation = (id: string): ActiveConversation => ({
 
 describe('chatSessionRegistry', () => {
   it('retorna sessão vazia para conversa ausente', () => {
-    const state: ChatSessionRegistryState = { sessionsByConversationId: {} };
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {},
+      surfaceSessionsByKey: {},
+    };
 
     expect(getChatSession(state, 'missing')).toMatchObject({
       conversation: null,
@@ -28,13 +32,21 @@ describe('chatSessionRegistry', () => {
   });
 
   it('aplica patch criando sessão quando necessário', () => {
-    const state: ChatSessionRegistryState = { sessionsByConversationId: {} };
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {},
+      surfaceSessionsByKey: {},
+    };
 
     const next = patchChatSession(state, 'conversation-1', { isLoading: true });
 
     expect(next.sessionsByConversationId['conversation-1']).toMatchObject({
       isLoading: true,
       conversation: null,
+    });
+    expect(next.surfaceSessionsByKey?.['conversation:conversation-1']).toMatchObject({
+      isLoading: true,
+      conversationId: 'conversation-1',
     });
     expect(state.sessionsByConversationId['conversation-1']).toBeUndefined();
   });
@@ -43,10 +55,12 @@ describe('chatSessionRegistry', () => {
     const state: ChatSessionRegistryState = {
       sessionsByConversationId: {
         'conversation-1': {
-          ...createEmptyChatSession(),
+          ...createEmptyChatSession('conversation-1'),
           conversation: conversation('conversation-1'),
         },
       },
+      timelinesByConversationId: {},
+      surfaceSessionsByKey: {},
     };
 
     const next = patchChatConversation(state, 'conversation-1', (current) => ({
@@ -55,21 +69,54 @@ describe('chatSessionRegistry', () => {
     }));
 
     expect(next.sessionsByConversationId?.['conversation-1'].conversation?.title).toBe('Renomeada');
+    expect(next.timelinesByConversationId?.['conversation-1'].title).toBe('Renomeada');
   });
 
   it('remove sessão sem mutar o estado original', () => {
     const state: ChatSessionRegistryState = {
       sessionsByConversationId: {
         'conversation-1': {
-          ...createEmptyChatSession(),
+          ...createEmptyChatSession('conversation-1'),
           conversation: conversation('conversation-1'),
         },
+      },
+      timelinesByConversationId: {
+        'conversation-1': conversation('conversation-1'),
+      },
+      surfaceSessionsByKey: {
+        'conversation:conversation-1': createEmptyChatSession('conversation-1'),
       },
     };
 
     const next = removeChatSession(state, 'conversation-1');
 
     expect(next.sessionsByConversationId['conversation-1']).toBeUndefined();
+    expect(next.timelinesByConversationId?.['conversation-1']).toBeUndefined();
+    expect(next.surfaceSessionsByKey?.['conversation:conversation-1']).toBeUndefined();
     expect(state.sessionsByConversationId['conversation-1']).toBeDefined();
+  });
+
+  it('compõe timeline compartilhada com sessão visual por chave', () => {
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        'conversation-1': conversation('conversation-1'),
+      },
+      surfaceSessionsByKey: {
+        'tab-a:conversation-1': {
+          ...createEmptyChatSession('conversation-1', 'tab-a:conversation-1'),
+          expandedThreads: new Set(['message-1']),
+        },
+        'tab-b:conversation-1': {
+          ...createEmptyChatSession('conversation-1', 'tab-b:conversation-1'),
+          expandedThreads: new Set(['message-2']),
+        },
+      },
+    };
+
+    expect(getChatSession(state, 'conversation-1', 'tab-a:conversation-1').conversation?.title).toBe('Conversa conversation-1');
+    expect(getChatSession(state, 'conversation-1', 'tab-a:conversation-1').expandedThreads.has('message-1')).toBe(true);
+    expect(getChatSession(state, 'conversation-1', 'tab-b:conversation-1').expandedThreads.has('message-1')).toBe(false);
+    expect(getChatSession(state, 'conversation-1', 'tab-b:conversation-1').expandedThreads.has('message-2')).toBe(true);
   });
 });

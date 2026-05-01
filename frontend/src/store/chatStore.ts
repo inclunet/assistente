@@ -29,6 +29,8 @@ import {
   removeChatSession,
   type ActiveConversation,
   type ChatConversationSession,
+  type ChatSurfaceSession,
+  type ConversationTimeline,
 } from '../services/chatSessionRegistry';
 import {
   appendInternalMessageToTree,
@@ -53,7 +55,7 @@ interface MediaData {
 }
 
 export type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
-export type { ActiveConversation, ChatConversationSession } from '../services/chatSessionRegistry';
+export type { ActiveConversation, ChatConversationSession, ChatSurfaceSession, ConversationTimeline } from '../services/chatSessionRegistry';
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
@@ -80,6 +82,8 @@ const fileToBase64 = (file: File): Promise<string> => {
 
 interface ChatStore {
   sessionsByConversationId: Record<string, ChatConversationSession>;
+  timelinesByConversationId: Record<string, ConversationTimeline>;
+  surfaceSessionsByKey: Record<string, ChatSurfaceSession>;
   loadingConversationIds: Set<string>;
   isInitialized: boolean;
   contextProfileSlug: string | null;
@@ -273,6 +277,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
   return {
     sessionsByConversationId: {},
+    timelinesByConversationId: {},
+    surfaceSessionsByKey: {},
     loadingConversationIds: new Set(),
     isInitialized: false,
     contextProfileSlug: null,
@@ -313,15 +319,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           title: conv.title || title || defaultTitle,
           threadedMessages: [],
         };
-        const sessionsByConversationId = {
-          ...state.sessionsByConversationId,
-          [conv.id]: {
-            ...getSession(state, conv.id),
-            conversation,
-          },
-        };
         return {
-          sessionsByConversationId,
+          ...patchSession(state, conv.id, { conversation }),
           isInitialized: true,
         };
       });
@@ -348,18 +347,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             channel: snapshot.channel,
             contactId: snapshot.contactId,
           };
-          const sessionsByConversationId = {
-            ...state.sessionsByConversationId,
-            [id]: {
-              ...getSession(state, id),
+          return {
+            ...patchSession(state, id, {
               conversation,
               isLoading: state.loadingConversationIds.has(id),
               hasOlderMessages: snapshot.hasOlderMessages,
               isLoadingOlderMessages: false,
-            },
-          };
-          return {
-            sessionsByConversationId,
+            }),
             isInitialized: true,
           };
         });
@@ -367,18 +361,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (options.activate !== false && seq !== loadConversationSeq) return;
         console.error('[Chat] Erro ao carregar conversa:', error);
         set((state) => {
-          const sessionsByConversationId = {
-            ...state.sessionsByConversationId,
-            [id]: {
-              ...getSession(state, id),
+          return {
+            ...patchSession(state, id, {
               conversation: { id, title: i18next.t('chat.conversation'), threadedMessages: [] },
               isLoading: state.loadingConversationIds.has(id),
               hasOlderMessages: false,
               isLoadingOlderMessages: false,
-            },
-          };
-          return {
-            sessionsByConversationId,
+            }),
             isInitialized: true,
           };
         });
@@ -613,6 +602,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       stopAllChatEventControllers();
       set({
         sessionsByConversationId: {},
+        timelinesByConversationId: {},
+        surfaceSessionsByKey: {},
         loadingConversationIds: new Set(),
         isInitialized: false,
       });
