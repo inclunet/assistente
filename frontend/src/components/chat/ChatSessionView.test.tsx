@@ -47,6 +47,7 @@ const chatStoreState = {
   isConversationReasoningExpanded: () => false,
   startConversationEditing: vi.fn(),
   startConversationReading: vi.fn(),
+  setConversationScrollState: vi.fn(),
 };
 
 vi.mock('../../store/chatStore', () => ({
@@ -100,16 +101,35 @@ vi.mock('./ChatToolbar', () => ({
   ),
 }));
 
-vi.mock('./MessageList', () => ({
-  MessageList: ({ onContextMenu }: { onContextMenu?: (event: MouseEvent, message: { id: string; role: string }) => void }) => (
-    <button
-      type="button"
-      onClick={() => onContextMenu?.(new MouseEvent('contextmenu'), { id: 'm1', role: 'user' })}
-    >
-      open-menu
-    </button>
-  ),
-}));
+vi.mock('./MessageList', async () => {
+  const React = await import('react');
+  return {
+    MessageList: React.forwardRef<HTMLDivElement, {
+      onContextMenu?: (event: MouseEvent, message: { id: string; role: string }) => void;
+      threadedMessages?: Array<{ id: string }>;
+    }>((
+    {
+      onContextMenu,
+      threadedMessages = [],
+    },
+    ref: React.Ref<HTMLDivElement>,
+  ) => (
+    <div ref={ref} data-testid="message-list">
+      <button
+        type="button"
+        onClick={() => onContextMenu?.(new MouseEvent('contextmenu'), { id: 'm1', role: 'user' })}
+      >
+        open-menu
+      </button>
+      {threadedMessages.map((message) => (
+        <div key={message.id} data-message-node data-message-id={message.id}>
+          {message.id}
+        </div>
+      ))}
+    </div>
+  )),
+  };
+});
 
 vi.mock('./ChatInput', async () => {
   const React = await import('react');
@@ -150,12 +170,17 @@ vi.mock('../../utils/errorHandler', () => ({
 }));
 
 import { ChatSessionView } from './ChatSessionView';
+import { createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
 
 describe('ChatSessionView', () => {
   beforeEach(() => {
     showMenuMock.mockReset();
     hideMenuMock.mockReset();
+    chatStoreState.setConversationScrollState.mockReset();
     chatStoreState.sessionsByConversationId[conversationId].isLoading = false;
+    chatStoreState.sessionsByConversationId[conversationId].conversation = activeConversation;
+    (activeConversation.threadedMessages as unknown[]) = [];
+    chatStoreState.surfaceSessionsByKey = {};
   });
 
   it('embedded: aciona menu de contexto via MessageList', async () => {
@@ -208,5 +233,37 @@ describe('ChatSessionView', () => {
       surfaceId: 'embedded:workspace-chat-modal:tab-1',
       surfaceType: 'embedded',
     }));
+  });
+
+  it('restaura scroll pela âncora antes de usar scrollTop', async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    const sessionKey = 'test-session';
+    (activeConversation.threadedMessages as unknown[]) = [{ id: 'anchor-message' }];
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      scrollTop: 320,
+      scrollAnchorMessageId: 'anchor-message',
+    };
+
+    try {
+      render(
+        <ChatSessionView
+          conversationId={conversationId}
+          sessionKey={sessionKey}
+          onSend={vi.fn().mockResolvedValue(undefined)}
+          showShortcutsHelp={false}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+      });
+
+      expect(screen.getByTestId('message-list').scrollTop).not.toBe(320);
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 });

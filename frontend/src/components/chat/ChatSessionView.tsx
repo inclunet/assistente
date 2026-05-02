@@ -129,16 +129,23 @@ function ChatSessionViewContent({
       if (`${origin.sessionKey}:${conversationId ?? 'none'}` !== restoreKey) return;
       const currentContainer = messagesContainerRef.current;
       if (!currentContainer) return;
+      if (scrollAnchorMessageId) {
+        const anchorElement = currentContainer
+          .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(scrollAnchorMessageId)}"]`);
+        if (anchorElement) {
+          anchorElement.scrollIntoView({ block: 'start' });
+          restoredScrollSessionKeyRef.current = restoreKey;
+          return;
+        }
+        if (scrollTop > 0) {
+          currentContainer.scrollTop = scrollTop;
+        }
+        return;
+      }
       if (scrollTop > 0) {
         currentContainer.scrollTop = scrollTop;
         restoredScrollSessionKeyRef.current = restoreKey;
-        return;
       }
-      const anchorElement = currentContainer
-        .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(scrollAnchorMessageId ?? '')}"]`);
-      if (!anchorElement) return;
-      anchorElement.scrollIntoView({ block: 'start' });
-      restoredScrollSessionKeyRef.current = restoreKey;
     });
     return () => {
       if (restoreScrollFrameRef.current !== null) {
