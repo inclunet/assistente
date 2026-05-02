@@ -115,6 +115,33 @@ describe('ChatInput', () => {
     expect(onMediaFilesChange).not.toHaveBeenCalled();
   });
 
+  it('ignora prop message sem onMessageChange para evitar textarea read-only', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(<ChatInput onSend={() => {}} message="Prop sem handler" />);
+
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    expect(textarea).toHaveValue('');
+
+    fireEvent.change(textarea, { target: { value: 'Texto local' } });
+
+    expect(textarea).toHaveValue('Texto local');
+  });
+
+  it('ignora prop mediaFiles sem onMediaFilesChange para manter anexos mutáveis localmente', async () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const firstFile = new File(['primeiro'], 'first.txt', { type: 'text/plain' });
+
+    render(<ChatInput onSend={() => {}} mediaFiles={[]} />);
+
+    const fileInput = screen.getByLabelText('chat.selectFiles');
+    fireEvent.change(fileInput, { target: { files: [firstFile] } });
+
+    await waitFor(() => {
+      expect(processMediaFilesSpy).toHaveBeenCalledWith([firstFile]);
+    });
+  });
+
   it('preserva anexos adicionados enquanto outro processamento ainda está pendente', async () => {
     getSkillsSpy.mockResolvedValueOnce([]);
     const firstProcessing = deferred<void>();

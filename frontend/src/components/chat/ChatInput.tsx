@@ -56,8 +56,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   
   // Use external ref if provided, otherwise use internal ref
   const textareaRef = (ref as React.RefObject<HTMLTextAreaElement>) || internalTextareaRef;
-  const message = controlledMessage ?? localMessage;
-  const mediaFiles = controlledMediaFiles ?? localMediaFiles;
+  const isMessageControlled = controlledMessage !== undefined && !!onMessageChange;
+  const isMediaFilesControlled = controlledMediaFiles !== undefined && !!onMediaFilesChange;
+  const message = isMessageControlled ? controlledMessage : localMessage;
+  const mediaFiles = isMediaFilesControlled ? controlledMediaFiles : localMediaFiles;
   const mediaFilesRef = useRef<MediaFile[]>(mediaFiles);
 
   useEffect(() => {
@@ -65,20 +67,20 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   }, [mediaFiles]);
 
   const setMessage = useCallback((nextMessage: string) => {
-    if (onMessageChange) {
+    if (isMessageControlled) {
       onMessageChange(nextMessage);
       return;
     }
     setLocalMessage(nextMessage);
-  }, [onMessageChange]);
+  }, [isMessageControlled, onMessageChange]);
   const setMediaFiles = useCallback((nextMediaFiles: MediaFile[]) => {
     mediaFilesRef.current = nextMediaFiles;
-    if (onMediaFilesChange) {
+    if (isMediaFilesControlled) {
       onMediaFilesChange(nextMediaFiles);
       return;
     }
     setLocalMediaFiles(nextMediaFiles);
-  }, [onMediaFilesChange]);
+  }, [isMediaFilesControlled, onMediaFilesChange]);
 
   // Carrega skills invocáveis quando o componente monta
   useEffect(() => {

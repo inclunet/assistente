@@ -70,6 +70,11 @@ function ChatSessionViewContent({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const scrollPersistTimerRef = useRef<number | null>(null);
+  const latestScrollStateRef = useRef<{ scrollTop: number; scrollAnchorMessageId: string | null }>({
+    scrollTop: 0,
+    scrollAnchorMessageId: null,
+  });
   const restoredScrollSessionKeyRef = useRef<string | null>(null);
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
@@ -115,19 +120,21 @@ function ChatSessionViewContent({
     if (!container || (scrollTop <= 0 && !scrollAnchorMessageId)) return;
     const restoreKey = `${origin.sessionKey}:${conversationId ?? 'none'}`;
     if (restoredScrollSessionKeyRef.current === restoreKey) return;
-    restoredScrollSessionKeyRef.current = restoreKey;
     requestAnimationFrame(() => {
       const currentContainer = messagesContainerRef.current;
       if (!currentContainer) return;
       if (scrollTop > 0) {
         currentContainer.scrollTop = scrollTop;
+        restoredScrollSessionKeyRef.current = restoreKey;
         return;
       }
-      currentContainer
-        .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(scrollAnchorMessageId ?? '')}"]`)
-        ?.scrollIntoView({ block: 'start' });
+      const anchorElement = currentContainer
+        .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(scrollAnchorMessageId ?? '')}"]`);
+      if (!anchorElement) return;
+      anchorElement.scrollIntoView({ block: 'start' });
+      restoredScrollSessionKeyRef.current = restoreKey;
     });
-  }, [conversationId, origin.sessionKey, scrollAnchorMessageId, scrollTop]);
+  }, [conversationId, origin.sessionKey, scrollAnchorMessageId, scrollTop, threadedMessages.length]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -157,14 +164,27 @@ function ChatSessionViewContent({
       return null;
     };
 
+    const readScrollState = () => ({
+      scrollTop: container.scrollTop,
+      scrollAnchorMessageId: getAnchorMessageId(),
+    });
+
+    const persistLatestScrollState = () => {
+      setScrollState(latestScrollStateRef.current);
+    };
+
     const handleScroll = () => {
       if (scrollFrameRef.current !== null) return;
       scrollFrameRef.current = window.requestAnimationFrame(() => {
         scrollFrameRef.current = null;
-        setScrollState({
-          scrollTop: container.scrollTop,
-          scrollAnchorMessageId: getAnchorMessageId(),
-        });
+        latestScrollStateRef.current = readScrollState();
+        if (scrollPersistTimerRef.current !== null) {
+          window.clearTimeout(scrollPersistTimerRef.current);
+        }
+        scrollPersistTimerRef.current = window.setTimeout(() => {
+          scrollPersistTimerRef.current = null;
+          persistLatestScrollState();
+        }, 200);
       });
     };
 
@@ -175,10 +195,12 @@ function ChatSessionViewContent({
         window.cancelAnimationFrame(scrollFrameRef.current);
         scrollFrameRef.current = null;
       }
-      setScrollState({
-        scrollTop: container.scrollTop,
-        scrollAnchorMessageId: getAnchorMessageId(),
-      });
+      if (scrollPersistTimerRef.current !== null) {
+        window.clearTimeout(scrollPersistTimerRef.current);
+        scrollPersistTimerRef.current = null;
+      }
+      latestScrollStateRef.current = readScrollState();
+      persistLatestScrollState();
     };
   }, [conversationId, setScrollState]);
 
