@@ -183,6 +183,39 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     return patchChatSession(state, conversationId, patch, sessionKey);
   };
 
+  const patchSurfaceSession = (
+    state: ChatStore,
+    conversationId: string,
+    patch: Partial<ChatSurfaceSession>,
+    sessionKey?: string,
+  ): Partial<ChatStore> => {
+    if (!sessionKey) {
+      return patchSession(state, conversationId, patch);
+    }
+
+    const compatibilitySession = state.sessionsByConversationId[conversationId];
+    const currentSession = state.surfaceSessionsByKey[sessionKey] ?? {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      isLoading: compatibilitySession?.isLoading ?? false,
+      hasOlderMessages: compatibilitySession?.hasOlderMessages ?? false,
+      isLoadingOlderMessages: compatibilitySession?.isLoadingOlderMessages ?? false,
+      queuedTurnCount: compatibilitySession?.queuedTurnCount ?? 0,
+    };
+    const patchKeys = Object.keys(patch) as Array<keyof ChatSurfaceSession>;
+    const hasChanges = patchKeys.some((key) => currentSession[key] !== patch[key]);
+    if (!hasChanges) return state;
+
+    return {
+      surfaceSessionsByKey: {
+        ...state.surfaceSessionsByKey,
+        [sessionKey]: {
+          ...currentSession,
+          ...patch,
+        },
+      },
+    };
+  };
+
   const patchConversation = (
     state: ChatStore,
     conversationId: string,
@@ -445,19 +478,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     setConversationDraftMessage: (conversationId, message, sessionKey) => {
-      set((state) => patchSession(state, conversationId, { draftMessage: message }, sessionKey));
+      set((state) => patchSurfaceSession(state, conversationId, { draftMessage: message }, sessionKey));
     },
 
     setConversationDraftMediaFiles: (conversationId, mediaFiles, sessionKey) => {
-      set((state) => patchSession(state, conversationId, { draftMediaFiles: mediaFiles }, sessionKey));
+      set((state) => patchSurfaceSession(state, conversationId, { draftMediaFiles: mediaFiles }, sessionKey));
     },
 
     clearConversationDraft: (conversationId, sessionKey) => {
-      set((state) => patchSession(state, conversationId, { draftMessage: '', draftMediaFiles: [] }, sessionKey));
+      set((state) => patchSurfaceSession(state, conversationId, { draftMessage: '', draftMediaFiles: [] }, sessionKey));
     },
 
     setConversationScrollState: (conversationId, scrollState, sessionKey) => {
-      set((state) => patchSession(state, conversationId, scrollState, sessionKey));
+      set((state) => patchSurfaceSession(state, conversationId, scrollState, sessionKey));
     },
 
     ensureConversationSurfaceSession: (conversationId, sessionKey, origin) => {

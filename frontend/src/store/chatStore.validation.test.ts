@@ -444,11 +444,13 @@ describe('chatStore validation', () => {
         [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
       },
     });
+    const sessionsBefore = useChatStore.getState().sessionsByConversationId;
 
     useChatStore.getState().setConversationDraftMessage(defaultConversationId, 'rascunho A', originSessionKey);
     useChatStore.getState().setConversationDraftMediaFiles(defaultConversationId, [mediaFile], originSessionKey);
 
     const state = useChatStore.getState();
+    expect(state.sessionsByConversationId).toBe(sessionsBefore);
     expect(state.surfaceSessionsByKey[originSessionKey]?.draftMessage).toBe('rascunho A');
     expect(state.surfaceSessionsByKey[originSessionKey]?.draftMediaFiles).toEqual([mediaFile]);
     expect(state.surfaceSessionsByKey[otherSessionKey]?.draftMessage).toBe('');
@@ -465,6 +467,7 @@ describe('chatStore validation', () => {
         [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
       },
     });
+    const sessionsBefore = useChatStore.getState().sessionsByConversationId;
 
     useChatStore.getState().setConversationScrollState(
       defaultConversationId,
@@ -473,10 +476,36 @@ describe('chatStore validation', () => {
     );
 
     const state = useChatStore.getState();
+    expect(state.sessionsByConversationId).toBe(sessionsBefore);
     expect(state.surfaceSessionsByKey[originSessionKey]?.scrollTop).toBe(320);
     expect(state.surfaceSessionsByKey[originSessionKey]?.scrollAnchorMessageId).toBe('message-7');
     expect(state.surfaceSessionsByKey[otherSessionKey]?.scrollTop).toBe(0);
     expect(state.surfaceSessionsByKey[otherSessionKey]?.scrollAnchorMessageId).toBeNull();
+  });
+
+  it('não recria estado ao persistir scroll visual idêntico', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          scrollTop: 320,
+          scrollAnchorMessageId: 'message-7',
+        },
+      },
+    });
+    const stateBefore = useChatStore.getState();
+
+    useChatStore.getState().setConversationScrollState(
+      defaultConversationId,
+      { scrollTop: 320, scrollAnchorMessageId: 'message-7' },
+      originSessionKey,
+    );
+
+    const stateAfter = useChatStore.getState();
+    expect(stateAfter).toBe(stateBefore);
+    expect(stateAfter.surfaceSessionsByKey).toBe(stateBefore.surfaceSessionsByKey);
   });
 
   it('sincroniza flags de paginação nas superfícies ao carregar conversa', async () => {
