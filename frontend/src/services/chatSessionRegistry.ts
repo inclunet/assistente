@@ -1,5 +1,6 @@
 import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
 import type { MessageNode, TurnSegment } from '../lib/chatMessageTree';
+import type { MediaFile } from './mediaService';
 
 export interface ActiveConversation {
   id: string;
@@ -53,6 +54,10 @@ export interface ChatSurfaceSession {
   isThinking: boolean;
   activeToolCalls: ToolCallStatus[];
   completedSegments: TurnSegment[];
+  draftMessage: string;
+  draftMediaFiles: MediaFile[];
+  scrollTop: number;
+  scrollAnchorMessageId: string | null;
   expandedThreads: Set<string>;
   expandedReasonings: Set<string>;
   editingMessageId: string | null;
@@ -87,6 +92,10 @@ export const createEmptyChatSurfaceSession = (
   isThinking: false,
   activeToolCalls: [],
   completedSegments: [],
+  draftMessage: '',
+  draftMediaFiles: [],
+  scrollTop: 0,
+  scrollAnchorMessageId: null,
   expandedThreads: new Set<string>(),
   expandedReasonings: new Set<string>(),
   editingMessageId: null,
@@ -146,6 +155,13 @@ export function getConversationTimeline(
   return state.timelinesByConversationId?.[conversationId]
     ?? state.sessionsByConversationId[conversationId]?.conversation
     ?? null;
+}
+
+export function getCompatibilityChatSession(
+  state: ChatSessionRegistryState,
+  conversationId: string,
+): ChatConversationSession | null {
+  return state.sessionsByConversationId[conversationId] ?? null;
 }
 
 export function getChatSurfaceSessionsForConversation(

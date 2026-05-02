@@ -2,6 +2,14 @@
 
 ## Status: Draft
 
+## Relação com a AEP-0056
+
+Esta AEP é uma AEP filha da `AEP-0056: Workspace com Abas Autocontidas`.
+
+A AEP-0056 define que painéis de workspace devem ser autocontidos, mas também registra que announcer, TTS e STT continuam sendo recursos globais. Esta AEP detalha essa exceção deliberada: painéis de chat podem ser independentes para envio, streaming, foco local e estado visual, mas não podem criar múltiplas live regions concorrentes, múltiplas falas simultâneas ou múltiplas capturas locais de microfone.
+
+O objetivo é preservar painéis de chat independentes sem transformar recursos acessíveis e de áudio em serviços duplicados por painel. Cada solicitação global deve carregar origem de superfície, e a política central decide o que pode anunciar, falar ou ouvir.
+
 ## Resumo
 
 Formalizar uma camada global de arbitragem para announcer, TTS e STT em um workspace com abas autocontidas.

@@ -2,6 +2,14 @@
 
 ## Status: Draft
 
+## Relação com a AEP-0056
+
+Esta AEP é uma AEP filha da `AEP-0056: Workspace com Abas Autocontidas`.
+
+A AEP-0056 define o alvo guarda-chuva: o workspace deve ser um shell fino, painéis visitados devem poder permanecer montados, e cada domínio deve controlar seu próprio conteúdo. Esta AEP detalha a parte de chat desse alvo: transformar cada painel/superfície de chat em uma unidade independente de UI, sem recriar um singleton global nem duplicar a conversa inteira por aba.
+
+O objetivo final é que painéis de chat sejam totalmente independentes no que é visual e interativo: input, anexos, scroll, foco, seleção, expansão, paginação, erros locais, retry visual e estado de fila. Ao mesmo tempo, quando dois painéis apontam para a mesma conversa, eles compartilham a mesma timeline canônica por `conversationId`.
+
 ## Resumo
 
 Separar o chat em três conceitos distintos:

@@ -107,6 +107,14 @@ interface ChatStore {
   consumeSkipFocusRestore: (conversationId: string) => boolean;
   setConversationReadingMessageId: (conversationId: string, id: string | null, sessionKey?: string) => void;
   startConversationReading: (conversationId: string, id: string, sessionKey?: string) => void;
+  setConversationDraftMessage: (conversationId: string, message: string, sessionKey?: string) => void;
+  setConversationDraftMediaFiles: (conversationId: string, mediaFiles: MediaFile[], sessionKey?: string) => void;
+  clearConversationDraft: (conversationId: string, sessionKey?: string) => void;
+  setConversationScrollState: (
+    conversationId: string,
+    scrollState: { scrollTop: number; scrollAnchorMessageId: string | null },
+    sessionKey?: string,
+  ) => void;
   ensureConversationSurfaceSession: (conversationId: string, sessionKey: string, origin?: ChatSurfaceOrigin) => void;
   removeConversationSurfaceSession: (sessionKey: string) => void;
 
@@ -173,6 +181,39 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     sessionKey?: string,
   ): Partial<ChatStore> => {
     return patchChatSession(state, conversationId, patch, sessionKey);
+  };
+
+  const patchSurfaceSession = (
+    state: ChatStore,
+    conversationId: string,
+    patch: Partial<ChatSurfaceSession>,
+    sessionKey?: string,
+  ): Partial<ChatStore> => {
+    if (!sessionKey) {
+      return patchSession(state, conversationId, patch);
+    }
+
+    const compatibilitySession = state.sessionsByConversationId[conversationId];
+    const currentSession = state.surfaceSessionsByKey[sessionKey] ?? {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      isLoading: compatibilitySession?.isLoading ?? false,
+      hasOlderMessages: compatibilitySession?.hasOlderMessages ?? false,
+      isLoadingOlderMessages: compatibilitySession?.isLoadingOlderMessages ?? false,
+      queuedTurnCount: compatibilitySession?.queuedTurnCount ?? 0,
+    };
+    const patchKeys = Object.keys(patch) as Array<keyof ChatSurfaceSession>;
+    const hasChanges = patchKeys.some((key) => currentSession[key] !== patch[key]);
+    if (!hasChanges) return state;
+
+    return {
+      surfaceSessionsByKey: {
+        ...state.surfaceSessionsByKey,
+        [sessionKey]: {
+          ...currentSession,
+          ...patch,
+        },
+      },
+    };
   };
 
   const patchConversation = (
@@ -436,9 +477,46 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => patchSession(state, conversationId, { readingMessageId: id, skipFocusRestore: true }, sessionKey));
     },
 
+    setConversationDraftMessage: (conversationId, message, sessionKey) => {
+      set((state) => patchSurfaceSession(state, conversationId, { draftMessage: message }, sessionKey));
+    },
+
+    setConversationDraftMediaFiles: (conversationId, mediaFiles, sessionKey) => {
+      set((state) => patchSurfaceSession(state, conversationId, { draftMediaFiles: mediaFiles }, sessionKey));
+    },
+
+    clearConversationDraft: (conversationId, sessionKey) => {
+      set((state) => {
+        const session = getSession(state, conversationId, sessionKey);
+        if (session.draftMessage === '' && session.draftMediaFiles.length === 0) {
+          return state;
+        }
+        return patchSurfaceSession(state, conversationId, {
+          draftMessage: '',
+          draftMediaFiles: session.draftMediaFiles.length === 0 ? session.draftMediaFiles : [],
+        }, sessionKey);
+      });
+    },
+
+    setConversationScrollState: (conversationId, scrollState, sessionKey) => {
+      set((state) => patchSurfaceSession(state, conversationId, scrollState, sessionKey));
+    },
+
     ensureConversationSurfaceSession: (conversationId, sessionKey, origin) => {
       set((state) => {
-        if (state.surfaceSessionsByKey[sessionKey]) return state;
+        const existingSurfaceSession = state.surfaceSessionsByKey[sessionKey];
+        if (existingSurfaceSession) {
+          if (!origin || existingSurfaceSession.surfaceOrigin) return state;
+          return {
+            surfaceSessionsByKey: {
+              ...state.surfaceSessionsByKey,
+              [sessionKey]: {
+                ...existingSurfaceSession,
+                surfaceOrigin: origin,
+              },
+            },
+          };
+        }
         const compatibilitySession = state.sessionsByConversationId[conversationId];
         const surfaceSession = {
           ...createEmptyChatSurfaceSession(conversationId, sessionKey),

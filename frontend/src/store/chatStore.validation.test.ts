@@ -153,6 +153,10 @@ describe('chatStore validation', () => {
           isThinking: false,
           activeToolCalls: [],
           completedSegments: [],
+          draftMessage: '',
+          draftMediaFiles: [],
+          scrollTop: 0,
+          scrollAnchorMessageId: null,
           expandedThreads: new Set<string>(),
           expandedReasonings: new Set<string>(),
           editingMessageId: null,
@@ -425,6 +429,120 @@ describe('chatStore validation', () => {
     emitEvent('chat:done', { conversationId: defaultConversationId });
     send.resolve();
     await pending;
+  });
+
+  it('mantém rascunho e anexos isolados por superfície', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const otherSessionKey = `tab-b:${defaultConversationId}`;
+    const mediaFile = {
+      id: 'media-1',
+    } as unknown as import('../services/mediaService').MediaFile;
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
+        [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
+      },
+    });
+    const sessionsBefore = useChatStore.getState().sessionsByConversationId;
+
+    useChatStore.getState().setConversationDraftMessage(defaultConversationId, 'rascunho A', originSessionKey);
+    useChatStore.getState().setConversationDraftMediaFiles(defaultConversationId, [mediaFile], originSessionKey);
+
+    const state = useChatStore.getState();
+    expect(state.sessionsByConversationId).toBe(sessionsBefore);
+    expect(state.surfaceSessionsByKey[originSessionKey]?.draftMessage).toBe('rascunho A');
+    expect(state.surfaceSessionsByKey[originSessionKey]?.draftMediaFiles).toEqual([mediaFile]);
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.draftMessage).toBe('');
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.draftMediaFiles).toEqual([]);
+  });
+
+  it('mantém scroll e âncora visual isolados por superfície', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const otherSessionKey = `tab-b:${defaultConversationId}`;
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
+        [otherSessionKey]: createEmptyChatSession(defaultConversationId, otherSessionKey),
+      },
+    });
+    const sessionsBefore = useChatStore.getState().sessionsByConversationId;
+
+    useChatStore.getState().setConversationScrollState(
+      defaultConversationId,
+      { scrollTop: 320, scrollAnchorMessageId: 'message-7' },
+      originSessionKey,
+    );
+
+    const state = useChatStore.getState();
+    expect(state.sessionsByConversationId).toBe(sessionsBefore);
+    expect(state.surfaceSessionsByKey[originSessionKey]?.scrollTop).toBe(320);
+    expect(state.surfaceSessionsByKey[originSessionKey]?.scrollAnchorMessageId).toBe('message-7');
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.scrollTop).toBe(0);
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.scrollAnchorMessageId).toBeNull();
+  });
+
+  it('não recria estado ao persistir scroll visual idêntico', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          scrollTop: 320,
+          scrollAnchorMessageId: 'message-7',
+        },
+      },
+    });
+    const stateBefore = useChatStore.getState();
+
+    useChatStore.getState().setConversationScrollState(
+      defaultConversationId,
+      { scrollTop: 320, scrollAnchorMessageId: 'message-7' },
+      originSessionKey,
+    );
+
+    const stateAfter = useChatStore.getState();
+    expect(stateAfter).toBe(stateBefore);
+    expect(stateAfter.surfaceSessionsByKey).toBe(stateBefore.surfaceSessionsByKey);
+  });
+
+  it('não recria estado ao limpar rascunho já vazio', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
+      },
+    });
+    const stateBefore = useChatStore.getState();
+
+    useChatStore.getState().clearConversationDraft(defaultConversationId, originSessionKey);
+
+    const stateAfter = useChatStore.getState();
+    expect(stateAfter).toBe(stateBefore);
+    expect(stateAfter.surfaceSessionsByKey).toBe(stateBefore.surfaceSessionsByKey);
+  });
+
+  it('completa origem de superfície já materializada sem recriar compatibilidade', () => {
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const origin = {
+      sessionKey: originSessionKey,
+      conversationId: defaultConversationId,
+      tabId: 'tab-a',
+      surfaceId: 'tab-a',
+      surfaceType: 'embedded' as const,
+    };
+    useChatStore.getState().setConversationDraftMessage(defaultConversationId, 'rascunho A', originSessionKey);
+    const sessionsBefore = useChatStore.getState().sessionsByConversationId;
+
+    useChatStore.getState().ensureConversationSurfaceSession(defaultConversationId, originSessionKey, origin);
+
+    const state = useChatStore.getState();
+    expect(state.sessionsByConversationId).toBe(sessionsBefore);
+    expect(state.surfaceSessionsByKey[originSessionKey]?.draftMessage).toBe('rascunho A');
+    expect(state.surfaceSessionsByKey[originSessionKey]?.surfaceOrigin).toEqual(origin);
   });
 
   it('sincroniza flags de paginação nas superfícies ao carregar conversa', async () => {

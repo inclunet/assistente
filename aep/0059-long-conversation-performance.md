@@ -2,6 +2,14 @@
 
 ## Status: Draft
 
+## Relação com a AEP-0056
+
+Esta AEP é uma AEP filha da `AEP-0056: Workspace com Abas Autocontidas`.
+
+A AEP-0056 define que abas visitadas devem poder permanecer montadas e que conversas longas não devem degradar a troca de abas. A AEP-0057 define a separação entre timeline compartilhada e sessão visual por superfície. Esta AEP detalha a consequência de performance: cada painel de chat precisa poder manter sua própria janela, scroll e âncora sem obrigar outros painéis da mesma conversa a renderizarem ou navegarem no mesmo ponto.
+
+O objetivo é que painéis de chat sejam independentes também sob carga: uma conversa com centenas de mensagens não deve forçar remount, rerender pesado, scroll compartilhado ou paginação compartilhada entre superfícies.
+
 ## Resumo
 
 Definir a estratégia para carregar, renderizar e navegar conversas longas sem degradar a troca de abas ou a interação do chat.

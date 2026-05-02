@@ -9,6 +9,7 @@ import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import type { MediaFile } from '../../services/mediaService';
 import {
+  getConversationTimeline,
   normalizeChatSurfaceOrigin,
   type ChatSurfaceOrigin,
 } from '../../services/chatSessionRegistry';
@@ -26,9 +27,7 @@ export function WorkspaceChatModal() {
   const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
   const activeConversation = useChatStore((s) => (
     boundConversationId
-      ? s.timelinesByConversationId?.[boundConversationId]
-        ?? s.sessionsByConversationId[boundConversationId]?.conversation
-        ?? null
+      ? getConversationTimeline(s, boundConversationId)
       : null
   ));
   const activeWorkspaceTab = useActiveTab();

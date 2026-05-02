@@ -13,7 +13,6 @@ import { ContextMenu } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
-import { useTabScrollState } from '../../hooks/useTabScrollState';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
@@ -70,7 +69,14 @@ function ChatSessionViewContent({
   const { t } = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  useTabScrollState(messagesContainerRef);
+  const scrollFrameRef = useRef<number | null>(null);
+  const restoreScrollFrameRef = useRef<number | null>(null);
+  const scrollPersistTimerRef = useRef<number | null>(null);
+  const latestScrollStateRef = useRef<{ scrollTop: number; scrollAnchorMessageId: string | null }>({
+    scrollTop: 0,
+    scrollAnchorMessageId: null,
+  });
+  const restoredScrollSessionKeyRef = useRef<string | null>(null);
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
@@ -94,6 +100,13 @@ function ChatSessionViewContent({
     startConversationEditing,
     startConversationReading,
     origin,
+    draftMessage,
+    draftMediaFiles,
+    scrollTop,
+    scrollAnchorMessageId,
+    setDraftMessage,
+    setDraftMediaFiles,
+    setScrollState,
   } = useChatSession();
   const getSessionConversation = useCallback(() => conversation, [conversation]);
 
@@ -102,6 +115,114 @@ function ChatSessionViewContent({
     if (session?.conversation) return;
     void loadConversationSession(conversationId, { activate: variant === 'page' });
   }, [conversationId, loadConversationSession, session?.conversation, variant]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || (scrollTop <= 0 && !scrollAnchorMessageId)) return;
+    const restoreKey = `${origin.sessionKey}:${conversationId ?? 'none'}`;
+    if (restoredScrollSessionKeyRef.current === restoreKey) return;
+    if (restoreScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(restoreScrollFrameRef.current);
+    }
+    restoreScrollFrameRef.current = window.requestAnimationFrame(() => {
+      restoreScrollFrameRef.current = null;
+      if (`${origin.sessionKey}:${conversationId ?? 'none'}` !== restoreKey) return;
+      const currentContainer = messagesContainerRef.current;
+      if (!currentContainer) return;
+      if (scrollAnchorMessageId) {
+        const anchorElement = currentContainer
+          .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(scrollAnchorMessageId)}"]`);
+        if (anchorElement) {
+          anchorElement.scrollIntoView({ block: 'start' });
+          restoredScrollSessionKeyRef.current = restoreKey;
+          return;
+        }
+        if (scrollTop > 0) {
+          currentContainer.scrollTop = scrollTop;
+          restoredScrollSessionKeyRef.current = restoreKey;
+        }
+        return;
+      }
+      if (scrollTop > 0) {
+        currentContainer.scrollTop = scrollTop;
+        restoredScrollSessionKeyRef.current = restoreKey;
+      }
+    });
+    return () => {
+      if (restoreScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(restoreScrollFrameRef.current);
+        restoreScrollFrameRef.current = null;
+      }
+    };
+  }, [conversationId, origin.sessionKey, scrollAnchorMessageId, scrollTop, threadedMessages.length]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || !conversationId) return;
+
+    const getAnchorMessageId = () => {
+      if (!document.elementsFromPoint) return null;
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const probeX = Math.min(rect.right - 1, rect.left + Math.min(16, Math.max(1, rect.width / 2)));
+      const probeYs = [
+        rect.top + 1,
+        Math.min(rect.bottom - 1, rect.top + 24),
+        rect.top + rect.height / 2,
+      ];
+
+      for (const probeY of probeYs) {
+        const messageNode = document
+          .elementsFromPoint(probeX, probeY)
+          .map((element) => element.closest?.('[data-message-node]'))
+          .find((node): node is HTMLElement => !!node && container.contains(node));
+        if (messageNode?.dataset.messageId) {
+          return messageNode.dataset.messageId;
+        }
+      }
+
+      return null;
+    };
+
+    const readScrollState = () => ({
+      scrollTop: container.scrollTop,
+      scrollAnchorMessageId: getAnchorMessageId(),
+    });
+
+    const persistLatestScrollState = () => {
+      setScrollState(latestScrollStateRef.current);
+    };
+
+    const handleScroll = () => {
+      if (scrollFrameRef.current !== null) return;
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        latestScrollStateRef.current = readScrollState();
+        if (scrollPersistTimerRef.current !== null) {
+          window.clearTimeout(scrollPersistTimerRef.current);
+        }
+        scrollPersistTimerRef.current = window.setTimeout(() => {
+          scrollPersistTimerRef.current = null;
+          persistLatestScrollState();
+        }, 200);
+      });
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+      if (scrollPersistTimerRef.current !== null) {
+        window.clearTimeout(scrollPersistTimerRef.current);
+        scrollPersistTimerRef.current = null;
+      }
+      latestScrollStateRef.current = readScrollState();
+      persistLatestScrollState();
+    };
+  }, [conversationId, setScrollState]);
 
   const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
   useEffect(() => {
@@ -474,6 +595,10 @@ function ChatSessionViewContent({
           disabled={variant === 'embedded' ? false : isLoading}
           ref={inputRef}
           voiceEnabled={true}
+          message={draftMessage}
+          mediaFiles={draftMediaFiles}
+          onMessageChange={setDraftMessage}
+          onMediaFilesChange={setDraftMediaFiles}
           onArrowUp={() => {
             const container = messagesContainerRef.current;
             if (container) {

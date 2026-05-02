@@ -7,6 +7,8 @@ const targetConversationId = '01926b90-7a5a-7c4e-8d3f-000000000002';
 const ensureConversationSurfaceSessionMock = vi.fn();
 const removeConversationSurfaceSessionMock = vi.fn();
 const retryMessageToConversationMock = vi.fn().mockResolvedValue(undefined);
+const setConversationDraftMessageMock = vi.fn();
+const setConversationDraftMediaFilesMock = vi.fn();
 
 const chatStoreState = {
   sessionsByConversationId: {
@@ -16,6 +18,8 @@ const chatStoreState = {
       hasOlderMessages: true,
       isLoadingOlderMessages: false,
       queuedTurnCount: 0,
+      draftMessage: '',
+      draftMediaFiles: [],
     },
   },
   timelinesByConversationId: {},
@@ -30,6 +34,9 @@ const chatStoreState = {
   clearConversationMessages: vi.fn(),
   startConversationEditing: vi.fn(),
   startConversationReading: vi.fn(),
+  setConversationDraftMessage: setConversationDraftMessageMock,
+  setConversationDraftMediaFiles: setConversationDraftMediaFilesMock,
+  clearConversationDraft: vi.fn(),
   setConversationEditingMessageId: vi.fn(),
   setConversationReadingMessageId: vi.fn(),
   toggleConversationThreadExpanded: vi.fn(),
@@ -70,11 +77,25 @@ function Probe() {
   );
 }
 
+function DraftProbe() {
+  const { draftMessage, setDraftMessage } = useChatSession();
+  return (
+    <button
+      type="button"
+      onClick={() => setDraftMessage('rascunho local')}
+    >
+      {draftMessage || 'sem rascunho'}
+    </button>
+  );
+}
+
 describe('ChatSessionProvider', () => {
   beforeEach(() => {
     ensureConversationSurfaceSessionMock.mockClear();
     removeConversationSurfaceSessionMock.mockClear();
     retryMessageToConversationMock.mockClear();
+    setConversationDraftMessageMock.mockClear();
+    setConversationDraftMediaFilesMock.mockClear();
     chatStoreState.surfaceSessionsByKey = {};
   });
 
@@ -137,6 +158,8 @@ describe('ChatSessionProvider', () => {
         isThinking: false,
         activeToolCalls: [],
         completedSegments: [],
+        draftMessage: '',
+        draftMediaFiles: [],
         expandedThreads: new Set(),
         expandedReasonings: new Set(),
         editingMessageId: null,
@@ -197,6 +220,49 @@ describe('ChatSessionProvider', () => {
           tabId: 'tab-chat',
         }),
       },
+    );
+  });
+
+  it('escopa rascunho pela sessionKey da superfície', async () => {
+    const user = userEvent.setup();
+    chatStoreState.surfaceSessionsByKey = {
+      [embeddedSessionKey]: {
+        sessionKey: embeddedSessionKey,
+        conversationId: currentConversationId,
+        isLoading: false,
+        hasOlderMessages: false,
+        isLoadingOlderMessages: false,
+        streamingMessageId: null,
+        streamingReasoning: null,
+        isThinking: false,
+        activeToolCalls: [],
+        completedSegments: [],
+        draftMessage: '',
+        draftMediaFiles: [],
+        expandedThreads: new Set(),
+        expandedReasonings: new Set(),
+        editingMessageId: null,
+        readingMessageId: null,
+        skipFocusRestore: false,
+      },
+    };
+
+    render(
+      <ChatSessionProvider
+        conversationId={currentConversationId}
+        surfaceType="embedded"
+        surfaceId={embeddedSurfaceId}
+      >
+        <DraftProbe />
+      </ChatSessionProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'sem rascunho' }));
+
+    expect(setConversationDraftMessageMock).toHaveBeenCalledWith(
+      currentConversationId,
+      'rascunho local',
+      embeddedSessionKey,
     );
   });
 });
