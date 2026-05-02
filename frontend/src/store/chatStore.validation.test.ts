@@ -508,6 +508,43 @@ describe('chatStore validation', () => {
     expect(stateAfter.surfaceSessionsByKey).toBe(stateBefore.surfaceSessionsByKey);
   });
 
+  it('não recria estado ao limpar rascunho já vazio', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    useChatStore.setState({
+      surfaceSessionsByKey: {
+        [originSessionKey]: createEmptyChatSession(defaultConversationId, originSessionKey),
+      },
+    });
+    const stateBefore = useChatStore.getState();
+
+    useChatStore.getState().clearConversationDraft(defaultConversationId, originSessionKey);
+
+    const stateAfter = useChatStore.getState();
+    expect(stateAfter).toBe(stateBefore);
+    expect(stateAfter.surfaceSessionsByKey).toBe(stateBefore.surfaceSessionsByKey);
+  });
+
+  it('completa origem de superfície já materializada sem recriar compatibilidade', () => {
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const origin = {
+      sessionKey: originSessionKey,
+      conversationId: defaultConversationId,
+      tabId: 'tab-a',
+      surfaceId: 'tab-a',
+      surfaceType: 'embedded' as const,
+    };
+    useChatStore.getState().setConversationDraftMessage(defaultConversationId, 'rascunho A', originSessionKey);
+    const sessionsBefore = useChatStore.getState().sessionsByConversationId;
+
+    useChatStore.getState().ensureConversationSurfaceSession(defaultConversationId, originSessionKey, origin);
+
+    const state = useChatStore.getState();
+    expect(state.sessionsByConversationId).toBe(sessionsBefore);
+    expect(state.surfaceSessionsByKey[originSessionKey]?.draftMessage).toBe('rascunho A');
+    expect(state.surfaceSessionsByKey[originSessionKey]?.surfaceOrigin).toEqual(origin);
+  });
+
   it('sincroniza flags de paginação nas superfícies ao carregar conversa', async () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const surfaceSessionKey = `tab-a:${defaultConversationId}`;

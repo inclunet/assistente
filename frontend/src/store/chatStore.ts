@@ -486,7 +486,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     clearConversationDraft: (conversationId, sessionKey) => {
-      set((state) => patchSurfaceSession(state, conversationId, { draftMessage: '', draftMediaFiles: [] }, sessionKey));
+      set((state) => {
+        const session = getSession(state, conversationId, sessionKey);
+        if (session.draftMessage === '' && session.draftMediaFiles.length === 0) {
+          return state;
+        }
+        return patchSurfaceSession(state, conversationId, {
+          draftMessage: '',
+          draftMediaFiles: session.draftMediaFiles.length === 0 ? session.draftMediaFiles : [],
+        }, sessionKey);
+      });
     },
 
     setConversationScrollState: (conversationId, scrollState, sessionKey) => {
@@ -495,7 +504,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     ensureConversationSurfaceSession: (conversationId, sessionKey, origin) => {
       set((state) => {
-        if (state.surfaceSessionsByKey[sessionKey]) return state;
+        const existingSurfaceSession = state.surfaceSessionsByKey[sessionKey];
+        if (existingSurfaceSession) {
+          if (!origin || existingSurfaceSession.surfaceOrigin) return state;
+          return {
+            surfaceSessionsByKey: {
+              ...state.surfaceSessionsByKey,
+              [sessionKey]: {
+                ...existingSurfaceSession,
+                surfaceOrigin: origin,
+              },
+            },
+          };
+        }
         const compatibilitySession = state.sessionsByConversationId[conversationId];
         const surfaceSession = {
           ...createEmptyChatSurfaceSession(conversationId, sessionKey),
