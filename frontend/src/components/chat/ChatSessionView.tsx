@@ -139,6 +139,7 @@ function ChatSessionViewContent({
         }
         if (scrollTop > 0) {
           currentContainer.scrollTop = scrollTop;
+          restoredScrollSessionKeyRef.current = restoreKey;
         }
         return;
       }

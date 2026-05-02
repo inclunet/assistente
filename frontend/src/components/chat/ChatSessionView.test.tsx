@@ -266,4 +266,41 @@ describe('ChatSessionView', () => {
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
     }
   });
+
+  it('não reaplica fallback de scrollTop depois que âncora ausente já foi restaurada', async () => {
+    const sessionKey = 'test-session';
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      scrollTop: 320,
+      scrollAnchorMessageId: 'missing-anchor',
+    };
+
+    const { rerender } = render(
+      <ChatSessionView
+        conversationId={conversationId}
+        sessionKey={sessionKey}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        showShortcutsHelp={false}
+      />,
+    );
+
+    const messageList = await screen.findByTestId('message-list');
+    await waitFor(() => {
+      expect(messageList.scrollTop).toBe(320);
+    });
+
+    messageList.scrollTop = 111;
+    (activeConversation.threadedMessages as unknown[]) = [{ id: 'new-message' }];
+    rerender(
+      <ChatSessionView
+        conversationId={conversationId}
+        sessionKey={sessionKey}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        showShortcutsHelp={false}
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(messageList.scrollTop).toBe(111);
+  });
 });
