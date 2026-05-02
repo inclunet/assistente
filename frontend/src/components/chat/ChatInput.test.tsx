@@ -142,6 +142,15 @@ describe('ChatInput', () => {
     });
   });
 
+  it('expõe o textarea para callback refs', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const callbackRef = vi.fn();
+
+    render(<ChatInput ref={callbackRef} onSend={() => {}} />);
+
+    expect(callbackRef).toHaveBeenCalledWith(screen.getByLabelText('chat.messageLabel'));
+  });
+
   it('preserva anexos adicionados enquanto outro processamento ainda está pendente', async () => {
     getSkillsSpy.mockResolvedValueOnce([]);
     const firstProcessing = deferred<void>();

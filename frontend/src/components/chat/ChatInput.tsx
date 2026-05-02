@@ -1,4 +1,4 @@
-import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback } from 'react';
+import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PaperClipOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
@@ -54,8 +54,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const [invocableSkills, setInvocableSkills] = useState<skills.SkillInfo[]>([]);
   
-  // Use external ref if provided, otherwise use internal ref
-  const textareaRef = (ref as React.RefObject<HTMLTextAreaElement>) || internalTextareaRef;
+  const textareaRef = internalTextareaRef;
+  useImperativeHandle(ref, () => internalTextareaRef.current as HTMLTextAreaElement, []);
   const isMessageControlled = controlledMessage !== undefined && !!onMessageChange;
   const isMediaFilesControlled = controlledMediaFiles !== undefined && !!onMediaFilesChange;
   const handleMessageChange = isMessageControlled ? onMessageChange : undefined;
