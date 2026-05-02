@@ -70,6 +70,7 @@ function ChatSessionViewContent({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const restoreScrollFrameRef = useRef<number | null>(null);
   const scrollPersistTimerRef = useRef<number | null>(null);
   const latestScrollStateRef = useRef<{ scrollTop: number; scrollAnchorMessageId: string | null }>({
     scrollTop: 0,
@@ -120,7 +121,12 @@ function ChatSessionViewContent({
     if (!container || (scrollTop <= 0 && !scrollAnchorMessageId)) return;
     const restoreKey = `${origin.sessionKey}:${conversationId ?? 'none'}`;
     if (restoredScrollSessionKeyRef.current === restoreKey) return;
-    requestAnimationFrame(() => {
+    if (restoreScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(restoreScrollFrameRef.current);
+    }
+    restoreScrollFrameRef.current = window.requestAnimationFrame(() => {
+      restoreScrollFrameRef.current = null;
+      if (`${origin.sessionKey}:${conversationId ?? 'none'}` !== restoreKey) return;
       const currentContainer = messagesContainerRef.current;
       if (!currentContainer) return;
       if (scrollTop > 0) {
@@ -134,6 +140,12 @@ function ChatSessionViewContent({
       anchorElement.scrollIntoView({ block: 'start' });
       restoredScrollSessionKeyRef.current = restoreKey;
     });
+    return () => {
+      if (restoreScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(restoreScrollFrameRef.current);
+        restoreScrollFrameRef.current = null;
+      }
+    };
   }, [conversationId, origin.sessionKey, scrollAnchorMessageId, scrollTop, threadedMessages.length]);
 
   useEffect(() => {
