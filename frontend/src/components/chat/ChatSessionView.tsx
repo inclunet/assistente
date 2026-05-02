@@ -134,10 +134,27 @@ function ChatSessionViewContent({
     if (!container || !conversationId) return;
 
     const getAnchorMessageId = () => {
-      const nodes = Array.from(container.querySelectorAll<HTMLElement>('[data-message-node]'));
-      const containerTop = container.getBoundingClientRect().top;
-      const anchor = nodes.find((node) => node.getBoundingClientRect().bottom >= containerTop);
-      return anchor?.dataset.messageId ?? null;
+      if (!document.elementsFromPoint) return null;
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const probeX = Math.min(rect.right - 1, rect.left + Math.min(16, Math.max(1, rect.width / 2)));
+      const probeYs = [
+        rect.top + 1,
+        Math.min(rect.bottom - 1, rect.top + 24),
+        rect.top + rect.height / 2,
+      ];
+
+      for (const probeY of probeYs) {
+        const messageNode = document
+          .elementsFromPoint(probeX, probeY)
+          .map((element) => element.closest?.('[data-message-node]'))
+          .find((node): node is HTMLElement => !!node && container.contains(node));
+        if (messageNode?.dataset.messageId) {
+          return messageNode.dataset.messageId;
+        }
+      }
+
+      return null;
     };
 
     const handleScroll = () => {

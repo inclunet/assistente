@@ -58,6 +58,12 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const textareaRef = (ref as React.RefObject<HTMLTextAreaElement>) || internalTextareaRef;
   const message = controlledMessage ?? localMessage;
   const mediaFiles = controlledMediaFiles ?? localMediaFiles;
+  const mediaFilesRef = useRef<MediaFile[]>(mediaFiles);
+
+  useEffect(() => {
+    mediaFilesRef.current = mediaFiles;
+  }, [mediaFiles]);
+
   const setMessage = useCallback((nextMessage: string) => {
     if (onMessageChange) {
       onMessageChange(nextMessage);
@@ -66,6 +72,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     setLocalMessage(nextMessage);
   }, [onMessageChange]);
   const setMediaFiles = useCallback((nextMediaFiles: MediaFile[]) => {
+    mediaFilesRef.current = nextMediaFiles;
     if (onMediaFilesChange) {
       onMediaFilesChange(nextMediaFiles);
       return;
@@ -155,14 +162,18 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   };
 
   const handleFileSelect = async (files: File[]) => {
-    if (files.length === 0 || mediaFiles.length >= maxFiles) return;
+    const currentMediaFiles = mediaFilesRef.current;
+    if (files.length === 0 || currentMediaFiles.length >= maxFiles) return;
     
     setIsProcessing(true);
     try {
-      const remainingSlots = maxFiles - mediaFiles.length;
+      const remainingSlots = maxFiles - currentMediaFiles.length;
       const filesToProcess = files.slice(0, remainingSlots);
       const processed = await processMediaFiles(filesToProcess);
-      setMediaFiles([...mediaFiles, ...processed]);
+      const latestMediaFiles = mediaFilesRef.current;
+      const latestRemainingSlots = maxFiles - latestMediaFiles.length;
+      if (latestRemainingSlots <= 0) return;
+      setMediaFiles([...latestMediaFiles, ...processed.slice(0, latestRemainingSlots)]);
     } catch (error) {
       console.error('Erro ao processar arquivos:', error);
     } finally {
@@ -171,7 +182,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   };
 
   const handleRemoveMedia = (id: string) => {
-    setMediaFiles(mediaFiles.filter(m => m.id !== id));
+    setMediaFiles(mediaFilesRef.current.filter(m => m.id !== id));
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
