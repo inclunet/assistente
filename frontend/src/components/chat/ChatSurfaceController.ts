@@ -2,8 +2,10 @@ import { useCallback } from 'react';
 import { useChatStore } from '../../store/chatStore';
 import type { MediaFile } from '../../services/mediaService';
 import {
+  getConversationTimeline,
   normalizeChatSurfaceOrigin,
   type ChatSurfaceOrigin,
+  type ConversationTimeline,
 } from '../../services/chatSessionRegistry';
 import {
   useChatSession,
@@ -57,4 +59,10 @@ export function useChatSurfaceController({
     ...chatSession,
     sendMessage,
   };
+}
+
+export function useChatConversationTimeline(conversationId?: string | null): ConversationTimeline | null {
+  return useChatStore((state) => (
+    conversationId ? getConversationTimeline(state, conversationId) : null
+  ));
 }

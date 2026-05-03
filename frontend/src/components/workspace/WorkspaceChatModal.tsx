@@ -2,16 +2,14 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
 import { ChatPanel, type ChatPanelSendContext } from '../chat/ChatPanel';
+import { useChatConversationTimeline } from '../chat/ChatSurfaceController';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
 import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import type { MediaFile } from '../../services/mediaService';
-import {
-  getConversationTimeline,
-  normalizeChatSurfaceOrigin,
-} from '../../services/chatSessionRegistry';
+import { normalizeChatSurfaceOrigin } from '../../services/chatSessionRegistry';
 
 import './WorkspaceChatModal.css';
 
@@ -24,11 +22,7 @@ export function WorkspaceChatModal() {
   const adapterError = useWorkspaceChatModalStore((s) => s.adapterError);
   const close = useWorkspaceChatModalStore((s) => s.close);
   const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
-  const activeConversation = useChatStore((s) => (
-    boundConversationId
-      ? getConversationTimeline(s, boundConversationId)
-      : null
-  ));
+  const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
   const modalSurfaceId = useMemo(
     () => `embedded:workspace-chat-modal:${boundTabId ?? 'standalone'}`,
