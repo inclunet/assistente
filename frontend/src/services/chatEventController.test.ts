@@ -53,7 +53,7 @@ vi.mock('./chatArbitration', () => ({
   playChatReceiveSoundIfActive: (...args: unknown[]) => mockPlayChatReceiveSoundIfActive(...args),
   announceForActiveChatConversation: (...args: unknown[]) => mockAnnounceForActiveChatConversation(...args),
   announceChatBackgroundResponseDone: (...args: unknown[]) => mockAnnounceChatBackgroundResponseDone(...args),
-  getChatConversationVoiceOrigin: (...args: unknown[]) => mockGetChatConversationVoiceOrigin(...args),
+  getChatConversationVoiceOrigin: (conversationId: string) => mockGetChatConversationVoiceOrigin(conversationId),
 }));
 
 const mockHandleChatSpeak = vi.fn().mockResolvedValue(undefined);
