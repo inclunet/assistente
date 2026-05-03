@@ -23,7 +23,10 @@ vi.mock('i18next', () => ({
   },
 }));
 
-import { useChatSurfaceController } from './ChatSurfaceController';
+import {
+  useChatSurfaceController,
+  type ChatSurfaceSendHandler,
+} from './ChatSurfaceController';
 
 const baseOrigin: ChatSurfaceOrigin = {
   sessionKey: 'embedded:surface-a:conversation-a',
@@ -76,6 +79,15 @@ function SendProbe() {
   );
 }
 
+function SendWithAdapterProbe({ onSend }: { onSend: ChatSurfaceSendHandler }) {
+  const controller = useChatSurfaceController({ onSend });
+  return (
+    <button type="button" onClick={() => void controller.sendMessage('oi')}>
+      send
+    </button>
+  );
+}
+
 function ErrorProbe() {
   const controller = useChatSurfaceController();
   const handleClick = async () => {
@@ -97,6 +109,7 @@ describe('useChatSurfaceController', () => {
   beforeEach(() => {
     sendMessageToConversationMock.mockReset();
     useChatSessionMock.mockReset();
+    document.body.removeAttribute('data-error');
   });
 
   it('envia pelo caminho padrão com origem normalizada', async () => {
@@ -144,6 +157,23 @@ describe('useChatSurfaceController', () => {
 
     await waitFor(() => {
       expect(document.body).toHaveAttribute('data-error', 'chat.errors.chatTabNotReady');
+    });
+    expect(sendMessageToConversationMock).not.toHaveBeenCalled();
+  });
+
+  it('usa adapter de envio quando onSend é fornecido', async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    useChatSessionMock.mockReturnValue(createSession());
+
+    render(<SendWithAdapterProbe onSend={onSend} />);
+    await user.click(screen.getByRole('button', { name: 'send' }));
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith('oi', undefined, {
+        conversationId: 'conversation-a',
+        origin: baseOrigin,
+      });
     });
     expect(sendMessageToConversationMock).not.toHaveBeenCalled();
   });

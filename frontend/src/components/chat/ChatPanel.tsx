@@ -1,17 +1,12 @@
 import { ChatSessionView } from './ChatSessionView';
-import type { MediaFile } from '../../services/mediaService';
-import type { ChatSurfaceOrigin, ChatSurfaceType } from '../../services/chatSessionRegistry';
+import type { ChatSurfaceType } from '../../services/chatSessionRegistry';
+import type {
+  ChatSurfaceSendContext,
+  ChatSurfaceSendHandler,
+} from './ChatSurfaceController';
 
-export interface ChatPanelSendContext {
-  conversationId: string | null;
-  origin: ChatSurfaceOrigin;
-}
-
-export type ChatPanelSendHandler = (
-  content: string,
-  mediaFiles: MediaFile[] | undefined,
-  context: ChatPanelSendContext,
-) => Promise<void>;
+export type ChatPanelSendContext = ChatSurfaceSendContext;
+export type ChatPanelSendHandler = ChatSurfaceSendHandler;
 
 export interface ChatPanelProps {
   conversationId?: string | null;

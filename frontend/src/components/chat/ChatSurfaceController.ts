@@ -52,7 +52,7 @@ export function useChatSurfaceController({
       throw new Error(i18next.t('chat.errors.chatTabNotReady'));
     }
 
-    const origin = normalizeChatSurfaceOrigin(chatSession.origin, targetConversationId) ?? chatSession.origin;
+    const origin = normalizeChatSurfaceOrigin(chatSession.origin, targetConversationId);
     await sendMessageToConversation(targetConversationId, content, mediaFiles, undefined, { origin });
   }, [chatSession.conversationId, chatSession.origin, onSend, sendMessageToConversation]);
 
