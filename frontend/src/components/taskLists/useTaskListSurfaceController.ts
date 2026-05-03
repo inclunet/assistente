@@ -14,12 +14,8 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
   useEffect(() => {
     if (!isWsInitialized || !isActive || tab.type !== 'tasklist') return;
 
-    const syncKey = `${tab.id}:${taskListId}`;
-    if (lastSyncedRef.current === syncKey) return;
-
     if (taskListId) {
       void syncExistingTaskList(taskListId);
-      lastSyncedRef.current = syncKey;
       return;
     }
 
@@ -63,11 +59,18 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
   }, [tab.id]);
 
   async function syncExistingTaskList(id: string) {
-    const store = useTaskListStore.getState();
-    store.setActiveTaskList(id);
+    try {
+      const store = useTaskListStore.getState();
+      store.setActiveTaskList(id);
 
-    if (!store.taskLists.has(id)) {
-      await store.loadTaskList(id);
+      if (lastSyncedRef.current === `${tab.id}:${id}`) return;
+
+      if (!store.taskLists.has(id)) {
+        await store.loadTaskList(id);
+      }
+      lastSyncedRef.current = `${tab.id}:${id}`;
+    } catch (error) {
+      console.error('[TaskListSurfaceController] Erro ao sincronizar tasklist:', error);
     }
   }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { EditorReadFile } from '@wailsjs/go/app/App';
+import i18next from 'i18next';
 import { useEditorStore, DEFAULT_MD } from '../../store/editorStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';
 import { basenameFromPath } from '../../utils/path';
@@ -13,8 +14,6 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
     if (!isWsInitialized || !isActive || tab.type !== 'editor') return;
 
     const tabId = tab.id;
-    if (lastSyncedRef.current === tabId) return;
-
     const store = useEditorStore.getState();
     const exists = !!store.documents[tabId];
 
@@ -95,7 +94,7 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
         markdown = DEFAULT_MD;
       }
 
-      const title = filePath ? basenameFromPath(filePath) : 'Novo documento';
+      const title = filePath ? basenameFromPath(filePath) : i18next.t('editor.fallback.newDoc');
       useEditorStore.getState().createDocument({
         id: tabId,
         title,

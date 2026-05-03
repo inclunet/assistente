@@ -51,6 +51,12 @@ vi.mock('../../store/workspaceStore', () => ({
   ),
 }));
 
+vi.mock('i18next', () => ({
+  default: {
+    t: vi.fn((key: string) => (key === 'editor.fallback.newDoc' ? 'Novo documento' : key)),
+  },
+}));
+
 import { useEditorSurfaceController } from './useEditorSurfaceController';
 
 const editorTab: WorkspaceTab = {
@@ -93,6 +99,38 @@ describe('useEditorSurfaceController', () => {
 
     expect(editorMocks.createDocument).not.toHaveBeenCalled();
     expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
+  });
+
+  it('reativa documento existente quando o painel volta a ficar ativo', () => {
+    editorMocks.documents = {
+      'editor-tab': { id: 'editor-tab', title: 'Editor', filePath: null },
+    };
+    editorMocks.activeDocumentId = 'other-editor';
+    const { rerender } = renderHook(({ active }) => useEditorSurfaceController(editorTab, active), {
+      initialProps: { active: true },
+    });
+
+    expect(editorMocks.setActiveDocument).toHaveBeenCalledWith('editor-tab');
+
+    editorMocks.setActiveDocument.mockClear();
+    editorMocks.activeDocumentId = 'other-editor';
+    rerender({ active: false });
+    rerender({ active: true });
+
+    expect(editorMocks.setActiveDocument).toHaveBeenCalledWith('editor-tab');
+  });
+
+  it('usa fallback i18n para título de documento novo sem arquivo', async () => {
+    renderHook(() => useEditorSurfaceController({
+      ...editorTab,
+      state: {},
+    }, true));
+
+    await waitFor(() => {
+      expect(editorMocks.createDocument).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Novo documento',
+      }));
+    });
   });
 
   it('preserva documento quando o painel desmonta mas a aba continua aberta', () => {

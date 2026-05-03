@@ -19,7 +19,6 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
     if (!isWsInitialized || !isActive || tab.type !== 'terminal') return;
 
     const syncKey = `${tab.id}:${sessionId}`;
-    if (lastSyncedRef.current === syncKey) return;
 
     const store = useTerminalStore.getState();
     if (sessionId) {
@@ -32,14 +31,21 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
         return;
       }
 
+      if (lastSyncedRef.current === syncKey) return;
+
       store.loadSessions().then(() => {
         const reloaded = useTerminalStore.getState();
         if (reloaded.sessions.some((session) => session.id === sessionId)) {
-          reloaded.setActiveSession(sessionId);
+          if (reloaded.activeSessionId !== sessionId) {
+            reloaded.setActiveSession(sessionId);
+          }
           lastSyncedRef.current = syncKey;
         } else {
           void recoverStaleSession(tab.id);
         }
+      }).catch((error: unknown) => {
+        console.error('[TerminalSurfaceController] Erro ao carregar sessões:', error);
+        void recoverStaleSession(tab.id);
       });
       return;
     }

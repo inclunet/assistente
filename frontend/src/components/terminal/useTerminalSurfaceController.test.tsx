@@ -89,6 +89,52 @@ describe('useTerminalSurfaceController', () => {
     expect(terminalMocks.createSession).not.toHaveBeenCalled();
   });
 
+  it('reativa sessão existente quando o painel volta a ficar ativo', () => {
+    terminalMocks.sessions = [{ id: 'session-2' }];
+    terminalMocks.activeSessionId = 'session-other';
+    const tabWithSession = {
+      ...terminalTab,
+      state: { sessionId: 'session-2' },
+    };
+    const { rerender } = renderHook(({ active }) => useTerminalSurfaceController(tabWithSession, active), {
+      initialProps: { active: true },
+    });
+
+    expect(terminalMocks.setActiveSession).toHaveBeenCalledWith('session-2');
+
+    terminalMocks.setActiveSession.mockClear();
+    terminalMocks.activeSessionId = 'session-other';
+    rerender({ active: false });
+    rerender({ active: true });
+
+    expect(terminalMocks.setActiveSession).toHaveBeenCalledWith('session-2');
+  });
+
+  it('recupera sessão quando loadSessions falha', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    terminalMocks.loadSessions.mockRejectedValue(new Error('load failed'));
+    terminalMocks.createSession.mockImplementation(async () => {
+      terminalMocks.activeSessionId = 'session-recovered';
+    });
+
+    renderHook(() => useTerminalSurfaceController({
+      ...terminalTab,
+      state: { sessionId: 'stale-session' },
+    }, true));
+
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[TerminalSurfaceController] Erro ao carregar sessões:',
+        expect.any(Error),
+      );
+      expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
+        state: { sessionId: 'session-recovered' },
+      });
+    });
+
+    errorSpy.mockRestore();
+  });
+
   it('preserva sessão quando o painel desmonta mas a aba continua aberta', () => {
     const { unmount } = renderHook(() => useTerminalSurfaceController({
       ...terminalTab,

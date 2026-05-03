@@ -102,6 +102,49 @@ describe('useTaskListSurfaceController', () => {
     expect(taskListMocks.createTaskList).not.toHaveBeenCalled();
   });
 
+  it('reativa tasklist existente quando o painel volta a ficar ativo', async () => {
+    taskListMocks.taskLists = new Map([['tasklist-2', { id: 'tasklist-2', title: 'Lista 2' }]]);
+    const tabWithTaskList = {
+      ...taskListTab,
+      state: { tasklistId: 'tasklist-2' },
+    };
+    const { rerender } = renderHook(({ active }) => useTaskListSurfaceController(tabWithTaskList, active), {
+      initialProps: { active: true },
+    });
+
+    await waitFor(() => {
+      expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith('tasklist-2');
+    });
+
+    taskListMocks.setActiveTaskList.mockClear();
+    rerender({ active: false });
+    rerender({ active: true });
+
+    await waitFor(() => {
+      expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith('tasklist-2');
+    });
+  });
+
+  it('trata erro ao carregar tasklist existente', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    taskListMocks.loadTaskList.mockRejectedValue(new Error('load failed'));
+
+    renderHook(() => useTaskListSurfaceController({
+      ...taskListTab,
+      state: { tasklistId: 'tasklist-2' },
+    }, true));
+
+    await waitFor(() => {
+      expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith('tasklist-2');
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[TaskListSurfaceController] Erro ao sincronizar tasklist:',
+        expect.any(Error),
+      );
+    });
+
+    errorSpy.mockRestore();
+  });
+
   it('preserva tasklist ativa quando o painel desmonta mas a aba continua aberta', () => {
     taskListMocks.activeTaskListId = 'tasklist-1';
     const { unmount } = renderHook(() => useTaskListSurfaceController(taskListTab, true));
