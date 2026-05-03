@@ -9,10 +9,12 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
   const lastSyncedRef = useRef<string | null>(null);
   const creatingRef = useRef(false);
 
+  const tabId = tab.id;
+  const tabType = tab.type;
   const taskListId = (tab.state?.tasklistId as string) || '';
 
   useEffect(() => {
-    if (!isWsInitialized || !isActive || tab.type !== 'tasklist') return;
+    if (!isWsInitialized || !isActive || tabType !== 'tasklist') return;
 
     if (taskListId) {
       void syncExistingTaskList(taskListId);
@@ -20,14 +22,14 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
     }
 
     if (!creatingRef.current) {
-      void createTaskListForTab(tab);
+      void createTaskListForTab(tabId);
     }
-  }, [isActive, isWsInitialized, tab, tab.id, tab.type, taskListId]);
+  }, [isActive, isWsInitialized, tabId, tabType, taskListId]);
 
   useEffect(() => {
     const syncTitle = (state: ReturnType<typeof useTaskListStore.getState>) => {
       const ws = useWorkspaceStore.getState();
-      const wsTab = ws.workspace?.tabs.find((candidate) => candidate.id === tab.id);
+      const wsTab = ws.workspace?.tabs.find((candidate) => candidate.id === tabId);
       if (!wsTab || wsTab.type !== 'tasklist') return;
 
       const id = wsTab.state?.tasklistId as string | undefined;
@@ -42,34 +44,37 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
     syncTitle(useTaskListStore.getState());
     const unsub = useTaskListStore.subscribe(syncTitle);
     return unsub;
-  }, [tab.id]);
+  }, [tabId]);
 
   async function syncExistingTaskList(id: string) {
     try {
       const store = useTaskListStore.getState();
-      store.setActiveTaskList(id);
+      if (store.activeTaskListId !== id) {
+        store.setActiveTaskList(id);
+      }
 
-      if (lastSyncedRef.current === `${tab.id}:${id}`) return;
+      if (lastSyncedRef.current === `${tabId}:${id}`) return;
 
       if (!store.taskLists.has(id)) {
         await store.loadTaskList(id);
       }
-      lastSyncedRef.current = `${tab.id}:${id}`;
+      lastSyncedRef.current = `${tabId}:${id}`;
     } catch (error) {
       console.error('[TaskListSurfaceController] Erro ao sincronizar tasklist:', error);
     }
   }
 
-  async function createTaskListForTab(workspaceTab: WorkspaceTab) {
+  async function createTaskListForTab(tabId: string) {
     creatingRef.current = true;
     try {
       const taskList = await useTaskListStore.getState().createTaskList(i18next.t('tasklist.newList'));
       if (taskList) {
-        await updateWorkspaceTab(workspaceTab.id, {
-          state: { ...(workspaceTab.state ?? {}), tasklistId: String(taskList.id) },
+        const workspaceTab = useWorkspaceStore.getState().workspace?.tabs.find((candidate) => candidate.id === tabId);
+        await updateWorkspaceTab(tabId, {
+          state: { ...(workspaceTab?.state ?? {}), tasklistId: String(taskList.id) },
           title: taskList.title,
         });
-        lastSyncedRef.current = `${workspaceTab.id}:${taskList.id}`;
+        lastSyncedRef.current = `${tabId}:${taskList.id}`;
       }
     } catch (error) {
       console.error('[TaskListSurfaceController] Erro ao criar tasklist:', error);

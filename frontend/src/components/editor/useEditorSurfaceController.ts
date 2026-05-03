@@ -7,13 +7,15 @@ import { basenameFromPath } from '../../utils/path';
 
 export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean) {
   const isWsInitialized = useWorkspaceStore((state) => state.isInitialized);
-  const lastSyncedRef = useRef<string | null>(null);
   const creatingRef = useRef(false);
+  const tabId = tab.id;
+  const tabType = tab.type;
+  const filePath = (tab.state?.filePath as string) || '';
+  const draftId = (tab.state?.draftId as string) || '';
 
   useEffect(() => {
-    if (!isWsInitialized || !isActive || tab.type !== 'editor') return;
+    if (!isWsInitialized || !isActive || tabType !== 'editor') return;
 
-    const tabId = tab.id;
     const store = useEditorStore.getState();
     const exists = !!store.documents[tabId];
 
@@ -21,19 +23,18 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
       if (store.activeDocumentId !== tabId) {
         store.setActiveDocument(tabId);
       }
-      lastSyncedRef.current = tabId;
       return;
     }
 
     if (!creatingRef.current) {
-      void createDocumentFromTab(tabId, tab.state);
+      void createDocumentFromTab(tabId, filePath, draftId);
     }
-  }, [isActive, isWsInitialized, tab.id, tab.state, tab.type]);
+  }, [draftId, filePath, isActive, isWsInitialized, tabId, tabType]);
 
   useEffect(() => {
     const syncEditorTab = (state: ReturnType<typeof useEditorStore.getState>) => {
       const ws = useWorkspaceStore.getState();
-      const wsTab = ws.workspace?.tabs.find((candidate) => candidate.id === tab.id);
+      const wsTab = ws.workspace?.tabs.find((candidate) => candidate.id === tabId);
       if (!wsTab || wsTab.type !== 'editor') return;
 
       const doc = state.documents[wsTab.id];
@@ -61,28 +62,26 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
 
     let prevKey = '';
     const unsub = useEditorStore.subscribe((state) => {
-      const doc = state.documents[tab.id];
-      const key = doc ? `${tab.id}:${doc.title}:${(doc.filePath as string) || ''}` : '';
+      const doc = state.documents[tabId];
+      const key = doc ? `${tabId}:${doc.title}:${(doc.filePath as string) || ''}` : '';
       if (key === prevKey) return;
       prevKey = key;
       syncEditorTab(state);
     });
 
     return unsub;
-  }, [tab.id]);
+  }, [tabId]);
 
   useEffect(() => () => {
-    const tabStillOpen = useWorkspaceStore.getState().workspace?.tabs.some((candidate) => candidate.id === tab.id) ?? false;
+    const tabStillOpen = useWorkspaceStore.getState().workspace?.tabs.some((candidate) => candidate.id === tabId) ?? false;
     if (!tabStillOpen) {
-      useEditorStore.getState().removeDocument(tab.id);
+      useEditorStore.getState().removeDocument(tabId);
     }
-  }, [tab.id]);
+  }, [tabId]);
 
-  async function createDocumentFromTab(tabId: string, state?: Record<string, unknown>) {
+  async function createDocumentFromTab(tabId: string, filePath: string, draftId: string) {
     creatingRef.current = true;
     try {
-      const filePath = (state?.filePath as string) || '';
-      const draftId = (state?.draftId as string) || '';
       let markdown = DEFAULT_MD;
 
       try {
@@ -103,7 +102,6 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
         draftId: draftId || (filePath ? null : tabId),
       });
       useEditorStore.getState().setActiveDocument(tabId);
-      lastSyncedRef.current = tabId;
     } catch (error) {
       console.error('[EditorSurfaceController] Erro ao criar documento:', error);
     } finally {
