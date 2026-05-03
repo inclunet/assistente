@@ -58,6 +58,22 @@ function getRolePrefix(role: VoiceRole): string {
   }
 }
 
+function getAnnounceEventType(origin: ChatSpeakOrigin | undefined) {
+  switch (origin) {
+    case 'assistant_message':
+      return 'completion';
+    case 'segment':
+    case 'thinking':
+    case 'tool_status':
+      return 'progress';
+    case 'user_message':
+      return 'user-action';
+    case 'system_message':
+    default:
+      return 'system';
+  }
+}
+
 function buildFallbackEvent(event: ChatSpeakEvent, strategy: ChatSpeakStrategy): ChatSpeakEvent {
   return { ...event, strategy };
 }
@@ -95,7 +111,7 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
       announceWithOrigin({
         message: `${getRolePrefix(role)}: ${text}`,
         origin: event.accessibilityOrigin,
-        eventType: event.origin === 'assistant_message' ? 'completion' : 'system',
+        eventType: getAnnounceEventType(event.origin),
       });
     }
     return;

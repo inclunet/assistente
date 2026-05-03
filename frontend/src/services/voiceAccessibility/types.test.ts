@@ -41,9 +41,14 @@ describe('voiceAccessibility types', () => {
     expect(isVoiceAccessibilityOriginActive({ tabId: 'tab-other' }, workspace)).toBe(false);
   });
 
-  it('considera origem externa e origem sem tab como ativa', () => {
+  it('considera origem externa e origem sem contexto de aba como ativa', () => {
     expect(isVoiceAccessibilityOriginActive({ isExternal: true, tabId: 'tab-other' }, workspace)).toBe(true);
+    expect(isVoiceAccessibilityOriginActive({ surfaceId: 'modal' }, workspace)).toBe(true);
+  });
+
+  it('usa a conversa da aba ativa quando a origem não tem tabId', () => {
     expect(isVoiceAccessibilityOriginActive({ conversationId: 'conv-1' }, workspace)).toBe(true);
+    expect(isVoiceAccessibilityOriginActive({ conversationId: 'conv-2' }, workspace)).toBe(false);
   });
 
   it('resolve label e prioridade', () => {

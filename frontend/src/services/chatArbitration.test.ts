@@ -89,7 +89,7 @@ describe('chatArbitration', () => {
     announceChatBackgroundResponseDone('conversation-2', 'Fallback');
     announceChatBackgroundResponseDone('conversation-1', 'Ativa');
 
-    expect(hoisted.announceWithOrigin).toHaveBeenCalledTimes(2);
+    expect(hoisted.announceWithOrigin).toHaveBeenCalledTimes(1);
     expect(hoisted.announceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
       message: 'Terminou: Aba inativa',
       announcePriority: 'polite',

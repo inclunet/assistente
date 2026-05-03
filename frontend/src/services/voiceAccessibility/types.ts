@@ -49,7 +49,11 @@ export function isVoiceAccessibilityOriginActive(
   workspace: WorkspaceData | null | undefined,
 ): boolean {
   if (!origin || origin.isExternal) return true;
-  if (!origin.tabId) return true;
+  if (!origin.tabId) {
+    if (!origin.conversationId) return true;
+    const activeTab = workspace?.tabs.find((tab) => tab.id === workspace.activeTabId);
+    return activeTab?.conversationId === origin.conversationId;
+  }
   return workspace?.activeTabId === origin.tabId;
 }
 

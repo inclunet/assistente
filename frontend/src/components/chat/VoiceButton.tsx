@@ -133,9 +133,10 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     setIsPTTActive(false);
   }, [cancelInteraction, isActive, isListeningState, isPTTActive, isPanelActive, voiceOrigin]);
 
-  const startInteractionWithGate = useCallback(() => {
-    if (!requestSTTStart({ origin: voiceOrigin, cancel: cancelInteraction })) return;
+  const startInteractionWithGate = useCallback((): boolean => {
+    if (!requestSTTStart({ origin: voiceOrigin, cancel: cancelInteraction })) return false;
     void startInteraction();
+    return true;
   }, [cancelInteraction, startInteraction, voiceOrigin]);
 
   const stopInteractionWithGate = useCallback(() => {
@@ -164,11 +165,11 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (isDisabled || mode !== 'ptt') return;
     
+    if (!startInteractionWithGate()) return;
+
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
-    
     setIsPTTActive(true);
-    startInteractionWithGate();
   }, [isDisabled, mode, startInteractionWithGate]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
@@ -214,8 +215,9 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
       
       if (mode === 'ptt') {
         if (!isPTTActive) {
-          setIsPTTActive(true);
-          startInteractionWithGate();
+          if (startInteractionWithGate()) {
+            setIsPTTActive(true);
+          }
         }
       } else {
         // Toggle, VAD e Wakeword usam toggle

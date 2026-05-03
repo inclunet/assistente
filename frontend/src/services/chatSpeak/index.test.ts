@@ -166,7 +166,7 @@ describe('chatSpeak service', () => {
     expect(announceWithOriginMock).toHaveBeenCalledWith({
       message: 'chat.assistant: Segmento parcial',
       origin: undefined,
-      eventType: 'system',
+      eventType: 'progress',
     });
   });
 

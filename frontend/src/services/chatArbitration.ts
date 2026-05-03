@@ -50,6 +50,8 @@ export function announceForActiveChatConversation(
 }
 
 export function announceChatBackgroundResponseDone(conversationId: string, fallbackTitle?: string | null) {
+  if (isChatConversationActive(conversationId)) return;
+
   announceWithOrigin({
     message: i18next.t('chat.announce.backgroundResponseDone', {
       title: getChatConversationLabel(conversationId, fallbackTitle),
