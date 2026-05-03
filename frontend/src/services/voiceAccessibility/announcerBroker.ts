@@ -37,6 +37,10 @@ export function registerVoiceAccessibilityActiveResolver(resolver: OriginActiveR
   };
 }
 
+export function isVoiceAccessibilityOriginCurrentlyActive(origin?: VoiceAccessibilityOrigin): boolean {
+  return originActiveResolver(origin);
+}
+
 function formatInactiveAnnouncement(request: VoiceAnnounceRequest): string {
   const label = getVoiceAccessibilityOriginLabel(request.origin);
   if (!label) return request.message;
