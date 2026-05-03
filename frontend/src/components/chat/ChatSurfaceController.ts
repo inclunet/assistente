@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import i18next from 'i18next';
 import { useChatStore } from '../../store/chatStore';
 import type { MediaFile } from '../../services/mediaService';
 import {
@@ -48,7 +49,7 @@ export function useChatSurfaceController({
     }
 
     if (!targetConversationId) {
-      throw new Error('chat.errors.chatTabNotReady');
+      throw new Error(i18next.t('chat.errors.chatTabNotReady'));
     }
 
     const origin = normalizeChatSurfaceOrigin(chatSession.origin, targetConversationId) ?? chatSession.origin;

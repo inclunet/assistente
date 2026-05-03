@@ -4,7 +4,7 @@ import type { ChatSurfaceOrigin, ChatSurfaceType } from '../../services/chatSess
 
 export interface ChatPanelSendContext {
   conversationId: string | null;
-  origin?: ChatSurfaceOrigin;
+  origin: ChatSurfaceOrigin;
 }
 
 export type ChatPanelSendHandler = (
@@ -37,11 +37,12 @@ export function ChatPanel({
   return (
     <ChatSessionView
       variant={variant}
+      surfaceType={surfaceType}
       conversationId={conversationId}
       surfaceId={surfaceId}
       sessionKey={sessionKey}
       onSend={(content, mediaFiles, origin) => onSend(content, mediaFiles, {
-        conversationId: conversationId ?? origin?.conversationId ?? null,
+        conversationId: conversationId ?? origin.conversationId ?? null,
         origin,
       })}
       showShortcutsHelp={showShortcutsHelp}

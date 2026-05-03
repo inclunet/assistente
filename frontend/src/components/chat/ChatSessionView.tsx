@@ -8,7 +8,7 @@ import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar } from './ChatToolbar';
 import { ChatSessionProvider } from './ChatSessionContext';
-import type { ChatSurfaceOrigin } from '../../services/chatSessionRegistry';
+import type { ChatSurfaceOrigin, ChatSurfaceType } from '../../services/chatSessionRegistry';
 import { ContextMenu } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
@@ -29,16 +29,18 @@ import './ChatSessionView.css';
 
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
+  surfaceType?: ChatSurfaceType;
   conversationId?: string | null;
   surfaceId?: string;
   sessionKey?: string;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
-  onSend: (content: string, mediaFiles?: MediaFile[], origin?: ChatSurfaceOrigin) => Promise<void>;
+  onSend: (content: string, mediaFiles: MediaFile[] | undefined, origin: ChatSurfaceOrigin) => Promise<void>;
   showShortcutsHelp?: boolean;
 }
 
 export function ChatSessionView({
   variant = 'page',
+  surfaceType = variant,
   conversationId,
   surfaceId,
   sessionKey,
@@ -48,12 +50,13 @@ export function ChatSessionView({
   return (
     <ChatSessionProvider
       conversationId={conversationId}
-      surfaceType={variant}
+      surfaceType={surfaceType}
       surfaceId={surfaceId}
       sessionKey={sessionKey}
     >
       <ChatSessionViewControllerBridge
         variant={variant}
+        surfaceType={surfaceType}
         conversationId={conversationId}
         surfaceId={surfaceId}
         sessionKey={sessionKey}

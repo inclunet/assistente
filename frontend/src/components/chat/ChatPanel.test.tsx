@@ -9,10 +9,11 @@ const chatSessionViewMock = vi.fn();
 vi.mock('./ChatSessionView', () => ({
   ChatSessionView: (props: {
     variant?: 'page' | 'embedded';
+    surfaceType?: string;
     conversationId?: string | null;
     surfaceId?: string;
     sessionKey?: string;
-    onSend: (content: string, mediaFiles: undefined, origin?: ChatSurfaceOrigin) => Promise<void>;
+    onSend: (content: string, mediaFiles: undefined, origin: ChatSurfaceOrigin) => Promise<void>;
   }) => {
     chatSessionViewMock(props);
     return (
@@ -22,7 +23,7 @@ vi.mock('./ChatSessionView', () => ({
           sessionKey: 'surface-a:conversation-a',
           conversationId: 'conversation-a',
           surfaceId: 'surface-a',
-          surfaceType: 'embedded',
+          surfaceType: props.surfaceType === 'modal' ? 'modal' : 'embedded',
         })}
       >
         send
@@ -53,6 +54,7 @@ describe('ChatPanel', () => {
       sessionKey: 'surface-a:conversation-a',
       surfaceId: 'surface-a',
       showShortcutsHelp: false,
+      surfaceType: 'modal',
       variant: 'embedded',
     }));
   });
