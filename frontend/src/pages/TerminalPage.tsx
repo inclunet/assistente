@@ -14,7 +14,11 @@ import { useTabScrollState } from '../hooks/useTabScrollState';
 import { buildChatSurfaceParams } from '../lib/chatSurface';
 import './TerminalPage.css';
 
-export default function TerminalPage() {
+interface TerminalPageProps {
+  sessionId?: string;
+}
+
+export default function TerminalPage({ sessionId: explicitSessionId }: TerminalPageProps = {}) {
   const { t } = useTranslation();
   const { tab: panelTab, isActive } = useWorkspacePanel();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
@@ -22,13 +26,14 @@ export default function TerminalPage() {
     ? (panelTab.profileOverride?.slug as string | undefined)
     : undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
+  const panelSessionId = typeof panelTab.state?.sessionId === 'string' ? panelTab.state.sessionId : undefined;
+  const currentSessionId = explicitSessionId ?? panelSessionId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   useTabScrollState(historyContainerRef);
 
   const {
     sessions,
-    activeSessionId,
     historyBySession,
     isLoading,
     sendInput,
@@ -42,10 +47,10 @@ export default function TerminalPage() {
   }, [setupEventListeners]);
 
   useEffect(() => {
-    if (isActive && activeSessionId && inputRef.current) {
+    if (isActive && currentSessionId && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [activeSessionId, isActive]);
+  }, [currentSessionId, isActive]);
 
   // Ctrl+C para interromper (único atalho que faz sentido no terminal embarcado)
   useEffect(() => {
@@ -54,24 +59,24 @@ export default function TerminalPage() {
       if (e.ctrlKey && e.key === 'c' && !e.shiftKey && !e.altKey) {
         const selection = window.getSelection();
         const hasSelection = selection && selection.toString().length > 0;
-        if (!hasSelection && useTerminalStore.getState().activeSessionId) {
+        if (!hasSelection && currentSessionId) {
           e.preventDefault();
-          interrupt();
+          interrupt(currentSessionId);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [interrupt, isActive]);
+  }, [currentSessionId, interrupt, isActive]);
 
-  const activeSession = sessions.find(s => s.id === activeSessionId);
-  const currentHistory = activeSessionId ? (historyBySession[activeSessionId] || []) : [];
+  const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
+  const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
 
   const handleSendInput = useCallback(async (input: string) => {
-    if (!activeSessionId) return;
-    await sendInput(input);
-  }, [activeSessionId, sendInput]);
+    if (!currentSessionId) return;
+    await sendInput(currentSessionId, input);
+  }, [currentSessionId, sendInput]);
 
   const handleArrowUp = useCallback(() => {
     const container = historyContainerRef.current;
@@ -167,7 +172,9 @@ export default function TerminalPage() {
                 label={t('terminal.buttons.stop')}
                 icon="■"
                 shortcut="Ctrl+C"
-                onClick={() => interrupt()}
+                onClick={() => {
+                  if (currentSessionId) void interrupt(currentSessionId);
+                }}
               />
             </>
           }

@@ -139,7 +139,7 @@ describe('TerminalPage', () => {
 
     await user.click(stopButton);
 
-    expect(storeMocks.interrupt).toHaveBeenCalled();
+    expect(storeMocks.interrupt).toHaveBeenCalledWith('term-1');
   });
 
   it('exibe o titulo da sessao ativa', () => {
