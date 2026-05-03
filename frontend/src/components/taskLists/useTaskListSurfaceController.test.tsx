@@ -154,13 +154,13 @@ describe('useTaskListSurfaceController', () => {
     expect(taskListMocks.setActiveTaskList).not.toHaveBeenCalledWith(undefined);
   });
 
-  it('limpa tasklist ativa quando a última aba de tasklist sai do workspace', () => {
+  it('não limpa tasklist ativa no unmount porque o cleanup é centralizado no workspace', () => {
     taskListMocks.activeTaskListId = 'tasklist-1';
     const { unmount } = renderHook(() => useTaskListSurfaceController(taskListTab, true));
     workspaceMocks.tabs = [];
 
     unmount();
 
-    expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith(undefined);
+    expect(taskListMocks.setActiveTaskList).not.toHaveBeenCalledWith(undefined);
   });
 });

@@ -44,20 +44,6 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
     return unsub;
   }, [tab.id]);
 
-  useEffect(() => () => {
-    const wsTabs = useWorkspaceStore.getState().workspace?.tabs || [];
-    const tabStillOpen = wsTabs.some((candidate) => candidate.id === tab.id);
-    if (tabStillOpen) return;
-
-    const hasTaskListTab = wsTabs.some((candidate) => candidate.type === 'tasklist');
-    if (!hasTaskListTab) {
-      const taskListStore = useTaskListStore.getState();
-      if (taskListStore.activeTaskListId !== undefined) {
-        taskListStore.setActiveTaskList(undefined);
-      }
-    }
-  }, [tab.id]);
-
   async function syncExistingTaskList(id: string) {
     try {
       const store = useTaskListStore.getState();

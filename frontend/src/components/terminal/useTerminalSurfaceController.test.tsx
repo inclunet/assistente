@@ -146,7 +146,7 @@ describe('useTerminalSurfaceController', () => {
     expect(terminalMocks.closeSession).not.toHaveBeenCalled();
   });
 
-  it('fecha a última sessão conhecida quando a aba sai do workspace', async () => {
+  it('não fecha sessão no unmount porque o cleanup é centralizado no workspace', async () => {
     terminalMocks.createSession.mockImplementation(async () => {
       terminalMocks.activeSessionId = 'session-created';
     });
@@ -161,6 +161,6 @@ describe('useTerminalSurfaceController', () => {
     workspaceMocks.tabs = [];
     unmount();
 
-    expect(terminalMocks.closeSession).toHaveBeenCalledWith('session-created');
+    expect(terminalMocks.closeSession).not.toHaveBeenCalled();
   });
 });

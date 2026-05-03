@@ -16,6 +16,7 @@ import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
 import { WorkspaceChatModal } from './WorkspaceChatModal';
 import { useWorkspacePanelRenameHandlers } from './useWorkspacePanelRenameHandlers';
+import { useWorkspacePanelLifecycleCleanup } from './useWorkspacePanelLifecycleCleanup';
 import './WorkspaceLayout.css';
 
 export function WorkspaceLayout() {
@@ -39,6 +40,7 @@ export function WorkspaceLayout() {
   useWorkspaceKeyboardShortcuts();
   useWorkspaceChatBridge();
   useWorkspacePanelRenameHandlers();
+  useWorkspacePanelLifecycleCleanup();
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
 
