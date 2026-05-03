@@ -224,6 +224,10 @@ const en = {
       processing: 'Processing...',
     },
 
+    voiceAccessibility: {
+      inactiveAnnouncement: '{{title}}: {{message}}',
+    },
+
     tokenStats: {
       title: 'Token Statistics',
       loading: 'Loading...',
