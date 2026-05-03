@@ -40,8 +40,8 @@ describe('WorkspaceDomainPanel', () => {
     );
 
     expect(await screen.findByText('chat-panel')).toBeInTheDocument();
-    expect(screen.getByText('editor-panel:tab-editor:false')).toBeInTheDocument();
-    expect(screen.getByText('terminal-panel:tab-terminal:true')).toBeInTheDocument();
-    expect(screen.getByText('tasklist-panel:42')).toBeInTheDocument();
+    expect(await screen.findByText('editor-panel:tab-editor:false')).toBeInTheDocument();
+    expect(await screen.findByText('terminal-panel:tab-terminal:true')).toBeInTheDocument();
+    expect(await screen.findByText('tasklist-panel:42')).toBeInTheDocument();
   });
 });
