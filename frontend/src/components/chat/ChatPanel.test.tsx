@@ -84,4 +84,24 @@ describe('ChatPanel', () => {
       }),
     });
   });
+
+  it('não expõe conversationId vazio no contexto de envio', async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ChatPanel
+        conversationId=""
+        surfaceId="surface-a"
+        surfaceType="embedded"
+        onSend={onSend}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'send' }));
+
+    expect(onSend).toHaveBeenCalledWith('oi', undefined, expect.objectContaining({
+      conversationId: 'conversation-a',
+    }));
+  });
 });

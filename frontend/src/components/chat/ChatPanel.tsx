@@ -42,7 +42,7 @@ export function ChatPanel({
       surfaceId={surfaceId}
       sessionKey={sessionKey}
       onSend={(content, mediaFiles, origin) => onSend(content, mediaFiles, {
-        conversationId: conversationId ?? origin.conversationId ?? null,
+        conversationId: conversationId || origin.conversationId || null,
         origin,
       })}
       showShortcutsHelp={showShortcutsHelp}
