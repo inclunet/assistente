@@ -1,8 +1,8 @@
 import { lazy, type ComponentType } from 'react';
 import type { WorkspaceTab } from '../../store/workspaceStore';
+import { EditorWorkspacePanel } from '../editor/EditorWorkspacePanel';
 
 const ChatPage = lazy(() => import('../../pages/ChatPage'));
-const EditorPage = lazy(() => import('../../pages/EditorPage'));
 const TerminalPage = lazy(() => import('../../pages/TerminalPage'));
 const TaskListView = lazy(() => import('../taskLists/TaskListView'));
 
@@ -17,10 +17,6 @@ export type WorkspacePanelComponent<TState extends Record<string, unknown> = Rec
 
 function ChatWorkspacePanel() {
   return <ChatPage />;
-}
-
-function EditorWorkspacePanel() {
-  return <EditorPage />;
 }
 
 function TerminalWorkspacePanel() {
