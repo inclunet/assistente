@@ -15,6 +15,7 @@ const workspaceMocks = vi.hoisted(() => ({
   updateTab: vi.fn(),
   isInitialized: true,
   tabs: [] as WorkspaceTab[],
+  activeTabId: 'terminal-tab' as string | null,
 }));
 
 vi.mock('../../store/terminalStore', () => ({
@@ -31,7 +32,7 @@ vi.mock('../../store/workspaceStore', () => ({
     }),
     {
       getState: () => ({
-        workspace: { tabs: workspaceMocks.tabs },
+        workspace: { tabs: workspaceMocks.tabs, activeTabId: workspaceMocks.activeTabId },
       }),
     },
   ),
@@ -59,6 +60,7 @@ describe('useTerminalSurfaceController', () => {
     workspaceMocks.updateTab.mockReset();
     workspaceMocks.isInitialized = true;
     workspaceMocks.tabs = [terminalTab];
+    workspaceMocks.activeTabId = 'terminal-tab';
   });
 
   it('cria sessão para aba ativa sem sessionId', async () => {
@@ -133,6 +135,27 @@ describe('useTerminalSurfaceController', () => {
     });
 
     errorSpy.mockRestore();
+  });
+
+  it('não ativa sessão carregada se a aba deixa de estar ativa antes do load terminar', async () => {
+    let resolveLoad: () => void = () => undefined;
+    terminalMocks.loadSessions.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveLoad = resolve;
+    }));
+
+    renderHook(() => useTerminalSurfaceController({
+      ...terminalTab,
+      state: { sessionId: 'session-late' },
+    }, true));
+    workspaceMocks.activeTabId = 'other-tab';
+    terminalMocks.sessions = [{ id: 'session-late' }];
+    resolveLoad();
+    await Promise.resolve();
+
+    expect(terminalMocks.setActiveSession).not.toHaveBeenCalledWith('session-late');
+    expect(workspaceMocks.updateTab).not.toHaveBeenCalledWith('terminal-tab', {
+      state: { sessionId: expect.any(String) },
+    });
   });
 
   it('preserva sessão quando o painel desmonta mas a aba continua aberta', () => {

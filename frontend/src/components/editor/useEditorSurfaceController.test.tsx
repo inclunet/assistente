@@ -16,6 +16,7 @@ const workspaceMocks = vi.hoisted(() => ({
   updateTab: vi.fn(),
   isInitialized: true,
   tabs: [] as WorkspaceTab[],
+  activeTabId: 'editor-tab' as string | null,
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
@@ -44,7 +45,7 @@ vi.mock('../../store/workspaceStore', () => ({
     }),
     {
       getState: () => ({
-        workspace: { tabs: workspaceMocks.tabs },
+        workspace: { tabs: workspaceMocks.tabs, activeTabId: workspaceMocks.activeTabId },
         updateTab: workspaceMocks.updateTab,
       }),
     },
@@ -79,6 +80,7 @@ describe('useEditorSurfaceController', () => {
     workspaceMocks.updateTab.mockReset();
     workspaceMocks.isInitialized = true;
     workspaceMocks.tabs = [editorTab];
+    workspaceMocks.activeTabId = 'editor-tab';
   });
 
   it('cria e ativa documento para a aba ativa', async () => {
@@ -131,6 +133,25 @@ describe('useEditorSurfaceController', () => {
         title: 'Novo documento',
       }));
     });
+  });
+
+  it('não cria nem ativa documento se a aba deixa de estar ativa durante leitura assíncrona', async () => {
+    let resolveRead: (value: string) => void = () => undefined;
+    const { EditorReadFile } = await import('@wailsjs/go/app/App');
+    vi.mocked(EditorReadFile).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveRead = resolve;
+    }));
+
+    renderHook(() => useEditorSurfaceController(editorTab, true));
+    workspaceMocks.activeTabId = 'other-tab';
+    resolveRead('# Depois');
+    await Promise.resolve();
+
+    await waitFor(() => {
+      expect(EditorReadFile).toHaveBeenCalledWith('C:/tmp/doc.md');
+    });
+    expect(editorMocks.createDocument).not.toHaveBeenCalled();
+    expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
   });
 
   it('preserva documento quando o painel desmonta mas a aba continua aberta', () => {

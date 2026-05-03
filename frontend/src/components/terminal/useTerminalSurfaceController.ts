@@ -2,6 +2,10 @@ import { useEffect, useRef } from 'react';
 import { useTerminalStore } from '../../store/terminalStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';
 
+function isWorkspaceTabActive(tabId: string): boolean {
+  return useWorkspaceStore.getState().workspace?.activeTabId === tabId;
+}
+
 export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolean) {
   const updateWorkspaceTab = useWorkspaceStore((state) => state.updateTab);
   const isWsInitialized = useWorkspaceStore((state) => state.isInitialized);
@@ -28,6 +32,8 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
       if (lastSyncedRef.current === syncKey) return;
 
       store.loadSessions().then(() => {
+        if (!isWorkspaceTabActive(tab.id)) return;
+
         const reloaded = useTerminalStore.getState();
         if (reloaded.sessions.some((session) => session.id === sessionId)) {
           if (reloaded.activeSessionId !== sessionId) {
@@ -38,6 +44,8 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
           void recoverStaleSession(tab.id);
         }
       }).catch((error: unknown) => {
+        if (!isWorkspaceTabActive(tab.id)) return;
+
         console.error('[TerminalSurfaceController] Erro ao carregar sessões:', error);
         void recoverStaleSession(tab.id);
       });

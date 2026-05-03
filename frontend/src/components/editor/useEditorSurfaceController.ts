@@ -5,6 +5,10 @@ import { useEditorStore, DEFAULT_MD } from '../../store/editorStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';
 import { basenameFromPath } from '../../utils/path';
 
+function isWorkspaceTabActive(tabId: string): boolean {
+  return useWorkspaceStore.getState().workspace?.activeTabId === tabId;
+}
+
 export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean) {
   const isWsInitialized = useWorkspaceStore((state) => state.isInitialized);
   const creatingRef = useRef(false);
@@ -87,12 +91,15 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
       try {
         if (filePath) {
           const result = await EditorReadFile(filePath);
+          if (!isWorkspaceTabActive(tabId)) return;
           markdown = String((result as unknown as { content?: string })?.content ?? result ?? '');
         }
       } catch {
+        if (!isWorkspaceTabActive(tabId)) return;
         markdown = DEFAULT_MD;
       }
 
+      if (!isWorkspaceTabActive(tabId)) return;
       const title = filePath ? basenameFromPath(filePath) : i18next.t('editor.fallback.newDoc');
       useEditorStore.getState().createDocument({
         id: tabId,
