@@ -5,5 +5,5 @@ import { useEditorSurfaceController } from './useEditorSurfaceController';
 export function EditorWorkspacePanel({ tab, isActive }: WorkspacePanelProps) {
   useEditorSurfaceController(tab, isActive);
 
-  return <EditorPage />;
+  return <EditorPage documentId={tab.id} workspaceTab={tab} isPanelActive={isActive} />;
 }

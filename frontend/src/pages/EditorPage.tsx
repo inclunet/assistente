@@ -20,7 +20,7 @@ import type {
   WorkspaceChatModalSession,
 } from '../store/workspaceChatModalStore';
 import { useEditorStore, DEFAULT_MD, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
-import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
+import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
@@ -64,7 +64,13 @@ import {
 } from '@wailsjs/go/app/App';
 import './EditorPage.css';
 
-export default function EditorPage() {
+interface EditorPageProps {
+  documentId?: string;
+  workspaceTab?: WorkspaceTab;
+  isPanelActive?: boolean;
+}
+
+export default function EditorPage({ documentId, workspaceTab, isPanelActive = true }: EditorPageProps = {}) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
@@ -83,16 +89,16 @@ export default function EditorPage() {
   const hydrate = useEditorStore((s) => s.hydrate);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
   const setActiveWsTab = useWorkspaceStore((s) => s.setActiveTab);
-  const wsActiveTab = useActiveTab();
   const wsTabs = useWorkspaceStore((s) => s.workspace?.tabs);
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
 
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 
-  const tabProfileSlug = wsActiveTab?.profileOverride?.slug as string | undefined;
+  const tabProfileSlug = workspaceTab?.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || 'editor-texto';
 
-  const activeTab = activeDocumentId ? documents[activeDocumentId] ?? null : null;
+  const currentDocumentId = documentId ?? activeDocumentId;
+  const activeTab = currentDocumentId ? documents[currentDocumentId] ?? null : null;
 
 
   const pageRootRef = useRef<HTMLDivElement>(null);
@@ -569,7 +575,7 @@ export default function EditorPage() {
     const tab = currentDocs[tabId] || null;
     if (!tab) return;
 
-    if (tab.mode === 'rich' && useEditorStore.getState().activeDocumentId === tabId) {
+    if (tab.mode === 'rich' && currentDocumentId === tabId) {
       flushActiveRichMarkdownNow();
     }
 
@@ -835,7 +841,7 @@ export default function EditorPage() {
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [sessionLoaded, allDocs, activeDocumentId]);
+  }, [sessionLoaded, allDocs, currentDocumentId]);
 
   // Flush imediato ao fechar/minimizar para reduzir chance de perder o estado
   useEffect(() => {
@@ -843,9 +849,8 @@ export default function EditorPage() {
 
     const persistNow = () => {
       try {
-        const { activeDocumentId: currentActive } = useEditorStore.getState();
-        if (currentActive) {
-          void persistTabContentNow(currentActive);
+        if (currentDocumentId) {
+          void persistTabContentNow(currentDocumentId);
         }
       } catch {
         // best-effort
@@ -856,8 +861,8 @@ export default function EditorPage() {
     const onBeforeUnload = () => persistNow();
     const onPageHide = () => persistNow();
     const checkActiveFileExternalChange = async () => {
-      const { documents: currentDocs, activeDocumentId: currentActiveDocId } = useEditorStore.getState();
-      const tab = currentActiveDocId ? (currentDocs[currentActiveDocId] || null) : null;
+      const { documents: currentDocs } = useEditorStore.getState();
+      const tab = currentDocumentId ? (currentDocs[currentDocumentId] || null) : null;
       if (!tab?.filePath) return;
       if (isExternalConflictLocked(tab.id)) return;
 
@@ -898,7 +903,7 @@ export default function EditorPage() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', onFocus);
     };
-  }, [sessionLoaded, allDocs, activeDocumentId]);
+  }, [sessionLoaded, allDocs, currentDocumentId]);
 
   // Watcher de mudanças externas (backend emite editor:fileChanged)
   const watchedFilesRef = useRef<Record<string, { path: string; count: number }>>({});
@@ -1012,7 +1017,7 @@ export default function EditorPage() {
               setDiskBaselineForTab(t.id, diskContent);
               setDocDirty(t.id, false);
               void refreshDiskInfoForTab(t);
-              if (t.id === activeDocumentId) addToast('Arquivo recarregado do disco (mudança externa)', 'info');
+              if (t.id === currentDocumentId) addToast('Arquivo recarregado do disco (mudança externa)', 'info');
             } catch {
               // Se não der pra aplicar automaticamente, cai pro fluxo existente
               setExternalConflictLocked(t.id, true);
@@ -1040,7 +1045,7 @@ export default function EditorPage() {
         // ignore
       }
     };
-  }, [sessionLoaded, activeDocumentId]);
+  }, [sessionLoaded, currentDocumentId]);
 
   // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.
   // Não rouba foco de modais nem de campos de digitação.
@@ -1263,13 +1268,13 @@ export default function EditorPage() {
   const flushActiveRichMarkdownNow = useCallback(() => {
     try {
       const st = useEditorStore.getState();
-      const tab = st.activeDocumentId ? st.documents[st.activeDocumentId] ?? null : null;
+      const tab = currentDocumentId ? st.documents[currentDocumentId] ?? null : null;
       if (!tab || tab.mode !== 'rich') return;
       richEditorHandleRef.current?.flushMarkdown?.();
     } catch {
       // best-effort
     }
-  }, []);
+  }, [currentDocumentId]);
 
   useRichEditorFlushEvents({ flushNow: flushActiveRichMarkdownNow });
 
@@ -1288,7 +1293,7 @@ export default function EditorPage() {
       ? currentEditorState.documents[requestedDocumentId] ?? null
       : activeTab;
 
-    if (requestedDocumentId && currentEditorState.activeDocumentId !== requestedDocumentId) {
+    if (requestedDocumentId && currentDocumentId !== requestedDocumentId) {
       return false;
     }
 
@@ -1471,7 +1476,7 @@ export default function EditorPage() {
   ): Promise<WorkspaceChatSendPlan> => {
     if (!activeTab) return null;
 
-    const expectedConversationId = session?.conversationId || wsActiveTab?.conversationId || undefined;
+    const expectedConversationId = session?.conversationId || workspaceTab?.conversationId || undefined;
     if (!expectedConversationId) return null;
 
     const beforeMessages = useChatStore.getState().getConversationMessages(expectedConversationId);
@@ -1481,7 +1486,7 @@ export default function EditorPage() {
     if (!trimmed) return null;
 
     const prompt = trimmed;
-    const editorSurfaceTab = wsActiveTab ?? {
+    const editorSurfaceTab = workspaceTab ?? {
       type: 'editor',
       title: activeTab.title,
       state: {
@@ -1552,7 +1557,7 @@ export default function EditorPage() {
 
     const applyInlinePatchNow = (selection: InlineChatSelection, patch: EditorPatch) => {
       const replacement = normalizeReplacementForEditor(String(patch?.replacement || ''), patch?.format, selection?.selectedText);
-      const { documents: currentDocs, activeDocumentId: currentActiveDocId } = useEditorStore.getState();
+      const { documents: currentDocs } = useEditorStore.getState();
       const tab = currentDocs[selection.tabId] || null;
       if (!tab) {
         addToast('Aba do editor não encontrada para aplicar a alteração.', 'error');
@@ -1564,7 +1569,7 @@ export default function EditorPage() {
       if (selection.mode === 'markdown') {
         const s = selection;
 
-        if (currentActiveDocId !== s.tabId) {
+        if (currentDocumentId !== s.tabId) {
           addToast(t('editor.chatModal.openOriginalTabToApply'), 'info');
           setIsAsking(false);
           focusEditorSoon();
@@ -1809,7 +1814,7 @@ export default function EditorPage() {
   sendEditorChatModalRef.current = sendEditorChatModalMessage;
 
   const editorChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
-    if (!wsActiveTab || wsActiveTab.type !== 'editor') return null;
+    if (!workspaceTab || workspaceTab.type !== 'editor' || !isPanelActive) return null;
 
     return {
       prepare: async (): Promise<WorkspaceChatModalPrepareResult> => {
@@ -1882,9 +1887,9 @@ export default function EditorPage() {
       send: (instruction, media, meta, session) =>
         sendEditorChatModalRef.current(instruction, media, meta as InlineChatSelection, session),
     };
-  }, [wsActiveTab, activeTab, isAsking, addToast, editorReadyNonce, t]);
+  }, [workspaceTab, isPanelActive, activeTab, isAsking, addToast, editorReadyNonce, t]);
 
-  useRegisterWorkspaceChatAdapter(wsActiveTab?.id, editorChatModalAdapter);
+  useRegisterWorkspaceChatAdapter(workspaceTab?.id, editorChatModalAdapter);
 
   const openFile = async () => {
     try {
