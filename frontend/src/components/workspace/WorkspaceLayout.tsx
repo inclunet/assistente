@@ -9,6 +9,7 @@ import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardS
 import { useWorkspaceChatBridge } from '../../hooks/useWorkspaceChatBridge';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { useVoiceAccessibilityWorkspaceResolver } from '../../services/voiceAccessibility/workspaceResolver';
 import { ensureModalCleanup } from '../ui/Modal';
 import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
@@ -41,6 +42,7 @@ export function WorkspaceLayout() {
   useWorkspaceChatBridge();
   useWorkspacePanelRenameHandlers();
   useWorkspacePanelLifecycleCleanup();
+  useVoiceAccessibilityWorkspaceResolver();
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
 

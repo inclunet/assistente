@@ -223,6 +223,10 @@ const es = {
       processing: 'Procesando...',
     },
 
+    voiceAccessibility: {
+      inactiveAnnouncement: '{{title}}: {{message}}',
+    },
+
     tokenStats: {
       title: 'Estadísticas de Tokens',
       loading: 'Cargando...',

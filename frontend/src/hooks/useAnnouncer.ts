@@ -1,32 +1,37 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-
-let announceFunction: ((message: string, priority?: 'polite' | 'assertive') => void) | null = null;
+import {
+  announceWithOrigin,
+  registerAnnouncerSink,
+  unregisterAnnouncerSink,
+  type AnnouncePriority,
+  type VoiceAnnounceRequest,
+} from '../services/voiceAccessibility/announcerBroker';
 
 /**
  * Registra a função de anúncio global
  */
-export function registerAnnouncer(fn: (message: string, priority?: 'polite' | 'assertive') => void) {
-  announceFunction = fn;
+export function registerAnnouncer(fn: (message: string, priority?: AnnouncePriority) => void) {
+  registerAnnouncerSink((message, priority) => fn(message, priority));
 }
 
 /**
  * Remove a função de anúncio global
  */
 export function unregisterAnnouncer() {
-  announceFunction = null;
+  unregisterAnnouncerSink();
 }
 
 /**
  * Hook para anunciar mensagens para leitores de tela
  */
 export function useAnnouncer() {
-  const announce = useCallback((message: string, priority: 'polite' | 'assertive' = 'polite') => {
-    if (announceFunction) {
-      announceFunction(message, priority);
-    }
+  const announce = useCallback((message: string, priority: AnnouncePriority = 'polite') => {
+    announceWithOrigin({ message, announcePriority: priority, eventType: 'user-action' });
   }, []);
 
-  return { announce };
+  const announceRequest = useCallback((request: VoiceAnnounceRequest) => announceWithOrigin(request), []);
+
+  return { announce, announceRequest };
 }
 
 /**
@@ -35,16 +40,8 @@ export function useAnnouncer() {
  * Re-tenta no microtask se o handler ainda não estiver registado (ex.: React Strict Mode
  * entre unmount e remount do ScreenReaderAnnouncer).
  */
-export function announce(message: string, priority: 'polite' | 'assertive' = 'polite') {
-  if (announceFunction) {
-    announceFunction(message, priority);
-    return;
-  }
-  queueMicrotask(() => {
-    if (announceFunction) {
-      announceFunction(message, priority);
-    }
-  });
+export function announce(message: string, priority: AnnouncePriority = 'polite') {
+  announceWithOrigin({ message, announcePriority: priority, eventType: 'user-action' });
 }
 
 /**
@@ -70,7 +67,7 @@ export function useAnnouncerState() {
       }, timeoutMs);
     };
 
-    const handleAnnounce = (message: string, priority: 'polite' | 'assertive' = 'polite') => {
+    const handleAnnounce = (message: string, priority: AnnouncePriority = 'polite') => {
       // Timeout scales with message length so screen readers have time to capture it.
       // Minimum 3s for short messages, ~50ms per char for longer text.
       const timeoutMs = Math.max(3000, message.length * 50);

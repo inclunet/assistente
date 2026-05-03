@@ -224,6 +224,10 @@ const ptBR = {
       processing: 'Processando...',
     },
 
+    voiceAccessibility: {
+      inactiveAnnouncement: '{{title}}: {{message}}',
+    },
+
     tokenStats: {
       title: 'Estatísticas de Tokens',
       loading: 'Carregando...',

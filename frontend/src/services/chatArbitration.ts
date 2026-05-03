@@ -1,6 +1,7 @@
 import i18next from 'i18next';
-import { announce } from '../hooks/useAnnouncer';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
+import type { VoiceAccessibilityOrigin } from './voiceAccessibility/types';
 import { playReceiveSound } from './audioFeedback';
 
 export function isChatConversationActive(conversationId: string): boolean {
@@ -17,24 +18,48 @@ export function getChatConversationLabel(conversationId: string, fallbackTitle?:
   ).trim();
 }
 
+export function getChatConversationVoiceOrigin(
+  conversationId: string,
+  fallbackTitle?: string | null,
+): VoiceAccessibilityOrigin {
+  const workspace = useWorkspaceStore.getState().workspace;
+  const tab = workspace?.tabs.find((candidate) => candidate.conversationId === conversationId);
+
+  return {
+    tabId: tab?.id,
+    surfaceId: tab?.id ?? `conversation:${conversationId}`,
+    sessionKey: tab?.id ? `${tab.id}:${conversationId}` : `conversation:${conversationId}`,
+    conversationId,
+    surfaceType: tab?.type ?? 'page',
+    profileSlug: (tab?.profileOverride?.slug as string | undefined) ?? workspace?.profile ?? null,
+    title: getChatConversationLabel(conversationId, fallbackTitle),
+  };
+}
+
 export function announceForActiveChatConversation(
   conversationId: string,
   message: string,
   priority: 'polite' | 'assertive' = 'polite',
 ) {
-  if (isChatConversationActive(conversationId)) {
-    announce(message, priority);
-  }
+  announceWithOrigin({
+    message,
+    announcePriority: priority,
+    origin: getChatConversationVoiceOrigin(conversationId),
+    eventType: 'progress',
+  });
 }
 
 export function announceChatBackgroundResponseDone(conversationId: string, fallbackTitle?: string | null) {
   if (isChatConversationActive(conversationId)) return;
-  announce(
-    i18next.t('chat.announce.backgroundResponseDone', {
+
+  announceWithOrigin({
+    message: i18next.t('chat.announce.backgroundResponseDone', {
       title: getChatConversationLabel(conversationId, fallbackTitle),
     }),
-    'polite',
-  );
+    announcePriority: 'polite',
+    origin: getChatConversationVoiceOrigin(conversationId, fallbackTitle),
+    eventType: 'completion',
+  });
 }
 
 export function playChatReceiveSoundIfActive(conversationId: string) {

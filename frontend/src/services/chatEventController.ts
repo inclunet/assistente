@@ -18,6 +18,7 @@ import { stripMarkdown } from '../lib/stripMarkdown';
 import {
   announceChatBackgroundResponseDone,
   announceForActiveChatConversation,
+  getChatConversationVoiceOrigin,
   playChatReceiveSoundIfActive,
 } from './chatArbitration';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
@@ -300,7 +301,21 @@ export function startChatEventController({
   unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    void handleChatSpeak(event).catch((err) => {
+    const voiceOrigin = getChatConversationVoiceOrigin(conversationId);
+    void handleChatSpeak({
+      ...event,
+      accessibilityOrigin: origin
+        ? {
+          tabId: origin.tabId,
+          surfaceId: origin.surfaceId,
+          sessionKey: origin.sessionKey,
+          conversationId,
+          surfaceType: origin.surfaceType,
+          profileSlug: voiceOrigin.profileSlug,
+          title: voiceOrigin.title,
+        }
+        : voiceOrigin,
+    }).catch((err) => {
       announce(i18next.t('chat.autoReadError'));
       console.error('[chat:speak] falha ao processar evento TTS', err);
     });

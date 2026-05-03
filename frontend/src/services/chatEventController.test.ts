@@ -42,10 +42,18 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 const mockPlayChatReceiveSoundIfActive = vi.fn();
 const mockAnnounceForActiveChatConversation = vi.fn();
 const mockAnnounceChatBackgroundResponseDone = vi.fn();
+const mockGetChatConversationVoiceOrigin = vi.fn((conversationId: string) => ({
+  conversationId,
+  surfaceId: `conversation:${conversationId}`,
+  sessionKey: `conversation:${conversationId}`,
+  surfaceType: 'page',
+  title: `Conversa ${conversationId}`,
+}));
 vi.mock('./chatArbitration', () => ({
   playChatReceiveSoundIfActive: (...args: unknown[]) => mockPlayChatReceiveSoundIfActive(...args),
   announceForActiveChatConversation: (...args: unknown[]) => mockAnnounceForActiveChatConversation(...args),
   announceChatBackgroundResponseDone: (...args: unknown[]) => mockAnnounceChatBackgroundResponseDone(...args),
+  getChatConversationVoiceOrigin: (conversationId: string) => mockGetChatConversationVoiceOrigin(conversationId),
 }));
 
 const mockHandleChatSpeak = vi.fn().mockResolvedValue(undefined);
@@ -299,7 +307,14 @@ describe('chatEventController', () => {
     await Promise.resolve();
 
     expect(mockHandleChatSpeak).toHaveBeenCalledTimes(1);
-    expect(mockHandleChatSpeak.mock.calls[0][0]).toMatchObject({ text: 'antes do done' });
+    expect(mockHandleChatSpeak.mock.calls[0][0]).toMatchObject({
+      text: 'antes do done',
+      accessibilityOrigin: {
+        conversationId: 'conversation-1',
+        surfaceId: 'conversation:conversation-1',
+        title: 'Conversa conversation-1',
+      },
+    });
   });
 
   it('descarta update de streaming pendente ao limpar controller', () => {
