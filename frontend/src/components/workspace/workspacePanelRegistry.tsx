@@ -1,10 +1,13 @@
-import { lazy, type ComponentType } from 'react';
+import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import type { WorkspaceTab } from '../../store/workspaceStore';
-import { EditorWorkspacePanel } from '../editor/EditorWorkspacePanel';
-import { TaskListWorkspacePanel } from '../taskLists/TaskListWorkspacePanel';
-import { TerminalWorkspacePanel } from '../terminal/TerminalWorkspacePanel';
 
 const ChatPage = lazy(() => import('../../pages/ChatPage'));
+const EditorWorkspacePanel = lazy(() => import('../editor/EditorWorkspacePanel')
+  .then((module) => ({ default: module.EditorWorkspacePanel })));
+const TerminalWorkspacePanel = lazy(() => import('../terminal/TerminalWorkspacePanel')
+  .then((module) => ({ default: module.TerminalWorkspacePanel })));
+const TaskListWorkspacePanel = lazy(() => import('../taskLists/TaskListWorkspacePanel')
+  .then((module) => ({ default: module.TaskListWorkspacePanel })));
 
 export interface WorkspacePanelProps<TState extends Record<string, unknown> = Record<string, unknown>> {
   tab: WorkspaceTab;
@@ -13,7 +16,9 @@ export interface WorkspacePanelProps<TState extends Record<string, unknown> = Re
   state: TState;
 }
 
-export type WorkspacePanelComponent<TState extends Record<string, unknown> = Record<string, unknown>> = ComponentType<WorkspacePanelProps<TState>>;
+export type WorkspacePanelComponent<TState extends Record<string, unknown> = Record<string, unknown>> =
+  | ComponentType<WorkspacePanelProps<TState>>
+  | LazyExoticComponent<ComponentType<WorkspacePanelProps<TState>>>;
 
 function ChatWorkspacePanel() {
   return <ChatPage />;

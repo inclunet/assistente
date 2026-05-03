@@ -11,9 +11,9 @@ function getTerminalSessionIds(tabs: WorkspaceTab[]): Set<string> {
 }
 
 function closeRemovedTerminalSessions(previous: WorkspaceData | null, current: WorkspaceData | null) {
-  if (!previous || !current || previous.id !== current.id) return;
+  if (!previous || (current && previous.id !== current.id)) return;
 
-  const currentSessionIds = getTerminalSessionIds(current.tabs);
+  const currentSessionIds = current ? getTerminalSessionIds(current.tabs) : new Set<string>();
   for (const sessionId of getTerminalSessionIds(previous.tabs)) {
     if (!currentSessionIds.has(sessionId)) {
       void useTerminalStore.getState().closeSession(sessionId);

@@ -95,6 +95,17 @@ describe('useWorkspacePanelLifecycleCleanup', () => {
     expect(terminalMocks.closeSession).not.toHaveBeenCalled();
   });
 
+  it('fecha sessões de terminal quando o workspace ativo é limpo', () => {
+    workspaceMocks.workspace = workspaceWithTabs('workspace-1', [
+      { id: 'terminal-tab', type: 'terminal', title: 'Terminal', position: 0, state: { sessionId: 'session-1' } },
+    ]);
+
+    renderHook(() => useWorkspacePanelLifecycleCleanup());
+    emitWorkspaceChange(null);
+
+    expect(terminalMocks.closeSession).toHaveBeenCalledWith('session-1');
+  });
+
   it('limpa tasklist ativa quando não há mais abas de tasklist', () => {
     taskListMocks.activeTaskListId = 'tasklist-1';
     workspaceMocks.workspace = workspaceWithTabs('workspace-1', [
