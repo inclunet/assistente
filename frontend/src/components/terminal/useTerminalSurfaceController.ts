@@ -9,6 +9,11 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
   const creatingRef = useRef(false);
 
   const sessionId = (tab.state?.sessionId as string) || '';
+  const latestSessionIdRef = useRef(sessionId);
+
+  useEffect(() => {
+    latestSessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   useEffect(() => {
     if (!isWsInitialized || !isActive || tab.type !== 'terminal') return;
@@ -45,12 +50,14 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
   }, [isActive, isWsInitialized, sessionId, tab.id, tab.type]);
 
   useEffect(() => () => {
-    const currentSessionId = (useWorkspaceStore.getState().workspace?.tabs.find((candidate) => candidate.id === tab.id)?.state?.sessionId as string | undefined)
-      || sessionId;
+    const tabStillOpen = useWorkspaceStore.getState().workspace?.tabs.some((candidate) => candidate.id === tab.id) ?? false;
+    if (tabStillOpen) return;
+
+    const currentSessionId = latestSessionIdRef.current;
     if (currentSessionId) {
       void useTerminalStore.getState().closeSession(currentSessionId);
     }
-  }, [sessionId, tab.id]);
+  }, [tab.id]);
 
   async function recoverStaleSession(tabId: string) {
     creatingRef.current = true;
@@ -58,6 +65,7 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
       await useTerminalStore.getState().createSession();
       const newSessionId = useTerminalStore.getState().activeSessionId;
       if (newSessionId) {
+        latestSessionIdRef.current = newSessionId;
         await updateWorkspaceTab(tabId, { state: { sessionId: newSessionId } });
         lastSyncedRef.current = `${tabId}:${newSessionId}`;
       }
@@ -74,6 +82,7 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
       await useTerminalStore.getState().createSession();
       const newSessionId = useTerminalStore.getState().activeSessionId;
       if (newSessionId) {
+        latestSessionIdRef.current = newSessionId;
         await updateWorkspaceTab(tabId, { state: { sessionId: newSessionId } });
         lastSyncedRef.current = `${tabId}:${newSessionId}`;
       }

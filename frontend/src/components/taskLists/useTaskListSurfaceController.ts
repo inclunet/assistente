@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import i18next from 'i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';
 
@@ -49,7 +50,10 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
 
   useEffect(() => () => {
     const wsTabs = useWorkspaceStore.getState().workspace?.tabs || [];
-    const hasTaskListTab = wsTabs.some((candidate) => candidate.type === 'tasklist' && candidate.id !== tab.id);
+    const tabStillOpen = wsTabs.some((candidate) => candidate.id === tab.id);
+    if (tabStillOpen) return;
+
+    const hasTaskListTab = wsTabs.some((candidate) => candidate.type === 'tasklist');
     if (!hasTaskListTab) {
       const taskListStore = useTaskListStore.getState();
       if (taskListStore.activeTaskListId !== undefined) {
@@ -70,7 +74,7 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
   async function createTaskListForTab(workspaceTab: WorkspaceTab) {
     creatingRef.current = true;
     try {
-      const taskList = await useTaskListStore.getState().createTaskList('Nova lista');
+      const taskList = await useTaskListStore.getState().createTaskList(i18next.t('tasklist.newList'));
       if (taskList) {
         await updateWorkspaceTab(workspaceTab.id, {
           state: { ...(workspaceTab.state ?? {}), tasklistId: String(taskList.id) },

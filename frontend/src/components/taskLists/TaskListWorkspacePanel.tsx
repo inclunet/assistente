@@ -1,6 +1,8 @@
-import TaskListView from './TaskListView';
+import { lazy } from 'react';
 import type { WorkspacePanelProps } from '../workspace/workspacePanelRegistry';
 import { useTaskListSurfaceController } from './useTaskListSurfaceController';
+
+const TaskListView = lazy(() => import('./TaskListView'));
 
 export function TaskListWorkspacePanel({ tab, isActive, state }: WorkspacePanelProps) {
   useTaskListSurfaceController(tab, isActive);

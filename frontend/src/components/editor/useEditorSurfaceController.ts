@@ -73,7 +73,10 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
   }, [tab.id]);
 
   useEffect(() => () => {
-    useEditorStore.getState().removeDocument(tab.id);
+    const tabStillOpen = useWorkspaceStore.getState().workspace?.tabs.some((candidate) => candidate.id === tab.id) ?? false;
+    if (!tabStillOpen) {
+      useEditorStore.getState().removeDocument(tab.id);
+    }
   }, [tab.id]);
 
   async function createDocumentFromTab(tabId: string, state?: Record<string, unknown>) {

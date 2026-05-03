@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceDomainPanel, type WorkspacePanelProps } from './workspacePanelRegistry';
@@ -30,12 +31,12 @@ const makeTab = (type: WorkspaceTab['type'], state: Record<string, unknown> = {}
 describe('WorkspaceDomainPanel', () => {
   it('roteia abas para o painel declarativo do domínio', async () => {
     render(
-      <>
+      <Suspense fallback={<div>loading</div>}>
         <WorkspaceDomainPanel tab={makeTab('chat')} tabId="tab-chat" isActive state={{}} />
         <WorkspaceDomainPanel tab={makeTab('editor')} tabId="tab-editor" isActive={false} state={{}} />
         <WorkspaceDomainPanel tab={makeTab('terminal')} tabId="tab-terminal" isActive state={{}} />
         <WorkspaceDomainPanel tab={makeTab('tasklist', { tasklistId: '42' })} tabId="tab-tasklist" isActive state={{ tasklistId: '42' }} />
-      </>,
+      </Suspense>,
     );
 
     expect(await screen.findByText('chat-panel')).toBeInTheDocument();

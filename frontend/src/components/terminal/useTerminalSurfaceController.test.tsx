@@ -54,6 +54,7 @@ describe('useTerminalSurfaceController', () => {
     terminalMocks.createSession.mockReset();
     terminalMocks.closeSession.mockReset();
     terminalMocks.loadSessions.mockReset();
+    terminalMocks.loadSessions.mockResolvedValue(undefined);
     terminalMocks.setActiveSession.mockReset();
     workspaceMocks.updateTab.mockReset();
     workspaceMocks.isInitialized = true;
@@ -86,5 +87,34 @@ describe('useTerminalSurfaceController', () => {
       expect(terminalMocks.setActiveSession).toHaveBeenCalledWith('session-2');
     });
     expect(terminalMocks.createSession).not.toHaveBeenCalled();
+  });
+
+  it('preserva sessão quando o painel desmonta mas a aba continua aberta', () => {
+    const { unmount } = renderHook(() => useTerminalSurfaceController({
+      ...terminalTab,
+      state: { sessionId: 'session-3' },
+    }, true));
+
+    unmount();
+
+    expect(terminalMocks.closeSession).not.toHaveBeenCalled();
+  });
+
+  it('fecha a última sessão conhecida quando a aba sai do workspace', async () => {
+    terminalMocks.createSession.mockImplementation(async () => {
+      terminalMocks.activeSessionId = 'session-created';
+    });
+    const { unmount } = renderHook(() => useTerminalSurfaceController(terminalTab, true));
+
+    await waitFor(() => {
+      expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
+        state: { sessionId: 'session-created' },
+      });
+    });
+
+    workspaceMocks.tabs = [];
+    unmount();
+
+    expect(terminalMocks.closeSession).toHaveBeenCalledWith('session-created');
   });
 });

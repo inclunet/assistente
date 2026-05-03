@@ -45,6 +45,12 @@ vi.mock('../../store/workspaceStore', () => ({
   ),
 }));
 
+vi.mock('i18next', () => ({
+  default: {
+    t: vi.fn((key: string) => (key === 'tasklist.newList' ? 'Nova Lista' : key)),
+  },
+}));
+
 import { useTaskListSurfaceController } from './useTaskListSurfaceController';
 
 const taskListTab: WorkspaceTab = {
@@ -70,15 +76,15 @@ describe('useTaskListSurfaceController', () => {
   });
 
   it('cria tasklist para aba ativa sem tasklistId', async () => {
-    taskListMocks.createTaskList.mockResolvedValue({ id: 'tasklist-1', title: 'Nova lista' });
+    taskListMocks.createTaskList.mockResolvedValue({ id: 'tasklist-1', title: 'Nova Lista' });
 
     renderHook(() => useTaskListSurfaceController(taskListTab, true));
 
     await waitFor(() => {
-      expect(taskListMocks.createTaskList).toHaveBeenCalledWith('Nova lista');
+      expect(taskListMocks.createTaskList).toHaveBeenCalledWith('Nova Lista');
       expect(workspaceMocks.updateTab).toHaveBeenCalledWith('tasklist-tab', {
         state: { tasklistId: 'tasklist-1' },
-        title: 'Nova lista',
+        title: 'Nova Lista',
       });
     });
   });
@@ -94,5 +100,24 @@ describe('useTaskListSurfaceController', () => {
       expect(taskListMocks.loadTaskList).toHaveBeenCalledWith('tasklist-2');
     });
     expect(taskListMocks.createTaskList).not.toHaveBeenCalled();
+  });
+
+  it('preserva tasklist ativa quando o painel desmonta mas a aba continua aberta', () => {
+    taskListMocks.activeTaskListId = 'tasklist-1';
+    const { unmount } = renderHook(() => useTaskListSurfaceController(taskListTab, true));
+
+    unmount();
+
+    expect(taskListMocks.setActiveTaskList).not.toHaveBeenCalledWith(undefined);
+  });
+
+  it('limpa tasklist ativa quando a última aba de tasklist sai do workspace', () => {
+    taskListMocks.activeTaskListId = 'tasklist-1';
+    const { unmount } = renderHook(() => useTaskListSurfaceController(taskListTab, true));
+    workspaceMocks.tabs = [];
+
+    unmount();
+
+    expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith(undefined);
   });
 });

@@ -94,4 +94,21 @@ describe('useEditorSurfaceController', () => {
     expect(editorMocks.createDocument).not.toHaveBeenCalled();
     expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
   });
+
+  it('preserva documento quando o painel desmonta mas a aba continua aberta', () => {
+    const { unmount } = renderHook(() => useEditorSurfaceController(editorTab, true));
+
+    unmount();
+
+    expect(editorMocks.removeDocument).not.toHaveBeenCalled();
+  });
+
+  it('remove documento quando o painel desmonta após a aba sair do workspace', () => {
+    const { unmount } = renderHook(() => useEditorSurfaceController(editorTab, true));
+    workspaceMocks.tabs = [];
+
+    unmount();
+
+    expect(editorMocks.removeDocument).toHaveBeenCalledWith('editor-tab');
+  });
 });
