@@ -1,13 +1,9 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useActiveTab, useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';
 import { WorkspacePanelProvider } from './WorkspacePanelContext';
+import { WorkspaceDomainPanel } from './workspacePanelRegistry';
 import './WorkspaceContent.css';
-
-const ChatPage = lazy(() => import('../../pages/ChatPage'));
-const EditorPage = lazy(() => import('../../pages/EditorPage'));
-const TerminalPage = lazy(() => import('../../pages/TerminalPage'));
-const TaskListView = lazy(() => import('../taskLists/TaskListView'));
 
 const Loading = () => (
   <div className="ws-content__loading" aria-busy="true" />
@@ -25,14 +21,12 @@ function WorkspaceTabPanel({ tab, isActive }: { tab: WorkspaceTab; isActive: boo
     >
       <WorkspacePanelProvider value={{ tab, isActive }}>
         <Suspense fallback={<Loading />}>
-          {tab.type === 'chat' && <ChatPage />}
-          {tab.type === 'editor' && <EditorPage />}
-          {tab.type === 'terminal' && <TerminalPage />}
-          {tab.type === 'tasklist' && (
-            tab.state?.tasklistId
-              ? <TaskListView taskListId={tab.state.tasklistId as string} />
-              : <Loading />
-          )}
+          <WorkspaceDomainPanel
+            tab={tab}
+            tabId={tab.id}
+            isActive={isActive}
+            state={tab.state ?? {}}
+          />
         </Suspense>
       </WorkspacePanelProvider>
     </div>

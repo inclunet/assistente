@@ -164,6 +164,21 @@ describe('renameTabContent + registerTabRenameHandler', () => {
     unregister();
   });
 
+  it('chama handler de editor com o tabId ao renomear aba de editor', () => {
+    setStoreState([
+      { id: 'editor-tab', type: 'editor', title: 'Editor', position: 0 },
+    ], 'editor-tab');
+
+    const handler = vi.fn();
+    const unregister = registerTabRenameHandler('editor', handler);
+
+    useWorkspaceStore.getState().renameTabContent('editor-tab', 'Novo documento');
+
+    expect(handler).toHaveBeenCalledWith('editor-tab', 'Novo documento');
+
+    unregister();
+  });
+
   it('não chama handler quando aba de chat não tem conversationId', () => {
     setStoreState([
       { id: 'tab-1', type: 'chat', title: 'Chat', position: 0 },
