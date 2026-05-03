@@ -172,6 +172,19 @@ vi.mock('../utils/errorHandler', () => ({
 }));
 
 import ChatPage from './ChatPage';
+import { WorkspacePanelProvider } from '../components/workspace/WorkspacePanelContext';
+
+function getPanelTab() {
+  return workspaceStoreState.getActiveTab();
+}
+
+function renderChatPage() {
+  return render(
+    <WorkspacePanelProvider value={{ tab: getPanelTab(), isActive: true }}>
+      <ChatPage />
+    </WorkspacePanelProvider>,
+  );
+}
 
 describe('ChatPage', () => {
   beforeEach(() => {
@@ -190,7 +203,7 @@ describe('ChatPage', () => {
   });
 
   it('abre menu de contexto ao acionar MessageList', async () => {
-    render(<ChatPage />);
+    renderChatPage();
     await userEvent.click(screen.getByRole('button', { name: 'open-menu' }));
 
     expect(showMenuMock).toHaveBeenCalled();
@@ -209,7 +222,7 @@ describe('ChatPage', () => {
     ensureWorkspaceTabHasConversationMock.mockResolvedValue('01926b90-7a5a-7c4e-8d3f-00000000002a');
     sendMessageMock.mockResolvedValueOnce(undefined);
 
-    render(<ChatPage />);
+    renderChatPage();
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
@@ -235,7 +248,7 @@ describe('ChatPage', () => {
 
   it('mostra banner de erro e permite retry', async () => {
     const user = userEvent.setup();
-    render(<ChatPage />);
+    renderChatPage();
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 

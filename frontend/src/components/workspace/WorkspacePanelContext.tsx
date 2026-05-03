@@ -1,8 +1,8 @@
 import { createContext, useContext } from 'react';
-import { useActiveTab, type WorkspaceTab } from '../../store/workspaceStore';
+import type { WorkspaceTab } from '../../store/workspaceStore';
 
 interface WorkspacePanelContextValue {
-  tab?: WorkspaceTab;
+  tab: WorkspaceTab;
   isActive: boolean;
 }
 
@@ -12,10 +12,9 @@ export const WorkspacePanelProvider = WorkspacePanelContext.Provider;
 
 export function useWorkspacePanel() {
   const panel = useContext(WorkspacePanelContext);
-  const activeTab = useActiveTab();
+  if (!panel) {
+    throw new Error('useWorkspacePanel must be used within WorkspacePanelProvider');
+  }
 
-  return {
-    tab: panel?.tab ?? activeTab,
-    isActive: panel?.isActive ?? true,
-  };
+  return panel;
 }

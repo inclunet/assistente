@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { VoiceButton } from './VoiceButton';
+import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
 
 const toggleInteractionSpy = vi.fn();
 const startInteractionSpy = vi.fn();
@@ -9,6 +10,22 @@ const stopInteractionSpy = vi.fn();
 const requestSTTStartSpy: ReturnType<typeof vi.fn<(request: unknown) => boolean>> = vi.fn(() => true);
 const finishSTTSessionSpy: ReturnType<typeof vi.fn<(origin: unknown) => void>> = vi.fn();
 let triggerType = 'button_toggle';
+
+const panelTab = {
+  id: 'chat-tab',
+  type: 'chat' as const,
+  title: 'Chat',
+  position: 0,
+  conversationId: 'conversation-1',
+};
+
+function renderVoiceButton() {
+  return render(
+    <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+      <VoiceButton onTranscription={() => {}} />
+    </WorkspacePanelProvider>,
+  );
+}
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -52,14 +69,14 @@ describe('VoiceButton', () => {
   });
 
   it('aciona toggle no clique', () => {
-    render(<VoiceButton onTranscription={() => {}} />);
+    renderVoiceButton();
 
     fireEvent.click(screen.getByRole('button'));
     expect(toggleInteractionSpy).toHaveBeenCalled();
   });
 
   it('usa aria-label do modo', () => {
-    render(<VoiceButton onTranscription={() => {}} />);
+    renderVoiceButton();
 
     expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'voice.clickToRecord');
   });
@@ -67,7 +84,7 @@ describe('VoiceButton', () => {
   it('não entra em PTT quando o gate STT nega pointer down', () => {
     triggerType = 'button_ptt';
     requestSTTStartSpy.mockReturnValue(false);
-    render(<VoiceButton onTranscription={() => {}} />);
+    renderVoiceButton();
 
     fireEvent.pointerDown(screen.getByRole('button'), { pointerId: 1 });
 
@@ -78,7 +95,7 @@ describe('VoiceButton', () => {
   it('não entra em PTT quando o gate STT nega teclado', () => {
     triggerType = 'button_ptt';
     requestSTTStartSpy.mockReturnValue(false);
-    render(<VoiceButton onTranscription={() => {}} />);
+    renderVoiceButton();
 
     fireEvent.keyDown(screen.getByRole('button'), { key: ' ' });
 
