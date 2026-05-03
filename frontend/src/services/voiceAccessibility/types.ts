@@ -1,6 +1,6 @@
 import type { WorkspaceData, WorkspaceTab } from '../../store/workspaceStore';
 
-export type VoiceAccessibilitySurfaceType = WorkspaceTab['type'] | 'embedded' | 'modal' | 'external';
+export type VoiceAccessibilitySurfaceType = WorkspaceTab['type'] | 'page' | 'embedded' | 'modal' | 'external';
 
 export type VoiceAccessibilityPriority =
   | 'manual-active'

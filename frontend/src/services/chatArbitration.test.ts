@@ -20,7 +20,7 @@ const hoisted = vi.hoisted(() => ({
     },
     getActiveTab: () => ({ id: 'tab-1', type: 'chat', conversationId: 'conversation-1', title: 'Aba ativa', position: 0 }),
   },
-  announce: vi.fn(),
+  announceWithOrigin: vi.fn(),
   playReceiveSound: vi.fn(),
 }));
 
@@ -30,8 +30,8 @@ vi.mock('../store/workspaceStore', () => ({
   },
 }));
 
-vi.mock('../hooks/useAnnouncer', () => ({
-  announce: (...args: unknown[]) => hoisted.announce(...args),
+vi.mock('./voiceAccessibility/announcerBroker', () => ({
+  announceWithOrigin: (...args: unknown[]) => hoisted.announceWithOrigin(...args),
 }));
 
 vi.mock('./audioFeedback', () => ({
@@ -50,7 +50,7 @@ vi.mock('i18next', () => ({
 
 describe('chatArbitration', () => {
   beforeEach(() => {
-    hoisted.announce.mockClear();
+    hoisted.announceWithOrigin.mockClear();
     hoisted.playReceiveSound.mockClear();
     hoisted.workspaceState.workspace.activeTabId = 'tab-1';
     hoisted.workspaceState.getActiveTab = () => ({
@@ -72,20 +72,30 @@ describe('chatArbitration', () => {
     expect(getChatConversationLabel('conversation-3', 'Fallback')).toBe('Fallback');
   });
 
-  it('anuncia somente para a conversa ativa', () => {
+  it('encaminha anúncio com origem da conversa', () => {
     announceForActiveChatConversation('conversation-1', 'respondendo', 'polite');
     announceForActiveChatConversation('conversation-2', 'silencioso', 'polite');
 
-    expect(hoisted.announce).toHaveBeenCalledTimes(1);
-    expect(hoisted.announce).toHaveBeenCalledWith('respondendo', 'polite');
+    expect(hoisted.announceWithOrigin).toHaveBeenCalledTimes(2);
+    expect(hoisted.announceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'respondendo',
+      announcePriority: 'polite',
+      origin: expect.objectContaining({ conversationId: 'conversation-1', tabId: 'tab-1' }),
+      eventType: 'progress',
+    }));
   });
 
-  it('anuncia conclusão em background usando label resolvida', () => {
+  it('anuncia conclusão usando label resolvida e origem contextual', () => {
     announceChatBackgroundResponseDone('conversation-2', 'Fallback');
     announceChatBackgroundResponseDone('conversation-1', 'Ativa');
 
-    expect(hoisted.announce).toHaveBeenCalledTimes(1);
-    expect(hoisted.announce).toHaveBeenCalledWith('Terminou: Aba inativa', 'polite');
+    expect(hoisted.announceWithOrigin).toHaveBeenCalledTimes(2);
+    expect(hoisted.announceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'Terminou: Aba inativa',
+      announcePriority: 'polite',
+      origin: expect.objectContaining({ conversationId: 'conversation-2', tabId: 'tab-2' }),
+      eventType: 'completion',
+    }));
   });
 
   it('toca som de recebimento somente para conversa ativa', () => {
