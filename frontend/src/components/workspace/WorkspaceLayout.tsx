@@ -7,9 +7,6 @@ import { useShallow } from 'zustand/shallow';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardShortcuts';
 import { useWorkspaceChatBridge } from '../../hooks/useWorkspaceChatBridge';
-import { useWorkspaceTerminalBridge } from '../../hooks/useWorkspaceTerminalBridge';
-import { useWorkspaceEditorBridge } from '../../hooks/useWorkspaceEditorBridge';
-import { useWorkspaceTasklistBridge } from '../../hooks/useWorkspaceTasklistBridge';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { ensureModalCleanup } from '../ui/Modal';
@@ -18,6 +15,7 @@ import { WorkspaceToolbar } from './WorkspaceToolbar';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
 import { WorkspaceChatModal } from './WorkspaceChatModal';
+import { useWorkspacePanelRenameHandlers } from './useWorkspacePanelRenameHandlers';
 import './WorkspaceLayout.css';
 
 export function WorkspaceLayout() {
@@ -40,9 +38,7 @@ export function WorkspaceLayout() {
 
   useWorkspaceKeyboardShortcuts();
   useWorkspaceChatBridge();
-  useWorkspaceTerminalBridge();
-  useWorkspaceEditorBridge();
-  useWorkspaceTasklistBridge();
+  useWorkspacePanelRenameHandlers();
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
 

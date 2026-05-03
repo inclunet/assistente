@@ -534,7 +534,7 @@ export default function EditorPage() {
         setDocDraftId(tabId, null);
         setDocDirty(tabId, false);
 
-        // filePath+title são sincronizados pelo useWorkspaceEditorBridge
+        // filePath+title são sincronizados pelo controller do painel de editor.
 
         const { documents: afterDocs } = useEditorStore.getState();
         const afterTab = afterDocs[tabId] || tab;
@@ -1924,7 +1924,7 @@ export default function EditorPage() {
         renameDocument(id, title);
         setDocMarkdown(id, content);
         useEditorStore.getState().setDocMode(id, preferredMode);
-        // filePath+title são sincronizados pelo useWorkspaceEditorBridge
+        // filePath+title são sincronizados pelo controller do painel de editor.
       } else {
         const tabId = await addWorkspaceTab('editor', title, { filePath: path });
         id = tabId;
@@ -2066,7 +2066,7 @@ export default function EditorPage() {
       renameDocument(activeTab.id, title);
       setDocDirty(activeTab.id, false);
 
-      // filePath+title são sincronizados pelo useWorkspaceEditorBridge
+      // filePath+title são sincronizados pelo controller do painel de editor.
 
       void refreshDiskInfoForTab({ ...activeTab, filePath: path });
 
