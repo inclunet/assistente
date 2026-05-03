@@ -33,8 +33,8 @@ vi.mock('../ui/Modal', () => ({
   ),
 }));
 
-vi.mock('../chat/ChatSessionView', () => ({
-  ChatSessionView: () => <div>chat-session-view</div>,
+vi.mock('../chat/ChatPanel', () => ({
+  ChatPanel: () => <div>chat-panel</div>,
 }));
 
 vi.mock('../../store/workspaceChatModalStore', () => ({

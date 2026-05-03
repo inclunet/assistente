@@ -7,8 +7,8 @@ import { ttsService } from '../../services/tts';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar } from './ChatToolbar';
-import { ChatSessionProvider, useChatSession } from './ChatSessionContext';
-import type { ChatSurfaceOrigin } from '../../services/chatSessionRegistry';
+import { ChatSessionProvider } from './ChatSessionContext';
+import type { ChatSurfaceOrigin, ChatSurfaceType } from '../../services/chatSessionRegistry';
 import { ContextMenu } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
@@ -21,20 +21,26 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
+import {
+  useChatSurfaceController,
+  type ChatSurfaceController,
+} from './ChatSurfaceController';
 import './ChatSessionView.css';
 
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
+  surfaceType?: ChatSurfaceType;
   conversationId?: string | null;
   surfaceId?: string;
   sessionKey?: string;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
-  onSend: (content: string, mediaFiles?: MediaFile[], origin?: ChatSurfaceOrigin) => Promise<void>;
+  onSend: (content: string, mediaFiles: MediaFile[] | undefined, origin: ChatSurfaceOrigin) => Promise<void>;
   showShortcutsHelp?: boolean;
 }
 
 export function ChatSessionView({
   variant = 'page',
+  surfaceType = variant,
   conversationId,
   surfaceId,
   sessionKey,
@@ -44,12 +50,13 @@ export function ChatSessionView({
   return (
     <ChatSessionProvider
       conversationId={conversationId}
-      surfaceType={variant}
+      surfaceType={surfaceType}
       surfaceId={surfaceId}
       sessionKey={sessionKey}
     >
-      <ChatSessionViewContent
+      <ChatSessionViewControllerBridge
         variant={variant}
+        surfaceType={surfaceType}
         conversationId={conversationId}
         surfaceId={surfaceId}
         sessionKey={sessionKey}
@@ -60,12 +67,27 @@ export function ChatSessionView({
   );
 }
 
+function ChatSessionViewControllerBridge({
+  onSend,
+  ...props
+}: ChatSessionViewProps) {
+  const controller = useChatSurfaceController({
+    onSend: (content, mediaFiles, context) => onSend(content, mediaFiles, context.origin),
+  });
+
+  return <ChatSessionViewContent {...props} controller={controller} />;
+}
+
+interface ChatSessionViewContentProps extends Omit<ChatSessionViewProps, 'onSend'> {
+  controller: ChatSurfaceController;
+}
+
 function ChatSessionViewContent({
   variant = 'page',
   conversationId,
-  onSend,
   showShortcutsHelp,
-}: ChatSessionViewProps) {
+  controller,
+}: ChatSessionViewContentProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -107,7 +129,7 @@ function ChatSessionViewContent({
     setDraftMessage,
     setDraftMediaFiles,
     setScrollState,
-  } = useChatSession();
+  } = controller;
   const getSessionConversation = useCallback(() => conversation, [conversation]);
 
   useEffect(() => {
@@ -503,7 +525,7 @@ function ChatSessionViewContent({
     try {
       setSendError(null);
       setLastFailedMessage(null);
-      await onSend(content, mediaFiles, origin);
+      await controller.sendMessage(content, mediaFiles);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[ChatSessionView] send error:', errorMessage);
@@ -524,7 +546,7 @@ function ChatSessionViewContent({
 
     try {
       setSendError(null);
-      await onSend(lastFailedMessage.content, lastFailedMessage.media, origin);
+      await controller.sendMessage(lastFailedMessage.content, lastFailedMessage.media);
       setLastFailedMessage(null);
     } catch (error) {
       handleError(error, {

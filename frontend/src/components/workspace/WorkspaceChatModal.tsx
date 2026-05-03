@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
-import { ChatSessionView } from '../chat/ChatSessionView';
+import { ChatPanel, type ChatPanelSendContext } from '../chat/ChatPanel';
+import { useChatConversationTimeline } from '../chat/ChatSurfaceController';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
 import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import type { MediaFile } from '../../services/mediaService';
-import {
-  getConversationTimeline,
-  normalizeChatSurfaceOrigin,
-  type ChatSurfaceOrigin,
-} from '../../services/chatSessionRegistry';
+import { normalizeChatSurfaceOrigin } from '../../services/chatSessionRegistry';
 
 import './WorkspaceChatModal.css';
 
@@ -25,11 +22,7 @@ export function WorkspaceChatModal() {
   const adapterError = useWorkspaceChatModalStore((s) => s.adapterError);
   const close = useWorkspaceChatModalStore((s) => s.close);
   const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
-  const activeConversation = useChatStore((s) => (
-    boundConversationId
-      ? getConversationTimeline(s, boundConversationId)
-      : null
-  ));
+  const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
   const modalSurfaceId = useMemo(
     () => `embedded:workspace-chat-modal:${boundTabId ?? 'standalone'}`,
@@ -66,7 +59,7 @@ export function WorkspaceChatModal() {
   }, [isOpen, focusNonce]);
 
   const handleSend = useCallback(
-    async (content: string, mediaFiles?: MediaFile[], origin?: ChatSurfaceOrigin) => {
+    async (content: string, mediaFiles: MediaFile[] | undefined, context: ChatPanelSendContext) => {
       const {
         boundTabId: tabId,
         boundConversationId: storedConversationId,
@@ -109,7 +102,7 @@ export function WorkspaceChatModal() {
       if (!sendPlan) return;
 
       try {
-        const sendOrigin = normalizeChatSurfaceOrigin(origin, targetConversationId);
+        const sendOrigin = normalizeChatSurfaceOrigin(context.origin, targetConversationId);
         await useChatStore.getState().sendMessageToConversation(
           targetConversationId,
           sendPlan.content,
@@ -145,8 +138,8 @@ export function WorkspaceChatModal() {
         )}
 
         <div className="workspace-chat-modal__session">
-          <ChatSessionView
-            variant="embedded"
+          <ChatPanel
+            surfaceType="embedded"
             conversationId={boundConversationId}
             surfaceId={modalSurfaceId}
             onSend={handleSend}
