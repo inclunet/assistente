@@ -46,7 +46,7 @@ export function useTabScrollState(
   useEffect(() => {
     return () => {
       const tabId = tabIdRef.current;
-      if (tabId && scrollTopRef.current > 0) {
+      if (tabId) {
         void updateTab(tabId, { state: { scrollTop: scrollTopRef.current } });
       }
     };

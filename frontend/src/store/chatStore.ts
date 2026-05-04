@@ -102,18 +102,18 @@ interface ChatStore {
   contextProfileSlug: string | null;
 
   setContextProfileSlug: (slug: string | null) => void;
-  setConversationEditingMessageId: (conversationId: string, id: string | null, sessionKey?: string) => void;
-  startConversationEditing: (conversationId: string, id: string, sessionKey?: string) => void;
-  consumeSkipFocusRestore: (conversationId: string) => boolean;
-  setConversationReadingMessageId: (conversationId: string, id: string | null, sessionKey?: string) => void;
-  startConversationReading: (conversationId: string, id: string, sessionKey?: string) => void;
-  setConversationDraftMessage: (conversationId: string, message: string, sessionKey?: string) => void;
-  setConversationDraftMediaFiles: (conversationId: string, mediaFiles: MediaFile[], sessionKey?: string) => void;
-  clearConversationDraft: (conversationId: string, sessionKey?: string) => void;
+  setConversationEditingMessageId: (conversationId: string, id: string | null, sessionKey: string) => void;
+  startConversationEditing: (conversationId: string, id: string, sessionKey: string) => void;
+  consumeSkipFocusRestore: (conversationId: string, sessionKey: string) => boolean;
+  setConversationReadingMessageId: (conversationId: string, id: string | null, sessionKey: string) => void;
+  startConversationReading: (conversationId: string, id: string, sessionKey: string) => void;
+  setConversationDraftMessage: (conversationId: string, message: string, sessionKey: string) => void;
+  setConversationDraftMediaFiles: (conversationId: string, mediaFiles: MediaFile[], sessionKey: string) => void;
+  clearConversationDraft: (conversationId: string, sessionKey: string) => void;
   setConversationScrollState: (
     conversationId: string,
     scrollState: { scrollTop: number; scrollAnchorMessageId: string | null },
-    sessionKey?: string,
+    sessionKey: string,
   ) => void;
   ensureConversationSurfaceSession: (conversationId: string, sessionKey: string, origin?: ChatSurfaceOrigin) => void;
   removeConversationSurfaceSession: (sessionKey: string) => void;
@@ -121,17 +121,17 @@ interface ChatStore {
   createConversation: (title?: string) => Promise<string>;
   loadConversationSession: (id: string, options?: { activate?: boolean }) => Promise<void>;
   getConversationSession: (conversationId: string | null | undefined) => ChatConversationSession | null;
-  loadOlderMessagesForConversation: (conversationId: string, sessionKey?: string) => Promise<void>;
+  loadOlderMessagesForConversation: (conversationId: string, sessionKey: string) => Promise<void>;
 
   updateConversationMessage: (conversationId: string, messageId: string, content: string) => void;
   updateConversationMessageReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
   addInternalMessage: (message: Message) => void;
   clearConversationMessages: (conversationId: string) => void;
 
-  toggleConversationThreadExpanded: (conversationId: string, messageId: string, sessionKey?: string) => void;
-  isConversationThreadExpanded: (conversationId: string, messageId: string, sessionKey?: string) => boolean;
-  toggleConversationReasoningExpanded: (conversationId: string, messageId: string, sessionKey?: string) => void;
-  isConversationReasoningExpanded: (conversationId: string, messageId: string, sessionKey?: string) => boolean;
+  toggleConversationThreadExpanded: (conversationId: string, messageId: string, sessionKey: string) => void;
+  isConversationThreadExpanded: (conversationId: string, messageId: string, sessionKey: string) => boolean;
+  toggleConversationReasoningExpanded: (conversationId: string, messageId: string, sessionKey: string) => void;
+  isConversationReasoningExpanded: (conversationId: string, messageId: string, sessionKey: string) => boolean;
 
   sendMessageToConversation: (
     conversationId: string,
@@ -187,12 +187,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     state: ChatStore,
     conversationId: string,
     patch: Partial<ChatSurfaceSession>,
-    sessionKey?: string,
+    sessionKey: string,
   ): Partial<ChatStore> => {
-    if (!sessionKey) {
-      return patchSession(state, conversationId, patch);
-    }
-
     const defaultSession = state.sessionsByConversationId[conversationId];
     const currentSession = state.surfaceSessionsByKey[sessionKey] ?? {
       ...createEmptyChatSurfaceSession(conversationId, sessionKey),
@@ -544,11 +540,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
     },
 
-    consumeSkipFocusRestore: (conversationId) => {
-      const session = get().sessionsByConversationId[conversationId];
+    consumeSkipFocusRestore: (conversationId, sessionKey) => {
+      const session = getSession(get(), conversationId, sessionKey);
       const shouldSkip = !!session?.skipFocusRestore;
       if (shouldSkip) {
-        set((state) => patchSession(state, conversationId, { skipFocusRestore: false }));
+        set((state) => patchSession(state, conversationId, { skipFocusRestore: false }, sessionKey));
       }
       return shouldSkip;
     },

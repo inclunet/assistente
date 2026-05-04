@@ -56,4 +56,18 @@ describe('useTabScrollState', () => {
       state: { scrollTop: 540 },
     });
   });
+
+  it('persiste scrollTop zero quando usuário volta ao topo', () => {
+    const { unmount } = render(<ScrollProbe tabId="terminal-a" />);
+
+    const terminalA = screen.getByTestId('terminal-a');
+    terminalA.scrollTop = 0;
+    terminalA.dispatchEvent(new Event('scroll'));
+
+    unmount();
+
+    expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-a', {
+      state: { scrollTop: 0 },
+    });
+  });
 });

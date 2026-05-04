@@ -18,6 +18,7 @@ import {
 } from './editorSendMenu';
 
 export interface MenuItemsOptions {
+  sessionKey?: string;
   onCopy?: (message: Message, asMarkdown: boolean) => void;
   onReadMessage?: (message: Message) => void;
   onSpeak?: (message: Message) => void;

@@ -61,8 +61,8 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
     setTimeout(() => {
       // Verifica se deve pular a restauração de foco (ex: edição iniciada)
       const conversationId = triggerConversationIdRef.current;
-      const shouldSkip = conversationId
-        ? useChatStore.getState().consumeSkipFocusRestore(conversationId)
+      const shouldSkip = conversationId && options.sessionKey
+        ? useChatStore.getState().consumeSkipFocusRestore(conversationId, options.sessionKey)
         : false;
       if (shouldSkip) {
         triggerElementRef.current = null;
@@ -76,7 +76,7 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
       }
       triggerConversationIdRef.current = null;
     }, 10);
-  }, []);
+  }, [options.sessionKey]);
 
   // Fecha o menu quando clicar fora (já tratado no ContextMenu, mas como fallback)
   useEffect(() => {

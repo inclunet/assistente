@@ -374,6 +374,7 @@ function ChatSessionViewContent({
   );
 
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
+    sessionKey: origin.sessionKey,
     onCopy: copyMessage,
     onReadMessage: (message) => {
       if (conversation?.id) {

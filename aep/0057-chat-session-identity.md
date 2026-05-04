@@ -204,6 +204,7 @@ O PR #110 conclui o contrato de identidade de chat sem manter props antigas ou c
 - Componentes de chat que observam aba ativa usam essa informação apenas para foco/visibilidade, nunca para escolher conversa, retry, envio ou destino da ação.
 - `useWorkspaceChatBridge` não é fonte de identidade de superfície; fluxos de chat usam origem explícita a partir do painel.
 - Componentes não enviam mensagens diretamente pelo `chatStore`; o envio passa pelo provider/controller de superfície, mantendo a store como infraestrutura interna do domínio.
+- Estado visual interno do chat exige `sessionKey` explícita para rascunho, scroll, edição, leitura, expansão de threads/reasoning e paginação.
 - Testes de regressão cobrem superfícies simultâneas e validam rascunho, scroll, retry e origem de envio por `sessionKey`.
 
 ## Riscos

@@ -64,13 +64,13 @@ export interface ChatSessionContextValue {
   retryMessageToConversation: ReturnType<typeof useChatStore.getState>['retryMessageToConversation'];
   updateConversationMessage: ReturnType<typeof useChatStore.getState>['updateConversationMessage'];
   clearConversationMessages: ReturnType<typeof useChatStore.getState>['clearConversationMessages'];
-  startConversationEditing: ReturnType<typeof useChatStore.getState>['startConversationEditing'];
-  startConversationReading: ReturnType<typeof useChatStore.getState>['startConversationReading'];
-  setConversationEditingMessageId: ReturnType<typeof useChatStore.getState>['setConversationEditingMessageId'];
-  setConversationReadingMessageId: ReturnType<typeof useChatStore.getState>['setConversationReadingMessageId'];
-  toggleConversationThreadExpanded: ReturnType<typeof useChatStore.getState>['toggleConversationThreadExpanded'];
-  toggleConversationReasoningExpanded: ReturnType<typeof useChatStore.getState>['toggleConversationReasoningExpanded'];
-  isConversationReasoningExpanded: ReturnType<typeof useChatStore.getState>['isConversationReasoningExpanded'];
+  startConversationEditing: (conversationId: string, id: string) => void;
+  startConversationReading: (conversationId: string, id: string) => void;
+  setConversationEditingMessageId: (conversationId: string, id: string | null) => void;
+  setConversationReadingMessageId: (conversationId: string, id: string | null) => void;
+  toggleConversationThreadExpanded: (conversationId: string, messageId: string) => void;
+  toggleConversationReasoningExpanded: (conversationId: string, messageId: string) => void;
+  isConversationReasoningExpanded: (conversationId: string, messageId: string) => boolean;
 }
 
 const ChatSessionContext = createContext<ChatSessionContextValue | null>(null);
@@ -330,9 +330,9 @@ export function useOptionalChatSession(): ChatSessionContextValue | null {
   return useContext(ChatSessionContext);
 }
 
-export function useChatNodeSessionState(fallbackConversationId: string, messageId: string) {
-  const context = useOptionalChatSession();
-  const conversationId = context?.conversationId || fallbackConversationId;
+export function useChatNodeSessionState(messageId: string) {
+  const context = useChatSession();
+  const conversationId = context.conversationId;
   const defaultSession = useChatStore((state) => (
     conversationId ? getDefaultChatConversationSession(state, conversationId) : null
   ));
@@ -340,26 +340,22 @@ export function useChatNodeSessionState(fallbackConversationId: string, messageI
     conversationId ? getConversationTimeline(state, conversationId) : null
   ));
   const surfaceSession = useChatStore((state) => {
-    const sessionKey = context?.origin.sessionKey;
-    return sessionKey ? state.surfaceSessionsByKey?.[sessionKey] ?? null : null;
+    const sessionKey = context.origin.sessionKey;
+    return state.surfaceSessionsByKey?.[sessionKey] ?? null;
   });
   const session = useMemo(() => (
     conversationId
       ? composeChatSession(
         conversationId,
-        context?.origin.sessionKey ?? `conversation:${conversationId}`,
+        context.origin.sessionKey,
         defaultSession,
         timeline,
         surfaceSession,
       )
       : null
-  ), [defaultSession, context?.origin.sessionKey, conversationId, surfaceSession, timeline]);
+  ), [defaultSession, context.origin.sessionKey, conversationId, surfaceSession, timeline]);
   const isExpanded = session?.expandedThreads.has(messageId) ?? false;
   const reasoningExpanded = session?.expandedReasonings.has(messageId) ?? false;
-  const setConversationEditingMessageId = useChatStore((state) => state.setConversationEditingMessageId);
-  const setConversationReadingMessageId = useChatStore((state) => state.setConversationReadingMessageId);
-  const toggleConversationThreadExpanded = useChatStore((state) => state.toggleConversationThreadExpanded);
-  const toggleConversationReasoningExpanded = useChatStore((state) => state.toggleConversationReasoningExpanded);
 
   return {
     conversationId,
@@ -372,10 +368,10 @@ export function useChatNodeSessionState(fallbackConversationId: string, messageI
     completedSegments: session?.completedSegments ?? [],
     isExpanded,
     reasoningExpanded,
-    setConversationEditingMessageId: context?.setConversationEditingMessageId ?? setConversationEditingMessageId,
-    setConversationReadingMessageId: context?.setConversationReadingMessageId ?? setConversationReadingMessageId,
-    toggleConversationThreadExpanded: context?.toggleConversationThreadExpanded ?? toggleConversationThreadExpanded,
-    toggleConversationReasoningExpanded: context?.toggleConversationReasoningExpanded ?? toggleConversationReasoningExpanded,
+    setConversationEditingMessageId: context.setConversationEditingMessageId,
+    setConversationReadingMessageId: context.setConversationReadingMessageId,
+    toggleConversationThreadExpanded: context.toggleConversationThreadExpanded,
+    toggleConversationReasoningExpanded: context.toggleConversationReasoningExpanded,
   };
 }
 
