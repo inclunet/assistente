@@ -171,6 +171,23 @@ vi.mock('../../utils/errorHandler', () => ({
 
 import { ChatSessionView } from './ChatSessionView';
 import { createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
+import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
+
+const panelTab = {
+  id: 'chat-tab',
+  type: 'chat' as const,
+  title: 'Chat',
+  position: 0,
+  conversationId,
+};
+
+function renderWithPanel(ui: React.ReactElement) {
+  return render(
+    <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+      {ui}
+    </WorkspacePanelProvider>,
+  );
+}
 
 describe('ChatSessionView', () => {
   beforeEach(() => {
@@ -185,7 +202,7 @@ describe('ChatSessionView', () => {
 
   it('embedded: aciona menu de contexto via MessageList', async () => {
     const onSend = vi.fn();
-    render(<ChatSessionView variant="embedded" conversationId={conversationId} onSend={onSend} showShortcutsHelp={false} />);
+    renderWithPanel(<ChatSessionView variant="embedded" conversationId={conversationId} onSend={onSend} showShortcutsHelp={false} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'open-menu' }));
 
@@ -196,7 +213,7 @@ describe('ChatSessionView', () => {
   it('embedded: mostra banner de erro e retry quando onSend falha', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValueOnce(new Error('fail'));
-    render(<ChatSessionView variant="embedded" conversationId={conversationId} onSend={onSend} showShortcutsHelp={false} />);
+    renderWithPanel(<ChatSessionView variant="embedded" conversationId={conversationId} onSend={onSend} showShortcutsHelp={false} />);
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
@@ -215,7 +232,7 @@ describe('ChatSessionView', () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue(undefined);
     chatStoreState.sessionsByConversationId[conversationId].isLoading = true;
-    render(
+    renderWithPanel(
       <ChatSessionView
         variant="embedded"
         conversationId={conversationId}
@@ -248,7 +265,7 @@ describe('ChatSessionView', () => {
     };
 
     try {
-      render(
+      renderWithPanel(
         <ChatSessionView
           conversationId={conversationId}
           sessionKey={sessionKey}
@@ -275,7 +292,7 @@ describe('ChatSessionView', () => {
       scrollAnchorMessageId: 'missing-anchor',
     };
 
-    const { rerender } = render(
+    const { rerender } = renderWithPanel(
       <ChatSessionView
         conversationId={conversationId}
         sessionKey={sessionKey}
@@ -292,12 +309,14 @@ describe('ChatSessionView', () => {
     messageList.scrollTop = 111;
     (activeConversation.threadedMessages as unknown[]) = [{ id: 'new-message' }];
     rerender(
-      <ChatSessionView
-        conversationId={conversationId}
-        sessionKey={sessionKey}
-        onSend={vi.fn().mockResolvedValue(undefined)}
-        showShortcutsHelp={false}
-      />,
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView
+          conversationId={conversationId}
+          sessionKey={sessionKey}
+          onSend={vi.fn().mockResolvedValue(undefined)}
+          showShortcutsHelp={false}
+        />
+      </WorkspacePanelProvider>,
     );
 
     await new Promise((resolve) => setTimeout(resolve, 0));
