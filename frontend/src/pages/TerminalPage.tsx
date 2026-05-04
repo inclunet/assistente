@@ -154,7 +154,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
               icon: <MessageOutlined />,
               shortcut: 'Ctrl+Shift+I',
               onClick: () => {
-                void useWorkspaceChatModalStore.getState().requestOpen();
+                void useWorkspaceChatModalStore.getState().requestOpen(panelTab.id);
               },
             },
           ]}
