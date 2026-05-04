@@ -57,9 +57,17 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isActive) return;
       if (e.ctrlKey && e.key === 'c' && !e.shiftKey && !e.altKey) {
+        const activeElement = document.activeElement;
+        const hasInputSelection = (
+          activeElement instanceof HTMLInputElement
+          || activeElement instanceof HTMLTextAreaElement
+        )
+          && activeElement.selectionStart !== null
+          && activeElement.selectionEnd !== null
+          && activeElement.selectionStart !== activeElement.selectionEnd;
         const selection = window.getSelection();
         const hasSelection = selection && selection.toString().length > 0;
-        if (!hasSelection && currentSessionId) {
+        if (!hasInputSelection && !hasSelection && currentSessionId) {
           e.preventDefault();
           interrupt(currentSessionId);
         }

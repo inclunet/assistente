@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { WorkspacePanelProvider } from '../components/workspace/WorkspacePanelContext';
 
@@ -145,5 +145,18 @@ describe('TerminalPage', () => {
   it('exibe o titulo da sessao ativa', () => {
     renderTerminalPage();
     expect(screen.getByText('Terminal 1')).toBeInTheDocument();
+  });
+
+  it('não intercepta Ctrl+C quando há texto selecionado no input', () => {
+    renderTerminalPage();
+
+    const input = screen.getByLabelText('chat-input') as HTMLInputElement;
+    input.value = 'copiar';
+    input.focus();
+    input.setSelectionRange(0, input.value.length);
+
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+
+    expect(storeMocks.interrupt).not.toHaveBeenCalled();
   });
 });
