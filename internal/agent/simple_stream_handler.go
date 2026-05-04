@@ -77,5 +77,5 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 		Usage:        usage,
 		Model:        model,
 		IsDone:       true,
-	}, h.profileSlug, nil)
+	}, h.profileSlug, nil, h.SurfaceOrigin)
 }

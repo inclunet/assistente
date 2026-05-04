@@ -159,8 +159,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }, [taskList?.title, taskListId, requestConfirm, clearTaskList, addToast, announce, t]);
 
   useEffect(() => {
+    if (!isActive) return;
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!isActive) return;
       if (isModalOpen()) return;
 
       if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && (e.key === 'l' || e.key === 'L')) {

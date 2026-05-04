@@ -2328,9 +2328,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
   // Atalhos de arquivos
   useEffect(() => {
+    if (!isPanelActive || !activeTab?.id) return;
+
     const onKeyDown = async (e: KeyboardEvent) => {
-      if (!isPanelActive) return;
-      if (!activeTab) return;
       if (isModalOpen()) return;
 
       if (e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S') && !e.altKey) {
@@ -2354,7 +2354,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeTab, isPanelActive]);
+  }, [activeTab?.id, isPanelActive]);
 
   return (
     <div className="editor-page" ref={pageRootRef}>

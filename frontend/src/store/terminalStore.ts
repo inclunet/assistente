@@ -127,21 +127,30 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     }));
     try {
       const history = await GetTerminalHistory(sessionId);
-      set(state => ({
-        historyBySession: {
-          ...state.historyBySession,
-          [sessionId]: history || [],
-        },
-      }));
+      set(state => {
+        const sessionExists = state.sessions.some(session => session.id === sessionId);
+        if (!sessionExists) return state;
+
+        return {
+          historyBySession: {
+            ...state.historyBySession,
+            [sessionId]: history || [],
+          },
+        };
+      });
     } catch (err) {
       console.error('[Terminal] Erro ao carregar histórico:', err);
     } finally {
-      set(state => ({
-        loadingHistoryBySession: {
-          ...state.loadingHistoryBySession,
-          [sessionId]: false,
-        },
-      }));
+      set(state => {
+        const nextLoading = { ...state.loadingHistoryBySession };
+        const sessionExists = state.sessions.some(session => session.id === sessionId);
+        if (sessionExists) {
+          nextLoading[sessionId] = false;
+        } else {
+          delete nextLoading[sessionId];
+        }
+        return { loadingHistoryBySession: nextLoading };
+      });
     }
   },
 

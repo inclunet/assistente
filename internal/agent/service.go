@@ -211,7 +211,7 @@ func (s *Service) RunAgenticLoop(
 				ToolCallCount:  totalToolCallCount,
 				ToolsUsed:      toolsUsedSet,
 				LastUsage:      lastUsage,
-			})
+			}, surfaceOrigin)
 			return
 		}
 
@@ -518,7 +518,13 @@ type LoopStats struct {
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
 // Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
 // loopStats é opcional — se nil, apenas os campos enriquecidos derivados das estatísticas do loop ficam vazios.
-func (s *Service) SaveAndFinish(conversationID, turnID string, result AgenticResult, profileSlug string, loopStats *LoopStats) {
+func (s *Service) SaveAndFinish(
+	conversationID, turnID string,
+	result AgenticResult,
+	profileSlug string,
+	loopStats *LoopStats,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+) {
 	var savedMsgID string
 	if conversationID != "" && result.FullResponse != "" {
 		if len(result.NativeMCPEvents) > 0 && turnID != "" {
@@ -563,6 +569,7 @@ func (s *Service) SaveAndFinish(conversationID, turnID string, result AgenticRes
 		Done:           true,
 		ConversationId: conversationID,
 		FullResponse:   result.FullResponse,
+		SurfaceOrigin:  surfaceOrigin,
 	})
 
 	// TTS proativo: dispara ANTES de chat:done pois chat:done causa cleanup dos listeners no frontend
@@ -579,6 +586,7 @@ func (s *Service) SaveAndFinish(conversationID, turnID string, result AgenticRes
 		AssistantMessageID: savedMsgID,
 		HadToolCalls:       hadTools,
 		Reason:             "completed",
+		SurfaceOrigin:      surfaceOrigin,
 	}
 	if loopStats != nil {
 		doneEvent.IterationCount = loopStats.IterationCount
