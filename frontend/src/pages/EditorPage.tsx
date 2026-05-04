@@ -1606,7 +1606,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
             const editor = editorRef.current;
             const m = editor?.getModel?.();
             if (!editor || !m) return;
-            if (currentActiveDocId !== s.tabId) return;
+            if (currentDocumentId !== s.tabId) return;
             const startPos = m.getPositionAt(s.startOffset);
             const endPos = m.getPositionAt(s.startOffset + replacement.length);
             editor.setSelection({
@@ -1622,7 +1622,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         });
       } else {
         const s = selection;
-        if (currentActiveDocId !== s.tabId) {
+        if (currentDocumentId !== s.tabId) {
           addToast(t('editor.chatModal.openOriginalTabToApply'), 'info');
           setIsAsking(false);
           focusEditorSoon();

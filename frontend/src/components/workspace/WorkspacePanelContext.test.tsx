@@ -1,5 +1,5 @@
 import { renderHook } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { WorkspacePanelProvider, useWorkspacePanel } from './WorkspacePanelContext';
 
 const panelTab = {
@@ -23,8 +23,12 @@ describe('WorkspacePanelContext', () => {
   });
 
   it('falha cedo fora do provider para evitar fallback global acidental', () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
     expect(() => renderHook(() => useWorkspacePanel())).toThrow(
       'useWorkspacePanel must be used within WorkspacePanelProvider',
     );
+
+    consoleErrorSpy.mockRestore();
   });
 });
