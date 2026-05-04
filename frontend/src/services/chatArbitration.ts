@@ -11,6 +11,10 @@ function findOriginTab(origin?: ChatSurfaceOrigin | null) {
   return workspace?.tabs.find((tab) => tab.id === origin.tabId) ?? null;
 }
 
+function isMountedWorkspaceOrigin(origin?: ChatSurfaceOrigin | null) {
+  return !origin?.tabId || Boolean(findOriginTab(origin));
+}
+
 export function isChatConversationActive(conversationId: string, origin?: ChatSurfaceOrigin | null): boolean {
   const workspace = useWorkspaceStore.getState().workspace;
   if (origin?.tabId) {
@@ -61,6 +65,8 @@ export function announceForActiveChatConversation(
   priority: 'polite' | 'assertive' = 'polite',
   origin?: ChatSurfaceOrigin | null,
 ) {
+  if (!isMountedWorkspaceOrigin(origin)) return;
+
   announceWithOrigin({
     message,
     announcePriority: priority,
@@ -74,6 +80,7 @@ export function announceChatBackgroundResponseDone(
   fallbackTitle?: string | null,
   origin?: ChatSurfaceOrigin | null,
 ) {
+  if (!isMountedWorkspaceOrigin(origin)) return;
   if (isChatConversationActive(conversationId, origin)) return;
 
   announceWithOrigin({
@@ -87,6 +94,8 @@ export function announceChatBackgroundResponseDone(
 }
 
 export function playChatReceiveSoundIfActive(conversationId: string, origin?: ChatSurfaceOrigin | null) {
+  if (!isMountedWorkspaceOrigin(origin)) return;
+
   if (isChatConversationActive(conversationId, origin)) {
     playReceiveSound();
   }

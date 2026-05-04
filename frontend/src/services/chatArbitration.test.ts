@@ -125,6 +125,23 @@ describe('chatArbitration', () => {
     }));
   });
 
+  it('ignora efeitos globais de origem vinculada a aba fechada', () => {
+    const closedOrigin = {
+      conversationId: 'conversation-2',
+      sessionKey: 'tab-closed:conversation-2',
+      surfaceId: 'tab-closed',
+      surfaceType: 'page' as const,
+      tabId: 'tab-closed',
+    };
+
+    announceForActiveChatConversation('conversation-2', 'não deve anunciar', 'polite', closedOrigin);
+    announceChatBackgroundResponseDone('conversation-2', 'Fechada', closedOrigin);
+    playChatReceiveSoundIfActive('conversation-2', closedOrigin);
+
+    expect(hoisted.announceWithOrigin).not.toHaveBeenCalled();
+    expect(hoisted.playReceiveSound).not.toHaveBeenCalled();
+  });
+
   it('toca som de recebimento somente para conversa ativa', () => {
     playChatReceiveSoundIfActive('conversation-2', {
       conversationId: 'conversation-2',
