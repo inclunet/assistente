@@ -42,13 +42,22 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 const mockPlayChatReceiveSoundIfActive = vi.fn();
 const mockAnnounceForActiveChatConversation = vi.fn();
 const mockAnnounceChatBackgroundResponseDone = vi.fn();
-const mockGetChatConversationVoiceOrigin = vi.fn((conversationId: string, _fallbackTitle?: string | null, _origin?: unknown) => ({
-  conversationId,
-  surfaceId: `conversation:${conversationId}`,
-  sessionKey: `conversation:${conversationId}`,
-  surfaceType: 'page',
-  title: `Conversa ${conversationId}`,
-}));
+const mockGetChatConversationVoiceOrigin = vi.fn((conversationId: string, _fallbackTitle?: string | null, origin?: unknown) => {
+  const surfaceOrigin = origin as {
+    sessionKey?: string;
+    surfaceId?: string;
+    surfaceType?: string;
+    tabId?: string;
+  } | undefined;
+  return {
+    conversationId,
+    surfaceId: surfaceOrigin?.surfaceId ?? `conversation:${conversationId}`,
+    sessionKey: surfaceOrigin?.sessionKey ?? `conversation:${conversationId}`,
+    surfaceType: surfaceOrigin?.surfaceType ?? 'page',
+    tabId: surfaceOrigin?.tabId,
+    title: `Conversa ${conversationId}`,
+  };
+});
 vi.mock('./chatArbitration', () => ({
   playChatReceiveSoundIfActive: (...args: unknown[]) => mockPlayChatReceiveSoundIfActive(...args),
   announceForActiveChatConversation: (...args: unknown[]) => mockAnnounceForActiveChatConversation(...args),
@@ -281,6 +290,68 @@ describe('chatEventController', () => {
     expect(messages[1].message.isStreaming).toBe(false);
     expect(sessions['conversation-1'].isLoading).toBe(false);
     expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith('conversation-1', 'Conversa conversation-1', undefined);
+  });
+
+  it('propaga surfaceOrigin dos eventos para anúncio, som e fala', async () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    const surfaceOrigin = {
+      conversationId: 'conversation-1',
+      sessionKey: 'tab-1:conversation-1',
+      surfaceId: 'tab-1',
+      surfaceType: 'page' as const,
+      tabId: 'tab-1',
+    };
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      content: 'resposta',
+      done: false,
+      surfaceOrigin,
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      content: 'resposta',
+      done: true,
+      messageId: 'assistant-1',
+      surfaceOrigin,
+    });
+    emitEvent('chat:speak', {
+      conversationId: 'conversation-1',
+      role: 'assistant',
+      text: 'fala com origem',
+      strategy: 'webspeech',
+      surfaceOrigin,
+    });
+    await Promise.resolve();
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      hadToolCalls: false,
+      surfaceOrigin,
+    });
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.announce.assistantResponding',
+      'polite',
+      surfaceOrigin,
+    );
+    expect(mockPlayChatReceiveSoundIfActive).toHaveBeenCalledWith('conversation-1', surfaceOrigin);
+    expect(mockGetChatConversationVoiceOrigin).toHaveBeenCalledWith('conversation-1', undefined, surfaceOrigin);
+    expect(mockHandleChatSpeak.mock.calls[0][0]).toMatchObject({
+      accessibilityOrigin: expect.objectContaining({
+        conversationId: 'conversation-1',
+        sessionKey: 'tab-1:conversation-1',
+        surfaceId: 'tab-1',
+        tabId: 'tab-1',
+      }),
+    });
+    expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith(
+      'conversation-1',
+      'Conversa conversation-1',
+      surfaceOrigin,
+    );
   });
 
   it('mantém chat:speak ativo até o done e ignora eventos depois do cleanup', async () => {
