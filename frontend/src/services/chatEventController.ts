@@ -233,6 +233,7 @@ export function startChatEventController({
   let unsubSpeak = noop;
 
   const isActive = () => activeControllers.has(conversationIdStr);
+  const getEventOrigin = (event: { surfaceOrigin?: ChatSurfaceOrigin }) => event.surfaceOrigin ?? origin;
 
   const ensureAssistantNode = () => {
     if (assistantNodeCreated) return;
@@ -315,7 +316,8 @@ export function startChatEventController({
   unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    const voiceOrigin = getChatConversationVoiceOrigin(conversationId);
+    const eventOrigin = getEventOrigin(event);
+    const voiceOrigin = getChatConversationVoiceOrigin(conversationId, undefined, eventOrigin);
     void handleChatSpeak({
       ...event,
       accessibilityOrigin: origin
@@ -377,7 +379,7 @@ export function startChatEventController({
       ensureAssistantNode();
       if (!streamingAnnounced) {
         streamingAnnounced = true;
-        announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite');
+        announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite', getEventOrigin(event));
       }
       debouncedUpdateMessage(streamingMsgId, event.content, (_messageId, nextContent) => updateStreamingMessage(nextContent));
     }
@@ -399,7 +401,7 @@ export function startChatEventController({
 
       const flatMessages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
       const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || streamingMsgId));
-      if (finalMessage?.content) playChatReceiveSoundIfActive(conversationId);
+      if (finalMessage?.content) playChatReceiveSoundIfActive(conversationId, getEventOrigin(event));
     }
   });
 
@@ -412,7 +414,7 @@ export function startChatEventController({
         isThinking: true,
         streamingReasoning: event.content || '',
       });
-      announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite', getEventOrigin(event));
     } else if (event.done) {
       patchCurrentSession({ isThinking: false });
       if (event.content) adapter.updateReasoning(conversationId, streamingMsgId, event.content);
@@ -437,7 +439,7 @@ export function startChatEventController({
         : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const }],
     });
     if (external) {
-      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRunning', { name: event.name }), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRunning', { name: event.name }), 'polite', getEventOrigin(event));
     }
   });
 
@@ -454,7 +456,7 @@ export function startChatEventController({
     });
     if (!external) return;
     if (event.status !== 'error') {
-      announceForActiveChatConversation(conversationId, i18next.t('chat.toolDone', { name: event.name }), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.toolDone', { name: event.name }), 'polite', getEventOrigin(event));
       return;
     }
     if (!('attempt' in event)) {
@@ -466,7 +468,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     if (event.willRetry) {
-      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite', getEventOrigin(event));
       return;
     }
     announce(i18next.t('chat.toolFailed', { name: event.name }), 'assertive');
@@ -495,6 +497,7 @@ export function startChatEventController({
           conversationId,
           toolCount === 1 ? session.activeToolCalls[0].name : `${toolCount} ferramentas`,
           'polite',
+          getEventOrigin(event),
         );
       }
     }
@@ -540,7 +543,7 @@ export function startChatEventController({
       });
     }
 
-    announceChatBackgroundResponseDone(conversationId, getCurrentSession().conversation?.title);
+    announceChatBackgroundResponseDone(conversationId, getCurrentSession().conversation?.title, getEventOrigin(event));
     cleanup();
   });
 
