@@ -44,9 +44,15 @@ vi.mock('../../store/workspaceChatModalStore', () => ({
 }));
 
 vi.mock('../../store/workspaceStore', () => ({
-  useWorkspaceStore: {
-    getState: () => ({ workspace: { tabs: [activeTab] } }),
-  },
+  useWorkspaceStore: Object.assign(
+    (selector?: (state: { workspace: { tabs: Array<typeof activeTab> } }) => unknown) => {
+      const state = { workspace: { tabs: [activeTab] } };
+      return typeof selector === 'function' ? selector(state) : state;
+    },
+    {
+      getState: () => ({ workspace: { tabs: [activeTab] } }),
+    },
+  ),
   useActiveTab: () => activeTab,
 }));
 

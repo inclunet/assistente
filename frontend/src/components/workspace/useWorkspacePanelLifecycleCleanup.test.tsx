@@ -16,11 +16,6 @@ const terminalMocks = vi.hoisted(() => ({
   closeSession: vi.fn(),
 }));
 
-const taskListMocks = vi.hoisted(() => ({
-  activeTaskListId: undefined as string | undefined,
-  setActiveTaskList: vi.fn(),
-}));
-
 vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: {
     getState: () => ({ workspace: workspaceMocks.workspace }),
@@ -36,12 +31,6 @@ vi.mock('../../store/workspaceStore', () => ({
 vi.mock('../../store/terminalStore', () => ({
   useTerminalStore: {
     getState: () => terminalMocks,
-  },
-}));
-
-vi.mock('../../store/taskListStore', () => ({
-  useTaskListStore: {
-    getState: () => taskListMocks,
   },
 }));
 
@@ -66,8 +55,6 @@ describe('useWorkspacePanelLifecycleCleanup', () => {
     workspaceMocks.workspace = null;
     workspaceMocks.listeners = [];
     terminalMocks.closeSession.mockReset();
-    taskListMocks.activeTaskListId = undefined;
-    taskListMocks.setActiveTaskList.mockReset();
   });
 
   it('fecha sessões de terminal quando abas são removidas mesmo sem painel montado', () => {
@@ -104,30 +91,5 @@ describe('useWorkspacePanelLifecycleCleanup', () => {
     emitWorkspaceChange(null);
 
     expect(terminalMocks.closeSession).toHaveBeenCalledWith('session-1');
-  });
-
-  it('limpa tasklist ativa quando não há mais abas de tasklist', () => {
-    taskListMocks.activeTaskListId = 'tasklist-1';
-    workspaceMocks.workspace = workspaceWithTabs('workspace-1', [
-      { id: 'tasklist-tab', type: 'tasklist', title: 'Lista', position: 0, state: { tasklistId: 'tasklist-1' } },
-    ]);
-
-    renderHook(() => useWorkspacePanelLifecycleCleanup());
-    emitWorkspaceChange(workspaceWithTabs('workspace-1', [
-      { id: 'chat-tab', type: 'chat', title: 'Chat', position: 0 },
-    ]));
-
-    expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith(undefined);
-  });
-
-  it('limpa tasklist ativa obsoleta ao montar sem abas de tasklist', () => {
-    taskListMocks.activeTaskListId = 'tasklist-1';
-    workspaceMocks.workspace = workspaceWithTabs('workspace-1', [
-      { id: 'chat-tab', type: 'chat', title: 'Chat', position: 0 },
-    ]);
-
-    renderHook(() => useWorkspacePanelLifecycleCleanup());
-
-    expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith(undefined);
   });
 });

@@ -52,8 +52,8 @@ interface TerminalState {
   createSession: (name?: string) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
   setActiveSession: (id: string) => void;
-  sendInput: (input: string) => Promise<void>;
-  interrupt: () => Promise<void>;
+  sendInput: (sessionId: string, input: string) => Promise<void>;
+  interrupt: (sessionId: string) => Promise<void>;
   loadHistory: (sessionId: string) => Promise<void>;
   setupEventListeners: () => () => void;
 }
@@ -111,24 +111,22 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }
   },
 
-  sendInput: async (input: string) => {
-    const state = get();
-    if (!state.activeSessionId) return;
+  sendInput: async (sessionId: string, input: string) => {
+    if (!sessionId) return;
 
     try {
       playSendSound();
-      await SendTerminalInput(state.activeSessionId, input);
+      await SendTerminalInput(sessionId, input);
     } catch (err) {
       console.error('[Terminal] Erro ao enviar input:', err);
     }
   },
 
-  interrupt: async () => {
-    const state = get();
-    if (!state.activeSessionId) return;
+  interrupt: async (sessionId: string) => {
+    if (!sessionId) return;
 
     try {
-      await InterruptTerminalCommand(state.activeSessionId);
+      await InterruptTerminalCommand(sessionId);
     } catch (err) {
       console.error('[Terminal] Erro ao interromper:', err);
     }

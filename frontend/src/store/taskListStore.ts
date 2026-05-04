@@ -161,19 +161,14 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
 
 /**
  * TaskListStore - Cache de conteúdo de tasklists (workspace-driven)
- * O workspace é o dono das tabs; aqui apenas gerenciamos o cache e o conteúdo ativo.
+ * O workspace é o dono das tabs; aqui apenas gerenciamos cache e operações por ID explícito.
  */
 interface TaskListStoreState {
-  activeTaskListId?: string;
   taskLists: Map<string, TaskListWithWorkflow>;
   workflows: Map<string, TaskListWorkflow>;
   expandedTasks: Set<string>;
   isLoading: boolean;
   errors: Map<string, string>;
-
-  // Active tasklist (driven by workspace bridge)
-  setActiveTaskList: (id: string | undefined) => void;
-  getActiveTaskList: () => TaskListWithWorkflow | undefined;
 
   // TaskList management
   loadTaskList: (taskListId: string) => Promise<TaskListWithWorkflow | null>;
@@ -255,10 +250,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         newCache.delete(taskListId);
-        return {
-          taskLists: newCache,
-          activeTaskListId: state.activeTaskListId === taskListId ? undefined : state.activeTaskListId,
-        };
+        return { taskLists: newCache };
       });
     });
 
@@ -324,22 +316,11 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
   }
 
   return {
-    activeTaskListId: undefined,
     taskLists: new Map(),
     workflows: new Map(),
     expandedTasks: new Set(),
     isLoading: false,
     errors: new Map(),
-
-    setActiveTaskList: (id: string | undefined) => {
-      set({ activeTaskListId: id });
-    },
-
-    getActiveTaskList: () => {
-      const { activeTaskListId, taskLists } = get();
-      if (activeTaskListId === undefined) return undefined;
-      return taskLists.get(activeTaskListId);
-    },
 
     // TaskList management
     loadTaskList: async (taskListId: string) => {

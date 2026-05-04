@@ -92,6 +92,33 @@ Após separar os controllers por domínio, aplicar otimizações focadas:
 - terminal com listeners persistentes por sessão;
 - tasklist com loading, erros e expansão escopados por lista.
 
+### 8. Ownership explícito de estado por superfície
+
+O PR de isolamento estrito dos painéis removeu os acoplamentos mais perigosos com entidades globais ativas, mas ainda existe uma fronteira arquitetural que deve ser endurecida: stores globais podem existir como cache ou infraestrutura, mas não podem ser a fonte de identidade de uma superfície de UI.
+
+A regra passa a ser:
+
+- `workspaceStore.activeTabId` só representa navegação, foco e visibilidade no shell;
+- nenhum painel deve consultar "ativo global" para descobrir seu documento, conversa, terminal ou tasklist;
+- estado visual/interativo de painel deve ser chaveado por `tabId`, `surfaceId`, `sessionKey` ou pelo identificador explícito do domínio;
+- stores globais só podem expor dados compartilhados ou APIs parametrizadas por ID;
+- ações iniciadas por painel devem carregar a identidade explícita da própria superfície.
+
+Isso inclui scroll, seleção, input em edição, erro local, estado de carregamento visual, fila local, modal associado, sessão de voz local e qualquer outro estado que possa divergir entre dois painéis montados ao mesmo tempo.
+
+### 9. Modais, adapters e serviços não definem identidade de painel
+
+Infraestruturas globais como modal store, registry de adapters, announcer, TTS e STT podem continuar globais quando o recurso for naturalmente único. Porém, elas não podem inferir a origem por `activeTabId` no momento da ação.
+
+Quando uma ação parte de um painel, a identidade deve ser capturada no ponto de origem e propagada explicitamente:
+
+- modal de chat recebe `boundTabId`/`surfaceId`;
+- adapters são registrados por `tabId` e não por "aba ativa";
+- handlers globais validam `isActive` apenas para permissão de captura/foco, não para descobrir o alvo de dados;
+- fechamento, retry, envio, interrupção e persistência sempre operam sobre IDs explícitos.
+
+O uso de um singleton global para orquestrar um modal é aceitável como passo intermediário, desde que o singleton seja apenas transporte de estado já vinculado a uma superfície. A evolução preferida é migrar modais e painéis embutidos para controllers por superfície, preservando estado por `tabId`/`surfaceId` quando isso for necessário para UX.
+
 ## Fases
 
 ### Fase 1 — Contrato arquitetural
@@ -141,6 +168,15 @@ Esta fase passa a ser detalhada pela AEP-0059.
 - Persistir eventos/histórico de terminal por sessão.
 - Escopar estado visual de tasklist por lista.
 
+### Fase 7 — Hardening de ownership por superfície
+
+- Auditar stores globais para separar cache compartilhado de estado visual por superfície.
+- Exigir APIs parametrizadas por ID para ações de domínio.
+- Remover qualquer inferência de identidade baseada em `activeTabId` fora do shell de workspace.
+- Transformar modal/adapters globais em infraestrutura vinculada a `tabId`/`surfaceId`.
+- Adicionar testes com dois painéis reais do mesmo domínio montados simultaneamente.
+- Documentar no código que `activeTabId` é contrato de navegação, não contrato de dados.
+
 ## Riscos
 
 - Keep-alive pode aumentar uso de memória se muitas abas pesadas permanecerem montadas.
@@ -148,6 +184,8 @@ Esta fase passa a ser detalhada pela AEP-0059.
 - Múltiplos controllers de chat podem duplicar listeners se a limpeza de ciclo de vida não for rigorosa.
 - Announcer, TTS e STT podem gerar ruído ou conflito se não houver arbitragem central.
 - A migração incremental precisa evitar regressões no contrato backend-driven de mensagens.
+- Singletons globais de UI podem voltar a introduzir dependência acidental de `activeTabId` se não carregarem `tabId`/`surfaceId` explicitamente.
+- Stores globais podem misturar cache compartilhado e estado visual por superfície se a fronteira de ownership não for clara.
 
 ## Critérios de aceitação
 
@@ -161,3 +199,6 @@ Esta fase passa a ser detalhada pela AEP-0059.
 - STT local só funciona na aba ativa.
 - Conversas longas carregam e renderizam de forma incremental após a fase de otimização.
 - Cada commit do PR mantém build/lint/testes focados em estado revisável.
+- Estado visual/interativo divergente entre painéis é sempre chaveado por `tabId`, `surfaceId`, `sessionKey` ou ID explícito de domínio.
+- Ações de painel não dependem de `activeTabId` para descobrir o alvo de dados.
+- Modais e adapters globais, quando existirem, são vinculados a uma superfície explícita antes de executar preparação, envio ou persistência.

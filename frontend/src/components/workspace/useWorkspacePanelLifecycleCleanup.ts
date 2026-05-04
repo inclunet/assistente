@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { useTaskListStore } from '../../store/taskListStore';
 import { useTerminalStore } from '../../store/terminalStore';
 import { useWorkspaceStore, type WorkspaceData, type WorkspaceTab } from '../../store/workspaceStore';
 
@@ -21,23 +20,10 @@ function closeRemovedTerminalSessions(previous: WorkspaceData | null, current: W
   }
 }
 
-function clearActiveTaskListWhenNoTabs(workspace: WorkspaceData | null) {
-  const hasTaskListTab = workspace?.tabs.some((tab) => tab.type === 'tasklist') ?? false;
-  if (hasTaskListTab) return;
-
-  const taskListStore = useTaskListStore.getState();
-  if (taskListStore.activeTaskListId !== undefined) {
-    taskListStore.setActiveTaskList(undefined);
-  }
-}
-
 export function useWorkspacePanelLifecycleCleanup() {
   useEffect(() => {
-    clearActiveTaskListWhenNoTabs(useWorkspaceStore.getState().workspace);
-
     return useWorkspaceStore.subscribe((state, previousState) => {
       closeRemovedTerminalSessions(previousState.workspace, state.workspace);
-      clearActiveTaskListWhenNoTabs(state.workspace);
     });
   }, []);
 }

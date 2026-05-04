@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, LoadingOutlined, SettingOutlined, ToolOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import type { ToolCallStatus } from '../../types/chat';
 import { formatDuration } from '../../utils/format';
 import './ToolCallsSection.css';
 
@@ -26,17 +27,6 @@ export interface ParsedToolCall {
   iteration?: number;
   /** Duração da execução em milissegundos (AEP-0039) */
   duration_ms?: number;
-}
-
-/**
- * Status de uma tool call em execução (durante streaming)
- */
-export interface ToolCallStatus {
-  name: string;
-  callId: string;
-  args?: string;
-  status: 'running' | 'done' | 'error';
-  summary?: string;
 }
 
 interface ToolCallsSectionProps {

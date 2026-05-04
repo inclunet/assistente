@@ -89,7 +89,7 @@ interface WorkspaceChatModalState {
   close: () => void;
   bumpFocus: () => void;
   setAdapterError: (msg: string | null) => void;
-  requestOpen: () => Promise<void>;
+  requestOpen: (tabId?: string) => Promise<void>;
 }
 
 export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, get) => ({
@@ -135,8 +135,11 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
 
   setAdapterError: (msg) => set({ adapterError: msg }),
 
-  requestOpen: async () => {
-    const tab = useWorkspaceStore.getState().getActiveTab();
+  requestOpen: async (tabId) => {
+    const workspaceStore = useWorkspaceStore.getState();
+    const tab = tabId
+      ? workspaceStore.workspace?.tabs.find((item) => item.id === tabId) ?? null
+      : workspaceStore.getActiveTab();
     if (!tab) return;
 
     if (get().isOpen) {

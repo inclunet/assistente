@@ -10,7 +10,7 @@ import {
 import {
   buildChatSessionKey,
   createEmptyChatSession,
-  getCompatibilityChatSession,
+  getDefaultChatConversationSession,
   getConversationTimeline,
   getChatSession,
   normalizeChatSurfaceOrigin,
@@ -19,7 +19,7 @@ import {
   type ChatSurfaceType,
   type ConversationTimeline,
 } from '../../services/chatSessionRegistry';
-import type { ToolCallStatus } from './ToolCallsSection';
+import type { ToolCallStatus } from '../../types/chat';
 import type { MediaFile } from '../../services/mediaService';
 
 const EMPTY_MESSAGES: never[] = [];
@@ -27,7 +27,7 @@ const EMPTY_MESSAGES: never[] = [];
 const composeChatSession = (
   conversationId: string,
   sessionKey: string,
-  compatibilitySession: ChatConversationSession | null,
+  defaultSession: ChatConversationSession | null,
   timeline: ConversationTimeline | null,
   surfaceSession: ChatSurfaceSession | null,
 ): ChatConversationSession => {
@@ -36,7 +36,7 @@ const composeChatSession = (
     ...session,
     sessionKey: session.sessionKey ?? sessionKey,
     conversationId: session.conversationId ?? conversationId,
-    conversation: timeline ?? compatibilitySession?.conversation ?? null,
+    conversation: timeline ?? defaultSession?.conversation ?? null,
   };
 };
 
@@ -98,8 +98,8 @@ export function ChatSessionProvider({
       : `${surfaceType}:standalone`);
   const sessionKey = explicitSessionKey ?? buildChatSessionKey(surfaceId, normalizedConversationId);
 
-  const compatibilitySession = useChatStore((state) => (
-    normalizedConversationId ? getCompatibilityChatSession(state, normalizedConversationId) : null
+  const defaultSession = useChatStore((state) => (
+    normalizedConversationId ? getDefaultChatConversationSession(state, normalizedConversationId) : null
   ));
   const timeline = useChatStore((state) => (
     normalizedConversationId ? getConversationTimeline(state, normalizedConversationId) : null
@@ -109,9 +109,9 @@ export function ChatSessionProvider({
   ));
   const session = useMemo(() => (
     normalizedConversationId
-      ? composeChatSession(normalizedConversationId, sessionKey, compatibilitySession, timeline, surfaceSession)
+      ? composeChatSession(normalizedConversationId, sessionKey, defaultSession, timeline, surfaceSession)
       : null
-  ), [compatibilitySession, normalizedConversationId, sessionKey, surfaceSession, timeline]);
+  ), [defaultSession, normalizedConversationId, sessionKey, surfaceSession, timeline]);
   const conversation = session?.conversation ?? null;
   const threadedMessages = conversation?.threadedMessages ?? EMPTY_MESSAGES;
   const isLoading = session?.isLoading ?? false;
@@ -353,8 +353,8 @@ export function useOptionalChatSession(): ChatSessionContextValue | null {
 export function useChatNodeSessionState(fallbackConversationId: string, messageId: string) {
   const context = useOptionalChatSession();
   const conversationId = context?.conversationId || fallbackConversationId;
-  const compatibilitySession = useChatStore((state) => (
-    conversationId ? getCompatibilityChatSession(state, conversationId) : null
+  const defaultSession = useChatStore((state) => (
+    conversationId ? getDefaultChatConversationSession(state, conversationId) : null
   ));
   const timeline = useChatStore((state) => (
     conversationId ? getConversationTimeline(state, conversationId) : null
@@ -368,12 +368,12 @@ export function useChatNodeSessionState(fallbackConversationId: string, messageI
       ? composeChatSession(
         conversationId,
         context?.origin.sessionKey ?? `conversation:${conversationId}`,
-        compatibilitySession,
+        defaultSession,
         timeline,
         surfaceSession,
       )
       : null
-  ), [compatibilitySession, context?.origin.sessionKey, conversationId, surfaceSession, timeline]);
+  ), [defaultSession, context?.origin.sessionKey, conversationId, surfaceSession, timeline]);
   const isExpanded = session?.expandedThreads.has(messageId) ?? false;
   const reasoningExpanded = session?.expandedReasonings.has(messageId) ?? false;
   const setConversationEditingMessageId = useChatStore((state) => state.setConversationEditingMessageId);

@@ -22,6 +22,8 @@ O objetivo não é criar um "array de chat stores" indexado pela UI. O objetivo 
 
 Esta AEP detalha a fase de chat autocontido prevista na AEP-0056.
 
+Após o PR de isolamento estrito dos painéis, o contrato principal passa a ser mais forte: toda superfície de chat deve conhecer explicitamente sua origem (`tabId`, `surfaceId`, `surfaceType`, `conversationId`) antes de criar sessão visual, enviar mensagem, abrir modal, tocar áudio ou processar erro local. O uso de stores globais e registries continua permitido como infraestrutura interna, mas não como contrato de identidade para componentes de UI.
+
 ## Motivação
 
 A migração do chat para sessões por `conversationId` eliminou o problema mais grave do singleton global, mas ainda deixa um cheiro arquitetural: a UI consulta um registry global por chave em vários componentes. Isso faz a arquitetura parecer um conjunto de stores indexadas manualmente, em vez de painéis autocontidos.
@@ -110,6 +112,36 @@ Eventos iniciados por uma superfície Wails devem carregar também origem quando
 
 O roteador frontend deve atualizar a timeline canônica por `conversationId` e notificar as sessões visuais interessadas. Eventos sem origem conhecida, como canais externos, continuam roteados por `conversationId` e `source`.
 
+### 8. Modal de chat como superfície vinculada
+
+O modal de chat do workspace deve ser tratado como uma `ChatSurfaceSession`, não como uma extensão implícita da aba ativa. Ao abrir, ele deve capturar e persistir:
+
+- `boundTabId`;
+- `boundConversationId`;
+- `surfaceId`;
+- `surfaceType`;
+- `sessionKey`;
+- função/adaptador de envio correspondente à superfície de origem.
+
+Enquanto o modal estiver aberto, o chat renderizado dentro dele deve receber um `WorkspacePanelProvider` ou contexto equivalente da aba vinculada. Isso evita que `ChatSessionProvider`, voz, envio, retry ou tool calls dependam de `activeTabId` global para descobrir quem é o dono da ação.
+
+Um singleton global para o modal é aceitável apenas como orquestrador visual. Ele não deve possuir identidade própria nem recalcular origem com base na aba ativa. A evolução preferida é permitir que cada painel exponha sua própria superfície/modal ou que o estado do singleton seja indexado por `surfaceId` quando houver necessidade de preservar múltiplas sessões.
+
+### 9. Store global como implementação interna
+
+`chatStore`, registries de sessão e controllers globais podem continuar existindo para cache, fan-out de eventos e coordenação de turnos. Entretanto, componentes de UI não devem depender diretamente do formato desses mapas globais.
+
+O contrato desejado é:
+
+- `ChatSessionProvider` recebe identidade explícita da superfície;
+- `useChatSession()` expõe estado e ações locais já resolvidos;
+- componentes filhos não montam `sessionKey` manualmente;
+- erro, retry, scroll, input, anexos e expansão pertencem à sessão visual;
+- timeline, mensagens persistidas e eventos pertencem ao `conversationId`;
+- fila de turnos pertence ao `conversationId`.
+
+Esse desenho permite trocar Zustand, registry em memória ou outra implementação sem alterar o modelo mental dos componentes.
+
 ## Fases
 
 ### Fase 1 — Reformular fronteira de sessão
@@ -154,6 +186,15 @@ O roteador frontend deve atualizar a timeline canônica por `conversationId` e n
 - Expor estado de turno em fila ou bloqueado por conversa.
 - Validar envio em duas conversas diferentes e envio serializado na mesma conversa.
 
+### Fase 7 — Hardening de superfície de chat
+
+- Garantir que `WorkspaceChatModal`, `ChatPanel`, `ChatSessionProvider` e `VoiceButton` sempre recebam identidade explícita de superfície.
+- Remover usos diretos de `activeTabId` para inferir origem de chat, exceto para visibilidade/foco no shell.
+- Migrar estado local de input, anexos, erro, retry e scroll para `ChatSurfaceSession` quando ainda estiver acoplado a componente ou singleton.
+- Tornar registries globais detalhes internos do domínio, acessados por provider/controller.
+- Adicionar testes com duas superfícies de chat montadas simultaneamente, incluindo mesma conversa e conversas diferentes.
+- Validar modal de chat aberto a partir de editor, terminal e tasklist sem depender da aba ativa no momento do envio.
+
 ## Riscos
 
 - Separar timeline e sessão visual aumenta a complexidade inicial do domínio de chat.
@@ -162,6 +203,8 @@ O roteador frontend deve atualizar a timeline canônica por `conversationId` e n
 - Se componentes continuarem consultando registries globais, a arquitetura continuará parecendo um array de stores.
 - Cancelamento implícito pode reaparecer se `StreamingManager` continuar tratando novo registro como overwrite.
 - Mostrar turnos em fila antes de persistir mensagens pode violar a regra backend-driven se não houver evento backend adequado.
+- Modal de chat singleton pode voltar a depender de aba ativa se não carregar `boundTabId`/`surfaceId` até o envio.
+- Estado visual de chat pode vazar entre superfícies se `sessionKey` não for a única chave de UI local.
 
 ## Critérios de aceitação
 
@@ -176,3 +219,6 @@ O roteador frontend deve atualizar a timeline canônica por `conversationId` e n
 - Fechar uma aba remove apenas sua sessão visual.
 - Cache/timeline por `conversationId` não força estado visual compartilhado.
 - Testes cobrem isolamento por superfície, timeline compartilhada e fila por conversa.
+- Modal de chat do workspace é vinculado explicitamente a uma superfície antes de preparar contexto ou enviar mensagem.
+- Chat renderizado em modal, painel ou embedded recebe contexto de superfície equivalente ao painel de origem.
+- `activeTabId` não é usado para decidir conversa, sessão visual, origem de envio ou retry.

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { WorkspacePanelProvider } from '../components/workspace/WorkspacePanelContext';
 
 const storeMocks = vi.hoisted(() => ({
   loadSessions: vi.fn(),
@@ -104,6 +105,22 @@ vi.mock('../components/ui/Toolbar', () => ({
 
 import TerminalPage from './TerminalPage';
 
+const terminalTab = {
+  id: 'terminal-tab',
+  type: 'terminal' as const,
+  title: 'Terminal',
+  position: 0,
+  state: { sessionId: 'term-1' },
+};
+
+function renderTerminalPage() {
+  return render(
+    <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
+      <TerminalPage />
+    </WorkspacePanelProvider>,
+  );
+}
+
 describe('TerminalPage', () => {
   beforeEach(() => {
     storeMocks.loadSessions.mockReset();
@@ -116,17 +133,30 @@ describe('TerminalPage', () => {
 
   it('aciona acoes da toolbar', async () => {
     const user = userEvent.setup();
-    render(<TerminalPage />);
+    renderTerminalPage();
 
     const stopButton = screen.getByRole('button', { name: 'Parar' });
 
     await user.click(stopButton);
 
-    expect(storeMocks.interrupt).toHaveBeenCalled();
+    expect(storeMocks.interrupt).toHaveBeenCalledWith('term-1');
   });
 
   it('exibe o titulo da sessao ativa', () => {
-    render(<TerminalPage />);
+    renderTerminalPage();
     expect(screen.getByText('Terminal 1')).toBeInTheDocument();
+  });
+
+  it('não intercepta Ctrl+C quando há texto selecionado no input', () => {
+    renderTerminalPage();
+
+    const input = screen.getByLabelText('chat-input') as HTMLInputElement;
+    input.value = 'copiar';
+    input.focus();
+    input.setSelectionRange(0, input.value.length);
+
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+
+    expect(storeMocks.interrupt).not.toHaveBeenCalled();
   });
 });

@@ -4,10 +4,8 @@ import type { WorkspaceTab } from '../../store/workspaceStore';
 
 const taskListMocks = vi.hoisted(() => ({
   taskLists: new Map<string, { id: string; title: string }>(),
-  activeTaskListId: undefined as string | undefined,
   createTaskList: vi.fn(),
   loadTaskList: vi.fn(),
-  setActiveTaskList: vi.fn(),
   updateTaskList: vi.fn(),
   subscribe: vi.fn(),
 }));
@@ -64,10 +62,8 @@ const taskListTab: WorkspaceTab = {
 describe('useTaskListSurfaceController', () => {
   beforeEach(() => {
     taskListMocks.taskLists = new Map();
-    taskListMocks.activeTaskListId = undefined;
     taskListMocks.createTaskList.mockReset();
     taskListMocks.loadTaskList.mockReset();
-    taskListMocks.setActiveTaskList.mockReset();
     taskListMocks.updateTaskList.mockReset();
     taskListMocks.subscribe.mockReset();
     workspaceMocks.updateTab.mockReset();
@@ -89,40 +85,28 @@ describe('useTaskListSurfaceController', () => {
     });
   });
 
-  it('carrega e ativa tasklist existente', async () => {
+  it('carrega tasklist existente por id explícito da aba', async () => {
     renderHook(() => useTaskListSurfaceController({
       ...taskListTab,
       state: { tasklistId: 'tasklist-2' },
     }, true));
 
     await waitFor(() => {
-      expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith('tasklist-2');
       expect(taskListMocks.loadTaskList).toHaveBeenCalledWith('tasklist-2');
     });
     expect(taskListMocks.createTaskList).not.toHaveBeenCalled();
   });
 
-  it('reativa tasklist existente quando o painel volta a ficar ativo', async () => {
+  it('não recarrega tasklist existente já presente no cache', async () => {
     taskListMocks.taskLists = new Map([['tasklist-2', { id: 'tasklist-2', title: 'Lista 2' }]]);
     const tabWithTaskList = {
       ...taskListTab,
       state: { tasklistId: 'tasklist-2' },
     };
-    const { rerender } = renderHook(({ active }) => useTaskListSurfaceController(tabWithTaskList, active), {
-      initialProps: { active: true },
-    });
 
-    await waitFor(() => {
-      expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith('tasklist-2');
-    });
+    renderHook(() => useTaskListSurfaceController(tabWithTaskList, true));
 
-    taskListMocks.setActiveTaskList.mockClear();
-    rerender({ active: false });
-    rerender({ active: true });
-
-    await waitFor(() => {
-      expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith('tasklist-2');
-    });
+    expect(taskListMocks.loadTaskList).not.toHaveBeenCalled();
   });
 
   it('trata erro ao carregar tasklist existente', async () => {
@@ -135,7 +119,6 @@ describe('useTaskListSurfaceController', () => {
     }, true));
 
     await waitFor(() => {
-      expect(taskListMocks.setActiveTaskList).toHaveBeenCalledWith('tasklist-2');
       expect(errorSpy).toHaveBeenCalledWith(
         '[TaskListSurfaceController] Erro ao sincronizar tasklist:',
         expect.any(Error),
@@ -143,24 +126,5 @@ describe('useTaskListSurfaceController', () => {
     });
 
     errorSpy.mockRestore();
-  });
-
-  it('preserva tasklist ativa quando o painel desmonta mas a aba continua aberta', () => {
-    taskListMocks.activeTaskListId = 'tasklist-1';
-    const { unmount } = renderHook(() => useTaskListSurfaceController(taskListTab, true));
-
-    unmount();
-
-    expect(taskListMocks.setActiveTaskList).not.toHaveBeenCalledWith(undefined);
-  });
-
-  it('não limpa tasklist ativa no unmount porque o cleanup é centralizado no workspace', () => {
-    taskListMocks.activeTaskListId = 'tasklist-1';
-    const { unmount } = renderHook(() => useTaskListSurfaceController(taskListTab, true));
-    workspaceMocks.tabs = [];
-
-    unmount();
-
-    expect(taskListMocks.setActiveTaskList).not.toHaveBeenCalledWith(undefined);
   });
 });
