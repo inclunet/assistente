@@ -8,6 +8,11 @@ import { useUIStore } from './uiStore';
 import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
+import {
+  buildWorkspaceModalChatSurfaceId,
+  createChatSurfaceIdentity,
+  type ChatSurfaceIdentity,
+} from '../services/chatSessionRegistry';
 
 export type WorkspaceChatModalPrepareOk = {
   ok: true;
@@ -73,6 +78,8 @@ interface WorkspaceChatModalState {
   boundTabId: string | null;
   /** Conversa garantida ao abrir o modal; usada para recuperar o chatStore antes do envio. */
   boundConversationId: string | null;
+  /** Identidade da superfície de chat vinculada ao painel que abriu o modal. */
+  boundSurface: ChatSurfaceIdentity | null;
   contextDisplay: string;
   sessionMeta: unknown;
   /** `adapter.send` capturado no `open()` para não depender do mapa global no clique. */
@@ -84,6 +91,7 @@ interface WorkspaceChatModalState {
     meta: unknown,
     boundTabId: string,
     boundConversationId: string,
+    boundSurface: ChatSurfaceIdentity,
     send: WorkspaceChatModalAdapter['send'],
   ) => void;
   close: () => void;
@@ -96,17 +104,19 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
   isOpen: false,
   boundTabId: null,
   boundConversationId: null,
+  boundSurface: null,
   contextDisplay: '',
   sessionMeta: null,
   boundSend: null,
   focusNonce: 0,
   adapterError: null,
 
-  open: (contextDisplay, meta, boundTabId, boundConversationId, send) => {
+  open: (contextDisplay, meta, boundTabId, boundConversationId, boundSurface, send) => {
     set({
       isOpen: true,
       boundTabId,
       boundConversationId,
+      boundSurface,
       contextDisplay,
       sessionMeta: meta,
       boundSend: send,
@@ -122,6 +132,7 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
       isOpen: false,
       boundTabId: null,
       boundConversationId: null,
+      boundSurface: null,
       contextDisplay: '',
       sessionMeta: null,
       boundSend: null,
@@ -203,6 +214,12 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
       return;
     }
 
-    get().open(result.contextDisplay, result.meta, tab.id, conversationId, adapter.send);
+    const boundSurface = createChatSurfaceIdentity({
+      conversationId,
+      surfaceId: buildWorkspaceModalChatSurfaceId(tab.id),
+      surfaceType: 'modal',
+      tabId: tab.id,
+    });
+    get().open(result.contextDisplay, result.meta, tab.id, conversationId, boundSurface, adapter.send);
   },
 }));

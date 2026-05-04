@@ -8,6 +8,7 @@ vi.mock('./workspaceStore', () => ({
   useWorkspaceStore: {
     getState: () => ({
       getActiveTab: () => mockGetActiveTab(),
+      workspace: { tabs: [{ id: 'tab-editor', type: 'editor' as const, title: 'x', position: 0 }] },
     }),
   },
 }));
@@ -48,6 +49,7 @@ function resetWorkspaceChatModalState() {
     isOpen: false,
     boundTabId: null,
     boundConversationId: null,
+    boundSurface: null,
     contextDisplay: '',
     sessionMeta: null,
     boundSend: null,
@@ -79,7 +81,13 @@ describe('workspaceChatModalStore.requestOpen', () => {
 
   it('com chat modal já aberto, requestOpen só reforça o foco (bumpFocus) sem chamar prepare', async () => {
     mockGetActiveTab.mockReturnValue(editorTab);
-    useWorkspaceChatModalStore.getState().open('ctx', {}, 'tab-editor', '1', vi.fn());
+    useWorkspaceChatModalStore.getState().open('ctx', {}, 'tab-editor', '1', {
+      conversationId: '1',
+      sessionKey: 'modal:workspace-chat:tab-editor:1',
+      surfaceId: 'modal:workspace-chat:tab-editor',
+      surfaceType: 'modal',
+      tabId: 'tab-editor',
+    }, vi.fn());
     const nonceBefore = useWorkspaceChatModalStore.getState().focusNonce;
     const prepare = vi.fn();
     registerWorkspaceChatModalAdapter('tab-editor', { prepare, send: vi.fn() });
@@ -153,6 +161,13 @@ describe('workspaceChatModalStore.requestOpen', () => {
     expect(s.isOpen).toBe(true);
     expect(s.boundTabId).toBe('tab-editor');
     expect(s.boundConversationId).toBe("1");
+    expect(s.boundSurface).toEqual({
+      conversationId: '1',
+      sessionKey: 'modal:workspace-chat:tab-editor:1',
+      surfaceId: 'modal:workspace-chat:tab-editor',
+      surfaceType: 'modal',
+      tabId: 'tab-editor',
+    });
     expect(s.contextDisplay).toBe('selection');
     expect(s.sessionMeta).toEqual(meta);
     expect(typeof s.boundSend).toBe('function');
