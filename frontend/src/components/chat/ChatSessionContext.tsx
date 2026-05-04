@@ -190,8 +190,6 @@ export function ChatSessionProvider({
   useEffect(() => {
     if (!normalizedConversationId || surfaceSession) return;
     ensureConversationSurfaceSession(normalizedConversationId, sessionKey, {
-      sessionKey,
-      conversationId: normalizedConversationId,
       ...createChatSurfaceOrigin(surfaceIdentity),
     });
     materializedSurfaceSessionKeysRef.current.add(sessionKey);

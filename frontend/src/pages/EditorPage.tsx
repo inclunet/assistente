@@ -70,7 +70,7 @@ interface EditorPageProps {
   isPanelActive?: boolean;
 }
 
-export default function EditorPage({ documentId, workspaceTab, isPanelActive = true }: EditorPageProps = {}) {
+export default function EditorPage({ documentId, workspaceTab }: EditorPageProps = {}) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);

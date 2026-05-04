@@ -89,6 +89,18 @@ function DraftProbe() {
   );
 }
 
+function NamedDraftProbe({ nextDraft }: { nextDraft: string }) {
+  const { draftMessage, setDraftMessage } = useChatSession();
+  return (
+    <button
+      type="button"
+      onClick={() => setDraftMessage(nextDraft)}
+    >
+      {draftMessage}
+    </button>
+  );
+}
+
 describe('ChatSessionProvider', () => {
   beforeEach(() => {
     ensureConversationSurfaceSessionMock.mockClear();
@@ -294,6 +306,93 @@ describe('ChatSessionProvider', () => {
       currentConversationId,
       'rascunho local',
       embeddedSessionKey,
+    );
+  });
+
+  it('mantém duas superfícies montadas da mesma conversa com rascunhos independentes', async () => {
+    const user = userEvent.setup();
+    chatStoreState.surfaceSessionsByKey = {
+      [`editor-a:${currentConversationId}`]: {
+        sessionKey: `editor-a:${currentConversationId}`,
+        conversationId: currentConversationId,
+        isLoading: false,
+        hasOlderMessages: false,
+        isLoadingOlderMessages: false,
+        streamingMessageId: null,
+        streamingReasoning: null,
+        isThinking: false,
+        activeToolCalls: [],
+        completedSegments: [],
+        draftMessage: 'rascunho editor A',
+        draftMediaFiles: [],
+        expandedThreads: new Set(),
+        expandedReasonings: new Set(),
+        editingMessageId: null,
+        readingMessageId: null,
+        skipFocusRestore: false,
+      },
+      [`editor-b:${currentConversationId}`]: {
+        sessionKey: `editor-b:${currentConversationId}`,
+        conversationId: currentConversationId,
+        isLoading: false,
+        hasOlderMessages: false,
+        isLoadingOlderMessages: false,
+        streamingMessageId: null,
+        streamingReasoning: null,
+        isThinking: false,
+        activeToolCalls: [],
+        completedSegments: [],
+        draftMessage: 'rascunho editor B',
+        draftMediaFiles: [],
+        expandedThreads: new Set(),
+        expandedReasonings: new Set(),
+        editingMessageId: null,
+        readingMessageId: null,
+        skipFocusRestore: false,
+      },
+    };
+
+    render(
+      <>
+        <ChatSessionProvider
+          surface={{
+            conversationId: currentConversationId,
+            sessionKey: `editor-a:${currentConversationId}`,
+            surfaceId: 'editor-a',
+            surfaceType: 'embedded',
+            tabId: 'tab-editor-a',
+          }}
+        >
+          <NamedDraftProbe nextDraft="novo A" />
+        </ChatSessionProvider>
+        <ChatSessionProvider
+          surface={{
+            conversationId: currentConversationId,
+            sessionKey: `editor-b:${currentConversationId}`,
+            surfaceId: 'editor-b',
+            surfaceType: 'embedded',
+            tabId: 'tab-editor-b',
+          }}
+        >
+          <NamedDraftProbe nextDraft="novo B" />
+        </ChatSessionProvider>
+      </>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'rascunho editor A' }));
+    await user.click(screen.getByRole('button', { name: 'rascunho editor B' }));
+
+    expect(setConversationDraftMessageMock).toHaveBeenNthCalledWith(
+      1,
+      currentConversationId,
+      'novo A',
+      `editor-a:${currentConversationId}`,
+    );
+    expect(setConversationDraftMessageMock).toHaveBeenNthCalledWith(
+      2,
+      currentConversationId,
+      'novo B',
+      `editor-b:${currentConversationId}`,
     );
   });
 });
