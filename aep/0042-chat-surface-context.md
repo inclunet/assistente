@@ -2,6 +2,8 @@
 
 ## Status: 🚧 In Progress
 
+> Nota de contrato vigente: após os PRs #110 e #111, esta AEP deve ser lida junto com as AEPs 0056, 0057 e 0058. `surfaceContext` descreve dados transitórios da interação, mas a identidade da superfície não é inferida por aba ativa: ela viaja explicitamente por `ChatSurfaceOrigin` e pelos campos estruturados de `ChatParams`.
+
 ## Resumo
 
 Formalizar um contrato único para superfícies de chat ligadas ao workspace, mantendo:
@@ -83,6 +85,10 @@ type ChatParams = {
   activeFilePath?: string
   surfaceStateJson?: string
   surfaceContextJson?: string
+  surfaceSessionKey?: string
+  surfaceId?: string
+  surfaceType?: string
+  surfaceTabId?: string
 }
 ```
 
@@ -102,7 +108,9 @@ type SurfaceTemplateData = {
 1. `tabType` deve conversar com `WorkspaceTab.type`.
 2. `surfaceStateJson` deve conversar com `WorkspaceTab.state`.
 3. `surfaceContextJson` é derivado por envio e não deve ser persistido no workspace.
-4. Ferramentas continuam podendo usar campos especializados existentes, como `activeFilePath`, enquanto migram para o contrato mais geral.
+4. Ferramentas continuam podendo usar campos especializados existentes, como `activeFilePath`, quando o dado é parte real do contexto da superfície.
+5. `surfaceSessionKey`, `surfaceId`, `surfaceType` e `surfaceTabId` são identidade de origem; não devem ser reconstruídos a partir de `activeTabId`.
+6. Perfil efetivo e origem de envio são calculados pela superfície chamadora e propagados como parâmetros estruturados.
 
 ---
 
@@ -125,6 +133,13 @@ type SurfaceTemplateData = {
 
 - Tools passam a poder ler `surfaceState` e `surfaceContext` diretamente do `InvocationContext`
 - Ações especiais por superfície (editor, terminal, tasklist, futuras) usam o mesmo contrato base
+
+### Consolidação posterior
+
+- AEP-0056 define o workspace como shell fino e separa `activeTabId` de identidade de dados.
+- AEP-0057 define `ChatSurfaceIdentity`, `ChatSurfaceOrigin` e sessões visuais por `sessionKey`.
+- AEP-0058 define que announcer, TTS e STT continuam globais, mas recebem origem explícita da superfície.
+- O PR #112 adiciona validação de regressão para origem em eventos, voz/anúncios e lifecycle de superfícies fechadas.
 
 ---
 

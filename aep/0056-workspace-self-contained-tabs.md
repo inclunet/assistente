@@ -198,6 +198,15 @@ O PR #111 completa a remoção de dependências residuais de superfície global:
 - Eventos backend-driven de chat propagam origem de superfície até streaming, tool calls, conclusão e mensagens prontas.
 - Announcer, som de recebimento e origem de voz usam a origem do evento ou da superfície, sem recalcular identidade a partir da aba ativa.
 
+#### Validação no PR #112
+
+O PR #112 não altera o alvo arquitetural nem entra na AEP-0059. Ele endurece a prova do contrato vigente:
+
+- Eventos de chat com `surfaceOrigin` são validados até anúncios, som de recebimento e `chat:speak`.
+- Requests assíncronos de terminal não recriam estado visual quando a sessão é fechada durante o carregamento.
+- Efeitos globais de feedback ignoram origens vinculadas a abas do workspace que já foram removidas.
+- Documentação antiga de contexto de superfície passa a apontar explicitamente para o contrato vigente das AEPs 0056, 0057 e 0058.
+
 ## Riscos
 
 - Keep-alive pode aumentar uso de memória se muitas abas pesadas permanecerem montadas.

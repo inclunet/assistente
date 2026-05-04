@@ -142,6 +142,14 @@ O PR #111 implementa a integração da arbitragem com origem explícita de super
 - `chat:speak` carrega `surfaceOrigin` e converte essa origem em `VoiceAccessibilityOrigin` antes de acionar fala ou anúncio.
 - A política continua global para live region, TTS e STT, mas a identidade da ação vem da superfície que iniciou o turno.
 
+#### Validação no PR #112
+
+O PR #112 adiciona hardening de lifecycle para a política global:
+
+- Origem de evento é propagada em testes até announcer, som e `chat:speak`.
+- Efeitos globais não são emitidos quando a origem pertence a uma aba do workspace que já foi fechada.
+- Canais externos continuam válidos sem `tabId`, porque não dependem da aba ativa nem do lifecycle do workspace.
+
 ## Riscos
 
 - Política agressiva de interrupção de TTS pode frustrar usuários que esperam ouvir tudo.
@@ -149,6 +157,7 @@ O PR #111 implementa a integração da arbitragem com origem explícita de super
 - Anúncios de abas inativas podem virar ruído se forem muito frequentes.
 - Cancelar STT ao trocar de aba pode descartar fala do usuário se não houver feedback claro.
 - Eventos legados sem `surfaceOrigin` podem cair na resolução por `conversationId`; novos fluxos devem carregar origem explícita.
+- Efeitos globais precisam distinguir origem de workspace fechada de origem externa sem aba.
 - Inferir perfil errado pode gerar voz, idioma ou provider incorreto.
 
 ## Critérios de aceitação
@@ -163,3 +172,4 @@ O PR #111 implementa a integração da arbitragem com origem explícita de super
 - Canais externos continuam independentes da aba ativa.
 - Testes cobrem active/inactive, prioridade de TTS e gate de STT.
 - Eventos de chat com origem de superfície produzem anúncios e origem de voz associados à superfície correta.
+- Origem vinculada a aba fechada não dispara anúncio ou som global.
