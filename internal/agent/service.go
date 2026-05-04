@@ -88,6 +88,7 @@ func (s *Service) RunAgenticLoop(
 	turnID string,
 	toolDefs []llm.ToolDefinition,
 	streamer llm.Streamer,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
 	newHandler func(conversationID string, iteration int) IterationHandler,
 ) {
 	if streamer == nil {
@@ -95,6 +96,7 @@ func (s *Service) RunAgenticLoop(
 		log.Printf("🔴 [AGENT] streamer nil na conversa %s", conversationID)
 		s.emitter.Emit("chat:done", ports.DoneEvent{
 			ConversationID: conversationID,
+			SurfaceOrigin:  surfaceOrigin,
 			Reason:         "error",
 			ErrorMessage:   errMsg,
 		})
@@ -106,13 +108,6 @@ func (s *Service) RunAgenticLoop(
 	if maxIterations <= 0 {
 		maxIterations = s.toolExecutor.Config().MaxIterations
 	}
-	surfaceOrigin := ports.NewChatSurfaceOrigin(
-		conversationID,
-		params.SurfaceSessionKey,
-		params.SurfaceID,
-		params.SurfaceType,
-		params.SurfaceTabID,
-	)
 
 	// Propaga contexto de invocação (tab type + arquivo ativo) para as tools
 	if params.TabType != "" || params.ActiveFilePath != "" || params.SurfaceStateJSON != "" || params.SurfaceContextJSON != "" {

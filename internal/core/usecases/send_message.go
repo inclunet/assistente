@@ -255,7 +255,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				events.HandlePanic(uc.emitter, req.ConversationID, "runAgenticLoop", r)
 			}()
 			defer uc.streamMgr.Unregister(req.ConversationID)
-			uc.agentSvc.RunAgenticLoop(agentCtx, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer,
+			uc.agentSvc.RunAgenticLoop(agentCtx, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer, surfaceOrigin,
 				func(convID string, iter int) agent.IterationHandler {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin)
 				},
