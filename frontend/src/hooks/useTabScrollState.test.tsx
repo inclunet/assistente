@@ -8,7 +8,7 @@ const workspaceMocks = vi.hoisted(() => ({
   tabs: [
     { id: 'terminal-a', state: { scrollTop: 10 } },
     { id: 'terminal-b', state: { scrollTop: 20 } },
-  ],
+  ] as Array<{ id: string; state: { scrollTop?: number } }>,
 }));
 
 vi.mock('../store/workspaceStore', () => ({
@@ -98,6 +98,19 @@ describe('useTabScrollState', () => {
 
     const terminalA = screen.getByTestId('terminal-a');
     terminalA.scrollTop = 88;
+
+    unmount();
+
+    expect(workspaceMocks.updateTab).not.toHaveBeenCalled();
+  });
+
+  it('não persiste scroll zero inicial quando não havia valor salvo nem scroll real', () => {
+    workspaceMocks.tabs = [
+      { id: 'terminal-a', state: {} },
+      { id: 'terminal-b', state: { scrollTop: 20 } },
+    ];
+
+    const { unmount } = render(<ScrollProbe tabId="terminal-a" />);
 
     unmount();
 

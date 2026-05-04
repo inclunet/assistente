@@ -9,14 +9,11 @@ function isWorkspaceTabActive(tabId: string): boolean {
 export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolean) {
   const updateWorkspaceTab = useWorkspaceStore((state) => state.updateTab);
   const isWsInitialized = useWorkspaceStore((state) => state.isInitialized);
-  const lastSyncedRef = useRef<string | null>(null);
   const creatingRef = useRef(false);
 
   const sessionId = (tab.state?.sessionId as string) || '';
   useEffect(() => {
     if (!isWsInitialized || !isActive || tab.type !== 'terminal') return;
-
-    const syncKey = `${tab.id}:${sessionId}`;
 
     const store = useTerminalStore.getState();
     if (sessionId) {
@@ -25,7 +22,6 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
         if (!store.historyBySession[sessionId]) {
           void store.loadHistory(sessionId);
         }
-        lastSyncedRef.current = syncKey;
         return;
       }
 
@@ -37,7 +33,6 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
           if (!reloaded.historyBySession[sessionId]) {
             void reloaded.loadHistory(sessionId);
           }
-          lastSyncedRef.current = syncKey;
         } else {
           void recoverStaleSession(tab.id);
         }
