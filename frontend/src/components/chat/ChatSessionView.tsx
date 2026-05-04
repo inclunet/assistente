@@ -8,7 +8,11 @@ import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar } from './ChatToolbar';
 import { ChatSessionProvider } from './ChatSessionContext';
-import type { ChatSurfaceOrigin, ChatSurfaceType } from '../../services/chatSessionRegistry';
+import type {
+  ChatSurfaceIdentity,
+  ChatSurfaceOrigin,
+  ChatSurfaceType,
+} from '../../services/chatSessionRegistry';
 import { ContextMenu } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
@@ -29,6 +33,7 @@ import './ChatSessionView.css';
 
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
+  surface?: ChatSurfaceIdentity;
   surfaceType?: ChatSurfaceType;
   conversationId?: string | null;
   surfaceId?: string;
@@ -40,6 +45,7 @@ export interface ChatSessionViewProps {
 
 export function ChatSessionView({
   variant = 'page',
+  surface,
   surfaceType = variant,
   conversationId,
   surfaceId,
@@ -49,6 +55,7 @@ export function ChatSessionView({
 }: ChatSessionViewProps) {
   return (
     <ChatSessionProvider
+      surface={surface}
       conversationId={conversationId}
       surfaceType={surfaceType}
       surfaceId={surfaceId}
@@ -56,10 +63,6 @@ export function ChatSessionView({
     >
       <ChatSessionViewControllerBridge
         variant={variant}
-        surfaceType={surfaceType}
-        conversationId={conversationId}
-        surfaceId={surfaceId}
-        sessionKey={sessionKey}
         onSend={onSend}
         showShortcutsHelp={showShortcutsHelp}
       />
@@ -69,22 +72,28 @@ export function ChatSessionView({
 
 function ChatSessionViewControllerBridge({
   onSend,
-  ...props
+  variant,
+  showShortcutsHelp,
 }: ChatSessionViewProps) {
   const controller = useChatSurfaceController({
     onSend: (content, mediaFiles, context) => onSend(content, mediaFiles, context.origin),
   });
 
-  return <ChatSessionViewContent {...props} controller={controller} />;
+  return (
+    <ChatSessionViewContent
+      variant={variant}
+      showShortcutsHelp={showShortcutsHelp}
+      controller={controller}
+    />
+  );
 }
 
-interface ChatSessionViewContentProps extends Omit<ChatSessionViewProps, 'onSend'> {
+interface ChatSessionViewContentProps extends Pick<ChatSessionViewProps, 'variant' | 'showShortcutsHelp'> {
   controller: ChatSurfaceController;
 }
 
 function ChatSessionViewContent({
   variant = 'page',
-  conversationId,
   showShortcutsHelp,
   controller,
 }: ChatSessionViewContentProps) {
@@ -122,6 +131,7 @@ function ChatSessionViewContent({
     startConversationEditing,
     startConversationReading,
     origin,
+    conversationId,
     draftMessage,
     draftMediaFiles,
     scrollTop,

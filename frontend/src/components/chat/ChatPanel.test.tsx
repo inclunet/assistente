@@ -2,17 +2,14 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel } from './ChatPanel';
-import type { ChatSurfaceOrigin } from '../../services/chatSessionRegistry';
+import type { ChatSurfaceIdentity, ChatSurfaceOrigin } from '../../services/chatSessionRegistry';
 
 const chatSessionViewMock = vi.fn();
 
 vi.mock('./ChatSessionView', () => ({
   ChatSessionView: (props: {
     variant?: 'page' | 'embedded';
-    surfaceType?: string;
-    conversationId?: string | null;
-    surfaceId?: string;
-    sessionKey?: string;
+    surface: ChatSurfaceIdentity;
     onSend: (content: string, mediaFiles: undefined, origin: ChatSurfaceOrigin) => Promise<void>;
   }) => {
     chatSessionViewMock(props);
@@ -20,16 +17,23 @@ vi.mock('./ChatSessionView', () => ({
       <button
         type="button"
         onClick={() => props.onSend('oi', undefined, {
-          sessionKey: 'surface-a:conversation-a',
-          conversationId: 'conversation-a',
-          surfaceId: 'surface-a',
-          surfaceType: props.surfaceType === 'modal' ? 'modal' : 'embedded',
+          sessionKey: props.surface.sessionKey,
+          conversationId: props.surface.conversationId ?? 'conversation-a',
+          surfaceId: props.surface.surfaceId,
+          surfaceType: props.surface.surfaceType,
         })}
       >
         send
       </button>
     );
   },
+}));
+
+vi.mock('../workspace/WorkspacePanelContext', () => ({
+  useWorkspacePanel: () => ({
+    tab: { id: 'tab-chat', type: 'chat', title: 'Chat', position: 0 },
+    isActive: true,
+  }),
 }));
 
 describe('ChatPanel', () => {
@@ -50,11 +54,14 @@ describe('ChatPanel', () => {
     );
 
     expect(chatSessionViewMock).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: 'conversation-a',
-      sessionKey: 'surface-a:conversation-a',
-      surfaceId: 'surface-a',
       showShortcutsHelp: false,
-      surfaceType: 'modal',
+      surface: {
+        conversationId: 'conversation-a',
+        sessionKey: 'surface-a:conversation-a',
+        surfaceId: 'surface-a',
+        surfaceType: 'modal',
+        tabId: 'tab-chat',
+      },
       variant: 'embedded',
     }));
   });
@@ -91,9 +98,13 @@ describe('ChatPanel', () => {
 
     render(
       <ChatPanel
-        conversationId=""
-        surfaceId="surface-a"
-        surfaceType="embedded"
+        surface={{
+          conversationId: null,
+          sessionKey: 'surface-a:conversation-a',
+          surfaceId: 'surface-a',
+          surfaceType: 'embedded',
+          tabId: 'tab-chat',
+        }}
         onSend={onSend}
       />,
     );
