@@ -2,7 +2,7 @@ import { GetMessages } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import i18next from 'i18next';
 import { main } from '../../wailsjs/go/models';
-import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
+import type { ToolCallStatus } from '../types/chat';
 import { announce } from '../hooks/useAnnouncer';
 import {
   finalizeStreamingNode,

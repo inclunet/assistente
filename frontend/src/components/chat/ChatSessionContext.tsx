@@ -19,7 +19,7 @@ import {
   type ChatSurfaceType,
   type ConversationTimeline,
 } from '../../services/chatSessionRegistry';
-import type { ToolCallStatus } from './ToolCallsSection';
+import type { ToolCallStatus } from '../../types/chat';
 import type { MediaFile } from '../../services/mediaService';
 
 const EMPTY_MESSAGES: never[] = [];

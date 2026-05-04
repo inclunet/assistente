@@ -123,16 +123,16 @@ export function WorkspaceChatModal() {
 
   return (
     <Modal isOpen={isOpen} title={modalTitle} onClose={handleClose} size="lg">
-      <div className="editor-inline-chat workspace-chat-modal">
-        <details className="editor-inline-chat__context">
-          <summary className="editor-inline-chat__context-summary">
+      <div className="workspace-chat-modal">
+        <details className="workspace-chat-modal__context">
+          <summary className="workspace-chat-modal__context-summary">
             {t('editor.chatModal.contextBtn')}
           </summary>
-          <pre className="editor-inline-chat__context-pre">{contextDisplay}</pre>
+          <pre className="workspace-chat-modal__context-pre">{contextDisplay}</pre>
         </details>
 
         {adapterError && (
-          <div className="editor-inline-chat__error" role="alert">
+          <div className="workspace-chat-modal__error" role="alert">
             {adapterError}
           </div>
         )}

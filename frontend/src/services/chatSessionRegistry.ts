@@ -1,4 +1,4 @@
-import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
+import type { ToolCallStatus } from '../types/chat';
 import type { MessageNode, TurnSegment } from '../lib/chatMessageTree';
 import type { MediaFile } from './mediaService';
 
