@@ -178,10 +178,8 @@ const toSurfaceSession = (
   conversationId: string | null,
   sessionKey: string,
 ): ChatSurfaceSession => {
-  const {
-    conversation: _conversation,
-    ...surface
-  } = session;
+  const surface = { ...session };
+  delete (surface as Partial<ChatConversationSession>).conversation;
   return {
     ...surface,
     sessionKey,

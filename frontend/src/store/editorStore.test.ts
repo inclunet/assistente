@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useEditorStore } from './editorStore';
 
 function resetStore() {
-  useEditorStore.setState({ documents: {}, activeDocumentId: null, pendingInsert: null });
+  useEditorStore.setState({ documents: {}, pendingInsert: null });
 }
 
 describe('editorStore — filePath lifecycle', () => {
@@ -49,14 +49,11 @@ describe('editorStore — filePath lifecycle', () => {
     expect(useEditorStore.getState().documents).toBe(before);
   });
 
-  it('removeDocument limpa documento e desativa se era ativo', () => {
+  it('removeDocument limpa documento sem coordenar singleton ativo', () => {
     useEditorStore.getState().createDocument({ id: 'doc-5', title: 'A', filePath: '/a.md' });
-    useEditorStore.getState().setActiveDocument('doc-5');
-    expect(useEditorStore.getState().activeDocumentId).toBe('doc-5');
 
     useEditorStore.getState().removeDocument('doc-5');
     expect(useEditorStore.getState().documents['doc-5']).toBeUndefined();
-    expect(useEditorStore.getState().activeDocumentId).toBeNull();
   });
 
   it('renameDocument atualiza título sem alterar filePath', () => {
@@ -75,15 +72,14 @@ describe('editorStore — filePath lifecycle', () => {
     expect(useEditorStore.getState().documents['doc-7'].filePath).toBe('/x.md');
   });
 
-  it('hydrate restaura documents e activeDocumentId por completo', () => {
+  it('hydrate restaura documents por completo', () => {
     const docs = {
       'd1': { id: 'd1', title: 'A', markdown: '# A', mode: 'markdown' as const, filePath: '/a.md', draftId: null },
       'd2': { id: 'd2', title: 'B', markdown: '# B', mode: 'rich' as const, filePath: null, draftId: 'd2' },
     };
-    useEditorStore.getState().hydrate({ documents: docs, activeDocumentId: 'd2' });
+    useEditorStore.getState().hydrate({ documents: docs });
 
     expect(useEditorStore.getState().documents['d1'].filePath).toBe('/a.md');
     expect(useEditorStore.getState().documents['d2'].filePath).toBeNull();
-    expect(useEditorStore.getState().activeDocumentId).toBe('d2');
   });
 });

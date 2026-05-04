@@ -21,8 +21,9 @@ export function useTabScrollState(
 
   // Restaura scroll quando a aba monta
   useEffect(() => {
-    if (!scrollTop || !scrollRef.current) return;
-    const saved = scrollTop as number;
+    if (scrollTop === null || scrollTop === undefined || !scrollRef.current) return;
+    const saved = Number(scrollTop);
+    if (!Number.isFinite(saved)) return;
     requestAnimationFrame(() => {
       if (scrollRef.current) {
         scrollRef.current.scrollTop = saved;

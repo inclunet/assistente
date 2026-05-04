@@ -4,12 +4,10 @@ import type { WorkspaceTab } from '../../store/workspaceStore';
 
 const editorMocks = vi.hoisted(() => ({
   createDocument: vi.fn(),
-  setActiveDocument: vi.fn(),
   removeDocument: vi.fn(),
   renameDocument: vi.fn(),
   subscribe: vi.fn(),
   documents: {} as Record<string, unknown>,
-  activeDocumentId: null as string | null,
 }));
 
 const workspaceMocks = vi.hoisted(() => ({
@@ -71,19 +69,17 @@ const editorTab: WorkspaceTab = {
 describe('useEditorSurfaceController', () => {
   beforeEach(() => {
     editorMocks.createDocument.mockReset();
-    editorMocks.setActiveDocument.mockReset();
     editorMocks.removeDocument.mockReset();
     editorMocks.renameDocument.mockReset();
     editorMocks.subscribe.mockReset();
     editorMocks.documents = {};
-    editorMocks.activeDocumentId = null;
     workspaceMocks.updateTab.mockReset();
     workspaceMocks.isInitialized = true;
     workspaceMocks.tabs = [editorTab];
     workspaceMocks.activeTabId = 'editor-tab';
   });
 
-  it('cria documento para a aba ativa sem depender de activeDocumentId global', async () => {
+  it('cria documento para a aba ativa por tabId explícito', async () => {
     renderHook(() => useEditorSurfaceController(editorTab, true));
 
     await waitFor(() => {
@@ -92,7 +88,6 @@ describe('useEditorSurfaceController', () => {
         filePath: 'C:/tmp/doc.md',
         markdown: '# Arquivo',
       }));
-      expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
     });
   });
 
@@ -100,26 +95,20 @@ describe('useEditorSurfaceController', () => {
     renderHook(() => useEditorSurfaceController(editorTab, false));
 
     expect(editorMocks.createDocument).not.toHaveBeenCalled();
-    expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
   });
 
-  it('preserva documento existente sem reativar singleton global quando painel volta a ficar ativo', () => {
+  it('preserva documento existente quando painel volta a ficar ativo', () => {
     editorMocks.documents = {
       'editor-tab': { id: 'editor-tab', title: 'Editor', filePath: null },
     };
-    editorMocks.activeDocumentId = 'other-editor';
     const { rerender } = renderHook(({ active }) => useEditorSurfaceController(editorTab, active), {
       initialProps: { active: true },
     });
 
-    expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
-
-    editorMocks.setActiveDocument.mockClear();
-    editorMocks.activeDocumentId = 'other-editor';
     rerender({ active: false });
     rerender({ active: true });
 
-    expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
+    expect(editorMocks.createDocument).not.toHaveBeenCalled();
   });
 
   it('usa fallback i18n para título de documento novo sem arquivo', async () => {
@@ -151,7 +140,6 @@ describe('useEditorSurfaceController', () => {
       expect(EditorReadFile).toHaveBeenCalledWith('C:/tmp/doc.md');
     });
     expect(editorMocks.createDocument).not.toHaveBeenCalled();
-    expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
   });
 
   it('preserva documento quando o painel desmonta mas a aba continua aberta', () => {
