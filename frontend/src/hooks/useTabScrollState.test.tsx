@@ -30,6 +30,10 @@ function ScrollProbe({ tabId }: { tabId: string }) {
 describe('useTabScrollState', () => {
   beforeEach(() => {
     workspaceMocks.updateTab.mockReset();
+    workspaceMocks.tabs = [
+      { id: 'terminal-a', state: { scrollTop: 10 } },
+      { id: 'terminal-b', state: { scrollTop: 20 } },
+    ];
   });
 
   it('salva scroll por tabId explícito para duas abas montadas simultaneamente', () => {
@@ -68,6 +72,21 @@ describe('useTabScrollState', () => {
 
     expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-a', {
       state: { scrollTop: 0 },
+    });
+  });
+
+  it('não sobrescreve scroll restaurado quando desmonta sem novo evento de scroll', () => {
+    workspaceMocks.tabs = [
+      { id: 'terminal-a', state: { scrollTop: 88 } },
+      { id: 'terminal-b', state: { scrollTop: 20 } },
+    ];
+
+    const { unmount } = render(<ScrollProbe tabId="terminal-a" />);
+
+    unmount();
+
+    expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-a', {
+      state: { scrollTop: 88 },
     });
   });
 });

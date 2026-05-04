@@ -24,6 +24,7 @@ export function useTabScrollState(
     if (scrollTop === null || scrollTop === undefined || !scrollRef.current) return;
     const saved = Number(scrollTop);
     if (!Number.isFinite(saved)) return;
+    scrollTopRef.current = saved;
     requestAnimationFrame(() => {
       if (scrollRef.current) {
         scrollRef.current.scrollTop = saved;
@@ -47,8 +48,9 @@ export function useTabScrollState(
     return () => {
       const tabId = tabIdRef.current;
       if (tabId) {
-        void updateTab(tabId, { state: { scrollTop: scrollTopRef.current } });
+        const currentScrollTop = scrollRef.current?.scrollTop ?? scrollTopRef.current;
+        void updateTab(tabId, { state: { scrollTop: currentScrollTop } });
       }
     };
-  }, []);
+  }, [scrollRef, updateTab]);
 }
