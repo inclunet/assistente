@@ -59,8 +59,9 @@ export function useWorkspaceKeyboardShortcuts() {
         (event.code === 'KeyI' || event.key === 'i' || event.key === 'I') &&
         !event.altKey
       ) {
+        if (!activeTabId) return;
         event.preventDefault();
-        void useWorkspaceChatModalStore.getState().requestOpen(activeTabId ?? undefined);
+        void useWorkspaceChatModalStore.getState().requestOpen(activeTabId);
         return;
       }
 

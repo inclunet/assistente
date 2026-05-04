@@ -39,11 +39,9 @@ export interface EditorDocument {
 
 interface EditorState {
   documents: Record<string, EditorDocument>;
-  activeDocumentId: string | null;
 
   createDocument: (initial?: Partial<Pick<EditorDocument, 'id' | 'title' | 'markdown' | 'mode' | 'filePath' | 'draftId'>>) => string;
   removeDocument: (docId: string) => void;
-  setActiveDocument: (docId: string) => void;
   renameDocument: (docId: string, title: string) => void;
   setDocMarkdown: (docId: string, markdown: string) => void;
   setDocMode: (docId: string, mode: EditorMode) => void;
@@ -54,13 +52,12 @@ interface EditorState {
   setDocDirty: (docId: string, isDirty: boolean) => void;
 
   getDocument: (docId: string) => EditorDocument | undefined;
-  getActiveDocument: () => EditorDocument | null;
 
   pendingInsert: EditorInsertRequest | null;
   requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string | null;
   consumePendingInsert: () => EditorInsertRequest | null;
 
-  hydrate: (payload: { documents: Record<string, EditorDocument>; activeDocumentId: string | null }) => void;
+  hydrate: (payload: { documents: Record<string, EditorDocument> }) => void;
 }
 
 function newId(): string {
@@ -81,7 +78,6 @@ function updateDoc(documents: Record<string, EditorDocument>, docId: string, pat
 
 export const useEditorStore = create<EditorState>((set, get) => ({
   documents: {},
-  activeDocumentId: null,
 
   pendingInsert: null,
 
@@ -101,7 +97,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     set((state) => ({
       documents: { ...state.documents, [id]: doc },
-      activeDocumentId: id,
     }));
 
     return id;
@@ -151,13 +146,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => {
       const next = { ...state.documents };
       delete next[docId];
-      const nextActive = state.activeDocumentId === docId ? null : state.activeDocumentId;
-      return { documents: next, activeDocumentId: nextActive };
+      return { documents: next };
     });
-  },
-
-  setActiveDocument: (docId) => {
-    set({ activeDocumentId: docId });
   },
 
   renameDocument: (docId, title) => {
@@ -195,15 +185,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   getDocument: (docId) => get().documents[docId],
-  getActiveDocument: () => {
-    const { documents, activeDocumentId } = get();
-    return activeDocumentId ? documents[activeDocumentId] ?? null : null;
-  },
 
   hydrate: (payload) => {
     set({
       documents: payload.documents,
-      activeDocumentId: payload.activeDocumentId,
     });
   },
 }));

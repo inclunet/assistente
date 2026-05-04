@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore, useActiveTab, registerTabRenameHandler } from '../store/workspaceStore';
+import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
 import { RenameConversation } from '@wailsjs/go/app/App';
 import { ensureWorkspaceTabConversationId } from '../lib/workspaceConversation';
@@ -21,8 +21,11 @@ const MINI_CHAT_LAZY_CONVERSATION: ReadonlySet<TabType> = new Set(['editor', 'te
  * 5. Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
  */
 export function useWorkspaceChatBridge() {
-  const activeTab = useActiveTab();
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
+  const activeTab = useWorkspaceStore((s) => {
+    const activeTabId = s.workspace?.activeTabId;
+    return s.workspace?.tabs.find((tab) => tab.id === activeTabId);
+  });
 
   const lastSyncedRef = useRef<string | null>(null);
   /** Invalida `loadConversation` / `ensure` assíncronos quando a aba ativa muda antes de concluírem. */
@@ -54,7 +57,8 @@ export function useWorkspaceChatBridge() {
           return;
         }
         if (syncGenerationRef.current !== gen) return;
-        const nowTab = useWorkspaceStore.getState().getActiveTab();
+        const workspace = useWorkspaceStore.getState().workspace;
+        const nowTab = workspace?.tabs.find((tab) => tab.id === workspace.activeTabId);
         if (!nowTab || nowTab.id !== snapshotTabId) return;
         if ((nowTab.conversationId || '') !== conversationId) return;
         lastSyncedRef.current = syncKey;
@@ -72,14 +76,16 @@ export function useWorkspaceChatBridge() {
       try {
         const id = await ensureWorkspaceTabConversationId(activeTab);
         if (syncGenerationRef.current !== gen) return;
-        const nowTab = useWorkspaceStore.getState().getActiveTab();
+        const workspace = useWorkspaceStore.getState().workspace;
+        const nowTab = workspace?.tabs.find((tab) => tab.id === workspace.activeTabId);
         if (!nowTab || nowTab.id !== snapshotTabId) return;
         if ((nowTab.conversationId || '') !== id) return;
 
         await useChatStore.getState().loadConversationSession(id, { activate: true });
 
         if (syncGenerationRef.current !== gen) return;
-        const latestTab = useWorkspaceStore.getState().getActiveTab();
+        const latestWorkspace = useWorkspaceStore.getState().workspace;
+        const latestTab = latestWorkspace?.tabs.find((tab) => tab.id === latestWorkspace.activeTabId);
         if (!latestTab || latestTab.id !== snapshotTabId) return;
         if ((latestTab.conversationId || '') !== id) return;
         lastSyncedRef.current = `${snapshotTabId}:${id}`;

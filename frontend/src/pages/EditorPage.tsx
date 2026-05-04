@@ -79,7 +79,6 @@ export default function EditorPage({ documentId, workspaceTab }: EditorPageProps
 
 
   const documents = useEditorStore((s) => s.documents);
-  const activeDocumentId = useEditorStore((s) => s.activeDocumentId);
   const createDocument = useEditorStore((s) => s.createDocument);
   const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
   const renameDocument = useEditorStore((s) => s.renameDocument);
@@ -97,7 +96,7 @@ export default function EditorPage({ documentId, workspaceTab }: EditorPageProps
   const tabProfileSlug = workspaceTab?.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || 'editor-texto';
 
-  const currentDocumentId = documentId ?? activeDocumentId;
+  const currentDocumentId = documentId ?? workspaceTab?.id ?? null;
   const activeTab = currentDocumentId ? documents[currentDocumentId] ?? null : null;
 
 
@@ -684,7 +683,6 @@ export default function EditorPage({ documentId, workspaceTab }: EditorPageProps
       try {
         const wsState = useWorkspaceStore.getState();
         const wsEditorTabs = (wsState.workspace?.tabs || []).filter((t) => t.type === 'editor');
-        const wsActiveTabId = wsState.workspace?.activeTabId || null;
 
         const editorState = await EditorLoadState();
         if (cancelled) return;
@@ -774,14 +772,8 @@ export default function EditorPage({ documentId, workspaceTab }: EditorPageProps
           loadedDocs[t.id] = t;
         }
 
-        // Aba ativa: preferir a aba ativa do workspace se for editor, senão a primeira
-        const activeEditorId = loadedDocs[wsActiveTabId || '']
-          ? wsActiveTabId!
-          : (loadedTabs[0]?.id ?? null);
-
         hydrate({
           documents: loadedDocs,
-          activeDocumentId: activeEditorId,
         });
 
         // Restaura merge sessions em refs antes de liberar autosave.
@@ -2326,7 +2318,8 @@ export default function EditorPage({ documentId, workspaceTab }: EditorPageProps
             addToast(t('editor.chatModal.prepareNeedCodeOrRich'), 'info');
             return;
           }
-          await useWorkspaceChatModalStore.getState().requestOpen(workspaceTab?.id);
+          if (!workspaceTab?.id) return;
+          await useWorkspaceChatModalStore.getState().requestOpen(workspaceTab.id);
         },
         disabled: !activeTab || isAsking,
       },

@@ -45,7 +45,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   
   // IMPORTANTE: messageId deve ser definido primeiro, pois é usado em hooks abaixo
   const messageId = node.message.id;
-  const fallbackConversationId = String(node.message.conversationId || '');
   const {
     conversationId,
     editingMessageId,
@@ -61,7 +60,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     setConversationReadingMessageId,
     toggleConversationThreadExpanded,
     toggleConversationReasoningExpanded,
-  } = useChatNodeSessionState(fallbackConversationId, messageId);
+  } = useChatNodeSessionState(messageId);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);

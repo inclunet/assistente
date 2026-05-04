@@ -8,7 +8,6 @@ const storeMocks = vi.hoisted(() => ({
   loadSessions: vi.fn(),
   createSession: vi.fn(),
   closeSession: vi.fn(),
-  setActiveSession: vi.fn(),
   sendInput: vi.fn(),
   interrupt: vi.fn(),
   setupEventListeners: vi.fn(() => () => {}),
@@ -16,13 +15,11 @@ const storeMocks = vi.hoisted(() => ({
 
 const storeState = vi.hoisted(() => ({
   sessions: [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp' }],
-  activeSessionId: 'term-1',
   historyBySession: { 'term-1': [] },
   isLoading: false,
   loadSessions: storeMocks.loadSessions,
   createSession: storeMocks.createSession,
   closeSession: storeMocks.closeSession,
-  setActiveSession: storeMocks.setActiveSession,
   sendInput: storeMocks.sendInput,
   interrupt: storeMocks.interrupt,
   setupEventListeners: storeMocks.setupEventListeners,
@@ -126,7 +123,6 @@ describe('TerminalPage', () => {
     storeMocks.loadSessions.mockReset();
     storeMocks.createSession.mockReset();
     storeMocks.closeSession.mockReset();
-    storeMocks.setActiveSession.mockReset();
     storeMocks.sendInput.mockReset();
     storeMocks.interrupt.mockReset();
   });

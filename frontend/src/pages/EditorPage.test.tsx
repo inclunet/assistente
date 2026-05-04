@@ -7,7 +7,6 @@ const openToolbarMenuSpy = vi.fn();
 
 const editorStoreState = {
   documents: {} as Record<string, { id: string; title: string; markdown: string; mode: string }>,
-  activeDocumentId: null as string | null,
   autoSaveEnabled: true,
   editorProfileSlug: 'editor-texto',
   createDocument: vi.fn(),
@@ -22,7 +21,6 @@ const editorStoreState = {
   setDocMode: vi.fn(),
   consumePendingInsert: vi.fn().mockReturnValue(null),
   getDocument: vi.fn(),
-  getActiveDocument: vi.fn(),
   removeDocument: vi.fn(),
 };
 
@@ -200,7 +198,6 @@ import EditorPage from './EditorPage';
 describe('EditorPage', () => {
   beforeEach(() => {
     editorStoreState.documents = {};
-    editorStoreState.activeDocumentId = null;
     openToolbarMenuSpy.mockReset();
   });
 
@@ -226,9 +223,8 @@ describe('EditorPage', () => {
     editorStoreState.documents = {
       'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'view' },
     };
-    editorStoreState.activeDocumentId = 'tab-1';
 
-    render(<EditorPage />);
+    render(<EditorPage documentId="tab-1" />);
 
     expect(screen.getByRole('button', { name: 'editor.buttons.insert' })).toBeDisabled();
   });

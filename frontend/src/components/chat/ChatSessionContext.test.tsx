@@ -53,17 +53,19 @@ vi.mock('../../store/chatStore', () => ({
   },
 }));
 
-vi.mock('../workspace/WorkspacePanelContext', () => ({
-  useWorkspacePanel: () => ({
-    tab: { id: 'tab-chat', type: 'chat', title: 'Chat', position: 0 },
-    isActive: true,
-  }),
-}));
-
 import { ChatSessionProvider, useChatSession } from './ChatSessionContext';
+import type { ChatSurfaceIdentity } from '../../services/chatSessionRegistry';
 
 const embeddedSurfaceId = 'embedded:workspace-chat-modal:tab-chat';
 const embeddedSessionKey = `${embeddedSurfaceId}:${currentConversationId}`;
+const embeddedSurface = (overrides: Partial<ChatSurfaceIdentity> = {}): ChatSurfaceIdentity => ({
+  conversationId: currentConversationId,
+  sessionKey: embeddedSessionKey,
+  surfaceId: embeddedSurfaceId,
+  surfaceType: 'embedded',
+  tabId: 'tab-chat',
+  ...overrides,
+});
 
 function Probe() {
   const { retryMessageToConversation, surface } = useChatSession();
@@ -113,11 +115,7 @@ describe('ChatSessionProvider', () => {
 
   it('materializa sessão de superfície ao montar sessionKey não padrão', async () => {
     const { unmount } = render(
-      <ChatSessionProvider
-        conversationId={currentConversationId}
-        surfaceType="embedded"
-        surfaceId={embeddedSurfaceId}
-      >
+      <ChatSessionProvider surface={embeddedSurface()}>
         <Probe />
       </ChatSessionProvider>,
     );
@@ -145,15 +143,7 @@ describe('ChatSessionProvider', () => {
 
   it('aceita identidade de superfície como contrato principal', async () => {
     render(
-      <ChatSessionProvider
-        surface={{
-          conversationId: currentConversationId,
-          sessionKey: embeddedSessionKey,
-          surfaceId: embeddedSurfaceId,
-          surfaceType: 'embedded',
-          tabId: 'tab-chat',
-        }}
-      >
+      <ChatSessionProvider surface={embeddedSurface()}>
         <Probe />
       </ChatSessionProvider>,
     );
@@ -176,11 +166,7 @@ describe('ChatSessionProvider', () => {
 
   it('rematerializa superfície quando ela desaparece da store enquanto provider segue montado', async () => {
     const { rerender } = render(
-      <ChatSessionProvider
-        conversationId={currentConversationId}
-        surfaceType="embedded"
-        surfaceId={embeddedSurfaceId}
-      >
+      <ChatSessionProvider surface={embeddedSurface()}>
         <Probe />
       </ChatSessionProvider>,
     );
@@ -211,22 +197,14 @@ describe('ChatSessionProvider', () => {
       },
     };
     rerender(
-      <ChatSessionProvider
-        conversationId={currentConversationId}
-        surfaceType="embedded"
-        surfaceId={embeddedSurfaceId}
-      >
+      <ChatSessionProvider surface={embeddedSurface()}>
         <Probe />
       </ChatSessionProvider>,
     );
 
     chatStoreState.surfaceSessionsByKey = {};
     rerender(
-      <ChatSessionProvider
-        conversationId={currentConversationId}
-        surfaceType="embedded"
-        surfaceId={embeddedSurfaceId}
-      >
+      <ChatSessionProvider surface={embeddedSurface()}>
         <Probe />
       </ChatSessionProvider>,
     );
@@ -239,11 +217,7 @@ describe('ChatSessionProvider', () => {
   it('normaliza origin do retry usando a conversa alvo', async () => {
     const user = userEvent.setup();
     render(
-      <ChatSessionProvider
-        conversationId={currentConversationId}
-        surfaceType="embedded"
-        surfaceId={embeddedSurfaceId}
-      >
+      <ChatSessionProvider surface={embeddedSurface()}>
         <Probe />
       </ChatSessionProvider>,
     );
@@ -270,13 +244,7 @@ describe('ChatSessionProvider', () => {
     const user = userEvent.setup();
     render(
       <ChatSessionProvider
-        surface={{
-          conversationId: currentConversationId,
-          sessionKey: embeddedSessionKey,
-          surfaceId: embeddedSurfaceId,
-          surfaceType: 'embedded',
-          tabId: 'tab-from-surface',
-        }}
+        surface={embeddedSurface({ tabId: 'tab-from-surface' })}
       >
         <Probe />
       </ChatSessionProvider>,
@@ -325,11 +293,7 @@ describe('ChatSessionProvider', () => {
     };
 
     render(
-      <ChatSessionProvider
-        conversationId={currentConversationId}
-        surfaceType="embedded"
-        surfaceId={embeddedSurfaceId}
-      >
+      <ChatSessionProvider surface={embeddedSurface()}>
         <DraftProbe />
       </ChatSessionProvider>,
     );

@@ -2,10 +2,9 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
 import { ChatPanel, type ChatPanelSendContext } from '../chat/ChatPanel';
-import { useChatConversationTimeline } from '../chat/ChatSurfaceController';
+import { sendChatSurfaceMessage, useChatConversationTimeline } from '../chat/ChatSurfaceController';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
-import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import type { MediaFile } from '../../services/mediaService';
@@ -97,12 +96,12 @@ export function WorkspaceChatModal() {
 
       try {
         const sendOrigin = normalizeChatSurfaceOrigin(context.origin, targetConversationId);
-        await useChatStore.getState().sendMessageToConversation(
+        await sendChatSurfaceMessage(
           targetConversationId,
           sendPlan.content,
           sendPlan.mediaFiles,
           sendPlan.paramsOverride,
-          { origin: sendOrigin },
+          sendOrigin,
         );
         await sendPlan.afterSend?.();
       } catch (error) {

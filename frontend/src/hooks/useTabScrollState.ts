@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 
 /**
  * Preserva e restaura scroll position ao trocar de aba no workspace.
@@ -8,24 +8,37 @@ import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
  */
 export function useTabScrollState(
   scrollRef: React.RefObject<HTMLElement | null>,
+  tabId: string,
 ) {
-  const activeTab = useActiveTab();
+  const scrollTop = useWorkspaceStore((s) => (
+    s.workspace?.tabs.find((tab) => tab.id === tabId)?.state?.scrollTop
+  ));
   const updateTab = useWorkspaceStore((s) => s.updateTab);
-  const tabIdRef = useRef(activeTab?.id);
+  const tabIdRef = useRef(tabId);
   const scrollTopRef = useRef(0);
+  const persistedScrollTopRef = useRef<number | null>(null);
+  const didScrollRef = useRef(false);
 
-  tabIdRef.current = activeTab?.id;
+  tabIdRef.current = tabId;
 
   // Restaura scroll quando a aba monta
   useEffect(() => {
-    if (!activeTab?.state?.scrollTop || !scrollRef.current) return;
-    const saved = activeTab.state.scrollTop as number;
+    if (scrollTop === null || scrollTop === undefined || !scrollRef.current) {
+      persistedScrollTopRef.current = null;
+      return;
+    }
+    const saved = Number(scrollTop);
+    if (!Number.isFinite(saved)) return;
+    scrollTopRef.current = saved;
+    persistedScrollTopRef.current = saved;
+    didScrollRef.current = false;
+    scrollRef.current.scrollTop = saved;
     requestAnimationFrame(() => {
       if (scrollRef.current) {
         scrollRef.current.scrollTop = saved;
       }
     });
-  }, [activeTab?.id]);
+  }, [scrollRef, scrollTop, tabId]);
 
   // Rastreia scroll position
   useEffect(() => {
@@ -33,6 +46,7 @@ export function useTabScrollState(
     if (!el) return;
     const handleScroll = () => {
       scrollTopRef.current = el.scrollTop;
+      didScrollRef.current = true;
     };
     el.addEventListener('scroll', handleScroll, { passive: true });
     return () => el.removeEventListener('scroll', handleScroll);
@@ -42,9 +56,12 @@ export function useTabScrollState(
   useEffect(() => {
     return () => {
       const tabId = tabIdRef.current;
-      if (tabId && scrollTopRef.current > 0) {
-        void updateTab(tabId, { state: { scrollTop: scrollTopRef.current } });
+      if (tabId) {
+        const currentScrollTop = scrollRef.current?.scrollTop ?? scrollTopRef.current;
+        if (persistedScrollTopRef.current === null && !didScrollRef.current) return;
+        if (persistedScrollTopRef.current === currentScrollTop) return;
+        void updateTab(tabId, { state: { scrollTop: currentScrollTop } });
       }
     };
-  }, []);
+  }, [scrollRef, updateTab]);
 }

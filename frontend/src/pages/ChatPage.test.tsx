@@ -59,12 +59,17 @@ const chatStoreState = {
 };
 
 vi.mock('../store/chatStore', () => ({
-  useChatStore: (selector?: (s: typeof chatStoreState) => unknown) => {
-    if (typeof selector === 'function') {
-      return selector(chatStoreState);
-    }
-    return chatStoreState;
-  },
+  useChatStore: Object.assign(
+    (selector?: (s: typeof chatStoreState) => unknown) => {
+      if (typeof selector === 'function') {
+        return selector(chatStoreState);
+      }
+      return chatStoreState;
+    },
+    {
+      getState: () => chatStoreState,
+    },
+  ),
 }));
 
 vi.mock('../store/workspaceStore', () => ({

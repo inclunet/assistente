@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import i18next from 'i18next';
 import { useChatStore } from '../../store/chatStore';
 import type { MediaFile } from '../../services/mediaService';
+import type { llm } from '../../../wailsjs/go/models';
 import {
   getConversationTimeline,
   normalizeChatSurfaceOrigin,
@@ -23,6 +24,22 @@ export type ChatSurfaceSendHandler = (
   mediaFiles: MediaFile[] | undefined,
   context: ChatSurfaceSendContext,
 ) => Promise<void>;
+
+export async function sendChatSurfaceMessage(
+  conversationId: string,
+  content: string,
+  mediaFiles: MediaFile[] | undefined,
+  paramsOverride: Partial<llm.ChatParams> | undefined,
+  origin: ChatSurfaceOrigin | undefined,
+) {
+  await useChatStore.getState().sendMessageToConversation(
+    conversationId,
+    content,
+    mediaFiles,
+    paramsOverride,
+    { origin },
+  );
+}
 
 export interface ChatSurfaceController extends ChatSessionContextValue {
   sendMessage: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;

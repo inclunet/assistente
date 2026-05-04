@@ -30,6 +30,25 @@ vi.mock('../../store/chatStore', () => ({
   }),
 }));
 
+vi.mock('./ChatSessionContext', () => ({
+  useChatNodeSessionState: () => ({
+    conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+    editingMessageId: null,
+    readingMessageId: null,
+    streamingMessageId: null,
+    streamingReasoning: null,
+    isThinking: false,
+    activeToolCalls: [],
+    completedSegments: [],
+    isExpanded: false,
+    reasoningExpanded: false,
+    setConversationEditingMessageId: vi.fn(),
+    setConversationReadingMessageId: vi.fn(),
+    toggleConversationThreadExpanded: vi.fn(),
+    toggleConversationReasoningExpanded: vi.fn(),
+  }),
+}));
+
 vi.mock('../../hooks/useAnnouncer', () => ({
   announce: vi.fn(),
 }));

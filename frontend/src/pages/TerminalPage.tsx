@@ -30,7 +30,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const currentSessionId = explicitSessionId ?? panelSessionId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
-  useTabScrollState(historyContainerRef);
+  useTabScrollState(historyContainerRef, panelTab.id);
 
   const {
     sessions,

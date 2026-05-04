@@ -177,6 +177,16 @@ Esta fase passa a ser detalhada pela AEP-0059.
 - Adicionar testes com dois painéis reais do mesmo domínio montados simultaneamente.
 - Documentar no código que `activeTabId` é contrato de navegação, não contrato de dados.
 
+#### Consolidação no PR #110
+
+O PR #110 conclui o hardening planejado na Fase 7 sem manter contratos de transição:
+
+- APIs de abertura de modal e ações de painel recebem `tabId`/`surfaceId` explícitos; não há fallback por `getActiveTab()` para identidade de domínio.
+- Hooks globais que ainda observam aba ativa usam essa informação apenas para navegação, visibilidade, foco ou título da janela.
+- `activeDocumentId` e `activeSessionId` foram removidos das stores de editor e terminal; painéis operam por `documentId`/`sessionId` explícitos.
+- Controles compartilhados, toolbars e atalhos encaminham a identidade do painel/superfície no ponto de origem da ação.
+- Testes de regressão cobrem superfícies simultâneas para evitar vazamento de scroll, modal, retry e origem de envio entre instâncias.
+
 ## Riscos
 
 - Keep-alive pode aumentar uso de memória se muitas abas pesadas permanecerem montadas.

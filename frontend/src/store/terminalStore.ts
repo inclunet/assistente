@@ -41,7 +41,6 @@ export type HistoryEntry = terminal.HistoryEntry;
 
 interface TerminalState {
   sessions: SessionInfo[];
-  activeSessionId: string | null;
   historyBySession: Record<string, HistoryEntry[]>;
   /** ID do último entry que está recebendo raw output (modo interativo) */
   activeEntryBySession: Record<string, string | null>;
@@ -49,18 +48,16 @@ interface TerminalState {
 
   // Actions
   loadSessions: () => Promise<void>;
-  createSession: (name?: string) => Promise<void>;
+  createSession: (name?: string) => Promise<string | null>;
   closeSession: (id: string) => Promise<void>;
-  setActiveSession: (id: string) => void;
   sendInput: (sessionId: string, input: string) => Promise<void>;
   interrupt: (sessionId: string) => Promise<void>;
   loadHistory: (sessionId: string) => Promise<void>;
   setupEventListeners: () => () => void;
 }
 
-export const useTerminalStore = create<TerminalState>((set, get) => ({
+export const useTerminalStore = create<TerminalState>((set) => ({
   sessions: [],
-  activeSessionId: null,
   historyBySession: {},
   activeEntryBySession: {},
   isLoading: false,
@@ -81,33 +78,20 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     try {
       const info = await CreateTerminalSession(name || '');
       if (info) {
-        set({ activeSessionId: info.id });
+        return info.id;
       }
+      return null;
     } catch (err) {
       console.error('[Terminal] Erro ao criar sessão:', err);
+      return null;
     }
   },
 
   closeSession: async (id: string) => {
     try {
       await CloseTerminalSession(id);
-
-      const state = get();
-      if (state.activeSessionId === id) {
-        const remaining = state.sessions.filter(s => s.id !== id);
-        set({ activeSessionId: remaining.length > 0 ? remaining[0].id : null });
-      }
     } catch (err) {
       console.error('[Terminal] Erro ao fechar sessão:', err);
-    }
-  },
-
-  setActiveSession: (id: string) => {
-    set({ activeSessionId: id });
-
-    const state = get();
-    if (!state.historyBySession[id]) {
-      get().loadHistory(id);
     }
   },
 

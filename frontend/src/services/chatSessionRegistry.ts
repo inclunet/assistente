@@ -182,6 +182,7 @@ const toSurfaceSession = (
     conversation: _conversation,
     ...surface
   } = session;
+  void _conversation;
   return {
     ...surface,
     sessionKey,
