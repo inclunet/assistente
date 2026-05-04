@@ -35,7 +35,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const {
     sessions,
     historyBySession,
-    isLoading,
+    loadingHistoryBySession,
     sendInput,
     interrupt,
     setupEventListeners,
@@ -80,6 +80,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
   const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
   const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
+  const isCurrentHistoryLoading = currentSessionId ? Boolean(loadingHistoryBySession[currentSessionId]) : false;
 
   const handleSendInput = useCallback(async (input: string) => {
     if (!currentSessionId) return;
@@ -194,7 +195,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         ref={historyContainerRef}
         entries={currentHistory}
         runningCommandId={null}
-        isLoading={isLoading}
+        isLoading={isCurrentHistoryLoading}
         onReachEnd={handleReachEnd}
       />
 
