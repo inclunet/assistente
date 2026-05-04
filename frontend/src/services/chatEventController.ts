@@ -30,6 +30,7 @@ interface ChatMessagesReadyEvent {
   conversationId: string;
   userMessageId: string;
   userContent: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatStreamEvent {
@@ -38,6 +39,7 @@ interface ChatStreamEvent {
   done?: boolean;
   error?: string;
   messageId?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatThinkingEvent {
@@ -45,6 +47,7 @@ interface ChatThinkingEvent {
   started?: boolean;
   done?: boolean;
   content?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatToolStartEvent {
@@ -52,6 +55,7 @@ interface ChatToolStartEvent {
   name: string;
   callId: string;
   args?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatToolEndEvent {
@@ -61,6 +65,7 @@ interface ChatToolEndEvent {
   status?: string;
   summary?: string;
   attempt?: number;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatToolFailureEvent {
@@ -68,18 +73,21 @@ interface ChatToolFailureEvent {
   name: string;
   callId: string;
   willRetry?: boolean;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatSegmentDoneEvent {
   conversationId: string;
   hasMore?: boolean;
   content?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatDoneEvent {
   conversationId: string;
   hadToolCalls?: boolean;
   errorMessage?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatErrorEvent {

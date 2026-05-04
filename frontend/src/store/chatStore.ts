@@ -429,6 +429,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         activeFilePath: paramsOverride?.activeFilePath,
         surfaceStateJson: paramsOverride?.surfaceStateJson,
         surfaceContextJson: paramsOverride?.surfaceContextJson,
+        surfaceSessionKey: options?.origin?.sessionKey,
+        surfaceId: options?.origin?.surfaceId,
+        surfaceType: options?.origin?.surfaceType,
+        surfaceTabId: options?.origin?.tabId,
       };
       if (retryMessageId) {
         await RetryMessage(conversationId, retryMessageId, mergedParams);

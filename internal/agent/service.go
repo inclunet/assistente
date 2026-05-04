@@ -106,6 +106,13 @@ func (s *Service) RunAgenticLoop(
 	if maxIterations <= 0 {
 		maxIterations = s.toolExecutor.Config().MaxIterations
 	}
+	surfaceOrigin := ports.NewChatSurfaceOrigin(
+		conversationID,
+		params.SurfaceSessionKey,
+		params.SurfaceID,
+		params.SurfaceType,
+		params.SurfaceTabID,
+	)
 
 	// Propaga contexto de invocação (tab type + arquivo ativo) para as tools
 	if params.TabType != "" || params.ActiveFilePath != "" || params.SurfaceStateJSON != "" || params.SurfaceContextJSON != "" {
@@ -135,6 +142,7 @@ func (s *Service) RunAgenticLoop(
 			sort.Strings(cancelToolsUsed)
 			s.emitter.Emit("chat:done", ports.DoneEvent{
 				ConversationID:   conversationID,
+				SurfaceOrigin:    surfaceOrigin,
 				HadToolCalls:     totalToolCallCount > 0,
 				Reason:           "error",
 				ErrorMessage:     "Operação cancelada",
@@ -170,6 +178,7 @@ func (s *Service) RunAgenticLoop(
 			sort.Strings(errToolsUsed)
 			s.emitter.Emit("chat:done", ports.DoneEvent{
 				ConversationID:   conversationID,
+				SurfaceOrigin:    surfaceOrigin,
 				HadToolCalls:     totalToolCallCount > 0,
 				Reason:           "error",
 				ErrorMessage:     result.Error,
@@ -192,6 +201,7 @@ func (s *Service) RunAgenticLoop(
 					Content:        result.FullResponse,
 					Iteration:      iteration,
 					HasMore:        false,
+					SurfaceOrigin:  surfaceOrigin,
 				})
 			}
 
@@ -245,7 +255,7 @@ func (s *Service) RunAgenticLoop(
 
 		// 5d. Executa ferramentas em paralelo
 		toolCalls := convertToolCalls(result.ToolCalls)
-		s.emitToolStarts(conversationID, result.ToolCalls)
+		s.emitToolStarts(conversationID, result.ToolCalls, surfaceOrigin)
 		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
 
 		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
@@ -266,6 +276,7 @@ func (s *Service) RunAgenticLoop(
 					ServerLabel:    retryServerLabel,
 					DurationMs:     execResult.DurationMs,
 					Attempt:        0,
+					SurfaceOrigin:  surfaceOrigin,
 				})
 				// Emite tool_failure com willRetry=true
 				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
@@ -279,6 +290,7 @@ func (s *Service) RunAgenticLoop(
 					Origin:         retryOrigin,
 					WillRetry:      true,
 					Attempt:        0,
+					SurfaceOrigin:  surfaceOrigin,
 				})
 				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", retryName, execResult.ErrorKind)
 				// Emite tool_start para a nova tentativa (attempt=1)
@@ -290,6 +302,7 @@ func (s *Service) RunAgenticLoop(
 					Origin:         retryOrigin,
 					ServerLabel:    retryServerLabel,
 					Attempt:        1,
+					SurfaceOrigin:  surfaceOrigin,
 				})
 				retried := s.toolExecutor.ExecuteOne(ctx, toolCalls[i])
 				execResults[i] = retried
@@ -319,6 +332,7 @@ func (s *Service) RunAgenticLoop(
 				ServerLabel:    serverLabel,
 				DurationMs:     execResult.DurationMs,
 				Attempt:        attempt,
+				SurfaceOrigin:  surfaceOrigin,
 			})
 
 			// AEP-0039 Fase 3: emite tool_failure para erros classificados (sem retry)
@@ -333,6 +347,7 @@ func (s *Service) RunAgenticLoop(
 					DurationMs:     execResult.DurationMs,
 					Origin:         origin,
 					Attempt:        attempt,
+					SurfaceOrigin:  surfaceOrigin,
 				})
 			}
 
@@ -455,6 +470,7 @@ func (s *Service) RunAgenticLoop(
 			Iteration:        iteration,
 			HasMore:          true,
 			ToolsInIteration: allIterTools,
+			SurfaceOrigin:    surfaceOrigin,
 		})
 	}
 
@@ -464,6 +480,7 @@ func (s *Service) RunAgenticLoop(
 		Content:        "Limite de iterações do agente atingido. A resposta pode estar incompleta.",
 		Done:           true,
 		ConversationId: conversationID,
+		SurfaceOrigin:  surfaceOrigin,
 	})
 	toolsUsedList := make([]string, 0, len(toolsUsedSet))
 	for name := range toolsUsedSet {
@@ -479,6 +496,7 @@ func (s *Service) RunAgenticLoop(
 		ToolsUsed:        toolsUsedList,
 		PromptTokens:     lastUsage.PromptTokens,
 		CompletionTokens: lastUsage.CompletionTokens,
+		SurfaceOrigin:    surfaceOrigin,
 	})
 
 	if s.triggerSummarize != nil {
@@ -491,10 +509,10 @@ func (s *Service) RunAgenticLoop(
 
 // LoopStats acumula estatísticas do agentic loop para inclusão no chat:done (AEP-0039 Fase 2).
 type LoopStats struct {
-	IterationCount   int
-	ToolCallCount    int
-	ToolsUsed        map[string]struct{}
-	LastUsage        llm.Usage
+	IterationCount int
+	ToolCallCount  int
+	ToolsUsed      map[string]struct{}
+	LastUsage      llm.Usage
 }
 
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
@@ -646,7 +664,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 	}
 }
 
-func (s *Service) emitToolStarts(conversationID string, calls []llm.ToolCall) {
+func (s *Service) emitToolStarts(conversationID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	for _, call := range calls {
 		origin, serverLabel := detectToolOrigin(call.Function.Name)
 		name := extractLogicalToolName(call.Function.Name)
@@ -657,6 +675,7 @@ func (s *Service) emitToolStarts(conversationID string, calls []llm.ToolCall) {
 			Args:           call.Function.Arguments,
 			Origin:         origin,
 			ServerLabel:    serverLabel,
+			SurfaceOrigin:  surfaceOrigin,
 		})
 	}
 }

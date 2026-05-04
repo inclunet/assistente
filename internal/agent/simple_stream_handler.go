@@ -3,6 +3,7 @@ package agent
 import (
 	"log"
 
+	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 )
@@ -13,17 +14,18 @@ import (
 type SimpleStreamHandler struct {
 	BaseStreamHandler
 	svc           *Service
-	userMessageID string   // ID of the user message (root of this response thread)
+	userMessageID string // ID of the user message (root of this response thread)
 	profileSlug   string // Profile slug for TTS resolution
 }
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
 // It is created by the owning Service so it can close over its dependencies.
-func (s *Service) NewSimpleStreamHandler(conversationID, userMessageID string, profileSlug string) *SimpleStreamHandler {
+func (s *Service) NewSimpleStreamHandler(conversationID, userMessageID string, profileSlug string, surfaceOrigin *ports.ChatSurfaceOrigin) *SimpleStreamHandler {
 	return &SimpleStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        s.emitter,
 			ConversationID: conversationID,
+			SurfaceOrigin:  surfaceOrigin,
 		},
 		svc:           s,
 		userMessageID: userMessageID,
@@ -38,6 +40,7 @@ func (h *SimpleStreamHandler) OnError(err string) {
 		Done:           true,
 		Error:          err,
 		ConversationId: h.ConversationID,
+		SurfaceOrigin:  h.SurfaceOrigin,
 	})
 }
 

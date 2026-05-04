@@ -124,6 +124,13 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	activeProfile := pctx.ActiveProfile
 	params := pctx.Params
 	userContent := pctx.UserContent
+	surfaceOrigin := ports.NewChatSurfaceOrigin(
+		req.ConversationID,
+		params.SurfaceSessionKey,
+		params.SurfaceID,
+		params.SurfaceType,
+		params.SurfaceTabID,
+	)
 
 	var userMsg *chat.Message
 	var messages []llm.Message
@@ -165,6 +172,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			AudioBase64:    resolved.AudioBase64,
 			AudioMimeType:  resolved.AudioMimeType,
 			Source:         req.Source,
+			SurfaceOrigin:  surfaceOrigin,
 			ActiveProfile:  activeProfile,
 			Transcribe:     uc.whisperTranscribeFunc(),
 		})
@@ -249,12 +257,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			defer uc.streamMgr.Unregister(req.ConversationID)
 			uc.agentSvc.RunAgenticLoop(agentCtx, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer,
 				func(convID string, iter int) agent.IterationHandler {
-					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter)
+					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin)
 				},
 			)
 		}()
 	} else {
-		handler := uc.agentSvc.NewSimpleStreamHandler(req.ConversationID, userMsg.ID, params.ProfileSlug)
+		handler := uc.agentSvc.NewSimpleStreamHandler(req.ConversationID, userMsg.ID, params.ProfileSlug, surfaceOrigin)
 		go func() {
 			defer func() {
 				r := recover()
