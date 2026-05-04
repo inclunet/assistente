@@ -46,7 +46,7 @@ describe('terminalStore', () => {
   });
 
   it('não reintroduz histórico ou loading quando a sessão fecha durante loadHistory', async () => {
-    const historyRequest = createDeferred<unknown[]>([]);
+    const historyRequest = createDeferred<unknown[]>();
     mockGetTerminalHistory.mockReturnValue(historyRequest.promise);
     useTerminalStore.setState({
       sessions: [{ id: 'session-1', name: 'Terminal 1' } as never],
