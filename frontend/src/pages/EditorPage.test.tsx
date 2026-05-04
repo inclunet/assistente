@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { EditorWriteFile } from '@wailsjs/go/app/App';
 
 const openToolbarMenuSpy = vi.fn();
 
 const editorStoreState = {
-  documents: {} as Record<string, { id: string; title: string; markdown: string; mode: string }>,
+  documents: {} as Record<string, { id: string; title: string; markdown: string; mode: string; filePath?: string | null; draftId?: string | null }>,
   autoSaveEnabled: true,
   editorProfileSlug: 'editor-texto',
   createDocument: vi.fn(),
@@ -187,8 +188,8 @@ vi.mock('@wailsjs/go/app/App', () => ({
   EditorReadFile: vi.fn(),
   EditorSaveFileDialog: vi.fn(),
   EditorSaveSession: vi.fn(),
-  EditorUnwatchFile: vi.fn(),
-  EditorWatchFile: vi.fn(),
+  EditorUnwatchFile: vi.fn().mockResolvedValue(undefined),
+  EditorWatchFile: vi.fn().mockResolvedValue(undefined),
   EditorWriteDraft: vi.fn(),
   EditorWriteFile: vi.fn(),
 }));
@@ -199,6 +200,7 @@ describe('EditorPage', () => {
   beforeEach(() => {
     editorStoreState.documents = {};
     openToolbarMenuSpy.mockReset();
+    vi.mocked(EditorWriteFile).mockReset();
   });
 
   it('desabilita botoes de formato/inserir/modo sem aba ativa', () => {
@@ -227,5 +229,24 @@ describe('EditorPage', () => {
     render(<EditorPage documentId="tab-1" />);
 
     expect(screen.getByRole('button', { name: 'editor.buttons.insert' })).toBeDisabled();
+  });
+
+  it('não executa atalhos de arquivo quando o painel está inativo', async () => {
+    const user = userEvent.setup();
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: 'text',
+        mode: 'markdown',
+        filePath: 'doc.md',
+      },
+    };
+
+    render(<EditorPage documentId="tab-1" isPanelActive={false} />);
+
+    await user.keyboard('{Control>}s{/Control}');
+
+    expect(EditorWriteFile).not.toHaveBeenCalled();
   });
 });

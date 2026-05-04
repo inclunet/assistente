@@ -35,7 +35,7 @@ func TestSaveAndFinish_DoneEvent_WithLoopStats(t *testing.T) {
 	svc.SaveAndFinish("42", "1", AgenticResult{
 		FullResponse: "Resposta final",
 		Model:        "gpt-4",
-	}, "", stats)
+	}, "", stats, nil)
 
 	evts := emitter.getEvents()
 	var done *ports.DoneEvent
@@ -99,7 +99,7 @@ func TestSaveAndFinish_DoneEvent_NilLoopStats(t *testing.T) {
 			PromptTokens:     500,
 			CompletionTokens: 100,
 		},
-	}, "", nil)
+	}, "", nil, nil)
 
 	evts := emitter.getEvents()
 	var done *ports.DoneEvent
@@ -153,7 +153,7 @@ func TestSaveAndFinish_DoneEvent_ZeroToolCalls(t *testing.T) {
 	svc.SaveAndFinish("1", "1", AgenticResult{
 		FullResponse: "Sem tools",
 		Model:        "test",
-	}, "", stats)
+	}, "", stats, nil)
 
 	evts := emitter.getEvents()
 	for _, e := range evts {

@@ -26,6 +26,7 @@ function createAdapter(hasConversationSession: boolean): ExternalChatControllerA
   return {
     hasConversationSession: vi.fn(() => hasConversationSession),
     loadConversationSession: vi.fn().mockResolvedValue(undefined),
+    enqueueExternalTurn: vi.fn((_conversationId, _sessionKey, task) => task()),
     chatEventAdapter,
   };
 }
@@ -33,6 +34,11 @@ function createAdapter(hasConversationSession: boolean): ExternalChatControllerA
 describe('externalChatController', () => {
   beforeEach(() => {
     mockStartChatEventController.mockClear();
+    mockStartChatEventController.mockReturnValue({
+      cleanup: vi.fn(),
+      done: Promise.resolve(),
+      handleSendFailure: vi.fn(),
+    });
   });
 
   it('ignora eventos sem conversationId', async () => {
@@ -61,9 +67,20 @@ describe('externalChatController', () => {
     }, adapter);
 
     expect(adapter.loadConversationSession).toHaveBeenCalledWith('conversation-1');
+    expect(adapter.enqueueExternalTurn).toHaveBeenCalledWith(
+      'conversation-1',
+      'external:telegram:Maria:conversation-1',
+      expect.any(Function),
+    );
     expect(mockStartChatEventController).toHaveBeenCalledWith({
       conversationId: 'conversation-1',
       external: { channel: 'telegram', from: 'Maria', text: 'oi' },
+      origin: expect.objectContaining({
+        conversationId: 'conversation-1',
+        sessionKey: 'external:telegram:Maria:conversation-1',
+        surfaceId: 'external:telegram:Maria',
+        surfaceType: 'external',
+      }),
       adapter: chatEventAdapter,
     });
   });

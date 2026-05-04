@@ -66,7 +66,7 @@ O frontend cria conversa automaticamente se `activeConversationId === 0`. Isso a
 7. **Conversas são independentes** — conversas existem no banco sem vínculo forte com abas, workspace ou qualquer conceito de UI. Abas carregam conversas para exibição, mas conversas sobrevivem sem aba. Canais (Telegram, Signal) criam e mantêm conversas independentemente de haver aba aberta.
 8. **Um único contrato para mensagem nova, com retry explícito** — existe UM método `SendMessage` para novas mensagens no backend. O único endpoint adicional permitido é `RetryMessage`, usado exclusivamente para reenviar uma mensagem de usuário já persistida, sem criar nova mensagem `user`. No frontend, todas as superfícies reutilizam o mesmo cliente/pipeline compartilhado para esses contratos explícitos por `conversationId`, sem duplicar lógica divergente de envio.
 9. **Controllers por conversa/aba são permitidos** — o frontend pode instanciar controllers autocontidos por `conversationId` ou por aba. Esses controllers podem manter estado próprio de UI, streaming, scroll, histórico carregado e tool calls, desde que filtrem eventos pelo `conversationId` e deleguem envio/retry ao contrato compartilhado.
-10. **Contexto de superfície é estruturado** — contexto da aba ativa não deve ser injetado artificialmente no texto do usuário. Ele deve viajar em parâmetros estruturados (`tabType`, `surfaceState`, `surfaceContext`) para que profiles, skills e tools consumam isso de forma consistente.
+10. **Contexto de superfície é estruturado** — contexto da aba ativa não deve ser injetado artificialmente no texto do usuário. Ele deve viajar em parâmetros estruturados (`tabType`, `surfaceState`, `surfaceContext`, `surfaceSessionKey`, `surfaceId`, `surfaceType`, `surfaceTabId`) para que profiles, skills, tools e eventos consumam isso de forma consistente.
 11. **Eventos contidos e acionáveis** — eventos não são apenas notificações passivas; o backend os usa para tomar decisões de orquestração (quando sintetizar TTS, quando renomear conversa, quando notificar canal externo). O protocolo de eventos é o contrato central do sistema.
 12. **Serviços globais são arbitrados, não donos das abas** — recursos globais como anúncios para leitor de tela, TTS e STT não devem ser duplicados por aba. Controllers por aba solicitam esses recursos por uma política central que respeita aba ativa, perfil efetivo e exclusividade de fala/escuta.
 
@@ -257,7 +257,7 @@ Quando houve tool calls, o backend inclui a árvore de mensagens atualizada no p
 A camada compartilhada de envio encolhe para ~20 linhas. **Não existe mais `sendMessageWithParams`** e superfícies diferentes não duplicam lógica de envio; todas delegam para o mesmo cliente por `conversationId`. Controllers por aba podem manter seu próprio estado de loading/streaming, mas não reimplementam validação, serialização de mídia ou chamada ao backend:
 
 ```typescript
-sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride, effectiveProfileSlug) => {
+sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride, options) => {
   if (!conversationId) {
     // Conversa DEVE existir antes de enviar mensagem.
     // Se não existe, é erro. Criação de conversa é responsabilidade separada.
@@ -265,16 +265,19 @@ sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOve
     return;
   }
 
-  set({ isLoading: true });
-  
   const mediaJson = mediaFiles ? await serializeMedia(mediaFiles) : '';
-  const params = buildParams(paramsOverride, effectiveProfileSlug);
+  const params = buildParams({
+    ...paramsOverride,
+    surfaceSessionKey: options?.origin?.sessionKey,
+    surfaceId: options?.origin?.surfaceId,
+    surfaceType: options?.origin?.surfaceType,
+    surfaceTabId: options?.origin?.tabId,
+  });
 
   try {
     await SendMessage(conversationId, content, mediaJson, params);
   } catch (error) {
-    set({ isLoading: false });
-    announce(getErrorMessage(error));
+    reportSurfaceError(options?.origin?.sessionKey, getErrorMessage(error));
   }
   // Não faz mais NADA aqui. O backend emite eventos e o frontend reage.
 }

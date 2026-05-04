@@ -16,7 +16,8 @@ const storeMocks = vi.hoisted(() => ({
 const storeState = vi.hoisted(() => ({
   sessions: [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp' }],
   historyBySession: { 'term-1': [] },
-  isLoading: false,
+  isLoadingSessions: false,
+  loadingHistoryBySession: {},
   loadSessions: storeMocks.loadSessions,
   createSession: storeMocks.createSession,
   closeSession: storeMocks.closeSession,

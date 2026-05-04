@@ -7,6 +7,7 @@ import type { VoiceRole } from '../tts';
 import { announceWithOrigin } from '../voiceAccessibility/announcerBroker';
 import { requestVoiceTTS } from '../voiceAccessibility/ttsBroker';
 import type { VoiceAccessibilityOrigin } from '../voiceAccessibility/types';
+import type { ChatSurfaceOrigin } from '../chatSessionRegistry';
 
 export type ChatSpeakStrategy = 'announce' | 'webspeech' | 'backend_audio' | 'none';
 
@@ -43,6 +44,7 @@ export interface ChatSpeakEvent {
   pitch?: number;
   volume?: number;
   origin?: ChatSpeakOrigin;
+  surfaceOrigin?: ChatSurfaceOrigin;
   accessibilityOrigin?: VoiceAccessibilityOrigin;
   interrupt?: boolean;
 }

@@ -12,6 +12,7 @@ const ensureWorkspaceTabHasConversationMock = vi.fn().mockResolvedValue('01926b9
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const activeConversation = { id: conversationId, title: 'Conversa', threadedMessages: [] };
 const workspaceStoreState = {
+  workspace: { profile: 'workspace-profile' },
   getActiveTab: () => ({ id: 'chat-tab', type: 'chat' as const, conversationId, title: 'Conversa', position: 0 }),
 };
 
@@ -237,7 +238,10 @@ describe('ChatPage', () => {
         '01926b90-7a5a-7c4e-8d3f-00000000002a',
         'oi',
         undefined,
-        undefined,
+        expect.objectContaining({
+          profileSlug: 'workspace-profile',
+          tabType: 'chat',
+        }),
         {
           origin: expect.objectContaining({
             conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',

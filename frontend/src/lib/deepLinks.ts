@@ -1,6 +1,6 @@
 import type { NavigateFunction } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { useEditorStore } from '../store/editorStore';
 import { useNavigationStore, type EditableResource } from '../store/navigationStore';
 import { announce } from '../hooks/useAnnouncer';
@@ -9,6 +9,8 @@ import { RunTerminalCommand } from '@wailsjs/go/app/App';
 import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
 import { isBackendId } from './idUtils';
 import i18n from './i18n';
+import { buildChatSurfaceParams } from './chatSurface';
+import { createChatSurfaceIdentity, createChatSurfaceOrigin } from '../services/chatSessionRegistry';
 
 // ─── Protocol ────────────────────────────────────────────────────────
 export const DEEP_LINK_PROTOCOL = 'assistente';
@@ -270,15 +272,38 @@ export async function executeDeepLink(
 
   const wsStore = useWorkspaceStore.getState();
 
-  const openOrCreateChatTab = async (conversationId: string, title?: string) => {
+  const openOrCreateChatTab = async (conversationId: string, title?: string): Promise<WorkspaceTab> => {
     const existing = (wsStore.workspace?.tabs || []).find(
       (tab) => tab.type === 'chat' && tab.conversationId === conversationId,
     );
     if (existing) {
       await wsStore.setActiveTab(existing.id);
+      return existing;
     } else {
-      await wsStore.addTab('chat', title || t('chat.newConversation'), { conversationId });
+      const tabId = await wsStore.addTab('chat', title || t('chat.newConversation'), { conversationId });
+      return {
+        id: tabId,
+        type: 'chat',
+        title: title || t('chat.newConversation'),
+        position: wsStore.workspace?.tabs.length ?? 0,
+        conversationId,
+      };
     }
+  };
+
+  const buildChatTabSendContext = (tab: WorkspaceTab, conversationId: string) => {
+    const profileSlug = (tab.profileOverride?.slug as string | undefined)
+      || wsStore.workspace?.profile
+      || undefined;
+    const identity = createChatSurfaceIdentity({
+      conversationId,
+      surfaceType: 'page',
+      tabId: tab.id,
+    });
+    return {
+      origin: createChatSurfaceOrigin(identity),
+      params: buildChatSurfaceParams(tab, { profileSlug }),
+    };
   };
 
   switch (action.type) {
@@ -292,20 +317,29 @@ export async function executeDeepLink(
     case 'conversation:new': {
       const title = action.title || t('chat.newConversation');
       const conversationId = await useChatStore.getState().createConversation(title);
-      await wsStore.addTab('chat', title, { conversationId });
+      const tabId = await wsStore.addTab('chat', title, { conversationId });
       deps.navigate('/');
       if (action.message) {
-        await useChatStore.getState().sendMessageToConversation(conversationId, action.message);
+        const tab: WorkspaceTab = {
+          id: tabId,
+          type: 'chat' as const,
+          title,
+          position: 0,
+          conversationId,
+        };
+        const { origin, params } = buildChatTabSendContext(tab, conversationId);
+        await useChatStore.getState().sendMessageToConversation(conversationId, action.message, undefined, params, { origin });
       }
       announce(title);
       break;
     }
 
     case 'conversation:send': {
-      await openOrCreateChatTab(action.conversationId);
+      const tab = await openOrCreateChatTab(action.conversationId);
       deps.navigate('/');
-      await useChatStore.getState().loadConversationSession(action.conversationId, { activate: true });
-      await useChatStore.getState().sendMessageToConversation(action.conversationId, action.message);
+      await useChatStore.getState().loadConversationSession(action.conversationId);
+      const { origin, params } = buildChatTabSendContext(tab, action.conversationId);
+      await useChatStore.getState().sendMessageToConversation(action.conversationId, action.message, undefined, params, { origin });
       announce(t('deepLink.announcedSent', { id: action.conversationId }));
       break;
     }

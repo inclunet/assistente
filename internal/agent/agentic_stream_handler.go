@@ -24,11 +24,12 @@ type AgenticStreamHandler struct {
 }
 
 // NewAgenticStreamHandler cria um handler para uma iteração do agentic loop.
-func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iteration int) *AgenticStreamHandler {
+func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iteration int, surfaceOrigin *ports.ChatSurfaceOrigin) *AgenticStreamHandler {
 	return &AgenticStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        emitter,
 			ConversationID: conversationID,
+			SurfaceOrigin:  surfaceOrigin,
 		},
 		iteration: iteration,
 	}
@@ -87,6 +88,7 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 			Error:          errSummary,
 			ServerLabel:    event.ServerLabel,
 			Origin:         OriginMCPNative,
+			SurfaceOrigin:  h.SurfaceOrigin,
 		})
 
 		if event.Error != "" {
@@ -100,6 +102,7 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 				WillRetry:      false,
 				Attempt:        0,
 				Origin:         OriginMCPNative,
+				SurfaceOrigin:  h.SurfaceOrigin,
 			})
 		}
 
@@ -113,6 +116,7 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 			Args:           event.Arguments,
 			ServerLabel:    event.ServerLabel,
 			Origin:         OriginMCPNative,
+			SurfaceOrigin:  h.SurfaceOrigin,
 		})
 
 		log.Printf("[MCP Native] 🔧 %s (server=%s, id=%s)",

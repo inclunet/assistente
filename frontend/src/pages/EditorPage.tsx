@@ -70,7 +70,7 @@ interface EditorPageProps {
   isPanelActive?: boolean;
 }
 
-export default function EditorPage({ documentId, workspaceTab }: EditorPageProps = {}) {
+export default function EditorPage({ documentId, workspaceTab, isPanelActive = true }: EditorPageProps = {}) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
@@ -2328,8 +2328,9 @@ export default function EditorPage({ documentId, workspaceTab }: EditorPageProps
 
   // Atalhos de arquivos
   useEffect(() => {
+    if (!isPanelActive || !activeTab?.id) return;
+
     const onKeyDown = async (e: KeyboardEvent) => {
-      if (!activeTab) return;
       if (isModalOpen()) return;
 
       if (e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S') && !e.altKey) {
@@ -2353,7 +2354,7 @@ export default function EditorPage({ documentId, workspaceTab }: EditorPageProps
 
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeTab]);
+  }, [activeTab?.id, isPanelActive]);
 
   return (
     <div className="editor-page" ref={pageRootRef}>

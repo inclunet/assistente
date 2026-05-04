@@ -8,7 +8,7 @@ Reorientar o workspace para ser um shell fino responsável por abas, foco, estad
 
 O objetivo é remover o modelo em que o workspace e stores globais assumem uma única superfície ativa para todos os domínios. Cada aba visitada pode permanecer montada durante a sessão, com controller próprio e estado visual próprio. Serviços verdadeiramente globais, como announcer, TTS e STT, continuam únicos e passam a ser arbitrados por política central.
 
-Esta AEP é a fundação arquitetural do PR de abas autocontidas. Ela define o alvo geral e registra o primeiro corte de implementação. As mudanças restantes devem ser executadas em AEPs menores e sequenciais, para manter cada PR revisável:
+Esta AEP é a fundação arquitetural do trabalho de abas autocontidas. Ela define o alvo geral e registra a consolidação feita nos PRs #110 e #111:
 
 - AEP-0057: identidade de sessão de chat por `tabId + conversationId`;
 - AEP-0058: arbitragem global de announcer, TTS e STT;
@@ -94,7 +94,7 @@ Após separar os controllers por domínio, aplicar otimizações focadas:
 
 ### 8. Ownership explícito de estado por superfície
 
-O PR de isolamento estrito dos painéis removeu os acoplamentos mais perigosos com entidades globais ativas, mas ainda existe uma fronteira arquitetural que deve ser endurecida: stores globais podem existir como cache ou infraestrutura, mas não podem ser a fonte de identidade de uma superfície de UI.
+O PR de isolamento estrito dos painéis removeu os acoplamentos mais perigosos com entidades globais ativas. O PR seguinte endureceu a fronteira final: stores globais podem existir como cache ou infraestrutura, mas não podem ser a fonte de identidade de uma superfície de UI.
 
 A regra passa a ser:
 
@@ -187,13 +187,24 @@ O PR #110 conclui o hardening planejado na Fase 7 sem manter contratos de transi
 - Controles compartilhados, toolbars e atalhos encaminham a identidade do painel/superfície no ponto de origem da ação.
 - Testes de regressão cobrem superfícies simultâneas para evitar vazamento de scroll, modal, retry e origem de envio entre instâncias.
 
+#### Consolidação no PR #111
+
+O PR #111 completa a remoção de dependências residuais de superfície global:
+
+- Atalhos globais de editor e tasklist respeitam o estado ativo/inativo do painel e não disparam ações em painéis preservados por keep-alive.
+- Estados visuais de carregamento e erro de terminal/tasklist são chaveados por sessão/lista, não por singleton global da aplicação.
+- O chat não possui perfil global de contexto nem ativação implícita ao carregar conversa; perfil efetivo, sessão e origem são calculados na superfície que iniciou a ação.
+- Deep links e canais externos entram no mesmo contrato de fila por conversa e carregam `ChatSurfaceOrigin` explícito.
+- Eventos backend-driven de chat propagam origem de superfície até streaming, tool calls, conclusão e mensagens prontas.
+- Announcer, som de recebimento e origem de voz usam a origem do evento ou da superfície, sem recalcular identidade a partir da aba ativa.
+
 ## Riscos
 
 - Keep-alive pode aumentar uso de memória se muitas abas pesadas permanecerem montadas.
 - Painéis inativos podem continuar executando efeitos indevidos se o contrato `active/inactive` não for respeitado.
 - Múltiplos controllers de chat podem duplicar listeners se a limpeza de ciclo de vida não for rigorosa.
 - Announcer, TTS e STT podem gerar ruído ou conflito se não houver arbitragem central.
-- A migração incremental precisa evitar regressões no contrato backend-driven de mensagens.
+- Mudanças futuras precisam preservar o contrato backend-driven de mensagens.
 - Singletons globais de UI podem voltar a introduzir dependência acidental de `activeTabId` se não carregarem `tabId`/`surfaceId` explicitamente.
 - Stores globais podem misturar cache compartilhado e estado visual por superfície se a fronteira de ownership não for clara.
 
@@ -207,7 +218,7 @@ O PR #110 conclui o hardening planejado na Fase 7 sem manter contratos de transi
 - Existe apenas uma live region global para anúncios.
 - TTS não fala duas respostas ao mesmo tempo e respeita o perfil efetivo da aba origem.
 - STT local só funciona na aba ativa.
-- Conversas longas carregam e renderizam de forma incremental após a fase de otimização.
+- Conversas longas carregam e renderizam de forma incremental conforme a AEP-0059.
 - Cada commit do PR mantém build/lint/testes focados em estado revisável.
 - Estado visual/interativo divergente entre painéis é sempre chaveado por `tabId`, `surfaceId`, `sessionKey` ou ID explícito de domínio.
 - Ações de painel não dependem de `activeTabId` para descobrir o alvo de dados.

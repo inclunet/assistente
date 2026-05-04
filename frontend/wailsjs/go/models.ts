@@ -1187,6 +1187,10 @@ export namespace llm {
 	    activeFilePath?: string;
 	    surfaceStateJson?: string;
 	    surfaceContextJson?: string;
+	    surfaceSessionKey?: string;
+	    surfaceId?: string;
+	    surfaceType?: string;
+	    surfaceTabId?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatParams(source);
@@ -1207,6 +1211,10 @@ export namespace llm {
 	        this.activeFilePath = source["activeFilePath"];
 	        this.surfaceStateJson = source["surfaceStateJson"];
 	        this.surfaceContextJson = source["surfaceContextJson"];
+	        this.surfaceSessionKey = source["surfaceSessionKey"];
+	        this.surfaceId = source["surfaceId"];
+	        this.surfaceType = source["surfaceType"];
+	        this.surfaceTabId = source["surfaceTabId"];
 	    }
 	}
 	export class FunctionCall {

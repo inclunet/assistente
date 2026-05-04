@@ -44,7 +44,8 @@ interface TerminalState {
   historyBySession: Record<string, HistoryEntry[]>;
   /** ID do último entry que está recebendo raw output (modo interativo) */
   activeEntryBySession: Record<string, string | null>;
-  isLoading: boolean;
+  isLoadingSessions: boolean;
+  loadingHistoryBySession: Record<string, boolean>;
 
   // Actions
   loadSessions: () => Promise<void>;
@@ -60,17 +61,18 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   sessions: [],
   historyBySession: {},
   activeEntryBySession: {},
-  isLoading: false,
+  isLoadingSessions: false,
+  loadingHistoryBySession: {},
 
   loadSessions: async () => {
-    set({ isLoading: true });
+    set({ isLoadingSessions: true });
     try {
       const sessions = await ListTerminalSessions();
       set({ sessions: sessions || [] });
     } catch (err) {
       console.error('[Terminal] Erro ao carregar sessões:', err);
     } finally {
-      set({ isLoading: false });
+      set({ isLoadingSessions: false });
     }
   },
 
@@ -117,16 +119,38 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   },
 
   loadHistory: async (sessionId: string) => {
+    set(state => ({
+      loadingHistoryBySession: {
+        ...state.loadingHistoryBySession,
+        [sessionId]: true,
+      },
+    }));
     try {
       const history = await GetTerminalHistory(sessionId);
-      set(state => ({
-        historyBySession: {
-          ...state.historyBySession,
-          [sessionId]: history || [],
-        },
-      }));
+      set(state => {
+        const sessionExists = state.sessions.some(session => session.id === sessionId);
+        if (!sessionExists) return state;
+
+        return {
+          historyBySession: {
+            ...state.historyBySession,
+            [sessionId]: history || [],
+          },
+        };
+      });
     } catch (err) {
       console.error('[Terminal] Erro ao carregar histórico:', err);
+    } finally {
+      set(state => {
+        const nextLoading = { ...state.loadingHistoryBySession };
+        const sessionExists = state.sessions.some(session => session.id === sessionId);
+        if (sessionExists) {
+          nextLoading[sessionId] = false;
+        } else {
+          delete nextLoading[sessionId];
+        }
+        return { loadingHistoryBySession: nextLoading };
+      });
     }
   },
 
@@ -162,10 +186,13 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         delete newHistory[data.sessionId];
         const newActiveEntry = { ...state.activeEntryBySession };
         delete newActiveEntry[data.sessionId];
+        const newLoadingHistory = { ...state.loadingHistoryBySession };
+        delete newLoadingHistory[data.sessionId];
         return {
           sessions: state.sessions.filter(s => s.id !== data.sessionId),
           historyBySession: newHistory,
           activeEntryBySession: newActiveEntry,
+          loadingHistoryBySession: newLoadingHistory,
         };
       });
     }));

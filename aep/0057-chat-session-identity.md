@@ -102,7 +102,7 @@ O `StreamingManager` ou componente equivalente deve distinguir "registrar novo t
 
 Eventos de chat continuam globais e devem carregar `conversationId`, conforme AEP-0040.
 
-Eventos iniciados por uma superfície Wails devem carregar também origem quando disponível:
+Eventos iniciados por uma superfície devem carregar também origem explícita:
 
 - `sessionKey`;
 - `tabId` ou `surfaceId`;
@@ -110,7 +110,7 @@ Eventos iniciados por uma superfície Wails devem carregar também origem quando
 - `profileSlug`;
 - identificador de turno, quando existir.
 
-O roteador frontend deve atualizar a timeline canônica por `conversationId` e notificar as sessões visuais interessadas. Eventos sem origem conhecida, como canais externos, continuam roteados por `conversationId` e `source`.
+O roteador frontend deve atualizar a timeline canônica por `conversationId` e notificar as sessões visuais interessadas. Canais externos também recebem origem sintética própria, baseada no canal e na conversa, para que fila, voz e anúncios não dependam da aba ativa.
 
 ### 8. Modal de chat como superfície vinculada
 
@@ -170,7 +170,7 @@ Esse desenho permite trocar Zustand, registry em memória ou outra implementaç�
 - Ampliar `SendMessage`/`RetryMessage` para receber origem de superfície sem criar outro método de envio.
 - Propagar origem até os eventos `chat:*`.
 - Adicionar identificador de turno quando necessário para correlacionar fila, streaming e retry.
-- Manter compatibilidade conceitual com canais externos via `source`/`surfaceType`.
+- Alinhar canais externos ao mesmo contrato de origem via `source`/`surfaceType`.
 
 ### Fase 5 — Loader, paginação e janela
 
@@ -207,11 +207,22 @@ O PR #110 conclui o contrato de identidade de chat sem manter props antigas ou c
 - Estado visual interno do chat exige `sessionKey` explícita para rascunho, scroll, edição, leitura, expansão de threads/reasoning e paginação.
 - Testes de regressão cobrem superfícies simultâneas e validam rascunho, scroll, retry e origem de envio por `sessionKey`.
 
+#### Consolidação no PR #111
+
+O PR #111 completa o contrato operacional de sessão de chat:
+
+- `loadConversationSession(conversationId)` é somente carregamento de dados; não ativa aba, não para TTS e não altera estado global de superfície.
+- `sendMessageToConversation` e `retryMessageToConversation` recebem `ChatSurfaceOrigin` e parâmetros estruturados da superfície (`surfaceSessionKey`, `surfaceId`, `surfaceType`, `surfaceTabId`).
+- `contextProfileSlug` foi removido do `chatStore`; o perfil efetivo passa por `ChatParams` a partir da superfície que originou o envio.
+- Deep links constroem a aba/superfície antes do envio e usam a mesma fila por conversa.
+- Canais externos entram na `ConversationTurnQueue` por `conversationId` e usam origem externa explícita, em vez de adaptar comportamento pela aba ativa.
+- Eventos `chat:*` carregam `surfaceOrigin` quando a origem é conhecida, permitindo que controllers, voz e anúncios escolham a sessão correta.
+
 ## Riscos
 
 - Separar timeline e sessão visual aumenta a complexidade inicial do domínio de chat.
 - Uma fila por conversa exige UX clara para turnos aguardando execução.
-- Eventos sem origem podem atualizar mais sessões do que o necessário.
+- Eventos sem origem explícita podem atualizar mais sessões do que o necessário; fluxos novos devem sempre informar `surfaceOrigin`.
 - Se componentes continuarem consultando registries globais, a arquitetura continuará parecendo um array de stores.
 - Cancelamento implícito pode reaparecer se `StreamingManager` continuar tratando novo registro como overwrite.
 - Mostrar turnos em fila antes de persistir mensagens pode violar a regra backend-driven se não houver evento backend adequado.

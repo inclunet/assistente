@@ -30,6 +30,7 @@ interface ChatMessagesReadyEvent {
   conversationId: string;
   userMessageId: string;
   userContent: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatStreamEvent {
@@ -38,6 +39,7 @@ interface ChatStreamEvent {
   done?: boolean;
   error?: string;
   messageId?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatThinkingEvent {
@@ -45,6 +47,7 @@ interface ChatThinkingEvent {
   started?: boolean;
   done?: boolean;
   content?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatToolStartEvent {
@@ -52,6 +55,7 @@ interface ChatToolStartEvent {
   name: string;
   callId: string;
   args?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatToolEndEvent {
@@ -61,6 +65,7 @@ interface ChatToolEndEvent {
   status?: string;
   summary?: string;
   attempt?: number;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatToolFailureEvent {
@@ -68,18 +73,21 @@ interface ChatToolFailureEvent {
   name: string;
   callId: string;
   willRetry?: boolean;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatSegmentDoneEvent {
   conversationId: string;
   hasMore?: boolean;
   content?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatDoneEvent {
   conversationId: string;
   hadToolCalls?: boolean;
   errorMessage?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatErrorEvent {
@@ -121,6 +129,7 @@ interface ChatEventControllerOptions {
 export interface ChatEventControllerHandle {
   cleanup: () => void;
   handleSendFailure: (message: string) => void;
+  done: Promise<void>;
 }
 
 const activeControllers = new Map<string, () => void>();
@@ -199,6 +208,10 @@ export function startChatEventController({
   let cleanupExecuted = false;
   let streamingAnnounced = false;
   let assistantNodeCreated = false;
+  let resolveDone: () => void = () => {};
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
   const getCurrentSession = () => adapter.getSession(conversationId, origin?.sessionKey);
   const patchCurrentSession = (patch: Partial<ChatEventSession> & Record<string, unknown>) => {
     adapter.patchSession(conversationId, origin ? { ...patch, surfaceOrigin: origin } : patch);
@@ -220,6 +233,7 @@ export function startChatEventController({
   let unsubSpeak = noop;
 
   const isActive = () => activeControllers.has(conversationIdStr);
+  const getEventOrigin = (event: { surfaceOrigin?: ChatSurfaceOrigin }) => event.surfaceOrigin ?? origin;
 
   const ensureAssistantNode = () => {
     if (assistantNodeCreated) return;
@@ -270,6 +284,7 @@ export function startChatEventController({
       activeToolCalls: [],
       completedSegments: [],
     });
+    resolveDone();
   };
 
   const finalizeStreaming = (finalId?: string | null) => {
@@ -301,7 +316,8 @@ export function startChatEventController({
   unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    const voiceOrigin = getChatConversationVoiceOrigin(conversationId);
+    const eventOrigin = getEventOrigin(event);
+    const voiceOrigin = getChatConversationVoiceOrigin(conversationId, undefined, eventOrigin);
     void handleChatSpeak({
       ...event,
       accessibilityOrigin: origin
@@ -363,7 +379,7 @@ export function startChatEventController({
       ensureAssistantNode();
       if (!streamingAnnounced) {
         streamingAnnounced = true;
-        announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite');
+        announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite', getEventOrigin(event));
       }
       debouncedUpdateMessage(streamingMsgId, event.content, (_messageId, nextContent) => updateStreamingMessage(nextContent));
     }
@@ -385,7 +401,7 @@ export function startChatEventController({
 
       const flatMessages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
       const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || streamingMsgId));
-      if (finalMessage?.content) playChatReceiveSoundIfActive(conversationId);
+      if (finalMessage?.content) playChatReceiveSoundIfActive(conversationId, getEventOrigin(event));
     }
   });
 
@@ -398,7 +414,7 @@ export function startChatEventController({
         isThinking: true,
         streamingReasoning: event.content || '',
       });
-      announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite', getEventOrigin(event));
     } else if (event.done) {
       patchCurrentSession({ isThinking: false });
       if (event.content) adapter.updateReasoning(conversationId, streamingMsgId, event.content);
@@ -423,7 +439,7 @@ export function startChatEventController({
         : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const }],
     });
     if (external) {
-      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRunning', { name: event.name }), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRunning', { name: event.name }), 'polite', getEventOrigin(event));
     }
   });
 
@@ -440,7 +456,7 @@ export function startChatEventController({
     });
     if (!external) return;
     if (event.status !== 'error') {
-      announceForActiveChatConversation(conversationId, i18next.t('chat.toolDone', { name: event.name }), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.toolDone', { name: event.name }), 'polite', getEventOrigin(event));
       return;
     }
     if (!('attempt' in event)) {
@@ -452,7 +468,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     if (event.willRetry) {
-      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite');
+      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite', getEventOrigin(event));
       return;
     }
     announce(i18next.t('chat.toolFailed', { name: event.name }), 'assertive');
@@ -481,6 +497,7 @@ export function startChatEventController({
           conversationId,
           toolCount === 1 ? session.activeToolCalls[0].name : `${toolCount} ferramentas`,
           'polite',
+          getEventOrigin(event),
         );
       }
     }
@@ -526,7 +543,7 @@ export function startChatEventController({
       });
     }
 
-    announceChatBackgroundResponseDone(conversationId, getCurrentSession().conversation?.title);
+    announceChatBackgroundResponseDone(conversationId, getCurrentSession().conversation?.title, getEventOrigin(event));
     cleanup();
   });
 
@@ -534,6 +551,7 @@ export function startChatEventController({
 
   return {
     cleanup,
+    done,
     handleSendFailure: (message: string) => {
       if (cleanupExecuted) return;
       console.error('[Chat] Error sending message:', message);

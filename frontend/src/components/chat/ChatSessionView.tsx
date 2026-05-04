@@ -131,7 +131,7 @@ function ChatSessionViewContent({
   useEffect(() => {
     if (!conversationId) return;
     if (session?.conversation) return;
-    void loadConversationSession(conversationId, { activate: variant === 'page' });
+    void loadConversationSession(conversationId);
   }, [conversationId, loadConversationSession, session?.conversation, variant]);
 
   useEffect(() => {
@@ -284,7 +284,7 @@ function ChatSessionViewContent({
         announce(t('chat.announce.messageDeleted'));
         const conv = getSessionConversation();
         if (conv?.id) {
-          await loadConversationSession(conv.id, { activate: !conversationId || variant === 'page' });
+          await loadConversationSession(conv.id);
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);

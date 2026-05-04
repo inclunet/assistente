@@ -132,12 +132,23 @@ O arbitrador não deve inferir perfil a partir de "aba ativa" quando a origem j�
 - Evitar lookup por conversa ativa global.
 - Validar duas abas respondendo em paralelo com apenas uma fala ativa.
 
+#### Consolidação no PR #111
+
+O PR #111 implementa a integração da arbitragem com origem explícita de superfície:
+
+- Eventos `chat:*` propagam `surfaceOrigin` do backend até o `chatEventController`.
+- `chatArbitration` resolve aba ativa, label e origem de voz priorizando `ChatSurfaceOrigin`.
+- Anúncios de progresso, conclusão em background, execução de tools e som de recebimento recebem origem da superfície/evento.
+- `chat:speak` carrega `surfaceOrigin` e converte essa origem em `VoiceAccessibilityOrigin` antes de acionar fala ou anúncio.
+- A política continua global para live region, TTS e STT, mas a identidade da ação vem da superfície que iniciou o turno.
+
 ## Riscos
 
 - Política agressiva de interrupção de TTS pode frustrar usuários que esperam ouvir tudo.
 - Enfileirar fala automática pode criar áudio atrasado e fora de contexto.
 - Anúncios de abas inativas podem virar ruído se forem muito frequentes.
 - Cancelar STT ao trocar de aba pode descartar fala do usuário se não houver feedback claro.
+- Eventos legados sem `surfaceOrigin` podem cair na resolução por `conversationId`; novos fluxos devem carregar origem explícita.
 - Inferir perfil errado pode gerar voz, idioma ou provider incorreto.
 
 ## Critérios de aceitação
@@ -151,3 +162,4 @@ O arbitrador não deve inferir perfil a partir de "aba ativa" quando a origem j�
 - STT local é cancelado ao desativar ou fechar a aba.
 - Canais externos continuam independentes da aba ativa.
 - Testes cobrem active/inactive, prioridade de TTS e gate de STT.
+- Eventos de chat com origem de superfície produzem anúncios e origem de voz associados à superfície correta.

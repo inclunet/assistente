@@ -159,6 +159,8 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }, [taskList?.title, taskListId, requestConfirm, clearTaskList, addToast, announce, t]);
 
   useEffect(() => {
+    if (!isActive) return;
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (isModalOpen()) return;
 
@@ -186,7 +188,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleOpenCreateTask, handleClear, handleClone]);
+  }, [handleOpenCreateTask, handleClear, handleClone, isActive]);
 
   const tasklistChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
     if (!panelTab || panelTab.type !== 'tasklist' || !taskList) return null;

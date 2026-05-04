@@ -8,10 +8,11 @@ type Emitter interface {
 
 // StreamEvent é o payload do evento chat:stream emitido durante o streaming LLM.
 type StreamEvent struct {
-	MessageID      string `json:"messageId"`
-	ConversationId string `json:"conversationId"`
-	Content        string `json:"content"`
-	Done           bool   `json:"done"`
-	FullResponse   string `json:"fullResponse,omitempty"`
-	Error          string `json:"error,omitempty"`
+	MessageID      string             `json:"messageId"`
+	ConversationId string             `json:"conversationId"`
+	Content        string             `json:"content"`
+	Done           bool               `json:"done"`
+	FullResponse   string             `json:"fullResponse,omitempty"`
+	Error          string             `json:"error,omitempty"`
+	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }

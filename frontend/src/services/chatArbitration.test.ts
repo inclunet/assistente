@@ -3,6 +3,7 @@ import {
   announceChatBackgroundResponseDone,
   announceForActiveChatConversation,
   getChatConversationLabel,
+  getChatConversationVoiceOrigin,
   isChatConversationActive,
   playChatReceiveSoundIfActive,
 } from './chatArbitration';
@@ -65,11 +66,37 @@ describe('chatArbitration', () => {
   it('identifica a conversa ativa pelo workspace', () => {
     expect(isChatConversationActive('conversation-1')).toBe(true);
     expect(isChatConversationActive('conversation-2')).toBe(false);
+    expect(isChatConversationActive('conversation-2', {
+      conversationId: 'conversation-2',
+      sessionKey: 'surface-tab-2:conversation-2',
+      surfaceId: 'surface-tab-2',
+      surfaceType: 'page',
+      tabId: 'tab-2',
+    })).toBe(false);
   });
 
   it('usa título da aba antes do fallback para label', () => {
     expect(getChatConversationLabel('conversation-2', 'Fallback')).toBe('Aba inativa');
     expect(getChatConversationLabel('conversation-3', 'Fallback')).toBe('Fallback');
+  });
+
+  it('prioriza a origem de superfície ao resolver a identidade de voz', () => {
+    const origin = {
+      conversationId: 'conversation-2',
+      sessionKey: 'modal:tab-2:conversation-2',
+      surfaceId: 'modal:tab-2',
+      surfaceType: 'modal' as const,
+      tabId: 'tab-2',
+    };
+
+    expect(getChatConversationVoiceOrigin('conversation-2', 'Fallback', origin)).toEqual(expect.objectContaining({
+      conversationId: 'conversation-2',
+      sessionKey: 'modal:tab-2:conversation-2',
+      surfaceId: 'modal:tab-2',
+      surfaceType: 'modal',
+      tabId: 'tab-2',
+      title: 'Aba inativa',
+    }));
   });
 
   it('encaminha anúncio com origem da conversa', () => {
@@ -99,7 +126,13 @@ describe('chatArbitration', () => {
   });
 
   it('toca som de recebimento somente para conversa ativa', () => {
-    playChatReceiveSoundIfActive('conversation-2');
+    playChatReceiveSoundIfActive('conversation-2', {
+      conversationId: 'conversation-2',
+      sessionKey: 'surface-tab-2:conversation-2',
+      surfaceId: 'surface-tab-2',
+      surfaceType: 'page',
+      tabId: 'tab-2',
+    });
     playChatReceiveSoundIfActive('conversation-1');
 
     expect(hoisted.playReceiveSound).toHaveBeenCalledTimes(1);
