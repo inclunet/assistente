@@ -45,13 +45,13 @@ export async function ensureWorkspaceTabConversationId(wsTab: WorkspaceTab): Pro
 
 /**
  * Garante que a aba do workspace tem conversa no backend e sincroniza o `chatStore`
- * apenas quando o chamador pede explicitamente.
+ * conforme a política explícita do chamador.
  */
 export async function ensureWorkspaceTabHasConversation(
   wsTab: WorkspaceTab,
-  options: { activate?: boolean } = { activate: true },
+  options: { activate: boolean },
 ): Promise<string> {
   const cid = await ensureWorkspaceTabConversationId(wsTab);
-  await useChatStore.getState().loadConversationSession(cid, { activate: options.activate ?? true });
+  await useChatStore.getState().loadConversationSession(cid, { activate: options.activate });
   return cid;
 }

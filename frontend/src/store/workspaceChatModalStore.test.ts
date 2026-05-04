@@ -34,10 +34,10 @@ vi.mock('i18next', () => ({
   },
 }));
 
-const mockEnsureWorkspaceTabHasConversation = vi.fn().mockResolvedValue("1");
+const mockEnsureWorkspaceTabConversationId = vi.fn().mockResolvedValue("1");
 vi.mock('../lib/workspaceConversation', () => ({
   ensureWorkspaceTabConversationId: (...args: unknown[]) =>
-    mockEnsureWorkspaceTabHasConversation(...args),
+    mockEnsureWorkspaceTabConversationId(...args),
 }));
 
 import {
@@ -64,7 +64,7 @@ describe('workspaceChatModalStore.requestOpen', () => {
     resetWorkspaceChatModalState();
     mockIsModalOpen.mockReset();
     mockAddToast.mockReset();
-    mockEnsureWorkspaceTabHasConversation.mockClear();
+    mockEnsureWorkspaceTabConversationId.mockClear();
     registerWorkspaceChatModalAdapter('tab-editor', null);
   });
 
@@ -135,7 +135,7 @@ describe('workspaceChatModalStore.requestOpen', () => {
     await useWorkspaceChatModalStore.getState().requestOpen('tab-editor');
 
     expect(mockAddToast).toHaveBeenCalledWith('workspace.chatModal.panelNotSupported', 'info');
-    expect(mockEnsureWorkspaceTabHasConversation).not.toHaveBeenCalled();
+    expect(mockEnsureWorkspaceTabConversationId).not.toHaveBeenCalled();
   });
 
   it('abre com boundTabId do tabId explícito quando prepare() tem sucesso', async () => {
@@ -146,7 +146,7 @@ describe('workspaceChatModalStore.requestOpen', () => {
     await useWorkspaceChatModalStore.getState().requestOpen('tab-editor');
 
     expect(prepare).toHaveBeenCalledTimes(1);
-    expect(mockEnsureWorkspaceTabHasConversation).toHaveBeenCalledTimes(1);
+    expect(mockEnsureWorkspaceTabConversationId).toHaveBeenCalledTimes(1);
     const s = useWorkspaceChatModalStore.getState();
     expect(s.isOpen).toBe(true);
     expect(s.boundTabId).toBe('tab-editor');
@@ -184,7 +184,7 @@ describe('workspaceChatModalStore.requestOpen', () => {
 
     expect(useWorkspaceChatModalStore.getState().isOpen).toBe(false);
     expect(mockAddToast).not.toHaveBeenCalled();
-    expect(mockEnsureWorkspaceTabHasConversation).not.toHaveBeenCalled();
+    expect(mockEnsureWorkspaceTabConversationId).not.toHaveBeenCalled();
   });
 
   it('mostra toast de erro quando prepare() lança', async () => {
@@ -195,6 +195,6 @@ describe('workspaceChatModalStore.requestOpen', () => {
 
     expect(useWorkspaceChatModalStore.getState().isOpen).toBe(false);
     expect(mockAddToast).toHaveBeenCalledWith('workspace.chatModal.prepareFailed', 'error');
-    expect(mockEnsureWorkspaceTabHasConversation).not.toHaveBeenCalled();
+    expect(mockEnsureWorkspaceTabConversationId).not.toHaveBeenCalled();
   });
 });
