@@ -60,7 +60,7 @@ export function useWorkspaceKeyboardShortcuts() {
         !event.altKey
       ) {
         event.preventDefault();
-        void useWorkspaceChatModalStore.getState().requestOpen();
+        void useWorkspaceChatModalStore.getState().requestOpen(activeTabId ?? undefined);
         return;
       }
 

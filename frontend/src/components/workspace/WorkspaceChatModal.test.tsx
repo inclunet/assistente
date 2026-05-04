@@ -8,6 +8,13 @@ const workspaceChatModalState = {
   isOpen: true,
   boundTabId: 'tab-editor',
   boundConversationId: conversationId,
+  boundSurface: {
+    conversationId,
+    sessionKey: `modal:workspace-chat:tab-editor:${conversationId}`,
+    surfaceId: 'modal:workspace-chat:tab-editor',
+    surfaceType: 'modal' as const,
+    tabId: 'tab-editor',
+  },
   contextDisplay: 'contexto',
   focusNonce: 1,
   adapterError: null,
@@ -34,7 +41,9 @@ vi.mock('../ui/Modal', () => ({
 }));
 
 vi.mock('../chat/ChatPanel', () => ({
-  ChatPanel: () => <div>chat-panel</div>,
+  ChatPanel: ({ surface }: { surface: { sessionKey: string } }) => (
+    <div data-session-key={surface.sessionKey}>chat-panel</div>
+  ),
 }));
 
 vi.mock('../../store/workspaceChatModalStore', () => ({
@@ -94,5 +103,14 @@ describe('WorkspaceChatModal', () => {
     expect(screen.getByRole('heading', {
       name: 'editor.chatModal.title — Título da timeline',
     })).toBeInTheDocument();
+  });
+
+  it('renderiza o chat com a superfície vinculada ao painel de origem', () => {
+    render(<WorkspaceChatModal />);
+
+    expect(screen.getByText('chat-panel')).toHaveAttribute(
+      'data-session-key',
+      `modal:workspace-chat:tab-editor:${conversationId}`,
+    );
   });
 });

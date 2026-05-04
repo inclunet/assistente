@@ -22,9 +22,63 @@ export interface ChatSurfaceOrigin {
   surfaceType: ChatSurfaceType;
 }
 
+export interface ChatSurfaceIdentity {
+  surfaceId: string;
+  surfaceType: ChatSurfaceType;
+  sessionKey: ChatSessionKey;
+  conversationId: string | null;
+  tabId?: string;
+}
+
+export interface ChatSurfaceDescriptor {
+  identity: ChatSurfaceIdentity;
+  isActive: boolean;
+}
+
 export const buildChatSessionKey = (surfaceId: string, conversationId: string | null): ChatSessionKey => (
   `${surfaceId}:${conversationId || 'none'}`
 );
+
+export const buildTabChatSurfaceId = (
+  tabId: string,
+  surfaceType: ChatSurfaceType = 'page',
+): string => `${surfaceType}:tab:${tabId}`;
+
+export const buildWorkspaceModalChatSurfaceId = (tabId: string): string => (
+  `modal:workspace-chat:${tabId}`
+);
+
+export function createChatSurfaceIdentity({
+  conversationId = null,
+  sessionKey,
+  surfaceId,
+  surfaceType = 'page',
+  tabId,
+}: {
+  conversationId?: string | null;
+  sessionKey?: ChatSessionKey;
+  surfaceId?: string;
+  surfaceType?: ChatSurfaceType;
+  tabId?: string;
+}): ChatSurfaceIdentity {
+  const resolvedSurfaceId = surfaceId
+    ?? (tabId ? buildTabChatSurfaceId(tabId, surfaceType) : `${surfaceType}:standalone`);
+  return {
+    conversationId,
+    sessionKey: sessionKey ?? buildChatSessionKey(resolvedSurfaceId, conversationId),
+    surfaceId: resolvedSurfaceId,
+    surfaceType,
+    ...(tabId ? { tabId } : {}),
+  };
+}
+
+export const createChatSurfaceOrigin = (identity: ChatSurfaceIdentity): ChatSurfaceOrigin => ({
+  conversationId: identity.conversationId,
+  sessionKey: identity.sessionKey,
+  surfaceId: identity.surfaceId,
+  surfaceType: identity.surfaceType,
+  ...(identity.tabId ? { tabId: identity.tabId } : {}),
+});
 
 export function normalizeChatSurfaceOrigin(
   origin: ChatSurfaceOrigin,

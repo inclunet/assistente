@@ -1,14 +1,21 @@
 import { ChatSessionView } from './ChatSessionView';
-import type { ChatSurfaceType } from '../../services/chatSessionRegistry';
+import { useMemo } from 'react';
+import {
+  createChatSurfaceIdentity,
+  type ChatSurfaceIdentity,
+  type ChatSurfaceType,
+} from '../../services/chatSessionRegistry';
 import type {
   ChatSurfaceSendContext,
   ChatSurfaceSendHandler,
 } from './ChatSurfaceController';
+import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 
 export type ChatPanelSendContext = ChatSurfaceSendContext;
 export type ChatPanelSendHandler = ChatSurfaceSendHandler;
 
 export interface ChatPanelProps {
+  surface?: ChatSurfaceIdentity;
   conversationId?: string | null;
   surfaceId?: string;
   sessionKey?: string;
@@ -18,6 +25,7 @@ export interface ChatPanelProps {
 }
 
 export function ChatPanel({
+  surface,
   conversationId = null,
   surfaceId,
   sessionKey,
@@ -25,19 +33,24 @@ export function ChatPanel({
   onSend,
   showShortcutsHelp,
 }: ChatPanelProps) {
-  const variant = surfaceType === 'embedded' || surfaceType === 'modal'
+  const { tab } = useWorkspacePanel();
+  const surfaceIdentity = useMemo(() => surface ?? createChatSurfaceIdentity({
+    conversationId: conversationId || null,
+    sessionKey,
+    surfaceId,
+    surfaceType,
+    tabId: tab.id,
+  }), [conversationId, sessionKey, surface, surfaceId, surfaceType, tab.id]);
+  const variant = surfaceIdentity.surfaceType === 'embedded' || surfaceIdentity.surfaceType === 'modal'
     ? 'embedded'
     : 'page';
 
   return (
     <ChatSessionView
       variant={variant}
-      surfaceType={surfaceType}
-      conversationId={conversationId}
-      surfaceId={surfaceId}
-      sessionKey={sessionKey}
+      surface={surfaceIdentity}
       onSend={(content, mediaFiles, origin) => onSend(content, mediaFiles, {
-        conversationId: conversationId || origin.conversationId || null,
+        conversationId: surfaceIdentity.conversationId || origin.conversationId || null,
         origin,
       })}
       showShortcutsHelp={showShortcutsHelp}

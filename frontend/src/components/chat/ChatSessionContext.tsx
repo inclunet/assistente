@@ -9,11 +9,14 @@ import {
 } from '../../store/chatStore';
 import {
   buildChatSessionKey,
+  createChatSurfaceIdentity,
+  createChatSurfaceOrigin,
   createEmptyChatSession,
   getDefaultChatConversationSession,
   getConversationTimeline,
   getChatSession,
   normalizeChatSurfaceOrigin,
+  type ChatSurfaceIdentity,
   type ChatSurfaceSession,
   type ChatSurfaceOrigin,
   type ChatSurfaceType,
@@ -41,6 +44,7 @@ const composeChatSession = (
 };
 
 export interface ChatSessionContextValue {
+  surface: ChatSurfaceIdentity;
   origin: ChatSurfaceOrigin;
   conversationId: string | null;
   session: ChatConversationSession | null;
@@ -75,6 +79,7 @@ export interface ChatSessionContextValue {
 const ChatSessionContext = createContext<ChatSessionContextValue | null>(null);
 
 export interface ChatSessionProviderProps {
+  surface?: ChatSurfaceIdentity;
   conversationId?: string | null;
   surfaceType?: ChatSurfaceType;
   surfaceId?: string;
@@ -83,6 +88,7 @@ export interface ChatSessionProviderProps {
 }
 
 export function ChatSessionProvider({
+  surface,
   conversationId = null,
   surfaceType = 'page',
   surfaceId: explicitSurfaceId,
@@ -90,13 +96,24 @@ export function ChatSessionProvider({
   children,
 }: ChatSessionProviderProps) {
   const { tab } = useWorkspacePanel();
-  const normalizedConversationId = conversationId || null;
   const tabId = tab?.id;
-  const surfaceId = explicitSurfaceId
-    ?? (tabId
-      ? `${surfaceType}:tab:${tabId}`
-      : `${surfaceType}:standalone`);
-  const sessionKey = explicitSessionKey ?? buildChatSessionKey(surfaceId, normalizedConversationId);
+  const surfaceIdentity = useMemo(() => surface ?? createChatSurfaceIdentity({
+    conversationId: conversationId || null,
+    sessionKey: explicitSessionKey,
+    surfaceId: explicitSurfaceId,
+    surfaceType,
+    tabId,
+  }), [
+    conversationId,
+    explicitSessionKey,
+    explicitSurfaceId,
+    surface,
+    surfaceType,
+    tabId,
+  ]);
+  const normalizedConversationId = surfaceIdentity.conversationId;
+  const sessionKey = surfaceIdentity.sessionKey;
+  const surfaceId = surfaceIdentity.surfaceId;
 
   const defaultSession = useChatStore((state) => (
     normalizedConversationId ? getDefaultChatConversationSession(state, normalizedConversationId) : null
@@ -173,11 +190,7 @@ export function ChatSessionProvider({
   useEffect(() => {
     if (!normalizedConversationId || surfaceSession) return;
     ensureConversationSurfaceSession(normalizedConversationId, sessionKey, {
-      sessionKey,
-      conversationId: normalizedConversationId,
-      tabId,
-      surfaceId,
-      surfaceType,
+      ...createChatSurfaceOrigin(surfaceIdentity),
     });
     materializedSurfaceSessionKeysRef.current.add(sessionKey);
   }, [
@@ -186,7 +199,7 @@ export function ChatSessionProvider({
     sessionKey,
     surfaceId,
     surfaceSession,
-    surfaceType,
+    surfaceIdentity,
     tabId,
   ]);
 
@@ -207,13 +220,13 @@ export function ChatSessionProvider({
         ? sessionKey
         : buildChatSessionKey(surfaceId, targetConversationId),
       conversationId: targetConversationId,
-      tabId,
+      tabId: surfaceIdentity.tabId,
       surfaceId,
-      surfaceType,
+      surfaceType: surfaceIdentity.surfaceType,
     };
 
     return normalizeChatSurfaceOrigin(providedOrigin ?? fallbackOrigin, targetConversationId) ?? fallbackOrigin;
-  }, [normalizedConversationId, sessionKey, surfaceId, surfaceType, tabId]);
+  }, [normalizedConversationId, sessionKey, surfaceId, surfaceIdentity.surfaceType, surfaceIdentity.tabId]);
 
   const retryMessageToConversation = useCallback<ChatSessionContextValue['retryMessageToConversation']>(
     (targetConversationId, messageId, paramsOverride, options) => (
@@ -261,13 +274,8 @@ export function ChatSessionProvider({
   );
 
   const value = useMemo<ChatSessionContextValue>(() => ({
-    origin: {
-      sessionKey,
-      conversationId: normalizedConversationId,
-      tabId,
-      surfaceId,
-      surfaceType,
-    },
+    surface: surfaceIdentity,
+    origin: createChatSurfaceOrigin(surfaceIdentity),
     conversationId: normalizedConversationId,
     session,
     conversation,
@@ -323,7 +331,7 @@ export function ChatSessionProvider({
     startConversationEditing,
     startConversationReading,
     surfaceId,
-    surfaceType,
+    surfaceIdentity,
     tabId,
     threadedMessages,
     toggleConversationReasoningExpanded,

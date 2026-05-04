@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildWorkspaceModalChatSurfaceId,
+  createChatSurfaceIdentity,
+  createChatSurfaceOrigin,
   createEmptyChatSession,
   getChatSurfaceSessionsForConversation,
   getChatSession,
@@ -19,6 +22,62 @@ const conversation = (id: string): ActiveConversation => ({
 });
 
 describe('chatSessionRegistry', () => {
+  it('cria identidade canônica para superfície de aba', () => {
+    const identity = createChatSurfaceIdentity({
+      conversationId: 'conversation-1',
+      surfaceType: 'page',
+      tabId: 'tab-chat-1',
+    });
+
+    expect(identity).toEqual({
+      conversationId: 'conversation-1',
+      sessionKey: 'page:tab:tab-chat-1:conversation-1',
+      surfaceId: 'page:tab:tab-chat-1',
+      surfaceType: 'page',
+      tabId: 'tab-chat-1',
+    });
+    expect(createChatSurfaceOrigin(identity)).toEqual(identity);
+  });
+
+  it('cria identidade canônica para modal do workspace vinculado ao painel', () => {
+    const surfaceId = buildWorkspaceModalChatSurfaceId('tab-terminal-1');
+    const identity = createChatSurfaceIdentity({
+      conversationId: 'conversation-2',
+      surfaceId,
+      surfaceType: 'modal',
+      tabId: 'tab-terminal-1',
+    });
+
+    expect(identity.surfaceId).toBe('modal:workspace-chat:tab-terminal-1');
+    expect(identity.sessionKey).toBe('modal:workspace-chat:tab-terminal-1:conversation-2');
+    expect(identity.tabId).toBe('tab-terminal-1');
+  });
+
+  it('cria identidade standalone somente quando não há tabId explícito', () => {
+    expect(createChatSurfaceIdentity({ surfaceType: 'embedded' })).toMatchObject({
+      conversationId: null,
+      sessionKey: 'embedded:standalone:none',
+      surfaceId: 'embedded:standalone',
+      surfaceType: 'embedded',
+    });
+  });
+
+  it('preserva sessionKey explícita durante migração de superfícies existentes', () => {
+    expect(createChatSurfaceIdentity({
+      conversationId: 'conversation-1',
+      sessionKey: 'legacy-surface:conversation-1',
+      surfaceId: 'modal:workspace-chat:tab-a',
+      surfaceType: 'modal',
+      tabId: 'tab-a',
+    })).toMatchObject({
+      conversationId: 'conversation-1',
+      sessionKey: 'legacy-surface:conversation-1',
+      surfaceId: 'modal:workspace-chat:tab-a',
+      surfaceType: 'modal',
+      tabId: 'tab-a',
+    });
+  });
+
   it('retorna sessão vazia para conversa ausente', () => {
     const state: ChatSessionRegistryState = {
       sessionsByConversationId: {},

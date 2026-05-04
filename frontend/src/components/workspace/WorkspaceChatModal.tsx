@@ -23,6 +23,7 @@ export function WorkspaceChatModal() {
   const adapterError = useWorkspaceChatModalStore((s) => s.adapterError);
   const close = useWorkspaceChatModalStore((s) => s.close);
   const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
+  const boundSurface = useWorkspaceChatModalStore((s) => s.boundSurface);
   const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs ?? []);
   const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
@@ -30,11 +31,6 @@ export function WorkspaceChatModal() {
     () => workspaceTabs.find((tab) => tab.id === boundTabId) ?? null,
     [boundTabId, workspaceTabs],
   );
-  const modalSurfaceId = useMemo(
-    () => `embedded:workspace-chat-modal:${boundTabId ?? 'standalone'}`,
-    [boundTabId],
-  );
-
   const modalTitle = useMemo(() => {
     const conversationTitle = activeConversation?.title || t('editor.chatModal.conversation');
     return `${t('editor.chatModal.title')} — ${conversationTitle}`;
@@ -43,14 +39,6 @@ export function WorkspaceChatModal() {
   const handleClose = useCallback(() => {
     close();
   }, [close]);
-
-  /** Evita enviar com o adaptador da aba errada se o utilizador mudar de painel com o modal aberto. */
-  useEffect(() => {
-    if (!isOpen || !boundTabId) return;
-    if (activeWorkspaceTab?.id !== boundTabId) {
-      handleClose();
-    }
-  }, [isOpen, boundTabId, activeWorkspaceTab?.id, handleClose]);
 
   /** `bumpFocus()` altera o nonce; sem isto o textarea do ChatInput não volta a receber foco. */
   useEffect(() => {
@@ -143,7 +131,7 @@ export function WorkspaceChatModal() {
           </div>
         )}
 
-        {boundWorkspaceTab && (
+        {boundWorkspaceTab && boundSurface && (
           <WorkspacePanelProvider
             value={{
               tab: boundWorkspaceTab,
@@ -152,9 +140,7 @@ export function WorkspaceChatModal() {
           >
             <div className="workspace-chat-modal__session">
               <ChatPanel
-                surfaceType="embedded"
-                conversationId={boundConversationId}
-                surfaceId={modalSurfaceId}
+                surface={boundSurface}
                 onSend={handleSend}
                 showShortcutsHelp={false}
               />
