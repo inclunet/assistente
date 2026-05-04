@@ -13,6 +13,7 @@ import {
   type Message,
   type MessageNode,
 } from '../lib/chatMessageTree';
+import type { ChatSurfaceOrigin } from './chatSessionRegistry';
 
 const mockAnnounce = vi.fn();
 vi.mock('../hooks/useAnnouncer', () => ({
@@ -42,13 +43,11 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 const mockPlayChatReceiveSoundIfActive = vi.fn();
 const mockAnnounceForActiveChatConversation = vi.fn();
 const mockAnnounceChatBackgroundResponseDone = vi.fn();
-const mockGetChatConversationVoiceOrigin = vi.fn((conversationId: string, _fallbackTitle?: string | null, origin?: unknown) => {
-  const surfaceOrigin = origin as {
-    sessionKey?: string;
-    surfaceId?: string;
-    surfaceType?: string;
-    tabId?: string;
-  } | undefined;
+const mockGetChatConversationVoiceOrigin = vi.fn((
+  conversationId: string,
+  _fallbackTitle?: string | null,
+  surfaceOrigin?: ChatSurfaceOrigin | null,
+) => {
   return {
     conversationId,
     surfaceId: surfaceOrigin?.surfaceId ?? `conversation:${conversationId}`,
@@ -62,7 +61,7 @@ vi.mock('./chatArbitration', () => ({
   playChatReceiveSoundIfActive: (...args: unknown[]) => mockPlayChatReceiveSoundIfActive(...args),
   announceForActiveChatConversation: (...args: unknown[]) => mockAnnounceForActiveChatConversation(...args),
   announceChatBackgroundResponseDone: (...args: unknown[]) => mockAnnounceChatBackgroundResponseDone(...args),
-  getChatConversationVoiceOrigin: (conversationId: string, fallbackTitle?: string | null, origin?: unknown) => (
+  getChatConversationVoiceOrigin: (conversationId: string, fallbackTitle?: string | null, origin?: ChatSurfaceOrigin | null) => (
     mockGetChatConversationVoiceOrigin(conversationId, fallbackTitle, origin)
   ),
 }));

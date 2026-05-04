@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { terminal } from '../../wailsjs/go/models';
 import { useTerminalStore } from './terminalStore';
 
 const mockGetTerminalHistory = vi.fn();
@@ -49,7 +50,15 @@ describe('terminalStore', () => {
     const historyRequest = createDeferred<unknown[]>();
     mockGetTerminalHistory.mockReturnValue(historyRequest.promise);
     useTerminalStore.setState({
-      sessions: [{ id: 'session-1', name: 'Terminal 1' } as never],
+      sessions: [terminal.SessionInfo.createFrom({
+        id: 'session-1',
+        name: 'Terminal 1',
+        cwd: 'C:\\workspace',
+        state: 'idle',
+        shell: 'powershell',
+        createdAt: '2026-05-04T00:00:00.000Z',
+        lastUsed: '2026-05-04T00:00:00.000Z',
+      })],
       historyBySession: { 'session-1': [] },
       loadingHistoryBySession: {},
     });
