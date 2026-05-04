@@ -2326,7 +2326,8 @@ export default function EditorPage({ documentId, workspaceTab }: EditorPageProps
             addToast(t('editor.chatModal.prepareNeedCodeOrRich'), 'info');
             return;
           }
-          await useWorkspaceChatModalStore.getState().requestOpen(workspaceTab?.id);
+          if (!workspaceTab?.id) return;
+          await useWorkspaceChatModalStore.getState().requestOpen(workspaceTab.id);
         },
         disabled: !activeTab || isAsking,
       },

@@ -5,9 +5,11 @@ import type { WorkspaceTab } from '../../store/workspaceStore';
 const terminalMocks = vi.hoisted(() => ({
   sessions: [] as Array<{ id: string }>,
   activeSessionId: null as string | null,
+  historyBySession: {} as Record<string, unknown[]>,
   createSession: vi.fn(),
   closeSession: vi.fn(),
   loadSessions: vi.fn(),
+  loadHistory: vi.fn(),
   setActiveSession: vi.fn(),
 }));
 
@@ -52,10 +54,12 @@ describe('useTerminalSurfaceController', () => {
   beforeEach(() => {
     terminalMocks.sessions = [];
     terminalMocks.activeSessionId = null;
+    terminalMocks.historyBySession = {};
     terminalMocks.createSession.mockReset();
     terminalMocks.closeSession.mockReset();
     terminalMocks.loadSessions.mockReset();
     terminalMocks.loadSessions.mockResolvedValue(undefined);
+    terminalMocks.loadHistory.mockReset();
     terminalMocks.setActiveSession.mockReset();
     workspaceMocks.updateTab.mockReset();
     workspaceMocks.isInitialized = true;
@@ -64,9 +68,7 @@ describe('useTerminalSurfaceController', () => {
   });
 
   it('cria sessão para aba ativa sem sessionId', async () => {
-    terminalMocks.createSession.mockImplementation(async () => {
-      terminalMocks.activeSessionId = 'session-1';
-    });
+    terminalMocks.createSession.mockResolvedValue('session-1');
 
     renderHook(() => useTerminalSurfaceController(terminalTab, true));
 
@@ -78,7 +80,7 @@ describe('useTerminalSurfaceController', () => {
     });
   });
 
-  it('ativa sessão existente para aba ativa', async () => {
+  it('carrega histórico de sessão existente sem ativar singleton global', async () => {
     terminalMocks.sessions = [{ id: 'session-2' }];
     renderHook(() => useTerminalSurfaceController({
       ...terminalTab,
@@ -86,12 +88,13 @@ describe('useTerminalSurfaceController', () => {
     }, true));
 
     await waitFor(() => {
-      expect(terminalMocks.setActiveSession).toHaveBeenCalledWith('session-2');
+      expect(terminalMocks.loadHistory).toHaveBeenCalledWith('session-2');
     });
+    expect(terminalMocks.setActiveSession).not.toHaveBeenCalled();
     expect(terminalMocks.createSession).not.toHaveBeenCalled();
   });
 
-  it('reativa sessão existente quando o painel volta a ficar ativo', () => {
+  it('preserva sessão existente sem reativar singleton global quando painel volta a ficar ativo', () => {
     terminalMocks.sessions = [{ id: 'session-2' }];
     terminalMocks.activeSessionId = 'session-other';
     const tabWithSession = {
@@ -102,22 +105,23 @@ describe('useTerminalSurfaceController', () => {
       initialProps: { active: true },
     });
 
-    expect(terminalMocks.setActiveSession).toHaveBeenCalledWith('session-2');
+    expect(terminalMocks.loadHistory).toHaveBeenCalledWith('session-2');
+    expect(terminalMocks.setActiveSession).not.toHaveBeenCalled();
 
+    terminalMocks.loadHistory.mockClear();
     terminalMocks.setActiveSession.mockClear();
     terminalMocks.activeSessionId = 'session-other';
     rerender({ active: false });
     rerender({ active: true });
 
-    expect(terminalMocks.setActiveSession).toHaveBeenCalledWith('session-2');
+    expect(terminalMocks.loadHistory).toHaveBeenCalledWith('session-2');
+    expect(terminalMocks.setActiveSession).not.toHaveBeenCalled();
   });
 
   it('recupera sessão quando loadSessions falha', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     terminalMocks.loadSessions.mockRejectedValue(new Error('load failed'));
-    terminalMocks.createSession.mockImplementation(async () => {
-      terminalMocks.activeSessionId = 'session-recovered';
-    });
+    terminalMocks.createSession.mockResolvedValue('session-recovered');
 
     renderHook(() => useTerminalSurfaceController({
       ...terminalTab,
@@ -137,7 +141,7 @@ describe('useTerminalSurfaceController', () => {
     errorSpy.mockRestore();
   });
 
-  it('não ativa sessão carregada se a aba deixa de estar ativa antes do load terminar', async () => {
+  it('não carrega histórico se a aba deixa de estar ativa antes do load terminar', async () => {
     let resolveLoad: () => void = () => undefined;
     terminalMocks.loadSessions.mockImplementationOnce(() => new Promise<void>((resolve) => {
       resolveLoad = resolve;
@@ -152,6 +156,7 @@ describe('useTerminalSurfaceController', () => {
     resolveLoad();
     await Promise.resolve();
 
+    expect(terminalMocks.loadHistory).not.toHaveBeenCalledWith('session-late');
     expect(terminalMocks.setActiveSession).not.toHaveBeenCalledWith('session-late');
     expect(workspaceMocks.updateTab).not.toHaveBeenCalledWith('terminal-tab', {
       state: { sessionId: expect.any(String) },
@@ -170,9 +175,7 @@ describe('useTerminalSurfaceController', () => {
   });
 
   it('não fecha sessão no unmount porque o cleanup é centralizado no workspace', async () => {
-    terminalMocks.createSession.mockImplementation(async () => {
-      terminalMocks.activeSessionId = 'session-created';
-    });
+    terminalMocks.createSession.mockResolvedValue('session-created');
     const { unmount } = renderHook(() => useTerminalSurfaceController(terminalTab, true));
 
     await waitFor(() => {

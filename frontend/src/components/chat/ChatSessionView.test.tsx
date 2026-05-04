@@ -170,7 +170,7 @@ vi.mock('../../utils/errorHandler', () => ({
 }));
 
 import { ChatSessionView } from './ChatSessionView';
-import { createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
+import { createEmptyChatSurfaceSession, type ChatSurfaceIdentity } from '../../services/chatSessionRegistry';
 import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
 
 const panelTab = {
@@ -179,6 +179,20 @@ const panelTab = {
   title: 'Chat',
   position: 0,
   conversationId,
+};
+
+const surface = (overrides: Partial<ChatSurfaceIdentity> = {}): ChatSurfaceIdentity => {
+  const surfaceId = overrides.surfaceId ?? `page:tab:${panelTab.id}`;
+  const targetConversationId = overrides.conversationId !== undefined
+    ? overrides.conversationId
+    : conversationId;
+  return {
+    conversationId: targetConversationId,
+    sessionKey: overrides.sessionKey ?? `${surfaceId}:${targetConversationId ?? 'none'}`,
+    surfaceId,
+    surfaceType: overrides.surfaceType ?? 'page',
+    tabId: overrides.tabId ?? panelTab.id,
+  };
 };
 
 function renderWithPanel(ui: React.ReactElement) {
@@ -202,7 +216,7 @@ describe('ChatSessionView', () => {
 
   it('embedded: aciona menu de contexto via MessageList', async () => {
     const onSend = vi.fn();
-    renderWithPanel(<ChatSessionView variant="embedded" conversationId={conversationId} onSend={onSend} showShortcutsHelp={false} />);
+    renderWithPanel(<ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={onSend} showShortcutsHelp={false} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'open-menu' }));
 
@@ -213,7 +227,7 @@ describe('ChatSessionView', () => {
   it('embedded: mostra banner de erro e retry quando onSend falha', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValueOnce(new Error('fail'));
-    renderWithPanel(<ChatSessionView variant="embedded" conversationId={conversationId} onSend={onSend} showShortcutsHelp={false} />);
+    renderWithPanel(<ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={onSend} showShortcutsHelp={false} />);
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
@@ -235,8 +249,11 @@ describe('ChatSessionView', () => {
     renderWithPanel(
       <ChatSessionView
         variant="embedded"
-        conversationId={conversationId}
-        surfaceId="embedded:workspace-chat-modal:tab-1"
+        surface={surface({
+          surfaceId: 'embedded:workspace-chat-modal:tab-1',
+          sessionKey: `embedded:workspace-chat-modal:tab-1:${conversationId}`,
+          surfaceType: 'embedded',
+        })}
         onSend={onSend}
         showShortcutsHelp={false}
       />,
@@ -267,8 +284,7 @@ describe('ChatSessionView', () => {
     try {
       renderWithPanel(
         <ChatSessionView
-          conversationId={conversationId}
-          sessionKey={sessionKey}
+          surface={surface({ sessionKey, surfaceId: 'test-surface' })}
           onSend={vi.fn().mockResolvedValue(undefined)}
           showShortcutsHelp={false}
         />,
@@ -294,8 +310,7 @@ describe('ChatSessionView', () => {
 
     const { rerender } = renderWithPanel(
       <ChatSessionView
-        conversationId={conversationId}
-        sessionKey={sessionKey}
+        surface={surface({ sessionKey, surfaceId: 'test-surface' })}
         onSend={vi.fn().mockResolvedValue(undefined)}
         showShortcutsHelp={false}
       />,
@@ -311,8 +326,7 @@ describe('ChatSessionView', () => {
     rerender(
       <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
         <ChatSessionView
-          conversationId={conversationId}
-          sessionKey={sessionKey}
+          surface={surface({ sessionKey, surfaceId: 'test-surface' })}
           onSend={vi.fn().mockResolvedValue(undefined)}
           showShortcutsHelp={false}
         />

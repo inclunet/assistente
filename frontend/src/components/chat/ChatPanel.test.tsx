@@ -29,13 +29,6 @@ vi.mock('./ChatSessionView', () => ({
   },
 }));
 
-vi.mock('../workspace/WorkspacePanelContext', () => ({
-  useWorkspacePanel: () => ({
-    tab: { id: 'tab-chat', type: 'chat', title: 'Chat', position: 0 },
-    isActive: true,
-  }),
-}));
-
 describe('ChatPanel', () => {
   beforeEach(() => {
     chatSessionViewMock.mockClear();
@@ -44,10 +37,13 @@ describe('ChatPanel', () => {
   it('expõe contrato declarativo de superfície para a view interna', () => {
     render(
       <ChatPanel
-        conversationId="conversation-a"
-        surfaceId="surface-a"
-        sessionKey="surface-a:conversation-a"
-        surfaceType="modal"
+        surface={{
+          conversationId: 'conversation-a',
+          sessionKey: 'surface-a:conversation-a',
+          surfaceId: 'surface-a',
+          surfaceType: 'modal',
+          tabId: 'tab-chat',
+        }}
         onSend={vi.fn()}
         showShortcutsHelp={false}
       />,
@@ -72,9 +68,13 @@ describe('ChatPanel', () => {
 
     render(
       <ChatPanel
-        conversationId="conversation-a"
-        surfaceId="surface-a"
-        surfaceType="embedded"
+        surface={{
+          conversationId: 'conversation-a',
+          sessionKey: 'surface-a:conversation-a',
+          surfaceId: 'surface-a',
+          surfaceType: 'embedded',
+          tabId: 'tab-chat',
+        }}
         onSend={onSend}
       />,
     );

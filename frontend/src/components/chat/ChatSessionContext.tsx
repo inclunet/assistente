@@ -1,5 +1,4 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import {
   type ActiveConversation,
   type ChatConversationSession,
@@ -9,7 +8,6 @@ import {
 } from '../../store/chatStore';
 import {
   buildChatSessionKey,
-  createChatSurfaceIdentity,
   createChatSurfaceOrigin,
   createEmptyChatSession,
   getDefaultChatConversationSession,
@@ -19,7 +17,6 @@ import {
   type ChatSurfaceIdentity,
   type ChatSurfaceSession,
   type ChatSurfaceOrigin,
-  type ChatSurfaceType,
   type ConversationTimeline,
 } from '../../services/chatSessionRegistry';
 import type { ToolCallStatus } from '../../types/chat';
@@ -79,38 +76,15 @@ export interface ChatSessionContextValue {
 const ChatSessionContext = createContext<ChatSessionContextValue | null>(null);
 
 export interface ChatSessionProviderProps {
-  surface?: ChatSurfaceIdentity;
-  conversationId?: string | null;
-  surfaceType?: ChatSurfaceType;
-  surfaceId?: string;
-  sessionKey?: string;
+  surface: ChatSurfaceIdentity;
   children: React.ReactNode;
 }
 
 export function ChatSessionProvider({
   surface,
-  conversationId = null,
-  surfaceType = 'page',
-  surfaceId: explicitSurfaceId,
-  sessionKey: explicitSessionKey,
   children,
 }: ChatSessionProviderProps) {
-  const { tab } = useWorkspacePanel();
-  const tabId = tab?.id;
-  const surfaceIdentity = useMemo(() => surface ?? createChatSurfaceIdentity({
-    conversationId: conversationId || null,
-    sessionKey: explicitSessionKey,
-    surfaceId: explicitSurfaceId,
-    surfaceType,
-    tabId,
-  }), [
-    conversationId,
-    explicitSessionKey,
-    explicitSurfaceId,
-    surface,
-    surfaceType,
-    tabId,
-  ]);
+  const surfaceIdentity = surface;
   const normalizedConversationId = surfaceIdentity.conversationId;
   const sessionKey = surfaceIdentity.sessionKey;
   const surfaceId = surfaceIdentity.surfaceId;
@@ -200,7 +174,6 @@ export function ChatSessionProvider({
     surfaceId,
     surfaceSession,
     surfaceIdentity,
-    tabId,
   ]);
 
   useEffect(() => (
@@ -332,7 +305,6 @@ export function ChatSessionProvider({
     startConversationReading,
     surfaceId,
     surfaceIdentity,
-    tabId,
     threadedMessages,
     toggleConversationReasoningExpanded,
     toggleConversationThreadExpanded,

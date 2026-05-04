@@ -5,7 +5,7 @@ import type { llm } from '../../wailsjs/go/models';
 import { useWorkspaceStore } from './workspaceStore';
 import { isModalOpen } from '../components/ui/Modal';
 import { useUIStore } from './uiStore';
-import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
+import { ensureWorkspaceTabConversationId } from '../lib/workspaceConversation';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
 import {
@@ -97,7 +97,7 @@ interface WorkspaceChatModalState {
   close: () => void;
   bumpFocus: () => void;
   setAdapterError: (msg: string | null) => void;
-  requestOpen: (tabId?: string) => Promise<void>;
+  requestOpen: (tabId: string) => Promise<void>;
 }
 
 export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, get) => ({
@@ -148,9 +148,7 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
 
   requestOpen: async (tabId) => {
     const workspaceStore = useWorkspaceStore.getState();
-    const tab = tabId
-      ? workspaceStore.workspace?.tabs.find((item) => item.id === tabId) ?? null
-      : workspaceStore.getActiveTab();
+    const tab = workspaceStore.workspace?.tabs.find((item) => item.id === tabId) ?? null;
     if (!tab) return;
 
     if (get().isOpen) {
@@ -204,7 +202,7 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
 
     let conversationId: string;
     try {
-      conversationId = await ensureWorkspaceTabHasConversation(tab);
+      conversationId = await ensureWorkspaceTabConversationId(tab);
     } catch (e) {
       console.error('[workspaceChatModal] falha ao garantir conversa:', e);
       useUIStore.getState().addToast(

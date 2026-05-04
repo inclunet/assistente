@@ -83,7 +83,7 @@ describe('useEditorSurfaceController', () => {
     workspaceMocks.activeTabId = 'editor-tab';
   });
 
-  it('cria e ativa documento para a aba ativa', async () => {
+  it('cria documento para a aba ativa sem depender de activeDocumentId global', async () => {
     renderHook(() => useEditorSurfaceController(editorTab, true));
 
     await waitFor(() => {
@@ -92,7 +92,7 @@ describe('useEditorSurfaceController', () => {
         filePath: 'C:/tmp/doc.md',
         markdown: '# Arquivo',
       }));
-      expect(editorMocks.setActiveDocument).toHaveBeenCalledWith('editor-tab');
+      expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
     });
   });
 
@@ -103,7 +103,7 @@ describe('useEditorSurfaceController', () => {
     expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
   });
 
-  it('reativa documento existente quando o painel volta a ficar ativo', () => {
+  it('preserva documento existente sem reativar singleton global quando painel volta a ficar ativo', () => {
     editorMocks.documents = {
       'editor-tab': { id: 'editor-tab', title: 'Editor', filePath: null },
     };
@@ -112,14 +112,14 @@ describe('useEditorSurfaceController', () => {
       initialProps: { active: true },
     });
 
-    expect(editorMocks.setActiveDocument).toHaveBeenCalledWith('editor-tab');
+    expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
 
     editorMocks.setActiveDocument.mockClear();
     editorMocks.activeDocumentId = 'other-editor';
     rerender({ active: false });
     rerender({ active: true });
 
-    expect(editorMocks.setActiveDocument).toHaveBeenCalledWith('editor-tab');
+    expect(editorMocks.setActiveDocument).not.toHaveBeenCalled();
   });
 
   it('usa fallback i18n para título de documento novo sem arquivo', async () => {

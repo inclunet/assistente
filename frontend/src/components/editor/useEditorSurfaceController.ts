@@ -24,9 +24,6 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
     const exists = !!store.documents[tabId];
 
     if (exists) {
-      if (store.activeDocumentId !== tabId) {
-        store.setActiveDocument(tabId);
-      }
       return;
     }
 
@@ -108,7 +105,6 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
         filePath: filePath || null,
         draftId: draftId || (filePath ? null : tabId),
       });
-      useEditorStore.getState().setActiveDocument(tabId);
     } catch (error) {
       console.error('[EditorSurfaceController] Erro ao criar documento:', error);
     } finally {

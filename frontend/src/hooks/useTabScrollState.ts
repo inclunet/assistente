@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 
 /**
  * Preserva e restaura scroll position ao trocar de aba no workspace.
@@ -8,24 +8,27 @@ import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
  */
 export function useTabScrollState(
   scrollRef: React.RefObject<HTMLElement | null>,
+  tabId: string,
 ) {
-  const activeTab = useActiveTab();
+  const scrollTop = useWorkspaceStore((s) => (
+    s.workspace?.tabs.find((tab) => tab.id === tabId)?.state?.scrollTop
+  ));
   const updateTab = useWorkspaceStore((s) => s.updateTab);
-  const tabIdRef = useRef(activeTab?.id);
+  const tabIdRef = useRef(tabId);
   const scrollTopRef = useRef(0);
 
-  tabIdRef.current = activeTab?.id;
+  tabIdRef.current = tabId;
 
   // Restaura scroll quando a aba monta
   useEffect(() => {
-    if (!activeTab?.state?.scrollTop || !scrollRef.current) return;
-    const saved = activeTab.state.scrollTop as number;
+    if (!scrollTop || !scrollRef.current) return;
+    const saved = scrollTop as number;
     requestAnimationFrame(() => {
       if (scrollRef.current) {
         scrollRef.current.scrollTop = saved;
       }
     });
-  }, [activeTab?.id]);
+  }, [scrollRef, scrollTop, tabId]);
 
   // Rastreia scroll position
   useEffect(() => {

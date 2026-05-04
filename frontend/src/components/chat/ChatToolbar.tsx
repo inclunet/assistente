@@ -12,10 +12,11 @@ import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
-import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
 import { useChatSession } from './ChatSessionContext';
+import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
@@ -39,16 +40,16 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     clearConversationMessages,
     loadConversationSession,
   } = useChatSession();
+  const { tab: panelTab } = useWorkspacePanel();
   const effectiveConversationId = sessionConversationId || conversationId || null;
   const queuedTurnCount = session?.queuedTurnCount ?? 0;
   const { announce } = useAnnouncer();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
-  const wsActiveTab = useActiveTab();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
 
-  const tabProfileSlug = wsActiveTab?.profileOverride?.slug as string | undefined;
+  const tabProfileSlug = panelTab.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const historyPickerRef = useRef<HistoryPickerRef>(null);
@@ -156,21 +157,19 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   }, [enableShortcuts, handleClearConversation]);
 
   const handleProfileChange = useCallback((slug: string) => {
-    if (wsActiveTab) {
-      void updateWsTab(wsActiveTab.id, {
-        profile_override: { slug },
-      });
-    }
+    void updateWsTab(panelTab.id, {
+      profile_override: { slug },
+    });
     focusInput();
-  }, [focusInput, wsActiveTab, updateWsTab]);
+  }, [focusInput, panelTab.id, updateWsTab]);
 
   const handleHistoryChange = async (nextConversationId: string, conversation: { title?: string }) => {
     const nextTitle = conversation.title || t('chat.newConversation');
     try {
-      if (wsActiveTab?.type === 'chat') {
+      if (panelTab.type === 'chat') {
         await Promise.all([
           loadConversationSession(nextConversationId, { activate: true }),
-          updateWsTab(wsActiveTab.id, {
+          updateWsTab(panelTab.id, {
             conversation_id: nextConversationId,
             title: nextTitle,
           }),

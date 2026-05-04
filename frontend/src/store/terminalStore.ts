@@ -49,7 +49,7 @@ interface TerminalState {
 
   // Actions
   loadSessions: () => Promise<void>;
-  createSession: (name?: string) => Promise<void>;
+  createSession: (name?: string) => Promise<string | null>;
   closeSession: (id: string) => Promise<void>;
   setActiveSession: (id: string) => void;
   sendInput: (sessionId: string, input: string) => Promise<void>;
@@ -82,9 +82,12 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const info = await CreateTerminalSession(name || '');
       if (info) {
         set({ activeSessionId: info.id });
+        return info.id;
       }
+      return null;
     } catch (err) {
       console.error('[Terminal] Erro ao criar sessão:', err);
+      return null;
     }
   },
 

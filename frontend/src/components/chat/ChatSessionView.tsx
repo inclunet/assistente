@@ -11,7 +11,6 @@ import { ChatSessionProvider } from './ChatSessionContext';
 import type {
   ChatSurfaceIdentity,
   ChatSurfaceOrigin,
-  ChatSurfaceType,
 } from '../../services/chatSessionRegistry';
 import { ContextMenu } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
@@ -33,11 +32,7 @@ import './ChatSessionView.css';
 
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
-  surface?: ChatSurfaceIdentity;
-  surfaceType?: ChatSurfaceType;
-  conversationId?: string | null;
-  surfaceId?: string;
-  sessionKey?: string;
+  surface: ChatSurfaceIdentity;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
   onSend: (content: string, mediaFiles: MediaFile[] | undefined, origin: ChatSurfaceOrigin) => Promise<void>;
   showShortcutsHelp?: boolean;
@@ -46,23 +41,14 @@ export interface ChatSessionViewProps {
 export function ChatSessionView({
   variant = 'page',
   surface,
-  surfaceType = variant,
-  conversationId,
-  surfaceId,
-  sessionKey,
   onSend,
   showShortcutsHelp,
 }: ChatSessionViewProps) {
   return (
-    <ChatSessionProvider
-      surface={surface}
-      conversationId={conversationId}
-      surfaceType={surfaceType}
-      surfaceId={surfaceId}
-      sessionKey={sessionKey}
-    >
+    <ChatSessionProvider surface={surface}>
       <ChatSessionViewControllerBridge
         variant={variant}
+        surface={surface}
         onSend={onSend}
         showShortcutsHelp={showShortcutsHelp}
       />

@@ -5,7 +5,9 @@ import type { VoiceAccessibilityOrigin } from './voiceAccessibility/types';
 import { playReceiveSound } from './audioFeedback';
 
 export function isChatConversationActive(conversationId: string): boolean {
-  return useWorkspaceStore.getState().getActiveTab?.()?.conversationId === conversationId;
+  const workspace = useWorkspaceStore.getState().workspace;
+  const activeTab = workspace?.tabs.find((tab) => tab.id === workspace.activeTabId);
+  return activeTab?.conversationId === conversationId;
 }
 
 export function getChatConversationLabel(conversationId: string, fallbackTitle?: string | null): string {

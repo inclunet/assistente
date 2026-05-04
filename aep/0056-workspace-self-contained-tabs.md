@@ -177,6 +177,16 @@ Esta fase passa a ser detalhada pela AEP-0059.
 - Adicionar testes com dois painéis reais do mesmo domínio montados simultaneamente.
 - Documentar no código que `activeTabId` é contrato de navegação, não contrato de dados.
 
+#### Pendências para próximos PRs
+
+O PR #109 endurece a superfície de chat, mas ainda deixa alguns pontos que devem ser tratados em PRs seguintes para completar o objetivo de painéis autocontidos:
+
+- Remover fallbacks em APIs globais que ainda aceitam ausência de identidade explícita e recorrem a `getActiveTab()`; ações disparadas por painel devem receber `tabId`/`surfaceId` obrigatório no ponto de origem.
+- Revisar hooks globais que consultam `useActiveTab()` ou `getActiveTab()` para fluxos de domínio, como bridges entre workspace e chat; esses hooks só devem usar a aba ativa para navegação, visibilidade ou foco.
+- Encapsular ou eliminar dependências diretas de `activeDocumentId` e `activeSessionId` em componentes de painel. Stores de editor e terminal podem manter caches internos, mas painéis devem operar por `documentId`/`sessionId` explícitos.
+- Garantir que controles compartilhados de UI, toolbars e atalhos recebam a identidade do painel/superfície em vez de inferir destino pela aba ativa.
+- Expandir testes de isolamento para dois painéis reais de editor, terminal e tasklist montados ao mesmo tempo, validando que estado visual, modal associado e ações locais não vazam entre instâncias.
+
 ## Riscos
 
 - Keep-alive pode aumentar uso de memória se muitas abas pesadas permanecerem montadas.

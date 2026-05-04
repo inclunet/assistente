@@ -22,8 +22,8 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
     if (sessionId) {
       const exists = store.sessions.some((session) => session.id === sessionId);
       if (exists) {
-        if (store.activeSessionId !== sessionId) {
-          store.setActiveSession(sessionId);
+        if (!store.historyBySession[sessionId]) {
+          void store.loadHistory(sessionId);
         }
         lastSyncedRef.current = syncKey;
         return;
@@ -36,8 +36,8 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
 
         const reloaded = useTerminalStore.getState();
         if (reloaded.sessions.some((session) => session.id === sessionId)) {
-          if (reloaded.activeSessionId !== sessionId) {
-            reloaded.setActiveSession(sessionId);
+          if (!reloaded.historyBySession[sessionId]) {
+            void reloaded.loadHistory(sessionId);
           }
           lastSyncedRef.current = syncKey;
         } else {
@@ -60,8 +60,7 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
   async function recoverStaleSession(tabId: string) {
     creatingRef.current = true;
     try {
-      await useTerminalStore.getState().createSession();
-      const newSessionId = useTerminalStore.getState().activeSessionId;
+      const newSessionId = await useTerminalStore.getState().createSession();
       if (newSessionId) {
         await updateWorkspaceTab(tabId, { state: { sessionId: newSessionId } });
         lastSyncedRef.current = `${tabId}:${newSessionId}`;
@@ -76,8 +75,7 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
   async function createSessionForTab(tabId: string) {
     creatingRef.current = true;
     try {
-      await useTerminalStore.getState().createSession();
-      const newSessionId = useTerminalStore.getState().activeSessionId;
+      const newSessionId = await useTerminalStore.getState().createSession();
       if (newSessionId) {
         await updateWorkspaceTab(tabId, { state: { sessionId: newSessionId } });
         lastSyncedRef.current = `${tabId}:${newSessionId}`;

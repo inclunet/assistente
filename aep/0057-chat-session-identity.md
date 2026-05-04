@@ -195,6 +195,17 @@ Esse desenho permite trocar Zustand, registry em memória ou outra implementaç�
 - Adicionar testes com duas superfícies de chat montadas simultaneamente, incluindo mesma conversa e conversas diferentes.
 - Validar modal de chat aberto a partir de editor, terminal e tasklist sem depender da aba ativa no momento do envio.
 
+#### Pendências para próximos PRs
+
+O PR #109 introduz `ChatSurfaceIdentity` e vincula o modal do workspace à superfície de origem. Para concluir o hardening e remover contratos de transição, os próximos PRs devem:
+
+- Tornar `ChatSurfaceIdentity` o único contrato aceito por `ChatPanel` e `ChatSessionView`, removendo props antigas de compatibilidade como `conversationId`, `surfaceType`, `surfaceId` e `sessionKey`.
+- Tornar `workspaceChatModalStore.requestOpen(tabId)` obrigatório, removendo o fallback que busca `getActiveTab()` quando `tabId` não é informado.
+- Revisar `ChatToolbar` e qualquer componente de chat que ainda consulte `useActiveTab()` para garantir que a aba ativa só afete foco/visibilidade, nunca identidade de conversa, retry, envio ou destino de ação.
+- Revisar `useWorkspaceChatBridge`; se ainda participar de fluxo de chat, ele deve receber identidade explícita da superfície ou ser removido como legado.
+- Remover chamadas diretas de componentes ao `chatStore` para envio ou leitura de registry quando houver controller/provider equivalente. Em especial, o envio do `WorkspaceChatModal` deve passar por um controller/adaptador de superfície, mantendo `chatStore` como infraestrutura interna do domínio.
+- Adicionar testes de regressão para editor, terminal e tasklist abrindo chat interno em duas instâncias montadas simultaneamente, cobrindo rascunho, scroll, retry e origem de envio por `sessionKey`.
+
 ## Riscos
 
 - Separar timeline e sessão visual aumenta a complexidade inicial do domínio de chat.
