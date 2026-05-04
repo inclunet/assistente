@@ -265,7 +265,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               label: t('editor.chatModal.title'),
               icon: <MessageOutlined />,
               shortcut: 'Ctrl+Shift+I',
-              onClick: () => void useWorkspaceChatModalStore.getState().requestOpen(),
+              onClick: () => void useWorkspaceChatModalStore.getState().requestOpen(panelTab.id),
             },
             {
               key: 'new-task',

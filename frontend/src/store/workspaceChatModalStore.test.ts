@@ -173,6 +173,21 @@ describe('workspaceChatModalStore.requestOpen', () => {
     expect(typeof s.boundSend).toBe('function');
   });
 
+  it('abre usando tabId explícito mesmo sem depender da aba ativa', async () => {
+    mockGetActiveTab.mockReturnValue(undefined);
+    const prepare = vi.fn().mockResolvedValue({ ok: true, contextDisplay: 'selection', meta: null });
+    registerWorkspaceChatModalAdapter('tab-editor', { prepare, send: vi.fn() });
+
+    await useWorkspaceChatModalStore.getState().requestOpen('tab-editor');
+
+    const s = useWorkspaceChatModalStore.getState();
+    expect(s.isOpen).toBe(true);
+    expect(s.boundTabId).toBe('tab-editor');
+    expect(s.boundSurface?.tabId).toBe('tab-editor');
+    expect(s.boundSurface?.surfaceType).toBe('modal');
+    expect(mockGetActiveTab).not.toHaveBeenCalled();
+  });
+
   it('não abre quando prepare() falha sem mensagem', async () => {
     mockGetActiveTab.mockReturnValue(editorTab);
     const prepare = vi.fn().mockResolvedValue({ ok: false });

@@ -1814,7 +1814,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   sendEditorChatModalRef.current = sendEditorChatModalMessage;
 
   const editorChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
-    if (!workspaceTab || workspaceTab.type !== 'editor' || !isPanelActive) return null;
+    if (!workspaceTab || workspaceTab.type !== 'editor') return null;
 
     return {
       prepare: async (): Promise<WorkspaceChatModalPrepareResult> => {
@@ -1887,7 +1887,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       send: (instruction, media, meta, session) =>
         sendEditorChatModalRef.current(instruction, media, meta as InlineChatSelection, session),
     };
-  }, [workspaceTab, isPanelActive, activeTab, isAsking, addToast, editorReadyNonce, t]);
+  }, [workspaceTab, activeTab, isAsking, addToast, editorReadyNonce, t]);
 
   useRegisterWorkspaceChatAdapter(workspaceTab?.id, editorChatModalAdapter);
 
@@ -2326,12 +2326,12 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
             addToast(t('editor.chatModal.prepareNeedCodeOrRich'), 'info');
             return;
           }
-          await useWorkspaceChatModalStore.getState().requestOpen();
+          await useWorkspaceChatModalStore.getState().requestOpen(workspaceTab?.id);
         },
         disabled: !activeTab || isAsking,
       },
     ];
-  }, [activeTab, isAsking, addToast, t]);
+  }, [activeTab, isAsking, addToast, t, workspaceTab?.id]);
 
   // Atalhos de arquivos
   useEffect(() => {
