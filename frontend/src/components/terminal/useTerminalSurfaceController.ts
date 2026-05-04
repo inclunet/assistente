@@ -29,8 +29,6 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
         return;
       }
 
-      if (lastSyncedRef.current === syncKey) return;
-
       store.loadSessions().then(() => {
         if (!isWorkspaceTabActive(tab.id)) return;
 
@@ -63,7 +61,6 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
       const newSessionId = await useTerminalStore.getState().createSession();
       if (newSessionId) {
         await updateWorkspaceTab(tabId, { state: { sessionId: newSessionId } });
-        lastSyncedRef.current = `${tabId}:${newSessionId}`;
       }
     } catch (error) {
       console.error('[TerminalSurfaceController] Erro ao recuperar sessão obsoleta:', error);
@@ -78,7 +75,6 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
       const newSessionId = await useTerminalStore.getState().createSession();
       if (newSessionId) {
         await updateWorkspaceTab(tabId, { state: { sessionId: newSessionId } });
-        lastSyncedRef.current = `${tabId}:${newSessionId}`;
       }
     } catch (error) {
       console.error('[TerminalSurfaceController] Erro ao criar sessão:', error);

@@ -75,7 +75,7 @@ describe('useTabScrollState', () => {
     });
   });
 
-  it('não sobrescreve scroll restaurado quando desmonta sem novo evento de scroll', () => {
+  it('não regrava scroll restaurado quando desmonta sem mudança real', () => {
     workspaceMocks.tabs = [
       { id: 'terminal-a', state: { scrollTop: 88 } },
       { id: 'terminal-b', state: { scrollTop: 20 } },
@@ -85,8 +85,22 @@ describe('useTabScrollState', () => {
 
     unmount();
 
-    expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-a', {
-      state: { scrollTop: 88 },
-    });
+    expect(workspaceMocks.updateTab).not.toHaveBeenCalled();
+  });
+
+  it('preserva scroll restaurado quando o DOM mantém a posição sem evento de scroll', () => {
+    workspaceMocks.tabs = [
+      { id: 'terminal-a', state: { scrollTop: 88 } },
+      { id: 'terminal-b', state: { scrollTop: 20 } },
+    ];
+
+    const { unmount } = render(<ScrollProbe tabId="terminal-a" />);
+
+    const terminalA = screen.getByTestId('terminal-a');
+    terminalA.scrollTop = 88;
+
+    unmount();
+
+    expect(workspaceMocks.updateTab).not.toHaveBeenCalled();
   });
 });

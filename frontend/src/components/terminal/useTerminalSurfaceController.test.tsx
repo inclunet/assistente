@@ -76,6 +76,30 @@ describe('useTerminalSurfaceController', () => {
     });
   });
 
+  it('recarrega sessões após criar sessionId antes do evento popular o store', async () => {
+    terminalMocks.createSession.mockResolvedValue('session-1');
+    const { rerender } = renderHook(({ tab }) => useTerminalSurfaceController(tab, true), {
+      initialProps: { tab: terminalTab },
+    });
+
+    await waitFor(() => {
+      expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
+        state: { sessionId: 'session-1' },
+      });
+    });
+
+    rerender({
+      tab: {
+        ...terminalTab,
+        state: { sessionId: 'session-1' },
+      },
+    });
+
+    await waitFor(() => {
+      expect(terminalMocks.loadSessions).toHaveBeenCalled();
+    });
+  });
+
   it('carrega histórico de sessão existente por sessionId explícito', async () => {
     terminalMocks.sessions = [{ id: 'session-2' }];
     renderHook(() => useTerminalSurfaceController({
