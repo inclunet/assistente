@@ -59,7 +59,7 @@ export interface ChatSessionContextValue {
   clearDraft: () => void;
   setScrollState: (scrollState: { scrollTop: number; scrollAnchorMessageId: string | null }) => void;
   loadOlderMessages: () => Promise<void>;
-  loadConversationSession: (conversationId: string, options?: { activate?: boolean }) => Promise<void>;
+  loadConversationSession: (conversationId: string) => Promise<void>;
   loadMessageChildren: ReturnType<typeof useChatStore.getState>['loadMessageChildren'];
   retryMessageToConversation: ReturnType<typeof useChatStore.getState>['retryMessageToConversation'];
   updateConversationMessage: ReturnType<typeof useChatStore.getState>['updateConversationMessage'];

@@ -120,7 +120,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
       if (conv?.id) {
         await ClearConversation(conv.id);
-        await loadConversationSession(conv.id, { activate: true });
+        await loadConversationSession(conv.id);
       } else if (effectiveConversationId) {
         clearConversationMessages(effectiveConversationId);
       }
@@ -168,14 +168,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     try {
       if (panelTab.type === 'chat') {
         await Promise.all([
-          loadConversationSession(nextConversationId, { activate: true }),
+          loadConversationSession(nextConversationId),
           updateWsTab(panelTab.id, {
             conversation_id: nextConversationId,
             title: nextTitle,
           }),
         ]);
       } else {
-        await loadConversationSession(nextConversationId, { activate: true });
+        await loadConversationSession(nextConversationId);
       }
       announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
     } catch (error) {

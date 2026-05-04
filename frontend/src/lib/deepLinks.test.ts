@@ -656,7 +656,7 @@ describe('executeDeepLink', () => {
 
       expect(mockWsSetActiveTab).toHaveBeenCalledWith('tab-5');
       expect(mockWsAddTab).not.toHaveBeenCalled();
-      expect(mockLoadConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a', { activate: true });
+      expect(mockLoadConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a');
       expect(mockSendMessageToConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a', 'oi');
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
@@ -671,7 +671,7 @@ describe('executeDeepLink', () => {
 
       expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
-      expect(mockLoadConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a', { activate: true });
+      expect(mockLoadConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a');
       expect(mockSendMessageToConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a', 'oi');
     });
   });

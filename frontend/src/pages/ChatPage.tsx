@@ -3,13 +3,20 @@ import { useTranslation } from 'react-i18next';
 import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
 import { ChatPanel, type ChatPanelSendContext } from '../components/chat/ChatPanel';
 import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { createChatSurfaceIdentity, normalizeChatSurfaceOrigin } from '../services/chatSessionRegistry';
 import { sendChatSurfaceMessage } from '../components/chat/ChatSurfaceController';
+import { buildChatSurfaceParams } from '../lib/chatSurface';
 
 export default function ChatPage() {
   const { t } = useTranslation();
   const { tab } = useWorkspacePanel();
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const conversationId = tab?.type === 'chat' ? tab.conversationId : undefined;
+  const tabProfileSlug = tab?.type === 'chat'
+    ? (tab.profileOverride?.slug as string | undefined)
+    : undefined;
+  const effectiveProfileSlug = tabProfileSlug || wsProfile || undefined;
   const surface = useMemo(() => createChatSurfaceIdentity({
     conversationId: conversationId ?? null,
     surfaceType: 'page',
@@ -24,14 +31,20 @@ export default function ChatPage() {
       if (!tab || tab.type !== 'chat') {
         throw new Error(t('chat.errors.tabCannotSend'));
       }
-      const conversationId = await ensureWorkspaceTabHasConversation(tab, { activate: true });
+      const conversationId = await ensureWorkspaceTabHasConversation(tab);
       if (!conversationId) {
         throw new Error(t('chat.errors.chatTabNotReady'));
       }
       const sendOrigin = normalizeChatSurfaceOrigin(context.origin, conversationId);
-      await sendChatSurfaceMessage(conversationId, content, mediaFiles, undefined, sendOrigin);
+      await sendChatSurfaceMessage(
+        conversationId,
+        content,
+        mediaFiles,
+        buildChatSurfaceParams(tab, { profileSlug: effectiveProfileSlug }),
+        sendOrigin,
+      );
     },
-    [tab, t],
+    [effectiveProfileSlug, tab, t],
   );
 
   return <ChatPanel surface={surface} onSend={onSend} />;

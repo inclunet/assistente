@@ -11,8 +11,6 @@ import { llm } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';
 import i18next from 'i18next';
 import { playSendSound } from '../services/audioFeedback';
-import { ttsService } from '../services/tts';
-import { messageAudioService } from '../services/messageAudio';
 import { isChatConversationActive } from '../services/chatArbitration';
 import { startChatEventController, stopAllChatEventControllers, stopChatEventController } from '../services/chatEventController';
 import { handleExternalChatIncoming } from '../services/externalChatController';
@@ -99,9 +97,7 @@ interface ChatStore {
   surfaceSessionsByKey: Record<string, ChatSurfaceSession>;
   loadingConversationIds: Set<string>;
   isInitialized: boolean;
-  contextProfileSlug: string | null;
 
-  setContextProfileSlug: (slug: string | null) => void;
   setConversationEditingMessageId: (conversationId: string, id: string | null, sessionKey: string) => void;
   startConversationEditing: (conversationId: string, id: string, sessionKey: string) => void;
   consumeSkipFocusRestore: (conversationId: string, sessionKey: string) => boolean;
@@ -119,7 +115,7 @@ interface ChatStore {
   removeConversationSurfaceSession: (sessionKey: string) => void;
 
   createConversation: (title?: string) => Promise<string>;
-  loadConversationSession: (id: string, options?: { activate?: boolean }) => Promise<void>;
+  loadConversationSession: (id: string) => Promise<void>;
   getConversationSession: (conversationId: string | null | undefined) => ChatConversationSession | null;
   loadOlderMessagesForConversation: (conversationId: string, sessionKey: string) => Promise<void>;
 
@@ -167,7 +163,6 @@ interface ChatStore {
 }
 
 export const useChatStore = create<ChatStore>()((set, get) => {
-  let loadConversationSeq = 0;
   const turnQueue = createConversationTurnQueue();
 
   const getSession = (state: ChatStore, conversationId: string, sessionKey?: string): ChatConversationSession => (
@@ -429,7 +424,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         maxTokensMode: paramsOverride?.maxTokensMode,
         topP: paramsOverride?.topP,
         reasoningEffort: paramsOverride?.reasoningEffort,
-        profileSlug: paramsOverride?.profileSlug ?? get().contextProfileSlug ?? undefined,
+        profileSlug: paramsOverride?.profileSlug,
         tabType: paramsOverride?.tabType,
         activeFilePath: paramsOverride?.activeFilePath,
         surfaceStateJson: paramsOverride?.surfaceStateJson,
@@ -453,9 +448,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     surfaceSessionsByKey: {},
     loadingConversationIds: new Set(),
     isInitialized: false,
-    contextProfileSlug: null,
-
-    setContextProfileSlug: (slug) => set({ contextProfileSlug: slug }),
 
     setConversationEditingMessageId: (conversationId, id, sessionKey) => {
       set((state) => patchSession(state, conversationId, { editingMessageId: id }, sessionKey));
@@ -566,19 +558,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return conv.id;
     },
 
-    loadConversationSession: async (id, options = { activate: true }) => {
-      // Para TTS/áudio da conversa anterior ao trocar
-      if (options.activate !== false) {
-        messageAudioService.stopCurrentAudio();
-        ttsService.stop();
-      }
-      const seq = options.activate === false ? loadConversationSeq : ++loadConversationSeq;
-
+    loadConversationSession: async (id) => {
       try {
         const snapshot = await loadConversationSnapshot(id, INITIAL_MESSAGE_WINDOW_SIZE);
-        if (options.activate !== false && seq !== loadConversationSeq) return;
         set((state) => {
-          if (options.activate !== false && seq !== loadConversationSeq) return state;
           const conversation = {
             id,
             title: snapshot.title,
@@ -601,7 +584,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           };
         });
       } catch (error) {
-        if (options.activate !== false && seq !== loadConversationSeq) return;
         console.error('[Chat] Erro ao carregar conversa:', error);
         set((state) => {
           const patches = patchSession(state, id, {
@@ -753,7 +735,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         return;
       }
       if (!getConversationTimeline(get(), conversationId)) {
-        await get().loadConversationSession(conversationId, { activate: false });
+        await get().loadConversationSession(conversationId);
       }
       const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
@@ -775,7 +757,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         return;
       }
       if (!getConversationTimeline(get(), conversationId)) {
-        await get().loadConversationSession(conversationId, { activate: false });
+        await get().loadConversationSession(conversationId);
       }
       const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
@@ -959,7 +941,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     handleExternalIncoming: (data) => {
       void handleExternalChatIncoming(data, {
         hasConversationSession: (conversationId) => !!getConversationTimeline(get(), conversationId),
-        loadConversationSession: (conversationId) => get().loadConversationSession(conversationId, { activate: false }),
+        loadConversationSession: (conversationId) => get().loadConversationSession(conversationId),
         chatEventAdapter,
       });
     },

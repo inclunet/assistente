@@ -38,7 +38,7 @@ vi.mock('../store/workspaceStore', () => ({
 vi.mock('../store/chatStore', () => ({
   useChatStore: {
     getState: () => ({
-      loadConversationSession: (id: string, options?: { activate?: boolean }) => mockLoadConversation(id, options),
+      loadConversationSession: (id: string) => mockLoadConversation(id),
     }),
   },
 }));
@@ -60,8 +60,8 @@ describe('ensureWorkspaceTabHasConversation', () => {
     hoisted.setTabs([{ id: 'tab-dedupe' }]);
     const tab = hoisted.tabs[0]!;
 
-    const p1 = ensureWorkspaceTabHasConversation(tab as WorkspaceTab, { activate: true });
-    const p2 = ensureWorkspaceTabHasConversation(tab as WorkspaceTab, { activate: true });
+    const p1 = ensureWorkspaceTabHasConversation(tab as WorkspaceTab);
+    const p2 = ensureWorkspaceTabHasConversation(tab as WorkspaceTab);
 
     const [a, b] = await Promise.all([p1, p2]);
     expect(a).toBe('01970a9e-0099-7000-8000-000000000099');
@@ -73,27 +73,27 @@ describe('ensureWorkspaceTabHasConversation', () => {
     hoisted.setTabs([{ id: 'tab-sync', conversationId: '01970a9e-0007-7000-8000-000000000007' }]);
     mockLoadConversation.mockClear();
 
-    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab, { activate: true });
+    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
     expect(id).toBe('01970a9e-0007-7000-8000-000000000007');
     expect(mockCreateConversation).not.toHaveBeenCalled();
     expect(mockUpdateTab).not.toHaveBeenCalled();
-    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0007-7000-8000-000000000007', { activate: true });
+    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0007-7000-8000-000000000007');
   });
 
   it('quando conversationId est\u00e1 vazio, cria conversa, atualiza aba e carrega mensagens', async () => {
     hoisted.setTabs([{ id: 'tab-new' }]);
-    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab, { activate: true });
+    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
     expect(id).toBe('01970a9e-0099-7000-8000-000000000099');
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
     expect(mockUpdateTab).toHaveBeenCalledWith('tab-new', { conversation_id: '01970a9e-0099-7000-8000-000000000099' });
-    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0099-7000-8000-000000000099', { activate: true });
+    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0099-7000-8000-000000000099');
   });
 
   it('lan\u00e7a se a aba n\u00e3o existe no workspace', async () => {
     hoisted.setTabs([]);
-    await expect(ensureWorkspaceTabHasConversation({ id: 'missing' } as WorkspaceTab, { activate: true })).rejects.toThrow(
+    await expect(ensureWorkspaceTabHasConversation({ id: 'missing' } as WorkspaceTab)).rejects.toThrow(
       /Aba n\u00e3o encontrada/,
     );
   });
@@ -102,10 +102,10 @@ describe('ensureWorkspaceTabHasConversation', () => {
     hoisted.setTabs([{ id: 'tab-skip-load', conversationId: '01970a9e-0007-7000-8000-000000000007' }]);
     mockLoadConversation.mockClear();
 
-    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab, { activate: true });
+    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
     expect(id).toBe('01970a9e-0007-7000-8000-000000000007');
-    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0007-7000-8000-000000000007', { activate: true });
+    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0007-7000-8000-000000000007');
   });
 
   it('ensureWorkspaceTabConversationId não sincroniza o chatStore quando só precisa do id', async () => {
@@ -130,13 +130,13 @@ describe('ensureWorkspaceTabHasConversation', () => {
     expect(mockLoadConversation).not.toHaveBeenCalled();
   });
 
-  it('ensureWorkspaceTabHasConversation respeita activate explícito do chamador', async () => {
+  it('ensureWorkspaceTabHasConversation carrega conversa sem contrato de ativação global', async () => {
     hoisted.setTabs([{ id: 'tab-background', conversationId: '01970a9e-0007-7000-8000-000000000007' }]);
     mockLoadConversation.mockClear();
 
-    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab, { activate: false });
+    const id = await ensureWorkspaceTabHasConversation(hoisted.tabs[0] as WorkspaceTab);
 
     expect(id).toBe('01970a9e-0007-7000-8000-000000000007');
-    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0007-7000-8000-000000000007', { activate: false });
+    expect(mockLoadConversation).toHaveBeenCalledWith('01970a9e-0007-7000-8000-000000000007');
   });
 });

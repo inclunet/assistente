@@ -304,7 +304,7 @@ export async function executeDeepLink(
     case 'conversation:send': {
       await openOrCreateChatTab(action.conversationId);
       deps.navigate('/');
-      await useChatStore.getState().loadConversationSession(action.conversationId, { activate: true });
+      await useChatStore.getState().loadConversationSession(action.conversationId);
       await useChatStore.getState().sendMessageToConversation(action.conversationId, action.message);
       announce(t('deepLink.announcedSent', { id: action.conversationId }));
       break;
