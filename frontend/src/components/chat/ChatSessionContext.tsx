@@ -220,13 +220,13 @@ export function ChatSessionProvider({
         ? sessionKey
         : buildChatSessionKey(surfaceId, targetConversationId),
       conversationId: targetConversationId,
-      tabId,
+      tabId: surfaceIdentity.tabId,
       surfaceId,
       surfaceType: surfaceIdentity.surfaceType,
     };
 
     return normalizeChatSurfaceOrigin(providedOrigin ?? fallbackOrigin, targetConversationId) ?? fallbackOrigin;
-  }, [normalizedConversationId, sessionKey, surfaceId, surfaceIdentity.surfaceType, tabId]);
+  }, [normalizedConversationId, sessionKey, surfaceId, surfaceIdentity.surfaceType, surfaceIdentity.tabId]);
 
   const retryMessageToConversation = useCallback<ChatSessionContextValue['retryMessageToConversation']>(
     (targetConversationId, messageId, paramsOverride, options) => (

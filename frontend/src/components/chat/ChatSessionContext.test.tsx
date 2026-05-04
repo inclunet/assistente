@@ -266,6 +266,40 @@ describe('ChatSessionProvider', () => {
     );
   });
 
+  it('usa tabId da identidade de superfície ao normalizar retry', async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatSessionProvider
+        surface={{
+          conversationId: currentConversationId,
+          sessionKey: embeddedSessionKey,
+          surfaceId: embeddedSurfaceId,
+          surfaceType: 'embedded',
+          tabId: 'tab-from-surface',
+        }}
+      >
+        <Probe />
+      </ChatSessionProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'retry' }));
+
+    expect(retryMessageToConversationMock).toHaveBeenCalledWith(
+      targetConversationId,
+      'message-1',
+      undefined,
+      {
+        origin: expect.objectContaining({
+          conversationId: targetConversationId,
+          sessionKey: `${embeddedSurfaceId}:${targetConversationId}`,
+          surfaceId: embeddedSurfaceId,
+          surfaceType: 'embedded',
+          tabId: 'tab-from-surface',
+        }),
+      },
+    );
+  });
+
   it('escopa rascunho pela sessionKey da superfície', async () => {
     const user = userEvent.setup();
     chatStoreState.surfaceSessionsByKey = {

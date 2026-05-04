@@ -1,4 +1,5 @@
 import { ChatSessionView } from './ChatSessionView';
+import { useMemo } from 'react';
 import {
   createChatSurfaceIdentity,
   type ChatSurfaceIdentity,
@@ -33,13 +34,13 @@ export function ChatPanel({
   showShortcutsHelp,
 }: ChatPanelProps) {
   const { tab } = useWorkspacePanel();
-  const surfaceIdentity = surface ?? createChatSurfaceIdentity({
+  const surfaceIdentity = useMemo(() => surface ?? createChatSurfaceIdentity({
     conversationId: conversationId || null,
     sessionKey,
     surfaceId,
     surfaceType,
     tabId: tab.id,
-  });
+  }), [conversationId, sessionKey, surface, surfaceId, surfaceType, tab.id]);
   const variant = surfaceIdentity.surfaceType === 'embedded' || surfaceIdentity.surfaceType === 'modal'
     ? 'embedded'
     : 'page';
