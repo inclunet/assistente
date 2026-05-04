@@ -121,6 +121,7 @@ interface ChatEventControllerOptions {
 export interface ChatEventControllerHandle {
   cleanup: () => void;
   handleSendFailure: (message: string) => void;
+  done: Promise<void>;
 }
 
 const activeControllers = new Map<string, () => void>();
@@ -199,6 +200,10 @@ export function startChatEventController({
   let cleanupExecuted = false;
   let streamingAnnounced = false;
   let assistantNodeCreated = false;
+  let resolveDone: () => void = () => {};
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
   const getCurrentSession = () => adapter.getSession(conversationId, origin?.sessionKey);
   const patchCurrentSession = (patch: Partial<ChatEventSession> & Record<string, unknown>) => {
     adapter.patchSession(conversationId, origin ? { ...patch, surfaceOrigin: origin } : patch);
@@ -270,6 +275,7 @@ export function startChatEventController({
       activeToolCalls: [],
       completedSegments: [],
     });
+    resolveDone();
   };
 
   const finalizeStreaming = (finalId?: string | null) => {
@@ -534,6 +540,7 @@ export function startChatEventController({
 
   return {
     cleanup,
+    done,
     handleSendFailure: (message: string) => {
       if (cleanupExecuted) return;
       console.error('[Chat] Error sending message:', message);

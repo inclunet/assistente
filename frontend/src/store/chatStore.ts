@@ -942,6 +942,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       void handleExternalChatIncoming(data, {
         hasConversationSession: (conversationId) => !!getConversationTimeline(get(), conversationId),
         loadConversationSession: (conversationId) => get().loadConversationSession(conversationId),
+        enqueueExternalTurn: async (conversationId, sessionKey, task) => {
+          const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
+          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+          try {
+            await turnQueue.enqueue(conversationId, async () => {
+              if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
+              await task();
+            });
+          } catch (error) {
+            if (!isConversationTurnQueueClearedError(error)) throw error;
+          }
+        },
         chatEventAdapter,
       });
     },

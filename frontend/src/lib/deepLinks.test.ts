@@ -600,6 +600,7 @@ describe('executeDeepLink', () => {
     vi.clearAllMocks();
     vi.useRealTimers();
     mockWsTabs = [];
+    mockWsAddTab.mockResolvedValue('tab-created');
   });
 
   describe('conversation:open — dedup', () => {
@@ -657,7 +658,21 @@ describe('executeDeepLink', () => {
       expect(mockWsSetActiveTab).toHaveBeenCalledWith('tab-5');
       expect(mockWsAddTab).not.toHaveBeenCalled();
       expect(mockLoadConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a');
-      expect(mockSendMessageToConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a', 'oi');
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-00000000000a',
+        'oi',
+        undefined,
+        expect.objectContaining({ tabType: 'chat' }),
+        {
+          origin: expect.objectContaining({
+            conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a',
+            sessionKey: 'page:tab:tab-5:01926b90-7a5a-7c4e-8d3f-00000000000a',
+            surfaceId: 'page:tab:tab-5',
+            surfaceType: 'page',
+            tabId: 'tab-5',
+          }),
+        },
+      );
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
@@ -672,7 +687,21 @@ describe('executeDeepLink', () => {
       expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockLoadConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a');
-      expect(mockSendMessageToConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a', 'oi');
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-00000000000a',
+        'oi',
+        undefined,
+        expect.objectContaining({ tabType: 'chat' }),
+        {
+          origin: expect.objectContaining({
+            conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a',
+            sessionKey: 'page:tab:tab-created:01926b90-7a5a-7c4e-8d3f-00000000000a',
+            surfaceId: 'page:tab:tab-created',
+            surfaceType: 'page',
+            tabId: 'tab-created',
+          }),
+        },
+      );
     });
   });
 
@@ -694,7 +723,21 @@ describe('executeDeepLink', () => {
 
       expect(mockCreateConversation).toHaveBeenCalled();
       expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000064' });
-      expect(mockSendMessageToConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000064', 'analise isso');
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-000000000064',
+        'analise isso',
+        undefined,
+        expect.objectContaining({ tabType: 'chat' }),
+        {
+          origin: expect.objectContaining({
+            conversationId: '01926b90-7a5a-7c4e-8d3f-000000000064',
+            sessionKey: 'page:tab:tab-created:01926b90-7a5a-7c4e-8d3f-000000000064',
+            surfaceId: 'page:tab:tab-created',
+            surfaceType: 'page',
+            tabId: 'tab-created',
+          }),
+        },
+      );
     });
 
     it('usa título customizado quando fornecido', async () => {
