@@ -62,6 +62,22 @@ describe('chatSessionRegistry', () => {
     });
   });
 
+  it('preserva sessionKey explícita durante migração de superfícies existentes', () => {
+    expect(createChatSurfaceIdentity({
+      conversationId: 'conversation-1',
+      sessionKey: 'legacy-surface:conversation-1',
+      surfaceId: 'modal:workspace-chat:tab-a',
+      surfaceType: 'modal',
+      tabId: 'tab-a',
+    })).toMatchObject({
+      conversationId: 'conversation-1',
+      sessionKey: 'legacy-surface:conversation-1',
+      surfaceId: 'modal:workspace-chat:tab-a',
+      surfaceType: 'modal',
+      tabId: 'tab-a',
+    });
+  });
+
   it('retorna sessão vazia para conversa ausente', () => {
     const state: ChatSessionRegistryState = {
       sessionsByConversationId: {},

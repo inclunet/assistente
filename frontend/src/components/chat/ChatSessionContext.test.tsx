@@ -66,13 +66,13 @@ const embeddedSurfaceId = 'embedded:workspace-chat-modal:tab-chat';
 const embeddedSessionKey = `${embeddedSurfaceId}:${currentConversationId}`;
 
 function Probe() {
-  const { retryMessageToConversation } = useChatSession();
+  const { retryMessageToConversation, surface } = useChatSession();
   return (
     <button
       type="button"
       onClick={() => retryMessageToConversation(targetConversationId, 'message-1')}
     >
-      retry
+      {surface.sessionKey === embeddedSessionKey ? 'retry' : surface.sessionKey}
     </button>
   );
 }
@@ -129,6 +129,37 @@ describe('ChatSessionProvider', () => {
     expect(removeConversationSurfaceSessionMock).toHaveBeenCalledWith(
       embeddedSessionKey,
     );
+  });
+
+  it('aceita identidade de superfície como contrato principal', async () => {
+    render(
+      <ChatSessionProvider
+        surface={{
+          conversationId: currentConversationId,
+          sessionKey: embeddedSessionKey,
+          surfaceId: embeddedSurfaceId,
+          surfaceType: 'embedded',
+          tabId: 'tab-chat',
+        }}
+      >
+        <Probe />
+      </ChatSessionProvider>,
+    );
+
+    await waitFor(() => {
+      expect(ensureConversationSurfaceSessionMock).toHaveBeenCalledWith(
+        currentConversationId,
+        embeddedSessionKey,
+        expect.objectContaining({
+          conversationId: currentConversationId,
+          sessionKey: embeddedSessionKey,
+          surfaceId: embeddedSurfaceId,
+          surfaceType: 'embedded',
+          tabId: 'tab-chat',
+        }),
+      );
+    });
+    expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
   });
 
   it('rematerializa superfície quando ela desaparece da store enquanto provider segue montado', async () => {

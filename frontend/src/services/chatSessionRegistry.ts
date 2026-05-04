@@ -50,11 +50,13 @@ export const buildWorkspaceModalChatSurfaceId = (tabId: string): string => (
 
 export function createChatSurfaceIdentity({
   conversationId = null,
+  sessionKey,
   surfaceId,
   surfaceType = 'page',
   tabId,
 }: {
   conversationId?: string | null;
+  sessionKey?: ChatSessionKey;
   surfaceId?: string;
   surfaceType?: ChatSurfaceType;
   tabId?: string;
@@ -63,7 +65,7 @@ export function createChatSurfaceIdentity({
     ?? (tabId ? buildTabChatSurfaceId(tabId, surfaceType) : `${surfaceType}:standalone`);
   return {
     conversationId,
-    sessionKey: buildChatSessionKey(resolvedSurfaceId, conversationId),
+    sessionKey: sessionKey ?? buildChatSessionKey(resolvedSurfaceId, conversationId),
     surfaceId: resolvedSurfaceId,
     surfaceType,
     ...(tabId ? { tabId } : {}),
