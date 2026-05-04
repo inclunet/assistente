@@ -140,13 +140,13 @@ export function getChatSession(
   conversationId: string,
   sessionKey = getDefaultChatSessionKey(conversationId),
 ): ChatConversationSession {
-  const compatibilitySession = state.sessionsByConversationId[conversationId];
-  const timeline = state.timelinesByConversationId?.[conversationId] ?? compatibilitySession?.conversation ?? null;
+  const defaultSession = state.sessionsByConversationId[conversationId];
+  const timeline = state.timelinesByConversationId?.[conversationId] ?? defaultSession?.conversation ?? null;
   const defaultSessionKey = getDefaultChatSessionKey(conversationId);
-  const shouldUseCompatibilityFallback = sessionKey === defaultSessionKey;
+  const shouldUseDefaultSessionFallback = sessionKey === defaultSessionKey;
   const surfaceSession = state.surfaceSessionsByKey?.[sessionKey]
-    ?? (shouldUseCompatibilityFallback && compatibilitySession
-      ? toSurfaceSession(compatibilitySession, conversationId, sessionKey)
+    ?? (shouldUseDefaultSessionFallback && defaultSession
+      ? toSurfaceSession(defaultSession, conversationId, sessionKey)
       : null)
     ?? createEmptyChatSurfaceSession(conversationId, sessionKey);
 
@@ -165,7 +165,7 @@ export function getConversationTimeline(
     ?? null;
 }
 
-export function getCompatibilityChatSession(
+export function getDefaultChatConversationSession(
   state: ChatSessionRegistryState,
   conversationId: string,
 ): ChatConversationSession | null {
@@ -206,18 +206,18 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
       delete timelinesByConversationId[conversationId];
     }
   }
-  const compatibilitySession = state.sessionsByConversationId[conversationId] ?? createEmptyChatSession(conversationId);
-  const nextCompatibilitySession = isDefaultSession
+  const defaultSession = state.sessionsByConversationId[conversationId] ?? createEmptyChatSession(conversationId);
+  const nextDefaultSession = isDefaultSession
     ? nextSession
     : {
-      ...compatibilitySession,
+      ...defaultSession,
       conversation: nextSession.conversation,
     };
 
   return {
     sessionsByConversationId: {
       ...state.sessionsByConversationId,
-      [conversationId]: nextCompatibilitySession,
+      [conversationId]: nextDefaultSession,
     },
     timelinesByConversationId,
     surfaceSessionsByKey: {

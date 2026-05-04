@@ -113,7 +113,6 @@ export interface TaskListWithWorkflow extends TaskList {
 // ==================== UI/Store Types ====================
 
 export interface TaskListState {
-  activeTaskListId?: string;
   taskLists: Map<string, TaskListWithWorkflow>;
   expandedTasks: Set<string>;
   isLoading: boolean;

@@ -193,13 +193,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return patchSession(state, conversationId, patch);
     }
 
-    const compatibilitySession = state.sessionsByConversationId[conversationId];
+    const defaultSession = state.sessionsByConversationId[conversationId];
     const currentSession = state.surfaceSessionsByKey[sessionKey] ?? {
       ...createEmptyChatSurfaceSession(conversationId, sessionKey),
-      isLoading: compatibilitySession?.isLoading ?? false,
-      hasOlderMessages: compatibilitySession?.hasOlderMessages ?? false,
-      isLoadingOlderMessages: compatibilitySession?.isLoadingOlderMessages ?? false,
-      queuedTurnCount: compatibilitySession?.queuedTurnCount ?? 0,
+      isLoading: defaultSession?.isLoading ?? false,
+      hasOlderMessages: defaultSession?.hasOlderMessages ?? false,
+      isLoadingOlderMessages: defaultSession?.isLoadingOlderMessages ?? false,
+      queuedTurnCount: defaultSession?.queuedTurnCount ?? 0,
     };
     const patchKeys = Object.keys(patch) as Array<keyof ChatSurfaceSession>;
     const hasChanges = patchKeys.some((key) => currentSession[key] !== patch[key]);
@@ -517,14 +517,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             },
           };
         }
-        const compatibilitySession = state.sessionsByConversationId[conversationId];
+        const defaultSession = state.sessionsByConversationId[conversationId];
         const surfaceSession = {
           ...createEmptyChatSurfaceSession(conversationId, sessionKey),
           surfaceOrigin: origin,
           isLoading: false,
-          hasOlderMessages: compatibilitySession?.hasOlderMessages ?? false,
-          isLoadingOlderMessages: compatibilitySession?.isLoadingOlderMessages ?? false,
-          queuedTurnCount: compatibilitySession?.queuedTurnCount ?? 0,
+          hasOlderMessages: defaultSession?.hasOlderMessages ?? false,
+          isLoadingOlderMessages: defaultSession?.isLoadingOlderMessages ?? false,
+          queuedTurnCount: defaultSession?.queuedTurnCount ?? 0,
         };
         return {
           surfaceSessionsByKey: {

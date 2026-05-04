@@ -49,10 +49,6 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
   async function syncExistingTaskList(id: string) {
     try {
       const store = useTaskListStore.getState();
-      if (store.activeTaskListId !== id) {
-        store.setActiveTaskList(id);
-      }
-
       if (lastSyncedRef.current === `${tabId}:${id}`) return;
 
       if (!store.taskLists.has(id)) {
