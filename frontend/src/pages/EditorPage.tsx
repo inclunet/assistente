@@ -984,56 +984,56 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
       const diskHash = !diskReadError ? hashStringFNV1a32(diskContent) : 0;
 
-      for (const t of affected) {
-        if (!t.filePath) continue;
-        if (isExternalConflictLocked(t.id)) continue;
+      for (const tab of affected) {
+        if (!tab.filePath) continue;
+        if (isExternalConflictLocked(tab.id)) continue;
 
         // Se conseguimos ler o disco, podemos decidir se há conflito real.
         if (!diskReadError) {
-          const localContent = getCachedMarkdownForTab(t);
+          const localContent = getCachedMarkdownForTab(tab);
           const localHash = hashStringFNV1a32(localContent);
-          const lastDiskHash = Number(diskContentHashByTabRef.current[String(t.id)] || 0);
+          const lastDiskHash = Number(diskContentHashByTabRef.current[String(tab.id)] || 0);
 
           // Caso comum: ferramenta externa salvou sem mudar o conteúdo (touch/reformat idêntico)
           if (lastDiskHash && lastDiskHash === diskHash) {
-            void refreshDiskInfoForTab(t);
+            void refreshDiskInfoForTab(tab);
             continue;
           }
 
           // Caso comum: o arquivo no disco já está igual ao que temos localmente
           if (diskHash === localHash) {
-            setDiskBaselineForTab(t.id, localContent);
-            setDocDirty(t.id, false);
-            void refreshDiskInfoForTab(t);
+            setDiskBaselineForTab(tab.id, localContent);
+            setDocDirty(tab.id, false);
+            void refreshDiskInfoForTab(tab);
             // Não abre prompt.
             continue;
           }
 
           // Aba limpa: recarrega automaticamente, mas só se realmente mudou
-          if (!t.isDirty) {
+          if (!tab.isDirty) {
             try {
-              setDocMarkdown(t.id, diskContent);
-              updateLatestMarkdownForTab(t.id, diskContent);
-              setDiskBaselineForTab(t.id, diskContent);
-              setDocDirty(t.id, false);
-              void refreshDiskInfoForTab(t);
-              if (t.id === currentDocumentId) addToast('Arquivo recarregado do disco (mudança externa)', 'info');
+              setDocMarkdown(tab.id, diskContent);
+              updateLatestMarkdownForTab(tab.id, diskContent);
+              setDiskBaselineForTab(tab.id, diskContent);
+              setDocDirty(tab.id, false);
+              void refreshDiskInfoForTab(tab);
+              if (tab.id === currentDocumentId) addToast(t('editor.toast.externalReloaded'), 'info');
             } catch {
               // Se não der pra aplicar automaticamente, cai pro fluxo existente
-              setExternalConflictLocked(t.id, true);
-              setDocDirty(t.id, true);
-              if (!isExternalPromptInFlight(t.id)) {
-                void promptResolveExternalChangeForTab(t.id, String(t.filePath), { diskContent, diskReadError });
+              setExternalConflictLocked(tab.id, true);
+              setDocDirty(tab.id, true);
+              if (!isExternalPromptInFlight(tab.id)) {
+                void promptResolveExternalChangeForTab(tab.id, String(tab.filePath), { diskContent, diskReadError });
               }
             }
             continue;
           }
         }
         // Aba dirty (ou falha ao ler o disco): pede decisão explícita
-        setExternalConflictLocked(t.id, true);
-        setDocDirty(t.id, true);
-        if (!isExternalPromptInFlight(t.id)) {
-          void promptResolveExternalChangeForTab(t.id, String(t.filePath), { diskContent, diskReadError });
+        setExternalConflictLocked(tab.id, true);
+        setDocDirty(tab.id, true);
+        if (!isExternalPromptInFlight(tab.id)) {
+          void promptResolveExternalChangeForTab(tab.id, String(tab.filePath), { diskContent, diskReadError });
         }
       }
     });
@@ -1560,7 +1560,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       const { documents: currentDocs } = useEditorStore.getState();
       const tab = currentDocs[selection.tabId] || null;
       if (!tab) {
-        addToast('Aba do editor não encontrada para aplicar a alteração.', 'error');
+        addToast(t('editor.chatModal.editorTabNotFound'), 'error');
         setIsAsking(false);
         focusEditorSoon();
         return;
