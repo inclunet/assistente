@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -84,6 +85,51 @@ func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit in
 		return nil, err
 	}
 	return buildMessageNodes(messages, nil), nil
+}
+
+// GetConversationMessageWindow é a API canônica de carregamento incremental de mensagens.
+// Ela cobre conversa raiz e filhos diretos de thread com o mesmo contrato total-aware.
+func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat.MessageWindow, error) {
+	scope := strings.TrimSpace(req.Scope)
+	if scope == "" {
+		scope = chat.MessageWindowScopeConversation
+	}
+	if scope != chat.MessageWindowScopeConversation && scope != chat.MessageWindowScopeThread {
+		return nil, fmt.Errorf("scope de janela de mensagens inválido: %s", req.Scope)
+	}
+
+	var parentID *string
+	if scope == chat.MessageWindowScopeThread {
+		threadParentID := strings.TrimSpace(req.ThreadParentID)
+		if threadParentID == "" {
+			return nil, fmt.Errorf("threadParentId é obrigatório para scope=thread")
+		}
+		parentID = &threadParentID
+	}
+
+	window, err := database.GetMessageWindow(database.MessageWindowQuery{
+		ConversationID:  req.ConversationID,
+		ParentID:        parentID,
+		Anchor:          req.Anchor,
+		AnchorMessageID: req.AnchorMessageID,
+		Direction:       req.Direction,
+		Limit:           req.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &chat.MessageWindow{
+		Scope:          scope,
+		ConversationID: req.ConversationID,
+		ThreadParentID: req.ThreadParentID,
+		Nodes:          buildMessageNodes(window.Messages, parentID),
+		TotalCount:     window.TotalCount,
+		StartIndex:     window.StartIndex,
+		EndIndex:       window.EndIndex,
+		HasBefore:      window.HasBefore,
+		HasAfter:       window.HasAfter,
+	}, nil
 }
 
 // GetConversationInfo retorna apenas metadados da conversa (sem mensagens)

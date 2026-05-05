@@ -611,6 +611,154 @@ func GetRootMessagesBefore(conversationID string, beforeID string, limit int) ([
 	return messages, nil
 }
 
+type MessageWindowQuery struct {
+	ConversationID  string
+	ParentID        *string
+	Anchor          string
+	AnchorMessageID string
+	Direction       string
+	Limit           int
+}
+
+type MessageWindowResult struct {
+	Messages   []ChatMessage
+	TotalCount int
+	StartIndex int
+	EndIndex   int
+	HasBefore  bool
+	HasAfter   bool
+}
+
+func normalizeMessageWindowLimit(limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	if limit > 250 {
+		return 250
+	}
+	return limit
+}
+
+func messageScopeQuery(conversationID string, parentID *string) *gorm.DB {
+	query := db.Model(&ChatMessage{}).Where("conversation_id = ?", conversationID)
+	if parentID != nil {
+		return query.Where("parent_id = ?", *parentID)
+	}
+	return query.Where("parent_id IS NULL")
+}
+
+func countMessagesBeforeAnchor(baseQuery *gorm.DB, anchor ChatMessage) (int, error) {
+	var count int64
+	err := baseQuery.
+		Where("(created_at < ? OR (created_at = ? AND id < ?))", anchor.CreatedAt, anchor.CreatedAt, anchor.ID).
+		Count(&count).Error
+	return int(count), err
+}
+
+// GetMessageWindow retorna uma fatia ordenada de mensagens raiz ou filhos diretos,
+// acompanhada de metadados absolutos para renderização acessível e navegação incremental.
+func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
+	if query.ConversationID == "" {
+		return nil, fmt.Errorf("conversationID é obrigatório para buscar janela de mensagens")
+	}
+
+	limit := normalizeMessageWindowLimit(query.Limit)
+	if limit == 0 {
+		return &MessageWindowResult{
+			Messages:   []ChatMessage{},
+			TotalCount: 0,
+			StartIndex: 0,
+			EndIndex:   -1,
+		}, nil
+	}
+
+	baseQuery := messageScopeQuery(query.ConversationID, query.ParentID)
+	var totalCount int64
+	if err := baseQuery.Count(&totalCount).Error; err != nil {
+		return nil, err
+	}
+	if totalCount == 0 {
+		return &MessageWindowResult{
+			Messages:   []ChatMessage{},
+			TotalCount: 0,
+			StartIndex: 0,
+			EndIndex:   -1,
+		}, nil
+	}
+
+	total := int(totalCount)
+	anchor := strings.TrimSpace(query.Anchor)
+	direction := strings.TrimSpace(query.Direction)
+	startIndex := 0
+
+	switch {
+	case query.AnchorMessageID != "":
+		var anchorMessage ChatMessage
+		if err := db.First(&anchorMessage, "id = ? AND conversation_id = ?", query.AnchorMessageID, query.ConversationID).Error; err != nil {
+			return nil, err
+		}
+		if query.ParentID == nil && anchorMessage.ParentID != nil {
+			return nil, fmt.Errorf("anchorMessageID não pertence à janela raiz da conversa")
+		}
+		if query.ParentID != nil && (anchorMessage.ParentID == nil || *anchorMessage.ParentID != *query.ParentID) {
+			return nil, fmt.Errorf("anchorMessageID não pertence à thread solicitada")
+		}
+		anchorIndex, err := countMessagesBeforeAnchor(messageScopeQuery(query.ConversationID, query.ParentID), anchorMessage)
+		if err != nil {
+			return nil, err
+		}
+		switch direction {
+		case "after":
+			startIndex = anchorIndex + 1
+		case "around":
+			startIndex = anchorIndex - (limit / 2)
+		default:
+			startIndex = anchorIndex - limit
+		}
+	case anchor == "start" || direction == "after":
+		startIndex = 0
+	default:
+		startIndex = total - limit
+	}
+
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	if startIndex > total {
+		startIndex = total
+	}
+	if startIndex+limit > total {
+		limit = total - startIndex
+	}
+	if limit < 0 {
+		limit = 0
+	}
+
+	var messages []ChatMessage
+	err := messageScopeQuery(query.ConversationID, query.ParentID).
+		Order("created_at ASC, id ASC").
+		Offset(startIndex).
+		Limit(limit).
+		Find(&messages).Error
+	if err != nil {
+		return nil, err
+	}
+
+	endIndex := startIndex + len(messages) - 1
+	if len(messages) == 0 {
+		endIndex = -1
+	}
+
+	return &MessageWindowResult{
+		Messages:   messages,
+		TotalCount: total,
+		StartIndex: startIndex,
+		EndIndex:   endIndex,
+		HasBefore:  startIndex > 0,
+		HasAfter:   endIndex >= 0 && endIndex < total-1,
+	}, nil
+}
+
 // GetAllConversationMessages retorna todas as mensagens de uma conversa (incluindo filhas)
 func GetAllConversationMessages(conversationID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
