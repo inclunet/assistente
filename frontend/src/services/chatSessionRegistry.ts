@@ -311,6 +311,20 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
   if (!timeline) return state;
   const conversation = updater(timeline);
   const currentSession = getChatSession(state, conversationId);
+  const surfaceSessionsByKey = { ...(state.surfaceSessionsByKey ?? {}) };
+  for (const [sessionKey, surfaceSession] of Object.entries(surfaceSessionsByKey)) {
+    if (surfaceSession.conversationId !== conversationId || !surfaceSession.visibleThreadedMessages) {
+      continue;
+    }
+    const surfaceConversation = updater({
+      ...timeline,
+      threadedMessages: surfaceSession.visibleThreadedMessages,
+    });
+    surfaceSessionsByKey[sessionKey] = {
+      ...surfaceSession,
+      visibleThreadedMessages: surfaceConversation.threadedMessages,
+    };
+  }
   return {
     sessionsByConversationId: {
       ...state.sessionsByConversationId,
@@ -323,7 +337,7 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
       ...(state.timelinesByConversationId ?? {}),
       [conversationId]: conversation,
     },
-    surfaceSessionsByKey: state.surfaceSessionsByKey ?? {},
+    surfaceSessionsByKey,
   } as Partial<TState>;
 }
 
