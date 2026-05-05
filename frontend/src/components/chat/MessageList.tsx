@@ -193,6 +193,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const internalContainerRef = useRef<HTMLDivElement>(null);
   const pendingScrollRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const suppressNextScrollLoadRef = useRef(false);
   
   // Use external ref if provided, otherwise use internal ref
   const containerRef = (ref as React.RefObject<HTMLDivElement>) || internalContainerRef;
@@ -202,7 +203,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     () => consolidateTurnMessages(threadedMessages),
     [threadedMessages]
   );
-  const ariaSetSize = messageWindow?.totalCount && messageWindow.totalCount > 0
+  const canUseAbsoluteMessagePositions = displayMessages.length === threadedMessages.length;
+  const ariaSetSize = canUseAbsoluteMessagePositions && messageWindow?.totalCount && messageWindow.totalCount > 0
     ? messageWindow.totalCount
     : displayMessages.length;
 
@@ -226,7 +228,11 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   }, [displayMessages, threadedMessages]);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    suppressNextScrollLoadRef.current = true;
     messagesEndRef.current?.scrollIntoView({ behavior });
+    window.setTimeout(() => {
+      suppressNextScrollLoadRef.current = false;
+    }, 0);
   };
 
   const handleLoadOlder = () => {
@@ -289,6 +295,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     const container = containerRef.current;
     if (!container) return;
     const handleScroll = () => {
+      if (suppressNextScrollLoadRef.current) {
+        suppressNextScrollLoadRef.current = false;
+        return;
+      }
       if (container.scrollTop < 48 && hasOlderMessages && !isLoadingOlderMessages) {
         handleLoadOlder();
         return;
@@ -374,7 +384,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
               level={0}
               siblingIndex={index}
               siblingCount={displayMessages.length}
-              ariaPosition={(node.originalIndex ?? index) + 1}
+              ariaPosition={canUseAbsoluteMessagePositions ? (node.originalIndex ?? index) + 1 : index + 1}
               ariaSetSize={ariaSetSize}
               onLoadChildren={onLoadChildren}
               onReachStart={handleReachStart}

@@ -90,6 +90,10 @@ func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit in
 // GetConversationMessageWindow é a API canônica de carregamento incremental de mensagens.
 // Ela cobre conversa raiz e filhos diretos de thread com o mesmo contrato total-aware.
 func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat.MessageWindow, error) {
+	conversationID := strings.TrimSpace(req.ConversationID)
+	if conversationID == "" {
+		return nil, fmt.Errorf("conversationId é obrigatório")
+	}
 	scope := strings.TrimSpace(req.Scope)
 	if scope == "" {
 		scope = chat.MessageWindowScopeConversation
@@ -97,22 +101,59 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	if scope != chat.MessageWindowScopeConversation && scope != chat.MessageWindowScopeThread {
 		return nil, fmt.Errorf("scope de janela de mensagens inválido: %s", req.Scope)
 	}
+	if req.Limit <= 0 {
+		return nil, fmt.Errorf("limit deve ser maior que zero")
+	}
+
+	anchor := strings.TrimSpace(req.Anchor)
+	anchorMessageID := strings.TrimSpace(req.AnchorMessageID)
+	direction := strings.TrimSpace(req.Direction)
+	if direction == "" {
+		direction = chat.MessageWindowDirectionBefore
+	}
+	if direction != chat.MessageWindowDirectionBefore &&
+		direction != chat.MessageWindowDirectionAfter &&
+		direction != chat.MessageWindowDirectionAround {
+		return nil, fmt.Errorf("direction de janela de mensagens inválido: %s", req.Direction)
+	}
+	if anchor != "" &&
+		anchor != chat.MessageWindowAnchorStart &&
+		anchor != chat.MessageWindowAnchorEnd {
+		return nil, fmt.Errorf("anchor de janela de mensagens inválido: %s", req.Anchor)
+	}
+	if anchor != "" && anchorMessageID != "" {
+		return nil, fmt.Errorf("anchor e anchorMessageId são mutuamente exclusivos")
+	}
+	if anchor == chat.MessageWindowAnchorStart && direction == chat.MessageWindowDirectionBefore {
+		return nil, fmt.Errorf("anchor=start não aceita direction=before")
+	}
+	if anchor == chat.MessageWindowAnchorEnd && direction == chat.MessageWindowDirectionAfter {
+		return nil, fmt.Errorf("anchor=end não aceita direction=after")
+	}
 
 	var parentID *string
+	threadParentID := ""
 	if scope == chat.MessageWindowScopeThread {
-		threadParentID := strings.TrimSpace(req.ThreadParentID)
+		threadParentID = strings.TrimSpace(req.ThreadParentID)
 		if threadParentID == "" {
 			return nil, fmt.Errorf("threadParentId é obrigatório para scope=thread")
+		}
+		parentMessage, err := database.GetMessage(threadParentID)
+		if err != nil {
+			return nil, fmt.Errorf("threadParentId inválido: %w", err)
+		}
+		if parentMessage.ConversationID != conversationID {
+			return nil, fmt.Errorf("threadParentId não pertence à conversa solicitada")
 		}
 		parentID = &threadParentID
 	}
 
 	window, err := database.GetMessageWindow(database.MessageWindowQuery{
-		ConversationID:  req.ConversationID,
+		ConversationID:  conversationID,
 		ParentID:        parentID,
-		Anchor:          req.Anchor,
-		AnchorMessageID: req.AnchorMessageID,
-		Direction:       req.Direction,
+		Anchor:          anchor,
+		AnchorMessageID: anchorMessageID,
+		Direction:       direction,
 		Limit:           req.Limit,
 	})
 	if err != nil {
@@ -121,8 +162,8 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 
 	return &chat.MessageWindow{
 		Scope:          scope,
-		ConversationID: req.ConversationID,
-		ThreadParentID: req.ThreadParentID,
+		ConversationID: conversationID,
+		ThreadParentID: threadParentID,
 		Nodes:          buildMessageNodes(window.Messages, parentID),
 		TotalCount:     window.TotalCount,
 		StartIndex:     window.StartIndex,

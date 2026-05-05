@@ -510,7 +510,7 @@ function ChatSessionViewContent({
   }, [sendError]);
 
   useEffect(() => {
-    const windowState = conversation?.messageWindow;
+    const windowState = session?.messageWindow;
     if (!pendingBoundaryAnnouncementRef.current || !windowState || windowState.totalCount <= 0) return;
     pendingBoundaryAnnouncementRef.current = false;
     announce(t('chat.announce.messageWindowLoaded', {
@@ -518,7 +518,7 @@ function ChatSessionViewContent({
       end: windowState.endIndex + 1,
       total: windowState.totalCount,
     }));
-  }, [conversation?.messageWindow, t]);
+  }, [announce, session?.messageWindow, t]);
 
   useEffect(() => {
     if (!isInteractiveSurface) return;
@@ -589,7 +589,8 @@ function ChatSessionViewContent({
     await loadEndMessages();
     requestAnimationFrame(() => {
       const container = messagesContainerRef.current;
-      const lastMessage = container?.querySelector('[data-message-node]:last-child') as HTMLElement | null;
+      const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
+      const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
       lastMessage?.focus();
     });
   };
@@ -605,7 +606,7 @@ function ChatSessionViewContent({
       <div className="ws-content-area">
         <MessageList
           threadedMessages={threadedMessages}
-          messageWindow={conversation?.messageWindow}
+          messageWindow={session?.messageWindow}
           onLoadChildren={loadMessageChildren}
           onReachEnd={handleReachEnd}
           isLoading={isLoading}

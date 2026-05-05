@@ -8,7 +8,6 @@ export interface ActiveConversation {
   threadedMessages: MessageNode[];
   channel?: string;
   contactId?: string;
-  messageWindow?: MessageWindowState;
 }
 
 export type ConversationTimeline = ActiveConversation;
@@ -202,7 +201,7 @@ const toSurfaceSession = (
     sessionKey,
     conversationId,
     visibleThreadedMessages: surface.visibleThreadedMessages ?? session.conversation?.threadedMessages,
-    messageWindow: surface.messageWindow ?? session.conversation?.messageWindow,
+    messageWindow: surface.messageWindow,
   };
 };
 
@@ -227,7 +226,6 @@ export function getChatSession(
       ? {
         ...timeline,
         threadedMessages: surfaceSession.visibleThreadedMessages ?? timeline.threadedMessages,
-        messageWindow: surfaceSession.messageWindow ?? timeline.messageWindow,
       }
       : null,
   };

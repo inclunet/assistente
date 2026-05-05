@@ -663,19 +663,20 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 	}
 
 	limit := normalizeMessageWindowLimit(query.Limit)
-	if limit == 0 {
-		return &MessageWindowResult{
-			Messages:   []ChatMessage{},
-			TotalCount: 0,
-			StartIndex: 0,
-			EndIndex:   -1,
-		}, nil
-	}
-
 	baseQuery := messageScopeQuery(query.ConversationID, query.ParentID)
 	var totalCount int64
 	if err := baseQuery.Count(&totalCount).Error; err != nil {
 		return nil, err
+	}
+	if limit == 0 {
+		return &MessageWindowResult{
+			Messages:   []ChatMessage{},
+			TotalCount: int(totalCount),
+			StartIndex: 0,
+			EndIndex:   -1,
+			HasBefore:  false,
+			HasAfter:   totalCount > 0,
+		}, nil
 	}
 	if totalCount == 0 {
 		return &MessageWindowResult{
@@ -690,6 +691,7 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 	anchor := strings.TrimSpace(query.Anchor)
 	direction := strings.TrimSpace(query.Direction)
 	startIndex := 0
+	windowLimit := limit
 
 	switch {
 	case query.AnchorMessageID != "":
@@ -714,6 +716,9 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 			startIndex = anchorIndex - (limit / 2)
 		default:
 			startIndex = anchorIndex - limit
+			if anchorIndex < windowLimit {
+				windowLimit = anchorIndex
+			}
 		}
 	case anchor == "start" || direction == "after":
 		startIndex = 0
@@ -727,18 +732,24 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 	if startIndex > total {
 		startIndex = total
 	}
-	if startIndex+limit > total {
-		limit = total - startIndex
+	if direction == "around" && windowLimit > 0 && startIndex+windowLimit > total {
+		startIndex = total - windowLimit
+		if startIndex < 0 {
+			startIndex = 0
+		}
 	}
-	if limit < 0 {
-		limit = 0
+	if startIndex+windowLimit > total {
+		windowLimit = total - startIndex
+	}
+	if windowLimit < 0 {
+		windowLimit = 0
 	}
 
 	var messages []ChatMessage
 	err := messageScopeQuery(query.ConversationID, query.ParentID).
 		Order("created_at ASC, id ASC").
 		Offset(startIndex).
-		Limit(limit).
+		Limit(windowLimit).
 		Find(&messages).Error
 	if err != nil {
 		return nil, err
@@ -755,7 +766,7 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 		StartIndex: startIndex,
 		EndIndex:   endIndex,
 		HasBefore:  startIndex > 0,
-		HasAfter:   endIndex >= 0 && endIndex < total-1,
+		HasAfter:   (endIndex >= 0 && endIndex < total-1) || (len(messages) == 0 && startIndex < total),
 	}, nil
 }
 

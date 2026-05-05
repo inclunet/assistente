@@ -41,7 +41,6 @@ const composeChatSession = (
       ? {
         ...baseConversation,
         threadedMessages: session.visibleThreadedMessages ?? baseConversation.threadedMessages,
-        messageWindow: session.messageWindow ?? baseConversation.messageWindow,
       }
       : null,
   };
@@ -119,7 +118,7 @@ export function ChatSessionProvider({
   const isLoading = session?.isLoading ?? false;
   const hasOlderMessages = session?.hasOlderMessages ?? false;
   const isLoadingOlderMessages = session?.isLoadingOlderMessages ?? false;
-  const hasNewerMessages = conversation?.messageWindow?.hasAfter ?? false;
+  const hasNewerMessages = session?.messageWindow?.hasAfter ?? false;
   const draftMessage = session?.draftMessage ?? '';
   const draftMediaFiles = session?.draftMediaFiles ?? [];
   const scrollTop = session?.scrollTop ?? 0;

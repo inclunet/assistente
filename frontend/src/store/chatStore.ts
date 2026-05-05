@@ -197,7 +197,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       hasOlderMessages: defaultSession?.hasOlderMessages ?? false,
       isLoadingOlderMessages: defaultSession?.isLoadingOlderMessages ?? false,
       visibleThreadedMessages: defaultSession?.conversation?.threadedMessages,
-      messageWindow: defaultSession?.conversation?.messageWindow,
+      messageWindow: defaultSession?.messageWindow,
       queuedTurnCount: defaultSession?.queuedTurnCount ?? 0,
     };
     const patchKeys = Object.keys(patch) as Array<keyof ChatSurfaceSession>;
@@ -268,12 +268,28 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       byId.set(String(node.message.id), node);
     }
     for (const node of incoming) {
-      byId.set(String(node.message.id), node);
+      const existingNode = byId.get(String(node.message.id));
+      if (!existingNode) {
+        byId.set(String(node.message.id), node);
+        continue;
+      }
+      byId.set(String(node.message.id), Object.assign(node, {
+        ...node,
+        children: existingNode.children?.length ? existingNode.children : node.children,
+        childCount: Math.max(existingNode.childCount ?? 0, node.childCount ?? 0),
+        originalIndex: node.originalIndex ?? existingNode.originalIndex,
+        isExpanded: existingNode.isExpanded ?? node.isExpanded,
+      }));
     }
     return Array.from(byId.values()).sort((a, b) => {
-      const aIndex = a.originalIndex ?? 0;
-      const bIndex = b.originalIndex ?? 0;
-      if (aIndex !== bIndex) return aIndex - bIndex;
+      if (a.originalIndex !== undefined && b.originalIndex !== undefined && a.originalIndex !== b.originalIndex) {
+        return a.originalIndex - b.originalIndex;
+      }
+      const aTime = Number(a.message.timestamp ?? Date.parse(String(a.message.createdAt ?? '')));
+      const bTime = Number(b.message.timestamp ?? Date.parse(String(b.message.createdAt ?? '')));
+      const aOrder = Number.isFinite(aTime) ? aTime : Number.MAX_SAFE_INTEGER;
+      const bOrder = Number.isFinite(bTime) ? bTime : Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) return aOrder - bOrder;
       return String(a.message.id).localeCompare(String(b.message.id));
     });
   };
@@ -529,7 +545,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           hasOlderMessages: defaultSession?.hasOlderMessages ?? false,
           isLoadingOlderMessages: defaultSession?.isLoadingOlderMessages ?? false,
           visibleThreadedMessages: defaultSession?.conversation?.threadedMessages,
-          messageWindow: defaultSession?.conversation?.messageWindow,
+          messageWindow: defaultSession?.messageWindow,
           queuedTurnCount: defaultSession?.queuedTurnCount ?? 0,
         };
         return {
@@ -586,7 +602,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             threadedMessages: snapshot.threadedMessages,
             channel: snapshot.channel,
             contactId: snapshot.contactId,
-            messageWindow: snapshot.messageWindow,
           };
           const patches = patchSession(state, id, {
             conversation,
@@ -670,14 +685,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
           const dedupedOlderNodes = olderMessages.nodes.filter((node) => !existingIds.has(node.message.id));
           const expandedVisibleThreadedMessages = [...dedupedOlderNodes, ...currentSession.conversation.threadedMessages];
+          const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
           const cachedThreadedMessages = mergeConversationNodes(
-            getConversationTimeline(current, conversation.id)?.threadedMessages ?? [],
+            timeline.threadedMessages,
             expandedVisibleThreadedMessages,
           );
           const expandedMessageWindow = {
             ...olderMessages.messageWindow,
-            endIndex: currentSession.conversation.messageWindow?.endIndex ?? olderMessages.messageWindow.endIndex,
-            hasAfter: currentSession.conversation.messageWindow?.hasAfter ?? olderMessages.hasNewerMessages,
+            endIndex: currentSession.messageWindow?.endIndex ?? olderMessages.messageWindow.endIndex,
+            hasAfter: currentSession.messageWindow?.hasAfter ?? olderMessages.hasNewerMessages,
           };
           const { nodes: visibleThreadedMessages, window: messageWindow } = trimRenderedWindow(
             expandedVisibleThreadedMessages,
@@ -685,17 +701,21 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             'start',
           );
           const patches = patchSession(current, conversation.id, {
-            conversation: {
-              ...currentSession.conversation,
-              threadedMessages: cachedThreadedMessages,
-              messageWindow,
-            },
             hasOlderMessages: olderMessages.hasOlderMessages,
             isLoadingOlderMessages: false,
             visibleThreadedMessages,
             messageWindow,
           }, sessionKey);
-          return patches;
+          return {
+            ...patches,
+            timelinesByConversationId: {
+              ...(patches.timelinesByConversationId ?? current.timelinesByConversationId ?? {}),
+              [conversation.id]: {
+                ...timeline,
+                threadedMessages: cachedThreadedMessages,
+              },
+            },
+          };
         });
       } catch (error) {
         console.error('[Chat] Erro ao carregar mensagens anteriores:', error);
@@ -714,7 +734,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const state = get();
       const session = getSession(state, conversationId, sessionKey);
       const conversation = session.conversation;
-      if (!conversation || session.isLoadingOlderMessages || !conversation.messageWindow?.hasAfter) return;
+      if (!conversation || session.isLoadingOlderMessages || !session.messageWindow?.hasAfter) return;
 
       const lastMessageId = conversation.threadedMessages[conversation.threadedMessages.length - 1]?.message.id;
       if (!lastMessageId) return;
@@ -741,31 +761,37 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
           const dedupedNewerNodes = newerMessages.nodes.filter((node) => !existingIds.has(node.message.id));
           const expandedVisibleThreadedMessages = [...currentSession.conversation.threadedMessages, ...dedupedNewerNodes];
+          const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
           const cachedThreadedMessages = mergeConversationNodes(
-            getConversationTimeline(current, conversation.id)?.threadedMessages ?? [],
+            timeline.threadedMessages,
             expandedVisibleThreadedMessages,
           );
           const expandedMessageWindow = {
             ...newerMessages.messageWindow,
-            startIndex: currentSession.conversation.messageWindow?.startIndex ?? newerMessages.messageWindow.startIndex,
-            hasBefore: currentSession.conversation.messageWindow?.hasBefore ?? newerMessages.hasOlderMessages,
+            startIndex: currentSession.messageWindow?.startIndex ?? newerMessages.messageWindow.startIndex,
+            hasBefore: currentSession.messageWindow?.hasBefore ?? newerMessages.hasOlderMessages,
           };
           const { nodes: visibleThreadedMessages, window: messageWindow } = trimRenderedWindow(
             expandedVisibleThreadedMessages,
             expandedMessageWindow,
             'end',
           );
-          return patchSession(current, conversation.id, {
-            conversation: {
-              ...currentSession.conversation,
-              threadedMessages: cachedThreadedMessages,
-              messageWindow,
-            },
+          const patches = patchSession(current, conversation.id, {
             hasOlderMessages: messageWindow.hasBefore,
             isLoadingOlderMessages: false,
             visibleThreadedMessages,
             messageWindow,
           }, sessionKey);
+          return {
+            ...patches,
+            timelinesByConversationId: {
+              ...(patches.timelinesByConversationId ?? current.timelinesByConversationId ?? {}),
+              [conversation.id]: {
+                ...timeline,
+                threadedMessages: cachedThreadedMessages,
+              },
+            },
+          };
         });
       } catch (error) {
         console.error('[Chat] Erro ao carregar mensagens posteriores:', error);
@@ -802,22 +828,28 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             title: i18next.t('chat.conversation'),
             threadedMessages: [],
           };
+          const timeline = getConversationTimeline(current, conversationId) ?? baseConversation;
           const cachedThreadedMessages = mergeConversationNodes(
-            getConversationTimeline(current, conversationId)?.threadedMessages ?? [],
+            timeline.threadedMessages,
             boundaryWindow.nodes,
           );
           const messageWindow = boundaryWindow.messageWindow;
-          return patchSession(current, conversationId, {
-            conversation: {
-              ...baseConversation,
-              threadedMessages: cachedThreadedMessages,
-              messageWindow,
-            },
+          const patches = patchSession(current, conversationId, {
             hasOlderMessages: boundaryWindow.hasOlderMessages,
             isLoadingOlderMessages: false,
             visibleThreadedMessages: boundaryWindow.nodes,
             messageWindow,
           }, sessionKey);
+          return {
+            ...patches,
+            timelinesByConversationId: {
+              ...(patches.timelinesByConversationId ?? current.timelinesByConversationId ?? {}),
+              [conversationId]: {
+                ...timeline,
+                threadedMessages: cachedThreadedMessages,
+              },
+            },
+          };
         });
       } catch (error) {
         console.error('[Chat] Erro ao carregar limite da conversa:', error);

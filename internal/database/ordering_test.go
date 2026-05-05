@@ -333,6 +333,54 @@ func TestGetMessageWindow_BeforeAnchorUsesAbsoluteIndex(t *testing.T) {
 	}
 }
 
+func TestGetMessageWindow_BeforeAnchorNearStartDoesNotIncludeAnchor(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID:  convID,
+		AnchorMessageID: ids[0],
+		Direction:       "before",
+		Limit:           3,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow before first anchor: %v", err)
+	}
+	if len(window.Messages) != 0 {
+		t.Fatalf("expected empty window before first message, got %d messages", len(window.Messages))
+	}
+	if window.TotalCount != len(ids) {
+		t.Fatalf("total count: expected %d, got %d", len(ids), window.TotalCount)
+	}
+	if window.StartIndex != 0 || window.EndIndex != -1 {
+		t.Fatalf("indices: expected 0..-1, got %d..%d", window.StartIndex, window.EndIndex)
+	}
+	if window.HasBefore || !window.HasAfter {
+		t.Fatalf("flags: expected hasBefore=false hasAfter=true, got %v/%v", window.HasBefore, window.HasAfter)
+	}
+}
+
+func TestGetMessageWindow_AroundRebalancesAtEnd(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID:  convID,
+		AnchorMessageID: ids[4],
+		Direction:       "around",
+		Limit:           4,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow around anchor: %v", err)
+	}
+	if len(window.Messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(window.Messages))
+	}
+	if window.StartIndex != 1 || window.EndIndex != 4 {
+		t.Fatalf("indices: expected 1..4, got %d..%d", window.StartIndex, window.EndIndex)
+	}
+}
+
 func TestGetMessageWindow_ThreadScopeCountsChildren(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
