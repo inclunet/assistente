@@ -1,17 +1,9 @@
 import { test, expect } from '../fixtures';
 
 const now = new Date().toISOString();
-const conversationId = '01926b90-0000-7000-8000-000000000001';
-const initialUserMessageId = '01968740-1234-7000-8000-000000000002';
-const initialAssistantMessageId = '01968740-1234-7000-8000-000000000003';
-const firstFailedUserMessageId = '01968740-1234-7000-8000-000000000004';
-const firstFailedAssistantMessageId = '01968740-1234-7000-8000-000000000005';
-const secondAttemptUserMessageId = '01968740-1234-7000-8000-000000000006';
-const secondAttemptAssistantMessageId = '01968740-1234-7000-8000-000000000007';
-const retryAssistantMessageId = '01968740-1234-7000-8000-000000000008';
 
 const baseConversation = {
-  id: conversationId,
+  id: 1,
   title: 'Test Conversation',
   created_at: now,
   updated_at: now,
@@ -21,8 +13,8 @@ const baseConversation = {
 
 const userMessage = {
   message: {
-    id: initialUserMessageId,
-    conversationId,
+    id: 1,
+    conversationId: 1,
     role: 'user',
     content: 'Olá!',
     createdAt: now,
@@ -33,7 +25,7 @@ const userMessage = {
 test.describe('Chat — streaming multi-segmento', () => {
   test('exibe segmentos text → tool → text em sequência', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('SendMessage', initialAssistantMessageId);
+    await wails.setResponse('SendMessage', 2);
     await wails.setResponse('EnsureConversation', baseConversation);
 
     await wails.waitForApp();
@@ -45,15 +37,15 @@ test.describe('Chat — streaming multi-segmento', () => {
 
     // Inicia streaming (conteúdo vazio para criar o container do assistente)
     await wails.emit('chat:stream', {
-      conversationId,
-      messageId: initialAssistantMessageId,
+      conversationId: 1,
+      messageId: 2,
       content: '',
       done: false,
     });
 
     // Tool call dentro do stream (conversationId obrigatório para filtro backend-driven)
     await wails.emit('chat:tool_start', {
-      conversationId,
+      conversationId: 1,
       name: 'search_web',
       callId: 'tc-seg-1',
       args: '{"query":"inteligência artificial"}',
@@ -63,7 +55,7 @@ test.describe('Chat — streaming multi-segmento', () => {
     await expect(toolSection).toBeVisible({ timeout: 5_000 });
 
     await wails.emit('chat:tool_end', {
-      conversationId,
+      conversationId: 1,
       callId: 'tc-seg-1',
       name: 'search_web',
       status: 'success',
@@ -75,8 +67,8 @@ test.describe('Chat — streaming multi-segmento', () => {
 
     // Texto final pós-tool
     await wails.emit('chat:stream', {
-      conversationId,
-      messageId: initialAssistantMessageId,
+      conversationId: 1,
+      messageId: 2,
       content: 'Baseado na pesquisa, a IA é uma tecnologia que...',
       done: true,
     });
@@ -92,7 +84,7 @@ test.describe('Chat — streaming multi-segmento', () => {
 
   test('chat:done reabilita o input para nova mensagem', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('SendMessage', initialAssistantMessageId);
+    await wails.setResponse('SendMessage', 2);
     await wails.setResponse('EnsureConversation', baseConversation);
 
     await wails.waitForApp();
@@ -104,8 +96,8 @@ test.describe('Chat — streaming multi-segmento', () => {
 
     // Simula stream do backend: resposta do assistente
     await wails.emit('chat:stream', {
-      conversationId,
-      messageId: initialAssistantMessageId,
+      conversationId: 1,
+      messageId: 2,
       content: 'Resposta completa.',
       done: true,
     });
@@ -212,7 +204,7 @@ test.describe('Chat — erro no envio', () => {
     });
 
     await wails.setResponse('EnsureConversation', baseConversation);
-    await wails.setResponse('SendMessage', initialAssistantMessageId);
+    await wails.setResponse('SendMessage', 2);
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
@@ -228,18 +220,18 @@ test.describe('Chat — erro no envio', () => {
     );
 
     await wails.emit('chat:messages_ready', {
-      conversationId,
-      userMessageId: firstFailedUserMessageId,
+      conversationId: 1,
+      userMessageId: 14535,
       userContent: 'primeira falha',
     });
     await wails.emit('chat:stream', {
-      conversationId,
-      messageId: firstFailedAssistantMessageId,
+      conversationId: 1,
+      messageId: 14536,
       content: 'resposta parcial',
       done: false,
     });
     await wails.emit('chat:stream', {
-      conversationId,
+      conversationId: 1,
       error: '500 Internal Server Error',
     });
     await expect(page.locator('.chat-message').filter({ hasText: /500 Internal Server Error/ })).toBeVisible({ timeout: 5_000 });
@@ -253,19 +245,19 @@ test.describe('Chat — erro no envio', () => {
     );
 
     await wails.emit('chat:messages_ready', {
-      conversationId,
-      userMessageId: secondAttemptUserMessageId,
+      conversationId: 1,
+      userMessageId: 14545,
       userContent: 'segunda tentativa',
     });
     await wails.emit('chat:stream', {
-      conversationId,
-      messageId: secondAttemptAssistantMessageId,
+      conversationId: 1,
+      messageId: 14546,
       content: 'resposta final',
       done: true,
     });
     await wails.emit('chat:done', {
-      conversationId,
-      assistantMessageId: secondAttemptAssistantMessageId,
+      conversationId: 1,
+      assistantMessageId: 14546,
       hadToolCalls: false,
     });
 
@@ -275,8 +267,8 @@ test.describe('Chat — erro no envio', () => {
 
   test('reenviar mensagem existente após erro usa RetryMessage sem duplicar mensagem do usuário', async ({ page, wails }) => {
     await wails.setResponse('EnsureConversation', baseConversation);
-    await wails.setResponse('SendMessage', initialAssistantMessageId);
-    await wails.setResponse('RetryMessage', retryAssistantMessageId);
+    await wails.setResponse('SendMessage', 2);
+    await wails.setResponse('RetryMessage', 2);
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
@@ -292,18 +284,18 @@ test.describe('Chat — erro no envio', () => {
     );
 
     await wails.emit('chat:messages_ready', {
-      conversationId,
-      userMessageId: firstFailedUserMessageId,
+      conversationId: 1,
+      userMessageId: 14535,
       userContent: 'mensagem original',
     });
     await wails.emit('chat:stream', {
-      conversationId,
-      messageId: firstFailedAssistantMessageId,
+      conversationId: 1,
+      messageId: 14536,
       content: 'resposta parcial',
       done: false,
     });
     await wails.emit('chat:stream', {
-      conversationId,
+      conversationId: 1,
       error: '500 Internal Server Error',
     });
 
@@ -323,14 +315,14 @@ test.describe('Chat — erro no envio', () => {
     );
 
     await wails.emit('chat:stream', {
-      conversationId,
-      messageId: retryAssistantMessageId,
+      conversationId: 1,
+      messageId: 14537,
       content: 'resposta após retry',
       done: true,
     });
     await wails.emit('chat:done', {
-      conversationId,
-      assistantMessageId: retryAssistantMessageId,
+      conversationId: 1,
+      assistantMessageId: 14537,
       hadToolCalls: false,
     });
 
@@ -346,7 +338,7 @@ test.describe('Chat — erro no envio', () => {
 test.describe('Chat — thinking/reasoning', () => {
   test('exibe seção de raciocínio durante streaming', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('SendMessage', initialAssistantMessageId);
+    await wails.setResponse('SendMessage', 2);
     await wails.setResponse('EnsureConversation', baseConversation);
 
     await wails.waitForApp();
@@ -367,7 +359,7 @@ test.describe('Chat — thinking/reasoning', () => {
 
     // Simula início de thinking (conversationId obrigatório)
     await wails.emit('chat:thinking', {
-      conversationId,
+      conversationId: 1,
       started: true,
       content: 'Analisando a pergunta...',
     });
@@ -378,14 +370,14 @@ test.describe('Chat — thinking/reasoning', () => {
 
     // Finaliza thinking e inicia resposta
     await wails.emit('chat:thinking', {
-      conversationId,
+      conversationId: 1,
       done: true,
       content: 'Analisando a pergunta... Considerando diferentes perspectivas.',
     });
 
     await wails.emit('chat:stream', {
-      conversationId,
-      messageId: initialAssistantMessageId,
+      conversationId: 1,
+      messageId: 2,
       content: 'Após analisar, a resposta é...',
       done: true,
     });
@@ -402,8 +394,8 @@ test.describe('Chat — thinking/reasoning', () => {
       userMessage,
       {
         message: {
-          id: initialAssistantMessageId,
-          conversationId,
+          id: 2,
+          conversationId: 1,
           role: 'assistant',
           content: 'Resposta final',
           createdAt: now,

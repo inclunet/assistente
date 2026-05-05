@@ -14,7 +14,7 @@ import (
 // Emitter e ConversationID são exportados para permitir construção fora do pacote.
 type BaseStreamHandler struct {
 	Emitter        events.Emitter
-	ConversationID string
+	ConversationID uint
 
 	accumulatedContent   string
 	accumulatedReasoning string

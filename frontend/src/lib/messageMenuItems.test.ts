@@ -42,7 +42,7 @@ describe('messageMenuItems', () => {
     i18nTMock.mockClear();
     const assistantMessage = new main.EnrichedMessage({
       id: '1',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: 1,
       role: 'assistant',
       content:
         'Texto\n\n```js\nconsole.log(1)\n```\n\n[Link](http://x)\n\n|A|B|\n|---|---|\n|1|2|\n',
@@ -72,7 +72,7 @@ describe('messageMenuItems', () => {
     i18nTMock.mockClear();
     const userMessage = new main.EnrichedMessage({
       id: '2',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: 1,
       role: 'user',
       content: 'Oi',
       createdAt: new Date().toISOString(),
@@ -101,7 +101,7 @@ describe('messageMenuItems', () => {
     i18nTMock.mockClear();
     const assistantMessage = new main.EnrichedMessage({
       id: '3',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: 1,
       role: 'assistant',
       content: 'Oi',
       createdAt: new Date().toISOString(),
@@ -135,7 +135,7 @@ describe('messageMenuItems', () => {
     const onSendToEditor = vi.fn();
     const assistantMessage = new main.EnrichedMessage({
       id: '4',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: 1,
       role: 'assistant',
       content: '|A|B|\n|---|---|\n|1|2|\n\n|C|D|\n|---|---|\n|3|4|\n',
       createdAt: new Date().toISOString(),

@@ -13,7 +13,6 @@ import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useTabScrollState } from '../../hooks/useTabScrollState';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
-import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
 import { DeleteMessage, EditorGetDraftPath } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
@@ -92,14 +91,17 @@ export function ChatSessionView({
 
   const handleDeleteMessage = useCallback(
     async (message: { id: string | number }) => {
-      const messageId = String(message.id);
-      if (!isBackendId(messageId)) return;
+      let messageId: number | null = null;
       try {
-        await DeleteMessage(messageId);
-        announce(t('chat.announce.messageDeleted'));
-        const conv = getActiveConversation();
-        if (conv?.id) {
-          await loadConversation(conv.id);
+        const parsedId = typeof message.id === 'number' ? message.id : parseInt(String(message.id), 10);
+        messageId = Number.isNaN(parsedId) ? null : parsedId;
+        if (messageId !== null) {
+          await DeleteMessage(messageId);
+          announce(t('chat.announce.messageDeleted'));
+          const conv = getActiveConversation();
+          if (conv?.id) {
+            await loadConversation(conv.id);
+          }
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -199,8 +201,9 @@ export function ChatSessionView({
     },
     onResend: async (message) => {
       const conversationId = getActiveConversation()?.id;
-      if (!conversationId || !isBackendId(message.id)) return;
-      await retryMessageToConversation(conversationId, message.id);
+      const messageId = typeof message.id === 'number' ? message.id : parseInt(String(message.id), 10);
+      if (!conversationId || Number.isNaN(messageId)) return;
+      await retryMessageToConversation(conversationId, messageId);
       announce(t('chat.announce.messageResent'));
     },
     onDelete: handleDeleteMessage,

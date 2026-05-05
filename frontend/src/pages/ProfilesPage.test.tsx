@@ -110,10 +110,6 @@ vi.mock('../hooks/useGridFocus', () => ({
   }),
 }));
 
-vi.mock('../hooks/useGridPageLandmarks', () => ({
-  useGridPageLandmarks: vi.fn(),
-}));
-
 const mockAnnounce = vi.fn();
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
@@ -196,9 +192,6 @@ vi.mock('../components/ui/EditorPanel', () => ({
   ),
 }));
 
-import ProfilesPage from './ProfilesPage';
-import { GetProfile } from '@wailsjs/go/app/App';
-
 describe('ProfilesPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockDuplicateProfile.mockReset();
@@ -209,6 +202,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
 
   it('abre editor ao criar novo perfil e renderiza abas do editor', async () => {
     const user = userEvent.setup();
+    const { default: ProfilesPage } = await import('./ProfilesPage');
     render(<ProfilesPage />);
 
     const newButton = await screen.findByRole('button', { name: 'Novo Perfil' });
@@ -263,6 +257,9 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
 
   it('duplica um perfil via menu de acoes', async () => {
     const user = userEvent.setup();
+    const { default: ProfilesPage } = await import('./ProfilesPage');
+    const app = await import('@wailsjs/go/app/App');
+
     render(<ProfilesPage />);
 
     await waitFor(() => {
@@ -281,7 +278,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     });
 
     await waitFor(() => {
-      expect(vi.mocked(GetProfile)).toHaveBeenCalledWith('perfil-padrao-copia');
+      expect(vi.mocked(app.GetProfile)).toHaveBeenCalledWith('perfil-padrao-copia');
     });
   });
 });

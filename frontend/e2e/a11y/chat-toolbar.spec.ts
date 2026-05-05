@@ -16,12 +16,12 @@ function messagesFixture() {
   const now = new Date().toISOString();
   return [
     {
-      message: { id: '01926b90-0000-7000-8000-100000000001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Mensagem', createdAt: now },
+      message: { id: '1', conversationId: 1, role: 'user', content: 'Mensagem', createdAt: now },
       children: [],
       childCount: 0,
     },
     {
-      message: { id: '01926b90-0000-7000-8000-100000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Resposta', createdAt: now },
+      message: { id: '2', conversationId: 1, role: 'assistant', content: 'Resposta', createdAt: now },
       children: [],
       childCount: 0,
     },
@@ -67,7 +67,7 @@ test.describe('ChatToolbar — Ctrl+L limpa conversa', () => {
     await wails.setResponse('ClearMessages', undefined);
     // Após limpar, GetMessages retorna vazio
     await wails.setResponse('EnsureConversation', {
-      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
+      id: 1, title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
     });
     await wails.waitForApp();
@@ -90,7 +90,7 @@ test.describe('ChatToolbar — Ctrl+L limpa conversa', () => {
     await wails.setResponse('ClearConversation', undefined);
     const now = new Date().toISOString();
     await wails.setResponse('EnsureConversation', {
-      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
+      id: 1, title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
     });
     await wails.waitForApp();
@@ -133,14 +133,14 @@ test.describe('ChatToolbar — Ctrl+H history picker', () => {
 
     await wails.setResponse('GetConversations', [
       {
-        id: '01926b90-0000-7000-8000-000000000001',
+        id: 1,
         title: 'Conversa atual',
         created_at: now,
         updated_at: now,
         message_count: 1,
       },
       {
-        id: '01926b90-0000-7000-8000-000000000002',
+        id: 2,
         title: 'Conversa importada',
         created_at: now,
         updated_at: now,
@@ -148,7 +148,7 @@ test.describe('ChatToolbar — Ctrl+H history picker', () => {
       },
     ]);
     await wails.setResponse('GetConversationInfo', {
-      id: '01926b90-0000-7000-8000-000000000002',
+      id: 2,
       title: 'Conversa importada',
       created_at: now,
       updated_at: now,
@@ -173,7 +173,7 @@ test.describe('ChatToolbar — Ctrl+H history picker', () => {
       return window.__wailsMock.getCallLog().some((c) =>
         c.fn === 'UpdateWorkspaceTab' &&
         c.args[0] === 'tab-1' &&
-        c.args[1]?.conversation_id === '01926b90-0000-7000-8000-000000000002' &&
+        c.args[1]?.conversation_id === 2 &&
         c.args[1]?.title === 'Conversa importada',
       );
     }, { timeout: 5_000 });

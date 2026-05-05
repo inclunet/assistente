@@ -57,7 +57,7 @@ describe('ChatMessage', () => {
     const onSpeak = vi.fn();
     const message = new main.EnrichedMessage({
       id: '1',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: 1,
       role: 'user',
       content: 'Ola',
       createdAt: new Date().toISOString(),
@@ -80,7 +80,7 @@ describe('ChatMessage', () => {
   it('renderiza modo de edicao', () => {
     const message = new main.EnrichedMessage({
       id: '1',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: 1,
       role: 'user',
       content: 'Ola',
       createdAt: new Date().toISOString(),

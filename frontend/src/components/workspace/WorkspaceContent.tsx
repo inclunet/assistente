@@ -32,7 +32,7 @@ export function WorkspaceContent() {
         {activeTab.type === 'terminal' && <TerminalPage />}
         {activeTab.type === 'tasklist' && (
           activeTab.state?.tasklistId
-            ? <TaskListView taskListId={activeTab.state.tasklistId as string} />
+            ? <TaskListView taskListId={parseInt(activeTab.state.tasklistId as string, 10)} />
             : <Loading />
         )}
       </Suspense>

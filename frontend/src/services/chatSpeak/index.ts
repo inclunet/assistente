@@ -17,8 +17,8 @@ export type ChatSpeakOrigin =
   | 'segment';
 
 export interface ChatSpeakRequest {
-  conversationId: string;
-  messageId?: string;
+  conversationId: number;
+  messageId?: number;
   profileSlug?: string;
   role: VoiceRole;
   text: string;
@@ -27,8 +27,8 @@ export interface ChatSpeakRequest {
 }
 
 export interface ChatSpeakEvent {
-  messageId?: string;
-  conversationId?: string;
+  messageId?: number;
+  conversationId?: number;
   role?: VoiceRole;
   text?: string;
   strategy?: ChatSpeakStrategy;
@@ -96,7 +96,7 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
   }
 
   if (event.strategy === 'backend_audio') {
-    if (event.messageId) {
+    if (event.messageId && event.messageId > 0) {
       const played = await messageAudioService.speakMessage(
         event.messageId,
         event.volume ?? ttsService.getVolume(),

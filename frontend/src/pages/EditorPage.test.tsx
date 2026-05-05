@@ -91,7 +91,7 @@ vi.mock('../hooks/useEditorInlineChatPatch', () => ({
   useEditorInlineChatPatch: () => ({
     waitForChatDone: vi.fn(),
     waitForEditorPatch: vi.fn(),
-    getMaxMessageId: vi.fn(),
+    getMaxNumericMessageId: vi.fn(),
   }),
 }));
 

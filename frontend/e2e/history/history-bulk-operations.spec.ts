@@ -3,10 +3,10 @@ import { test, expect } from '../fixtures';
 const now = new Date().toISOString();
 
 const sampleConversations = [
-  { id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa sobre IA', message_count: 5, created_at: now, updated_at: now },
-  { id: '01926b90-0000-7000-8000-000000000002', title: 'Projeto React', message_count: 3, created_at: now, updated_at: now },
-  { id: '01926b90-0000-7000-8000-000000000003', title: 'Debugging hooks', message_count: 8, created_at: now, updated_at: now },
-  { id: '01926b90-0000-7000-8000-000000000004', title: 'API design', message_count: 2, created_at: now, updated_at: now },
+  { id: 1, title: 'Conversa sobre IA', message_count: 5, created_at: now, updated_at: now },
+  { id: 2, title: 'Projeto React', message_count: 3, created_at: now, updated_at: now },
+  { id: 3, title: 'Debugging hooks', message_count: 8, created_at: now, updated_at: now },
+  { id: 4, title: 'API design', message_count: 2, created_at: now, updated_at: now },
 ];
 
 test.describe('Histórico — seleção múltipla', () => {
@@ -112,9 +112,9 @@ test.describe('Histórico — bulk delete', () => {
 });
 
 test.describe('Histórico — exportação', () => {
-  test('exportar conversa chama ExportData', async ({ page, wails }) => {
+  test('exportar conversa chama ExportConversations', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
-    await wails.setResponse('ExportData', '{"conversations":[]}');
+    await wails.setResponse('ExportConversations', '{"conversations":[]}');
 
     await wails.waitForApp();
     await page.goto('/#/history');
@@ -130,16 +130,15 @@ test.describe('Histórico — exportação', () => {
     const exportBtn = page.locator('button', { hasText: /export/i });
     if (await exportBtn.count() > 0) {
       await exportBtn.first().click();
-      await page.getByRole('button', { name: /export now|exportar agora/i }).click();
 
       await page.waitForFunction(() => {
         return window.__wailsMock.getCallLog().some(
-          (c: { fn: string }) => c.fn === 'ExportData'
+          (c: { fn: string }) => c.fn === 'ExportConversations'
         );
       }, { timeout: 5_000 });
 
       const log = await wails.getCallLog();
-      const exportCalls = log.filter(c => c.fn === 'ExportData');
+      const exportCalls = log.filter(c => c.fn === 'ExportConversations');
       expect(exportCalls.length).toBeGreaterThanOrEqual(1);
     }
   });

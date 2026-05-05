@@ -24,7 +24,7 @@ type AgenticStreamHandler struct {
 }
 
 // NewAgenticStreamHandler cria um handler para uma iteração do agentic loop.
-func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iteration int) *AgenticStreamHandler {
+func NewAgenticStreamHandler(emitter events.Emitter, conversationID uint, iteration int) *AgenticStreamHandler {
 	return &AgenticStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        emitter,

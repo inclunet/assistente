@@ -6,7 +6,7 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import './TokenStatsButton.css';
 
 interface TokenStats {
-  conversationId: string;
+  conversationId: number;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -19,7 +19,7 @@ interface TokenStats {
 }
 
 interface TokenStatsButtonProps {
-  conversationId?: string;
+  conversationId?: number;
   onOpenModal: () => void;
 }
 
@@ -82,7 +82,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
 
     // Escuta quando mensagens do usuário são adicionadas (antes do streaming)
     const unsubscribeMessages = EventsOn('chat:messages_ready', (data: unknown) => {
-      const eventData = data as { conversationId?: string };
+      const eventData = data as { conversationId?: number };
       if (eventData.conversationId === conversationId) {
         loadStats();
       }
@@ -90,7 +90,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
 
     // Escuta quando o streaming termina (garantia extra de atualização)
     const unsubscribeDone = EventsOn('chat:done', (data: unknown) => {
-      const eventData = data as { conversationId?: string };
+      const eventData = data as { conversationId?: number };
       if (eventData.conversationId === conversationId) {
         loadStats();
       }

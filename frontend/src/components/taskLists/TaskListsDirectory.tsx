@@ -10,7 +10,7 @@ import './TaskListsDirectory.css';
 
 interface TaskListsDirectoryProps {
   onCreateNew?: () => void;
-  onOpenList?: (taskListId: string) => void;
+  onOpenList?: (taskListId: number) => void;
 }
 
 export default function TaskListsDirectory({
@@ -29,14 +29,14 @@ export default function TaskListsDirectory({
     return date.toLocaleDateString('pt-BR', { month: '2-digit', day: '2-digit', year: '2-digit' });
   };
 
-  const handleDeleteList = async (_taskListId: string) => {
+  const handleDeleteList = async (_taskListId: number) => {
     if (!confirm(t('tasklist.confirmDelete', 'Tem certeza que deseja deletar esta lista?'))) {
       return;
     }
     // Delete será feito pelo store
   };
 
-  const handleCloneList = (_taskListId: string) => {
+  const handleCloneList = (_taskListId: number) => {
     // Clone será iniciado pelo parent ou store
   };
 

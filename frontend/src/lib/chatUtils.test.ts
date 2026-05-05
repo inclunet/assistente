@@ -7,7 +7,7 @@ describe('chatUtils', () => {
   it('extrai mensagens de threads', () => {
     const message1 = new main.EnrichedMessage({
       id: '1',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: 1,
       role: 'user',
       content: 'Oi',
       createdAt: new Date().toISOString(),
@@ -18,7 +18,7 @@ describe('chatUtils', () => {
 
     const message2 = new main.EnrichedMessage({
       id: '2',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: 1,
       role: 'assistant',
       content: 'Ola',
       createdAt: new Date().toISOString(),
@@ -53,7 +53,7 @@ describe('chatUtils', () => {
   it('isAgentMessage retorna false', () => {
     const message = new main.EnrichedMessage({
       id: '3',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: 1,
       role: 'assistant',
       content: 'Teste',
       createdAt: new Date().toISOString(),

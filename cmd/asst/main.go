@@ -114,7 +114,6 @@ func init() {
 	rootCmd.AddCommand(credentialsCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(historyCmd)
-	rootCmd.AddCommand(dataCmd)
 	rootCmd.AddCommand(toolsCmd)
 }
 

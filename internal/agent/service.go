@@ -44,11 +44,11 @@ type ServiceConfig struct {
 	MsgRepo          chat.MessageRepository
 	ToolExecutor     *tools.Executor
 	ResponseNotifier *messaging.ResponseNotifier
-	GetTokenStats    func(string) (*chat.TokenStats, error)
-	TriggerSummarize func(string)
+	GetTokenStats    func(uint) (*chat.TokenStats, error)
+	TriggerSummarize func(uint)
 	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
 	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
-	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // Service encapsula a lógica do agentic loop sem dependências do Wails.
@@ -57,9 +57,9 @@ type Service struct {
 	msgRepo          chat.MessageRepository
 	toolExecutor     *tools.Executor
 	responseNotifier *messaging.ResponseNotifier
-	getTokenStats    func(string) (*chat.TokenStats, error)
-	triggerSummarize func(string)
-	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	getTokenStats    func(uint) (*chat.TokenStats, error)
+	triggerSummarize func(uint)
+	onSpeechRequest  func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // NewService cria um novo Service com as dependências injetadas.
@@ -84,15 +84,15 @@ func (s *Service) RunAgenticLoop(
 	ctx context.Context,
 	messages []llm.Message,
 	params llm.ChatParams,
-	conversationID string,
-	turnID string,
+	conversationID uint,
+	turnID uint,
 	toolDefs []llm.ToolDefinition,
 	streamer llm.Streamer,
-	newHandler func(conversationID string, iteration int) IterationHandler,
+	newHandler func(conversationID uint, iteration int) IterationHandler,
 ) {
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
-		log.Printf("🔴 [AGENT] streamer nil na conversa %s", conversationID)
+		log.Printf("🔴 [AGENT] streamer nil na conversa %d", conversationID)
 		s.emitter.Emit("chat:done", ports.DoneEvent{
 			ConversationID: conversationID,
 			Reason:         "error",
@@ -207,7 +207,7 @@ func (s *Service) RunAgenticLoop(
 
 		// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior).
 		if s.onSpeechRequest != nil && result.FullResponse != "" {
-			s.onSpeechRequest(conversationID, "", "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
+			s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
 		}
 
 		// 5. finish_reason="tool_calls" → executar ferramentas
@@ -387,7 +387,7 @@ func (s *Service) RunAgenticLoop(
 		)
 		if err != nil {
 			if errors.Is(err, chat.ErrConversationDeleted) {
-				log.Printf("[Agent] conversa %s deletada — abortando", conversationID)
+				log.Printf("[Agent] conversa %d deletada — abortando", conversationID)
 				return
 			}
 			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
@@ -406,7 +406,7 @@ func (s *Service) RunAgenticLoop(
 			)
 			if err != nil {
 				if errors.Is(err, chat.ErrConversationDeleted) {
-					log.Printf("[Agent] conversa %s deletada — abortando", conversationID)
+					log.Printf("[Agent] conversa %d deletada — abortando", conversationID)
 					return
 				}
 				log.Printf("[Agent] erro ao salvar resultado de tool %s: %v", execResult.ToolName, err)
@@ -459,7 +459,7 @@ func (s *Service) RunAgenticLoop(
 	}
 
 	// Atingiu limite de iterações
-	log.Printf("[Agent] limite de %d iterações atingido para conversa %s", maxIterations, conversationID)
+	log.Printf("[Agent] limite de %d iterações atingido para conversa %d", maxIterations, conversationID)
 	s.emitter.Emit("chat:stream", events.StreamEvent{
 		Content:        "Limite de iterações do agente atingido. A resposta pode estar incompleta.",
 		Done:           true,
@@ -500,10 +500,10 @@ type LoopStats struct {
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
 // Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
 // loopStats é opcional — se nil, apenas os campos enriquecidos derivados das estatísticas do loop ficam vazios.
-func (s *Service) SaveAndFinish(conversationID, turnID string, result AgenticResult, profileSlug string, loopStats *LoopStats) {
-	var savedMsgID string
-	if conversationID != "" && result.FullResponse != "" {
-		if len(result.NativeMCPEvents) > 0 && turnID != "" {
+func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResult, profileSlug string, loopStats *LoopStats) {
+	var savedMsgID uint
+	if conversationID > 0 && result.FullResponse != "" {
+		if len(result.NativeMCPEvents) > 0 && turnID > 0 {
 			finalIteration := 0
 			if loopStats != nil && loopStats.IterationCount > 0 {
 				finalIteration = loopStats.IterationCount - 1
@@ -521,7 +521,7 @@ func (s *Service) SaveAndFinish(conversationID, turnID string, result AgenticRes
 			TotalTokens:      result.Usage.TotalTokens,
 			Model:            result.Model,
 		}
-		if turnID != "" {
+		if turnID > 0 {
 			opts.TurnID = &turnID
 		}
 
@@ -552,7 +552,7 @@ func (s *Service) SaveAndFinish(conversationID, turnID string, result AgenticRes
 		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
 	}
 
-	hadTools := turnID != ""
+	hadTools := turnID > 0
 	if loopStats != nil {
 		hadTools = loopStats.ToolCallCount > 0 || len(result.NativeMCPEvents) > 0
 	}
@@ -600,8 +600,8 @@ func (s *Service) SaveAndFinish(conversationID, turnID string, result AgenticRes
 
 // emitTokenStats queries token usage for a conversation and emits chat:token_stats
 // plus a chat:context_warning if the context window is near or at capacity.
-func (s *Service) emitTokenStats(conversationID string) {
-	if conversationID == "" || s.getTokenStats == nil {
+func (s *Service) emitTokenStats(conversationID uint) {
+	if conversationID == 0 || s.getTokenStats == nil {
 		return
 	}
 	stats, err := s.getTokenStats(conversationID)
@@ -620,7 +620,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 		MessageCount:     stats.MessageCount,
 	})
 	if stats.IsCritical {
-		log.Printf("[Context] conversa %s em CRÍTICO: %0.1f%% (%d/%d tokens)",
+		log.Printf("[Context] conversa %d em CRÍTICO: %0.1f%% (%d/%d tokens)",
 			conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 		s.emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
 			ConversationID: conversationID,
@@ -632,7 +632,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 			ContextLimit: stats.ContextLimit,
 		})
 	} else if stats.IsNearLimit {
-		log.Printf("[Context] conversa %s próxima do limite: %0.1f%% (%d/%d tokens)",
+		log.Printf("[Context] conversa %d próxima do limite: %0.1f%% (%d/%d tokens)",
 			conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 		s.emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
 			ConversationID: conversationID,
@@ -646,7 +646,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 	}
 }
 
-func (s *Service) emitToolStarts(conversationID string, calls []llm.ToolCall) {
+func (s *Service) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
 	for _, call := range calls {
 		origin, serverLabel := detectToolOrigin(call.Function.Name)
 		name := extractLogicalToolName(call.Function.Name)
@@ -687,7 +687,7 @@ func extractLogicalToolName(toolName string) string {
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
 // uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
 // AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
-func (s *Service) persistNativeMCPCalls(conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
+func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents []llm.MCPToolEvent, iteration int) {
 	var toolCalls []llm.EnrichedToolCall
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
@@ -738,7 +738,7 @@ func (s *Service) persistNativeMCPCalls(conversationID, turnID string, mcpEvents
 
 // recoverFromPanic captura panic e delega o tratamento para events.HandlePanic.
 // recover() deve ser chamado diretamente no corpo da função adiada — não pode ser delegado.
-func (s *Service) recoverFromPanic(conversationID string, source string) {
+func (s *Service) recoverFromPanic(conversationID uint, source string) {
 	r := recover()
 	events.HandlePanic(s.emitter, conversationID, source, r)
 }

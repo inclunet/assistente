@@ -18,14 +18,14 @@ test.describe('Histórico — página e listagem', () => {
   test('conversas são listadas no grid', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', [
       {
-        id: '01926b90-0000-7000-8000-000000000001',
+        id: 1,
         title: 'Conversa sobre IA',
         created_at: now,
         updated_at: now,
         message_count: 5,
       },
       {
-        id: '01926b90-0000-7000-8000-000000000002',
+        id: 2,
         title: 'Receita de bolo',
         created_at: now,
         updated_at: now,
@@ -46,7 +46,7 @@ test.describe('Histórico — página e listagem', () => {
   test('título da conversa aparece no grid', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', [
       {
-        id: '01926b90-0000-7000-8000-000000000001',
+        id: 1,
         title: 'Conversa sobre IA',
         created_at: now,
         updated_at: now,
@@ -66,14 +66,14 @@ test.describe('Histórico — página e listagem', () => {
   test('grid é navegável por teclado', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', [
       {
-        id: '01926b90-0000-7000-8000-000000000001',
+        id: 1,
         title: 'Conversa 1',
         created_at: now,
         updated_at: now,
         message_count: 2,
       },
       {
-        id: '01926b90-0000-7000-8000-000000000002',
+        id: 2,
         title: 'Conversa 2',
         created_at: now,
         updated_at: now,

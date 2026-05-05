@@ -39,7 +39,7 @@ func NewTokensController(cfg TokensControllerConfig) *TokensController {
 }
 
 // GetConversationTokenStats retorna estatísticas de tokens de uma conversa.
-func (c *TokensController) GetConversationTokenStats(conversationID string) (*chat.TokenStats, error) {
+func (c *TokensController) GetConversationTokenStats(conversationID uint) (*chat.TokenStats, error) {
 	contextLimit := 0
 	if profile, err := c.profileMgr.GetActive(); err == nil && profile != nil {
 		contextLimit = profile.Chat.ContextWindow
@@ -48,17 +48,17 @@ func (c *TokensController) GetConversationTokenStats(conversationID string) (*ch
 }
 
 // GetTurnTokenStats retorna estatísticas de tokens para um turno específico.
-func (c *TokensController) GetTurnTokenStats(conversationID string, turnID string) (*chat.TokenStats, error) {
+func (c *TokensController) GetTurnTokenStats(conversationID uint, turnID uint) (*chat.TokenStats, error) {
 	return c.tokenSvc.GetTurnStats(conversationID, turnID)
 }
 
 // GetRecentMessagesTokenCount retorna o total de tokens das N mensagens mais recentes.
-func (c *TokensController) GetRecentMessagesTokenCount(conversationID string, messageLimit int) (int, error) {
+func (c *TokensController) GetRecentMessagesTokenCount(conversationID uint, messageLimit int) (int, error) {
 	return c.tokenSvc.GetRecentTokenCount(conversationID, messageLimit)
 }
 
 // CheckContextWindowThreshold verifica se a conversa está próxima do limite de contexto.
-func (c *TokensController) CheckContextWindowThreshold(conversationID string, threshold float64) (bool, float64, error) {
+func (c *TokensController) CheckContextWindowThreshold(conversationID uint, threshold float64) (bool, float64, error) {
 	if threshold <= 0 {
 		threshold = 80.0
 	}
@@ -77,7 +77,7 @@ func (c *TokensController) CheckContextWindowThreshold(conversationID string, th
 		return false, 0, err
 	}
 
-	log.Printf("[TokenStats] Conversa %s: %.1f%% de %d tokens", conversationID, percentage, contextLimit)
+	log.Printf("[TokenStats] Conversa %d: %.1f%% de %d tokens", conversationID, percentage, contextLimit)
 	return above, percentage, nil
 }
 

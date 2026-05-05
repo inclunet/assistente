@@ -7,7 +7,6 @@ import { announce } from '../hooks/useAnnouncer';
 import { EditorReadFile } from '@wailsjs/go/app/App';
 import { RunTerminalCommand } from '@wailsjs/go/app/App';
 import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
-import { isBackendId } from './idUtils';
 import i18n from './i18n';
 
 // ─── Protocol ────────────────────────────────────────────────────────
@@ -18,9 +17,9 @@ export const DEEP_LINK_PREFIX = `${DEEP_LINK_PROTOCOL}://`;
 export type TabType = 'tasklist' | 'editor' | 'terminal';
 
 export type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: string; title?: string }
+  | { type: 'conversation:open'; conversationId: number; title?: string }
   | { type: 'conversation:new'; message?: string; title?: string }
-  | { type: 'conversation:send'; conversationId: string; message: string }
+  | { type: 'conversation:send'; conversationId: number; message: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
   | { type: 'resource:new'; resource: EditableResource }
@@ -100,8 +99,8 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
         };
       }
 
-      const id = segments[1] || '';
-      if (!isBackendId(id)) return null;
+      const id = Number(segments[1]);
+      if (!Number.isInteger(id) || id <= 0) return null;
 
       // assistente://conversation/{id}/send?message=...
       if (segments[2] === 'send') {
@@ -270,14 +269,14 @@ export async function executeDeepLink(
 
   const wsStore = useWorkspaceStore.getState();
 
-  const openOrCreateChatTab = async (conversationId: string, title?: string) => {
+  const openOrCreateChatTab = async (conversationId: number, title?: string) => {
     const existing = (wsStore.workspace?.tabs || []).find(
       (tab) => tab.type === 'chat' && tab.conversationId === conversationId,
     );
     if (existing) {
       await wsStore.setActiveTab(existing.id);
     } else {
-      await wsStore.addTab('chat', title || t('chat.newConversation'), { conversationId });
+      await wsStore.addTab('chat', title || t('chat.newConversation'));
     }
   };
 
@@ -291,8 +290,8 @@ export async function executeDeepLink(
 
     case 'conversation:new': {
       const title = action.title || t('chat.newConversation');
-      const conversationId = await useChatStore.getState().createConversation(title);
-      await wsStore.addTab('chat', title, { conversationId });
+      await useChatStore.getState().createConversation(title);
+      await wsStore.addTab('chat', title);
       deps.navigate('/');
       if (action.message) {
         await useChatStore.getState().sendMessage(action.message);

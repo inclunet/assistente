@@ -165,7 +165,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     if (!editContent.trim()) return;
 
     try {
-      const messageId = node.message.id;
+      const messageId = Number(node.message.id);
       await UpdateMessage(messageId, editContent);
       announce(t('chat.messageEdited'));
       setIsEditing(false);

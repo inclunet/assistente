@@ -130,21 +130,21 @@ function App() {
         const unsubs: Array<() => void> = [];
 
         unsubs.push(EventsOn('conversation:deleted', (data: unknown) => {
-            const eventData = data as { conversation_id?: string };
+            const eventData = data as { conversation_id?: number };
             if (eventData.conversation_id) {
                 handleConversationDeleted(eventData.conversation_id);
             }
         }));
 
         unsubs.push(EventsOn('conversation:cleared', (data: unknown) => {
-            const eventData = data as { conversation_id?: string };
+            const eventData = data as { conversation_id?: number };
             if (eventData.conversation_id) {
                 handleConversationCleared(eventData.conversation_id);
             }
         }));
 
         unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
-            const eventData = data as { conversationId?: string; newTitle?: string };
+            const eventData = data as { conversationId?: number; newTitle?: string };
             if (eventData.conversationId && eventData.newTitle) {
                 handleConversationRenamed(eventData.conversationId, eventData.newTitle);
             }
@@ -197,7 +197,7 @@ function App() {
                 from?: string;
                 fromId?: string;
                 text?: string;
-                conversationId?: string;
+                conversationId?: number;
                 newConversation?: boolean;
             };
             handleExternalIncoming({
@@ -205,7 +205,7 @@ function App() {
                 from: eventData.from || '',
                 fromId: eventData.fromId || '',
                 text: eventData.text || '',
-                conversationId: eventData.conversationId || '',
+                conversationId: eventData.conversationId || 0,
                 newConversation: eventData.newConversation || false,
             });
         });

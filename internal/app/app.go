@@ -249,7 +249,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.initMessaging()
 
 	// Callback reutilizado pelo agent.Service e ChatController
-	speechDispatcher := func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool) {
+	speechDispatcher := func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool) {
 		if _, err := a.dispatchSpeechEvent(ChatSpeakRequest{
 			ConversationID: conversationID,
 			MessageID:      messageID,
@@ -259,7 +259,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 			Origin:         ChatSpeakOrigin(origin),
 			Interrupt:      &interrupt,
 		}); err != nil {
-			log.Printf("[Speech] WARN: dispatchSpeechEvent falhou (conv=%s msg=%s): %v", conversationID, messageID, err)
+			log.Printf("[Speech] WARN: dispatchSpeechEvent falhou (conv=%d msg=%d): %v", conversationID, messageID, err)
 		}
 	}
 
@@ -389,6 +389,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	})
 	a.jobsCtrl = controllers.NewJobsController(controllers.JobsControllerConfig{
 		JobMgr: a.jobMgr,
+	})
+	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{
+		WorkspaceMgr: a.workspaceMgr,
+		Emitter:      a.emitter,
 	})
 	a.tokensCtrl = controllers.NewTokensController(controllers.TokensControllerConfig{
 		ProfileMgr:  a.profileManager,

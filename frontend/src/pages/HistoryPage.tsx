@@ -4,243 +4,47 @@ import {
   CheckOutlined,
   DeleteOutlined,
   ExportOutlined,
-  FilePdfOutlined,
-  FileTextOutlined,
   FolderOpenOutlined,
   ImportOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { AnalyzeImportData, GetAllTaskLists, GetConversations, GetLLMProvidersWithStatus, DeleteConversation, UpdateConversation, ExportConversationsToFile, ExportData, ImportData, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations, SearchConversationHistory } from '@wailsjs/go/app/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../components/menu';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
-import { Button } from '../components/ui/Button';
-import { Checkbox } from '../components/ui/Checkbox';
-import { FormField } from '../components/ui/FormField';
-import { Input } from '../components/ui/Input';
-import { Modal } from '../components/ui/Modal';
-import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useConfirm } from '../hooks/useConfirm';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { executeDeepLink } from '../lib/deepLinks';
 import { formatRelativeTime } from '../lib/dateUtils';
-import { downloadJSON, openImportFileDialog, generateFilename, ImportFileError, IMPORT_FILE_ERROR_CODES } from '../lib/exportImport';
+import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './HistoryPage.css';
 
 interface Conversation {
-  id: string;
+  id: number;
   title: string;
-  createdAt: string;
-  updatedAt: string;
+  created_at: string;
+  updated_at: string;
   message_count: number;
   snippet?: string;
 }
 
-interface ImportPreview {
-  fileName: string;
-  jsonData: string;
-  version: number | null;
-  appVersion: string;
-  exportedAt: string;
-  conversationCount: number;
-  messageCount: number;
-  providerCount: number;
-  taskListCount: number;
-  taskCount: number;
-  taskNoteCount: number;
-  includesCredentials: boolean;
-  requiresCredentialPassword: boolean;
-  includeAudio: boolean;
-}
-
-interface ImportConflict {
-  resourceType: string;
-  identifier: string;
-  reason: string;
-}
-
-interface ImportAnalysis {
-  version: number;
-  appVersion?: string;
-  conversationCount: number;
-  messageCount: number;
-  providerCount: number;
-  taskListCount: number;
-  taskCount: number;
-  taskNoteCount: number;
-  includesCredentials: boolean;
-  requiresCredentialPassword: boolean;
-  credentialCount: number;
-  conflictCount: number;
-  conversationConflicts?: ImportConflict[];
-  providerConflicts?: ImportConflict[];
-  taskListConflicts?: ImportConflict[];
-  credentialConflicts?: ImportConflict[];
-  unsupportedResourceTypes?: string[];
-  warnings?: string[];
-  credentialAnalysisError?: string;
-}
-
-interface ImportResultSummary {
-  success: boolean;
-  imported: number;
-  skipped: number;
-  failed: number;
-  skippedEmptyConversations: number;
-  skippedConversationConflict: number;
-  skippedProviderConflict: number;
-  skippedTaskListConflict: number;
-  skippedCredentialConflict: number;
-  skippedOther: number;
-  unsupportedResourceTypes?: string[];
-  warnings?: string[];
-  errors?: string[];
-  message: string;
-}
-
-interface ExportRequestPayload {
-  explicitSelection?: boolean;
-  conversationIds?: string[];
-  providerIds?: string[];
-  taskListIds?: string[];
-  includeCredentials: boolean;
-  credentialExportPassword?: string;
-  outputFormat: 'json';
-}
-
-interface TaskListRecord {
-  id: string;
-}
-
-interface ProviderRecord {
-  id: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function countTaskTree(items: unknown[]): { taskCount: number; taskNoteCount: number } {
-  return items.reduce<{ taskCount: number; taskNoteCount: number }>((counts, item) => {
-    if (!isRecord(item)) {
-      return counts;
-    }
-
-    const notes = Array.isArray(item.notes) ? item.notes.length : 0;
-    const children = Array.isArray(item.children) ? item.children : [];
-    const childCounts = countTaskTree(children);
-
-    return {
-      taskCount: counts.taskCount + 1 + childCounts.taskCount,
-      taskNoteCount: counts.taskNoteCount + notes + childCounts.taskNoteCount,
-    };
-  }, { taskCount: 0, taskNoteCount: 0 });
-}
-
-function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
-  const parsed: unknown = JSON.parse(jsonData);
-  if (!isRecord(parsed)) {
-    throw new Error('invalid-import-file');
-  }
-
-  const resources = isRecord(parsed.resources) ? parsed.resources : {};
-  const options = isRecord(parsed.options) ? parsed.options : {};
-  const conversations = Array.isArray(resources.conversations) ? resources.conversations : [];
-  const taskLists = Array.isArray(resources.taskLists) ? resources.taskLists : [];
-  const providers = Array.isArray(resources.providers) ? resources.providers : [];
-  const messageCount = conversations.reduce((count, item) => {
-    if (!isRecord(item) || !Array.isArray(item.messages)) {
-      return count;
-    }
-    return count + item.messages.length;
-  }, 0);
-  const taskCounts = taskLists.reduce<{ taskCount: number; taskNoteCount: number }>((counts, item) => {
-    if (!isRecord(item) || !Array.isArray(item.tasks)) {
-      return counts;
-    }
-    const treeCounts = countTaskTree(item.tasks);
-    return {
-      taskCount: counts.taskCount + treeCounts.taskCount,
-      taskNoteCount: counts.taskNoteCount + treeCounts.taskNoteCount,
-    };
-  }, { taskCount: 0, taskNoteCount: 0 });
-  const credentials = resources.credentials;
-  const includesCredentials = options.includeCredentials === true && credentials !== undefined && credentials !== null;
-
-  return {
-    fileName,
-    jsonData,
-    version: typeof parsed.version === 'number' ? parsed.version : null,
-    appVersion: typeof parsed.appVersion === 'string' ? parsed.appVersion : '',
-    exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : '',
-    conversationCount: conversations.length,
-    messageCount,
-    providerCount: providers.length,
-    taskListCount: taskLists.length,
-    taskCount: taskCounts.taskCount,
-    taskNoteCount: taskCounts.taskNoteCount,
-    includesCredentials,
-    requiresCredentialPassword:
-      includesCredentials && isRecord(credentials) && credentials.mode === 'encrypted',
-    includeAudio: options.includeAudio === true,
-  };
-}
-
-function buildImportAnalysisKey(preview: ImportPreview, password: string): string {
-  return [
-    preview.fileName,
-    preview.exportedAt,
-    preview.version ?? 'unknown',
-    preview.conversationCount,
-    preview.messageCount,
-    preview.providerCount,
-    preview.taskListCount,
-    preview.taskCount,
-    preview.taskNoteCount,
-    preview.includesCredentials ? 'with-credentials' : 'without-credentials',
-    password,
-  ].join('::');
-}
-
 export default function HistoryPage() {
   const { t } = useTranslation();
-  const { announce } = useAnnouncer();
   const confirm = useConfirm();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [searchResultIds, setSearchResultIds] = useState<Set<string> | null>(null);
-  const [snippetsMap, setSnippetsMap] = useState<Map<string, string>>(new Map());
+  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+  const [searchResultIds, setSearchResultIds] = useState<Set<number> | null>(null);
+  const [snippetsMap, setSnippetsMap] = useState<Map<number, string>>(new Map());
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportTargetIds, setExportTargetIds] = useState<string[]>([]);
-  const [includeProvidersExport, setIncludeProvidersExport] = useState(false);
-  const [exportProviderIds, setExportProviderIds] = useState<string[]>([]);
-  const [includeTaskListsExport, setIncludeTaskListsExport] = useState(false);
-  const [exportTaskListIds, setExportTaskListIds] = useState<string[]>([]);
-  const [includeCredentialExport, setIncludeCredentialExport] = useState(false);
-  const [exportPassword, setExportPassword] = useState('');
-  const [exportPasswordError, setExportPasswordError] = useState('');
-  const [isExporting, setIsExporting] = useState(false);
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
-  const [importAnalysis, setImportAnalysis] = useState<ImportAnalysis | null>(null);
-  const [lastImportResult, setLastImportResult] = useState<ImportResultSummary | null>(null);
-  const [isAnalyzingImport, setIsAnalyzingImport] = useState(false);
-  const [importPassword, setImportPassword] = useState('');
-  const [importPasswordError, setImportPasswordError] = useState('');
-  const [isImporting, setIsImporting] = useState(false);
-  const importAnalysisInFlightRef = useRef(false);
-  const pendingImportAnalysisRef = useRef<{ jsonData: string; password: string; key: string } | null>(null);
-  const lastAnalyzedImportRef = useRef<string | null>(null);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
   const moveTabToWorkspace = useWorkspaceStore(state => state.moveTabToWorkspace);
@@ -264,8 +68,8 @@ export default function HistoryPage() {
         setSearchResultIds(new Set());
         setSnippetsMap(new Map());
       } else {
-        const ids = new Set<string>();
-        const snippets = new Map<string, string>();
+        const ids = new Set<number>();
+        const snippets = new Map<number, string>();
         for (const r of results) {
           ids.add(r.conversation_id);
           if (!snippets.has(r.conversation_id)) {
@@ -316,8 +120,8 @@ export default function HistoryPage() {
       const mapped = (result || []).map((c: Conversation) => ({
         id: c.id,
         title: c.title || t('history.untitled', 'Sem título'),
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
+        created_at: c.created_at,
+        updated_at: c.updated_at,
         message_count: c.message_count || 0
       }));
       setConversations(mapped || []);
@@ -328,7 +132,7 @@ export default function HistoryPage() {
     }
   };
 
-  const handleOpenConversation = useCallback(async (conversationId: string, title?: string) => {
+  const handleOpenConversation = useCallback(async (conversationId: number, title?: string) => {
     await executeDeepLink(
       { type: 'conversation:open', conversationId, title },
       { navigate },
@@ -339,7 +143,7 @@ export default function HistoryPage() {
     navigate('/');
   };
 
-  const handleDeleteConversation = useCallback(async (conversationId: string) => {
+  const handleDeleteConversation = useCallback(async (conversationId: number) => {
     const conv = conversations.find((c) => c.id === conversationId);
     const title = conv?.title || t('history.untitled');
     const ok = await confirm({
@@ -366,7 +170,7 @@ export default function HistoryPage() {
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
-    const ids = Array.from(selectedIds).map(String);
+    const ids = Array.from(selectedIds);
     const count = ids.length;
     const ok = await confirm({
       title: t('history.confirmDeleteMultipleTitle'),
@@ -378,7 +182,7 @@ export default function HistoryPage() {
     if (!ok) return;
 
     try {
-      await Promise.all(ids.map((id) => DeleteConversation(id)));
+      await Promise.all(ids.map((id) => DeleteConversation(Number(id))));
       const idSet = new Set(ids);
       setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
       setSelectedIds(new Set());
@@ -387,365 +191,43 @@ export default function HistoryPage() {
     }
   }, [confirm, selectedIds, t]);
 
-  const getTargetConversationIds = useCallback(() => (
-    selectedIds.size > 0
-      ? Array.from(selectedIds).map(String)
-      : conversations.map((c) => c.id)
-  ), [conversations, selectedIds]);
+  const handleExport = async () => {
+    const idsToExport = selectedIds.size > 0 
+      ? Array.from(selectedIds).map(id => Number(id))
+      : conversations.map(c => c.id);
+    
+    if (idsToExport.length === 0) {
+      alert(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'));
+      return;
+    }
 
-  const openExportModal = useCallback((idsToExport: string[]) => {
-    setExportTargetIds(idsToExport);
-    setIncludeProvidersExport(false);
-    setExportProviderIds([]);
-    setIncludeTaskListsExport(false);
-    setExportTaskListIds([]);
-    setIncludeCredentialExport(false);
-    setExportPassword('');
-    setExportPasswordError('');
-    setIsExportModalOpen(true);
-  }, []);
-
-  const closeExportModal = useCallback(() => {
-    setIsExportModalOpen(false);
-    setExportTargetIds([]);
-    setIncludeProvidersExport(false);
-    setExportProviderIds([]);
-    setIncludeTaskListsExport(false);
-    setExportTaskListIds([]);
-    setIncludeCredentialExport(false);
-    setExportPassword('');
-    setExportPasswordError('');
-  }, []);
-
-  const loadExportProviderIds = useCallback(async () => {
-    const providers = await GetLLMProvidersWithStatus() as ProviderRecord[];
-    const ids = (providers || [])
-      .map((provider) => String(provider.id ?? '').trim())
-      .filter((id) => id.length > 0);
-    setExportProviderIds(ids);
-    return ids;
-  }, []);
-
-  const loadExportTaskListIds = useCallback(async () => {
-    const taskLists = await GetAllTaskLists() as TaskListRecord[];
-    const ids = (taskLists || [])
-      .map((taskList) => String(taskList.id ?? '').trim())
-      .filter((id) => id.length > 0);
-    setExportTaskListIds(ids);
-    return ids;
-  }, []);
-
-  const exportJsonByIds = useCallback(async (idsToExport: string[], providerIdsToExport: string[], taskListIdsToExport: string[], options?: {
-    includeCredentials?: boolean;
-    credentialExportPassword?: string;
-  }) => {
     try {
-      const payload: ExportRequestPayload = {
-        explicitSelection: true,
-        includeCredentials: options?.includeCredentials === true,
-        outputFormat: 'json',
-      };
-      if (idsToExport.length > 0) {
-        payload.conversationIds = idsToExport;
-      }
-      if (providerIdsToExport.length > 0) {
-        payload.providerIds = providerIdsToExport;
-      }
-      if (taskListIdsToExport.length > 0) {
-        payload.taskListIds = taskListIdsToExport;
-      }
-      if (payload.includeCredentials && options?.credentialExportPassword?.trim()) {
-        payload.credentialExportPassword = options.credentialExportPassword.trim();
-      }
-      const jsonData = await ExportData(payload);
-      const filename = generateFilename('dados');
+      const jsonData = await ExportConversations(idsToExport);
+      const filename = generateFilename('conversas');
       downloadJSON(jsonData, filename);
     } catch (error) {
-      console.error('Erro ao exportar dados:', error);
-      announce(t('history.exportError', 'Erro ao exportar dados'), 'assertive');
-    }
-  }, [announce, t]);
-
-  const exportRichByIds = useCallback(async (idsToExport: string[], format: 'html' | 'pdf') => {
-    if (idsToExport.length === 0) {
-      announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
-      return;
-    }
-
-    try {
-      const savedPath = await ExportConversationsToFile(idsToExport, format);
-      if (!savedPath) return;
-      announce(t('history.exportSaved', { path: savedPath, defaultValue: `Arquivo exportado: ${savedPath}` }));
-    } catch (error) {
-      console.error(`Erro ao exportar conversas em ${format}:`, error);
-      announce(t('history.exportError', 'Erro ao exportar conversas'), 'assertive');
-    }
-  }, [announce, t]);
-
-  const handleExport = useCallback(() => {
-    openExportModal(getTargetConversationIds());
-  }, [getTargetConversationIds, openExportModal]);
-
-  const handleRichExport = useCallback(async (format: 'html' | 'pdf') => {
-    const idsToExport = getTargetConversationIds();
-    await exportRichByIds(idsToExport, format);
-  }, [exportRichByIds, getTargetConversationIds]);
-
-  const handleConfirmExport = useCallback(async () => {
-    if (includeCredentialExport && !exportPassword.trim()) {
-      setExportPasswordError(t('history.exportPasswordRequired', 'Informe uma senha para criptografar as credenciais exportadas.'));
-      return;
-    }
-
-    setIsExporting(true);
-    setExportPasswordError('');
-    try {
-      let providerIdsToExport: string[] = [];
-      if (includeProvidersExport) {
-        providerIdsToExport = exportProviderIds.length > 0 ? exportProviderIds : await loadExportProviderIds();
-      }
-
-      let taskListIdsToExport: string[] = [];
-      if (includeTaskListsExport) {
-        taskListIdsToExport = exportTaskListIds.length > 0 ? exportTaskListIds : await loadExportTaskListIds();
-      }
-
-      const hasResourcesToExport =
-        exportTargetIds.length > 0 ||
-        providerIdsToExport.length > 0 ||
-        taskListIdsToExport.length > 0 ||
-        includeCredentialExport;
-      if (!hasResourcesToExport) {
-        announce(t('history.noDataToExport', 'Nenhum dado selecionado para exportar'), 'assertive');
-        return;
-      }
-
-      await exportJsonByIds(exportTargetIds, providerIdsToExport, taskListIdsToExport, {
-        includeCredentials: includeCredentialExport,
-        credentialExportPassword: exportPassword,
-      });
-      closeExportModal();
-    } finally {
-      setIsExporting(false);
-    }
-  }, [announce, closeExportModal, exportJsonByIds, exportPassword, exportProviderIds, exportTargetIds, exportTaskListIds, includeCredentialExport, includeProvidersExport, includeTaskListsExport, loadExportProviderIds, loadExportTaskListIds, t]);
-
-  const closeImportModal = useCallback(() => {
-    setIsImportModalOpen(false);
-    setImportPreview(null);
-    setImportAnalysis(null);
-    setLastImportResult(null);
-    setImportPassword('');
-    setImportPasswordError('');
-    pendingImportAnalysisRef.current = null;
-    lastAnalyzedImportRef.current = null;
-  }, []);
-
-  const analyzeImportPayload = useCallback(async (jsonData: string, credentialPassword: string) => {
-    setIsAnalyzingImport(true);
-    try {
-      const analysis = await AnalyzeImportData(jsonData, credentialPassword);
-      const nextAnalysis = analysis as ImportAnalysis;
-      setImportAnalysis(nextAnalysis);
-      return nextAnalysis;
-    } finally {
-      setIsAnalyzingImport(false);
-    }
-  }, []);
-
-  const runLatestImportAnalysis = useCallback(async () => {
-    if (importAnalysisInFlightRef.current) {
-      return;
-    }
-
-    const queuedRequest = pendingImportAnalysisRef.current;
-    if (!queuedRequest) {
-      return;
-    }
-
-    pendingImportAnalysisRef.current = null;
-    importAnalysisInFlightRef.current = true;
-    const queuedRequestKey = queuedRequest.key;
-
-    try {
-      await analyzeImportPayload(queuedRequest.jsonData, queuedRequest.password);
-      lastAnalyzedImportRef.current = queuedRequestKey;
-    } finally {
-      importAnalysisInFlightRef.current = false;
-      if (pendingImportAnalysisRef.current) {
-        void runLatestImportAnalysis();
-      }
-    }
-  }, [analyzeImportPayload]);
-
-  const selectImportFile = useCallback(async () => {
-    const selectedFile = await openImportFileDialog('.json,application/json');
-    const preview = buildImportPreview(selectedFile.name, selectedFile.content);
-    setImportPreview(preview);
-    setImportAnalysis(null);
-    setLastImportResult(null);
-    setImportPassword('');
-    setImportPasswordError('');
-    await analyzeImportPayload(selectedFile.content, '');
-    lastAnalyzedImportRef.current = buildImportAnalysisKey(preview, '');
-    setIsImportModalOpen(true);
-  }, [analyzeImportPayload]);
-
-  const getImportErrorMessage = useCallback((error: unknown) => {
-    if (error instanceof ImportFileError) {
-      if (error.code === IMPORT_FILE_ERROR_CODES.NO_FILE_SELECTED) {
-        return '';
-      }
-      if (error.code === IMPORT_FILE_ERROR_CODES.FILE_READ_ERROR) {
-        return t('history.importReadError', 'Erro ao ler o arquivo selecionado.');
-      }
-    }
-    if (error instanceof SyntaxError) {
-      return t('history.importInvalidJson', 'O arquivo selecionado não contém um JSON válido.');
-    }
-    return t('history.importInvalidFile', 'O arquivo selecionado não é um export canônico suportado.');
-  }, [t]);
-
-  const handleImport = async () => {
-    try {
-      await selectImportFile();
-    } catch (error) {
-      console.error('Erro ao importar conversas:', error);
-      const message = getImportErrorMessage(error);
-      if (message) {
-        announce(message, 'assertive');
-      }
+      console.error('Erro ao exportar conversas:', error);
+      alert(t('history.exportError', 'Erro ao exportar conversas'));
     }
   };
 
-  const handleReplaceImportFile = useCallback(async () => {
+  const handleImport = async () => {
     try {
-      await selectImportFile();
+      const jsonData = await openFileDialog('.json');
+      const result = await ImportConversations(jsonData);
+      
+      if (result.success) {
+        alert(t('history.importSuccess', `Importação concluída: ${result.message}`));
+        loadConversations();
+      } else {
+        alert(t('history.importPartial', `Importação parcial: ${result.message}\nErros: ${result.errors?.join(', ')}`));
+        loadConversations();
+      }
     } catch (error) {
-      console.error('Erro ao trocar arquivo de importação:', error);
-      const message = getImportErrorMessage(error);
-      if (message) {
-        announce(message, 'assertive');
-      }
+      console.error('Erro ao importar conversas:', error);
+      alert(t('history.importError', 'Erro ao importar conversas'));
     }
-  }, [announce, getImportErrorMessage, selectImportFile]);
-
-  const handleConfirmImport = useCallback(async () => {
-    if (lastImportResult) {
-      closeImportModal();
-      return;
-    }
-    if (!importPreview) return;
-    if (importPreview.requiresCredentialPassword && !importPassword.trim()) {
-      setImportPasswordError(t('history.importPasswordRequired', 'Informe a senha usada para exportar as credenciais.'));
-      return;
-    }
-    if (importAnalysis?.credentialAnalysisError) {
-      setImportPasswordError(t('history.importPasswordInvalid', 'Não foi possível validar a senha informada para as credenciais.'));
-      return;
-    }
-
-    setIsImporting(true);
-    setImportPasswordError('');
-    try {
-      const result = await ImportData(importPreview.jsonData, importPassword.trim()) as ImportResultSummary;
-      const details = [
-        result.success
-          ? t('history.importSuccess', 'Dados importados com sucesso!')
-          : t('history.importPartial', 'Alguns recursos não puderam ser importados.'),
-        result.message,
-        t('history.importCounts', {
-          defaultValue: 'Importados: {{imported}} | Ignorados: {{skipped}}',
-          imported: result.imported,
-          skipped: result.skipped,
-        }),
-      ];
-      if (result.failed > 0) {
-        details.push(t('history.importFailedCount', {
-          defaultValue: 'Falhas: {{count}}',
-          count: result.failed,
-        }));
-      }
-      if (result.skippedEmptyConversations > 0) {
-        details.push(t('history.importSkippedEmptyCount', {
-          defaultValue: 'Vazias descartadas: {{count}}',
-          count: result.skippedEmptyConversations,
-        }));
-      }
-      if (result.skippedConversationConflict > 0) {
-        details.push(t('history.importSkippedConversationConflictCount', {
-          defaultValue: 'Ignoradas por conflito de conversa: {{count}}',
-          count: result.skippedConversationConflict,
-        }));
-      }
-      if (result.skippedProviderConflict > 0) {
-        details.push(t('history.importSkippedProviderConflictCount', {
-          defaultValue: 'Ignoradas por conflito de provider: {{count}}',
-          count: result.skippedProviderConflict,
-        }));
-      }
-      if (result.skippedTaskListConflict > 0) {
-        details.push(t('history.importSkippedTaskListConflictCount', {
-          defaultValue: 'Ignoradas por conflito de tasklist: {{count}}',
-          count: result.skippedTaskListConflict,
-        }));
-      }
-      if (result.skippedCredentialConflict > 0) {
-        details.push(t('history.importSkippedCredentialConflictCount', {
-          defaultValue: 'Credenciais duplicadas ignoradas: {{count}}',
-          count: result.skippedCredentialConflict,
-        }));
-      }
-      if (result.skippedOther > 0) {
-        details.push(t('history.importSkippedOtherCount', {
-          defaultValue: 'Outros descartes: {{count}}',
-          count: result.skippedOther,
-        }));
-      }
-      if (result.warnings?.length) {
-        details.push(...result.warnings);
-      }
-
-      if (result.errors?.length) {
-        details.push(
-          `${t('history.importErrorsLabel', 'Erros')}:\n${result.errors.join('\n')}`,
-        );
-      }
-
-      setLastImportResult(result);
-      announce(details.filter(Boolean).join('. '), result.success ? 'polite' : 'assertive');
-      await loadConversations();
-    } catch (error) {
-      console.error('Erro ao confirmar importação:', error);
-      announce(t('history.importError', 'Erro ao importar conversas'), 'assertive');
-    } finally {
-      setIsImporting(false);
-    }
-  }, [announce, closeImportModal, importAnalysis?.credentialAnalysisError, importPassword, importPreview, lastImportResult, t]);
-
-  useEffect(() => {
-    if (!isImportModalOpen || !importPreview) return;
-    if (!importPreview.requiresCredentialPassword) return;
-
-    const nextRequest = {
-      jsonData: importPreview.jsonData,
-      password: importPassword.trim(),
-      key: buildImportAnalysisKey(importPreview, importPassword.trim()),
-    };
-    const requestKey = nextRequest.key;
-    if (lastAnalyzedImportRef.current === requestKey) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      pendingImportAnalysisRef.current = nextRequest;
-      void runLatestImportAnalysis();
-    }, 600);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [importPassword, importPreview, isImportModalOpen, runLatestImportAnalysis]);
+  };
 
   const handleDeleteAction = useCallback(() => {
     if (selectedIds.size > 0) {
@@ -770,7 +252,7 @@ export default function HistoryPage() {
     handleDeleteConversation(item.id);
   }, [handleDeleteConversation]);
 
-  const handleSendToWorkspace = useCallback(async (_conversationId: string, title: string, targetWorkspaceId: string, isActive: boolean) => {
+  const handleSendToWorkspace = useCallback(async (_conversationId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
       const tabTitle = title || t('chat.newConversation', 'Nova conversa');
       if (isActive) {
@@ -811,31 +293,6 @@ export default function HistoryPage() {
       }
 
       actions.push({
-        id: 'export',
-        label: t('history.exportMenu', 'Exportar'),
-        icon: <ExportOutlined />,
-        submenu: [
-          {
-            id: 'export-json',
-            label: t('history.exportJson', 'Exportar JSON'),
-            action: () => openExportModal([item.id]),
-          },
-          {
-            id: 'export-html',
-            label: t('history.exportHtml', 'Exportar HTML'),
-            icon: <FileTextOutlined />,
-            action: () => void exportRichByIds([item.id], 'html'),
-          },
-          {
-            id: 'export-pdf',
-            label: t('history.exportPdf', 'Exportar PDF'),
-            icon: <FilePdfOutlined />,
-            action: () => void exportRichByIds([item.id], 'pdf'),
-          },
-        ],
-      });
-
-      actions.push({
         id: 'delete',
         label: t('history.deleteConversation', 'Excluir conversa'),
         icon: <DeleteOutlined />,
@@ -844,7 +301,7 @@ export default function HistoryPage() {
 
       return actions;
     },
-    [exportRichByIds, handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, openExportModal, workspaces, t]
+    [handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
   );
 
   const getMenuButtonItems = useCallback(
@@ -894,7 +351,7 @@ export default function HistoryPage() {
       format: (value) => String(value || 0),
     },
     {
-      key: 'createdAt',
+      key: 'created_at',
       label: t('history.created', 'Criada em'),
       width: '20%',
       format: (value) => {
@@ -906,7 +363,7 @@ export default function HistoryPage() {
       },
     },
     {
-      key: 'updatedAt',
+      key: 'updated_at',
       label: t('history.updated', 'Atualizada em'),
       width: '20%',
       format: (value) => {
@@ -945,28 +402,6 @@ export default function HistoryPage() {
         console.error('Erro ao atualizar título:', error);
       }
     }
-  }, []);
-
-  const renderConflictGroup = useCallback((title: string, conflicts: ImportConflict[] | undefined) => {
-    if (!conflicts?.length) {
-      return null;
-    }
-
-    return (
-      <>
-        <strong>{title}</strong>
-        <ul className="history-page__import-list">
-          {conflicts.map((conflict) => {
-            const conflictKey = `${conflict.resourceType}:${conflict.identifier}`;
-            return (
-              <li key={conflictKey}>
-                <div>{conflict.resourceType === 'conversation' ? conflict.reason : <><code>{conflict.identifier}</code>: {conflict.reason}</>}</div>
-              </li>
-            );
-          })}
-        </ul>
-      </>
-    );
   }, []);
 
   if (loading) {
@@ -1011,29 +446,12 @@ export default function HistoryPage() {
             variant: 'danger',
           },
           {
-            key: 'export-json',
+            key: 'export',
             label: selectedIds.size > 0 
-              ? t('history.exportJsonSelected', {
-                  count: selectedIds.size,
-                  defaultValue: 'Exportar JSON ({{count}})',
-                })
-              : t('history.exportData', 'Exportar dados'),
+              ? t('history.exportSelected', `Exportar (${selectedIds.size})`)
+              : t('history.exportAll', 'Exportar Tudo'),
             icon: <ExportOutlined />,
             onClick: handleExport,
-            variant: 'secondary',
-          },
-          {
-            key: 'export-html',
-            label: t('history.exportHtml', 'Exportar HTML'),
-            icon: <FileTextOutlined />,
-            onClick: () => void handleRichExport('html'),
-            variant: 'secondary',
-          },
-          {
-            key: 'export-pdf',
-            label: t('history.exportPdf', 'Exportar PDF'),
-            icon: <FilePdfOutlined />,
-            onClick: () => void handleRichExport('pdf'),
             variant: 'secondary',
           },
           {
@@ -1058,493 +476,11 @@ export default function HistoryPage() {
         onDelete={handleDeleteRow}
         selectedIds={selectedIds}
         multiSelect={true}
-        onSelectionChange={(ids: Set<string | number>) => setSelectedIds(new Set([...ids].map(String)))}
+        onSelectionChange={setSelectedIds}
         onGridReady={handleGridReady}
         onFocusChange={handleFocusChange}
         getRowActions={getRowActions}
       />
-
-      <Modal
-        isOpen={isExportModalOpen}
-        onClose={closeExportModal}
-        title={t('history.exportDialogTitle', 'Exportar dados')}
-        size="md"
-        allowClose={!isExporting}
-      >
-        <div className="history-page__import-modal">
-          <p className="history-page__import-description">
-            {t(
-              'history.exportDialogDescription',
-              'Exporte o JSON canônico dos dados persistidos no banco. Esse arquivo é o formato suportado para importação.'
-            )}
-          </p>
-
-          <dl className="history-page__import-summary">
-            <div className="history-page__import-row">
-              <dt>{t('history.exportConversationsLabel', 'Conversas')}</dt>
-              <dd>{exportTargetIds.length}</dd>
-            </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.exportProvidersLabel', 'Providers')}</dt>
-                <dd>
-                  {includeProvidersExport
-                    ? t('history.exportProvidersIncluded', {
-                        defaultValue: '{{count}} incluído(s)',
-                        count: exportProviderIds.length,
-                      })
-                    : t('history.exportProvidersNotIncluded', 'Não incluir')}
-                </dd>
-              </div>
-            <div className="history-page__import-row">
-              <dt>{t('history.exportTaskListsLabel', 'Tasklists')}</dt>
-              <dd>
-                {includeTaskListsExport
-                  ? t('history.exportTaskListsIncluded', {
-                      defaultValue: '{{count}} incluída(s)',
-                      count: exportTaskListIds.length,
-                    })
-                  : t('history.exportTaskListsNotIncluded', 'Não incluir')}
-              </dd>
-            </div>
-            <div className="history-page__import-row">
-              <dt>{t('history.exportFormatLabel', 'Formato')}</dt>
-              <dd>{t('history.exportJson', 'Exportar JSON')}</dd>
-            </div>
-            <div className="history-page__import-row">
-              <dt>{t('history.exportCredentialsLabel', 'Credenciais')}</dt>
-              <dd>
-                {includeCredentialExport
-                  ? t('history.exportCredentialsIncluded', 'Incluir bloco criptografado')
-                  : t('history.exportCredentialsNotIncluded', 'Não incluir')}
-              </dd>
-            </div>
-          </dl>
-
-          <Checkbox
-            checked={includeProvidersExport}
-            onChange={(event) => {
-              const checked = event.target.checked;
-              setIncludeProvidersExport(checked);
-              if (!checked) {
-                setExportProviderIds([]);
-                return;
-              }
-              void loadExportProviderIds().catch((error) => {
-                console.error('Erro ao carregar providers para exportação:', error);
-                setIncludeProvidersExport(false);
-                setExportProviderIds([]);
-                announce(t('history.exportProvidersLoadError', 'Erro ao carregar providers para exportação'), 'assertive');
-              });
-            }}
-            label={t('history.exportProvidersOption', 'Incluir providers persistidos no banco')}
-          />
-
-          {includeProvidersExport && (
-            <p className="history-page__import-note">
-              {t(
-                'history.exportProvidersDescription',
-                'Os providers persistidos no banco serão adicionados ao mesmo JSON canônico dos dados selecionados.'
-              )}
-            </p>
-          )}
-
-          <Checkbox
-            checked={includeTaskListsExport}
-            onChange={(event) => {
-              const checked = event.target.checked;
-              setIncludeTaskListsExport(checked);
-              if (!checked) {
-                setExportTaskListIds([]);
-                return;
-              }
-              void loadExportTaskListIds().catch((error) => {
-                console.error('Erro ao carregar tasklists para exportação:', error);
-                setIncludeTaskListsExport(false);
-                setExportTaskListIds([]);
-                announce(t('history.exportTaskListsLoadError', 'Erro ao carregar tasklists para exportação'), 'assertive');
-              });
-            }}
-            label={t('history.exportTaskListsOption', 'Incluir tasklists persistidas no banco')}
-          />
-
-          {includeTaskListsExport && (
-            <p className="history-page__import-note">
-              {t(
-                'history.exportTaskListsDescription',
-                'As tasklists persistidas no banco serão adicionadas ao mesmo JSON canônico dos dados selecionados.'
-              )}
-            </p>
-          )}
-
-          <Checkbox
-            checked={includeCredentialExport}
-            onChange={(event) => {
-              const checked = event.target.checked;
-              setIncludeCredentialExport(checked);
-              if (!checked) {
-                setExportPassword('');
-                setExportPasswordError('');
-              }
-            }}
-            label={t('history.exportCredentialsOption', 'Incluir credenciais criptografadas no export')}
-          />
-
-          {includeCredentialExport && (
-            <>
-              <p className="history-page__import-note">
-                {t(
-                  'history.exportCredentialsDescription',
-                  'As credenciais serão incluídas em um bloco criptografado. Essa senha será necessária na importação.'
-                )}
-              </p>
-              <FormField
-                label={t('history.exportPasswordLabel', 'Senha de exportação')}
-                description={t(
-                  'history.exportPasswordDescription',
-                  'Use uma senha forte. Sem ela, as credenciais exportadas não poderão ser importadas.'
-                )}
-                error={exportPasswordError || null}
-                required
-              >
-                <Input
-                  type="password"
-                  value={exportPassword}
-                  onChange={(event) => {
-                    setExportPassword(event.target.value);
-                    if (exportPasswordError) {
-                      setExportPasswordError('');
-                    }
-                  }}
-                  placeholder={t('history.exportPasswordPlaceholder', 'Digite a senha de exportação')}
-                />
-              </FormField>
-            </>
-          )}
-
-          <div className="history-page__import-actions">
-            <div className="history-page__import-actions-spacer" />
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={closeExportModal}
-              disabled={isExporting}
-            >
-              {t('common.cancel', 'Cancelar')}
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              onClick={() => void handleConfirmExport()}
-              loading={isExporting}
-            >
-              {t('history.exportConfirm', 'Exportar agora')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal
-        isOpen={isImportModalOpen}
-        onClose={closeImportModal}
-        title={t('history.importDialogTitle', 'Importar dados')}
-        size="md"
-        allowClose={!isImporting}
-      >
-        <div className="history-page__import-modal">
-          <p className="history-page__import-description">
-            {t(
-              'history.importDialogDescription',
-              'Revise o arquivo antes de importar. Apenas o JSON canônico é aceito nesta fase, com suporte aos recursos já persistidos no banco.'
-            )}
-          </p>
-
-          {importPreview && (
-            <dl className="history-page__import-summary">
-              <div className="history-page__import-row">
-                <dt>{t('history.importFileLabel', 'Arquivo')}</dt>
-                <dd>{importPreview.fileName}</dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importVersionLabel', 'Versão')}</dt>
-                <dd>{importPreview.version ?? '-'}</dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importExportedAtLabel', 'Exportado em')}</dt>
-                <dd>
-                  {importPreview.exportedAt
-                    ? (() => {
-                        const timestamp = Date.parse(importPreview.exportedAt);
-                        return Number.isFinite(timestamp) ? formatRelativeTime(timestamp) : '-';
-                      })()
-                    : '-'}
-                </dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importAppVersionLabel', 'Versão do app')}</dt>
-                <dd>{importPreview.appVersion || '-'}</dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importConversationsLabel', 'Conversas')}</dt>
-                <dd>{importPreview.conversationCount}</dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importMessagesLabel', 'Mensagens')}</dt>
-                <dd>{importPreview.messageCount}</dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importProvidersLabel', 'Providers')}</dt>
-                <dd>{importPreview.providerCount}</dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importTaskListsLabel', 'Tasklists')}</dt>
-                <dd>{importPreview.taskListCount}</dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importTasksLabel', 'Tarefas')}</dt>
-                <dd>{importPreview.taskCount}</dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importTaskNotesLabel', 'Notas')}</dt>
-                <dd>{importPreview.taskNoteCount}</dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importCredentialsLabel', 'Credenciais')}</dt>
-                <dd>
-                  {importPreview.includesCredentials
-                    ? t('history.importCredentialsIncluded', 'Incluídas')
-                    : t('history.importCredentialsNotIncluded', 'Não incluídas')}
-                </dd>
-              </div>
-              <div className="history-page__import-row">
-                <dt>{t('history.importAudioLabel', 'Áudio')}</dt>
-                <dd>
-                  {importPreview.includeAudio
-                    ? t('common.yes', 'Sim')
-                    : t('common.no', 'Não')}
-                </dd>
-              </div>
-            </dl>
-          )}
-
-          {isAnalyzingImport && (
-            <p className="history-page__import-note">
-              {t('history.importAnalyzingConflicts', 'Analisando conflitos do arquivo...')}
-            </p>
-          )}
-
-          {importAnalysis && !isAnalyzingImport && (
-            <div className="history-page__import-analysis">
-              <div className="history-page__import-analysis-header">
-                <strong>{t('history.importConflictsTitle', 'Conflitos detectados')}</strong>
-                <span>
-                  {importAnalysis.conflictCount > 0
-                    ? t('history.importConflictCount', {
-                        defaultValue: '{{count}} conflito(s)',
-                        count: importAnalysis.conflictCount,
-                      })
-                    : t('history.importNoConflicts', 'Nenhum conflito detectado')}
-                </span>
-              </div>
-
-              {!!importAnalysis.unsupportedResourceTypes?.length && (
-                <p className="history-page__import-note">
-                  {t('history.importUnsupportedResourcesNotice', {
-                    defaultValue: 'Este arquivo inclui recursos fora do escopo atual ({{resources}}). Eles serão ignorados nesta fase e poderão ser suportados após as migrações planejadas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.',
-                    resources: importAnalysis.unsupportedResourceTypes.join(', '),
-                  })}
-                </p>
-              )}
-
-              {!!importAnalysis.warnings?.length && (
-                <ul className="history-page__import-list history-page__import-list--warning">
-                  {importAnalysis.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              )}
-
-              {renderConflictGroup(
-                t('history.importConversationConflicts', 'Conversas em conflito'),
-                importAnalysis.conversationConflicts,
-              )}
-
-              {renderConflictGroup(
-                t('history.importProviderConflicts', 'Providers em conflito'),
-                importAnalysis.providerConflicts,
-              )}
-
-              {renderConflictGroup(
-                t('history.importTaskListConflicts', 'Tasklists em conflito'),
-                importAnalysis.taskListConflicts,
-              )}
-
-              {renderConflictGroup(
-                t('history.importCredentialConflicts', 'Credenciais em conflito'),
-                importAnalysis.credentialConflicts,
-              )}
-
-              {importAnalysis.conflictCount > 0 && (
-                <p className="history-page__import-note">
-                  {t(
-                    'history.importConflictNotice',
-                    'Arquivos UUID válidos devem importar de forma idempotente. Se ainda houver conflitos, revise o arquivo ou a instância atual antes de continuar.'
-                  )}
-                </p>
-              )}
-            </div>
-          )}
-
-          {lastImportResult && (
-            <div className="history-page__import-analysis">
-              <div className="history-page__import-analysis-header">
-                <strong>{t('history.importResultTitle', 'Resultado da importação')}</strong>
-                <span>
-                  {lastImportResult.success
-                    ? t('common.success', 'Sucesso')
-                    : t('history.importPartial', 'Alguns recursos não puderam ser importados.')}
-                </span>
-              </div>
-
-              <dl className="history-page__import-summary">
-                <div className="history-page__import-row">
-                  <dt>{t('history.importedLabel', 'Importadas')}</dt>
-                  <dd>{lastImportResult.imported}</dd>
-                </div>
-                <div className="history-page__import-row">
-                  <dt>{t('history.skippedLabel', 'Ignoradas')}</dt>
-                  <dd>{lastImportResult.skipped}</dd>
-                </div>
-                <div className="history-page__import-row">
-                  <dt>{t('history.importFailedLabel', 'Falhas')}</dt>
-                  <dd>{lastImportResult.failed}</dd>
-                </div>
-                {lastImportResult.skippedEmptyConversations > 0 && (
-                  <div className="history-page__import-row">
-                    <dt>{t('history.importSkippedEmptyLabel', 'Conversas vazias')}</dt>
-                    <dd>{lastImportResult.skippedEmptyConversations}</dd>
-                  </div>
-                )}
-                {lastImportResult.skippedConversationConflict > 0 && (
-                  <div className="history-page__import-row">
-                    <dt>{t('history.importSkippedConversationConflictLabel', 'Conflitos de conversa')}</dt>
-                    <dd>{lastImportResult.skippedConversationConflict}</dd>
-                  </div>
-                )}
-                {lastImportResult.skippedProviderConflict > 0 && (
-                  <div className="history-page__import-row">
-                    <dt>{t('history.importSkippedProviderConflictLabel', 'Conflitos de provider')}</dt>
-                    <dd>{lastImportResult.skippedProviderConflict}</dd>
-                  </div>
-                )}
-                {lastImportResult.skippedTaskListConflict > 0 && (
-                  <div className="history-page__import-row">
-                    <dt>{t('history.importSkippedTaskListConflictLabel', 'Conflitos de tasklist')}</dt>
-                    <dd>{lastImportResult.skippedTaskListConflict}</dd>
-                  </div>
-                )}
-                {lastImportResult.skippedCredentialConflict > 0 && (
-                  <div className="history-page__import-row">
-                    <dt>{t('history.importSkippedCredentialConflictLabel', 'Credenciais duplicadas')}</dt>
-                    <dd>{lastImportResult.skippedCredentialConflict}</dd>
-                  </div>
-                )}
-                {lastImportResult.skippedOther > 0 && (
-                  <div className="history-page__import-row">
-                    <dt>{t('history.importSkippedOtherLabel', 'Outros descartes')}</dt>
-                    <dd>{lastImportResult.skippedOther}</dd>
-                  </div>
-                )}
-              </dl>
-
-              {!!lastImportResult.errors?.length && (
-                <>
-                  <strong>{t('history.importErrorsLabel', 'Erros')}</strong>
-                  <ul className="history-page__import-list">
-                    {lastImportResult.errors.map((error) => (
-                      <li key={error}>{error}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
-
-              {!!lastImportResult.warnings?.length && (
-                <>
-                  <strong>{t('history.importWarningsLabel', 'Avisos')}</strong>
-                  <ul className="history-page__import-list history-page__import-list--warning">
-                    {lastImportResult.warnings.map((warning) => (
-                      <li key={warning}>{warning}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-          )}
-
-          {importPreview?.requiresCredentialPassword && (
-            <FormField
-              label={t('history.importPasswordLabel', 'Senha das credenciais')}
-              description={t(
-                'history.importPasswordDescription',
-                'Obrigatória para descriptografar as credenciais exportadas junto com as conversas.'
-              )}
-              error={importPasswordError || null}
-              required
-            >
-              <Input
-                type="password"
-                value={importPassword}
-                onChange={(event) => {
-                  setImportPassword(event.target.value);
-                  if (importPasswordError) {
-                    setImportPasswordError('');
-                  }
-                }}
-                placeholder={t('history.importPasswordPlaceholder', 'Digite a senha de exportação')}
-              />
-            </FormField>
-          )}
-
-          {!importPreview?.requiresCredentialPassword && importPreview?.includesCredentials && (
-            <p className="history-page__import-note">
-              {t(
-                'history.importCredentialsNotice',
-                'Este arquivo inclui credenciais e será importado usando a proteção configurada na instância atual.'
-              )}
-            </p>
-          )}
-
-          <div className="history-page__import-actions">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => void handleReplaceImportFile()}
-              disabled={isImporting}
-            >
-              {t('history.importChangeFile', 'Trocar arquivo')}
-            </Button>
-            <div className="history-page__import-actions-spacer" />
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={closeImportModal}
-              disabled={isImporting}
-            >
-              {t('common.cancel', 'Cancelar')}
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              onClick={() => void handleConfirmImport()}
-              loading={isImporting}
-              disabled={isAnalyzingImport}
-            >
-              {lastImportResult
-                ? t('common.close', 'Fechar')
-                : t('history.importConfirm', 'Importar agora')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

@@ -9,7 +9,7 @@ import type { Task } from '../../types/tasklist';
 import './TaskForm.css';
 
 interface TaskFormProps {
-  taskListId: string;
+  taskListId: number;
   task?: Task;
   onSuccess?: (task: Task) => void;
   onCancel?: () => void;

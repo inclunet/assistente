@@ -14,7 +14,7 @@ const MINI_CHAT_LAZY_CONVERSATION: ReadonlySet<TabType> = new Set(['editor', 'te
  *
  * Fluxo:
  * 1. Workspace ativa qualquer aba
- * 2. Se conversationId não vazio (UUIDv7 válido) → chatStore.loadConversation(id)
+ * 2. Se conversationId > 0 → chatStore.loadConversation(id)
  * 3. Se conversationId vazio e aba é chat → garante `conversationId` e só sincroniza o chatStore
  *    se a aba continuar ativa ao concluir a criação
  * 4. Se conversationId vazio e aba é editor/terminal/tasklist → clearActiveConversation (conversa criada no requestOpen do chat modal)
@@ -32,13 +32,13 @@ export function useWorkspaceChatBridge() {
     if (!isWsInitialized) return;
     if (!activeTab) return;
 
-    const conversationId = activeTab.conversationId || '';
+    const conversationId = activeTab.conversationId || 0;
     const syncKey = `${activeTab.id}:${conversationId}`;
     if (lastSyncedRef.current === syncKey) return;
 
     const snapshotTabId = activeTab.id;
 
-    if (conversationId) {
+    if (conversationId > 0) {
       const gen = ++syncGenerationRef.current;
       void (async () => {
         try {
@@ -53,7 +53,7 @@ export function useWorkspaceChatBridge() {
         if (syncGenerationRef.current !== gen) return;
         const nowTab = useWorkspaceStore.getState().getActiveTab();
         if (!nowTab || nowTab.id !== snapshotTabId) return;
-        if ((nowTab.conversationId || '') !== conversationId) return;
+        if ((nowTab.conversationId || 0) !== conversationId) return;
         lastSyncedRef.current = syncKey;
       })();
       return;
@@ -72,7 +72,7 @@ export function useWorkspaceChatBridge() {
         if (syncGenerationRef.current !== gen) return;
         const nowTab = useWorkspaceStore.getState().getActiveTab();
         if (!nowTab || nowTab.id !== snapshotTabId) return;
-        if ((nowTab.conversationId || '') !== id) return;
+        if ((nowTab.conversationId || 0) !== id) return;
 
         const chatState = useChatStore.getState();
         if (chatState.activeConversationId !== id) {
@@ -82,7 +82,7 @@ export function useWorkspaceChatBridge() {
         if (syncGenerationRef.current !== gen) return;
         const latestTab = useWorkspaceStore.getState().getActiveTab();
         if (!latestTab || latestTab.id !== snapshotTabId) return;
-        if ((latestTab.conversationId || '') !== id) return;
+        if ((latestTab.conversationId || 0) !== id) return;
         lastSyncedRef.current = `${snapshotTabId}:${id}`;
       } catch (error) {
         console.error('[WorkspaceChatBridge] Erro ao garantir conversa:', error);
@@ -108,7 +108,8 @@ export function useWorkspaceChatBridge() {
   // F2 tab rename → rename conversation in backend
   useEffect(() => {
     return registerTabRenameHandler('chat', (id, newTitle) => {
-      if (id) void RenameConversation(id, newTitle);
+      const convId = parseInt(id, 10);
+      if (convId) void RenameConversation(convId, newTitle);
     });
   }, []);
 }

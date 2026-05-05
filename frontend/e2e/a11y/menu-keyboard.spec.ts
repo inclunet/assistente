@@ -26,12 +26,12 @@ function messagesFixture() {
   const now = new Date().toISOString();
   return [
     {
-      message: { id: '01926b90-0000-7000-8000-100000000001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Mensagem do usuário', createdAt: now },
+      message: { id: '1', conversationId: 1, role: 'user', content: 'Mensagem do usuário', createdAt: now },
       children: [],
       childCount: 0,
     },
     {
-      message: { id: '01926b90-0000-7000-8000-100000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Resposta do assistente', createdAt: now },
+      message: { id: '2', conversationId: 1, role: 'assistant', content: 'Resposta do assistente', createdAt: now },
       children: [],
       childCount: 0,
     },
@@ -82,7 +82,7 @@ async function setupAndOpenContextMenu(
   await wails.setResponse('DeleteMessage', undefined);
   await wails.setResponse('SpeakMessage', undefined);
   await wails.setResponse('EnsureConversation', {
-    id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
+    id: 1, title: 'Conversa', created_at: now, updated_at: now,
     messages: [], message_count: 2,
   });
   await wails.waitForApp();
@@ -262,7 +262,7 @@ test.describe('Menu — keyboard opens via Shift+F10', () => {
     await wails.setResponse('GetMessages', messagesFixture());
     await wails.setResponse('DeleteMessage', undefined);
     await wails.setResponse('EnsureConversation', {
-      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
+      id: 1, title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
     });
     await wails.waitForApp();

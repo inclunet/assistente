@@ -26,7 +26,7 @@ export type WorkspaceChatModalPrepareResult =
 
 export type WorkspaceChatModalSession = {
   tabId: string;
-  conversationId: string;
+  conversationId: number;
 };
 
 export type WorkspaceChatSendPlan = {
@@ -72,7 +72,7 @@ interface WorkspaceChatModalState {
   /** Aba do workspace à qual este modal de chat está vinculado. */
   boundTabId: string | null;
   /** Conversa garantida ao abrir o modal; usada para recuperar o chatStore antes do envio. */
-  boundConversationId: string | null;
+  boundConversationId: number | null;
   contextDisplay: string;
   sessionMeta: unknown;
   /** `adapter.send` capturado no `open()` para não depender do mapa global no clique. */
@@ -83,7 +83,7 @@ interface WorkspaceChatModalState {
     contextDisplay: string,
     meta: unknown,
     boundTabId: string,
-    boundConversationId: string,
+    boundConversationId: number,
     send: WorkspaceChatModalAdapter['send'],
   ) => void;
   close: () => void;
@@ -188,7 +188,7 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
       return;
     }
 
-    let conversationId: string;
+    let conversationId: number;
     try {
       conversationId = await ensureWorkspaceTabHasConversation(tab);
     } catch (e) {

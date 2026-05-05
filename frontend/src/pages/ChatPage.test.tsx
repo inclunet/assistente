@@ -8,9 +8,9 @@ const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
 const speakMessageMock = vi.fn();
-const ensureWorkspaceTabHasConversationMock = vi.fn().mockResolvedValue('01926b90-7a5a-7c4e-8d3f-000000000001');
+const ensureWorkspaceTabHasConversationMock = vi.fn().mockResolvedValue(1);
 const workspaceStoreState = {
-  getActiveTab: () => ({ id: 'chat-tab', type: 'chat' as const, conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa', position: 0 }),
+  getActiveTab: () => ({ id: 'chat-tab', type: 'chat' as const, conversationId: 1, title: 'Conversa', position: 0 }),
 };
 
 vi.mock('react-router-dom', () => ({
@@ -37,10 +37,10 @@ const chatStoreState = {
   isLoading: false,
   sendMessage: sendMessageMock,
   sendMessageToConversation: sendMessageMock,
-  activeConversation: { id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa', threadedMessages: [] },
+  activeConversation: { id: 1, title: 'Conversa', threadedMessages: [] },
   getThreadedMessages: () => [],
   loadMessageChildren: vi.fn(),
-  getActiveConversation: () => ({ id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa' }),
+  getActiveConversation: () => ({ id: 1, title: 'Conversa' }),
   loadConversation: vi.fn(),
   updateMessage: updateMessageMock,
   toggleReasoningExpanded: vi.fn(),
@@ -77,7 +77,7 @@ vi.mock('../store/editorStore', () => ({
     getState: () => ({
       requestInsert: vi.fn(),
       activeTabId: 'chat-tab',
-      tabs: [{ id: 'chat-tab', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' }],
+      tabs: [{ id: 'chat-tab', conversationId: 10 }],
     }),
   },
 }));
@@ -169,7 +169,7 @@ describe('ChatPage', () => {
     workspaceStoreState.getActiveTab = () => ({
       id: 'chat-tab',
       type: 'chat' as const,
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId: 1,
       title: 'Conversa',
       position: 0,
     });
@@ -193,11 +193,11 @@ describe('ChatPage', () => {
     workspaceStoreState.getActiveTab = () => ({
       id: 'chat-tab',
       type: 'chat' as const,
-      conversationId: '',
+      conversationId: 0,
       title: 'Conversa',
       position: 0,
     });
-    ensureWorkspaceTabHasConversationMock.mockResolvedValue('01926b90-7a5a-7c4e-8d3f-00000000002a');
+    ensureWorkspaceTabHasConversationMock.mockResolvedValue(42);
     sendMessageMock.mockResolvedValueOnce(undefined);
 
     render(<ChatPage />);
@@ -206,7 +206,7 @@ describe('ChatPage', () => {
 
     await waitFor(() => {
       expect(ensureWorkspaceTabHasConversationMock).toHaveBeenCalled();
-      expect(sendMessageMock).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000002a', 'oi', undefined);
+      expect(sendMessageMock).toHaveBeenCalledWith(42, 'oi', undefined);
     });
   });
 

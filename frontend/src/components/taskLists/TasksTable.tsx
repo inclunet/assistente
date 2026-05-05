@@ -13,12 +13,12 @@ import TaskDetailModal from './TaskDetailModal';
 import './TasksTable.css';
 
 interface TasksTableProps {
-  taskListId: string;
+  taskListId: number;
   tasks: Task[];
   taskList?: TaskListWithWorkflow;
   onTaskCreated?: (task: Task) => void;
   onTaskUpdated?: (task: Task) => void;
-  onTaskDeleted?: (taskId: string) => void;
+  onTaskDeleted?: (taskId: number) => void;
 }
 
 export interface TasksTableRef {
@@ -84,7 +84,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
     onTaskUpdated?.(task);
   };
 
-  const handleDeleteTask = async (taskId: string) => {
+  const handleDeleteTask = async (taskId: number) => {
     if (!confirm(t('tasklist.confirmDeleteTask', 'Tem certeza que deseja deletar esta tarefa?'))) {
       return;
     }
@@ -102,7 +102,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
     setIsDemoteModalOpen(true);
   };
 
-  const handleDemote = async (parentId: string) => {
+  const handleDemote = async (parentId: number) => {
     if (!demotingTask) return;
     try {
       await demoteTask(demotingTask.id, parentId);

@@ -68,7 +68,7 @@ vi.mock('../ui/Modal', () => ({
 vi.mock('./TaskForm', () => ({
   default: ({ onSuccess, onCancel }: { onSuccess?: (t: unknown) => void; onCancel?: () => void }) => (
     <div data-testid="task-form">
-      <button onClick={() => onSuccess?.({ id: "99", title: 'Nova', taskListId: "1", statusId: 1, order: 0, description: '', createdAt: '', updatedAt: '' })}>
+      <button onClick={() => onSuccess?.({ id: 99, title: 'Nova', taskListId: 1, statusId: 1, order: 0, description: '', createdAt: '', updatedAt: '' })}>
         salvar
       </button>
       <button onClick={onCancel}>cancelar</button>
@@ -85,8 +85,8 @@ const statuses = [
 ];
 
 const workflow = {
-  id: "1",
-  taskListId: "1",
+  id: 1,
+  taskListId: 1,
   statuses,
   allowedTransitions: { 1: [2, 3], 2: [1, 3], 3: [1, 2] },
   initialStatusId: 1,
@@ -95,13 +95,13 @@ const workflow = {
 };
 
 const makeTasks = () => [
-  { id: "10", taskListId: "1", title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
-  { id: "11", taskListId: "1", title: 'Tarefa Beta', description: '', statusId: 1, order: 1, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
-  { id: "12", taskListId: "1", title: 'Tarefa Gamma', description: '', statusId: 2, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+  { id: 10, taskListId: 1, title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+  { id: 11, taskListId: 1, title: 'Tarefa Beta', description: '', statusId: 1, order: 1, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+  { id: 12, taskListId: 1, title: 'Tarefa Gamma', description: '', statusId: 2, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
 ];
 
 const makeTaskList = (tasks = makeTasks()) => ({
-  id: "1",
+  id: 1,
   title: 'Minha Lista',
   description: '',
   preferredViewMode: 'kanban' as const,
@@ -126,7 +126,7 @@ describe('KanbanBoard', () => {
     const taskList = makeTaskList(tasks);
     return render(
       <MemoryRouter>
-        <KanbanBoard taskListId={"1"} tasks={tasks} taskList={taskList} />
+        <KanbanBoard taskListId={1} tasks={tasks} taskList={taskList} />
       </MemoryRouter>,
     );
   }
@@ -243,7 +243,7 @@ describe('KanbanBoard', () => {
     fireEvent.keyDown(board, { key: 'ArrowDown', altKey: true });
 
     await waitFor(() => {
-      expect(mockReorderTasks).toHaveBeenCalledWith("1", 1, ["11", "10"]);
+      expect(mockReorderTasks).toHaveBeenCalledWith(1, 1, [11, 10]);
     });
   });
 
@@ -259,7 +259,7 @@ describe('KanbanBoard', () => {
     fireEvent.keyDown(card!, { key: 'ArrowRight', altKey: true });
 
     await waitFor(() => {
-      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith(10, 2);
     });
   });
 
@@ -313,7 +313,7 @@ describe('KanbanBoard', () => {
     fireEvent.keyDown(board, { key: 'Delete' });
 
     await waitFor(() => {
-      expect(mockDeleteTask).toHaveBeenCalledWith("10");
+      expect(mockDeleteTask).toHaveBeenCalledWith(10);
     });
   });
 
@@ -333,7 +333,7 @@ describe('KanbanBoard', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
 
     await waitFor(() => {
-      expect(mockUpdateTask).toHaveBeenCalledWith("10", 'Novo Nome');
+      expect(mockUpdateTask).toHaveBeenCalledWith(10, 'Novo Nome');
     });
   });
 
@@ -364,7 +364,7 @@ describe('KanbanBoard', () => {
     fireEvent.drop(progressColumn, { dataTransfer });
 
     await waitFor(() => {
-      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith(10, 2);
     });
   });
 

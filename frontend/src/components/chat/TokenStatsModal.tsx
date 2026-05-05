@@ -36,7 +36,7 @@ interface TokenStats {
 }
 
 interface TokenStatsModalProps {
-  conversationId: string;
+  conversationId: number;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -75,7 +75,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     loadStats();
 
     // Escuta atualizações em tempo real
-    const unsubscribe = EventsOn('chat:token_stats', (data: TokenStats & { conversationId: string }) => {
+    const unsubscribe = EventsOn('chat:token_stats', (data: TokenStats & { conversationId: number }) => {
       if (data.conversationId === conversationId) {
         setStats(data);
       }

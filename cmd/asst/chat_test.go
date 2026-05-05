@@ -23,15 +23,15 @@ type mockBackend struct {
 	mu          sync.Mutex
 	ctx         context.Context
 	cancel      context.CancelFunc
-	sendFn      func(string, string, string, app.ChatParams) (string, error)
+	sendFn      func(uint, string, string, app.ChatParams) (uint, error)
 	ensureConvFn func(string) (*app.Conversation, error)
-	getConvFn   func(string) (*app.Conversation, error)
-	cancelFn    func(string)
+	getConvFn   func(uint) (*app.Conversation, error)
+	cancelFn    func(uint)
 	sendCalls   []sendCall
 }
 
 type sendCall struct {
-	ConvID  string
+	ConvID  uint
 	Content string
 	Params  app.ChatParams
 }
@@ -41,35 +41,31 @@ func newMockBackend() *mockBackend {
 	return &mockBackend{ctx: ctx, cancel: cancel}
 }
 
-func (m *mockBackend) SendMessage(convID string, content, media string, params app.ChatParams) (string, error) {
+func (m *mockBackend) SendMessage(convID uint, content, media string, params app.ChatParams) (uint, error) {
 	m.mu.Lock()
 	m.sendCalls = append(m.sendCalls, sendCall{ConvID: convID, Content: content, Params: params})
 	m.mu.Unlock()
 	if m.sendFn != nil {
 		return m.sendFn(convID, content, media, params)
 	}
-	return "1", nil
+	return 1, nil
 }
 
 func (m *mockBackend) EnsureConversation(title string) (*app.Conversation, error) {
 	if m.ensureConvFn != nil {
 		return m.ensureConvFn(title)
 	}
-	conv := &app.Conversation{Title: title}
-	conv.ID = "1"
-	return conv, nil
+	return &app.Conversation{ID: 1, Title: title}, nil
 }
 
-func (m *mockBackend) GetConversation(id string) (*app.Conversation, error) {
+func (m *mockBackend) GetConversation(id uint) (*app.Conversation, error) {
 	if m.getConvFn != nil {
 		return m.getConvFn(id)
 	}
-	conv := &app.Conversation{Title: "test"}
-	conv.ID = id
-	return conv, nil
+	return &app.Conversation{ID: id, Title: "test"}, nil
 }
 
-func (m *mockBackend) CancelStreamingForConversation(convID string) {
+func (m *mockBackend) CancelStreamingForConversation(convID uint) {
 	if m.cancelFn != nil {
 		m.cancelFn(convID)
 	}
@@ -95,7 +91,7 @@ func newTestEmitter() (*cliadapter.EmitterAdapter, *bytes.Buffer, *bytes.Buffer)
 
 // resetChatState resets global state between tests.
 func resetChatState() {
-	chatConversationID = ""
+	chatConversationID = 0
 	chatModel = ""
 	chatProfile = ""
 }
@@ -130,42 +126,40 @@ func TestEnsureConversation_NewConversation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if conv.ID != "1" {
-		t.Errorf("expected conversation ID 1, got %s", conv.ID)
+	if conv.ID != 1 {
+		t.Errorf("expected conversation ID 1, got %d", conv.ID)
 	}
-	if chatConversationID != "1" {
-		t.Errorf("expected global chatConversationID=1 after ensure, got %s", chatConversationID)
+	if chatConversationID != 1 {
+		t.Errorf("expected global chatConversationID=1 after ensure, got %d", chatConversationID)
 	}
 }
 
 func TestEnsureConversation_ExistingConversation(t *testing.T) {
 	resetChatState()
-	chatConversationID = "42"
+	chatConversationID = 42
 
 	mock := newMockBackend()
 	defer mock.cancel()
-	mock.getConvFn = func(id string) (*app.Conversation, error) {
-		conv := &app.Conversation{Title: "existente"}
-		conv.ID = id
-		return conv, nil
+	mock.getConvFn = func(id uint) (*app.Conversation, error) {
+		return &app.Conversation{ID: id, Title: "existente"}, nil
 	}
 
 	conv, err := ensureConversation(mock)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if conv.ID != "42" {
-		t.Errorf("expected conversation ID 42, got %s", conv.ID)
+	if conv.ID != 42 {
+		t.Errorf("expected conversation ID 42, got %d", conv.ID)
 	}
 }
 
 func TestEnsureConversation_GetError(t *testing.T) {
 	resetChatState()
-	chatConversationID = "99"
+	chatConversationID = 99
 
 	mock := newMockBackend()
 	defer mock.cancel()
-	mock.getConvFn = func(id string) (*app.Conversation, error) {
+	mock.getConvFn = func(id uint) (*app.Conversation, error) {
 		return nil, fmt.Errorf("not found")
 	}
 
@@ -201,9 +195,7 @@ func TestEnsureConversation_ReuseInREPL(t *testing.T) {
 	mock := newMockBackend()
 	defer mock.cancel()
 	mock.ensureConvFn = func(title string) (*app.Conversation, error) {
-		conv := &app.Conversation{Title: title}
-		conv.ID = "7"
-		return conv, nil
+		return &app.Conversation{ID: 7, Title: title}, nil
 	}
 
 	// First call creates
@@ -211,13 +203,13 @@ func TestEnsureConversation_ReuseInREPL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if conv1.ID != "7" {
-		t.Errorf("expected ID 7, got %s", conv1.ID)
+	if conv1.ID != 7 {
+		t.Errorf("expected ID 7, got %d", conv1.ID)
 	}
 
 	// chatConversationID should be set
-	if chatConversationID != "7" {
-		t.Fatalf("expected global to be 7, got %s", chatConversationID)
+	if chatConversationID != 7 {
+		t.Fatalf("expected global to be 7, got %d", chatConversationID)
 	}
 
 	// Second call reuses (goes through GetConversation path)
@@ -225,8 +217,8 @@ func TestEnsureConversation_ReuseInREPL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error on reuse: %v", err)
 	}
-	if conv2.ID != "7" {
-		t.Errorf("expected reused ID 7, got %s", conv2.ID)
+	if conv2.ID != 7 {
+		t.Errorf("expected reused ID 7, got %d", conv2.ID)
 	}
 }
 
@@ -242,7 +234,7 @@ func TestSendAndWait_Success(t *testing.T) {
 	defer mock.cancel()
 
 	// Simulate async streaming completion
-	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
+	mock.sendFn = func(convID uint, content, media string, params app.ChatParams) (uint, error) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
 			emitter.Emit("chat:stream", ports.StreamEvent{Content: "Olá"})
@@ -250,7 +242,7 @@ func TestSendAndWait_Success(t *testing.T) {
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
-		return "1", nil
+		return 1, nil
 	}
 
 	err := sendAndWait(mock, emitter, "teste")
@@ -270,8 +262,8 @@ func TestSendAndWait_SendError(t *testing.T) {
 
 	mock := newMockBackend()
 	defer mock.cancel()
-	mock.sendFn = func(string, string, string, app.ChatParams) (string, error) {
-		return "", fmt.Errorf("provider offline")
+	mock.sendFn = func(uint, string, string, app.ChatParams) (uint, error) {
+		return 0, fmt.Errorf("provider offline")
 	}
 
 	err := sendAndWait(mock, emitter, "teste")
@@ -308,9 +300,9 @@ func TestSendAndWait_ContextCancelled(t *testing.T) {
 
 	mock := newMockBackend()
 	// Cancel context immediately after SendMessage
-	mock.sendFn = func(string, string, string, app.ChatParams) (string, error) {
+	mock.sendFn = func(uint, string, string, app.ChatParams) (uint, error) {
 		mock.cancel()
-		return "1", nil
+		return 1, nil
 	}
 
 	err := sendAndWait(mock, emitter, "teste")
@@ -330,12 +322,12 @@ func TestSendAndWait_StreamError(t *testing.T) {
 	defer mock.cancel()
 
 	// Simulate async streaming error via emitter — chat:done é o evento terminal canônico
-	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
+	mock.sendFn = func(convID uint, content, media string, params app.ChatParams) (uint, error) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID, Reason: "error", ErrorMessage: "rate limit"})
 		}()
-		return "1", nil
+		return 1, nil
 	}
 
 	err := sendAndWait(mock, emitter, "teste")
@@ -356,13 +348,13 @@ func TestSendAndWait_PassesModelAndProfile(t *testing.T) {
 
 	mock := newMockBackend()
 	defer mock.cancel()
-	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
+	mock.sendFn = func(convID uint, content, media string, params app.ChatParams) (uint, error) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
-		return "1", nil
+		return 1, nil
 	}
 
 	err := sendAndWait(mock, emitter, "hello")
@@ -396,7 +388,7 @@ func TestRunREPL_ProcessesMultipleLines(t *testing.T) {
 	defer mock.cancel()
 
 	callCount := 0
-	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
+	mock.sendFn = func(convID uint, content, media string, params app.ChatParams) (uint, error) {
 		callCount++
 		n := callCount
 		go func() {
@@ -405,7 +397,7 @@ func TestRunREPL_ProcessesMultipleLines(t *testing.T) {
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
-		return "1", nil
+		return 1, nil
 	}
 
 	// Simulate piped input with 2 messages
@@ -446,13 +438,13 @@ func TestRunREPL_SkipsEmptyLines(t *testing.T) {
 
 	mock := newMockBackend()
 	defer mock.cancel()
-	mock.sendFn = func(convID string, _ string, _ string, _ app.ChatParams) (string, error) {
+	mock.sendFn = func(convID uint, _ string, _ string, _ app.ChatParams) (uint, error) {
 		go func() {
 			time.Sleep(2 * time.Millisecond)
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
-		return "1", nil
+		return 1, nil
 	}
 
 	oldStdin := os.Stdin
@@ -485,17 +477,17 @@ func TestRunREPL_ContinuesAfterSendError(t *testing.T) {
 	defer mock.cancel()
 
 	callN := 0
-	mock.sendFn = func(convID string, _ string, _ string, _ app.ChatParams) (string, error) {
+	mock.sendFn = func(convID uint, _ string, _ string, _ app.ChatParams) (uint, error) {
 		callN++
 		if callN == 1 {
-			return "", fmt.Errorf("provider error")
+			return 0, fmt.Errorf("provider error")
 		}
 		go func() {
 			time.Sleep(2 * time.Millisecond)
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
-		return "1", nil
+		return 1, nil
 	}
 
 	oldStdin := os.Stdin

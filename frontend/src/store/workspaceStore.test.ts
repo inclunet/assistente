@@ -55,7 +55,7 @@ const mockedUpdateWorkspaceTab = vi.mocked(UpdateWorkspaceTab);
 const mockedWaitForWailsBridge = vi.mocked(waitForWailsBridge);
 
 function setStoreState(
-  tabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown>; title: string; position: number }>,
+  tabs: Array<{ id: string; type: string; conversationId?: number; state?: Record<string, unknown>; title: string; position: number }>,
   activeTabId: string,
 ) {
   useWorkspaceStore.setState({
@@ -87,10 +87,10 @@ describe('handleContentRenamed', () => {
 
   it('atualiza titulo da aba quando conversa é renomeada', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000042", title: 'Nova conversa', position: 0 },
+      { id: 'tab-1', type: 'chat', conversationId: 42, title: 'Nova conversa', position: 0 },
     ], 'tab-1');
 
-    useWorkspaceStore.getState().handleContentRenamed('chat', '01926b90-7a5a-7c4e-8d3f-000000000042', 'Minha conversa');
+    useWorkspaceStore.getState().handleContentRenamed('chat', '42', 'Minha conversa');
 
     // updateTab é async, mas handleContentRenamed dispara void
     await vi.waitFor(() => {
@@ -101,12 +101,12 @@ describe('handleContentRenamed', () => {
 
   it('não atualiza quando titulo já é igual (previne loop)', () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000042", title: 'Mesmo título', position: 0 },
+      { id: 'tab-1', type: 'chat', conversationId: 42, title: 'Mesmo título', position: 0 },
     ], 'tab-1');
 
     mockedUpdateWorkspaceTab.mockClear();
 
-    useWorkspaceStore.getState().handleContentRenamed('chat', '01926b90-7a5a-7c4e-8d3f-000000000042', 'Mesmo título');
+    useWorkspaceStore.getState().handleContentRenamed('chat', '42', 'Mesmo título');
 
     expect(mockedUpdateWorkspaceTab).not.toHaveBeenCalled();
   });
@@ -118,19 +118,19 @@ describe('handleContentRenamed', () => {
 
     mockedUpdateWorkspaceTab.mockClear();
 
-    useWorkspaceStore.getState().handleContentRenamed('chat', '01926b90-7a5a-7c4e-8d3f-000000000042', 'Novo título');
+    useWorkspaceStore.getState().handleContentRenamed('chat', '42', 'Novo título');
 
     expect(mockedUpdateWorkspaceTab).not.toHaveBeenCalled();
   });
 
   it('atualiza aba correta quando há múltiplas abas', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000010", title: 'Chat A', position: 0 },
-      { id: 'tab-2', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000020", title: 'Chat B', position: 1 },
+      { id: 'tab-1', type: 'chat', conversationId: 10, title: 'Chat A', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 20, title: 'Chat B', position: 1 },
       { id: 'tab-3', type: 'editor', title: 'Editor', position: 2 },
     ], 'tab-2');
 
-    useWorkspaceStore.getState().handleContentRenamed('chat', '01926b90-7a5a-7c4e-8d3f-000000000020', 'Chat Renomeado');
+    useWorkspaceStore.getState().handleContentRenamed('chat', '20', 'Chat Renomeado');
 
     await vi.waitFor(() => {
       const tabs = useWorkspaceStore.getState().workspace?.tabs;
@@ -151,7 +151,7 @@ describe('renameTabContent + registerTabRenameHandler', () => {
 
   it('chama handler registrado ao renomear aba de chat', () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000042", title: 'Chat', position: 0 },
+      { id: 'tab-1', type: 'chat', conversationId: 42, title: 'Chat', position: 0 },
     ], 'tab-1');
 
     const handler = vi.fn();
@@ -159,7 +159,7 @@ describe('renameTabContent + registerTabRenameHandler', () => {
 
     useWorkspaceStore.getState().renameTabContent('tab-1', 'Novo nome');
 
-    expect(handler).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000042', 'Novo nome');
+    expect(handler).toHaveBeenCalledWith('42', 'Novo nome');
 
     unregister();
   });
@@ -196,7 +196,7 @@ describe('renameTabContent + registerTabRenameHandler', () => {
 
   it('unregister remove o handler', () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000042", title: 'Chat', position: 0 },
+      { id: 'tab-1', type: 'chat', conversationId: 42, title: 'Chat', position: 0 },
     ], 'tab-1');
 
     const handler = vi.fn();
@@ -219,8 +219,8 @@ describe('setActiveTab', () => {
 
   it('bloqueia troca de aba quando há qualquer modal aberto', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Chat 1', position: 0 },
-      { id: 'tab-2', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000002", title: 'Chat 2', position: 1 },
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
     ], 'tab-1');
 
     mockedIsModalOpen.mockReturnValue(true);
@@ -233,8 +233,8 @@ describe('setActiveTab', () => {
 
   it('aplica optimistic update imediatamente e persiste em background', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Chat 1', position: 0 },
-      { id: 'tab-2', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000002", title: 'Chat 2', position: 1 },
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
     ], 'tab-1');
 
     mockedSetActiveWorkspaceTab.mockResolvedValue(undefined as never);
@@ -254,8 +254,8 @@ describe('setActiveTab', () => {
 
   it('faz rollback quando backend falha e aba ativa não mudou', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Chat 1', position: 0 },
-      { id: 'tab-2', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000002", title: 'Chat 2', position: 1 },
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
     ], 'tab-1');
 
     mockedSetActiveWorkspaceTab.mockRejectedValue(new Error('backend error'));
@@ -272,8 +272,8 @@ describe('setActiveTab', () => {
 
   it('não faz rollback quando outra troca já ocorreu antes do erro', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Chat 1', position: 0 },
-      { id: 'tab-2', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000002", title: 'Chat 2', position: 1 },
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
       { id: 'tab-3', type: 'editor', title: 'Editor', position: 2 },
     ], 'tab-1');
 
@@ -302,8 +302,8 @@ describe('setActiveTab', () => {
 
   it('não faz rollback stale quando usuário volta para mesma aba do request falhado', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Chat 1', position: 0 },
-      { id: 'tab-2', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000002", title: 'Chat 2', position: 1 },
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
       { id: 'tab-3', type: 'editor', title: 'Editor', position: 2 },
     ], 'tab-1');
 
@@ -338,8 +338,8 @@ describe('setActiveTab', () => {
 
   it('não faz rollback quando workspace mudou antes do erro', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Chat 1', position: 0 },
-      { id: 'tab-2', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000002", title: 'Chat 2', position: 1 },
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 2, title: 'Chat 2', position: 1 },
     ], 'tab-1');
 
     let rejectFirst: (err: Error) => void;
@@ -356,7 +356,7 @@ describe('setActiveTab', () => {
         id: 'ws-2',
         name: 'Outro Workspace',
         tabs: [
-          { id: 'tab-a', type: 'chat' as const, conversationId: "01926b90-7a5a-7c4e-8d3f-000000000010", title: 'Chat A', position: 0 },
+          { id: 'tab-a', type: 'chat' as const, conversationId: 10, title: 'Chat A', position: 0 },
         ],
         activeTabId: 'tab-a',
       },
@@ -374,7 +374,7 @@ describe('setActiveTab', () => {
 
   it('ignora quando tabId já é a aba ativa', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Chat 1', position: 0 },
+      { id: 'tab-1', type: 'chat', conversationId: 1, title: 'Chat 1', position: 0 },
     ], 'tab-1');
 
     useWorkspaceStore.getState().setActiveTab('tab-1');

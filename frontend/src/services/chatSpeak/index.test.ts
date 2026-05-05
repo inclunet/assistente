@@ -49,14 +49,14 @@ describe('chatSpeak service', () => {
     dispatchSpeechMock.mockResolvedValue(undefined);
 
     await dispatchChatSpeech({
-      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000042",
+      conversationId: 42,
       role: 'user',
       text: 'Olá mundo',
       origin: 'user_message',
     });
 
     expect(dispatchSpeechMock).toHaveBeenCalledWith({
-      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000042",
+      conversationId: 42,
       role: 'user',
       text: 'Olá mundo',
       origin: 'user_message',
@@ -107,7 +107,7 @@ describe('chatSpeak service', () => {
     speakMessageMock.mockResolvedValue(true);
 
     await handleChatSpeak({
-      messageId: "01926b90-7a5a-7c4e-8d3f-000000000099",
+      messageId: 99,
       role: 'assistant',
       text: 'Resposta backend',
       strategy: 'backend_audio',
@@ -120,7 +120,7 @@ describe('chatSpeak service', () => {
     });
 
     expect(announceMock).not.toHaveBeenCalled();
-    expect(speakMessageMock).toHaveBeenCalledWith("01926b90-7a5a-7c4e-8d3f-000000000099", 0.5, {
+    expect(speakMessageMock).toHaveBeenCalledWith(99, 0.5, {
       providerId: 'openai-default',
       voiceId: 'nova',
       model: 'tts-1',
@@ -132,7 +132,7 @@ describe('chatSpeak service', () => {
     speakMessageMock.mockResolvedValue(false);
 
     await handleChatSpeak({
-      messageId: "01926b90-7a5a-7c4e-8d3f-000000000100",
+      messageId: 100,
       role: 'assistant',
       text: 'Fallback',
       strategy: 'backend_audio',

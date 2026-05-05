@@ -36,7 +36,8 @@ export function WorkspaceLayout() {
   useEffect(() => {
     const cleanup = setupEventListeners();
     return cleanup;
-  }, [setupEventListeners]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useWorkspaceKeyboardShortcuts();
   useWorkspaceChatBridge();
