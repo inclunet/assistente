@@ -62,6 +62,8 @@ function createSession(overrides: Partial<ChatSessionContextValue> = {}): ChatSe
     setScrollState: vi.fn(),
     loadOlderMessages: vi.fn(),
     loadNewerMessages: vi.fn(),
+    loadStartMessages: vi.fn(),
+    loadEndMessages: vi.fn(),
     loadConversationSession: vi.fn(),
     loadMessageChildren: vi.fn(),
     retryMessageToConversation: vi.fn(),

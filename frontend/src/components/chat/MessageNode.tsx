@@ -20,6 +20,9 @@ export interface MessageNodeProps {
   siblingCount?: number;
   onLoadChildren?: (messageId: string) => Promise<MessageNodeType[]>;
   onReachEnd?: () => void; // Chamado quando tenta ir além do último item no level 0
+  onReachStart?: () => void | Promise<void>;
+  onJumpToStart?: () => void | Promise<void>;
+  onJumpToEnd?: () => void | Promise<void>;
   onContextMenu?: (e: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
   onDelete?: (message: Message) => void;
@@ -34,6 +37,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   siblingCount = 1,
   onLoadChildren,
   onReachEnd,
+  onReachStart,
+  onJumpToStart,
+  onJumpToEnd,
   onContextMenu,
   onSpeak,
   onDelete,
@@ -349,8 +355,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       e.stopPropagation();
       if (siblingIndex > 0) {
         focusSibling(siblingIndex - 1);
+      } else if (level === 0 && onReachStart) {
+        await onReachStart();
       } else {
-        // Bateu no primeiro irmão
         playBumpSound();
       }
       return;
@@ -398,6 +405,20 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       return;
     }
     
+    if (key === 'Home' && e.ctrlKey && level === 0 && onJumpToStart) {
+      e.preventDefault();
+      e.stopPropagation();
+      await onJumpToStart();
+      return;
+    }
+
+    if (key === 'End' && e.ctrlKey && level === 0 && onJumpToEnd) {
+      e.preventDefault();
+      e.stopPropagation();
+      await onJumpToEnd();
+      return;
+    }
+
     // Home: foca no primeiro irmão
     if (key === 'Home' && !e.ctrlKey) {
       e.preventDefault();
@@ -421,8 +442,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       const targetIndex = Math.min(siblingIndex + 10, siblingCount - 1);
       focusSibling(targetIndex);
       if (targetIndex === siblingCount - 1 && siblingIndex === targetIndex) {
-        // Já estava no último, toca som
-        playBumpSound();
+        if (level === 0 && onReachEnd) {
+          onReachEnd();
+        } else {
+          playBumpSound();
+        }
       }
       return;
     }
@@ -434,8 +458,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       const targetIndex = Math.max(siblingIndex - 10, 0);
       focusSibling(targetIndex);
       if (targetIndex === 0 && siblingIndex === 0) {
-        // Já estava no primeiro, toca som
-        playBumpSound();
+        if (level === 0 && onReachStart) {
+          await onReachStart();
+        } else {
+          playBumpSound();
+        }
       }
       return;
     }

@@ -16,9 +16,14 @@ export interface MessageListProps {
   onLoadChildren?: (messageId: string) => Promise<MessageNode[]>;
   // Callback quando chega ao fim da lista principal
   onReachEnd?: () => void;
+  onReachStart?: () => void | Promise<void>;
   hasOlderMessages?: boolean;
+  hasNewerMessages?: boolean;
   isLoadingOlderMessages?: boolean;
   onLoadOlder?: () => Promise<void> | void;
+  onLoadNewer?: () => Promise<void> | void;
+  onJumpToStart?: () => Promise<void> | void;
+  onJumpToEnd?: () => Promise<void> | void;
   // Callbacks de ações
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
@@ -164,9 +169,14 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     threadedMessages,
     onLoadChildren,
     onReachEnd,
+    onReachStart,
     hasOlderMessages = false,
+    hasNewerMessages = false,
     isLoadingOlderMessages = false,
     onLoadOlder,
+    onLoadNewer,
+    onJumpToStart,
+    onJumpToEnd,
     onContextMenu,
     onSpeak,
     onDelete,
@@ -230,6 +240,27 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     });
   };
 
+  const handleLoadNewer = () => {
+    const result = onLoadNewer?.();
+    void Promise.resolve(result);
+  };
+
+  const handleReachStart = () => {
+    if (hasOlderMessages && onLoadOlder) {
+      handleLoadOlder();
+      return;
+    }
+    void Promise.resolve(onReachStart?.());
+  };
+
+  const handleReachEnd = () => {
+    if (hasNewerMessages && onLoadNewer) {
+      handleLoadNewer();
+      return;
+    }
+    onReachEnd?.();
+  };
+
   useLayoutEffect(() => {
     const pendingRestore = pendingScrollRestoreRef.current;
     const container = containerRef.current;
@@ -247,6 +278,23 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     // Instant scroll on mount
     scrollToBottom('instant');
   }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      if (container.scrollTop < 48 && hasOlderMessages && !isLoadingOlderMessages) {
+        handleLoadOlder();
+        return;
+      }
+      const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (distanceToBottom < 48 && hasNewerMessages && !isLoadingOlderMessages) {
+        handleLoadNewer();
+      }
+    };
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [hasNewerMessages, hasOlderMessages, isLoadingOlderMessages, onLoadNewer, onLoadOlder]);
 
   if (threadedMessages.length === 0) {
     return (
@@ -297,6 +345,16 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
           onKeyDown={(e) => {
             const target = e.currentTarget;
             const firstChild = target.querySelector('[data-message-node]') as HTMLElement;
+            if (e.ctrlKey && e.key === 'Home' && onJumpToStart) {
+              e.preventDefault();
+              void Promise.resolve(onJumpToStart());
+              return;
+            }
+            if (e.ctrlKey && e.key === 'End' && onJumpToEnd) {
+              e.preventDefault();
+              void Promise.resolve(onJumpToEnd());
+              return;
+            }
             if (firstChild && e.key === 'ArrowDown') {
               e.preventDefault();
               firstChild.focus();
@@ -311,7 +369,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
               siblingIndex={index}
               siblingCount={displayMessages.length}
               onLoadChildren={onLoadChildren}
-              onReachEnd={onReachEnd}
+              onReachStart={handleReachStart}
+              onReachEnd={handleReachEnd}
+              onJumpToStart={onJumpToStart}
+              onJumpToEnd={onJumpToEnd}
               onContextMenu={onContextMenu}
               onSpeak={onSpeak}
               onDelete={onDelete}

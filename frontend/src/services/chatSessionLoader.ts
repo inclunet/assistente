@@ -83,6 +83,26 @@ async function loadConversationMessageWindow(request: {
   };
 }
 
+export async function loadConversationBoundaryWindow(
+  conversationId: string,
+  anchor: 'start' | 'end',
+  windowSize: number,
+): Promise<LoadedOlderMessages> {
+  const loadedWindow = await loadConversationMessageWindow({
+    conversationId,
+    anchor,
+    direction: anchor === 'start' ? 'after' : 'before',
+    limit: windowSize,
+  });
+
+  return {
+    nodes: loadedWindow.nodes,
+    messageWindow: loadedWindow.window,
+    hasOlderMessages: loadedWindow.window.hasBefore,
+    hasNewerMessages: loadedWindow.window.hasAfter,
+  };
+}
+
 export async function loadConversationSnapshot(
   conversationId: string,
   windowSize: number,

@@ -68,6 +68,8 @@ export interface ChatSessionContextValue {
   setScrollState: (scrollState: { scrollTop: number; scrollAnchorMessageId: string | null }) => void;
   loadOlderMessages: () => Promise<void>;
   loadNewerMessages: () => Promise<void>;
+  loadStartMessages: () => Promise<void>;
+  loadEndMessages: () => Promise<void>;
   loadConversationSession: (conversationId: string) => Promise<void>;
   loadMessageChildren: ReturnType<typeof useChatStore.getState>['loadMessageChildren'];
   retryMessageToConversation: ReturnType<typeof useChatStore.getState>['retryMessageToConversation'];
@@ -125,6 +127,7 @@ export function ChatSessionProvider({
 
   const loadOlderMessagesForConversation = useChatStore((state) => state.loadOlderMessagesForConversation);
   const loadNewerMessagesForConversation = useChatStore((state) => state.loadNewerMessagesForConversation);
+  const loadBoundaryMessagesForConversation = useChatStore((state) => state.loadBoundaryMessagesForConversation);
   const loadMessageChildren = useChatStore((state) => state.loadMessageChildren);
   const loadConversationSession = useChatStore((state) => state.loadConversationSession);
   const retryMessageToConversationBase = useChatStore((state) => state.retryMessageToConversation);
@@ -155,6 +158,18 @@ export function ChatSessionProvider({
       await loadNewerMessagesForConversation(normalizedConversationId, sessionKey);
     }
   }, [loadNewerMessagesForConversation, normalizedConversationId, sessionKey]);
+
+  const loadStartMessages = useCallback(async () => {
+    if (normalizedConversationId) {
+      await loadBoundaryMessagesForConversation(normalizedConversationId, sessionKey, 'start');
+    }
+  }, [loadBoundaryMessagesForConversation, normalizedConversationId, sessionKey]);
+
+  const loadEndMessages = useCallback(async () => {
+    if (normalizedConversationId) {
+      await loadBoundaryMessagesForConversation(normalizedConversationId, sessionKey, 'end');
+    }
+  }, [loadBoundaryMessagesForConversation, normalizedConversationId, sessionKey]);
 
   const setDraftMessage = useCallback((message: string) => {
     if (!normalizedConversationId) return;
@@ -284,6 +299,8 @@ export function ChatSessionProvider({
     setScrollState,
     loadOlderMessages,
     loadNewerMessages,
+    loadStartMessages,
+    loadEndMessages,
     loadConversationSession,
     loadMessageChildren,
     retryMessageToConversation,
@@ -308,9 +325,11 @@ export function ChatSessionProvider({
     isLoading,
     isLoadingOlderMessages,
     loadConversationSession,
+    loadEndMessages,
     loadMessageChildren,
     loadNewerMessages,
     loadOlderMessages,
+    loadStartMessages,
     normalizedConversationId,
     retryMessageToConversation,
     session,

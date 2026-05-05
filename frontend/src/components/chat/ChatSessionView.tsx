@@ -106,8 +106,12 @@ function ChatSessionViewContent({
     threadedMessages,
     isLoading,
     hasOlderMessages,
+    hasNewerMessages,
     isLoadingOlderMessages,
     loadOlderMessages,
+    loadNewerMessages,
+    loadStartMessages,
+    loadEndMessages,
     loadMessageChildren,
     loadConversationSession,
     retryMessageToConversation,
@@ -558,6 +562,24 @@ function ChatSessionViewContent({
     inputRef.current?.focus();
   };
 
+  const handleJumpToStart = async () => {
+    await loadStartMessages();
+    requestAnimationFrame(() => {
+      const container = messagesContainerRef.current;
+      const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
+      firstMessage?.focus();
+    });
+  };
+
+  const handleJumpToEnd = async () => {
+    await loadEndMessages();
+    requestAnimationFrame(() => {
+      const container = messagesContainerRef.current;
+      const lastMessage = container?.querySelector('[data-message-node]:last-child') as HTMLElement | null;
+      lastMessage?.focus();
+    });
+  };
+
   const rootClass =
     variant === 'page' ? 'chat-page chat-session-view' : 'chat-session-view chat-session-view--embedded';
 
@@ -573,8 +595,12 @@ function ChatSessionViewContent({
           onReachEnd={handleReachEnd}
           isLoading={isLoading}
           hasOlderMessages={hasOlderMessages}
+          hasNewerMessages={hasNewerMessages}
           isLoadingOlderMessages={isLoadingOlderMessages}
           onLoadOlder={loadOlderMessages}
+          onLoadNewer={loadNewerMessages}
+          onJumpToStart={handleJumpToStart}
+          onJumpToEnd={handleJumpToEnd}
           ref={messagesContainerRef}
           onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
           onSpeak={hasVoiceConfig ? speakMessage : undefined}

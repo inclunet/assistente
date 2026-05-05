@@ -19,6 +19,7 @@ import {
   isConversationTurnQueueClearedError,
 } from '../services/chatTurnQueue';
 import {
+  loadConversationBoundaryWindow,
   loadConversationSnapshot,
   loadMessageChildrenNodes,
   loadNewerConversationMessages,
@@ -120,6 +121,7 @@ interface ChatStore {
   getConversationSession: (conversationId: string | null | undefined) => ChatConversationSession | null;
   loadOlderMessagesForConversation: (conversationId: string, sessionKey: string) => Promise<void>;
   loadNewerMessagesForConversation: (conversationId: string, sessionKey: string) => Promise<void>;
+  loadBoundaryMessagesForConversation: (conversationId: string, sessionKey: string, anchor: 'start' | 'end') => Promise<void>;
 
   updateConversationMessage: (conversationId: string, messageId: string, content: string) => void;
   updateConversationMessageReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
@@ -728,6 +730,58 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         });
       } catch (error) {
         console.error('[Chat] Erro ao carregar mensagens posteriores:', error);
+        set((current) => {
+          const currentSession = getSession(current, conversationId, sessionKey);
+          return patchSession(current, conversationId, {
+            hasOlderMessages: currentSession.hasOlderMessages,
+            isLoadingOlderMessages: false,
+          }, sessionKey);
+        });
+      }
+    },
+
+    loadBoundaryMessagesForConversation: async (conversationId, sessionKey, anchor) => {
+      const state = get();
+      const session = getSession(state, conversationId, sessionKey);
+      if (session.isLoadingOlderMessages) return;
+
+      set((current) => patchSession(current, conversationId, {
+        hasOlderMessages: session.hasOlderMessages,
+        isLoadingOlderMessages: true,
+      }, sessionKey));
+
+      try {
+        const boundaryWindow = await loadConversationBoundaryWindow(
+          conversationId,
+          anchor,
+          INITIAL_MESSAGE_WINDOW_SIZE,
+        );
+        set((current) => {
+          const currentSession = getSession(current, conversationId, sessionKey);
+          const baseConversation = currentSession.conversation ?? {
+            id: conversationId,
+            title: i18next.t('chat.conversation'),
+            threadedMessages: [],
+          };
+          const cachedThreadedMessages = mergeConversationNodes(
+            getConversationTimeline(current, conversationId)?.threadedMessages ?? [],
+            boundaryWindow.nodes,
+          );
+          const messageWindow = boundaryWindow.messageWindow;
+          return patchSession(current, conversationId, {
+            conversation: {
+              ...baseConversation,
+              threadedMessages: cachedThreadedMessages,
+              messageWindow,
+            },
+            hasOlderMessages: boundaryWindow.hasOlderMessages,
+            isLoadingOlderMessages: false,
+            visibleThreadedMessages: boundaryWindow.nodes,
+            messageWindow,
+          }, sessionKey);
+        });
+      } catch (error) {
+        console.error('[Chat] Erro ao carregar limite da conversa:', error);
         set((current) => {
           const currentSession = getSession(current, conversationId, sessionKey);
           return patchSession(current, conversationId, {
