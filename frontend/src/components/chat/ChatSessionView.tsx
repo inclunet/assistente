@@ -511,7 +511,11 @@ function ChatSessionViewContent({
 
   useEffect(() => {
     const windowState = session?.messageWindow;
-    if (!pendingBoundaryAnnouncementRef.current || !windowState || windowState.totalCount <= 0) return;
+    if (!pendingBoundaryAnnouncementRef.current) return;
+    if (!windowState || windowState.totalCount <= 0) {
+      pendingBoundaryAnnouncementRef.current = false;
+      return;
+    }
     pendingBoundaryAnnouncementRef.current = false;
     announce(t('chat.announce.messageWindowLoaded', {
       start: windowState.startIndex + 1,

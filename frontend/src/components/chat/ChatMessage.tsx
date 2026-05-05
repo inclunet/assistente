@@ -84,6 +84,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const messageRef = useRef<HTMLDivElement>(null);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const previousShouldDeferHeavyContentRef = useRef(false);
   const {
     liveContent,
     liveIsStreaming,
@@ -271,6 +272,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       });
     }
   }, [isEditing]);
+
+  useEffect(() => {
+    if (shouldDeferHeavyContent && !previousShouldDeferHeavyContentRef.current) {
+      setIsHeavyContentReady(false);
+    }
+    if (!shouldDeferHeavyContent) {
+      setIsHeavyContentReady(true);
+    }
+    previousShouldDeferHeavyContentRef.current = shouldDeferHeavyContent;
+  }, [shouldDeferHeavyContent]);
 
   useEffect(() => {
     if (!shouldDeferHeavyContent || isHeavyContentReady) return;

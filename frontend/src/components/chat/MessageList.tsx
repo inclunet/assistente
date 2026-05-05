@@ -152,6 +152,10 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
       ...finalNode,
       message: consolidatedMessage,
     }) as MessageNode;
+    const firstOriginalIndex = turnNodes
+      .map((turnNode) => turnNode.originalIndex)
+      .find((index): index is number => index !== undefined);
+    consolidated.originalIndex = firstOriginalIndex ?? finalNode.originalIndex;
 
     // Attach segments only for multi-step turns (more than just the final text)
     if (segments.length > 1) {
@@ -203,7 +207,9 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     () => consolidateTurnMessages(threadedMessages),
     [threadedMessages]
   );
-  const canUseAbsoluteMessagePositions = displayMessages.length === threadedMessages.length;
+  const canUseAbsoluteMessagePositions = !!messageWindow
+    && messageWindow.totalCount > 0
+    && displayMessages.every((node) => node.originalIndex !== undefined);
   const ariaSetSize = canUseAbsoluteMessagePositions && messageWindow?.totalCount && messageWindow.totalCount > 0
     ? messageWindow.totalCount
     : displayMessages.length;

@@ -130,6 +130,9 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	if anchor == chat.MessageWindowAnchorEnd && direction == chat.MessageWindowDirectionAfter {
 		return nil, fmt.Errorf("anchor=end não aceita direction=after")
 	}
+	if direction == chat.MessageWindowDirectionAround && anchorMessageID == "" {
+		return nil, fmt.Errorf("direction=around exige anchorMessageId")
+	}
 
 	var parentID *string
 	threadParentID := ""

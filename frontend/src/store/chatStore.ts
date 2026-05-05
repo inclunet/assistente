@@ -614,8 +614,22 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             visibleThreadedMessages: snapshot.threadedMessages,
             messageWindow: snapshot.messageWindow,
           });
+          const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey ?? {}) };
+          for (const [sessionKey, surfaceSession] of Object.entries(surfaceSessionsByKey)) {
+            if (surfaceSession.conversationId !== id) {
+              continue;
+            }
+            surfaceSessionsByKey[sessionKey] = {
+              ...surfaceSession,
+              hasOlderMessages: snapshot.hasOlderMessages,
+              isLoadingOlderMessages: false,
+              visibleThreadedMessages: snapshot.threadedMessages,
+              messageWindow: snapshot.messageWindow,
+            };
+          }
           return {
             ...patches,
+            surfaceSessionsByKey,
             isInitialized: true,
           };
         });
@@ -836,11 +850,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             timeline.threadedMessages,
             boundaryWindow.nodes,
           );
+          const cachedById = new Map(cachedThreadedMessages.map((node) => [String(node.message.id), node]));
+          const boundaryVisibleThreadedMessages = boundaryWindow.nodes.map((node) => (
+            cachedById.get(String(node.message.id)) ?? node
+          ));
           const messageWindow = boundaryWindow.messageWindow;
           const patches = patchSession(current, conversationId, {
             hasOlderMessages: boundaryWindow.hasOlderMessages,
             isLoadingOlderMessages: false,
-            visibleThreadedMessages: boundaryWindow.nodes,
+            visibleThreadedMessages: boundaryVisibleThreadedMessages,
             messageWindow,
           }, sessionKey);
           return {

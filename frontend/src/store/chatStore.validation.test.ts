@@ -666,8 +666,9 @@ describe('chatStore validation', () => {
     await useChatStore.getState().loadConversationSession(defaultConversationId);
 
     const surfaceSession = useChatStore.getState().surfaceSessionsByKey[surfaceSessionKey];
-    expect(surfaceSession?.hasOlderMessages).toBe(true);
-    expect(surfaceSession?.isLoadingOlderMessages).toBe(true);
+    expect(surfaceSession?.hasOlderMessages).toBe(false);
+    expect(surfaceSession?.isLoadingOlderMessages).toBe(false);
+    expect(surfaceSession?.messageWindow?.totalCount).toBe(0);
   });
 
   it('carrega mensagens antigas usando a sessão de superfície chamadora', async () => {
