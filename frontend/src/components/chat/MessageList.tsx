@@ -207,8 +207,9 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     () => consolidateTurnMessages(threadedMessages),
     [threadedMessages]
   );
+  const hasConsolidatedTurns = displayMessages.length !== threadedMessages.length;
   const messagePositions = useMemo(() => {
-    if (!messageWindow || messageWindow.totalCount <= 0) {
+    if (!messageWindow || messageWindow.totalCount <= 0 || hasConsolidatedTurns) {
       return displayMessages.map((_, index) => index + 1);
     }
     let nextIndex = messageWindow.startIndex;
@@ -217,8 +218,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       nextIndex = absoluteIndex + 1;
       return absoluteIndex + 1;
     });
-  }, [displayMessages, messageWindow]);
-  const ariaSetSize = messageWindow && messageWindow.totalCount > 0
+  }, [displayMessages, hasConsolidatedTurns, messageWindow]);
+  const ariaSetSize = messageWindow && messageWindow.totalCount > 0 && !hasConsolidatedTurns
     ? Math.max(messageWindow.totalCount, ...messagePositions)
     : displayMessages.length;
 

@@ -619,7 +619,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (surfaceSession.conversationId !== id) {
               continue;
             }
-            if (!options?.refreshSurfaceWindows && (surfaceSession.visibleThreadedMessages || surfaceSession.messageWindow)) {
+            const hasMaterializedSurfaceWindow = (surfaceSession.visibleThreadedMessages?.length ?? 0) > 0
+              || (surfaceSession.messageWindow?.totalCount ?? 0) > 0;
+            if (!options?.refreshSurfaceWindows && hasMaterializedSurfaceWindow) {
               surfaceSessionsByKey[sessionKey] = {
                 ...surfaceSession,
                 isLoadingOlderMessages: false,

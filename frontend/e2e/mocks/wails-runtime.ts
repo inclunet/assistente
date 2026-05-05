@@ -244,13 +244,25 @@ export function buildWailsMockScript(): string {
             const val = _config.responses.GetMessages;
             const messages = typeof val === 'function' ? val(...args) : val;
             const nodes = Array.isArray(messages) ? messages : [];
+            const req = args[0] || {};
+            const limit = Math.max(0, Number(req.limit || nodes.length || 0));
+            const direction = String(req.direction || 'before');
+            const anchor = String(req.anchor || 'end');
+            let startIndex = 0;
+            if (anchor === 'end' || direction === 'before') {
+              startIndex = Math.max(0, nodes.length - limit);
+            }
+            const visibleNodes = nodes.slice(startIndex, limit > 0 ? startIndex + limit : startIndex).map((node, index) => ({
+              ...node,
+              originalIndex: startIndex + index,
+            }));
             return Promise.resolve({
-              nodes,
+              nodes: visibleNodes,
               totalCount: nodes.length,
-              startIndex: nodes.length > 0 ? 0 : 0,
-              endIndex: nodes.length - 1,
-              hasBefore: false,
-              hasAfter: false,
+              startIndex,
+              endIndex: visibleNodes.length > 0 ? startIndex + visibleNodes.length - 1 : -1,
+              hasBefore: startIndex > 0,
+              hasAfter: visibleNodes.length > 0 && startIndex + visibleNodes.length < nodes.length,
             });
           }
           if (fnName in defaults) {

@@ -150,6 +150,8 @@ export interface ChatSessionRegistryState {
   surfaceSessionsByKey?: Record<string, ChatSurfaceSession>;
 }
 
+const MAX_VISIBLE_SURFACE_MESSAGES = 240;
+
 export const getDefaultChatSessionKey = (conversationId: string): string => `conversation:${conversationId}`;
 
 export const createEmptyChatSurfaceSession = (
@@ -243,6 +245,11 @@ const mergeTimelineConversation = (
   };
 };
 
+const capVisibleSurfaceMessages = (nodes: MessageNode[]): MessageNode[] => {
+  if (nodes.length <= MAX_VISIBLE_SURFACE_MESSAGES) return nodes;
+  return nodes.slice(nodes.length - MAX_VISIBLE_SURFACE_MESSAGES);
+};
+
 export function getChatSession(
   state: ChatSessionRegistryState,
   conversationId: string,
@@ -317,7 +324,7 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
     const nextConversation = nextSession.conversation as ConversationTimeline;
     nextSurfaceSession = {
       ...nextSurfaceSession,
-      visibleThreadedMessages: nextConversation.threadedMessages,
+      visibleThreadedMessages: capVisibleSurfaceMessages(nextConversation.threadedMessages),
     };
   }
   const defaultSession = state.sessionsByConversationId[conversationId] ?? createEmptyChatSession(conversationId);

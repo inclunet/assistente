@@ -97,7 +97,7 @@ function ChatSessionViewContent({
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
-  const pendingBoundaryAnnouncementRef = useRef(false);
+  const pendingWindowAnnouncementRef = useRef<'boundary' | 'older' | 'newer' | null>(null);
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
@@ -511,12 +511,12 @@ function ChatSessionViewContent({
 
   useEffect(() => {
     const windowState = session?.messageWindow;
-    if (!pendingBoundaryAnnouncementRef.current) return;
+    if (!pendingWindowAnnouncementRef.current) return;
     if (!windowState || windowState.totalCount <= 0) {
-      pendingBoundaryAnnouncementRef.current = false;
+      pendingWindowAnnouncementRef.current = null;
       return;
     }
-    pendingBoundaryAnnouncementRef.current = false;
+    pendingWindowAnnouncementRef.current = null;
     announce(t('chat.announce.messageWindowLoaded', {
       start: windowState.startIndex + 1,
       end: windowState.endIndex + 1,
@@ -579,7 +579,7 @@ function ChatSessionViewContent({
   };
 
   const handleJumpToStart = async () => {
-    pendingBoundaryAnnouncementRef.current = true;
+    pendingWindowAnnouncementRef.current = 'boundary';
     try {
       await loadStartMessages();
       requestAnimationFrame(() => {
@@ -589,13 +589,13 @@ function ChatSessionViewContent({
       });
     } finally {
       window.setTimeout(() => {
-        pendingBoundaryAnnouncementRef.current = false;
+        pendingWindowAnnouncementRef.current = null;
       }, 250);
     }
   };
 
   const handleJumpToEnd = async () => {
-    pendingBoundaryAnnouncementRef.current = true;
+    pendingWindowAnnouncementRef.current = 'boundary';
     try {
       await loadEndMessages();
       requestAnimationFrame(() => {
@@ -606,10 +606,32 @@ function ChatSessionViewContent({
       });
     } finally {
       window.setTimeout(() => {
-        pendingBoundaryAnnouncementRef.current = false;
+        pendingWindowAnnouncementRef.current = null;
       }, 250);
     }
   };
+
+  const handleLoadOlderMessages = useCallback(async () => {
+    pendingWindowAnnouncementRef.current = 'older';
+    try {
+      await loadOlderMessages();
+    } finally {
+      window.setTimeout(() => {
+        pendingWindowAnnouncementRef.current = null;
+      }, 250);
+    }
+  }, [loadOlderMessages]);
+
+  const handleLoadNewerMessages = useCallback(async () => {
+    pendingWindowAnnouncementRef.current = 'newer';
+    try {
+      await loadNewerMessages();
+    } finally {
+      window.setTimeout(() => {
+        pendingWindowAnnouncementRef.current = null;
+      }, 250);
+    }
+  }, [loadNewerMessages]);
 
   const rootClass =
     variant === 'page' ? 'chat-page chat-session-view' : 'chat-session-view chat-session-view--embedded';
@@ -629,8 +651,8 @@ function ChatSessionViewContent({
           hasOlderMessages={hasOlderMessages}
           hasNewerMessages={hasNewerMessages}
           isLoadingOlderMessages={isLoadingOlderMessages}
-          onLoadOlder={loadOlderMessages}
-          onLoadNewer={loadNewerMessages}
+          onLoadOlder={handleLoadOlderMessages}
+          onLoadNewer={handleLoadNewerMessages}
           onJumpToStart={handleJumpToStart}
           onJumpToEnd={handleJumpToEnd}
           ref={messagesContainerRef}

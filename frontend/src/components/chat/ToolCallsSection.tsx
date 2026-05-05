@@ -40,6 +40,40 @@ interface ToolCallsSectionProps {
 const RESULT_PREVIEW_LENGTH = 300;
 const LARGE_TOOL_CALLS_JSON_LENGTH = 12_000;
 
+function countTopLevelArrayItems(raw: string): number {
+  let depth = 0;
+  let count = 0;
+  let inString = false;
+  let escaped = false;
+  for (const char of raw.trim()) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') {
+      if (depth === 1) count += 1;
+      depth += 1;
+      continue;
+    }
+    if (char === '}' && depth > 0) {
+      depth -= 1;
+      continue;
+    }
+    if (char === '[') depth += 1;
+    if (char === ']' && depth > 0) depth -= 1;
+  }
+  return count;
+}
+
 /**
  * ToolCallsSection renderiza indicadores de ferramentas chamadas pelo assistente.
  * 
@@ -72,7 +106,10 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
 
   if (!hasActiveCalls && !hasSavedCalls) return null;
 
-  const toolCount = hasActiveCalls ? activeToolCalls!.length : Math.max(parsedCalls.length, 1);
+  const deferredToolCount = shouldDeferSavedParsing && toolCallsJson
+    ? Math.max(countTopLevelArrayItems(toolCallsJson), 1)
+    : 1;
+  const toolCount = hasActiveCalls ? activeToolCalls!.length : Math.max(parsedCalls.length, deferredToolCount);
   const isRunning = hasActiveCalls && activeToolCalls!.some(tc => tc.status === 'running');
 
   const handleToggle = () => setIsExpanded(!isExpanded);

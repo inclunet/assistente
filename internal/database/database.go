@@ -111,6 +111,7 @@ func Init() error {
 
 	ensureTaskNoteExternalUniqueIndex()
 	ensureTaskListSlugUniqueIndex()
+	ensureChatMessageWindowIndex()
 
 	// Normalizar campos booleanos: SQLite armazena bool como INTEGER 0/1,
 	// mas valores corrompidos (ex: 4) causam erro no GORM Scan.
@@ -704,6 +705,9 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 	switch {
 	case query.AnchorMessageID != "":
 		if err := db.First(&anchorMessage, "id = ? AND conversation_id = ?", query.AnchorMessageID, query.ConversationID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("anchorMessageId inválido: %s", query.AnchorMessageID)
+			}
 			return nil, err
 		}
 		hasAnchorMessage = true
@@ -1510,4 +1514,11 @@ func ensureTaskNoteExternalUniqueIndex() {
 		return
 	}
 	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_notes_external_source_id ON task_notes (external_source, external_id) WHERE external_source <> '' AND external_id <> ''`)
+}
+
+func ensureChatMessageWindowIndex() {
+	if db == nil {
+		return
+	}
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_window ON chat_messages (conversation_id, parent_id, created_at, id)`)
 }
