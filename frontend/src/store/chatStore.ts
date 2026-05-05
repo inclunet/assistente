@@ -353,6 +353,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     visibleNodes: MessageNode[] | undefined,
     incomingNodes: MessageNode[],
     window: MessageWindowState | undefined,
+    appendNewNodes = false,
   ): MessageNode[] | undefined => {
     if (!visibleNodes) return undefined;
     const incomingById = new Map(incomingNodes.map((node) => [String(node.message.id), node]));
@@ -362,7 +363,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!incoming) return node;
       return mergeMessageNode(node, incoming);
     });
-    if (window?.hasAfter) return updatedVisible;
+    if (window?.hasAfter && !appendNewNodes) return updatedVisible;
     const appendedNodes = incomingNodes.filter((node) => !visibleIds.has(String(node.message.id)));
     return appendedNodes.length
       ? [...updatedVisible, ...appendedNodes].slice(-MAX_RENDERED_MESSAGE_WINDOW_SIZE)
@@ -398,6 +399,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 session.visibleThreadedMessages,
                 patch.conversation.threadedMessages,
                 session.messageWindow,
+                true,
               )
               : undefined)
             ?? session.visibleThreadedMessages;

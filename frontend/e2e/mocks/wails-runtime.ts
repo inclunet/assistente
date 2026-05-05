@@ -261,6 +261,12 @@ export function buildWailsMockScript(): string {
             } else if (anchorIndex >= 0 && direction === 'after') {
               startIndex = Math.min(nodes.length, anchorIndex + 1);
               endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
+            } else if (anchorIndex >= 0 && direction === 'around') {
+              startIndex = Math.max(0, anchorIndex - Math.floor(limit / 2));
+              if (limit > 0 && startIndex + limit > nodes.length) {
+                startIndex = Math.max(0, nodes.length - limit);
+              }
+              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
             } else if (anchorIndex >= 0) {
               startIndex = Math.max(0, Math.min(anchorIndex, nodes.length - limit));
               endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;

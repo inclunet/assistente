@@ -173,7 +173,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         isReasoningExpanded: false,
         reasoning: null,
         streamingReasoning: null,
-        toolCallsRaw: null,
+        toolCallsRaw: effectiveToolCallsRaw,
         toolCallsHasTextEdit,
       });
     }

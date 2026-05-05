@@ -6,6 +6,7 @@ import { ChatMessage } from './ChatMessage';
 const subscribeSpy = vi.fn();
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const originalIntersectionObserver = globalThis.IntersectionObserver;
+const buildAriaLabelMock = vi.hoisted(() => vi.fn((_args: unknown) => 'aria-label'));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -47,7 +48,7 @@ vi.mock('../../lib/chatUtils', () => ({
 }));
 
 vi.mock('../../lib/chatMessageAriaLabel', () => ({
-  buildChatMessageAriaLabel: () => 'aria-label',
+  buildChatMessageAriaLabel: (args: unknown) => buildAriaLabelMock(args),
 }));
 
 vi.mock('../ui/MarkdownRenderer', () => ({
@@ -69,6 +70,7 @@ vi.mock('./ToolCallsSection', () => ({
 describe('ChatMessage', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    buildAriaLabelMock.mockClear();
     if (originalIntersectionObserver) {
       vi.stubGlobal('IntersectionObserver', originalIntersectionObserver);
     }
@@ -200,5 +202,44 @@ describe('ChatMessage', () => {
 
     expect(screen.getByText('chat.largeMessageDeferred')).toBeInTheDocument();
     expect(screen.queryByText(largeContent)).not.toBeInTheDocument();
+  });
+
+  it('mantém tool calls no aria-label de mensagem pesada deferida', () => {
+    class MockIntersectionObserver {
+      observe = vi.fn();
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+      takeRecords = vi.fn(() => []);
+      root = null;
+      rootMargin = '';
+      thresholds = [];
+    }
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+
+    const toolCalls = JSON.stringify([{
+      id: 'tool-1',
+      type: 'function',
+      function: {
+        name: 'search_documents',
+        arguments: 'x'.repeat(8_100),
+      },
+    }]);
+    const message = new main.EnrichedMessage({
+      id: 'tool-only',
+      conversationId,
+      role: 'assistant',
+      content: '',
+      toolCalls,
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+    });
+
+    render(<ChatMessage message={message} />);
+
+    expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
+      toolCallsRaw: toolCalls,
+    }));
   });
 });
