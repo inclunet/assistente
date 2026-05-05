@@ -1124,4 +1124,77 @@ describe('chatStore validation', () => {
     const assistant14731 = threaded.filter((node) => String(node.message.id) === '01926b90-7a5a-7c4e-8d3f-000000014731');
     expect(assistant14731).toHaveLength(1);
   });
+
+  it('mantém resposta em streaming na janela visual da superfície de origem', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `page:tab-a:${defaultConversationId}`;
+    const initialNode = createMessageNode('initial-message') as unknown as MessageNode;
+    initialNode.originalIndex = 0;
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: {
+            id: defaultConversationId,
+            title: 'Conversa',
+            threadedMessages: [initialNode],
+          },
+          visibleThreadedMessages: [initialNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 1,
+            startIndex: 0,
+            endIndex: 0,
+            hasBefore: false,
+            hasAfter: false,
+          },
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [initialNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 1,
+            startIndex: 0,
+            endIndex: 0,
+            hasBefore: false,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+    mockSendMessage.mockImplementationOnce(() => {
+      emitEvent('chat:messages_ready', {
+        conversationId: defaultConversationId,
+        userMessageId: 'surface-user-message',
+        userContent: 'oi',
+      });
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        content: 'resposta parcial',
+        done: false,
+      });
+      return Promise.resolve();
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'oi', undefined, undefined, {
+      origin: {
+        conversationId: defaultConversationId,
+        sessionKey: originSessionKey,
+        surfaceId: 'page:tab-a',
+        surfaceType: 'page',
+        tabId: 'tab-a',
+      },
+    });
+    await flushMicrotasks();
+
+    const surfaceMessages = useChatStore.getState().surfaceSessionsByKey[originSessionKey]
+      ?.visibleThreadedMessages
+      ?.map((node) => node.message.role);
+    expect(surfaceMessages).toEqual(['user', 'user', 'assistant']);
+  });
 });

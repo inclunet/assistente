@@ -325,11 +325,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const explicitStartIndex = explicitIndexes.length ? Math.min(...explicitIndexes) : undefined;
     const explicitEndIndex = explicitIndexes.length ? Math.max(...explicitIndexes) : undefined;
 
+    const appendedToVisibleEnd = appendedCount > 0 && !window.hasAfter;
     const startIndex = explicitStartIndex !== undefined
       ? Math.min(window.startIndex, explicitStartIndex)
       : window.startIndex;
     const endIndex = explicitEndIndex !== undefined
-      ? Math.max(window.endIndex, explicitEndIndex)
+      ? Math.max(window.endIndex, explicitEndIndex, appendedToVisibleEnd ? window.endIndex + appendedCount : explicitEndIndex)
       : window.hasAfter ? window.endIndex : window.endIndex + appendedCount;
     const totalCount = Math.max(
       window.totalCount + (explicitEndIndex === undefined ? appendedCount : 0),
@@ -405,7 +406,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             : patch.messageWindow;
           return patchSession(state, conversationId, {
             ...patch,
-            visibleThreadedMessages,
+            ...(visibleThreadedMessages !== undefined ? { visibleThreadedMessages } : {}),
             ...(messageWindow ? { messageWindow } : {}),
           }, targetSessionKey);
         }
@@ -437,7 +438,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           surfaceSessionsByKey[sessionKey] = {
             ...session,
             ...surfacePatch,
-            visibleThreadedMessages,
+            ...(visibleThreadedMessages !== undefined ? { visibleThreadedMessages } : {}),
             ...(messageWindow ? { messageWindow } : {}),
             surfaceOrigin: patch.surfaceOrigin ?? session.surfaceOrigin,
           };
