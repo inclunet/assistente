@@ -38,6 +38,7 @@ import {
   type ChatSurfaceSession,
   type ChatSurfaceOrigin,
   type ConversationTimeline,
+  type MessageWindowState,
 } from '../services/chatSessionRegistry';
 import {
   appendInternalMessageToTree,
@@ -53,6 +54,7 @@ import {
 const MAX_MESSAGE_CONTENT_SIZE = 512 * 1024;       // must match backend MaxMessageContentSize
 const MAX_MEDIA_SIZE = 20 * 1024 * 1024;            // must match backend MaxMediaSize
 const INITIAL_MESSAGE_WINDOW_SIZE = 120;
+const MAX_RENDERED_MESSAGE_WINDOW_SIZE = 240;
 
 interface MediaData {
   name: string;
@@ -274,6 +276,33 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (aIndex !== bIndex) return aIndex - bIndex;
       return String(a.message.id).localeCompare(String(b.message.id));
     });
+  };
+
+  const trimRenderedWindow = (
+    nodes: MessageNode[],
+    window: MessageWindowState,
+    keep: 'start' | 'end',
+  ): { nodes: MessageNode[]; window: MessageWindowState } => {
+    if (nodes.length <= MAX_RENDERED_MESSAGE_WINDOW_SIZE) {
+      return { nodes, window };
+    }
+
+    const trimmedNodes = keep === 'start'
+      ? nodes.slice(0, MAX_RENDERED_MESSAGE_WINDOW_SIZE)
+      : nodes.slice(nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE);
+    const startIndex = trimmedNodes[0]?.originalIndex ?? window.startIndex;
+    const endIndex = trimmedNodes[trimmedNodes.length - 1]?.originalIndex ?? window.endIndex;
+
+    return {
+      nodes: trimmedNodes,
+      window: {
+        ...window,
+        startIndex,
+        endIndex,
+        hasBefore: startIndex > 0,
+        hasAfter: window.totalCount > 0 && endIndex < window.totalCount - 1,
+      },
+    };
   };
 
   const resetQueuedTurnCount = (conversationId: string) => {
@@ -640,16 +669,21 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
           const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
           const dedupedOlderNodes = olderMessages.nodes.filter((node) => !existingIds.has(node.message.id));
-          const visibleThreadedMessages = [...dedupedOlderNodes, ...currentSession.conversation.threadedMessages];
+          const expandedVisibleThreadedMessages = [...dedupedOlderNodes, ...currentSession.conversation.threadedMessages];
           const cachedThreadedMessages = mergeConversationNodes(
             getConversationTimeline(current, conversation.id)?.threadedMessages ?? [],
-            visibleThreadedMessages,
+            expandedVisibleThreadedMessages,
           );
-          const messageWindow = {
+          const expandedMessageWindow = {
             ...olderMessages.messageWindow,
             endIndex: currentSession.conversation.messageWindow?.endIndex ?? olderMessages.messageWindow.endIndex,
             hasAfter: currentSession.conversation.messageWindow?.hasAfter ?? olderMessages.hasNewerMessages,
           };
+          const { nodes: visibleThreadedMessages, window: messageWindow } = trimRenderedWindow(
+            expandedVisibleThreadedMessages,
+            expandedMessageWindow,
+            'start',
+          );
           const patches = patchSession(current, conversation.id, {
             conversation: {
               ...currentSession.conversation,
@@ -706,16 +740,21 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
           const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
           const dedupedNewerNodes = newerMessages.nodes.filter((node) => !existingIds.has(node.message.id));
-          const visibleThreadedMessages = [...currentSession.conversation.threadedMessages, ...dedupedNewerNodes];
+          const expandedVisibleThreadedMessages = [...currentSession.conversation.threadedMessages, ...dedupedNewerNodes];
           const cachedThreadedMessages = mergeConversationNodes(
             getConversationTimeline(current, conversation.id)?.threadedMessages ?? [],
-            visibleThreadedMessages,
+            expandedVisibleThreadedMessages,
           );
-          const messageWindow = {
+          const expandedMessageWindow = {
             ...newerMessages.messageWindow,
             startIndex: currentSession.conversation.messageWindow?.startIndex ?? newerMessages.messageWindow.startIndex,
             hasBefore: currentSession.conversation.messageWindow?.hasBefore ?? newerMessages.hasOlderMessages,
           };
+          const { nodes: visibleThreadedMessages, window: messageWindow } = trimRenderedWindow(
+            expandedVisibleThreadedMessages,
+            expandedMessageWindow,
+            'end',
+          );
           return patchSession(current, conversation.id, {
             conversation: {
               ...currentSession.conversation,
