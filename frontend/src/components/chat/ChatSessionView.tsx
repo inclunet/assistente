@@ -138,12 +138,14 @@ function ChatSessionViewContent({
     const processedTurnIds = new Set<string>();
     let count = 0;
     for (const node of threadedMessages) {
-      const turnId = node.message.turnId;
+      const message = node.message;
+      if (!message) continue;
+      const turnId = message.turnId;
       if (!turnId) {
         count += 1;
         continue;
       }
-      if (node.message.role === 'tool' || processedTurnIds.has(turnId)) continue;
+      if (message.role === 'tool' || processedTurnIds.has(turnId)) continue;
       processedTurnIds.add(turnId);
       count += 1;
     }
