@@ -196,7 +196,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       isLoading: defaultSession?.isLoading ?? false,
       hasOlderMessages: defaultSession?.hasOlderMessages ?? false,
       isLoadingOlderMessages: defaultSession?.isLoadingOlderMessages ?? false,
-      visibleThreadedMessages: defaultSession?.conversation?.threadedMessages,
+      visibleThreadedMessages: defaultSession?.visibleThreadedMessages,
       messageWindow: defaultSession?.messageWindow,
       queuedTurnCount: defaultSession?.queuedTurnCount ?? 0,
     };
@@ -273,10 +273,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         byId.set(String(node.message.id), node);
         continue;
       }
+      const incomingChildCount = node.childCount ?? 0;
+      const existingChildCount = existingNode.childCount ?? 0;
+      const shouldPreserveLoadedChildren = existingNode.children?.length
+        && !node.children?.length
+        && incomingChildCount >= existingChildCount;
       byId.set(String(node.message.id), Object.assign(node, {
         ...node,
-        children: existingNode.children?.length ? existingNode.children : node.children,
-        childCount: Math.max(existingNode.childCount ?? 0, node.childCount ?? 0),
+        children: node.children?.length
+          ? node.children
+          : shouldPreserveLoadedChildren
+            ? existingNode.children
+            : node.children,
+        childCount: node.childCount ?? existingNode.childCount,
         originalIndex: node.originalIndex ?? existingNode.originalIndex,
         isExpanded: existingNode.isExpanded ?? node.isExpanded,
       }));
@@ -359,6 +368,42 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     };
   };
 
+  const mergeVisibleNodesFromConversation = (
+    visibleNodes: MessageNode[] | undefined,
+    incomingNodes: MessageNode[],
+    window: MessageWindowState | undefined,
+  ): MessageNode[] | undefined => {
+    if (!visibleNodes) return undefined;
+    const incomingById = new Map(incomingNodes.map((node) => [String(node.message.id), node]));
+    const visibleIds = new Set(visibleNodes.map((node) => String(node.message.id)));
+    const updatedVisible = visibleNodes.map((node) => {
+      const incoming = incomingById.get(String(node.message.id));
+      if (!incoming) return node;
+      const incomingChildCount = incoming.childCount ?? 0;
+      const existingChildCount = node.childCount ?? 0;
+      const shouldPreserveLoadedChildren = node.children?.length
+        && !incoming.children?.length
+        && incomingChildCount >= existingChildCount;
+      return {
+        ...node,
+        ...incoming,
+        children: incoming.children?.length
+          ? incoming.children
+          : shouldPreserveLoadedChildren
+            ? node.children
+            : incoming.children,
+        childCount: incoming.childCount ?? node.childCount,
+        originalIndex: incoming.originalIndex ?? node.originalIndex,
+        isExpanded: node.isExpanded ?? incoming.isExpanded,
+      } as MessageNode;
+    });
+    if (window?.hasAfter) return updatedVisible;
+    const appendedNodes = incomingNodes.filter((node) => !visibleIds.has(String(node.message.id)));
+    return appendedNodes.length
+      ? [...updatedVisible, ...appendedNodes].slice(-MAX_RENDERED_MESSAGE_WINDOW_SIZE)
+      : updatedVisible;
+  };
+
   const resetQueuedTurnCount = (conversationId: string) => {
     set((state) => {
       const patches = patchSession(state, conversationId, { queuedTurnCount: 0 });
@@ -399,9 +444,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const surfaceSessionsByKey = { ...existingSurfaceSessionsByKey };
         const surfacePatch: Partial<ChatSurfaceSession> = { ...patch };
         delete (surfacePatch as Partial<ChatConversationSession>).conversation;
-        if (patch.conversation && !patch.visibleThreadedMessages) {
-          surfacePatch.visibleThreadedMessages = patch.conversation.threadedMessages;
-        }
         let hasMatchingSurfaceSession = false;
 
         for (const [sessionKey, session] of Object.entries(existingSurfaceSessionsByKey)) {
@@ -410,7 +452,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
 
           hasMatchingSurfaceSession = true;
-          const visibleThreadedMessages = surfacePatch.visibleThreadedMessages ?? session.visibleThreadedMessages;
+          const visibleThreadedMessages = surfacePatch.visibleThreadedMessages
+            ?? (patch.conversation
+              ? mergeVisibleNodesFromConversation(
+                session.visibleThreadedMessages,
+                patch.conversation.threadedMessages,
+                session.messageWindow,
+              )
+              : session.visibleThreadedMessages);
           const messageWindow = patch.conversation && !surfacePatch.messageWindow
             ? reconcileLiveMessageWindow(session.messageWindow, session.visibleThreadedMessages, visibleThreadedMessages)
             : surfacePatch.messageWindow;
@@ -600,7 +649,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           isLoading: false,
           hasOlderMessages: defaultSession?.hasOlderMessages ?? false,
           isLoadingOlderMessages: defaultSession?.isLoadingOlderMessages ?? false,
-          visibleThreadedMessages: defaultSession?.conversation?.threadedMessages,
+          visibleThreadedMessages: defaultSession?.visibleThreadedMessages,
           messageWindow: defaultSession?.messageWindow,
           queuedTurnCount: defaultSession?.queuedTurnCount ?? 0,
         };
@@ -698,24 +747,39 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       } catch (error) {
         console.error('[Chat] Erro ao carregar conversa:', error);
         set((state) => {
+          const emptyWindow = {
+            scope: 'conversation' as const,
+            conversationId: id,
+            totalCount: 0,
+            startIndex: 0,
+            endIndex: -1,
+            hasBefore: false,
+            hasAfter: false,
+          };
           const patches = patchSession(state, id, {
             conversation: { id, title: i18next.t('chat.conversation'), threadedMessages: [] },
             isLoading: state.loadingConversationIds.has(id),
             hasOlderMessages: false,
             isLoadingOlderMessages: false,
             visibleThreadedMessages: [],
-            messageWindow: {
-              scope: 'conversation',
-              conversationId: id,
-              totalCount: 0,
-              startIndex: 0,
-              endIndex: -1,
-              hasBefore: false,
-              hasAfter: false,
-            },
+            messageWindow: emptyWindow,
           });
+          const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey ?? {}) };
+          if (options?.refreshSurfaceWindows) {
+            for (const [sessionKey, surfaceSession] of Object.entries(surfaceSessionsByKey)) {
+              if (surfaceSession.conversationId !== id) continue;
+              surfaceSessionsByKey[sessionKey] = {
+                ...surfaceSession,
+                hasOlderMessages: false,
+                isLoadingOlderMessages: false,
+                visibleThreadedMessages: [],
+                messageWindow: emptyWindow,
+              };
+            }
+          }
           return {
             ...patches,
+            surfaceSessionsByKey,
             isInitialized: true,
           };
         });

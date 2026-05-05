@@ -213,6 +213,60 @@ const getNodeOrder = (node: MessageNode): number => {
   return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
 };
 
+const mergeMessageNode = (existing: MessageNode, incoming: MessageNode): MessageNode => {
+  const incomingChildCount = incoming.childCount ?? 0;
+  const existingChildCount = existing.childCount ?? 0;
+  const shouldPreserveLoadedChildren = existing.children?.length
+    && !incoming.children?.length
+    && incomingChildCount >= existingChildCount;
+
+  return {
+    ...existing,
+    ...incoming,
+    children: incoming.children?.length
+      ? incoming.children
+      : shouldPreserveLoadedChildren
+        ? existing.children
+        : incoming.children,
+    childCount: incoming.childCount ?? existing.childCount,
+    originalIndex: incoming.originalIndex ?? existing.originalIndex,
+    isExpanded: existing.isExpanded ?? incoming.isExpanded,
+  } as MessageNode;
+};
+
+const reconcileWindowForVisibleMessages = (
+  window: MessageWindowState | undefined,
+  nodes: MessageNode[],
+  totalCountHint: number,
+): MessageWindowState | undefined => {
+  if (!window) return window;
+  if (nodes.length === 0) {
+    return {
+      ...window,
+      totalCount: 0,
+      startIndex: 0,
+      endIndex: -1,
+      hasBefore: false,
+      hasAfter: false,
+    };
+  }
+  const explicitIndexes = nodes
+    .map((node) => node.originalIndex)
+    .filter((index): index is number => index !== undefined);
+  const startIndex = explicitIndexes.length ? Math.min(...explicitIndexes) : Math.min(window.startIndex, totalCountHint - 1);
+  const endIndex = explicitIndexes.length ? Math.max(...explicitIndexes) : startIndex + nodes.length - 1;
+  const totalCount = Math.max(totalCountHint, endIndex + 1);
+
+  return {
+    ...window,
+    totalCount,
+    startIndex,
+    endIndex,
+    hasBefore: startIndex > 0,
+    hasAfter: totalCount > 0 && endIndex < totalCount - 1,
+  };
+};
+
 const mergeTimelineConversation = (
   current: ConversationTimeline | null,
   incoming: ConversationTimeline,
@@ -225,14 +279,7 @@ const mergeTimelineConversation = (
   for (const node of incoming.threadedMessages) {
     const existing = byId.get(String(node.message.id));
     byId.set(String(node.message.id), existing
-      ? ({
-        ...existing,
-        ...node,
-        children: node.children?.length ? node.children : existing.children,
-        childCount: Math.max(existing.childCount ?? 0, node.childCount ?? 0),
-        originalIndex: node.originalIndex ?? existing.originalIndex,
-        isExpanded: existing.isExpanded ?? node.isExpanded,
-      } as MessageNode)
+      ? mergeMessageNode(existing, node)
       : node);
   }
   return {
@@ -384,6 +431,11 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
     surfaceSessionsByKey[sessionKey] = {
       ...surfaceSession,
       visibleThreadedMessages: surfaceConversation.threadedMessages,
+      messageWindow: reconcileWindowForVisibleMessages(
+        surfaceSession.messageWindow,
+        surfaceConversation.threadedMessages,
+        conversation.threadedMessages.length,
+      ),
     };
   }
   return {

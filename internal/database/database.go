@@ -704,7 +704,9 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 
 	switch {
 	case query.AnchorMessageID != "":
-		if err := db.First(&anchorMessage, "id = ? AND conversation_id = ?", query.AnchorMessageID, query.ConversationID).Error; err != nil {
+		if err := db.
+			Select("id", "conversation_id", "parent_id", "created_at").
+			First(&anchorMessage, "id = ? AND conversation_id = ?", query.AnchorMessageID, query.ConversationID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, fmt.Errorf("anchorMessageId inválido: %s", query.AnchorMessageID)
 			}
