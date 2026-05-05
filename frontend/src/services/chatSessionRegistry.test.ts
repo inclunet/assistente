@@ -246,7 +246,8 @@ describe('chatSessionRegistry', () => {
     const tabA = getChatSession(state, 'conversation-1', 'tab-a:conversation-1');
     const tabB = getChatSession(state, 'conversation-1', 'tab-b:conversation-1');
 
-    expect(tabA.conversation).toBe(tabB.conversation);
+    expect(tabA.conversation).toStrictEqual(tabB.conversation);
+    expect(tabA.conversation?.threadedMessages).toBe(tabB.conversation?.threadedMessages);
     expect(tabA.conversation?.title).toBe('Timeline compartilhada');
     expect(tabA.draftMessage).toBe('rascunho A');
     expect(tabB.draftMessage).toBe('rascunho B');
