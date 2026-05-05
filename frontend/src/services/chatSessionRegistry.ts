@@ -207,13 +207,13 @@ const toSurfaceSession = (
   };
 };
 
-const getNodeOrder = (node: MessageNode): number => {
+export const getMessageNodeOrder = (node: MessageNode): number => {
   if (node.originalIndex !== undefined) return node.originalIndex;
   const timestamp = Number(node.message.timestamp ?? Date.parse(String(node.message.createdAt ?? '')));
   return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
 };
 
-const mergeMessageNode = (existing: MessageNode, incoming: MessageNode): MessageNode => {
+export const mergeMessageNode = (existing: MessageNode, incoming: MessageNode): MessageNode => {
   const incomingChildCount = incoming.childCount ?? 0;
   const existingChildCount = existing.childCount ?? 0;
   const shouldPreserveLoadedChildren = existing.children?.length
@@ -233,6 +233,13 @@ const mergeMessageNode = (existing: MessageNode, incoming: MessageNode): Message
     isExpanded: existing.isExpanded ?? incoming.isExpanded,
   } as MessageNode;
 };
+
+export const sortMessageNodes = (nodes: MessageNode[]): MessageNode[] => (
+  [...nodes].sort((a, b) => {
+    const order = getMessageNodeOrder(a) - getMessageNodeOrder(b);
+    return order !== 0 ? order : String(a.message.id).localeCompare(String(b.message.id));
+  })
+);
 
 const reconcileWindowForVisibleMessages = (
   window: MessageWindowState | undefined,
@@ -285,10 +292,7 @@ const mergeTimelineConversation = (
   return {
     ...current,
     ...incoming,
-    threadedMessages: Array.from(byId.values()).sort((a, b) => {
-      const order = getNodeOrder(a) - getNodeOrder(b);
-      return order !== 0 ? order : String(a.message.id).localeCompare(String(b.message.id));
-    }),
+    threadedMessages: sortMessageNodes(Array.from(byId.values())),
   };
 };
 

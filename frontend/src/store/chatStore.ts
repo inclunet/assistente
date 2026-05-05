@@ -33,6 +33,8 @@ import {
   patchChatConversation,
   patchChatSession,
   removeChatSession,
+  mergeMessageNode,
+  sortMessageNodes,
   type ActiveConversation,
   type ChatConversationSession,
   type ChatSurfaceSession,
@@ -273,34 +275,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         byId.set(String(node.message.id), node);
         continue;
       }
-      const incomingChildCount = node.childCount ?? 0;
-      const existingChildCount = existingNode.childCount ?? 0;
-      const shouldPreserveLoadedChildren = existingNode.children?.length
-        && !node.children?.length
-        && incomingChildCount >= existingChildCount;
-      byId.set(String(node.message.id), Object.assign(node, {
-        ...node,
-        children: node.children?.length
-          ? node.children
-          : shouldPreserveLoadedChildren
-            ? existingNode.children
-            : node.children,
-        childCount: node.childCount ?? existingNode.childCount,
-        originalIndex: node.originalIndex ?? existingNode.originalIndex,
-        isExpanded: existingNode.isExpanded ?? node.isExpanded,
-      }));
+      byId.set(String(node.message.id), mergeMessageNode(existingNode, node));
     }
-    return Array.from(byId.values()).sort((a, b) => {
-      if (a.originalIndex !== undefined && b.originalIndex !== undefined && a.originalIndex !== b.originalIndex) {
-        return a.originalIndex - b.originalIndex;
-      }
-      const aTime = Number(a.message.timestamp ?? Date.parse(String(a.message.createdAt ?? '')));
-      const bTime = Number(b.message.timestamp ?? Date.parse(String(b.message.createdAt ?? '')));
-      const aOrder = Number.isFinite(aTime) ? aTime : Number.MAX_SAFE_INTEGER;
-      const bOrder = Number.isFinite(bTime) ? bTime : Number.MAX_SAFE_INTEGER;
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return String(a.message.id).localeCompare(String(b.message.id));
-    });
+    return sortMessageNodes(Array.from(byId.values()));
   };
 
   const trimRenderedWindow = (
@@ -315,8 +292,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const trimmedNodes = keep === 'start'
       ? nodes.slice(0, MAX_RENDERED_MESSAGE_WINDOW_SIZE)
       : nodes.slice(nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE);
-    const startIndex = trimmedNodes[0]?.originalIndex ?? window.startIndex;
-    const endIndex = trimmedNodes[trimmedNodes.length - 1]?.originalIndex ?? window.endIndex;
+    const explicitIndexes = trimmedNodes
+      .map((node) => node.originalIndex)
+      .filter((index): index is number => index !== undefined);
+    const startIndex = explicitIndexes.length ? Math.min(...explicitIndexes) : window.startIndex;
+    const endIndex = explicitIndexes.length ? Math.max(...explicitIndexes) : window.endIndex;
 
     return {
       nodes: trimmedNodes,
@@ -379,23 +359,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const updatedVisible = visibleNodes.map((node) => {
       const incoming = incomingById.get(String(node.message.id));
       if (!incoming) return node;
-      const incomingChildCount = incoming.childCount ?? 0;
-      const existingChildCount = node.childCount ?? 0;
-      const shouldPreserveLoadedChildren = node.children?.length
-        && !incoming.children?.length
-        && incomingChildCount >= existingChildCount;
-      return {
-        ...node,
-        ...incoming,
-        children: incoming.children?.length
-          ? incoming.children
-          : shouldPreserveLoadedChildren
-            ? node.children
-            : incoming.children,
-        childCount: incoming.childCount ?? node.childCount,
-        originalIndex: incoming.originalIndex ?? node.originalIndex,
-        isExpanded: node.isExpanded ?? incoming.isExpanded,
-      } as MessageNode;
+      return mergeMessageNode(node, incoming);
     });
     if (window?.hasAfter) return updatedVisible;
     const appendedNodes = incomingNodes.filter((node) => !visibleIds.has(String(node.message.id)));
@@ -441,6 +405,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             : patch.messageWindow;
           return patchSession(state, conversationId, {
             ...patch,
+            visibleThreadedMessages,
             ...(messageWindow ? { messageWindow } : {}),
           }, targetSessionKey);
         }
@@ -472,6 +437,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           surfaceSessionsByKey[sessionKey] = {
             ...session,
             ...surfacePatch,
+            visibleThreadedMessages,
             ...(messageWindow ? { messageWindow } : {}),
             surfaceOrigin: patch.surfaceOrigin ?? session.surfaceOrigin,
           };
@@ -707,20 +673,25 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       try {
         const snapshot = await loadConversationSnapshot(id, INITIAL_MESSAGE_WINDOW_SIZE);
         set((state) => {
+          const { nodes: visibleThreadedMessages, window: messageWindow } = trimRenderedWindow(
+            snapshot.threadedMessages,
+            snapshot.messageWindow,
+            'end',
+          );
           const conversation = {
             id,
             title: snapshot.title,
-            threadedMessages: snapshot.threadedMessages,
+            threadedMessages: visibleThreadedMessages,
             channel: snapshot.channel,
             contactId: snapshot.contactId,
           };
           const patches = patchSession(state, id, {
             conversation,
             isLoading: state.loadingConversationIds.has(id),
-            hasOlderMessages: snapshot.hasOlderMessages,
+            hasOlderMessages: messageWindow.hasBefore,
             isLoadingOlderMessages: false,
-            visibleThreadedMessages: snapshot.threadedMessages,
-            messageWindow: snapshot.messageWindow,
+            visibleThreadedMessages,
+            messageWindow,
           });
           const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey ?? {}) };
           for (const [sessionKey, surfaceSession] of Object.entries(surfaceSessionsByKey)) {
@@ -738,10 +709,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }
             surfaceSessionsByKey[sessionKey] = {
               ...surfaceSession,
-              hasOlderMessages: snapshot.hasOlderMessages,
+              hasOlderMessages: messageWindow.hasBefore,
               isLoadingOlderMessages: false,
-              visibleThreadedMessages: snapshot.threadedMessages,
-              messageWindow: snapshot.messageWindow,
+              visibleThreadedMessages,
+              messageWindow,
             };
           }
           return {
@@ -989,11 +960,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const boundaryVisibleThreadedMessages = boundaryWindow.nodes.map((node) => (
             cachedById.get(String(node.message.id)) ?? node
           ));
-          const messageWindow = boundaryWindow.messageWindow;
+          const { nodes: visibleThreadedMessages, window: messageWindow } = trimRenderedWindow(
+            boundaryVisibleThreadedMessages,
+            boundaryWindow.messageWindow,
+            anchor === 'start' ? 'start' : 'end',
+          );
           const patches = patchSession(current, conversationId, {
-            hasOlderMessages: boundaryWindow.hasOlderMessages,
+            hasOlderMessages: messageWindow.hasBefore,
             isLoadingOlderMessages: false,
-            visibleThreadedMessages: boundaryVisibleThreadedMessages,
+            visibleThreadedMessages,
             messageWindow,
           }, sessionKey);
           return {

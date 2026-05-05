@@ -198,6 +198,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const internalContainerRef = useRef<HTMLDivElement>(null);
   const pendingScrollRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const suppressNextScrollLoadRef = useRef(false);
+  const suppressScrollLoadTimerRef = useRef<number | null>(null);
   
   // Use external ref if provided, otherwise use internal ref
   const containerRef = (ref as React.RefObject<HTMLDivElement>) || internalContainerRef;
@@ -247,9 +248,13 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     suppressNextScrollLoadRef.current = true;
     messagesEndRef.current?.scrollIntoView({ behavior });
-    window.setTimeout(() => {
+    if (suppressScrollLoadTimerRef.current !== null) {
+      window.clearTimeout(suppressScrollLoadTimerRef.current);
+    }
+    suppressScrollLoadTimerRef.current = window.setTimeout(() => {
       suppressNextScrollLoadRef.current = false;
-    }, 0);
+      suppressScrollLoadTimerRef.current = null;
+    }, behavior === 'smooth' ? 500 : 0);
   };
 
   const handleLoadOlder = () => {
@@ -316,7 +321,6 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     if (!container) return;
     const handleScroll = () => {
       if (suppressNextScrollLoadRef.current) {
-        suppressNextScrollLoadRef.current = false;
         return;
       }
       if (container.scrollTop < 48 && hasOlderMessages && !isLoadingOlderMessages) {
@@ -329,7 +333,14 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       }
     };
     container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (suppressScrollLoadTimerRef.current !== null) {
+        window.clearTimeout(suppressScrollLoadTimerRef.current);
+        suppressScrollLoadTimerRef.current = null;
+      }
+      suppressNextScrollLoadRef.current = false;
+    };
   }, [hasNewerMessages, hasOlderMessages, isLoadingOlderMessages, onLoadNewer, onLoadOlder]);
 
   if (threadedMessages.length === 0) {
