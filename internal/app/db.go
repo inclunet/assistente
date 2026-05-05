@@ -70,6 +70,22 @@ func buildMessageNodes(messages []database.ChatMessage, parentID *string) []chat
 	return chat.BuildMessageNodes(messages, childCounts, parentID)
 }
 
+func assignMessageNodeOriginalIndexes(nodes []chat.MessageNode, indexesByID map[string]int) []chat.MessageNode {
+	if len(indexesByID) == 0 {
+		return nodes
+	}
+	for i := range nodes {
+		if index, ok := indexesByID[nodes[i].Message.ID]; ok {
+			value := index
+			nodes[i].OriginalIndex = &value
+		}
+		if len(nodes[i].Children) > 0 {
+			nodes[i].Children = assignMessageNodeOriginalIndexes(nodes[i].Children, indexesByID)
+		}
+	}
+	return nodes
+}
+
 func expandWindowTurnMessages(conversationID string, parentID *string, messages []database.ChatMessage) ([]database.ChatMessage, error) {
 	turnIDs := make([]string, 0)
 	seenTurns := make(map[string]bool)
@@ -203,16 +219,21 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	if err != nil {
 		return nil, err
 	}
+	originalIndexesByMessageID := make(map[string]int, len(window.Messages))
+	for index, message := range window.Messages {
+		originalIndexesByMessageID[message.ID] = window.StartIndex + index
+	}
 	messages, err := expandWindowTurnMessages(conversationID, parentID, window.Messages)
 	if err != nil {
 		return nil, err
 	}
+	nodes := assignMessageNodeOriginalIndexes(buildMessageNodes(messages, parentID), originalIndexesByMessageID)
 
 	return &chat.MessageWindow{
 		Scope:          scope,
 		ConversationID: conversationID,
 		ThreadParentID: threadParentID,
-		Nodes:          buildMessageNodes(messages, parentID),
+		Nodes:          nodes,
 		TotalCount:     window.TotalCount,
 		StartIndex:     window.StartIndex,
 		EndIndex:       window.EndIndex,

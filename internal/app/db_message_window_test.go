@@ -139,7 +139,8 @@ func TestGetConversationMessageWindow_ExpandsTurnBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create assistant tool call: %v", err)
 	}
-	if _, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
+	toolResult, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1")
+	if err != nil {
 		t.Fatalf("create tool result: %v", err)
 	}
 
@@ -163,5 +164,13 @@ func TestGetConversationMessageWindow_ExpandsTurnBoundaries(t *testing.T) {
 	}
 	if len(window.Nodes) < 2 {
 		t.Fatalf("expected turn expansion to include more than raw limited row, got %d node(s)", len(window.Nodes))
+	}
+	for _, node := range window.Nodes {
+		if node.Message.ID == assistant.ID && node.OriginalIndex != nil {
+			t.Fatalf("expanded assistant outside raw window should not receive invented originalIndex")
+		}
+		if node.Message.ID == toolResult.ID && node.OriginalIndex == nil {
+			t.Fatalf("raw window message should preserve originalIndex")
+		}
 	}
 }

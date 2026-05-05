@@ -1572,6 +1572,7 @@ export namespace main {
 	    children?: MessageNode[];
 	    level: number;
 	    childCount: number;
+	    originalIndex?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageNode(source);
@@ -1583,6 +1584,7 @@ export namespace main {
 	        this.children = this.convertValues(source["children"], MessageNode);
 	        this.level = source["level"];
 	        this.childCount = source["childCount"];
+	        this.originalIndex = source["originalIndex"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

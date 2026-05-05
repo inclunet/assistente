@@ -137,6 +137,26 @@ describe('chatSessionLoader', () => {
     expect(result.nodes[0].originalIndex).toBe(2);
   });
 
+  it('não inventa índices absolutos quando a janela vem expandida por turno', async () => {
+    const rawWindowNode = node('raw-window');
+    rawWindowNode.originalIndex = 4;
+    mockGetConversationMessageWindow.mockResolvedValue(main.MessageWindow.createFrom({
+      scope: 'conversation',
+      conversationId: 'conversation-1',
+      nodes: [node('expanded-before'), rawWindowNode],
+      totalCount: 10,
+      startIndex: 4,
+      endIndex: 4,
+      hasBefore: true,
+      hasAfter: true,
+    }));
+
+    const result = await loadNewerConversationMessages('conversation-1', 'cursor', 1);
+
+    expect(result.nodes[0].originalIndex).toBeUndefined();
+    expect(result.nodes[1].originalIndex).toBe(4);
+  });
+
   it('recarrega snapshot sem metadados da conversa', async () => {
     mockGetConversationMessageWindow.mockResolvedValue(windowResult(['message-1']));
 

@@ -255,7 +255,7 @@ const reconcileWindowForVisibleMessages = (
     .filter((index): index is number => index !== undefined);
   const startIndex = explicitIndexes.length ? Math.min(...explicitIndexes) : Math.min(window.startIndex, totalCountHint - 1);
   const endIndex = explicitIndexes.length ? Math.max(...explicitIndexes) : startIndex + nodes.length - 1;
-  const totalCount = Math.max(totalCountHint, endIndex + 1);
+  const totalCount = Math.max(window.totalCount, totalCountHint, endIndex + 1);
 
   return {
     ...window,

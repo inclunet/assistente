@@ -61,6 +61,16 @@ function normalizeWindow(rawWindow: {
   };
 }
 
+function normalizeWindowNodes(nodes: MessageNode[], window: MessageWindowState): MessageNode[] {
+  const expectedWindowRows = Math.max(0, window.endIndex - window.startIndex + 1);
+  const canInferContiguousIndexes = expectedWindowRows === nodes.length;
+  return nodes.map((node, index) => {
+    if (node.originalIndex !== undefined) return node;
+    if (!canInferContiguousIndexes) return node;
+    return withOriginalIndex(node, window.startIndex + index);
+  });
+}
+
 async function loadConversationMessageWindow(request: {
   conversationId: string;
   anchor?: 'start' | 'end';
@@ -78,7 +88,7 @@ async function loadConversationMessageWindow(request: {
   });
   const window = normalizeWindow(backendWindow ?? {});
   return {
-    nodes: (backendWindow?.nodes || []).map((node, index) => withOriginalIndex(node, window.startIndex + index)),
+    nodes: normalizeWindowNodes((backendWindow?.nodes || []) as MessageNode[], window),
     window,
   };
 }

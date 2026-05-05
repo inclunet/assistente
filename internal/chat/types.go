@@ -49,10 +49,11 @@ type EnrichedMessage struct {
 }
 
 type MessageNode struct {
-	Message    EnrichedMessage `json:"message"`
-	Children   []MessageNode   `json:"children,omitempty"`
-	Level      int             `json:"level"`
-	ChildCount int             `json:"childCount"`
+	Message       EnrichedMessage `json:"message"`
+	Children      []MessageNode   `json:"children,omitempty"`
+	Level         int             `json:"level"`
+	ChildCount    int             `json:"childCount"`
+	OriginalIndex *int            `json:"originalIndex,omitempty"`
 }
 
 type MessageWindow struct {
