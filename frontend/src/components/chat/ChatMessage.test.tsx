@@ -4,6 +4,7 @@ import { main } from '../../../wailsjs/go/models';
 import { ChatMessage } from './ChatMessage';
 
 const subscribeSpy = vi.fn();
+const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -16,6 +17,18 @@ vi.mock('../../store/chatStore', () => {
     return () => {};
   };
   useChatStore.getState = () => ({
+    sessionsByConversationId: {
+      [conversationId]: {
+        streamingMessageId: null,
+        completedSegments: [],
+        activeToolCalls: [],
+        conversation: {
+          id: conversationId,
+          title: 'Conversa',
+          threadedMessages: [],
+        },
+      },
+    },
     streamingMessageId: null,
     completedSegments: [],
     activeToolCalls: [],
@@ -57,7 +70,7 @@ describe('ChatMessage', () => {
     const onSpeak = vi.fn();
     const message = new main.EnrichedMessage({
       id: '1',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId,
       role: 'user',
       content: 'Ola',
       createdAt: new Date().toISOString(),
@@ -80,7 +93,7 @@ describe('ChatMessage', () => {
   it('renderiza modo de edicao', () => {
     const message = new main.EnrichedMessage({
       id: '1',
-      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      conversationId,
       role: 'user',
       content: 'Ola',
       createdAt: new Date().toISOString(),

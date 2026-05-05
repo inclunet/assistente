@@ -49,14 +49,16 @@ func (m *mockMsgRepo) CreateMessage(opts chat.MessageOptions) (*chat.Message, er
 func (m *mockMsgRepo) GetMessage(messageID string) (*chat.Message, error) {
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}}, nil
 }
-func (m *mockMsgRepo) GetMessages(string, *string) ([]chat.Message, error)    { return nil, nil }
-func (m *mockMsgRepo) GetConversationSummary(string) (string, string, error)   { return "", "", nil }
+func (m *mockMsgRepo) GetMessages(string, *string) ([]chat.Message, error)   { return nil, nil }
+func (m *mockMsgRepo) GetConversationSummary(string) (string, string, error) { return "", "", nil }
 func (m *mockMsgRepo) GetDetailedTokenStats(string, string) (*chat.DetailedTokenStats, error) {
 	return nil, nil
 }
-func (m *mockMsgRepo) GetContextWindowUsage(string, int) (float64, int, error)   { return 0, 0, nil }
-func (m *mockMsgRepo) GetRecentMessagesTokenCount(string, int) (int, error)      { return 0, nil }
-func (m *mockMsgRepo) GetTurnTokenStats(string, string) (*database.TokenStats, error) { return nil, nil }
+func (m *mockMsgRepo) GetContextWindowUsage(string, int) (float64, int, error) { return 0, 0, nil }
+func (m *mockMsgRepo) GetRecentMessagesTokenCount(string, int) (int, error)    { return 0, nil }
+func (m *mockMsgRepo) GetTurnTokenStats(string, string) (*database.TokenStats, error) {
+	return nil, nil
+}
 func (m *mockMsgRepo) AddAssistantToolMessage(conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
 	m.nextID++
 	id := fmt.Sprintf("%d", m.nextID)
@@ -89,7 +91,7 @@ func TestSaveAndFinish_CallsOnSpeechRequestBeforeChatDone(t *testing.T) {
 	svc.SaveAndFinish("1", "", AgenticResult{
 		FullResponse: "Olá, mundo!",
 		Model:        "test-model",
-	}, "", nil)
+	}, "", nil, nil)
 
 	// Verificar que speech foi chamado
 	if len(speechCalls) != 1 {
@@ -146,7 +148,7 @@ func TestSaveAndFinish_NilOnSpeechRequest_NoPanic(t *testing.T) {
 	svc.SaveAndFinish("1", "", AgenticResult{
 		FullResponse: "Sem TTS",
 		Model:        "test-model",
-	}, "", nil)
+	}, "", nil, nil)
 
 	evts := emitter.getEvents()
 	hasDone := false
@@ -176,7 +178,7 @@ func TestSaveAndFinish_EmptyResponse_NoSpeechCall(t *testing.T) {
 	svc.SaveAndFinish("1", "", AgenticResult{
 		FullResponse: "",
 		Model:        "test-model",
-	}, "", nil)
+	}, "", nil, nil)
 
 	if called {
 		t.Error("OnSpeechRequest não deveria ser chamado com resposta vazia")
@@ -199,7 +201,7 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 	svc.SaveAndFinish("42", "", AgenticResult{
 		FullResponse: "Resposta com ID",
 		Model:        "test-model",
-	}, "", nil)
+	}, "", nil, nil)
 
 	// msgRepo.CreateMessage retorna nextID=1
 	if gotMsgID != "1" {

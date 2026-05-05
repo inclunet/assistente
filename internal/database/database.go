@@ -532,7 +532,7 @@ func ClearAllConversations() error {
 // GetMessages retorna mensagens de uma conversa com filtro opcional por parent
 func GetMessages(conversationID string, parentID *string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	query := db.Order("created_at ASC")
+	query := db.Order("created_at ASC, id ASC")
 
 	if parentID != nil {
 		query = query.Where("parent_id = ?", *parentID)
@@ -547,10 +547,74 @@ func GetMessages(conversationID string, parentID *string) ([]ChatMessage, error)
 	return messages, err
 }
 
+// GetRecentRootMessages retorna as mensagens raiz mais recentes de uma conversa,
+// preservando ordem cronológica no retorno.
+func GetRecentRootMessages(conversationID string, limit int) ([]ChatMessage, error) {
+	if conversationID == "" {
+		return nil, fmt.Errorf("conversationID é obrigatório para buscar mensagens recentes")
+	}
+	if limit <= 0 {
+		return []ChatMessage{}, nil
+	}
+
+	var messages []ChatMessage
+	err := db.Where("conversation_id = ? AND parent_id IS NULL", conversationID).
+		Order("created_at DESC, id DESC").
+		Limit(limit).
+		Find(&messages).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+	return messages, nil
+}
+
+// GetRootMessagesBefore retorna mensagens raiz anteriores a beforeID,
+// preservando ordem cronológica no retorno.
+func GetRootMessagesBefore(conversationID string, beforeID string, limit int) ([]ChatMessage, error) {
+	if conversationID == "" {
+		return nil, fmt.Errorf("conversationID é obrigatório para buscar mensagens anteriores")
+	}
+	if beforeID == "" {
+		return nil, fmt.Errorf("beforeID é obrigatório para buscar mensagens anteriores")
+	}
+	if limit <= 0 {
+		return []ChatMessage{}, nil
+	}
+
+	var before ChatMessage
+	if err := db.Select("id", "created_at").First(&before, "id = ? AND conversation_id = ?", beforeID, conversationID).Error; err != nil {
+		return nil, err
+	}
+
+	var messages []ChatMessage
+	err := db.Where(
+		"conversation_id = ? AND parent_id IS NULL AND (created_at < ? OR (created_at = ? AND id < ?))",
+		conversationID,
+		before.CreatedAt,
+		before.CreatedAt,
+		before.ID,
+	).
+		Order("created_at DESC, id DESC").
+		Limit(limit).
+		Find(&messages).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+	return messages, nil
+}
+
 // GetAllConversationMessages retorna todas as mensagens de uma conversa (incluindo filhas)
 func GetAllConversationMessages(conversationID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("conversation_id = ?", conversationID).Order("created_at ASC").Find(&messages).Error
+	err := db.Where("conversation_id = ?", conversationID).Order("created_at ASC, id ASC").Find(&messages).Error
 	return messages, err
 }
 

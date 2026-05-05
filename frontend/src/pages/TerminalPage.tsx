@@ -2,10 +2,11 @@ import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
-import { useWorkspaceStore, useActiveTab } from '../store/workspaceStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import type { WorkspaceChatModalAdapter } from '../store/workspaceChatModalStore';
 import { useRegisterWorkspaceChatAdapter } from '../hooks/useRegisterWorkspaceChatAdapter';
+import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
@@ -13,23 +14,28 @@ import { useTabScrollState } from '../hooks/useTabScrollState';
 import { buildChatSurfaceParams } from '../lib/chatSurface';
 import './TerminalPage.css';
 
-export default function TerminalPage() {
+interface TerminalPageProps {
+  sessionId?: string;
+}
+
+export default function TerminalPage({ sessionId: explicitSessionId }: TerminalPageProps = {}) {
   const { t } = useTranslation();
-  const wsActiveTab = useActiveTab();
+  const { tab: panelTab, isActive } = useWorkspacePanel();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const tabProfileSlug = wsActiveTab?.type === 'terminal'
-    ? (wsActiveTab.profileOverride?.slug as string | undefined)
+  const tabProfileSlug = panelTab?.type === 'terminal'
+    ? (panelTab.profileOverride?.slug as string | undefined)
     : undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
+  const panelSessionId = typeof panelTab.state?.sessionId === 'string' ? panelTab.state.sessionId : undefined;
+  const currentSessionId = explicitSessionId ?? panelSessionId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
-  useTabScrollState(historyContainerRef);
+  useTabScrollState(historyContainerRef, panelTab.id);
 
   const {
     sessions,
-    activeSessionId,
     historyBySession,
-    isLoading,
+    loadingHistoryBySession,
     sendInput,
     interrupt,
     setupEventListeners,
@@ -41,35 +47,45 @@ export default function TerminalPage() {
   }, [setupEventListeners]);
 
   useEffect(() => {
-    if (activeSessionId && inputRef.current) {
+    if (isActive && currentSessionId && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [activeSessionId]);
+  }, [currentSessionId, isActive]);
 
   // Ctrl+C para interromper (único atalho que faz sentido no terminal embarcado)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActive) return;
       if (e.ctrlKey && e.key === 'c' && !e.shiftKey && !e.altKey) {
+        const activeElement = document.activeElement;
+        const hasInputSelection = (
+          activeElement instanceof HTMLInputElement
+          || activeElement instanceof HTMLTextAreaElement
+        )
+          && activeElement.selectionStart !== null
+          && activeElement.selectionEnd !== null
+          && activeElement.selectionStart !== activeElement.selectionEnd;
         const selection = window.getSelection();
         const hasSelection = selection && selection.toString().length > 0;
-        if (!hasSelection && useTerminalStore.getState().activeSessionId) {
+        if (!hasInputSelection && !hasSelection && currentSessionId) {
           e.preventDefault();
-          interrupt();
+          interrupt(currentSessionId);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [interrupt]);
+  }, [currentSessionId, interrupt, isActive]);
 
-  const activeSession = sessions.find(s => s.id === activeSessionId);
-  const currentHistory = activeSessionId ? (historyBySession[activeSessionId] || []) : [];
+  const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
+  const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
+  const isCurrentHistoryLoading = currentSessionId ? Boolean(loadingHistoryBySession[currentSessionId]) : false;
 
   const handleSendInput = useCallback(async (input: string) => {
-    if (!activeSessionId) return;
-    await sendInput(input);
-  }, [activeSessionId, sendInput]);
+    if (!currentSessionId) return;
+    await sendInput(currentSessionId, input);
+  }, [currentSessionId, sendInput]);
 
   const handleArrowUp = useCallback(() => {
     const container = historyContainerRef.current;
@@ -88,7 +104,7 @@ export default function TerminalPage() {
   }, []);
 
   const terminalChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
-    if (!wsActiveTab || wsActiveTab.type !== 'terminal') return null;
+    if (!panelTab || panelTab.type !== 'terminal') return null;
 
     return {
       prepare: async () => {
@@ -116,7 +132,7 @@ export default function TerminalPage() {
         return {
           content: instruction,
           mediaFiles: media,
-          paramsOverride: buildChatSurfaceParams(wsActiveTab, {
+          paramsOverride: buildChatSurfaceParams(panelTab, {
             profileSlug: effectiveProfileSlug || undefined,
             context: {
               historyPreview: contextDisplay,
@@ -126,9 +142,9 @@ export default function TerminalPage() {
         };
       },
     };
-  }, [wsActiveTab, currentHistory, effectiveProfileSlug, t]);
+  }, [panelTab, currentHistory, effectiveProfileSlug, t]);
 
-  useRegisterWorkspaceChatAdapter(wsActiveTab?.id, terminalChatModalAdapter);
+  useRegisterWorkspaceChatAdapter(panelTab?.id, terminalChatModalAdapter);
 
   return (
     <div className="terminal-page">
@@ -147,7 +163,7 @@ export default function TerminalPage() {
               icon: <MessageOutlined />,
               shortcut: 'Ctrl+Shift+I',
               onClick: () => {
-                void useWorkspaceChatModalStore.getState().requestOpen();
+                void useWorkspaceChatModalStore.getState().requestOpen(panelTab.id);
               },
             },
           ]}
@@ -165,7 +181,9 @@ export default function TerminalPage() {
                 label={t('terminal.buttons.stop')}
                 icon="■"
                 shortcut="Ctrl+C"
-                onClick={() => interrupt()}
+                onClick={() => {
+                  if (currentSessionId) void interrupt(currentSessionId);
+                }}
               />
             </>
           }
@@ -177,7 +195,7 @@ export default function TerminalPage() {
         ref={historyContainerRef}
         entries={currentHistory}
         runningCommandId={null}
-        isLoading={isLoading}
+        isLoading={isCurrentHistoryLoading}
         onReachEnd={handleReachEnd}
       />
 

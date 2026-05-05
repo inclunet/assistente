@@ -53,6 +53,10 @@ func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.Messa
 		return nil, err
 	}
 
+	return buildMessageNodes(messages, parentID), nil
+}
+
+func buildMessageNodes(messages []database.ChatMessage, parentID *string) []chat.MessageNode {
 	msgIDs := make([]string, len(messages))
 	for i, msg := range messages {
 		msgIDs[i] = msg.ID
@@ -61,8 +65,25 @@ func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.Messa
 	if err != nil {
 		childCounts = make(map[string]int)
 	}
+	return chat.BuildMessageNodes(messages, childCounts, parentID)
+}
 
-	return chat.BuildMessageNodes(messages, childCounts, parentID), nil
+// GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
+func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.MessageNode, error) {
+	messages, err := database.GetRecentRootMessages(conversationID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return buildMessageNodes(messages, nil), nil
+}
+
+// GetMessagesBefore retorna mensagens raiz anteriores ao cursor informado.
+func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit int) ([]chat.MessageNode, error) {
+	messages, err := database.GetRootMessagesBefore(conversationID, beforeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return buildMessageNodes(messages, nil), nil
 }
 
 // GetConversationInfo retorna apenas metadados da conversa (sem mensagens)
@@ -239,9 +260,9 @@ func (a *App) GetAllTokenStats() (map[string]int, error) {
 // ==================== Rolling Context (Summary) ====================
 
 type ConversationSummaryInfo struct {
-	Summary              string `json:"summary"`
-	SummaryUpToMessageID string `json:"summary_up_to_message_id"`
-	SummarizingInProgress bool  `json:"summarizing_in_progress"`
+	Summary               string `json:"summary"`
+	SummaryUpToMessageID  string `json:"summary_up_to_message_id"`
+	SummarizingInProgress bool   `json:"summarizing_in_progress"`
 }
 
 func (a *App) GetConversationSummary(conversationID string) (*ConversationSummaryInfo, error) {
@@ -251,8 +272,8 @@ func (a *App) GetConversationSummary(conversationID string) (*ConversationSummar
 	}
 	inProgress, _ := database.IsSummarizingInProgress(conversationID)
 	return &ConversationSummaryInfo{
-		Summary:              summary,
-		SummaryUpToMessageID: upToID,
+		Summary:               summary,
+		SummaryUpToMessageID:  upToID,
 		SummarizingInProgress: inProgress,
 	}, nil
 }
@@ -320,5 +341,3 @@ func (a *App) GetEffectiveModel() (string, error) {
 	}
 	return cfg.DefaultModel, nil
 }
-
-

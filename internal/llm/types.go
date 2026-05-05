@@ -213,6 +213,10 @@ type ChatParams struct {
 	ActiveFilePath       string  `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
 	SurfaceStateJSON     string  `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
 	SurfaceContextJSON   string  `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
+	SurfaceSessionKey    string  `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
+	SurfaceID            string  `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
+	SurfaceType          string  `json:"surfaceType,omitempty"`          // page | embedded | modal | external
+	SurfaceTabID         string  `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
 }
 
 // ==================== Helper Functions ====================

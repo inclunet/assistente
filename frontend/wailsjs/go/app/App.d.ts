@@ -263,7 +263,11 @@ export function GetMessageAudio(arg1:string):Promise<main.AudioResult>;
 
 export function GetMessageChildren(arg1:string):Promise<Array<main.MessageNode>>;
 
+export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<main.MessageNode>>;
+
 export function GetMessages(arg1:string,arg2:any):Promise<Array<main.MessageNode>>;
+
+export function GetMessagesBefore(arg1:string,arg2:string,arg3:number):Promise<Array<main.MessageNode>>;
 
 export function GetMessagingStatus():Promise<Record<string, string>>;
 

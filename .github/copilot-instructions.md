@@ -54,11 +54,13 @@
 O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven definida na AEP-0040.
 
 ### Regras absolutas
-- **NUNCA crie uma nova função de envio de mensagens.** Existe UMA única `SendMessage` no backend (`app_chat.go`) e UMA única `sendMessage` no frontend (`chatStore`). Toda mensagem — vinda do frontend, de canais, de deep links, de qualquer lugar — DEVE passar por essas funções. Se precisar customizar comportamento, use parâmetros.
+- **NUNCA crie fluxo alternativo de envio de mensagens.** Existe UMA única `SendMessage` no backend (`app_chat.go`) para mensagens novas e `RetryMessage` para retry explícito. No frontend, componentes e controllers por aba/conversa devem reutilizar o contrato/pipeline compartilhado de envio; não duplique validação, serialização, parâmetros ou chamada ao backend em wrappers divergentes.
 - **NUNCA crie mensagens locais no frontend.** O frontend não gera IDs, não insere mensagens otimistas, não cria placeholders. Só renderiza o que o backend emite via eventos.
 - **Mensagens só podem ser enviadas para conversas que já existem.** `SendMessage` com `conversationID=0` ou inexistente é erro. Nunca crie conversa implicitamente dentro do fluxo de envio.
 - **Todo evento de chat DEVE carregar `conversationId`.** Sem exceções.
 - **Conversas são independentes de abas.** Conversas existem no banco sem vínculo com UI. Canais (Telegram, Signal) criam conversas sem abas.
+- **Controllers por aba/conversa são permitidos.** Cada controller deve filtrar eventos por `conversationId`, manter apenas seu estado visual próprio e delegar envio/retry ao contrato compartilhado.
+- **Announcer, TTS e STT são serviços globais arbitrados.** Não crie múltiplas live regions por aba; TTS não pode falar em paralelo; STT local só pode escutar a aba ativa.
 
 ### Referência
 - Detalhes completos no AEP de backend-driven-messaging em `aep/`.

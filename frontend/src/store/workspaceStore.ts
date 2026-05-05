@@ -27,7 +27,7 @@ import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 export type TabType = 'chat' | 'editor' | 'terminal' | 'tasklist';
 
 // Registry: handlers called when user renames a tab via F2 (tab → content)
-// The id passed to the handler is type-specific: conversationId (chat), tasklistId (tasklist), sessionId (terminal)
+// The id passed to the handler is type-specific: conversationId (chat), tabId (editor), tasklistId (tasklist), sessionId (terminal)
 const tabRenameHandlers = new Map<TabType, (id: string, newTitle: string) => void>();
 
 export function registerTabRenameHandler(
@@ -491,6 +491,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       let matches = false;
       if (type === 'chat') {
         matches = tab.conversationId === contentId;
+      } else if (type === 'editor') {
+        matches = tab.id === contentId;
       } else if (type === 'tasklist') {
         matches = tab.state?.tasklistId === contentId;
       } else if (type === 'terminal') {
@@ -508,6 +510,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     let ref: string | undefined;
     if (tab.type === 'chat' && tab.conversationId) {
       ref = tab.conversationId;
+    } else if (tab.type === 'editor') {
+      ref = tab.id;
     } else if (tab.type === 'tasklist') {
       ref = tab.state?.tasklistId as string | undefined;
     } else if (tab.type === 'terminal') {

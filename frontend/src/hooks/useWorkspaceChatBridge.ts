@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore, useActiveTab, registerTabRenameHandler } from '../store/workspaceStore';
+import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
 import { RenameConversation } from '@wailsjs/go/app/App';
 import { ensureWorkspaceTabConversationId } from '../lib/workspaceConversation';
@@ -14,15 +14,17 @@ const MINI_CHAT_LAZY_CONVERSATION: ReadonlySet<TabType> = new Set(['editor', 'te
  *
  * Fluxo:
  * 1. Workspace ativa qualquer aba
- * 2. Se conversationId não vazio (UUIDv7 válido) → chatStore.loadConversation(id)
+ * 2. Se aba de chat tem conversationId válido → carrega o timeline dessa conversa
  * 3. Se conversationId vazio e aba é chat → garante `conversationId` e só sincroniza o chatStore
  *    se a aba continuar ativa ao concluir a criação
- * 4. Se conversationId vazio e aba é editor/terminal/tasklist → clearActiveConversation (conversa criada no requestOpen do chat modal)
- * 5. Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
+ * 4. Se aba é editor/terminal/tasklist → carrega a sessão em background apenas quando já houver conversa
  */
 export function useWorkspaceChatBridge() {
-  const activeTab = useActiveTab();
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
+  const activeTab = useWorkspaceStore((s) => {
+    const activeTabId = s.workspace?.activeTabId;
+    return s.workspace?.tabs.find((tab) => tab.id === activeTabId);
+  });
 
   const lastSyncedRef = useRef<string | null>(null);
   /** Invalida `loadConversation` / `ensure` assíncronos quando a aba ativa muda antes de concluírem. */
@@ -38,20 +40,24 @@ export function useWorkspaceChatBridge() {
 
     const snapshotTabId = activeTab.id;
 
+    if (conversationId && MINI_CHAT_LAZY_CONVERSATION.has(activeTab.type)) {
+      void useChatStore.getState().loadConversationSession(conversationId);
+      lastSyncedRef.current = syncKey;
+      return;
+    }
+
     if (conversationId) {
       const gen = ++syncGenerationRef.current;
       void (async () => {
         try {
-          const chatState = useChatStore.getState();
-          if (chatState.activeConversationId !== conversationId) {
-            await useChatStore.getState().loadConversation(conversationId);
-          }
+          await useChatStore.getState().loadConversationSession(conversationId);
         } catch (error) {
           console.error('[WorkspaceChatBridge] Erro ao carregar conversa:', error);
           return;
         }
         if (syncGenerationRef.current !== gen) return;
-        const nowTab = useWorkspaceStore.getState().getActiveTab();
+        const workspace = useWorkspaceStore.getState().workspace;
+        const nowTab = workspace?.tabs.find((tab) => tab.id === workspace.activeTabId);
         if (!nowTab || nowTab.id !== snapshotTabId) return;
         if ((nowTab.conversationId || '') !== conversationId) return;
         lastSyncedRef.current = syncKey;
@@ -60,7 +66,6 @@ export function useWorkspaceChatBridge() {
     }
 
     if (MINI_CHAT_LAZY_CONVERSATION.has(activeTab.type)) {
-      useChatStore.getState().clearActiveConversation();
       lastSyncedRef.current = syncKey;
       return;
     }
@@ -70,17 +75,16 @@ export function useWorkspaceChatBridge() {
       try {
         const id = await ensureWorkspaceTabConversationId(activeTab);
         if (syncGenerationRef.current !== gen) return;
-        const nowTab = useWorkspaceStore.getState().getActiveTab();
+        const workspace = useWorkspaceStore.getState().workspace;
+        const nowTab = workspace?.tabs.find((tab) => tab.id === workspace.activeTabId);
         if (!nowTab || nowTab.id !== snapshotTabId) return;
         if ((nowTab.conversationId || '') !== id) return;
 
-        const chatState = useChatStore.getState();
-        if (chatState.activeConversationId !== id) {
-          await chatState.loadConversation(id);
-        }
+        await useChatStore.getState().loadConversationSession(id);
 
         if (syncGenerationRef.current !== gen) return;
-        const latestTab = useWorkspaceStore.getState().getActiveTab();
+        const latestWorkspace = useWorkspaceStore.getState().workspace;
+        const latestTab = latestWorkspace?.tabs.find((tab) => tab.id === latestWorkspace.activeTabId);
         if (!latestTab || latestTab.id !== snapshotTabId) return;
         if ((latestTab.conversationId || '') !== id) return;
         lastSyncedRef.current = `${snapshotTabId}:${id}`;
@@ -89,21 +93,6 @@ export function useWorkspaceChatBridge() {
       }
     })();
   }, [activeTab?.id, activeTab?.type, activeTab?.conversationId, isWsInitialized]);
-
-  // Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
-  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const tabProfileSlug = activeTab?.profileOverride?.slug as string | undefined;
-
-  useEffect(() => {
-    const effectiveSlug = tabProfileSlug || wsProfile || null;
-    useChatStore.getState().setContextProfileSlug(effectiveSlug);
-  }, [tabProfileSlug, wsProfile]);
-
-  useEffect(() => {
-    return () => {
-      useChatStore.getState().setContextProfileSlug(null);
-    };
-  }, []);
 
   // F2 tab rename → rename conversation in backend
   useEffect(() => {

@@ -7,6 +7,8 @@ const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
 const speakMessageMock = vi.fn();
+const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
+const activeConversation = { id: conversationId, title: 'Conversa', threadedMessages: [] };
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -25,19 +27,27 @@ vi.mock('../../services/tts', () => ({
 }));
 
 const chatStoreState = {
-  isLoading: false,
-  sendMessage: vi.fn(),
   retryMessageToConversation: vi.fn(),
-  activeConversation: { id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa', threadedMessages: [] },
-  getThreadedMessages: () => [],
+  ensureConversationSurfaceSession: vi.fn(),
+  removeConversationSurfaceSession: vi.fn(),
+  sessionsByConversationId: {
+    [conversationId]: {
+      conversation: activeConversation,
+      isLoading: false,
+      hasOlderMessages: false,
+      isLoadingOlderMessages: false,
+    },
+  },
+  timelinesByConversationId: {},
+  surfaceSessionsByKey: {},
   loadMessageChildren: vi.fn(),
-  getActiveConversation: () => ({ id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa' }),
-  loadConversation: vi.fn(),
-  updateMessage: updateMessageMock,
-  toggleReasoningExpanded: vi.fn(),
-  isReasoningExpanded: () => false,
-  startEditing: vi.fn(),
-  startReading: vi.fn(),
+  loadConversationSession: vi.fn(),
+  updateConversationMessage: updateMessageMock,
+  toggleConversationReasoningExpanded: vi.fn(),
+  isConversationReasoningExpanded: () => false,
+  startConversationEditing: vi.fn(),
+  startConversationReading: vi.fn(),
+  setConversationScrollState: vi.fn(),
 };
 
 vi.mock('../../store/chatStore', () => ({
@@ -91,16 +101,35 @@ vi.mock('./ChatToolbar', () => ({
   ),
 }));
 
-vi.mock('./MessageList', () => ({
-  MessageList: ({ onContextMenu }: { onContextMenu?: (event: MouseEvent, message: { id: string; role: string }) => void }) => (
-    <button
-      type="button"
-      onClick={() => onContextMenu?.(new MouseEvent('contextmenu'), { id: 'm1', role: 'user' })}
-    >
-      open-menu
-    </button>
-  ),
-}));
+vi.mock('./MessageList', async () => {
+  const React = await import('react');
+  return {
+    MessageList: React.forwardRef<HTMLDivElement, {
+      onContextMenu?: (event: MouseEvent, message: { id: string; role: string }) => void;
+      threadedMessages?: Array<{ id: string }>;
+    }>((
+    {
+      onContextMenu,
+      threadedMessages = [],
+    },
+    ref: React.Ref<HTMLDivElement>,
+  ) => (
+    <div ref={ref} data-testid="message-list">
+      <button
+        type="button"
+        onClick={() => onContextMenu?.(new MouseEvent('contextmenu'), { id: 'm1', role: 'user' })}
+      >
+        open-menu
+      </button>
+      {threadedMessages.map((message) => (
+        <div key={message.id} data-message-node data-message-id={message.id}>
+          {message.id}
+        </div>
+      ))}
+    </div>
+  )),
+  };
+});
 
 vi.mock('./ChatInput', async () => {
   const React = await import('react');
@@ -141,17 +170,53 @@ vi.mock('../../utils/errorHandler', () => ({
 }));
 
 import { ChatSessionView } from './ChatSessionView';
+import { createEmptyChatSurfaceSession, type ChatSurfaceIdentity } from '../../services/chatSessionRegistry';
+import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
+
+const panelTab = {
+  id: 'chat-tab',
+  type: 'chat' as const,
+  title: 'Chat',
+  position: 0,
+  conversationId,
+};
+
+const surface = (overrides: Partial<ChatSurfaceIdentity> = {}): ChatSurfaceIdentity => {
+  const surfaceId = overrides.surfaceId ?? `page:tab:${panelTab.id}`;
+  const targetConversationId = overrides.conversationId !== undefined
+    ? overrides.conversationId
+    : conversationId;
+  return {
+    conversationId: targetConversationId,
+    sessionKey: overrides.sessionKey ?? `${surfaceId}:${targetConversationId ?? 'none'}`,
+    surfaceId,
+    surfaceType: overrides.surfaceType ?? 'page',
+    tabId: overrides.tabId ?? panelTab.id,
+  };
+};
+
+function renderWithPanel(ui: React.ReactElement) {
+  return render(
+    <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+      {ui}
+    </WorkspacePanelProvider>,
+  );
+}
 
 describe('ChatSessionView', () => {
   beforeEach(() => {
     showMenuMock.mockReset();
     hideMenuMock.mockReset();
-    chatStoreState.isLoading = false;
+    chatStoreState.setConversationScrollState.mockReset();
+    chatStoreState.sessionsByConversationId[conversationId].isLoading = false;
+    chatStoreState.sessionsByConversationId[conversationId].conversation = activeConversation;
+    (activeConversation.threadedMessages as unknown[]) = [];
+    chatStoreState.surfaceSessionsByKey = {};
   });
 
   it('embedded: aciona menu de contexto via MessageList', async () => {
     const onSend = vi.fn();
-    render(<ChatSessionView variant="embedded" onSend={onSend} showShortcutsHelp={false} />);
+    renderWithPanel(<ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={onSend} showShortcutsHelp={false} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'open-menu' }));
 
@@ -162,7 +227,7 @@ describe('ChatSessionView', () => {
   it('embedded: mostra banner de erro e retry quando onSend falha', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValueOnce(new Error('fail'));
-    render(<ChatSessionView variant="embedded" onSend={onSend} showShortcutsHelp={false} />);
+    renderWithPanel(<ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={onSend} showShortcutsHelp={false} />);
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
@@ -180,11 +245,95 @@ describe('ChatSessionView', () => {
   it('embedded: mantém envio habilitado mesmo com isLoading global ativo', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue(undefined);
-    chatStoreState.isLoading = true;
-    render(<ChatSessionView variant="embedded" onSend={onSend} showShortcutsHelp={false} />);
+    chatStoreState.sessionsByConversationId[conversationId].isLoading = true;
+    renderWithPanel(
+      <ChatSessionView
+        variant="embedded"
+        surface={surface({
+          surfaceId: 'embedded:workspace-chat-modal:tab-1',
+          sessionKey: `embedded:workspace-chat-modal:tab-1:${conversationId}`,
+          surfaceType: 'embedded',
+        })}
+        onSend={onSend}
+        showShortcutsHelp={false}
+      />,
+    );
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
-    expect(onSend).toHaveBeenCalledWith('oi', undefined);
+    expect(onSend).toHaveBeenCalledWith('oi', undefined, expect.objectContaining({
+      conversationId,
+      sessionKey: `embedded:workspace-chat-modal:tab-1:${conversationId}`,
+      surfaceId: 'embedded:workspace-chat-modal:tab-1',
+      surfaceType: 'embedded',
+    }));
+  });
+
+  it('restaura scroll pela âncora antes de usar scrollTop', async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    const sessionKey = 'test-session';
+    (activeConversation.threadedMessages as unknown[]) = [{ id: 'anchor-message' }];
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      scrollTop: 320,
+      scrollAnchorMessageId: 'anchor-message',
+    };
+
+    try {
+      renderWithPanel(
+        <ChatSessionView
+          surface={surface({ sessionKey, surfaceId: 'test-surface' })}
+          onSend={vi.fn().mockResolvedValue(undefined)}
+          showShortcutsHelp={false}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+      });
+
+      expect(screen.getByTestId('message-list').scrollTop).not.toBe(320);
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  it('não reaplica fallback de scrollTop depois que âncora ausente já foi restaurada', async () => {
+    const sessionKey = 'test-session';
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      scrollTop: 320,
+      scrollAnchorMessageId: 'missing-anchor',
+    };
+
+    const { rerender } = renderWithPanel(
+      <ChatSessionView
+        surface={surface({ sessionKey, surfaceId: 'test-surface' })}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        showShortcutsHelp={false}
+      />,
+    );
+
+    const messageList = await screen.findByTestId('message-list');
+    await waitFor(() => {
+      expect(messageList.scrollTop).toBe(320);
+    });
+
+    messageList.scrollTop = 111;
+    (activeConversation.threadedMessages as unknown[]) = [{ id: 'new-message' }];
+    rerender(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView
+          surface={surface({ sessionKey, surfaceId: 'test-surface' })}
+          onSend={vi.fn().mockResolvedValue(undefined)}
+          showShortcutsHelp={false}
+        />
+      </WorkspacePanelProvider>,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(messageList.scrollTop).toBe(111);
   });
 });

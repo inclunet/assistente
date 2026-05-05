@@ -1,14 +1,16 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ToolOutlined, RobotOutlined, SendOutlined, LockOutlined,
   MessageOutlined, MobileOutlined, SoundOutlined, PauseCircleOutlined,
 } from '@ant-design/icons';
-import { Message, TurnSegment, useChatStore } from '../../store/chatStore';
+import type { Message, TurnSegment } from '../../store/chatStore';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
-import { ToolCallsSection, ToolCallStatus } from './ToolCallsSection';
+import { ToolCallsSection } from './ToolCallsSection';
+import type { ToolCallStatus } from '../../types/chat';
+import { useChatMessageLiveState } from './ChatSessionContext';
 import { isAgentMessage } from '../../lib/chatUtils';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
@@ -78,105 +80,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const { t } = useTranslation();
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const messageId = message.id;
-
-  // Snapshot live de campos que são atualizados in-place na store.
-  // Isso garante que aria-label e conteúdo reflitam streaming mesmo com React.memo acima.
-  const [liveContent, setLiveContent] = useState<string | null>(null);
-  const [liveIsStreaming, setLiveIsStreaming] = useState<boolean | null>(null);
-  const [liveReasoning, setLiveReasoning] = useState<string | null>(null);
-  const [liveToolCallsRaw, setLiveToolCallsRaw] = useState<string | null>(null);
-
-  // Manual subscribe to completedSegments — bypasses useSyncExternalStore/React.memo entirely.
-  // useState + subscribe guarantees re-render when segments change.
-  const [liveSegments, setLiveSegments] = useState<TurnSegment[]>([]);
-  const [liveToolCalls, setLiveToolCalls] = useState<ToolCallStatus[]>([]);
-
-  useEffect(() => {
-    const unsub = useChatStore.subscribe((state) => {
-      if (state.streamingMessageId === messageId) {
-        setLiveSegments(prev =>
-          prev !== state.completedSegments ? state.completedSegments : prev
-        );
-        setLiveToolCalls(prev =>
-          prev !== state.activeToolCalls ? state.activeToolCalls : prev
-        );
-      } else {
-        setLiveSegments(prev => prev.length > 0 ? [] : prev);
-        setLiveToolCalls(prev => prev.length > 0 ? [] : prev);
-      }
-    });
-
-    // Sync initial state
-    const initial = useChatStore.getState();
-    if (initial.streamingMessageId === messageId) {
-      setLiveSegments(initial.completedSegments);
-      setLiveToolCalls(initial.activeToolCalls);
-    }
-
-    return unsub;
-  }, [messageId]);
-
-  useEffect(() => {
-    const trackingRef = { current: !!isStreaming };
-
-    const findMessageInState = (state: ReturnType<typeof useChatStore.getState>) => {
-      const targetId = String(messageId);
-      type ThreadedNode = {
-        message?: { id?: string | number; content?: string; isStreaming?: boolean; reasoning?: string; toolCalls?: string | null };
-        children?: ThreadedNode[];
-      };
-      const visit = (nodes: ThreadedNode[]): ThreadedNode['message'] | null => {
-        for (const n of nodes || []) {
-          const msg = n?.message;
-          if (msg && String(msg.id) === targetId) return msg;
-          if (n?.children?.length) {
-            const hit = visit(n.children);
-            if (hit) return hit;
-          }
-        }
-        return null;
-      };
-
-      const conv = state.activeConversation;
-      if (conv?.threadedMessages) {
-        const hit = visit(conv.threadedMessages as ThreadedNode[]);
-        if (hit) return hit;
-      }
-      return null;
-    };
-
-    const sync = (state: ReturnType<typeof useChatStore.getState>) => {
-      const msg = findMessageInState(state);
-      if (!msg) return;
-
-      const nextContent = typeof msg.content === 'string' ? msg.content : '';
-      const nextIsStreaming = !!msg.isStreaming;
-      const nextReasoning = typeof msg.reasoning === 'string' ? msg.reasoning : '';
-      const nextToolCalls = typeof msg.toolCalls === 'string' ? msg.toolCalls : null;
-
-      setLiveContent((prev) => (prev === nextContent ? prev : nextContent));
-      setLiveIsStreaming((prev) => (prev === nextIsStreaming ? prev : nextIsStreaming));
-      setLiveReasoning((prev) => (prev === nextReasoning ? prev : nextReasoning));
-      setLiveToolCallsRaw((prev) => (prev === nextToolCalls ? prev : nextToolCalls));
-
-      // Desarma tracking após obter o estado final (best-effort).
-      if (!nextIsStreaming && state.streamingMessageId !== messageId) {
-        trackingRef.current = false;
-      }
-    };
-
-    // Sync inicial (cobre caso de re-render tardio)
-    sync(useChatStore.getState());
-
-    const unsub = useChatStore.subscribe((state) => {
-      if (state.streamingMessageId === messageId) trackingRef.current = true;
-      if (!trackingRef.current) return;
-      sync(state);
-    });
-
-    return unsub;
-  }, [messageId, isStreaming]);
+  const {
+    liveContent,
+    liveIsStreaming,
+    liveReasoning,
+    liveToolCallsRaw,
+    liveSegments,
+    liveToolCalls,
+  } = useChatMessageLiveState(message);
 
   const completedSegments = liveSegments.length > 0 ? liveSegments : _completedSegmentsProp;
   const effectiveToolCalls = liveToolCalls.length > 0 ? liveToolCalls : activeToolCalls;
