@@ -428,7 +428,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (targetSessionKey) {
           const session = getSession(state, conversationId, targetSessionKey);
           const visibleThreadedMessages = patch.visibleThreadedMessages
-            ?? patch.conversation?.threadedMessages
+            ?? (patch.conversation
+              ? mergeVisibleNodesFromConversation(
+                session.visibleThreadedMessages,
+                patch.conversation.threadedMessages,
+                session.messageWindow,
+              )
+              : undefined)
             ?? session.visibleThreadedMessages;
           const messageWindow = patch.conversation && !patch.messageWindow
             ? reconcileLiveMessageWindow(session.messageWindow, session.visibleThreadedMessages, visibleThreadedMessages)

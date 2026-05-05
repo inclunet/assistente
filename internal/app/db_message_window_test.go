@@ -115,3 +115,53 @@ func TestGetConversationMessageWindow_NormalizesAnchorNotFound(t *testing.T) {
 		t.Fatalf("expected normalized anchor error, got %v", err)
 	}
 }
+
+func TestGetConversationMessageWindow_ExpandsTurnBoundaries(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+	app := &App{}
+
+	conv, err := database.CreateConversation("Conversa", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	user, err := database.AddMessage(conv.ID, "user", "pergunta")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	assistant, err := database.AddAssistantToolMessage(
+		conv.ID,
+		user.ID,
+		"vou buscar",
+		`[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("create assistant tool call: %v", err)
+	}
+	if _, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
+		t.Fatalf("create tool result: %v", err)
+	}
+
+	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+		ConversationID:  conv.ID,
+		Scope:           chat.MessageWindowScopeConversation,
+		AnchorMessageID: assistant.ID,
+		Direction:       chat.MessageWindowDirectionAfter,
+		Limit:           1,
+	})
+	if err != nil {
+		t.Fatalf("get window: %v", err)
+	}
+
+	ids := make(map[string]bool)
+	for _, node := range window.Nodes {
+		ids[node.Message.ID] = true
+	}
+	if !ids[assistant.ID] {
+		t.Fatalf("expected assistant message to be included, got ids=%v", ids)
+	}
+	if len(window.Nodes) < 2 {
+		t.Fatalf("expected turn expansion to include more than raw limited row, got %d node(s)", len(window.Nodes))
+	}
+}

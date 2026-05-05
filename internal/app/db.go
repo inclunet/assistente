@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"assistente/internal/chat"
@@ -67,6 +68,43 @@ func buildMessageNodes(messages []database.ChatMessage, parentID *string) []chat
 		childCounts = make(map[string]int)
 	}
 	return chat.BuildMessageNodes(messages, childCounts, parentID)
+}
+
+func expandWindowTurnMessages(conversationID string, parentID *string, messages []database.ChatMessage) ([]database.ChatMessage, error) {
+	turnIDs := make([]string, 0)
+	seenTurns := make(map[string]bool)
+	for _, message := range messages {
+		if message.TurnID == nil || *message.TurnID == "" || seenTurns[*message.TurnID] {
+			continue
+		}
+		seenTurns[*message.TurnID] = true
+		turnIDs = append(turnIDs, *message.TurnID)
+	}
+	if len(turnIDs) == 0 {
+		return messages, nil
+	}
+	turnMessages, err := database.GetTurnMessagesByIDs(conversationID, parentID, turnIDs)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]database.ChatMessage, len(messages)+len(turnMessages))
+	for _, message := range messages {
+		byID[message.ID] = message
+	}
+	for _, message := range turnMessages {
+		byID[message.ID] = message
+	}
+	expanded := make([]database.ChatMessage, 0, len(byID))
+	for _, message := range byID {
+		expanded = append(expanded, message)
+	}
+	sort.Slice(expanded, func(i, j int) bool {
+		if expanded[i].CreatedAt.Equal(expanded[j].CreatedAt) {
+			return expanded[i].ID < expanded[j].ID
+		}
+		return expanded[i].CreatedAt.Before(expanded[j].CreatedAt)
+	})
+	return expanded, nil
 }
 
 // GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
@@ -165,12 +203,16 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	if err != nil {
 		return nil, err
 	}
+	messages, err := expandWindowTurnMessages(conversationID, parentID, window.Messages)
+	if err != nil {
+		return nil, err
+	}
 
 	return &chat.MessageWindow{
 		Scope:          scope,
 		ConversationID: conversationID,
 		ThreadParentID: threadParentID,
-		Nodes:          buildMessageNodes(window.Messages, parentID),
+		Nodes:          buildMessageNodes(messages, parentID),
 		TotalCount:     window.TotalCount,
 		StartIndex:     window.StartIndex,
 		EndIndex:       window.EndIndex,

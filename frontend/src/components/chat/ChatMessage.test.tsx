@@ -164,4 +164,41 @@ describe('ChatMessage', () => {
 
     expect(container).toHaveTextContent(largeContent);
   });
+
+  it('não renderiza markdown pesado no frame em que o streaming termina', () => {
+    class MockIntersectionObserver {
+      observe = vi.fn();
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+      takeRecords = vi.fn(() => []);
+      root = null;
+      rootMargin = '';
+      thresholds = [];
+    }
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+
+    const largeContent = `inicio-${'a'.repeat(8_100)}-fim`;
+    const streamingMessage = new main.EnrichedMessage({
+      id: '1',
+      conversationId,
+      role: 'assistant',
+      content: largeContent,
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const completedMessage = new main.EnrichedMessage({
+      ...streamingMessage,
+      isStreaming: false,
+    });
+
+    const { rerender } = render(<ChatMessage message={streamingMessage} />);
+    expect(screen.getByText(largeContent)).toBeInTheDocument();
+
+    rerender(<ChatMessage message={completedMessage} />);
+
+    expect(screen.getByText('chat.largeMessageDeferred')).toBeInTheDocument();
+    expect(screen.queryByText(largeContent)).not.toBeInTheDocument();
+  });
 });

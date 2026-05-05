@@ -128,7 +128,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       segmentCount > HEAVY_AGENTIC_SEGMENT_COUNT
     );
   const [isHeavyContentReady, setIsHeavyContentReady] = useState(!shouldDeferHeavyContent);
-  const canRenderHeavyContent = !shouldDeferHeavyContent || isHeavyContentReady || isReading || isEditing;
+  const canRenderHeavyContent = !shouldDeferHeavyContent
+    || (isHeavyContentReady && previousShouldDeferHeavyContentRef.current)
+    || isReading
+    || isEditing;
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);

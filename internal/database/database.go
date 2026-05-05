@@ -479,6 +479,23 @@ func GetTurnMessages(turnID string) ([]ChatMessage, error) {
 	return messages, err
 }
 
+// GetTurnMessagesByIDs retorna, em lote, todas as mensagens dos turnos informados.
+// Mantém o mesmo escopo de parent da janela para não misturar raiz e threads.
+func GetTurnMessagesByIDs(conversationID string, parentID *string, turnIDs []string) ([]ChatMessage, error) {
+	if len(turnIDs) == 0 {
+		return []ChatMessage{}, nil
+	}
+	query := db.Where("conversation_id = ? AND turn_id IN ?", conversationID, turnIDs)
+	if parentID != nil {
+		query = query.Where("parent_id = ?", *parentID)
+	} else {
+		query = query.Where("parent_id IS NULL")
+	}
+	var messages []ChatMessage
+	err := query.Order("created_at ASC, id ASC").Find(&messages).Error
+	return messages, err
+}
+
 // AddChildMessage adiciona uma mensagem filha (com ParentID definido)
 func AddChildMessage(conversationID string, parentID string, role, content, model string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
