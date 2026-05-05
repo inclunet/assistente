@@ -200,6 +200,7 @@ const es = {
         conversationMessagesRemoved: 'Mensajes de la conversación eliminados',
         databaseReset: 'Base de datos restablecida. Conversaciones reinicializadas.',
         externalMessage: '{{from}} vía {{channel}}: {{message}}',
+        messageWindowLoaded: 'Mensajes {{start}} a {{end}} de {{total}} cargados',
       },
       contextMenuAriaLabel: 'Acciones del mensaje',
     },

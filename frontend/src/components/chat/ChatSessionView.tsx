@@ -97,6 +97,7 @@ function ChatSessionViewContent({
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
+  const pendingBoundaryAnnouncementRef = useRef(false);
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
@@ -509,6 +510,17 @@ function ChatSessionViewContent({
   }, [sendError]);
 
   useEffect(() => {
+    const windowState = conversation?.messageWindow;
+    if (!pendingBoundaryAnnouncementRef.current || !windowState || windowState.totalCount <= 0) return;
+    pendingBoundaryAnnouncementRef.current = false;
+    announce(t('chat.announce.messageWindowLoaded', {
+      start: windowState.startIndex + 1,
+      end: windowState.endIndex + 1,
+      total: windowState.totalCount,
+    }));
+  }, [conversation?.messageWindow, t]);
+
+  useEffect(() => {
     if (!isInteractiveSurface) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && sendError) {
@@ -563,6 +575,7 @@ function ChatSessionViewContent({
   };
 
   const handleJumpToStart = async () => {
+    pendingBoundaryAnnouncementRef.current = true;
     await loadStartMessages();
     requestAnimationFrame(() => {
       const container = messagesContainerRef.current;
@@ -572,6 +585,7 @@ function ChatSessionViewContent({
   };
 
   const handleJumpToEnd = async () => {
+    pendingBoundaryAnnouncementRef.current = true;
     await loadEndMessages();
     requestAnimationFrame(() => {
       const container = messagesContainerRef.current;
@@ -591,6 +605,7 @@ function ChatSessionViewContent({
       <div className="ws-content-area">
         <MessageList
           threadedMessages={threadedMessages}
+          messageWindow={conversation?.messageWindow}
           onLoadChildren={loadMessageChildren}
           onReachEnd={handleReachEnd}
           isLoading={isLoading}

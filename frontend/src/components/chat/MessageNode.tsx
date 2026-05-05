@@ -18,6 +18,8 @@ export interface MessageNodeProps {
   level?: number;
   siblingIndex?: number;
   siblingCount?: number;
+  ariaPosition?: number;
+  ariaSetSize?: number;
   onLoadChildren?: (messageId: string) => Promise<MessageNodeType[]>;
   onReachEnd?: () => void; // Chamado quando tenta ir além do último item no level 0
   onReachStart?: () => void | Promise<void>;
@@ -35,6 +37,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   level = 0,
   siblingIndex = 0,
   siblingCount = 1,
+  ariaPosition,
+  ariaSetSize,
   onLoadChildren,
   onReachEnd,
   onReachStart,
@@ -501,6 +505,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       onKeyUp={handleKeyUp}
       tabIndex={-1}
       role="listitem"
+      aria-posinset={ariaPosition}
+      aria-setsize={ariaSetSize}
       aria-expanded={hasChildren ? isExpanded : undefined}
     >
       <div className="message-node__content">

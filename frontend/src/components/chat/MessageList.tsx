@@ -5,6 +5,7 @@ import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
 import { main } from '../../../wailsjs/go/models';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
+import type { MessageWindowState } from '../../services/chatSessionRegistry';
 import './MessageList.css';
 
 export interface MessageListProps {
@@ -12,6 +13,7 @@ export interface MessageListProps {
   loadingText?: string; // Optional custom loading text
   // Estrutura hierárquica de mensagens (threads)
   threadedMessages: MessageNode[];
+  messageWindow?: MessageWindowState;
   // Callback para carregar filhos de uma mensagem
   onLoadChildren?: (messageId: string) => Promise<MessageNode[]>;
   // Callback quando chega ao fim da lista principal
@@ -167,6 +169,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     isLoading = false,
     loadingText,
     threadedMessages,
+    messageWindow,
     onLoadChildren,
     onReachEnd,
     onReachStart,
@@ -199,6 +202,9 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     () => consolidateTurnMessages(threadedMessages),
     [threadedMessages]
   );
+  const ariaSetSize = messageWindow?.totalCount && messageWindow.totalCount > 0
+    ? messageWindow.totalCount
+    : displayMessages.length;
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -368,6 +374,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
               level={0}
               siblingIndex={index}
               siblingCount={displayMessages.length}
+              ariaPosition={(node.originalIndex ?? index) + 1}
+              ariaSetSize={ariaSetSize}
               onLoadChildren={onLoadChildren}
               onReachStart={handleReachStart}
               onReachEnd={handleReachEnd}

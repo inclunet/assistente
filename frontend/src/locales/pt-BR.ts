@@ -201,6 +201,7 @@ const ptBR = {
         conversationMessagesRemoved: 'Mensagens da conversa removidas',
         databaseReset: 'Banco de dados resetado. Conversas reinicializadas.',
         externalMessage: '{{from}} via {{channel}}: {{message}}',
+        messageWindowLoaded: 'Mensagens {{start}} a {{end}} de {{total}} carregadas',
       },
       contextMenuAriaLabel: 'Ações da mensagem',
     },

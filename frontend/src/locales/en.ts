@@ -201,6 +201,7 @@ const en = {
         conversationMessagesRemoved: 'Conversation messages removed',
         databaseReset: 'Database reset. Conversations reinitialized.',
         externalMessage: '{{from}} via {{channel}}: {{message}}',
+        messageWindowLoaded: 'Messages {{start}} to {{end}} of {{total}} loaded',
       },
       contextMenuAriaLabel: 'Message actions',
     },
