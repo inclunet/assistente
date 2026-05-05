@@ -2,7 +2,6 @@ import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
-import { useChatStore } from '../../store/chatStore';
 import { useNavigationStore } from '../../store/navigationStore';
 import { ClearConversation, GetActiveProfileSlug } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
@@ -13,32 +12,44 @@ import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
-import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
+import { useChatSession } from './ChatSessionContext';
+import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
   inputRef?: React.RefObject<HTMLTextAreaElement>;
+  conversationId?: string | null;
+  enableShortcuts?: boolean;
 }
 
 export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   inputRef,
+  conversationId,
+  enableShortcuts = true,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const activeConversation = useChatStore((s) => s.activeConversation);
-  const clearMessages = useChatStore((s) => s.clearMessages);
-  const isLoading = useChatStore((s) => s.isLoading);
-  const loadConversation = useChatStore((s) => s.loadConversation);
+  const {
+    conversationId: sessionConversationId,
+    session,
+    conversation: activeConversation,
+    isLoading,
+    clearConversationMessages,
+    loadConversationSession,
+  } = useChatSession();
+  const { tab: panelTab } = useWorkspacePanel();
+  const effectiveConversationId = sessionConversationId || conversationId || null;
+  const queuedTurnCount = session?.queuedTurnCount ?? 0;
   const { announce } = useAnnouncer();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
-  const wsActiveTab = useActiveTab();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
 
-  const tabProfileSlug = wsActiveTab?.profileOverride?.slug as string | undefined;
+  const tabProfileSlug = panelTab.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const historyPickerRef = useRef<HistoryPickerRef>(null);
@@ -109,9 +120,9 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
       if (conv?.id) {
         await ClearConversation(conv.id);
-        await loadConversation(conv.id);
-      } else {
-        clearMessages();
+        await loadConversationSession(conv.id);
+      } else if (effectiveConversationId) {
+        clearConversationMessages(effectiveConversationId);
       }
 
       announce(t('chat.conversationCleared'));
@@ -120,9 +131,10 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       announce(t('chat.clearError'));
     }
     focusInput();
-  }, [announce, activeConversation, clearMessages, focusInput, loadConversation]);
+  }, [announce, activeConversation, clearConversationMessages, effectiveConversationId, focusInput, loadConversationSession]);
 
   useEffect(() => {
+    if (!enableShortcuts) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'l') {
         e.preventDefault();
@@ -142,30 +154,28 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleClearConversation]);
+  }, [enableShortcuts, handleClearConversation]);
 
   const handleProfileChange = useCallback((slug: string) => {
-    if (wsActiveTab) {
-      void updateWsTab(wsActiveTab.id, {
-        profile_override: { slug },
-      });
-    }
+    void updateWsTab(panelTab.id, {
+      profile_override: { slug },
+    });
     focusInput();
-  }, [focusInput, wsActiveTab, updateWsTab]);
+  }, [focusInput, panelTab.id, updateWsTab]);
 
-  const handleHistoryChange = async (conversationId: string, conversation: { title?: string }) => {
+  const handleHistoryChange = async (nextConversationId: string, conversation: { title?: string }) => {
     const nextTitle = conversation.title || t('chat.newConversation');
     try {
-      if (wsActiveTab?.type === 'chat') {
+      if (panelTab.type === 'chat') {
         await Promise.all([
-          loadConversation(conversationId),
-          updateWsTab(wsActiveTab.id, {
-            conversation_id: conversationId,
+          loadConversationSession(nextConversationId),
+          updateWsTab(panelTab.id, {
+            conversation_id: nextConversationId,
             title: nextTitle,
           }),
         ]);
       } else {
-        await loadConversation(conversationId);
+        await loadConversationSession(nextConversationId);
       }
       announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
     } catch (error) {
@@ -181,9 +191,16 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         ariaLabel={t('chat.toolbarLabel')}
         isLoading={isLoading}
         left={
-          <h2 className="chat-toolbar__title" id="chat-heading">
-            {conversationTitle}
-          </h2>
+          <div className="chat-toolbar__heading">
+            <h2 className="chat-toolbar__title" id="chat-heading">
+              {conversationTitle}
+            </h2>
+            {queuedTurnCount > 0 && (
+              <span className="chat-toolbar__queue-status" role="status" aria-live="polite">
+                {t('chat.queue.pending', { count: queuedTurnCount })}
+              </span>
+            )}
+          </div>
         }
         right={
           <>

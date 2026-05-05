@@ -113,6 +113,8 @@ const es = {
       thinking: 'Pensando...',
       characters: 'caracteres',
       lines: 'líneas',
+      loadOlderMessages: 'Cargar mensajes anteriores',
+      loadingOlderMessages: 'Cargando mensajes anteriores...',
       modelThinking: 'El modelo está pensando',
       modelReasoning: 'Razonamiento del modelo',
       reasoning: 'Razonamiento',
@@ -132,6 +134,10 @@ const es = {
       toolRetrying: 'Herramienta {{name}} falló, reintentando...',
       toolRunning: 'Ejecutando herramienta: {{name}}',
       toolDone: 'Herramienta {{name}} completada',
+      queue: {
+        pending_one: '{{count}} turno en cola',
+        pending_other: '{{count}} turnos en cola',
+      },
       validation: {
         messageTooLarge: 'Mensaje demasiado grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
         mediaTooLarge: 'Archivos de medios demasiado grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
@@ -139,6 +145,8 @@ const es = {
       errors: {
         noActiveConversation:
           'No hay conversación activa. Abre una pestaña de chat o espera a que el workspace termine de sincronizar.',
+        tabCannotSend: 'La pestaña activa no admite el envío de mensajes.',
+        chatTabNotReady: 'La conversación de la pestaña de chat aún no está lista.',
       },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',
@@ -176,6 +184,7 @@ const es = {
       announce: {
         assistantResponding: 'El asistente está respondiendo',
         modelThinking: 'El modelo está pensando...',
+        backgroundResponseDone: 'La pestaña {{title}} terminó de responder',
         messageDeleted: 'Mensaje eliminado',
         deleteCancelled: 'Eliminación cancelada',
         messageResent: 'Mensaje reenviado',
@@ -187,6 +196,10 @@ const es = {
         cannotGenerateAudio: 'No se pudo generar audio. Verifique la configuración de voz en el perfil activo.',
         audioDownloaded: 'Audio descargado con éxito',
         audioError: 'Error al generar audio',
+        conversationDeletedPermanently: 'Conversación eliminada permanentemente',
+        conversationMessagesRemoved: 'Mensajes de la conversación eliminados',
+        databaseReset: 'Base de datos restablecida. Conversaciones reinicializadas.',
+        externalMessage: '{{from}} vía {{channel}}: {{message}}',
       },
       contextMenuAriaLabel: 'Acciones del mensaje',
     },
@@ -208,6 +221,10 @@ const es = {
       wakeHint: 'Wake',
       processingTranscription: 'Procesando transcripción...',
       processing: 'Procesando...',
+    },
+
+    voiceAccessibility: {
+      inactiveAnnouncement: '{{title}}: {{message}}',
     },
 
     tokenStats: {
@@ -601,6 +618,7 @@ const es = {
         mergeConflict: 'Conflicto abierto para fusión manual (estilo Git). Resuelve los marcadores y usa Guardar para grabar en el archivo real.',
         externalChange: 'El archivo cambió fuera del Asistente. Autoguardado bloqueado hasta que decidas.',
         reloaded: 'Recargado desde disco',
+        externalReloaded: 'Archivo recargado desde disco (cambio externo)',
         savedAs: 'Guardado en nuevo archivo',
         overwritten: 'Sobrescrito en disco',
         fileModified: 'El archivo fue modificado fuera del Asistente. Elige cómo resolver.',
@@ -716,6 +734,7 @@ const es = {
         requestChangeError: 'Error al pedir un cambio al chat',
         insertExhausted: 'No se pudo insertar en el editor (intentos agotados). Abre el Editor e inténtalo de nuevo.',
         openOriginalTabToApply: 'Abre la pestaña original del editor para aplicar este cambio.',
+        editorTabNotFound: 'No se encontró la pestaña del editor para aplicar el cambio.',
         selectionChangedRetry: 'El texto seleccionado cambió desde que abriste el chat. Vuelve a seleccionarlo e inténtalo de nuevo.',
         patchApplied: 'Cambio aplicado',
         richEditorNotReady: 'El editor enriquecido no está listo.',

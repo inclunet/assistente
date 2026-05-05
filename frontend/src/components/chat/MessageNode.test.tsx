@@ -13,36 +13,39 @@ vi.mock('./ChatMessage', () => ({
 }));
 
 type ChatStoreState = {
-  toggleThreadExpanded: () => void;
-  editingMessageId: string | null;
-  setEditingMessageId: (id: string | null) => void;
-  readingMessageId: string | null;
-  setReadingMessageId: (id: string | null) => void;
-  streamingMessageId: string | null;
-  streamingReasoning: string;
-  isThinking: boolean;
-  toggleReasoningExpanded: () => void;
-  activeToolCalls: Array<unknown>;
-  completedSegments: Array<unknown>;
-  expandedThreads: Set<string>;
-  expandedReasonings: Set<string>;
+  sessionsByConversationId: Record<string, unknown>;
+  toggleConversationThreadExpanded: () => void;
+  setConversationEditingMessageId: (conversationId: string, id: string | null) => void;
+  setConversationReadingMessageId: (conversationId: string, id: string | null) => void;
+  toggleConversationReasoningExpanded: () => void;
 };
 
 vi.mock('../../store/chatStore', () => ({
   useChatStore: (selector: (state: ChatStoreState) => unknown) => selector({
-    toggleThreadExpanded: vi.fn(),
+    sessionsByConversationId: {},
+    toggleConversationThreadExpanded: vi.fn(),
+    setConversationEditingMessageId: vi.fn(),
+    setConversationReadingMessageId: vi.fn(),
+    toggleConversationReasoningExpanded: vi.fn(),
+  }),
+}));
+
+vi.mock('./ChatSessionContext', () => ({
+  useChatNodeSessionState: () => ({
+    conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
     editingMessageId: null,
-    setEditingMessageId: vi.fn(),
     readingMessageId: null,
-    setReadingMessageId: vi.fn(),
     streamingMessageId: null,
-    streamingReasoning: '',
+    streamingReasoning: null,
     isThinking: false,
-    toggleReasoningExpanded: vi.fn(),
     activeToolCalls: [],
     completedSegments: [],
-    expandedThreads: new Set<string>(),
-    expandedReasonings: new Set<string>(),
+    isExpanded: false,
+    reasoningExpanded: false,
+    setConversationEditingMessageId: vi.fn(),
+    setConversationReadingMessageId: vi.fn(),
+    toggleConversationThreadExpanded: vi.fn(),
+    toggleConversationReasoningExpanded: vi.fn(),
   }),
 }));
 

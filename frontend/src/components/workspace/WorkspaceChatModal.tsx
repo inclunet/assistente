@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
-import { ChatSessionView } from '../chat/ChatSessionView';
+import { ChatPanel, type ChatPanelSendContext } from '../chat/ChatPanel';
+import { sendChatSurfaceMessage, useChatConversationTimeline } from '../chat/ChatSurfaceController';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
-import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import type { MediaFile } from '../../services/mediaService';
+import { normalizeChatSurfaceOrigin } from '../../services/chatSessionRegistry';
+import { WorkspacePanelProvider } from './WorkspacePanelContext';
 
 import './WorkspaceChatModal.css';
 
@@ -19,9 +21,15 @@ export function WorkspaceChatModal() {
   const focusNonce = useWorkspaceChatModalStore((s) => s.focusNonce);
   const adapterError = useWorkspaceChatModalStore((s) => s.adapterError);
   const close = useWorkspaceChatModalStore((s) => s.close);
-  const activeConversation = useChatStore((s) => s.activeConversation);
+  const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
+  const boundSurface = useWorkspaceChatModalStore((s) => s.boundSurface);
+  const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs ?? []);
+  const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
-
+  const boundWorkspaceTab = useMemo(
+    () => workspaceTabs.find((tab) => tab.id === boundTabId) ?? null,
+    [boundTabId, workspaceTabs],
+  );
   const modalTitle = useMemo(() => {
     const conversationTitle = activeConversation?.title || t('editor.chatModal.conversation');
     return `${t('editor.chatModal.title')} — ${conversationTitle}`;
@@ -30,14 +38,6 @@ export function WorkspaceChatModal() {
   const handleClose = useCallback(() => {
     close();
   }, [close]);
-
-  /** Evita enviar com o adaptador da aba errada se o utilizador mudar de painel com o modal aberto. */
-  useEffect(() => {
-    if (!isOpen || !boundTabId) return;
-    if (activeWorkspaceTab?.id !== boundTabId) {
-      handleClose();
-    }
-  }, [isOpen, boundTabId, activeWorkspaceTab?.id, handleClose]);
 
   /** `bumpFocus()` altera o nonce; sem isto o textarea do ChatInput não volta a receber foco. */
   useEffect(() => {
@@ -52,7 +52,7 @@ export function WorkspaceChatModal() {
   }, [isOpen, focusNonce]);
 
   const handleSend = useCallback(
-    async (content: string, mediaFiles?: MediaFile[]) => {
+    async (content: string, mediaFiles: MediaFile[] | undefined, context: ChatPanelSendContext) => {
       const {
         boundTabId: tabId,
         boundConversationId: storedConversationId,
@@ -95,11 +95,13 @@ export function WorkspaceChatModal() {
       if (!sendPlan) return;
 
       try {
-        await useChatStore.getState().sendMessageToConversation(
+        const sendOrigin = normalizeChatSurfaceOrigin(context.origin, targetConversationId);
+        await sendChatSurfaceMessage(
           targetConversationId,
           sendPlan.content,
           sendPlan.mediaFiles,
           sendPlan.paramsOverride,
+          sendOrigin,
         );
         await sendPlan.afterSend?.();
       } catch (error) {
@@ -114,23 +116,36 @@ export function WorkspaceChatModal() {
 
   return (
     <Modal isOpen={isOpen} title={modalTitle} onClose={handleClose} size="lg">
-      <div className="editor-inline-chat workspace-chat-modal">
-        <details className="editor-inline-chat__context">
-          <summary className="editor-inline-chat__context-summary">
+      <div className="workspace-chat-modal">
+        <details className="workspace-chat-modal__context">
+          <summary className="workspace-chat-modal__context-summary">
             {t('editor.chatModal.contextBtn')}
           </summary>
-          <pre className="editor-inline-chat__context-pre">{contextDisplay}</pre>
+          <pre className="workspace-chat-modal__context-pre">{contextDisplay}</pre>
         </details>
 
         {adapterError && (
-          <div className="editor-inline-chat__error" role="alert">
+          <div className="workspace-chat-modal__error" role="alert">
             {adapterError}
           </div>
         )}
 
-        <div className="workspace-chat-modal__session">
-          <ChatSessionView variant="embedded" onSend={handleSend} showShortcutsHelp={false} />
-        </div>
+        {boundWorkspaceTab && boundSurface && (
+          <WorkspacePanelProvider
+            value={{
+              tab: boundWorkspaceTab,
+              isActive: activeWorkspaceTab?.id === boundWorkspaceTab.id,
+            }}
+          >
+            <div className="workspace-chat-modal__session">
+              <ChatPanel
+                surface={boundSurface}
+                onSend={handleSend}
+                showShortcutsHelp={false}
+              />
+            </div>
+          </WorkspacePanelProvider>
+        )}
       </div>
     </Modal>
   );

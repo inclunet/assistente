@@ -112,7 +112,7 @@ describe('useContextMenu', () => {
   it('nao restaura foco quando store sinaliza skip', () => {
     consumeSkipFocusRestoreMock.mockReturnValue(true);
     vi.useFakeTimers();
-    const { result } = renderHook(() => useContextMenu({}));
+    const { result } = renderHook(() => useContextMenu({ sessionKey: 'surface:conversation-1' }));
 
     const target = document.createElement('button');
     target.tabIndex = 0;
@@ -126,7 +126,7 @@ describe('useContextMenu', () => {
     } as unknown as ReactMouseEvent;
 
     act(() => {
-      result.current.showMenu(event, { id: 1, content: 'Oi' } as never, true);
+      result.current.showMenu(event, { id: 1, conversationId: 'conversation-1', content: 'Oi' } as never, true);
       result.current.hideMenu();
     });
 
@@ -135,6 +135,7 @@ describe('useContextMenu', () => {
     });
 
     expect(document.activeElement).not.toBe(target);
+    expect(consumeSkipFocusRestoreMock).toHaveBeenCalledWith('conversation-1', 'surface:conversation-1');
     vi.useRealTimers();
   });
 });

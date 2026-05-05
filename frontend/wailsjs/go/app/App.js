@@ -494,8 +494,16 @@ export function GetMessageChildren(arg1) {
   return window['go']['app']['App']['GetMessageChildren'](arg1);
 }
 
+export function GetRecentMessages(arg1, arg2) {
+  return window['go']['app']['App']['GetRecentMessages'](arg1, arg2);
+}
+
 export function GetMessages(arg1, arg2) {
   return window['go']['app']['App']['GetMessages'](arg1, arg2);
+}
+
+export function GetMessagesBefore(arg1, arg2, arg3) {
+  return window['go']['app']['App']['GetMessagesBefore'](arg1, arg2, arg3);
 }
 
 export function GetMessagingStatus() {
