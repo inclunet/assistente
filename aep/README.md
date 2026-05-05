@@ -46,6 +46,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0045](0045-cli-interface.md) | Interface CLI como alternativa ao Wails | ✅ Done |
 | [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 📝 Draft |
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | 📝 Draft |
+| [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat | 📝 Draft |
+| [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | 📝 Draft |
 
 ## Status Legend
 
