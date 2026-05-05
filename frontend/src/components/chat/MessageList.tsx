@@ -209,6 +209,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   );
   const hasConsolidatedTurns = displayMessages.length !== threadedMessages.length;
   const messagePositions = useMemo(() => {
+    // Until AEP-0059 phase 2.1 moves absolute counts to canonical timeline items,
+    // raw message indices would announce jumps for locally consolidated turns.
     if (!messageWindow || messageWindow.totalCount <= 0 || hasConsolidatedTurns) {
       return displayMessages.map((_, index) => index + 1);
     }

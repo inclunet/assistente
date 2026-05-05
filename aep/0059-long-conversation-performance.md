@@ -14,7 +14,7 @@ O objetivo é que painéis de chat sejam independentes também sob carga: uma co
 
 Definir a estratégia para carregar, renderizar e navegar conversas longas sem degradar a troca de abas ou a interação do chat.
 
-O objetivo é combinar carregamento incremental, janela de itens de timeline, virtualização progressiva e memoização por item renderizado. A separação por sessão definida na AEP-0057 deve garantir que cada aba mantenha sua própria janela visual, enquanto os dados persistidos continuam associados ao `conversationId`.
+O objetivo é combinar carregamento incremental, janela visual por sessão, virtualização progressiva e memoização por item renderizado. A separação por sessão definida na AEP-0057 deve garantir que cada aba mantenha sua própria janela visual, enquanto os dados persistidos continuam associados ao `conversationId`.
 
 Importante: a unidade semântica da lista não é uma linha bruta de `chat_messages`. A unidade acessível e navegável é um **item de timeline**. Mensagens normais podem ocupar um item; um turno com chamadas de ferramenta pode ser consolidado em um único item, mesmo que internamente tenha múltiplas mensagens persistidas.
 
@@ -50,7 +50,9 @@ O estado de paginação pertence à sessão visual (`sessionKey`) porque duas ab
 
 ### 2.1. Janela canônica por item de timeline
 
-`GetConversationMessageWindow` deve ser entendido como uma API de janela de timeline, não como uma API de linhas cruas do banco.
+Esta fase é uma evolução dedicada e posterior à primeira entrega de janela incremental. A entrega inicial pode paginar mensagens raiz persistidas para reduzir payload, separar janelas por sessão e habilitar navegação incremental. Ela não deve ser tratada como a implementação final da semântica de timeline items.
+
+Na fase 2.1, `GetConversationMessageWindow` deve passar a ser entendido como uma API de janela de timeline, não como uma API de linhas cruas do banco.
 
 Cada item de timeline representa exatamente uma entrada navegável na lista:
 
@@ -58,9 +60,9 @@ Cada item de timeline representa exatamente uma entrada navegável na lista:
 - um turno consolidado identificado por `turnId`;
 - no futuro, outro tipo explícito de item, se houver uma decisão arquitetural para isso.
 
-`totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` devem ser calculados sobre itens de timeline. Eles não devem contar mensagens internas de tool calling separadamente quando a UI renderiza esse conjunto como um único item.
+Quando a fase 2.1 for implementada, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` devem ser calculados sobre itens de timeline. Eles não devem contar mensagens internas de tool calling separadamente quando a UI renderiza esse conjunto como um único item.
 
-O backend é responsável por montar essa unidade canônica. O frontend deve consumir a janela pronta e usar os índices retornados para acessibilidade, sem recalcular posições absolutas a partir de mensagens brutas.
+O backend será responsável por montar essa unidade canônica. O frontend deve consumir a janela pronta e usar os índices retornados para acessibilidade, sem recalcular posições absolutas a partir de mensagens brutas.
 
 ### 2.2. Agrupamento por turno
 
@@ -107,7 +109,7 @@ Atualizações de streaming devem afetar apenas a mensagem em construção.
 
 Transformações de árvore, consolidação de turnos e renderização de Markdown não devem recalcular toda a lista a cada token.
 
-O item de streaming deve seguir a mesma unidade semântica da janela persistida: um item transitório por `turnId`. Tool calls, resultados e texto parcial entram como segmentos desse item, não como múltiplos itens navegáveis independentes.
+Após a fase 2.1, o item de streaming deve seguir a mesma unidade semântica da janela persistida: um item transitório por `turnId`. Tool calls, resultados e texto parcial entram como segmentos desse item, não como múltiplos itens navegáveis independentes.
 
 ### 6. Mensagens pesadas sob demanda
 
@@ -146,6 +148,7 @@ A lista virtualizada deve manter experiência consistente para teclado e leitor 
 - Separar cache por conversa da lista renderizada.
 - Garantir que carregar mensagens antigas em uma aba não altere a janela de outra aba.
 - Preservar âncora de scroll ao prepender mensagens.
+- Nesta fase, a janela ainda pode usar mensagens raiz persistidas como unidade de paginação. Se houver consolidação local de turnos, a UI deve preferir uma contagem visual honesta na janela renderizada em vez de expor índices absolutos crus incorretos.
 
 ### Fase 2.1 — Timeline items canônicos
 
@@ -196,5 +199,5 @@ A lista virtualizada deve manter experiência consistente para teclado e leitor 
 - Leitores de tela recebem anúncios de carregamento e posição de forma consistente.
 - Duas abas da mesma conversa podem ter janelas visuais diferentes.
 - Testes cobrem conversas com pelo menos 500 mensagens sintéticas.
-- `aria-posinset` e `aria-setsize` refletem a posição e o total de itens navegáveis, não a quantidade de mensagens internas persistidas.
-- Turnos com tool calls são anunciados como um único item quando renderizados como um único item.
+- Na fase 2.1, `aria-posinset` e `aria-setsize` refletem a posição e o total de itens navegáveis, não a quantidade de mensagens internas persistidas.
+- Na fase 2.1, turnos com tool calls são anunciados como um único item quando renderizados como um único item.

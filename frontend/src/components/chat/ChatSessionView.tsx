@@ -98,6 +98,7 @@ function ChatSessionViewContent({
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
   const pendingWindowAnnouncementRef = useRef<'boundary' | 'older' | 'newer' | null>(null);
+  const latestWindowKeyRef = useRef<string | null>(null);
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
@@ -511,6 +512,9 @@ function ChatSessionViewContent({
 
   useEffect(() => {
     const windowState = session?.messageWindow;
+    latestWindowKeyRef.current = windowState
+      ? `${windowState.startIndex}:${windowState.endIndex}:${windowState.totalCount}`
+      : null;
     if (!pendingWindowAnnouncementRef.current) return;
     if (!windowState || windowState.totalCount <= 0) {
       pendingWindowAnnouncementRef.current = null;
@@ -579,6 +583,7 @@ function ChatSessionViewContent({
   };
 
   const handleJumpToStart = async () => {
+    const previousWindowKey = latestWindowKeyRef.current;
     pendingWindowAnnouncementRef.current = 'boundary';
     try {
       await loadStartMessages();
@@ -589,12 +594,15 @@ function ChatSessionViewContent({
       });
     } finally {
       window.setTimeout(() => {
-        pendingWindowAnnouncementRef.current = null;
-      }, 250);
+        if (latestWindowKeyRef.current === previousWindowKey) {
+          pendingWindowAnnouncementRef.current = null;
+        }
+      }, 1_000);
     }
   };
 
   const handleJumpToEnd = async () => {
+    const previousWindowKey = latestWindowKeyRef.current;
     pendingWindowAnnouncementRef.current = 'boundary';
     try {
       await loadEndMessages();
@@ -606,30 +614,38 @@ function ChatSessionViewContent({
       });
     } finally {
       window.setTimeout(() => {
-        pendingWindowAnnouncementRef.current = null;
-      }, 250);
+        if (latestWindowKeyRef.current === previousWindowKey) {
+          pendingWindowAnnouncementRef.current = null;
+        }
+      }, 1_000);
     }
   };
 
   const handleLoadOlderMessages = useCallback(async () => {
+    const previousWindowKey = latestWindowKeyRef.current;
     pendingWindowAnnouncementRef.current = 'older';
     try {
       await loadOlderMessages();
     } finally {
       window.setTimeout(() => {
-        pendingWindowAnnouncementRef.current = null;
-      }, 250);
+        if (latestWindowKeyRef.current === previousWindowKey) {
+          pendingWindowAnnouncementRef.current = null;
+        }
+      }, 1_000);
     }
   }, [loadOlderMessages]);
 
   const handleLoadNewerMessages = useCallback(async () => {
+    const previousWindowKey = latestWindowKeyRef.current;
     pendingWindowAnnouncementRef.current = 'newer';
     try {
       await loadNewerMessages();
     } finally {
       window.setTimeout(() => {
-        pendingWindowAnnouncementRef.current = null;
-      }, 250);
+        if (latestWindowKeyRef.current === previousWindowKey) {
+          pendingWindowAnnouncementRef.current = null;
+        }
+      }, 1_000);
     }
   }, [loadNewerMessages]);
 

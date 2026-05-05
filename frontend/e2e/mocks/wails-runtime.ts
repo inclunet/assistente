@@ -248,8 +248,19 @@ export function buildWailsMockScript(): string {
             const limit = Math.max(0, Number(req.limit || nodes.length || 0));
             const direction = String(req.direction || 'before');
             const anchor = String(req.anchor || 'end');
+            const anchorMessageId = String(req.anchorMessageId || '');
+            const getNodeId = (node) => String(node?.message?.id ?? node?.id ?? '');
+            const anchorIndex = anchorMessageId
+              ? nodes.findIndex((node) => getNodeId(node) === anchorMessageId)
+              : -1;
             let startIndex = 0;
-            if (anchor === 'end' || direction === 'before') {
+            if (anchorIndex >= 0 && direction === 'before') {
+              startIndex = Math.max(0, anchorIndex - limit);
+            } else if (anchorIndex >= 0 && direction === 'after') {
+              startIndex = Math.min(nodes.length, anchorIndex + 1);
+            } else if (anchorIndex >= 0) {
+              startIndex = Math.max(0, Math.min(anchorIndex, nodes.length - limit));
+            } else if (anchor === 'end' || direction === 'before') {
               startIndex = Math.max(0, nodes.length - limit);
             }
             const visibleNodes = nodes.slice(startIndex, limit > 0 ? startIndex + limit : startIndex).map((node, index) => ({
