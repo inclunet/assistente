@@ -272,7 +272,7 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
   const patchCarriesConversation = typeof patch === 'function'
     || Object.prototype.hasOwnProperty.call(patch, 'conversation');
   const shouldPatchTimeline = isDefaultSession && patchCarriesConversation;
-  const shouldMirrorConversationIntoSurface = shouldPatchTimeline
+  const shouldMirrorConversationIntoSurface = patchCarriesConversation
     && nextSession.conversation
     && (typeof patch === 'function' || !Object.prototype.hasOwnProperty.call(patch, 'visibleThreadedMessages'));
   if (shouldMirrorConversationIntoSurface) {
