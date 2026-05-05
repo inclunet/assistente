@@ -114,6 +114,7 @@ const en = {
       thinking: 'Thinking...',
       characters: 'characters',
       lines: 'lines',
+      largeMessageDeferred: 'Large content will render when it enters the visible area.',
       loadOlderMessages: 'Load earlier messages',
       loadingOlderMessages: 'Loading earlier messages...',
       modelThinking: 'The model is thinking',

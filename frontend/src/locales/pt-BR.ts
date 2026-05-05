@@ -114,6 +114,7 @@ const ptBR = {
       thinking: 'Pensando...',
       characters: 'caracteres',
       lines: 'linhas',
+      largeMessageDeferred: 'Conteúdo grande será renderizado ao entrar na área visível.',
       loadOlderMessages: 'Carregar mensagens anteriores',
       loadingOlderMessages: 'Carregando mensagens anteriores...',
       modelThinking: 'O modelo está pensando',

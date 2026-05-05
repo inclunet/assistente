@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ToolOutlined, RobotOutlined, SendOutlined, LockOutlined,
@@ -16,6 +16,9 @@ import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatMessage.css';
+
+const HEAVY_MARKDOWN_CONTENT_LENGTH = 8_000;
+const HEAVY_AGENTIC_SEGMENT_COUNT = 8;
 
 export interface ChatMessageProps {
   message: Message;
@@ -79,6 +82,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 }) => {
   const { t } = useTranslation();
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
+  const messageRef = useRef<HTMLDivElement>(null);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const {
     liveContent,
@@ -111,6 +115,18 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   // Quando `text_edit` é usado, o conteúdo do assistente pode vir poluído com fences (ex.: ```markdown).
   // Como a UI já mostra as tool calls, omitimos o corpo textual para evitar ruído.
   const displayContent = isEditing ? externalEditContent : (toolCallsHasTextEdit ? '' : effectiveContent);
+  const segmentCount = (message._turnSegments || completedSegments || []).length;
+  const shouldDeferHeavyContent =
+    !effectiveIsStreaming &&
+    !isReading &&
+    !isEditing &&
+    (
+      displayContent.length > HEAVY_MARKDOWN_CONTENT_LENGTH ||
+      (effectiveToolCallsRaw?.length ?? 0) > HEAVY_MARKDOWN_CONTENT_LENGTH ||
+      segmentCount > HEAVY_AGENTIC_SEGMENT_COUNT
+    );
+  const [isHeavyContentReady, setIsHeavyContentReady] = useState(!shouldDeferHeavyContent);
+  const canRenderHeavyContent = !shouldDeferHeavyContent || isHeavyContentReady || isReading || isEditing;
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -256,8 +272,26 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     }
   }, [isEditing]);
 
+  useEffect(() => {
+    if (!shouldDeferHeavyContent || isHeavyContentReady) return;
+    const element = messageRef.current;
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      setIsHeavyContentReady(true);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setIsHeavyContentReady(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '640px 0px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [isHeavyContentReady, shouldDeferHeavyContent]);
+
   return (
     <div
+      ref={messageRef}
       className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''} ${isReading ? 'chat-message--reading' : ''}`}
       aria-label={isEditing ? undefined : getAriaLabel()}
       aria-live={effectiveIsStreaming && !isAgenticStreaming ? 'polite' : 'off'}
@@ -342,7 +376,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               aria-relevant={isAgenticStreaming ? 'additions' : undefined}
               className="chat-message__segments-log"
             >
-              {(message._turnSegments || completedSegments || []).map((seg, idx) => (
+              {canRenderHeavyContent ? (message._turnSegments || completedSegments || []).map((seg, idx) => (
                 <React.Fragment key={idx}>
                   {seg.type === 'text' && seg.content && (
                     <div className="chat-message__text chat-message__text--segment">
@@ -362,7 +396,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                     />
                   )}
                 </React.Fragment>
-              ))}
+              )) : (
+                <div className="chat-message__text chat-message__text--segment">
+                  {t('chat.largeMessageDeferred')}
+                </div>
+              )}
             </div>
 
             {/* Current iteration — aria-busy suppresses char-by-char updates */}
@@ -434,6 +472,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               ) : (
                 <>
                   {role === 'assistant' && displayContent ? (
+                    canRenderHeavyContent ? (
                     <MarkdownRenderer
                       content={displayContent}
                       interactiveButtons={!!onSendToEditor}
@@ -442,6 +481,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                       editorTargets={editorTargets}
                       onSendToEditor={onSendToEditor}
                     />
+                    ) : (
+                      <span>{t('chat.largeMessageDeferred')}</span>
+                    )
                   ) : (
                     displayContent || (effectiveIsStreaming && <span className="chat-message__cursor">▋</span>)
                   )}

@@ -113,6 +113,7 @@ const es = {
       thinking: 'Pensando...',
       characters: 'caracteres',
       lines: 'líneas',
+      largeMessageDeferred: 'El contenido grande se renderizará al entrar en el área visible.',
       loadOlderMessages: 'Cargar mensajes anteriores',
       loadingOlderMessages: 'Cargando mensajes anteriores...',
       modelThinking: 'El modelo está pensando',
