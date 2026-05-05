@@ -21,6 +21,7 @@ import {
 import {
   loadConversationSnapshot,
   loadMessageChildrenNodes,
+  loadNewerConversationMessages,
   loadOlderConversationMessages,
   reloadConversationSnapshot,
 } from '../services/chatSessionLoader';
@@ -118,6 +119,7 @@ interface ChatStore {
   loadConversationSession: (id: string) => Promise<void>;
   getConversationSession: (conversationId: string | null | undefined) => ChatConversationSession | null;
   loadOlderMessagesForConversation: (conversationId: string, sessionKey: string) => Promise<void>;
+  loadNewerMessagesForConversation: (conversationId: string, sessionKey: string) => Promise<void>;
 
   updateConversationMessage: (conversationId: string, messageId: string, content: string) => void;
   updateConversationMessageReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
@@ -190,6 +192,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       isLoading: defaultSession?.isLoading ?? false,
       hasOlderMessages: defaultSession?.hasOlderMessages ?? false,
       isLoadingOlderMessages: defaultSession?.isLoadingOlderMessages ?? false,
+      visibleThreadedMessages: defaultSession?.conversation?.threadedMessages,
+      messageWindow: defaultSession?.conversation?.messageWindow,
       queuedTurnCount: defaultSession?.queuedTurnCount ?? 0,
     };
     const patchKeys = Object.keys(patch) as Array<keyof ChatSurfaceSession>;
@@ -213,46 +217,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     updater: (conversation: ActiveConversation) => ActiveConversation,
   ): Partial<ChatStore> => {
     return patchChatConversation(state, conversationId, updater);
-  };
-
-  const syncConversationPaginationFlags = (
-    state: ChatStore,
-    patches: Partial<ChatStore>,
-    conversationId: string,
-    flags: Pick<ChatSurfaceSession, 'hasOlderMessages' | 'isLoadingOlderMessages'>,
-  ): Partial<ChatStore> => {
-    const existingSurfaceSessionsByKey = patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey;
-    let surfaceSessionsByKey = existingSurfaceSessionsByKey;
-
-    for (const [surfaceSessionKey, surfaceSession] of Object.entries(existingSurfaceSessionsByKey)) {
-      if (surfaceSession.conversationId !== conversationId) {
-        continue;
-      }
-
-      if (
-        surfaceSession.hasOlderMessages === flags.hasOlderMessages
-        && surfaceSession.isLoadingOlderMessages === flags.isLoadingOlderMessages
-      ) {
-        continue;
-      }
-
-      if (surfaceSessionsByKey === existingSurfaceSessionsByKey) {
-        surfaceSessionsByKey = { ...existingSurfaceSessionsByKey };
-      }
-      surfaceSessionsByKey[surfaceSessionKey] = {
-        ...surfaceSession,
-        ...flags,
-      };
-    }
-
-    if (surfaceSessionsByKey === existingSurfaceSessionsByKey) {
-      return patches;
-    }
-
-    return {
-      ...patches,
-      surfaceSessionsByKey,
-    };
   };
 
   const setConversationLoading = (conversationId: string, isLoading: boolean, sessionKey?: string) => {
@@ -290,6 +254,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const session = getSession(state, conversationId, sessionKey);
       const queuedTurnCount = Math.max(0, (session.queuedTurnCount ?? 0) + delta);
       return patchSession(state, conversationId, { queuedTurnCount }, sessionKey);
+    });
+  };
+
+  const mergeConversationNodes = (existing: MessageNode[], incoming: MessageNode[]): MessageNode[] => {
+    if (incoming.length === 0) return existing;
+    const byId = new Map<string, MessageNode>();
+    for (const node of existing) {
+      byId.set(String(node.message.id), node);
+    }
+    for (const node of incoming) {
+      byId.set(String(node.message.id), node);
+    }
+    return Array.from(byId.values()).sort((a, b) => {
+      const aIndex = a.originalIndex ?? 0;
+      const bIndex = b.originalIndex ?? 0;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+      return String(a.message.id).localeCompare(String(b.message.id));
     });
   };
 
@@ -516,6 +497,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           isLoading: false,
           hasOlderMessages: defaultSession?.hasOlderMessages ?? false,
           isLoadingOlderMessages: defaultSession?.isLoadingOlderMessages ?? false,
+          visibleThreadedMessages: defaultSession?.conversation?.threadedMessages,
+          messageWindow: defaultSession?.conversation?.messageWindow,
           queuedTurnCount: defaultSession?.queuedTurnCount ?? 0,
         };
         return {
@@ -572,18 +555,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             threadedMessages: snapshot.threadedMessages,
             channel: snapshot.channel,
             contactId: snapshot.contactId,
+            messageWindow: snapshot.messageWindow,
           };
           const patches = patchSession(state, id, {
             conversation,
             isLoading: state.loadingConversationIds.has(id),
             hasOlderMessages: snapshot.hasOlderMessages,
             isLoadingOlderMessages: false,
+            visibleThreadedMessages: snapshot.threadedMessages,
+            messageWindow: snapshot.messageWindow,
           });
           return {
-            ...syncConversationPaginationFlags(state, patches, id, {
-              hasOlderMessages: snapshot.hasOlderMessages,
-              isLoadingOlderMessages: false,
-            }),
+            ...patches,
             isInitialized: true,
           };
         });
@@ -595,12 +578,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             isLoading: state.loadingConversationIds.has(id),
             hasOlderMessages: false,
             isLoadingOlderMessages: false,
+            visibleThreadedMessages: [],
+            messageWindow: {
+              scope: 'conversation',
+              conversationId: id,
+              totalCount: 0,
+              startIndex: 0,
+              endIndex: -1,
+              hasBefore: false,
+              hasAfter: false,
+            },
           });
           return {
-            ...syncConversationPaginationFlags(state, patches, id, {
-              hasOlderMessages: false,
-              isLoadingOlderMessages: false,
-            }),
+            ...patches,
             isInitialized: true,
           };
         });
@@ -627,10 +617,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           hasOlderMessages: currentSession.hasOlderMessages,
           isLoadingOlderMessages: true,
         }, sessionKey);
-        return syncConversationPaginationFlags(current, patches, conversationId, {
-          hasOlderMessages: currentSession.hasOlderMessages,
-          isLoadingOlderMessages: true,
-        });
+        return patches;
       });
       try {
         const olderMessages = await loadOlderConversationMessages(
@@ -647,25 +634,32 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               hasOlderMessages: fallbackSession.hasOlderMessages,
               isLoadingOlderMessages: false,
             }, sessionKey);
-            return syncConversationPaginationFlags(current, patches, conversationId, {
-              hasOlderMessages: fallbackSession.hasOlderMessages,
-              isLoadingOlderMessages: false,
-            });
+            return patches;
           }
           const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
           const dedupedOlderNodes = olderMessages.nodes.filter((node) => !existingIds.has(node.message.id));
+          const visibleThreadedMessages = [...dedupedOlderNodes, ...currentSession.conversation.threadedMessages];
+          const cachedThreadedMessages = mergeConversationNodes(
+            getConversationTimeline(current, conversation.id)?.threadedMessages ?? [],
+            visibleThreadedMessages,
+          );
+          const messageWindow = {
+            ...olderMessages.messageWindow,
+            endIndex: currentSession.conversation.messageWindow?.endIndex ?? olderMessages.messageWindow.endIndex,
+            hasAfter: currentSession.conversation.messageWindow?.hasAfter ?? olderMessages.hasNewerMessages,
+          };
           const patches = patchSession(current, conversation.id, {
             conversation: {
               ...currentSession.conversation,
-              threadedMessages: [...dedupedOlderNodes, ...currentSession.conversation.threadedMessages],
+              threadedMessages: cachedThreadedMessages,
+              messageWindow,
             },
             hasOlderMessages: olderMessages.hasOlderMessages,
             isLoadingOlderMessages: false,
+            visibleThreadedMessages,
+            messageWindow,
           }, sessionKey);
-          return syncConversationPaginationFlags(current, patches, conversation.id, {
-            hasOlderMessages: olderMessages.hasOlderMessages,
-            isLoadingOlderMessages: false,
-          });
+          return patches;
         });
       } catch (error) {
         console.error('[Chat] Erro ao carregar mensagens anteriores:', error);
@@ -675,10 +669,71 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             hasOlderMessages: currentSession.hasOlderMessages,
             isLoadingOlderMessages: false,
           }, sessionKey);
-          return syncConversationPaginationFlags(current, patches, conversationId, {
+          return patches;
+        });
+      }
+    },
+
+    loadNewerMessagesForConversation: async (conversationId, sessionKey) => {
+      const state = get();
+      const session = getSession(state, conversationId, sessionKey);
+      const conversation = session.conversation;
+      if (!conversation || session.isLoadingOlderMessages || !conversation.messageWindow?.hasAfter) return;
+
+      const lastMessageId = conversation.threadedMessages[conversation.threadedMessages.length - 1]?.message.id;
+      if (!lastMessageId) return;
+
+      set((current) => {
+        const currentSession = getSession(current, conversationId, sessionKey);
+        return patchSession(current, conversationId, {
+          hasOlderMessages: currentSession.hasOlderMessages,
+          isLoadingOlderMessages: true,
+        }, sessionKey);
+      });
+
+      try {
+        const newerMessages = await loadNewerConversationMessages(
+          conversation.id,
+          lastMessageId,
+          INITIAL_MESSAGE_WINDOW_SIZE,
+        );
+        set((current) => {
+          const currentSession = getSession(current, conversation.id, sessionKey);
+          if (!currentSession.conversation) {
+            return patchSession(current, conversationId, { isLoadingOlderMessages: false }, sessionKey);
+          }
+          const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
+          const dedupedNewerNodes = newerMessages.nodes.filter((node) => !existingIds.has(node.message.id));
+          const visibleThreadedMessages = [...currentSession.conversation.threadedMessages, ...dedupedNewerNodes];
+          const cachedThreadedMessages = mergeConversationNodes(
+            getConversationTimeline(current, conversation.id)?.threadedMessages ?? [],
+            visibleThreadedMessages,
+          );
+          const messageWindow = {
+            ...newerMessages.messageWindow,
+            startIndex: currentSession.conversation.messageWindow?.startIndex ?? newerMessages.messageWindow.startIndex,
+            hasBefore: currentSession.conversation.messageWindow?.hasBefore ?? newerMessages.hasOlderMessages,
+          };
+          return patchSession(current, conversation.id, {
+            conversation: {
+              ...currentSession.conversation,
+              threadedMessages: cachedThreadedMessages,
+              messageWindow,
+            },
+            hasOlderMessages: messageWindow.hasBefore,
+            isLoadingOlderMessages: false,
+            visibleThreadedMessages,
+            messageWindow,
+          }, sessionKey);
+        });
+      } catch (error) {
+        console.error('[Chat] Erro ao carregar mensagens posteriores:', error);
+        set((current) => {
+          const currentSession = getSession(current, conversationId, sessionKey);
+          return patchSession(current, conversationId, {
             hasOlderMessages: currentSession.hasOlderMessages,
             isLoadingOlderMessages: false,
-          });
+          }, sessionKey);
         });
       }
     },

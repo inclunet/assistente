@@ -8,6 +8,7 @@ export interface ActiveConversation {
   threadedMessages: MessageNode[];
   channel?: string;
   contactId?: string;
+  messageWindow?: MessageWindowState;
 }
 
 export type ConversationTimeline = ActiveConversation;
@@ -28,6 +29,17 @@ export interface ChatSurfaceIdentity {
   sessionKey: ChatSessionKey;
   conversationId: string | null;
   tabId?: string;
+}
+
+export interface MessageWindowState {
+  scope: 'conversation' | 'thread';
+  conversationId: string;
+  threadParentId?: string;
+  totalCount: number;
+  startIndex: number;
+  endIndex: number;
+  hasBefore: boolean;
+  hasAfter: boolean;
 }
 
 export interface ChatSurfaceDescriptor {
@@ -111,6 +123,8 @@ export interface ChatSurfaceSession {
   isLoading: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
+  visibleThreadedMessages?: MessageNode[];
+  messageWindow?: MessageWindowState;
   streamingMessageId: string | null;
   streamingReasoning: string | null;
   isThinking: boolean;
@@ -187,6 +201,8 @@ const toSurfaceSession = (
     ...surface,
     sessionKey,
     conversationId,
+    visibleThreadedMessages: session.conversation?.threadedMessages ?? surface.visibleThreadedMessages,
+    messageWindow: session.conversation?.messageWindow ?? surface.messageWindow,
   };
 };
 
@@ -207,7 +223,13 @@ export function getChatSession(
 
   return {
     ...surfaceSession,
-    conversation: timeline,
+    conversation: timeline
+      ? {
+        ...timeline,
+        threadedMessages: surfaceSession.visibleThreadedMessages ?? timeline.threadedMessages,
+        messageWindow: surfaceSession.messageWindow ?? timeline.messageWindow,
+      }
+      : null,
   };
 }
 

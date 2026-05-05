@@ -215,6 +215,8 @@ export function GetConversationChannel(arg1:string):Promise<string>;
 
 export function GetConversationInfo(arg1:string):Promise<database.Conversation>;
 
+export function GetConversationMessageWindow(arg1:main.MessageWindowRequest):Promise<main.MessageWindow>;
+
 export function GetConversationSummary(arg1:string):Promise<main.ConversationSummaryInfo>;
 
 export function GetConversationTokenStats(arg1:string):Promise<main.TokenStatsResult>;

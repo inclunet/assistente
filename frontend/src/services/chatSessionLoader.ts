@@ -1,47 +1,110 @@
 import {
   GetConversationInfo,
+  GetConversationMessageWindow,
   GetMessageChildren,
-  GetMessagesBefore,
-  GetRecentMessages,
 } from '@wailsjs/go/app/App';
 import i18next from 'i18next';
 import {
   withOriginalIndex,
   type MessageNode,
 } from '../lib/chatMessageTree';
+import type { MessageWindowState } from './chatSessionRegistry';
+
+interface LoadedMessageWindow {
+  nodes: MessageNode[];
+  window: MessageWindowState;
+}
 
 export interface LoadedConversationSnapshot {
   title: string;
   channel?: string;
   contactId?: string;
   threadedMessages: MessageNode[];
+  messageWindow: MessageWindowState;
   hasOlderMessages: boolean;
+  hasNewerMessages: boolean;
 }
 
 export interface LoadedOlderMessages {
   nodes: MessageNode[];
+  messageWindow: MessageWindowState;
   hasOlderMessages: boolean;
+  hasNewerMessages: boolean;
+}
+
+export interface LoadedNewerMessages {
+  nodes: MessageNode[];
+  messageWindow: MessageWindowState;
+  hasOlderMessages: boolean;
+  hasNewerMessages: boolean;
+}
+
+function normalizeWindow(rawWindow: {
+  scope?: string;
+  conversationId?: string;
+  threadParentId?: string;
+  totalCount?: number;
+  startIndex?: number;
+  endIndex?: number;
+  hasBefore?: boolean;
+  hasAfter?: boolean;
+}): MessageWindowState {
+  return {
+    scope: rawWindow.scope === 'thread' ? 'thread' : 'conversation',
+    conversationId: String(rawWindow.conversationId ?? ''),
+    threadParentId: rawWindow.threadParentId || undefined,
+    totalCount: Number(rawWindow.totalCount ?? 0),
+    startIndex: Number(rawWindow.startIndex ?? 0),
+    endIndex: Number(rawWindow.endIndex ?? -1),
+    hasBefore: Boolean(rawWindow.hasBefore),
+    hasAfter: Boolean(rawWindow.hasAfter),
+  };
+}
+
+async function loadConversationMessageWindow(request: {
+  conversationId: string;
+  anchor?: 'start' | 'end';
+  anchorMessageId?: string;
+  direction: 'before' | 'after' | 'around';
+  limit: number;
+}): Promise<LoadedMessageWindow> {
+  const backendWindow = await GetConversationMessageWindow({
+    scope: 'conversation',
+    conversationId: request.conversationId,
+    anchor: request.anchor,
+    anchorMessageId: request.anchorMessageId,
+    direction: request.direction,
+    limit: request.limit,
+  });
+  const window = normalizeWindow(backendWindow ?? {});
+  return {
+    nodes: (backendWindow?.nodes || []).map((node, index) => withOriginalIndex(node, window.startIndex + index)),
+    window,
+  };
 }
 
 export async function loadConversationSnapshot(
   conversationId: string,
   windowSize: number,
 ): Promise<LoadedConversationSnapshot> {
-  const requestedLimit = windowSize + 1;
-  const [conversationInfo, backendNodes] = await Promise.all([
+  const [conversationInfo, loadedWindow] = await Promise.all([
     GetConversationInfo(conversationId),
-    GetRecentMessages(conversationId, requestedLimit),
+    loadConversationMessageWindow({
+      conversationId,
+      anchor: 'end',
+      direction: 'before',
+      limit: windowSize,
+    }),
   ]);
-  const fetchedNodes = backendNodes || [];
-  const hasOlderMessages = fetchedNodes.length > windowSize;
-  const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
 
   return {
     title: conversationInfo?.title || i18next.t('chat.conversation'),
     channel: conversationInfo?.channel || undefined,
     contactId: conversationInfo?.contact_id || undefined,
-    threadedMessages: visibleNodes.map(withOriginalIndex),
-    hasOlderMessages,
+    threadedMessages: loadedWindow.nodes,
+    messageWindow: loadedWindow.window,
+    hasOlderMessages: loadedWindow.window.hasBefore,
+    hasNewerMessages: loadedWindow.window.hasAfter,
   };
 }
 
@@ -50,31 +113,57 @@ export async function loadOlderConversationMessages(
   beforeMessageId: string,
   windowSize: number,
 ): Promise<LoadedOlderMessages> {
-  const requestedLimit = windowSize + 1;
-  const backendNodes = await GetMessagesBefore(conversationId, beforeMessageId, requestedLimit);
-  const fetchedNodes = backendNodes || [];
-  const hasOlderMessages = fetchedNodes.length > windowSize;
-  const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
+  const loadedWindow = await loadConversationMessageWindow({
+    conversationId,
+    anchorMessageId: beforeMessageId,
+    direction: 'before',
+    limit: windowSize,
+  });
 
   return {
-    nodes: visibleNodes.map(withOriginalIndex),
-    hasOlderMessages,
+    nodes: loadedWindow.nodes,
+    messageWindow: loadedWindow.window,
+    hasOlderMessages: loadedWindow.window.hasBefore,
+    hasNewerMessages: loadedWindow.window.hasAfter,
+  };
+}
+
+export async function loadNewerConversationMessages(
+  conversationId: string,
+  afterMessageId: string,
+  windowSize: number,
+): Promise<LoadedNewerMessages> {
+  const loadedWindow = await loadConversationMessageWindow({
+    conversationId,
+    anchorMessageId: afterMessageId,
+    direction: 'after',
+    limit: windowSize,
+  });
+
+  return {
+    nodes: loadedWindow.nodes,
+    messageWindow: loadedWindow.window,
+    hasOlderMessages: loadedWindow.window.hasBefore,
+    hasNewerMessages: loadedWindow.window.hasAfter,
   };
 }
 
 export async function reloadConversationSnapshot(
   conversationId: string,
   windowSize: number,
-): Promise<Pick<LoadedConversationSnapshot, 'threadedMessages' | 'hasOlderMessages'>> {
-  const requestedLimit = windowSize + 1;
-  const backendNodes = await GetRecentMessages(conversationId, requestedLimit);
-  const fetchedNodes = backendNodes || [];
-  const hasOlderMessages = fetchedNodes.length > windowSize;
-  const visibleNodes = hasOlderMessages ? fetchedNodes.slice(1) : fetchedNodes;
+): Promise<Pick<LoadedConversationSnapshot, 'threadedMessages' | 'messageWindow' | 'hasOlderMessages' | 'hasNewerMessages'>> {
+  const loadedWindow = await loadConversationMessageWindow({
+    conversationId,
+    anchor: 'end',
+    direction: 'before',
+    limit: windowSize,
+  });
 
   return {
-    threadedMessages: visibleNodes.map(withOriginalIndex),
-    hasOlderMessages,
+    threadedMessages: loadedWindow.nodes,
+    messageWindow: loadedWindow.window,
+    hasOlderMessages: loadedWindow.window.hasBefore,
+    hasNewerMessages: loadedWindow.window.hasAfter,
   };
 }
 
