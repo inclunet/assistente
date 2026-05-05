@@ -120,6 +120,7 @@ export function buildWailsMockScript(): string {
     GetMessages: [],
     GetRecentMessages: [],
     GetMessagesBefore: [],
+    GetConversationMessageWindow: { nodes: [], totalCount: 0, startIndex: 0, endIndex: -1, hasBefore: false, hasAfter: false },
     GetMessageChildren: [],
     ClearConversation: undefined,
     DeleteConversation: undefined,
@@ -238,6 +239,19 @@ export function buildWailsMockScript(): string {
           if (fnName === 'GetMessagesBefore' && 'GetMessages' in _config.responses) {
             const val = _config.responses.GetMessages;
             return Promise.resolve(typeof val === 'function' ? val(...args) : val);
+          }
+          if (fnName === 'GetConversationMessageWindow' && 'GetMessages' in _config.responses) {
+            const val = _config.responses.GetMessages;
+            const messages = typeof val === 'function' ? val(...args) : val;
+            const nodes = Array.isArray(messages) ? messages : [];
+            return Promise.resolve({
+              nodes,
+              totalCount: nodes.length,
+              startIndex: nodes.length > 0 ? 0 : 0,
+              endIndex: nodes.length - 1,
+              hasBefore: false,
+              hasAfter: false,
+            });
           }
           if (fnName in defaults) {
             const val = defaults[fnName];

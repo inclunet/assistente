@@ -351,6 +351,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const surfaceSessionsByKey = { ...existingSurfaceSessionsByKey };
         const surfacePatch: Partial<ChatSurfaceSession> = { ...patch };
         delete (surfacePatch as Partial<ChatConversationSession>).conversation;
+        if (patch.conversation && !patch.visibleThreadedMessages) {
+          surfacePatch.visibleThreadedMessages = patch.conversation.threadedMessages;
+        }
         let hasMatchingSurfaceSession = false;
 
         for (const [sessionKey, session] of Object.entries(existingSurfaceSessionsByKey)) {
@@ -865,27 +868,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     updateConversationMessage: (conversationId, messageId, content) => {
       set((state) => {
-        const session = getSession(state, conversationId);
-        if (!session.conversation) return state;
-        return patchSession(state, conversationId, {
-          conversation: {
-            ...session.conversation,
-            threadedMessages: updateMessageContentInTree(session.conversation.threadedMessages, messageId, content),
-          },
-        });
+        return patchConversation(state, conversationId, (conversation) => ({
+          ...conversation,
+          threadedMessages: updateMessageContentInTree(conversation.threadedMessages, messageId, content),
+        }));
       });
     },
 
     updateConversationMessageReasoning: (conversationId, messageId, reasoning) => {
       set((state) => {
-        const session = getSession(state, conversationId);
-        if (!session.conversation) return state;
-        return patchSession(state, conversationId, {
-          conversation: {
-            ...session.conversation,
-            threadedMessages: updateMessageReasoningInTree(session.conversation.threadedMessages, messageId, reasoning),
-          },
-        });
+        return patchConversation(state, conversationId, (conversation) => ({
+          ...conversation,
+          threadedMessages: updateMessageReasoningInTree(conversation.threadedMessages, messageId, reasoning),
+        }));
       });
     },
 

@@ -265,12 +265,22 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
   const nextSession = typeof patch === 'function'
     ? patch(currentSession)
     : { ...currentSession, ...patch };
-  const nextSurfaceSession = toSurfaceSession(nextSession, conversationId, sessionKey);
+  let nextSurfaceSession = toSurfaceSession(nextSession, conversationId, sessionKey);
   const defaultSessionKey = getDefaultChatSessionKey(conversationId);
   const isDefaultSession = sessionKey === defaultSessionKey;
 
   const shouldPatchTimeline = typeof patch === 'function'
     || Object.prototype.hasOwnProperty.call(patch, 'conversation');
+  const shouldMirrorConversationIntoSurface = shouldPatchTimeline
+    && nextSession.conversation
+    && (typeof patch === 'function' || !Object.prototype.hasOwnProperty.call(patch, 'visibleThreadedMessages'));
+  if (shouldMirrorConversationIntoSurface) {
+    const nextConversation = nextSession.conversation as ConversationTimeline;
+    nextSurfaceSession = {
+      ...nextSurfaceSession,
+      visibleThreadedMessages: nextConversation.threadedMessages,
+    };
+  }
   const currentTimelinesByConversationId = state.timelinesByConversationId ?? {};
   let timelinesByConversationId = currentTimelinesByConversationId;
   if (shouldPatchTimeline) {
