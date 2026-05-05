@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ToolOutlined, RobotOutlined, SendOutlined, LockOutlined,
@@ -132,6 +132,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     || (isHeavyContentReady && previousShouldDeferHeavyContentRef.current)
     || isReading
     || isEditing;
+  const deferredToolCallsAriaRaw = useMemo(() => {
+    if (!shouldDeferHeavyContent || !effectiveToolCallsRaw) return effectiveToolCallsRaw;
+    const matches = Array.from(
+      effectiveToolCallsRaw
+        .slice(0, HEAVY_ARIA_CONTENT_PREVIEW_LENGTH * 4)
+        .matchAll(/"name"\s*:\s*"([^"]+)"/g),
+    );
+    const names = matches
+      .map((match) => match[1])
+      .filter((name): name is string => !!name)
+      .slice(0, 5);
+    return names.length
+      ? JSON.stringify(names.map((name) => ({ function: { name } })))
+      : null;
+  }, [effectiveToolCallsRaw, shouldDeferHeavyContent]);
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -173,7 +188,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         isReasoningExpanded: false,
         reasoning: null,
         streamingReasoning: null,
-        toolCallsRaw: effectiveToolCallsRaw,
+        toolCallsRaw: deferredToolCallsAriaRaw,
         toolCallsHasTextEdit,
       });
     }

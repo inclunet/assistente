@@ -239,7 +239,7 @@ describe('ChatMessage', () => {
     render(<ChatMessage message={message} />);
 
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
-      toolCallsRaw: toolCalls,
+      toolCallsRaw: JSON.stringify([{ function: { name: 'search_documents' } }]),
     }));
   });
 });

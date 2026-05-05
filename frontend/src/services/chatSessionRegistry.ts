@@ -208,7 +208,6 @@ const toSurfaceSession = (
 };
 
 export const getMessageNodeOrder = (node: MessageNode): number => {
-  if (node.originalIndex !== undefined) return node.originalIndex;
   const timestamp = Number(node.message.timestamp ?? Date.parse(String(node.message.createdAt ?? '')));
   return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
 };

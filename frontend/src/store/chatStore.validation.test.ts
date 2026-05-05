@@ -675,10 +675,12 @@ describe('chatStore validation', () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `tab-a:${defaultConversationId}`;
     const otherSessionKey = `tab-b:${defaultConversationId}`;
+    const olderNode = createMessageNode('older-message') as unknown as MessageNode;
+    olderNode.message.createdAt = new Date(Date.now() - 1_000).toISOString();
     mockGetConversationMessageWindow.mockResolvedValueOnce({
       scope: 'conversation',
       conversationId: defaultConversationId,
-      nodes: [createMessageNode('older-message')],
+      nodes: [olderNode],
       totalCount: 2,
       startIndex: 0,
       endIndex: 0,
@@ -788,6 +790,122 @@ describe('chatStore validation', () => {
       hasBefore: true,
       hasAfter: false,
     });
+  });
+
+  it('ignora página posterior vazia sem corromper metadata de janela visível', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const currentNode = createMessageNode('current-message') as unknown as MessageNode;
+    currentNode.originalIndex = 2;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [],
+      totalCount: 3,
+      startIndex: 0,
+      endIndex: -1,
+      hasBefore: true,
+      hasAfter: false,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [currentNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [currentNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 3,
+            startIndex: 2,
+            endIndex: 2,
+            hasBefore: true,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadNewerMessagesForConversation(defaultConversationId, originSessionKey);
+
+    const surfaceSession = useChatStore.getState().surfaceSessionsByKey[originSessionKey];
+    expect(surfaceSession.visibleThreadedMessages?.map((node) => node.message.id)).toEqual(['current-message']);
+    expect(surfaceSession.messageWindow).toMatchObject({
+      startIndex: 2,
+      endIndex: 2,
+      totalCount: 3,
+      hasBefore: true,
+      hasAfter: false,
+    });
+  });
+
+  it('não corta turnos expandidos ao aparar janela renderizada', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const nodes = Array.from({ length: 240 }, (_, index) => {
+      const node = createMessageNode(`message-${index}`) as unknown as MessageNode;
+      node.originalIndex = index;
+      return node;
+    });
+    const turnUser = nodes[239];
+    const turnAssistant = createMessageNode('message-240') as unknown as MessageNode;
+    const turnTool = createMessageNode('message-241') as unknown as MessageNode;
+    turnUser.message.turnId = 'turn-boundary';
+    turnAssistant.message.turnId = 'turn-boundary';
+    turnAssistant.message.role = 'assistant';
+    turnTool.message.turnId = 'turn-boundary';
+    turnTool.message.role = 'tool';
+    turnAssistant.originalIndex = 240;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [turnAssistant, turnTool],
+      totalCount: 241,
+      startIndex: 240,
+      endIndex: 240,
+      hasBefore: true,
+      hasAfter: false,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: nodes,
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: nodes,
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 241,
+            startIndex: 0,
+            endIndex: 239,
+            hasBefore: false,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadNewerMessagesForConversation(defaultConversationId, originSessionKey);
+
+    const surfaceSession = useChatStore.getState().surfaceSessionsByKey[originSessionKey];
+    const ids = surfaceSession.visibleThreadedMessages?.map((node) => node.message.id) ?? [];
+    expect(ids).toContain('message-239');
+    expect(ids).toContain('message-240');
+    expect(ids).toContain('message-241');
   });
 
   it('substitui a janela visível ao saltar para o início da conversa', async () => {

@@ -289,9 +289,20 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return { nodes, window };
     }
 
-    const trimmedNodes = keep === 'start'
-      ? nodes.slice(0, MAX_RENDERED_MESSAGE_WINDOW_SIZE)
-      : nodes.slice(nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE);
+    let trimStart = keep === 'start' ? 0 : nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE;
+    let trimEnd = keep === 'start' ? MAX_RENDERED_MESSAGE_WINDOW_SIZE : nodes.length;
+    if (keep === 'start') {
+      const boundaryTurnId = nodes[trimEnd - 1]?.message.turnId;
+      while (boundaryTurnId && trimEnd < nodes.length && nodes[trimEnd]?.message.turnId === boundaryTurnId) {
+        trimEnd += 1;
+      }
+    } else {
+      const boundaryTurnId = nodes[trimStart]?.message.turnId;
+      while (boundaryTurnId && trimStart > 0 && nodes[trimStart - 1]?.message.turnId === boundaryTurnId) {
+        trimStart -= 1;
+      }
+    }
+    const trimmedNodes = nodes.slice(trimStart, trimEnd);
     const explicitIndexes = trimmedNodes
       .map((node) => node.originalIndex)
       .filter((index): index is number => index !== undefined);
@@ -883,6 +894,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
           const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
           const dedupedNewerNodes = newerMessages.nodes.filter((node) => !existingIds.has(node.message.id));
+          if (dedupedNewerNodes.length === 0) {
+            const currentWindow = currentSession.messageWindow ?? newerMessages.messageWindow;
+            const messageWindow = {
+              ...currentWindow,
+              totalCount: Math.max(currentWindow.totalCount, newerMessages.messageWindow.totalCount),
+              hasAfter: newerMessages.hasNewerMessages,
+            };
+            return patchSession(current, conversation.id, {
+              hasOlderMessages: messageWindow.hasBefore,
+              isLoadingOlderMessages: false,
+              messageWindow,
+            }, sessionKey);
+          }
           const expandedVisibleThreadedMessages = [...currentSession.conversation.threadedMessages, ...dedupedNewerNodes];
           const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
           const cachedThreadedMessages = mergeConversationNodes(
