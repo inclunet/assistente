@@ -726,6 +726,167 @@ describe('chatStore validation', () => {
     expect(state.surfaceSessionsByKey[otherSessionKey]?.isLoadingOlderMessages).toBe(false);
   });
 
+  it('carrega mensagens posteriores preservando metadata da janela da superfície', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const currentNode = createMessageNode('current-message') as unknown as MessageNode;
+    currentNode.originalIndex = 1;
+    const newerNode = createMessageNode('newer-message') as unknown as MessageNode;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [newerNode],
+      totalCount: 3,
+      startIndex: 2,
+      endIndex: 2,
+      hasBefore: true,
+      hasAfter: false,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [currentNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [currentNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 3,
+            startIndex: 1,
+            endIndex: 1,
+            hasBefore: true,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadNewerMessagesForConversation(defaultConversationId, originSessionKey);
+
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      anchor: undefined,
+      anchorMessageId: 'current-message',
+      direction: 'after',
+      limit: expect.any(Number),
+    });
+    const surfaceSession = useChatStore.getState().surfaceSessionsByKey[originSessionKey];
+    expect(surfaceSession.visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['current-message', 'newer-message']);
+    expect(surfaceSession.messageWindow).toMatchObject({
+      startIndex: 1,
+      endIndex: 2,
+      totalCount: 3,
+      hasBefore: true,
+      hasAfter: false,
+    });
+  });
+
+  it('substitui a janela visível ao saltar para o início da conversa', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const middleNode = createMessageNode('middle-message') as unknown as MessageNode;
+    middleNode.originalIndex = 5;
+    const startNode = createMessageNode('start-message') as unknown as MessageNode;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [startNode],
+      totalCount: 10,
+      startIndex: 0,
+      endIndex: 0,
+      hasBefore: false,
+      hasAfter: true,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [middleNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [middleNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 10,
+            startIndex: 5,
+            endIndex: 5,
+            hasBefore: true,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadBoundaryMessagesForConversation(defaultConversationId, originSessionKey, 'start');
+
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      anchor: 'start',
+      anchorMessageId: undefined,
+      direction: 'after',
+      limit: expect.any(Number),
+    });
+    const surfaceSession = useChatStore.getState().surfaceSessionsByKey[originSessionKey];
+    expect(surfaceSession.visibleThreadedMessages?.map((node) => node.message.id)).toEqual(['start-message']);
+    expect(surfaceSession.messageWindow).toMatchObject({
+      startIndex: 0,
+      endIndex: 0,
+      hasBefore: false,
+      hasAfter: true,
+    });
+  });
+
+  it('não recarrega limite quando a superfície já está no início ou fim', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const node = createMessageNode('message-1') as unknown as MessageNode;
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [node],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [node],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 1,
+            startIndex: 0,
+            endIndex: 0,
+            hasBefore: false,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadBoundaryMessagesForConversation(defaultConversationId, originSessionKey, 'start');
+    await useChatStore.getState().loadBoundaryMessagesForConversation(defaultConversationId, originSessionKey, 'end');
+
+    expect(mockGetConversationMessageWindow).not.toHaveBeenCalled();
+  });
+
   it('limpa mensagens usando timeline mesmo sem sessão legada', async () => {
     useChatStore.setState({
       sessionsByConversationId: {},

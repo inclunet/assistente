@@ -133,6 +133,23 @@ function ChatSessionViewContent({
     setScrollState,
   } = controller;
   const getSessionConversation = useCallback(() => conversation, [conversation]);
+  const visibleMessageCount = useMemo(() => {
+    if (!threadedMessages.length) return 0;
+    const processedTurnIds = new Set<string>();
+    let count = 0;
+    for (const node of threadedMessages) {
+      const turnId = node.message.turnId;
+      if (!turnId) {
+        count += 1;
+        continue;
+      }
+      if (node.message.role === 'tool' || processedTurnIds.has(turnId)) continue;
+      processedTurnIds.add(turnId);
+      count += 1;
+    }
+    return count;
+  }, [threadedMessages]);
+  const usesLocalVisualWindowCount = visibleMessageCount > 0 && visibleMessageCount !== threadedMessages.length;
 
   useEffect(() => {
     if (!conversationId) return;
@@ -521,12 +538,20 @@ function ChatSessionViewContent({
       return;
     }
     pendingWindowAnnouncementRef.current = null;
+    if (usesLocalVisualWindowCount) {
+      announce(t('chat.announce.messageWindowLoaded', {
+        start: 1,
+        end: visibleMessageCount,
+        total: visibleMessageCount,
+      }));
+      return;
+    }
     announce(t('chat.announce.messageWindowLoaded', {
       start: windowState.startIndex + 1,
       end: windowState.endIndex + 1,
       total: windowState.totalCount,
     }));
-  }, [announce, session?.messageWindow, t]);
+  }, [announce, session?.messageWindow, t, usesLocalVisualWindowCount, visibleMessageCount]);
 
   useEffect(() => {
     if (!isInteractiveSurface) return;

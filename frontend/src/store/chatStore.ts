@@ -321,6 +321,44 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     };
   };
 
+  const reconcileLiveMessageWindow = (
+    window: MessageWindowState | undefined,
+    previousNodes: MessageNode[] | undefined,
+    nextNodes: MessageNode[] | undefined,
+  ): MessageWindowState | undefined => {
+    if (!window || !nextNodes) return window;
+    const previousCount = previousNodes?.length ?? 0;
+    const nextCount = nextNodes.length;
+    const appendedCount = Math.max(0, nextCount - previousCount);
+    const explicitIndexes = nextNodes
+      .map((node) => node.originalIndex)
+      .filter((index): index is number => index !== undefined);
+    const explicitStartIndex = explicitIndexes.length ? Math.min(...explicitIndexes) : undefined;
+    const explicitEndIndex = explicitIndexes.length ? Math.max(...explicitIndexes) : undefined;
+
+    const startIndex = explicitStartIndex !== undefined
+      ? Math.min(window.startIndex, explicitStartIndex)
+      : window.startIndex;
+    const endIndex = explicitEndIndex !== undefined
+      ? Math.max(window.endIndex, explicitEndIndex)
+      : window.hasAfter ? window.endIndex : window.endIndex + appendedCount;
+    const totalCount = Math.max(
+      window.totalCount + (explicitEndIndex === undefined ? appendedCount : 0),
+      explicitEndIndex !== undefined ? explicitEndIndex + 1 : 0,
+      endIndex + 1,
+      nextCount,
+    );
+
+    return {
+      ...window,
+      totalCount,
+      startIndex,
+      endIndex,
+      hasBefore: startIndex > 0,
+      hasAfter: totalCount > 0 && endIndex < totalCount - 1,
+    };
+  };
+
   const resetQueuedTurnCount = (conversationId: string) => {
     set((state) => {
       const patches = patchSession(state, conversationId, { queuedTurnCount: 0 });
@@ -343,7 +381,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => {
         const targetSessionKey = patch.surfaceOrigin?.sessionKey;
         if (targetSessionKey) {
-          return patchSession(state, conversationId, patch, targetSessionKey);
+          const session = getSession(state, conversationId, targetSessionKey);
+          const visibleThreadedMessages = patch.visibleThreadedMessages
+            ?? patch.conversation?.threadedMessages
+            ?? session.visibleThreadedMessages;
+          const messageWindow = patch.conversation && !patch.messageWindow
+            ? reconcileLiveMessageWindow(session.messageWindow, session.visibleThreadedMessages, visibleThreadedMessages)
+            : patch.messageWindow;
+          return patchSession(state, conversationId, {
+            ...patch,
+            ...(messageWindow ? { messageWindow } : {}),
+          }, targetSessionKey);
         }
 
         const basePatches = patchSession(state, conversationId, patch);
@@ -362,9 +410,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
 
           hasMatchingSurfaceSession = true;
+          const visibleThreadedMessages = surfacePatch.visibleThreadedMessages ?? session.visibleThreadedMessages;
+          const messageWindow = patch.conversation && !surfacePatch.messageWindow
+            ? reconcileLiveMessageWindow(session.messageWindow, session.visibleThreadedMessages, visibleThreadedMessages)
+            : surfacePatch.messageWindow;
           surfaceSessionsByKey[sessionKey] = {
             ...session,
             ...surfacePatch,
+            ...(messageWindow ? { messageWindow } : {}),
             surfaceOrigin: patch.surfaceOrigin ?? session.surfaceOrigin,
           };
         }
@@ -835,6 +888,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const state = get();
       const session = getSession(state, conversationId, sessionKey);
       if (session.isLoadingOlderMessages) return;
+      const window = session.messageWindow;
+      if (anchor === 'start' && window?.startIndex === 0) return;
+      if (anchor === 'end' && window && window.totalCount > 0 && window.endIndex >= window.totalCount - 1) return;
 
       set((current) => patchSession(current, conversationId, {
         hasOlderMessages: session.hasOlderMessages,

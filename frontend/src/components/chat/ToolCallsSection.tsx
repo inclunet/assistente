@@ -41,11 +41,13 @@ const RESULT_PREVIEW_LENGTH = 300;
 const LARGE_TOOL_CALLS_JSON_LENGTH = 12_000;
 
 function countTopLevelArrayItems(raw: string): number {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return 0;
   let depth = 0;
   let count = 0;
   let inString = false;
   let escaped = false;
-  for (const char of raw.trim()) {
+  for (const char of trimmed) {
     if (escaped) {
       escaped = false;
       continue;
@@ -71,7 +73,7 @@ function countTopLevelArrayItems(raw: string): number {
     if (char === '[') depth += 1;
     if (char === ']' && depth > 0) depth -= 1;
   }
-  return count;
+  return depth === 0 && !inString && !escaped ? count : 0;
 }
 
 /**
@@ -89,6 +91,9 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
   const shouldDeferSavedParsing = !!toolCallsJson && toolCallsJson.length > LARGE_TOOL_CALLS_JSON_LENGTH && !isExpanded;
+  const deferredToolCount = shouldDeferSavedParsing && toolCallsJson
+    ? countTopLevelArrayItems(toolCallsJson)
+    : 0;
 
   // Parseia tool calls do JSON (modo histórico)
   let parsedCalls: ParsedToolCall[] = [];
@@ -102,13 +107,10 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
 
   // Determina quais calls mostrar
   const hasActiveCalls = activeToolCalls && activeToolCalls.length > 0;
-  const hasSavedCalls = parsedCalls.length > 0 || shouldDeferSavedParsing;
+  const hasSavedCalls = parsedCalls.length > 0 || deferredToolCount > 0;
 
   if (!hasActiveCalls && !hasSavedCalls) return null;
 
-  const deferredToolCount = shouldDeferSavedParsing && toolCallsJson
-    ? Math.max(countTopLevelArrayItems(toolCallsJson), 1)
-    : 1;
   const toolCount = hasActiveCalls ? activeToolCalls!.length : Math.max(parsedCalls.length, deferredToolCount);
   const isRunning = hasActiveCalls && activeToolCalls!.some(tc => tc.status === 'running');
 

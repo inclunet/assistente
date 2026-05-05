@@ -127,4 +127,11 @@ describe('ToolCallsSection', () => {
     expect(screen.getByText('second_tool')).toBeInTheDocument();
     expect(screen.getByText('third_tool')).toBeInTheDocument();
   });
+
+  it('ignora tool calls historicos grandes com JSON invalido', () => {
+    render(<ToolCallsSection toolCallsJson={`[{"id":"1","type":"function","function":{"name":"broken","arguments":"{}"}${'x'.repeat(12_000)}`} />);
+
+    expect(screen.queryByText(/chat.toolsUsed/)).not.toBeInTheDocument();
+    expect(screen.queryByText('chat.toolDetails')).not.toBeInTheDocument();
+  });
 });
