@@ -4,18 +4,17 @@ import {
   loadConversationSnapshot,
   loadMessageChildrenNodes,
   loadOlderConversationMessages,
+  loadNewerConversationMessages,
   reloadConversationSnapshot,
 } from './chatSessionLoader';
 
 const mockGetConversationInfo = vi.fn();
-const mockGetRecentMessages = vi.fn();
-const mockGetMessagesBefore = vi.fn();
+const mockGetConversationMessageWindow = vi.fn();
 const mockGetMessageChildren = vi.fn();
 
 vi.mock('@wailsjs/go/app/App', () => ({
   GetConversationInfo: (...args: unknown[]) => mockGetConversationInfo(...args),
-  GetRecentMessages: (...args: unknown[]) => mockGetRecentMessages(...args),
-  GetMessagesBefore: (...args: unknown[]) => mockGetMessagesBefore(...args),
+  GetConversationMessageWindow: (...args: unknown[]) => mockGetConversationMessageWindow(...args),
   GetMessageChildren: (...args: unknown[]) => mockGetMessageChildren(...args),
 }));
 
@@ -32,21 +31,44 @@ const node = (id: string) => new main.MessageNode({
   childCount: 0,
 });
 
+const windowResult = (ids: string[], overrides: Partial<main.MessageWindow> = {}) => main.MessageWindow.createFrom({
+  scope: 'conversation',
+  conversationId: 'conversation-1',
+  nodes: ids.map(node),
+  totalCount: ids.length,
+  startIndex: 0,
+  endIndex: ids.length - 1,
+  hasBefore: false,
+  hasAfter: false,
+  ...overrides,
+});
+
 describe('chatSessionLoader', () => {
   beforeEach(() => {
     mockGetConversationInfo.mockReset();
-    mockGetRecentMessages.mockReset();
-    mockGetMessagesBefore.mockReset();
+    mockGetConversationMessageWindow.mockReset();
     mockGetMessageChildren.mockReset();
   });
 
   it('carrega snapshot recente e marca janela anterior', async () => {
     mockGetConversationInfo.mockResolvedValue({ title: 'Conversa', channel: 'telegram', contact_id: 'contact-1' });
-    mockGetRecentMessages.mockResolvedValue([node('older'), node('visible-1'), node('visible-2')]);
+    mockGetConversationMessageWindow.mockResolvedValue(windowResult(['visible-1', 'visible-2'], {
+      totalCount: 3,
+      startIndex: 1,
+      endIndex: 2,
+      hasBefore: true,
+    }));
 
     const snapshot = await loadConversationSnapshot('conversation-1', 2);
 
-    expect(mockGetRecentMessages).toHaveBeenCalledWith('conversation-1', 3);
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith({
+      scope: 'conversation',
+      conversationId: 'conversation-1',
+      anchor: 'end',
+      anchorMessageId: undefined,
+      direction: 'before',
+      limit: 2,
+    });
     expect(snapshot).toMatchObject({
       title: 'Conversa',
       channel: 'telegram',
@@ -54,12 +76,13 @@ describe('chatSessionLoader', () => {
       hasOlderMessages: true,
     });
     expect(snapshot.threadedMessages.map((item) => item.message.id)).toEqual(['visible-1', 'visible-2']);
-    expect(snapshot.threadedMessages[0].originalIndex).toBe(0);
+    expect(snapshot.threadedMessages[0].originalIndex).toBe(1);
+    expect(snapshot.messageWindow.totalCount).toBe(3);
   });
 
   it('usa i18n quando snapshot não tem título', async () => {
     mockGetConversationInfo.mockResolvedValue({ title: '' });
-    mockGetRecentMessages.mockResolvedValue([]);
+    mockGetConversationMessageWindow.mockResolvedValue(windowResult([]));
 
     const snapshot = await loadConversationSnapshot('conversation-1', 2);
 
@@ -67,17 +90,55 @@ describe('chatSessionLoader', () => {
   });
 
   it('carrega mensagens anteriores antes do cursor', async () => {
-    mockGetMessagesBefore.mockResolvedValue([node('older'), node('visible')]);
+    mockGetConversationMessageWindow.mockResolvedValue(windowResult(['older'], {
+      totalCount: 3,
+      startIndex: 0,
+      endIndex: 0,
+      hasBefore: false,
+      hasAfter: true,
+    }));
 
     const result = await loadOlderConversationMessages('conversation-1', 'cursor', 1);
 
-    expect(mockGetMessagesBefore).toHaveBeenCalledWith('conversation-1', 'cursor', 2);
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith({
+      scope: 'conversation',
+      conversationId: 'conversation-1',
+      anchor: undefined,
+      anchorMessageId: 'cursor',
+      direction: 'before',
+      limit: 1,
+    });
+    expect(result.hasOlderMessages).toBe(false);
+    expect(result.hasNewerMessages).toBe(true);
+    expect(result.nodes.map((item) => item.message.id)).toEqual(['older']);
+  });
+
+  it('carrega mensagens posteriores depois do cursor', async () => {
+    mockGetConversationMessageWindow.mockResolvedValue(windowResult(['newer'], {
+      totalCount: 3,
+      startIndex: 2,
+      endIndex: 2,
+      hasBefore: true,
+      hasAfter: false,
+    }));
+
+    const result = await loadNewerConversationMessages('conversation-1', 'cursor', 1);
+
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith({
+      scope: 'conversation',
+      conversationId: 'conversation-1',
+      anchor: undefined,
+      anchorMessageId: 'cursor',
+      direction: 'after',
+      limit: 1,
+    });
     expect(result.hasOlderMessages).toBe(true);
-    expect(result.nodes.map((item) => item.message.id)).toEqual(['visible']);
+    expect(result.hasNewerMessages).toBe(false);
+    expect(result.nodes[0].originalIndex).toBe(2);
   });
 
   it('recarrega snapshot sem metadados da conversa', async () => {
-    mockGetRecentMessages.mockResolvedValue([node('message-1')]);
+    mockGetConversationMessageWindow.mockResolvedValue(windowResult(['message-1']));
 
     const result = await reloadConversationSnapshot('conversation-1', 2);
 

@@ -201,8 +201,8 @@ const toSurfaceSession = (
     ...surface,
     sessionKey,
     conversationId,
-    visibleThreadedMessages: session.conversation?.threadedMessages ?? surface.visibleThreadedMessages,
-    messageWindow: session.conversation?.messageWindow ?? surface.messageWindow,
+    visibleThreadedMessages: surface.visibleThreadedMessages ?? session.conversation?.threadedMessages,
+    messageWindow: surface.messageWindow ?? session.conversation?.messageWindow,
   };
 };
 

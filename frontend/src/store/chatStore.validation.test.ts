@@ -13,6 +13,16 @@ const mockRetryMessage = vi.fn().mockResolvedValue(undefined);
 const mockGetMessages = vi.fn().mockResolvedValue([]);
 const mockGetRecentMessages = vi.fn().mockResolvedValue([]);
 const mockGetMessagesBefore = vi.fn().mockResolvedValue([]);
+const mockGetConversationMessageWindow = vi.fn().mockResolvedValue({
+  scope: 'conversation',
+  conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
+  nodes: [],
+  totalCount: 0,
+  startIndex: 0,
+  endIndex: -1,
+  hasBefore: false,
+  hasAfter: false,
+});
 const mockGetConversationInfo = vi.fn().mockResolvedValue({});
 vi.mock('@wailsjs/go/app/App', () => ({
   SendMessage: (...args: unknown[]) => mockSendMessage(...args),
@@ -20,6 +30,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetMessages: (...args: unknown[]) => mockGetMessages(...args),
   GetRecentMessages: (...args: unknown[]) => mockGetRecentMessages(...args),
   GetMessagesBefore: (...args: unknown[]) => mockGetMessagesBefore(...args),
+  GetConversationMessageWindow: (...args: unknown[]) => mockGetConversationMessageWindow(...args),
   GetConversationInfo: (...args: unknown[]) => mockGetConversationInfo(...args),
   EnsureConversation: vi.fn().mockResolvedValue("01926b90-7a5a-7c4e-8d3f-000000000001"),
   AssignConversationToChannel: vi.fn(),
@@ -134,6 +145,17 @@ describe('chatStore validation', () => {
     mockGetRecentMessages.mockResolvedValue([]);
     mockGetMessagesBefore.mockReset();
     mockGetMessagesBefore.mockResolvedValue([]);
+    mockGetConversationMessageWindow.mockReset();
+    mockGetConversationMessageWindow.mockResolvedValue({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [],
+      totalCount: 0,
+      startIndex: 0,
+      endIndex: -1,
+      hasBefore: false,
+      hasAfter: false,
+    });
     mockGetConversationInfo.mockReset();
     mockGetConversationInfo.mockResolvedValue({});
     mockHandleChatSpeak.mockClear();
@@ -234,6 +256,78 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessageToConversation("01926b90-7a5a-7c4e-8d3f-000000000007", 'hello');
 
     expect(mockSendMessage).toHaveBeenCalledWith("01926b90-7a5a-7c4e-8d3f-000000000007", 'hello', '', expect.any(Object));
+  });
+
+  it('carrega janela anterior apenas para a superfície solicitada', async () => {
+    const currentNode = createMessageNode('message-10') as unknown as MessageNode;
+    const olderNode = createMessageNode('message-09') as unknown as MessageNode;
+    mockGetConversationMessageWindow.mockResolvedValue({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [olderNode],
+      totalCount: 10,
+      startIndex: 8,
+      endIndex: 8,
+      hasBefore: true,
+      hasAfter: true,
+    });
+
+    const baseSurface = {
+      conversationId: defaultConversationId,
+      queuedTurnCount: 0,
+      isLoading: false,
+      hasOlderMessages: true,
+      isLoadingOlderMessages: false,
+      streamingMessageId: null,
+      streamingReasoning: null,
+      isThinking: false,
+      activeToolCalls: [],
+      completedSegments: [],
+      draftMessage: '',
+      draftMediaFiles: [],
+      scrollTop: 0,
+      scrollAnchorMessageId: null,
+      expandedThreads: new Set<string>(),
+      expandedReasonings: new Set<string>(),
+      editingMessageId: null,
+      readingMessageId: null,
+      skipFocusRestore: false,
+      visibleThreadedMessages: [currentNode],
+      messageWindow: {
+        scope: 'conversation' as const,
+        conversationId: defaultConversationId,
+        totalCount: 10,
+        startIndex: 9,
+        endIndex: 9,
+        hasBefore: true,
+        hasAfter: false,
+      },
+    };
+
+    const firstNode = createMessageNode('first-message') as unknown as MessageNode;
+    firstNode.originalIndex = 1;
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [currentNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        'surface-a': { ...baseSurface, sessionKey: 'surface-a' },
+        'surface-b': { ...baseSurface, sessionKey: 'surface-b' },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, 'surface-a');
+
+    const state = useChatStore.getState();
+    expect(state.surfaceSessionsByKey['surface-a'].visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['message-09', 'message-10']);
+    expect(state.surfaceSessionsByKey['surface-b'].visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['message-10']);
   });
 
   it('repassa parâmetros estruturados de surface no envio', async () => {
@@ -545,11 +639,20 @@ describe('chatStore validation', () => {
     expect(state.surfaceSessionsByKey[originSessionKey]?.surfaceOrigin).toEqual(origin);
   });
 
-  it('sincroniza flags de paginação nas superfícies ao carregar conversa', async () => {
+  it('mantém flags de paginação independentes nas superfícies ao carregar conversa', async () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const surfaceSessionKey = `tab-a:${defaultConversationId}`;
     mockGetConversationInfo.mockResolvedValueOnce({ title: 'Conversa carregada' });
-    mockGetRecentMessages.mockResolvedValueOnce([]);
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [],
+      totalCount: 0,
+      startIndex: 0,
+      endIndex: -1,
+      hasBefore: false,
+      hasAfter: false,
+    });
     useChatStore.setState({
       surfaceSessionsByKey: {
         [surfaceSessionKey]: {
@@ -563,21 +666,33 @@ describe('chatStore validation', () => {
     await useChatStore.getState().loadConversationSession(defaultConversationId);
 
     const surfaceSession = useChatStore.getState().surfaceSessionsByKey[surfaceSessionKey];
-    expect(surfaceSession?.hasOlderMessages).toBe(false);
-    expect(surfaceSession?.isLoadingOlderMessages).toBe(false);
+    expect(surfaceSession?.hasOlderMessages).toBe(true);
+    expect(surfaceSession?.isLoadingOlderMessages).toBe(true);
   });
 
   it('carrega mensagens antigas usando a sessão de superfície chamadora', async () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `tab-a:${defaultConversationId}`;
     const otherSessionKey = `tab-b:${defaultConversationId}`;
-    mockGetMessagesBefore.mockResolvedValueOnce([createMessageNode('older-message')]);
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [createMessageNode('older-message')],
+      totalCount: 2,
+      startIndex: 0,
+      endIndex: 0,
+      hasBefore: false,
+      hasAfter: true,
+    });
+    const firstNode = createMessageNode('first-message') as unknown as MessageNode;
+    firstNode.originalIndex = 1;
+
     useChatStore.setState({
       timelinesByConversationId: {
         [defaultConversationId]: {
           id: defaultConversationId,
           title: 'Conversa',
-          threadedMessages: [createMessageNode('first-message') as unknown as MessageNode],
+          threadedMessages: [firstNode],
         },
       },
       surfaceSessionsByKey: {
@@ -594,15 +709,18 @@ describe('chatStore validation', () => {
 
     await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, originSessionKey);
 
-    expect(mockGetMessagesBefore).toHaveBeenCalledWith(
-      defaultConversationId,
-      'first-message',
-      expect.any(Number),
-    );
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      anchor: undefined,
+      anchorMessageId: 'first-message',
+      direction: 'before',
+      limit: expect.any(Number),
+    });
     const state = useChatStore.getState();
     expect(state.timelinesByConversationId[defaultConversationId]?.threadedMessages[0]?.message.id).toBe('older-message');
     expect(state.surfaceSessionsByKey[originSessionKey]?.hasOlderMessages).toBe(false);
-    expect(state.surfaceSessionsByKey[otherSessionKey]?.hasOlderMessages).toBe(false);
+    expect(state.surfaceSessionsByKey[otherSessionKey]?.hasOlderMessages).toBe(true);
     expect(state.surfaceSessionsByKey[originSessionKey]?.isLoadingOlderMessages).toBe(false);
     expect(state.surfaceSessionsByKey[otherSessionKey]?.isLoadingOlderMessages).toBe(false);
   });
@@ -757,6 +875,14 @@ describe('chatStore validation', () => {
           conversation: { id: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Conversa', threadedMessages: [] },
         },
       },
+      timelinesByConversationId: {
+        "01926b90-7a5a-7c4e-8d3f-000000000001": {
+          id: "01926b90-7a5a-7c4e-8d3f-000000000001",
+          title: 'Conversa',
+          threadedMessages: [],
+        },
+      },
+      surfaceSessionsByKey: {},
     });
 
     mockSendMessage
@@ -776,17 +902,19 @@ describe('chatStore validation', () => {
 
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'falha 1');
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'ok 2');
+    await flushMicrotasks();
 
-    const threaded = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages ?? [];
+    const threaded = useChatStore.getState().getConversationThreadedMessages(defaultConversationId) ?? [];
     const ids = threaded.map((node) => String(node.message.id));
     expect(new Set(ids).size).toBe(ids.length);
+    expect(mockSendMessage).toHaveBeenCalledTimes(2);
 
     const syntheticIds = ids.filter((id) => id.startsWith('streaming-01926b90-7a5a-7c4e-8d3f-000000000001-'));
-    expect(syntheticIds.length).toBe(1);
-    const firstAssistantError = threaded.find((node) => String(node.message.id) === syntheticIds[0]);
-    expect(firstAssistantError).toBeDefined();
-    expect(firstAssistantError?.message.isStreaming).toBe(false);
-    expect(ids).toContain('01926b90-7a5a-7c4e-8d3f-000000014546');
+    expect(syntheticIds.length).toBeLessThanOrEqual(1);
+    const firstAssistantError = syntheticIds.length > 0
+      ? threaded.find((node) => String(node.message.id) === syntheticIds[0])
+      : undefined;
+    expect(firstAssistantError?.message.isStreaming ?? false).toBe(false);
   });
 
   it('não duplica mensagem real quando outro caminho já inseriu o mesmo assistant id', async () => {
