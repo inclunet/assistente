@@ -148,6 +148,9 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 		if parentMessage.ConversationID != conversationID {
 			return nil, fmt.Errorf("threadParentId não pertence à conversa solicitada")
 		}
+		if parentMessage.ParentID != nil {
+			return nil, fmt.Errorf("threadParentId deve apontar para uma mensagem raiz")
+		}
 		parentID = &threadParentID
 	}
 

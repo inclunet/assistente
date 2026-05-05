@@ -207,11 +207,19 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     () => consolidateTurnMessages(threadedMessages),
     [threadedMessages]
   );
-  const canUseAbsoluteMessagePositions = !!messageWindow
-    && messageWindow.totalCount > 0
-    && displayMessages.every((node) => node.originalIndex !== undefined);
-  const ariaSetSize = canUseAbsoluteMessagePositions && messageWindow?.totalCount && messageWindow.totalCount > 0
-    ? messageWindow.totalCount
+  const messagePositions = useMemo(() => {
+    if (!messageWindow || messageWindow.totalCount <= 0) {
+      return displayMessages.map((_, index) => index + 1);
+    }
+    let nextIndex = messageWindow.startIndex;
+    return displayMessages.map((node) => {
+      const absoluteIndex = node.originalIndex ?? nextIndex;
+      nextIndex = absoluteIndex + 1;
+      return absoluteIndex + 1;
+    });
+  }, [displayMessages, messageWindow]);
+  const ariaSetSize = messageWindow && messageWindow.totalCount > 0
+    ? Math.max(messageWindow.totalCount, ...messagePositions)
     : displayMessages.length;
 
   useEffect(() => {
@@ -270,6 +278,9 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     }
     void Promise.resolve(onReachStart?.());
   };
+  const effectiveReachStart = (hasOlderMessages && onLoadOlder) || onReachStart
+    ? handleReachStart
+    : undefined;
 
   const handleReachEnd = () => {
     if (hasNewerMessages && onLoadNewer) {
@@ -390,10 +401,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
               level={0}
               siblingIndex={index}
               siblingCount={displayMessages.length}
-              ariaPosition={canUseAbsoluteMessagePositions ? (node.originalIndex ?? index) + 1 : index + 1}
+              ariaPosition={messagePositions[index] ?? index + 1}
               ariaSetSize={ariaSetSize}
               onLoadChildren={onLoadChildren}
-              onReachStart={handleReachStart}
+              onReachStart={effectiveReachStart}
               onReachEnd={handleReachEnd}
               onJumpToStart={onJumpToStart}
               onJumpToEnd={onJumpToEnd}

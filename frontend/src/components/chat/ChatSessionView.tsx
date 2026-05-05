@@ -580,23 +580,35 @@ function ChatSessionViewContent({
 
   const handleJumpToStart = async () => {
     pendingBoundaryAnnouncementRef.current = true;
-    await loadStartMessages();
-    requestAnimationFrame(() => {
-      const container = messagesContainerRef.current;
-      const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
-      firstMessage?.focus();
-    });
+    try {
+      await loadStartMessages();
+      requestAnimationFrame(() => {
+        const container = messagesContainerRef.current;
+        const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
+        firstMessage?.focus();
+      });
+    } finally {
+      window.setTimeout(() => {
+        pendingBoundaryAnnouncementRef.current = false;
+      }, 250);
+    }
   };
 
   const handleJumpToEnd = async () => {
     pendingBoundaryAnnouncementRef.current = true;
-    await loadEndMessages();
-    requestAnimationFrame(() => {
-      const container = messagesContainerRef.current;
-      const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
-      const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
-      lastMessage?.focus();
-    });
+    try {
+      await loadEndMessages();
+      requestAnimationFrame(() => {
+        const container = messagesContainerRef.current;
+        const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
+        const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
+        lastMessage?.focus();
+      });
+    } finally {
+      window.setTimeout(() => {
+        pendingBoundaryAnnouncementRef.current = false;
+      }, 250);
+    }
   };
 
   const rootClass =

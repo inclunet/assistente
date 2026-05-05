@@ -655,6 +655,12 @@ func countMessagesBeforeAnchor(baseQuery *gorm.DB, anchor ChatMessage) (int, err
 	return int(count), err
 }
 
+func reverseChatMessages(messages []ChatMessage) {
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+}
+
 // GetMessageWindow retorna uma fatia ordenada de mensagens raiz ou filhos diretos,
 // acompanhada de metadados absolutos para renderização acessível e navegação incremental.
 func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
@@ -692,13 +698,15 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 	direction := strings.TrimSpace(query.Direction)
 	startIndex := 0
 	windowLimit := limit
+	var anchorMessage ChatMessage
+	hasAnchorMessage := false
 
 	switch {
 	case query.AnchorMessageID != "":
-		var anchorMessage ChatMessage
 		if err := db.First(&anchorMessage, "id = ? AND conversation_id = ?", query.AnchorMessageID, query.ConversationID).Error; err != nil {
 			return nil, err
 		}
+		hasAnchorMessage = true
 		if query.ParentID == nil && anchorMessage.ParentID != nil {
 			return nil, fmt.Errorf("anchorMessageID não pertence à janela raiz da conversa")
 		}
@@ -746,13 +754,43 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 	}
 
 	var messages []ChatMessage
-	err := messageScopeQuery(query.ConversationID, query.ParentID).
-		Order("created_at ASC, id ASC").
-		Offset(startIndex).
-		Limit(windowLimit).
-		Find(&messages).Error
-	if err != nil {
-		return nil, err
+	if windowLimit > 0 {
+		var err error
+		switch {
+		case hasAnchorMessage && direction == "before":
+			err = messageScopeQuery(query.ConversationID, query.ParentID).
+				Where("(created_at < ? OR (created_at = ? AND id < ?))", anchorMessage.CreatedAt, anchorMessage.CreatedAt, anchorMessage.ID).
+				Order("created_at DESC, id DESC").
+				Limit(windowLimit).
+				Find(&messages).Error
+			reverseChatMessages(messages)
+		case hasAnchorMessage && direction == "after":
+			err = messageScopeQuery(query.ConversationID, query.ParentID).
+				Where("(created_at > ? OR (created_at = ? AND id > ?))", anchorMessage.CreatedAt, anchorMessage.CreatedAt, anchorMessage.ID).
+				Order("created_at ASC, id ASC").
+				Limit(windowLimit).
+				Find(&messages).Error
+		case !hasAnchorMessage && (anchor == "start" || direction == "after"):
+			err = messageScopeQuery(query.ConversationID, query.ParentID).
+				Order("created_at ASC, id ASC").
+				Limit(windowLimit).
+				Find(&messages).Error
+		case !hasAnchorMessage:
+			err = messageScopeQuery(query.ConversationID, query.ParentID).
+				Order("created_at DESC, id DESC").
+				Limit(windowLimit).
+				Find(&messages).Error
+			reverseChatMessages(messages)
+		default:
+			err = messageScopeQuery(query.ConversationID, query.ParentID).
+				Order("created_at ASC, id ASC").
+				Offset(startIndex).
+				Limit(windowLimit).
+				Find(&messages).Error
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	endIndex := startIndex + len(messages) - 1

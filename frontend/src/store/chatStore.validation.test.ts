@@ -916,6 +916,9 @@ describe('chatStore validation', () => {
       ? threaded.find((node) => String(node.message.id) === syntheticIds[0])
       : undefined;
     expect(firstAssistantError?.message.isStreaming ?? false).toBe(false);
+    const finalAssistant = threaded.find((node) => String(node.message.id) === '01926b90-7a5a-7c4e-8d3f-000000014546');
+    expect(finalAssistant?.message.role).toBe('assistant');
+    expect(finalAssistant?.message.isStreaming).toBe(false);
   });
 
   it('não duplica mensagem real quando outro caminho já inseriu o mesmo assistant id', async () => {

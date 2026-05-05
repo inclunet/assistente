@@ -156,6 +156,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     const relativeTime = formatRelativeTime(timestamp);
     const timePrefix = role === 'user' ? 'enviado' : 'recebido';
 
+    if (!canRenderHeavyContent) {
+      return `${roleLabel}, ${timePrefix} ${relativeTime}. ${t('chat.largeMessageDeferred')}`;
+    }
+
     return buildChatMessageAriaLabel({
       roleLabel,
       role,

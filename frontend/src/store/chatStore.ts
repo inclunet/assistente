@@ -619,6 +619,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (surfaceSession.conversationId !== id) {
               continue;
             }
+            if (surfaceSession.visibleThreadedMessages || surfaceSession.messageWindow) {
+              surfaceSessionsByKey[sessionKey] = {
+                ...surfaceSession,
+                isLoadingOlderMessages: false,
+              };
+              continue;
+            }
             surfaceSessionsByKey[sessionKey] = {
               ...surfaceSession,
               hasOlderMessages: snapshot.hasOlderMessages,

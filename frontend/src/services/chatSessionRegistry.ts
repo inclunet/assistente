@@ -269,8 +269,9 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
   const defaultSessionKey = getDefaultChatSessionKey(conversationId);
   const isDefaultSession = sessionKey === defaultSessionKey;
 
-  const shouldPatchTimeline = typeof patch === 'function'
+  const patchCarriesConversation = typeof patch === 'function'
     || Object.prototype.hasOwnProperty.call(patch, 'conversation');
+  const shouldPatchTimeline = isDefaultSession && patchCarriesConversation;
   const shouldMirrorConversationIntoSurface = shouldPatchTimeline
     && nextSession.conversation
     && (typeof patch === 'function' || !Object.prototype.hasOwnProperty.call(patch, 'visibleThreadedMessages'));
@@ -294,10 +295,7 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
   const defaultSession = state.sessionsByConversationId[conversationId] ?? createEmptyChatSession(conversationId);
   const nextDefaultSession = isDefaultSession
     ? nextSession
-    : {
-      ...defaultSession,
-      conversation: nextSession.conversation,
-    };
+    : defaultSession;
 
   return {
     sessionsByConversationId: {
