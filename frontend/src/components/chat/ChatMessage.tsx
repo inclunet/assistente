@@ -18,6 +18,7 @@ import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/edit
 import './ChatMessage.css';
 
 const HEAVY_MARKDOWN_CONTENT_LENGTH = 8_000;
+const HEAVY_ARIA_CONTENT_PREVIEW_LENGTH = 1_200;
 const HEAVY_AGENTIC_SEGMENT_COUNT = 8;
 
 export interface ChatMessageProps {
@@ -157,7 +158,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     const timePrefix = role === 'user' ? 'enviado' : 'recebido';
 
     if (!canRenderHeavyContent) {
-      return `${roleLabel}, ${timePrefix} ${relativeTime}. ${t('chat.largeMessageDeferred')}`;
+      return buildChatMessageAriaLabel({
+        roleLabel,
+        role,
+        displayContent: displayContent.length > HEAVY_ARIA_CONTENT_PREVIEW_LENGTH
+          ? `${displayContent.slice(0, HEAVY_ARIA_CONTENT_PREVIEW_LENGTH)}... ${t('chat.largeMessageDeferred')}`
+          : displayContent,
+        isStreaming: effectiveIsStreaming,
+        timePrefix,
+        relativeTime,
+        isReasoningExpanded: false,
+        reasoning: null,
+        streamingReasoning: null,
+        toolCallsRaw: null,
+        toolCallsHasTextEdit,
+      });
     }
 
     return buildChatMessageAriaLabel({

@@ -119,7 +119,7 @@ interface ChatStore {
   removeConversationSurfaceSession: (sessionKey: string) => void;
 
   createConversation: (title?: string) => Promise<string>;
-  loadConversationSession: (id: string) => Promise<void>;
+  loadConversationSession: (id: string, options?: { refreshSurfaceWindows?: boolean }) => Promise<void>;
   getConversationSession: (conversationId: string | null | undefined) => ChatConversationSession | null;
   loadOlderMessagesForConversation: (conversationId: string, sessionKey: string) => Promise<void>;
   loadNewerMessagesForConversation: (conversationId: string, sessionKey: string) => Promise<void>;
@@ -595,7 +595,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return conv.id;
     },
 
-    loadConversationSession: async (id) => {
+    loadConversationSession: async (id, options) => {
       try {
         const snapshot = await loadConversationSnapshot(id, INITIAL_MESSAGE_WINDOW_SIZE);
         set((state) => {
@@ -619,7 +619,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (surfaceSession.conversationId !== id) {
               continue;
             }
-            if (surfaceSession.visibleThreadedMessages || surfaceSession.messageWindow) {
+            if (!options?.refreshSurfaceWindows && (surfaceSession.visibleThreadedMessages || surfaceSession.messageWindow)) {
               surfaceSessionsByKey[sessionKey] = {
                 ...surfaceSession,
                 isLoadingOlderMessages: false,
@@ -1034,15 +1034,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             hasMessageId(session.conversation?.threadedMessages, messageId)
           ))?.[0];
           if (!targetConversationId) return state;
-          const session = getSession(state, targetConversationId);
-          if (!session.conversation) return state;
-
-          return patchSession(state, targetConversationId, {
-            conversation: {
-              ...session.conversation,
-              threadedMessages: attachChildrenToMessage(session.conversation.threadedMessages, messageId, frontendNodes),
-            },
-          });
+          return patchConversation(state, targetConversationId, (conversation) => ({
+            ...conversation,
+            threadedMessages: attachChildrenToMessage(conversation.threadedMessages, messageId, frontendNodes),
+          }));
         });
 
         return frontendNodes;

@@ -69,7 +69,7 @@ export interface ChatSessionContextValue {
   loadNewerMessages: () => Promise<void>;
   loadStartMessages: () => Promise<void>;
   loadEndMessages: () => Promise<void>;
-  loadConversationSession: (conversationId: string) => Promise<void>;
+  loadConversationSession: ReturnType<typeof useChatStore.getState>['loadConversationSession'];
   loadMessageChildren: ReturnType<typeof useChatStore.getState>['loadMessageChildren'];
   retryMessageToConversation: ReturnType<typeof useChatStore.getState>['retryMessageToConversation'];
   updateConversationMessage: ReturnType<typeof useChatStore.getState>['updateConversationMessage'];

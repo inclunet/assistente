@@ -289,7 +289,7 @@ function ChatSessionViewContent({
         announce(t('chat.announce.messageDeleted'));
         const conv = getSessionConversation();
         if (conv?.id) {
-          await loadConversationSession(conv.id);
+          await loadConversationSession(conv.id, { refreshSurfaceWindows: true });
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);

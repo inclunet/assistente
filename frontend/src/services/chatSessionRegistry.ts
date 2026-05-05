@@ -205,6 +205,44 @@ const toSurfaceSession = (
   };
 };
 
+const getNodeOrder = (node: MessageNode): number => {
+  if (node.originalIndex !== undefined) return node.originalIndex;
+  const timestamp = Number(node.message.timestamp ?? Date.parse(String(node.message.createdAt ?? '')));
+  return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
+};
+
+const mergeTimelineConversation = (
+  current: ConversationTimeline | null,
+  incoming: ConversationTimeline,
+): ConversationTimeline => {
+  if (!current) return incoming;
+  const byId = new Map<string, MessageNode>();
+  for (const node of current.threadedMessages) {
+    byId.set(String(node.message.id), node);
+  }
+  for (const node of incoming.threadedMessages) {
+    const existing = byId.get(String(node.message.id));
+    byId.set(String(node.message.id), existing
+      ? ({
+        ...existing,
+        ...node,
+        children: node.children?.length ? node.children : existing.children,
+        childCount: Math.max(existing.childCount ?? 0, node.childCount ?? 0),
+        originalIndex: node.originalIndex ?? existing.originalIndex,
+        isExpanded: existing.isExpanded ?? node.isExpanded,
+      } as MessageNode)
+      : node);
+  }
+  return {
+    ...current,
+    ...incoming,
+    threadedMessages: Array.from(byId.values()).sort((a, b) => {
+      const order = getNodeOrder(a) - getNodeOrder(b);
+      return order !== 0 ? order : String(a.message.id).localeCompare(String(b.message.id));
+    }),
+  };
+};
+
 export function getChatSession(
   state: ChatSessionRegistryState,
   conversationId: string,
@@ -271,7 +309,7 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
 
   const patchCarriesConversation = typeof patch === 'function'
     || Object.prototype.hasOwnProperty.call(patch, 'conversation');
-  const shouldPatchTimeline = isDefaultSession && patchCarriesConversation;
+  const shouldPatchTimeline = patchCarriesConversation;
   const shouldMirrorConversationIntoSurface = patchCarriesConversation
     && nextSession.conversation
     && (typeof patch === 'function' || !Object.prototype.hasOwnProperty.call(patch, 'visibleThreadedMessages'));
@@ -282,20 +320,28 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
       visibleThreadedMessages: nextConversation.threadedMessages,
     };
   }
+  const defaultSession = state.sessionsByConversationId[conversationId] ?? createEmptyChatSession(conversationId);
   const currentTimelinesByConversationId = state.timelinesByConversationId ?? {};
   let timelinesByConversationId = currentTimelinesByConversationId;
   if (shouldPatchTimeline) {
     timelinesByConversationId = { ...currentTimelinesByConversationId };
     if (nextSession.conversation) {
-      timelinesByConversationId[conversationId] = nextSession.conversation;
+      timelinesByConversationId[conversationId] = isDefaultSession
+        ? nextSession.conversation
+        : mergeTimelineConversation(
+          currentTimelinesByConversationId[conversationId] ?? defaultSession?.conversation ?? null,
+          nextSession.conversation,
+        );
     } else {
       delete timelinesByConversationId[conversationId];
     }
   }
-  const defaultSession = state.sessionsByConversationId[conversationId] ?? createEmptyChatSession(conversationId);
   const nextDefaultSession = isDefaultSession
     ? nextSession
-    : defaultSession;
+    : {
+      ...defaultSession,
+      conversation: timelinesByConversationId[conversationId] ?? defaultSession.conversation,
+    };
 
   return {
     sessionsByConversationId: {
