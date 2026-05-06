@@ -14,10 +14,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func exportTaskList(taskListID string) (TaskListExport, error) {
-	return exportTaskListWithContext(context.Background(), taskListID)
-}
-
 func exportTaskListWithContext(ctx context.Context, taskListID string) (TaskListExport, error) {
 	taskList, err := database.GetTaskListWithContext(ctx, taskListID)
 	if err != nil {
