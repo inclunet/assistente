@@ -413,6 +413,35 @@ describe('chatSessionRegistry', () => {
     expect(ids).toEqual(['user-1', 'assistant-final']);
   });
 
+  it('não vaza nós streaming para superfície nova da mesma conversa', () => {
+    const userNode = messageNode('user-1');
+    const streamingNode = messageNode('streaming-conversation-1-1', {
+      role: 'assistant',
+      turnId: 'user-1',
+      isStreaming: true,
+    });
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {},
+      surfaceSessionsByKey: {},
+    };
+
+    const next = {
+      ...state,
+      ...patchChatSession(state, 'conversation-1', {
+        conversation: {
+          ...conversation('conversation-1'),
+          threadedMessages: [userNode, streamingNode],
+        },
+      }, 'tab-a:conversation-1'),
+    };
+
+    expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').conversation?.threadedMessages.map((node) => node.message.id))
+      .toEqual(['user-1', 'streaming-conversation-1-1']);
+    expect(getChatSession(next, 'conversation-1', 'tab-b:conversation-1').conversation?.threadedMessages.map((node) => node.message.id))
+      .toEqual(['user-1']);
+  });
+
   it('não apaga timeline ao aplicar patch visual sem conversation', () => {
     const state: ChatSessionRegistryState = {
       sessionsByConversationId: {},

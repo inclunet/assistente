@@ -513,6 +513,42 @@ describe('chatStore validation', () => {
     expect(useChatStore.getState().surfaceSessionsByKey[orphanSessionKey]).toBeUndefined();
   });
 
+  it('remove turnId de mensagem interna antes de atualizar a timeline', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const userNode = createMessageNode('user-1') as unknown as MessageNode;
+    const assistantNode = createMessageNode('assistant-1') as unknown as MessageNode;
+    assistantNode.message.role = 'assistant';
+    assistantNode.message.turnId = 'user-1';
+    assistantNode.message.content = 'Resposta canônica';
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: {
+            id: defaultConversationId,
+            title: 'Conversa',
+            threadedMessages: [userNode, assistantNode],
+          },
+        },
+      },
+    });
+
+    useChatStore.getState().addInternalMessage({
+      id: 'internal-1',
+      conversationId: defaultConversationId,
+      role: 'system',
+      content: 'Aviso interno',
+      turnId: 'user-1',
+      createdAt: new Date().toISOString(),
+    } as unknown as import('../lib/chatMessageTree').Message);
+
+    const timeline = useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages ?? [];
+    expect(timeline.map((node) => node.message.id)).toEqual(['user-1', 'assistant-1', 'internal-1']);
+    expect(timeline.find((node) => node.message.id === 'assistant-1')?.message.content).toBe('Resposta canônica');
+    expect(timeline.find((node) => node.message.id === 'internal-1')?.message.turnId).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('addInternalMessage recebeu turnId'));
+  });
+
   it('envia sem recarregar quando timeline já está carregada sem sessão legada', async () => {
     useChatStore.setState({
       sessionsByConversationId: {},

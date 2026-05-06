@@ -946,8 +946,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           );
           const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
           const cachedThreadedMessages = mergeConversationNodes(
-            timeline.threadedMessages,
-            expandedVisibleThreadedMessages,
+            timeline.threadedMessages.filter(isPersistedMessageNode),
+            expandedVisibleThreadedMessages.filter(isPersistedMessageNode),
           );
           const expandedMessageWindow = {
             ...olderMessages.messageWindow,
@@ -1059,8 +1059,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           );
           const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
           const cachedThreadedMessages = mergeConversationNodes(
-            timeline.threadedMessages,
-            expandedVisibleThreadedMessages,
+            timeline.threadedMessages.filter(isPersistedMessageNode),
+            expandedVisibleThreadedMessages.filter(isPersistedMessageNode),
           );
           const expandedMessageWindow = {
             ...newerMessages.messageWindow,
@@ -1191,6 +1191,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     addInternalMessage: (message) => {
       const conversationId = String(message.conversationId || '');
       if (!conversationId) return;
+      const messageForTree = message.turnId
+        ? Object.assign(Object.create(Object.getPrototypeOf(message)), message, { turnId: undefined }) as Message
+        : message;
+      if (message.turnId) {
+        console.warn('[Chat] addInternalMessage recebeu turnId; removendo para evitar colisão com timeline canônica');
+      }
 
       set((state) => {
         const session = getSession(state, conversationId);
@@ -1198,7 +1204,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         return patchSession(state, conversationId, {
           conversation: {
             ...session.conversation,
-            threadedMessages: appendInternalMessageToTree(session.conversation.threadedMessages, message),
+            threadedMessages: appendInternalMessageToTree(session.conversation.threadedMessages, messageForTree),
           },
         });
       });

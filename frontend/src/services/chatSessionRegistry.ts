@@ -267,6 +267,20 @@ export const sortTimelineNodes = (nodes: MessageNode[]): MessageNode[] => (
   })
 );
 
+const isPersistedTimelineNode = (node: MessageNode): boolean => {
+  const id = String(node.message.id ?? '');
+  return !node.message.isStreaming && id !== '' && !id.startsWith('streaming-');
+};
+
+const toTimelineCacheConversation = (conversation: ConversationTimeline): ConversationTimeline => {
+  const threadedMessages = conversation.threadedMessages.filter(isPersistedTimelineNode);
+  if (threadedMessages.length === conversation.threadedMessages.length) return conversation;
+  return {
+    ...conversation,
+    threadedMessages,
+  };
+};
+
 const reconcileWindowForVisibleMessages = (
   window: MessageWindowState | undefined,
   nodes: MessageNode[],
@@ -368,7 +382,7 @@ export function getChatSession(
     conversation: timeline
       ? {
         ...timeline,
-        threadedMessages: surfaceSession.visibleThreadedMessages ?? timeline.threadedMessages,
+        threadedMessages: surfaceSession.visibleThreadedMessages ?? toTimelineCacheConversation(timeline).threadedMessages,
       }
       : null,
   };
