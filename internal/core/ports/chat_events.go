@@ -28,6 +28,7 @@ func NewChatSurfaceOrigin(conversationID, sessionKey, surfaceID, surfaceType, ta
 // ThinkingEvent is the payload for chat:thinking.
 type ThinkingEvent struct {
 	ConversationID string             `json:"conversationId"`
+	TurnID         string             `json:"turnId,omitempty"`
 	Content        string             `json:"content,omitempty"`
 	Done           bool               `json:"done"`
 	Started        bool               `json:"started,omitempty"`
@@ -37,6 +38,7 @@ type ThinkingEvent struct {
 // DoneEvent is the payload for chat:done.
 type DoneEvent struct {
 	ConversationID     string `json:"conversationId"`
+	TurnID             string `json:"turnId,omitempty"`
 	AssistantMessageID string `json:"assistantMessageId,omitempty"`
 	HadToolCalls       bool   `json:"hadToolCalls,omitempty"`
 	// AEP-0039 Fase 2: enriched done event
@@ -61,6 +63,7 @@ type ErrorEvent struct {
 type MessagesReadyEvent struct {
 	ConversationID string             `json:"conversationId"`
 	UserMessageID  string             `json:"userMessageId"`
+	TurnID         string             `json:"turnId,omitempty"`
 	UserContent    string             `json:"userContent"`
 	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
@@ -68,6 +71,7 @@ type MessagesReadyEvent struct {
 // ToolStartEvent is the payload for chat:tool_start.
 type ToolStartEvent struct {
 	ConversationID string             `json:"conversationId"`
+	TurnID         string             `json:"turnId,omitempty"`
 	Name           string             `json:"name"`
 	CallID         string             `json:"callId"`
 	Args           string             `json:"args,omitempty"`
@@ -80,6 +84,7 @@ type ToolStartEvent struct {
 // ToolEndEvent is the payload for chat:tool_end.
 type ToolEndEvent struct {
 	ConversationID string             `json:"conversationId"`
+	TurnID         string             `json:"turnId,omitempty"`
 	Name           string             `json:"name,omitempty"`
 	CallID         string             `json:"callId"`
 	Status         string             `json:"status"`
@@ -97,6 +102,7 @@ type ToolEndEvent struct {
 // Distinct from tool_end with status="error" — this carries retry context.
 type ToolFailureEvent struct {
 	ConversationID string             `json:"conversationId"`
+	TurnID         string             `json:"turnId,omitempty"`
 	Name           string             `json:"name"`
 	CallID         string             `json:"callId"`
 	ErrorKind      string             `json:"errorKind"` // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "unknown"
@@ -122,6 +128,7 @@ type ToolSummary struct {
 // SegmentDoneEvent is the payload for chat:segment_done.
 type SegmentDoneEvent struct {
 	ConversationID string `json:"conversationId"`
+	TurnID         string `json:"turnId,omitempty"`
 	Content        string `json:"content,omitempty"`
 	Iteration      int    `json:"iteration"`
 	HasMore        bool   `json:"hasMore"`

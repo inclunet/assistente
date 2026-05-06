@@ -10,6 +10,7 @@ type Emitter interface {
 type StreamEvent struct {
 	MessageID      string             `json:"messageId"`
 	ConversationId string             `json:"conversationId"`
+	TurnID         string             `json:"turnId,omitempty"`
 	Content        string             `json:"content"`
 	Done           bool               `json:"done"`
 	FullResponse   string             `json:"fullResponse,omitempty"`

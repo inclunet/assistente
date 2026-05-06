@@ -1,4 +1,3 @@
-import { GetMessages } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import i18next from 'i18next';
 import { main } from '../../wailsjs/go/models';
@@ -8,7 +7,6 @@ import {
   finalizeStreamingNode,
   flattenThreadedMessages,
   hasMessageId,
-  withOriginalIndex,
   type ChatTreeConversation,
   type Message,
   type MessageNode,
@@ -22,6 +20,8 @@ import {
   playChatReceiveSoundIfActive,
 } from './chatArbitration';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
+import { reloadConversationSnapshot } from './chatSessionLoader';
+import { INITIAL_MESSAGE_WINDOW_SIZE } from './messageWindowLimits';
 import type { ChatSurfaceOrigin } from './chatSessionRegistry';
 
 const STREAM_UPDATE_DEBOUNCE_MS = 16;
@@ -30,6 +30,7 @@ interface ChatMessagesReadyEvent {
   conversationId: string;
   userMessageId: string;
   userContent: string;
+  turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
@@ -39,6 +40,7 @@ interface ChatStreamEvent {
   done?: boolean;
   error?: string;
   messageId?: string;
+  turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
@@ -47,6 +49,7 @@ interface ChatThinkingEvent {
   started?: boolean;
   done?: boolean;
   content?: string;
+  turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
@@ -55,6 +58,7 @@ interface ChatToolStartEvent {
   name: string;
   callId: string;
   args?: string;
+  turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
@@ -65,6 +69,7 @@ interface ChatToolEndEvent {
   status?: string;
   summary?: string;
   attempt?: number;
+  turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
@@ -73,6 +78,7 @@ interface ChatToolFailureEvent {
   name: string;
   callId: string;
   willRetry?: boolean;
+  turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
@@ -80,11 +86,13 @@ interface ChatSegmentDoneEvent {
   conversationId: string;
   hasMore?: boolean;
   content?: string;
+  turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatDoneEvent {
   conversationId: string;
+  turnId?: string;
   hadToolCalls?: boolean;
   errorMessage?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
@@ -208,6 +216,7 @@ export function startChatEventController({
   let cleanupExecuted = false;
   let streamingAnnounced = false;
   let assistantNodeCreated = false;
+  let currentTurnId: string | null = null;
   let resolveDone: () => void = () => {};
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
@@ -244,6 +253,7 @@ export function startChatEventController({
       content: '',
       timestamp: Date.now(),
       conversationId,
+      turnId: currentTurnId ?? undefined,
       isStreaming: true,
       internal: false,
       createdAt: new Date().toISOString(),
@@ -342,6 +352,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     if (!event.userMessageId) return;
+    currentTurnId = event.turnId || event.userMessageId.toString();
     if (hasMessageId(getCurrentSession().conversation?.threadedMessages, String(event.userMessageId))) return;
     const userMsg = new main.EnrichedMessage({
       id: event.userMessageId.toString(),
@@ -378,6 +389,7 @@ export function startChatEventController({
     if (!isActive()) return;
 
     if (event.content && !event.done && !event.error) {
+      currentTurnId = event.turnId || currentTurnId;
       ensureAssistantNode();
       if (!streamingAnnounced) {
         streamingAnnounced = true;
@@ -387,6 +399,7 @@ export function startChatEventController({
     }
 
     if (event.error) {
+      currentTurnId = event.turnId || currentTurnId;
       ensureAssistantNode();
       flushStreamingUpdate();
       updateStreamingMessage(i18next.t('chat.errorPrefix', { message: event.error }));
@@ -395,6 +408,7 @@ export function startChatEventController({
     }
 
     if (event.done) {
+      currentTurnId = event.turnId || currentTurnId;
       ensureAssistantNode();
       flushStreamingUpdate();
       if (event.content) updateStreamingMessage(event.content);
@@ -410,6 +424,7 @@ export function startChatEventController({
   unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
+    currentTurnId = event.turnId || currentTurnId;
     ensureAssistantNode();
     if (event.started) {
       patchCurrentSession({
@@ -428,6 +443,7 @@ export function startChatEventController({
   unsubToolStart = EventsOn('chat:tool_start', (event: ChatToolStartEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
+    currentTurnId = event.turnId || currentTurnId;
     ensureAssistantNode();
     const session = getCurrentSession();
     const existing = session.activeToolCalls.findIndex((tc) => tc.callId === event.callId);
@@ -448,6 +464,7 @@ export function startChatEventController({
   unsubToolEnd = EventsOn('chat:tool_end', (event: ChatToolEndEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
+    currentTurnId = event.turnId || currentTurnId;
     const session = getCurrentSession();
     patchCurrentSession({
       activeToolCalls: session.activeToolCalls.map((tc) =>
@@ -469,6 +486,7 @@ export function startChatEventController({
   unsubToolFailure = EventsOn('chat:tool_failure', (event: ChatToolFailureEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
+    currentTurnId = event.turnId || currentTurnId;
     if (event.willRetry) {
       announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite', getEventOrigin(event));
       return;
@@ -479,6 +497,7 @@ export function startChatEventController({
   unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
+    currentTurnId = event.turnId || currentTurnId;
     if (!event.hasMore) return;
 
     const session = getCurrentSession();
@@ -517,6 +536,7 @@ export function startChatEventController({
   unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
+    currentTurnId = event.turnId || currentTurnId;
 
     if (event.errorMessage) {
       ensureAssistantNode();
@@ -530,14 +550,31 @@ export function startChatEventController({
     finalizeStreaming();
 
     if (event.hadToolCalls) {
-      GetMessages(conversationId, null).then((backendNodes) => {
+      reloadConversationSnapshot(conversationId, INITIAL_MESSAGE_WINDOW_SIZE).then((snapshot) => {
         const conversation = getCurrentSession().conversation;
         if (!conversation) return;
+        if (snapshot.threadedMessages.length === 0) {
+          patchCurrentSession({ completedSegments: [] });
+          return;
+        }
+        const currentSession = getCurrentSession();
+        const isSurfaceAtLiveTail = !currentSession.messageWindow?.hasAfter
+          || (
+            currentSession.messageWindow.totalCount > 0
+            && currentSession.messageWindow.endIndex >= currentSession.messageWindow.totalCount - 1
+          );
         patchCurrentSession({
           conversation: {
             ...conversation,
-            threadedMessages: backendNodes.map(withOriginalIndex),
+            threadedMessages: snapshot.threadedMessages,
           },
+          ...(isSurfaceAtLiveTail
+            ? {
+              visibleThreadedMessages: snapshot.threadedMessages,
+              messageWindow: snapshot.messageWindow,
+              hasOlderMessages: snapshot.hasOlderMessages,
+            }
+            : {}),
           completedSegments: [],
         });
       }).catch((err) => {

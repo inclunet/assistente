@@ -25,6 +25,7 @@ func (s *Service) NewSimpleStreamHandler(conversationID, userMessageID string, p
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        s.emitter,
 			ConversationID: conversationID,
+			TurnID:         userMessageID,
 			SurfaceOrigin:  surfaceOrigin,
 		},
 		svc:           s,
@@ -40,6 +41,7 @@ func (h *SimpleStreamHandler) OnError(err string) {
 		Done:           true,
 		Error:          err,
 		ConversationId: h.ConversationID,
+		TurnID:         h.TurnID,
 		SurfaceOrigin:  h.SurfaceOrigin,
 	})
 }

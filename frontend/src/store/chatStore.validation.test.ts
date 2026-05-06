@@ -1496,7 +1496,17 @@ describe('chatStore validation', () => {
         },
       },
     });
-    mockGetMessages.mockResolvedValueOnce(refreshedNodes);
+    mockGetConversationInfo.mockResolvedValueOnce({ title: 'Conversa' });
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: refreshedNodes,
+      totalCount: refreshedNodes.length,
+      startIndex: 0,
+      endIndex: refreshedNodes.length - 1,
+      hasBefore: false,
+      hasAfter: false,
+    });
     mockSendMessage.mockImplementationOnce(() => {
       emitEvent('chat:done', {
         conversationId: defaultConversationId,
