@@ -1,6 +1,7 @@
 package database
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -302,6 +303,86 @@ func TestGetMessageWindow_EndBeforeReturnsAbsoluteMetadata(t *testing.T) {
 		if window.Messages[i].ID != id {
 			t.Errorf("messages[%d]: expected %s, got %s", i, id, window.Messages[i].ID)
 		}
+	}
+}
+
+func TestGetMessageWindow_RejectsInvalidCursorShape(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	cases := []struct {
+		name  string
+		query MessageWindowQuery
+		want  string
+	}{
+		{
+			name: "invalid direction",
+			query: MessageWindowQuery{
+				ConversationID: convID,
+				Direction:      "sideways",
+				Limit:          2,
+			},
+			want: "direction",
+		},
+		{
+			name: "invalid anchor",
+			query: MessageWindowQuery{
+				ConversationID: convID,
+				Anchor:         "middle",
+				Direction:      "before",
+				Limit:          2,
+			},
+			want: "anchor",
+		},
+		{
+			name: "anchor and anchor message",
+			query: MessageWindowQuery{
+				ConversationID:  convID,
+				Anchor:          "end",
+				AnchorMessageID: ids[0],
+				Direction:       "before",
+				Limit:           2,
+			},
+			want: "mutuamente exclusivos",
+		},
+		{
+			name: "start before",
+			query: MessageWindowQuery{
+				ConversationID: convID,
+				Anchor:         "start",
+				Direction:      "before",
+				Limit:          2,
+			},
+			want: "anchor=start",
+		},
+		{
+			name: "end after",
+			query: MessageWindowQuery{
+				ConversationID: convID,
+				Anchor:         "end",
+				Direction:      "after",
+				Limit:          2,
+			},
+			want: "anchor=end",
+		},
+		{
+			name: "around without anchor message",
+			query: MessageWindowQuery{
+				ConversationID: convID,
+				Direction:      "around",
+				Limit:          2,
+			},
+			want: "anchorMessageId",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := GetMessageWindow(tc.query)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
 	}
 }
 

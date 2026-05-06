@@ -650,7 +650,16 @@ type MessageWindowResult struct {
 	HasAfter   bool
 }
 
-const MaxMessageWindowRows = 240
+const (
+	MaxMessageWindowRows = 240
+
+	messageWindowAnchorStart = "start"
+	messageWindowAnchorEnd   = "end"
+
+	messageWindowDirectionBefore = "before"
+	messageWindowDirectionAfter  = "after"
+	messageWindowDirectionAround = "around"
+)
 
 func normalizeMessageWindowLimit(limit int) int {
 	if limit <= 0 {
@@ -660,6 +669,35 @@ func normalizeMessageWindowLimit(limit int) int {
 		return MaxMessageWindowRows
 	}
 	return limit
+}
+
+func normalizeMessageWindowCursor(query MessageWindowQuery) (anchor string, direction string, err error) {
+	anchor = strings.TrimSpace(query.Anchor)
+	direction = strings.TrimSpace(query.Direction)
+	if direction == "" {
+		direction = messageWindowDirectionBefore
+	}
+	if anchor != "" && anchor != messageWindowAnchorStart && anchor != messageWindowAnchorEnd {
+		return "", "", fmt.Errorf("anchor de janela de mensagens inválido: %s", query.Anchor)
+	}
+	if direction != messageWindowDirectionBefore &&
+		direction != messageWindowDirectionAfter &&
+		direction != messageWindowDirectionAround {
+		return "", "", fmt.Errorf("direction de janela de mensagens inválido: %s", query.Direction)
+	}
+	if anchor != "" && query.AnchorMessageID != "" {
+		return "", "", fmt.Errorf("anchor e anchorMessageId são mutuamente exclusivos")
+	}
+	if anchor == messageWindowAnchorStart && direction == messageWindowDirectionBefore {
+		return "", "", fmt.Errorf("anchor=start não aceita direction=before")
+	}
+	if anchor == messageWindowAnchorEnd && direction == messageWindowDirectionAfter {
+		return "", "", fmt.Errorf("anchor=end não aceita direction=after")
+	}
+	if direction == messageWindowDirectionAround && query.AnchorMessageID == "" {
+		return "", "", fmt.Errorf("direction=around exige anchorMessageId")
+	}
+	return anchor, direction, nil
 }
 
 func messageScopeQuery(conversationID string, parentID *string) *gorm.DB {
@@ -690,6 +728,10 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 	if query.ConversationID == "" {
 		return nil, fmt.Errorf("conversationID é obrigatório para buscar janela de mensagens")
 	}
+	anchor, direction, err := normalizeMessageWindowCursor(query)
+	if err != nil {
+		return nil, err
+	}
 
 	limit := normalizeMessageWindowLimit(query.Limit)
 	baseQuery := messageScopeQuery(query.ConversationID, query.ParentID)
@@ -717,8 +759,6 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 	}
 
 	total := int(totalCount)
-	anchor := strings.TrimSpace(query.Anchor)
-	direction := strings.TrimSpace(query.Direction)
 	startIndex := 0
 	windowLimit := limit
 	var anchorMessage ChatMessage
