@@ -279,4 +279,42 @@ describe('ProfileVoiceSection', () => {
     expect(screen.getByText('profiles.voiceSection.modelLabel')).toBeInTheDocument();
     expect(screen.queryByTestId('voice-picker-mock')).not.toBeInTheDocument();
   });
+
+  it('gera ids únicos para seletores de modelo no mesmo perfil', () => {
+    render(
+      <>
+        <ProfileVoiceSection
+          {...defaultProps}
+          providerId="localai-default"
+          providerType="localai"
+          profileId="profile-1"
+          label="Assistant voice"
+        />
+        <ProfileVoiceSection
+          {...defaultProps}
+          providerId="localai-default"
+          providerType="localai"
+          profileId="profile-1"
+          label="User voice"
+        />
+      </>
+    );
+
+    const modelSelects = screen.getAllByLabelText('profiles.voiceSection.modelLabel');
+    expect(modelSelects[0]).toHaveAttribute('id', 'tts-model-profile-1-assistant-voice');
+    expect(modelSelects[1]).toHaveAttribute('id', 'tts-model-profile-1-user-voice');
+  });
+
+  it('infere model_only para modelos voice-* antes da listagem dinâmica carregar', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="localai-default"
+        providerType="localai"
+        ttsModel="voice-pt_BR-cadu-medium"
+      />
+    );
+
+    expect(screen.queryByTestId('voice-picker-mock')).not.toBeInTheDocument();
+  });
 });

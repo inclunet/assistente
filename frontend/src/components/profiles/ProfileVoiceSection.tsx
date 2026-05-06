@@ -10,6 +10,17 @@ import { ttsService } from '../../services/tts';
 import type { TTSModel, TTSVoice, TTSSelectionMode } from '../../services/tts/types';
 import './ProfileVoiceSection.css';
 
+const inferSelectionModeFromModel = (modelId?: string): TTSSelectionMode | undefined => {
+  if (!modelId) return undefined;
+  return modelId.toLowerCase().startsWith('voice-') ? 'model_only' : undefined;
+};
+
+const toFieldIdPart = (value?: string) => (value || 'default')
+  .trim()
+  .toLowerCase()
+  .replace(/[^a-z0-9_-]+/g, '-')
+  .replace(/^-+|-+$/g, '') || 'default';
+
 export interface ProfileVoiceSectionProps {
   voice: string;
   rate: number;
@@ -53,7 +64,9 @@ export function ProfileVoiceSection({
 
   const ttsCapabilities = getTTSCapabilities(providerType || '');
   const isHTTPProvider = !!providerId && providerId !== 'webspeech' && providerId !== 'sapi5' && !providerId.startsWith('ref_');
-  const modelSelectId = `tts-model-${profileId || label?.replace(/\s+/g, '-').toLowerCase() || 'default'}`;
+  const modelFieldIdPart = `${toFieldIdPart(profileId)}-${toFieldIdPart(label)}`;
+  const modelSelectId = `tts-model-${modelFieldIdPart}`;
+  const modelHelpId = `${modelSelectId}-help`;
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +99,7 @@ export function ProfileVoiceSection({
   }, [dynamicModels, ttsCapabilities.staticModels]);
 
   const currentModel = ttsModels.find((m) => m.id === ttsModel);
-  const effectiveSelectionMode = currentModel?.selectionMode || selectionMode || 'model_and_voice';
+  const effectiveSelectionMode = currentModel?.selectionMode || selectionMode || inferSelectionModeFromModel(ttsModel) || 'model_and_voice';
   const isModelOnly = isHTTPProvider && effectiveSelectionMode === 'model_only';
 
   // Para provedores com vozes estáticas (OpenAI): converte para TTSVoice[] e passa como override.
@@ -149,6 +162,7 @@ export function ProfileVoiceSection({
             value={ttsModel || ''}
             onChange={(event) => handleModelChange(event.target.value)}
             disabled={disabled}
+            aria-describedby={modelHelpId}
           >
             <option value="">{t('profiles.voiceSection.modelPlaceholder')}</option>
             {ttsModels.map((model) => (
@@ -157,7 +171,7 @@ export function ProfileVoiceSection({
               </option>
             ))}
           </select>
-          <p className="profiles-field__hint">
+          <p className="profiles-field__hint" id={modelHelpId}>
             {t('profiles.voiceSection.modelHelp')}
           </p>
         </div>

@@ -10,6 +10,13 @@ import { calcTTSTimeoutMs } from '../../lib/audioUtils';
 
 type WailsApp = {
   go?: {
+    app?: {
+      App?: {
+        GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
+        GetTTSVoices?: (profileId: string, providerId: string, modelId: string) => Promise<BackendVoice[]>;
+        SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, text: string, sessionId: string) => Promise<void>;
+      };
+    };
     main?: {
       App?: {
         GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
@@ -18,6 +25,11 @@ type WailsApp = {
       };
     };
   };
+};
+
+const getWailsApp = () => {
+  const go = (window as unknown as WailsApp).go;
+  return go?.app?.App ?? go?.main?.App;
 };
 
 type BackendVoice = {
@@ -38,13 +50,13 @@ type BackendModel = {
 };
 
 const getTTSModels = async (providerId: string): Promise<BackendModel[]> => {
-  const app = (window as unknown as WailsApp).go?.main?.App;
+  const app = getWailsApp();
   if (!app?.GetTTSModels) return [];
   return app.GetTTSModels(providerId);
 };
 
 const getTTSVoices = async (profileId: string, providerId: string, modelId: string): Promise<BackendVoice[]> => {
-  const app = (window as unknown as WailsApp).go?.main?.App;
+  const app = getWailsApp();
   if (!app?.GetTTSVoices) return [];
   return app.GetTTSVoices(profileId, providerId, modelId);
 };
@@ -520,7 +532,7 @@ class TTSService {
     rate: number,
     volume: number,
   ): Promise<void> {
-    const app = (window as unknown as WailsApp).go?.main?.App;
+    const app = getWailsApp();
     const speakPreview = app?.SpeakPreview as ((
       providerId: string, model: string, voiceId: string, rate: number, volume: number, text: string, sessionId: string,
     ) => Promise<void>) | undefined;
