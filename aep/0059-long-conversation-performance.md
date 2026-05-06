@@ -176,7 +176,7 @@ O PR de Fase 2.1 conclui a semântica canônica de itens de timeline:
 
 - A unidade de paginação, contagem e acessibilidade é o item de timeline.
 - Um item normal representa uma mensagem navegável sem consolidação.
-- Um item de turno representa as mensagens persistidas com o mesmo `turnId`, normalmente mensagens de assistant/tool produzidas pela resposta a uma mensagem de usuário.
+- Um item de turno representa as mensagens não-usuário persistidas com o mesmo `turnId`, como respostas de assistant, chamadas de tool e registros técnicos associados ao turno.
 - `turnId` continua apontando para o ID da mensagem de usuário que iniciou o turno.
 - `anchorMessageId` pode apontar para a mensagem representante ou para uma mensagem interna de um turno; o backend normaliza isso para o item de timeline correspondente.
 - `originalIndex`, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` são calculados pelo backend sobre itens de timeline.

@@ -932,21 +932,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }, sessionKey);
             return patches;
           }
-          const existingByKey = new Map(currentSession.conversation.threadedMessages.map((node) => [getTimelineNodeKey(node), node]));
-          const dedupedOlderNodes = olderMessages.nodes.filter((node) => {
-            const existing = existingByKey.get(getTimelineNodeKey(node));
-            return !existing
-              || existing.message.id !== node.message.id
-              || existing.message.isStreaming
-              || existing.originalIndex !== node.originalIndex;
-          });
           const expandedVisibleThreadedMessages = mergeConversationNodes(
-            dedupedOlderNodes,
+            olderMessages.nodes,
             currentSession.conversation.threadedMessages,
           );
           const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
           const cachedThreadedMessages = mergeConversationNodes(
-            timeline.threadedMessages.filter(isPersistedMessageNode),
+            timeline.threadedMessages,
             expandedVisibleThreadedMessages.filter(isPersistedMessageNode),
           );
           const expandedMessageWindow = {
@@ -1032,15 +1024,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           if (!currentSession.conversation) {
             return patchSession(current, conversationId, { isLoadingMessageWindow: false }, sessionKey);
           }
-          const existingByKey = new Map(currentSession.conversation.threadedMessages.map((node) => [getTimelineNodeKey(node), node]));
-          const dedupedNewerNodes = newerMessages.nodes.filter((node) => {
-            const existing = existingByKey.get(getTimelineNodeKey(node));
-            return !existing
-              || existing.message.id !== node.message.id
-              || existing.message.isStreaming
-              || existing.originalIndex !== node.originalIndex;
-          });
-          if (dedupedNewerNodes.length === 0) {
+          if (newerMessages.nodes.length === 0) {
             const currentWindow = currentSession.messageWindow ?? newerMessages.messageWindow;
             const messageWindow = {
               ...currentWindow,
@@ -1055,11 +1039,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
           const expandedVisibleThreadedMessages = mergeConversationNodes(
             currentSession.conversation.threadedMessages,
-            dedupedNewerNodes,
+            newerMessages.nodes,
           );
           const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
           const cachedThreadedMessages = mergeConversationNodes(
-            timeline.threadedMessages.filter(isPersistedMessageNode),
+            timeline.threadedMessages,
             expandedVisibleThreadedMessages.filter(isPersistedMessageNode),
           );
           const expandedMessageWindow = {
@@ -1192,6 +1176,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const conversationId = String(message.conversationId || '');
       if (!conversationId) return;
       const messageForTree = message.turnId
+        // Preserve the Wails-generated message prototype; object spread would drop instance methods.
         ? Object.assign(Object.create(Object.getPrototypeOf(message)), message, { turnId: undefined }) as Message
         : message;
       if (message.turnId) {

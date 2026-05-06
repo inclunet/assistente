@@ -259,6 +259,7 @@ export const sortMessageNodes = (nodes: MessageNode[]): MessageNode[] => (
 
 export const sortTimelineNodes = (nodes: MessageNode[]): MessageNode[] => (
   [...nodes].sort((a, b) => {
+    // OriginalIndex is the backend canonical order; transient/unindexed nodes fall back to creation time.
     if (a.originalIndex !== undefined && b.originalIndex !== undefined && a.originalIndex !== b.originalIndex) {
       return a.originalIndex - b.originalIndex;
     }
@@ -318,12 +319,14 @@ const mergeTimelineConversation = (
   current: ConversationTimeline | null,
   incoming: ConversationTimeline,
 ): ConversationTimeline => {
-  if (!current) return incoming;
+  const incomingCache = toTimelineCacheConversation(incoming);
+  if (!current) return incomingCache;
+  const currentCache = toTimelineCacheConversation(current);
   const byKey = new Map<string, MessageNode>();
-  for (const node of current.threadedMessages) {
+  for (const node of currentCache.threadedMessages) {
     byKey.set(getTimelineNodeKey(node), node);
   }
-  for (const node of incoming.threadedMessages) {
+  for (const node of incomingCache.threadedMessages) {
     const key = getTimelineNodeKey(node);
     const existing = byKey.get(key);
     byKey.set(key, existing
@@ -331,8 +334,8 @@ const mergeTimelineConversation = (
       : node);
   }
   return {
-    ...current,
-    ...incoming,
+    ...currentCache,
+    ...incomingCache,
     threadedMessages: sortTimelineNodes(Array.from(byKey.values())),
   };
 };

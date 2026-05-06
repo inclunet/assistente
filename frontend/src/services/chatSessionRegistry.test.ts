@@ -436,6 +436,8 @@ describe('chatSessionRegistry', () => {
       }, 'tab-a:conversation-1'),
     };
 
+    expect(getConversationTimeline(next, 'conversation-1')?.threadedMessages.map((node) => node.message.id))
+      .toEqual(['user-1']);
     expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').conversation?.threadedMessages.map((node) => node.message.id))
       .toEqual(['user-1', 'streaming-conversation-1-1']);
     expect(getChatSession(next, 'conversation-1', 'tab-b:conversation-1').conversation?.threadedMessages.map((node) => node.message.id))
