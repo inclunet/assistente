@@ -30,7 +30,12 @@ func TestIsTTSModel(t *testing.T) {
 		// Infixo -tts- (qwen, vllm, etc)
 		{"qwen3-tts-0.6b-custom-voice", true},
 		{"qwen3-tts-1.7b-custom-voice", true},
+		{"qwen3-0.6b-custom-voice", true},
 		{"vllm-omni-qwen3-tts-custom-voice", true},
+		// Kokoro/LocalAI
+		{"kokoro", true},
+		{"kokoros", true},
+		{"localai-kokoro-v1", true},
 		// Não é TTS
 		{"gpt-4o", false},
 		{"whisper-1", false},
@@ -105,8 +110,11 @@ func TestDetectionWithRealLocalAIModels(t *testing.T) {
 		"gpt-oss-20b",
 		"qwen3-tts-0.6b-custom-voice",
 		"qwen3-tts-1.7b-custom-voice",
+		"qwen3-0.6b-custom-voice",
 		"voice-en_US-amy-medium",
 		"voice-en_US-kathleen-low",
+		"kokoro",
+		"kokoros",
 		"voice-pt_BR-cadu-medium",
 		"voice-pt_BR-faber-medium",
 		"voice-pt_PT-voice4",
@@ -125,6 +133,9 @@ func TestDetectionWithRealLocalAIModels(t *testing.T) {
 		"voice-pt_PT-voice3":               true,
 		"qwen3-tts-0.6b-custom-voice":      true,
 		"qwen3-tts-1.7b-custom-voice":      true,
+		"qwen3-0.6b-custom-voice":          true,
+		"kokoro":                           true,
+		"kokoros":                          true,
 		"voice-en_US-amy-medium":           true,
 		"voice-en_US-kathleen-low":         true,
 		"voice-pt_BR-cadu-medium":          true,
@@ -211,6 +222,8 @@ func TestSelectionModeForTTSModel(t *testing.T) {
 		{modelID: "gpt-4o-mini-tts", want: TTSSelectionModelAndVoice},
 		{modelID: "qwen3-tts-0.6b-custom-voice", want: TTSSelectionModelAndVoice},
 		{modelID: "vllm-omni-qwen3-tts-custom-voice", want: TTSSelectionModelAndVoice},
+		{modelID: "kokoro", want: TTSSelectionModelAndVoice},
+		{modelID: "kokoros", want: TTSSelectionModelAndVoice},
 		{modelID: "voice-pt_BR-cadu-medium", want: TTSSelectionModelOnly},
 		{modelID: "Voice-en_US-amy-medium", want: TTSSelectionModelOnly},
 	}
@@ -221,4 +234,41 @@ func TestSelectionModeForTTSModel(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFetchVoicesForDynamicTTSFamilies(t *testing.T) {
+	client := &TTSClient{}
+
+	qwenVoices, err := client.FetchVoices("qwen3-tts-0.6b-custom-voice")
+	if err != nil {
+		t.Fatalf("FetchVoices(qwen): %v", err)
+	}
+	if !hasTTSVoiceID(qwenVoices, "Aiden") || !hasTTSVoiceID(qwenVoices, "Vivian") {
+		t.Fatalf("Qwen CustomVoice voices missing expected speakers: %+v", qwenVoices)
+	}
+
+	kokoroVoices, err := client.FetchVoices("kokoros")
+	if err != nil {
+		t.Fatalf("FetchVoices(kokoro): %v", err)
+	}
+	if !hasTTSVoiceID(kokoroVoices, "af_heart") || !hasTTSVoiceID(kokoroVoices, "pf_dora") {
+		t.Fatalf("Kokoro voices missing expected speakers: %+v", kokoroVoices)
+	}
+
+	modelOnlyVoices, err := client.FetchVoices("voice-pt_BR-cadu-medium")
+	if err != nil {
+		t.Fatalf("FetchVoices(model-only): %v", err)
+	}
+	if len(modelOnlyVoices) != 0 {
+		t.Fatalf("model-only voice model returned separate voices: %+v", modelOnlyVoices)
+	}
+}
+
+func hasTTSVoiceID(voices []TTSVoiceInfo, id string) bool {
+	for _, voice := range voices {
+		if voice.ID == id {
+			return true
+		}
+	}
+	return false
 }

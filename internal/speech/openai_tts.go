@@ -432,7 +432,7 @@ func (c *TTSClient) FetchVoices(modelID string) ([]TTSVoiceInfo, error) {
 	if selectionModeForTTSModel(modelID) == TTSSelectionModelOnly {
 		return []TTSVoiceInfo{}, nil
 	}
-	voices := GetAvailableVoices()
+	voices := voicesForTTSModel(modelID)
 	for i := range voices {
 		voices[i].ModelID = modelID
 	}
@@ -487,8 +487,9 @@ var knownSTTModels = map[string]bool{
 var ttsPrefixes = []string{"tts-", "voice-"}
 
 // ttsInfixes são substrings que indicam modelo TTS quando aparecem no meio do ID.
-// Ex: qwen3-tts-0.6b-custom-voice, vllm-omni-qwen3-tts-custom-voice
-var ttsInfixes = []string{"-tts-", "-tts"}
+// Ex: qwen3-tts-0.6b-custom-voice, vllm-omni-qwen3-tts-custom-voice,
+// qwen3-0.6b-custom-voice, kokoro, kokoros.
+var ttsInfixes = []string{"-tts-", "-tts", "custom-voice", "kokoro"}
 
 // sttPrefixes são prefixos heurísticos para modelos STT não catalogados.
 var sttPrefixes = []string{"whisper"}
@@ -524,6 +525,18 @@ func selectionModeForTTSModel(id string) TTSSelectionMode {
 		return TTSSelectionModelOnly
 	}
 	return TTSSelectionModelAndVoice
+}
+
+func voicesForTTSModel(modelID string) []TTSVoiceInfo {
+	lower := strings.ToLower(modelID)
+	switch {
+	case strings.Contains(lower, "kokoro"):
+		return KokoroTTSVoices()
+	case strings.Contains(lower, "custom-voice"):
+		return QwenCustomVoiceTTSVoices()
+	default:
+		return GetAvailableVoices()
+	}
 }
 
 func normalizeTTSSelectionMode(modelID string, mode TTSSelectionMode) TTSSelectionMode {
@@ -681,9 +694,67 @@ var staticVoices = []TTSVoiceInfo{
 	},
 }
 
+var qwenCustomVoiceVoices = []TTSVoiceInfo{
+	{ID: "Vivian", Name: "Vivian", Description: "Qwen CustomVoice - feminina jovem, chinês", Gender: "female", Provider: "qwen"},
+	{ID: "Serena", Name: "Serena", Description: "Qwen CustomVoice - feminina suave, chinês", Gender: "female", Provider: "qwen"},
+	{ID: "Uncle_Fu", Name: "Uncle_Fu", Description: "Qwen CustomVoice - masculina grave, chinês", Gender: "male", Provider: "qwen"},
+	{ID: "Dylan", Name: "Dylan", Description: "Qwen CustomVoice - masculina jovem, dialeto de Pequim", Gender: "male", Provider: "qwen"},
+	{ID: "Eric", Name: "Eric", Description: "Qwen CustomVoice - masculina expressiva, dialeto de Chengdu", Gender: "male", Provider: "qwen"},
+	{ID: "Ryan", Name: "Ryan", Description: "Qwen CustomVoice - masculina dinâmica, inglês", Gender: "male", Provider: "qwen"},
+	{ID: "Aiden", Name: "Aiden", Description: "Qwen CustomVoice - masculina americana, inglês", Gender: "male", Provider: "qwen"},
+	{ID: "Ono_Anna", Name: "Ono_Anna", Description: "Qwen CustomVoice - feminina, japonês", Gender: "female", Provider: "qwen"},
+	{ID: "Sohee", Name: "Sohee", Description: "Qwen CustomVoice - feminina, coreano", Gender: "female", Provider: "qwen"},
+}
+
+var kokoroVoices = []TTSVoiceInfo{
+	{ID: "af_heart", Name: "AF Heart", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "af_alloy", Name: "AF Alloy", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "af_aoede", Name: "AF Aoede", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "af_bella", Name: "AF Bella", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "af_jessica", Name: "AF Jessica", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "af_kore", Name: "AF Kore", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "af_nicole", Name: "AF Nicole", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "af_nova", Name: "AF Nova", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "af_river", Name: "AF River", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "af_sarah", Name: "AF Sarah", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "af_sky", Name: "AF Sky", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
+	{ID: "am_adam", Name: "AM Adam", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
+	{ID: "am_echo", Name: "AM Echo", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
+	{ID: "am_eric", Name: "AM Eric", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
+	{ID: "am_fenrir", Name: "AM Fenrir", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
+	{ID: "am_liam", Name: "AM Liam", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
+	{ID: "am_michael", Name: "AM Michael", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
+	{ID: "am_onyx", Name: "AM Onyx", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
+	{ID: "am_puck", Name: "AM Puck", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
+	{ID: "am_santa", Name: "AM Santa", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
+	{ID: "bf_alice", Name: "BF Alice", Description: "Kokoro - English UK female", Gender: "female", Provider: "kokoro"},
+	{ID: "bf_emma", Name: "BF Emma", Description: "Kokoro - English UK female", Gender: "female", Provider: "kokoro"},
+	{ID: "bf_isabella", Name: "BF Isabella", Description: "Kokoro - English UK female", Gender: "female", Provider: "kokoro"},
+	{ID: "bf_lily", Name: "BF Lily", Description: "Kokoro - English UK female", Gender: "female", Provider: "kokoro"},
+	{ID: "bm_daniel", Name: "BM Daniel", Description: "Kokoro - English UK male", Gender: "male", Provider: "kokoro"},
+	{ID: "bm_fable", Name: "BM Fable", Description: "Kokoro - English UK male", Gender: "male", Provider: "kokoro"},
+	{ID: "bm_george", Name: "BM George", Description: "Kokoro - English UK male", Gender: "male", Provider: "kokoro"},
+	{ID: "bm_lewis", Name: "BM Lewis", Description: "Kokoro - English UK male", Gender: "male", Provider: "kokoro"},
+	{ID: "pf_dora", Name: "PF Dora", Description: "Kokoro - português feminino", Gender: "female", Provider: "kokoro"},
+	{ID: "pm_alex", Name: "PM Alex", Description: "Kokoro - português masculino", Gender: "male", Provider: "kokoro"},
+	{ID: "pm_santa", Name: "PM Santa", Description: "Kokoro - português masculino", Gender: "male", Provider: "kokoro"},
+}
+
+func copyTTSVoices(voices []TTSVoiceInfo) []TTSVoiceInfo {
+	result := make([]TTSVoiceInfo, len(voices))
+	copy(result, voices)
+	return result
+}
+
 // GetAvailableVoices retorna a lista de vozes disponíveis (cópia da lista estática).
 func GetAvailableVoices() []TTSVoiceInfo {
-	result := make([]TTSVoiceInfo, len(staticVoices))
-	copy(result, staticVoices)
-	return result
+	return copyTTSVoices(staticVoices)
+}
+
+func QwenCustomVoiceTTSVoices() []TTSVoiceInfo {
+	return copyTTSVoices(qwenCustomVoiceVoices)
+}
+
+func KokoroTTSVoices() []TTSVoiceInfo {
+	return copyTTSVoices(kokoroVoices)
 }
