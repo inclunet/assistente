@@ -515,10 +515,11 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       }
 
       // Configura voice configs por role para speakAsRole()
-      const makeRoleConfig = (voice: { provider?: string; llm_provider_id?: string; voice_id?: string; model?: string; rate?: number; pitch?: number; volume?: number } | undefined): RoleVoiceConfig => ({
+      const makeRoleConfig = (voice: { provider?: string; llm_provider_id?: string; voice_id?: string; model?: string; selection_mode?: 'model_and_voice' | 'model_only'; rate?: number; pitch?: number; volume?: number } | undefined): RoleVoiceConfig => ({
         providerId: resolveProviderId(voice),
         voiceId: voice?.voice_id || '',
         model: voice?.model || '',
+        selectionMode: voice?.selection_mode,
         rate: voice?.rate || 1.0,
         pitch: voice?.pitch || 1.0,
         volume: voice?.volume || 1.0,

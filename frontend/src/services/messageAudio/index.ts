@@ -153,8 +153,8 @@ async function speakMessage(messageId: string, volume: number = 1.0, provider?: 
     const result = await SpeakMessage(
       messageId,
       provider?.providerId ?? '',
-      provider?.voiceId ?? '',
       provider?.model ?? '',
+      provider?.voiceId ?? '',
       provider?.rate ?? 1.0,
     );
     if (result && result.audio && result.audio.length > 0) {
@@ -183,8 +183,8 @@ async function getMessageAudioBlob(messageId: string, provider?: TTSProviderPara
     const result = await SpeakMessage(
       messageId,
       provider?.providerId ?? '',
-      provider?.voiceId ?? '',
       provider?.model ?? '',
+      provider?.voiceId ?? '',
       provider?.rate ?? 1.0,
     );
     if (result && result.audio && result.audio.length > 0) {

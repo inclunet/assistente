@@ -17,9 +17,20 @@ export interface TTSVoice {
   name: string;
   language: string;
   provider: TTSProvider | string; // Aceita strings para provedores dinâmicos (LLM)
+  modelId?: string;
   gender?: 'male' | 'female' | 'neutral';
   premium?: boolean;
   localService?: boolean;
+  description?: string;
+}
+
+export type TTSSelectionMode = 'model_and_voice' | 'model_only';
+
+export interface TTSModel {
+  id: string;
+  name: string;
+  provider: TTSProvider | string;
+  selectionMode: TTSSelectionMode;
   description?: string;
 }
 

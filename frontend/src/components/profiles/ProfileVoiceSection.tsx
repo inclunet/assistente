@@ -1,12 +1,13 @@
-import { useMemo } from 'react';
-import { SoundOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
+import { useEffect, useMemo, useState } from 'react';
+import { RobotOutlined, SoundOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { VoicePicker, VOICE_DISABLED } from '../pickers/VoicePicker';
 import { RangeSlider } from '../ui/RangeSlider';
 import { Button } from '../ui/Button';
 import { useTTS } from '../../hooks/useTTS';
-import { getTTSCapabilities, makeCompositeVoiceId } from '../../config/providers';
-import { TTSVoice } from '../../services/tts/types';
+import { getTTSCapabilities } from '../../config/providers';
+import { ttsService } from '../../services/tts';
+import { TTSModel, TTSVoice, type TTSSelectionMode } from '../../services/tts/types';
 import './ProfileVoiceSection.css';
 
 export interface ProfileVoiceSectionProps {
@@ -21,7 +22,8 @@ export interface ProfileVoiceSectionProps {
   references?: Array<{ id: string; label: string }>;
   resolvedVoiceId?: string;
   ttsModel?: string;
-  onChange: (field: 'voice' | 'rate' | 'volume', value: string | number) => void;
+  selectionMode?: TTSSelectionMode;
+  onChange: (field: 'voice' | 'model' | 'selectionMode' | 'rate' | 'volume', value: string | number) => void;
   disabled?: boolean;
 }
 
@@ -41,36 +43,75 @@ export function ProfileVoiceSection({
   helpText,
   references,
   resolvedVoiceId,
+  selectionMode,
   onChange,
   disabled = false,
 }: ProfileVoiceSectionProps) {
   const { t } = useTranslation();
   const { speakWithOverride, stop, isSpeaking } = useTTS();
+  const [dynamicModels, setDynamicModels] = useState<TTSModel[]>([]);
 
   const ttsCapabilities = getTTSCapabilities(providerType || '');
+  const isHTTPProvider = !!providerId && providerId !== 'webspeech' && providerId !== 'sapi5' && !providerId.startsWith('ref_');
 
-  // Para provedores com vozes estáticas (OpenAI): converte para TTSVoice[] e passa como override
+  useEffect(() => {
+    let cancelled = false;
+    if (!isHTTPProvider || ttsCapabilities.staticModels.length > 0) {
+      setDynamicModels([]);
+      return;
+    }
+    ttsService.getModelsForProvider(providerId)
+      .then((models) => {
+        if (!cancelled) setDynamicModels(models);
+      })
+      .catch(() => {
+        if (!cancelled) setDynamicModels([]);
+      });
+    return () => { cancelled = true; };
+  }, [isHTTPProvider, providerId, ttsCapabilities.staticModels.length]);
+
+  const ttsModels = useMemo<TTSModel[]>(() => {
+    if (ttsCapabilities.staticModels.length > 0) {
+      return ttsCapabilities.staticModels.map((m) => ({
+        id: m.id,
+        name: m.name,
+        provider: m.provider,
+        selectionMode: m.selectionMode,
+        description: m.description,
+      }));
+    }
+    return dynamicModels;
+  }, [dynamicModels, ttsCapabilities.staticModels]);
+
+  const currentModel = ttsModels.find((m) => m.id === ttsModel);
+  const effectiveSelectionMode = currentModel?.selectionMode || selectionMode || 'model_and_voice';
+  const isModelOnly = isHTTPProvider && effectiveSelectionMode === 'model_only';
+
+  // Para provedores com vozes estáticas (OpenAI): converte para TTSVoice[] e passa como override.
   const overrideVoices: TTSVoice[] | undefined = useMemo(() => {
-    if (ttsCapabilities.staticVoices.length === 0) return undefined;
+    if (ttsCapabilities.staticVoices.length === 0 || isModelOnly) return undefined;
     return ttsCapabilities.staticVoices.map(sv => ({
       id: sv.id,
       name: sv.name,
       language: sv.language,
       provider: sv.provider,
       gender: 'neutral' as const,
-      premium: sv.model.includes('hd'),
+      modelId: ttsModel,
+      premium: ttsModel?.includes('hd'),
       localService: false,
       description: sv.name,
     }));
-  }, [ttsCapabilities]);
+  }, [isModelOnly, ttsModel, ttsCapabilities.staticVoices]);
 
-  // Valor composto para o picker: "voiceId::model" (ex: "nova::tts-1-hd")
-  const effectiveVoiceValue = useMemo(() => {
-    if (ttsCapabilities.staticVoices.length > 0 && voice) {
-      return makeCompositeVoiceId(voice, ttsModel || 'tts-1');
+  const handleModelChange = (modelId: string) => {
+    const nextModel = ttsModels.find((m) => m.id === modelId);
+    const nextSelectionMode = nextModel?.selectionMode || 'model_and_voice';
+    onChange('model', modelId);
+    onChange('selectionMode', nextSelectionMode);
+    if (nextSelectionMode === 'model_only') {
+      onChange('voice', '');
     }
-    return voice;
-  }, [voice, ttsModel, ttsCapabilities]);
+  };
 
   const handlePreview = async () => {
     if (isSpeaking) {
@@ -79,10 +120,11 @@ export function ProfileVoiceSection({
     }
 
     const testVoice = resolvedVoiceId || voice;
-    if (!testVoice || testVoice === VOICE_DISABLED) return;
+    if (!ttsModel && isHTTPProvider) return;
+    if (!isModelOnly && (!testVoice || testVoice === VOICE_DISABLED)) return;
 
     await speakWithOverride(t('profiles.voicePreview.sampleText'), {
-      voiceName: testVoice,
+      voiceName: isModelOnly ? '' : testVoice,
       providerId,
       rate,
       volume,
@@ -90,26 +132,52 @@ export function ProfileVoiceSection({
     });
   };
 
-  const isPreviewDisabled = disabled || !voice || voice === VOICE_DISABLED;
+  const isPreviewDisabled = disabled || (isHTTPProvider && !ttsModel) || (!isModelOnly && (!voice || voice === VOICE_DISABLED));
 
   return (
     <div className="profile-voice-section" data-testid="profile-voice-section">
-      {/* Voice picker */}
-      <div className="profile-voice-section__field">
-        <VoicePicker
-          value={effectiveVoiceValue || ''}
-          onChange={(value) => onChange('voice', value)}
-          providerId={providerId}
-          profileId={profileId}
-          variant="form"
-          label={label ?? t('profiles.voiceSection.voiceLabel')}
-          helpText={helpText ?? t('profiles.voiceSection.voiceHelp')}
-          icon={<SoundOutlined />}
-          allowDisabled={false}
-          references={references ?? []}
-          voiceOverrides={overrideVoices}
-        />
-      </div>
+      {isHTTPProvider && (
+        <div className="profile-voice-section__field">
+          <label className="profiles-field__label">
+            <RobotOutlined /> {t('profiles.voiceSection.modelLabel', 'Modelo TTS')}
+          </label>
+          <select
+            className="profiles-field__select"
+            value={ttsModel || ''}
+            onChange={(event) => handleModelChange(event.target.value)}
+            disabled={disabled}
+          >
+            <option value="">{t('profiles.voiceSection.modelPlaceholder', 'Selecione um modelo')}</option>
+            {ttsModels.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+              </option>
+            ))}
+          </select>
+          <p className="profiles-field__hint">
+            {t('profiles.voiceSection.modelHelp', 'Escolha o modelo TTS antes da voz. Modelos Piper usam apenas o modelo.')}
+          </p>
+        </div>
+      )}
+
+      {!isModelOnly && (
+        <div className="profile-voice-section__field">
+          <VoicePicker
+            value={voice || ''}
+            onChange={(value) => onChange('voice', value)}
+            providerId={providerId}
+            modelId={ttsModel}
+            profileId={profileId}
+            variant="form"
+            label={label ?? t('profiles.voiceSection.voiceLabel')}
+            helpText={helpText ?? t('profiles.voiceSection.voiceHelp')}
+            icon={<SoundOutlined />}
+            allowDisabled={false}
+            references={references ?? []}
+            voiceOverrides={overrideVoices}
+          />
+        </div>
+      )}
 
       {/* Rate slider */}
       <div className="profile-voice-section__field">

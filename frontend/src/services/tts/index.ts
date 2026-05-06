@@ -3,7 +3,7 @@
  * Suporta WebSpeech API e OpenAI TTS (SAPI5 foi unificado via backend_audio)
  */
 
-import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig } from './types';
+import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig, TTSModel } from './types';
 import { ttsFactory } from './factory';
 import { calcTTSTimeoutMs } from '../../lib/audioUtils';
 
@@ -11,8 +11,9 @@ type WailsApp = {
   go?: {
     main?: {
       App?: {
-        GetTTSVoices?: (profileId: string, providerId: string) => Promise<BackendVoice[]>;
-        SpeakPreview?: (providerId: string, voiceId: string, model: string, rate: number, volume: number, text: string, sessionId: string) => Promise<void>;
+        GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
+        GetTTSVoices?: (profileId: string, providerId: string, modelId: string) => Promise<BackendVoice[]>;
+        SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, text: string, sessionId: string) => Promise<void>;
       };
     };
   };
@@ -23,12 +24,28 @@ type BackendVoice = {
   name: string;
   gender?: string;
   description?: string;
+  provider?: string;
+  model_id?: string;
 };
 
-const getTTSVoices = async (profileId: string, providerId: string): Promise<BackendVoice[]> => {
+type BackendModel = {
+  id: string;
+  name: string;
+  provider?: string;
+  selection_mode: 'model_and_voice' | 'model_only';
+  description?: string;
+};
+
+const getTTSModels = async (providerId: string): Promise<BackendModel[]> => {
+  const app = (window as unknown as WailsApp).go?.main?.App;
+  if (!app?.GetTTSModels) return [];
+  return app.GetTTSModels(providerId);
+};
+
+const getTTSVoices = async (profileId: string, providerId: string, modelId: string): Promise<BackendVoice[]> => {
   const app = (window as unknown as WailsApp).go?.main?.App;
   if (!app?.GetTTSVoices) return [];
-  return app.GetTTSVoices(profileId, providerId);
+  return app.GetTTSVoices(profileId, providerId, modelId);
 };
 
 /** Configuração de voz por role (assistant, user, system) */
@@ -36,6 +53,7 @@ export interface RoleVoiceConfig {
   providerId: string;   // "webspeech" ou LLM provider ID ("sapi5" delega ao backend)
   voiceId: string;      // ID da voz
   model: string;        // modelo TTS (ex: "tts-1")
+  selectionMode?: 'model_and_voice' | 'model_only';
   rate: number;
   pitch: number;        // 0.5–2.0 (tom da voz)
   volume: number;
@@ -402,8 +420,8 @@ class TTSService {
       await this.speakWithBackendPreview(
         text,
         options.providerId || '',
-        voiceId || '',
         options.ttsModel || '',
+        voiceId || '',
         options.rate ?? 1.0,
         options.volume ?? 1.0,
       );
@@ -496,14 +514,14 @@ class TTSService {
   private async speakWithBackendPreview(
     text: string,
     providerId: string,
-    voiceId: string,
     model: string,
+    voiceId: string,
     rate: number,
     volume: number,
   ): Promise<void> {
     const app = (window as unknown as WailsApp).go?.main?.App;
     const speakPreview = app?.SpeakPreview as ((
-      providerId: string, voiceId: string, model: string, rate: number, volume: number, text: string, sessionId: string,
+      providerId: string, model: string, voiceId: string, rate: number, volume: number, text: string, sessionId: string,
     ) => Promise<void>) | undefined;
 
     if (!speakPreview) {
@@ -557,7 +575,7 @@ class TTSService {
       });
 
       try {
-        await speakPreview(providerId, voiceId, model, rate, volume, text, sessionId);
+        await speakPreview(providerId, model, voiceId, rate, volume, text, sessionId);
         await streamPromise;
       } catch (error) {
         streamPlayer.stop();
@@ -572,7 +590,7 @@ class TTSService {
       }
     } else {
       // Fallback simples: só chama o backend (sem aguardar)
-      await speakPreview(providerId, voiceId, model, rate, volume, text, sessionId);
+      await speakPreview(providerId, model, voiceId, rate, volume, text, sessionId);
     }
   }
 
@@ -610,9 +628,34 @@ class TTSService {
   }
   
   /**
+   * Retorna lista de modelos TTS disponíveis de um provedor.
+   */
+  async getModelsForProvider(providerId: string): Promise<TTSModel[]> {
+    await ttsFactory.initialize();
+
+    if (!providerId || providerId === 'webspeech' || providerId === 'sapi5') {
+      return [];
+    }
+
+    try {
+      const models = await getTTSModels(providerId);
+      return (models || []).map((m) => ({
+        id: m.id,
+        name: m.name,
+        provider: m.provider || providerId,
+        selectionMode: m.selection_mode,
+        description: m.description || m.name,
+      }));
+    } catch (error) {
+      console.error(`[TTSService] Erro ao buscar modelos TTS para ${providerId}:`, error);
+      return [];
+    }
+  }
+
+  /**
    * Retorna lista de vozes disponíveis de um provedor e perfil específicos
    */
-  async getVoicesForProvider(providerId: string, profileId: string): Promise<TTSVoice[]> {
+  async getVoicesForProvider(providerId: string, profileId: string, modelId: string = ''): Promise<TTSVoice[]> {
     await ttsFactory.initialize();
 
     if (providerId === 'webspeech') {
@@ -621,7 +664,7 @@ class TTSService {
     }
     if (providerId === 'sapi5') {
       try {
-        const voices = await getTTSVoices(profileId, providerId);
+        const voices = await getTTSVoices(profileId, providerId, '');
         return (voices || []).map((v) => ({
           id: v.id,
           name: v.name,
@@ -639,13 +682,15 @@ class TTSService {
     }
 
     // Se for um provedor LLM registrado, busca via backend
+    if (!modelId) return [];
     try {
-      const voices = await getTTSVoices(profileId, providerId);
+      const voices = await getTTSVoices(profileId, providerId, modelId);
       return (voices || []).map((v) => ({
         id: v.id,
         name: v.name,
         language: 'multilingual',
         provider: providerId,
+        modelId: v.model_id || modelId,
         gender: (v.gender || 'neutral').toLowerCase() as 'neutral' | 'male' | 'female',
         premium: true,
         localService: false,
