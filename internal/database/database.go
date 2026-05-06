@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -183,11 +184,17 @@ func AdoptLegacyData(userID string) error {
 
 // CreateConversation cria uma nova conversa
 func CreateConversation(title, model string) (*Conversation, error) {
+	return CreateConversationWithContext(context.Background(), title, model)
+}
+
+func CreateConversationWithContext(ctx context.Context, title, model string) (*Conversation, error) {
+	userID, _ := UserIDFromContext(ctx)
 	conv := &Conversation{
-		Title: title,
+		Title:  title,
+		UserID: userID,
 	}
 
-	if err := db.Create(conv).Error; err != nil {
+	if err := db.WithContext(ctx).Create(conv).Error; err != nil {
 		return nil, err
 	}
 	return conv, nil
@@ -250,10 +257,15 @@ func FindOrCreateChannelConversation(channel, contactID, contactName string) (*C
 
 // GetConversations retorna todas as conversas ordenadas por data
 func GetConversations() ([]Conversation, error) {
+	return GetConversationsWithContext(context.Background())
+}
+
+func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 	var conversations []Conversation
 
 	// Usa subquery para contar mensagens em uma única query (evita N+1)
-	err := db.Table("conversations").
+	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
+	err := query.
 		Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count").
 		Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count FROM chat_messages GROUP BY conversation_id) as msg_counts ON msg_counts.conversation_id = conversations.id").
 		Order("conversations.updated_at DESC").
@@ -269,8 +281,13 @@ func GetConversations() ([]Conversation, error) {
 // GetConversation retorna uma conversa com suas mensagens
 // Deprecated: Use GetConversationInfo + GetMessages for lazy loading
 func GetConversation(id string) (*Conversation, error) {
+	return GetConversationWithContext(context.Background(), id)
+}
+
+func GetConversationWithContext(ctx context.Context, id string) (*Conversation, error) {
 	var conv Conversation
-	err := db.Preload("Messages", func(db *gorm.DB) *gorm.DB {
+	query := ScopeByUser(ctx, db.WithContext(ctx), "user_id")
+	err := query.Preload("Messages", func(db *gorm.DB) *gorm.DB {
 		return db.Order("created_at ASC")
 	}).First(&conv, "id = ?", id).Error
 	if err != nil {
@@ -281,8 +298,12 @@ func GetConversation(id string) (*Conversation, error) {
 
 // GetConversationInfo retorna apenas metadados da conversa (sem mensagens)
 func GetConversationInfo(id string) (*Conversation, error) {
+	return GetConversationInfoWithContext(context.Background(), id)
+}
+
+func GetConversationInfoWithContext(ctx context.Context, id string) (*Conversation, error) {
 	var conv Conversation
-	err := db.First(&conv, "id = ?", id).Error
+	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&conv, "id = ?", id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -1544,20 +1565,37 @@ func SearchMessageContent(query string, limit int) ([]MessageSearchResult, error
 
 // SaveLLMProvider salva ou atualiza um provedor
 func SaveLLMProvider(provider *LLMProvider) error {
-	return db.Save(provider).Error
+	return SaveLLMProviderWithContext(context.Background(), provider)
+}
+
+func SaveLLMProviderWithContext(ctx context.Context, provider *LLMProvider) error {
+	if provider != nil && provider.UserID == "" {
+		if userID, ok := UserIDFromContext(ctx); ok {
+			provider.UserID = userID
+		}
+	}
+	return db.WithContext(ctx).Save(provider).Error
 }
 
 // GetLLMProviders retorna todos os provedores
 func GetLLMProviders() ([]*LLMProvider, error) {
+	return GetLLMProvidersWithContext(context.Background())
+}
+
+func GetLLMProvidersWithContext(ctx context.Context) ([]*LLMProvider, error) {
 	var providers []*LLMProvider
-	err := db.Order("created_at ASC").Find(&providers).Error
+	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Order("created_at ASC").Find(&providers).Error
 	return providers, err
 }
 
 // GetLLMProvider busca um provedor por ID
 func GetLLMProvider(id string) (*LLMProvider, error) {
+	return GetLLMProviderWithContext(context.Background(), id)
+}
+
+func GetLLMProviderWithContext(ctx context.Context, id string) (*LLMProvider, error) {
 	var provider LLMProvider
-	err := db.First(&provider, "id = ?", id).Error
+	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&provider, "id = ?", id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -1566,30 +1604,47 @@ func GetLLMProvider(id string) (*LLMProvider, error) {
 
 // DeleteLLMProvider remove um provedor
 func DeleteLLMProvider(id string) error {
-	return db.Delete(&LLMProvider{}, "id = ?", id).Error
+	return DeleteLLMProviderWithContext(context.Background(), id)
+}
+
+func DeleteLLMProviderWithContext(ctx context.Context, id string) error {
+	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Delete(&LLMProvider{}, "id = ?", id).Error
 }
 
 // CountLLMProviders retorna o número total de provedores
 func CountLLMProviders() (int64, error) {
+	return CountLLMProvidersWithContext(context.Background())
+}
+
+func CountLLMProvidersWithContext(ctx context.Context) (int64, error) {
 	var count int64
-	err := db.Model(&LLMProvider{}).Count(&count).Error
+	err := ScopeByUser(ctx, db.WithContext(ctx).Model(&LLMProvider{}), "user_id").Count(&count).Error
 	return count, err
 }
 
 // SetDefaultProvider marca um provedor como default (e desmarca os demais).
 func SetDefaultProvider(id string) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&LLMProvider{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+	return SetDefaultProviderWithContext(context.Background(), id)
+}
+
+func SetDefaultProviderWithContext(ctx context.Context, id string) error {
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		scoped := ScopeByUser(ctx, tx.Model(&LLMProvider{}), "user_id")
+		if err := scoped.Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
 			return err
 		}
-		return tx.Model(&LLMProvider{}).Where("id = ?", id).Update("is_default", true).Error
+		return ScopeByUser(ctx, tx.Model(&LLMProvider{}), "user_id").Where("id = ?", id).Update("is_default", true).Error
 	})
 }
 
 // GetDefaultProvider retorna o provedor marcado como default, ou nil se nenhum.
 func GetDefaultProvider() (*LLMProvider, error) {
+	return GetDefaultProviderWithContext(context.Background())
+}
+
+func GetDefaultProviderWithContext(ctx context.Context) (*LLMProvider, error) {
 	var provider LLMProvider
-	err := db.First(&provider, "is_default = ?", true).Error
+	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&provider, "is_default = ?", true).Error
 	if err != nil {
 		return nil, err
 	}

@@ -31,6 +31,7 @@ type AuthConfig struct {
 // DomainCredential mapeia um padrão de domínio a credenciais
 type DomainCredential struct {
 	ID      string
+	UserID  string
 	Pattern string // "*.github.com", "api.example.com", etc
 	regex   *regexp.Regexp
 	Auth    *AuthConfig
@@ -109,8 +110,9 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 	}
 
 	persistedID := cred.ID
+	userID := cred.UserID
 	if m.persist && m.store != nil {
-		if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, Pattern: pattern, Auth: encAuth}); err != nil {
+		if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, UserID: userID, Pattern: pattern, Auth: encAuth}); err != nil {
 			return err
 		}
 		if cred.ID == "" {
@@ -121,6 +123,7 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 			for _, entry := range persisted {
 				if entry.Pattern == pattern && entry.ID != "" {
 					persistedID = entry.ID
+					userID = entry.UserID
 					break
 				}
 			}
@@ -135,11 +138,11 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 
 	for i, existing := range m.credentials {
 		if existing.Pattern == pattern || (persistedID != "" && existing.ID == persistedID) {
-			m.credentials[i] = &DomainCredential{ID: persistedID, Pattern: pattern, regex: regex, Auth: encAuth}
+			m.credentials[i] = &DomainCredential{ID: persistedID, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
 			return nil
 		}
 	}
-	m.credentials = append(m.credentials, &DomainCredential{ID: persistedID, Pattern: pattern, regex: regex, Auth: encAuth})
+	m.credentials = append(m.credentials, &DomainCredential{ID: persistedID, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth})
 
 	return nil
 }
@@ -200,7 +203,7 @@ func (m *Manager) ListCredentials() ([]StoredCredential, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, StoredCredential{ID: dc.ID, Pattern: dc.Pattern, Auth: auth})
+		result = append(result, StoredCredential{ID: dc.ID, UserID: dc.UserID, Pattern: dc.Pattern, Auth: auth})
 	}
 
 	return result, nil

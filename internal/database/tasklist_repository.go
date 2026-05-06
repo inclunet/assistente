@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,9 +19,13 @@ const MaxTaskLists = 100
 // templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em Progresso, Concluído)
 // slug: opcional; normalizado e único quando não vazio.
 func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflow, slug string) (*TaskList, error) {
+	return CreateTaskListWithContext(context.Background(), title, description, templateWorkflow, slug)
+}
+
+func CreateTaskListWithContext(ctx context.Context, title, description string, templateWorkflow *TaskListWorkflow, slug string) (*TaskList, error) {
 	// Valida limite
 	var count int64
-	if err := db.Model(&TaskList{}).Count(&count).Error; err != nil {
+	if err := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Count(&count).Error; err != nil {
 		return nil, err
 	}
 	if count >= MaxTaskLists {
@@ -32,8 +37,11 @@ func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflo
 		Description:       description,
 		PreferredViewMode: "list",
 	}
+	if userID, ok := UserIDFromContext(ctx); ok {
+		taskList.UserID = userID
+	}
 
-	if err := db.Create(taskList).Error; err != nil {
+	if err := db.WithContext(ctx).Create(taskList).Error; err != nil {
 		return nil, err
 	}
 
@@ -57,8 +65,12 @@ func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflo
 
 // GetTaskList retorna uma tasklist pelo ID com workflow e tasks
 func GetTaskList(id string) (*TaskList, error) {
+	return GetTaskListWithContext(context.Background(), id)
+}
+
+func GetTaskListWithContext(ctx context.Context, id string) (*TaskList, error) {
 	var taskList TaskList
-	err := db.Preload("Workflow").
+	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
 		Preload("Tasks", func(db *gorm.DB) *gorm.DB {
 			return db.Where("parent_id IS NULL").Order("`order` ASC")
 		}).
@@ -72,8 +84,12 @@ func GetTaskList(id string) (*TaskList, error) {
 
 // GetAllTaskLists retorna todas as tasklists ordenadas por data de criação
 func GetAllTaskLists() ([]TaskList, error) {
+	return GetAllTaskListsWithContext(context.Background())
+}
+
+func GetAllTaskListsWithContext(ctx context.Context) ([]TaskList, error) {
 	var taskLists []TaskList
-	err := db.Preload("Workflow").
+	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
 		Preload("Tasks", func(db *gorm.DB) *gorm.DB {
 			return db.Where("parent_id IS NULL").Order("`order` ASC")
 		}).
@@ -84,7 +100,11 @@ func GetAllTaskLists() ([]TaskList, error) {
 
 // UpdateTaskList atualiza title e description de uma tasklist
 func UpdateTaskList(id string, title, description string) error {
-	return db.Model(&TaskList{}).
+	return UpdateTaskListWithContext(context.Background(), id, title, description)
+}
+
+func UpdateTaskListWithContext(ctx context.Context, id string, title, description string) error {
+	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"title":       title,
@@ -94,10 +114,14 @@ func UpdateTaskList(id string, title, description string) error {
 
 // SetTaskListViewMode define o modo de visualização (list ou kanban)
 func SetTaskListViewMode(id string, viewMode string) error {
+	return SetTaskListViewModeWithContext(context.Background(), id, viewMode)
+}
+
+func SetTaskListViewModeWithContext(ctx context.Context, id string, viewMode string) error {
 	if viewMode != "list" && viewMode != "kanban" {
 		return errors.New("view mode inválido: use 'list' ou 'kanban'")
 	}
-	return db.Model(&TaskList{}).Where("id = ?", id).Update("preferred_view_mode", viewMode).Error
+	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Where("id = ?", id).Update("preferred_view_mode", viewMode).Error
 }
 
 // CloneTaskList clona uma tasklist com seu workflow mas sem as tasks

@@ -47,11 +47,18 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		}
 		headersJSON = string(data)
 	}
+	userID := cred.UserID
+	if userID == "" {
+		if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
+			userID = scopedUserID
+		}
+	}
 
 	entry := database.CredentialEntry{
 		UUIDModel: database.UUIDModel{
 			ID: cred.ID,
 		},
+		UserID:          userID,
 		Pattern:         cred.Pattern,
 		AuthType:        cred.Auth.Type,
 		TokenEnc:        cred.Auth.Token,
@@ -65,11 +72,11 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 	}
 
 	if cred.ID != "" {
-		return db.WithContext(ctx).Save(&entry).Error
+		return database.ScopeByUser(ctx, db.WithContext(ctx), "user_id").Save(&entry).Error
 	}
 
 	return db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "pattern"}},
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "pattern"}},
 		UpdateAll: true,
 	}).Create(&entry).Error
 }
@@ -81,7 +88,8 @@ func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, erro
 	}
 
 	var entries []database.CredentialEntry
-	if err := db.WithContext(ctx).Find(&entries).Error; err != nil {
+	query := database.ScopeByUser(ctx, db.WithContext(ctx), "user_id")
+	if err := query.Find(&entries).Error; err != nil {
 		return nil, err
 	}
 
@@ -108,6 +116,7 @@ func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, erro
 
 		result = append(result, StoredCredential{
 			ID:      entry.ID,
+			UserID:  entry.UserID,
 			Pattern: entry.Pattern,
 			Auth:    auth,
 		})
@@ -121,7 +130,8 @@ func (s *DBStore) DeleteCredential(ctx context.Context, pattern string) error {
 	if err != nil {
 		return err
 	}
-	return db.WithContext(ctx).Where("pattern = ?", pattern).Delete(&database.CredentialEntry{}).Error
+	query := database.ScopeByUser(ctx, db.WithContext(ctx), "user_id")
+	return query.Where("pattern = ?", pattern).Delete(&database.CredentialEntry{}).Error
 }
 
 func (s *DBStore) SaveKeyWrap(ctx context.Context, wrap KeyWrap) error {
