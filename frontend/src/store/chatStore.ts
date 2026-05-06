@@ -1194,11 +1194,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             threadedMessages: appendInternalMessageToTree(session.conversation.threadedMessages, messageForTree),
           },
         });
-        const currentTimeline = getConversationTimeline(state, conversationId) ?? session.conversation;
+        const updatedTimeline = patches.timelinesByConversationId?.[conversationId]
+          ?? getConversationTimeline(state, conversationId)
+          ?? session.conversation;
         const timelinesByConversationId = { ...(patches.timelinesByConversationId ?? state.timelinesByConversationId ?? {}) };
         timelinesByConversationId[conversationId] = {
-          ...currentTimeline,
-          threadedMessages: currentTimeline.threadedMessages.filter(isPersistedMessageNode),
+          ...updatedTimeline,
+          threadedMessages: updatedTimeline.threadedMessages.filter(isPersistedMessageNode),
         };
         return {
           ...patches,

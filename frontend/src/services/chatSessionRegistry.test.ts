@@ -12,6 +12,7 @@ import {
   patchChatConversation,
   patchChatSession,
   removeChatSession,
+  TRANSIENT_TIMELINE_NODE_ID_PREFIXES,
   type ActiveConversation,
   type ChatSessionRegistryState,
 } from './chatSessionRegistry';
@@ -416,17 +417,9 @@ describe('chatSessionRegistry', () => {
 
   it('não vaza nós transitórios para superfície nova da mesma conversa', () => {
     const userNode = messageNode('user-1');
-    const transientNodes = [
-      messageNode('streaming-conversation-1-1', {
-        role: 'assistant',
-        turnId: 'user-1',
-        isStreaming: true,
-      }),
-      messageNode('tool-local-1', { role: 'tool', turnId: 'user-1' }),
-      messageNode('displaced-message-1', { role: 'system' }),
-      messageNode('reasoning-event-1', { role: 'assistant' }),
-      messageNode('queued-user-1-local', { role: 'assistant' }),
-    ];
+    const transientNodes = TRANSIENT_TIMELINE_NODE_ID_PREFIXES.map((prefix) => (
+      messageNode(`${prefix}local-1`, { role: prefix === 'tool-' ? 'tool' : 'assistant', turnId: 'user-1' })
+    ));
     const state: ChatSessionRegistryState = {
       sessionsByConversationId: {},
       timelinesByConversationId: {},
@@ -450,6 +443,37 @@ describe('chatSessionRegistry', () => {
     expect(getChatSession(next, 'conversation-1', 'tab-b:conversation-1').conversation?.threadedMessages.map((node) => node.message.id))
       .toEqual(['user-1']);
   });
+
+  it.each(TRANSIENT_TIMELINE_NODE_ID_PREFIXES)(
+    'descarta nó com prefixo "%s" do timeline cache compartilhado',
+    (prefix) => {
+      const userNode = messageNode('user-1');
+      const transientNode = messageNode(`${prefix}local-1`, {
+        role: prefix === 'tool-' ? 'tool' : 'assistant',
+        turnId: 'user-1',
+      });
+      const state: ChatSessionRegistryState = {
+        sessionsByConversationId: {},
+        timelinesByConversationId: {},
+        surfaceSessionsByKey: {},
+      };
+
+      const next = {
+        ...state,
+        ...patchChatSession(state, 'conversation-1', {
+          conversation: {
+            ...conversation('conversation-1'),
+            threadedMessages: [userNode, transientNode],
+          },
+        }, 'tab-a:conversation-1'),
+      };
+
+      expect(getConversationTimeline(next, 'conversation-1')?.threadedMessages.map((node) => node.message.id))
+        .toEqual(['user-1']);
+      expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').conversation?.threadedMessages.map((node) => node.message.id))
+        .toEqual(['user-1', transientNode.message.id]);
+    },
+  );
 
   it('mantém persistente nó com prefixo desconhecido', () => {
     expect(isPersistedTimelineNode(messageNode('unknown-source-1'))).toBe(true);

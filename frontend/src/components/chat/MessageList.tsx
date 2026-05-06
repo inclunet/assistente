@@ -131,8 +131,10 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
           });
           segments.push({ type: 'tool_calls', toolCalls: enrichedCalls });
           allToolCalls.push(...enrichedCalls);
-        } catch {
-          // Invalid JSON — skip
+        } catch (error) {
+          if (import.meta.env.DEV) {
+            console.warn('[MessageList] invalid toolCalls JSON skipped during turn consolidation', error);
+          }
         }
       }
 
