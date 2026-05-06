@@ -84,12 +84,13 @@ const (
 
 // TTSConfig configuração para o OpenAI TTS
 type TTSConfig struct {
-	BaseURL           string    // URL base (vazio = default OpenAI)
-	CredentialPattern string    // padrão para credential transport (ex: "api.openai.com")
-	Model             TTSModel  // "tts-1" ou "tts-1-hd"
-	Voice             TTSVoice  // alloy, echo, fable, onyx, nova, shimmer
-	Format            TTSFormat // mp3, opus, aac, flac, wav, pcm
-	Speed             float64   // 0.25 a 4.0 (1.0 = normal)
+	BaseURL           string           // URL base (vazio = default OpenAI)
+	CredentialPattern string           // padrão para credential transport (ex: "api.openai.com")
+	Model             TTSModel         // modelo TTS
+	Voice             TTSVoice         // alloy, echo, fable, onyx, nova, shimmer
+	SelectionMode     TTSSelectionMode // model_and_voice ou model_only
+	Format            TTSFormat        // mp3, opus, aac, flac, wav, pcm
+	Speed             float64          // 0.25 a 4.0 (1.0 = normal)
 }
 
 // TTSClient cliente para síntese de voz via OpenAI SDK
@@ -152,11 +153,20 @@ func NewTTSClient(config TTSConfig, credMgr *credentials.Manager) *TTSClient {
 }
 
 // buildParams constrói os parâmetros para Audio.Speech.New
-func (c *TTSClient) buildParams(text string, voice TTSVoice) openai.AudioSpeechNewParams {
+func (c *TTSClient) buildParams(text string, voice TTSVoice) (openai.AudioSpeechNewParams, error) {
+	modelID := string(c.config.Model)
+	voiceID := string(voice)
+	mode := normalizeTTSSelectionMode(modelID, c.config.SelectionMode)
+	if err := validateTTSSelection(modelID, voiceID, mode); err != nil {
+		return openai.AudioSpeechNewParams{}, err
+	}
+
 	params := openai.AudioSpeechNewParams{
 		Input: text,
 		Model: openai.SpeechModel(c.config.Model),
-		Voice: openai.AudioSpeechNewParamsVoice(voice),
+	}
+	if mode == TTSSelectionModelAndVoice {
+		params.Voice = openai.AudioSpeechNewParamsVoice(voice)
 	}
 	if c.config.Speed != 1.0 {
 		params.Speed = param.NewOpt(c.config.Speed)
@@ -164,7 +174,7 @@ func (c *TTSClient) buildParams(text string, voice TTSVoice) openai.AudioSpeechN
 	if c.config.Format != "" {
 		params.ResponseFormat = openai.AudioSpeechNewParamsResponseFormat(c.config.Format)
 	}
-	return params
+	return params, nil
 }
 
 // synthesizeInternal é a implementação central de síntese de texto para áudio.
@@ -173,14 +183,13 @@ func (c *TTSClient) synthesizeInternal(text string, voice TTSVoice) ([]byte, err
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
-	if err := validateTTSSelection(string(c.config.Model), string(voice)); err != nil {
-		return nil, err
-	}
-
 	chunks := splitTextForTTS(text)
 	var allData []byte
 	for _, chunk := range chunks {
-		params := c.buildParams(chunk, voice)
+		params, err := c.buildParams(chunk, voice)
+		if err != nil {
+			return nil, err
+		}
 		resp, err := c.client.Audio.Speech.New(context.Background(), params)
 		if err != nil {
 			return nil, fmt.Errorf("TTS synthesis failed: %w", err)
@@ -220,7 +229,10 @@ func (c *TTSClient) synthesizeStreamInternal(ctx context.Context, text string, v
 
 	chunks := splitTextForTTS(text)
 	for _, chunk := range chunks {
-		params := c.buildParams(chunk, voice)
+		params, err := c.buildParams(chunk, voice)
+		if err != nil {
+			return err
+		}
 		resp, err := c.client.Audio.Speech.New(ctx, params)
 		if err != nil {
 			return fmt.Errorf("TTS stream failed: %w", err)
@@ -364,6 +376,9 @@ func (c *TTSClient) SetSpeed(speed float64) {
 // SetModel altera o modelo de TTS
 func (c *TTSClient) SetModel(model TTSModel) {
 	c.config.Model = model
+	if c.config.SelectionMode == "" {
+		c.config.SelectionMode = selectionModeForTTSModel(string(model))
+	}
 }
 
 // SetFormat altera o formato de saída
@@ -511,11 +526,20 @@ func selectionModeForTTSModel(id string) TTSSelectionMode {
 	return TTSSelectionModelAndVoice
 }
 
-func validateTTSSelection(modelID, voiceID string) error {
+func normalizeTTSSelectionMode(modelID string, mode TTSSelectionMode) TTSSelectionMode {
+	switch mode {
+	case TTSSelectionModelAndVoice, TTSSelectionModelOnly:
+		return mode
+	default:
+		return selectionModeForTTSModel(modelID)
+	}
+}
+
+func validateTTSSelection(modelID, voiceID string, mode TTSSelectionMode) error {
 	if modelID == "" {
 		return fmt.Errorf("TTS model is required")
 	}
-	switch selectionModeForTTSModel(modelID) {
+	switch normalizeTTSSelectionMode(modelID, mode) {
 	case TTSSelectionModelOnly:
 		if voiceID != "" {
 			return fmt.Errorf("voice_id must be empty for model-only TTS model %q", modelID)

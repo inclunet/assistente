@@ -44,7 +44,9 @@ func (m *mockAudioRepo) GetMessageContent(id string) (string, error) {
 // testProfileProvider implementa speech.ProfileProvider para testes.
 type testProfileProvider struct{}
 
-func (testProfileProvider) GetActive() (*profiles.Profile, error)                 { return nil, nil }
+func (testProfileProvider) GetActive() (*profiles.Profile, error) {
+	return nil, nil
+}
 func (testProfileProvider) ResolveDefaults(p *profiles.Profile) *profiles.Profile { return p }
 
 // newTestSpeechSvc cria um speech.Service para testes.

@@ -132,6 +132,7 @@ func (sm *SpeechManager) reinitClients() {
 				CredentialPattern: entry.role.CredentialPattern,
 				Model:             TTSModel(entry.role.Model),
 				Voice:             TTSVoice(entry.role.Voice),
+				SelectionMode:     TTSSelectionMode(entry.role.SelectionMode),
 				Speed:             speed,
 			}, sm.credMgr)
 		}

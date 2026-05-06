@@ -25,7 +25,7 @@ Redesenhar `VoiceConfig` como struct hierarquica com 3 sub-configs independentes
 
 ### Atualizacao 2026-05-05: contrato definitivo de modelo e voz TTS
 
-A implementacao inicial separou os campos `model` e `voice_id`, mas a UI e parte do backend continuaram tratando alguns modelos TTS dinamicos como se fossem vozes. Isso criou um contrato ambigio:
+A implementacao inicial separou os campos `model` e `voice_id`, mas a UI e parte do backend continuaram tratando alguns modelos TTS dinamicos como se fossem vozes. Isso criou um contrato ambiguo:
 
 - OpenAI oficial usava IDs compostos de picker (`voiceId::model`), misturando modelo e voz em uma unica selecao.
 - Piper/LocalAI expunha modelos `voice-*` como `TTSVoiceInfo`, porque cada modelo Piper costuma representar uma voz.
@@ -43,6 +43,12 @@ voice.<role>:
   selection_mode: string    # "model_and_voice" ou "model_only"
 ```
 
+Nomenclatura:
+
+- `provider` e a familia de TTS no perfil. Para APIs HTTP OpenAI-compatible, o valor e `openai`, mesmo quando o backend real e Kokoro, Qwen, LocalAI ou outro endpoint compativel.
+- `llm_provider_id` e o ID do provider registrado que carrega credenciais, base URL e formato da API.
+- Parametros `providerID` nas APIs abaixo recebem esse mesmo ID registrado (`llm_provider_id`), nao a familia `provider`.
+
 Regras:
 
 - `model` nunca e inferido a partir de `voice_id`.
@@ -51,7 +57,7 @@ Regras:
 - Providers/modelos como Piper usam `selection_mode = "model_only"`: o usuario escolhe apenas o modelo; `voice_id` permanece vazio.
 - IDs compostos (`voiceId::model`) ficam proibidos.
 - Listagem de `/v1/models` alimenta seletor de modelos, nao seletor de vozes.
-- Listagem de vozes recebe `provider_id` e `model` como entrada.
+- Listagem de vozes recebe `providerID` e `modelID` como entrada.
 - Sem migracao automatica, fallback, heuristica de compatibilidade ou degradacao silenciosa para perfis antigos.
 
 APIs obrigatorias:
@@ -63,9 +69,11 @@ SpeakPreview(providerID, modelID, voiceID, rate, volume, text, sessionID)
 SpeakMessage(messageID, providerID, modelID, voiceID, rate)
 ```
 
+Em `selection_mode = "model_only"`, o cliente chama `SpeakPreview` e `SpeakMessage` com `voiceID = ""`; a requisicao HTTP envia apenas o modelo.
+
 Validacao obrigatoria:
 
-- Para `provider = "openai"`/HTTP, `model` vazio e erro de configuracao.
+- Para qualquer TTS HTTP OpenAI-compatible representado no perfil por `provider = "openai"`, `model` vazio e erro de configuracao.
 - Para `selection_mode = "model_and_voice"`, `voice_id` vazio e erro de configuracao.
 - Para `selection_mode = "model_only"`, `voice_id` deve ficar vazio e a sintese envia apenas o modelo.
 - Nenhum caminho pode tentar outro provider automaticamente.

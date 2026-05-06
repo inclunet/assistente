@@ -190,7 +190,7 @@ func (s *Service) synthesizeSAPI5(text, voiceID string, rate int) ([]byte, strin
 
 // synthesizeAPI gera áudio MP3 via provider OpenAI-compatible (HTTP).
 func (s *Service) synthesizeAPI(text, providerID, model, voiceID string, rate float64) ([]byte, string, error) {
-	if err := validateTTSSelection(model, voiceID); err != nil {
+	if err := validateTTSSelection(model, voiceID, ""); err != nil {
 		return nil, "", err
 	}
 	if rate <= 0 {
@@ -447,7 +447,7 @@ func (s *Service) previewSAPI5(text, voiceID string, rate, volume float64) error
 }
 
 func (s *Service) previewLLM(providerID, text, voiceID, model string, rate float64, sessionID string) error {
-	if err := validateTTSSelection(model, voiceID); err != nil {
+	if err := validateTTSSelection(model, voiceID, ""); err != nil {
 		return err
 	}
 	client := s.CreateTTSClient(providerID, model)

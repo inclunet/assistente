@@ -37,8 +37,8 @@ func TestCalcTTSTimeout(t *testing.T) {
 		{4000, 90 * time.Second},
 		{8000, 120 * time.Second},
 		{12000, 150 * time.Second},
-		{5999, 90 * time.Second},  // floor(5999/4000) = 1
-		{7999, 90 * time.Second},  // floor(7999/4000) = 1
+		{5999, 90 * time.Second}, // floor(5999/4000) = 1
+		{7999, 90 * time.Second}, // floor(7999/4000) = 1
 	}
 
 	for _, tt := range tests {
@@ -82,7 +82,10 @@ func TestBuildParams_DefaultVoice(t *testing.T) {
 		},
 	}
 
-	params := client.buildParams("Hello world", VoiceNova)
+	params, err := client.buildParams("Hello world", VoiceNova)
+	if err != nil {
+		t.Fatalf("buildParams erro inesperado: %v", err)
+	}
 
 	if params.Input != "Hello world" {
 		t.Errorf("Input = %q, esperado %q", params.Input, "Hello world")
@@ -108,7 +111,10 @@ func TestBuildParams_CustomSpeed(t *testing.T) {
 		},
 	}
 
-	params := client.buildParams("Test", VoiceEcho)
+	params, err := client.buildParams("Test", VoiceEcho)
+	if err != nil {
+		t.Fatalf("buildParams erro inesperado: %v", err)
+	}
 
 	if string(params.Voice) != "echo" {
 		t.Errorf("Voice = %q, esperado %q (override)", params.Voice, "echo")
@@ -133,11 +139,52 @@ func TestBuildParams_DefaultSpeedNotSet(t *testing.T) {
 		},
 	}
 
-	params := client.buildParams("Test", VoiceNova)
+	params, err := client.buildParams("Test", VoiceNova)
+	if err != nil {
+		t.Fatalf("buildParams erro inesperado: %v", err)
+	}
 
 	// Speed == 1.0 → não deve estar setado (usa default da API)
 	if params.Speed != (param.Opt[float64]{}) {
 		t.Error("Speed deveria ser zero-value quando Speed==1.0")
+	}
+}
+
+func TestBuildParams_ModelOnlyOmitsVoice(t *testing.T) {
+	client := &TTSClient{
+		config: TTSConfig{
+			Model:         TTSModel("voice-pt_BR-cadu-medium"),
+			SelectionMode: TTSSelectionModelOnly,
+			Format:        FormatMP3,
+			Speed:         1.0,
+		},
+	}
+
+	params, err := client.buildParams("Teste", "")
+	if err != nil {
+		t.Fatalf("buildParams erro inesperado: %v", err)
+	}
+	if string(params.Model) != "voice-pt_BR-cadu-medium" {
+		t.Errorf("Model = %q, esperado voice-pt_BR-cadu-medium", params.Model)
+	}
+	if params.Voice != "" {
+		t.Errorf("Voice deveria ser omitida/zero-value em model_only, obteve %q", params.Voice)
+	}
+}
+
+func TestBuildParams_ModelOnlyRejectsVoice(t *testing.T) {
+	client := &TTSClient{
+		config: TTSConfig{
+			Model:         TTSModel("voice-pt_BR-cadu-medium"),
+			SelectionMode: TTSSelectionModelOnly,
+			Format:        FormatMP3,
+			Speed:         1.0,
+		},
+	}
+
+	_, err := client.buildParams("Teste", "nova")
+	if err == nil {
+		t.Fatal("esperava erro quando model_only recebe voice")
 	}
 }
 
