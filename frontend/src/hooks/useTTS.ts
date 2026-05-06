@@ -11,7 +11,7 @@ interface UseTTSReturn {
   stop: () => void;
   pause: () => void;
   resume: () => void;
-  speakWithOverride: (text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string }) => Promise<void>;
+  speakWithOverride: (text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string; language?: string }) => Promise<void>;
   isSpeaking: boolean;
   isEnabled: boolean;
   isAutoReadEnabled: boolean;
@@ -82,7 +82,7 @@ export function useTTS(): UseTTSReturn {
     ttsService.resume();
   }, []);
 
-  const speakWithOverride = useCallback(async (text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string }) => {
+  const speakWithOverride = useCallback(async (text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string; language?: string }) => {
     await ttsService.speakWithOverride(text, options);
   }, []);
   

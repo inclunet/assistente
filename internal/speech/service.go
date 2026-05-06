@@ -108,6 +108,20 @@ func (s *Service) CreateTTSClient(providerID string, model string) *TTSClient {
 	}, s.credMgr)
 }
 
+func (s *Service) CreateTTSClientWithLanguage(providerID string, model string, language string) *TTSClient {
+	cfg := s.registry.Get(providerID)
+	if cfg == nil {
+		log.Printf("[TTS] Provider %s não encontrado", providerID)
+		return nil
+	}
+	return NewTTSClient(TTSConfig{
+		BaseURL:           cfg.BaseURL,
+		CredentialPattern: cfg.CredentialPattern,
+		Model:             TTSModel(model),
+		Language:          language,
+	}, s.credMgr)
+}
+
 // SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
 func (s *Service) SpeakMessage(messageID string, providerID string, model string, voiceID string, rate float64) (*AudioResult, error) {
 	// 1. Checa cache no DB
@@ -399,6 +413,7 @@ type SpeakPreviewParams struct {
 	ProviderID string
 	VoiceID    string
 	Model      string
+	Language   string
 	Rate       float64
 	Volume     float64
 	Text       string
@@ -421,7 +436,7 @@ func (s *Service) SpeakPreview(p SpeakPreviewParams) error {
 		volume = 1.0
 	}
 
-	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, rate, volume)
+	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, language=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, p.Language, rate, volume)
 
 	switch p.ProviderID {
 	case "webspeech":
@@ -429,7 +444,7 @@ func (s *Service) SpeakPreview(p SpeakPreviewParams) error {
 	case "sapi5":
 		return s.previewSAPI5(text, p.VoiceID, rate, volume)
 	default:
-		return s.previewLLM(p.ProviderID, text, p.VoiceID, p.Model, rate, p.SessionID)
+		return s.previewLLM(p.ProviderID, text, p.VoiceID, p.Model, p.Language, rate, p.SessionID)
 	}
 }
 
@@ -446,11 +461,11 @@ func (s *Service) previewSAPI5(text, voiceID string, rate, volume float64) error
 	return manager.Speak(text, voiceID)
 }
 
-func (s *Service) previewLLM(providerID, text, voiceID, model string, rate float64, sessionID string) error {
+func (s *Service) previewLLM(providerID, text, voiceID, model, language string, rate float64, sessionID string) error {
 	if err := validateTTSSelection(model, voiceID, ""); err != nil {
 		return err
 	}
-	client := s.CreateTTSClient(providerID, model)
+	client := s.CreateTTSClientWithLanguage(providerID, model, language)
 	if client == nil {
 		s.emitter.Emit(EventTTSStreamError, TTSStreamEvent{
 			SessionID: sessionID,

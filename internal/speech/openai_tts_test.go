@@ -1,6 +1,7 @@
 package speech
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -185,6 +186,66 @@ func TestBuildParams_ModelOnlyRejectsVoice(t *testing.T) {
 	_, err := client.buildParams("Teste", "nova")
 	if err == nil {
 		t.Fatal("esperava erro quando model_only recebe voice")
+	}
+}
+
+func TestBuildParams_OfficialOpenAIUsesLanguageInstruction(t *testing.T) {
+	client := &TTSClient{
+		config: TTSConfig{
+			BaseURL:  "https://api.openai.com/v1",
+			Model:    TTSModel("gpt-4o-mini-tts"),
+			Voice:    VoiceNova,
+			Language: "pt-BR",
+		},
+	}
+
+	params, err := client.buildParams("Olá", VoiceNova)
+	if err != nil {
+		t.Fatalf("buildParams erro inesperado: %v", err)
+	}
+	if !params.Instructions.Valid() {
+		t.Fatal("Instructions deveria estar definido para modelo com suporte")
+	}
+	if params.Instructions.Value != "Speak in Brazilian Portuguese with a native Brazilian Portuguese accent." {
+		t.Errorf("Instructions = %q", params.Instructions.Value)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("Marshal params: %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(data, &body); err != nil {
+		t.Fatalf("Unmarshal params: %v", err)
+	}
+	if _, ok := body["language"]; ok {
+		t.Fatalf("OpenAI oficial não deve receber campo language extra: %s", string(data))
+	}
+}
+
+func TestBuildParams_CompatibleProviderSendsLanguageField(t *testing.T) {
+	client := &TTSClient{
+		config: TTSConfig{
+			BaseURL:  "http://localhost:8080/v1",
+			Model:    TTSModel("kokoro"),
+			Voice:    TTSVoice("pm_santa"),
+			Language: "pt-BR",
+		},
+	}
+
+	params, err := client.buildParams("Olá", TTSVoice("pm_santa"))
+	if err != nil {
+		t.Fatalf("buildParams erro inesperado: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("Marshal params: %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(data, &body); err != nil {
+		t.Fatalf("Unmarshal params: %v", err)
+	}
+	if body["language"] != "pt" {
+		t.Fatalf("language = %v, esperado pt; body=%s", body["language"], string(data))
 	}
 }
 

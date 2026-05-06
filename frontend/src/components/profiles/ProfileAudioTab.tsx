@@ -322,6 +322,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 profileId={profileId}
                 ttsModel={assistantVoice?.model}
                 selectionMode={assistantVoice?.selection_mode as 'model_and_voice' | 'model_only' | undefined}
+                previewLanguage={editingProfile.input?.language || 'pt-BR'}
                 label={t('profiles.voiceLabels.assistantPicker')}
                 onChange={(f, v) => handleVoiceChange('assistant', f, v)}
                 onChangeMany={(updates) => handleVoiceChanges('assistant', updates)}
@@ -357,6 +358,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 profileId={profileId}
                 ttsModel={userVoice?.model}
                 selectionMode={userVoice?.selection_mode as 'model_and_voice' | 'model_only' | undefined}
+                previewLanguage={editingProfile.input?.language || 'pt-BR'}
                 label={t('profiles.voiceLabels.userPicker')}
                 helpText={userFollowHelpText}
                 onChange={(f, v) => handleVoiceChange('user', f, v)}
@@ -393,6 +395,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 profileId={profileId}
                 ttsModel={systemVoice?.model}
                 selectionMode={systemVoice?.selection_mode as 'model_and_voice' | 'model_only' | undefined}
+                previewLanguage={editingProfile.input?.language || 'pt-BR'}
                 label={t('profiles.voiceLabels.systemPicker')}
                 helpText={systemFollowHelpText}
                 onChange={(f, v) => handleVoiceChange('system', f, v)}

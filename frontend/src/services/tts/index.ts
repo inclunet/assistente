@@ -15,14 +15,14 @@ type WailsApp = {
       App?: {
         GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
         GetTTSVoices?: (providerId: string, modelId: string) => Promise<BackendVoice[]>;
-        SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, text: string, sessionId: string) => Promise<void>;
+        SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string) => Promise<void>;
       };
     };
     main?: {
       App?: {
         GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
         GetTTSVoices?: (providerId: string, modelId: string) => Promise<BackendVoice[]>;
-        SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, text: string, sessionId: string) => Promise<void>;
+        SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string) => Promise<void>;
       };
     };
   };
@@ -423,7 +423,7 @@ class TTSService {
    * Para "webspeech", usa o provider frontend.
    * Para "sapi5" e providers LLM, delega ao backend via SpeakPreview.
    */
-  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string }): Promise<void> {
+  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string; language?: string }): Promise<void> {
     const voiceId = options.voiceName ? this.extractVoiceId(options.voiceName) : undefined;
 
     // Resolve o tipo de provider: webspeech ou LLM/sapi5 (backend)
@@ -438,6 +438,7 @@ class TTSService {
         voiceId || '',
         options.rate ?? 1.0,
         options.volume ?? 1.0,
+        options.language ?? '',
       );
       return;
     }
@@ -532,10 +533,11 @@ class TTSService {
     voiceId: string,
     rate: number,
     volume: number,
+    language: string,
   ): Promise<void> {
     const app = getWailsApp();
     const speakPreview = app?.SpeakPreview as ((
-      providerId: string, model: string, voiceId: string, rate: number, volume: number, text: string, sessionId: string,
+      providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string,
     ) => Promise<void>) | undefined;
 
     if (!speakPreview) {
@@ -588,7 +590,7 @@ class TTSService {
       });
 
       try {
-        await speakPreview(providerId, model, voiceId, rate, volume, text, sessionId);
+        await speakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
         await streamPromise;
       } catch (error) {
         streamPlayer.stop();
@@ -603,7 +605,7 @@ class TTSService {
       }
     } else {
       // Fallback simples: só chama o backend (sem aguardar)
-      await speakPreview(providerId, model, voiceId, rate, volume, text, sessionId);
+      await speakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
     }
   }
 

@@ -363,7 +363,7 @@ export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Wo
 
 export function NeedsWelcomeWizard():Promise<boolean>;
 
-export function SpeakPreview(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number,arg6:string,arg7:string):Promise<void>;
+export function SpeakPreview(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number,arg6:string,arg7:string,arg8:string):Promise<void>;
 
 export function PromoteTask(arg1:string):Promise<void>;
 

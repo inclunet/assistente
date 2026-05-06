@@ -96,11 +96,12 @@ func (c *SpeechController) GetSTTModels(providerID string) []speech.SpeechModelI
 	return c.speechSvc.GetSTTModels(providerID)
 }
 
-func (c *SpeechController) SpeakPreview(providerID, model, voiceID string, rate, volume float64, text, sessionID string) error {
+func (c *SpeechController) SpeakPreview(providerID, model, voiceID string, rate, volume float64, language, text, sessionID string) error {
 	return c.speechSvc.SpeakPreview(speech.SpeakPreviewParams{
 		ProviderID: providerID,
 		Model:      model,
 		VoiceID:    voiceID,
+		Language:   language,
 		Rate:       rate,
 		Volume:     volume,
 		Text:       text,

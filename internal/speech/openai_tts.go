@@ -91,6 +91,7 @@ type TTSConfig struct {
 	SelectionMode     TTSSelectionMode // model_and_voice ou model_only
 	Format            TTSFormat        // mp3, opus, aac, flac, wav, pcm
 	Speed             float64          // 0.25 a 4.0 (1.0 = normal)
+	Language          string           // idioma desejado para orientar TTS, ex: pt-BR
 }
 
 // TTSClient cliente para síntese de voz via OpenAI SDK
@@ -173,6 +174,16 @@ func (c *TTSClient) buildParams(text string, voice TTSVoice) (openai.AudioSpeech
 	}
 	if c.config.Format != "" {
 		params.ResponseFormat = openai.AudioSpeechNewParamsResponseFormat(c.config.Format)
+	}
+	if language := normalizeTTSLanguage(c.config.Language); language != "" {
+		if supportsTTSInstructions(modelID) {
+			params.Instructions = param.NewOpt(ttsLanguageInstruction(language))
+		}
+		if shouldSendTTSLanguageField(c.config.BaseURL) {
+			params.SetExtraFields(map[string]any{
+				"language": ttsLanguageCode(language),
+			})
+		}
 	}
 	return params, nil
 }
@@ -533,6 +544,52 @@ func normalizeTTSSelectionMode(modelID string, mode TTSSelectionMode) TTSSelecti
 	default:
 		return selectionModeForTTSModel(modelID)
 	}
+}
+
+func normalizeTTSLanguage(language string) string {
+	language = strings.TrimSpace(language)
+	if language == "" {
+		return ""
+	}
+	return strings.ReplaceAll(language, "_", "-")
+}
+
+func ttsLanguageCode(language string) string {
+	lower := strings.ToLower(normalizeTTSLanguage(language))
+	if idx := strings.Index(lower, "-"); idx >= 0 {
+		return lower[:idx]
+	}
+	return lower
+}
+
+func ttsLanguageInstruction(language string) string {
+	switch strings.ToLower(normalizeTTSLanguage(language)) {
+	case "pt", "pt-br":
+		return "Speak in Brazilian Portuguese with a native Brazilian Portuguese accent."
+	case "pt-pt":
+		return "Speak in European Portuguese with a native Portuguese accent."
+	case "en", "en-us":
+		return "Speak in American English with a natural native accent."
+	case "en-gb":
+		return "Speak in British English with a natural native accent."
+	case "es", "es-es":
+		return "Speak in Spanish with a natural native accent."
+	default:
+		return fmt.Sprintf("Speak in the language identified by %s with a natural native accent.", normalizeTTSLanguage(language))
+	}
+}
+
+func supportsTTSInstructions(modelID string) bool {
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
+	return modelID != "" && modelID != "tts-1" && modelID != "tts-1-hd" && !strings.HasPrefix(modelID, "tts-1-")
+}
+
+func shouldSendTTSLanguageField(baseURL string) bool {
+	baseURL = strings.ToLower(strings.TrimSpace(baseURL))
+	if baseURL == "" {
+		return false
+	}
+	return !strings.Contains(baseURL, "api.openai.com")
 }
 
 func validateTTSSelection(modelID, voiceID string, mode TTSSelectionMode) error {

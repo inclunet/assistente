@@ -34,6 +34,7 @@ export interface ProfileVoiceSectionProps {
   resolvedVoiceId?: string;
   ttsModel?: string;
   selectionMode?: TTSSelectionMode;
+  previewLanguage?: string;
   onChange: (field: 'voice' | 'model' | 'selectionMode' | 'rate' | 'volume', value: string | number) => void;
   onChangeMany?: (updates: Partial<Record<'voice' | 'model' | 'selectionMode' | 'rate' | 'volume', string | number>>) => void;
   disabled?: boolean;
@@ -51,6 +52,7 @@ export function ProfileVoiceSection({
   providerType,
   profileId,
   ttsModel,
+  previewLanguage,
   label,
   helpText,
   references,
@@ -177,6 +179,7 @@ export function ProfileVoiceSection({
       rate,
       volume,
       ttsModel,
+      language: previewLanguage,
     });
   };
 
