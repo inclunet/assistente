@@ -53,18 +53,17 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
   if (!nodes || nodes.length === 0) return nodes;
 
   const turnMap = new Map<string, MessageNode[]>();
-  let hasTurns = false;
 
   for (const node of nodes) {
     const turnId = node.message.turnId;
     if (turnId) {
-      hasTurns = true;
       if (!turnMap.has(turnId)) turnMap.set(turnId, []);
       turnMap.get(turnId)!.push(node);
     }
   }
 
-  if (!hasTurns) return nodes;
+  const hasSplitTurns = Array.from(turnMap.values()).some((turnNodes) => turnNodes.length > 1);
+  if (!hasSplitTurns) return nodes;
 
   const processedTurnIds = new Set<string>();
   const result: MessageNode[] = [];
@@ -205,7 +204,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   // Use external ref if provided, otherwise use internal ref
   const containerRef = (ref as React.RefObject<HTMLDivElement>) || internalContainerRef;
 
-  // Consolida mensagens de turnos com tool calling em entradas únicas
+  // Fallback transitório: o backend já retorna timeline items canônicos;
+  // durante streaming ainda podem existir múltiplos nós locais do mesmo turnId.
   const displayMessages = useMemo(
     () => consolidateTurnMessages(threadedMessages),
     [threadedMessages]

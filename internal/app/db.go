@@ -1,8 +1,8 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"assistente/internal/chat"
@@ -86,68 +86,102 @@ func assignMessageNodeOriginalIndexes(nodes []chat.MessageNode, indexesByID map[
 	return nodes
 }
 
-func expandWindowTurnMessages(conversationID string, parentID *string, messages []database.ChatMessage, maxRows int) ([]database.ChatMessage, error) {
-	turnIDs := make([]string, 0)
-	seenTurns := make(map[string]bool)
-	addBoundaryTurn := func(message database.ChatMessage) {
-		if message.TurnID == nil || *message.TurnID == "" || seenTurns[*message.TurnID] {
-			return
-		}
-		seenTurns[*message.TurnID] = true
-		turnIDs = append(turnIDs, *message.TurnID)
+func messageTimelineItemKey(message database.ChatMessage) string {
+	if message.TurnID != nil && *message.TurnID != "" {
+		return "turn:" + *message.TurnID
 	}
-	if len(messages) > 0 {
-		addBoundaryTurn(messages[0])
-		addBoundaryTurn(messages[len(messages)-1])
+	return "message:" + message.ID
+}
+
+func timelineWindowItemKey(item database.MessageWindowItem) string {
+	if item.Kind == "turn" {
+		return "turn:" + item.TurnID
 	}
-	if len(turnIDs) == 0 {
-		return messages, nil
+	return "message:" + item.MessageID
+}
+
+func parseToolCalls(raw string) []map[string]interface{} {
+	if strings.TrimSpace(raw) == "" {
+		return nil
 	}
-	if maxRows <= len(messages) {
-		return messages, nil
+	var calls []map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &calls); err == nil {
+		return calls
 	}
-	byID := make(map[string]database.ChatMessage, maxRows)
+	var call map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &call); err == nil {
+		return []map[string]interface{}{call}
+	}
+	return nil
+}
+
+func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.ChatMessage {
+	if len(messages) == 0 {
+		return database.ChatMessage{}
+	}
+	toolResults := make(map[string]string)
 	for _, message := range messages {
-		byID[message.ID] = message
+		if message.Role == "tool" && message.ToolCallID != "" {
+			toolResults[message.ToolCallID] = message.Content
+		}
 	}
-	for _, turnID := range turnIDs {
-		turnMessages, err := database.GetMessagesByTurnID(conversationID, parentID, turnID, maxRows+1)
-		if err != nil {
-			return nil, err
-		}
-		missingCount := 0
-		for _, message := range turnMessages {
-			if _, ok := byID[message.ID]; !ok {
-				missingCount++
-			}
-		}
-		if len(byID)+missingCount <= maxRows {
-			for _, message := range turnMessages {
-				byID[message.ID] = message
-			}
+
+	consolidated := messages[len(messages)-1]
+	finalContent := ""
+	finalReasoning := ""
+	allToolCalls := make([]map[string]interface{}, 0)
+	for _, message := range messages {
+		if message.Role != "assistant" {
 			continue
 		}
-		for _, message := range turnMessages {
-			if len(byID) >= maxRows {
-				break
+		consolidated = message
+		if message.Content != "" {
+			finalContent = message.Content
+		}
+		if message.Reasoning != "" {
+			finalReasoning = message.Reasoning
+		}
+		for _, call := range parseToolCalls(message.ToolCalls) {
+			callID, _ := call["id"].(string)
+			if callID != "" {
+				if result, ok := toolResults[callID]; ok {
+					call["result"] = result
+				}
 			}
-			if message.Role == "tool" {
-				continue
-			}
-			byID[message.ID] = message
+			allToolCalls = append(allToolCalls, call)
 		}
 	}
-	expanded := make([]database.ChatMessage, 0, len(byID))
-	for _, message := range byID {
-		expanded = append(expanded, message)
-	}
-	sort.Slice(expanded, func(i, j int) bool {
-		if expanded[i].CreatedAt.Equal(expanded[j].CreatedAt) {
-			return expanded[i].ID < expanded[j].ID
+	consolidated.Content = finalContent
+	consolidated.Reasoning = finalReasoning
+	if len(allToolCalls) > 0 {
+		if encoded, err := json.Marshal(allToolCalls); err == nil {
+			consolidated.ToolCalls = string(encoded)
 		}
-		return expanded[i].CreatedAt.Before(expanded[j].CreatedAt)
-	})
-	return expanded, nil
+	}
+	return consolidated
+}
+
+func buildTimelineMessageNodes(items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+	messagesByItemKey := make(map[string][]database.ChatMessage)
+	for _, message := range messages {
+		key := messageTimelineItemKey(message)
+		messagesByItemKey[key] = append(messagesByItemKey[key], message)
+	}
+	representatives := make([]database.ChatMessage, 0, len(items))
+	originalIndexesByMessageID := make(map[string]int, len(items))
+	for _, item := range items {
+		itemMessages := messagesByItemKey[timelineWindowItemKey(item)]
+		if len(itemMessages) == 0 {
+			continue
+		}
+		representative := itemMessages[0]
+		if item.Kind == "turn" {
+			representative = consolidateTimelineTurnMessages(itemMessages)
+		}
+		representatives = append(representatives, representative)
+		originalIndexesByMessageID[representative.ID] = item.OriginalIndex
+	}
+	return assignMessageNodeOriginalIndexes(buildMessageNodes(representatives, parentID), originalIndexesByMessageID)
 }
 
 // GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
@@ -250,15 +284,7 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	if err != nil {
 		return nil, err
 	}
-	originalIndexesByMessageID := make(map[string]int, len(window.Messages))
-	for index, message := range window.Messages {
-		originalIndexesByMessageID[message.ID] = window.StartIndex + index
-	}
-	messages, err := expandWindowTurnMessages(conversationID, parentID, window.Messages, database.MaxMessageWindowRows)
-	if err != nil {
-		return nil, err
-	}
-	nodes := assignMessageNodeOriginalIndexes(buildMessageNodes(messages, parentID), originalIndexesByMessageID)
+	nodes := buildTimelineMessageNodes(window.Items, window.Messages, parentID)
 
 	return &chat.MessageWindow{
 		Scope:          scope,

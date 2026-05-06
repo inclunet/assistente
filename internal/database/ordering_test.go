@@ -462,6 +462,102 @@ func TestGetMessageWindow_AroundRebalancesAtEnd(t *testing.T) {
 	}
 }
 
+func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
+	setupOrderingTestDB(t)
+	conv, err := CreateConversation("timeline-items", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	user, err := AddMessage(conv.ID, "user", "pergunta")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	assistant, err := AddAssistantToolMessage(conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
+	if err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	tool, err := AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1")
+	if err != nil {
+		t.Fatalf("create tool: %v", err)
+	}
+	nextUser, err := AddMessage(conv.ID, "user", "pergunta seguinte")
+	if err != nil {
+		t.Fatalf("create next user: %v", err)
+	}
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID: conv.ID,
+		Anchor:         "start",
+		Direction:      "after",
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow: %v", err)
+	}
+	if window.TotalCount != 3 {
+		t.Fatalf("expected 3 timeline items, got %d", window.TotalCount)
+	}
+	if len(window.Items) != 3 {
+		t.Fatalf("expected 3 selected items, got %d", len(window.Items))
+	}
+	if window.Items[0].Kind != "message" || window.Items[0].MessageID != user.ID {
+		t.Fatalf("expected first user message item, got %+v", window.Items[0])
+	}
+	if window.Items[1].Kind != "turn" || window.Items[1].TurnID != user.ID {
+		t.Fatalf("expected consolidated turn item, got %+v", window.Items[1])
+	}
+	if window.Items[2].Kind != "message" || window.Items[2].MessageID != nextUser.ID {
+		t.Fatalf("expected next user message item, got %+v", window.Items[2])
+	}
+
+	messageIDs := map[string]bool{}
+	for _, message := range window.Messages {
+		messageIDs[message.ID] = true
+	}
+	if !messageIDs[assistant.ID] || !messageIDs[tool.ID] {
+		t.Fatalf("expected selected turn messages to be fetched in batch, got ids=%v", messageIDs)
+	}
+}
+
+func TestGetMessageWindow_AnchorInsideTurnPagesByWholeItem(t *testing.T) {
+	setupOrderingTestDB(t)
+	conv, err := CreateConversation("timeline-anchor", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	user, err := AddMessage(conv.ID, "user", "pergunta")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	assistant, err := AddAssistantToolMessage(conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
+	if err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	if _, err := AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
+		t.Fatalf("create tool: %v", err)
+	}
+	nextUser, err := AddMessage(conv.ID, "user", "pergunta seguinte")
+	if err != nil {
+		t.Fatalf("create next user: %v", err)
+	}
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID:  conv.ID,
+		AnchorMessageID: assistant.ID,
+		Direction:       "after",
+		Limit:           1,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow: %v", err)
+	}
+	if window.StartIndex != 2 || window.EndIndex != 2 {
+		t.Fatalf("expected indices 2..2 after turn item, got %d..%d", window.StartIndex, window.EndIndex)
+	}
+	if len(window.Items) != 1 || window.Items[0].MessageID != nextUser.ID {
+		t.Fatalf("expected next item after turn, got %+v", window.Items)
+	}
+}
+
 func TestGetMessageWindow_ThreadScopeCountsChildren(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
