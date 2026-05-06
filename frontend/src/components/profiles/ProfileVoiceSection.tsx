@@ -53,6 +53,7 @@ export function ProfileVoiceSection({
 
   const ttsCapabilities = getTTSCapabilities(providerType || '');
   const isHTTPProvider = !!providerId && providerId !== 'webspeech' && providerId !== 'sapi5' && !providerId.startsWith('ref_');
+  const modelSelectId = `tts-model-${profileId || label?.replace(/\s+/g, '-').toLowerCase() || 'default'}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +61,7 @@ export function ProfileVoiceSection({
       setDynamicModels([]);
       return;
     }
+    if (!providerId) return;
     ttsService.getModelsForProvider(providerId)
       .then((models) => {
         if (!cancelled) setDynamicModels(models);
@@ -138,16 +140,17 @@ export function ProfileVoiceSection({
     <div className="profile-voice-section" data-testid="profile-voice-section">
       {isHTTPProvider && (
         <div className="profile-voice-section__field">
-          <label className="profiles-field__label">
-            <RobotOutlined /> {t('profiles.voiceSection.modelLabel', 'Modelo TTS')}
+          <label className="profiles-field__label" htmlFor={modelSelectId}>
+            <RobotOutlined /> {t('profiles.voiceSection.modelLabel')}
           </label>
           <select
+            id={modelSelectId}
             className="profiles-field__select"
             value={ttsModel || ''}
             onChange={(event) => handleModelChange(event.target.value)}
             disabled={disabled}
           >
-            <option value="">{t('profiles.voiceSection.modelPlaceholder', 'Selecione um modelo')}</option>
+            <option value="">{t('profiles.voiceSection.modelPlaceholder')}</option>
             {ttsModels.map((model) => (
               <option key={model.id} value={model.id}>
                 {model.name}
@@ -155,7 +158,7 @@ export function ProfileVoiceSection({
             ))}
           </select>
           <p className="profiles-field__hint">
-            {t('profiles.voiceSection.modelHelp', 'Escolha o modelo TTS antes da voz. Modelos Piper usam apenas o modelo.')}
+            {t('profiles.voiceSection.modelHelp')}
           </p>
         </div>
       )}

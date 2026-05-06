@@ -91,7 +91,7 @@ describe('messageAudioService', () => {
         rate: 1.5,
       });
 
-      expect(speakMessageMock).toHaveBeenCalledWith("42", 'openai', 'nova', 'tts-1', 1.5);
+      expect(speakMessageMock).toHaveBeenCalledWith("42", 'openai', 'tts-1', 'nova', 1.5);
     });
   });
 

@@ -161,7 +161,7 @@ describe('VoicePicker', () => {
     render(<VoicePicker value="" onChange={() => {}} providerId="openai-1" profileId="prof-1" />);
 
     await waitFor(() => {
-      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', 'prof-1');
+      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', 'prof-1', '');
     });
   });
 
@@ -169,7 +169,7 @@ describe('VoicePicker', () => {
     render(<VoicePicker value="" onChange={() => {}} providerId="openai-1" />);
 
     await waitFor(() => {
-      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', '');
+      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', '', '');
     });
   });
 
@@ -177,14 +177,14 @@ describe('VoicePicker', () => {
     const { rerender } = render(<VoicePicker value="" onChange={() => {}} providerId="webspeech" profileId="test" />);
 
     await waitFor(() => {
-      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('webspeech', 'test');
+      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('webspeech', 'test', '');
     });
 
     getVoicesForProviderSpy.mockClear();
     rerender(<VoicePicker value="" onChange={() => {}} providerId="openai-1" profileId="test" />);
 
     await waitFor(() => {
-      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', 'test');
+      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', 'test', '');
     });
   });
 });

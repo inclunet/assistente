@@ -66,6 +66,8 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
     const reloadCancelRef = useRef<(() => void) | null>(null);
 
     const loadVoices = async (cancelled?: () => boolean) => {
+      const voiceModelId = modelId ?? '';
+
       // Vozes pré-definidas (ex: OpenAI com variantes HD): pula backend
       if (voiceOverrides && voiceOverrides.length > 0) {
         setVoices(voiceOverrides);
@@ -98,10 +100,10 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
         
         if (providerId && profileId) {
           // Busca específica para este provedor
-          allVoices = await ttsService.getVoicesForProvider(providerId, profileId, modelId);
+          allVoices = await ttsService.getVoicesForProvider(providerId, profileId, voiceModelId);
         } else if (providerId) {
           // Tem provedor mas não tem profileId — tenta com string vazia
-          allVoices = await ttsService.getVoicesForProvider(providerId, '', modelId);
+          allVoices = await ttsService.getVoicesForProvider(providerId, '', voiceModelId);
         } else {
           // Fallback legada: busca todas as vozes (usado na Home/Toolbar se não houver perfil)
           allVoices = await ttsService.getVoices();
