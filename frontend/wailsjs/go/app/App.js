@@ -50,6 +50,10 @@ export function CheckForUpdates() {
   return window['go']['app']['App']['CheckForUpdates']();
 }
 
+export function CreateAdminUser(arg1) {
+  return window['go']['app']['App']['CreateAdminUser'](arg1);
+}
+
 export function ClearAllChannels() {
   return window['go']['app']['App']['ClearAllChannels']();
 }
@@ -328,6 +332,14 @@ export function GetActiveProviderInfo() {
 
 export function GetActiveWorkspace() {
   return window['go']['app']['App']['GetActiveWorkspace']();
+}
+
+export function GetAuthStatus() {
+  return window['go']['app']['App']['GetAuthStatus']();
+}
+
+export function GetAuthUser(arg1) {
+  return window['go']['app']['App']['GetAuthUser'](arg1);
 }
 
 export function GetAllChannelConfigs() {
@@ -690,6 +702,14 @@ export function ListWorkspaces() {
   return window['go']['app']['App']['ListWorkspaces']();
 }
 
+export function Login(arg1) {
+  return window['go']['app']['App']['Login'](arg1);
+}
+
+export function Logout(arg1) {
+  return window['go']['app']['App']['Logout'](arg1);
+}
+
 export function MoveWorkspaceTabTo(arg1, arg2) {
   return window['go']['app']['App']['MoveWorkspaceTabTo'](arg1, arg2);
 }
@@ -784,6 +804,14 @@ export function RunTerminalCommand(arg1, arg2) {
 
 export function RunWelcomeWizard() {
   return window['go']['app']['App']['RunWelcomeWizard']();
+}
+
+export function RefreshAuth(arg1) {
+  return window['go']['app']['App']['RefreshAuth'](arg1);
+}
+
+export function SetupVault(arg1) {
+  return window['go']['app']['App']['SetupVault'](arg1);
 }
 
 export function SaveChannelConfig(arg1, arg2) {
@@ -1040,6 +1068,10 @@ export function UpdateTaskNote(arg1, arg2) {
 
 export function UpdateTaskStatus(arg1, arg2) {
   return window['go']['app']['App']['UpdateTaskStatus'](arg1, arg2);
+}
+
+export function UnlockVault(arg1, arg2) {
+  return window['go']['app']['App']['UnlockVault'](arg1, arg2);
 }
 
 export function UpdateWorkflow(arg1, arg2, arg3) {
