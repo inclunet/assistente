@@ -183,6 +183,16 @@ O PR de Fase 2.1 conclui a semântica canônica de itens de timeline:
 - O frontend consome esses índices como canônicos e não corrige posições absolutas com agrupamento local.
 - O backend monta os itens em lote, com número pequeno e previsível de consultas, sem N+1.
 
+#### Decisão pós-Fase 2.1 sobre virtualização
+
+Após a Fase 2.1, a próxima decisão de performance deve ser baseada em medição com a nova unidade canônica. Virtualização acessível continua pertencendo às Fases 4 e 5, mas não deve entrar no mesmo PR da Fase 2.1 salvo se os testes de conversa longa ainda mostrarem renderização perceptivelmente bloqueante com a janela já limitada.
+
+Critério prático:
+
+- Se a janela canônica limitada mantiver a UI responsiva em conversas sintéticas de 500+ mensagens, virtualização fica em PR separado.
+- Se a renderização da própria janela continuar pesada, o próximo PR deve implementar virtualização acessível antes de expandir features que aumentem conteúdo renderizado.
+- A decisão deve preservar `aria-posinset`/`aria-setsize` canônicos e navegação por teclado independente do DOM completo.
+
 ### Fase 3 — Memoização e atualização granular
 
 - Garantir que `MessageNode` renderize novamente apenas quando sua mensagem ou estado visual local mudar.

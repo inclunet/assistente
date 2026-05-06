@@ -110,6 +110,38 @@ describe('MessageList', () => {
     ]));
   });
 
+  it('usa posições canônicas quando o backend retorna item de turno consolidado', () => {
+    hoisted.messageNodeMock.mockClear();
+    const userNode = createNode('user-1');
+    const turnNode = createNode('assistant-final');
+    turnNode.message.role = 'assistant';
+    turnNode.message.turnId = 'user-1';
+    turnNode.message.toolCalls = JSON.stringify([{ id: 'tool-1', result: 'ok' }]);
+    (userNode as typeof userNode & { originalIndex?: number }).originalIndex = 0;
+    (turnNode as typeof turnNode & { originalIndex?: number }).originalIndex = 1;
+
+    render(
+      <MessageList
+        threadedMessages={[userNode, turnNode]}
+        messageWindow={{
+          scope: 'conversation',
+          conversationId: 'conversation-1',
+          totalCount: 2,
+          startIndex: 0,
+          endIndex: 1,
+          hasBefore: false,
+          hasAfter: false,
+        }}
+      />
+    );
+
+    const calls = hoisted.messageNodeMock.mock.calls.map(([props]) => props);
+    expect(calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ariaPosition: 1, ariaSetSize: 2 }),
+      expect.objectContaining({ ariaPosition: 2, ariaSetSize: 2 }),
+    ]));
+  });
+
   it('dispara callbacks de salto por Ctrl+Home e Ctrl+End', () => {
     const onJumpToStart = vi.fn();
     const onJumpToEnd = vi.fn();
