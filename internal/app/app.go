@@ -9,6 +9,7 @@ import (
 	"assistente/controllers"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
+	"assistente/internal/auth"
 	"assistente/internal/chat"
 	"assistente/internal/config"
 	"assistente/internal/core/ports"
@@ -60,8 +61,11 @@ type App struct {
 	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
 
-	credMgr   *credentials.Manager
-	credStore credentials.Store
+	credMgr     *credentials.Manager
+	credStore   credentials.Store
+	vaultSvc    *auth.VaultService
+	identitySvc *auth.IdentityService
+	sessionSvc  *auth.SessionService
 
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu    sync.Mutex
@@ -185,6 +189,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa Credential Manager PRIMEIRO (antes de qualquer uso)
 	a.initCredentialManager()
+	a.initAuthServices()
 
 	// Inicializa o Provider Service (camada de negócio para provedores LLM)
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
