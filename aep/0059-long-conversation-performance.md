@@ -181,7 +181,7 @@ O PR de Fase 2.1 conclui a semântica canônica de itens de timeline:
 - `anchorMessageId` pode apontar para a mensagem representante ou para uma mensagem interna de um turno; o backend normaliza isso para o item de timeline correspondente.
 - `originalIndex`, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` são calculados pelo backend sobre itens de timeline.
 - O frontend consome esses índices como canônicos e não corrige posições absolutas com agrupamento local.
-- O backend monta os itens em lote, com número pequeno e previsível de consultas, sem N+1.
+- O backend monta os itens em lote, com número pequeno e previsível de consultas por janela (contagem, normalização opcional de âncora e busca em lote das mensagens internas), sem uma consulta por item.
 
 #### Decisão pós-Fase 2.1 sobre virtualização
 

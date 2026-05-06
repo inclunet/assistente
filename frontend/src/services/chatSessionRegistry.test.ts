@@ -380,6 +380,11 @@ describe('chatSessionRegistry', () => {
       turnId: 'user-1',
       isStreaming: false,
     });
+    const localAssistantNode = messageNode('assistant-local', {
+      role: 'assistant',
+      turnId: 'user-1',
+      isStreaming: false,
+    });
     const userNode = messageNode('user-1');
     userNode.originalIndex = 0;
     canonicalNode.originalIndex = 1;
@@ -388,7 +393,7 @@ describe('chatSessionRegistry', () => {
       timelinesByConversationId: {
         'conversation-1': {
           ...conversation('conversation-1'),
-          threadedMessages: [userNode, streamingNode],
+          threadedMessages: [userNode, streamingNode, localAssistantNode],
         },
       },
       surfaceSessionsByKey: {},

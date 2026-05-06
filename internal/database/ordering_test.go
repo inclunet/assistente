@@ -545,6 +545,45 @@ func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
 	}
 }
 
+func TestGetMessageWindow_UserRemainsStandaloneAndAssistantFormsTurn(t *testing.T) {
+	setupOrderingTestDB(t)
+	conv, err := CreateConversation("timeline-user-turn-invariant", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	user, err := AddMessage(conv.ID, "user", "pergunta")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	assistant, err := AddMessageWithTokens(conv.ID, "assistant", "resposta", 0, 0, 0, "")
+	if err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	assistant.TurnID = &user.ID
+	if err := db.Save(assistant).Error; err != nil {
+		t.Fatalf("save assistant turn: %v", err)
+	}
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID: conv.ID,
+		Anchor:         "start",
+		Direction:      "after",
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow: %v", err)
+	}
+	if window.TotalCount != 2 || len(window.Items) != 2 {
+		t.Fatalf("expected standalone user item + assistant turn item, total=%d items=%+v", window.TotalCount, window.Items)
+	}
+	if window.Items[0].Kind != MessageWindowItemKindMessage || window.Items[0].MessageID != user.ID || window.Items[0].TurnID != "" {
+		t.Fatalf("expected user as standalone message item, got %+v", window.Items[0])
+	}
+	if window.Items[1].Kind != MessageWindowItemKindTurn || window.Items[1].TurnID != user.ID || window.Items[1].MessageID != assistant.ID {
+		t.Fatalf("expected assistant as turn item keyed by user id, got %+v", window.Items[1])
+	}
+}
+
 func TestGetMessageWindow_AnchorInsideTurnPagesByWholeItem(t *testing.T) {
 	setupOrderingTestDB(t)
 	conv, err := CreateConversation("timeline-anchor", "")

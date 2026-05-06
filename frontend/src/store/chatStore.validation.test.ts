@@ -261,7 +261,9 @@ describe('chatStore validation', () => {
 
   it('carrega janela anterior apenas para a superfície solicitada', async () => {
     const currentNode = createMessageNode('message-10') as unknown as MessageNode;
+    currentNode.originalIndex = 9;
     const olderNode = createMessageNode('message-09') as unknown as MessageNode;
+    olderNode.originalIndex = 8;
     mockGetConversationMessageWindow.mockResolvedValue({
       scope: 'conversation',
       conversationId: defaultConversationId,
@@ -334,6 +336,100 @@ describe('chatStore validation', () => {
       .toEqual(['message-09', 'message-10']);
     expect(state.surfaceSessionsByKey['surface-b'].visibleThreadedMessages?.map((node) => node.message.id))
       .toEqual(['message-10']);
+  });
+
+  it('não usa mensagem sintética de streaming como âncora de paginação anterior', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.isStreaming = true;
+    const currentNode = createMessageNode('message-10') as unknown as MessageNode;
+    currentNode.originalIndex = 9;
+    const olderNode = createMessageNode('message-09') as unknown as MessageNode;
+    olderNode.originalIndex = 8;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [olderNode],
+      totalCount: 10,
+      startIndex: 8,
+      endIndex: 8,
+      hasBefore: true,
+      hasAfter: true,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [streamingNode, currentNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        'surface-a': {
+          ...createEmptyChatSession(defaultConversationId, 'surface-a'),
+          hasOlderMessages: true,
+          visibleThreadedMessages: [streamingNode, currentNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 10,
+            startIndex: 9,
+            endIndex: 9,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, 'surface-a');
+
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith(expect.objectContaining({
+      anchorMessageId: 'message-10',
+      direction: 'before',
+    }));
+  });
+
+  it('limpa hasBefore quando não há âncora persistida para paginação anterior', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.isStreaming = true;
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [streamingNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        'surface-a': {
+          ...createEmptyChatSession(defaultConversationId, 'surface-a'),
+          hasOlderMessages: true,
+          visibleThreadedMessages: [streamingNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 1,
+            startIndex: 0,
+            endIndex: 0,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, 'surface-a');
+
+    expect(mockGetConversationMessageWindow).not.toHaveBeenCalled();
+    const session = useChatStore.getState().surfaceSessionsByKey['surface-a'];
+    expect(session?.hasOlderMessages).toBe(false);
+    expect(session?.messageWindow?.hasBefore).toBe(false);
   });
 
   it('repassa parâmetros estruturados de surface no envio', async () => {
@@ -1094,17 +1190,14 @@ describe('chatStore validation', () => {
     });
     const turnUser = nodes[239];
     const turnAssistant = createMessageNode('message-240') as unknown as MessageNode;
-    const turnTool = createMessageNode('message-241') as unknown as MessageNode;
     turnUser.message.turnId = 'turn-boundary';
     turnAssistant.message.turnId = 'turn-boundary';
     turnAssistant.message.role = 'assistant';
-    turnTool.message.turnId = 'turn-boundary';
-    turnTool.message.role = 'tool';
     turnAssistant.originalIndex = 240;
     mockGetConversationMessageWindow.mockResolvedValueOnce({
       scope: 'conversation',
       conversationId: defaultConversationId,
-      nodes: [turnAssistant, turnTool],
+      nodes: [turnAssistant],
       totalCount: 241,
       startIndex: 240,
       endIndex: 240,
@@ -1143,7 +1236,6 @@ describe('chatStore validation', () => {
     const ids = surfaceSession.visibleThreadedMessages?.map((node) => node.message.id) ?? [];
     expect(ids).toContain('message-239');
     expect(ids).toContain('message-240');
-    expect(ids).toContain('message-241');
   });
 
   it('substitui a janela visível ao saltar para o início da conversa', async () => {

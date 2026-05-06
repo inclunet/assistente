@@ -109,6 +109,16 @@ const getLastPersistedMessageId = (nodes: MessageNode[]): string | null => {
   return null;
 };
 
+const getFirstPersistedMessageId = (nodes: MessageNode[]): string | null => {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (isPersistedMessageNode(node)) {
+      return node.message.id;
+    }
+  }
+  return null;
+};
+
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -877,8 +887,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const conversation = session.conversation;
       if (!conversation || session.isLoadingMessageWindow || !session.hasOlderMessages) return;
 
-      const firstMessageId = conversation.threadedMessages[0]?.message.id;
-      if (!firstMessageId) return;
+      const firstMessageId = getFirstPersistedMessageId(conversation.threadedMessages);
+      if (!firstMessageId) {
+        set((current) => {
+          const currentSession = getSession(current, conversationId, sessionKey);
+          if (!currentSession.hasOlderMessages && !currentSession.messageWindow?.hasBefore) return current;
+          return patchSession(current, conversationId, {
+            hasOlderMessages: false,
+            messageWindow: currentSession.messageWindow
+              ? {
+                ...currentSession.messageWindow,
+                hasBefore: false,
+              }
+              : undefined,
+          }, sessionKey);
+        });
+        return;
+      }
 
       set((current) => {
         const currentSession = getSession(current, conversationId, sessionKey);

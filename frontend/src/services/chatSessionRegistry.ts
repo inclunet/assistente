@@ -223,7 +223,7 @@ export const getMessageNodeOrder = (node: MessageNode): number => {
 
 export const getTimelineNodeKey = (node: MessageNode): string => {
   const turnId = String(node.message.turnId ?? '').trim();
-  if (turnId !== '' && node.message.role !== 'user' && (node.message.isStreaming || node.originalIndex !== undefined)) {
+  if (turnId !== '' && node.message.role !== 'user') {
     return `turn:${turnId}`;
   }
   return `message:${String(node.message.id)}`;
