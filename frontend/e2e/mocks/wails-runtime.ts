@@ -249,7 +249,11 @@ export function buildWailsMockScript(): string {
             const val = _config.responses.GetMessages;
             return Promise.resolve(typeof val === 'function' ? val(...args) : val);
           }
-          if (fnName === 'GetConversationMessageWindow' && 'GetMessages' in _config.responses) {
+          if (
+            fnName === 'GetConversationMessageWindow'
+            && !('GetConversationMessageWindow' in _config.responses)
+            && 'GetMessages' in _config.responses
+          ) {
             const val = _config.responses.GetMessages;
             const messages = typeof val === 'function' ? val(...args) : val;
             const nodes = Array.isArray(messages) ? messages : [];
