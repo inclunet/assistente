@@ -325,6 +325,10 @@ describe('chatStore validation', () => {
 
     await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, 'surface-a');
 
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith(expect.objectContaining({
+      anchorMessageId: 'message-10',
+      direction: 'before',
+    }));
     const state = useChatStore.getState();
     expect(state.surfaceSessionsByKey['surface-a'].visibleThreadedMessages?.map((node) => node.message.id))
       .toEqual(['message-09', 'message-10']);

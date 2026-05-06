@@ -24,16 +24,12 @@ type AgenticStreamHandler struct {
 }
 
 // NewAgenticStreamHandler cria um handler para uma iteração do agentic loop.
-func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iteration int, surfaceOrigin *ports.ChatSurfaceOrigin, turnID ...string) *AgenticStreamHandler {
-	resolvedTurnID := ""
-	if len(turnID) > 0 {
-		resolvedTurnID = turnID[0]
-	}
+func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iteration int, surfaceOrigin *ports.ChatSurfaceOrigin, turnID string) *AgenticStreamHandler {
 	return &AgenticStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        emitter,
 			ConversationID: conversationID,
-			TurnID:         resolvedTurnID,
+			TurnID:         turnID,
 			SurfaceOrigin:  surfaceOrigin,
 		},
 		iteration: iteration,

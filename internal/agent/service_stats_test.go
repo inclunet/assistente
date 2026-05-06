@@ -92,7 +92,7 @@ func TestSaveAndFinish_DoneEvent_NilLoopStats(t *testing.T) {
 		MsgRepo: repo,
 	})
 
-	svc.SaveAndFinish("1", "", AgenticResult{
+	svc.SaveAndFinish("1", "turn-1", AgenticResult{
 		FullResponse: "Resposta direta",
 		Model:        "test",
 		Usage: llm.Usage{
@@ -123,6 +123,9 @@ func TestSaveAndFinish_DoneEvent_NilLoopStats(t *testing.T) {
 	}
 	if done.ToolCallCount != 0 {
 		t.Errorf("ToolCallCount=%d, esperava 0 (nil stats)", done.ToolCallCount)
+	}
+	if done.HadToolCalls {
+		t.Error("HadToolCalls deveria ser false quando loopStats=nil, mesmo com turnID")
 	}
 	// Tokens devem vir do result.Usage como fallback
 	if done.PromptTokens != 500 {

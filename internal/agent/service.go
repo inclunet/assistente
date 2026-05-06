@@ -585,7 +585,7 @@ func (s *Service) SaveAndFinish(
 		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
 	}
 
-	hadTools := turnID != ""
+	hadTools := false
 	if loopStats != nil {
 		hadTools = loopStats.ToolCallCount > 0 || len(result.NativeMCPEvents) > 0
 	}
