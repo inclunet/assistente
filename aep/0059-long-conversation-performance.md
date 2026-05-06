@@ -178,8 +178,8 @@ O PR de Fase 2.1 conclui a semântica canônica de itens de timeline:
 - Um item normal representa uma mensagem navegável sem consolidação.
 - Um item de turno representa as mensagens persistidas com o mesmo `turnId`, normalmente mensagens de assistant/tool produzidas pela resposta a uma mensagem de usuário.
 - `turnId` continua apontando para o ID da mensagem de usuário que iniciou o turno.
-- `AnchorMessageID` pode apontar para a mensagem representante ou para uma mensagem interna de um turno; o backend normaliza isso para o item de timeline correspondente.
-- `OriginalIndex`, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` são calculados pelo backend sobre itens de timeline.
+- `anchorMessageId` pode apontar para a mensagem representante ou para uma mensagem interna de um turno; o backend normaliza isso para o item de timeline correspondente.
+- `originalIndex`, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` são calculados pelo backend sobre itens de timeline.
 - O frontend consome esses índices como canônicos e não corrige posições absolutas com agrupamento local.
 - O backend monta os itens em lote, com número pequeno e previsível de consultas, sem N+1.
 
