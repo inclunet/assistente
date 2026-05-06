@@ -92,6 +92,22 @@ const getErrorMessage = (error: unknown): string => {
   }
 };
 
+const isPersistedMessageNode = (node: MessageNode | undefined): boolean => {
+  if (!node) return false;
+  const id = String(node.message.id ?? '');
+  return !node.message.isStreaming && id !== '' && !id.startsWith('streaming-');
+};
+
+const getLastPersistedMessageId = (nodes: MessageNode[]): string | null => {
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index];
+    if (isPersistedMessageNode(node)) {
+      return node.message.id;
+    }
+  }
+  return null;
+};
+
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -928,7 +944,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const conversation = session.conversation;
       if (!conversation || session.isLoadingMessageWindow || !session.messageWindow?.hasAfter) return;
 
-      const lastMessageId = conversation.threadedMessages[conversation.threadedMessages.length - 1]?.message.id;
+      const lastMessageId = getLastPersistedMessageId(conversation.threadedMessages);
       if (!lastMessageId) return;
 
       set((current) => {

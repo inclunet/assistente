@@ -192,4 +192,27 @@ describe('MessageList', () => {
     fireEvent.scroll(container);
     expect(onLoadNewer).toHaveBeenCalledTimes(1);
   });
+
+  it('não pagina mensagens posteriores a partir de nó de streaming', () => {
+    hoisted.messageNodeMock.mockClear();
+    const onLoadNewer = vi.fn();
+    const onReachEnd = vi.fn();
+    const streamingNode = createNode('streaming-conversation-1-1');
+    streamingNode.message.isStreaming = true;
+
+    render(
+      <MessageList
+        threadedMessages={[streamingNode]}
+        hasNewerMessages
+        onLoadNewer={onLoadNewer}
+        onReachEnd={onReachEnd}
+      />
+    );
+
+    const props = hoisted.messageNodeMock.mock.calls[0][0] as { onReachEnd: () => void };
+    props.onReachEnd();
+
+    expect(onLoadNewer).not.toHaveBeenCalled();
+    expect(onReachEnd).toHaveBeenCalledTimes(1);
+  });
 });

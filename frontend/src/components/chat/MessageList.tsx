@@ -168,6 +168,12 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
   return result;
 }
 
+const isPersistedMessageNode = (node: MessageNode | undefined): boolean => {
+  if (!node) return false;
+  const id = String(node.message.id ?? '');
+  return !node.message.isStreaming && id !== '' && !id.startsWith('streaming-');
+};
+
 export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProps>((
   {
     isLoading = false,
@@ -210,6 +216,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     () => consolidateTurnMessages(threadedMessages),
     [threadedMessages]
   );
+  const canLoadNewerFromDisplayEnd = isPersistedMessageNode(displayMessages[displayMessages.length - 1]);
   const hasConsolidatedTurns = displayMessages.length !== threadedMessages.length;
   const messagePositions = useMemo(() => {
     // Until AEP-0059 phase 2.1 moves absolute counts to canonical timeline items,
@@ -302,7 +309,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     : undefined;
 
   const handleReachEnd = () => {
-    if (hasNewerMessages && onLoadNewer && !isLoadingMessageWindow) {
+    if (hasNewerMessages && onLoadNewer && !isLoadingMessageWindow && canLoadNewerFromDisplayEnd) {
       handleLoadNewer();
       return;
     }
@@ -339,7 +346,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         return;
       }
       const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      if (distanceToBottom < 48 && hasNewerMessages && !isLoadingMessageWindow) {
+      if (distanceToBottom < 48 && hasNewerMessages && !isLoadingMessageWindow && canLoadNewerFromDisplayEnd) {
         handleLoadNewer();
       }
     };
@@ -352,7 +359,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       }
       suppressNextScrollLoadRef.current = false;
     };
-  }, [hasNewerMessages, hasOlderMessages, isLoadingMessageWindow, onLoadNewer, onLoadOlder]);
+  }, [canLoadNewerFromDisplayEnd, hasNewerMessages, hasOlderMessages, isLoadingMessageWindow, onLoadNewer, onLoadOlder]);
 
   if (threadedMessages.length === 0) {
     return (

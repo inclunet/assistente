@@ -867,6 +867,58 @@ describe('chatStore validation', () => {
     });
   });
 
+  it('não usa mensagem sintética de streaming como âncora de paginação posterior', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const currentNode = createMessageNode('current-message') as unknown as MessageNode;
+    currentNode.originalIndex = 1;
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.isStreaming = true;
+    const newerNode = createMessageNode('newer-message') as unknown as MessageNode;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [newerNode],
+      totalCount: 4,
+      startIndex: 2,
+      endIndex: 2,
+      hasBefore: true,
+      hasAfter: false,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [currentNode, streamingNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [currentNode, streamingNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 4,
+            startIndex: 1,
+            endIndex: 1,
+            hasBefore: true,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadNewerMessagesForConversation(defaultConversationId, originSessionKey);
+
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith(expect.objectContaining({
+      anchorMessageId: 'current-message',
+      direction: 'after',
+    }));
+  });
+
   it('carrega mensagens posteriores sem acionar estado de mensagens anteriores', async () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `tab-a:${defaultConversationId}`;
