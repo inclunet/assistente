@@ -208,6 +208,25 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
     updateField(`voice.${type}.${field}`, value);
   };
 
+  const handleVoiceChanges = (
+    type: 'assistant' | 'user' | 'system',
+    changes: Partial<Record<'voice' | 'model' | 'selectionMode' | 'rate' | 'volume', string | number>>,
+  ) => {
+    const updates: Record<string, unknown> = {};
+    for (const [field, value] of Object.entries(changes)) {
+      if (field === 'voice') {
+        updates[`voice.${type}.voice_id`] = String(value);
+      } else if (field === 'model') {
+        updates[`voice.${type}.model`] = String(value);
+      } else if (field === 'selectionMode') {
+        updates[`voice.${type}.selection_mode`] = String(value);
+      } else {
+        updates[`voice.${type}.${field}`] = value;
+      }
+    }
+    updateFields(updates);
+  };
+
   /**
    * Resolve referências de provedor (ex: ref_assistant).
    * Usa set de visitados para detectar ciclos e retornar '' se houver referência circular.
@@ -305,6 +324,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 selectionMode={assistantVoice?.selection_mode as 'model_and_voice' | 'model_only' | undefined}
                 label={t('profiles.voiceLabels.assistantPicker')}
                 onChange={(f, v) => handleVoiceChange('assistant', f, v)}
+                onChangeMany={(updates) => handleVoiceChanges('assistant', updates)}
                 disabled={isVoiceDisabled}
               />
             </CollapsibleSection>
@@ -340,6 +360,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 label={t('profiles.voiceLabels.userPicker')}
                 helpText={userFollowHelpText}
                 onChange={(f, v) => handleVoiceChange('user', f, v)}
+                onChangeMany={(updates) => handleVoiceChanges('user', updates)}
                 disabled={isVoiceDisabled || isUserVoiceFollowing}
               />
             </CollapsibleSection>
@@ -375,6 +396,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 label={t('profiles.voiceLabels.systemPicker')}
                 helpText={systemFollowHelpText}
                 onChange={(f, v) => handleVoiceChange('system', f, v)}
+                onChangeMany={(updates) => handleVoiceChanges('system', updates)}
                 disabled={isVoiceDisabled || isSystemVoiceFollowing}
               />
             </CollapsibleSection>

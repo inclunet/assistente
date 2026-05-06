@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RobotOutlined, SoundOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { VoicePicker, VOICE_DISABLED } from '../pickers/VoicePicker';
@@ -35,6 +35,7 @@ export interface ProfileVoiceSectionProps {
   ttsModel?: string;
   selectionMode?: TTSSelectionMode;
   onChange: (field: 'voice' | 'model' | 'selectionMode' | 'rate' | 'volume', value: string | number) => void;
+  onChangeMany?: (updates: Partial<Record<'voice' | 'model' | 'selectionMode' | 'rate' | 'volume', string | number>>) => void;
   disabled?: boolean;
 }
 
@@ -56,6 +57,7 @@ export function ProfileVoiceSection({
   resolvedVoiceId,
   selectionMode,
   onChange,
+  onChangeMany,
   disabled = false,
 }: ProfileVoiceSectionProps) {
   const { t } = useTranslation();
@@ -102,15 +104,29 @@ export function ProfileVoiceSection({
   const effectiveSelectionMode = currentModel?.selectionMode || selectionMode || inferSelectionModeFromModel(ttsModel) || 'model_and_voice';
   const isModelOnly = isHTTPProvider && effectiveSelectionMode === 'model_only';
 
+  const applyChanges = useCallback((updates: Partial<Record<'voice' | 'model' | 'selectionMode' | 'rate' | 'volume', string | number>>) => {
+    if (onChangeMany) {
+      onChangeMany(updates);
+      return;
+    }
+    Object.entries(updates).forEach(([field, value]) => {
+      onChange(field as 'voice' | 'model' | 'selectionMode' | 'rate' | 'volume', value);
+    });
+  }, [onChange, onChangeMany]);
+
   useEffect(() => {
     if (!isHTTPProvider || !ttsModel) return;
+    const updates: Partial<Record<'voice' | 'selectionMode', string>> = {};
     if (selectionMode !== effectiveSelectionMode) {
-      onChange('selectionMode', effectiveSelectionMode);
+      updates.selectionMode = effectiveSelectionMode;
     }
     if (effectiveSelectionMode === 'model_only' && voice) {
-      onChange('voice', '');
+      updates.voice = '';
     }
-  }, [effectiveSelectionMode, isHTTPProvider, onChange, selectionMode, ttsModel, voice]);
+    if (Object.keys(updates).length > 0) {
+      applyChanges(updates);
+    }
+  }, [applyChanges, effectiveSelectionMode, isHTTPProvider, selectionMode, ttsModel, voice]);
 
   // Para provedores com vozes estáticas (OpenAI): converte para TTSVoice[] e passa como override.
   const overrideVoices: TTSVoice[] | undefined = useMemo(() => {
@@ -130,18 +146,19 @@ export function ProfileVoiceSection({
 
   const handleModelChange = (modelId: string) => {
     if (!modelId) {
-      onChange('model', '');
-      onChange('selectionMode', '');
-      onChange('voice', '');
+      applyChanges({ model: '', selectionMode: '', voice: '' });
       return;
     }
     const nextModel = ttsModels.find((m) => m.id === modelId);
     const nextSelectionMode = nextModel?.selectionMode || 'model_and_voice';
-    onChange('model', modelId);
-    onChange('selectionMode', nextSelectionMode);
+    const updates: Partial<Record<'model' | 'selectionMode' | 'voice', string>> = {
+      model: modelId,
+      selectionMode: nextSelectionMode,
+    };
     if (nextSelectionMode === 'model_only') {
-      onChange('voice', '');
+      updates.voice = '';
     }
+    applyChanges(updates);
   };
 
   const handlePreview = async () => {

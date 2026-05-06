@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { useState } from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { VOICE_DISABLED } from '../pickers/VoicePicker';
 
@@ -352,5 +353,42 @@ describe('ProfileVoiceSection', () => {
     );
 
     expect(screen.queryByTestId('voice-picker-mock')).not.toBeInTheDocument();
+  });
+
+  it('mantém o modelo selecionado e mostra vozes quando updates dependentes são aplicados em lote', async () => {
+    function StatefulSection() {
+      const [state, setState] = useState({
+        model: '',
+        voice: '',
+        selectionMode: undefined as 'model_and_voice' | 'model_only' | undefined,
+      });
+      return (
+        <ProfileVoiceSection
+          {...defaultProps}
+          providerId="localai-default"
+          providerType="localai"
+          ttsModel={state.model}
+          voice={state.voice}
+          selectionMode={state.selectionMode}
+          onChange={(field, value) => setState((prev) => ({ ...prev, [field === 'selectionMode' ? 'selectionMode' : field]: value as string }))}
+          onChangeMany={(updates) => setState((prev) => ({
+            ...prev,
+            ...(updates.model !== undefined ? { model: String(updates.model) } : {}),
+            ...(updates.voice !== undefined ? { voice: String(updates.voice) } : {}),
+            ...(updates.selectionMode !== undefined ? { selectionMode: updates.selectionMode as 'model_and_voice' | 'model_only' } : {}),
+          }))}
+        />
+      );
+    }
+
+    render(<StatefulSection />);
+
+    const modelSelect = await screen.findByLabelText('profiles.voiceSection.modelLabel') as HTMLSelectElement;
+    await waitFor(() => expect(modelSelect.options.length).toBeGreaterThan(1));
+
+    fireEvent.change(modelSelect, { target: { value: 'qwen3-tts-0.6b-custom-voice' } });
+
+    await waitFor(() => expect(modelSelect.value).toBe('qwen3-tts-0.6b-custom-voice'));
+    expect(screen.getByTestId('voice-picker-mock')).toBeInTheDocument();
   });
 });
