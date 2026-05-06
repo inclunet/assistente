@@ -338,8 +338,9 @@ describe('ProfileVoiceSection', () => {
     );
 
     const modelSelects = screen.getAllByLabelText('profiles.voiceSection.modelLabel');
-    expect(modelSelects[0]).toHaveAttribute('id', 'tts-model-profile-1-assistant-voice');
-    expect(modelSelects[1]).toHaveAttribute('id', 'tts-model-profile-1-user-voice');
+    expect(modelSelects[0].id).toMatch(/^tts-model-profile-1-assistant-voice-/);
+    expect(modelSelects[1].id).toMatch(/^tts-model-profile-1-user-voice-/);
+    expect(modelSelects[0].id).not.toBe(modelSelects[1].id);
   });
 
   it('infere model_only para modelos voice-* antes da listagem dinâmica carregar', () => {

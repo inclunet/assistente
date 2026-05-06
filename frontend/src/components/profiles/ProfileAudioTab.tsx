@@ -136,6 +136,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
       updates[`voice.${type}.provider`] = pId;
       updates[`voice.${type}.llm_provider_id`] = '';
       updates[`voice.${type}.model`] = '';
+      updates[`voice.${type}.voice_id`] = '';
       updates[`voice.${type}.selection_mode`] = '';
       updates[`voice.${type}.enabled`] = true;
     } else if (!pId.startsWith('ref_')) {

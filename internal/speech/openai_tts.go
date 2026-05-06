@@ -426,7 +426,7 @@ func (c *TTSClient) FetchTTSModels() ([]TTSModelInfo, error) {
 			models = append(models, TTSModelInfo{
 				ID:            m.ID,
 				Name:          m.ID,
-				Provider:      "openai",
+				Provider:      "",
 				SelectionMode: string(selectionModeForTTSModel(m.ID)),
 			})
 		}

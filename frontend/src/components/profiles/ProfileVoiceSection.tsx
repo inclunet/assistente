@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { RobotOutlined, SoundOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { VoicePicker, VOICE_DISABLED } from '../pickers/VoicePicker';
@@ -68,7 +68,8 @@ export function ProfileVoiceSection({
 
   const ttsCapabilities = getTTSCapabilities(providerType || '');
   const isHTTPProvider = !!providerId && providerId !== 'webspeech' && providerId !== 'sapi5' && !providerId.startsWith('ref_');
-  const modelFieldIdPart = `${toFieldIdPart(profileId)}-${toFieldIdPart(label)}`;
+  const generatedModelId = useId();
+  const modelFieldIdPart = `${toFieldIdPart(profileId)}-${toFieldIdPart(label)}-${toFieldIdPart(generatedModelId)}`;
   const modelSelectId = `tts-model-${modelFieldIdPart}`;
   const modelHelpId = `${modelSelectId}-help`;
 
