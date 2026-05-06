@@ -72,8 +72,8 @@ func (c *SpeechController) GenerateAndSaveMessageAudio(messageID string, text st
 	return c.speechSvc.GenerateAndSaveMessageAudio(messageID, text)
 }
 
-func (c *SpeechController) SpeakMessage(messageID string, providerID, voiceID, model string, rate float64) (*speech.AudioResult, error) {
-	return c.speechSvc.SpeakMessage(messageID, providerID, voiceID, model, rate)
+func (c *SpeechController) SpeakMessage(messageID string, providerID, model, voiceID string, rate float64) (*speech.AudioResult, error) {
+	return c.speechSvc.SpeakMessage(messageID, providerID, model, voiceID, rate)
 }
 
 // ============================================================================
@@ -84,19 +84,23 @@ func (c *SpeechController) GetSpeechProviders() []*llm.ProviderConfig {
 	return c.speechSvc.GetSpeechProviders()
 }
 
-func (c *SpeechController) GetTTSVoices(profileID, providerID string) []speech.TTSVoiceInfo {
-	return c.speechSvc.GetTTSVoices(providerID)
+func (c *SpeechController) GetTTSModels(providerID string) []speech.TTSModelInfo {
+	return c.speechSvc.GetTTSModels(providerID)
+}
+
+func (c *SpeechController) GetTTSVoices(profileID, providerID, modelID string) []speech.TTSVoiceInfo {
+	return c.speechSvc.GetTTSVoices(providerID, modelID)
 }
 
 func (c *SpeechController) GetSTTModels(providerID string) []speech.SpeechModelInfo {
 	return c.speechSvc.GetSTTModels(providerID)
 }
 
-func (c *SpeechController) SpeakPreview(providerID, voiceID, model string, rate, volume float64, text, sessionID string) error {
+func (c *SpeechController) SpeakPreview(providerID, model, voiceID string, rate, volume float64, text, sessionID string) error {
 	return c.speechSvc.SpeakPreview(speech.SpeakPreviewParams{
 		ProviderID: providerID,
-		VoiceID:    voiceID,
 		Model:      model,
+		VoiceID:    voiceID,
 		Rate:       rate,
 		Volume:     volume,
 		Text:       text,

@@ -61,6 +61,15 @@ const (
 	ModelTTS1HD TTSModel = "tts-1-hd" // Mais lento, melhor qualidade
 )
 
+// TTSSelectionMode define se um modelo usa voz separada ou se o próprio
+// modelo representa a voz, como em Piper.
+type TTSSelectionMode string
+
+const (
+	TTSSelectionModelAndVoice TTSSelectionMode = "model_and_voice"
+	TTSSelectionModelOnly     TTSSelectionMode = "model_only"
+)
+
 // TTSFormat representa o formato de saída de áudio
 type TTSFormat string
 
@@ -96,24 +105,22 @@ type TTSVoiceInfo struct {
 	Description string `json:"description"`
 	Gender      string `json:"gender"`
 	Provider    string `json:"provider"`
+	ModelID     string `json:"model_id,omitempty"`
+}
+
+// TTSModelInfo informações sobre um modelo TTS selecionável.
+type TTSModelInfo struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	Provider      string `json:"provider"`
+	SelectionMode string `json:"selection_mode"`
 }
 
 // NewTTSClient cria um novo cliente TTS usando o SDK openai-go.
 // Credenciais são injetadas automaticamente via CredentialTransport,
 // usando a mesma estratégia do LLM provider.
 func NewTTSClient(config TTSConfig, credMgr *credentials.Manager) *TTSClient {
-	if config.Model == "" {
-		if config.Voice != "" {
-			// Para LocalAI/piper: o nome da voz é o nome do modelo.
-			// Para OpenAI: model é sempre definido explicitamente no perfil.
-			config.Model = TTSModel(config.Voice)
-		} else {
-			config.Model = ModelTTS1
-		}
-	}
-	if config.Voice == "" {
-		config.Voice = VoiceNova
-	}
 	if config.Format == "" {
 		config.Format = FormatMP3
 	}
@@ -165,6 +172,9 @@ func (c *TTSClient) buildParams(text string, voice TTSVoice) openai.AudioSpeechN
 func (c *TTSClient) synthesizeInternal(text string, voice TTSVoice) ([]byte, error) {
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
+	}
+	if err := validateTTSSelection(string(c.config.Model), string(voice)); err != nil {
+		return nil, err
 	}
 
 	chunks := splitTextForTTS(text)
@@ -372,49 +382,46 @@ func (c *TTSClient) listModelsSafe(ctx context.Context) (page *pagination.Page[o
 	return c.client.Models.List(ctx)
 }
 
-// FetchVoices retorna vozes disponíveis para TTS.
-// Para provedores com modelos TTS personalizados (ex: Piper/LocalAI com voice-*,
-// qwen3-tts-*), retorna esses modelos como vozes — pois em backends como
-// LocalAI cada modelo Piper corresponde a uma voz.
-// Para provedores padrão (OpenAI com tts-1), retorna a lista estática de vozes.
-func (c *TTSClient) FetchVoices() ([]TTSVoiceInfo, error) {
+// FetchTTSModels retorna modelos disponíveis para TTS.
+func (c *TTSClient) FetchTTSModels() ([]TTSModelInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	page, err := c.listModelsSafe(ctx)
 	if err != nil {
-		return GetAvailableVoices(), nil
+		return nil, err
 	}
 	if page == nil {
-		return GetAvailableVoices(), nil
+		return []TTSModelInfo{}, nil
 	}
 
-	var dynamicVoices []TTSVoiceInfo
-	hasStandardTTS := false
-
+	var models []TTSModelInfo
 	for _, m := range page.Data {
 		if isTTSModel(m.ID) {
-			lower := strings.ToLower(m.ID)
-			if knownTTSModels[lower] {
-				hasStandardTTS = true
-			} else {
-				dynamicVoices = append(dynamicVoices, TTSVoiceInfo{
-					ID:       m.ID,
-					Name:     m.ID,
-					Provider: "localai",
-				})
-			}
+			models = append(models, TTSModelInfo{
+				ID:            m.ID,
+				Name:          m.ID,
+				Provider:      "openai",
+				SelectionMode: string(selectionModeForTTSModel(m.ID)),
+			})
 		}
 	}
+	return models, nil
+}
 
-	if len(dynamicVoices) > 0 {
-		if hasStandardTTS {
-			return append(GetAvailableVoices(), dynamicVoices...), nil
-		}
-		return dynamicVoices, nil
+// FetchVoices retorna vozes disponíveis para um modelo TTS específico.
+func (c *TTSClient) FetchVoices(modelID string) ([]TTSVoiceInfo, error) {
+	if modelID == "" {
+		return nil, fmt.Errorf("model is required to list TTS voices")
 	}
-
-	return GetAvailableVoices(), nil
+	if selectionModeForTTSModel(modelID) == TTSSelectionModelOnly {
+		return []TTSVoiceInfo{}, nil
+	}
+	voices := GetAvailableVoices()
+	for i := range voices {
+		voices[i].ModelID = modelID
+	}
+	return voices, nil
 }
 
 // SpeechModelInfo informações sobre um modelo de speech (TTS ou STT).
@@ -437,6 +444,20 @@ func StaticSTTModels() []SpeechModelInfo { return staticSTTModels }
 var knownTTSModels = map[string]bool{
 	"tts-1": true, "tts-1-hd": true,
 	"tts-1-1106": true, "tts-1-hd-1106": true,
+	"gpt-4o-mini-tts": true,
+}
+
+var staticTTSModels = []TTSModelInfo{
+	{ID: "tts-1", Name: "tts-1", Provider: "openai", SelectionMode: string(TTSSelectionModelAndVoice)},
+	{ID: "tts-1-hd", Name: "tts-1-hd", Provider: "openai", SelectionMode: string(TTSSelectionModelAndVoice)},
+	{ID: "gpt-4o-mini-tts", Name: "gpt-4o-mini-tts", Provider: "openai", SelectionMode: string(TTSSelectionModelAndVoice)},
+}
+
+// StaticTTSModels retorna a lista de modelos TTS conhecidos da OpenAI.
+func StaticTTSModels() []TTSModelInfo {
+	result := make([]TTSModelInfo, len(staticTTSModels))
+	copy(result, staticTTSModels)
+	return result
 }
 
 // knownSTTModels são IDs exatos de modelos STT reconhecidos.
@@ -482,12 +503,29 @@ func isTTSModel(id string) bool {
 	return false
 }
 
-// IsDynamicTTSModel retorna true se o ID é um modelo TTS dinâmico (não-padrão),
-// ou seja, é detectado como TTS mas NÃO é um dos modelos padrão (tts-1, tts-1-hd, etc.).
-// Usado para provedores como LocalAI/Piper onde a "voz" selecionada é na verdade um modelo.
-func IsDynamicTTSModel(id string) bool {
+func selectionModeForTTSModel(id string) TTSSelectionMode {
 	lower := strings.ToLower(id)
-	return isTTSModel(id) && !knownTTSModels[lower]
+	if strings.HasPrefix(lower, "voice-") {
+		return TTSSelectionModelOnly
+	}
+	return TTSSelectionModelAndVoice
+}
+
+func validateTTSSelection(modelID, voiceID string) error {
+	if modelID == "" {
+		return fmt.Errorf("TTS model is required")
+	}
+	switch selectionModeForTTSModel(modelID) {
+	case TTSSelectionModelOnly:
+		if voiceID != "" {
+			return fmt.Errorf("voice_id must be empty for model-only TTS model %q", modelID)
+		}
+	case TTSSelectionModelAndVoice:
+		if voiceID == "" {
+			return fmt.Errorf("voice_id is required for TTS model %q", modelID)
+		}
+	}
+	return nil
 }
 
 // isSTTModel retorna true se o ID é um modelo STT conhecido ou corresponde
