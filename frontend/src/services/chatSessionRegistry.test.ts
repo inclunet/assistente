@@ -14,12 +14,28 @@ import {
   type ActiveConversation,
   type ChatSessionRegistryState,
 } from './chatSessionRegistry';
+import type { MessageNode } from '../lib/chatMessageTree';
 
 const conversation = (id: string): ActiveConversation => ({
   id,
   title: `Conversa ${id}`,
   threadedMessages: [],
 });
+
+const messageNode = (id: string, overrides: Partial<MessageNode['message']> = {}): MessageNode => ({
+  message: {
+    id,
+    conversationId: 'conversation-1',
+    role: 'user',
+    content: id,
+    createdAt: new Date(2026, 0, 1, 0, Number(id.replace(/\D/g, '') || 0)).toISOString(),
+    timestamp: Date.UTC(2026, 0, 1, 0, Number(id.replace(/\D/g, '') || 0)),
+    ...overrides,
+  },
+  children: [],
+  childCount: 0,
+  level: 0,
+} as unknown as MessageNode);
 
 describe('chatSessionRegistry', () => {
   it('cria identidade canônica para superfície de aba', () => {
@@ -385,5 +401,85 @@ describe('chatSessionRegistry', () => {
 
     expect(patch.timelinesByConversationId).toBe(state.timelinesByConversationId);
     expect(getChatSession({ ...state, ...patch }, 'conversation-1', 'tab-a:conversation-1').isThinking).toBe(true);
+  });
+
+  it('reconcilia metadata da janela ao atualizar conversa em superfície visível', () => {
+    const nodes = Array.from({ length: 10 }, (_, index) => messageNode(`message-${index}`));
+    nodes.forEach((node, index) => {
+      node.originalIndex = index;
+    });
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        'conversation-1': {
+          ...conversation('conversation-1'),
+          threadedMessages: nodes,
+        },
+      },
+      surfaceSessionsByKey: {
+        'tab-a:conversation-1': {
+          ...createEmptyChatSession('conversation-1', 'tab-a:conversation-1'),
+          hasOlderMessages: true,
+          visibleThreadedMessages: nodes.slice(5),
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: 'conversation-1',
+            totalCount: 10,
+            startIndex: 5,
+            endIndex: 9,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+      },
+    };
+
+    const next = {
+      ...state,
+      ...patchChatConversation(state, 'conversation-1', (current) => ({
+        ...current,
+        threadedMessages: [],
+      })),
+    };
+    const tabA = getChatSession(next, 'conversation-1', 'tab-a:conversation-1');
+
+    expect(tabA.visibleThreadedMessages).toEqual([]);
+    expect(tabA.messageWindow).toMatchObject({
+      totalCount: 0,
+      startIndex: 0,
+      endIndex: -1,
+      hasBefore: false,
+      hasAfter: false,
+    });
+    expect(tabA.hasOlderMessages).toBe(false);
+  });
+
+  it('limita a superfície sem cortar o turno no início da janela visual', () => {
+    const nodes = Array.from({ length: 242 }, (_, index) => messageNode(`message-${index}`, {
+      turnId: index <= 2 ? 'turn-boundary' : `turn-${index}`,
+    }));
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {},
+      surfaceSessionsByKey: {},
+    };
+
+    const next = {
+      ...state,
+      ...patchChatSession(state, 'conversation-1', {
+        conversation: {
+          ...conversation('conversation-1'),
+          threadedMessages: nodes,
+        },
+      }),
+    };
+    const session = getChatSession(next, 'conversation-1');
+
+    expect(getConversationTimeline(next, 'conversation-1')?.threadedMessages).toHaveLength(242);
+    expect(session.visibleThreadedMessages?.map((node) => node.message.id).slice(0, 3)).toEqual([
+      'message-0',
+      'message-1',
+      'message-2',
+    ]);
   });
 });

@@ -1315,4 +1315,77 @@ describe('chatStore validation', () => {
       ?.map((node) => node.message.role);
     expect(surfaceMessages).toEqual(['user', 'user', 'assistant']);
   });
+
+  it('não anexa refresh completo à superfície que está navegando histórico antigo', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `page:tab-a:${defaultConversationId}`;
+    const initialNode = createMessageNode('initial-message') as unknown as MessageNode;
+    initialNode.originalIndex = 0;
+    const refreshedNodes = [
+      initialNode,
+      ...Array.from({ length: 6 }, (_, index) => createMessageNode(`offscreen-${index}`) as unknown as MessageNode),
+    ];
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: {
+            id: defaultConversationId,
+            title: 'Conversa',
+            threadedMessages: [initialNode],
+          },
+          visibleThreadedMessages: [initialNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 8,
+            startIndex: 0,
+            endIndex: 0,
+            hasBefore: false,
+            hasAfter: true,
+          },
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [initialNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 8,
+            startIndex: 0,
+            endIndex: 0,
+            hasBefore: false,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+    mockGetMessages.mockResolvedValueOnce(refreshedNodes);
+    mockSendMessage.mockImplementationOnce(() => {
+      emitEvent('chat:done', {
+        conversationId: defaultConversationId,
+        hadToolCalls: true,
+      });
+      return Promise.resolve();
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'oi', undefined, undefined, {
+      origin: {
+        conversationId: defaultConversationId,
+        sessionKey: originSessionKey,
+        surfaceId: 'page:tab-a',
+        surfaceType: 'page',
+        tabId: 'tab-a',
+      },
+    });
+    await flushMicrotasks();
+
+    const state = useChatStore.getState();
+    expect(state.surfaceSessionsByKey[originSessionKey]?.visibleThreadedMessages?.map((node) => node.message.id)).toEqual([
+      'initial-message',
+    ]);
+    expect(state.timelinesByConversationId[defaultConversationId]?.threadedMessages).toHaveLength(refreshedNodes.length);
+  });
 });

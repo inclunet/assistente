@@ -401,33 +401,36 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     getSession: (conversationId: string, sessionKey?: string) => getSession(get(), conversationId, sessionKey),
     patchSession: (conversationId: string, patch: Partial<ChatConversationSession>) => {
       set((state) => {
+        const { appendVisibleMessages, ...sessionPatch } = patch as Partial<ChatConversationSession> & {
+          appendVisibleMessages?: boolean;
+        };
         const targetSessionKey = patch.surfaceOrigin?.sessionKey;
         if (targetSessionKey) {
           const session = getSession(state, conversationId, targetSessionKey);
-          const visibleThreadedMessages = patch.visibleThreadedMessages
-            ?? (patch.conversation
+          const visibleThreadedMessages = sessionPatch.visibleThreadedMessages
+            ?? (sessionPatch.conversation
               ? mergeVisibleNodesFromConversation(
                 session.visibleThreadedMessages,
-                patch.conversation.threadedMessages,
+                sessionPatch.conversation.threadedMessages,
                 session.messageWindow,
-                true,
+                appendVisibleMessages === true,
               )
               : undefined)
             ?? session.visibleThreadedMessages;
-          const messageWindow = patch.conversation && !patch.messageWindow
+          const messageWindow = sessionPatch.conversation && !sessionPatch.messageWindow
             ? reconcileLiveMessageWindow(session.messageWindow, session.visibleThreadedMessages, visibleThreadedMessages)
-            : patch.messageWindow;
+            : sessionPatch.messageWindow;
           return patchSession(state, conversationId, {
-            ...patch,
+            ...sessionPatch,
             ...(visibleThreadedMessages !== undefined ? { visibleThreadedMessages } : {}),
             ...(messageWindow ? { messageWindow } : {}),
           }, targetSessionKey);
         }
 
-        const basePatches = patchSession(state, conversationId, patch);
+        const basePatches = patchSession(state, conversationId, sessionPatch);
         const existingSurfaceSessionsByKey = basePatches.surfaceSessionsByKey ?? state.surfaceSessionsByKey;
         const surfaceSessionsByKey = { ...existingSurfaceSessionsByKey };
-        const surfacePatch: Partial<ChatSurfaceSession> = { ...patch };
+        const surfacePatch: Partial<ChatSurfaceSession> = { ...sessionPatch };
         delete (surfacePatch as Partial<ChatConversationSession>).conversation;
         let hasMatchingSurfaceSession = false;
 
@@ -438,14 +441,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
           hasMatchingSurfaceSession = true;
           const visibleThreadedMessages = surfacePatch.visibleThreadedMessages
-            ?? (patch.conversation
+            ?? (sessionPatch.conversation
               ? mergeVisibleNodesFromConversation(
                 session.visibleThreadedMessages,
-                patch.conversation.threadedMessages,
+                sessionPatch.conversation.threadedMessages,
                 session.messageWindow,
               )
               : session.visibleThreadedMessages);
-          const messageWindow = patch.conversation && !surfacePatch.messageWindow
+          const messageWindow = sessionPatch.conversation && !surfacePatch.messageWindow
             ? reconcileLiveMessageWindow(session.messageWindow, session.visibleThreadedMessages, visibleThreadedMessages)
             : surfacePatch.messageWindow;
           surfaceSessionsByKey[sessionKey] = {
@@ -453,7 +456,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             ...surfacePatch,
             ...(visibleThreadedMessages !== undefined ? { visibleThreadedMessages } : {}),
             ...(messageWindow ? { messageWindow } : {}),
-            surfaceOrigin: patch.surfaceOrigin ?? session.surfaceOrigin,
+            surfaceOrigin: sessionPatch.surfaceOrigin ?? session.surfaceOrigin,
           };
         }
 
@@ -695,7 +698,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const conversation = {
             id,
             title: snapshot.title,
-            threadedMessages: visibleThreadedMessages,
+            threadedMessages: snapshot.threadedMessages,
             channel: snapshot.channel,
             contactId: snapshot.contactId,
           };

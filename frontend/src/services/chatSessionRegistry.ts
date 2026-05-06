@@ -297,7 +297,12 @@ const mergeTimelineConversation = (
 
 const capVisibleSurfaceMessages = (nodes: MessageNode[]): MessageNode[] => {
   if (nodes.length <= MAX_VISIBLE_SURFACE_MESSAGES) return nodes;
-  return nodes.slice(nodes.length - MAX_VISIBLE_SURFACE_MESSAGES);
+  let startIndex = nodes.length - MAX_VISIBLE_SURFACE_MESSAGES;
+  const boundaryTurnId = nodes[startIndex]?.message.turnId;
+  while (boundaryTurnId && startIndex > 0 && nodes[startIndex - 1]?.message.turnId === boundaryTurnId) {
+    startIndex -= 1;
+  }
+  return nodes.slice(startIndex);
 };
 
 export function getChatSession(
@@ -433,12 +438,17 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
     });
     surfaceSessionsByKey[sessionKey] = {
       ...surfaceSession,
-      visibleThreadedMessages: surfaceConversation.threadedMessages,
-      messageWindow: reconcileWindowForVisibleMessages(
-        surfaceSession.messageWindow,
-        surfaceConversation.threadedMessages,
-        conversation.threadedMessages.length,
-      ),
+      visibleThreadedMessages: capVisibleSurfaceMessages(surfaceConversation.threadedMessages),
+    };
+    const messageWindow = reconcileWindowForVisibleMessages(
+      surfaceSession.messageWindow,
+      surfaceSessionsByKey[sessionKey].visibleThreadedMessages ?? [],
+      conversation.threadedMessages.length,
+    );
+    surfaceSessionsByKey[sessionKey] = {
+      ...surfaceSessionsByKey[sessionKey],
+      messageWindow,
+      hasOlderMessages: messageWindow?.hasBefore ?? surfaceSession.hasOlderMessages,
     };
   }
   return {
