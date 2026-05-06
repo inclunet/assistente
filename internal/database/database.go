@@ -96,6 +96,8 @@ func Init() error {
 	// Auto migrate - apenas tabelas de conversas, mensagens e abas
 	// Perfis agora são gerenciados via arquivos JSON em .assistente/profiles/
 	if err := db.AutoMigrate(
+		&User{},
+		&Session{},
 		&Conversation{},
 		&ChatMessage{},
 		&CredentialEntry{},
@@ -112,6 +114,7 @@ func Init() error {
 	ensureTaskNoteExternalUniqueIndex()
 	ensureTaskListSlugUniqueIndex()
 	ensureChatMessageWindowIndex()
+	ensureCredentialEntryUserPatternIndex()
 
 	// Normalizar campos booleanos: SQLite armazena bool como INTEGER 0/1,
 	// mas valores corrompidos (ex: 4) causam erro no GORM Scan.
@@ -145,6 +148,35 @@ func Init() error {
 	}
 
 	return nil
+}
+
+// AdoptLegacyData vincula registros single-user existentes ao usuário criado
+// durante o fluxo de adoção da AEP-0052. A operação é idempotente.
+func AdoptLegacyData(userID string) error {
+	if db == nil {
+		return errors.New("banco de dados não inicializado")
+	}
+	if strings.TrimSpace(userID) == "" {
+		return errors.New("userID obrigatório")
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		tables := []string{
+			"llm_providers",
+			"conversations",
+			"credential_entries",
+			"task_lists",
+		}
+		for _, table := range tables {
+			if err := tx.Exec(
+				fmt.Sprintf("UPDATE %s SET user_id = ? WHERE user_id IS NULL OR user_id = ''", table),
+				userID,
+			).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ==================== Conversation ====================
@@ -1585,4 +1617,15 @@ func ensureChatMessageWindowIndex() {
 		return
 	}
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_window ON chat_messages (conversation_id, parent_id, created_at, id)`)
+}
+
+func ensureCredentialEntryUserPatternIndex() {
+	if db == nil {
+		return
+	}
+
+	// AEP-0052 troca o namespace global de credentials por unicidade por usuário.
+	// Bancos antigos podem manter o índice global criado pelo tag gorm:"uniqueIndex".
+	db.Exec(`DROP INDEX IF EXISTS idx_credential_entries_pattern`)
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_credential_entries_user_pattern ON credential_entries (user_id, pattern)`)
 }
