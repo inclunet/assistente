@@ -1,9 +1,9 @@
 # AEP-0052 — Sistema de Contas de Usuário
 
-**Status**: Proposta  
+**Status**: Em implementação  
 **Criado em**: 2026-04-21  
-**Depende de**: AEP-0047 (Import/Export)  
-**Precede**: AEP-0046 (UUIDv7 Migration)  
+**Depende de**: AEP-0046 (UUIDv7 Migration), AEP-0047 (Import/Export)  
+**Precede**: AEP-0048 (Jobs DB), AEP-0049 (MCP DB), AEP-0050 (Profiles DB), AEP-0051 (Skills DB), AEP-0054/AEP-0055 (split/clientes)  
 **Relacionado**: AEP-0014 (Credential Persistence), AEP-0022 (Welcome Wizard), AEP-0026 (Credential Fixes)
 
 ---
@@ -38,9 +38,9 @@ Sem `user_id`, todos os recursos (conversas, providers, credenciais) são globai
 
 O sistema de credenciais já usa uma DEK (Data Encryption Key) global. Nesta AEP, a DEK permanece **global por instância** (cofre de infraestrutura). O isolamento entre usuários é **lógico** (via `user_id` nas tabelas e enforcement em queries/handlers), não criptográfico por usuário.
 
-### 4. Pré-requisito para migrações DB
+### 4. Base para próximas migrações DB
 
-As AEPs 0046-0051 migram recursos para banco de dados. Ter `user_id` disponível antes dessas migrações evita retrabalho (adicionar coluna depois + backfill).
+AEP-0046 e AEP-0047 já estabelecem IDs UUIDv7 e o contrato portátil DB-only. A AEP-0052 adiciona ownership (`user_id`) aos recursos persistidos atuais e define o contrato que as próximas migrações DB (0048-0051) devem seguir desde o início, evitando adicionar isolamento de usuário depois que novos recursos forem movidos para o banco.
 
 ---
 
@@ -479,23 +479,24 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 
 | AEP | Relação |
 |-----|---------|
-| **0047** (Import/Export) | Precede esta. Export/import de recursos precisará considerar user_id |
-| **0046** (UUIDv7) | Sucede esta. `users.id` já usa UUIDv7; demais tabelas migram depois |
+| **0046** (UUIDv7) | Base já aplicada nesta branch. `users.id` e `sessions.id` usam o mesmo padrão UUIDv7 das tabelas core |
+| **0047** (Import/Export) | Base já aplicada nesta branch. Export/import de recursos passa a operar no escopo do usuário atual |
 | **0048** (Jobs DB) | Sucede esta. Tabela `jobs` terá `user_id` desde o início |
 | **0049** (MCP DB) | Sucede esta. Tabela `mcp_servers` terá `user_id` desde o início |
 | **0050** (Profiles DB) | Sucede esta. Tabela `profiles` terá `user_id` desde o início |
 | **0051** (Skills DB) | Sucede esta. Tabela `skills` terá `user_id` desde o início |
+| **0054/0055** (Split/Web Client) | Sucedem esta no contrato de clientes. Devem consumir auth, sessões e HTTP API definidos aqui |
 | **0014** (Credential Persistence) | Base do cofre global (DEK + wraps + keyring) |
 | **0022** (Welcome Wizard) | Wizard passa a: cofre → recovery → admin → provider |
 
-### Ordem de implementação atualizada
+### Ordem de implementação efetiva nesta branch
 
 ```
+AEP-0046 (UUIDv7)
+    ↓
 AEP-0047 (Import/Export)
     ↓
 AEP-0052 (Multi-User — esta)
-    ↓
-AEP-0046 (UUIDv7)
     ↓
 AEP-0048 (Jobs DB)      ─┐
 AEP-0049 (MCP DB)        │ (paralelo)
