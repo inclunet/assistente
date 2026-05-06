@@ -6,6 +6,7 @@
 import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig } from './types';
 import type { TTSModel } from './types';
 import { ttsFactory } from './factory';
+import { getStreamPlayer } from './streamPlayer';
 import { calcTTSTimeoutMs } from '../../lib/audioUtils';
 
 type WailsApp = {
@@ -548,7 +549,6 @@ class TTSService {
     const openaiProvider = ttsFactory.getProvider(TTSProvider.OPENAI);
     if (openaiProvider && 'streamPlayer' in openaiProvider) {
       // Reutiliza a infraestrutura de streaming do OpenAI provider
-      const { getStreamPlayer } = await import('./streamPlayer');
       const streamPlayer = getStreamPlayer();
       this.activeStreamPlayer = streamPlayer;
 
