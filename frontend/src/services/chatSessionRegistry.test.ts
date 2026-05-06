@@ -7,6 +7,7 @@ import {
   getChatSurfaceSessionsForConversation,
   getChatSession,
   getConversationTimeline,
+  isPersistedTimelineNode,
   normalizeChatSurfaceOrigin,
   patchChatConversation,
   patchChatSession,
@@ -448,6 +449,10 @@ describe('chatSessionRegistry', () => {
       .toEqual(['user-1', ...transientNodes.map((node) => node.message.id)]);
     expect(getChatSession(next, 'conversation-1', 'tab-b:conversation-1').conversation?.threadedMessages.map((node) => node.message.id))
       .toEqual(['user-1']);
+  });
+
+  it('mantém persistente nó com prefixo desconhecido', () => {
+    expect(isPersistedTimelineNode(messageNode('unknown-source-1'))).toBe(true);
   });
 
   it('não apaga timeline ao aplicar patch visual sem conversation', () => {

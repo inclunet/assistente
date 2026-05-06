@@ -268,6 +268,11 @@ export const sortTimelineNodes = (nodes: MessageNode[]): MessageNode[] => (
   })
 );
 
+/**
+ * Local-only timeline IDs that must not enter the shared conversation cache.
+ * Before adding a prefix here, ensure no backend-persisted message can use it
+ * and add registry/store tests that prove it stays scoped to the active surface.
+ */
 export const TRANSIENT_TIMELINE_NODE_ID_PREFIXES = [
   'streaming-',
   'tool-',
