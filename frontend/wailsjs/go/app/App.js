@@ -694,8 +694,8 @@ export function NeedsWelcomeWizard() {
   return window['go']['app']['App']['NeedsWelcomeWizard']();
 }
 
-export function PreviewVoiceSettings(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['app']['App']['PreviewVoiceSettings'](arg1, arg2, arg3, arg4, arg5, arg6);
+export function SpeakPreview(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['app']['App']['SpeakPreview'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
 export function PromoteTask(arg1) {
