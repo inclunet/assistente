@@ -120,7 +120,16 @@ export function buildWailsMockScript(): string {
     GetMessages: [],
     GetRecentMessages: [],
     GetMessagesBefore: [],
-    GetConversationMessageWindow: { nodes: [], totalCount: 0, startIndex: 0, endIndex: -1, hasBefore: false, hasAfter: false },
+    GetConversationMessageWindow: {
+      scope: 'conversation',
+      conversationId: defaultConversation.id,
+      nodes: [],
+      totalCount: 0,
+      startIndex: 0,
+      endIndex: -1,
+      hasBefore: false,
+      hasAfter: false,
+    },
     GetMessageChildren: [],
     ClearConversation: undefined,
     DeleteConversation: undefined,
@@ -281,6 +290,9 @@ export function buildWailsMockScript(): string {
               originalIndex: startIndex + index,
             }));
             return Promise.resolve({
+              scope: req.scope || 'conversation',
+              conversationId: req.conversationId || defaultConversation.id,
+              threadParentId: req.threadParentId || '',
               nodes: visibleNodes,
               totalCount: nodes.length,
               startIndex,

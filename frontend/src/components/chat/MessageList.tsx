@@ -322,7 +322,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
 
   useEffect(() => {
     // Instant scroll on mount
-    scrollToBottom('instant');
+    scrollToBottom('auto');
   }, []);
 
   useEffect(() => {
