@@ -671,6 +671,79 @@ describe('chatStore validation', () => {
     expect(surfaceSession?.messageWindow?.totalCount).toBe(0);
   });
 
+  it('preserva cache carregado e atualiza superfícies que estavam no fim ao recarregar conversa', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const scrolledSessionKey = `tab-history:${defaultConversationId}`;
+    const tailSessionKey = `tab-tail:${defaultConversationId}`;
+    const olderNode = createMessageNode('older-visible') as unknown as MessageNode;
+    olderNode.originalIndex = 0;
+    olderNode.message.createdAt = new Date(Date.now() - 2_000).toISOString();
+    const oldTailNode = createMessageNode('old-tail') as unknown as MessageNode;
+    oldTailNode.originalIndex = 1;
+    oldTailNode.message.createdAt = new Date(Date.now() - 1_000).toISOString();
+    const freshTailNode = createMessageNode('fresh-tail') as unknown as MessageNode;
+    freshTailNode.originalIndex = 2;
+    freshTailNode.message.createdAt = new Date().toISOString();
+    mockGetConversationInfo.mockResolvedValueOnce({ title: 'Conversa carregada' });
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [freshTailNode],
+      totalCount: 3,
+      startIndex: 2,
+      endIndex: 2,
+      hasBefore: true,
+      hasAfter: false,
+    });
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [olderNode, oldTailNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [scrolledSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, scrolledSessionKey),
+          visibleThreadedMessages: [olderNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 3,
+            startIndex: 0,
+            endIndex: 0,
+            hasBefore: false,
+            hasAfter: true,
+          },
+        },
+        [tailSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, tailSessionKey),
+          visibleThreadedMessages: [oldTailNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 2,
+            startIndex: 1,
+            endIndex: 1,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadConversationSession(defaultConversationId);
+
+    const state = useChatStore.getState();
+    expect(state.timelinesByConversationId[defaultConversationId]?.threadedMessages.map((node) => node.message.id))
+      .toEqual(['older-visible', 'old-tail', 'fresh-tail']);
+    expect(state.surfaceSessionsByKey[scrolledSessionKey]?.visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['older-visible']);
+    expect(state.surfaceSessionsByKey[tailSessionKey]?.visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['fresh-tail']);
+  });
+
   it('carrega mensagens antigas usando a sessão de superfície chamadora', async () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `tab-a:${defaultConversationId}`;

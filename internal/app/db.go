@@ -91,12 +91,16 @@ func assignMessageNodeOriginalIndexes(nodes []chat.MessageNode, indexesByID map[
 func expandWindowTurnMessages(conversationID string, parentID *string, messages []database.ChatMessage, maxRows int) ([]database.ChatMessage, error) {
 	turnIDs := make([]string, 0)
 	seenTurns := make(map[string]bool)
-	for _, message := range messages {
+	addBoundaryTurn := func(message database.ChatMessage) {
 		if message.TurnID == nil || *message.TurnID == "" || seenTurns[*message.TurnID] {
-			continue
+			return
 		}
 		seenTurns[*message.TurnID] = true
 		turnIDs = append(turnIDs, *message.TurnID)
+	}
+	if len(messages) > 0 {
+		addBoundaryTurn(messages[0])
+		addBoundaryTurn(messages[len(messages)-1])
 	}
 	if len(turnIDs) == 0 {
 		return messages, nil

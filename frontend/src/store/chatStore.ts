@@ -711,6 +711,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       try {
         const snapshot = await loadConversationSnapshot(id, INITIAL_MESSAGE_WINDOW_SIZE);
         set((state) => {
+          const existingTimeline = getConversationTimeline(state, id);
+          const cachedThreadedMessages = existingTimeline && !options?.refreshSurfaceWindows
+            ? mergeConversationNodes(existingTimeline.threadedMessages, snapshot.threadedMessages)
+            : snapshot.threadedMessages;
           const { nodes: visibleThreadedMessages, window: messageWindow } = trimRenderedWindow(
             snapshot.threadedMessages,
             snapshot.messageWindow,
@@ -719,7 +723,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const conversation = {
             id,
             title: snapshot.title,
-            threadedMessages: snapshot.threadedMessages,
+            threadedMessages: cachedThreadedMessages,
             channel: snapshot.channel,
             contactId: snapshot.contactId,
           };
@@ -738,10 +742,22 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }
             const hasMaterializedSurfaceWindow = (surfaceSession.visibleThreadedMessages?.length ?? 0) > 0
               || (surfaceSession.messageWindow?.totalCount ?? 0) > 0;
+            const isSurfaceAtLiveTail = !surfaceSession.messageWindow?.hasAfter
+              || (
+                surfaceSession.messageWindow.totalCount > 0
+                && surfaceSession.messageWindow.endIndex >= surfaceSession.messageWindow.totalCount - 1
+              );
             if (!options?.refreshSurfaceWindows && hasMaterializedSurfaceWindow) {
               surfaceSessionsByKey[sessionKey] = {
                 ...surfaceSession,
                 isLoadingOlderMessages: false,
+                ...(isSurfaceAtLiveTail
+                  ? {
+                    hasOlderMessages: messageWindow.hasBefore,
+                    visibleThreadedMessages,
+                    messageWindow,
+                  }
+                  : {}),
               };
               continue;
             }
