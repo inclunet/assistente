@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import {
   CreateAdminUser,
   GetAuthStatus,
-  GetAuthUser,
   Login,
   Logout,
   RefreshAuth,
@@ -16,10 +15,6 @@ export interface AuthStatus {
   hasUsers: boolean;
 }
 
-interface TokenPair {
-  accessToken: string;
-}
-
 interface AuthUser {
   userId: string;
   sessionId: string;
@@ -29,7 +24,6 @@ interface AuthUser {
 interface AuthState {
   status: AuthStatus | null;
   user: AuthUser | null;
-  accessToken: string;
   isLoading: boolean;
   error: string | null;
   isAuthenticated: boolean;
@@ -47,7 +41,6 @@ const legacyRefreshTokenKey = 'assistente-auth-refresh-token';
 export const useAuthStore = create<AuthState>()((set, get) => ({
   status: null,
   user: null,
-  accessToken: '',
   isLoading: false,
   error: null,
   isAuthenticated: false,
@@ -105,10 +98,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   login: async (username, password) => {
     set({ isLoading: true, error: null });
     try {
-      const pair = (await Login({ username, password, clientLabel: 'Wails desktop' })) as TokenPair;
-      const user = (await GetAuthUser(pair.accessToken)) as AuthUser;
+      const user = (await Login({ username, password, clientLabel: 'Wails desktop' })) as AuthUser;
       set({
-        accessToken: pair.accessToken,
         user,
         isAuthenticated: true,
         isLoading: false,
@@ -122,25 +113,23 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   refresh: async () => {
     try {
       const legacyRefreshToken = localStorage.getItem(legacyRefreshTokenKey) || '';
-      const pair = (await RefreshAuth(legacyRefreshToken ? { refreshToken: legacyRefreshToken } : {})) as TokenPair;
-      const user = (await GetAuthUser(pair.accessToken)) as AuthUser;
+      const user = (await RefreshAuth(legacyRefreshToken ? { refreshToken: legacyRefreshToken } : {})) as AuthUser;
       localStorage.removeItem(legacyRefreshTokenKey);
       set({
-        accessToken: pair.accessToken,
         user,
         isAuthenticated: true,
         error: null,
       });
     } catch {
       localStorage.removeItem(legacyRefreshTokenKey);
-      set({ accessToken: '', user: null, isAuthenticated: false });
+      set({ user: null, isAuthenticated: false });
     }
   },
 
   logout: async () => {
     await Logout({}).catch(() => undefined);
     localStorage.removeItem(legacyRefreshTokenKey);
-    set({ accessToken: '', user: null, isAuthenticated: false });
+    set({ user: null, isAuthenticated: false });
   },
 }));
 

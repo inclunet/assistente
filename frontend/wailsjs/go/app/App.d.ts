@@ -185,7 +185,7 @@ export function GetActiveWorkspace():Promise<workspace.Workspace>;
 
 export function GetAuthStatus():Promise<any>;
 
-export function GetAuthUser(arg1:string):Promise<any>;
+export function GetAuthUser():Promise<any>;
 
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
 

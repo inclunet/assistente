@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"time"
 
 	"assistente/internal/auth"
 	"assistente/internal/credentials"
@@ -41,12 +40,6 @@ type AuthUser struct {
 	UserID    string `json:"userId"`
 	SessionID string `json:"sessionId"`
 	Role      string `json:"role"`
-}
-
-type AuthSession struct {
-	AccessToken          string `json:"accessToken"`
-	AccessTokenExpiresAt string `json:"accessTokenExpiresAt"`
-	SessionID            string `json:"sessionId"`
 }
 
 func (a *App) initAuthServices() {
@@ -136,7 +129,7 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 	return user, nil
 }
 
-func (a *App) Login(req LoginRequest) (*AuthSession, error) {
+func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 	if err := a.ensureAuthServices(); err != nil {
 		return nil, err
 	}
@@ -152,12 +145,17 @@ func (a *App) Login(req LoginRequest) (*AuthSession, error) {
 	if err := a.storeAuthRefreshToken(pair.RefreshToken); err != nil {
 		return nil, err
 	}
-	a.setCurrentUserID(user.ID)
+	claims, err := a.sessionSvc.VerifyAccessToken(pair.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+	a.setCurrentUserID(claims.Subject)
+	a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
 	a.reloadUserScopedRuntime()
-	return authSessionFromPair(pair), nil
+	return a.GetAuthUser()
 }
 
-func (a *App) RefreshAuth(req RefreshRequest) (*AuthSession, error) {
+func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 	if err := a.ensureAuthServices(); err != nil {
 		return nil, err
 	}
@@ -184,9 +182,10 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthSession, error) {
 	claims, err := a.sessionSvc.VerifyAccessToken(pair.AccessToken)
 	if err == nil {
 		a.setCurrentUserID(claims.Subject)
+		a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
 		a.reloadUserScopedRuntime()
 	}
-	return authSessionFromPair(pair), nil
+	return a.GetAuthUser()
 }
 
 func (a *App) Logout(req LogoutRequest) error {
@@ -205,21 +204,11 @@ func (a *App) Logout(req LogoutRequest) error {
 	}
 	_ = a.clearAuthRefreshToken()
 	a.setCurrentUserID("")
+	a.setCurrentAuthUser(nil)
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
 	return err
-}
-
-func authSessionFromPair(pair *auth.TokenPair) *AuthSession {
-	if pair == nil {
-		return nil
-	}
-	return &AuthSession{
-		AccessToken:          pair.AccessToken,
-		AccessTokenExpiresAt: pair.AccessTokenExpiresAt.Format(time.RFC3339),
-		SessionID:            pair.SessionID,
-	}
 }
 
 func (a *App) loadAuthRefreshToken() (string, bool, error) {
@@ -274,25 +263,34 @@ func (a *App) clearAuthRefreshToken() error {
 	return err
 }
 
-func (a *App) GetAuthUser(accessToken string) (*AuthUser, error) {
+func (a *App) GetAuthUser() (*AuthUser, error) {
 	if err := a.ensureAuthServices(); err != nil {
 		return nil, err
 	}
-	claims, err := a.sessionSvc.VerifyAccessToken(strings.TrimSpace(accessToken))
-	if err != nil {
-		return nil, err
+	a.authMu.RLock()
+	defer a.authMu.RUnlock()
+	if a.currentAuthUser == nil {
+		return nil, auth.ErrInvalidRefreshToken
 	}
-	return &AuthUser{
-		UserID:    claims.Subject,
-		SessionID: claims.SessionID,
-		Role:      claims.Role,
-	}, nil
+	user := *a.currentAuthUser
+	return &user, nil
 }
 
 func (a *App) setCurrentUserID(userID string) {
 	a.authMu.Lock()
 	defer a.authMu.Unlock()
 	a.currentUserID = strings.TrimSpace(userID)
+}
+
+func (a *App) setCurrentAuthUser(user *AuthUser) {
+	a.authMu.Lock()
+	defer a.authMu.Unlock()
+	if user == nil {
+		a.currentAuthUser = nil
+		return
+	}
+	copy := *user
+	a.currentAuthUser = &copy
 }
 
 func (a *App) authenticatedContext() context.Context {

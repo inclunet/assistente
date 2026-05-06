@@ -338,8 +338,8 @@ export function GetAuthStatus() {
   return window['go']['app']['App']['GetAuthStatus']();
 }
 
-export function GetAuthUser(arg1) {
-  return window['go']['app']['App']['GetAuthUser'](arg1);
+export function GetAuthUser() {
+  return window['go']['app']['App']['GetAuthUser']();
 }
 
 export function GetAllChannelConfigs() {
