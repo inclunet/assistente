@@ -73,6 +73,8 @@ const ptBR = {
       assistant: 'Assistente',
       system: 'Sistema',
       reading: 'Lendo',
+      sent: 'enviado',
+      received: 'recebido',
       via: 'Via',
       stopAudio: 'Parar áudio',
       playAudio: 'Reproduzir áudio',
@@ -114,6 +116,9 @@ const ptBR = {
       thinking: 'Pensando...',
       characters: 'caracteres',
       lines: 'linhas',
+      largeMessageDeferred: 'Conteúdo grande será renderizado ao entrar na área visível.',
+      loadOlderMessages: 'Carregar mensagens anteriores',
+      loadingOlderMessages: 'Carregando mensagens anteriores...',
       modelThinking: 'O modelo está pensando',
       modelReasoning: 'Raciocínio do modelo',
       reasoning: 'Raciocínio',
@@ -133,6 +138,10 @@ const ptBR = {
       toolRetrying: 'Ferramenta {{name}} falhou, tentando novamente...',
       toolRunning: 'Executando ferramenta: {{name}}',
       toolDone: 'Ferramenta {{name}} concluída',
+      queue: {
+        pending_one: '{{count}} turno na fila',
+        pending_other: '{{count}} turnos na fila',
+      },
       validation: {
         messageTooLarge: 'Mensagem muito grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
         mediaTooLarge: 'Arquivos de mídia muito grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
@@ -140,6 +149,8 @@ const ptBR = {
       errors: {
         noActiveConversation:
           'Nenhuma conversa ativa. Abra uma aba de chat ou aguarde o workspace sincronizar.',
+        tabCannotSend: 'A aba ativa não suporta envio de mensagens.',
+        chatTabNotReady: 'Conversa da aba de chat ainda não está pronta.',
       },
       stopReading: 'Parar leitura',
       stopReadingLabel: 'Parar leitura de texto',
@@ -177,6 +188,7 @@ const ptBR = {
       announce: {
         assistantResponding: 'Assistente está respondendo',
         modelThinking: 'O modelo está pensando...',
+        backgroundResponseDone: 'Aba {{title}} terminou de responder',
         messageDeleted: 'Mensagem excluída',
         deleteCancelled: 'Exclusão cancelada',
         messageResent: 'Mensagem reenviada',
@@ -188,6 +200,11 @@ const ptBR = {
         cannotGenerateAudio: 'Não foi possível gerar áudio. Verifique a configuração de voz no perfil ativo.',
         audioDownloaded: 'Áudio baixado com sucesso',
         audioError: 'Erro ao gerar áudio',
+        conversationDeletedPermanently: 'Conversa apagada permanentemente',
+        conversationMessagesRemoved: 'Mensagens da conversa removidas',
+        databaseReset: 'Banco de dados resetado. Conversas reinicializadas.',
+        externalMessage: '{{from}} via {{channel}}: {{message}}',
+        messageWindowLoaded: 'Mensagens {{start}} a {{end}} de {{total}} carregadas',
       },
       contextMenuAriaLabel: 'Ações da mensagem',
     },
@@ -209,6 +226,10 @@ const ptBR = {
       wakeHint: 'Wake',
       processingTranscription: 'Processando transcrição...',
       processing: 'Processando...',
+    },
+
+    voiceAccessibility: {
+      inactiveAnnouncement: '{{title}}: {{message}}',
     },
 
     tokenStats: {
@@ -602,6 +623,7 @@ const ptBR = {
         mergeConflict: 'Conflito aberto para mesclagem manual (estilo Git). Resolva os marcadores e use Salvar para gravar no arquivo real.',
         externalChange: 'Arquivo mudou fora do Assistente. Autosave travado até você decidir.',
         reloaded: 'Recarregado do disco',
+        externalReloaded: 'Arquivo recarregado do disco (mudança externa)',
         savedAs: 'Salvo em novo arquivo',
         overwritten: 'Sobrescrito no disco',
         fileModified: 'Arquivo foi modificado fora do Assistente. Escolha como resolver.',
@@ -717,6 +739,7 @@ const ptBR = {
         requestChangeError: 'Erro ao pedir alteração ao chat',
         insertExhausted: 'Não foi possível inserir no editor (tentativa esgotada). Abra o Editor e tente novamente.',
         openOriginalTabToApply: 'Abra a aba original do editor para aplicar esta alteração.',
+        editorTabNotFound: 'Aba do editor não encontrada para aplicar a alteração.',
         selectionChangedRetry: 'O texto selecionado mudou desde que você abriu o chat. Refazer a seleção e tentar novamente.',
         patchApplied: 'Alteração aplicada',
         richEditorNotReady: 'Editor rico não está pronto.',
@@ -809,6 +832,9 @@ const ptBR = {
         systemHelp: 'Segue a voz do Sistema',
       },
       voiceSection: {
+        modelLabel: 'Modelo TTS',
+        modelPlaceholder: 'Selecione um modelo',
+        modelHelp: 'Escolha o modelo TTS antes da voz. Modelos Piper usam apenas o modelo.',
         voiceLabel: 'Voz',
         voiceHelp: 'Selecione a voz para síntese de fala',
         rateLabel: 'Velocidade',

@@ -4,8 +4,9 @@ import { act, renderHook } from '@testing-library/react';
 
 import { useEditorInlineChatPatch } from './useEditorInlineChatPatch';
 
-let messages: Array<{ role?: string; toolCalls?: unknown; toolCallId?: string; content?: string }>; 
-const getMessagesMock = vi.fn(() => messages);
+const conversationId = "01926b90-7a5a-7c4e-8d3f-000000000042";
+let messages: Array<{ role?: string; toolCalls?: unknown; toolCallId?: string; content?: string }>;
+const getConversationMessagesMock = vi.fn(() => messages);
 
 let eventHandler: ((data: unknown) => void) | null = null;
 const eventsOnMock = vi.fn((eventName: string, handler: (data: unknown) => void) => {
@@ -17,7 +18,7 @@ const eventsOnMock = vi.fn((eventName: string, handler: (data: unknown) => void)
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: {
-    getState: () => ({ getMessages: getMessagesMock }),
+    getState: () => ({ getConversationMessages: getConversationMessagesMock }),
   },
 }));
 
@@ -28,7 +29,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 describe('useEditorInlineChatPatch', () => {
   beforeEach(() => {
     messages = [];
-    getMessagesMock.mockClear();
+    getConversationMessagesMock.mockClear();
     eventsOnMock.mockClear();
     eventHandler = null;
   });
@@ -43,7 +44,7 @@ describe('useEditorInlineChatPatch', () => {
 
     const { result } = renderHook(() => useEditorInlineChatPatch());
 
-    const found = await result.current.waitForEditorPatch({ timeoutMs: 200 });
+    const found = await result.current.waitForEditorPatch({ conversationId, timeoutMs: 200 });
 
     expect(found.ok).toBe(false);
   });
@@ -58,7 +59,7 @@ describe('useEditorInlineChatPatch', () => {
 
     const { result } = renderHook(() => useEditorInlineChatPatch());
 
-    const found = await result.current.waitForEditorPatch({});
+    const found = await result.current.waitForEditorPatch({ conversationId });
 
     expect(found.ok).toBe(true);
     if (found.ok) {
@@ -70,12 +71,12 @@ describe('useEditorInlineChatPatch', () => {
   it('resolve waitForChatDone quando evento chega', async () => {
     const { result } = renderHook(() => useEditorInlineChatPatch());
 
-    const promise = result.current.waitForChatDone("01926b90-7a5a-7c4e-8d3f-000000000042", 1000);
+    const promise = result.current.waitForChatDone(conversationId, 1000);
 
     act(() => {
-      eventHandler?.({ conversationId: "01926b90-7a5a-7c4e-8d3f-000000000042" });
+      eventHandler?.({ conversationId });
     });
 
-    await expect(promise).resolves.toBe("01926b90-7a5a-7c4e-8d3f-000000000042");
+    await expect(promise).resolves.toBe(conversationId);
   });
 });

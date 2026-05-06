@@ -44,7 +44,9 @@ func (m *mockAudioRepo) GetMessageContent(id string) (string, error) {
 // testProfileProvider implementa speech.ProfileProvider para testes.
 type testProfileProvider struct{}
 
-func (testProfileProvider) GetActive() (*profiles.Profile, error) { return nil, nil }
+func (testProfileProvider) GetActive() (*profiles.Profile, error) {
+	return nil, nil
+}
 func (testProfileProvider) ResolveDefaults(p *profiles.Profile) *profiles.Profile { return p }
 
 // newTestSpeechSvc cria um speech.Service para testes.
@@ -68,7 +70,7 @@ func TestSpeakMessage_ReturnsCachedAudio(t *testing.T) {
 	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
 
 	// Cache hit — provider params são ignorados
-	result, err := app.SpeakMessage("1", "any-provider", "any-voice", "", 1.0)
+	result, err := app.SpeakMessage("1", "any-provider", "any-model", "any-voice", 1.0)
 	if err != nil {
 		t.Fatalf("SpeakMessage erro inesperado: %v", err)
 	}
@@ -92,7 +94,7 @@ func TestSpeakMessage_ErrorWhenProviderNotFound(t *testing.T) {
 		speechSvc:      newTestSpeechSvc(repo, reg),
 	}
 
-	_, err := app.SpeakMessage("2", "nonexistent-provider", "voice", "tts-1", 1.0)
+	_, err := app.SpeakMessage("2", "nonexistent-provider", "tts-1", "voice", 1.0)
 	if err == nil {
 		t.Fatal("esperava erro quando provider não existe no registry")
 	}
@@ -108,7 +110,7 @@ func TestSpeakMessage_ErrorWhenMessageNotFound(t *testing.T) {
 
 	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
 
-	_, err := app.SpeakMessage("999", "provider", "voice", "", 1.0)
+	_, err := app.SpeakMessage("999", "provider", "", "voice", 1.0)
 	if err == nil {
 		t.Fatal("esperava erro para mensagem inexistente")
 	}
@@ -121,7 +123,7 @@ func TestSpeakMessage_ErrorWhenContentEmpty(t *testing.T) {
 
 	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
 
-	_, err := app.SpeakMessage("3", "provider", "voice", "", 1.0)
+	_, err := app.SpeakMessage("3", "provider", "", "voice", 1.0)
 	if err == nil {
 		t.Fatal("esperava erro para mensagem com conteúdo vazio")
 	}
@@ -148,10 +150,7 @@ func TestSpeakMessage_CacheHitSkipsGeneration(t *testing.T) {
 	}
 }
 
-func TestSpeakMessage_ModelFallbackToVoiceID(t *testing.T) {
-	// Quando model está vazio, SpeakMessage usa voiceID como model (LocalAI pattern).
-	// O provider precisa existir no registry — mas a síntese falhará (sem server).
-	// Este teste verifica que o provider é resolvido e o erro vem da síntese, não de "não encontrado".
+func TestSpeakMessage_ErrorWhenHTTPModelMissing(t *testing.T) {
 	repo := newMockAudioRepo()
 	repo.content["10"] = "Teste com piper"
 
@@ -169,14 +168,39 @@ func TestSpeakMessage_ModelFallbackToVoiceID(t *testing.T) {
 		speechSvc:      newTestSpeechSvc(repo, reg),
 	}
 
-	// model vazio → usa voiceID "pt_BR-dii" como model
-	_, err := app.SpeakMessage("10", "local-piper", "pt_BR-dii", "", 1.0)
-	// Espera erro de síntese (conexão recusada), NÃO de provider não encontrado
+	_, err := app.SpeakMessage("10", "local-piper", "", "pt_BR-dii", 1.0)
 	if err == nil {
-		t.Fatal("esperava erro de síntese (sem server local)")
+		t.Fatal("esperava erro quando model está vazio")
 	}
-	if strings.Contains(err.Error(), "não encontrado") {
-		t.Errorf("erro deveria ser de síntese, não de provider: %v", err)
+	if !strings.Contains(err.Error(), "TTS model is required") {
+		t.Errorf("erro inesperado: %v", err)
+	}
+}
+
+func TestSpeakMessage_ModelOnlyRejectsVoiceID(t *testing.T) {
+	repo := newMockAudioRepo()
+	repo.content["12"] = "Teste model-only"
+
+	reg := llm.NewProviderRegistry()
+	_ = reg.Register(&llm.ProviderConfig{
+		ID:      "local-piper",
+		Name:    "Local Piper",
+		BaseURL: "http://localhost:9999",
+	})
+
+	app := &App{
+		audioSvc:       repo,
+		llmRegistry:    reg,
+		profileManager: profiles.NewManager(),
+		speechSvc:      newTestSpeechSvc(repo, reg),
+	}
+
+	_, err := app.SpeakMessage("12", "local-piper", "voice-pt_BR-dii", "pt_BR-dii", 1.0)
+	if err == nil {
+		t.Fatal("esperava erro quando voice_id é enviado para model-only")
+	}
+	if !strings.Contains(err.Error(), "voice_id must be empty") {
+		t.Errorf("erro inesperado: %v", err)
 	}
 }
 
@@ -200,7 +224,7 @@ func TestSpeakMessage_SpeedNormalization(t *testing.T) {
 	}
 
 	// Rate 0 deve ser normalizada para 1.0 — o provider será criado mas síntese falhará
-	_, err := app.SpeakMessage("11", "test-provider", "voice", "tts-1", 0.0)
+	_, err := app.SpeakMessage("11", "test-provider", "tts-1", "voice", 0.0)
 	if err == nil {
 		t.Fatal("esperava erro de síntese (sem server)")
 	}

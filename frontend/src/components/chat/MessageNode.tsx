@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType, Message } from '../../store/chatStore';
-import { useChatStore } from '../../store/chatStore';
+import { useChatNodeSessionState } from './ChatSessionContext';
 import { playBumpSound } from '../../services/audioFeedback';
 import { UpdateMessage } from '@wailsjs/go/app/App';
 import { announce } from '../../hooks/useAnnouncer';
@@ -18,8 +18,13 @@ export interface MessageNodeProps {
   level?: number;
   siblingIndex?: number;
   siblingCount?: number;
+  ariaPosition?: number;
+  ariaSetSize?: number;
   onLoadChildren?: (messageId: string) => Promise<MessageNodeType[]>;
   onReachEnd?: () => void; // Chamado quando tenta ir além do último item no level 0
+  onReachStart?: () => void | Promise<void>;
+  onJumpToStart?: () => void | Promise<void>;
+  onJumpToEnd?: () => void | Promise<void>;
   onContextMenu?: (e: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
   onDelete?: (message: Message) => void;
@@ -32,8 +37,13 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   level = 0,
   siblingIndex = 0,
   siblingCount = 1,
+  ariaPosition,
+  ariaSetSize,
   onLoadChildren,
   onReachEnd,
+  onReachStart,
+  onJumpToStart,
+  onJumpToEnd,
   onContextMenu,
   onSpeak,
   onDelete,
@@ -45,27 +55,22 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   
   // IMPORTANTE: messageId deve ser definido primeiro, pois é usado em hooks abaixo
   const messageId = node.message.id;
-  
-  const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
-  const editingMessageId = useChatStore(state => state.editingMessageId);
-  const setEditingMessageId = useChatStore(state => state.setEditingMessageId);
-  const readingMessageId = useChatStore(state => state.readingMessageId);
-  const setReadingMessageId = useChatStore(state => state.setReadingMessageId);
-  const streamingMessageId = useChatStore(state => state.streamingMessageId);
-  const streamingReasoning = useChatStore(state => state.streamingReasoning);
-  const isThinkingGlobal = useChatStore(state => state.isThinking);
-  const toggleReasoningExpanded = useChatStore(state => state.toggleReasoningExpanded);
-  const activeToolCalls = useChatStore(state => state.activeToolCalls);
-  const completedSegments = useChatStore(state => state.completedSegments);
-
-  // OTIMIZADO: Seletores que retornam apenas valores booleanos para este nó específico
-  // Evita re-renders quando outras threads/reasonings são expandidas/colapsadas
-  const isExpanded = useChatStore(
-    useCallback(state => state.expandedThreads.has(messageId), [messageId])
-  );
-  const reasoningExpanded = useChatStore(
-    useCallback(state => state.expandedReasonings.has(messageId), [messageId])
-  );
+  const {
+    conversationId,
+    editingMessageId,
+    readingMessageId,
+    streamingMessageId,
+    streamingReasoning,
+    isThinking: isThinkingGlobal,
+    activeToolCalls,
+    completedSegments,
+    isExpanded,
+    reasoningExpanded,
+    setConversationEditingMessageId,
+    setConversationReadingMessageId,
+    toggleConversationThreadExpanded,
+    toggleConversationReasoningExpanded,
+  } = useChatNodeSessionState(messageId);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -93,9 +98,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         setIsReading(true);
       }
       // Limpa o estado na store
-      setReadingMessageId(null);
+      if (conversationId) {
+        setConversationReadingMessageId(conversationId, null);
+      }
     }
-  }, [readingMessageId, node.message.id, node.message.internal, isReading, setReadingMessageId]);
+  }, [conversationId, readingMessageId, node.message.id, node.message.internal, isReading, setConversationReadingMessageId]);
 
   // Detecta edição acionada externamente (pelo menu de contexto)
   useEffect(() => {
@@ -107,9 +114,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         announce(t('chat.editingMessage'));
       }
       // Limpa o estado na store
-      setEditingMessageId(null);
+      if (conversationId) {
+        setConversationEditingMessageId(conversationId, null);
+      }
     }
-  }, [editingMessageId, node.message.id, node.message.role, node.message.internal, node.message.isStreaming, node.message.content, isEditing, setEditingMessageId]);
+  }, [conversationId, editingMessageId, node.message.id, node.message.role, node.message.internal, node.message.isStreaming, node.message.content, isEditing, setConversationEditingMessageId]);
 
   // Handler de speak que controla o estado de playback
   const handleSpeak = useCallback(async (message: Message) => {
@@ -138,7 +147,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     const wasExpanded = isExpanded;
     
     // Alterna expansão na store
-    toggleThreadExpanded(node.message.id);
+    if (!conversationId) return;
+    toggleConversationThreadExpanded(conversationId, node.message.id);
     
     // Aguarda um tick para garantir atualização do estado
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -156,7 +166,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         setIsLoading(false);
       }
     }
-  }, [hasChildren, isExpanded, toggleThreadExpanded, node.message.id, node.childCount, children.length, onLoadChildren]);
+  }, [conversationId, hasChildren, isExpanded, toggleConversationThreadExpanded, node.message.id, node.childCount, children.length, onLoadChildren]);
 
   const isInternal = node.message.internal || level > 0;
 
@@ -318,7 +328,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     if ((key === 'r' || key === 'R') && node.message.role === 'assistant' && node.message.reasoning) {
       e.preventDefault();
       e.stopPropagation();
-      toggleReasoningExpanded(node.message.id);
+      if (!conversationId) return;
+      toggleConversationReasoningExpanded(conversationId, node.message.id);
       // O estado é lido pela store, então precisamos verificar o novo estado
       const isNowExpanded = !reasoningExpanded; // Toggle do estado atual
       announce(isNowExpanded ? t('chat.reasoningShown') : t('chat.reasoningHidden'));
@@ -348,8 +359,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       e.stopPropagation();
       if (siblingIndex > 0) {
         focusSibling(siblingIndex - 1);
+      } else if (level === 0 && onReachStart) {
+        await onReachStart();
       } else {
-        // Bateu no primeiro irmão
         playBumpSound();
       }
       return;
@@ -370,7 +382,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       e.preventDefault();
       e.stopPropagation();
       if (isExpanded && hasChildren) {
-        toggleThreadExpanded(node.message.id);
+        if (conversationId) {
+          toggleConversationThreadExpanded(conversationId, node.message.id);
+        }
       } else if (level > 0) {
         focusParent();
       }
@@ -382,7 +396,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       if (isExpanded && hasChildren) {
         e.preventDefault();
         e.stopPropagation();
-        toggleThreadExpanded(node.message.id);
+        if (conversationId) {
+          toggleConversationThreadExpanded(conversationId, node.message.id);
+        }
       } else if (level > 0) {
         e.preventDefault();
         e.stopPropagation();
@@ -393,6 +409,20 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       return;
     }
     
+    if (key === 'Home' && e.ctrlKey && level === 0 && onJumpToStart) {
+      e.preventDefault();
+      e.stopPropagation();
+      await onJumpToStart();
+      return;
+    }
+
+    if (key === 'End' && e.ctrlKey && level === 0 && onJumpToEnd) {
+      e.preventDefault();
+      e.stopPropagation();
+      await onJumpToEnd();
+      return;
+    }
+
     // Home: foca no primeiro irmão
     if (key === 'Home' && !e.ctrlKey) {
       e.preventDefault();
@@ -416,8 +446,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       const targetIndex = Math.min(siblingIndex + 10, siblingCount - 1);
       focusSibling(targetIndex);
       if (targetIndex === siblingCount - 1 && siblingIndex === targetIndex) {
-        // Já estava no último, toca som
-        playBumpSound();
+        if (level === 0 && onReachEnd) {
+          onReachEnd();
+        } else {
+          playBumpSound();
+        }
       }
       return;
     }
@@ -429,8 +462,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       const targetIndex = Math.max(siblingIndex - 10, 0);
       focusSibling(targetIndex);
       if (targetIndex === 0 && siblingIndex === 0) {
-        // Já estava no primeiro, toca som
-        playBumpSound();
+        if (level === 0 && onReachStart) {
+          await onReachStart();
+        } else {
+          playBumpSound();
+        }
       }
       return;
     }
@@ -469,6 +505,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       onKeyUp={handleKeyUp}
       tabIndex={-1}
       role="listitem"
+      aria-posinset={ariaPosition}
+      aria-setsize={ariaSetSize}
       aria-expanded={hasChildren ? isExpanded : undefined}
     >
       <div className="message-node__content">
@@ -493,7 +531,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           streamingReasoning={node.message.id === streamingMessageId ? (streamingReasoning || undefined) : undefined}
           isThinking={node.message.id === streamingMessageId ? isThinkingGlobal : false}
           isReasoningExpanded={reasoningExpanded}
-          onToggleReasoning={() => toggleReasoningExpanded(node.message.id)}
+          onToggleReasoning={() => {
+            if (conversationId) {
+              toggleConversationReasoningExpanded(conversationId, node.message.id);
+            }
+          }}
           // Tool calling - passa apenas para a mensagem em streaming
           activeToolCalls={node.message.id === streamingMessageId ? activeToolCalls : undefined}
           completedSegments={node.message.id === streamingMessageId ? completedSegments : undefined}

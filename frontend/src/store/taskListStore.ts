@@ -159,21 +159,20 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
   };
 }
 
+function taskListErrorKey(operation: string, taskListId: string): string {
+  return `${operation}:${taskListId}`;
+}
+
 /**
  * TaskListStore - Cache de conteúdo de tasklists (workspace-driven)
- * O workspace é o dono das tabs; aqui apenas gerenciamos o cache e o conteúdo ativo.
+ * O workspace é o dono das tabs; aqui apenas gerenciamos cache e operações por ID explícito.
  */
 interface TaskListStoreState {
-  activeTaskListId?: string;
   taskLists: Map<string, TaskListWithWorkflow>;
   workflows: Map<string, TaskListWorkflow>;
   expandedTasks: Set<string>;
-  isLoading: boolean;
+  loadingByTaskListId: Map<string, boolean>;
   errors: Map<string, string>;
-
-  // Active tasklist (driven by workspace bridge)
-  setActiveTaskList: (id: string | undefined) => void;
-  getActiveTaskList: () => TaskListWithWorkflow | undefined;
 
   // TaskList management
   loadTaskList: (taskListId: string) => Promise<TaskListWithWorkflow | null>;
@@ -217,7 +216,7 @@ interface TaskListStoreState {
   setError: (key: string, message: string) => void;
   clearError: (key: string) => void;
   clearAllErrors: () => void;
-  setLoading: (isLoading: boolean) => void;
+  setTaskListLoading: (taskListId: string, isLoading: boolean) => void;
 
   // Cache operations
   invalidateTaskList: (taskListId: string) => void;
@@ -255,10 +254,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         newCache.delete(taskListId);
-        return {
-          taskLists: newCache,
-          activeTaskListId: state.activeTaskListId === taskListId ? undefined : state.activeTaskListId,
-        };
+        return { taskLists: newCache };
       });
     });
 
@@ -324,58 +320,43 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
   }
 
   return {
-    activeTaskListId: undefined,
     taskLists: new Map(),
     workflows: new Map(),
     expandedTasks: new Set(),
-    isLoading: false,
+    loadingByTaskListId: new Map(),
     errors: new Map(),
-
-    setActiveTaskList: (id: string | undefined) => {
-      set({ activeTaskListId: id });
-    },
-
-    getActiveTaskList: () => {
-      const { activeTaskListId, taskLists } = get();
-      if (activeTaskListId === undefined) return undefined;
-      return taskLists.get(activeTaskListId);
-    },
 
     // TaskList management
     loadTaskList: async (taskListId: string) => {
-      set({ isLoading: true });
+      get().setTaskListLoading(taskListId, true);
       try {
         const taskList = await GetTaskList(taskListId);
         if (taskList) {
           get().cacheTaskList(taskList as unknown as TaskListWithWorkflow);
-          set({ isLoading: false });
+          get().setTaskListLoading(taskListId, false);
           return taskList as unknown as TaskListWithWorkflow;
         }
-        set({ isLoading: false });
+        get().setTaskListLoading(taskListId, false);
         return null;
       } catch (error) {
-        get().setError('loadTaskList', String(error));
-        set({ isLoading: false });
+        get().setError(taskListErrorKey('loadTaskList', taskListId), String(error));
+        get().setTaskListLoading(taskListId, false);
         return null;
       }
     },
 
     createTaskList: async (title: string, description?: string) => {
-      set({ isLoading: true });
       try {
         const taskList = await CreateTaskList(title, description || '', '');
         
         if (taskList) {
           get().cacheTaskList(taskList as unknown as TaskListWithWorkflow);
-          set({ isLoading: false });
           return taskList as unknown as TaskListWithWorkflow;
         }
         
-        set({ isLoading: false });
         return null;
       } catch (error) {
         get().setError('createTaskList', String(error));
-        set({ isLoading: false });
         return null;
       }
     },
@@ -385,7 +366,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         await UpdateTaskList(taskListId, title, description || '');
         get().invalidateTaskList(taskListId);
       } catch (error) {
-        get().setError('updateTaskList', String(error));
+        get().setError(taskListErrorKey('updateTaskList', taskListId), String(error));
       }
     },
 
@@ -398,7 +379,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           return { taskLists: newCache };
         });
       } catch (error) {
-        get().setError('deleteTaskList', String(error));
+        get().setError(taskListErrorKey('deleteTaskList', taskListId), String(error));
       }
     },
 
@@ -414,7 +395,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           return { taskLists: newCache };
         });
       } catch (error) {
-        get().setError('clearTaskList', String(error));
+        get().setError(taskListErrorKey('clearTaskList', taskListId), String(error));
       }
     },
 
@@ -427,7 +408,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         }
         return null;
       } catch (error) {
-        get().setError('cloneTaskList', String(error));
+        get().setError(taskListErrorKey('cloneTaskList', taskListId), String(error));
         return null;
       }
     },
@@ -456,7 +437,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           return {};
         });
       } catch (error) {
-        get().setError('setViewMode', String(error));
+        get().setError(taskListErrorKey('setViewMode', taskListId), String(error));
       }
     },
 
@@ -471,7 +452,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         }
         return null;
       } catch (error) {
-        get().setError('loadWorkflow', String(error));
+        get().setError(taskListErrorKey('loadWorkflow', taskListId), String(error));
         return null;
       }
     },
@@ -483,7 +464,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         await UpdateWorkflowFull(taskListId, statuses as TaskListWorkflowStatus[], transitions, initialStatusId, {});
         await get().loadTaskList(taskListId);
       } catch (error) {
-        get().setError('updateWorkflow', String(error));
+        get().setError(taskListErrorKey('updateWorkflow', taskListId), String(error));
       }
     },
 
@@ -492,7 +473,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         await UpdateWorkflowFull(taskListId, statuses as TaskListWorkflowStatus[], transitions, initialStatusId, statusMigration ?? {});
         await get().loadTaskList(taskListId);
       } catch (error) {
-        get().setError('updateWorkflowFull', String(error));
+        get().setError(taskListErrorKey('updateWorkflowFull', taskListId), String(error));
         throw error;
       }
     },
@@ -502,7 +483,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         const counts = await GetTaskCountsByStatus(taskListId);
         return counts ?? {};
       } catch (error) {
-        get().setError('getTaskCountsByStatus', String(error));
+        get().setError(taskListErrorKey('getTaskCountsByStatus', taskListId), String(error));
         return {};
       }
     },
@@ -512,7 +493,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         await ReorderWorkflowStatuses(taskListId, statusOrder);
         await get().loadTaskList(taskListId);
       } catch (error) {
-        get().setError('reorderWorkflowStatuses', String(error));
+        get().setError(taskListErrorKey('reorderWorkflowStatuses', taskListId), String(error));
       }
     },
 
@@ -701,7 +682,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       try {
         await ReorderTasks(taskListId, statusId, orderedIds);
       } catch (error) {
-        get().setError('reorderTasks', String(error));
+        get().setError(taskListErrorKey('reorderTasks', taskListId), String(error));
       }
     },
 
@@ -799,8 +780,16 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       set({ errors: new Map() });
     },
 
-    setLoading: (isLoading: boolean) => {
-      set({ isLoading });
+    setTaskListLoading: (taskListId: string, isLoading: boolean) => {
+      set((state) => {
+        const loadingByTaskListId = new Map(state.loadingByTaskListId);
+        if (isLoading) {
+          loadingByTaskListId.set(taskListId, true);
+        } else {
+          loadingByTaskListId.delete(taskListId);
+        }
+        return { loadingByTaskListId };
+      });
     },
 
     // Cache operations

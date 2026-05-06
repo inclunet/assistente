@@ -1,0 +1,65 @@
+import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { WorkspaceContent } from './WorkspaceContent';
+import type { WorkspaceTab } from '../../store/workspaceStore';
+
+const workspaceState = vi.hoisted(() => ({
+  activeTabId: 'editor-1',
+  tabs: [] as WorkspaceTab[],
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (_key: string, fallback?: string) => fallback ?? _key }),
+}));
+
+vi.mock('../../store/workspaceStore', () => ({
+  useActiveTab: () => workspaceState.tabs.find((tab) => tab.id === workspaceState.activeTabId) ?? null,
+  useWorkspaceStore: (selector: (state: { workspace: { tabs: WorkspaceTab[]; activeTabId: string | null } }) => unknown) => selector({
+    workspace: {
+      tabs: workspaceState.tabs,
+      activeTabId: workspaceState.activeTabId,
+    },
+  }),
+}));
+
+vi.mock('./workspacePanelRegistry', () => ({
+  WorkspaceDomainPanel: (props: { tab: WorkspaceTab; tabId: string; isActive: boolean; state: Record<string, unknown> }) => (
+    <div>
+      panel:{props.tabId}:{String(props.isActive)}:{String(props.state.sessionId ?? props.state.filePath ?? props.state.tasklistId ?? '')}
+    </div>
+  ),
+}));
+
+describe('WorkspaceContent', () => {
+  beforeEach(() => {
+    workspaceState.activeTabId = 'editor-1';
+    workspaceState.tabs = [
+      {
+        id: 'editor-1',
+        type: 'editor',
+        title: 'Editor',
+        position: 0,
+        state: { filePath: 'a.md' },
+      },
+      {
+        id: 'terminal-1',
+        type: 'terminal',
+        title: 'Terminal',
+        position: 1,
+        state: { sessionId: 'session-1' },
+      },
+    ];
+  });
+
+  it('mantém painéis visitados montados com identidades e estados próprios', () => {
+    const { rerender } = render(<WorkspaceContent />);
+
+    expect(screen.getByText('panel:editor-1:true:a.md')).toBeInTheDocument();
+
+    workspaceState.activeTabId = 'terminal-1';
+    rerender(<WorkspaceContent />);
+
+    expect(screen.getByText('panel:editor-1:false:a.md')).toBeInTheDocument();
+    expect(screen.getByText('panel:terminal-1:true:session-1')).toBeInTheDocument();
+  });
+});

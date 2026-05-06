@@ -11,10 +11,13 @@
  * Usa o sistema unificado de perfis (profiles.Profile).
  */
 
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useInteractionProfile } from '../../hooks/useInteractionProfile';
-import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { finishSTTSession, requestSTTStart } from '../../services/voiceAccessibility/sttGate';
+import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
+import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { profiles } from '../../../wailsjs/go/models';
 import './VoiceButton.css';
 
@@ -46,12 +49,16 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
-  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const activeTab = useActiveTab();
-  const tabProfileSlug = activeTab?.type === 'chat'
-    ? (activeTab.profileOverride?.slug as string | undefined)
+  const workspace = useWorkspaceStore((s) => s.workspace);
+  const { tab: panelTab, isActive: isPanelActive } = useWorkspacePanel();
+  const tabProfileSlug = panelTab?.type === 'chat'
+    ? (panelTab.profileOverride?.slug as string | undefined)
     : undefined;
-  const effectiveProfileSlug = tabProfileSlug || wsProfile || null;
+  const effectiveProfileSlug = tabProfileSlug || workspace?.profile || null;
+  const voiceOrigin = useMemo(
+    () => (panelTab ? buildVoiceAccessibilityOriginFromTab(panelTab, workspace) : undefined),
+    [panelTab, workspace],
+  );
 
   const {
     isActive,
@@ -69,6 +76,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   } = useInteractionProfile({
     effectiveProfileSlug,
     onTranscription: (text, _provider) => {
+      finishSTTSession(voiceOrigin);
       onTranscription(text);
       requestAnimationFrame(() => {
         if (textareaRef?.current) {
@@ -79,6 +87,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
       });
     },
     onError: (message) => {
+      finishSTTSession(voiceOrigin);
       console.error('[VoiceButton] Erro:', message);
     },
   });
@@ -114,52 +123,88 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   // Estado de escuta ativa (para VAD e Wakeword)
   // isWakewordListening é específico para quando está escutando a palavra de ativação
   const isListeningState = isListening || (mode === 'vad' && isActive) || isWakewordListening;
+  const isDisabled = disabled || !isPanelActive;
+
+  useEffect(() => {
+    if (isPanelActive) return;
+    if (!isActive && !isListeningState && !isPTTActive) return;
+    cancelInteraction();
+    finishSTTSession(voiceOrigin);
+    setIsPTTActive(false);
+  }, [cancelInteraction, isActive, isListeningState, isPTTActive, isPanelActive, voiceOrigin]);
+
+  const startInteractionWithGate = useCallback((): boolean => {
+    if (!requestSTTStart({ origin: voiceOrigin, cancel: cancelInteraction })) return false;
+    void startInteraction();
+    return true;
+  }, [cancelInteraction, startInteraction, voiceOrigin]);
+
+  const stopInteractionWithGate = useCallback(() => {
+    stopInteraction();
+    finishSTTSession(voiceOrigin);
+  }, [stopInteraction, voiceOrigin]);
+
+  const cancelInteractionWithGate = useCallback(() => {
+    cancelInteraction();
+    finishSTTSession(voiceOrigin);
+  }, [cancelInteraction, voiceOrigin]);
+
+  const toggleInteractionWithGate = useCallback(() => {
+    if (isActive || isListeningState) {
+      toggleInteraction();
+      finishSTTSession(voiceOrigin);
+      return;
+    }
+
+    if (!requestSTTStart({ origin: voiceOrigin, cancel: cancelInteraction })) return;
+    toggleInteraction();
+  }, [cancelInteraction, isActive, isListeningState, toggleInteraction, voiceOrigin]);
 
   // === Handlers para modo PTT ===
   
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (disabled || mode !== 'ptt') return;
+    if (isDisabled || mode !== 'ptt') return;
     
+    if (!startInteractionWithGate()) return;
+
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
-    
     setIsPTTActive(true);
-    startInteraction();
-  }, [disabled, mode, startInteraction]);
+  }, [isDisabled, mode, startInteractionWithGate]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (mode !== 'ptt' || !isPTTActive) return;
     
     e.currentTarget.releasePointerCapture(e.pointerId);
     setIsPTTActive(false);
-    stopInteraction();
-  }, [mode, isPTTActive, stopInteraction]);
+    stopInteractionWithGate();
+  }, [mode, isPTTActive, stopInteractionWithGate]);
 
   const handlePointerLeave = useCallback((e: React.PointerEvent) => {
     // Se saiu do botão durante PTT, cancela
     if (mode === 'ptt' && isPTTActive) {
       e.currentTarget.releasePointerCapture(e.pointerId);
       setIsPTTActive(false);
-      cancelInteraction();
+      cancelInteractionWithGate();
     }
-  }, [mode, isPTTActive, cancelInteraction]);
+  }, [mode, isPTTActive, cancelInteractionWithGate]);
 
   // === Handler para modos Toggle, VAD e Wakeword ===
   
   const handleClick = useCallback(() => {
-    if (disabled) return;
+    if (isDisabled) return;
     
     // Toggle, VAD e Wakeword usam o mesmo comportamento de toggle
     if (mode === 'toggle' || mode === 'vad' || mode === 'wakeword') {
-      toggleInteraction();
+      toggleInteractionWithGate();
     }
     // No modo PTT, o click é tratado pelo pointer events
-  }, [disabled, mode, toggleInteraction]);
+  }, [isDisabled, mode, toggleInteractionWithGate]);
 
   // === Keyboard handlers ===
   
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (disabled) return;
+    if (isDisabled) return;
     
     // Ignora eventos de repetição de tecla (key repeat do OS)
     if (e.repeat) return;
@@ -170,28 +215,29 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
       
       if (mode === 'ptt') {
         if (!isPTTActive) {
-          setIsPTTActive(true);
-          startInteraction();
+          if (startInteractionWithGate()) {
+            setIsPTTActive(true);
+          }
         }
       } else {
         // Toggle, VAD e Wakeword usam toggle
-        toggleInteraction();
+        toggleInteractionWithGate();
       }
     }
     
     // Escape cancela
     if (e.key === 'Escape' && (isActive || isListeningState)) {
       e.preventDefault();
-      cancelInteraction();
+      cancelInteractionWithGate();
       setIsPTTActive(false);
     }
-  }, [disabled, mode, isPTTActive, isActive, isListeningState, startInteraction, toggleInteraction, cancelInteraction]);
+  }, [isDisabled, mode, isPTTActive, isActive, isListeningState, startInteractionWithGate, toggleInteractionWithGate, cancelInteractionWithGate]);
 
   const handleKeyUp = useCallback((e: React.KeyboardEvent) => {
     if (mode === 'ptt' && isPTTActive && (e.key === ' ' || e.key === 'Enter')) {
       e.preventDefault();
       setIsPTTActive(false);
-      stopInteraction();
+      stopInteractionWithGate();
       
       // Restaura foco após PTT - prefere textarea, senão volta para o botão
       requestAnimationFrame(() => {
@@ -202,7 +248,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
         }
       });
     }
-  }, [mode, isPTTActive, stopInteraction, textareaRef]);
+  }, [mode, isPTTActive, stopInteractionWithGate, textareaRef]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -362,7 +408,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
         ref={buttonRef}
         type="button"
         className={`voice-button ${isRecordingState ? 'voice-button--recording' : ''} ${isListeningState && !isRecordingState ? 'voice-button--listening' : ''} ${isProcessingState ? 'voice-button--processing' : ''} ${getModeClass()}`}
-        disabled={disabled || isProcessingState}
+        disabled={isDisabled || isProcessingState}
         aria-label={getAriaLabel()}
         aria-pressed={isRecordingState || isListeningState}
         // Pointer events para PTT

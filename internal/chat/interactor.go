@@ -246,6 +246,7 @@ type RecordUserMessageRequest struct {
 	AudioBase64    string
 	AudioMimeType  string
 	Source         string
+	SurfaceOrigin  *ports.ChatSurfaceOrigin
 	ActiveProfile  *profiles.Profile
 	Transcribe     TranscribeFunc
 }
@@ -301,6 +302,7 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 		ConversationID: req.ConversationID,
 		UserMessageID:  userMsg.ID,
 		UserContent:    userMsg.Content,
+		SurfaceOrigin:  req.SurfaceOrigin,
 	})
 
 	return i.ReuseLoadedUserMessage(ctx, req, userMsg)
@@ -394,7 +396,7 @@ type PrepareMessagesRequest struct {
 	Messages            []llm.Message
 	UserContent         string
 	ConversationSummary string
-	ConversationID string
+	ConversationID      string
 	Params              ChatParams
 	ActiveProfile       *profiles.Profile
 	Transcribe          TranscribeFunc

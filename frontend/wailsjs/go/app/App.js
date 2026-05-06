@@ -398,6 +398,10 @@ export function GetConversationInfo(arg1) {
   return window['go']['app']['App']['GetConversationInfo'](arg1);
 }
 
+export function GetConversationMessageWindow(arg1) {
+  return window['go']['app']['App']['GetConversationMessageWindow'](arg1);
+}
+
 export function GetConversationSummary(arg1) {
   return window['go']['app']['App']['GetConversationSummary'](arg1);
 }
@@ -454,6 +458,10 @@ export function GetSpeechProviders() {
   return window['go']['app']['App']['GetSpeechProviders']();
 }
 
+export function GetTTSModels(arg1) {
+  return window['go']['app']['App']['GetTTSModels'](arg1);
+}
+
 export function GetTTSVoices(arg1, arg2) {
   return window['go']['app']['App']['GetTTSVoices'](arg1, arg2);
 }
@@ -494,8 +502,16 @@ export function GetMessageChildren(arg1) {
   return window['go']['app']['App']['GetMessageChildren'](arg1);
 }
 
+export function GetRecentMessages(arg1, arg2) {
+  return window['go']['app']['App']['GetRecentMessages'](arg1, arg2);
+}
+
 export function GetMessages(arg1, arg2) {
   return window['go']['app']['App']['GetMessages'](arg1, arg2);
+}
+
+export function GetMessagesBefore(arg1, arg2, arg3) {
+  return window['go']['app']['App']['GetMessagesBefore'](arg1, arg2, arg3);
 }
 
 export function GetMessagingStatus() {
@@ -682,8 +698,8 @@ export function NeedsWelcomeWizard() {
   return window['go']['app']['App']['NeedsWelcomeWizard']();
 }
 
-export function PreviewVoiceSettings(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['app']['App']['PreviewVoiceSettings'](arg1, arg2, arg3, arg4, arg5, arg6);
+export function SpeakPreview(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['app']['App']['SpeakPreview'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
 export function PromoteTask(arg1) {

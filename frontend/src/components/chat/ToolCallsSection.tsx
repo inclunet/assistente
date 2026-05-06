@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, LoadingOutlined, SettingOutlined, ToolOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import type { ToolCallStatus } from '../../types/chat';
 import { formatDuration } from '../../utils/format';
 import './ToolCallsSection.css';
 
@@ -28,17 +29,6 @@ export interface ParsedToolCall {
   duration_ms?: number;
 }
 
-/**
- * Status de uma tool call em execução (durante streaming)
- */
-export interface ToolCallStatus {
-  name: string;
-  callId: string;
-  args?: string;
-  status: 'running' | 'done' | 'error';
-  summary?: string;
-}
-
 interface ToolCallsSectionProps {
   /** JSON string de tool_calls (do campo toolCalls da mensagem consolidada) */
   toolCallsJson?: string;
@@ -48,6 +38,43 @@ interface ToolCallsSectionProps {
 
 /** Limite de caracteres para exibir resultado truncado */
 const RESULT_PREVIEW_LENGTH = 300;
+const LARGE_TOOL_CALLS_JSON_LENGTH = 8_000;
+
+function countTopLevelArrayItems(raw: string): number {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return 0;
+  let depth = 0;
+  let count = 0;
+  let inString = false;
+  let escaped = false;
+  for (const char of trimmed) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') {
+      if (depth === 1) count += 1;
+      depth += 1;
+      continue;
+    }
+    if (char === '}' && depth > 0) {
+      depth -= 1;
+      continue;
+    }
+    if (char === '[') depth += 1;
+    if (char === ']' && depth > 0) depth -= 1;
+  }
+  return depth === 0 && !inString && !escaped ? count : 0;
+}
 
 /**
  * ToolCallsSection renderiza indicadores de ferramentas chamadas pelo assistente.
@@ -63,10 +90,14 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
+  const shouldDeferSavedParsing = !!toolCallsJson && toolCallsJson.length > LARGE_TOOL_CALLS_JSON_LENGTH && !isExpanded;
+  const deferredToolCount = shouldDeferSavedParsing && toolCallsJson
+    ? countTopLevelArrayItems(toolCallsJson)
+    : 0;
 
   // Parseia tool calls do JSON (modo histórico)
   let parsedCalls: ParsedToolCall[] = [];
-  if (toolCallsJson) {
+  if (toolCallsJson && !shouldDeferSavedParsing) {
     try {
       parsedCalls = JSON.parse(toolCallsJson);
     } catch {
@@ -76,11 +107,11 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
 
   // Determina quais calls mostrar
   const hasActiveCalls = activeToolCalls && activeToolCalls.length > 0;
-  const hasSavedCalls = parsedCalls.length > 0;
+  const hasSavedCalls = parsedCalls.length > 0 || deferredToolCount > 0;
 
   if (!hasActiveCalls && !hasSavedCalls) return null;
 
-  const toolCount = hasActiveCalls ? activeToolCalls!.length : parsedCalls.length;
+  const toolCount = hasActiveCalls ? activeToolCalls!.length : Math.max(parsedCalls.length, deferredToolCount);
   const isRunning = hasActiveCalls && activeToolCalls!.some(tc => tc.status === 'running');
 
   const handleToggle = () => setIsExpanded(!isExpanded);
@@ -107,7 +138,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
   // Nomes das tools para exibição rápida
   const toolNames = hasActiveCalls
     ? activeToolCalls!.map(tc => tc.name)
-    : parsedCalls.map(tc => tc.function.name);
+    : shouldDeferSavedParsing ? [t('chat.toolDetails')] : parsedCalls.map(tc => tc.function.name);
 
   const uniqueNames = [...new Set(toolNames)];
   const summaryText = isRunning

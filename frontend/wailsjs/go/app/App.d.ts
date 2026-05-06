@@ -215,6 +215,8 @@ export function GetConversationChannel(arg1:string):Promise<string>;
 
 export function GetConversationInfo(arg1:string):Promise<database.Conversation>;
 
+export function GetConversationMessageWindow(arg1:main.MessageWindowRequest):Promise<main.MessageWindow>;
+
 export function GetConversationSummary(arg1:string):Promise<main.ConversationSummaryInfo>;
 
 export function GetConversationTokenStats(arg1:string):Promise<main.TokenStatsResult>;
@@ -243,6 +245,8 @@ export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
 
 export function GetSpeechProviders():Promise<Array<llm.ProviderConfig>>;
 
+export function GetTTSModels(arg1:string):Promise<Array<speech.TTSModelInfo>>;
+
 export function GetTTSVoices(arg1:string,arg2:string):Promise<Array<speech.TTSVoiceInfo>>;
 
 export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
@@ -263,7 +267,11 @@ export function GetMessageAudio(arg1:string):Promise<main.AudioResult>;
 
 export function GetMessageChildren(arg1:string):Promise<Array<main.MessageNode>>;
 
+export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<main.MessageNode>>;
+
 export function GetMessages(arg1:string,arg2:any):Promise<Array<main.MessageNode>>;
+
+export function GetMessagesBefore(arg1:string,arg2:string,arg3:number):Promise<Array<main.MessageNode>>;
 
 export function GetMessagingStatus():Promise<Record<string, string>>;
 
@@ -357,7 +365,7 @@ export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Wo
 
 export function NeedsWelcomeWizard():Promise<boolean>;
 
-export function PreviewVoiceSettings(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number,arg6:string):Promise<void>;
+export function SpeakPreview(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number,arg6:string,arg7:string,arg8:string):Promise<void>;
 
 export function PromoteTask(arg1:string):Promise<void>;
 

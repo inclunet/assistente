@@ -111,6 +111,7 @@ func Init() error {
 
 	ensureTaskNoteExternalUniqueIndex()
 	ensureTaskListSlugUniqueIndex()
+	ensureChatMessageWindowIndex()
 
 	// Normalizar campos booleanos: SQLite armazena bool como INTEGER 0/1,
 	// mas valores corrompidos (ex: 4) causam erro no GORM Scan.
@@ -474,7 +475,27 @@ func AddAssistantToolMessage(conversationID string, turnID string, content, tool
 // GetTurnMessages retorna todas as mensagens de um turno (mesmo TurnID), ordenadas por criação.
 func GetTurnMessages(turnID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("turn_id = ?", turnID).Order("created_at ASC").Find(&messages).Error
+	err := db.Where("turn_id = ?", turnID).Order("created_at ASC, id ASC").Find(&messages).Error
+	return messages, err
+}
+
+// GetMessagesByTurnID retorna mensagens de um turno específico.
+// Mantém o mesmo escopo de parent da janela para não misturar raiz e threads.
+func GetMessagesByTurnID(conversationID string, parentID *string, turnID string, limit int) ([]ChatMessage, error) {
+	if turnID == "" {
+		return []ChatMessage{}, nil
+	}
+	query := db.Where("conversation_id = ? AND turn_id = ?", conversationID, turnID)
+	if parentID != nil {
+		query = query.Where("parent_id = ?", *parentID)
+	} else {
+		query = query.Where("parent_id IS NULL")
+	}
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	var messages []ChatMessage
+	err := query.Order("created_at ASC, id ASC").Find(&messages).Error
 	return messages, err
 }
 
@@ -532,7 +553,7 @@ func ClearAllConversations() error {
 // GetMessages retorna mensagens de uma conversa com filtro opcional por parent
 func GetMessages(conversationID string, parentID *string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	query := db.Order("created_at ASC")
+	query := db.Order("created_at ASC, id ASC")
 
 	if parentID != nil {
 		query = query.Where("parent_id = ?", *parentID)
@@ -547,10 +568,318 @@ func GetMessages(conversationID string, parentID *string) ([]ChatMessage, error)
 	return messages, err
 }
 
+// GetRecentRootMessages retorna as mensagens raiz mais recentes de uma conversa,
+// preservando ordem cronológica no retorno.
+func GetRecentRootMessages(conversationID string, limit int) ([]ChatMessage, error) {
+	if conversationID == "" {
+		return nil, fmt.Errorf("conversationID é obrigatório para buscar mensagens recentes")
+	}
+	if limit <= 0 {
+		return []ChatMessage{}, nil
+	}
+
+	var messages []ChatMessage
+	err := db.Where("conversation_id = ? AND parent_id IS NULL", conversationID).
+		Order("created_at DESC, id DESC").
+		Limit(limit).
+		Find(&messages).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+	return messages, nil
+}
+
+// GetRootMessagesBefore retorna mensagens raiz anteriores a beforeID,
+// preservando ordem cronológica no retorno.
+func GetRootMessagesBefore(conversationID string, beforeID string, limit int) ([]ChatMessage, error) {
+	if conversationID == "" {
+		return nil, fmt.Errorf("conversationID é obrigatório para buscar mensagens anteriores")
+	}
+	if beforeID == "" {
+		return nil, fmt.Errorf("beforeID é obrigatório para buscar mensagens anteriores")
+	}
+	if limit <= 0 {
+		return []ChatMessage{}, nil
+	}
+
+	var before ChatMessage
+	if err := db.Select("id", "created_at").First(&before, "id = ? AND conversation_id = ?", beforeID, conversationID).Error; err != nil {
+		return nil, err
+	}
+
+	var messages []ChatMessage
+	err := db.Where(
+		"conversation_id = ? AND parent_id IS NULL AND (created_at < ? OR (created_at = ? AND id < ?))",
+		conversationID,
+		before.CreatedAt,
+		before.CreatedAt,
+		before.ID,
+	).
+		Order("created_at DESC, id DESC").
+		Limit(limit).
+		Find(&messages).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+	return messages, nil
+}
+
+type MessageWindowQuery struct {
+	ConversationID  string
+	ParentID        *string
+	Anchor          string
+	AnchorMessageID string
+	Direction       string
+	Limit           int
+}
+
+type MessageWindowResult struct {
+	Messages   []ChatMessage
+	TotalCount int
+	StartIndex int
+	EndIndex   int
+	HasBefore  bool
+	HasAfter   bool
+}
+
+const (
+	MaxMessageWindowRows = 240
+
+	messageWindowAnchorStart = "start"
+	messageWindowAnchorEnd   = "end"
+
+	messageWindowDirectionBefore = "before"
+	messageWindowDirectionAfter  = "after"
+	messageWindowDirectionAround = "around"
+)
+
+func normalizeMessageWindowLimit(limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	if limit > MaxMessageWindowRows {
+		return MaxMessageWindowRows
+	}
+	return limit
+}
+
+func normalizeMessageWindowCursor(query MessageWindowQuery) (anchor string, direction string, err error) {
+	anchor = strings.TrimSpace(query.Anchor)
+	direction = strings.TrimSpace(query.Direction)
+	if direction == "" {
+		direction = messageWindowDirectionBefore
+	}
+	if anchor != "" && anchor != messageWindowAnchorStart && anchor != messageWindowAnchorEnd {
+		return "", "", fmt.Errorf("anchor de janela de mensagens inválido: %s", query.Anchor)
+	}
+	if direction != messageWindowDirectionBefore &&
+		direction != messageWindowDirectionAfter &&
+		direction != messageWindowDirectionAround {
+		return "", "", fmt.Errorf("direction de janela de mensagens inválido: %s", query.Direction)
+	}
+	if anchor != "" && query.AnchorMessageID != "" {
+		return "", "", fmt.Errorf("anchor e anchorMessageId são mutuamente exclusivos")
+	}
+	if anchor == messageWindowAnchorStart && direction == messageWindowDirectionBefore {
+		return "", "", fmt.Errorf("anchor=start não aceita direction=before")
+	}
+	if anchor == messageWindowAnchorEnd && direction == messageWindowDirectionAfter {
+		return "", "", fmt.Errorf("anchor=end não aceita direction=after")
+	}
+	if direction == messageWindowDirectionAround && query.AnchorMessageID == "" {
+		return "", "", fmt.Errorf("direction=around exige anchorMessageId")
+	}
+	return anchor, direction, nil
+}
+
+func messageScopeQuery(conversationID string, parentID *string) *gorm.DB {
+	query := db.Model(&ChatMessage{}).Where("conversation_id = ?", conversationID)
+	if parentID != nil {
+		return query.Where("parent_id = ?", *parentID)
+	}
+	return query.Where("parent_id IS NULL")
+}
+
+func countMessagesBeforeAnchor(baseQuery *gorm.DB, anchor ChatMessage) (int, error) {
+	var count int64
+	err := baseQuery.
+		Where("(created_at < ? OR (created_at = ? AND id < ?))", anchor.CreatedAt, anchor.CreatedAt, anchor.ID).
+		Count(&count).Error
+	return int(count), err
+}
+
+func reverseChatMessages(messages []ChatMessage) {
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+}
+
+// GetMessageWindow retorna uma fatia ordenada de mensagens raiz ou filhos diretos,
+// acompanhada de metadados absolutos para renderização acessível e navegação incremental.
+func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
+	if query.ConversationID == "" {
+		return nil, fmt.Errorf("conversationID é obrigatório para buscar janela de mensagens")
+	}
+	anchor, direction, err := normalizeMessageWindowCursor(query)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := normalizeMessageWindowLimit(query.Limit)
+	baseQuery := messageScopeQuery(query.ConversationID, query.ParentID)
+	var totalCount int64
+	if err := baseQuery.Count(&totalCount).Error; err != nil {
+		return nil, err
+	}
+	if limit == 0 {
+		return &MessageWindowResult{
+			Messages:   []ChatMessage{},
+			TotalCount: int(totalCount),
+			StartIndex: 0,
+			EndIndex:   -1,
+			HasBefore:  false,
+			HasAfter:   totalCount > 0,
+		}, nil
+	}
+	if totalCount == 0 {
+		return &MessageWindowResult{
+			Messages:   []ChatMessage{},
+			TotalCount: 0,
+			StartIndex: 0,
+			EndIndex:   -1,
+		}, nil
+	}
+
+	total := int(totalCount)
+	startIndex := 0
+	windowLimit := limit
+	var anchorMessage ChatMessage
+	hasAnchorMessage := false
+
+	switch {
+	case query.AnchorMessageID != "":
+		if err := db.
+			Select("id", "conversation_id", "parent_id", "created_at").
+			First(&anchorMessage, "id = ? AND conversation_id = ?", query.AnchorMessageID, query.ConversationID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("anchorMessageId inválido: %s", query.AnchorMessageID)
+			}
+			return nil, err
+		}
+		hasAnchorMessage = true
+		if query.ParentID == nil && anchorMessage.ParentID != nil {
+			return nil, fmt.Errorf("anchorMessageId não pertence à janela raiz da conversa")
+		}
+		if query.ParentID != nil && (anchorMessage.ParentID == nil || *anchorMessage.ParentID != *query.ParentID) {
+			return nil, fmt.Errorf("anchorMessageId não pertence à thread solicitada")
+		}
+		anchorIndex, err := countMessagesBeforeAnchor(messageScopeQuery(query.ConversationID, query.ParentID), anchorMessage)
+		if err != nil {
+			return nil, err
+		}
+		switch direction {
+		case "after":
+			startIndex = anchorIndex + 1
+		case "around":
+			startIndex = anchorIndex - (limit / 2)
+		default:
+			startIndex = anchorIndex - limit
+			if anchorIndex < windowLimit {
+				windowLimit = anchorIndex
+			}
+		}
+	case anchor == "start" || direction == "after":
+		startIndex = 0
+	default:
+		startIndex = total - limit
+	}
+
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	if startIndex > total {
+		startIndex = total
+	}
+	if direction == "around" && windowLimit > 0 && startIndex+windowLimit > total {
+		startIndex = total - windowLimit
+		if startIndex < 0 {
+			startIndex = 0
+		}
+	}
+	if startIndex+windowLimit > total {
+		windowLimit = total - startIndex
+	}
+	if windowLimit < 0 {
+		windowLimit = 0
+	}
+
+	var messages []ChatMessage
+	if windowLimit > 0 {
+		var err error
+		switch {
+		case hasAnchorMessage && direction == "before":
+			err = messageScopeQuery(query.ConversationID, query.ParentID).
+				Where("(created_at < ? OR (created_at = ? AND id < ?))", anchorMessage.CreatedAt, anchorMessage.CreatedAt, anchorMessage.ID).
+				Order("created_at DESC, id DESC").
+				Limit(windowLimit).
+				Find(&messages).Error
+			reverseChatMessages(messages)
+		case hasAnchorMessage && direction == "after":
+			err = messageScopeQuery(query.ConversationID, query.ParentID).
+				Where("(created_at > ? OR (created_at = ? AND id > ?))", anchorMessage.CreatedAt, anchorMessage.CreatedAt, anchorMessage.ID).
+				Order("created_at ASC, id ASC").
+				Limit(windowLimit).
+				Find(&messages).Error
+		case !hasAnchorMessage && (anchor == "start" || direction == "after"):
+			err = messageScopeQuery(query.ConversationID, query.ParentID).
+				Order("created_at ASC, id ASC").
+				Limit(windowLimit).
+				Find(&messages).Error
+		case !hasAnchorMessage:
+			err = messageScopeQuery(query.ConversationID, query.ParentID).
+				Order("created_at DESC, id DESC").
+				Limit(windowLimit).
+				Find(&messages).Error
+			reverseChatMessages(messages)
+		default:
+			err = messageScopeQuery(query.ConversationID, query.ParentID).
+				Order("created_at ASC, id ASC").
+				Offset(startIndex).
+				Limit(windowLimit).
+				Find(&messages).Error
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	endIndex := startIndex + len(messages) - 1
+	if len(messages) == 0 {
+		endIndex = -1
+	}
+
+	return &MessageWindowResult{
+		Messages:   messages,
+		TotalCount: total,
+		StartIndex: startIndex,
+		EndIndex:   endIndex,
+		HasBefore:  startIndex > 0,
+		HasAfter:   (endIndex >= 0 && endIndex < total-1) || (len(messages) == 0 && startIndex < total),
+	}, nil
+}
+
 // GetAllConversationMessages retorna todas as mensagens de uma conversa (incluindo filhas)
 func GetAllConversationMessages(conversationID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("conversation_id = ?", conversationID).Order("created_at ASC").Find(&messages).Error
+	err := db.Where("conversation_id = ?", conversationID).Order("created_at ASC, id ASC").Find(&messages).Error
 	return messages, err
 }
 
@@ -1249,4 +1578,11 @@ func ensureTaskNoteExternalUniqueIndex() {
 		return
 	}
 	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_notes_external_source_id ON task_notes (external_source, external_id) WHERE external_source <> '' AND external_id <> ''`)
+}
+
+func ensureChatMessageWindowIndex() {
+	if db == nil {
+		return
+	}
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_window ON chat_messages (conversation_id, parent_id, created_at, id)`)
 }

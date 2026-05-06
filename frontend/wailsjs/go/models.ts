@@ -1187,6 +1187,10 @@ export namespace llm {
 	    activeFilePath?: string;
 	    surfaceStateJson?: string;
 	    surfaceContextJson?: string;
+	    surfaceSessionKey?: string;
+	    surfaceId?: string;
+	    surfaceType?: string;
+	    surfaceTabId?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatParams(source);
@@ -1207,6 +1211,10 @@ export namespace llm {
 	        this.activeFilePath = source["activeFilePath"];
 	        this.surfaceStateJson = source["surfaceStateJson"];
 	        this.surfaceContextJson = source["surfaceContextJson"];
+	        this.surfaceSessionKey = source["surfaceSessionKey"];
+	        this.surfaceId = source["surfaceId"];
+	        this.surfaceType = source["surfaceType"];
+	        this.surfaceTabId = source["surfaceTabId"];
 	    }
 	}
 	export class FunctionCall {
@@ -1564,6 +1572,7 @@ export namespace main {
 	    children?: MessageNode[];
 	    level: number;
 	    childCount: number;
+	    originalIndex?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageNode(source);
@@ -1575,6 +1584,77 @@ export namespace main {
 	        this.children = this.convertValues(source["children"], MessageNode);
 	        this.level = source["level"];
 	        this.childCount = source["childCount"];
+	        this.originalIndex = source["originalIndex"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MessageWindowRequest {
+	    scope: string;
+	    conversationId: string;
+	    threadParentId?: string;
+	    anchor?: string;
+	    anchorMessageId?: string;
+	    direction: string;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessageWindowRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.conversationId = source["conversationId"];
+	        this.threadParentId = source["threadParentId"];
+	        this.anchor = source["anchor"];
+	        this.anchorMessageId = source["anchorMessageId"];
+	        this.direction = source["direction"];
+	        this.limit = source["limit"];
+	    }
+	}
+	export class MessageWindow {
+	    scope: string;
+	    conversationId: string;
+	    threadParentId?: string;
+	    nodes: MessageNode[];
+	    totalCount: number;
+	    startIndex: number;
+	    endIndex: number;
+	    hasBefore: boolean;
+	    hasAfter: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessageWindow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.conversationId = source["conversationId"];
+	        this.threadParentId = source["threadParentId"];
+	        this.nodes = this.convertValues(source["nodes"], MessageNode);
+	        this.totalCount = source["totalCount"];
+	        this.startIndex = source["startIndex"];
+	        this.endIndex = source["endIndex"];
+	        this.hasBefore = source["hasBefore"];
+	        this.hasAfter = source["hasAfter"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2721,6 +2801,7 @@ export namespace profiles {
 	    llm_provider_id?: string;
 	    voice_id?: string;
 	    model?: string;
+	    selection_mode?: string;
 	    rate: number;
 	    pitch: number;
 	    volume: number;
@@ -2736,6 +2817,7 @@ export namespace profiles {
 	        this.llm_provider_id = source["llm_provider_id"];
 	        this.voice_id = source["voice_id"];
 	        this.model = source["model"];
+	        this.selection_mode = source["selection_mode"];
 	        this.rate = source["rate"];
 	        this.pitch = source["pitch"];
 	        this.volume = source["volume"];
@@ -3507,6 +3589,7 @@ export namespace speech {
 	    description: string;
 	    gender: string;
 	    provider: string;
+	    model_id?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new TTSVoiceInfo(source);
@@ -3519,6 +3602,27 @@ export namespace speech {
 	        this.description = source["description"];
 	        this.gender = source["gender"];
 	        this.provider = source["provider"];
+	        this.model_id = source["model_id"];
+	    }
+	}
+	export class TTSModelInfo {
+	    id: string;
+	    name: string;
+	    description?: string;
+	    provider: string;
+	    selection_mode: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TTSModelInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.provider = source["provider"];
+	        this.selection_mode = source["selection_mode"];
 	    }
 	}
 

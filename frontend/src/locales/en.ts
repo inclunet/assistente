@@ -73,6 +73,8 @@ const en = {
       assistant: 'Assistant',
       system: 'System',
       reading: 'Reading',
+      sent: 'sent',
+      received: 'received',
       via: 'Via',
       stopAudio: 'Stop audio',
       playAudio: 'Play audio',
@@ -114,6 +116,9 @@ const en = {
       thinking: 'Thinking...',
       characters: 'characters',
       lines: 'lines',
+      largeMessageDeferred: 'Large content will render when it enters the visible area.',
+      loadOlderMessages: 'Load earlier messages',
+      loadingOlderMessages: 'Loading earlier messages...',
       modelThinking: 'The model is thinking',
       modelReasoning: 'Model reasoning',
       reasoning: 'Reasoning',
@@ -133,6 +138,10 @@ const en = {
       toolRetrying: 'Tool {{name}} failed, retrying...',
       toolRunning: 'Running tool: {{name}}',
       toolDone: 'Tool {{name}} completed',
+      queue: {
+        pending_one: '{{count}} turn queued',
+        pending_other: '{{count}} turns queued',
+      },
       validation: {
         messageTooLarge: 'Message too large ({{size}} bytes). Maximum allowed: {{max}} bytes',
         mediaTooLarge: 'Media files too large (~{{size}}MB). Maximum allowed: {{max}}MB',
@@ -140,6 +149,8 @@ const en = {
       errors: {
         noActiveConversation:
           'No active conversation. Open a chat tab or wait for the workspace to finish syncing.',
+        tabCannotSend: 'The active tab does not support sending messages.',
+        chatTabNotReady: 'The chat tab conversation is not ready yet.',
       },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',
@@ -177,6 +188,7 @@ const en = {
       announce: {
         assistantResponding: 'Assistant is responding',
         modelThinking: 'The model is thinking...',
+        backgroundResponseDone: 'Tab {{title}} finished responding',
         messageDeleted: 'Message deleted',
         deleteCancelled: 'Deletion canceled',
         messageResent: 'Message resent',
@@ -188,6 +200,11 @@ const en = {
         cannotGenerateAudio: 'Could not generate audio. Check the voice settings in the active profile.',
         audioDownloaded: 'Audio downloaded successfully',
         audioError: 'Error generating audio',
+        conversationDeletedPermanently: 'Conversation permanently deleted',
+        conversationMessagesRemoved: 'Conversation messages removed',
+        databaseReset: 'Database reset. Conversations reinitialized.',
+        externalMessage: '{{from}} via {{channel}}: {{message}}',
+        messageWindowLoaded: 'Messages {{start}} to {{end}} of {{total}} loaded',
       },
       contextMenuAriaLabel: 'Message actions',
     },
@@ -209,6 +226,10 @@ const en = {
       wakeHint: 'Wake',
       processingTranscription: 'Processing transcription...',
       processing: 'Processing...',
+    },
+
+    voiceAccessibility: {
+      inactiveAnnouncement: '{{title}}: {{message}}',
     },
 
     tokenStats: {
@@ -602,6 +623,7 @@ const en = {
         mergeConflict: 'Conflict opened for manual merge (Git style). Resolve the markers and use Save to write to the actual file.',
         externalChange: 'File changed outside the Assistant. Autosave paused until you decide.',
         reloaded: 'Reloaded from disk',
+        externalReloaded: 'File reloaded from disk (external change)',
         savedAs: 'Saved to new file',
         overwritten: 'Overwritten on disk',
         fileModified: 'File was modified outside the Assistant. Choose how to resolve.',
@@ -717,6 +739,7 @@ const en = {
         requestChangeError: 'Error requesting a change from chat',
         insertExhausted: 'Could not insert into the editor (attempts exhausted). Open the Editor and try again.',
         openOriginalTabToApply: 'Open the original editor tab to apply this change.',
+        editorTabNotFound: 'Editor tab not found to apply the change.',
         selectionChangedRetry: 'The selected text changed since you opened chat. Reselect it and try again.',
         patchApplied: 'Change applied',
         richEditorNotReady: 'Rich editor is not ready.',
@@ -809,6 +832,9 @@ const en = {
         systemHelp: 'Follows the System voice',
       },
       voiceSection: {
+        modelLabel: 'TTS model',
+        modelPlaceholder: 'Select a model',
+        modelHelp: 'Choose the TTS model before the voice. Piper models use only the model.',
         voiceLabel: 'Voice',
         voiceHelp: 'Select the voice for speech synthesis',
         rateLabel: 'Speed',

@@ -44,7 +44,7 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import { profiles } from '../../wailsjs/go/models';
 import { playSound, SOUND_TYPES } from '../services/audioFeedback';
 import { ttsService, type RoleVoiceConfig } from '../services/tts';
-import { TTSProvider } from '../services/tts/types';
+import { TTSProvider, type TTSSelectionMode } from '../services/tts/types';
 
 // Tipos re-exportados do novo sistema de perfis
 type Profile = profiles.Profile;
@@ -515,10 +515,15 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       }
 
       // Configura voice configs por role para speakAsRole()
-      const makeRoleConfig = (voice: { provider?: string; llm_provider_id?: string; voice_id?: string; model?: string; rate?: number; pitch?: number; volume?: number } | undefined): RoleVoiceConfig => ({
+      const normalizeSelectionMode = (mode?: string): TTSSelectionMode | undefined => (
+        mode === 'model_and_voice' || mode === 'model_only' ? mode : undefined
+      );
+
+      const makeRoleConfig = (voice: { provider?: string; llm_provider_id?: string; voice_id?: string; model?: string; selection_mode?: string; rate?: number; pitch?: number; volume?: number } | undefined): RoleVoiceConfig => ({
         providerId: resolveProviderId(voice),
         voiceId: voice?.voice_id || '',
         model: voice?.model || '',
+        selectionMode: normalizeSelectionMode(voice?.selection_mode),
         rate: voice?.rate || 1.0,
         pitch: voice?.pitch || 1.0,
         volume: voice?.volume || 1.0,

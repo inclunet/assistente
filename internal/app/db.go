@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -53,6 +55,10 @@ func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.Messa
 		return nil, err
 	}
 
+	return buildMessageNodes(messages, parentID), nil
+}
+
+func buildMessageNodes(messages []database.ChatMessage, parentID *string) []chat.MessageNode {
 	msgIDs := make([]string, len(messages))
 	for i, msg := range messages {
 		msgIDs[i] = msg.ID
@@ -61,8 +67,210 @@ func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.Messa
 	if err != nil {
 		childCounts = make(map[string]int)
 	}
+	return chat.BuildMessageNodes(messages, childCounts, parentID)
+}
 
-	return chat.BuildMessageNodes(messages, childCounts, parentID), nil
+func assignMessageNodeOriginalIndexes(nodes []chat.MessageNode, indexesByID map[string]int) []chat.MessageNode {
+	if len(indexesByID) == 0 {
+		return nodes
+	}
+	for i := range nodes {
+		if index, ok := indexesByID[nodes[i].Message.ID]; ok {
+			value := index
+			nodes[i].OriginalIndex = &value
+		}
+		if len(nodes[i].Children) > 0 {
+			nodes[i].Children = assignMessageNodeOriginalIndexes(nodes[i].Children, indexesByID)
+		}
+	}
+	return nodes
+}
+
+func expandWindowTurnMessages(conversationID string, parentID *string, messages []database.ChatMessage, maxRows int) ([]database.ChatMessage, error) {
+	turnIDs := make([]string, 0)
+	seenTurns := make(map[string]bool)
+	addBoundaryTurn := func(message database.ChatMessage) {
+		if message.TurnID == nil || *message.TurnID == "" || seenTurns[*message.TurnID] {
+			return
+		}
+		seenTurns[*message.TurnID] = true
+		turnIDs = append(turnIDs, *message.TurnID)
+	}
+	if len(messages) > 0 {
+		addBoundaryTurn(messages[0])
+		addBoundaryTurn(messages[len(messages)-1])
+	}
+	if len(turnIDs) == 0 {
+		return messages, nil
+	}
+	if maxRows <= len(messages) {
+		return messages, nil
+	}
+	byID := make(map[string]database.ChatMessage, maxRows)
+	for _, message := range messages {
+		byID[message.ID] = message
+	}
+	for _, turnID := range turnIDs {
+		turnMessages, err := database.GetMessagesByTurnID(conversationID, parentID, turnID, maxRows+1)
+		if err != nil {
+			return nil, err
+		}
+		missingCount := 0
+		for _, message := range turnMessages {
+			if _, ok := byID[message.ID]; !ok {
+				missingCount++
+			}
+		}
+		if len(byID)+missingCount <= maxRows {
+			for _, message := range turnMessages {
+				byID[message.ID] = message
+			}
+			continue
+		}
+		for _, message := range turnMessages {
+			if len(byID) >= maxRows {
+				break
+			}
+			if message.Role == "tool" {
+				continue
+			}
+			byID[message.ID] = message
+		}
+	}
+	expanded := make([]database.ChatMessage, 0, len(byID))
+	for _, message := range byID {
+		expanded = append(expanded, message)
+	}
+	sort.Slice(expanded, func(i, j int) bool {
+		if expanded[i].CreatedAt.Equal(expanded[j].CreatedAt) {
+			return expanded[i].ID < expanded[j].ID
+		}
+		return expanded[i].CreatedAt.Before(expanded[j].CreatedAt)
+	})
+	return expanded, nil
+}
+
+// GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
+func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.MessageNode, error) {
+	messages, err := database.GetRecentRootMessages(conversationID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return buildMessageNodes(messages, nil), nil
+}
+
+// GetMessagesBefore retorna mensagens raiz anteriores ao cursor informado.
+func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit int) ([]chat.MessageNode, error) {
+	messages, err := database.GetRootMessagesBefore(conversationID, beforeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return buildMessageNodes(messages, nil), nil
+}
+
+// GetConversationMessageWindow é a API canônica de carregamento incremental de mensagens.
+// Ela cobre conversa raiz e filhos diretos de thread com o mesmo contrato total-aware.
+func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat.MessageWindow, error) {
+	conversationID := strings.TrimSpace(req.ConversationID)
+	if conversationID == "" {
+		return nil, fmt.Errorf("conversationId é obrigatório")
+	}
+	scope := strings.TrimSpace(req.Scope)
+	if scope == "" {
+		scope = chat.MessageWindowScopeConversation
+	}
+	if scope != chat.MessageWindowScopeConversation && scope != chat.MessageWindowScopeThread {
+		return nil, fmt.Errorf("scope de janela de mensagens inválido: %s", req.Scope)
+	}
+	if req.Limit <= 0 {
+		return nil, fmt.Errorf("limit deve ser maior que zero")
+	}
+	limit := req.Limit
+	if limit > database.MaxMessageWindowRows {
+		limit = database.MaxMessageWindowRows
+	}
+
+	anchor := strings.TrimSpace(req.Anchor)
+	anchorMessageID := strings.TrimSpace(req.AnchorMessageID)
+	direction := strings.TrimSpace(req.Direction)
+	if direction == "" {
+		direction = chat.MessageWindowDirectionBefore
+	}
+	if direction != chat.MessageWindowDirectionBefore &&
+		direction != chat.MessageWindowDirectionAfter &&
+		direction != chat.MessageWindowDirectionAround {
+		return nil, fmt.Errorf("direction de janela de mensagens inválido: %s", req.Direction)
+	}
+	if anchor != "" &&
+		anchor != chat.MessageWindowAnchorStart &&
+		anchor != chat.MessageWindowAnchorEnd {
+		return nil, fmt.Errorf("anchor de janela de mensagens inválido: %s", req.Anchor)
+	}
+	if anchor != "" && anchorMessageID != "" {
+		return nil, fmt.Errorf("anchor e anchorMessageId são mutuamente exclusivos")
+	}
+	if anchor == chat.MessageWindowAnchorStart && direction == chat.MessageWindowDirectionBefore {
+		return nil, fmt.Errorf("anchor=start não aceita direction=before")
+	}
+	if anchor == chat.MessageWindowAnchorEnd && direction == chat.MessageWindowDirectionAfter {
+		return nil, fmt.Errorf("anchor=end não aceita direction=after")
+	}
+	if direction == chat.MessageWindowDirectionAround && anchorMessageID == "" {
+		return nil, fmt.Errorf("direction=around exige anchorMessageId")
+	}
+
+	var parentID *string
+	threadParentID := ""
+	if scope == chat.MessageWindowScopeThread {
+		threadParentID = strings.TrimSpace(req.ThreadParentID)
+		if threadParentID == "" {
+			return nil, fmt.Errorf("threadParentId é obrigatório para scope=thread")
+		}
+		parentMessage, err := database.GetMessage(threadParentID)
+		if err != nil {
+			return nil, fmt.Errorf("threadParentId inválido: %w", err)
+		}
+		if parentMessage.ConversationID != conversationID {
+			return nil, fmt.Errorf("threadParentId não pertence à conversa solicitada")
+		}
+		if parentMessage.ParentID != nil {
+			return nil, fmt.Errorf("threadParentId deve apontar para uma mensagem raiz")
+		}
+		parentID = &threadParentID
+	}
+
+	window, err := database.GetMessageWindow(database.MessageWindowQuery{
+		ConversationID:  conversationID,
+		ParentID:        parentID,
+		Anchor:          anchor,
+		AnchorMessageID: anchorMessageID,
+		Direction:       direction,
+		Limit:           limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	originalIndexesByMessageID := make(map[string]int, len(window.Messages))
+	for index, message := range window.Messages {
+		originalIndexesByMessageID[message.ID] = window.StartIndex + index
+	}
+	messages, err := expandWindowTurnMessages(conversationID, parentID, window.Messages, database.MaxMessageWindowRows)
+	if err != nil {
+		return nil, err
+	}
+	nodes := assignMessageNodeOriginalIndexes(buildMessageNodes(messages, parentID), originalIndexesByMessageID)
+
+	return &chat.MessageWindow{
+		Scope:          scope,
+		ConversationID: conversationID,
+		ThreadParentID: threadParentID,
+		Nodes:          nodes,
+		TotalCount:     window.TotalCount,
+		StartIndex:     window.StartIndex,
+		EndIndex:       window.EndIndex,
+		HasBefore:      window.HasBefore,
+		HasAfter:       window.HasAfter,
+	}, nil
 }
 
 // GetConversationInfo retorna apenas metadados da conversa (sem mensagens)
@@ -239,9 +447,9 @@ func (a *App) GetAllTokenStats() (map[string]int, error) {
 // ==================== Rolling Context (Summary) ====================
 
 type ConversationSummaryInfo struct {
-	Summary              string `json:"summary"`
-	SummaryUpToMessageID string `json:"summary_up_to_message_id"`
-	SummarizingInProgress bool  `json:"summarizing_in_progress"`
+	Summary               string `json:"summary"`
+	SummaryUpToMessageID  string `json:"summary_up_to_message_id"`
+	SummarizingInProgress bool   `json:"summarizing_in_progress"`
 }
 
 func (a *App) GetConversationSummary(conversationID string) (*ConversationSummaryInfo, error) {
@@ -251,8 +459,8 @@ func (a *App) GetConversationSummary(conversationID string) (*ConversationSummar
 	}
 	inProgress, _ := database.IsSummarizingInProgress(conversationID)
 	return &ConversationSummaryInfo{
-		Summary:              summary,
-		SummaryUpToMessageID: upToID,
+		Summary:               summary,
+		SummaryUpToMessageID:  upToID,
 		SummarizingInProgress: inProgress,
 	}, nil
 }
@@ -320,5 +528,3 @@ func (a *App) GetEffectiveModel() (string, error) {
 	}
 	return cfg.DefaultModel, nil
 }
-
-
