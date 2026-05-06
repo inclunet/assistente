@@ -664,8 +664,8 @@ type MessageWindowItem struct {
 const (
 	MaxMessageWindowRows = 240
 
-	messageWindowItemKindMessage = "message"
-	messageWindowItemKindTurn    = "turn"
+	MessageWindowItemKindMessage = "message"
+	MessageWindowItemKindTurn    = "turn"
 
 	messageWindowAnchorStart = "start"
 	messageWindowAnchorEnd   = "end"
@@ -852,7 +852,7 @@ func fetchMessagesForTimelineItems(conversationID string, parentID *string, item
 	turnIDs := make([]string, 0)
 	messageIDs := make([]string, 0)
 	for _, item := range items {
-		if item.Kind == messageWindowItemKindTurn {
+		if item.Kind == MessageWindowItemKindTurn {
 			turnIDs = append(turnIDs, item.TurnID)
 		} else {
 			messageIDs = append(messageIDs, item.MessageID)
@@ -1713,4 +1713,5 @@ func ensureChatMessageWindowIndex() {
 		return
 	}
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_window ON chat_messages (conversation_id, parent_id, created_at, id)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_timeline_window ON chat_messages (conversation_id, parent_id, turn_id, created_at, id)`)
 }

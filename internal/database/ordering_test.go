@@ -500,13 +500,13 @@ func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
 	if len(window.Items) != 3 {
 		t.Fatalf("expected 3 selected items, got %d", len(window.Items))
 	}
-	if window.Items[0].Kind != "message" || window.Items[0].MessageID != user.ID {
+	if window.Items[0].Kind != MessageWindowItemKindMessage || window.Items[0].MessageID != user.ID {
 		t.Fatalf("expected first user message item, got %+v", window.Items[0])
 	}
-	if window.Items[1].Kind != "turn" || window.Items[1].TurnID != user.ID {
+	if window.Items[1].Kind != MessageWindowItemKindTurn || window.Items[1].TurnID != user.ID {
 		t.Fatalf("expected consolidated turn item, got %+v", window.Items[1])
 	}
-	if window.Items[2].Kind != "message" || window.Items[2].MessageID != nextUser.ID {
+	if window.Items[2].Kind != MessageWindowItemKindMessage || window.Items[2].MessageID != nextUser.ID {
 		t.Fatalf("expected next user message item, got %+v", window.Items[2])
 	}
 
@@ -555,6 +555,90 @@ func TestGetMessageWindow_AnchorInsideTurnPagesByWholeItem(t *testing.T) {
 	}
 	if len(window.Items) != 1 || window.Items[0].MessageID != nextUser.ID {
 		t.Fatalf("expected next item after turn, got %+v", window.Items)
+	}
+}
+
+func TestGetMessageWindow_BeforeAnchorInsideTurnPagesBeforeWholeItem(t *testing.T) {
+	setupOrderingTestDB(t)
+	conv, err := CreateConversation("timeline-anchor-before", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	beforeUser, err := AddMessage(conv.ID, "user", "pergunta anterior")
+	if err != nil {
+		t.Fatalf("create before user: %v", err)
+	}
+	user, err := AddMessage(conv.ID, "user", "pergunta")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	assistant, err := AddAssistantToolMessage(conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
+	if err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	if _, err := AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
+		t.Fatalf("create tool: %v", err)
+	}
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID:  conv.ID,
+		AnchorMessageID: assistant.ID,
+		Direction:       "before",
+		Limit:           2,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow: %v", err)
+	}
+	if window.StartIndex != 0 || window.EndIndex != 1 {
+		t.Fatalf("expected indices 0..1 before turn item, got %d..%d", window.StartIndex, window.EndIndex)
+	}
+	if len(window.Items) != 2 || window.Items[0].MessageID != beforeUser.ID || window.Items[1].MessageID != user.ID {
+		t.Fatalf("expected item before whole turn, got %+v", window.Items)
+	}
+}
+
+func TestGetMessageWindow_AroundAnchorInsideToolCentersWholeTurn(t *testing.T) {
+	setupOrderingTestDB(t)
+	conv, err := CreateConversation("timeline-anchor-around", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if _, err := AddMessage(conv.ID, "user", "pergunta anterior"); err != nil {
+		t.Fatalf("create before user: %v", err)
+	}
+	user, err := AddMessage(conv.ID, "user", "pergunta")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if _, err := AddAssistantToolMessage(conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", ""); err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	tool, err := AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1")
+	if err != nil {
+		t.Fatalf("create tool: %v", err)
+	}
+	nextUser, err := AddMessage(conv.ID, "user", "pergunta seguinte")
+	if err != nil {
+		t.Fatalf("create next user: %v", err)
+	}
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID:  conv.ID,
+		AnchorMessageID: tool.ID,
+		Direction:       "around",
+		Limit:           3,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow: %v", err)
+	}
+	if window.StartIndex != 1 || window.EndIndex != 3 {
+		t.Fatalf("expected indices 1..3 around turn item, got %d..%d", window.StartIndex, window.EndIndex)
+	}
+	if len(window.Items) != 3 {
+		t.Fatalf("expected 3 timeline items, got %+v", window.Items)
+	}
+	if window.Items[0].MessageID != user.ID || window.Items[1].TurnID != user.ID || window.Items[2].MessageID != nextUser.ID {
+		t.Fatalf("expected user, whole turn, next user; got %+v", window.Items)
 	}
 }
 

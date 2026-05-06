@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"assistente/internal/chat"
@@ -94,7 +95,7 @@ func messageTimelineItemKey(message database.ChatMessage) string {
 }
 
 func timelineWindowItemKey(item database.MessageWindowItem) string {
-	if item.Kind == "turn" {
+	if item.Kind == database.MessageWindowItemKindTurn {
 		return "turn:" + item.TurnID
 	}
 	return "message:" + item.MessageID
@@ -107,10 +108,13 @@ func parseToolCalls(raw string) []map[string]interface{} {
 	var calls []map[string]interface{}
 	if err := json.Unmarshal([]byte(raw), &calls); err == nil {
 		return calls
-	}
-	var call map[string]interface{}
-	if err := json.Unmarshal([]byte(raw), &call); err == nil {
-		return []map[string]interface{}{call}
+	} else {
+		var call map[string]interface{}
+		if singleErr := json.Unmarshal([]byte(raw), &call); singleErr == nil {
+			return []map[string]interface{}{call}
+		} else {
+			log.Printf("[Chat] tool_calls JSON inválido descartado: array=%v object=%v", err, singleErr)
+		}
 	}
 	return nil
 }
@@ -126,7 +130,8 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 		}
 	}
 
-	consolidated := messages[len(messages)-1]
+	consolidated := messages[0]
+	hasAssistant := false
 	finalContent := ""
 	finalReasoning := ""
 	allToolCalls := make([]map[string]interface{}, 0)
@@ -134,6 +139,7 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 		if message.Role != "assistant" {
 			continue
 		}
+		hasAssistant = true
 		consolidated = message
 		if message.Content != "" {
 			finalContent = message.Content
@@ -150,6 +156,9 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 			}
 			allToolCalls = append(allToolCalls, call)
 		}
+	}
+	if !hasAssistant {
+		return consolidated
 	}
 	consolidated.Content = finalContent
 	consolidated.Reasoning = finalReasoning
@@ -175,7 +184,7 @@ func buildTimelineMessageNodes(items []database.MessageWindowItem, messages []da
 			continue
 		}
 		representative := itemMessages[0]
-		if item.Kind == "turn" {
+		if item.Kind == database.MessageWindowItemKindTurn {
 			representative = consolidateTimelineTurnMessages(itemMessages)
 		}
 		representatives = append(representatives, representative)

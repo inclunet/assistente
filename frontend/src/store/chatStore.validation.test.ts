@@ -873,8 +873,13 @@ describe('chatStore validation', () => {
     const currentNode = createMessageNode('current-message') as unknown as MessageNode;
     currentNode.originalIndex = 1;
     const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.turnId = 'current-message';
     streamingNode.message.isStreaming = true;
     const newerNode = createMessageNode('newer-message') as unknown as MessageNode;
+    newerNode.message.role = 'assistant';
+    newerNode.message.turnId = 'current-message';
+    newerNode.originalIndex = 2;
     mockGetConversationMessageWindow.mockResolvedValueOnce({
       scope: 'conversation',
       conversationId: defaultConversationId,
@@ -917,6 +922,49 @@ describe('chatStore validation', () => {
       anchorMessageId: 'current-message',
       direction: 'after',
     }));
+    const surfaceSession = useChatStore.getState().surfaceSessionsByKey[originSessionKey];
+    expect(surfaceSession.visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['current-message', 'newer-message']);
+    expect(surfaceSession.visibleThreadedMessages?.some((node) => node.message.id.startsWith('streaming-')))
+      .toBe(false);
+  });
+
+  it('limpa hasAfter quando não há âncora persistida para paginação posterior', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.isStreaming = true;
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [streamingNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [streamingNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 1,
+            startIndex: 0,
+            endIndex: 0,
+            hasBefore: false,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadNewerMessagesForConversation(defaultConversationId, originSessionKey);
+
+    expect(mockGetConversationMessageWindow).not.toHaveBeenCalled();
+    expect(useChatStore.getState().surfaceSessionsByKey[originSessionKey]?.messageWindow?.hasAfter).toBe(false);
   });
 
   it('carrega mensagens posteriores sem acionar estado de mensagens anteriores', async () => {

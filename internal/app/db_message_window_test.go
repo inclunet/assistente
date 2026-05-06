@@ -260,3 +260,45 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 		t.Fatalf("expected anchor inside turn to page after the whole turn, got %+v", window.Nodes)
 	}
 }
+
+func TestGetConversationMessageWindow_TurnWithoutAssistantPreservesRepresentative(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+	app := &App{}
+
+	conv, err := database.CreateConversation("Conversa", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	user, err := database.AddMessage(conv.ID, "user", "pergunta")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	tool, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado preservado", "tool-1")
+	if err != nil {
+		t.Fatalf("create tool-only turn: %v", err)
+	}
+
+	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+		ConversationID: conv.ID,
+		Scope:          chat.MessageWindowScopeConversation,
+		Anchor:         chat.MessageWindowAnchorStart,
+		Direction:      chat.MessageWindowDirectionAfter,
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("get window: %v", err)
+	}
+	if window.TotalCount != 2 || len(window.Nodes) != 2 {
+		t.Fatalf("expected user item + tool-only turn item, got total=%d nodes=%d", window.TotalCount, len(window.Nodes))
+	}
+	turnNode := window.Nodes[1]
+	if turnNode.Message.ID != tool.ID {
+		t.Fatalf("expected tool message to remain representative, got %s", turnNode.Message.ID)
+	}
+	if turnNode.Message.Role != "tool" || turnNode.Message.Content != "resultado preservado" {
+		t.Fatalf("expected tool role/content preserved, got role=%q content=%q", turnNode.Message.Role, turnNode.Message.Content)
+	}
+	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
+		t.Fatalf("expected canonical originalIndex=1 for tool-only turn, got %v", turnNode.OriginalIndex)
+	}
+}
