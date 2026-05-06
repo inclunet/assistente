@@ -369,6 +369,45 @@ describe('chatSessionRegistry', () => {
     expect(getChatSession(next, 'conversation-1', 'tab-b:conversation-1').conversation?.title).toBe('Timeline atualizada');
   });
 
+  it('reconcilia timeline compartilhada por chave de turno', () => {
+    const streamingNode = messageNode('streaming-conversation-1-1', {
+      role: 'assistant',
+      turnId: 'user-1',
+      isStreaming: true,
+    });
+    const canonicalNode = messageNode('assistant-final', {
+      role: 'assistant',
+      turnId: 'user-1',
+      isStreaming: false,
+    });
+    const userNode = messageNode('user-1');
+    userNode.originalIndex = 0;
+    canonicalNode.originalIndex = 1;
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        'conversation-1': {
+          ...conversation('conversation-1'),
+          threadedMessages: [userNode, streamingNode],
+        },
+      },
+      surfaceSessionsByKey: {},
+    };
+
+    const next = {
+      ...state,
+      ...patchChatSession(state, 'conversation-1', {
+        conversation: {
+          ...conversation('conversation-1'),
+          threadedMessages: [userNode, canonicalNode],
+        },
+      }, 'tab-a:conversation-1'),
+    };
+
+    const ids = getConversationTimeline(next, 'conversation-1')?.threadedMessages.map((node) => node.message.id);
+    expect(ids).toEqual(['user-1', 'assistant-final']);
+  });
+
   it('não apaga timeline ao aplicar patch visual sem conversation', () => {
     const state: ChatSessionRegistryState = {
       sessionsByConversationId: {},

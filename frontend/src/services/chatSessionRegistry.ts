@@ -221,6 +221,14 @@ export const getMessageNodeOrder = (node: MessageNode): number => {
   return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
 };
 
+export const getTimelineNodeKey = (node: MessageNode): string => {
+  const turnId = String(node.message.turnId ?? '').trim();
+  if (turnId !== '' && node.message.role !== 'user' && (node.message.isStreaming || node.originalIndex !== undefined)) {
+    return `turn:${turnId}`;
+  }
+  return `message:${String(node.message.id)}`;
+};
+
 export const mergeMessageNode = (existing: MessageNode, incoming: MessageNode): MessageNode => {
   const incomingChildCount = incoming.childCount ?? 0;
   const existingChildCount = existing.childCount ?? 0;
@@ -244,6 +252,16 @@ export const mergeMessageNode = (existing: MessageNode, incoming: MessageNode): 
 
 export const sortMessageNodes = (nodes: MessageNode[]): MessageNode[] => (
   [...nodes].sort((a, b) => {
+    const order = getMessageNodeOrder(a) - getMessageNodeOrder(b);
+    return order !== 0 ? order : String(a.message.id).localeCompare(String(b.message.id));
+  })
+);
+
+export const sortTimelineNodes = (nodes: MessageNode[]): MessageNode[] => (
+  [...nodes].sort((a, b) => {
+    if (a.originalIndex !== undefined && b.originalIndex !== undefined && a.originalIndex !== b.originalIndex) {
+      return a.originalIndex - b.originalIndex;
+    }
     const order = getMessageNodeOrder(a) - getMessageNodeOrder(b);
     return order !== 0 ? order : String(a.message.id).localeCompare(String(b.message.id));
   })
@@ -287,20 +305,21 @@ const mergeTimelineConversation = (
   incoming: ConversationTimeline,
 ): ConversationTimeline => {
   if (!current) return incoming;
-  const byId = new Map<string, MessageNode>();
+  const byKey = new Map<string, MessageNode>();
   for (const node of current.threadedMessages) {
-    byId.set(String(node.message.id), node);
+    byKey.set(getTimelineNodeKey(node), node);
   }
   for (const node of incoming.threadedMessages) {
-    const existing = byId.get(String(node.message.id));
-    byId.set(String(node.message.id), existing
+    const key = getTimelineNodeKey(node);
+    const existing = byKey.get(key);
+    byKey.set(key, existing
       ? mergeMessageNode(existing, node)
       : node);
   }
   return {
     ...current,
     ...incoming,
-    threadedMessages: sortMessageNodes(Array.from(byId.values())),
+    threadedMessages: sortTimelineNodes(Array.from(byKey.values())),
   };
 };
 

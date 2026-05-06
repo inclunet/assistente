@@ -43,8 +43,9 @@ import {
   patchChatConversation,
   patchChatSession,
   removeChatSession,
-  getMessageNodeOrder,
+  getTimelineNodeKey,
   mergeMessageNode,
+  sortTimelineNodes,
   type ActiveConversation,
   type ChatConversationSession,
   type ChatSurfaceSession,
@@ -107,24 +108,6 @@ const getLastPersistedMessageId = (nodes: MessageNode[]): string | null => {
   }
   return null;
 };
-
-const getTimelineNodeKey = (node: MessageNode): string => {
-  const turnId = String(node.message.turnId ?? '').trim();
-  if (turnId !== '' && node.message.role !== 'user' && (node.message.isStreaming || node.originalIndex !== undefined)) {
-    return `turn:${turnId}`;
-  }
-  return `message:${String(node.message.id)}`;
-};
-
-const sortTimelineNodes = (nodes: MessageNode[]): MessageNode[] => (
-  [...nodes].sort((a, b) => {
-    if (a.originalIndex !== undefined && b.originalIndex !== undefined && a.originalIndex !== b.originalIndex) {
-      return a.originalIndex - b.originalIndex;
-    }
-    const order = getMessageNodeOrder(a) - getMessageNodeOrder(b);
-    return order !== 0 ? order : String(a.message.id).localeCompare(String(b.message.id));
-  })
-);
 
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {

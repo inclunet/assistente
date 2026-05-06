@@ -167,11 +167,12 @@ describe('chatSessionLoader', () => {
   });
 
   it('carrega filhos de mensagem', async () => {
-    mockGetMessageChildren.mockResolvedValue([node('child-1')]);
+    mockGetMessageChildren.mockResolvedValue([node('child-1'), node('child-2')]);
 
     const children = await loadMessageChildrenNodes('message-1');
 
     expect(mockGetMessageChildren).toHaveBeenCalledWith('message-1');
-    expect(children.map((item) => item.message.id)).toEqual(['child-1']);
+    expect(children.map((item) => item.message.id)).toEqual(['child-1', 'child-2']);
+    expect(children.map((item) => item.originalIndex)).toEqual([0, 1]);
   });
 });

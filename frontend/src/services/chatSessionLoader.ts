@@ -199,5 +199,5 @@ export async function reloadConversationSnapshot(
 
 export async function loadMessageChildrenNodes(messageId: string): Promise<MessageNode[]> {
   const backendNodes = await GetMessageChildren(messageId);
-  return (backendNodes || []).map(withOriginalIndex);
+  return (backendNodes || []).map((node, index) => withOriginalIndex(node, index));
 }
