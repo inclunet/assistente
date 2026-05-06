@@ -280,6 +280,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     return sortMessageNodes(Array.from(byId.values()));
   };
 
+  const capRenderedNodesAtEnd = (nodes: MessageNode[]): MessageNode[] => {
+    if (nodes.length <= MAX_RENDERED_MESSAGE_WINDOW_SIZE) return nodes;
+    let startIndex = nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE;
+    const boundaryTurnId = nodes[startIndex]?.message.turnId;
+    while (boundaryTurnId && startIndex > 0 && nodes[startIndex - 1]?.message.turnId === boundaryTurnId) {
+      startIndex -= 1;
+    }
+    return nodes.slice(startIndex);
+  };
+
   const trimRenderedWindow = (
     nodes: MessageNode[],
     window: MessageWindowState,
@@ -377,7 +387,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     if (window?.hasAfter && !appendNewNodes) return updatedVisible;
     const appendedNodes = incomingNodes.filter((node) => !visibleIds.has(String(node.message.id)));
     return appendedNodes.length
-      ? [...updatedVisible, ...appendedNodes].slice(-MAX_RENDERED_MESSAGE_WINDOW_SIZE)
+      ? capRenderedNodesAtEnd([...updatedVisible, ...appendedNodes])
       : updatedVisible;
   };
 

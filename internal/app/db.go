@@ -21,6 +21,8 @@ var (
 	GenerateTitle = database.GenerateTitle
 )
 
+const maxExpandedMessageWindowRows = 240
+
 // ==================== Conversation ====================
 
 func (a *App) CreateConversation(title, model string) (*Conversation, error) {
@@ -86,7 +88,7 @@ func assignMessageNodeOriginalIndexes(nodes []chat.MessageNode, indexesByID map[
 	return nodes
 }
 
-func expandWindowTurnMessages(conversationID string, parentID *string, messages []database.ChatMessage) ([]database.ChatMessage, error) {
+func expandWindowTurnMessages(conversationID string, parentID *string, messages []database.ChatMessage, maxRows int) ([]database.ChatMessage, error) {
 	turnIDs := make([]string, 0)
 	seenTurns := make(map[string]bool)
 	for _, message := range messages {
@@ -99,7 +101,10 @@ func expandWindowTurnMessages(conversationID string, parentID *string, messages 
 	if len(turnIDs) == 0 {
 		return messages, nil
 	}
-	turnMessages, err := database.GetTurnMessagesByIDs(conversationID, parentID, turnIDs)
+	if maxRows <= len(messages) {
+		return messages, nil
+	}
+	turnMessages, err := database.GetTurnMessagesByIDs(conversationID, parentID, turnIDs, maxRows)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +228,7 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	for index, message := range window.Messages {
 		originalIndexesByMessageID[message.ID] = window.StartIndex + index
 	}
-	messages, err := expandWindowTurnMessages(conversationID, parentID, window.Messages)
+	messages, err := expandWindowTurnMessages(conversationID, parentID, window.Messages, maxExpandedMessageWindowRows)
 	if err != nil {
 		return nil, err
 	}

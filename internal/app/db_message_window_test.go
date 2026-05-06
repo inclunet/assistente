@@ -174,3 +174,47 @@ func TestGetConversationMessageWindow_ExpandsTurnBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestGetConversationMessageWindow_BoundsTurnExpansion(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+	app := &App{}
+
+	conv, err := database.CreateConversation("Conversa", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	user, err := database.AddMessage(conv.ID, "user", "pergunta")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	assistant, err := database.AddAssistantToolMessage(
+		conv.ID,
+		user.ID,
+		"vou buscar",
+		`[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("create assistant tool call: %v", err)
+	}
+	for i := 0; i < maxExpandedMessageWindowRows+50; i++ {
+		if _, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
+			t.Fatalf("create tool result %d: %v", i, err)
+		}
+	}
+
+	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+		ConversationID:  conv.ID,
+		Scope:           chat.MessageWindowScopeConversation,
+		AnchorMessageID: assistant.ID,
+		Direction:       chat.MessageWindowDirectionAfter,
+		Limit:           1,
+	})
+	if err != nil {
+		t.Fatalf("get window: %v", err)
+	}
+	if len(window.Nodes) > maxExpandedMessageWindowRows+1 {
+		t.Fatalf("turn expansion should stay bounded, got %d node(s)", len(window.Nodes))
+	}
+}

@@ -479,9 +479,9 @@ func GetTurnMessages(turnID string) ([]ChatMessage, error) {
 	return messages, err
 }
 
-// GetTurnMessagesByIDs retorna, em lote, todas as mensagens dos turnos informados.
+// GetTurnMessagesByIDs retorna, em lote, mensagens dos turnos informados.
 // Mantém o mesmo escopo de parent da janela para não misturar raiz e threads.
-func GetTurnMessagesByIDs(conversationID string, parentID *string, turnIDs []string) ([]ChatMessage, error) {
+func GetTurnMessagesByIDs(conversationID string, parentID *string, turnIDs []string, limit int) ([]ChatMessage, error) {
 	if len(turnIDs) == 0 {
 		return []ChatMessage{}, nil
 	}
@@ -490,6 +490,9 @@ func GetTurnMessagesByIDs(conversationID string, parentID *string, turnIDs []str
 		query = query.Where("parent_id = ?", *parentID)
 	} else {
 		query = query.Where("parent_id IS NULL")
+	}
+	if limit > 0 {
+		query = query.Limit(limit)
 	}
 	var messages []ChatMessage
 	err := query.Order("created_at ASC, id ASC").Find(&messages).Error
