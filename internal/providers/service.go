@@ -21,6 +21,7 @@ import (
 type CredentialManager interface {
 	RegisterPatternWithContext(ctx context.Context, pattern string, auth *credentials.AuthConfig) error
 	GetByPattern(pattern string) (*credentials.AuthConfig, error)
+	GetByPatternWithContext(ctx context.Context, pattern string) (*credentials.AuthConfig, error)
 	DeletePattern(ctx context.Context, pattern string) error
 }
 
@@ -297,7 +298,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		}
 		credConfigured = true
 	} else if updated.CredentialPattern != "" {
-		auth, err := s.credMgr.GetByPattern(updated.CredentialPattern)
+		auth, err := s.credMgr.GetByPatternWithContext(ctx, updated.CredentialPattern)
 		credConfigured = err == nil && auth != nil
 	}
 
@@ -353,13 +354,13 @@ type ProviderStatus struct {
 }
 
 // ListWithStatus retorna todos os provedores com flag de credencial configurada.
-func (s *Service) ListWithStatus() []ProviderStatus {
+func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 	providers := s.registry.List()
 	result := make([]ProviderStatus, 0, len(providers))
 	for _, p := range providers {
 		credConfigured := false
 		if p.CredentialPattern != "" {
-			auth, err := s.credMgr.GetByPattern(p.CredentialPattern)
+			auth, err := s.credMgr.GetByPatternWithContext(ctx, p.CredentialPattern)
 			credConfigured = err == nil && auth != nil
 		}
 		result = append(result, ProviderStatus{Provider: p, CredentialConfigured: credConfigured})
@@ -444,7 +445,7 @@ func (s *Service) TestConnection(ctx context.Context, req TestRequest) (bool, er
 	apiKey := req.APIKey
 	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
 		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := s.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
+			if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
 				apiKey = auth.Token
 			}
 		}
@@ -497,7 +498,7 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 	apiKey := req.APIKey
 	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
 		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := s.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
+			if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
 				apiKey = auth.Token
 			}
 		}
@@ -594,7 +595,7 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 	// Fallback: busca credencial existente quando provider_id informado e api_key ausente
 	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
 		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := s.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
+			if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
 				apiKey = auth.Token
 			}
 		}

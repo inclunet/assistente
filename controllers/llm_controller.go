@@ -197,8 +197,8 @@ func (c *LLMController) DeleteLLMProvider(id string) error {
 	return c.providerSvc.Delete(id)
 }
 
-func (c *LLMController) GetLLMProvidersWithStatus() []map[string]interface{} {
-	statuses := c.providerSvc.ListWithStatus()
+func (c *LLMController) GetLLMProvidersWithStatus(ctx context.Context) []map[string]interface{} {
+	statuses := c.providerSvc.ListWithStatus(ctx)
 	result := make([]map[string]interface{}, 0, len(statuses))
 	for _, s := range statuses {
 		result = append(result, providerToMap(s.Provider, s.Provider.CredentialPattern, s.CredentialConfigured))

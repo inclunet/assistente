@@ -15,7 +15,7 @@ type TaskListWorkflowStatus = database.TaskListWorkflowStatus
 // newTaskListService cria o TaskListService com o emitter injetado.
 func (a *App) newTaskListService() *tasklist.Service {
 	return tasklist.NewService(tasklist.ServiceConfig{
-		Store:   tasklist.NewDBStore(),
+		Store:   tasklist.NewScopedDBStore(a.authenticatedContext),
 		Emitter: a.emitter,
 	})
 }
@@ -23,10 +23,10 @@ func (a *App) newTaskListService() *tasklist.Service {
 // ==================== TaskList Operations ====================
 
 func (a *App) CreateTaskList(title, description, slug string) (*TaskList, error) {
-	return a.taskListCtrl.CreateTaskList(a.ctx, title, description, slug)
+	return a.taskListCtrl.CreateTaskList(a.authenticatedContext(), title, description, slug)
 }
 func (a *App) GetTaskList(id string) (*TaskList, error) { return a.taskListCtrl.GetTaskList(id) }
-func (a *App) GetAllTaskLists() ([]TaskList, error)   { return a.taskListCtrl.GetAllTaskLists() }
+func (a *App) GetAllTaskLists() ([]TaskList, error)     { return a.taskListCtrl.GetAllTaskLists() }
 func (a *App) UpdateTaskList(id string, title, description string) error {
 	return a.taskListCtrl.UpdateTaskList(id, title, description)
 }

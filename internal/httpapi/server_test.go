@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"assistente/internal/auth"
 	"assistente/internal/database"
@@ -114,6 +115,49 @@ func TestValidateBindSecurity(t *testing.T) {
 	}
 	if err := ValidateBindSecurity("0.0.0.0:8080", true, false); err != nil {
 		t.Fatalf("TLS should allow non-localhost bind: %v", err)
+	}
+}
+
+func TestExternalModeValidatesBearerJWT(t *testing.T) {
+	signer, err := auth.NewTokenSigner()
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(signer.JWKSet())
+	}))
+	defer jwksServer.Close()
+
+	external := auth.NewExternalAuthenticator(auth.ExternalAuthConfig{
+		Issuer:            "https://idp.example.com",
+		Audience:          "assistente",
+		JWKSURL:           jwksServer.URL,
+		AllowedAlgorithms: []string{"EdDSA"},
+	})
+	server := New(Config{Mode: "external", External: external})
+	now := time.Now()
+	token, err := signer.SignAccessToken(auth.AccessClaims{
+		Issuer:    "https://idp.example.com",
+		Audience:  "assistente",
+		Subject:   "external-user",
+		IssuedAt:  now.Unix(),
+		ExpiresAt: now.Add(time.Minute).Unix(),
+		Role:      "user",
+	})
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	login := requestJSON(t, server, http.MethodPost, "/auth/login", map[string]string{"username": "x"})
+	if login.Code != http.StatusNotFound {
+		t.Fatalf("external login status = %d", login.Code)
 	}
 }
 

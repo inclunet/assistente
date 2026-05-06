@@ -1,10 +1,13 @@
 package auth
 
 import (
+	"crypto"
 	"crypto/ed25519"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"strings"
 	"time"
 )
@@ -95,21 +98,50 @@ func findJWK(jwks JWKSet, keyID, algorithm string) (JWK, bool) {
 }
 
 func verifyExternalSignature(parts []string, key JWK) error {
-	if key.Algorithm != jwtAlgorithm || key.KeyType != "OKP" || key.Curve != "Ed25519" {
-		return errors.New("tipo de chave externa não suportado")
-	}
-	publicKey, err := base64.RawURLEncoding.DecodeString(key.X)
-	if err != nil {
-		return errors.New("chave externa inválida")
-	}
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
 		return errors.New("assinatura externa inválida")
 	}
-	if !ed25519.Verify(ed25519.PublicKey(publicKey), []byte(parts[0]+"."+parts[1]), signature) {
-		return errors.New("assinatura externa inválida")
+	signingInput := []byte(parts[0] + "." + parts[1])
+
+	switch key.Algorithm {
+	case jwtAlgorithm:
+		if key.KeyType != "OKP" || key.Curve != "Ed25519" {
+			return errors.New("tipo de chave externa não suportado")
+		}
+		publicKey, err := base64.RawURLEncoding.DecodeString(key.X)
+		if err != nil {
+			return errors.New("chave externa inválida")
+		}
+		if !ed25519.Verify(ed25519.PublicKey(publicKey), signingInput, signature) {
+			return errors.New("assinatura externa inválida")
+		}
+		return nil
+	case "RS256":
+		if key.KeyType != "RSA" {
+			return errors.New("tipo de chave externa não suportado")
+		}
+		nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
+		if err != nil {
+			return errors.New("chave externa inválida")
+		}
+		eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
+		if err != nil {
+			return errors.New("chave externa inválida")
+		}
+		e := big.NewInt(0).SetBytes(eBytes).Int64()
+		if e == 0 {
+			return errors.New("expoente RSA externo inválido")
+		}
+		sum := crypto.SHA256.New()
+		_, _ = sum.Write(signingInput)
+		if err := rsa.VerifyPKCS1v15(&rsa.PublicKey{N: big.NewInt(0).SetBytes(nBytes), E: int(e)}, crypto.SHA256, sum.Sum(nil), signature); err != nil {
+			return errors.New("assinatura externa inválida")
+		}
+		return nil
+	default:
+		return errors.New("algoritmo externo não suportado")
 	}
-	return nil
 }
 
 type audience []string

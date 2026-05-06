@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"assistente/internal/auth"
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 )
 
@@ -43,17 +44,25 @@ type AuthUser struct {
 
 func (a *App) initAuthServices() {
 	a.identitySvc = auth.NewIdentityService(database.DB())
-	sessionSvc, err := auth.NewSessionService(database.DB(), auth.SessionConfig{})
-	if err != nil {
-		// Ed25519 key generation should not fail in normal operation. Keep nil so
-		// API calls return a clear initialization error if the OS RNG failed.
-		a.sessionSvc = nil
-	} else {
-		a.sessionSvc = sessionSvc
-	}
+	a.configureSessionService()
 	a.vaultSvc = auth.NewVaultService(a.credStore, func(dek []byte) {
 		a.configureCredentialManager(dek, true)
+		a.configureSessionService()
 	})
+}
+
+func (a *App) configureSessionService() {
+	signer, err := auth.LoadOrCreateTokenSigner(a.credMgr)
+	if err != nil {
+		a.sessionSvc = nil
+		return
+	}
+	sessionSvc, err := auth.NewSessionService(database.DB(), auth.SessionConfig{Signer: signer})
+	if err != nil {
+		a.sessionSvc = nil
+		return
+	}
+	a.sessionSvc = sessionSvc
 }
 
 func (a *App) GetAuthStatus() (AuthStatus, error) {
@@ -134,6 +143,7 @@ func (a *App) Login(req LoginRequest) (*auth.TokenPair, error) {
 		return nil, err
 	}
 	a.setCurrentUserID(user.ID)
+	a.reloadUserScopedRuntime()
 	return pair, nil
 }
 
@@ -148,6 +158,7 @@ func (a *App) RefreshAuth(req RefreshRequest) (*auth.TokenPair, error) {
 	claims, err := a.sessionSvc.VerifyAccessToken(pair.AccessToken)
 	if err == nil {
 		a.setCurrentUserID(claims.Subject)
+		a.reloadUserScopedRuntime()
 	}
 	return pair, nil
 }
@@ -158,6 +169,32 @@ func (a *App) Logout(req LogoutRequest) error {
 	}
 	err := a.sessionSvc.Logout(context.Background(), req.RefreshToken)
 	a.setCurrentUserID("")
+	if a.llmRegistry != nil {
+		a.llmRegistry.Clear()
+	}
+	return err
+}
+
+func (a *App) LoadAuthRefreshToken() (string, error) {
+	token, err := credentials.LoadAuthRefreshTokenFromKeychain()
+	if err != nil {
+		if credentials.IsKeychainNotFound(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return token, nil
+}
+
+func (a *App) StoreAuthRefreshToken(refreshToken string) error {
+	return credentials.SaveAuthRefreshTokenToKeychain(strings.TrimSpace(refreshToken))
+}
+
+func (a *App) ClearAuthRefreshToken() error {
+	err := credentials.DeleteAuthRefreshTokenFromKeychain()
+	if err != nil && credentials.IsKeychainNotFound(err) {
+		return nil
+	}
 	return err
 }
 
@@ -193,6 +230,16 @@ func (a *App) authenticatedContext() context.Context {
 		return ctx
 	}
 	return database.WithUserID(ctx, a.currentUserID)
+}
+
+func (a *App) reloadUserScopedRuntime() {
+	if a.llmRegistry != nil {
+		a.llmRegistry.Clear()
+	}
+	a.registerEnvCredentials(a.authenticatedContext(), a.credMgr)
+	a.migrateLegacyConfig()
+	a.initLLMProviders()
+	a.initLLMClient()
 }
 
 func (a *App) ensureAuthServices() error {

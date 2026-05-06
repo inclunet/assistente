@@ -20,9 +20,20 @@ type TokenSigner struct {
 }
 
 func NewTokenSigner() (*TokenSigner, error) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
+	}
+	return NewTokenSignerFromPrivateKey(privateKey)
+}
+
+func NewTokenSignerFromPrivateKey(privateKey ed25519.PrivateKey) (*TokenSigner, error) {
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return nil, errors.New("chave privada Ed25519 inválida")
+	}
+	publicKey, ok := privateKey.Public().(ed25519.PublicKey)
+	if !ok || len(publicKey) != ed25519.PublicKeySize {
+		return nil, errors.New("chave pública Ed25519 inválida")
 	}
 	sum := sha256.Sum256(publicKey)
 	return &TokenSigner{
@@ -30,6 +41,21 @@ func NewTokenSigner() (*TokenSigner, error) {
 		publicKey:  publicKey,
 		privateKey: privateKey,
 	}, nil
+}
+
+func (s *TokenSigner) ExportPrivateKey() (string, error) {
+	if s == nil || len(s.privateKey) != ed25519.PrivateKeySize {
+		return "", errors.New("token signer não inicializado")
+	}
+	return base64.RawURLEncoding.EncodeToString(s.privateKey), nil
+}
+
+func TokenSignerFromEncodedPrivateKey(encoded string) (*TokenSigner, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(encoded))
+	if err != nil {
+		return nil, errors.New("chave privada JWT inválida")
+	}
+	return NewTokenSignerFromPrivateKey(ed25519.PrivateKey(raw))
 }
 
 type AccessClaims struct {
@@ -131,6 +157,8 @@ type JWK struct {
 	Use       string `json:"use"`
 	Curve     string `json:"crv"`
 	X         string `json:"x"`
+	N         string `json:"n,omitempty"`
+	E         string `json:"e,omitempty"`
 }
 
 func (s *TokenSigner) JWKSet() JWKSet {

@@ -312,18 +312,26 @@ func GetConversationInfoWithContext(ctx context.Context, id string) (*Conversati
 
 // UpdateConversation atualiza título da conversa
 func UpdateConversation(id string, title, model string) error {
+	return UpdateConversationWithContext(context.Background(), id, title, model)
+}
+
+func UpdateConversationWithContext(ctx context.Context, id string, title, model string) error {
 	updates := map[string]interface{}{
 		"title":      title,
 		"updated_at": time.Now(),
 	}
 
-	return db.Model(&Conversation{}).Where("id = ?", id).Updates(updates).Error
+	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", id).Updates(updates).Error
 }
 
 // UpdateConversationChannel atualiza o canal e contato vinculados a uma conversa.
 // Passar channel="" e contactID="" desvincula a conversa do canal.
 func UpdateConversationChannel(id string, channel, contactID string) error {
-	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
+	return UpdateConversationChannelWithContext(context.Background(), id, channel, contactID)
+}
+
+func UpdateConversationChannelWithContext(ctx context.Context, id string, channel, contactID string) error {
+	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", id).Updates(map[string]interface{}{
 		"channel":    channel,
 		"contact_id": contactID,
 		"updated_at": time.Now(),

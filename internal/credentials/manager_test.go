@@ -538,6 +538,8 @@ func TestIsManagedPattern(t *testing.T) {
 		{"mcp-tokens:atlassian", true},
 		{"mcp-client:", true},
 		{"mcp-tokens:", true},
+		{"internal-auth:jwt-signing-key", true},
+		{"internal-tls:private-key", true},
 		{"*.github.com", false},
 		{"api.example.com", false},
 		{"channel:slack:bot_token", false},
@@ -549,6 +551,23 @@ func TestIsManagedPattern(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("IsManagedPattern(%q): got %v, want %v", tc.pattern, got, tc.want)
 		}
+	}
+}
+
+func TestInstanceSecretsUseManagedPatterns(t *testing.T) {
+	mgr := NewManager(nil)
+	if err := mgr.RegisterInstanceSecret(InstanceSecretJWTSigningKey, "private-key"); err != nil {
+		t.Fatalf("register instance secret: %v", err)
+	}
+	value, ok, err := mgr.GetInstanceSecret(InstanceSecretJWTSigningKey)
+	if err != nil {
+		t.Fatalf("get instance secret: %v", err)
+	}
+	if !ok || value != "private-key" {
+		t.Fatalf("unexpected instance secret: ok=%v value=%q", ok, value)
+	}
+	if err := mgr.RegisterInstanceSecret("api.example.com", "secret"); err == nil {
+		t.Fatal("expected non-managed instance secret pattern to fail")
 	}
 }
 

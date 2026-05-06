@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 
 	"assistente/controllers"
@@ -66,6 +67,7 @@ type App struct {
 	vaultSvc      *auth.VaultService
 	identitySvc   *auth.IdentityService
 	sessionSvc    *auth.SessionService
+	httpAPIServer *http.Server
 	authMu        sync.RWMutex
 	currentUserID string
 
@@ -197,19 +199,19 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
 		Registry: a.llmRegistry,
 		CredMgr:  a.credMgr,
-		Store:    providers.NewDBStore(),
+		Store:    providers.NewScopedDBStore(a.authenticatedContext),
 	})
 
 	// Inicializa o Token Service (estatísticas de tokens)
-	a.tokenSvc = chat.NewTokenService(chat.NewDBMessageStore())
+	a.tokenSvc = chat.NewTokenService(chat.NewScopedDBMessageStore(a.authenticatedContext))
 
 	// Inicializa o TaskList Service (business logic de listas de tarefas)
 	a.taskSvc = a.newTaskListService()
 
 	// Inicializa repositórios de audio e conversa
 	a.audioSvc = speech.NewDBAudioStore()
-	a.convSvc = chat.NewDBConversationStore()
-	a.msgRepo = chat.NewDBMessageStore()
+	a.convSvc = chat.NewScopedDBConversationStore(a.authenticatedContext)
+	a.msgRepo = chat.NewScopedDBMessageStore(a.authenticatedContext)
 
 	// Inicializa o Speech Service aqui (antes de initMessaging, que depende dele)
 	a.speechSvc = speech.NewService(speech.ServiceConfig{
@@ -229,14 +231,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		ProfileManager:  a.profileManager,
 		ProfileResolver: a.resolveProfileDefaults,
 	})
-	a.initLLMProviders()
-
-	// Inicializa o cliente LLM (usa credMgr + registry já populado)
-	a.initLLMClient()
-
-	// Migra config.json legado para novo sistema (se necessário)
-	a.migrateLegacyConfig()
-
 	// Inicializa managers de terminal, confirmação e allowlists
 	a.initTerminalAndAllowlists()
 
@@ -437,6 +431,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	})
 	a.signalCtrl = controllers.NewSignalController()
 
+	if err := a.startHTTPAPI(); err != nil {
+		return err
+	}
+
 	// Verifica atualizações no startup (não bloqueante)
 	go a.checkForUpdatesOnStartup()
 
@@ -451,6 +449,10 @@ func (a *App) ShowWindow() {
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
 	a.stopAllEditorWatches()
+
+	if a.httpAPIServer != nil {
+		_ = a.httpAPIServer.Shutdown(context.Background())
+	}
 
 	if a.hotkeyCtrl != nil {
 		a.hotkeyCtrl.Stop()

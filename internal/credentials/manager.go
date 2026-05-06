@@ -224,10 +224,21 @@ func (m *Manager) ListCredentialsWithContext(ctx context.Context) ([]StoredCrede
 
 // GetByPattern retorna credenciais para um padrão exato.
 func (m *Manager) GetByPattern(pattern string) (*AuthConfig, error) {
+	return m.GetByPatternWithContext(context.Background(), pattern)
+}
+
+func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (*AuthConfig, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	userID := ""
+	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
+		userID = scopedUser
+	}
 	for _, dc := range m.credentials {
+		if userID != "" && dc.UserID != userID {
+			continue
+		}
 		if dc.Pattern == pattern {
 			return m.decryptAuth(dc.Auth)
 		}
@@ -587,6 +598,8 @@ func (m *Manager) decrypt(ciphertext string) (string, error) {
 var managedPrefixes = []string{
 	"mcp-client:",
 	"mcp-tokens:",
+	"internal-auth:",
+	"internal-tls:",
 }
 
 // IsManagedPattern retorna true se o pattern pertence a uma credencial gerenciada

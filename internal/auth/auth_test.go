@@ -174,6 +174,23 @@ func TestJWKSetExposesEd25519PublicKey(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreateTokenSignerPersistsInCredentialManager(t *testing.T) {
+	mgr := credentials.NewManager(nil)
+	first, err := LoadOrCreateTokenSigner(mgr)
+	if err != nil {
+		t.Fatalf("load first signer: %v", err)
+	}
+	second, err := LoadOrCreateTokenSigner(mgr)
+	if err != nil {
+		t.Fatalf("load second signer: %v", err)
+	}
+	firstJWKS := first.JWKSet()
+	secondJWKS := second.JWKSet()
+	if firstJWKS.Keys[0].KeyID != secondJWKS.Keys[0].KeyID || firstJWKS.Keys[0].X != secondJWKS.Keys[0].X {
+		t.Fatalf("expected stable JWKS, got first=%+v second=%+v", firstJWKS, secondJWKS)
+	}
+}
+
 func TestExternalValidatorAcceptsAllowedEdDSAToken(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

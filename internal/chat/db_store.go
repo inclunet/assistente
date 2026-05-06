@@ -1,14 +1,45 @@
 package chat
 
-import "assistente/internal/database"
+import (
+	"context"
+
+	"assistente/internal/database"
+)
 
 // DBMessageStore implementa MessageRepository usando o banco de dados SQLite via GORM.
-type DBMessageStore struct{}
+type DBMessageStore struct {
+	ctxProvider func() context.Context
+	requireUser bool
+}
 
 // NewDBMessageStore cria um DBMessageStore pronto para uso.
 func NewDBMessageStore() *DBMessageStore { return &DBMessageStore{} }
 
+func NewScopedDBMessageStore(ctxProvider func() context.Context) *DBMessageStore {
+	return &DBMessageStore{ctxProvider: ctxProvider, requireUser: true}
+}
+
+func (s *DBMessageStore) ctx() (context.Context, error) {
+	ctx := context.Background()
+	if s.ctxProvider != nil {
+		ctx = s.ctxProvider()
+	}
+	if s.requireUser {
+		if _, err := database.RequireUserID(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return ctx, nil
+}
+
 func (s *DBMessageStore) CreateMessage(opts database.MessageOptions) (*database.ChatMessage, error) {
+	ctx, err := s.ctx()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := database.GetConversationInfoWithContext(ctx, opts.ConversationID); err != nil {
+		return nil, err
+	}
 	return database.CreateMessage(opts)
 }
 
@@ -17,6 +48,13 @@ func (s *DBMessageStore) GetMessage(messageID string) (*database.ChatMessage, er
 }
 
 func (s *DBMessageStore) GetMessages(conversationID string, parentID *string) ([]database.ChatMessage, error) {
+	ctx, err := s.ctx()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
+		return nil, err
+	}
 	return database.GetMessages(conversationID, parentID)
 }
 
@@ -53,19 +91,51 @@ func (s *DBMessageStore) SearchMessages(query string, limit int) ([]database.Mes
 }
 
 // DBConversationStore implementa ConversationRepository usando o banco de dados SQLite via GORM.
-type DBConversationStore struct{}
+type DBConversationStore struct {
+	ctxProvider func() context.Context
+	requireUser bool
+}
 
 // NewDBConversationStore cria um DBConversationStore pronto para uso.
 func NewDBConversationStore() *DBConversationStore { return &DBConversationStore{} }
 
+func NewScopedDBConversationStore(ctxProvider func() context.Context) *DBConversationStore {
+	return &DBConversationStore{ctxProvider: ctxProvider, requireUser: true}
+}
+
+func (s *DBConversationStore) ctx() (context.Context, error) {
+	ctx := context.Background()
+	if s.ctxProvider != nil {
+		ctx = s.ctxProvider()
+	}
+	if s.requireUser {
+		if _, err := database.RequireUserID(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return ctx, nil
+}
+
 func (s *DBConversationStore) GetConversationInfo(id string) (*database.Conversation, error) {
-	return database.GetConversationInfo(id)
+	ctx, err := s.ctx()
+	if err != nil {
+		return nil, err
+	}
+	return database.GetConversationInfoWithContext(ctx, id)
 }
 
 func (s *DBConversationStore) UpdateConversation(id string, title, model string) error {
-	return database.UpdateConversation(id, title, model)
+	ctx, err := s.ctx()
+	if err != nil {
+		return err
+	}
+	return database.UpdateConversationWithContext(ctx, id, title, model)
 }
 
 func (s *DBConversationStore) UpdateConversationChannel(id string, channel, contactID string) error {
-	return database.UpdateConversationChannel(id, channel, contactID)
+	ctx, err := s.ctx()
+	if err != nil {
+		return err
+	}
+	return database.UpdateConversationChannelWithContext(ctx, id, channel, contactID)
 }

@@ -14,6 +14,7 @@ Introduzir um sistema de contas e autenticação no aplicativo, atualmente 100% 
 
 - **Cofre (DEK global por instância)**: segredo de infraestrutura da instância (local ou remota) usado para criptografar credenciais e outros dados sensíveis do servidor. A DEK é persistida no keyring do SO quando possível, com recuperação via wraps `master`/`recovery` no banco.
 - **Usuários (identidade)**: contas locais (modo 100% local) usadas para login, ownership lógico (`user_id`) e autorização por roles simples (`admin`/`user`).
+- **Secret manager da instância**: reutiliza o `credentials.Manager` existente para segredos criptografados pela DEK, separando credenciais editáveis do usuário, segredos gerenciados por integrações e segredos internos da instância.
 
 Esta AEP também introduz o primeiro passo real do “split”: no modo local, o backend passa a expor uma **API HTTP** para consumo por outros clientes/instâncias na rede.
 
@@ -177,6 +178,28 @@ Recursos em filesystem (profiles, skills, MCP) permanecem fora de escopo nesta A
 
 Todas as queries de recursos devem filtrar por `user_id`, implementado via helper/middleware no repository layer.
 
+### D13. `credentials.Manager` é o secret manager comum
+
+O `credentials.Manager` permanece como mecanismo único de persistência criptografada por DEK, mas os patterns passam a ter classes explícitas:
+
+| Classe | Exemplos | `user_id` | UI padrão |
+|--------|----------|-----------|-----------|
+| Credenciais de usuário | `api.openai.com`, `*.github.com` | obrigatório no runtime autenticado | visível/editável |
+| Segredos gerenciados de integração | `mcp-client:{slug}`, `mcp-tokens:{slug}` | conforme integração; não editável manualmente | oculto |
+| Segredos internos da instância | `internal-auth:jwt-signing-key`, `internal-tls:private-key`, `internal-tls:certificate` | vazio | oculto |
+
+Segredos gerenciados e internos não aparecem na lista padrão de credenciais porque o usuário não deve editar/remover valores mantidos por fluxos automáticos. Telas específicas podem expor apenas metadados seguros (por exemplo, “MCP autenticado” ou validade do token), nunca o segredo.
+
+### D14. Chave de assinatura JWT é segredo interno persistido
+
+A chave Ed25519 usada para assinar access tokens deve ser criada uma vez por instância, criptografada pela DEK e armazenada no secret manager como `internal-auth:jwt-signing-key`.
+
+Consequências:
+
+- `/.well-known/jwks.json` permanece estável entre restarts.
+- Access tokens emitidos antes de reiniciar continuam verificáveis até expirar.
+- Rotação de chave JWT fica fora do escopo desta AEP, mas o modelo permite adicionar múltiplos `kid` no futuro.
+
 ---
 
 ## Tabelas
@@ -249,7 +272,7 @@ Todas as queries de recursos devem filtrar por `user_id`, implementado via helpe
    - `IssueSession(userID) -> (access_jwt, refresh_token)`
    - `Refresh(refresh_token) -> (access_jwt, refresh_token_rotated)` (rotate always)
    - `Logout(refresh_token)` (revoga)
-9. Implementar assinatura de JWT com Ed25519 e publicação de JWKS (`/.well-known/jwks.json`).
+9. Implementar assinatura de JWT com Ed25519 persistida no secret manager e publicação de JWKS (`/.well-known/jwks.json`).
 
 ### Fase 3 — Scoping por `user_id`
 
@@ -260,7 +283,7 @@ Todas as queries de recursos devem filtrar por `user_id`, implementado via helpe
 ### Fase 4 — HTTP API local + TLS
 
 13. Rodar servidor `net/http` embutido no backend com endpoints `/vault/*`, `/auth/*` e `/.well-known/jwks.json`.
-14. HTTPS obrigatório quando bind não for localhost.
+14. HTTPS obrigatório quando bind não for localhost; chave/certificado TLS, quando gerenciados pelo app, são segredos internos `internal-tls:*`.
 
 ### Fase 5 — Modo `external` (IdP)
 
@@ -402,6 +425,7 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 | `internal/auth/*` | Identidade local, sessões, JWT/JWKS, validadores externos, autorizadores |
 | `internal/httpapi/*` | Servidor HTTP local + handlers `/vault/*`, `/auth/*`, `/.well-known/jwks.json` |
 | `internal/auth/migration.go` | Migração/backfill de `user_id` + adoção de dados legados |
+| `internal/config/auth.go` | Configuração `auth.mode`, HTTP API, TLS e IdP externo |
 | `frontend/src/store/authStore.ts` | Store de autenticação (refresh/login/logout) |
 | `frontend/src/components/auth/LoginScreen.tsx` | Tela de login (username manual + senha) |
 
@@ -442,6 +466,8 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 | Acesso ao DB sem cofre | Credenciais permanecem criptografadas com DEK |
 | Keyring indisponível | Fluxo `VaultLocked` + recovery via wraps `master`/`recovery` |
 | Confusão de token (token para outro serviço) | `iss` + `aud` obrigatórios no JWT |
+| Exposição acidental de segredos gerenciados | Patterns gerenciados ficam ocultos na UI padrão e bloqueados contra edição manual |
+| Chave JWT efêmera | Chave Ed25519 persistida como segredo interno criptografado pela DEK |
 
 ---
 
@@ -454,11 +480,13 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 5. **Sessões**: `sessions` persiste refresh token hash; logout revoga a sessão.
 6. **Refresh rotation**: refresh rotaciona sempre; reuse revoga sessão inteira.
 7. **JWT access**: JWT tem claims mínimas (`iss/aud/sub/sid/iat/exp`, `jti` recomendado) e expiração curta.
-8. **Scoping por user_id**: providers, conversas, credenciais e task lists filtrados por `user_id` derivado do token.
-9. **API HTTP local**: endpoints `/vault/*`, `/auth/*`, `/.well-known/jwks.json` disponíveis.
-10. **TLS na LAN**: HTTPS obrigatório fora de localhost; HTTP puro só em localhost/dev explícito.
-11. **External mode**: valida JWT do IdP via JWKS e aplica scopes/roles do IdP.
-12. **Compatibilidade**: instalação existente migra sem perda (backfill de `user_id`).
+8. **JWT signing key**: chave Ed25519 persistida no secret manager; JWKS estável entre restarts.
+9. **Scoping por user_id**: providers, conversas, credenciais e task lists filtrados por `user_id` derivado do token.
+10. **Segredos gerenciados**: `mcp-*` e `internal-*` não aparecem na lista padrão de credenciais e não são editáveis manualmente.
+11. **API HTTP local**: endpoints `/vault/*`, `/auth/*`, `/.well-known/jwks.json` disponíveis.
+12. **TLS na LAN**: HTTPS obrigatório fora de localhost; HTTP puro só em localhost/dev explícito.
+13. **External mode**: valida JWT do IdP via JWKS e aplica scopes/roles do IdP.
+14. **Compatibilidade**: instalação existente migra sem perda (backfill de `user_id`).
 
 ---
 

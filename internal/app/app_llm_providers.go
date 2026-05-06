@@ -23,31 +23,31 @@ func (a *App) GetActiveProviderInfo() map[string]interface{} {
 	return a.llmCtrl.GetActiveProviderInfo()
 }
 func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
-	return a.llmCtrl.GetLLMProvidersWithStatus()
+	return a.llmCtrl.GetLLMProvidersWithStatus(a.authenticatedContext())
 }
 
 func (a *App) TestLLMProvider(req controllers.TestLLMProviderRequest) (ok bool, retErr error) {
 	if a.ctx == nil {
 		return false, fmt.Errorf("aplicação ainda não está pronta, aguarde")
 	}
-	return a.llmCtrl.TestLLMProvider(a.ctx, req)
+	return a.llmCtrl.TestLLMProvider(a.authenticatedContext(), req)
 }
 
 func (a *App) ListModelsRaw(req controllers.TestLLMProviderRequest) (models []string, retErr error) {
 	if a.ctx == nil {
 		return nil, fmt.Errorf("aplicação ainda não está pronta, aguarde")
 	}
-	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(a.authenticatedContext(), 15*time.Second)
 	defer cancel()
 	return a.llmCtrl.ListModelsRaw(ctx, req)
 }
 
 func (a *App) CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[string]interface{}, error) {
-	return a.llmCtrl.CreateLLMProvider(a.ctx, req)
+	return a.llmCtrl.CreateLLMProvider(a.authenticatedContext(), req)
 }
 
 func (a *App) UpdateLLMProvider(id string, req controllers.UpdateLLMProviderRequest) (map[string]interface{}, error) {
-	return a.llmCtrl.UpdateLLMProvider(a.ctx, id, req)
+	return a.llmCtrl.UpdateLLMProvider(a.authenticatedContext(), id, req)
 }
 
 func (a *App) SetDefaultProvider(id string) error { return a.llmCtrl.SetDefaultProvider(id) }
@@ -108,7 +108,7 @@ func (a *App) initLLMProviders() {
 
 // CreateDefaultLLMProvider cria o primeiro provedor durante o wizard.
 func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
-	return a.providerSvc.CreateFromTemplate(a.ctx, providerType, apiKey)
+	return a.providerSvc.CreateFromTemplate(a.authenticatedContext(), providerType, apiKey)
 }
 
 // getChatProviderForProvider é uma fina camada de delegação para providerSvc.GetChatProvider.

@@ -12,24 +12,33 @@ import (
 )
 
 type Server struct {
-	vault   *auth.VaultService
-	ids     *auth.IdentityService
-	session *auth.SessionService
-	mux     *http.ServeMux
+	vault    *auth.VaultService
+	ids      *auth.IdentityService
+	session  *auth.SessionService
+	mode     string
+	external *auth.ExternalAuthenticator
+	mux      *http.ServeMux
 }
 
 type Config struct {
-	Vault   *auth.VaultService
-	IDs     *auth.IdentityService
-	Session *auth.SessionService
+	Vault    *auth.VaultService
+	IDs      *auth.IdentityService
+	Session  *auth.SessionService
+	Mode     string
+	External *auth.ExternalAuthenticator
 }
 
 func New(cfg Config) *Server {
 	s := &Server{
-		vault:   cfg.Vault,
-		ids:     cfg.IDs,
-		session: cfg.Session,
-		mux:     http.NewServeMux(),
+		vault:    cfg.Vault,
+		ids:      cfg.IDs,
+		session:  cfg.Session,
+		mode:     cfg.Mode,
+		external: cfg.External,
+		mux:      http.NewServeMux(),
+	}
+	if s.mode == "" {
+		s.mode = "local"
 	}
 	s.routes()
 	return s
@@ -90,6 +99,10 @@ func (s *Server) handleVaultUnlock(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if s.mode == "external" {
+		writeError(w, http.StatusNotFound, errors.New("login local indisponível em auth.mode=external"))
+		return
+	}
 	var req struct {
 		Username    string `json:"username"`
 		Password    string `json:"password"`
@@ -116,6 +129,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
+	if s.mode == "external" {
+		writeError(w, http.StatusNotFound, errors.New("refresh local indisponível em auth.mode=external"))
+		return
+	}
 	var req struct {
 		RefreshToken string `json:"refreshToken"`
 	}
@@ -131,6 +148,10 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if s.mode == "external" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	var req struct {
 		RefreshToken string `json:"refreshToken"`
 	}
@@ -145,14 +166,14 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	claims, ok := s.requireAccess(w, r)
+	principal, ok := s.requireAccess(w, r)
 	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
-		"userId":    claims.Subject,
-		"sessionId": claims.SessionID,
-		"role":      claims.Role,
+		"userId":    principal.UserID,
+		"sessionId": principal.SessionID,
+		"role":      principal.Role,
 	})
 }
 
@@ -160,18 +181,40 @@ func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.session.JWKSet())
 }
 
-func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*auth.AccessClaims, bool) {
+type principal struct {
+	UserID    string
+	SessionID string
+	Role      string
+}
+
+func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*principal, bool) {
 	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	if token == "" {
 		writeError(w, http.StatusUnauthorized, errors.New("access token obrigatório"))
 		return nil, false
+	}
+	if s.mode == "external" {
+		if s.external == nil {
+			writeError(w, http.StatusUnauthorized, errors.New("auth.mode=external sem validador configurado"))
+			return nil, false
+		}
+		claims, err := s.external.Validate(r.Context(), token)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err)
+			return nil, false
+		}
+		role := "user"
+		if len(claims.Roles) > 0 {
+			role = claims.Roles[0]
+		}
+		return &principal{UserID: claims.Subject, Role: role}, true
 	}
 	claims, err := s.session.VerifyAccessToken(token)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, err)
 		return nil, false
 	}
-	return claims, true
+	return &principal{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role}, true
 }
 
 func ValidateBindSecurity(bindAddr string, tlsEnabled bool, devInsecure bool) error {

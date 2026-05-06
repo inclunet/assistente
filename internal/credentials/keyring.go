@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	keyringService = "assistente"
-	keyringUser    = "credential_dek"
+	keyringService          = "assistente"
+	keyringUser             = "credential_dek"
+	authRefreshTokenKeyUser = "auth_refresh_token"
 )
 
 // LoadDEKFromKeychain busca a DEK no keychain do SO.
@@ -25,6 +26,18 @@ func LoadDEKFromKeychain() ([]byte, error) {
 func SaveDEKToKeychain(dek []byte) error {
 	encoded := base64.StdEncoding.EncodeToString(dek)
 	return keyring.Set(keyringService, keyringUser, encoded)
+}
+
+func LoadAuthRefreshTokenFromKeychain() (string, error) {
+	return keyring.Get(keyringService, authRefreshTokenKeyUser)
+}
+
+func SaveAuthRefreshTokenToKeychain(refreshToken string) error {
+	return keyring.Set(keyringService, authRefreshTokenKeyUser, refreshToken)
+}
+
+func DeleteAuthRefreshTokenFromKeychain() error {
+	return keyring.Delete(keyringService, authRefreshTokenKeyUser)
 }
 
 // IsKeychainNotFound indica se o erro é de item inexistente no keychain.

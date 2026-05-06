@@ -70,6 +70,10 @@ export function ClearAllSkills() {
   return window['go']['app']['App']['ClearAllSkills']();
 }
 
+export function ClearAuthRefreshToken() {
+  return window['go']['app']['App']['ClearAuthRefreshToken']();
+}
+
 export function ClearConversation(arg1) {
   return window['go']['app']['App']['ClearConversation'](arg1);
 }
@@ -706,6 +710,10 @@ export function Login(arg1) {
   return window['go']['app']['App']['Login'](arg1);
 }
 
+export function LoadAuthRefreshToken() {
+  return window['go']['app']['App']['LoadAuthRefreshToken']();
+}
+
 export function Logout(arg1) {
   return window['go']['app']['App']['Logout'](arg1);
 }
@@ -812,6 +820,10 @@ export function RefreshAuth(arg1) {
 
 export function SetupVault(arg1) {
   return window['go']['app']['App']['SetupVault'](arg1);
+}
+
+export function StoreAuthRefreshToken(arg1) {
+  return window['go']['app']['App']['StoreAuthRefreshToken'](arg1);
 }
 
 export function SaveChannelConfig(arg1, arg2) {

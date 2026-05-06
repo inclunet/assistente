@@ -8,6 +8,7 @@ import (
 
 	"assistente/controllers"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/providers"
 )
 
@@ -53,7 +54,7 @@ func (a *App) initCredentialManager() {
 	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {
 		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
 	}
-	a.registerEnvCredentials(a.credMgr)
+	a.registerEnvCredentials(a.authenticatedContext(), a.credMgr)
 }
 
 // migrateLegacyConfig detecta config.json com campos legados e migra para novo sistema
@@ -100,7 +101,7 @@ func (a *App) migrateLegacyConfig() {
 				Type:  "bearer",
 				Token: cfg.APIKey,
 			}
-			if err := a.credMgr.RegisterPatternWithContext(a.ctx, pattern, authCfg); err != nil {
+			if err := a.credMgr.RegisterPatternWithContext(a.authenticatedContext(), pattern, authCfg); err != nil {
 				log.Printf("[Migration] Erro ao registrar credencial do config.json: %v", err)
 			} else {
 				log.Printf("[Migration] ✓ APIKey migrado para credentials.Manager (pattern: %s)", pattern)
@@ -129,18 +130,21 @@ func (a *App) migrateLegacyConfig() {
 	}
 }
 
-func (a *App) registerEnvCredentials(credMgr *credentials.Manager) {
+func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.Manager) {
 	if credMgr == nil {
+		return
+	}
+	if _, ok := database.UserIDFromContext(ctx); !ok {
 		return
 	}
 
 	// GITHUB_TOKEN -> *.github.com, github.com
 	if ghToken := os.Getenv("GITHUB_TOKEN"); ghToken != "" {
-		_ = credMgr.RegisterPattern("*.github.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.github.com", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: ghToken,
 		})
-		_ = credMgr.RegisterPattern("github.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "github.com", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: ghToken,
 		})
@@ -148,11 +152,11 @@ func (a *App) registerEnvCredentials(credMgr *credentials.Manager) {
 
 	// GITLAB_TOKEN -> *.gitlab.com, gitlab.com
 	if glToken := os.Getenv("GITLAB_TOKEN"); glToken != "" {
-		_ = credMgr.RegisterPattern("*.gitlab.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.gitlab.com", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: glToken,
 		})
-		_ = credMgr.RegisterPattern("gitlab.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "gitlab.com", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: glToken,
 		})
@@ -160,11 +164,11 @@ func (a *App) registerEnvCredentials(credMgr *credentials.Manager) {
 
 	// BITBUCKET_TOKEN -> *.bitbucket.org, bitbucket.org
 	if bbToken := os.Getenv("BITBUCKET_TOKEN"); bbToken != "" {
-		_ = credMgr.RegisterPattern("*.bitbucket.org", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.bitbucket.org", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: bbToken,
 		})
-		_ = credMgr.RegisterPattern("bitbucket.org", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "bitbucket.org", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: bbToken,
 		})
@@ -172,7 +176,7 @@ func (a *App) registerEnvCredentials(credMgr *credentials.Manager) {
 
 	// API genérica - GENERIC_API_KEY para qualquer host (fallback)
 	if apiKey := os.Getenv("GENERIC_API_KEY"); apiKey != "" {
-		_ = credMgr.RegisterPattern("*", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*", &credentials.AuthConfig{
 			Type: "custom",
 			Headers: map[string]string{
 				"X-API-Key": apiKey,
@@ -194,7 +198,7 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {
 		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
 	}
-	a.registerEnvCredentials(a.credMgr)
+	a.registerEnvCredentials(a.authenticatedContext(), a.credMgr)
 }
 
 // HasMasterKey verifica se uma master key (senha mestre) já foi configurada no banco.
@@ -235,17 +239,17 @@ func (a *App) CanPersistCredentials() bool {
 
 // ListCredentials retorna credenciais registradas (sem valores sensíveis).
 func (a *App) ListCredentials() ([]CredentialSummary, error) {
-	return a.credentialsCtrl.ListCredentials()
+	return a.credentialsCtrl.ListCredentialsWithContext(a.authenticatedContext())
 }
 
 // UpsertCredential cria ou atualiza uma credencial no credential manager.
 func (a *App) UpsertCredential(input CredentialInput) error {
-	return a.credentialsCtrl.UpsertCredential(input)
+	return a.credentialsCtrl.UpsertCredentialWithContext(a.authenticatedContext(), input)
 }
 
 // DeleteCredential remove uma credencial pelo padrão.
 func (a *App) DeleteCredential(pattern string) error {
-	return a.credentialsCtrl.DeleteCredential(pattern)
+	return a.credentialsCtrl.DeleteCredentialWithContext(a.authenticatedContext(), pattern)
 }
 
 // ListExternalSources lista fontes externas disponíveis para autocomplete.
