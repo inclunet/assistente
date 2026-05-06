@@ -3,7 +3,8 @@
  * Suporta WebSpeech API e OpenAI TTS (SAPI5 foi unificado via backend_audio)
  */
 
-import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig, TTSModel } from './types';
+import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig } from './types';
+import type { TTSModel } from './types';
 import { ttsFactory } from './factory';
 import { calcTTSTimeoutMs } from '../../lib/audioUtils';
 

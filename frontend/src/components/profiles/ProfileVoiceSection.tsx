@@ -7,7 +7,7 @@ import { Button } from '../ui/Button';
 import { useTTS } from '../../hooks/useTTS';
 import { getTTSCapabilities } from '../../config/providers';
 import { ttsService } from '../../services/tts';
-import { TTSModel, TTSVoice, type TTSSelectionMode } from '../../services/tts/types';
+import type { TTSModel, TTSVoice, TTSSelectionMode } from '../../services/tts/types';
 import './ProfileVoiceSection.css';
 
 export interface ProfileVoiceSectionProps {

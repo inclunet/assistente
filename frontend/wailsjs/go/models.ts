@@ -2729,6 +2729,7 @@ export namespace profiles {
 	    llm_provider_id?: string;
 	    voice_id?: string;
 	    model?: string;
+	    selection_mode?: string;
 	    rate: number;
 	    pitch: number;
 	    volume: number;
@@ -2744,6 +2745,7 @@ export namespace profiles {
 	        this.llm_provider_id = source["llm_provider_id"];
 	        this.voice_id = source["voice_id"];
 	        this.model = source["model"];
+	        this.selection_mode = source["selection_mode"];
 	        this.rate = source["rate"];
 	        this.pitch = source["pitch"];
 	        this.volume = source["volume"];
@@ -3515,6 +3517,7 @@ export namespace speech {
 	    description: string;
 	    gender: string;
 	    provider: string;
+	    model_id?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new TTSVoiceInfo(source);
@@ -3527,6 +3530,27 @@ export namespace speech {
 	        this.description = source["description"];
 	        this.gender = source["gender"];
 	        this.provider = source["provider"];
+	        this.model_id = source["model_id"];
+	    }
+	}
+	export class TTSModelInfo {
+	    id: string;
+	    name: string;
+	    description?: string;
+	    provider: string;
+	    selection_mode: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TTSModelInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.provider = source["provider"];
+	        this.selection_mode = source["selection_mode"];
 	    }
 	}
 
