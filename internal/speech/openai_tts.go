@@ -157,6 +157,7 @@ func NewTTSClient(config TTSConfig, credMgr *credentials.Manager) *TTSClient {
 func (c *TTSClient) buildParams(text string, voice TTSVoice) (openai.AudioSpeechNewParams, error) {
 	modelID := string(c.config.Model)
 	voiceID := string(voice)
+	requestVoiceID := normalizeTTSVoiceForRequest(modelID, voiceID)
 	mode := normalizeTTSSelectionMode(modelID, c.config.SelectionMode)
 	if err := validateTTSSelection(modelID, voiceID, mode); err != nil {
 		return openai.AudioSpeechNewParams{}, err
@@ -167,7 +168,7 @@ func (c *TTSClient) buildParams(text string, voice TTSVoice) (openai.AudioSpeech
 		Model: openai.SpeechModel(c.config.Model),
 	}
 	if mode == TTSSelectionModelAndVoice {
-		params.Voice = openai.AudioSpeechNewParamsVoice(voice)
+		params.Voice = openai.AudioSpeechNewParamsVoice(requestVoiceID)
 	}
 	if c.config.Speed != 1.0 {
 		params.Speed = param.NewOpt(c.config.Speed)
@@ -180,7 +181,7 @@ func (c *TTSClient) buildParams(text string, voice TTSVoice) (openai.AudioSpeech
 			params.Instructions = param.NewOpt(ttsLanguageInstruction(language))
 		}
 		if shouldSendTTSLanguageField(c.config.BaseURL) {
-			params.SetExtraFields(ttsLanguageExtraFields(modelID, voiceID, language))
+			params.SetExtraFields(ttsLanguageExtraFields(modelID, requestVoiceID, language))
 		}
 	}
 	return params, nil
@@ -558,6 +559,17 @@ func ttsLanguageCode(language string) string {
 		return lower[:idx]
 	}
 	return lower
+}
+
+func normalizeTTSVoiceForRequest(modelID, voiceID string) string {
+	voiceID = strings.TrimSpace(voiceID)
+	if voiceID == "" {
+		return ""
+	}
+	if isKokoroTTSSelection(modelID, voiceID) {
+		return strings.ReplaceAll(voiceID, "-", "_")
+	}
+	return voiceID
 }
 
 func ttsLanguageExtraFields(modelID, voiceID, language string) map[string]any {

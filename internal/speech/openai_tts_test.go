@@ -279,6 +279,36 @@ func TestBuildParams_KokoroUsesVoicePrefixForLangCode(t *testing.T) {
 	}
 }
 
+func TestBuildParams_KokoroNormalizesHyphenatedVoiceID(t *testing.T) {
+	client := &TTSClient{
+		config: TTSConfig{
+			BaseURL:  "http://localhost:8080/v1",
+			Model:    TTSModel("kokoro"),
+			Voice:    TTSVoice("pm-santa"),
+			Language: "pt-BR",
+		},
+	}
+
+	params, err := client.buildParams("Olá", TTSVoice("pm-santa"))
+	if err != nil {
+		t.Fatalf("buildParams erro inesperado: %v", err)
+	}
+	if params.Voice != "pm_santa" {
+		t.Fatalf("Voice = %q, esperado pm_santa", params.Voice)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("Marshal params: %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(data, &body); err != nil {
+		t.Fatalf("Unmarshal params: %v", err)
+	}
+	if body["lang_code"] != "p" {
+		t.Fatalf("lang_code = %v, esperado p; body=%s", body["lang_code"], string(data))
+	}
+}
+
 // ============================================================================
 // Voice helpers
 // ============================================================================
