@@ -247,6 +247,36 @@ func TestBuildParams_CompatibleProviderSendsLanguageField(t *testing.T) {
 	if body["language"] != "pt" {
 		t.Fatalf("language = %v, esperado pt; body=%s", body["language"], string(data))
 	}
+	if body["lang_code"] != "p" {
+		t.Fatalf("lang_code = %v, esperado p; body=%s", body["lang_code"], string(data))
+	}
+}
+
+func TestBuildParams_KokoroUsesVoicePrefixForLangCode(t *testing.T) {
+	client := &TTSClient{
+		config: TTSConfig{
+			BaseURL:  "http://localhost:8080/v1",
+			Model:    TTSModel("kokoro"),
+			Voice:    TTSVoice("am_santa"),
+			Language: "pt-BR",
+		},
+	}
+
+	params, err := client.buildParams("Olá", TTSVoice("am_santa"))
+	if err != nil {
+		t.Fatalf("buildParams erro inesperado: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("Marshal params: %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(data, &body); err != nil {
+		t.Fatalf("Unmarshal params: %v", err)
+	}
+	if body["lang_code"] != "a" {
+		t.Fatalf("lang_code = %v, esperado a para voz am_santa; body=%s", body["lang_code"], string(data))
+	}
 }
 
 // ============================================================================

@@ -180,9 +180,7 @@ func (c *TTSClient) buildParams(text string, voice TTSVoice) (openai.AudioSpeech
 			params.Instructions = param.NewOpt(ttsLanguageInstruction(language))
 		}
 		if shouldSendTTSLanguageField(c.config.BaseURL) {
-			params.SetExtraFields(map[string]any{
-				"language": ttsLanguageCode(language),
-			})
+			params.SetExtraFields(ttsLanguageExtraFields(modelID, voiceID, language))
 		}
 	}
 	return params, nil
@@ -560,6 +558,78 @@ func ttsLanguageCode(language string) string {
 		return lower[:idx]
 	}
 	return lower
+}
+
+func ttsLanguageExtraFields(modelID, voiceID, language string) map[string]any {
+	fields := map[string]any{
+		"language": ttsLanguageCode(language),
+	}
+	if isKokoroTTSSelection(modelID, voiceID) {
+		if langCode := kokoroLangCode(language, voiceID); langCode != "" {
+			fields["lang_code"] = langCode
+		}
+	}
+	return fields
+}
+
+func isKokoroTTSSelection(modelID, voiceID string) bool {
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
+	voiceID = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(voiceID, "-", "_")))
+	if strings.Contains(modelID, "kokoro") {
+		return true
+	}
+	switch {
+	case strings.HasPrefix(voiceID, "af_"), strings.HasPrefix(voiceID, "am_"):
+		return true
+	case strings.HasPrefix(voiceID, "bf_"), strings.HasPrefix(voiceID, "bm_"):
+		return true
+	case strings.HasPrefix(voiceID, "ef_"), strings.HasPrefix(voiceID, "em_"):
+		return true
+	case strings.HasPrefix(voiceID, "ff_"), strings.HasPrefix(voiceID, "hf_"):
+		return true
+	case strings.HasPrefix(voiceID, "hm_"), strings.HasPrefix(voiceID, "if_"):
+		return true
+	case strings.HasPrefix(voiceID, "im_"), strings.HasPrefix(voiceID, "jf_"):
+		return true
+	case strings.HasPrefix(voiceID, "jm_"), strings.HasPrefix(voiceID, "pf_"):
+		return true
+	case strings.HasPrefix(voiceID, "pm_"), strings.HasPrefix(voiceID, "zf_"):
+		return true
+	case strings.HasPrefix(voiceID, "zm_"):
+		return true
+	default:
+		return false
+	}
+}
+
+func kokoroLangCode(language, voiceID string) string {
+	voiceID = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(voiceID, "-", "_")))
+	if len(voiceID) >= 3 && voiceID[2] == '_' {
+		switch voiceID[0] {
+		case 'a', 'b', 'e', 'f', 'h', 'i', 'j', 'p', 'z':
+			return string(voiceID[0])
+		}
+	}
+	switch ttsLanguageCode(language) {
+	case "pt":
+		return "p"
+	case "en":
+		return "a"
+	case "es":
+		return "e"
+	case "fr":
+		return "f"
+	case "hi":
+		return "h"
+	case "it":
+		return "i"
+	case "ja":
+		return "j"
+	case "zh":
+		return "z"
+	default:
+		return ""
+	}
 }
 
 func ttsLanguageInstruction(language string) string {
