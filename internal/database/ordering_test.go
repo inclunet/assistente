@@ -1,6 +1,7 @@
 package database
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -271,5 +272,218 @@ func TestGetRootMessagesBefore_CursorLimitAndStableOrder(t *testing.T) {
 		if msgs[i].ParentID != nil {
 			t.Errorf("msgs[%d]: expected root message, got parent %s", i, *msgs[i].ParentID)
 		}
+	}
+}
+
+func TestGetMessageWindow_EndBeforeReturnsAbsoluteMetadata(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID: convID,
+		Anchor:         "end",
+		Direction:      "before",
+		Limit:          2,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow: %v", err)
+	}
+	if window.TotalCount != 5 {
+		t.Fatalf("total count: expected 5, got %d", window.TotalCount)
+	}
+	if window.StartIndex != 3 || window.EndIndex != 4 {
+		t.Fatalf("indices: expected 3..4, got %d..%d", window.StartIndex, window.EndIndex)
+	}
+	if !window.HasBefore || window.HasAfter {
+		t.Fatalf("flags: expected hasBefore=true hasAfter=false, got %v/%v", window.HasBefore, window.HasAfter)
+	}
+
+	expected := []string{ids[3], ids[4]}
+	for i, id := range expected {
+		if window.Messages[i].ID != id {
+			t.Errorf("messages[%d]: expected %s, got %s", i, id, window.Messages[i].ID)
+		}
+	}
+}
+
+func TestGetMessageWindow_RejectsInvalidCursorShape(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	cases := []struct {
+		name  string
+		query MessageWindowQuery
+		want  string
+	}{
+		{
+			name: "invalid direction",
+			query: MessageWindowQuery{
+				ConversationID: convID,
+				Direction:      "sideways",
+				Limit:          2,
+			},
+			want: "direction",
+		},
+		{
+			name: "invalid anchor",
+			query: MessageWindowQuery{
+				ConversationID: convID,
+				Anchor:         "middle",
+				Direction:      "before",
+				Limit:          2,
+			},
+			want: "anchor",
+		},
+		{
+			name: "anchor and anchor message",
+			query: MessageWindowQuery{
+				ConversationID:  convID,
+				Anchor:          "end",
+				AnchorMessageID: ids[0],
+				Direction:       "before",
+				Limit:           2,
+			},
+			want: "mutuamente exclusivos",
+		},
+		{
+			name: "start before",
+			query: MessageWindowQuery{
+				ConversationID: convID,
+				Anchor:         "start",
+				Direction:      "before",
+				Limit:          2,
+			},
+			want: "anchor=start",
+		},
+		{
+			name: "end after",
+			query: MessageWindowQuery{
+				ConversationID: convID,
+				Anchor:         "end",
+				Direction:      "after",
+				Limit:          2,
+			},
+			want: "anchor=end",
+		},
+		{
+			name: "around without anchor message",
+			query: MessageWindowQuery{
+				ConversationID: convID,
+				Direction:      "around",
+				Limit:          2,
+			},
+			want: "anchorMessageId",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := GetMessageWindow(tc.query)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestGetMessageWindow_BeforeAnchorUsesAbsoluteIndex(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID:  convID,
+		AnchorMessageID: ids[4],
+		Direction:       "before",
+		Limit:           3,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow before anchor: %v", err)
+	}
+	if window.StartIndex != 1 || window.EndIndex != 3 {
+		t.Fatalf("indices: expected 1..3, got %d..%d", window.StartIndex, window.EndIndex)
+	}
+	if !window.HasBefore || !window.HasAfter {
+		t.Fatalf("flags: expected hasBefore=true hasAfter=true, got %v/%v", window.HasBefore, window.HasAfter)
+	}
+
+	expected := []string{ids[1], ids[2], ids[3]}
+	for i, id := range expected {
+		if window.Messages[i].ID != id {
+			t.Errorf("messages[%d]: expected %s, got %s", i, id, window.Messages[i].ID)
+		}
+	}
+}
+
+func TestGetMessageWindow_BeforeAnchorNearStartDoesNotIncludeAnchor(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID:  convID,
+		AnchorMessageID: ids[0],
+		Direction:       "before",
+		Limit:           3,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow before first anchor: %v", err)
+	}
+	if len(window.Messages) != 0 {
+		t.Fatalf("expected empty window before first message, got %d messages", len(window.Messages))
+	}
+	if window.TotalCount != len(ids) {
+		t.Fatalf("total count: expected %d, got %d", len(ids), window.TotalCount)
+	}
+	if window.StartIndex != 0 || window.EndIndex != -1 {
+		t.Fatalf("indices: expected 0..-1, got %d..%d", window.StartIndex, window.EndIndex)
+	}
+	if window.HasBefore || !window.HasAfter {
+		t.Fatalf("flags: expected hasBefore=false hasAfter=true, got %v/%v", window.HasBefore, window.HasAfter)
+	}
+}
+
+func TestGetMessageWindow_AroundRebalancesAtEnd(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID:  convID,
+		AnchorMessageID: ids[4],
+		Direction:       "around",
+		Limit:           4,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow around anchor: %v", err)
+	}
+	if len(window.Messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(window.Messages))
+	}
+	if window.StartIndex != 1 || window.EndIndex != 4 {
+		t.Fatalf("indices: expected 1..4, got %d..%d", window.StartIndex, window.EndIndex)
+	}
+}
+
+func TestGetMessageWindow_ThreadScopeCountsChildren(t *testing.T) {
+	setupOrderingTestDB(t)
+	convID, ids := createConvWithSameTimestampRootMessages(t)
+
+	parentID := ids[2]
+	window, err := GetMessageWindow(MessageWindowQuery{
+		ConversationID: convID,
+		ParentID:       &parentID,
+		Anchor:         "start",
+		Direction:      "after",
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("GetMessageWindow thread: %v", err)
+	}
+	if window.TotalCount != 1 {
+		t.Fatalf("thread total: expected 1, got %d", window.TotalCount)
+	}
+	if window.StartIndex != 0 || window.EndIndex != 0 {
+		t.Fatalf("thread indices: expected 0..0, got %d..%d", window.StartIndex, window.EndIndex)
+	}
+	if window.Messages[0].ParentID == nil || *window.Messages[0].ParentID != parentID {
+		t.Fatalf("expected child of %s", parentID)
 	}
 }

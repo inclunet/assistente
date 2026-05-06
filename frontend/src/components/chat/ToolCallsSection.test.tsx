@@ -92,4 +92,46 @@ describe('ToolCallsSection', () => {
     expect(screen.queryByText('chat.toolOriginMcpNative')).not.toBeInTheDocument();
     expect(screen.queryByText('chat.toolOriginMcpBridge')).not.toBeInTheDocument();
   });
+
+  it('conta tool calls historicos grandes sem parse inicial completo', () => {
+    const toolCallsJson = JSON.stringify([
+      {
+        id: '1',
+        type: 'function',
+        function: { name: 'first_tool', arguments: '{}' },
+        result: 'a'.repeat(5_000),
+      },
+      {
+        id: '2',
+        type: 'function',
+        function: { name: 'second_tool', arguments: '{}' },
+        result: 'b'.repeat(5_000),
+      },
+      {
+        id: '3',
+        type: 'function',
+        function: { name: 'third_tool', arguments: '{}' },
+        result: 'c'.repeat(5_000),
+      },
+    ]);
+
+    render(<ToolCallsSection toolCallsJson={toolCallsJson} />);
+
+    expect(screen.getByText('3 chat.toolsUsed')).toBeInTheDocument();
+    expect(screen.getByText('chat.toolDetails')).toBeInTheDocument();
+    expect(screen.queryByText('first_tool')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button'));
+
+    expect(screen.getByText('first_tool')).toBeInTheDocument();
+    expect(screen.getByText('second_tool')).toBeInTheDocument();
+    expect(screen.getByText('third_tool')).toBeInTheDocument();
+  });
+
+  it('ignora tool calls historicos grandes com JSON invalido', () => {
+    render(<ToolCallsSection toolCallsJson={`[{"id":"1","type":"function","function":{"name":"broken","arguments":"{}"}${'x'.repeat(12_000)}`} />);
+
+    expect(screen.queryByText(/chat.toolsUsed/)).not.toBeInTheDocument();
+    expect(screen.queryByText('chat.toolDetails')).not.toBeInTheDocument();
+  });
 });

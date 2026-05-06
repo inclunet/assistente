@@ -1572,6 +1572,7 @@ export namespace main {
 	    children?: MessageNode[];
 	    level: number;
 	    childCount: number;
+	    originalIndex?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageNode(source);
@@ -1583,6 +1584,77 @@ export namespace main {
 	        this.children = this.convertValues(source["children"], MessageNode);
 	        this.level = source["level"];
 	        this.childCount = source["childCount"];
+	        this.originalIndex = source["originalIndex"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MessageWindowRequest {
+	    scope: string;
+	    conversationId: string;
+	    threadParentId?: string;
+	    anchor?: string;
+	    anchorMessageId?: string;
+	    direction: string;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessageWindowRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.conversationId = source["conversationId"];
+	        this.threadParentId = source["threadParentId"];
+	        this.anchor = source["anchor"];
+	        this.anchorMessageId = source["anchorMessageId"];
+	        this.direction = source["direction"];
+	        this.limit = source["limit"];
+	    }
+	}
+	export class MessageWindow {
+	    scope: string;
+	    conversationId: string;
+	    threadParentId?: string;
+	    nodes: MessageNode[];
+	    totalCount: number;
+	    startIndex: number;
+	    endIndex: number;
+	    hasBefore: boolean;
+	    hasAfter: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessageWindow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.conversationId = source["conversationId"];
+	        this.threadParentId = source["threadParentId"];
+	        this.nodes = this.convertValues(source["nodes"], MessageNode);
+	        this.totalCount = source["totalCount"];
+	        this.startIndex = source["startIndex"];
+	        this.endIndex = source["endIndex"];
+	        this.hasBefore = source["hasBefore"];
+	        this.hasAfter = source["hasAfter"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

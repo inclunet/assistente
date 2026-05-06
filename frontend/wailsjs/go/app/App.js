@@ -398,6 +398,10 @@ export function GetConversationInfo(arg1) {
   return window['go']['app']['App']['GetConversationInfo'](arg1);
 }
 
+export function GetConversationMessageWindow(arg1) {
+  return window['go']['app']['App']['GetConversationMessageWindow'](arg1);
+}
+
 export function GetConversationSummary(arg1) {
   return window['go']['app']['App']['GetConversationSummary'](arg1);
 }
