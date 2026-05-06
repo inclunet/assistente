@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 
 	"github.com/glebarez/sqlite"
@@ -232,6 +233,79 @@ func TestExternalValidatorRejectsDisallowedAlgorithm(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected disallowed algorithm to fail")
 	}
+}
+
+func TestVaultSetupAdoptsExistingKeyringDEK(t *testing.T) {
+	store := newMemoryCredentialStore()
+	existingDEK := []byte("01234567890123456789012345678901")
+	var configuredDEK []byte
+
+	vault := NewVaultService(store, func(dek []byte) {
+		configuredDEK = append([]byte(nil), dek...)
+	})
+	vault.loadKeyring = func() ([]byte, error) {
+		return existingDEK, nil
+	}
+	vault.saveKeyring = func([]byte) error {
+		t.Fatal("setup with existing keyring DEK should not save a new DEK")
+		return nil
+	}
+
+	recoveryKey, err := vault.Setup(context.Background(), "master-password")
+	if err != nil {
+		t.Fatalf("setup vault: %v", err)
+	}
+	if recoveryKey == "" {
+		t.Fatal("expected recovery key")
+	}
+	if string(configuredDEK) != string(existingDEK) {
+		t.Fatalf("configured DEK was replaced")
+	}
+	unwrapped, err := credentials.UnlockDEKWithSecret(store, credentials.KeyWrapKindMaster, "master-password")
+	if err != nil {
+		t.Fatalf("unlock adopted DEK: %v", err)
+	}
+	if string(unwrapped) != string(existingDEK) {
+		t.Fatalf("unwrapped DEK differs from existing keyring DEK")
+	}
+}
+
+type memoryCredentialStore struct {
+	wraps map[string]credentials.KeyWrap
+}
+
+func newMemoryCredentialStore() *memoryCredentialStore {
+	return &memoryCredentialStore{wraps: map[string]credentials.KeyWrap{}}
+}
+
+func (s *memoryCredentialStore) SaveCredential(context.Context, credentials.StoredCredential) error {
+	return nil
+}
+
+func (s *memoryCredentialStore) ListCredentials(context.Context) ([]credentials.StoredCredential, error) {
+	return nil, nil
+}
+
+func (s *memoryCredentialStore) DeleteCredential(context.Context, string) error {
+	return nil
+}
+
+func (s *memoryCredentialStore) SaveKeyWrap(_ context.Context, wrap credentials.KeyWrap) error {
+	s.wraps[wrap.Kind] = wrap
+	return nil
+}
+
+func (s *memoryCredentialStore) GetKeyWrap(_ context.Context, kind string) (*credentials.KeyWrap, error) {
+	wrap, ok := s.wraps[kind]
+	if !ok {
+		return nil, credentials.ErrKeyWrapNotFound
+	}
+	return &wrap, nil
+}
+
+func (s *memoryCredentialStore) HasKeyWrap(_ context.Context, kind string) (bool, error) {
+	_, ok := s.wraps[kind]
+	return ok, nil
 }
 
 func signExternalTestToken(t *testing.T, privateKey ed25519.PrivateKey, keyID string, claims map[string]any) string {

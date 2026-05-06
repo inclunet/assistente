@@ -48,6 +48,22 @@ func SetupMasterKey(store Store, masterPassword string) (*MasterKeySetupResult, 
 		return nil, err
 	}
 
+	return SetupMasterKeyForDEK(store, masterPassword, dek)
+}
+
+// SetupMasterKeyForDEK embrulha uma DEK já existente com senha mestre e recovery key.
+// Usado ao adotar instalações que já tinham a DEK no keyring antes da AEP-0052.
+func SetupMasterKeyForDEK(store Store, masterPassword string, dek []byte) (*MasterKeySetupResult, error) {
+	if store == nil {
+		return nil, ErrStoreNotReady
+	}
+	if strings.TrimSpace(masterPassword) == "" {
+		return nil, errors.New("senha mestre inválida")
+	}
+	if len(dek) == 0 {
+		return nil, errors.New("DEK inválida")
+	}
+
 	recoveryKey, err := GenerateRecoveryKey()
 	if err != nil {
 		return nil, err

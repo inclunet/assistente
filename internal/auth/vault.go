@@ -50,15 +50,24 @@ func (s *VaultService) Setup(ctx context.Context, masterPassword string) (string
 	if s == nil || s.store == nil {
 		return "", credentials.ErrStoreNotReady
 	}
-	configured, err := s.store.HasKeyWrap(ctx, credentials.KeyWrapKindMaster)
-	if err != nil {
-		return "", err
+	configured, hasWrapErr := s.store.HasKeyWrap(ctx, credentials.KeyWrapKindMaster)
+	if hasWrapErr != nil {
+		return "", hasWrapErr
 	}
 	if configured {
 		return "", errors.New("cofre já configurado")
 	}
 
-	result, err := credentials.SetupMasterKey(s.store, masterPassword)
+	var result *credentials.MasterKeySetupResult
+	var err error
+	if s.loadKeyring != nil {
+		if existingDEK, loadErr := s.loadKeyring(); loadErr == nil && len(existingDEK) > 0 {
+			result, err = credentials.SetupMasterKeyForDEK(s.store, masterPassword, existingDEK)
+		}
+	}
+	if result == nil && err == nil {
+		result, err = credentials.SetupMasterKey(s.store, masterPassword)
+	}
 	if err != nil {
 		return "", err
 	}
