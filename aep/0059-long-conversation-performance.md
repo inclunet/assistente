@@ -152,11 +152,36 @@ A lista virtualizada deve manter experiência consistente para teclado e leitor 
 
 ### Fase 2.1 — Timeline items canônicos
 
+Esta é a fase alvo do PR dedicado posterior ao PR #113.
+
 - Evoluir `GetConversationMessageWindow` para paginar itens de timeline, não linhas brutas de `chat_messages`.
 - Agrupar turnos por `turnId` no backend e retornar nós/segmentos já coerentes com a lista navegável.
 - Calcular `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` pela quantidade de itens renderizáveis.
 - Garantir que streaming crie um item transitório reconciliável pelo mesmo `turnId`.
 - Remover a dependência de consolidação local para definir posições acessíveis.
+
+#### Consolidação no PR #113
+
+O PR #113 concluiu a primeira entrega de janela incremental por sessão:
+
+- `GetConversationMessageWindow` passou a ser a API única de carregamento incremental de conversa e thread.
+- Janelas visuais passaram a pertencer à `ChatSurfaceSession`, preservando independência entre superfícies.
+- O carregamento inicial e a paginação deixaram de depender de carregar a conversa inteira.
+- A UI passou a usar contagem local honesta quando a consolidação visual de turnos ainda era feita no frontend, evitando anunciar posições absolutas cruas incorretas.
+- A expansão de fronteiras de turno foi mantida apenas como mitigação temporária, não como contrato final de timeline item.
+
+#### Contrato do PR de Fase 2.1
+
+O PR de Fase 2.1 conclui a semântica canônica de itens de timeline:
+
+- A unidade de paginação, contagem e acessibilidade é o item de timeline.
+- Um item normal representa uma mensagem navegável sem consolidação.
+- Um item de turno representa as mensagens persistidas com o mesmo `turnId`, normalmente mensagens de assistant/tool produzidas pela resposta a uma mensagem de usuário.
+- `turnId` continua apontando para o ID da mensagem de usuário que iniciou o turno.
+- `AnchorMessageID` pode apontar para a mensagem representante ou para uma mensagem interna de um turno; o backend normaliza isso para o item de timeline correspondente.
+- `OriginalIndex`, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` são calculados pelo backend sobre itens de timeline.
+- O frontend consome esses índices como canônicos e não corrige posições absolutas com agrupamento local.
+- O backend monta os itens em lote, com número pequeno e previsível de consultas, sem N+1.
 
 ### Fase 3 — Memoização e atualização granular
 

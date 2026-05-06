@@ -207,6 +207,16 @@ O PR #112 não altera o alvo arquitetural nem entra na AEP-0059. Ele endurece a 
 - Efeitos globais de feedback ignoram origens vinculadas a abas do workspace que já foram removidas.
 - Documentação antiga de contexto de superfície passa a apontar explicitamente para o contrato vigente das AEPs 0056, 0057 e 0058.
 
+#### Consolidação no PR #113 e próximo contrato
+
+O PR #113 avançou a parte de performance prevista na Fase 6 sem reabrir a separação de painéis:
+
+- Chat, editor, terminal e tasklist continuam donos de sua identidade e estado visual por painel/superfície.
+- A janela de mensagens do chat passou a ser estado de `ChatSurfaceSession`, não estado global compartilhado pelo workspace.
+- Carregar histórico em uma superfície de chat não altera a janela visual de outra superfície, inclusive quando chat aparece embutido em editor, terminal ou tasklist.
+
+O próximo PR fica restrito à AEP-0059 Fase 2.1: tornar o backend a fonte canônica de itens de timeline para contagem, posição e agrupamento acessível. Essa mudança não cria novo acoplamento com o workspace e não altera o ownership dos painéis definido por esta AEP.
+
 ## Riscos
 
 - Keep-alive pode aumentar uso de memória se muitas abas pesadas permanecerem montadas.

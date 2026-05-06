@@ -150,6 +150,14 @@ O PR #112 adiciona hardening de lifecycle para a política global:
 - Efeitos globais não são emitidos quando a origem pertence a uma aba do workspace que já foi fechada.
 - Canais externos continuam válidos sem `tabId`, porque não dependem da aba ativa nem do lifecycle do workspace.
 
+#### Relação com AEP-0059 Fase 2.1
+
+A AEP-0059 Fase 2.1 corrige a unidade acessível da lista de mensagens. A política global desta AEP permanece a mesma: há uma live region global e anúncios são arbitrados por origem de superfície. O que muda é a fonte dos números anunciados dentro da lista de chat:
+
+- `aria-posinset` e `aria-setsize` devem refletir itens de timeline, não linhas internas de ferramenta.
+- Um turno consolidado com tool calls deve ser anunciado como um único item quando é renderizado como um único item.
+- Durante streaming, o item transitório deve ser reconciliável por `turnId` para não produzir saltos artificiais de posição quando a janela persistida é recarregada.
+
 ## Riscos
 
 - Política agressiva de interrupção de TTS pode frustrar usuários que esperam ouvir tudo.
