@@ -215,14 +215,23 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     if (!messageWindow || messageWindow.totalCount <= 0 || hasConsolidatedTurns) {
       return displayMessages.map((_, index) => index + 1);
     }
-    let nextIndex = messageWindow.startIndex;
-    return displayMessages.map((node) => {
-      const absoluteIndex = node.originalIndex ?? nextIndex;
-      nextIndex = absoluteIndex + 1;
-      return absoluteIndex + 1;
-    });
+    const explicitIndexes = displayMessages.map((node) => node.originalIndex);
+    const canUseAbsolutePositions = explicitIndexes.every((index): index is number => index !== undefined)
+      && explicitIndexes.every((index, position) => position === 0 || index > explicitIndexes[position - 1]!);
+    if (!canUseAbsolutePositions) {
+      return displayMessages.map((_, index) => index + 1);
+    }
+    return explicitIndexes.map((index) => index + 1);
   }, [displayMessages, hasConsolidatedTurns, messageWindow]);
-  const ariaSetSize = messageWindow && messageWindow.totalCount > 0 && !hasConsolidatedTurns
+  const usesAbsoluteMessagePositions = !!messageWindow
+    && messageWindow.totalCount > 0
+    && !hasConsolidatedTurns
+    && displayMessages.length > 0
+    && displayMessages.every((node, index) => (
+      node.originalIndex !== undefined
+      && (index === 0 || node.originalIndex > displayMessages[index - 1].originalIndex!)
+    ));
+  const ariaSetSize = usesAbsoluteMessagePositions
     ? Math.max(messageWindow.totalCount, ...messagePositions)
     : displayMessages.length;
 

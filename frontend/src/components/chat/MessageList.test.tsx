@@ -79,6 +79,37 @@ describe('MessageList', () => {
     }));
   });
 
+  it('usa contagem visual local quando algum item não tem índice absoluto', () => {
+    hoisted.messageNodeMock.mockClear();
+    const firstNode = createNode('message-1');
+    const expandedTurnNode = createNode('message-expanded');
+    const thirdNode = createNode('message-3');
+    (firstNode as typeof firstNode & { originalIndex?: number }).originalIndex = 40;
+    (thirdNode as typeof thirdNode & { originalIndex?: number }).originalIndex = 41;
+
+    render(
+      <MessageList
+        threadedMessages={[firstNode, expandedTurnNode, thirdNode]}
+        messageWindow={{
+          scope: 'conversation',
+          conversationId: 'conversation-1',
+          totalCount: 100,
+          startIndex: 40,
+          endIndex: 41,
+          hasBefore: true,
+          hasAfter: true,
+        }}
+      />
+    );
+
+    const calls = hoisted.messageNodeMock.mock.calls.map(([props]) => props);
+    expect(calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ariaPosition: 1, ariaSetSize: 3 }),
+      expect.objectContaining({ ariaPosition: 2, ariaSetSize: 3 }),
+      expect.objectContaining({ ariaPosition: 3, ariaSetSize: 3 }),
+    ]));
+  });
+
   it('dispara callbacks de salto por Ctrl+Home e Ctrl+End', () => {
     const onJumpToStart = vi.fn();
     const onJumpToEnd = vi.fn();
