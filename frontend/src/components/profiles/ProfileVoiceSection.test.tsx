@@ -251,6 +251,42 @@ describe('ProfileVoiceSection', () => {
     expect(handleChange).toHaveBeenCalledWith('selectionMode', 'model_and_voice');
   });
 
+  it('limpa modelo, selectionMode e voz ao limpar o seletor de modelo', () => {
+    const handleChange = vi.fn();
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="openai-default"
+        providerType="openai"
+        ttsModel="tts-1"
+        voice="nova"
+        onChange={handleChange}
+      />
+    );
+
+    const modelSelect = screen.getByDisplayValue('tts-1');
+    fireEvent.change(modelSelect, { target: { value: '' } });
+
+    expect(handleChange).toHaveBeenCalledWith('model', '');
+    expect(handleChange).toHaveBeenCalledWith('selectionMode', '');
+    expect(handleChange).toHaveBeenCalledWith('voice', '');
+  });
+
+  it('não permite escolher voz HTTP antes do modelo TTS', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="openai-default"
+        providerType="openai"
+        ttsModel=""
+        voice=""
+      />
+    );
+
+    expect(screen.getByText('profiles.voiceSection.modelLabel')).toBeInTheDocument();
+    expect(screen.queryByTestId('voice-picker-mock')).not.toBeInTheDocument();
+  });
+
   it('NÃO mostra voiceOverrides quando providerType não é fornecido', () => {
     render(
       <ProfileVoiceSection

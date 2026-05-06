@@ -258,6 +258,26 @@ func (p *Profile) Validate() error {
 		if !containsStr(validVoiceProviders, role.Provider) {
 			return fmt.Errorf("%s.provider must be one of: disabled, webspeech, sapi5, openai", name)
 		}
+		if !containsStr([]string{"", "model_and_voice", "model_only"}, role.SelectionMode) {
+			return fmt.Errorf("%s.selection_mode must be one of: model_and_voice, model_only", name)
+		}
+		if role.Enabled && role.Provider == "openai" {
+			if role.LLMProviderID == "" {
+				return fmt.Errorf("%s.llm_provider_id is required for HTTP TTS", name)
+			}
+			if role.Model == "" {
+				return fmt.Errorf("%s.model is required for HTTP TTS", name)
+			}
+			if role.SelectionMode == "" {
+				return fmt.Errorf("%s.selection_mode is required for HTTP TTS", name)
+			}
+			if role.SelectionMode == "model_and_voice" && role.VoiceID == "" {
+				return fmt.Errorf("%s.voice_id is required when selection_mode is model_and_voice", name)
+			}
+			if role.SelectionMode == "model_only" && role.VoiceID != "" {
+				return fmt.Errorf("%s.voice_id must be empty when selection_mode is model_only", name)
+			}
+		}
 	}
 
 	// Validação do modo de resposta para canais

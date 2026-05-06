@@ -119,6 +119,12 @@ export function ProfileVoiceSection({
   }, [isModelOnly, ttsModel, ttsCapabilities.staticVoices]);
 
   const handleModelChange = (modelId: string) => {
+    if (!modelId) {
+      onChange('model', '');
+      onChange('selectionMode', '');
+      onChange('voice', '');
+      return;
+    }
     const nextModel = ttsModels.find((m) => m.id === modelId);
     const nextSelectionMode = nextModel?.selectionMode || 'model_and_voice';
     onChange('model', modelId);
@@ -177,7 +183,7 @@ export function ProfileVoiceSection({
         </div>
       )}
 
-      {!isModelOnly && (
+      {!isModelOnly && (!isHTTPProvider || !!ttsModel) && (
         <div className="profile-voice-section__field">
           <VoicePicker
             value={voice || ''}
