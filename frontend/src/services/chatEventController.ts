@@ -256,6 +256,7 @@ export function startChatEventController({
         ...session.conversation,
         threadedMessages: [...session.conversation.threadedMessages, assistantNode as MessageNode],
       },
+      appendVisibleMessages: true,
       streamingMessageId: streamingMsgId,
     });
   };
@@ -361,6 +362,7 @@ export function startChatEventController({
         ...session.conversation,
         threadedMessages: [...session.conversation.threadedMessages, userNode as MessageNode],
       },
+      appendVisibleMessages: true,
     });
     if (external && event.userContent) {
       announce(i18next.t('chat.announce.externalMessage', {

@@ -97,6 +97,13 @@ function ChatSessionViewContent({
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
+  const pendingWindowAnnouncementRef = useRef<{
+    kind: 'start' | 'end' | 'older' | 'newer';
+    previousStartIndex: number;
+    previousEndIndex: number;
+    previousWindowKey: string | null;
+  } | null>(null);
+  const latestWindowKeyRef = useRef<string | null>(null);
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
@@ -106,8 +113,13 @@ function ChatSessionViewContent({
     threadedMessages,
     isLoading,
     hasOlderMessages,
+    hasNewerMessages,
     isLoadingOlderMessages,
+    isLoadingMessageWindow,
     loadOlderMessages,
+    loadNewerMessages,
+    loadStartMessages,
+    loadEndMessages,
     loadMessageChildren,
     loadConversationSession,
     retryMessageToConversation,
@@ -127,6 +139,25 @@ function ChatSessionViewContent({
     setScrollState,
   } = controller;
   const getSessionConversation = useCallback(() => conversation, [conversation]);
+  const visibleMessageCount = useMemo(() => {
+    if (!threadedMessages.length) return 0;
+    const processedTurnIds = new Set<string>();
+    let count = 0;
+    for (const node of threadedMessages) {
+      const message = node.message;
+      if (!message) continue;
+      const turnId = message.turnId;
+      if (!turnId) {
+        count += 1;
+        continue;
+      }
+      if (message.role === 'tool' || processedTurnIds.has(turnId)) continue;
+      processedTurnIds.add(turnId);
+      count += 1;
+    }
+    return count;
+  }, [threadedMessages]);
+  const usesLocalVisualWindowCount = visibleMessageCount > 0 && visibleMessageCount !== threadedMessages.length;
 
   useEffect(() => {
     if (!conversationId) return;
@@ -284,7 +315,7 @@ function ChatSessionViewContent({
         announce(t('chat.announce.messageDeleted'));
         const conv = getSessionConversation();
         if (conv?.id) {
-          await loadConversationSession(conv.id);
+          await loadConversationSession(conv.id, { refreshSurfaceWindows: true });
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -505,6 +536,42 @@ function ChatSessionViewContent({
   }, [sendError]);
 
   useEffect(() => {
+    const windowState = session?.messageWindow;
+    latestWindowKeyRef.current = windowState
+      ? `${windowState.startIndex}:${windowState.endIndex}:${windowState.totalCount}`
+      : null;
+    const pendingAnnouncement = pendingWindowAnnouncementRef.current;
+    if (!pendingAnnouncement) return;
+    if (!windowState || windowState.totalCount <= 0) {
+      pendingWindowAnnouncementRef.current = null;
+      return;
+    }
+    const didCompleteRequestedLoad =
+      pendingAnnouncement.kind === 'older'
+        ? windowState.startIndex < pendingAnnouncement.previousStartIndex || !windowState.hasBefore
+        : pendingAnnouncement.kind === 'newer'
+          ? windowState.endIndex > pendingAnnouncement.previousEndIndex || !windowState.hasAfter
+          : pendingAnnouncement.kind === 'start'
+            ? windowState.startIndex === 0
+            : windowState.totalCount > 0 && windowState.endIndex >= windowState.totalCount - 1;
+    if (!didCompleteRequestedLoad) return;
+    pendingWindowAnnouncementRef.current = null;
+    if (usesLocalVisualWindowCount) {
+      announce(t('chat.announce.messageWindowLoaded', {
+        start: 1,
+        end: visibleMessageCount,
+        total: visibleMessageCount,
+      }));
+      return;
+    }
+    announce(t('chat.announce.messageWindowLoaded', {
+      start: windowState.startIndex + 1,
+      end: windowState.endIndex + 1,
+      total: windowState.totalCount,
+    }));
+  }, [announce, session?.messageWindow, t, usesLocalVisualWindowCount, visibleMessageCount]);
+
+  useEffect(() => {
     if (!isInteractiveSurface) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && sendError) {
@@ -558,6 +625,97 @@ function ChatSessionViewContent({
     inputRef.current?.focus();
   };
 
+  const handleJumpToStart = async () => {
+    const previousWindowKey = latestWindowKeyRef.current;
+    const windowState = session?.messageWindow;
+    pendingWindowAnnouncementRef.current = {
+      kind: 'start',
+      previousStartIndex: windowState?.startIndex ?? 0,
+      previousEndIndex: windowState?.endIndex ?? -1,
+      previousWindowKey,
+    };
+    try {
+      await loadStartMessages();
+      requestAnimationFrame(() => {
+        const container = messagesContainerRef.current;
+        const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
+        firstMessage?.focus();
+      });
+    } finally {
+      window.setTimeout(() => {
+        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
+          pendingWindowAnnouncementRef.current = null;
+        }
+      }, 1_000);
+    }
+  };
+
+  const handleJumpToEnd = async () => {
+    const previousWindowKey = latestWindowKeyRef.current;
+    const windowState = session?.messageWindow;
+    pendingWindowAnnouncementRef.current = {
+      kind: 'end',
+      previousStartIndex: windowState?.startIndex ?? 0,
+      previousEndIndex: windowState?.endIndex ?? -1,
+      previousWindowKey,
+    };
+    try {
+      await loadEndMessages();
+      requestAnimationFrame(() => {
+        const container = messagesContainerRef.current;
+        const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
+        const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
+        lastMessage?.focus();
+      });
+    } finally {
+      window.setTimeout(() => {
+        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
+          pendingWindowAnnouncementRef.current = null;
+        }
+      }, 1_000);
+    }
+  };
+
+  const handleLoadOlderMessages = useCallback(async () => {
+    const previousWindowKey = latestWindowKeyRef.current;
+    const windowState = session?.messageWindow;
+    pendingWindowAnnouncementRef.current = {
+      kind: 'older',
+      previousStartIndex: windowState?.startIndex ?? 0,
+      previousEndIndex: windowState?.endIndex ?? -1,
+      previousWindowKey,
+    };
+    try {
+      await loadOlderMessages();
+    } finally {
+      window.setTimeout(() => {
+        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
+          pendingWindowAnnouncementRef.current = null;
+        }
+      }, 1_000);
+    }
+  }, [loadOlderMessages, session?.messageWindow]);
+
+  const handleLoadNewerMessages = useCallback(async () => {
+    const previousWindowKey = latestWindowKeyRef.current;
+    const windowState = session?.messageWindow;
+    pendingWindowAnnouncementRef.current = {
+      kind: 'newer',
+      previousStartIndex: windowState?.startIndex ?? 0,
+      previousEndIndex: windowState?.endIndex ?? -1,
+      previousWindowKey,
+    };
+    try {
+      await loadNewerMessages();
+    } finally {
+      window.setTimeout(() => {
+        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
+          pendingWindowAnnouncementRef.current = null;
+        }
+      }, 1_000);
+    }
+  }, [loadNewerMessages, session?.messageWindow]);
+
   const rootClass =
     variant === 'page' ? 'chat-page chat-session-view' : 'chat-session-view chat-session-view--embedded';
 
@@ -569,12 +727,18 @@ function ChatSessionViewContent({
       <div className="ws-content-area">
         <MessageList
           threadedMessages={threadedMessages}
+          messageWindow={session?.messageWindow}
           onLoadChildren={loadMessageChildren}
           onReachEnd={handleReachEnd}
           isLoading={isLoading}
           hasOlderMessages={hasOlderMessages}
+          hasNewerMessages={hasNewerMessages}
           isLoadingOlderMessages={isLoadingOlderMessages}
-          onLoadOlder={loadOlderMessages}
+          isLoadingMessageWindow={isLoadingMessageWindow}
+          onLoadOlder={handleLoadOlderMessages}
+          onLoadNewer={handleLoadNewerMessages}
+          onJumpToStart={handleJumpToStart}
+          onJumpToEnd={handleJumpToEnd}
           ref={messagesContainerRef}
           onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
           onSpeak={hasVoiceConfig ? speakMessage : undefined}

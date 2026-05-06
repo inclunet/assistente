@@ -120,7 +120,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
       if (conv?.id) {
         await ClearConversation(conv.id);
-        await loadConversationSession(conv.id);
+        await loadConversationSession(conv.id, { refreshSurfaceWindows: true });
       } else if (effectiveConversationId) {
         clearConversationMessages(effectiveConversationId);
       }
