@@ -51,8 +51,6 @@ export function ClearAllProfiles():Promise<void>;
 
 export function ClearAllSkills():Promise<void>;
 
-export function ClearAuthRefreshToken():Promise<void>;
-
 export function ClearConversation(arg1:string):Promise<void>;
 
 export function ClearMessages():Promise<void>;
@@ -371,8 +369,6 @@ export function ListWorkspaces():Promise<Array<workspace.WorkspaceInfo>>;
 
 export function Login(arg1:any):Promise<any>;
 
-export function LoadAuthRefreshToken():Promise<string>;
-
 export function Logout(arg1:any):Promise<void>;
 
 export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Workspace>;
@@ -426,8 +422,6 @@ export function RunWelcomeWizard():Promise<boolean>;
 export function RefreshAuth(arg1:any):Promise<any>;
 
 export function SetupVault(arg1:string):Promise<string>;
-
-export function StoreAuthRefreshToken(arg1:string):Promise<void>;
 
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 

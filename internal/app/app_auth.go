@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"assistente/internal/auth"
 	"assistente/internal/credentials"
@@ -40,6 +41,12 @@ type AuthUser struct {
 	UserID    string `json:"userId"`
 	SessionID string `json:"sessionId"`
 	Role      string `json:"role"`
+}
+
+type AuthSession struct {
+	AccessToken          string `json:"accessToken"`
+	AccessTokenExpiresAt string `json:"accessTokenExpiresAt"`
+	SessionID            string `json:"sessionId"`
 }
 
 func (a *App) initAuthServices() {
@@ -129,7 +136,7 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 	return user, nil
 }
 
-func (a *App) Login(req LoginRequest) (*auth.TokenPair, error) {
+func (a *App) Login(req LoginRequest) (*AuthSession, error) {
 	if err := a.ensureAuthServices(); err != nil {
 		return nil, err
 	}
@@ -142,17 +149,36 @@ func (a *App) Login(req LoginRequest) (*auth.TokenPair, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := a.storeAuthRefreshToken(pair.RefreshToken); err != nil {
+		return nil, err
+	}
 	a.setCurrentUserID(user.ID)
 	a.reloadUserScopedRuntime()
-	return pair, nil
+	return authSessionFromPair(pair), nil
 }
 
-func (a *App) RefreshAuth(req RefreshRequest) (*auth.TokenPair, error) {
+func (a *App) RefreshAuth(req RefreshRequest) (*AuthSession, error) {
 	if err := a.ensureAuthServices(); err != nil {
 		return nil, err
 	}
-	pair, err := a.sessionSvc.Refresh(context.Background(), req.RefreshToken)
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	if refreshToken == "" {
+		var ok bool
+		var err error
+		refreshToken, ok, err = a.loadAuthRefreshToken()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, auth.ErrInvalidRefreshToken
+		}
+	}
+	pair, err := a.sessionSvc.Refresh(context.Background(), refreshToken)
 	if err != nil {
+		_ = a.clearAuthRefreshToken()
+		return nil, err
+	}
+	if err := a.storeAuthRefreshToken(pair.RefreshToken); err != nil {
 		return nil, err
 	}
 	claims, err := a.sessionSvc.VerifyAccessToken(pair.AccessToken)
@@ -160,14 +186,24 @@ func (a *App) RefreshAuth(req RefreshRequest) (*auth.TokenPair, error) {
 		a.setCurrentUserID(claims.Subject)
 		a.reloadUserScopedRuntime()
 	}
-	return pair, nil
+	return authSessionFromPair(pair), nil
 }
 
 func (a *App) Logout(req LogoutRequest) error {
 	if err := a.ensureAuthServices(); err != nil {
 		return err
 	}
-	err := a.sessionSvc.Logout(context.Background(), req.RefreshToken)
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	if refreshToken == "" {
+		if stored, ok, loadErr := a.loadAuthRefreshToken(); loadErr == nil && ok {
+			refreshToken = stored
+		}
+	}
+	var err error
+	if refreshToken != "" {
+		err = a.sessionSvc.Logout(context.Background(), refreshToken)
+	}
+	_ = a.clearAuthRefreshToken()
 	a.setCurrentUserID("")
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
@@ -175,25 +211,65 @@ func (a *App) Logout(req LogoutRequest) error {
 	return err
 }
 
-func (a *App) LoadAuthRefreshToken() (string, error) {
+func authSessionFromPair(pair *auth.TokenPair) *AuthSession {
+	if pair == nil {
+		return nil
+	}
+	return &AuthSession{
+		AccessToken:          pair.AccessToken,
+		AccessTokenExpiresAt: pair.AccessTokenExpiresAt.Format(time.RFC3339),
+		SessionID:            pair.SessionID,
+	}
+}
+
+func (a *App) loadAuthRefreshToken() (string, bool, error) {
+	if a.credMgr != nil {
+		token, ok, err := a.credMgr.GetInstanceSecret(credentials.InstanceSecretAuthRefreshToken)
+		if err != nil {
+			return "", false, err
+		}
+		if ok {
+			return token, true, nil
+		}
+	}
 	token, err := credentials.LoadAuthRefreshTokenFromKeychain()
 	if err != nil {
 		if credentials.IsKeychainNotFound(err) {
-			return "", nil
+			return "", false, nil
 		}
-		return "", err
+		return "", false, err
 	}
-	return token, nil
+	if strings.TrimSpace(token) == "" {
+		return "", false, nil
+	}
+	if a.credMgr != nil {
+		_ = a.credMgr.RegisterInstanceSecret(credentials.InstanceSecretAuthRefreshToken, token)
+	}
+	return token, true, nil
 }
 
-func (a *App) StoreAuthRefreshToken(refreshToken string) error {
-	return credentials.SaveAuthRefreshTokenToKeychain(strings.TrimSpace(refreshToken))
+func (a *App) storeAuthRefreshToken(refreshToken string) error {
+	refreshToken = strings.TrimSpace(refreshToken)
+	if refreshToken == "" {
+		return auth.ErrInvalidRefreshToken
+	}
+	if a.credMgr != nil {
+		if err := a.credMgr.RegisterInstanceSecret(credentials.InstanceSecretAuthRefreshToken, refreshToken); err != nil {
+			return err
+		}
+	}
+	_ = credentials.SaveAuthRefreshTokenToKeychain(refreshToken)
+	return nil
 }
 
-func (a *App) ClearAuthRefreshToken() error {
-	err := credentials.DeleteAuthRefreshTokenFromKeychain()
-	if err != nil && credentials.IsKeychainNotFound(err) {
-		return nil
+func (a *App) clearAuthRefreshToken() error {
+	var err error
+	if a.credMgr != nil {
+		err = a.credMgr.DeleteInstanceSecret(credentials.InstanceSecretAuthRefreshToken)
+	}
+	keyringErr := credentials.DeleteAuthRefreshTokenFromKeychain()
+	if keyringErr != nil && !credentials.IsKeychainNotFound(keyringErr) && err == nil {
+		err = keyringErr
 	}
 	return err
 }

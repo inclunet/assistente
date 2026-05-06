@@ -1,15 +1,12 @@
 import { create } from 'zustand';
 import {
-  ClearAuthRefreshToken,
   CreateAdminUser,
   GetAuthStatus,
   GetAuthUser,
-  LoadAuthRefreshToken,
   Login,
   Logout,
   RefreshAuth,
   SetupVault,
-  StoreAuthRefreshToken,
   UnlockVault,
 } from '@wailsjs/go/app/App';
 
@@ -21,7 +18,6 @@ export interface AuthStatus {
 
 interface TokenPair {
   accessToken: string;
-  refreshToken: string;
 }
 
 interface AuthUser {
@@ -34,7 +30,6 @@ interface AuthState {
   status: AuthStatus | null;
   user: AuthUser | null;
   accessToken: string;
-  refreshToken: string;
   isLoading: boolean;
   error: string | null;
   isAuthenticated: boolean;
@@ -47,13 +42,12 @@ interface AuthState {
   logout: () => Promise<void>;
 }
 
-const refreshTokenFallbackKey = 'assistente-auth-refresh-token';
+const legacyRefreshTokenKey = 'assistente-auth-refresh-token';
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
   status: null,
   user: null,
   accessToken: '',
-  refreshToken: '',
   isLoading: false,
   error: null,
   isAuthenticated: false,
@@ -62,9 +56,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const status = (await GetAuthStatus()) as AuthStatus;
-      const refreshToken = await loadStoredRefreshToken();
-      set({ status, refreshToken, isLoading: false });
-      if (refreshToken && status.vaultUnlocked && status.hasUsers) {
+      set({ status, isLoading: false });
+      if (status.vaultUnlocked && status.hasUsers) {
         await get().refresh();
       }
     } catch (error) {
@@ -114,10 +107,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     try {
       const pair = (await Login({ username, password, clientLabel: 'Wails desktop' })) as TokenPair;
       const user = (await GetAuthUser(pair.accessToken)) as AuthUser;
-      await storeRefreshToken(pair.refreshToken);
       set({
         accessToken: pair.accessToken,
-        refreshToken: pair.refreshToken,
         user,
         isAuthenticated: true,
         isLoading: false,
@@ -129,54 +120,29 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   refresh: async () => {
-    const refreshToken = get().refreshToken;
-    if (!refreshToken) return;
     try {
-      const pair = (await RefreshAuth({ refreshToken })) as TokenPair;
+      const legacyRefreshToken = localStorage.getItem(legacyRefreshTokenKey) || '';
+      const pair = (await RefreshAuth(legacyRefreshToken ? { refreshToken: legacyRefreshToken } : {})) as TokenPair;
       const user = (await GetAuthUser(pair.accessToken)) as AuthUser;
-      await storeRefreshToken(pair.refreshToken);
+      localStorage.removeItem(legacyRefreshTokenKey);
       set({
         accessToken: pair.accessToken,
-        refreshToken: pair.refreshToken,
         user,
         isAuthenticated: true,
         error: null,
       });
     } catch {
-      await clearStoredRefreshToken();
-      set({ accessToken: '', refreshToken: '', user: null, isAuthenticated: false });
+      localStorage.removeItem(legacyRefreshTokenKey);
+      set({ accessToken: '', user: null, isAuthenticated: false });
     }
   },
 
   logout: async () => {
-    const refreshToken = get().refreshToken;
-    if (refreshToken) {
-      await Logout({ refreshToken }).catch(() => undefined);
-    }
-    await clearStoredRefreshToken();
-    set({ accessToken: '', refreshToken: '', user: null, isAuthenticated: false });
+    await Logout({}).catch(() => undefined);
+    localStorage.removeItem(legacyRefreshTokenKey);
+    set({ accessToken: '', user: null, isAuthenticated: false });
   },
 }));
-
-async function loadStoredRefreshToken(): Promise<string> {
-  const keyringToken = await LoadAuthRefreshToken().catch(() => '');
-  if (keyringToken) return keyringToken;
-  return localStorage.getItem(refreshTokenFallbackKey) || '';
-}
-
-async function storeRefreshToken(refreshToken: string): Promise<void> {
-  try {
-    await StoreAuthRefreshToken(refreshToken);
-    localStorage.removeItem(refreshTokenFallbackKey);
-  } catch {
-    localStorage.setItem(refreshTokenFallbackKey, refreshToken);
-  }
-}
-
-async function clearStoredRefreshToken(): Promise<void> {
-  localStorage.removeItem(refreshTokenFallbackKey);
-  await ClearAuthRefreshToken().catch(() => undefined);
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

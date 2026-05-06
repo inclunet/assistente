@@ -8,9 +8,10 @@ import (
 )
 
 const (
-	InstanceSecretJWTSigningKey  = "internal-auth:jwt-signing-key"
-	InstanceSecretTLSPrivateKey  = "internal-tls:private-key"
-	InstanceSecretTLSCertificate = "internal-tls:certificate"
+	InstanceSecretJWTSigningKey    = "internal-auth:jwt-signing-key"
+	InstanceSecretAuthRefreshToken = "internal-auth:refresh-token"
+	InstanceSecretTLSPrivateKey    = "internal-tls:private-key"
+	InstanceSecretTLSCertificate   = "internal-tls:certificate"
 )
 
 // RegisterInstanceSecret stores an instance-scoped secret encrypted by the
