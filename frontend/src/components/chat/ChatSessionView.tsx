@@ -115,6 +115,7 @@ function ChatSessionViewContent({
     hasOlderMessages,
     hasNewerMessages,
     isLoadingOlderMessages,
+    isLoadingMessageWindow,
     loadOlderMessages,
     loadNewerMessages,
     loadStartMessages,
@@ -733,6 +734,7 @@ function ChatSessionViewContent({
           hasOlderMessages={hasOlderMessages}
           hasNewerMessages={hasNewerMessages}
           isLoadingOlderMessages={isLoadingOlderMessages}
+          isLoadingMessageWindow={isLoadingMessageWindow}
           onLoadOlder={handleLoadOlderMessages}
           onLoadNewer={handleLoadNewerMessages}
           onJumpToStart={handleJumpToStart}

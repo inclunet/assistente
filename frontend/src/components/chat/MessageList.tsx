@@ -22,6 +22,7 @@ export interface MessageListProps {
   hasOlderMessages?: boolean;
   hasNewerMessages?: boolean;
   isLoadingOlderMessages?: boolean;
+  isLoadingMessageWindow?: boolean;
   onLoadOlder?: () => Promise<void> | void;
   onLoadNewer?: () => Promise<void> | void;
   onJumpToStart?: () => Promise<void> | void;
@@ -180,6 +181,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     hasOlderMessages = false,
     hasNewerMessages = false,
     isLoadingOlderMessages = false,
+    isLoadingMessageWindow = false,
     onLoadOlder,
     onLoadNewer,
     onJumpToStart,
@@ -289,7 +291,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   };
 
   const handleReachStart = () => {
-    if (hasOlderMessages && onLoadOlder) {
+    if (hasOlderMessages && onLoadOlder && !isLoadingMessageWindow) {
       handleLoadOlder();
       return;
     }
@@ -300,7 +302,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     : undefined;
 
   const handleReachEnd = () => {
-    if (hasNewerMessages && onLoadNewer) {
+    if (hasNewerMessages && onLoadNewer && !isLoadingMessageWindow) {
       handleLoadNewer();
       return;
     }
@@ -321,7 +323,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   }, [displayMessages]);
 
   useEffect(() => {
-    // Instant scroll on mount
+    // Non-animated scroll on mount.
     scrollToBottom('auto');
   }, []);
 
@@ -332,12 +334,12 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       if (suppressNextScrollLoadRef.current) {
         return;
       }
-      if (container.scrollTop < 48 && hasOlderMessages && !isLoadingOlderMessages) {
+      if (container.scrollTop < 48 && hasOlderMessages && !isLoadingMessageWindow) {
         handleLoadOlder();
         return;
       }
       const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      if (distanceToBottom < 48 && hasNewerMessages && !isLoadingOlderMessages) {
+      if (distanceToBottom < 48 && hasNewerMessages && !isLoadingMessageWindow) {
         handleLoadNewer();
       }
     };
@@ -350,7 +352,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       }
       suppressNextScrollLoadRef.current = false;
     };
-  }, [hasNewerMessages, hasOlderMessages, isLoadingOlderMessages, onLoadNewer, onLoadOlder]);
+  }, [hasNewerMessages, hasOlderMessages, isLoadingMessageWindow, onLoadNewer, onLoadOlder]);
 
   if (threadedMessages.length === 0) {
     return (
@@ -387,7 +389,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
               type="button"
               className="message-list__load-older-button"
               onClick={handleLoadOlder}
-              disabled={isLoadingOlderMessages}
+              disabled={isLoadingMessageWindow || isLoadingOlderMessages}
               aria-busy={isLoadingOlderMessages}
             >
               {isLoadingOlderMessages ? t('chat.loadingOlderMessages') : t('chat.loadOlderMessages')}

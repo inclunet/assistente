@@ -650,12 +650,14 @@ type MessageWindowResult struct {
 	HasAfter   bool
 }
 
+const MaxMessageWindowRows = 240
+
 func normalizeMessageWindowLimit(limit int) int {
 	if limit <= 0 {
 		return 0
 	}
-	if limit > 250 {
-		return 250
+	if limit > MaxMessageWindowRows {
+		return MaxMessageWindowRows
 	}
 	return limit
 }

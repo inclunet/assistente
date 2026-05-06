@@ -1,6 +1,10 @@
 import type { ToolCallStatus } from '../types/chat';
 import type { MessageNode, TurnSegment } from '../lib/chatMessageTree';
 import type { MediaFile } from './mediaService';
+import {
+  MAX_MESSAGE_WINDOW_NODES,
+  MAX_MESSAGE_WINDOW_TURN_BOUNDARY_OVERFLOW,
+} from './messageWindowLimits';
 
 export interface ActiveConversation {
   id: string;
@@ -122,6 +126,7 @@ export interface ChatSurfaceSession {
   isLoading: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
+  isLoadingMessageWindow: boolean;
   visibleThreadedMessages?: MessageNode[];
   messageWindow?: MessageWindowState;
   streamingMessageId: string | null;
@@ -150,9 +155,6 @@ export interface ChatSessionRegistryState {
   surfaceSessionsByKey?: Record<string, ChatSurfaceSession>;
 }
 
-const MAX_VISIBLE_SURFACE_MESSAGES = 240;
-const MAX_VISIBLE_TURN_BOUNDARY_OVERFLOW = 16;
-
 export const getDefaultChatSessionKey = (conversationId: string): string => `conversation:${conversationId}`;
 
 export const createEmptyChatSurfaceSession = (
@@ -165,6 +167,7 @@ export const createEmptyChatSurfaceSession = (
   isLoading: false,
   hasOlderMessages: false,
   isLoadingOlderMessages: false,
+  isLoadingMessageWindow: false,
   streamingMessageId: null,
   streamingReasoning: null,
   isThinking: false,
@@ -302,25 +305,25 @@ const mergeTimelineConversation = (
 };
 
 const capVisibleSurfaceMessages = (nodes: MessageNode[], keep: 'start' | 'end' = 'end'): MessageNode[] => {
-  if (nodes.length <= MAX_VISIBLE_SURFACE_MESSAGES) return nodes;
+  if (nodes.length <= MAX_MESSAGE_WINDOW_NODES) return nodes;
   if (keep === 'start') {
-    let endIndex = MAX_VISIBLE_SURFACE_MESSAGES;
+    let endIndex = MAX_MESSAGE_WINDOW_NODES;
     const boundaryTurnId = nodes[endIndex - 1]?.message.turnId;
     while (boundaryTurnId && endIndex < nodes.length && nodes[endIndex]?.message.turnId === boundaryTurnId) {
       endIndex += 1;
     }
-    if (endIndex > MAX_VISIBLE_SURFACE_MESSAGES + MAX_VISIBLE_TURN_BOUNDARY_OVERFLOW) {
-      endIndex = MAX_VISIBLE_SURFACE_MESSAGES;
+    if (endIndex > MAX_MESSAGE_WINDOW_NODES + MAX_MESSAGE_WINDOW_TURN_BOUNDARY_OVERFLOW) {
+      endIndex = MAX_MESSAGE_WINDOW_NODES;
     }
     return nodes.slice(0, endIndex);
   }
-  const minStartIndex = nodes.length - MAX_VISIBLE_SURFACE_MESSAGES;
+  const minStartIndex = nodes.length - MAX_MESSAGE_WINDOW_NODES;
   let startIndex = minStartIndex;
   const boundaryTurnId = nodes[startIndex]?.message.turnId;
   while (boundaryTurnId && startIndex > 0 && nodes[startIndex - 1]?.message.turnId === boundaryTurnId) {
     startIndex -= 1;
   }
-  if (nodes.length - startIndex > MAX_VISIBLE_SURFACE_MESSAGES + MAX_VISIBLE_TURN_BOUNDARY_OVERFLOW) {
+  if (nodes.length - startIndex > MAX_MESSAGE_WINDOW_NODES + MAX_MESSAGE_WINDOW_TURN_BOUNDARY_OVERFLOW) {
     startIndex = minStartIndex;
   }
   return nodes.slice(startIndex);

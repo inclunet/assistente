@@ -21,8 +21,6 @@ var (
 	GenerateTitle = database.GenerateTitle
 )
 
-const maxExpandedMessageWindowRows = 240
-
 // ==================== Conversation ====================
 
 func (a *App) CreateConversation(title, model string) (*Conversation, error) {
@@ -188,8 +186,8 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 		return nil, fmt.Errorf("limit deve ser maior que zero")
 	}
 	limit := req.Limit
-	if limit > maxExpandedMessageWindowRows {
-		limit = maxExpandedMessageWindowRows
+	if limit > database.MaxMessageWindowRows {
+		limit = database.MaxMessageWindowRows
 	}
 
 	anchor := strings.TrimSpace(req.Anchor)
@@ -256,7 +254,7 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	for index, message := range window.Messages {
 		originalIndexesByMessageID[message.ID] = window.StartIndex + index
 	}
-	messages, err := expandWindowTurnMessages(conversationID, parentID, window.Messages, maxExpandedMessageWindowRows)
+	messages, err := expandWindowTurnMessages(conversationID, parentID, window.Messages, database.MaxMessageWindowRows)
 	if err != nil {
 		return nil, err
 	}

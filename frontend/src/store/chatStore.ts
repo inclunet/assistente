@@ -27,6 +27,11 @@ import {
   reloadConversationSnapshot,
 } from '../services/chatSessionLoader';
 import {
+  INITIAL_MESSAGE_WINDOW_SIZE,
+  MAX_MESSAGE_WINDOW_NODES,
+  MAX_MESSAGE_WINDOW_TURN_BOUNDARY_OVERFLOW,
+} from '../services/messageWindowLimits';
+import {
   createEmptyChatSurfaceSession,
   getChatSession,
   getConversationTimeline,
@@ -55,9 +60,6 @@ import {
 
 const MAX_MESSAGE_CONTENT_SIZE = 512 * 1024;       // must match backend MaxMessageContentSize
 const MAX_MEDIA_SIZE = 20 * 1024 * 1024;            // must match backend MaxMediaSize
-const INITIAL_MESSAGE_WINDOW_SIZE = 120;
-const MAX_RENDERED_MESSAGE_WINDOW_SIZE = 240;
-const MAX_RENDERED_TURN_BOUNDARY_OVERFLOW = 16;
 
 interface MediaData {
   name: string;
@@ -199,6 +201,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       isLoading: defaultSession?.isLoading ?? false,
       hasOlderMessages: defaultSession?.hasOlderMessages ?? false,
       isLoadingOlderMessages: defaultSession?.isLoadingOlderMessages ?? false,
+      isLoadingMessageWindow: defaultSession?.isLoadingMessageWindow ?? false,
       visibleThreadedMessages: defaultSession?.visibleThreadedMessages,
       messageWindow: defaultSession?.messageWindow,
       queuedTurnCount: defaultSession?.queuedTurnCount ?? 0,
@@ -282,14 +285,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   };
 
   const capRenderedNodesAtEnd = (nodes: MessageNode[]): MessageNode[] => {
-    if (nodes.length <= MAX_RENDERED_MESSAGE_WINDOW_SIZE) return nodes;
-    const minStartIndex = nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE;
+    if (nodes.length <= MAX_MESSAGE_WINDOW_NODES) return nodes;
+    const minStartIndex = nodes.length - MAX_MESSAGE_WINDOW_NODES;
     let startIndex = minStartIndex;
     const boundaryTurnId = nodes[startIndex]?.message.turnId;
     while (boundaryTurnId && startIndex > 0 && nodes[startIndex - 1]?.message.turnId === boundaryTurnId) {
       startIndex -= 1;
     }
-    if (nodes.length - startIndex > MAX_RENDERED_MESSAGE_WINDOW_SIZE + MAX_RENDERED_TURN_BOUNDARY_OVERFLOW) {
+    if (nodes.length - startIndex > MAX_MESSAGE_WINDOW_NODES + MAX_MESSAGE_WINDOW_TURN_BOUNDARY_OVERFLOW) {
       startIndex = minStartIndex;
     }
     return nodes.slice(startIndex);
@@ -300,27 +303,27 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     window: MessageWindowState,
     keep: 'start' | 'end',
   ): { nodes: MessageNode[]; window: MessageWindowState } => {
-    if (nodes.length <= MAX_RENDERED_MESSAGE_WINDOW_SIZE) {
+    if (nodes.length <= MAX_MESSAGE_WINDOW_NODES) {
       return { nodes, window };
     }
 
-    let trimStart = keep === 'start' ? 0 : nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE;
-    let trimEnd = keep === 'start' ? MAX_RENDERED_MESSAGE_WINDOW_SIZE : nodes.length;
+    let trimStart = keep === 'start' ? 0 : nodes.length - MAX_MESSAGE_WINDOW_NODES;
+    let trimEnd = keep === 'start' ? MAX_MESSAGE_WINDOW_NODES : nodes.length;
     if (keep === 'start') {
       const boundaryTurnId = nodes[trimEnd - 1]?.message.turnId;
       while (boundaryTurnId && trimEnd < nodes.length && nodes[trimEnd]?.message.turnId === boundaryTurnId) {
         trimEnd += 1;
       }
-      if (trimEnd - trimStart > MAX_RENDERED_MESSAGE_WINDOW_SIZE + MAX_RENDERED_TURN_BOUNDARY_OVERFLOW) {
-        trimEnd = MAX_RENDERED_MESSAGE_WINDOW_SIZE;
+      if (trimEnd - trimStart > MAX_MESSAGE_WINDOW_NODES + MAX_MESSAGE_WINDOW_TURN_BOUNDARY_OVERFLOW) {
+        trimEnd = MAX_MESSAGE_WINDOW_NODES;
       }
     } else {
       const boundaryTurnId = nodes[trimStart]?.message.turnId;
       while (boundaryTurnId && trimStart > 0 && nodes[trimStart - 1]?.message.turnId === boundaryTurnId) {
         trimStart -= 1;
       }
-      if (trimEnd - trimStart > MAX_RENDERED_MESSAGE_WINDOW_SIZE + MAX_RENDERED_TURN_BOUNDARY_OVERFLOW) {
-        trimStart = nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE;
+      if (trimEnd - trimStart > MAX_MESSAGE_WINDOW_NODES + MAX_MESSAGE_WINDOW_TURN_BOUNDARY_OVERFLOW) {
+        trimStart = nodes.length - MAX_MESSAGE_WINDOW_NODES;
       }
     }
     const trimmedNodes = nodes.slice(trimStart, trimEnd);
@@ -659,6 +662,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           isLoading: false,
           hasOlderMessages: defaultSession?.hasOlderMessages ?? false,
           isLoadingOlderMessages: defaultSession?.isLoadingOlderMessages ?? false,
+          isLoadingMessageWindow: defaultSession?.isLoadingMessageWindow ?? false,
           visibleThreadedMessages: defaultSession?.visibleThreadedMessages,
           messageWindow: defaultSession?.messageWindow,
           queuedTurnCount: defaultSession?.queuedTurnCount ?? 0,
@@ -732,6 +736,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             isLoading: state.loadingConversationIds.has(id),
             hasOlderMessages: messageWindow.hasBefore,
             isLoadingOlderMessages: false,
+            isLoadingMessageWindow: false,
             visibleThreadedMessages,
             messageWindow,
           });
@@ -751,6 +756,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               surfaceSessionsByKey[sessionKey] = {
                 ...surfaceSession,
                 isLoadingOlderMessages: false,
+                isLoadingMessageWindow: false,
                 ...(isSurfaceAtLiveTail
                   ? {
                     hasOlderMessages: messageWindow.hasBefore,
@@ -765,6 +771,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               ...surfaceSession,
               hasOlderMessages: messageWindow.hasBefore,
               isLoadingOlderMessages: false,
+              isLoadingMessageWindow: false,
               visibleThreadedMessages,
               messageWindow,
             };
@@ -792,6 +799,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             isLoading: state.loadingConversationIds.has(id),
             hasOlderMessages: false,
             isLoadingOlderMessages: false,
+            isLoadingMessageWindow: false,
             visibleThreadedMessages: [],
             messageWindow: emptyWindow,
           });
@@ -803,6 +811,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 ...surfaceSession,
                 hasOlderMessages: false,
                 isLoadingOlderMessages: false,
+                isLoadingMessageWindow: false,
                 visibleThreadedMessages: [],
                 messageWindow: emptyWindow,
               };
@@ -826,7 +835,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const state = get();
       const session = getSession(state, conversationId, sessionKey);
       const conversation = session.conversation;
-      if (!conversation || session.isLoadingOlderMessages || !session.hasOlderMessages) return;
+      if (!conversation || session.isLoadingMessageWindow || !session.hasOlderMessages) return;
 
       const firstMessageId = conversation.threadedMessages[0]?.message.id;
       if (!firstMessageId) return;
@@ -836,6 +845,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const patches = patchSession(current, conversationId, {
           hasOlderMessages: currentSession.hasOlderMessages,
           isLoadingOlderMessages: true,
+          isLoadingMessageWindow: true,
         }, sessionKey);
         return patches;
       });
@@ -853,6 +863,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             const patches = patchSession(current, conversationId, {
               hasOlderMessages: fallbackSession.hasOlderMessages,
               isLoadingOlderMessages: false,
+              isLoadingMessageWindow: false,
             }, sessionKey);
             return patches;
           }
@@ -877,6 +888,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const patches = patchSession(current, conversation.id, {
             hasOlderMessages: olderMessages.hasOlderMessages,
             isLoadingOlderMessages: false,
+            isLoadingMessageWindow: false,
             visibleThreadedMessages,
             messageWindow,
           }, sessionKey);
@@ -898,6 +910,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const patches = patchSession(current, conversationId, {
             hasOlderMessages: currentSession.hasOlderMessages,
             isLoadingOlderMessages: false,
+            isLoadingMessageWindow: false,
           }, sessionKey);
           return patches;
         });
@@ -908,7 +921,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const state = get();
       const session = getSession(state, conversationId, sessionKey);
       const conversation = session.conversation;
-      if (!conversation || session.isLoadingOlderMessages || !session.messageWindow?.hasAfter) return;
+      if (!conversation || session.isLoadingMessageWindow || !session.messageWindow?.hasAfter) return;
 
       const lastMessageId = conversation.threadedMessages[conversation.threadedMessages.length - 1]?.message.id;
       if (!lastMessageId) return;
@@ -917,7 +930,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const currentSession = getSession(current, conversationId, sessionKey);
         return patchSession(current, conversationId, {
           hasOlderMessages: currentSession.hasOlderMessages,
-          isLoadingOlderMessages: true,
+          isLoadingMessageWindow: true,
         }, sessionKey);
       });
 
@@ -930,7 +943,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         set((current) => {
           const currentSession = getSession(current, conversation.id, sessionKey);
           if (!currentSession.conversation) {
-            return patchSession(current, conversationId, { isLoadingOlderMessages: false }, sessionKey);
+            return patchSession(current, conversationId, { isLoadingMessageWindow: false }, sessionKey);
           }
           const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
           const dedupedNewerNodes = newerMessages.nodes.filter((node) => !existingIds.has(node.message.id));
@@ -943,7 +956,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             };
             return patchSession(current, conversation.id, {
               hasOlderMessages: messageWindow.hasBefore,
-              isLoadingOlderMessages: false,
+              isLoadingMessageWindow: false,
               messageWindow,
             }, sessionKey);
           }
@@ -965,7 +978,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           );
           const patches = patchSession(current, conversation.id, {
             hasOlderMessages: messageWindow.hasBefore,
-            isLoadingOlderMessages: false,
+            isLoadingMessageWindow: false,
             visibleThreadedMessages,
             messageWindow,
           }, sessionKey);
@@ -986,7 +999,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const currentSession = getSession(current, conversationId, sessionKey);
           return patchSession(current, conversationId, {
             hasOlderMessages: currentSession.hasOlderMessages,
-            isLoadingOlderMessages: false,
+            isLoadingMessageWindow: false,
           }, sessionKey);
         });
       }
@@ -995,14 +1008,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     loadBoundaryMessagesForConversation: async (conversationId, sessionKey, anchor) => {
       const state = get();
       const session = getSession(state, conversationId, sessionKey);
-      if (session.isLoadingOlderMessages) return;
+      if (session.isLoadingMessageWindow) return;
       const window = session.messageWindow;
       if (anchor === 'start' && window?.startIndex === 0) return;
       if (anchor === 'end' && window && window.totalCount > 0 && window.endIndex >= window.totalCount - 1) return;
 
       set((current) => patchSession(current, conversationId, {
         hasOlderMessages: session.hasOlderMessages,
-        isLoadingOlderMessages: true,
+        isLoadingMessageWindow: true,
       }, sessionKey));
 
       try {
@@ -1034,7 +1047,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           );
           const patches = patchSession(current, conversationId, {
             hasOlderMessages: messageWindow.hasBefore,
-            isLoadingOlderMessages: false,
+            isLoadingMessageWindow: false,
             visibleThreadedMessages,
             messageWindow,
           }, sessionKey);
@@ -1055,7 +1068,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const currentSession = getSession(current, conversationId, sessionKey);
           return patchSession(current, conversationId, {
             hasOlderMessages: currentSession.hasOlderMessages,
-            isLoadingOlderMessages: false,
+            isLoadingMessageWindow: false,
           }, sessionKey);
         });
       }

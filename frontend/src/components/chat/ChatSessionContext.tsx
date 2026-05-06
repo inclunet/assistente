@@ -59,6 +59,7 @@ export interface ChatSessionContextValue {
   isLoading: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
+  isLoadingMessageWindow: boolean;
   hasNewerMessages: boolean;
   draftMessage: string;
   draftMediaFiles: MediaFile[];
@@ -121,6 +122,7 @@ export function ChatSessionProvider({
   const isLoading = session?.isLoading ?? false;
   const hasOlderMessages = session?.hasOlderMessages ?? false;
   const isLoadingOlderMessages = session?.isLoadingOlderMessages ?? false;
+  const isLoadingMessageWindow = session?.isLoadingMessageWindow ?? false;
   const hasNewerMessages = session?.messageWindow?.hasAfter ?? false;
   const draftMessage = session?.draftMessage ?? '';
   const draftMediaFiles = session?.draftMediaFiles ?? [];
@@ -290,6 +292,7 @@ export function ChatSessionProvider({
     isLoading,
     hasOlderMessages,
     isLoadingOlderMessages,
+    isLoadingMessageWindow,
     hasNewerMessages,
     draftMessage,
     draftMediaFiles,
@@ -326,6 +329,7 @@ export function ChatSessionProvider({
     isConversationReasoningExpanded,
     isLoading,
     isLoadingOlderMessages,
+    isLoadingMessageWindow,
     loadConversationSession,
     loadEndMessages,
     loadMessageChildren,

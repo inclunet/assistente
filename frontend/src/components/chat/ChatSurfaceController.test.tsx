@@ -51,6 +51,7 @@ function createSession(overrides: Partial<ChatSessionContextValue> = {}): ChatSe
     isLoading: false,
     hasOlderMessages: false,
     isLoadingOlderMessages: false,
+    isLoadingMessageWindow: false,
     hasNewerMessages: false,
     draftMessage: '',
     draftMediaFiles: [],

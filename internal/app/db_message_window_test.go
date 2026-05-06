@@ -124,7 +124,7 @@ func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
-	for i := 0; i < maxExpandedMessageWindowRows+30; i++ {
+	for i := 0; i < database.MaxMessageWindowRows+30; i++ {
 		if _, err := database.AddMessage(conv.ID, "user", "mensagem"); err != nil {
 			t.Fatalf("create message %d: %v", i, err)
 		}
@@ -135,13 +135,13 @@ func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 		Scope:          chat.MessageWindowScopeConversation,
 		Anchor:         chat.MessageWindowAnchorEnd,
 		Direction:      chat.MessageWindowDirectionBefore,
-		Limit:          maxExpandedMessageWindowRows + 60,
+		Limit:          database.MaxMessageWindowRows + 60,
 	})
 	if err != nil {
 		t.Fatalf("get window: %v", err)
 	}
-	if len(window.Nodes) != maxExpandedMessageWindowRows {
-		t.Fatalf("expected clamped window size %d, got %d", maxExpandedMessageWindowRows, len(window.Nodes))
+	if len(window.Nodes) != database.MaxMessageWindowRows {
+		t.Fatalf("expected clamped window size %d, got %d", database.MaxMessageWindowRows, len(window.Nodes))
 	}
 }
 
@@ -227,7 +227,7 @@ func TestGetConversationMessageWindow_BoundsTurnExpansion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create assistant tool call: %v", err)
 	}
-	for i := 0; i < maxExpandedMessageWindowRows+50; i++ {
+	for i := 0; i < database.MaxMessageWindowRows+50; i++ {
 		if _, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
 			t.Fatalf("create tool result %d: %v", i, err)
 		}
@@ -243,7 +243,7 @@ func TestGetConversationMessageWindow_BoundsTurnExpansion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get window: %v", err)
 	}
-	if len(window.Nodes) > maxExpandedMessageWindowRows+1 {
+	if len(window.Nodes) > database.MaxMessageWindowRows+1 {
 		t.Fatalf("turn expansion should stay bounded, got %d node(s)", len(window.Nodes))
 	}
 }

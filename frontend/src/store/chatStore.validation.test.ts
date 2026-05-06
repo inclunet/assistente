@@ -170,6 +170,7 @@ describe('chatStore validation', () => {
           isLoading: false,
           hasOlderMessages: false,
           isLoadingOlderMessages: false,
+          isLoadingMessageWindow: false,
           streamingMessageId: null,
           streamingReasoning: null,
           isThinking: false,
@@ -278,6 +279,7 @@ describe('chatStore validation', () => {
       isLoading: false,
       hasOlderMessages: true,
       isLoadingOlderMessages: false,
+      isLoadingMessageWindow: false,
       streamingMessageId: null,
       streamingReasoning: null,
       isThinking: false,
@@ -863,6 +865,65 @@ describe('chatStore validation', () => {
       hasBefore: true,
       hasAfter: false,
     });
+  });
+
+  it('carrega mensagens posteriores sem acionar estado de mensagens anteriores', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const currentNode = createMessageNode('current-message') as unknown as MessageNode;
+    currentNode.originalIndex = 1;
+    let resolveWindow: (value: unknown) => void = () => {};
+    mockGetConversationMessageWindow.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveWindow = resolve;
+    }));
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [currentNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [currentNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 3,
+            startIndex: 1,
+            endIndex: 1,
+            hasBefore: true,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    const pendingLoad = useChatStore.getState().loadNewerMessagesForConversation(defaultConversationId, originSessionKey);
+    await Promise.resolve();
+
+    const loadingSession = useChatStore.getState().surfaceSessionsByKey[originSessionKey];
+    expect(loadingSession?.isLoadingMessageWindow).toBe(true);
+    expect(loadingSession?.isLoadingOlderMessages).toBe(false);
+
+    resolveWindow({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [],
+      totalCount: 3,
+      startIndex: 0,
+      endIndex: -1,
+      hasBefore: true,
+      hasAfter: false,
+    });
+    await pendingLoad;
+
+    const settledSession = useChatStore.getState().surfaceSessionsByKey[originSessionKey];
+    expect(settledSession?.isLoadingMessageWindow).toBe(false);
+    expect(settledSession?.isLoadingOlderMessages).toBe(false);
   });
 
   it('ignora página posterior vazia sem corromper metadata de janela visível', async () => {
