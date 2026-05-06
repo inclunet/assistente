@@ -57,6 +57,7 @@ const MAX_MESSAGE_CONTENT_SIZE = 512 * 1024;       // must match backend MaxMess
 const MAX_MEDIA_SIZE = 20 * 1024 * 1024;            // must match backend MaxMediaSize
 const INITIAL_MESSAGE_WINDOW_SIZE = 120;
 const MAX_RENDERED_MESSAGE_WINDOW_SIZE = 240;
+const MAX_RENDERED_TURN_BOUNDARY_OVERFLOW = 16;
 
 interface MediaData {
   name: string;
@@ -282,10 +283,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
   const capRenderedNodesAtEnd = (nodes: MessageNode[]): MessageNode[] => {
     if (nodes.length <= MAX_RENDERED_MESSAGE_WINDOW_SIZE) return nodes;
-    let startIndex = nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE;
+    const minStartIndex = nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE;
+    let startIndex = minStartIndex;
     const boundaryTurnId = nodes[startIndex]?.message.turnId;
     while (boundaryTurnId && startIndex > 0 && nodes[startIndex - 1]?.message.turnId === boundaryTurnId) {
       startIndex -= 1;
+    }
+    if (nodes.length - startIndex > MAX_RENDERED_MESSAGE_WINDOW_SIZE + MAX_RENDERED_TURN_BOUNDARY_OVERFLOW) {
+      startIndex = minStartIndex;
     }
     return nodes.slice(startIndex);
   };
@@ -306,10 +311,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       while (boundaryTurnId && trimEnd < nodes.length && nodes[trimEnd]?.message.turnId === boundaryTurnId) {
         trimEnd += 1;
       }
+      if (trimEnd - trimStart > MAX_RENDERED_MESSAGE_WINDOW_SIZE + MAX_RENDERED_TURN_BOUNDARY_OVERFLOW) {
+        trimEnd = MAX_RENDERED_MESSAGE_WINDOW_SIZE;
+      }
     } else {
       const boundaryTurnId = nodes[trimStart]?.message.turnId;
       while (boundaryTurnId && trimStart > 0 && nodes[trimStart - 1]?.message.turnId === boundaryTurnId) {
         trimStart -= 1;
+      }
+      if (trimEnd - trimStart > MAX_RENDERED_MESSAGE_WINDOW_SIZE + MAX_RENDERED_TURN_BOUNDARY_OVERFLOW) {
+        trimStart = nodes.length - MAX_RENDERED_MESSAGE_WINDOW_SIZE;
       }
     }
     const trimmedNodes = nodes.slice(trimStart, trimEnd);

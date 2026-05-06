@@ -104,16 +104,36 @@ func expandWindowTurnMessages(conversationID string, parentID *string, messages 
 	if maxRows <= len(messages) {
 		return messages, nil
 	}
-	turnMessages, err := database.GetTurnMessagesByIDs(conversationID, parentID, turnIDs, maxRows)
-	if err != nil {
-		return nil, err
-	}
-	byID := make(map[string]database.ChatMessage, len(messages)+len(turnMessages))
+	byID := make(map[string]database.ChatMessage, maxRows)
 	for _, message := range messages {
 		byID[message.ID] = message
 	}
-	for _, message := range turnMessages {
-		byID[message.ID] = message
+	for _, turnID := range turnIDs {
+		turnMessages, err := database.GetMessagesByTurnID(conversationID, parentID, turnID, maxRows+1)
+		if err != nil {
+			return nil, err
+		}
+		missingCount := 0
+		for _, message := range turnMessages {
+			if _, ok := byID[message.ID]; !ok {
+				missingCount++
+			}
+		}
+		if len(byID)+missingCount <= maxRows {
+			for _, message := range turnMessages {
+				byID[message.ID] = message
+			}
+			continue
+		}
+		for _, message := range turnMessages {
+			if len(byID) >= maxRows {
+				break
+			}
+			if message.Role == "tool" {
+				continue
+			}
+			byID[message.ID] = message
+		}
 	}
 	expanded := make([]database.ChatMessage, 0, len(byID))
 	for _, message := range byID {

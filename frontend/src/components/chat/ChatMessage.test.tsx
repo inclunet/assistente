@@ -241,5 +241,6 @@ describe('ChatMessage', () => {
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
       toolCallsRaw: JSON.stringify([{ function: { name: 'search_documents' } }]),
     }));
+    expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
   });
 });

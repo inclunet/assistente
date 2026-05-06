@@ -482,4 +482,47 @@ describe('chatSessionRegistry', () => {
       'message-2',
     ]);
   });
+
+  it('preserva superfície ancorada no início durante patch de conversa', () => {
+    const nodes = Array.from({ length: 245 }, (_, index) => messageNode(`message-${index}`));
+    nodes.forEach((node, index) => {
+      node.originalIndex = index;
+    });
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        'conversation-1': {
+          ...conversation('conversation-1'),
+          threadedMessages: nodes,
+        },
+      },
+      surfaceSessionsByKey: {
+        'tab-a:conversation-1': {
+          ...createEmptyChatSession('conversation-1', 'tab-a:conversation-1'),
+          visibleThreadedMessages: nodes,
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: 'conversation-1',
+            totalCount: 245,
+            startIndex: 0,
+            endIndex: 244,
+            hasBefore: false,
+            hasAfter: true,
+          },
+        },
+      },
+    };
+
+    const next = {
+      ...state,
+      ...patchChatConversation(state, 'conversation-1', (current) => ({
+        ...current,
+        threadedMessages: current.threadedMessages,
+      })),
+    };
+    const tabA = getChatSession(next, 'conversation-1', 'tab-a:conversation-1');
+
+    expect(tabA.visibleThreadedMessages?.[0]?.message.id).toBe('message-0');
+    expect(tabA.visibleThreadedMessages).toHaveLength(240);
+  });
 });

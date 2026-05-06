@@ -479,7 +479,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         ) : (
           <>
             {/* Non-agentic messages: flat layout (reasoning → tools → content) */}
-            {role === 'assistant' && (effectiveToolCallsRaw || (effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0)) && (
+            {role === 'assistant' && (canRenderHeavyContent || effectiveIsStreaming) && (effectiveToolCallsRaw || (effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0)) && (
               <ToolCallsSection
                 toolCallsJson={effectiveToolCallsRaw || undefined}
                 activeToolCalls={effectiveIsStreaming ? effectiveToolCalls : undefined}

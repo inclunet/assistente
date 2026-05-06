@@ -97,7 +97,12 @@ function ChatSessionViewContent({
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
-  const pendingWindowAnnouncementRef = useRef<'boundary' | 'older' | 'newer' | null>(null);
+  const pendingWindowAnnouncementRef = useRef<{
+    kind: 'start' | 'end' | 'older' | 'newer';
+    previousStartIndex: number;
+    previousEndIndex: number;
+    previousWindowKey: string | null;
+  } | null>(null);
   const latestWindowKeyRef = useRef<string | null>(null);
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
@@ -534,11 +539,21 @@ function ChatSessionViewContent({
     latestWindowKeyRef.current = windowState
       ? `${windowState.startIndex}:${windowState.endIndex}:${windowState.totalCount}`
       : null;
-    if (!pendingWindowAnnouncementRef.current) return;
+    const pendingAnnouncement = pendingWindowAnnouncementRef.current;
+    if (!pendingAnnouncement) return;
     if (!windowState || windowState.totalCount <= 0) {
       pendingWindowAnnouncementRef.current = null;
       return;
     }
+    const didCompleteRequestedLoad =
+      pendingAnnouncement.kind === 'older'
+        ? windowState.startIndex < pendingAnnouncement.previousStartIndex || !windowState.hasBefore
+        : pendingAnnouncement.kind === 'newer'
+          ? windowState.endIndex > pendingAnnouncement.previousEndIndex || !windowState.hasAfter
+          : pendingAnnouncement.kind === 'start'
+            ? windowState.startIndex === 0
+            : windowState.totalCount > 0 && windowState.endIndex >= windowState.totalCount - 1;
+    if (!didCompleteRequestedLoad) return;
     pendingWindowAnnouncementRef.current = null;
     if (usesLocalVisualWindowCount) {
       announce(t('chat.announce.messageWindowLoaded', {
@@ -611,7 +626,13 @@ function ChatSessionViewContent({
 
   const handleJumpToStart = async () => {
     const previousWindowKey = latestWindowKeyRef.current;
-    pendingWindowAnnouncementRef.current = 'boundary';
+    const windowState = session?.messageWindow;
+    pendingWindowAnnouncementRef.current = {
+      kind: 'start',
+      previousStartIndex: windowState?.startIndex ?? 0,
+      previousEndIndex: windowState?.endIndex ?? -1,
+      previousWindowKey,
+    };
     try {
       await loadStartMessages();
       requestAnimationFrame(() => {
@@ -621,7 +642,7 @@ function ChatSessionViewContent({
       });
     } finally {
       window.setTimeout(() => {
-        if (latestWindowKeyRef.current === previousWindowKey) {
+        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
           pendingWindowAnnouncementRef.current = null;
         }
       }, 1_000);
@@ -630,7 +651,13 @@ function ChatSessionViewContent({
 
   const handleJumpToEnd = async () => {
     const previousWindowKey = latestWindowKeyRef.current;
-    pendingWindowAnnouncementRef.current = 'boundary';
+    const windowState = session?.messageWindow;
+    pendingWindowAnnouncementRef.current = {
+      kind: 'end',
+      previousStartIndex: windowState?.startIndex ?? 0,
+      previousEndIndex: windowState?.endIndex ?? -1,
+      previousWindowKey,
+    };
     try {
       await loadEndMessages();
       requestAnimationFrame(() => {
@@ -641,7 +668,7 @@ function ChatSessionViewContent({
       });
     } finally {
       window.setTimeout(() => {
-        if (latestWindowKeyRef.current === previousWindowKey) {
+        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
           pendingWindowAnnouncementRef.current = null;
         }
       }, 1_000);
@@ -650,31 +677,43 @@ function ChatSessionViewContent({
 
   const handleLoadOlderMessages = useCallback(async () => {
     const previousWindowKey = latestWindowKeyRef.current;
-    pendingWindowAnnouncementRef.current = 'older';
+    const windowState = session?.messageWindow;
+    pendingWindowAnnouncementRef.current = {
+      kind: 'older',
+      previousStartIndex: windowState?.startIndex ?? 0,
+      previousEndIndex: windowState?.endIndex ?? -1,
+      previousWindowKey,
+    };
     try {
       await loadOlderMessages();
     } finally {
       window.setTimeout(() => {
-        if (latestWindowKeyRef.current === previousWindowKey) {
+        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
           pendingWindowAnnouncementRef.current = null;
         }
       }, 1_000);
     }
-  }, [loadOlderMessages]);
+  }, [loadOlderMessages, session?.messageWindow]);
 
   const handleLoadNewerMessages = useCallback(async () => {
     const previousWindowKey = latestWindowKeyRef.current;
-    pendingWindowAnnouncementRef.current = 'newer';
+    const windowState = session?.messageWindow;
+    pendingWindowAnnouncementRef.current = {
+      kind: 'newer',
+      previousStartIndex: windowState?.startIndex ?? 0,
+      previousEndIndex: windowState?.endIndex ?? -1,
+      previousWindowKey,
+    };
     try {
       await loadNewerMessages();
     } finally {
       window.setTimeout(() => {
-        if (latestWindowKeyRef.current === previousWindowKey) {
+        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
           pendingWindowAnnouncementRef.current = null;
         }
       }, 1_000);
     }
-  }, [loadNewerMessages]);
+  }, [loadNewerMessages, session?.messageWindow]);
 
   const rootClass =
     variant === 'page' ? 'chat-page chat-session-view' : 'chat-session-view chat-session-view--embedded';

@@ -33,6 +33,9 @@ const composeChatSession = (
 ): ChatConversationSession => {
   const session = surfaceSession ?? createEmptyChatSession(conversationId, sessionKey);
   const baseConversation = timeline ?? defaultSession?.conversation ?? null;
+  const visibleThreadedMessages = session.visibleThreadedMessages
+    ?? defaultSession?.visibleThreadedMessages
+    ?? baseConversation?.threadedMessages;
   return {
     ...session,
     sessionKey: session.sessionKey ?? sessionKey,
@@ -40,7 +43,7 @@ const composeChatSession = (
     conversation: baseConversation
       ? {
         ...baseConversation,
-        threadedMessages: session.visibleThreadedMessages ?? baseConversation.threadedMessages,
+        threadedMessages: visibleThreadedMessages ?? EMPTY_MESSAGES,
       }
       : null,
   };

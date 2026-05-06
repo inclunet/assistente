@@ -218,3 +218,71 @@ func TestGetConversationMessageWindow_BoundsTurnExpansion(t *testing.T) {
 		t.Fatalf("turn expansion should stay bounded, got %d node(s)", len(window.Nodes))
 	}
 }
+
+func TestExpandWindowTurnMessages_DoesNotStarveLaterTurns(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+
+	conv, err := database.CreateConversation("Conversa", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	userOne, err := database.AddMessage(conv.ID, "user", "pergunta 1")
+	if err != nil {
+		t.Fatalf("create user one: %v", err)
+	}
+	assistantOne, err := database.AddAssistantToolMessage(
+		conv.ID,
+		userOne.ID,
+		"vou buscar 1",
+		`[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("create assistant one: %v", err)
+	}
+	var firstTurnTool *database.ChatMessage
+	for i := 0; i < 20; i++ {
+		tool, err := database.AddToolResultMessage(conv.ID, userOne.ID, "resultado 1", "tool-1")
+		if err != nil {
+			t.Fatalf("create first turn tool %d: %v", i, err)
+		}
+		if firstTurnTool == nil {
+			firstTurnTool = tool
+		}
+	}
+	userTwo, err := database.AddMessage(conv.ID, "user", "pergunta 2")
+	if err != nil {
+		t.Fatalf("create user two: %v", err)
+	}
+	assistantTwo, err := database.AddAssistantToolMessage(
+		conv.ID,
+		userTwo.ID,
+		"vou buscar 2",
+		`[{"id":"tool-2","type":"function","function":{"name":"search","arguments":"{}"}}]`,
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("create assistant two: %v", err)
+	}
+	secondTurnTool, err := database.AddToolResultMessage(conv.ID, userTwo.ID, "resultado 2", "tool-2")
+	if err != nil {
+		t.Fatalf("create second turn tool: %v", err)
+	}
+
+	messages, err := expandWindowTurnMessages(conv.ID, nil, []database.ChatMessage{*firstTurnTool, *secondTurnTool}, 6)
+	if err != nil {
+		t.Fatalf("expand messages: %v", err)
+	}
+	ids := make(map[string]bool)
+	for _, message := range messages {
+		ids[message.ID] = true
+	}
+	if !ids[assistantOne.ID] {
+		t.Fatalf("expected first large turn to keep a non-tool anchor")
+	}
+	if !ids[assistantTwo.ID] || !ids[secondTurnTool.ID] {
+		t.Fatalf("expected later turn to expand despite earlier large turn, got ids=%v", ids)
+	}
+}

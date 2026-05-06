@@ -151,6 +151,7 @@ export interface ChatSessionRegistryState {
 }
 
 const MAX_VISIBLE_SURFACE_MESSAGES = 240;
+const MAX_VISIBLE_TURN_BOUNDARY_OVERFLOW = 16;
 
 export const getDefaultChatSessionKey = (conversationId: string): string => `conversation:${conversationId}`;
 
@@ -295,12 +296,27 @@ const mergeTimelineConversation = (
   };
 };
 
-const capVisibleSurfaceMessages = (nodes: MessageNode[]): MessageNode[] => {
+const capVisibleSurfaceMessages = (nodes: MessageNode[], keep: 'start' | 'end' = 'end'): MessageNode[] => {
   if (nodes.length <= MAX_VISIBLE_SURFACE_MESSAGES) return nodes;
-  let startIndex = nodes.length - MAX_VISIBLE_SURFACE_MESSAGES;
+  if (keep === 'start') {
+    let endIndex = MAX_VISIBLE_SURFACE_MESSAGES;
+    const boundaryTurnId = nodes[endIndex - 1]?.message.turnId;
+    while (boundaryTurnId && endIndex < nodes.length && nodes[endIndex]?.message.turnId === boundaryTurnId) {
+      endIndex += 1;
+    }
+    if (endIndex > MAX_VISIBLE_SURFACE_MESSAGES + MAX_VISIBLE_TURN_BOUNDARY_OVERFLOW) {
+      endIndex = MAX_VISIBLE_SURFACE_MESSAGES;
+    }
+    return nodes.slice(0, endIndex);
+  }
+  const minStartIndex = nodes.length - MAX_VISIBLE_SURFACE_MESSAGES;
+  let startIndex = minStartIndex;
   const boundaryTurnId = nodes[startIndex]?.message.turnId;
   while (boundaryTurnId && startIndex > 0 && nodes[startIndex - 1]?.message.turnId === boundaryTurnId) {
     startIndex -= 1;
+  }
+  if (nodes.length - startIndex > MAX_VISIBLE_SURFACE_MESSAGES + MAX_VISIBLE_TURN_BOUNDARY_OVERFLOW) {
+    startIndex = minStartIndex;
   }
   return nodes.slice(startIndex);
 };
@@ -436,9 +452,13 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
       ...timeline,
       threadedMessages: surfaceSession.visibleThreadedMessages,
     });
+    const keepVisibleBoundary = surfaceSession.messageWindow?.startIndex === 0
+      && surfaceSession.messageWindow?.hasBefore === false
+      ? 'start'
+      : 'end';
     surfaceSessionsByKey[sessionKey] = {
       ...surfaceSession,
-      visibleThreadedMessages: capVisibleSurfaceMessages(surfaceConversation.threadedMessages),
+      visibleThreadedMessages: capVisibleSurfaceMessages(surfaceConversation.threadedMessages, keepVisibleBoundary),
     };
     const messageWindow = reconcileWindowForVisibleMessages(
       surfaceSession.messageWindow,

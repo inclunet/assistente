@@ -479,13 +479,13 @@ func GetTurnMessages(turnID string) ([]ChatMessage, error) {
 	return messages, err
 }
 
-// GetTurnMessagesByIDs retorna, em lote, mensagens dos turnos informados.
+// GetMessagesByTurnID retorna mensagens de um turno específico.
 // Mantém o mesmo escopo de parent da janela para não misturar raiz e threads.
-func GetTurnMessagesByIDs(conversationID string, parentID *string, turnIDs []string, limit int) ([]ChatMessage, error) {
-	if len(turnIDs) == 0 {
+func GetMessagesByTurnID(conversationID string, parentID *string, turnID string, limit int) ([]ChatMessage, error) {
+	if turnID == "" {
 		return []ChatMessage{}, nil
 	}
-	query := db.Where("conversation_id = ? AND turn_id IN ?", conversationID, turnIDs)
+	query := db.Where("conversation_id = ? AND turn_id = ?", conversationID, turnID)
 	if parentID != nil {
 		query = query.Where("parent_id = ?", *parentID)
 	} else {

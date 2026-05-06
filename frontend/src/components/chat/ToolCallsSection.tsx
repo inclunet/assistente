@@ -38,7 +38,7 @@ interface ToolCallsSectionProps {
 
 /** Limite de caracteres para exibir resultado truncado */
 const RESULT_PREVIEW_LENGTH = 300;
-const LARGE_TOOL_CALLS_JSON_LENGTH = 12_000;
+const LARGE_TOOL_CALLS_JSON_LENGTH = 8_000;
 
 function countTopLevelArrayItems(raw: string): number {
   const trimmed = raw.trim();
