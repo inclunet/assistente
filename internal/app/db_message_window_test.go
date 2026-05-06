@@ -116,6 +116,35 @@ func TestGetConversationMessageWindow_NormalizesAnchorNotFound(t *testing.T) {
 	}
 }
 
+func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+	app := &App{}
+
+	conv, err := database.CreateConversation("Conversa", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	for i := 0; i < maxExpandedMessageWindowRows+30; i++ {
+		if _, err := database.AddMessage(conv.ID, "user", "mensagem"); err != nil {
+			t.Fatalf("create message %d: %v", i, err)
+		}
+	}
+
+	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+		ConversationID: conv.ID,
+		Scope:          chat.MessageWindowScopeConversation,
+		Anchor:         chat.MessageWindowAnchorEnd,
+		Direction:      chat.MessageWindowDirectionBefore,
+		Limit:          maxExpandedMessageWindowRows + 60,
+	})
+	if err != nil {
+		t.Fatalf("get window: %v", err)
+	}
+	if len(window.Nodes) != maxExpandedMessageWindowRows {
+		t.Fatalf("expected clamped window size %d, got %d", maxExpandedMessageWindowRows, len(window.Nodes))
+	}
+}
+
 func TestGetConversationMessageWindow_ExpandsTurnBoundaries(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	app := &App{}

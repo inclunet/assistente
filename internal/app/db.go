@@ -187,6 +187,10 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	if req.Limit <= 0 {
 		return nil, fmt.Errorf("limit deve ser maior que zero")
 	}
+	limit := req.Limit
+	if limit > maxExpandedMessageWindowRows {
+		limit = maxExpandedMessageWindowRows
+	}
 
 	anchor := strings.TrimSpace(req.Anchor)
 	anchorMessageID := strings.TrimSpace(req.AnchorMessageID)
@@ -243,7 +247,7 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 		Anchor:          anchor,
 		AnchorMessageID: anchorMessageID,
 		Direction:       direction,
-		Limit:           req.Limit,
+		Limit:           limit,
 	})
 	if err != nil {
 		return nil, err

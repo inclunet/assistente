@@ -73,6 +73,8 @@ const ptBR = {
       assistant: 'Assistente',
       system: 'Sistema',
       reading: 'Lendo',
+      sent: 'enviado',
+      received: 'recebido',
       via: 'Via',
       stopAudio: 'Parar áudio',
       playAudio: 'Reproduzir áudio',

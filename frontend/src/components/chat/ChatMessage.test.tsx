@@ -98,6 +98,9 @@ describe('ChatMessage', () => {
 
     expect(screen.getByText('Ola')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'chat.playAudio' })).toBeInTheDocument();
+    expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
+      timePrefix: 'chat.sent',
+    }));
   });
 
   it('renderiza modo de edicao', () => {

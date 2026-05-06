@@ -173,7 +173,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const getAriaLabel = () => {
     const roleLabel = getDisplayRole();
     const relativeTime = formatRelativeTime(timestamp);
-    const timePrefix = role === 'user' ? 'enviado' : 'recebido';
+    const timePrefix = role === 'user' ? t('chat.sent') : t('chat.received');
 
     if (!canRenderHeavyContent) {
       return buildChatMessageAriaLabel({

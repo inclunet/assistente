@@ -73,6 +73,8 @@ const en = {
       assistant: 'Assistant',
       system: 'System',
       reading: 'Reading',
+      sent: 'sent',
+      received: 'received',
       via: 'Via',
       stopAudio: 'Stop audio',
       playAudio: 'Play audio',

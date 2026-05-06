@@ -72,6 +72,8 @@ const es = {
       assistant: 'Asistente',
       system: 'Sistema',
       reading: 'Leyendo',
+      sent: 'enviado',
+      received: 'recibido',
       via: 'Vía',
       stopAudio: 'Detener audio',
       playAudio: 'Reproducir audio',

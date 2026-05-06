@@ -475,7 +475,7 @@ func AddAssistantToolMessage(conversationID string, turnID string, content, tool
 // GetTurnMessages retorna todas as mensagens de um turno (mesmo TurnID), ordenadas por criação.
 func GetTurnMessages(turnID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("turn_id = ?", turnID).Order("created_at ASC").Find(&messages).Error
+	err := db.Where("turn_id = ?", turnID).Order("created_at ASC, id ASC").Find(&messages).Error
 	return messages, err
 }
 
