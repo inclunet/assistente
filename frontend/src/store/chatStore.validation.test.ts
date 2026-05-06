@@ -392,6 +392,64 @@ describe('chatStore validation', () => {
     }));
   });
 
+  it('preserva nó persistido quando streaming local colide na mesma chave de turno', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const userNode = createMessageNode('user-1') as unknown as MessageNode;
+    userNode.originalIndex = 1;
+    const canonicalNode = createMessageNode('assistant-final') as unknown as MessageNode;
+    canonicalNode.message.role = 'assistant';
+    canonicalNode.message.turnId = 'user-1';
+    canonicalNode.originalIndex = 2;
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.turnId = 'user-1';
+    streamingNode.message.isStreaming = true;
+    const olderNode = createMessageNode('message-00') as unknown as MessageNode;
+    olderNode.originalIndex = 0;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [olderNode],
+      totalCount: 3,
+      startIndex: 0,
+      endIndex: 0,
+      hasBefore: false,
+      hasAfter: true,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [userNode, canonicalNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        'surface-a': {
+          ...createEmptyChatSession(defaultConversationId, 'surface-a'),
+          hasOlderMessages: true,
+          visibleThreadedMessages: [userNode, canonicalNode, streamingNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 3,
+            startIndex: 1,
+            endIndex: 2,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, 'surface-a');
+
+    const visibleIds = useChatStore.getState().surfaceSessionsByKey['surface-a'].visibleThreadedMessages?.map((node) => node.message.id);
+    expect(visibleIds).toEqual(['message-00', 'user-1', 'assistant-final']);
+    expect(visibleIds?.some((id) => String(id).startsWith('streaming-'))).toBe(false);
+  });
+
   it('limpa hasBefore quando não há âncora persistida para paginação anterior', async () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;

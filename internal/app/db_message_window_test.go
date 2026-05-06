@@ -261,7 +261,7 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 	}
 }
 
-func TestGetConversationMessageWindow_TurnWithoutAssistantPreservesRepresentative(t *testing.T) {
+func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceholder(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	app := &App{}
 
@@ -293,10 +293,10 @@ func TestGetConversationMessageWindow_TurnWithoutAssistantPreservesRepresentativ
 	}
 	turnNode := window.Nodes[1]
 	if turnNode.Message.ID != tool.ID {
-		t.Fatalf("expected tool message to remain representative, got %s", turnNode.Message.ID)
+		t.Fatalf("expected tool message id to remain representative, got %s", turnNode.Message.ID)
 	}
-	if turnNode.Message.Role != "tool" || turnNode.Message.Content != "resultado preservado" {
-		t.Fatalf("expected tool role/content preserved, got role=%q content=%q", turnNode.Message.Role, turnNode.Message.Content)
+	if turnNode.Message.Role != "assistant" || turnNode.Message.Content != "" {
+		t.Fatalf("expected assistant placeholder for tool-only turn, got role=%q content=%q", turnNode.Message.Role, turnNode.Message.Content)
 	}
 	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
 		t.Fatalf("expected canonical originalIndex=1 for tool-only turn, got %v", turnNode.OriginalIndex)

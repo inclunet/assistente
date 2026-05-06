@@ -312,6 +312,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         byKey.set(key, node);
         continue;
       }
+      const existingIsPersisted = isPersistedMessageNode(existingNode);
+      const incomingIsPersisted = isPersistedMessageNode(node);
+      if (existingIsPersisted && !incomingIsPersisted) {
+        continue;
+      }
+      if (!existingIsPersisted && incomingIsPersisted) {
+        byKey.set(key, node);
+        continue;
+      }
       byKey.set(key, mergeMessageNode(existingNode, node));
     }
     return sortTimelineNodes(Array.from(byKey.values()));

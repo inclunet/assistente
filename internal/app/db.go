@@ -158,6 +158,11 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 		}
 	}
 	if !hasAssistant {
+		consolidated.Role = "assistant"
+		consolidated.Content = ""
+		consolidated.Reasoning = ""
+		consolidated.ToolCallID = ""
+		consolidated.ToolCalls = ""
 		return consolidated
 	}
 	consolidated.Content = finalContent
