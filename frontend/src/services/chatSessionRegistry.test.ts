@@ -483,6 +483,29 @@ describe('chatSessionRegistry', () => {
     ]);
   });
 
+  it('materializa superfície padrão a partir da timeline com janela limitada', () => {
+    const nodes = Array.from({ length: 245 }, (_, index) => messageNode(`message-${index}`));
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {
+        'conversation-1': {
+          ...createEmptyChatSession('conversation-1'),
+          conversation: {
+            ...conversation('conversation-1'),
+            threadedMessages: nodes,
+          },
+        },
+      },
+      timelinesByConversationId: {},
+      surfaceSessionsByKey: {},
+    };
+
+    const session = getChatSession(state, 'conversation-1');
+
+    expect(session.conversation?.threadedMessages).toHaveLength(240);
+    expect(session.visibleThreadedMessages).toHaveLength(240);
+    expect(session.visibleThreadedMessages?.[0]?.message.id).toBe('message-5');
+  });
+
   it('preserva superfície ancorada no início durante patch de conversa', () => {
     const nodes = Array.from({ length: 245 }, (_, index) => messageNode(`message-${index}`));
     nodes.forEach((node, index) => {

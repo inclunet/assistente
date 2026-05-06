@@ -734,10 +734,10 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 		}
 		hasAnchorMessage = true
 		if query.ParentID == nil && anchorMessage.ParentID != nil {
-			return nil, fmt.Errorf("anchorMessageID não pertence à janela raiz da conversa")
+			return nil, fmt.Errorf("anchorMessageId não pertence à janela raiz da conversa")
 		}
 		if query.ParentID != nil && (anchorMessage.ParentID == nil || *anchorMessage.ParentID != *query.ParentID) {
-			return nil, fmt.Errorf("anchorMessageID não pertence à thread solicitada")
+			return nil, fmt.Errorf("anchorMessageId não pertence à thread solicitada")
 		}
 		anchorIndex, err := countMessagesBeforeAnchor(messageScopeQuery(query.ConversationID, query.ParentID), anchorMessage)
 		if err != nil {

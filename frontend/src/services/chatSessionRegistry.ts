@@ -203,7 +203,12 @@ const toSurfaceSession = (
     ...surface,
     sessionKey,
     conversationId,
-    visibleThreadedMessages: surface.visibleThreadedMessages ?? session.conversation?.threadedMessages,
+    visibleThreadedMessages: surface.visibleThreadedMessages ?? (session.conversation
+      ? capVisibleSurfaceMessages(
+        session.conversation.threadedMessages,
+        surface.messageWindow?.startIndex === 0 && surface.messageWindow?.hasBefore === false ? 'start' : 'end',
+      )
+      : undefined),
     messageWindow: surface.messageWindow,
   };
 };
