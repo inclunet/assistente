@@ -22,7 +22,7 @@ import {
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
 import { reloadConversationSnapshot } from './chatSessionLoader';
 import { INITIAL_MESSAGE_WINDOW_SIZE } from './messageWindowLimits';
-import type { ChatSurfaceOrigin } from './chatSessionRegistry';
+import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
 
 const STREAM_UPDATE_DEBOUNCE_MS = 16;
 
@@ -107,6 +107,7 @@ export interface ChatEventSession {
   conversation: ChatTreeConversation | null;
   activeToolCalls: ToolCallStatus[];
   completedSegments: TurnSegment[];
+  messageWindow?: MessageWindowState;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
