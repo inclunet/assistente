@@ -12,7 +12,12 @@ import { announce } from '../hooks/useAnnouncer';
 import i18next from 'i18next';
 import { playSendSound } from '../services/audioFeedback';
 import { isChatConversationActive } from '../services/chatArbitration';
-import { startChatEventController, stopAllChatEventControllers, stopChatEventController } from '../services/chatEventController';
+import {
+  startChatEventController,
+  stopAllChatEventControllers,
+  stopChatEventController,
+  type ChatEventSession,
+} from '../services/chatEventController';
 import { handleExternalChatIncoming } from '../services/externalChatController';
 import {
   createConversationTurnQueue,
@@ -423,7 +428,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
   const chatEventAdapter = {
     getSession: (conversationId: string, sessionKey?: string) => getSession(get(), conversationId, sessionKey),
-    patchSession: (conversationId: string, patch: Partial<ChatConversationSession>) => {
+    patchSession: (conversationId: string, patch: Partial<ChatEventSession> & Record<string, unknown>) => {
       set((state) => {
         const { appendVisibleMessages, ...sessionPatch } = patch as Partial<ChatConversationSession> & {
           appendVisibleMessages?: boolean;
