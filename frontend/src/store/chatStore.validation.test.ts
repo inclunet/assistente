@@ -543,9 +543,11 @@ describe('chatStore validation', () => {
     } as unknown as import('../lib/chatMessageTree').Message);
 
     const timeline = useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages ?? [];
-    expect(timeline.map((node) => node.message.id)).toEqual(['user-1', 'assistant-1', 'internal-1']);
+    const localThread = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages ?? [];
+    expect(timeline.map((node) => node.message.id)).toEqual(['user-1', 'assistant-1']);
+    expect(localThread.map((node) => node.message.id)).toEqual(['user-1', 'assistant-1', 'internal-1']);
     expect(timeline.find((node) => node.message.id === 'assistant-1')?.message.content).toBe('Resposta canônica');
-    expect(timeline.find((node) => node.message.id === 'internal-1')?.message.turnId).toBeUndefined();
+    expect(localThread.find((node) => node.message.id === 'internal-1')?.message.turnId).toBeUndefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('addInternalMessage recebeu turnId'));
   });
 

@@ -44,6 +44,7 @@ import {
   patchChatSession,
   removeChatSession,
   getTimelineNodeKey,
+  isPersistedTimelineNode,
   mergeMessageNode,
   sortTimelineNodes,
   type ActiveConversation,
@@ -95,8 +96,7 @@ const getErrorMessage = (error: unknown): string => {
 
 const isPersistedMessageNode = (node: MessageNode | undefined): boolean => {
   if (!node) return false;
-  const id = String(node.message.id ?? '');
-  return !node.message.isStreaming && id !== '' && !id.startsWith('streaming-');
+  return isPersistedTimelineNode(node);
 };
 
 const getLastPersistedMessageId = (nodes: MessageNode[]): string | null => {
@@ -937,6 +937,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             currentSession.conversation.threadedMessages,
           );
           const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
+          // The active surface can contain transient local nodes; only persisted nodes enter the shared timeline cache.
           const cachedThreadedMessages = mergeConversationNodes(
             timeline.threadedMessages,
             expandedVisibleThreadedMessages.filter(isPersistedMessageNode),
@@ -1042,6 +1043,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             newerMessages.nodes,
           );
           const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
+          // The active surface can contain transient local nodes; only persisted nodes enter the shared timeline cache.
           const cachedThreadedMessages = mergeConversationNodes(
             timeline.threadedMessages,
             expandedVisibleThreadedMessages.filter(isPersistedMessageNode),
@@ -1186,12 +1188,22 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => {
         const session = getSession(state, conversationId);
         if (!session.conversation) return state;
-        return patchSession(state, conversationId, {
+        const patches = patchSession(state, conversationId, {
           conversation: {
             ...session.conversation,
             threadedMessages: appendInternalMessageToTree(session.conversation.threadedMessages, messageForTree),
           },
         });
+        const currentTimeline = getConversationTimeline(state, conversationId) ?? session.conversation;
+        const timelinesByConversationId = { ...(patches.timelinesByConversationId ?? state.timelinesByConversationId ?? {}) };
+        timelinesByConversationId[conversationId] = {
+          ...currentTimeline,
+          threadedMessages: currentTimeline.threadedMessages.filter(isPersistedMessageNode),
+        };
+        return {
+          ...patches,
+          timelinesByConversationId,
+        };
       });
     },
 

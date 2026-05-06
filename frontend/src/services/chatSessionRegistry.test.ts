@@ -413,13 +413,19 @@ describe('chatSessionRegistry', () => {
     expect(ids).toEqual(['user-1', 'assistant-final']);
   });
 
-  it('não vaza nós streaming para superfície nova da mesma conversa', () => {
+  it('não vaza nós transitórios para superfície nova da mesma conversa', () => {
     const userNode = messageNode('user-1');
-    const streamingNode = messageNode('streaming-conversation-1-1', {
-      role: 'assistant',
-      turnId: 'user-1',
-      isStreaming: true,
-    });
+    const transientNodes = [
+      messageNode('streaming-conversation-1-1', {
+        role: 'assistant',
+        turnId: 'user-1',
+        isStreaming: true,
+      }),
+      messageNode('tool-local-1', { role: 'tool', turnId: 'user-1' }),
+      messageNode('displaced-message-1', { role: 'system' }),
+      messageNode('reasoning-event-1', { role: 'assistant' }),
+      messageNode('queued-user-1-local', { role: 'assistant' }),
+    ];
     const state: ChatSessionRegistryState = {
       sessionsByConversationId: {},
       timelinesByConversationId: {},
@@ -431,7 +437,7 @@ describe('chatSessionRegistry', () => {
       ...patchChatSession(state, 'conversation-1', {
         conversation: {
           ...conversation('conversation-1'),
-          threadedMessages: [userNode, streamingNode],
+          threadedMessages: [userNode, ...transientNodes],
         },
       }, 'tab-a:conversation-1'),
     };
@@ -439,7 +445,7 @@ describe('chatSessionRegistry', () => {
     expect(getConversationTimeline(next, 'conversation-1')?.threadedMessages.map((node) => node.message.id))
       .toEqual(['user-1']);
     expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').conversation?.threadedMessages.map((node) => node.message.id))
-      .toEqual(['user-1', 'streaming-conversation-1-1']);
+      .toEqual(['user-1', ...transientNodes.map((node) => node.message.id)]);
     expect(getChatSession(next, 'conversation-1', 'tab-b:conversation-1').conversation?.threadedMessages.map((node) => node.message.id))
       .toEqual(['user-1']);
   });

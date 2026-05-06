@@ -268,9 +268,20 @@ export const sortTimelineNodes = (nodes: MessageNode[]): MessageNode[] => (
   })
 );
 
-const isPersistedTimelineNode = (node: MessageNode): boolean => {
+export const TRANSIENT_TIMELINE_NODE_ID_PREFIXES = [
+  'streaming-',
+  'tool-',
+  'displaced-',
+  'reasoning-event-',
+  'queued-',
+  'internal-',
+];
+
+export const isPersistedTimelineNode = (node: MessageNode): boolean => {
   const id = String(node.message.id ?? '');
-  return !node.message.isStreaming && id !== '' && !id.startsWith('streaming-');
+  return !node.message.isStreaming
+    && id !== ''
+    && !TRANSIENT_TIMELINE_NODE_ID_PREFIXES.some((prefix) => id.startsWith(prefix));
 };
 
 const toTimelineCacheConversation = (conversation: ConversationTimeline): ConversationTimeline => {

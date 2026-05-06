@@ -5,7 +5,7 @@ import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
 import { main } from '../../../wailsjs/go/models';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
-import type { MessageWindowState } from '../../services/chatSessionRegistry';
+import { isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
 import './MessageList.css';
 
 export interface MessageListProps {
@@ -170,8 +170,7 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 
 const isPersistedMessageNode = (node: MessageNode | undefined): boolean => {
   if (!node) return false;
-  const id = String(node.message.id ?? '');
-  return !node.message.isStreaming && id !== '' && !id.startsWith('streaming-');
+  return isPersistedTimelineNode(node);
 };
 
 export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProps>((
