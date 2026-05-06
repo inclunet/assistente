@@ -66,9 +66,7 @@ export function AuthGate({ children }: AuthGateProps) {
     <main style={styles.shell} aria-busy={isLoading}>
       <form style={styles.card} onSubmit={(event) => void submit(event)}>
         <h1 style={styles.title}>{title}</h1>
-        <p style={styles.description}>
-          AEP-0052 adiciona contas locais. Configure o cofre e entre para continuar.
-        </p>
+        <p style={styles.description}>{getStepDescription(status)}</p>
 
         {recoveryKey && (
           <div style={styles.recovery}>
@@ -92,7 +90,7 @@ export function AuthGate({ children }: AuthGateProps) {
         )}
 
         <label style={styles.label}>
-          {status?.hasUsers ? 'Senha' : 'Senha mestre'}
+          {getPasswordLabel(status)}
           <input
             value={secret}
             onChange={(event) => setSecret(event.target.value)}
@@ -155,3 +153,23 @@ const styles: Record<string, CSSProperties> = {
   recovery: { display: 'grid', gap: 8, padding: 12, border: '1px solid #4b5563', borderRadius: 8 },
   code: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
 };
+
+function getStepDescription(status: ReturnType<typeof useAuthStore.getState>['status']): string {
+  if (!status?.vaultConfigured) {
+    return 'Configure uma senha mestre para proteger a DEK do cofre.';
+  }
+  if (!status.vaultUnlocked) {
+    return 'Digite a senha mestre para desbloquear o cofre local.';
+  }
+  if (!status.hasUsers) {
+    return 'Crie a primeira conta local. Esta senha será usada para entrar como admin.';
+  }
+  return 'Entre com sua conta local para continuar.';
+}
+
+function getPasswordLabel(status: ReturnType<typeof useAuthStore.getState>['status']): string {
+  if (!status?.vaultConfigured || !status.vaultUnlocked) {
+    return 'Senha mestre';
+  }
+  return status.hasUsers ? 'Senha' : 'Senha do admin';
+}
