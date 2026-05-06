@@ -24,15 +24,15 @@ var (
 // ==================== Conversation ====================
 
 func (a *App) CreateConversation(title, model string) (*Conversation, error) {
-	return database.CreateConversation(title, model)
+	return database.CreateConversationWithContext(a.authenticatedContext(), title, model)
 }
 
 func (a *App) GetConversations() ([]Conversation, error) {
-	return database.GetConversations()
+	return database.GetConversationsWithContext(a.authenticatedContext())
 }
 
 func (a *App) GetConversation(id string) (*Conversation, error) {
-	return database.GetConversation(id)
+	return database.GetConversationWithContext(a.authenticatedContext(), id)
 }
 
 // EnsureConversation cria ou recicla uma conversa vazia e retorna.
@@ -41,7 +41,7 @@ func (a *App) EnsureConversation(title string) (*Conversation, error) {
 	if title == "" {
 		title = "Nova Conversa"
 	}
-	conv, err := database.RecycleOrCreateConversation(title)
+	conv, err := database.RecycleOrCreateConversationWithContext(a.authenticatedContext(), title)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao garantir conversa: %w", err)
 	}
@@ -50,7 +50,7 @@ func (a *App) EnsureConversation(title string) (*Conversation, error) {
 
 // GetMessages retorna mensagens com filtro por parent (API unificada com LAZY LOADING)
 func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error) {
-	messages, err := database.GetMessages(conversationID, parentID)
+	messages, err := a.msgRepo.GetMessages(conversationID, parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +303,7 @@ func (a *App) GetMessageChildren(messageID string) ([]chat.MessageNode, error) {
 }
 
 func (a *App) UpdateConversation(id string, title, model string) error {
-	if err := database.UpdateConversation(id, title, model); err != nil {
+	if err := database.UpdateConversationWithContext(a.authenticatedContext(), id, title, model); err != nil {
 		return err
 	}
 
@@ -318,7 +318,7 @@ func (a *App) UpdateConversation(id string, title, model string) error {
 }
 
 func (a *App) DeleteConversation(id string) error {
-	if err := database.DeleteConversation(id); err != nil {
+	if err := database.DeleteConversationWithContext(a.authenticatedContext(), id); err != nil {
 		return err
 	}
 
@@ -407,13 +407,13 @@ func (a *App) UpdateMessage(messageID string, newContent string) error {
 }
 
 func (a *App) UpdateConversationModel(id string, model string) error {
-	return database.UpdateConversation(id, "", model)
+	return database.UpdateConversationWithContext(a.authenticatedContext(), id, "", model)
 }
 
 // ==================== ChatMessage ====================
 
 func (a *App) CreateMessage(conversationID string, role, content string) (*ChatMessage, error) {
-	return database.CreateMessage(database.MessageOptions{
+	return a.msgRepo.CreateMessage(database.MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
@@ -421,23 +421,46 @@ func (a *App) CreateMessage(conversationID string, role, content string) (*ChatM
 }
 
 func (a *App) AddMessage(conversationID string, role, content string) (*ChatMessage, error) {
-	return database.AddMessage(conversationID, role, content)
+	return a.msgRepo.CreateMessage(database.MessageOptions{ConversationID: conversationID, Role: role, Content: content})
 }
 
 func (a *App) AddMessageWithMedia(conversationID string, role, content, media string) (*ChatMessage, error) {
-	return database.AddMessageWithMedia(conversationID, role, content, media)
+	return a.msgRepo.CreateMessage(database.MessageOptions{ConversationID: conversationID, Role: role, Content: content, Media: media})
 }
 
 func (a *App) AddMessageWithTokens(conversationID string, role, content string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
-	return database.AddMessageWithTokens(conversationID, role, content, promptTokens, completionTokens, totalTokens, model)
+	return a.msgRepo.CreateMessage(database.MessageOptions{
+		ConversationID:   conversationID,
+		Role:             role,
+		Content:          content,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+		Model:            model,
+	})
 }
 
 func (a *App) AddMessageWithTokensAndMedia(conversationID string, role, content, media string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
-	return database.AddMessageWithTokensAndMedia(conversationID, role, content, media, promptTokens, completionTokens, totalTokens, model)
+	return a.msgRepo.CreateMessage(database.MessageOptions{
+		ConversationID:   conversationID,
+		Role:             role,
+		Content:          content,
+		Media:            media,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+		Model:            model,
+	})
 }
 
 func (a *App) AddChildMessage(conversationID string, parentID string, role, content, model string) (*ChatMessage, error) {
-	return database.AddChildMessage(conversationID, parentID, role, content, model)
+	return a.msgRepo.CreateMessage(database.MessageOptions{
+		ConversationID: conversationID,
+		ParentID:       &parentID,
+		Role:           role,
+		Content:        content,
+		Model:          model,
+	})
 }
 
 func (a *App) GetAllTokenStats() (map[string]int, error) {
@@ -510,7 +533,7 @@ func (a *App) RebuildSearchIndex() error {
 
 // SetConversationModel define o modelo para uma conversa
 func (a *App) SetConversationModel(conversationID string, model string) error {
-	return database.UpdateConversation(conversationID, "", model)
+	return database.UpdateConversationWithContext(a.authenticatedContext(), conversationID, "", model)
 }
 
 // GetEffectiveModel retorna o modelo efetivo (perfil ativo > config padrão)

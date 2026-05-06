@@ -204,11 +204,15 @@ func CreateConversationWithContext(ctx context.Context, title, model string) (*C
 // não vinculada a nenhuma tab aberta) e a recicla, resetando título e timestamps.
 // Se não encontrar candidata, cria uma nova. Evita acumular registros orfãos no banco.
 func RecycleOrCreateConversation(title string) (*Conversation, error) {
+	return RecycleOrCreateConversationWithContext(context.Background(), title)
+}
+
+func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (*Conversation, error) {
 	var candidate Conversation
-	err := db.
+	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
 		Where("channel = '' AND contact_id = ''").
 		Where("id NOT IN (?)",
-			db.Model(&ChatMessage{}).Select("DISTINCT conversation_id"),
+			db.WithContext(ctx).Model(&ChatMessage{}).Select("DISTINCT conversation_id"),
 		).
 		Order("created_at ASC").
 		First(&candidate).Error
@@ -221,13 +225,16 @@ func RecycleOrCreateConversation(title string) (*Conversation, error) {
 		candidate.SummarizingInProgress = false
 		candidate.CreatedAt = now
 		candidate.UpdatedAt = now
-		if err := db.Save(&candidate).Error; err != nil {
+		if userID, ok := UserIDFromContext(ctx); ok {
+			candidate.UserID = userID
+		}
+		if err := db.WithContext(ctx).Save(&candidate).Error; err != nil {
 			return nil, err
 		}
 		return &candidate, nil
 	}
 
-	return CreateConversation(title, "")
+	return CreateConversationWithContext(ctx, title, "")
 }
 
 // FindOrCreateChannelConversation busca uma conversa existente para um canal+contato.
@@ -340,10 +347,17 @@ func UpdateConversationChannelWithContext(ctx context.Context, id string, channe
 
 // DeleteConversation deleta uma conversa e suas mensagens
 func DeleteConversation(id string) error {
-	if err := db.Where("conversation_id = ?", id).Delete(&ChatMessage{}).Error; err != nil {
+	return DeleteConversationWithContext(context.Background(), id)
+}
+
+func DeleteConversationWithContext(ctx context.Context, id string) error {
+	if _, err := GetConversationInfoWithContext(ctx, id); err != nil {
 		return err
 	}
-	return db.Where("id = ?", id).Delete(&Conversation{}).Error
+	if err := db.WithContext(ctx).Where("conversation_id = ?", id).Delete(&ChatMessage{}).Error; err != nil {
+		return err
+	}
+	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Where("id = ?", id).Delete(&Conversation{}).Error
 }
 
 // ==================== ChatMessage ====================
