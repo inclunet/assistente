@@ -20,7 +20,7 @@ export interface VoicePickerProps {
   onChange: (voice: string) => void;
   providerId?: string; // NOVO: Filtra por provedor
   modelId?: string;    // Modelo TTS usado para listar vozes HTTP
-  profileId?: string;  // NOVO: Usado para buscar vozes do provedor
+  profileId?: string;
   variant?: 'toolbar' | 'form';
   label?: string;
   helpText?: string;
@@ -44,7 +44,6 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       onChange,
       providerId,
       modelId,
-      profileId,
       variant = 'form',
       label,
       helpText,
@@ -98,12 +97,9 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       try {
         let allVoices: TTSVoice[] = [];
         
-        if (providerId && profileId) {
-          // Busca específica para este provedor
-          allVoices = await ttsService.getVoicesForProvider(providerId, profileId, voiceModelId);
-        } else if (providerId) {
-          // Tem provedor mas não tem profileId — tenta com string vazia
-          allVoices = await ttsService.getVoicesForProvider(providerId, '', voiceModelId);
+        if (providerId) {
+          // Busca específica para este provedor/modelo.
+          allVoices = await ttsService.getVoicesForProvider(providerId, voiceModelId);
         } else {
           // Fallback legada: busca todas as vozes (usado na Home/Toolbar se não houver perfil)
           allVoices = await ttsService.getVoices();
@@ -126,7 +122,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       let isCancelled = false;
       loadVoices(() => isCancelled);
       return () => { isCancelled = true; };
-    }, [providerId, profileId, modelId, voiceOverrides]);
+    }, [providerId, modelId, voiceOverrides]);
 
     /** Inicia fetch com cancellation (cancela qualquer fetch manual anterior) */
     const reloadWithCancel = () => {

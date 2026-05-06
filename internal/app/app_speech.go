@@ -105,7 +105,7 @@ func (a *App) GetTTSModels(providerID string) []speech.TTSModelInfo {
 	return a.speechSvc.GetTTSModels(providerID)
 }
 
-func (a *App) GetTTSVoices(profileID, providerID, modelID string) []speech.TTSVoiceInfo {
+func (a *App) GetTTSVoices(providerID, modelID string) []speech.TTSVoiceInfo {
 	return a.speechSvc.GetTTSVoices(providerID, modelID)
 }
 

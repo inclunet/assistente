@@ -14,14 +14,14 @@ type WailsApp = {
     app?: {
       App?: {
         GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
-        GetTTSVoices?: (profileId: string, providerId: string, modelId: string) => Promise<BackendVoice[]>;
+        GetTTSVoices?: (providerId: string, modelId: string) => Promise<BackendVoice[]>;
         SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, text: string, sessionId: string) => Promise<void>;
       };
     };
     main?: {
       App?: {
         GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
-        GetTTSVoices?: (profileId: string, providerId: string, modelId: string) => Promise<BackendVoice[]>;
+        GetTTSVoices?: (providerId: string, modelId: string) => Promise<BackendVoice[]>;
         SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, text: string, sessionId: string) => Promise<void>;
       };
     };
@@ -56,10 +56,10 @@ const getTTSModels = async (providerId: string): Promise<BackendModel[]> => {
   return app.GetTTSModels(providerId);
 };
 
-const getTTSVoices = async (profileId: string, providerId: string, modelId: string): Promise<BackendVoice[]> => {
+const getTTSVoices = async (providerId: string, modelId: string): Promise<BackendVoice[]> => {
   const app = getWailsApp();
   if (!app?.GetTTSVoices) return [];
-  return app.GetTTSVoices(profileId, providerId, modelId);
+  return app.GetTTSVoices(providerId, modelId);
 };
 
 /** Configuração de voz por role (assistant, user, system) */
@@ -666,9 +666,9 @@ class TTSService {
   }
 
   /**
-   * Retorna lista de vozes disponíveis de um provedor e perfil específicos
+   * Retorna lista de vozes disponíveis para um provedor e modelo.
    */
-  async getVoicesForProvider(providerId: string, profileId: string, modelId: string = ''): Promise<TTSVoice[]> {
+  async getVoicesForProvider(providerId: string, modelId: string = ''): Promise<TTSVoice[]> {
     await ttsFactory.initialize();
 
     if (providerId === 'webspeech') {
@@ -677,7 +677,7 @@ class TTSService {
     }
     if (providerId === 'sapi5') {
       try {
-        const voices = await getTTSVoices(profileId, providerId, '');
+        const voices = await getTTSVoices(providerId, '');
         return (voices || []).map((v) => ({
           id: v.id,
           name: v.name,
@@ -697,7 +697,7 @@ class TTSService {
     // Se for um provedor LLM registrado, busca via backend
     if (!modelId) return [];
     try {
-      const voices = await getTTSVoices(profileId, providerId, modelId);
+      const voices = await getTTSVoices(providerId, modelId);
       return (voices || []).map((v) => ({
         id: v.id,
         name: v.name,

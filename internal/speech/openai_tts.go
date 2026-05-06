@@ -462,19 +462,6 @@ var knownTTSModels = map[string]bool{
 	"gpt-4o-mini-tts": true,
 }
 
-var staticTTSModels = []TTSModelInfo{
-	{ID: "tts-1", Name: "tts-1", Provider: "openai", SelectionMode: string(TTSSelectionModelAndVoice)},
-	{ID: "tts-1-hd", Name: "tts-1-hd", Provider: "openai", SelectionMode: string(TTSSelectionModelAndVoice)},
-	{ID: "gpt-4o-mini-tts", Name: "gpt-4o-mini-tts", Provider: "openai", SelectionMode: string(TTSSelectionModelAndVoice)},
-}
-
-// StaticTTSModels retorna a lista de modelos TTS conhecidos da OpenAI.
-func StaticTTSModels() []TTSModelInfo {
-	result := make([]TTSModelInfo, len(staticTTSModels))
-	copy(result, staticTTSModels)
-	return result
-}
-
 // knownSTTModels são IDs exatos de modelos STT reconhecidos.
 var knownSTTModels = map[string]bool{
 	"whisper-1": true, "whisper-large-v3": true,

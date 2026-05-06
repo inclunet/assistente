@@ -458,8 +458,8 @@ export function GetTTSModels(arg1) {
   return window['go']['app']['App']['GetTTSModels'](arg1);
 }
 
-export function GetTTSVoices(arg1, arg2, arg3) {
-  return window['go']['app']['App']['GetTTSVoices'](arg1, arg2, arg3);
+export function GetTTSVoices(arg1, arg2) {
+  return window['go']['app']['App']['GetTTSVoices'](arg1, arg2);
 }
 
 export function GetSTTModels(arg1) {

@@ -88,7 +88,7 @@ func (c *SpeechController) GetTTSModels(providerID string) []speech.TTSModelInfo
 	return c.speechSvc.GetTTSModels(providerID)
 }
 
-func (c *SpeechController) GetTTSVoices(profileID, providerID, modelID string) []speech.TTSVoiceInfo {
+func (c *SpeechController) GetTTSVoices(providerID, modelID string) []speech.TTSVoiceInfo {
 	return c.speechSvc.GetTTSVoices(providerID, modelID)
 }
 
