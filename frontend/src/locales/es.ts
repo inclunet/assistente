@@ -831,6 +831,9 @@ const es = {
         systemHelp: 'Sigue la voz del Sistema',
       },
       voiceSection: {
+        modelLabel: 'Modelo TTS',
+        modelPlaceholder: 'Selecciona un modelo',
+        modelHelp: 'Elige el modelo TTS antes de la voz. Los modelos Piper usan solo el modelo.',
         voiceLabel: 'Voz',
         voiceHelp: 'Selecciona la voz para síntesis de habla',
         rateLabel: 'Velocidad',

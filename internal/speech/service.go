@@ -108,60 +108,22 @@ func (s *Service) CreateTTSClient(providerID string, model string) *TTSClient {
 	}, s.credMgr)
 }
 
-// FindOpenAILikeProvider procura um provider LLM com API OpenAI-compatible que suporte TTS.
-func (s *Service) FindOpenAILikeProvider() *llm.ProviderConfig {
-	isOpenAILike := func(cfg *llm.ProviderConfig) bool {
-		if cfg == nil {
-			return false
-		}
-		format := cfg.GetAPIFormat()
-		return format == llm.APIFormatOpenAI || format == llm.APIFormatOpenAIResponses
+func (s *Service) CreateTTSClientWithLanguage(providerID string, model string, language string) *TTSClient {
+	cfg := s.registry.Get(providerID)
+	if cfg == nil {
+		log.Printf("[TTS] Provider %s não encontrado", providerID)
+		return nil
 	}
-
-	isOfficialOpenAI := func(cfg *llm.ProviderConfig) bool {
-		return cfg.BaseURL == "" || strings.Contains(cfg.BaseURL, "api.openai.com")
-	}
-
-	// Tenta o provider do perfil ativo primeiro (voice → chat → default)
-	if profile, err := s.profileProvider.GetActive(); err == nil && profile != nil {
-		resolved := s.profileProvider.ResolveDefaults(profile)
-		if resolved.Voice.Assistant.LLMProviderID != "" {
-			if cfg := s.registry.Get(resolved.Voice.Assistant.LLMProviderID); isOpenAILike(cfg) {
-				return cfg
-			}
-		}
-		if resolved.Chat.LLMProvider != "" {
-			if cfg := s.registry.Get(resolved.Chat.LLMProvider); isOpenAILike(cfg) {
-				return cfg
-			}
-		}
-	}
-
-	// Tenta o provider default do sistema
-	for _, cfg := range s.registry.List() {
-		if cfg.IsDefault && isOpenAILike(cfg) {
-			return cfg
-		}
-	}
-
-	// Último recurso: prefere providers com URL oficial do OpenAI
-	var fallbackProxy *llm.ProviderConfig
-	for _, cfg := range s.registry.List() {
-		if isOpenAILike(cfg) {
-			if isOfficialOpenAI(cfg) {
-				return cfg
-			}
-			if fallbackProxy == nil {
-				fallbackProxy = cfg
-			}
-		}
-	}
-
-	return fallbackProxy
+	return NewTTSClient(TTSConfig{
+		BaseURL:           cfg.BaseURL,
+		CredentialPattern: cfg.CredentialPattern,
+		Model:             TTSModel(model),
+		Language:          language,
+	}, s.credMgr)
 }
 
 // SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
-func (s *Service) SpeakMessage(messageID string, providerID string, voiceID string, model string, rate float64) (*AudioResult, error) {
+func (s *Service) SpeakMessage(messageID string, providerID string, model string, voiceID string, rate float64) (*AudioResult, error) {
 	// 1. Checa cache no DB
 	audio, mime, err := s.audioRepo.GetMessageAudio(messageID)
 	if err == nil && audio != "" {
@@ -178,7 +140,7 @@ func (s *Service) SpeakMessage(messageID string, providerID string, voiceID stri
 	}
 
 	// 3. Gera TTS: roteia entre SAPI5 (local) e provedores API (HTTP)
-	audioData, mimeType, err := s.synthesizeForProvider(content, providerID, voiceID, model, rate)
+	audioData, mimeType, err := s.synthesizeForProvider(content, providerID, model, voiceID, rate)
 	if err != nil {
 		return nil, fmt.Errorf("TTS for message %s: %w", messageID, err)
 	}
@@ -195,11 +157,11 @@ func (s *Service) SpeakMessage(messageID string, providerID string, voiceID stri
 }
 
 // synthesizeForProvider roteia a síntese TTS para o provider correto.
-func (s *Service) synthesizeForProvider(text, providerID, voiceID, model string, rate float64) ([]byte, string, error) {
+func (s *Service) synthesizeForProvider(text, providerID, model, voiceID string, rate float64) ([]byte, string, error) {
 	if providerID == "sapi5" {
 		return s.synthesizeSAPI5(text, voiceID, mapRateToSAPI5(rate))
 	}
-	return s.synthesizeAPI(text, providerID, voiceID, model, rate)
+	return s.synthesizeAPI(text, providerID, model, voiceID, rate)
 }
 
 // mapRateToSAPI5 converte a escala de rate do perfil (0.25–4.0, padrão 1.0)
@@ -241,9 +203,9 @@ func (s *Service) synthesizeSAPI5(text, voiceID string, rate int) ([]byte, strin
 }
 
 // synthesizeAPI gera áudio MP3 via provider OpenAI-compatible (HTTP).
-func (s *Service) synthesizeAPI(text, providerID, voiceID, model string, rate float64) ([]byte, string, error) {
-	if model == "" {
-		model = voiceID
+func (s *Service) synthesizeAPI(text, providerID, model, voiceID string, rate float64) ([]byte, string, error) {
+	if err := validateTTSSelection(model, voiceID, ""); err != nil {
+		return nil, "", err
 	}
 	if rate <= 0 {
 		rate = 1.0
@@ -285,8 +247,29 @@ func (s *Service) GenerateAndSaveMessageAudio(messageID string, text string) (*A
 	return &AudioResult{Audio: result.AudioBase64, MimeType: mimeType, Cached: cached}, nil
 }
 
-// GetTTSVoices retorna vozes TTS disponíveis para um provedor.
-func (s *Service) GetTTSVoices(providerID string) []TTSVoiceInfo {
+// GetTTSModels retorna modelos TTS disponíveis para um provedor.
+func (s *Service) GetTTSModels(providerID string) []TTSModelInfo {
+	if providerID == "" {
+		return []TTSModelInfo{}
+	}
+	if providerID == "webspeech" || providerID == "sapi5" {
+		return []TTSModelInfo{}
+	}
+	client := s.CreateTTSClient(providerID, "")
+	if client == nil {
+		log.Printf("[GetTTSModels] não foi possível criar client para provider %s", providerID)
+		return []TTSModelInfo{}
+	}
+	models, err := client.FetchTTSModels()
+	if err != nil {
+		log.Printf("[GetTTSModels] erro ao buscar modelos para %s: %v", providerID, err)
+		return []TTSModelInfo{}
+	}
+	return models
+}
+
+// GetTTSVoices retorna vozes TTS disponíveis para um provedor e modelo.
+func (s *Service) GetTTSVoices(providerID, modelID string) []TTSVoiceInfo {
 	if providerID == "" {
 		return []TTSVoiceInfo{}
 	}
@@ -311,15 +294,19 @@ func (s *Service) GetTTSVoices(providerID string) []TTSVoiceInfo {
 	if providerID == "webspeech" {
 		return []TTSVoiceInfo{}
 	}
+	if modelID == "" {
+		log.Printf("[GetTTSVoices] model é obrigatório para provider %s", providerID)
+		return []TTSVoiceInfo{}
+	}
 
 	// Provedores LLM: consulta via TTSClient
-	client := s.CreateTTSClient(providerID, "")
+	client := s.CreateTTSClient(providerID, modelID)
 	if client == nil {
 		log.Printf("[GetTTSVoices] não foi possível criar client para provider %s", providerID)
 		return []TTSVoiceInfo{}
 	}
 
-	voices, err := client.FetchVoices()
+	voices, err := client.FetchVoices(modelID)
 	if err != nil {
 		log.Printf("[GetTTSVoices] erro ao buscar vozes para %s: %v", providerID, err)
 		return []TTSVoiceInfo{}
@@ -426,6 +413,7 @@ type SpeakPreviewParams struct {
 	ProviderID string
 	VoiceID    string
 	Model      string
+	Language   string
 	Rate       float64
 	Volume     float64
 	Text       string
@@ -448,7 +436,7 @@ func (s *Service) SpeakPreview(p SpeakPreviewParams) error {
 		volume = 1.0
 	}
 
-	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, rate, volume)
+	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, language=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, p.Language, rate, volume)
 
 	switch p.ProviderID {
 	case "webspeech":
@@ -456,7 +444,7 @@ func (s *Service) SpeakPreview(p SpeakPreviewParams) error {
 	case "sapi5":
 		return s.previewSAPI5(text, p.VoiceID, rate, volume)
 	default:
-		return s.previewLLM(p.ProviderID, text, p.VoiceID, p.Model, rate, p.SessionID)
+		return s.previewLLM(p.ProviderID, text, p.VoiceID, p.Model, p.Language, rate, p.SessionID)
 	}
 }
 
@@ -473,17 +461,15 @@ func (s *Service) previewSAPI5(text, voiceID string, rate, volume float64) error
 	return manager.Speak(text, voiceID)
 }
 
-func (s *Service) previewLLM(providerID, text, voiceID, model string, rate float64, sessionID string) error {
-	client := s.CreateTTSClient(providerID, model)
-	if client == nil {
-		if fallback := s.FindOpenAILikeProvider(); fallback != nil {
-			client = s.CreateTTSClient(fallback.ID, model)
-		}
+func (s *Service) previewLLM(providerID, text, voiceID, model, language string, rate float64, sessionID string) error {
+	if err := validateTTSSelection(model, voiceID, ""); err != nil {
+		return err
 	}
+	client := s.CreateTTSClientWithLanguage(providerID, model, language)
 	if client == nil {
 		s.emitter.Emit(EventTTSStreamError, TTSStreamEvent{
 			SessionID: sessionID,
-			Error:     "nenhum provedor OpenAI com credenciais encontrado",
+			Error:     fmt.Sprintf("provider TTS %q não encontrado", providerID),
 		})
 		return fmt.Errorf("no TTS provider available for %s", providerID)
 	}
@@ -523,13 +509,13 @@ func (s *Service) previewLLM(providerID, text, voiceID, model string, rate float
 		ctx, cancel := context.WithTimeout(context.Background(), CalcTTSTimeout(len(text)))
 		defer cancel()
 
-		voice := TTSVoice(voiceID)
-		if IsDynamicTTSModel(voiceID) {
-			client.SetModel(TTSModel(voiceID))
-			voice = TTSVoice(voiceID)
+		var err error
+		if voiceID == "" {
+			err = client.SynthesizeStream(ctx, text, callbacks)
+		} else {
+			err = client.SynthesizeStreamWithVoice(ctx, text, TTSVoice(voiceID), callbacks)
 		}
-
-		if err := client.SynthesizeStreamWithVoice(ctx, text, voice, callbacks); err != nil {
+		if err != nil {
 			s.emitter.Emit(EventTTSStreamError, TTSStreamEvent{
 				SessionID: sessionID,
 				Error:     err.Error(),

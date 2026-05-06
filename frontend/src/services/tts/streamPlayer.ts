@@ -81,6 +81,11 @@ export class TTSStreamPlayer {
     this.callbacks = callbacks;
     this.state = 'buffering';
     this.firstChunkLogged = false;
+    if (this.useFallback) {
+      this.fallbackChunks = [];
+    } else {
+      this.setupMediaSource();
+    }
     
     // Registra listeners de eventos Wails
     this.unsubscribeStart = EventsOn(TTS_STREAM_START, (event: TTSStreamEvent) => {
@@ -114,7 +119,7 @@ export class TTSStreamPlayer {
   private handleStart(): void {
     if (this.useFallback) {
       this.fallbackChunks = [];
-    } else {
+    } else if (!this.mediaSource) {
       this.setupMediaSource();
     }
   }
@@ -221,6 +226,12 @@ export class TTSStreamPlayer {
       
       this.state = 'error';
       this.callbacks.onError?.(new Error('Audio playback error'));
+    });
+
+    // Must be initiated while still in the click handler call stack; otherwise
+    // WebView/browser autoplay policy can reject playback when chunks arrive.
+    this.audioElement.play().catch(() => {
+      // tryStartPlayback retries after the first buffered chunk.
     });
   }
 

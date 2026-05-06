@@ -133,6 +133,11 @@ export interface TTSProviderParams {
   rate: number;
 }
 
+function canUseBackendTTS(provider?: TTSProviderParams): boolean {
+  const providerId = provider?.providerId ?? '';
+  return providerId !== '' && providerId !== 'webspeech' && !providerId.startsWith('ref_');
+}
+
 /**
  * Reproduz o áudio de uma mensagem usando cache hierárquico:
  *   1. Memória (Blob) → replay instantâneo
@@ -147,14 +152,17 @@ async function speakMessage(messageId: string, volume: number = 1.0, provider?: 
     await playAudioBlob(cached, volume, messageId);
     return true;
   }
+  if (!canUseBackendTTS(provider)) {
+    return false;
+  }
 
   // 2. Backend (DB cache ou TTS) → armazena em memória
   try {
     const result = await SpeakMessage(
       messageId,
       provider?.providerId ?? '',
-      provider?.voiceId ?? '',
       provider?.model ?? '',
+      provider?.voiceId ?? '',
       provider?.rate ?? 1.0,
     );
     if (result && result.audio && result.audio.length > 0) {
@@ -178,13 +186,16 @@ async function getMessageAudioBlob(messageId: string, provider?: TTSProviderPara
   // Checa memória primeiro
   const cached = memoryCacheGet(messageId);
   if (cached) return cached;
+  if (!canUseBackendTTS(provider)) {
+    return null;
+  }
 
   try {
     const result = await SpeakMessage(
       messageId,
       provider?.providerId ?? '',
-      provider?.voiceId ?? '',
       provider?.model ?? '',
+      provider?.voiceId ?? '',
       provider?.rate ?? 1.0,
     );
     if (result && result.audio && result.audio.length > 0) {

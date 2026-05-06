@@ -458,6 +458,10 @@ export function GetSpeechProviders() {
   return window['go']['app']['App']['GetSpeechProviders']();
 }
 
+export function GetTTSModels(arg1) {
+  return window['go']['app']['App']['GetTTSModels'](arg1);
+}
+
 export function GetTTSVoices(arg1, arg2) {
   return window['go']['app']['App']['GetTTSVoices'](arg1, arg2);
 }
@@ -694,8 +698,8 @@ export function NeedsWelcomeWizard() {
   return window['go']['app']['App']['NeedsWelcomeWizard']();
 }
 
-export function PreviewVoiceSettings(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['app']['App']['PreviewVoiceSettings'](arg1, arg2, arg3, arg4, arg5, arg6);
+export function SpeakPreview(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['app']['App']['SpeakPreview'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
 export function PromoteTask(arg1) {
