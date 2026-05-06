@@ -462,6 +462,32 @@ func TestGetMessageWindow_AroundRebalancesAtEnd(t *testing.T) {
 	}
 }
 
+func TestComputeMessageWindowHasAfter(t *testing.T) {
+	cases := []struct {
+		name       string
+		total      int
+		startIndex int
+		endIndex   int
+		itemCount  int
+		want       bool
+	}{
+		{name: "empty total", total: 0, startIndex: 0, endIndex: -1, itemCount: 0, want: false},
+		{name: "empty window before remaining items", total: 5, startIndex: 3, endIndex: -1, itemCount: 0, want: true},
+		{name: "empty window at end", total: 5, startIndex: 5, endIndex: -1, itemCount: 0, want: false},
+		{name: "non-empty window before tail", total: 5, startIndex: 1, endIndex: 3, itemCount: 3, want: true},
+		{name: "non-empty window at tail", total: 5, startIndex: 3, endIndex: 4, itemCount: 2, want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := computeMessageWindowHasAfter(tc.total, tc.startIndex, tc.endIndex, tc.itemCount)
+			if got != tc.want {
+				t.Fatalf("computeMessageWindowHasAfter() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
 	setupOrderingTestDB(t)
 	conv, err := CreateConversation("timeline-items", "")

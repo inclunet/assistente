@@ -662,10 +662,14 @@ type MessageWindowItem struct {
 }
 
 const (
+	// MaxMessageWindowRows limita cada janela canônica de timeline para manter
+	// consultas e renderização previsíveis em conversas longas. Ver AEP-0059.
 	MaxMessageWindowRows = 240
 
+	// MessageWindowItemKindMessage identifica uma mensagem raiz navegável sem consolidação.
 	MessageWindowItemKindMessage = "message"
-	MessageWindowItemKindTurn    = "turn"
+	// MessageWindowItemKindTurn identifica um turno consolidado por turn_id.
+	MessageWindowItemKindTurn = "turn"
 
 	messageWindowAnchorStart = "start"
 	messageWindowAnchorEnd   = "end"
@@ -683,6 +687,16 @@ func normalizeMessageWindowLimit(limit int) int {
 		return MaxMessageWindowRows
 	}
 	return limit
+}
+
+func computeMessageWindowHasAfter(total int, startIndex int, endIndex int, itemCount int) bool {
+	if total <= 0 {
+		return false
+	}
+	if itemCount == 0 {
+		return startIndex < total
+	}
+	return endIndex < total-1
 }
 
 func normalizeMessageWindowCursor(query MessageWindowQuery) (anchor string, direction string, err error) {
@@ -1000,7 +1014,7 @@ func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
 		StartIndex: startIndex,
 		EndIndex:   endIndex,
 		HasBefore:  startIndex > 0,
-		HasAfter:   (endIndex >= 0 && endIndex < total-1) || (len(items) == 0 && startIndex < total),
+		HasAfter:   computeMessageWindowHasAfter(total, startIndex, endIndex, len(items)),
 	}, nil
 }
 
