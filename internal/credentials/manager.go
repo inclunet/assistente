@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"assistente/internal/database"
 )
 
 // AuthConfig descreve como autenticar em um domínio
@@ -194,11 +196,22 @@ func (m *Manager) ListPatterns() []string {
 // ListCredentials retorna credenciais descriptografadas sem resolver referências externas.
 // Refs como keyring://... e env://... ficam visíveis para exibição na UI.
 func (m *Manager) ListCredentials() ([]StoredCredential, error) {
+	return m.ListCredentialsWithContext(context.Background())
+}
+
+func (m *Manager) ListCredentialsWithContext(ctx context.Context) ([]StoredCredential, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	result := make([]StoredCredential, 0, len(m.credentials))
+	userID := ""
+	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
+		userID = scopedUser
+	}
 	for _, dc := range m.credentials {
+		if userID != "" && dc.UserID != userID {
+			continue
+		}
 		auth, err := m.decryptAuthRaw(dc.Auth)
 		if err != nil {
 			return nil, err

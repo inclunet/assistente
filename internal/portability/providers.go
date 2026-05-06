@@ -1,6 +1,7 @@
 package portability
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,19 +28,19 @@ func exportProvider(provider *database.LLMProvider) ProviderExport {
 	}
 }
 
-func importProvider(provider ProviderExport) (bool, error) {
+func importProvider(ctx context.Context, provider ProviderExport) (bool, error) {
 	normalized, err := validateProviderExport(provider)
 	if err != nil {
 		return false, err
 	}
-	if existing, err := findExistingProviderByID(normalized.ID); err != nil {
+	if existing, err := findExistingProviderByID(ctx, normalized.ID); err != nil {
 		return false, err
 	} else if existing != nil {
-		return overwriteProvider(normalized)
+		return overwriteProvider(ctx, normalized)
 	}
 
-	err = database.DB().Transaction(func(tx *gorm.DB) error {
-		return persistProvider(tx, normalized, nil)
+	err = database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return persistProvider(ctx, tx, normalized, nil)
 	})
 	if err != nil {
 		return false, err
@@ -48,22 +49,22 @@ func importProvider(provider ProviderExport) (bool, error) {
 	return true, nil
 }
 
-func overwriteProvider(provider ProviderExport) (bool, error) {
+func overwriteProvider(ctx context.Context, provider ProviderExport) (bool, error) {
 	normalized, err := validateProviderExport(provider)
 	if err != nil {
 		return false, err
 	}
 
-	existing, err := findExistingProviderByID(normalized.ID)
+	existing, err := findExistingProviderByID(ctx, normalized.ID)
 	if err != nil {
 		return false, err
 	}
 	if existing == nil {
-		return importProvider(normalized)
+		return importProvider(ctx, normalized)
 	}
 
-	err = database.DB().Transaction(func(tx *gorm.DB) error {
-		return persistProvider(tx, normalized, existing)
+	err = database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return persistProvider(ctx, tx, normalized, existing)
 	})
 	if err != nil {
 		return false, err
@@ -72,7 +73,7 @@ func overwriteProvider(provider ProviderExport) (bool, error) {
 	return true, nil
 }
 
-func persistProvider(tx *gorm.DB, provider ProviderExport, existing *database.LLMProvider) error {
+func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, existing *database.LLMProvider) error {
 	createdAt := provider.CreatedAt
 	if createdAt.IsZero() {
 		if existing != nil && !existing.CreatedAt.IsZero() {
@@ -87,7 +88,7 @@ func persistProvider(tx *gorm.DB, provider ProviderExport, existing *database.LL
 	}
 
 	if provider.IsDefault {
-		if err := tx.Model(&database.LLMProvider{}).
+		if err := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").
 			Where("is_default = ? AND id <> ?", true, strings.TrimSpace(provider.ID)).
 			Update("is_default", false).Error; err != nil {
 			return err
@@ -108,6 +109,9 @@ func persistProvider(tx *gorm.DB, provider ProviderExport, existing *database.LL
 			CredentialPattern: provider.CredentialPattern,
 			CreatedAt:         createdAt,
 			UpdatedAt:         updatedAt,
+		}
+		if userID, ok := database.UserIDFromContext(ctx); ok {
+			model.UserID = userID
 		}
 		return tx.Create(&model).Error
 	}
@@ -152,9 +156,9 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	return normalized, nil
 }
 
-func findExistingProviderByID(providerID string) (*database.LLMProvider, error) {
+func findExistingProviderByID(ctx context.Context, providerID string) (*database.LLMProvider, error) {
 	var provider database.LLMProvider
-	err := database.DB().Where("id = ?", strings.TrimSpace(providerID)).First(&provider).Error
+	err := database.ScopeByUser(ctx, database.DB(), "user_id").Where("id = ?", strings.TrimSpace(providerID)).First(&provider).Error
 	if err == nil {
 		return &provider, nil
 	}

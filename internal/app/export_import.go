@@ -25,7 +25,7 @@ type ImportResolution = portability.ImportResolution
 // ==================== Export Functions ====================
 
 func (a *App) ExportConversations(ids []string) (string, error) {
-	return portability.ExportConversations(ids, a.credMgr, portability.ExportRequest{
+	return portability.ExportConversationsWithContext(a.importExportContext(), ids, a.credMgr, portability.ExportRequest{
 		OutputFormat: portability.FormatJSON,
 	}, AppVersion)
 }
@@ -38,21 +38,22 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 		return "", err
 	}
 
-	conversationIDs, err := resolveConversationIDs(req)
+	ctx := a.importExportContext()
+	conversationIDs, err := resolveConversationIDs(ctx, req)
 	if err != nil {
 		return "", err
 	}
-	providerIDs, err := resolveProviderIDs(req)
+	providerIDs, err := resolveProviderIDs(ctx, req)
 	if err != nil {
 		return "", err
 	}
-	taskListIDs, err := resolveTaskListIDs(req)
+	taskListIDs, err := resolveTaskListIDs(ctx, req)
 	if err != nil {
 		return "", err
 	}
 	switch req.OutputFormat {
 	case portability.FormatJSON:
-		return portability.ExportPortableData(conversationIDs, providerIDs, taskListIDs, a.credMgr, req, AppVersion)
+		return portability.ExportPortableDataWithContext(ctx, conversationIDs, providerIDs, taskListIDs, a.credMgr, req, AppVersion)
 	case portability.FormatHTML:
 		if len(taskListIDs) > 0 || len(providerIDs) > 0 {
 			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
@@ -61,7 +62,7 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		file, err := portability.BuildConversationExportFile(conversationIDs, a.credMgr, req, AppVersion)
+		file, err := portability.BuildConversationExportFileWithContext(ctx, conversationIDs, a.credMgr, req, AppVersion)
 		if err != nil {
 			return "", err
 		}
@@ -113,7 +114,7 @@ func (a *App) ExportConversationsToFile(ids []string, format string) (string, er
 		return "", fmt.Errorf("formato de exportação não suportado: %s", format)
 	}
 
-	file, err := portability.BuildConversationExportFile(ids, a.credMgr, req, AppVersion)
+	file, err := portability.BuildConversationExportFileWithContext(a.importExportContext(), ids, a.credMgr, req, AppVersion)
 	if err != nil {
 		return "", err
 	}
@@ -165,15 +166,16 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 		}
 		return path, nil
 	case portability.FormatHTML, portability.FormatPDF:
-		conversationIDs, err := resolveConversationIDs(req)
+		ctx := a.importExportContext()
+		conversationIDs, err := resolveConversationIDs(ctx, req)
 		if err != nil {
 			return "", err
 		}
-		providerIDs, err := resolveProviderIDs(req)
+		providerIDs, err := resolveProviderIDs(ctx, req)
 		if err != nil {
 			return "", err
 		}
-		taskListIDs, err := resolveTaskListIDs(req)
+		taskListIDs, err := resolveTaskListIDs(ctx, req)
 		if err != nil {
 			return "", err
 		}
@@ -249,9 +251,9 @@ func validateDBOnlyExportRequest(req ExportRequest) error {
 	)
 }
 
-func resolveConversationIDs(req ExportRequest) ([]string, error) {
+func resolveConversationIDs(ctx context.Context, req ExportRequest) ([]string, error) {
 	if req.All {
-		conversations, err := database.GetConversations()
+		conversations, err := database.GetConversationsWithContext(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -269,7 +271,7 @@ func resolveConversationIDs(req ExportRequest) ([]string, error) {
 		if len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0 {
 			return nil, nil
 		}
-		conversations, err := database.GetConversations()
+		conversations, err := database.GetConversationsWithContext(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -291,9 +293,9 @@ func resolveConversationIDs(req ExportRequest) ([]string, error) {
 	return ids, nil
 }
 
-func resolveProviderIDs(req ExportRequest) ([]string, error) {
+func resolveProviderIDs(ctx context.Context, req ExportRequest) ([]string, error) {
 	if req.All {
-		providers, err := database.GetLLMProviders()
+		providers, err := database.GetLLMProvidersWithContext(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -319,9 +321,9 @@ func resolveProviderIDs(req ExportRequest) ([]string, error) {
 	return ids, nil
 }
 
-func resolveTaskListIDs(req ExportRequest) ([]string, error) {
+func resolveTaskListIDs(ctx context.Context, req ExportRequest) ([]string, error) {
 	if req.All {
-		taskLists, err := database.GetAllTaskLists()
+		taskLists, err := database.GetAllTaskListsWithContext(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -353,8 +355,8 @@ func defaultConversationExportFilename(format string) string {
 }
 
 func (a *App) importExportContext() context.Context {
-	if a != nil && a.ctx != nil {
-		return a.ctx
+	if a != nil {
+		return a.authenticatedContext()
 	}
 	return context.Background()
 }

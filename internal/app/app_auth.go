@@ -129,21 +129,36 @@ func (a *App) Login(req LoginRequest) (*auth.TokenPair, error) {
 	if err != nil {
 		return nil, err
 	}
-	return a.sessionSvc.IssueSession(context.Background(), user, req.ClientLabel)
+	pair, err := a.sessionSvc.IssueSession(context.Background(), user, req.ClientLabel)
+	if err != nil {
+		return nil, err
+	}
+	a.setCurrentUserID(user.ID)
+	return pair, nil
 }
 
 func (a *App) RefreshAuth(req RefreshRequest) (*auth.TokenPair, error) {
 	if err := a.ensureAuthServices(); err != nil {
 		return nil, err
 	}
-	return a.sessionSvc.Refresh(context.Background(), req.RefreshToken)
+	pair, err := a.sessionSvc.Refresh(context.Background(), req.RefreshToken)
+	if err != nil {
+		return nil, err
+	}
+	claims, err := a.sessionSvc.VerifyAccessToken(pair.AccessToken)
+	if err == nil {
+		a.setCurrentUserID(claims.Subject)
+	}
+	return pair, nil
 }
 
 func (a *App) Logout(req LogoutRequest) error {
 	if err := a.ensureAuthServices(); err != nil {
 		return err
 	}
-	return a.sessionSvc.Logout(context.Background(), req.RefreshToken)
+	err := a.sessionSvc.Logout(context.Background(), req.RefreshToken)
+	a.setCurrentUserID("")
+	return err
 }
 
 func (a *App) GetAuthUser(accessToken string) (*AuthUser, error) {
@@ -159,6 +174,25 @@ func (a *App) GetAuthUser(accessToken string) (*AuthUser, error) {
 		SessionID: claims.SessionID,
 		Role:      claims.Role,
 	}, nil
+}
+
+func (a *App) setCurrentUserID(userID string) {
+	a.authMu.Lock()
+	defer a.authMu.Unlock()
+	a.currentUserID = strings.TrimSpace(userID)
+}
+
+func (a *App) authenticatedContext() context.Context {
+	ctx := context.Background()
+	if a != nil && a.ctx != nil {
+		ctx = a.ctx
+	}
+	a.authMu.RLock()
+	defer a.authMu.RUnlock()
+	if a.currentUserID == "" {
+		return ctx
+	}
+	return database.WithUserID(ctx, a.currentUserID)
 }
 
 func (a *App) ensureAuthServices() error {

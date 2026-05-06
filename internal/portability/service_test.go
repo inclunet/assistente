@@ -433,7 +433,7 @@ func TestImportConversationRestoresCreatedAt(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	createdAt := time.Date(2024, 12, 31, 23, 59, 59, 0, time.UTC)
-	imported, err := importConversation(ConversationExport{
+	imported, err := importConversation(context.Background(), ConversationExport{
 		ID:        "01926b90-0000-7000-8000-000000000101",
 		Title:     "Conversa antiga",
 		CreatedAt: createdAt,
@@ -474,7 +474,7 @@ func TestImportConversationRestoresCreatedAt(t *testing.T) {
 func TestImportConversationRollsBackOnInvalidMessageReference(t *testing.T) {
 	setupPortabilityTestDB(t)
 
-	_, err := importConversation(ConversationExport{
+	_, err := importConversation(context.Background(), ConversationExport{
 		ID:        "01926b90-0000-7000-8000-000000000111",
 		Title:     "Conversa inválida",
 		CreatedAt: time.Now().UTC(),

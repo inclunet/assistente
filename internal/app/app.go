@@ -61,11 +61,13 @@ type App struct {
 	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
 
-	credMgr     *credentials.Manager
-	credStore   credentials.Store
-	vaultSvc    *auth.VaultService
-	identitySvc *auth.IdentityService
-	sessionSvc  *auth.SessionService
+	credMgr       *credentials.Manager
+	credStore     credentials.Store
+	vaultSvc      *auth.VaultService
+	identitySvc   *auth.IdentityService
+	sessionSvc    *auth.SessionService
+	authMu        sync.RWMutex
+	currentUserID string
 
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu    sync.Mutex
