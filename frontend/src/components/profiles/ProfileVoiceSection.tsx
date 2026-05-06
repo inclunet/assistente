@@ -102,6 +102,16 @@ export function ProfileVoiceSection({
   const effectiveSelectionMode = currentModel?.selectionMode || selectionMode || inferSelectionModeFromModel(ttsModel) || 'model_and_voice';
   const isModelOnly = isHTTPProvider && effectiveSelectionMode === 'model_only';
 
+  useEffect(() => {
+    if (!isHTTPProvider || !ttsModel) return;
+    if (selectionMode !== effectiveSelectionMode) {
+      onChange('selectionMode', effectiveSelectionMode);
+    }
+    if (effectiveSelectionMode === 'model_only' && voice) {
+      onChange('voice', '');
+    }
+  }, [effectiveSelectionMode, isHTTPProvider, onChange, selectionMode, ttsModel, voice]);
+
   // Para provedores com vozes estáticas (OpenAI): converte para TTSVoice[] e passa como override.
   const overrideVoices: TTSVoice[] | undefined = useMemo(() => {
     if (ttsCapabilities.staticVoices.length === 0 || isModelOnly) return undefined;
