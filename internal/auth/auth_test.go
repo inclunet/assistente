@@ -287,36 +287,6 @@ func TestVaultSetupAdoptsExistingKeyringDEK(t *testing.T) {
 	}
 }
 
-func TestVaultStatusRejectsInvalidKeyringDEK(t *testing.T) {
-	store := newMemoryCredentialStore()
-	wrap, err := credentials.WrapDEK("master-password", []byte("01234567890123456789012345678901"), credentials.KeyWrapKindMaster)
-	if err != nil {
-		t.Fatalf("wrap DEK: %v", err)
-	}
-	if err := store.SaveKeyWrap(context.Background(), *wrap); err != nil {
-		t.Fatalf("save key wrap: %v", err)
-	}
-
-	vault := NewVaultService(store, nil)
-	vault.loadKeyring = func() ([]byte, error) {
-		return []byte("wrong-wrong-wrong-wrong-wrong-123"), nil
-	}
-	vault.SetDEKValidator(func([]byte) error {
-		return errors.New("credenciais persistidas não validam com esta DEK")
-	})
-
-	status, err := vault.Status(context.Background())
-	if err != nil {
-		t.Fatalf("Status() error = %v", err)
-	}
-	if !status.Configured {
-		t.Fatal("expected vault configured")
-	}
-	if status.Unlocked {
-		t.Fatal("stale keyring DEK must not mark vault as unlocked")
-	}
-}
-
 type memoryCredentialStore struct {
 	wraps map[string]credentials.KeyWrap
 }

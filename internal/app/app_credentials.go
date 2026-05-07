@@ -47,10 +47,6 @@ func (a *App) initCredentialManager() {
 			}
 			persist = false
 			dek = nil
-		} else if err := a.validateCredentialDEK(dek); err != nil {
-			log.Printf("[Credentials] DEK do keychain não valida credenciais persistidas: %v", err)
-			persist = false
-			dek = nil
 		}
 	}()
 
@@ -61,27 +57,15 @@ func (a *App) initCredentialManager() {
 	a.registerEnvCredentials(a.authenticatedContext(), a.credMgr)
 }
 
-func (a *App) validateCredentialDEK(dek []byte) error {
-	if len(dek) == 0 {
-		return nil
-	}
-	if a.credStore == nil {
-		return nil
-	}
-	mgr := credentials.NewManagerWithStore(dek, a.credStore, true)
-	if err := mgr.LoadFromStore(context.Background()); err != nil {
-		return err
-	}
-	_, err := mgr.ListCredentialsWithContext(context.Background())
-	return err
-}
-
 // migrateLegacyConfig detecta config.json com campos legados e migra para novo sistema
 // Migração:
 // 1. Se APIKey existir → registra como credencial no credentials.Manager
 // 2. Se APIKey existir → garante que provider default está usando as credenciais
 // 3. Limpa campos legados do config.json
 func (a *App) migrateLegacyConfig() {
+	if a.settingsSvc == nil {
+		return
+	}
 	cfg, err := a.settingsSvc.GetConfig()
 	if err != nil {
 		// Sem config, sem migração necessária

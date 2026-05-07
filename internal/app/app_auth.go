@@ -49,7 +49,6 @@ func (a *App) initAuthServices() {
 		a.configureCredentialManager(dek, true)
 		a.configureSessionService()
 	})
-	a.vaultSvc.SetDEKValidator(a.validateCredentialDEK)
 }
 
 func (a *App) configureSessionService() {
@@ -131,6 +130,9 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 }
 
 func (a *App) Login(req LoginRequest) (*AuthUser, error) {
+	a.authSessionMu.Lock()
+	defer a.authSessionMu.Unlock()
+
 	if err := a.ensureAuthServices(); err != nil {
 		return nil, err
 	}
@@ -160,20 +162,22 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 }
 
 func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
+	a.authSessionMu.Lock()
+	defer a.authSessionMu.Unlock()
+
 	if err := a.ensureAuthServices(); err != nil {
 		return nil, err
 	}
-	refreshToken := strings.TrimSpace(req.RefreshToken)
+
+	refreshToken, ok, err := a.loadAuthRefreshToken()
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		refreshToken = strings.TrimSpace(req.RefreshToken)
+	}
 	if refreshToken == "" {
-		var ok bool
-		var err error
-		refreshToken, ok, err = a.loadAuthRefreshToken()
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, auth.ErrInvalidRefreshToken
-		}
+		return nil, auth.ErrInvalidRefreshToken
 	}
 	pair, err := a.sessionSvc.Refresh(context.Background(), refreshToken)
 	if err != nil {
@@ -196,6 +200,9 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 }
 
 func (a *App) Logout(req LogoutRequest) error {
+	a.authSessionMu.Lock()
+	defer a.authSessionMu.Unlock()
+
 	if err := a.ensureAuthServices(); err != nil {
 		return err
 	}
@@ -228,7 +235,7 @@ func (a *App) loadAuthRefreshToken() (string, bool, error) {
 			return token, true, nil
 		}
 	}
-	token, err := credentials.LoadAuthRefreshTokenFromKeychain()
+	token, err := a.loadAuthRefreshTokenFromKeychain()
 	if err != nil {
 		if credentials.IsKeychainNotFound(err) {
 			return "", false, nil
@@ -254,7 +261,7 @@ func (a *App) storeAuthRefreshToken(refreshToken string) error {
 			return err
 		}
 	}
-	_ = credentials.SaveAuthRefreshTokenToKeychain(refreshToken)
+	_ = a.saveAuthRefreshTokenToKeychain(refreshToken)
 	return nil
 }
 
@@ -263,11 +270,32 @@ func (a *App) clearAuthRefreshToken() error {
 	if a.credMgr != nil {
 		err = a.credMgr.DeleteInstanceSecret(credentials.InstanceSecretAuthRefreshToken)
 	}
-	keyringErr := credentials.DeleteAuthRefreshTokenFromKeychain()
+	keyringErr := a.deleteAuthRefreshTokenFromKeychain()
 	if keyringErr != nil && !credentials.IsKeychainNotFound(keyringErr) && err == nil {
 		err = keyringErr
 	}
 	return err
+}
+
+func (a *App) loadAuthRefreshTokenFromKeychain() (string, error) {
+	if a != nil && a.authKeyringLoad != nil {
+		return a.authKeyringLoad()
+	}
+	return credentials.LoadAuthRefreshTokenFromKeychain()
+}
+
+func (a *App) saveAuthRefreshTokenToKeychain(refreshToken string) error {
+	if a != nil && a.authKeyringSave != nil {
+		return a.authKeyringSave(refreshToken)
+	}
+	return credentials.SaveAuthRefreshTokenToKeychain(refreshToken)
+}
+
+func (a *App) deleteAuthRefreshTokenFromKeychain() error {
+	if a != nil && a.authKeyringDelete != nil {
+		return a.authKeyringDelete()
+	}
+	return credentials.DeleteAuthRefreshTokenFromKeychain()
 }
 
 func (a *App) GetAuthUser() (*AuthUser, error) {
@@ -329,8 +357,12 @@ func (a *App) reloadUserScopedRuntime() {
 	}
 	a.registerEnvCredentials(a.authenticatedContext(), a.credMgr)
 	a.migrateLegacyConfig()
-	a.initLLMProviders()
-	a.initLLMClient()
+	if a.providerSvc != nil {
+		a.initLLMProviders()
+	}
+	if a.profileManager != nil && a.llmRegistry != nil {
+		a.initLLMClient()
+	}
 }
 
 func (a *App) ensureAuthServices() error {

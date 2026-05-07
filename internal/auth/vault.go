@@ -12,7 +12,6 @@ type VaultService struct {
 	onUnlocked  func(dek []byte)
 	loadKeyring func() ([]byte, error)
 	saveKeyring func([]byte) error
-	validateDEK func([]byte) error
 }
 
 type VaultStatus struct {
@@ -29,13 +28,6 @@ func NewVaultService(store credentials.Store, onUnlocked func(dek []byte)) *Vaul
 	}
 }
 
-func (s *VaultService) SetDEKValidator(validate func([]byte) error) {
-	if s == nil {
-		return
-	}
-	s.validateDEK = validate
-}
-
 func (s *VaultService) Status(ctx context.Context) (VaultStatus, error) {
 	if s == nil || s.store == nil {
 		return VaultStatus{}, credentials.ErrStoreNotReady
@@ -47,13 +39,8 @@ func (s *VaultService) Status(ctx context.Context) (VaultStatus, error) {
 
 	unlocked := false
 	if configured && s.loadKeyring != nil {
-		if dek, err := s.loadKeyring(); err == nil {
-			if s.validateDEK != nil {
-				err = s.validateDEK(dek)
-			}
-			if err == nil {
-				unlocked = true
-			}
+		if _, err := s.loadKeyring(); err == nil {
+			unlocked = true
 		}
 	}
 	return VaultStatus{Configured: configured, Unlocked: unlocked}, nil

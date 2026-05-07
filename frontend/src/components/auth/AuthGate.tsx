@@ -76,7 +76,7 @@ export function AuthGate({ children }: AuthGateProps) {
           </div>
         )}
 
-        {(status?.hasUsers || status?.vaultUnlocked) && (
+        {status?.vaultUnlocked && (
           <label style={styles.label}>
             Usuário
             <input
