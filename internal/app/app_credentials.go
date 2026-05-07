@@ -47,6 +47,10 @@ func (a *App) initCredentialManager() {
 			}
 			persist = false
 			dek = nil
+		} else if err := a.validateCredentialDEK(dek); err != nil {
+			log.Printf("[Credentials] DEK do keychain não valida credenciais persistidas: %v", err)
+			persist = false
+			dek = nil
 		}
 	}()
 
@@ -55,6 +59,21 @@ func (a *App) initCredentialManager() {
 		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
 	}
 	a.registerEnvCredentials(a.authenticatedContext(), a.credMgr)
+}
+
+func (a *App) validateCredentialDEK(dek []byte) error {
+	if len(dek) == 0 {
+		return nil
+	}
+	if a.credStore == nil {
+		return nil
+	}
+	mgr := credentials.NewManagerWithStore(dek, a.credStore, true)
+	if err := mgr.LoadFromStore(context.Background()); err != nil {
+		return err
+	}
+	_, err := mgr.ListCredentialsWithContext(context.Background())
+	return err
 }
 
 // migrateLegacyConfig detecta config.json com campos legados e migra para novo sistema

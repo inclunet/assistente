@@ -49,6 +49,7 @@ func (a *App) initAuthServices() {
 		a.configureCredentialManager(dek, true)
 		a.configureSessionService()
 	})
+	a.vaultSvc.SetDEKValidator(a.validateCredentialDEK)
 }
 
 func (a *App) configureSessionService() {
