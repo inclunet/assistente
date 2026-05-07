@@ -873,6 +873,81 @@ func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
 	}
 }
 
+func TestLoadConfigsImportsRequestInitBearerAuth(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+
+	data := []byte(`{
+		"url": "https://api.githubcopilot.com/mcp/",
+		"requestInit": {
+			"headers": {
+				"Authorization": "Bearer ghp_test_token"
+			}
+		}
+	}`)
+	if err := m.resolver.Write("github.json", data); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatalf("LoadConfigs failed: %v", err)
+	}
+
+	m.mu.RLock()
+	cfg := m.servers["github"].Config
+	m.mu.RUnlock()
+	if cfg.AuthType != AuthBearer {
+		t.Fatalf("auth type: got %q, want %q", cfg.AuthType, AuthBearer)
+	}
+
+	auth, err := m.credMgr.GetByPattern("api.githubcopilot.com")
+	if err != nil {
+		t.Fatalf("GetByPattern failed: %v", err)
+	}
+	if auth == nil || auth.Token != "ghp_test_token" {
+		t.Fatalf("imported token: got %#v, want ghp_test_token", auth)
+	}
+}
+
+func TestImportFromMCPJSONImportsRequestInitBearerAuth(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+
+	mcpJSON := []byte(`{
+		"mcpServers": {
+			"github": {
+				"url": "https://api.githubcopilot.com/mcp/",
+				"requestInit": {
+					"headers": {
+						"Authorization": "Bearer ghp_imported"
+					}
+				}
+			}
+		}
+	}`)
+
+	count, err := m.ImportFromMCPJSON(mcpJSON)
+	if err != nil {
+		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("import count: got %d, want 1", count)
+	}
+
+	m.mu.RLock()
+	cfg := m.servers["github"].Config
+	m.mu.RUnlock()
+	if cfg.AuthType != AuthBearer {
+		t.Fatalf("auth type: got %q, want %q", cfg.AuthType, AuthBearer)
+	}
+
+	auth, err := m.credMgr.GetByPattern("api.githubcopilot.com")
+	if err != nil {
+		t.Fatalf("GetByPattern failed: %v", err)
+	}
+	if auth == nil || auth.Token != "ghp_imported" {
+		t.Fatalf("imported token: got %#v, want ghp_imported", auth)
+	}
+}
+
 func TestImportFromMCPJSON_SkipsExisting(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
 	m.servers["existing-server"] = &ServerStatus{
@@ -922,6 +997,42 @@ func TestImportFromMCPJSON_InvalidJSON(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}
+}
+
+func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
+	var gotAuth string
+	rt := &bearerRoundTripper{
+		base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotAuth = req.Header.Get("Authorization")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       http.NoBody,
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}),
+		token: "Bearer already-prefixed",
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if gotAuth != "Bearer already-prefixed" {
+		t.Fatalf("Authorization header: got %q, want %q", gotAuth, "Bearer already-prefixed")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
 func TestIsNativeMCPEligibleURL(t *testing.T) {

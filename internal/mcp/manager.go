@@ -185,6 +185,7 @@ func (m *Manager) LoadConfigs() error {
 			log.Printf("[MCP] Erro ao parsear %s: %v", f.Filename, err)
 			continue
 		}
+		m.applyInlineAuthFromConfig(slug, &cfg, data)
 		m.mu.Lock()
 		m.servers[slug] = &ServerStatus{
 			Slug:   slug,
@@ -952,7 +953,7 @@ type bearerRoundTripper struct {
 
 func (rt *bearerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned := req.Clone(req.Context())
-	cloned.Header.Set("Authorization", "Bearer "+rt.token)
+	cloned.Header.Set("Authorization", bearerAuthorizationHeader(rt.token))
 	return rt.base.RoundTrip(cloned)
 }
 
@@ -1582,10 +1583,14 @@ func (m *Manager) HandleSamplingRequest(ctx context.Context, slug string, reques
 // Skips servers that already exist (won't overwrite).
 func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 	type mcpEntry struct {
-		Command string            `json:"command"`
-		Args    []string          `json:"args"`
-		Env     map[string]string `json:"env"`
-		URL     string            `json:"url"`
+		Command     string            `json:"command"`
+		Args        []string          `json:"args"`
+		Env         map[string]string `json:"env"`
+		URL         string            `json:"url"`
+		Headers     map[string]string `json:"headers"`
+		RequestInit struct {
+			Headers map[string]string `json:"headers"`
+		} `json:"requestInit"`
 	}
 
 	// Try Cursor/Claude format: {"mcpServers": {...}}
@@ -1630,6 +1635,13 @@ func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 			AutoConnect: true,
 		}
 		cfg.applyDefaults(slug)
+		if token := extractBearerTokenFromHeaders(entry.RequestInit.Headers); token != "" {
+			cfg.AuthType = AuthBearer
+			m.importBearerCredential(slug, cfg.URL, token)
+		} else if token := extractBearerTokenFromHeaders(entry.Headers); token != "" {
+			cfg.AuthType = AuthBearer
+			m.importBearerCredential(slug, cfg.URL, token)
+		}
 
 		cfgData, err := json.MarshalIndent(cfg, "", "  ")
 		if err != nil {
