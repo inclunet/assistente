@@ -9,17 +9,17 @@ import (
 // SendMessage é o binding Wails para envio de mensagens. Source padrão: "wails".
 // A bridge canal↔Wails é gerenciada internamente pelo ChatController.
 func (a *App) SendMessage(conversationID string, userContent string, userMedia string, params ChatParams) (string, error) {
-	return a.chatCtrl.SendMessage(a.ctx, conversationID, userContent, userMedia, params)
+	return a.chatCtrl.SendMessage(a.authenticatedContext(), conversationID, userContent, userMedia, params)
 }
 
 // RetryMessage reexecuta a resposta a partir de uma mensagem do usuário já persistida.
 func (a *App) RetryMessage(conversationID string, messageID string, params ChatParams) (string, error) {
-	return a.chatCtrl.RetryMessage(a.ctx, conversationID, messageID, params)
+	return a.chatCtrl.RetryMessage(a.authenticatedContext(), conversationID, messageID, params)
 }
 
 // SendMessageFromChannel é chamado pelo Gateway de mensageria.
 func (a *App) SendMessageFromChannel(conversationID string, content, media string, params ChatParams, source string) (string, error) {
-	return a.chatCtrl.SendMessageFromChannel(a.ctx, conversationID, content, media, params, source)
+	return a.chatCtrl.SendMessageFromChannel(a.authenticatedContext(), conversationID, content, media, params, source)
 }
 
 // DefaultSystemPrompt é re-exportado de internal/chat para compatibilidade.

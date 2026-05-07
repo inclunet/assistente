@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"assistente/internal/database"
 )
 
 // captureTransport é um RoundTripper de teste que captura o request
@@ -88,6 +90,44 @@ func TestTransport_PlaceholderReplacedNotSent(t *testing.T) {
 	}
 }
 
+func TestTransport_UsesRequestContextUserScope(t *testing.T) {
+	mgr := newTestManager(t)
+	userCtx := database.WithUserID(t.Context(), "user-1")
+	otherCtx := database.WithUserID(t.Context(), "user-2")
+	if err := mgr.RegisterPatternWithContext(userCtx, "llm.inclunet.com.br", &AuthConfig{
+		Type:  "bearer",
+		Token: "sk-user-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.RegisterPatternWithContext(otherCtx, "llm.inclunet.com.br", &AuthConfig{
+		Type:  "bearer",
+		Token: "sk-user-2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	capture := &captureTransport{}
+	transport := &CredentialTransport{
+		Base:        capture,
+		CredMgr:     mgr,
+		CredPattern: "llm.inclunet.com.br",
+	}
+
+	req := httptest.NewRequest("POST", "http://llm.inclunet.com.br/v1/responses", nil).WithContext(userCtx)
+	req.Header.Set("Authorization", "Bearer managed-by-credential-transport")
+
+	_, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := capture.captured.Header.Get("Authorization")
+	if got != "Bearer sk-user-1" {
+		t.Errorf("Authorization = %q, esperado %q", got, "Bearer sk-user-1")
+	}
+}
+
 func TestTransport_BasicAuth(t *testing.T) {
 	mgr := newTestManager(t)
 	if err := mgr.RegisterPattern("basic.example.com", &AuthConfig{
@@ -125,7 +165,7 @@ func TestTransport_CustomHeaders(t *testing.T) {
 	if err := mgr.RegisterPattern("custom.example.com", &AuthConfig{
 		Type: "custom",
 		Headers: map[string]string{
-			"X-Api-Key":    "key123",
+			"X-Api-Key":     "key123",
 			"X-Custom-Auth": "secret",
 		},
 	}); err != nil {

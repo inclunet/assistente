@@ -67,7 +67,7 @@ func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, er
 	if a.settingsCtrl == nil {
 		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
 	}
-	return a.settingsCtrl.SendMessageSync(a.ctx, messages, params)
+	return a.settingsCtrl.SendMessageSync(a.authenticatedContext(), messages, params)
 }
 
 func (a *App) SetChatModel(model string) error {

@@ -30,7 +30,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return t.Base.RoundTrip(req)
 	}
 
-	auth, err := t.CredMgr.GetByPattern(t.CredPattern)
+	auth, err := t.CredMgr.GetByPatternWithContext(req.Context(), t.CredPattern)
 	if err != nil || auth == nil {
 		return t.Base.RoundTrip(req)
 	}

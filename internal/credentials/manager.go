@@ -113,6 +113,11 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 
 	persistedID := cred.ID
 	userID := cred.UserID
+	if userID == "" {
+		if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
+			userID = scopedUserID
+		}
+	}
 	if m.persist && m.store != nil {
 		if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, UserID: userID, Pattern: pattern, Auth: encAuth}); err != nil {
 			return err
@@ -139,7 +144,9 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 	defer m.mu.Unlock()
 
 	for i, existing := range m.credentials {
-		if existing.Pattern == pattern || (persistedID != "" && existing.ID == persistedID) {
+		sameStoredCredential := persistedID != "" && existing.ID == persistedID
+		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
+		if sameStoredCredential || sameScopedPattern {
 			m.credentials[i] = &DomainCredential{ID: persistedID, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
 			return nil
 		}
@@ -256,9 +263,13 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	userID := ""
+	if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
+		userID = scopedUserID
+	}
 	filtered := m.credentials[:0]
 	for _, dc := range m.credentials {
-		if dc.Pattern != pattern {
+		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
 			filtered = append(filtered, dc)
 		}
 	}
