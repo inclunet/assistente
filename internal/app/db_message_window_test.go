@@ -136,6 +136,12 @@ func TestConsolidateTimelineTurnMessages_DeduplicatesToolCallsByID(t *testing.T)
 	}
 }
 
+func TestParseToolCalls_InvalidJSONReturnsNil(t *testing.T) {
+	if calls := parseToolCalls("message-invalid", "{invalid"); calls != nil {
+		t.Fatalf("expected invalid tool calls JSON to be discarded, got %+v", calls)
+	}
+}
+
 func TestMessageTimelineItemKey_UserMessagesIgnoreTurnID(t *testing.T) {
 	turnID := "turn-1"
 	message := database.ChatMessage{

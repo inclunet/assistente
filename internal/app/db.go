@@ -150,6 +150,8 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 	finalContent := ""
 	finalReasoning := ""
 	allToolCalls := make([]map[string]interface{}, 0)
+	// callID is immutable within a turn; keep the first assistant emission as canonical
+	// and enrich it with the persisted tool result when available.
 	seenToolCallIDs := make(map[string]struct{})
 	for _, message := range messages {
 		if message.Role != "assistant" {

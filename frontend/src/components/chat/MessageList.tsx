@@ -142,8 +142,8 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
             derivedSegments.push({ type: 'tool_calls', toolCalls: enrichedCalls });
           }
           allToolCalls.push(...enrichedCalls);
-        } catch (error) {
-          console.warn('[MessageList] invalid toolCalls JSON skipped during turn consolidation', error);
+        } catch {
+          // Invalid local toolCalls payload; skip this derived segment in render.
         }
       }
 
