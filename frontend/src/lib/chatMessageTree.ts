@@ -204,8 +204,32 @@ function findLastUserMessage(nodes: MessageNode[]): MessageNode | null {
   return null;
 }
 
+function replaceMessageInTree(nodes: MessageNode[], message: Message): { nodes: MessageNode[]; found: boolean } {
+  let found = false;
+  const updatedNodes = nodes.map((node) => {
+    if (String(node.message.id) === String(message.id)) {
+      found = true;
+      return cloneNode(node, { message });
+    }
+
+    if (node.children && node.children.length > 0) {
+      const result = replaceMessageInTree(node.children, message);
+      if (result.found) {
+        found = true;
+        return cloneNode(node, { children: result.nodes });
+      }
+    }
+
+    return node;
+  });
+
+  return { nodes: updatedNodes, found };
+}
+
 export function appendInternalMessageToTree(nodes: MessageNode[], message: Message): MessageNode[] {
   const parentId = message.parentId?.toString();
+  const existingResult = replaceMessageInTree(nodes, message);
+  if (existingResult.found) return existingResult.nodes;
 
   if (!parentId) {
     const newNode = createNode({

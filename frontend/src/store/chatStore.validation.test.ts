@@ -870,6 +870,61 @@ describe('chatStore validation', () => {
       .toEqual(['message-1', 'internal-shared']);
   });
 
+  it('atualiza mensagem interna existente quando o mesmo id é reenviado', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const node = createMessageNode('message-1') as unknown as MessageNode;
+    const surfaceA = `tab-a:${defaultConversationId}`;
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: {
+            id: defaultConversationId,
+            title: 'Conversa',
+            threadedMessages: [node],
+          },
+        },
+      },
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [node],
+        },
+      },
+      surfaceSessionsByKey: {
+        [surfaceA]: {
+          ...createEmptyChatSession(defaultConversationId, surfaceA),
+          visibleThreadedMessages: [node],
+        },
+      },
+    });
+
+    useChatStore.getState().addInternalMessage({
+      id: 'internal-rate-limit',
+      conversationId: defaultConversationId,
+      role: 'system',
+      content: 'Tente novamente em 5s',
+      createdAt: new Date().toISOString(),
+    } as unknown as import('../lib/chatMessageTree').Message);
+    useChatStore.getState().addInternalMessage({
+      id: 'internal-rate-limit',
+      conversationId: defaultConversationId,
+      role: 'system',
+      content: 'Tente novamente em 10s',
+      createdAt: new Date().toISOString(),
+    } as unknown as import('../lib/chatMessageTree').Message);
+
+    const localThread = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages ?? [];
+    const surfaceThread = useChatStore.getState().surfaceSessionsByKey[surfaceA].visibleThreadedMessages ?? [];
+    expect(localThread.map((item) => item.message.id)).toEqual(['message-1', 'internal-rate-limit']);
+    expect(localThread.find((item) => item.message.id === 'internal-rate-limit')?.message.content).toBe('Tente novamente em 10s');
+    expect(surfaceThread.map((item) => item.message.id)).toEqual(['message-1', 'internal-rate-limit']);
+    expect(surfaceThread.find((item) => item.message.id === 'internal-rate-limit')?.message.content).toBe('Tente novamente em 10s');
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages.map((item) => item.message.id))
+      .toEqual(['message-1']);
+  });
+
   it('propaga mensagem interna para janela materializada da sessão default', async () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const node = createMessageNode('message-1') as unknown as MessageNode;
