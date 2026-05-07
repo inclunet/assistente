@@ -93,12 +93,28 @@ export function buildWailsMockScript(): string {
     stt: {},
   };
 
+  const defaultAuthUser = {
+    userId: 'user-e2e',
+    sessionId: 'session-e2e',
+    role: 'admin',
+  };
+
   const defaults = {
     /* App init */
     GetConfig: defaultConfig,
     NeedsWelcomeWizard: false,
     RunWelcomeWizard: true,
     GetAppVersion: '1.0.0-test',
+
+    /* Auth */
+    GetAuthStatus: {
+      vaultConfigured: true,
+      vaultUnlocked: true,
+      hasUsers: true,
+    },
+    RefreshAuth: defaultAuthUser,
+    Login: defaultAuthUser,
+    Logout: undefined,
 
     /* Workspace */
     GetActiveWorkspace: defaultWorkspace,
