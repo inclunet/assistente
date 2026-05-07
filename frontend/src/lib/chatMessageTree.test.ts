@@ -60,6 +60,31 @@ describe('chatMessageTree', () => {
     expect(updated[0].childCount).toBe(1);
   });
 
+  it('updates existing internal message in place when parentId changes', () => {
+    const nodes = [node(message('parent-a', 'user')), node(message('parent-b', 'user'))];
+    const first = appendInternalMessageToTree(nodes, message('internal-1', 'system', 'foo', 'parent-a'));
+    const updated = appendInternalMessageToTree(first, message('internal-1', 'system', 'bar', 'parent-b'));
+
+    expect(updated[0].children?.[0].message.id).toBe('internal-1');
+    expect(updated[0].children?.[0].message.content).toBe('bar');
+    expect(updated[0].children?.[0].message.parentId).toBe('parent-a');
+    expect(updated[1].children).toEqual([]);
+  });
+
+  it('preserves turn segments when updating an existing internal message', () => {
+    const nodes = [node(message('parent', 'user'))];
+    const first = message('internal-1', 'system', 'foo', 'parent');
+    first._turnSegments = [{ type: 'text', content: 'segmento preservado' }];
+
+    const appended = appendInternalMessageToTree(nodes, first);
+    const updated = appendInternalMessageToTree(appended, message('internal-1', 'system', 'bar', 'parent'));
+
+    expect(updated[0].children?.[0].message.content).toBe('bar');
+    expect((updated[0].children?.[0].message as Message)._turnSegments).toEqual([
+      { type: 'text', content: 'segmento preservado' },
+    ]);
+  });
+
   it('attaches loaded children to the requested message', () => {
     const nodes = [node(message('root', 'user'), [node(message('parent', 'assistant'), [], 1)])];
     const loadedChildren = [node(message('loaded', 'tool'), [], 2)];

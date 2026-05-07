@@ -29,10 +29,13 @@ export interface ChatTreeConversation {
 }
 
 function cloneMessage(message: Message, overrides: Partial<Message> = {}): Message {
-  return new main.EnrichedMessage({
+  const cloned = new main.EnrichedMessage({
     ...message,
     ...overrides,
   }) as Message;
+  const turnSegments = overrides._turnSegments ?? message._turnSegments;
+  if (turnSegments) cloned._turnSegments = turnSegments;
+  return cloned;
 }
 
 function createNode(input: Partial<MessageNode> & { message: Message }): MessageNode {
@@ -44,6 +47,12 @@ function createNode(input: Partial<MessageNode> & { message: Message }): Message
   }) as MessageNode;
   if (!Object.prototype.hasOwnProperty.call(input.message, 'turnId')) {
     delete (node.message as Message & { turnId?: string }).turnId;
+  }
+  if ((input.message as Message)._turnSegments) {
+    (node.message as Message)._turnSegments = (input.message as Message)._turnSegments;
+  }
+  if (input.children) {
+    node.children = input.children;
   }
   return node;
 }
@@ -205,25 +214,32 @@ function findLastUserMessage(nodes: MessageNode[]): MessageNode | null {
 }
 
 function replaceMessageInTree(nodes: MessageNode[], message: Message): { nodes: MessageNode[]; found: boolean } {
-  let found = false;
-  const updatedNodes = nodes.map((node) => {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
     if (String(node.message.id) === String(message.id)) {
-      found = true;
-      return cloneNode(node, { message });
+      const updatedNodes = [...nodes];
+      // Re-emitted internal messages update in place; structural parent is intentionally preserved.
+      updatedNodes[index] = cloneNode(node, {
+        message: cloneMessage(node.message, {
+          ...message,
+          parentId: node.message.parentId,
+          _turnSegments: message._turnSegments ?? (node.message as Message)._turnSegments,
+        }),
+      });
+      return { nodes: updatedNodes, found: true };
     }
 
     if (node.children && node.children.length > 0) {
       const result = replaceMessageInTree(node.children, message);
       if (result.found) {
-        found = true;
-        return cloneNode(node, { children: result.nodes });
+        const updatedNodes = [...nodes];
+        updatedNodes[index] = cloneNode(node, { children: result.nodes });
+        return { nodes: updatedNodes, found: true };
       }
     }
+  }
 
-    return node;
-  });
-
-  return { nodes: updatedNodes, found };
+  return { nodes, found: false };
 }
 
 export function appendInternalMessageToTree(nodes: MessageNode[], message: Message): MessageNode[] {
