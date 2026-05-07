@@ -27,24 +27,40 @@ var (
 // ==================== Conversation ====================
 
 func (a *App) CreateConversation(title, model string) (*Conversation, error) {
-	return database.CreateConversationWithContext(a.authenticatedContext(), title, model)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return database.CreateConversationWithContext(ctx, title, model)
 }
 
 func (a *App) GetConversations() ([]Conversation, error) {
-	return database.GetConversationsWithContext(a.authenticatedContext())
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return database.GetConversationsWithContext(ctx)
 }
 
 func (a *App) GetConversation(id string) (*Conversation, error) {
-	return database.GetConversationWithContext(a.authenticatedContext(), id)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return database.GetConversationWithContext(ctx, id)
 }
 
 // EnsureConversation cria ou recicla uma conversa vazia e retorna.
 // Usada pelo frontend quando uma aba de chat do workspace é criada sem contentId.
 func (a *App) EnsureConversation(title string) (*Conversation, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
 	if title == "" {
 		title = "Nova Conversa"
 	}
-	conv, err := database.RecycleOrCreateConversationWithContext(a.authenticatedContext(), title)
+	conv, err := database.RecycleOrCreateConversationWithContext(ctx, title)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao garantir conversa: %w", err)
 	}
@@ -263,8 +279,20 @@ func buildTimelineMessageNodes(items []database.MessageWindowItem, messages []da
 	return assignMessageNodeOriginalIndexes(buildMessageNodes(representatives, parentID), originalIndexesByMessageID)
 }
 
+func (a *App) requireConversationAccess(conversationID string) error {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	_, err = database.GetConversationInfoWithContext(ctx, conversationID)
+	return err
+}
+
 // GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
 func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.MessageNode, error) {
+	if err := a.requireConversationAccess(conversationID); err != nil {
+		return nil, err
+	}
 	messages, err := database.GetRecentRootMessages(conversationID, limit)
 	if err != nil {
 		return nil, err
@@ -274,6 +302,9 @@ func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.Messag
 
 // GetMessagesBefore retorna mensagens raiz anteriores ao cursor informado.
 func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit int) ([]chat.MessageNode, error) {
+	if err := a.requireConversationAccess(conversationID); err != nil {
+		return nil, err
+	}
 	messages, err := database.GetRootMessagesBefore(conversationID, beforeID, limit)
 	if err != nil {
 		return nil, err
@@ -331,6 +362,9 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	if direction == chat.MessageWindowDirectionAround && anchorMessageID == "" {
 		return nil, fmt.Errorf("direction=around exige anchorMessageId")
 	}
+	if err := a.requireConversationAccess(conversationID); err != nil {
+		return nil, err
+	}
 
 	var parentID *string
 	threadParentID := ""
@@ -380,12 +414,16 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 
 // GetConversationInfo retorna apenas metadados da conversa (sem mensagens)
 func (a *App) GetConversationInfo(id string) (*Conversation, error) {
-	return database.GetConversationInfo(id)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return database.GetConversationInfoWithContext(ctx, id)
 }
 
 // GetConversationWithThreads retorna conversa com mensagens raiz (lazy loading)
 func (a *App) GetConversationWithThreads(id string) (*chat.ConversationWithThreads, error) {
-	conv, err := database.GetConversationInfo(id)
+	conv, err := a.GetConversationInfo(id)
 	if err != nil {
 		return nil, err
 	}
@@ -404,11 +442,19 @@ func (a *App) GetConversationWithThreads(id string) (*chat.ConversationWithThrea
 
 // GetMessageChildren retorna os filhos de uma mensagem (lazy loading)
 func (a *App) GetMessageChildren(messageID string) ([]chat.MessageNode, error) {
-	return a.GetMessages("", &messageID)
+	parent, err := database.GetMessage(messageID)
+	if err != nil {
+		return nil, err
+	}
+	return a.GetMessages(parent.ConversationID, &messageID)
 }
 
 func (a *App) UpdateConversation(id string, title, model string) error {
-	if err := database.UpdateConversationWithContext(a.authenticatedContext(), id, title, model); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	if err := database.UpdateConversationWithContext(ctx, id, title, model); err != nil {
 		return err
 	}
 
@@ -423,7 +469,11 @@ func (a *App) UpdateConversation(id string, title, model string) error {
 }
 
 func (a *App) DeleteConversation(id string) error {
-	if err := database.DeleteConversationWithContext(a.authenticatedContext(), id); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	if err := database.DeleteConversationWithContext(ctx, id); err != nil {
 		return err
 	}
 
@@ -474,6 +524,9 @@ func (a *App) DeleteMessage(messageID string) error {
 		return err
 	}
 	convID := msg.ConversationID
+	if err := a.requireConversationAccess(convID); err != nil {
+		return err
+	}
 
 	if err := database.DeleteMessage(messageID); err != nil {
 		return err
@@ -491,6 +544,9 @@ func (a *App) DeleteMessage(messageID string) error {
 func (a *App) UpdateMessage(messageID string, newContent string) error {
 	var msg database.ChatMessage
 	if err := database.DB().Select("conversation_id").First(&msg, "id = ?", messageID).Error; err != nil {
+		return err
+	}
+	if err := a.requireConversationAccess(msg.ConversationID); err != nil {
 		return err
 	}
 
@@ -512,7 +568,11 @@ func (a *App) UpdateMessage(messageID string, newContent string) error {
 }
 
 func (a *App) UpdateConversationModel(id string, model string) error {
-	return database.UpdateConversationWithContext(a.authenticatedContext(), id, "", model)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return database.UpdateConversationWithContext(ctx, id, "", model)
 }
 
 // ==================== ChatMessage ====================
@@ -581,6 +641,9 @@ type ConversationSummaryInfo struct {
 }
 
 func (a *App) GetConversationSummary(conversationID string) (*ConversationSummaryInfo, error) {
+	if err := a.requireConversationAccess(conversationID); err != nil {
+		return nil, err
+	}
 	summary, upToID, err := database.GetConversationSummary(conversationID)
 	if err != nil {
 		return nil, err
@@ -598,6 +661,9 @@ func (a *App) RenameConversation(conversationID string, newTitle string) error {
 }
 
 func (a *App) ClearConversation(conversationID string) error {
+	if err := a.requireConversationAccess(conversationID); err != nil {
+		return err
+	}
 	if err := database.DeleteAllMessages(conversationID); err != nil {
 		return err
 	}
@@ -610,7 +676,17 @@ func (a *App) ClearConversation(conversationID string) error {
 }
 
 func (a *App) DeleteMessages(conversationID string, messageIDs []string) error {
+	if err := a.requireConversationAccess(conversationID); err != nil {
+		return err
+	}
 	for _, msgID := range messageIDs {
+		var msg database.ChatMessage
+		if err := database.DB().Select("conversation_id").First(&msg, "id = ?", msgID).Error; err != nil {
+			return fmt.Errorf("erro ao localizar mensagem %s: %w", msgID, err)
+		}
+		if msg.ConversationID != conversationID {
+			return fmt.Errorf("mensagem %s não pertence à conversa solicitada", msgID)
+		}
 		if err := database.DeleteMessage(msgID); err != nil {
 			return fmt.Errorf("erro ao deletar mensagem %s: %w", msgID, err)
 		}
@@ -638,7 +714,11 @@ func (a *App) RebuildSearchIndex() error {
 
 // SetConversationModel define o modelo para uma conversa
 func (a *App) SetConversationModel(conversationID string, model string) error {
-	return database.UpdateConversationWithContext(a.authenticatedContext(), conversationID, "", model)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return database.UpdateConversationWithContext(ctx, conversationID, "", model)
 }
 
 // GetEffectiveModel retorna o modelo efetivo (perfil ativo > config padrão)

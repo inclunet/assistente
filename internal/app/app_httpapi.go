@@ -38,7 +38,7 @@ func (a *App) startHTTPAPI() error {
 	handler := httpapi.New(httpapi.Config{
 		Vault:    a.vaultSvc,
 		IDs:      a.identitySvc,
-		Session:  a.sessionSvc,
+		Sessions: a.currentSessionService,
 		Mode:     authCfg.Mode,
 		External: external,
 	}).Handler()

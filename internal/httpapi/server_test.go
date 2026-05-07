@@ -106,6 +106,42 @@ func TestAuthLoginRefreshMeAndLogout(t *testing.T) {
 	}
 }
 
+func TestJWKSUsesDynamicSessionProvider(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	var sessions *auth.SessionService
+	server := New(Config{Sessions: func() *auth.SessionService { return sessions }})
+
+	before := httptest.NewRecorder()
+	server.Handler().ServeHTTP(before, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
+	if before.Code != http.StatusServiceUnavailable {
+		t.Fatalf("JWKS before session status = %d, want %d", before.Code, http.StatusServiceUnavailable)
+	}
+
+	sessions, err = auth.NewSessionService(db, auth.SessionConfig{
+		Issuer:   "test",
+		Audience: "client",
+	})
+	if err != nil {
+		t.Fatalf("new session service: %v", err)
+	}
+
+	after := httptest.NewRecorder()
+	server.Handler().ServeHTTP(after, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
+	if after.Code != http.StatusOK {
+		t.Fatalf("JWKS after session status = %d body=%s", after.Code, after.Body.String())
+	}
+}
+
 func TestValidateBindSecurity(t *testing.T) {
 	if err := ValidateBindSecurity("127.0.0.1:8080", false, false); err != nil {
 		t.Fatalf("localhost should allow HTTP: %v", err)

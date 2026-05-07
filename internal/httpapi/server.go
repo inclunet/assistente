@@ -15,6 +15,7 @@ type Server struct {
 	vault    *auth.VaultService
 	ids      *auth.IdentityService
 	session  *auth.SessionService
+	sessions func() *auth.SessionService
 	mode     string
 	external *auth.ExternalAuthenticator
 	mux      *http.ServeMux
@@ -24,6 +25,7 @@ type Config struct {
 	Vault    *auth.VaultService
 	IDs      *auth.IdentityService
 	Session  *auth.SessionService
+	Sessions func() *auth.SessionService
 	Mode     string
 	External *auth.ExternalAuthenticator
 }
@@ -33,6 +35,7 @@ func New(cfg Config) *Server {
 		vault:    cfg.Vault,
 		ids:      cfg.IDs,
 		session:  cfg.Session,
+		sessions: cfg.Sessions,
 		mode:     cfg.Mode,
 		external: cfg.External,
 		mux:      http.NewServeMux(),
@@ -42,6 +45,13 @@ func New(cfg Config) *Server {
 	}
 	s.routes()
 	return s
+}
+
+func (s *Server) sessionService() *auth.SessionService {
+	if s.sessions != nil {
+		return s.sessions()
+	}
+	return s.session
 }
 
 func (s *Server) Handler() http.Handler {
@@ -120,7 +130,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
-	pair, err := s.session.IssueSession(r.Context(), user, req.ClientLabel)
+	session := s.sessionService()
+	if session == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("serviço de sessão indisponível"))
+		return
+	}
+	pair, err := session.IssueSession(r.Context(), user, req.ClientLabel)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -139,7 +154,12 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	pair, err := s.session.Refresh(r.Context(), req.RefreshToken)
+	session := s.sessionService()
+	if session == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("serviço de sessão indisponível"))
+		return
+	}
+	pair, err := session.Refresh(r.Context(), req.RefreshToken)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, err)
 		return
@@ -158,7 +178,12 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if err := s.session.Logout(r.Context(), req.RefreshToken); err != nil {
+	session := s.sessionService()
+	if session == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("serviço de sessão indisponível"))
+		return
+	}
+	if err := session.Logout(r.Context(), req.RefreshToken); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -178,7 +203,12 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.session.JWKSet())
+	session := s.sessionService()
+	if session == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("serviço de sessão indisponível"))
+		return
+	}
+	writeJSON(w, http.StatusOK, session.JWKSet())
 }
 
 type principal struct {
@@ -209,7 +239,12 @@ func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*princip
 		}
 		return &principal{UserID: claims.Subject, Role: role}, true
 	}
-	claims, err := s.session.VerifyAccessToken(token)
+	session := s.sessionService()
+	if session == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("serviço de sessão indisponível"))
+		return nil, false
+	}
+	claims, err := session.VerifyAccessToken(token)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, err)
 		return nil, false

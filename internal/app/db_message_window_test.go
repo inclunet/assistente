@@ -33,6 +33,27 @@ func setupMessageWindowAppTestDB(t *testing.T) {
 	})
 }
 
+const messageWindowTestUserID = "user-message-window"
+
+func newMessageWindowTestApp() *App {
+	return &App{currentUserID: messageWindowTestUserID}
+}
+
+func createMessageWindowTestConversation(t *testing.T, title string) *database.Conversation {
+	t.Helper()
+	conv, err := database.CreateConversation(title, "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Model(&database.Conversation{}).
+		Where("id = ?", conv.ID).
+		Update("user_id", messageWindowTestUserID).Error; err != nil {
+		t.Fatalf("scope conversation: %v", err)
+	}
+	conv.UserID = messageWindowTestUserID
+	return conv
+}
+
 func TestConsolidateTimelineTurnMessages_ToolOnlyPlaceholderOrdersToolCalls(t *testing.T) {
 	turnID := "turn-1"
 	consolidated := consolidateTimelineTurnMessages([]database.ChatMessage{
@@ -174,17 +195,14 @@ func TestMessageTimelineItemKey_UserMessagesIgnoreTurnID(t *testing.T) {
 
 func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := &App{}
+	app := newMessageWindowTestApp()
 
-	conv, err := database.CreateConversation("Conversa", "")
-	if err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
+	conv := createMessageWindowTestConversation(t, "Conversa")
 	if _, err := database.AddMessage(conv.ID, "user", "mensagem"); err != nil {
 		t.Fatalf("create message: %v", err)
 	}
 
-	_, err = app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	_, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
 		ConversationID: conv.ID,
 		Scope:          chat.MessageWindowScopeConversation,
 		Direction:      "sideways",
@@ -207,12 +225,9 @@ func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 
 func TestGetConversationMessageWindow_RejectsNestedThreadParent(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := &App{}
+	app := newMessageWindowTestApp()
 
-	conv, err := database.CreateConversation("Conversa", "")
-	if err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
+	conv := createMessageWindowTestConversation(t, "Conversa")
 	root, err := database.AddMessage(conv.ID, "assistant", "root")
 	if err != nil {
 		t.Fatalf("create root: %v", err)
@@ -237,17 +252,14 @@ func TestGetConversationMessageWindow_RejectsNestedThreadParent(t *testing.T) {
 
 func TestGetConversationMessageWindow_NormalizesAnchorNotFound(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := &App{}
+	app := newMessageWindowTestApp()
 
-	conv, err := database.CreateConversation("Conversa", "")
-	if err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
+	conv := createMessageWindowTestConversation(t, "Conversa")
 	if _, err := database.AddMessage(conv.ID, "user", "mensagem"); err != nil {
 		t.Fatalf("create message: %v", err)
 	}
 
-	_, err = app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	_, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
 		ConversationID:  conv.ID,
 		Scope:           chat.MessageWindowScopeConversation,
 		AnchorMessageID: "missing-message",
@@ -261,12 +273,9 @@ func TestGetConversationMessageWindow_NormalizesAnchorNotFound(t *testing.T) {
 
 func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := &App{}
+	app := newMessageWindowTestApp()
 
-	conv, err := database.CreateConversation("Conversa", "")
-	if err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
+	conv := createMessageWindowTestConversation(t, "Conversa")
 	for i := 0; i < database.MaxMessageWindowRows+30; i++ {
 		if _, err := database.AddMessage(conv.ID, "user", "mensagem"); err != nil {
 			t.Fatalf("create message %d: %v", i, err)
@@ -290,12 +299,9 @@ func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 
 func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := &App{}
+	app := newMessageWindowTestApp()
 
-	conv, err := database.CreateConversation("Conversa", "")
-	if err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
+	conv := createMessageWindowTestConversation(t, "Conversa")
 	user, err := database.AddMessage(conv.ID, "user", "pergunta")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -360,12 +366,9 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 
 func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := &App{}
+	app := newMessageWindowTestApp()
 
-	conv, err := database.CreateConversation("Conversa", "")
-	if err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
+	conv := createMessageWindowTestConversation(t, "Conversa")
 	user, err := database.AddMessage(conv.ID, "user", "pergunta")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -406,12 +409,9 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 
 func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceholder(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := &App{}
+	app := newMessageWindowTestApp()
 
-	conv, err := database.CreateConversation("Conversa", "")
-	if err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
+	conv := createMessageWindowTestConversation(t, "Conversa")
 	user, err := database.AddMessage(conv.ID, "user", "pergunta")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -449,5 +449,54 @@ func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceh
 	}
 	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
 		t.Fatalf("expected canonical originalIndex=1 for tool-only turn, got %v", turnNode.OriginalIndex)
+	}
+}
+
+func TestGetMessageChildrenUsesParentConversationForScope(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+	app := newMessageWindowTestApp()
+	app.msgRepo = chat.NewScopedDBMessageStore(app.authenticatedContext)
+
+	conv := createMessageWindowTestConversation(t, "Conversa")
+	root, err := database.AddMessage(conv.ID, "assistant", "root")
+	if err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+	child, err := database.AddChildMessage(conv.ID, root.ID, "assistant", "child", "")
+	if err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+
+	nodes, err := app.GetMessageChildren(root.ID)
+	if err != nil {
+		t.Fatalf("GetMessageChildren: %v", err)
+	}
+	if len(nodes) != 1 || nodes[0].Message.ID != child.ID {
+		t.Fatalf("children: got %+v, want %s", nodes, child.ID)
+	}
+}
+
+func TestGetMessageChildrenRejectsOtherUsersParent(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+	app := newMessageWindowTestApp()
+	app.msgRepo = chat.NewScopedDBMessageStore(app.authenticatedContext)
+
+	otherConv, err := database.CreateConversation("Outra", "")
+	if err != nil {
+		t.Fatalf("create other conversation: %v", err)
+	}
+	if err := database.DB().Model(&database.Conversation{}).
+		Where("id = ?", otherConv.ID).
+		Update("user_id", "other-user").Error; err != nil {
+		t.Fatalf("scope other conversation: %v", err)
+	}
+	root, err := database.AddMessage(otherConv.ID, "assistant", "root")
+	if err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+
+	_, err = app.GetMessageChildren(root.ID)
+	if err == nil {
+		t.Fatal("expected cross-user message children to be rejected")
 	}
 }

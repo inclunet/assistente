@@ -54,15 +54,21 @@ func (a *App) initAuthServices() {
 func (a *App) configureSessionService() {
 	signer, err := auth.LoadOrCreateTokenSigner(a.credMgr)
 	if err != nil {
+		a.authMu.Lock()
 		a.sessionSvc = nil
+		a.authMu.Unlock()
 		return
 	}
 	sessionSvc, err := auth.NewSessionService(database.DB(), auth.SessionConfig{Signer: signer})
 	if err != nil {
+		a.authMu.Lock()
 		a.sessionSvc = nil
+		a.authMu.Unlock()
 		return
 	}
+	a.authMu.Lock()
 	a.sessionSvc = sessionSvc
+	a.authMu.Unlock()
 }
 
 func (a *App) GetAuthStatus() (AuthStatus, error) {
@@ -389,6 +395,14 @@ func (a *App) authenticatedContext() context.Context {
 	return database.WithUserID(ctx, a.currentUserID)
 }
 
+func (a *App) requireAuthenticatedContext() (context.Context, error) {
+	ctx := a.authenticatedContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return ctx, nil
+}
+
 func (a *App) reloadUserScopedRuntime() {
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
@@ -411,12 +425,23 @@ func (a *App) ensureAuthCoreServices() error {
 }
 
 func (a *App) ensureSessionService() error {
+	a.authMu.RLock()
 	if a.sessionSvc != nil {
+		a.authMu.RUnlock()
 		return nil
 	}
+	a.authMu.RUnlock()
 	a.configureSessionService()
+	a.authMu.RLock()
+	defer a.authMu.RUnlock()
 	if a.sessionSvc == nil {
 		return errors.New("sessão de autenticação indisponível: desbloqueie o cofre ou verifique a DEK")
 	}
 	return nil
+}
+
+func (a *App) currentSessionService() *auth.SessionService {
+	a.authMu.RLock()
+	defer a.authMu.RUnlock()
+	return a.sessionSvc
 }
