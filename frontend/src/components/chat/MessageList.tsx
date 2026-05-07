@@ -274,7 +274,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     }
 
     if (duplicates.size === 0) return;
-    console.warn('[MessageList] duplicate message ids detected in display messages', Array.from(duplicates));
+    console.warn('[MessageList] duplicate timeline keys detected in display messages', Array.from(duplicates));
   }, [displayMessages, threadedMessages]);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
