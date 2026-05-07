@@ -207,6 +207,17 @@ func (m *Manager) ListCredentials() ([]StoredCredential, error) {
 }
 
 func (m *Manager) ListCredentialsWithContext(ctx context.Context) ([]StoredCredential, error) {
+	return m.listCredentialsWithContext(ctx, false)
+}
+
+// ListVisibleCredentialsWithContext retorna apenas credenciais editáveis/visíveis
+// ao usuário. Patterns gerenciados são filtrados antes de descriptografar para
+// que segredos internos ilegíveis não bloqueiem a tela de credenciais.
+func (m *Manager) ListVisibleCredentialsWithContext(ctx context.Context) ([]StoredCredential, error) {
+	return m.listCredentialsWithContext(ctx, true)
+}
+
+func (m *Manager) listCredentialsWithContext(ctx context.Context, skipManaged bool) ([]StoredCredential, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -217,6 +228,9 @@ func (m *Manager) ListCredentialsWithContext(ctx context.Context) ([]StoredCrede
 	}
 	for _, dc := range m.credentials {
 		if userID != "" && dc.UserID != userID {
+			continue
+		}
+		if skipManaged && IsManagedPattern(dc.Pattern) {
 			continue
 		}
 		auth, err := m.decryptAuthRaw(dc.Auth)

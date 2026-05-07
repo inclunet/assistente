@@ -66,7 +66,7 @@ func (c *CredentialsController) ListCredentialsWithContext(ctx context.Context) 
 		return []CredentialSummary{}, nil
 	}
 
-	list, err := c.credMgr.ListCredentialsWithContext(ctx)
+	list, err := c.credMgr.ListVisibleCredentialsWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -74,9 +74,6 @@ func (c *CredentialsController) ListCredentialsWithContext(ctx context.Context) 
 	result := make([]CredentialSummary, 0, len(list))
 	for _, entry := range list {
 		if entry.Auth == nil {
-			continue
-		}
-		if credentials.IsManagedPattern(entry.Pattern) {
 			continue
 		}
 		result = append(result, CredentialSummary{

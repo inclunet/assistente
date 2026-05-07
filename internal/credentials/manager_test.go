@@ -700,6 +700,32 @@ func TestRegisterStoredCredentialRequiresPersistedIDAfterSave(t *testing.T) {
 	}
 }
 
+func TestListVisibleCredentialsSkipsUnreadableManagedPatterns(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-1")
+	mgr := NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	if err := mgr.RegisterPatternWithContext(ctx, "api.example.com", &AuthConfig{Type: "bearer", Token: "secret"}); err != nil {
+		t.Fatalf("RegisterPatternWithContext() error = %v", err)
+	}
+	if err := mgr.registerEncryptedPattern("managed-id", "user-1", InstanceSecretJWTSigningKey, &AuthConfig{
+		Type:  "secret",
+		Token: "not-valid-base64",
+	}); err != nil {
+		t.Fatalf("registerEncryptedPattern() error = %v", err)
+	}
+
+	visible, err := mgr.ListVisibleCredentialsWithContext(ctx)
+	if err != nil {
+		t.Fatalf("ListVisibleCredentialsWithContext() error = %v", err)
+	}
+	if len(visible) != 1 || visible[0].Pattern != "api.example.com" {
+		t.Fatalf("expected only visible provider credential, got %+v", visible)
+	}
+
+	if _, err := mgr.ListCredentialsWithContext(ctx); err == nil {
+		t.Fatal("ListCredentialsWithContext() should still report unreadable managed credentials")
+	}
+}
+
 type staticCredentialStore struct {
 	entries []StoredCredential
 }
