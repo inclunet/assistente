@@ -20,9 +20,27 @@ vi.mock('../hooks/useAnnouncer', () => ({
   announce: (...args: unknown[]) => mockAnnounce(...args),
 }));
 
-const mockGetMessages = vi.fn().mockResolvedValue([]);
+const mockReloadConversationSnapshot = vi.fn().mockResolvedValue({
+  threadedMessages: [],
+  messageWindow: {
+    scope: 'conversation',
+    conversationId: 'conversation-1',
+    totalCount: 0,
+    startIndex: 0,
+    endIndex: -1,
+    hasBefore: false,
+    hasAfter: false,
+  },
+  hasOlderMessages: false,
+  hasNewerMessages: false,
+});
 vi.mock('@wailsjs/go/app/App', () => ({
-  GetMessages: (...args: unknown[]) => mockGetMessages(...args),
+}));
+vi.mock('./chatSessionLoader', () => ({
+  reloadConversationSnapshot: (...args: unknown[]) => mockReloadConversationSnapshot(...args),
+}));
+vi.mock('./messageWindowLimits', () => ({
+  INITIAL_MESSAGE_WINDOW_SIZE: 80,
 }));
 
 type EventCallback = (data: unknown) => void;
@@ -195,8 +213,21 @@ describe('chatEventController', () => {
     vi.useFakeTimers();
     eventListeners.clear();
     mockAnnounce.mockClear();
-    mockGetMessages.mockReset();
-    mockGetMessages.mockResolvedValue([]);
+    mockReloadConversationSnapshot.mockReset();
+    mockReloadConversationSnapshot.mockResolvedValue({
+      threadedMessages: [],
+      messageWindow: {
+        scope: 'conversation',
+        conversationId: 'conversation-1',
+        totalCount: 0,
+        startIndex: 0,
+        endIndex: -1,
+        hasBefore: false,
+        hasAfter: false,
+      },
+      hasOlderMessages: false,
+      hasNewerMessages: false,
+    });
     mockPlayChatReceiveSoundIfActive.mockClear();
     mockAnnounceForActiveChatConversation.mockClear();
     mockAnnounceChatBackgroundResponseDone.mockClear();
@@ -429,12 +460,26 @@ describe('chatEventController', () => {
     expect(mockAnnounce).toHaveBeenCalledWith('Maria via telegram: olá externo');
   });
 
-  it('recarrega mensagens do backend ao finalizar resposta com tool calls', async () => {
+  it('recarrega janela canônica ao finalizar resposta com tool calls', async () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
-    mockGetMessages.mockResolvedValue([
+    const backendNodes = [
       createNode(createMessage('backend-user', 'user', 'pergunta')),
       createNode(createMessage('backend-assistant', 'assistant', 'resposta com ferramenta')),
-    ]);
+    ];
+    mockReloadConversationSnapshot.mockResolvedValue({
+      threadedMessages: backendNodes,
+      messageWindow: {
+        scope: 'conversation',
+        conversationId: 'conversation-1',
+        totalCount: 2,
+        startIndex: 0,
+        endIndex: 1,
+        hasBefore: false,
+        hasAfter: false,
+      },
+      hasOlderMessages: false,
+      hasNewerMessages: false,
+    });
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
@@ -449,7 +494,7 @@ describe('chatEventController', () => {
     });
     await Promise.resolve();
 
-    expect(mockGetMessages).toHaveBeenCalledWith('conversation-1', null);
+    expect(mockReloadConversationSnapshot).toHaveBeenCalledWith('conversation-1', 80);
     expect(sessions['conversation-1'].conversation?.threadedMessages.map((node) => node.message.id)).toEqual([
       'backend-user',
       'backend-assistant',

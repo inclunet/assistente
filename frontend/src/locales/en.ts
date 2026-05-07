@@ -122,6 +122,7 @@ const en = {
       modelThinking: 'The model is thinking',
       modelReasoning: 'Model reasoning',
       reasoning: 'Reasoning',
+      toolOnlyTurnPlaceholder: 'Turn without an assistant response. Preserved tool results appear below.',
       slashCommands: 'Slash commands',
       noSkillsFound: 'No skill found',
       availableSkills: 'Available Skills',

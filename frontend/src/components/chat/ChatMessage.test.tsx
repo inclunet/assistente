@@ -246,4 +246,28 @@ describe('ChatMessage', () => {
     }));
     expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
   });
+
+  it('renderiza placeholder acessível para turno sem resposta do assistente', () => {
+    const message = new main.EnrichedMessage({
+      id: 'tool-only',
+      conversationId,
+      role: 'assistant',
+      content: '',
+      source: 'tool_only_turn_placeholder',
+      toolCalls: JSON.stringify([{ id: 'tool-1', type: 'function', function: { name: 'tool_result', arguments: '' }, result: 'ok' }]),
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+    });
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.getByText('chat.toolOnlyTurnPlaceholder')).toBeInTheDocument();
+    expect(screen.getByTestId('toolcalls')).toBeInTheDocument();
+    expect(screen.queryByText('tool_only_turn_placeholder')).not.toBeInTheDocument();
+    expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
+      displayContent: 'chat.toolOnlyTurnPlaceholder',
+    }));
+  });
 });
