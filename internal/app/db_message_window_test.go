@@ -93,6 +93,49 @@ func TestConsolidateTimelineTurnMessages_OrdersMessagesBeforeChoosingRepresentat
 	}
 }
 
+func TestConsolidateTimelineTurnMessages_DeduplicatesToolCallsByID(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	consolidated := consolidateTimelineTurnMessages([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-first", CreatedAt: baseTime},
+			Role:      "assistant",
+			TurnID:    &turnID,
+			ToolCalls: `[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-duplicate", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			TurnID:    &turnID,
+			ToolCalls: `[{"id":"tool-1","type":"function","function":{"name":"search_again","arguments":"{}"}}]`,
+		},
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-result", CreatedAt: baseTime.Add(2 * time.Minute)},
+			Role:       "tool",
+			Content:    "resultado preservado",
+			TurnID:     &turnID,
+			ToolCallID: "tool-1",
+		},
+	})
+
+	var calls []struct {
+		ID       string `json:"id"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(consolidated.ToolCalls), &calls); err != nil {
+		t.Fatalf("unmarshal consolidated tool calls: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected one deduplicated tool call, got %+v", calls)
+	}
+	if calls[0].ID != "tool-1" || calls[0].Function.Name != "search" || calls[0].Result != "resultado preservado" {
+		t.Fatalf("expected first tool call enriched with result, got %+v", calls[0])
+	}
+}
+
 func TestMessageTimelineItemKey_UserMessagesIgnoreTurnID(t *testing.T) {
 	turnID := "turn-1"
 	message := database.ChatMessage{

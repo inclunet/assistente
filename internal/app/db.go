@@ -109,20 +109,21 @@ func timelineWindowItemKey(item database.MessageWindowItem) string {
 const toolOnlyTurnPlaceholderSource = "tool_only_turn_placeholder"
 
 func parseToolCalls(messageID string, raw string) []map[string]interface{} {
-	if strings.TrimSpace(raw) == "" {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return nil
 	}
 	var calls []map[string]interface{}
-	if err := json.Unmarshal([]byte(raw), &calls); err == nil {
+	arrayErr := json.Unmarshal([]byte(raw), &calls)
+	if arrayErr == nil {
 		return calls
-	} else {
-		var call map[string]interface{}
-		if singleErr := json.Unmarshal([]byte(raw), &call); singleErr == nil {
-			return []map[string]interface{}{call}
-		} else {
-			log.Printf("[Chat] tool_calls JSON inválido descartado message_id=%s: array=%v object=%v", messageID, err, singleErr)
-		}
 	}
+	var call map[string]interface{}
+	singleErr := json.Unmarshal([]byte(raw), &call)
+	if singleErr == nil {
+		return []map[string]interface{}{call}
+	}
+	log.Printf("[Chat] tool_calls JSON inválido descartado message_id=%s: array=%v object=%v", messageID, arrayErr, singleErr)
 	return nil
 }
 
@@ -149,6 +150,7 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 	finalContent := ""
 	finalReasoning := ""
 	allToolCalls := make([]map[string]interface{}, 0)
+	seenToolCallIDs := make(map[string]struct{})
 	for _, message := range messages {
 		if message.Role != "assistant" {
 			continue
@@ -164,6 +166,10 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 		for _, call := range parseToolCalls(message.ID, message.ToolCalls) {
 			callID, _ := call["id"].(string)
 			if callID != "" {
+				if _, seen := seenToolCallIDs[callID]; seen {
+					continue
+				}
+				seenToolCallIDs[callID] = struct{}{}
 				if result, ok := toolResults[callID]; ok {
 					call["result"] = result
 				}
