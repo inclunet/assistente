@@ -60,6 +60,19 @@ func TestConsolidateTimelineTurnMessages_ToolOnlyPlaceholderOrdersToolCalls(t *t
 	}
 }
 
+func TestMessageTimelineItemKey_UserMessagesIgnoreTurnID(t *testing.T) {
+	turnID := "turn-1"
+	message := database.ChatMessage{
+		UUIDModel: database.UUIDModel{ID: "user-1"},
+		Role:      "user",
+		TurnID:    &turnID,
+	}
+
+	if key := messageTimelineItemKey(message); key != "message:user-1" {
+		t.Fatalf("expected user message key to ignore TurnID, got %q", key)
+	}
+}
+
 func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	app := &App{}

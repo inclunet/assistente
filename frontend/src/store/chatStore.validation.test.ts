@@ -450,6 +450,44 @@ describe('chatStore validation', () => {
     expect(visibleIds?.some((id) => String(id).startsWith('streaming-'))).toBe(false);
   });
 
+  it('mantém representante persistido mais recente quando outro persistido colide no mesmo turno', async () => {
+    mockGetConversationInfo.mockResolvedValueOnce({ title: 'Conversa' });
+    const existingRepresentative = createMessageNode('assistant-newer') as unknown as MessageNode;
+    existingRepresentative.message.role = 'assistant';
+    existingRepresentative.message.turnId = 'turn-1';
+    existingRepresentative.message.content = 'representante mais novo';
+    existingRepresentative.originalIndex = 5;
+    const incomingRepresentative = createMessageNode('assistant-older') as unknown as MessageNode;
+    incomingRepresentative.message.role = 'assistant';
+    incomingRepresentative.message.turnId = 'turn-1';
+    incomingRepresentative.message.content = 'representante antigo';
+    incomingRepresentative.originalIndex = 2;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [incomingRepresentative],
+      totalCount: 6,
+      startIndex: 2,
+      endIndex: 2,
+      hasBefore: true,
+      hasAfter: true,
+    });
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [existingRepresentative],
+        },
+      },
+    });
+
+    await useChatStore.getState().loadConversationSession(defaultConversationId);
+
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages.map((node) => node.message.id))
+      .toEqual(['assistant-newer']);
+  });
+
   it('preserva nó persistido na superfície quando patch de streaming colide no mesmo turno', async () => {
     const canonicalNode = createMessageNode('assistant-final') as unknown as MessageNode;
     canonicalNode.message.role = 'assistant';
@@ -564,6 +602,58 @@ describe('chatStore validation', () => {
       startIndex: 9,
       endIndex: 10,
       totalCount: 11,
+      hasAfter: false,
+    });
+  });
+
+  it('não extrapola totalCount quando índice local antigo excede resposta canônica', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const staleNode = createMessageNode('stale-tail-message') as unknown as MessageNode;
+    staleNode.originalIndex = 99;
+    const olderNode = createMessageNode('older-message') as unknown as MessageNode;
+    olderNode.originalIndex = 88;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [olderNode],
+      totalCount: 90,
+      startIndex: 88,
+      endIndex: 88,
+      hasBefore: true,
+      hasAfter: false,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [staleNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          hasOlderMessages: true,
+          visibleThreadedMessages: [staleNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 100,
+            startIndex: 99,
+            endIndex: 99,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, originSessionKey);
+
+    expect(useChatStore.getState().surfaceSessionsByKey[originSessionKey].messageWindow).toMatchObject({
+      totalCount: 90,
       hasAfter: false,
     });
   });
@@ -723,7 +813,9 @@ describe('chatStore validation', () => {
     expect(timeline.map((node) => node.message.id)).toEqual(['user-1', 'assistant-1']);
     expect(localThread.map((node) => node.message.id)).toEqual(['user-1', 'assistant-1', 'internal-1']);
     expect(timeline.find((node) => node.message.id === 'assistant-1')?.message.content).toBe('Resposta canônica');
-    expect(localThread.find((node) => node.message.id === 'internal-1')?.message.turnId).toBeUndefined();
+    const internalMessage = localThread.find((node) => node.message.id === 'internal-1')?.message;
+    expect(internalMessage?.turnId).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(internalMessage, 'turnId')).toBe(false);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('addInternalMessage recebeu turnId'));
   });
 
@@ -776,6 +868,51 @@ describe('chatStore validation', () => {
       .toEqual(['message-1', 'internal-shared']);
     expect(useChatStore.getState().surfaceSessionsByKey[surfaceB].visibleThreadedMessages?.map((item) => item.message.id))
       .toEqual(['message-1', 'internal-shared']);
+  });
+
+  it('propaga mensagem interna para janela materializada da sessão default', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const node = createMessageNode('message-1') as unknown as MessageNode;
+    const defaultSessionKey = `conversation:${defaultConversationId}`;
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: {
+            id: defaultConversationId,
+            title: 'Conversa',
+            threadedMessages: [node],
+          },
+          visibleThreadedMessages: [node],
+        },
+      },
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [node],
+        },
+      },
+      surfaceSessionsByKey: {
+        [defaultSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, defaultSessionKey),
+          visibleThreadedMessages: [node],
+        },
+      },
+    });
+
+    useChatStore.getState().addInternalMessage({
+      id: 'internal-default',
+      conversationId: defaultConversationId,
+      role: 'system',
+      content: 'Aviso interno',
+      createdAt: new Date().toISOString(),
+    } as unknown as import('../lib/chatMessageTree').Message);
+
+    expect(useChatStore.getState().surfaceSessionsByKey[defaultSessionKey].visibleThreadedMessages?.map((item) => item.message.id))
+      .toEqual(['message-1', 'internal-default']);
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages.map((item) => item.message.id))
+      .toEqual(['message-1']);
   });
 
   it('envia sem recarregar quando timeline já está carregada sem sessão legada', async () => {

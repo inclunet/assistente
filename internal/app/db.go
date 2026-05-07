@@ -89,7 +89,8 @@ func assignMessageNodeOriginalIndexes(nodes []chat.MessageNode, indexesByID map[
 }
 
 func messageTimelineItemKey(message database.ChatMessage) string {
-	if message.TurnID != nil && *message.TurnID != "" {
+	// User messages stay as standalone timeline items; TurnID is only used to group assistant/tool responses.
+	if message.Role != "user" && message.TurnID != nil && *message.TurnID != "" {
 		return "turn:" + *message.TurnID
 	}
 	return "message:" + message.ID

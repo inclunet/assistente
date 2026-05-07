@@ -36,12 +36,16 @@ function cloneMessage(message: Message, overrides: Partial<Message> = {}): Messa
 }
 
 function createNode(input: Partial<MessageNode> & { message: Message }): MessageNode {
-  return new main.MessageNode({
+  const node = new main.MessageNode({
     children: [],
     childCount: 0,
     level: 0,
     ...input,
   }) as MessageNode;
+  if (!Object.prototype.hasOwnProperty.call(input.message, 'turnId')) {
+    delete (node.message as Message & { turnId?: string }).turnId;
+  }
+  return node;
 }
 
 function cloneNode(node: MessageNode, overrides: Partial<MessageNode> = {}): MessageNode {

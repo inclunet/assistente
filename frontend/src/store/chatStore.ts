@@ -100,6 +100,12 @@ const isPersistedMessageNode = (node: MessageNode | undefined): boolean => {
   return isPersistedTimelineNode(node);
 };
 
+const stripInternalMessageTurnId = (message: Message): Message => {
+  const messageWithoutTurnId = { ...(message as Message & { turnId?: string }) };
+  delete messageWithoutTurnId.turnId;
+  return messageWithoutTurnId as Message;
+};
+
 const getLastPersistedMessageId = (nodes: MessageNode[]): string | null => {
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
     const node = nodes[index];
@@ -303,6 +309,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   const mergeConversationNodes = (existing: MessageNode[], incoming: MessageNode[]): MessageNode[] => {
     if (incoming.length === 0) return existing;
     const byKey = new Map<string, MessageNode>();
+    const mergeTimelineNode = (existingNode: MessageNode, incomingNode: MessageNode, key: string): MessageNode => {
+      const existingIsPersisted = isPersistedMessageNode(existingNode);
+      const incomingIsPersisted = isPersistedMessageNode(incomingNode);
+      if (existingIsPersisted && !incomingIsPersisted) return existingNode;
+      if (!existingIsPersisted && incomingIsPersisted) return incomingNode;
+      if (
+        key.startsWith('turn:')
+        && existingIsPersisted
+        && incomingIsPersisted
+        && String(existingNode.message.id) !== String(incomingNode.message.id)
+      ) {
+        const existingIndex = existingNode.originalIndex ?? Number.NEGATIVE_INFINITY;
+        const incomingIndex = incomingNode.originalIndex ?? Number.NEGATIVE_INFINITY;
+        return incomingIndex >= existingIndex ? incomingNode : existingNode;
+      }
+      return mergeMessageNode(existingNode, incomingNode);
+    };
     for (const node of existing) {
       byKey.set(getTimelineNodeKey(node), node);
     }
@@ -313,16 +336,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         byKey.set(key, node);
         continue;
       }
-      const existingIsPersisted = isPersistedMessageNode(existingNode);
-      const incomingIsPersisted = isPersistedMessageNode(node);
-      if (existingIsPersisted && !incomingIsPersisted) {
-        continue;
-      }
-      if (!existingIsPersisted && incomingIsPersisted) {
-        byKey.set(key, node);
-        continue;
-      }
-      byKey.set(key, mergeMessageNode(existingNode, node));
+      byKey.set(key, mergeTimelineNode(existingNode, node, key));
     }
     return sortTimelineNodes(Array.from(byKey.values()));
   };
@@ -364,7 +378,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
       const startIndex = Math.min(...explicitIndexes);
       const endIndex = Math.max(...explicitIndexes);
-      const totalCount = Math.max(fallbackWindow.totalCount, endIndex + 1);
+      const totalCount = fallbackWindow.totalCount;
       return {
         ...fallbackWindow,
         totalCount,
@@ -1190,8 +1204,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const conversationId = String(message.conversationId || '');
       if (!conversationId) return;
       const messageForTree = message.turnId
-        // Preserve the Wails-generated message prototype; object spread would drop instance methods.
-        ? Object.assign(Object.create(Object.getPrototypeOf(message)), message, { turnId: undefined }) as Message
+        ? stripInternalMessageTurnId(message)
         : message;
       if (message.turnId) {
         console.warn('[Chat] addInternalMessage recebeu turnId; removendo para evitar colisão com timeline canônica');
