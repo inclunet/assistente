@@ -4,10 +4,11 @@ import "context"
 
 // StoredCredential representa credenciais já criptografadas para persistência.
 type StoredCredential struct {
-	ID      string
-	UserID  string
-	Pattern string
-	Auth    *AuthConfig
+	ID         string
+	UserID     string
+	Pattern    string
+	Auth       *AuthConfig
+	Unreadable bool
 }
 
 // KeyWrap contém a DEK embrulhada com senha mestre ou recovery key.

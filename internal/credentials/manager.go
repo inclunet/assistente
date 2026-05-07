@@ -128,7 +128,7 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 				return fmt.Errorf("listar credenciais persistidas após salvar: %w", err)
 			}
 			for _, entry := range persisted {
-				if entry.Pattern == pattern && entry.ID != "" {
+				if entry.Pattern == pattern && entry.UserID == userID && entry.ID != "" {
 					persistedID = entry.ID
 					userID = entry.UserID
 					break
@@ -235,6 +235,16 @@ func (m *Manager) listCredentialsWithContext(ctx context.Context, skipManaged bo
 		}
 		auth, err := m.decryptAuthRaw(dc.Auth)
 		if err != nil {
+			if skipManaged {
+				result = append(result, StoredCredential{
+					ID:         dc.ID,
+					UserID:     dc.UserID,
+					Pattern:    dc.Pattern,
+					Auth:       &AuthConfig{Type: dc.Auth.Type},
+					Unreadable: true,
+				})
+				continue
+			}
 			return nil, err
 		}
 		result = append(result, StoredCredential{ID: dc.ID, UserID: dc.UserID, Pattern: dc.Pattern, Auth: auth})

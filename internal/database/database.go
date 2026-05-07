@@ -165,7 +165,6 @@ func AdoptLegacyData(userID string) error {
 		tables := []string{
 			"llm_providers",
 			"conversations",
-			"credential_entries",
 			"task_lists",
 		}
 		for _, table := range tables {
@@ -175,6 +174,32 @@ func AdoptLegacyData(userID string) error {
 			).Error; err != nil {
 				return err
 			}
+		}
+		if err := tx.Exec(
+			"UPDATE credential_entries SET user_id = ? WHERE (user_id IS NULL OR user_id = '') AND pattern NOT LIKE 'internal-auth:%' AND pattern NOT LIKE 'internal-tls:%'",
+			userID,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(
+			`DELETE FROM credential_entries
+			 WHERE (pattern LIKE 'internal-auth:%' OR pattern LIKE 'internal-tls:%')
+			   AND user_id != ''
+			   AND EXISTS (
+			     SELECT 1 FROM credential_entries existing
+			     WHERE existing.pattern = credential_entries.pattern
+			       AND (existing.user_id IS NULL OR existing.user_id = '')
+			   )`,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(
+			`UPDATE credential_entries
+			 SET user_id = ''
+			 WHERE (pattern LIKE 'internal-auth:%' OR pattern LIKE 'internal-tls:%')
+			   AND user_id != ''`,
+		).Error; err != nil {
+			return err
 		}
 		return nil
 	})

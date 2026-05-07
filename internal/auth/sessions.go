@@ -108,6 +108,18 @@ func (s *SessionService) IssueSession(ctx context.Context, user *database.User, 
 }
 
 func (s *SessionService) Refresh(ctx context.Context, refreshToken string) (*TokenPair, error) {
+	return s.refresh(ctx, refreshToken, true)
+}
+
+// RefreshLocalCandidate refreshes a desktop-local candidate token without
+// revoking the session on hash mismatch. The desktop app may have multiple
+// local stores during migration (keyring and encrypted credential store), so a
+// stale candidate must not invalidate the current candidate before it is tried.
+func (s *SessionService) RefreshLocalCandidate(ctx context.Context, refreshToken string) (*TokenPair, error) {
+	return s.refresh(ctx, refreshToken, false)
+}
+
+func (s *SessionService) refresh(ctx context.Context, refreshToken string, revokeOnMismatch bool) (*TokenPair, error) {
 	sessionID, secret, err := parseRefreshToken(refreshToken)
 	if err != nil {
 		return nil, err
@@ -130,8 +142,10 @@ func (s *SessionService) Refresh(ctx context.Context, refreshToken string) (*Tok
 		return nil, ErrSessionExpired
 	}
 	if session.RefreshTokenHash != hashRefreshSecret(secret) {
-		revokedAt := now
-		_ = s.db.WithContext(ctx).Model(&database.Session{}).Where("id = ?", session.ID).Update("revoked_at", revokedAt).Error
+		if revokeOnMismatch {
+			revokedAt := now
+			_ = s.db.WithContext(ctx).Model(&database.Session{}).Where("id = ?", session.ID).Update("revoked_at", revokedAt).Error
+		}
 		return nil, ErrInvalidRefreshToken
 	}
 

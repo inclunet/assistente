@@ -14,6 +14,11 @@ const (
 	InstanceSecretTLSCertificate   = "internal-tls:certificate"
 )
 
+func IsInstanceSecretPattern(pattern string) bool {
+	pattern = strings.TrimSpace(pattern)
+	return strings.HasPrefix(pattern, "internal-auth:") || strings.HasPrefix(pattern, "internal-tls:")
+}
+
 // RegisterInstanceSecret stores an instance-scoped secret encrypted by the
 // global DEK. Instance secrets intentionally have no user_id.
 func (m *Manager) RegisterInstanceSecret(pattern, value string) error {
@@ -41,11 +46,42 @@ func (m *Manager) GetInstanceSecret(pattern string) (string, bool, error) {
 	if !IsManagedPattern(pattern) {
 		return "", false, fmt.Errorf("pattern %q não é reservado para segredo gerenciado", pattern)
 	}
-	auth, err := m.GetByPatternWithContext(context.Background(), pattern)
-	if err != nil || auth == nil {
+
+	auth, err := m.getInstanceSecretAuth(pattern, true)
+	if err != nil {
 		return "", false, err
 	}
+	if auth == nil {
+		auth, err = m.getInstanceSecretAuth(pattern, false)
+		if err != nil || auth == nil {
+			return "", false, err
+		}
+	}
 	return auth.Token, auth.Token != "", nil
+}
+
+func (m *Manager) getInstanceSecretAuth(pattern string, requireUnscoped bool) (*AuthConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, dc := range m.credentials {
+		if dc.Pattern != pattern {
+			continue
+		}
+		if requireUnscoped && dc.UserID != "" {
+			continue
+		}
+		auth, err := m.decryptAuth(dc.Auth)
+		if err != nil {
+			scope := dc.UserID
+			if scope == "" {
+				scope = "<instância>"
+			}
+			return nil, fmt.Errorf("credencial %q ilegível para escopo %q: %w", pattern, scope, err)
+		}
+		return auth, nil
+	}
+	return nil, nil
 }
 
 func (m *Manager) DeleteInstanceSecret(pattern string) error {

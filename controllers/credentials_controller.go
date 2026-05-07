@@ -76,10 +76,14 @@ func (c *CredentialsController) ListCredentialsWithContext(ctx context.Context) 
 		if entry.Auth == nil {
 			continue
 		}
+		masked := credentials.SummarizeAuth(entry.Auth)
+		if entry.Unreadable {
+			masked = "ilegível - redigite para substituir"
+		}
 		result = append(result, CredentialSummary{
 			Pattern: entry.Pattern,
 			Type:    entry.Auth.Type,
-			Masked:  credentials.SummarizeAuth(entry.Auth),
+			Masked:  masked,
 			Managed: credentials.IsManagedPattern(entry.Pattern),
 		})
 	}

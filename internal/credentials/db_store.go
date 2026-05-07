@@ -53,6 +53,9 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 			userID = scopedUserID
 		}
 	}
+	if IsInstanceSecretPattern(cred.Pattern) {
+		userID = ""
+	}
 
 	entry := database.CredentialEntry{
 		UUIDModel: database.UUIDModel{

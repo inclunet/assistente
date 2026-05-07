@@ -169,18 +169,23 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 		return nil, err
 	}
 
-	refreshToken, ok, err := a.loadAuthRefreshToken()
-	if err != nil {
-		return nil, err
+	candidates := a.loadAuthRefreshTokenCandidates()
+	if reqToken := strings.TrimSpace(req.RefreshToken); reqToken != "" {
+		candidates = appendUniqueToken(candidates, reqToken)
 	}
-	if !ok {
-		refreshToken = strings.TrimSpace(req.RefreshToken)
-	}
-	if refreshToken == "" {
+	if len(candidates) == 0 {
 		return nil, auth.ErrInvalidRefreshToken
 	}
-	pair, err := a.sessionSvc.Refresh(context.Background(), refreshToken)
-	if err != nil {
+
+	var pair *auth.TokenPair
+	var err error
+	for _, refreshToken := range candidates {
+		pair, err = a.sessionSvc.RefreshLocalCandidate(context.Background(), refreshToken)
+		if err == nil {
+			break
+		}
+	}
+	if pair == nil {
 		_ = a.clearAuthRefreshToken()
 		return nil, err
 	}
@@ -197,6 +202,33 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 		a.reloadUserScopedRuntime()
 	}
 	return a.GetAuthUser()
+}
+
+func appendUniqueToken(tokens []string, token string) []string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return tokens
+	}
+	for _, existing := range tokens {
+		if existing == token {
+			return tokens
+		}
+	}
+	return append(tokens, token)
+}
+
+func (a *App) loadAuthRefreshTokenCandidates() []string {
+	tokens := make([]string, 0, 3)
+	if token, err := a.loadAuthRefreshTokenFromKeychain(); err == nil {
+		tokens = appendUniqueToken(tokens, token)
+	}
+	if a.credMgr != nil {
+		token, ok, err := a.credMgr.GetInstanceSecret(credentials.InstanceSecretAuthRefreshToken)
+		if err == nil && ok {
+			tokens = appendUniqueToken(tokens, token)
+		}
+	}
+	return tokens
 }
 
 func (a *App) Logout(req LogoutRequest) error {
@@ -228,10 +260,7 @@ func (a *App) Logout(req LogoutRequest) error {
 func (a *App) loadAuthRefreshToken() (string, bool, error) {
 	if a.credMgr != nil {
 		token, ok, err := a.credMgr.GetInstanceSecret(credentials.InstanceSecretAuthRefreshToken)
-		if err != nil {
-			return "", false, err
-		}
-		if ok {
+		if err == nil && ok {
 			return token, true, nil
 		}
 	}
