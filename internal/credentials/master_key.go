@@ -51,6 +51,24 @@ func SetupMasterKey(store Store, masterPassword string) (*MasterKeySetupResult, 
 	return SetupMasterKeyForDEK(store, masterPassword, dek)
 }
 
+// SetupMasterKeyAdoptingKeychain cria os wraps de senha/recovery adotando a DEK
+// já existente no keyring quando presente. Se a entrada do keyring existir mas
+// não puder ser lida, falha em vez de gerar uma nova DEK e tornar credenciais
+// já persistidas indecifráveis.
+func SetupMasterKeyAdoptingKeychain(store Store, masterPassword string) (*MasterKeySetupResult, error) {
+	existingDEK, err := LoadDEKFromKeychain()
+	if err == nil {
+		if len(existingDEK) == 0 {
+			return nil, errors.New("DEK existente no keyring está vazia")
+		}
+		return SetupMasterKeyForDEK(store, masterPassword, existingDEK)
+	}
+	if !IsKeychainNotFound(err) {
+		return nil, err
+	}
+	return SetupMasterKey(store, masterPassword)
+}
+
 // SetupMasterKeyForDEK embrulha uma DEK já existente com senha mestre e recovery key.
 // Usado ao adotar instalações que já tinham a DEK no keyring antes da AEP-0052.
 func SetupMasterKeyForDEK(store Store, masterPassword string, dek []byte) (*MasterKeySetupResult, error) {

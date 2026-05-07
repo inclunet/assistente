@@ -230,7 +230,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 				continue
 			}
 
-			setupResult, err := credentials.SetupMasterKey(store, masterPassword)
+			setupResult, err := credentials.SetupMasterKeyAdoptingKeychain(store, masterPassword)
 			if err != nil {
 				return false, err
 			}

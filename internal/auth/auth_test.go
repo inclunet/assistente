@@ -287,6 +287,27 @@ func TestVaultSetupAdoptsExistingKeyringDEK(t *testing.T) {
 	}
 }
 
+func TestVaultSetupDoesNotReplaceUnreadableKeyringDEK(t *testing.T) {
+	store := newMemoryCredentialStore()
+	keyringErr := errors.New("keyring indisponível")
+
+	vault := NewVaultService(store, nil)
+	vault.loadKeyring = func() ([]byte, error) {
+		return nil, keyringErr
+	}
+	vault.saveKeyring = func([]byte) error {
+		t.Fatal("setup must not save a new DEK when keyring read fails")
+		return nil
+	}
+
+	if _, err := vault.Setup(context.Background(), "master-password"); !errors.Is(err, keyringErr) {
+		t.Fatalf("expected keyring error, got %v", err)
+	}
+	if has, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster); err != nil || has {
+		t.Fatalf("master wrap should not be created after keyring error: has=%v err=%v", has, err)
+	}
+}
+
 type memoryCredentialStore struct {
 	wraps map[string]credentials.KeyWrap
 }

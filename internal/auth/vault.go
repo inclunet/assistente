@@ -61,11 +61,17 @@ func (s *VaultService) Setup(ctx context.Context, masterPassword string) (string
 	var result *credentials.MasterKeySetupResult
 	var err error
 	if s.loadKeyring != nil {
-		if existingDEK, loadErr := s.loadKeyring(); loadErr == nil && len(existingDEK) > 0 {
+		existingDEK, loadErr := s.loadKeyring()
+		if loadErr == nil {
+			if len(existingDEK) == 0 {
+				return "", errors.New("DEK existente no keyring está vazia")
+			}
 			result, err = credentials.SetupMasterKeyForDEK(s.store, masterPassword, existingDEK)
+		} else if !credentials.IsKeychainNotFound(loadErr) {
+			return "", loadErr
 		}
 	}
-	if result == nil && err == nil {
+	if result == nil {
 		result, err = credentials.SetupMasterKey(s.store, masterPassword)
 	}
 	if err != nil {

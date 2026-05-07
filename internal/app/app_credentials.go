@@ -219,7 +219,7 @@ func (a *App) HasMasterKey() bool {
 // Após sucesso, o credential manager é reconfigurado com persistência ativada.
 func (a *App) SetupMasterPassword(password string) (string, error) {
 	store := credentials.NewDBStore()
-	result, err := credentials.SetupMasterKey(store, password)
+	result, err := credentials.SetupMasterKeyAdoptingKeychain(store, password)
 	if err != nil {
 		return "", err
 	}
