@@ -1,6 +1,9 @@
 package speech
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestIsTTSModel(t *testing.T) {
 	tests := []struct {
@@ -239,7 +242,7 @@ func TestSelectionModeForTTSModel(t *testing.T) {
 func TestFetchVoicesForDynamicTTSFamilies(t *testing.T) {
 	client := &TTSClient{}
 
-	qwenVoices, err := client.FetchVoices("qwen3-tts-0.6b-custom-voice")
+	qwenVoices, err := client.FetchVoices(context.Background(), "qwen3-tts-0.6b-custom-voice")
 	if err != nil {
 		t.Fatalf("FetchVoices(qwen): %v", err)
 	}
@@ -247,7 +250,7 @@ func TestFetchVoicesForDynamicTTSFamilies(t *testing.T) {
 		t.Fatalf("Qwen CustomVoice voices missing expected speakers: %+v", qwenVoices)
 	}
 
-	kokoroVoices, err := client.FetchVoices("kokoros")
+	kokoroVoices, err := client.FetchVoices(context.Background(), "kokoros")
 	if err != nil {
 		t.Fatalf("FetchVoices(kokoro): %v", err)
 	}
@@ -255,7 +258,7 @@ func TestFetchVoicesForDynamicTTSFamilies(t *testing.T) {
 		t.Fatalf("Kokoro voices missing expected speakers: %+v", kokoroVoices)
 	}
 
-	modelOnlyVoices, err := client.FetchVoices("voice-pt_BR-cadu-medium")
+	modelOnlyVoices, err := client.FetchVoices(context.Background(), "voice-pt_BR-cadu-medium")
 	if err != nil {
 		t.Fatalf("FetchVoices(model-only): %v", err)
 	}

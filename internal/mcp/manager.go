@@ -88,6 +88,7 @@ type Manager struct {
 	connectCancels map[string]context.CancelFunc                          // slug -> cancel for in-flight Connect()
 	ctx            context.Context
 	cancel         context.CancelFunc
+	authContext    func() context.Context
 	roots          []Root // workspace roots globais
 	lastSelfWrite  time.Time
 }
@@ -106,6 +107,28 @@ func NewManager(registry *tools.Registry, credMgr *credentials.Manager, emitEven
 		ctx:            ctx,
 		cancel:         cancel,
 	}
+}
+
+// SetAuthContextProvider configura o contexto usado para resolver credenciais
+// user-scoped de servidores MCP.
+func (m *Manager) SetAuthContextProvider(provider func() context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.authContext = provider
+}
+
+func (m *Manager) credentialContext() context.Context {
+	m.mu.RLock()
+	provider := m.authContext
+	m.mu.RUnlock()
+	if provider == nil {
+		return context.Background()
+	}
+	ctx := provider()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 // SetSamplingHandler configura o handler para requisições de sampling dos servidores.
@@ -822,7 +845,7 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 
 	case AuthBearer:
 		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Token != "" {
+			if auth, err := m.credMgr.ResolveForURLWithContext(m.credentialContext(), cfg.URL); err == nil && auth != nil && auth.Token != "" {
 				client := &http.Client{
 					Transport: &bearerRoundTripper{
 						base:  newMCPTransport(),
@@ -838,7 +861,7 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 
 	case AuthBasic:
 		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Username != "" {
+			if auth, err := m.credMgr.ResolveForURLWithContext(m.credentialContext(), cfg.URL); err == nil && auth != nil && auth.Username != "" {
 				client := &http.Client{
 					Transport: &basicAuthRoundTripper{
 						base:     newMCPTransport(),

@@ -12,6 +12,7 @@ import (
 
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/tools"
 )
 
@@ -1026,6 +1027,43 @@ func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
 
 	if gotAuth != "Bearer already-prefixed" {
 		t.Fatalf("Authorization header: got %q, want %q", gotAuth, "Bearer already-prefixed")
+	}
+}
+
+func TestBuildAuthHTTPClientResolvesUserScopedBearer(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newTestManager()
+	userCtx := database.WithUserID(context.Background(), "user-1")
+	m.SetAuthContextProvider(func() context.Context { return userCtx })
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "user-token",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext failed: %v", err)
+	}
+
+	client := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if client == nil {
+		t.Fatal("expected authenticated HTTP client")
+	}
+
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if gotAuth != "Bearer user-token" {
+		t.Fatalf("Authorization header: got %q, want %q", gotAuth, "Bearer user-token")
 	}
 }
 

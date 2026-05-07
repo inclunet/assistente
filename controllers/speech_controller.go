@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"context"
+
 	"assistente/internal/llm"
 	"assistente/internal/speech"
 )
@@ -85,15 +87,15 @@ func (c *SpeechController) GetSpeechProviders() []*llm.ProviderConfig {
 }
 
 func (c *SpeechController) GetTTSModels(providerID string) []speech.TTSModelInfo {
-	return c.speechSvc.GetTTSModels(providerID)
+	return c.speechSvc.GetTTSModels(context.Background(), providerID)
 }
 
 func (c *SpeechController) GetTTSVoices(providerID, modelID string) []speech.TTSVoiceInfo {
-	return c.speechSvc.GetTTSVoices(providerID, modelID)
+	return c.speechSvc.GetTTSVoices(context.Background(), providerID, modelID)
 }
 
 func (c *SpeechController) GetSTTModels(providerID string) []speech.SpeechModelInfo {
-	return c.speechSvc.GetSTTModels(providerID)
+	return c.speechSvc.GetSTTModels(context.Background(), providerID)
 }
 
 func (c *SpeechController) SpeakPreview(providerID, model, voiceID string, rate, volume float64, language, text, sessionID string) error {

@@ -102,15 +102,15 @@ func (a *App) GetSpeechProviders() []*llm.ProviderConfig {
 }
 
 func (a *App) GetTTSModels(providerID string) []speech.TTSModelInfo {
-	return a.speechSvc.GetTTSModels(providerID)
+	return a.speechSvc.GetTTSModels(a.authenticatedContext(), providerID)
 }
 
 func (a *App) GetTTSVoices(providerID, modelID string) []speech.TTSVoiceInfo {
-	return a.speechSvc.GetTTSVoices(providerID, modelID)
+	return a.speechSvc.GetTTSVoices(a.authenticatedContext(), providerID, modelID)
 }
 
 func (a *App) GetSTTModels(providerID string) []speech.SpeechModelInfo {
-	return a.speechSvc.GetSTTModels(providerID)
+	return a.speechSvc.GetSTTModels(a.authenticatedContext(), providerID)
 }
 
 func (a *App) SpeakPreview(providerID, model, voiceID string, rate, volume float64, language, text, sessionID string) error {

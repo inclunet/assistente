@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"context"
 	"fmt"
 
 	"assistente/internal/credentials"
@@ -17,7 +16,7 @@ func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clie
 		return err
 	}
 
-	ctx := context.Background()
+	ctx := m.credentialContext()
 
 	switch authType {
 	case "bearer":
@@ -58,7 +57,7 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 		return fmt.Errorf("credential manager nao inicializado")
 	}
 
-	ctx := context.Background()
+	ctx := m.credentialContext()
 
 	// Limpar entradas OAuth (client + tokens)
 	_ = m.credMgr.DeletePattern(ctx, clientCredPattern(slug))

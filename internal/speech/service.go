@@ -248,7 +248,7 @@ func (s *Service) GenerateAndSaveMessageAudio(messageID string, text string) (*A
 }
 
 // GetTTSModels retorna modelos TTS disponíveis para um provedor.
-func (s *Service) GetTTSModels(providerID string) []TTSModelInfo {
+func (s *Service) GetTTSModels(ctx context.Context, providerID string) []TTSModelInfo {
 	if providerID == "" {
 		return []TTSModelInfo{}
 	}
@@ -260,7 +260,7 @@ func (s *Service) GetTTSModels(providerID string) []TTSModelInfo {
 		log.Printf("[GetTTSModels] não foi possível criar client para provider %s", providerID)
 		return []TTSModelInfo{}
 	}
-	models, err := client.FetchTTSModels()
+	models, err := client.FetchTTSModels(ctx)
 	if err != nil {
 		log.Printf("[GetTTSModels] erro ao buscar modelos para %s: %v", providerID, err)
 		return []TTSModelInfo{}
@@ -269,7 +269,7 @@ func (s *Service) GetTTSModels(providerID string) []TTSModelInfo {
 }
 
 // GetTTSVoices retorna vozes TTS disponíveis para um provedor e modelo.
-func (s *Service) GetTTSVoices(providerID, modelID string) []TTSVoiceInfo {
+func (s *Service) GetTTSVoices(ctx context.Context, providerID, modelID string) []TTSVoiceInfo {
 	if providerID == "" {
 		return []TTSVoiceInfo{}
 	}
@@ -306,7 +306,7 @@ func (s *Service) GetTTSVoices(providerID, modelID string) []TTSVoiceInfo {
 		return []TTSVoiceInfo{}
 	}
 
-	voices, err := client.FetchVoices(modelID)
+	voices, err := client.FetchVoices(ctx, modelID)
 	if err != nil {
 		log.Printf("[GetTTSVoices] erro ao buscar vozes para %s: %v", providerID, err)
 		return []TTSVoiceInfo{}
@@ -316,7 +316,7 @@ func (s *Service) GetTTSVoices(providerID, modelID string) []TTSVoiceInfo {
 }
 
 // GetSTTModels retorna modelos STT disponíveis para um provedor.
-func (s *Service) GetSTTModels(providerID string) []SpeechModelInfo {
+func (s *Service) GetSTTModels(ctx context.Context, providerID string) []SpeechModelInfo {
 	if providerID == "" {
 		return []SpeechModelInfo{}
 	}
@@ -324,7 +324,7 @@ func (s *Service) GetSTTModels(providerID string) []SpeechModelInfo {
 	if client == nil {
 		return StaticSTTModels()
 	}
-	return client.FetchSTTModels()
+	return client.FetchSTTModels(ctx)
 }
 
 // SynthesizeStream executa síntese com streaming, emitindo eventos via Emitter.

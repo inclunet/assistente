@@ -78,6 +78,7 @@ func (a *App) initMCP() {
 	}
 
 	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, a.credMgr, emitEvent)
+	a.mcpMgr.SetAuthContextProvider(a.authenticatedContext)
 
 	// Carrega configs e auto-conecta servidores habilitados
 	if err := a.mcpMgr.LoadConfigs(); err != nil {

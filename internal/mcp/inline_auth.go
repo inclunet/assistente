@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
 	"log"
 	"strings"
@@ -35,7 +34,7 @@ func (m *Manager) importBearerCredential(slug, rawURL, token string) {
 		log.Printf("[MCP:%s] Authorization Bearer encontrado, mas URL inválida para credencial", slug)
 		return
 	}
-	if err := m.credMgr.RegisterPatternWithContext(context.Background(), hostname, &credentials.AuthConfig{
+	if err := m.credMgr.RegisterPatternWithContext(m.credentialContext(), hostname, &credentials.AuthConfig{
 		Type:  "bearer",
 		Token: token,
 	}); err != nil {
