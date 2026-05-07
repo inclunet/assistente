@@ -38,6 +38,7 @@ import {
 } from '../services/messageWindowLimits';
 import {
   createEmptyChatSurfaceSession,
+  getDefaultChatSessionKey,
   getChatSession,
   getConversationTimeline,
   patchChatConversation,
@@ -346,9 +347,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     keep: 'start' | 'end',
   ): { nodes: MessageNode[]; window: MessageWindowState } => {
     const reconcileWindowFromNodes = (visibleNodes: MessageNode[], fallbackWindow: MessageWindowState): MessageWindowState => {
-      const explicitIndexes = visibleNodes
-        .map((node) => node.originalIndex)
-        .filter((index): index is number => index !== undefined);
       if (visibleNodes.length === 0) {
         return {
           ...fallbackWindow,
@@ -358,7 +356,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           hasAfter: fallbackWindow.totalCount > 0,
         };
       }
-      if (explicitIndexes.length !== visibleNodes.length) {
+      const explicitIndexes = visibleNodes
+        .map((node) => node.originalIndex)
+        .filter((index): index is number => index !== undefined);
+      if (explicitIndexes.length === 0) {
         return fallbackWindow;
       }
       const startIndex = Math.min(...explicitIndexes);
@@ -1211,9 +1212,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           ...updatedTimeline,
           threadedMessages: updatedTimeline.threadedMessages.filter(isPersistedMessageNode),
         };
+        const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey ?? {}) };
+        const defaultSessionKey = getDefaultChatSessionKey(conversationId);
+        for (const [key, surfaceSession] of Object.entries(state.surfaceSessionsByKey ?? {})) {
+          if (key === defaultSessionKey || surfaceSession.conversationId !== conversationId || !surfaceSession.visibleThreadedMessages) {
+            continue;
+          }
+          surfaceSessionsByKey[key] = {
+            ...surfaceSession,
+            visibleThreadedMessages: capRenderedNodesAtEnd(
+              appendInternalMessageToTree(surfaceSession.visibleThreadedMessages, messageForTree),
+            ),
+          };
+        }
         return {
           ...patches,
           timelinesByConversationId,
+          surfaceSessionsByKey,
         };
       });
     },

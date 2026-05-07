@@ -298,6 +298,12 @@ func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceh
 	if turnNode.Message.Role != "assistant" || turnNode.Message.Content != "" {
 		t.Fatalf("expected assistant placeholder for tool-only turn, got role=%q content=%q", turnNode.Message.Role, turnNode.Message.Content)
 	}
+	if turnNode.Message.Source != toolOnlyTurnPlaceholderSource {
+		t.Fatalf("expected tool-only placeholder source, got %q", turnNode.Message.Source)
+	}
+	if !strings.Contains(turnNode.Message.ToolCalls, "resultado preservado") {
+		t.Fatalf("expected tool result preserved in placeholder tool calls, got %s", turnNode.Message.ToolCalls)
+	}
 	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
 		t.Fatalf("expected canonical originalIndex=1 for tool-only turn, got %v", turnNode.OriginalIndex)
 	}

@@ -450,6 +450,64 @@ describe('chatStore validation', () => {
     expect(visibleIds?.some((id) => String(id).startsWith('streaming-'))).toBe(false);
   });
 
+  it('recalcula metadados da janela usando índices persistidos quando há transient visível', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const currentNode = createMessageNode('current-message') as unknown as MessageNode;
+    currentNode.originalIndex = 10;
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.turnId = 'stream-turn';
+    streamingNode.message.isStreaming = true;
+    const olderNode = createMessageNode('older-message') as unknown as MessageNode;
+    olderNode.originalIndex = 9;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [olderNode],
+      totalCount: 11,
+      startIndex: 9,
+      endIndex: 9,
+      hasBefore: true,
+      hasAfter: true,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [currentNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          hasOlderMessages: true,
+          visibleThreadedMessages: [currentNode, streamingNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 100,
+            startIndex: 10,
+            endIndex: 99,
+            hasBefore: true,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, originSessionKey);
+
+    expect(useChatStore.getState().surfaceSessionsByKey[originSessionKey].messageWindow).toMatchObject({
+      startIndex: 9,
+      endIndex: 10,
+      totalCount: 11,
+      hasAfter: false,
+    });
+  });
+
   it('limpa hasBefore quando não há âncora persistida para paginação anterior', async () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
@@ -607,6 +665,57 @@ describe('chatStore validation', () => {
     expect(timeline.find((node) => node.message.id === 'assistant-1')?.message.content).toBe('Resposta canônica');
     expect(localThread.find((node) => node.message.id === 'internal-1')?.message.turnId).toBeUndefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('addInternalMessage recebeu turnId'));
+  });
+
+  it('propaga mensagem interna para superfícies visíveis sem gravar no cache compartilhado', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const node = createMessageNode('message-1') as unknown as MessageNode;
+    const surfaceA = `tab-a:${defaultConversationId}`;
+    const surfaceB = `tab-b:${defaultConversationId}`;
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: {
+            id: defaultConversationId,
+            title: 'Conversa',
+            threadedMessages: [node],
+          },
+        },
+      },
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [node],
+        },
+      },
+      surfaceSessionsByKey: {
+        [surfaceA]: {
+          ...createEmptyChatSession(defaultConversationId, surfaceA),
+          visibleThreadedMessages: [node],
+        },
+        [surfaceB]: {
+          ...createEmptyChatSession(defaultConversationId, surfaceB),
+          visibleThreadedMessages: [node],
+        },
+      },
+    });
+
+    useChatStore.getState().addInternalMessage({
+      id: 'internal-shared',
+      conversationId: defaultConversationId,
+      role: 'system',
+      content: 'Aviso interno',
+      createdAt: new Date().toISOString(),
+    } as unknown as import('../lib/chatMessageTree').Message);
+
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages.map((item) => item.message.id))
+      .toEqual(['message-1']);
+    expect(useChatStore.getState().surfaceSessionsByKey[surfaceA].visibleThreadedMessages?.map((item) => item.message.id))
+      .toEqual(['message-1', 'internal-shared']);
+    expect(useChatStore.getState().surfaceSessionsByKey[surfaceB].visibleThreadedMessages?.map((item) => item.message.id))
+      .toEqual(['message-1', 'internal-shared']);
   });
 
   it('envia sem recarregar quando timeline já está carregada sem sessão legada', async () => {

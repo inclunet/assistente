@@ -101,6 +101,8 @@ func timelineWindowItemKey(item database.MessageWindowItem) string {
 	return "message:" + item.MessageID
 }
 
+const toolOnlyTurnPlaceholderSource = "tool_only_turn_placeholder"
+
 func parseToolCalls(raw string) []map[string]interface{} {
 	if strings.TrimSpace(raw) == "" {
 		return nil
@@ -162,7 +164,23 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 		consolidated.Content = ""
 		consolidated.Reasoning = ""
 		consolidated.ToolCallID = ""
-		consolidated.ToolCalls = ""
+		consolidated.Source = toolOnlyTurnPlaceholderSource
+		placeholderCalls := make([]map[string]interface{}, 0, len(toolResults))
+		for callID, result := range toolResults {
+			placeholderCalls = append(placeholderCalls, map[string]interface{}{
+				"id":       callID,
+				"type":     "function",
+				"function": map[string]interface{}{"name": "tool_result", "arguments": ""},
+				"result":   result,
+			})
+		}
+		if len(placeholderCalls) > 0 {
+			if encoded, err := json.Marshal(placeholderCalls); err == nil {
+				consolidated.ToolCalls = string(encoded)
+			}
+		} else {
+			consolidated.ToolCalls = ""
+		}
 		return consolidated
 	}
 	consolidated.Content = finalContent

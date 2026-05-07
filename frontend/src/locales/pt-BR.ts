@@ -122,6 +122,7 @@ const ptBR = {
       modelThinking: 'O modelo está pensando',
       modelReasoning: 'Raciocínio do modelo',
       reasoning: 'Raciocínio',
+      toolOnlyTurnPlaceholder: 'Turno sem resposta do assistente. Os resultados de ferramenta preservados aparecem abaixo.',
       slashCommands: 'Slash commands',
       noSkillsFound: 'Nenhum skill encontrado',
       availableSkills: 'Skills disponíveis',
