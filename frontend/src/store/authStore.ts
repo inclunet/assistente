@@ -77,6 +77,9 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       await UnlockVault(kind, secret);
       const status = (await GetAuthStatus()) as AuthStatus;
       set({ status, isLoading: false });
+      if (status.vaultUnlocked && status.hasUsers) {
+        await get().refresh();
+      }
     } catch (error) {
       set({ error: errorMessage(error), isLoading: false });
       throw error;
