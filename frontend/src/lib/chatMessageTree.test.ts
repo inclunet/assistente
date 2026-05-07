@@ -71,6 +71,28 @@ describe('chatMessageTree', () => {
     expect(updated[1].children).toEqual([]);
   });
 
+  it('preserves root position when re-emitted internal message gains parentId', () => {
+    const nodes = [node(message('parent', 'user'))];
+    const first = appendInternalMessageToTree(nodes, message('internal-1', 'system', 'foo'));
+    const updated = appendInternalMessageToTree(first, message('internal-1', 'system', 'bar', 'parent'));
+
+    expect(updated.map((item) => item.message.id)).toEqual(['parent', 'internal-1']);
+    expect(updated[1].message.content).toBe('bar');
+    expect(updated[1].message.parentId).toBeUndefined();
+    expect(updated[0].children).toEqual([]);
+  });
+
+  it('preserves nested position when re-emitted internal message omits parentId', () => {
+    const nodes = [node(message('parent', 'user'))];
+    const first = appendInternalMessageToTree(nodes, message('internal-1', 'system', 'foo', 'parent'));
+    const updated = appendInternalMessageToTree(first, message('internal-1', 'system', 'bar'));
+
+    expect(updated.map((item) => item.message.id)).toEqual(['parent']);
+    expect(updated[0].children?.[0].message.id).toBe('internal-1');
+    expect(updated[0].children?.[0].message.content).toBe('bar');
+    expect(updated[0].children?.[0].message.parentId).toBe('parent');
+  });
+
   it('preserves turn segments when updating an existing internal message', () => {
     const nodes = [node(message('parent', 'user'))];
     const first = message('internal-1', 'system', 'foo', 'parent');

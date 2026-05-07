@@ -33,6 +33,7 @@ function cloneMessage(message: Message, overrides: Partial<Message> = {}): Messa
     ...message,
     ...overrides,
   }) as Message;
+  // Omitting _turnSegments in overrides preserves existing segments; pass [] to clear explicitly.
   const turnSegments = overrides._turnSegments ?? message._turnSegments;
   if (turnSegments) cloned._turnSegments = turnSegments;
   return cloned;
@@ -52,7 +53,7 @@ function createNode(input: Partial<MessageNode> & { message: Message }): Message
     (node.message as Message)._turnSegments = (input.message as Message)._turnSegments;
   }
   if (input.children) {
-    node.children = input.children;
+    node.children = [...input.children];
   }
   return node;
 }
@@ -223,7 +224,6 @@ function replaceMessageInTree(nodes: MessageNode[], message: Message): { nodes: 
         message: cloneMessage(node.message, {
           ...message,
           parentId: node.message.parentId,
-          _turnSegments: message._turnSegments ?? (node.message as Message)._turnSegments,
         }),
       });
       return { nodes: updatedNodes, found: true };
