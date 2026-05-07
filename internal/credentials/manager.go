@@ -247,7 +247,15 @@ func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (
 			continue
 		}
 		if dc.Pattern == pattern {
-			return m.decryptAuth(dc.Auth)
+			auth, err := m.decryptAuth(dc.Auth)
+			if err != nil {
+				scope := userID
+				if scope == "" {
+					scope = "<sem usuario autenticado>"
+				}
+				return nil, fmt.Errorf("credencial %q ilegível para usuário %q: %w", pattern, scope, err)
+			}
+			return auth, nil
 		}
 	}
 

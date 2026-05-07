@@ -361,6 +361,9 @@ func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 		credConfigured := false
 		if p.CredentialPattern != "" {
 			auth, err := s.credMgr.GetByPatternWithContext(ctx, p.CredentialPattern)
+			if err != nil {
+				log.Printf("[providers] Credencial '%s' do provider '%s' não pode ser usada: %v", p.CredentialPattern, p.ID, err)
+			}
 			credConfigured = err == nil && auth != nil
 		}
 		result = append(result, ProviderStatus{Provider: p, CredentialConfigured: credConfigured})

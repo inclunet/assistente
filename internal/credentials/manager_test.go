@@ -764,6 +764,38 @@ func TestLoadFromStorePreservesUserScope(t *testing.T) {
 	}
 }
 
+func TestGetByPatternWithContextReportsUnreadableCredential(t *testing.T) {
+	goodKey := []byte("test-key-exactly-32-bytes-long!!")
+	wrongKey := []byte("wrong-key-exactly-32-bytes-long!")
+	encoder := NewManager(goodKey)
+	encAuth, err := encoder.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-old-key"})
+	if err != nil {
+		t.Fatalf("encrypt auth: %v", err)
+	}
+
+	store := &staticCredentialStore{entries: []StoredCredential{{
+		ID:      "cred-1",
+		UserID:  "user-1",
+		Pattern: "llm.inclunet.com.br",
+		Auth:    encAuth,
+	}}}
+	mgr := NewManagerWithStoreAndPersistence(wrongKey, store, true)
+	if err := mgr.LoadFromStore(context.Background()); err != nil {
+		t.Fatalf("LoadFromStore() error = %v", err)
+	}
+
+	_, err = mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-1"), "llm.inclunet.com.br")
+	if err == nil {
+		t.Fatal("expected unreadable credential error")
+	}
+	if !strings.Contains(err.Error(), `credencial "llm.inclunet.com.br" ilegível`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "user-1") {
+		t.Fatalf("error should include user scope: %v", err)
+	}
+}
+
 // === NOVOS TESTES PARA SEGURANÇA E EDGE CASES ===
 
 // TestClientSecretEncryption testa que ClientSecret (sensível) é criptografado
