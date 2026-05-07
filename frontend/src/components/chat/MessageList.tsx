@@ -5,7 +5,7 @@ import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
 import { main } from '../../../wailsjs/go/models';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
-import { isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
+import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
 import './MessageList.css';
 
 export interface MessageListProps {
@@ -265,11 +265,11 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     const duplicates = new Set<string>();
 
     for (const node of displayMessages) {
-      const id = String(node.message.id);
-      if (seen.has(id)) {
-        duplicates.add(id);
+      const key = getTimelineNodeKey(node);
+      if (seen.has(key)) {
+        duplicates.add(key);
       } else {
-        seen.add(id);
+        seen.add(key);
       }
     }
 
@@ -442,7 +442,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         >
           {displayMessages.map((node, index) => (
             <MessageNodeComponent
-              key={node.message.id}
+              key={getTimelineNodeKey(node)}
               node={node}
               level={0}
               siblingIndex={index}
