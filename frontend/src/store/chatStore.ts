@@ -322,7 +322,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       ) {
         const existingIndex = existingNode.originalIndex ?? Number.NEGATIVE_INFINITY;
         const incomingIndex = incomingNode.originalIndex ?? Number.NEGATIVE_INFINITY;
-        return incomingIndex >= existingIndex ? incomingNode : existingNode;
+        if (incomingIndex === existingIndex && import.meta.env.DEV) {
+          console.warn('[Chat] conflito de representante persistido para turno', {
+            key,
+            existingMessageId: existingNode.message.id,
+            incomingMessageId: incomingNode.message.id,
+            originalIndex: existingNode.originalIndex,
+          });
+        }
+        return incomingIndex > existingIndex ? incomingNode : existingNode;
       }
       return mergeMessageNode(existingNode, incomingNode);
     };

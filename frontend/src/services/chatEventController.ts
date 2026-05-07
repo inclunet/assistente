@@ -566,6 +566,18 @@ export function startChatEventController({
             currentSession.messageWindow.totalCount > 0
             && currentSession.messageWindow.endIndex >= currentSession.messageWindow.totalCount - 1
           );
+        if (
+          currentSession.messageWindow
+          && !isSurfaceAtLiveTail
+          && currentSession.messageWindow.totalCount > snapshot.messageWindow.totalCount
+          && import.meta.env.DEV
+        ) {
+          console.warn('[Chat] snapshot retornou totalCount menor que a janela paginada atual', {
+            conversationId,
+            currentTotalCount: currentSession.messageWindow.totalCount,
+            snapshotTotalCount: snapshot.messageWindow.totalCount,
+          });
+        }
         const pagedWindowUpdate = currentSession.messageWindow && !isSurfaceAtLiveTail
           ? {
             messageWindow: {

@@ -488,6 +488,46 @@ describe('chatStore validation', () => {
       .toEqual(['assistant-newer']);
   });
 
+  it('mantém representante existente quando persistidos colidem com mesmo índice de turno', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockGetConversationInfo.mockResolvedValueOnce({ title: 'Conversa' });
+    const existingRepresentative = createMessageNode('assistant-existing') as unknown as MessageNode;
+    existingRepresentative.message.role = 'assistant';
+    existingRepresentative.message.turnId = 'turn-1';
+    existingRepresentative.message.content = 'representante existente';
+    existingRepresentative.originalIndex = 5;
+    const incomingRepresentative = createMessageNode('assistant-incoming') as unknown as MessageNode;
+    incomingRepresentative.message.role = 'assistant';
+    incomingRepresentative.message.turnId = 'turn-1';
+    incomingRepresentative.message.content = 'representante novo';
+    incomingRepresentative.originalIndex = 5;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [incomingRepresentative],
+      totalCount: 6,
+      startIndex: 5,
+      endIndex: 5,
+      hasBefore: true,
+      hasAfter: false,
+    });
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [existingRepresentative],
+        },
+      },
+    });
+
+    await useChatStore.getState().loadConversationSession(defaultConversationId);
+
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages.map((node) => node.message.id))
+      .toEqual(['assistant-existing']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('conflito de representante persistido'), expect.any(Object));
+  });
+
   it('preserva nó persistido na superfície quando patch de streaming colide no mesmo turno', async () => {
     const canonicalNode = createMessageNode('assistant-final') as unknown as MessageNode;
     canonicalNode.message.role = 'assistant';
@@ -2105,6 +2145,7 @@ describe('chatStore validation', () => {
   });
 
   it('não anexa refresh completo à superfície que está navegando histórico antigo', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `page:tab-a:${defaultConversationId}`;
     const initialNode = createMessageNode('initial-message') as unknown as MessageNode;
@@ -2185,5 +2226,6 @@ describe('chatStore validation', () => {
       'initial-message',
     ]);
     expect(state.timelinesByConversationId[defaultConversationId]?.threadedMessages).toHaveLength(refreshedNodes.length);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('snapshot retornou totalCount menor'), expect.any(Object));
   });
 });
