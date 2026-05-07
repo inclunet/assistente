@@ -66,7 +66,7 @@ func (s *VaultService) Setup(ctx context.Context, masterPassword string) (string
 			if len(existingDEK) == 0 {
 				return "", errors.New("DEK existente no keyring está vazia")
 			}
-			result, err = credentials.SetupMasterKeyForDEK(s.store, masterPassword, existingDEK)
+			result, err = credentials.SetupMasterKeyWrapsForDEK(s.store, masterPassword, existingDEK)
 		} else if !credentials.IsKeychainNotFound(loadErr) {
 			return "", loadErr
 		}

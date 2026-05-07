@@ -62,6 +62,9 @@ func TestSetupMasterKeyAdoptingKeychainRejectsExistingCredentialsWithoutKeyringD
 
 	_, err := setupMasterKeyAdoptingKeychain(store, "senha-forte", func() ([]byte, error) {
 		return nil, keyring.ErrNotFound
+	}, func([]byte) error {
+		t.Fatal("setup must not save a new DEK when credentials already exist")
+		return nil
 	})
 	if !errors.Is(err, ErrExistingCredentialsWithoutDEK) {
 		t.Fatalf("expected ErrExistingCredentialsWithoutDEK, got %v", err)
@@ -76,6 +79,8 @@ func TestSetupMasterKeyAdoptingKeychainCreatesNewDEKWhenNoCredentialsAndNoKeyrin
 
 	result, err := setupMasterKeyAdoptingKeychain(store, "senha-forte", func() ([]byte, error) {
 		return nil, keyring.ErrNotFound
+	}, func([]byte) error {
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("setup should create new DEK for empty store: %v", err)
