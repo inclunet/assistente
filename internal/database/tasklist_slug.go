@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -29,12 +30,16 @@ func ValidateTaskListSlugFormat(normalizedSlug string) error {
 
 // FindTaskListBySlug retorna a lista pelo slug normalizado, ou nil se não existir.
 func FindTaskListBySlug(slug string) (*TaskList, error) {
+	return FindTaskListBySlugWithContext(context.Background(), slug)
+}
+
+func FindTaskListBySlugWithContext(ctx context.Context, slug string) (*TaskList, error) {
 	s := NormalizeTaskListSlug(slug)
 	if s == "" {
 		return nil, nil
 	}
 	var tl TaskList
-	err := db.Where("slug = ?", s).First(&tl).Error
+	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Where("slug = ?", s).First(&tl).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -46,11 +51,15 @@ func FindTaskListBySlug(slug string) (*TaskList, error) {
 
 // slugTakenByOtherThan retorna true se outra lista já usa esse slug.
 func slugTakenByOtherThan(normalizedSlug string, excludeID string) (bool, error) {
+	return slugTakenByOtherThanWithContext(context.Background(), normalizedSlug, excludeID)
+}
+
+func slugTakenByOtherThanWithContext(ctx context.Context, normalizedSlug string, excludeID string) (bool, error) {
 	if normalizedSlug == "" {
 		return false, nil
 	}
 	var n int64
-	if err := db.Model(&TaskList{}).Where("slug = ? AND id <> ?", normalizedSlug, excludeID).Count(&n).Error; err != nil {
+	if err := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Where("slug = ? AND id <> ?", normalizedSlug, excludeID).Count(&n).Error; err != nil {
 		return false, err
 	}
 	return n > 0, nil
@@ -58,12 +67,16 @@ func slugTakenByOtherThan(normalizedSlug string, excludeID string) (bool, error)
 
 // SetTaskListSlug define ou limpa o slug de uma lista (normalizado). slug vazio remove.
 func SetTaskListSlug(taskListID string, slug string) error {
+	return SetTaskListSlugWithContext(context.Background(), taskListID, slug)
+}
+
+func SetTaskListSlugWithContext(ctx context.Context, taskListID string, slug string) error {
 	s := NormalizeTaskListSlug(slug)
 	if err := ValidateTaskListSlugFormat(s); err != nil {
 		return err
 	}
 	if s != "" {
-		taken, err := slugTakenByOtherThan(s, taskListID)
+		taken, err := slugTakenByOtherThanWithContext(ctx, s, taskListID)
 		if err != nil {
 			return err
 		}
@@ -71,13 +84,17 @@ func SetTaskListSlug(taskListID string, slug string) error {
 			return fmt.Errorf("slug %q já está em uso por outra lista", s)
 		}
 	}
-	return db.Model(&TaskList{}).Where("id = ?", taskListID).Update("slug", s).Error
+	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Where("id = ?", taskListID).Update("slug", s).Error
 }
 
 // ResolveTaskListID resolve identificação por id e/ou slug.
 // Regras: é obrigatório pelo menos um de id (não vazio) ou slug não vazio.
 // Se ambos forem informados, devem referir-se à mesma lista.
 func ResolveTaskListID(taskListID *string, taskListSlug string) (string, error) {
+	return ResolveTaskListIDWithContext(context.Background(), taskListID, taskListSlug)
+}
+
+func ResolveTaskListIDWithContext(ctx context.Context, taskListID *string, taskListSlug string) (string, error) {
 	var idVal string
 	if taskListID != nil {
 		idVal = *taskListID
@@ -91,7 +108,7 @@ func ResolveTaskListID(taskListID *string, taskListSlug string) (string, error) 
 	}
 	if hasID && !hasSlug {
 		var tl TaskList
-		if err := db.First(&tl, "id = ?", idVal).Error; err != nil {
+		if err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&tl, "id = ?", idVal).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return "", fmt.Errorf("task_list_id %s não encontrado", idVal)
 			}
@@ -100,7 +117,7 @@ func ResolveTaskListID(taskListID *string, taskListSlug string) (string, error) 
 		return tl.ID, nil
 	}
 	if !hasID && hasSlug {
-		tl, err := FindTaskListBySlug(s)
+		tl, err := FindTaskListBySlugWithContext(ctx, s)
 		if err != nil {
 			return "", err
 		}
@@ -111,13 +128,13 @@ func ResolveTaskListID(taskListID *string, taskListSlug string) (string, error) 
 	}
 
 	var byID TaskList
-	if err := db.First(&byID, "id = ?", idVal).Error; err != nil {
+	if err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&byID, "id = ?", idVal).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", fmt.Errorf("task_list_id %s não encontrado", idVal)
 		}
 		return "", err
 	}
-	bySlug, err := FindTaskListBySlug(s)
+	bySlug, err := FindTaskListBySlugWithContext(ctx, s)
 	if err != nil {
 		return "", err
 	}

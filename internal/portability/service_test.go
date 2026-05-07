@@ -1807,6 +1807,81 @@ func TestImportConversationsPropagatesContextToCredentialPersistence(t *testing.
 	}
 }
 
+func TestExportCredentialsSkipsManagedAndInternalSecrets(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
+	if err := credMgr.RegisterPatternWithContext(t.Context(), "api.openai.com", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "portable",
+	}); err != nil {
+		t.Fatalf("register portable credential: %v", err)
+	}
+	if err := credMgr.RegisterPatternWithContext(t.Context(), "mcp-client:github", &credentials.AuthConfig{
+		Type:         "oauth2_client_credentials",
+		ClientID:     "managed-client",
+		ClientSecret: "managed-secret",
+	}); err != nil {
+		t.Fatalf("register managed credential: %v", err)
+	}
+	if err := credMgr.RegisterInstanceSecret(credentials.InstanceSecretJWTSigningKey, "jwt-secret"); err != nil {
+		t.Fatalf("register instance secret: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(t.Context(), nil, nil, nil, credMgr, ExportRequest{
+		IncludeCredentials:       true,
+		CredentialExportPassword: "senha-teste",
+	}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext() error = %v", err)
+	}
+	exports, err := decodeCredentialExports(file.Resources.Credentials, "senha-teste")
+	if err != nil {
+		t.Fatalf("decode credentials: %v", err)
+	}
+	if len(exports) != 1 {
+		t.Fatalf("exported credentials = %d, want 1: %#v", len(exports), exports)
+	}
+	if exports[0].Pattern != "api.openai.com" || exports[0].Token != "portable" {
+		t.Fatalf("unexpected exported credential: %#v", exports[0])
+	}
+}
+
+func TestImportCredentialsRejectsManagedPatterns(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Options: ExportOptions{
+			IncludeCredentials: true,
+		},
+	}
+	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
+		{Pattern: credentials.InstanceSecretJWTSigningKey, AuthType: "bearer", Token: "jwt-secret"},
+	})
+	if err != nil {
+		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
+	}
+	file.Resources.Credentials = blob
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversations(string(raw), credMgr, "senha-teste")
+	if err != nil {
+		t.Fatalf("ImportConversations() returned unexpected top-level error: %v", err)
+	}
+	if result.Success || result.Failed != 1 {
+		t.Fatalf("import result should fail managed credential import, got %+v", result)
+	}
+	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0], "gerenciada/interna") {
+		t.Fatalf("import errors = %#v, want managed/internal rejection", result.Errors)
+	}
+}
+
 func TestImportConversationsOverwritesCredentialsByID(t *testing.T) {
 	setupPortabilityTestDB(t)
 

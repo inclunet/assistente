@@ -16,6 +16,7 @@ type ExternalValidator struct {
 	Issuer            string
 	Audience          string
 	AllowedAlgorithms map[string]bool
+	RoleClaim         string
 	ClockSkew         time.Duration
 	Now               func() time.Time
 }
@@ -76,6 +77,16 @@ func (v ExternalValidator) Validate(token string, jwks JWKSet) (*ExternalClaims,
 	if err := json.Unmarshal(claimsJSON, &claims); err != nil {
 		return nil, errors.New("claims externas inválidas")
 	}
+	roleClaim := strings.TrimSpace(v.RoleClaim)
+	if roleClaim == "" {
+		roleClaim = "roles"
+	}
+	var rawClaims map[string]any
+	if err := json.Unmarshal(claimsJSON, &rawClaims); err == nil {
+		if roles := parseExternalRoles(rawClaims[roleClaim]); len(roles) > 0 {
+			claims.Roles = roles
+		}
+	}
 	if claims.Issuer != v.Issuer || !claims.Audience.Contains(v.Audience) {
 		return nil, errors.New("issuer ou audience externos inválidos")
 	}
@@ -86,6 +97,26 @@ func (v ExternalValidator) Validate(token string, jwks JWKSet) (*ExternalClaims,
 		return nil, errors.New("token externo emitido no futuro")
 	}
 	return &claims, nil
+}
+
+func parseExternalRoles(value any) []string {
+	switch v := value.(type) {
+	case string:
+		if role := strings.TrimSpace(v); role != "" {
+			return []string{role}
+		}
+	case []any:
+		roles := make([]string, 0, len(v))
+		for _, item := range v {
+			if role, ok := item.(string); ok {
+				if role = strings.TrimSpace(role); role != "" {
+					roles = append(roles, role)
+				}
+			}
+		}
+		return roles
+	}
+	return nil
 }
 
 func findJWK(jwks JWKSet, keyID, algorithm string) (JWK, bool) {

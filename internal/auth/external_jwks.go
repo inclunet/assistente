@@ -16,6 +16,7 @@ type ExternalAuthConfig struct {
 	JWKSURL           string
 	AllowedAlgorithms []string
 	RequiredScopes    []string
+	RoleClaim         string
 }
 
 type ExternalAuthenticator struct {
@@ -49,6 +50,7 @@ func (a *ExternalAuthenticator) Validate(ctx context.Context, token string) (*Ex
 		Issuer:            a.cfg.Issuer,
 		Audience:          a.cfg.Audience,
 		AllowedAlgorithms: allowed,
+		RoleClaim:         a.cfg.RoleClaim,
 	}).Validate(token, jwks)
 	if err != nil {
 		return nil, err

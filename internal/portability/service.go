@@ -564,7 +564,7 @@ func resolveImportedMessageLink(
 }
 
 func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]CredentialExport, error) {
-	list, err := credMgr.ListCredentialsWithContext(ctx)
+	list, err := credMgr.ListVisibleCredentialsWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -575,7 +575,7 @@ func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]Cre
 	}
 	for _, entry := range entries {
 		pattern := strings.TrimSpace(entry.Pattern)
-		if pattern == "" || strings.TrimSpace(entry.ID) == "" {
+		if pattern == "" || strings.TrimSpace(entry.ID) == "" || !isPortableCredentialPattern(pattern) {
 			continue
 		}
 		idByPattern[pattern] = strings.TrimSpace(entry.ID)
@@ -583,7 +583,8 @@ func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]Cre
 
 	result := make([]CredentialExport, 0, len(list))
 	for _, entry := range list {
-		if entry.Auth == nil {
+		pattern := strings.TrimSpace(entry.Pattern)
+		if entry.Auth == nil || entry.Unreadable || !isPortableCredentialPattern(pattern) {
 			continue
 		}
 		id := strings.TrimSpace(entry.ID)
@@ -592,7 +593,7 @@ func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]Cre
 		}
 		result = append(result, CredentialExport{
 			ID:           id,
-			Pattern:      entry.Pattern,
+			Pattern:      pattern,
 			AuthType:     entry.Auth.Type,
 			Token:        entry.Auth.Token,
 			Username:     entry.Auth.Username,
@@ -628,6 +629,9 @@ func importCredentials(
 	imported := 0
 
 	for _, cred := range creds {
+		if err := validatePortableCredentialExport(cred); err != nil {
+			return imported, skipped, err
+		}
 		identifier := credentialConflictIdentifier(cred)
 		credentialID := strings.TrimSpace(cred.ID)
 		if _, hasConflict := conflictIdentifiers[identifier]; hasConflict {
@@ -663,6 +667,19 @@ func importCredentials(
 	}
 
 	return imported, skipped, nil
+}
+
+func isPortableCredentialPattern(pattern string) bool {
+	pattern = strings.TrimSpace(pattern)
+	return pattern != "" && !credentials.IsManagedPattern(pattern)
+}
+
+func validatePortableCredentialExport(cred CredentialExport) error {
+	pattern := strings.TrimSpace(cred.Pattern)
+	if !isPortableCredentialPattern(pattern) {
+		return fmt.Errorf("credencial gerenciada/interna não pode ser importada: %q", pattern)
+	}
+	return nil
 }
 
 func intPtr(v int) *int {
@@ -715,6 +732,11 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 						return nil, fmt.Errorf("erro ao analisar credenciais existentes: %w", err)
 					}
 					for _, cred := range creds {
+						if err := validatePortableCredentialExport(cred); err != nil {
+							analysis.CredentialAnalysisError = err.Error()
+							analysis.Warnings = append(analysis.Warnings, err.Error())
+							continue
+						}
 						if id := strings.TrimSpace(cred.ID); id != "" {
 							if _, exists := existingCredentialIDs[id]; exists {
 								continue
@@ -764,11 +786,14 @@ func loadExistingCredentialIdentifiers(ctx context.Context) (map[string]struct{}
 	ids := make(map[string]struct{}, len(entries))
 	patterns := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
+		if pattern := strings.TrimSpace(entry.Pattern); pattern != "" {
+			if !isPortableCredentialPattern(pattern) {
+				continue
+			}
+			patterns[pattern] = struct{}{}
+		}
 		if id := strings.TrimSpace(entry.ID); id != "" {
 			ids[id] = struct{}{}
-		}
-		if pattern := strings.TrimSpace(entry.Pattern); pattern != "" {
-			patterns[pattern] = struct{}{}
 		}
 	}
 	return ids, patterns, nil

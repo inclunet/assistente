@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -170,6 +171,38 @@ func TestSearchMessageContent_LimitRespected(t *testing.T) {
 	}
 	if len(results) > 2 {
 		t.Errorf("expected at most 2 results, got %d", len(results))
+	}
+}
+
+func TestSearchMessageContentWithContextScopesByUser(t *testing.T) {
+	setupTestDBWithFTS(t)
+
+	anaConv := &Conversation{Title: "Ana auth", UserID: "user-ana"}
+	if err := db.Create(anaConv).Error; err != nil {
+		t.Fatalf("create ana conversation: %v", err)
+	}
+	leoConv := &Conversation{Title: "Leo auth", UserID: "user-leo"}
+	if err := db.Create(leoConv).Error; err != nil {
+		t.Fatalf("create leo conversation: %v", err)
+	}
+	for _, msg := range []ChatMessage{
+		{ConversationID: anaConv.ID, Role: "user", Content: "shared-secret alpha"},
+		{ConversationID: leoConv.ID, Role: "user", Content: "shared-secret beta"},
+	} {
+		if err := db.Create(&msg).Error; err != nil {
+			t.Fatalf("create message: %v", err)
+		}
+	}
+
+	results, err := SearchMessageContentWithContext(WithUserID(context.Background(), "user-ana"), "shared-secret", 20)
+	if err != nil {
+		t.Fatalf("search scoped: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected one scoped result, got %d: %#v", len(results), results)
+	}
+	if results[0].ConversationID != anaConv.ID {
+		t.Fatalf("expected ana conversation only, got %#v", results[0])
 	}
 }
 

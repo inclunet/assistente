@@ -37,14 +37,15 @@ func (s *DBMessageStore) CreateMessage(opts database.MessageOptions) (*database.
 	if err != nil {
 		return nil, err
 	}
-	if _, err := database.GetConversationInfoWithContext(ctx, opts.ConversationID); err != nil {
-		return nil, err
-	}
-	return database.CreateMessage(opts)
+	return database.CreateMessageWithContext(ctx, opts)
 }
 
 func (s *DBMessageStore) GetMessage(messageID string) (*database.ChatMessage, error) {
-	return database.GetMessage(messageID)
+	ctx, err := s.ctx()
+	if err != nil {
+		return nil, err
+	}
+	return database.GetMessageWithContext(ctx, messageID)
 }
 
 func (s *DBMessageStore) GetMessages(conversationID string, parentID *string) ([]database.ChatMessage, error) {
@@ -52,42 +53,80 @@ func (s *DBMessageStore) GetMessages(conversationID string, parentID *string) ([
 	if err != nil {
 		return nil, err
 	}
-	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
-		return nil, err
-	}
-	return database.GetMessages(conversationID, parentID)
+	return database.GetMessagesWithContext(ctx, conversationID, parentID)
 }
 
 func (s *DBMessageStore) GetConversationSummary(conversationID string) (string, string, error) {
-	return database.GetConversationSummary(conversationID)
+	ctx, err := s.ctx()
+	if err != nil {
+		return "", "", err
+	}
+	return database.GetConversationSummaryWithContext(ctx, conversationID)
 }
 
 func (s *DBMessageStore) GetDetailedTokenStats(conversationID string, summaryUpToMessageID string) (*database.DetailedTokenStats, error) {
-	return database.GetDetailedTokenStats(conversationID, summaryUpToMessageID)
+	ctx, err := s.ctx()
+	if err != nil {
+		return nil, err
+	}
+	return database.GetDetailedTokenStatsWithContext(ctx, conversationID, summaryUpToMessageID)
 }
 
 func (s *DBMessageStore) GetContextWindowUsage(conversationID string, contextLimit int) (float64, int, error) {
-	return database.GetContextWindowUsage(conversationID, contextLimit)
+	ctx, err := s.ctx()
+	if err != nil {
+		return 0, 0, err
+	}
+	return database.GetContextWindowUsageWithContext(ctx, conversationID, contextLimit)
 }
 
 func (s *DBMessageStore) GetRecentMessagesTokenCount(conversationID string, messageLimit int) (int, error) {
-	return database.GetRecentMessagesTokenCount(conversationID, messageLimit)
+	ctx, err := s.ctx()
+	if err != nil {
+		return 0, err
+	}
+	return database.GetRecentMessagesTokenCountWithContext(ctx, conversationID, messageLimit)
 }
 
 func (s *DBMessageStore) GetTurnTokenStats(conversationID string, turnID string) (*database.TokenStats, error) {
-	return database.GetTurnTokenStats(conversationID, turnID)
+	ctx, err := s.ctx()
+	if err != nil {
+		return nil, err
+	}
+	return database.GetTurnTokenStatsWithContext(ctx, conversationID, turnID)
 }
 
 func (s *DBMessageStore) AddAssistantToolMessage(conversationID, turnID string, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
-	return database.AddAssistantToolMessage(conversationID, turnID, content, toolCalls, reasoning, model)
+	ctx, err := s.ctx()
+	if err != nil {
+		return nil, err
+	}
+	return database.AddAssistantToolMessageWithContext(ctx, conversationID, turnID, content, toolCalls, reasoning, model)
 }
 
 func (s *DBMessageStore) AddToolResultMessage(conversationID, turnID string, content, toolCallID string) (*database.ChatMessage, error) {
-	return database.AddToolResultMessage(conversationID, turnID, content, toolCallID)
+	ctx, err := s.ctx()
+	if err != nil {
+		return nil, err
+	}
+	return database.AddToolResultMessageWithContext(ctx, conversationID, turnID, content, toolCallID)
 }
 
 func (s *DBMessageStore) SearchMessages(query string, limit int) ([]database.MessageSearchResult, error) {
-	return database.SearchMessageContent(query, limit)
+	ctx, err := s.ctx()
+	if err != nil {
+		return nil, err
+	}
+	return database.SearchMessageContentWithContext(ctx, query, limit)
+}
+
+func (s *DBMessageStore) SearchMessagesWithContext(ctx context.Context, query string, limit int) ([]database.MessageSearchResult, error) {
+	if s.requireUser {
+		if _, err := database.RequireUserID(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return database.SearchMessageContentWithContext(ctx, query, limit)
 }
 
 // DBConversationStore implementa ConversationRepository usando o banco de dados SQLite via GORM.

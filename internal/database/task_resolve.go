@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,6 +16,10 @@ import (
 //   - Com task_id e code, a task existente deve ter exatamente esse code (após trim no argumento).
 //   - Com task_id e referência de lista, a task deve pertencer à lista resolvida.
 func ResolveTaskID(taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
+	return ResolveTaskIDWithContext(context.Background(), taskListID, taskListSlug, taskID, code)
+}
+
+func ResolveTaskIDWithContext(ctx context.Context, taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
 	codeTrim := strings.TrimSpace(code)
 	var idVal string
 	if taskID != nil {
@@ -37,7 +42,7 @@ func ResolveTaskID(taskListID *string, taskListSlug string, taskID *string, code
 
 	// Somente task_id: lista não entra na identidade (permite usar task_list_id/slug como destino em move/duplicate).
 	if hasID && !hasCode {
-		task, err := GetTask(idVal)
+		task, err := GetTaskWithContext(ctx, idVal)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return "", fmt.Errorf("task_id %s não encontrado", idVal)
@@ -48,11 +53,11 @@ func ResolveTaskID(taskListID *string, taskListSlug string, taskID *string, code
 	}
 
 	if !hasID && hasCode {
-		listID, err := ResolveTaskListID(listPtr, taskListSlug)
+		listID, err := ResolveTaskListIDWithContext(ctx, listPtr, taskListSlug)
 		if err != nil {
 			return "", err
 		}
-		task, err := FindTaskByCode(listID, codeTrim)
+		task, err := FindTaskByCodeWithContext(ctx, listID, codeTrim)
 		if err != nil {
 			return "", err
 		}
@@ -62,7 +67,7 @@ func ResolveTaskID(taskListID *string, taskListSlug string, taskID *string, code
 		return task.ID, nil
 	}
 
-	task, err := GetTask(idVal)
+	task, err := GetTaskWithContext(ctx, idVal)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", fmt.Errorf("task_id %s não encontrado", idVal)
@@ -73,7 +78,7 @@ func ResolveTaskID(taskListID *string, taskListSlug string, taskID *string, code
 		return "", fmt.Errorf("task_id %s e code %q não correspondem à mesma task", idVal, codeTrim)
 	}
 	if hasListRef {
-		listID, err := ResolveTaskListID(listPtr, taskListSlug)
+		listID, err := ResolveTaskListIDWithContext(ctx, listPtr, taskListSlug)
 		if err != nil {
 			return "", err
 		}
@@ -86,13 +91,17 @@ func ResolveTaskID(taskListID *string, taskListSlug string, taskID *string, code
 
 // ResolveTaskIDByTaskCode localiza uma task pelo campo Task.Code (ex.: ticket FSD-12345).
 func ResolveTaskIDByTaskCode(taskListID *string, taskCode string) (string, error) {
+	return ResolveTaskIDByTaskCodeWithContext(context.Background(), taskListID, taskCode)
+}
+
+func ResolveTaskIDByTaskCodeWithContext(ctx context.Context, taskListID *string, taskCode string) (string, error) {
 	codeTrim := strings.TrimSpace(taskCode)
 	if codeTrim == "" {
 		return "", fmt.Errorf("task_code não pode ser vazio")
 	}
-	q := db.Model(&Task{}).Where("code = ?", codeTrim)
+	q := taskQuery(ctx, db.Model(&Task{})).Where("tasks.code = ?", codeTrim)
 	if taskListID != nil && *taskListID != "" {
-		q = q.Where("task_list_id = ?", *taskListID)
+		q = q.Where("tasks.task_list_id = ?", *taskListID)
 	}
 	var tasks []Task
 	if err := q.Find(&tasks).Error; err != nil {

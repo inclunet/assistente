@@ -16,7 +16,7 @@ func setupUserScopeTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&User{}, &Conversation{}, &ChatMessage{}, &LLMProvider{}, &TaskListWorkflow{}, &TaskList{}, &Task{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &Conversation{}, &ChatMessage{}, &LLMProvider{}, &TaskListWorkflow{}, &TaskList{}, &Task{}, &TaskNote{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	t.Cleanup(func() {
@@ -89,5 +89,118 @@ func TestProviderAndTaskListQueriesCanBeScopedByUser(t *testing.T) {
 	}
 	if len(taskLists) != 1 || taskLists[0].UserID != "user-leo" {
 		t.Fatalf("expected only leo task list, got %+v", taskLists)
+	}
+}
+
+func TestTaskListRepositoryEnforcesUserScopeAcrossTasksAndNotes(t *testing.T) {
+	setupUserScopeTestDB(t)
+
+	anaCtx := WithUserID(context.Background(), "user-ana")
+	leoCtx := WithUserID(context.Background(), "user-leo")
+
+	anaList, err := CreateTaskListWithContext(anaCtx, "Ana tasks", "", nil, "ana")
+	if err != nil {
+		t.Fatalf("create ana list: %v", err)
+	}
+	leoList, err := CreateTaskListWithContext(leoCtx, "Leo tasks", "", nil, "leo")
+	if err != nil {
+		t.Fatalf("create leo list: %v", err)
+	}
+	anaTask, err := CreateTaskWithContext(anaCtx, anaList.ID, "Ana task", "", "ANA-1", "", nil)
+	if err != nil {
+		t.Fatalf("create ana task: %v", err)
+	}
+	leoTask, err := CreateTaskWithContext(leoCtx, leoList.ID, "Leo task", "", "LEO-1", "", nil)
+	if err != nil {
+		t.Fatalf("create leo task: %v", err)
+	}
+	leoNote, err := CreateTaskNoteWithContext(leoCtx, leoTask.ID, TaskNoteInternal, "secret", "", "")
+	if err != nil {
+		t.Fatalf("create leo note: %v", err)
+	}
+
+	if _, err := GetTaskListWithContext(anaCtx, leoList.ID); err == nil {
+		t.Fatal("ana should not read leo task list")
+	}
+	if _, err := GetTaskWithContext(anaCtx, leoTask.ID); err == nil {
+		t.Fatal("ana should not read leo task")
+	}
+	if _, err := GetTaskNoteWithContext(anaCtx, leoNote.ID); err == nil {
+		t.Fatal("ana should not read leo task note")
+	}
+	if _, err := CreateTaskWithContext(anaCtx, leoList.ID, "cross", "", "", "", nil); err == nil {
+		t.Fatal("ana should not create a task in leo task list")
+	}
+	if err := DemoteTaskWithContext(anaCtx, anaTask.ID, leoTask.ID); err == nil {
+		t.Fatal("ana should not attach a task to leo parent")
+	}
+	if err := UpdateTaskNoteWithContext(anaCtx, leoNote.ID, "tampered"); err != nil {
+		t.Fatalf("cross-user note update should be a no-op, not a SQL failure: %v", err)
+	}
+
+	got, err := GetTaskNoteWithContext(leoCtx, leoNote.ID)
+	if err != nil {
+		t.Fatalf("leo should still read note: %v", err)
+	}
+	if got.Content != "secret" {
+		t.Fatalf("leo note was modified across user boundary: %q", got.Content)
+	}
+}
+
+func TestMessageRepositoryEnforcesUserScopeByMessageID(t *testing.T) {
+	setupUserScopeTestDB(t)
+
+	anaCtx := WithUserID(context.Background(), "user-ana")
+	leoCtx := WithUserID(context.Background(), "user-leo")
+
+	anaConv, err := CreateConversationWithContext(anaCtx, "Ana", "")
+	if err != nil {
+		t.Fatalf("create ana conversation: %v", err)
+	}
+	leoConv, err := CreateConversationWithContext(leoCtx, "Leo", "")
+	if err != nil {
+		t.Fatalf("create leo conversation: %v", err)
+	}
+	anaMsg, err := CreateMessageWithContext(anaCtx, MessageOptions{
+		ConversationID: anaConv.ID,
+		Role:           "user",
+		Content:        "ana",
+	})
+	if err != nil {
+		t.Fatalf("create ana message: %v", err)
+	}
+	leoMsg, err := CreateMessageWithContext(leoCtx, MessageOptions{
+		ConversationID: leoConv.ID,
+		Role:           "user",
+		Content:        "leo",
+		TotalTokens:    10,
+	})
+	if err != nil {
+		t.Fatalf("create leo message: %v", err)
+	}
+
+	if _, err := GetMessageWithContext(anaCtx, leoMsg.ID); err == nil {
+		t.Fatal("ana should not read leo message by id")
+	}
+	if err := UpdateMessageContentWithContext(anaCtx, leoMsg.ID, "tampered", 0, 0, 0, ""); err != nil {
+		t.Fatalf("cross-user update should be a no-op, not a SQL failure: %v", err)
+	}
+	if err := DeleteMessageWithContext(anaCtx, leoMsg.ID); err != nil {
+		t.Fatalf("cross-user delete should be a no-op, not a SQL failure: %v", err)
+	}
+
+	got, err := GetMessageWithContext(leoCtx, leoMsg.ID)
+	if err != nil {
+		t.Fatalf("leo should still read own message: %v", err)
+	}
+	if got.Content != "leo" {
+		t.Fatalf("leo message was modified across user boundary: %q", got.Content)
+	}
+	counts, err := CountChildrenWithContext(anaCtx, []string{anaMsg.ID, leoMsg.ID})
+	if err != nil {
+		t.Fatalf("count children: %v", err)
+	}
+	if _, ok := counts[leoMsg.ID]; ok {
+		t.Fatalf("ana should not receive child counts for leo message: %#v", counts)
 	}
 }

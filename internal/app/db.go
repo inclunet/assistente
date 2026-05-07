@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -69,20 +70,24 @@ func (a *App) EnsureConversation(title string) (*Conversation, error) {
 
 // GetMessages retorna mensagens com filtro por parent (API unificada com LAZY LOADING)
 func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
 	messages, err := a.msgRepo.GetMessages(conversationID, parentID)
 	if err != nil {
 		return nil, err
 	}
 
-	return buildMessageNodes(messages, parentID), nil
+	return buildMessageNodes(ctx, messages, parentID), nil
 }
 
-func buildMessageNodes(messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+func buildMessageNodes(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
 	msgIDs := make([]string, len(messages))
 	for i, msg := range messages {
 		msgIDs[i] = msg.ID
 	}
-	childCounts, err := database.CountChildren(msgIDs)
+	childCounts, err := database.CountChildrenWithContext(ctx, msgIDs)
 	if err != nil {
 		childCounts = make(map[string]int)
 	}
@@ -256,7 +261,7 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 	return consolidated
 }
 
-func buildTimelineMessageNodes(items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
 	messagesByItemKey := make(map[string][]database.ChatMessage)
 	for _, message := range messages {
 		key := messageTimelineItemKey(message)
@@ -276,7 +281,7 @@ func buildTimelineMessageNodes(items []database.MessageWindowItem, messages []da
 		representatives = append(representatives, representative)
 		originalIndexesByMessageID[representative.ID] = item.OriginalIndex
 	}
-	return assignMessageNodeOriginalIndexes(buildMessageNodes(representatives, parentID), originalIndexesByMessageID)
+	return assignMessageNodeOriginalIndexes(buildMessageNodes(ctx, representatives, parentID), originalIndexesByMessageID)
 }
 
 func (a *App) requireConversationAccess(conversationID string) error {
@@ -290,26 +295,34 @@ func (a *App) requireConversationAccess(conversationID string) error {
 
 // GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
 func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.MessageNode, error) {
-	if err := a.requireConversationAccess(conversationID); err != nil {
-		return nil, err
-	}
-	messages, err := database.GetRecentRootMessages(conversationID, limit)
+	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
 		return nil, err
 	}
-	return buildMessageNodes(messages, nil), nil
+	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
+		return nil, err
+	}
+	messages, err := database.GetRecentRootMessagesWithContext(ctx, conversationID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return buildMessageNodes(ctx, messages, nil), nil
 }
 
 // GetMessagesBefore retorna mensagens raiz anteriores ao cursor informado.
 func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit int) ([]chat.MessageNode, error) {
-	if err := a.requireConversationAccess(conversationID); err != nil {
-		return nil, err
-	}
-	messages, err := database.GetRootMessagesBefore(conversationID, beforeID, limit)
+	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
 		return nil, err
 	}
-	return buildMessageNodes(messages, nil), nil
+	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
+		return nil, err
+	}
+	messages, err := database.GetRootMessagesBeforeWithContext(ctx, conversationID, beforeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return buildMessageNodes(ctx, messages, nil), nil
 }
 
 // GetConversationMessageWindow é a API canônica de carregamento incremental de mensagens.
@@ -362,7 +375,11 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	if direction == chat.MessageWindowDirectionAround && anchorMessageID == "" {
 		return nil, fmt.Errorf("direction=around exige anchorMessageId")
 	}
-	if err := a.requireConversationAccess(conversationID); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return nil, err
 	}
 
@@ -373,7 +390,7 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 		if threadParentID == "" {
 			return nil, fmt.Errorf("threadParentId é obrigatório para scope=thread")
 		}
-		parentMessage, err := database.GetMessage(threadParentID)
+		parentMessage, err := database.GetMessageWithContext(ctx, threadParentID)
 		if err != nil {
 			return nil, fmt.Errorf("threadParentId inválido: %w", err)
 		}
@@ -386,7 +403,7 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 		parentID = &threadParentID
 	}
 
-	window, err := database.GetMessageWindow(database.MessageWindowQuery{
+	window, err := database.GetMessageWindowWithContext(ctx, database.MessageWindowQuery{
 		ConversationID:  conversationID,
 		ParentID:        parentID,
 		Anchor:          anchor,
@@ -397,7 +414,7 @@ func (a *App) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat
 	if err != nil {
 		return nil, err
 	}
-	nodes := buildTimelineMessageNodes(window.Items, window.Messages, parentID)
+	nodes := buildTimelineMessageNodes(ctx, window.Items, window.Messages, parentID)
 
 	return &chat.MessageWindow{
 		Scope:          scope,
@@ -442,7 +459,11 @@ func (a *App) GetConversationWithThreads(id string) (*chat.ConversationWithThrea
 
 // GetMessageChildren retorna os filhos de uma mensagem (lazy loading)
 func (a *App) GetMessageChildren(messageID string) ([]chat.MessageNode, error) {
-	parent, err := database.GetMessage(messageID)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	parent, err := database.GetMessageWithContext(ctx, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -519,16 +540,17 @@ func (a *App) DeleteMessage(messageID string) error {
 	}
 
 	// Prossegue com a exclusão
-	var msg database.ChatMessage
-	if err := database.DB().First(&msg, "id = ?", messageID).Error; err != nil {
+	authCtx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	msg, err := database.GetMessageWithContext(authCtx, messageID)
+	if err != nil {
 		return err
 	}
 	convID := msg.ConversationID
-	if err := a.requireConversationAccess(convID); err != nil {
-		return err
-	}
 
-	if err := database.DeleteMessage(messageID); err != nil {
+	if err := database.DeleteMessageWithContext(authCtx, messageID); err != nil {
 		return err
 	}
 
@@ -542,15 +564,16 @@ func (a *App) DeleteMessage(messageID string) error {
 
 // UpdateMessage atualiza o conteúdo de uma mensagem existente
 func (a *App) UpdateMessage(messageID string, newContent string) error {
-	var msg database.ChatMessage
-	if err := database.DB().Select("conversation_id").First(&msg, "id = ?", messageID).Error; err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return err
 	}
-	if err := a.requireConversationAccess(msg.ConversationID); err != nil {
+	msg, err := database.GetMessageWithContext(ctx, messageID)
+	if err != nil {
 		return err
 	}
 
-	if err := database.UpdateMessageContent(
+	if err := database.UpdateMessageContentWithContext(ctx,
 		messageID,
 		newContent,
 		0, 0, 0, "",
@@ -641,10 +664,14 @@ type ConversationSummaryInfo struct {
 }
 
 func (a *App) GetConversationSummary(conversationID string) (*ConversationSummaryInfo, error) {
-	if err := a.requireConversationAccess(conversationID); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil, err
 	}
-	summary, upToID, err := database.GetConversationSummary(conversationID)
+	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
+		return nil, err
+	}
+	summary, upToID, err := database.GetConversationSummaryWithContext(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -661,10 +688,14 @@ func (a *App) RenameConversation(conversationID string, newTitle string) error {
 }
 
 func (a *App) ClearConversation(conversationID string) error {
-	if err := a.requireConversationAccess(conversationID); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return err
 	}
-	if err := database.DeleteAllMessages(conversationID); err != nil {
+	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
+		return err
+	}
+	if err := database.DeleteAllMessagesWithContext(ctx, conversationID); err != nil {
 		return err
 	}
 
@@ -676,18 +707,22 @@ func (a *App) ClearConversation(conversationID string) error {
 }
 
 func (a *App) DeleteMessages(conversationID string, messageIDs []string) error {
-	if err := a.requireConversationAccess(conversationID); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return err
 	}
 	for _, msgID := range messageIDs {
-		var msg database.ChatMessage
-		if err := database.DB().Select("conversation_id").First(&msg, "id = ?", msgID).Error; err != nil {
+		msg, err := database.GetMessageWithContext(ctx, msgID)
+		if err != nil {
 			return fmt.Errorf("erro ao localizar mensagem %s: %w", msgID, err)
 		}
 		if msg.ConversationID != conversationID {
 			return fmt.Errorf("mensagem %s não pertence à conversa solicitada", msgID)
 		}
-		if err := database.DeleteMessage(msgID); err != nil {
+		if err := database.DeleteMessageWithContext(ctx, msgID); err != nil {
 			return fmt.Errorf("erro ao deletar mensagem %s: %w", msgID, err)
 		}
 	}
@@ -702,7 +737,11 @@ type MessageSearchResult = database.MessageSearchResult
 // SearchConversationHistory busca no conteúdo de todas as mensagens usando FTS5.
 // Suporta palavras, "frases exatas", prefixo*, operadores OR/AND/NOT.
 func (a *App) SearchConversationHistory(query string, limit int) ([]MessageSearchResult, error) {
-	return database.SearchMessageContent(query, limit)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return database.SearchMessageContentWithContext(ctx, query, limit)
 }
 
 // RebuildSearchIndex reconstrói o índice de busca full-text.

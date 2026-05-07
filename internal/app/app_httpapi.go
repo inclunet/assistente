@@ -32,6 +32,7 @@ func (a *App) startHTTPAPI() error {
 			JWKSURL:           authCfg.External.JWKSURL,
 			AllowedAlgorithms: authCfg.External.AllowedAlgorithms,
 			RequiredScopes:    authCfg.External.RequiredScopes,
+			RoleClaim:         authCfg.External.RoleClaim,
 		})
 	}
 

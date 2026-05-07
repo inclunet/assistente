@@ -67,24 +67,27 @@ func (s *DBStore) UpdateTaskList(id string, title, description string) error {
 }
 
 func (s *DBStore) UpdateTaskListFull(id string, title, description, preferredViewMode string, slug *string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.UpdateTaskListFull(id, title, description, preferredViewMode, slug)
+	return database.UpdateTaskListFullWithContext(ctx, id, title, description, preferredViewMode, slug)
 }
 
 func (s *DBStore) ResolveTaskListRef(taskListID *string, taskListSlug string) (string, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return "", err
 	}
-	return database.ResolveTaskListID(taskListID, taskListSlug)
+	return database.ResolveTaskListIDWithContext(ctx, taskListID, taskListSlug)
 }
 
 func (s *DBStore) SetTaskListValidationPolicy(taskListID string, policyJSON string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.SetTaskListValidationPolicy(taskListID, policyJSON)
+	return database.SetTaskListValidationPolicyWithContext(ctx, taskListID, policyJSON)
 }
 
 func (s *DBStore) SetTaskListViewMode(id string, viewMode string) error {
@@ -96,252 +99,287 @@ func (s *DBStore) SetTaskListViewMode(id string, viewMode string) error {
 }
 
 func (s *DBStore) CloneTaskList(id string, newTitle string) (*database.TaskList, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.CloneTaskList(id, newTitle)
+	return database.CloneTaskListWithContext(ctx, id, newTitle)
 }
 
 func (s *DBStore) ClearTaskList(id string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.ClearTaskList(id)
+	return database.ClearTaskListWithContext(ctx, id)
 }
 
 func (s *DBStore) DeleteTaskList(id string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.DeleteTaskList(id)
+	return database.DeleteTaskListWithContext(ctx, id)
 }
 
 func (s *DBStore) GetTaskListStats(taskListID string) (map[string]interface{}, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.GetTaskListStats(taskListID)
+	return database.GetTaskListStatsWithContext(ctx, taskListID)
 }
 
 func (s *DBStore) GetTaskListWithHierarchy(id string) (*database.TaskList, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.GetTaskListWithHierarchy(id)
+	return database.GetTaskListWithHierarchyWithContext(ctx, id)
 }
 
 // ── Workflow ───────────────────────────────────────────────────────────────────
 
 func (s *DBStore) GetWorkflow(taskListID string) (*database.TaskListWorkflow, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.GetWorkflow(taskListID)
+	return database.GetWorkflowWithContext(ctx, taskListID)
 }
 
 func (s *DBStore) UpdateWorkflow(taskListID string, statuses []database.TaskListWorkflowStatus, transitions map[int][]int) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.UpdateWorkflow(taskListID, statuses, transitions)
+	return database.UpdateWorkflowWithContext(ctx, taskListID, statuses, transitions)
 }
 
 func (s *DBStore) UpdateWorkflowFull(taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.UpdateWorkflowFull(taskListID, statuses, transitions, initialStatusID, statusMigration)
+	return database.UpdateWorkflowFullWithContext(ctx, taskListID, statuses, transitions, initialStatusID, statusMigration)
 }
 
 func (s *DBStore) GetTaskCountsByStatus(taskListID string) (map[int]int64, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.GetTaskCountsByStatus(taskListID)
+	return database.GetTaskCountsByStatusWithContext(ctx, taskListID)
 }
 
 func (s *DBStore) ReorderWorkflowStatuses(taskListID string, statusOrder []int) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.ReorderWorkflowStatuses(taskListID, statusOrder)
+	return database.ReorderWorkflowStatusesWithContext(ctx, taskListID, statusOrder)
 }
 
 func (s *DBStore) ValidateStatusTransition(taskListID string, fromStatusID, toStatusID int) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.ValidateStatusTransition(taskListID, fromStatusID, toStatusID)
+	return database.ValidateStatusTransitionWithContext(ctx, taskListID, fromStatusID, toStatusID)
 }
 
 // ── Task ──────────────────────────────────────────────────────────────────────
 
 func (s *DBStore) CreateTask(taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.CreateTask(taskListID, title, description, code, link, parentID)
+	return database.CreateTaskWithContext(ctx, taskListID, title, description, code, link, parentID)
 }
 
 func (s *DBStore) CreateTaskFull(taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*database.Task, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.CreateTaskFull(taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
+	return database.CreateTaskFullWithContext(ctx, taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
 }
 
 func (s *DBStore) GetTask(id string) (*database.Task, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.GetTask(id)
+	return database.GetTaskWithContext(ctx, id)
 }
 
 func (s *DBStore) GetTasksByTaskListID(taskListID string) ([]database.Task, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.GetTasksByTaskListID(taskListID)
+	return database.GetTasksByTaskListIDWithContext(ctx, taskListID)
 }
 
 func (s *DBStore) GetTasksByStatus(taskListID string, statusID int) ([]database.Task, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.GetTasksByStatus(taskListID, statusID)
+	return database.GetTasksByStatusWithContext(ctx, taskListID, statusID)
 }
 
 func (s *DBStore) FindTaskByCode(taskListID string, code string) (*database.Task, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.FindTaskByCode(taskListID, code)
+	return database.FindTaskByCodeWithContext(ctx, taskListID, code)
 }
 
 func (s *DBStore) ResolveTaskRef(taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return "", err
 	}
-	return database.ResolveTaskID(taskListID, taskListSlug, taskID, code)
+	return database.ResolveTaskIDWithContext(ctx, taskListID, taskListSlug, taskID, code)
 }
 
 func (s *DBStore) ResolveTaskIDByTaskCode(taskListID *string, taskCode string) (string, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return "", err
 	}
-	return database.ResolveTaskIDByTaskCode(taskListID, taskCode)
+	return database.ResolveTaskIDByTaskCodeWithContext(ctx, taskListID, taskCode)
 }
 
 func (s *DBStore) UpdateTask(id string, title, description, code, link string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.UpdateTask(id, title, description, code, link)
+	return database.UpdateTaskWithContext(ctx, id, title, description, code, link)
 }
 
 func (s *DBStore) UpdateTaskFull(id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
+	return database.UpdateTaskFullWithContext(ctx, id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
 }
 
 func (s *DBStore) UpdateTaskAssignee(id string, assigneeName, assigneeID string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.UpdateTaskAssignee(id, assigneeName, assigneeID)
+	return database.UpdateTaskAssigneeWithContext(ctx, id, assigneeName, assigneeID)
 }
 
 func (s *DBStore) UpdateTaskStatus(id string, newStatusID int) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.UpdateTaskStatus(id, newStatusID)
+	return database.UpdateTaskStatusWithContext(ctx, id, newStatusID)
 }
 
 func (s *DBStore) ReorderTasks(taskListID string, statusID int, orderedIDs []string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.ReorderTasks(taskListID, statusID, orderedIDs)
+	return database.ReorderTasksWithContext(ctx, taskListID, statusID, orderedIDs)
 }
 
 func (s *DBStore) PromoteTask(id string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.PromoteTask(id)
+	return database.PromoteTaskWithContext(ctx, id)
 }
 
 func (s *DBStore) DemoteTask(id string, parentID string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.DemoteTask(id, parentID)
+	return database.DemoteTaskWithContext(ctx, id, parentID)
 }
 
 func (s *DBStore) MoveTaskToList(taskID string, targetTaskListID string) (*database.Task, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.MoveTaskToList(taskID, targetTaskListID)
+	return database.MoveTaskToListWithContext(ctx, taskID, targetTaskListID)
 }
 
 func (s *DBStore) DeleteTask(id string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.DeleteTask(id)
+	return database.DeleteTaskWithContext(ctx, id)
 }
 
 func (s *DBStore) GetSubtasks(parentID string) ([]database.Task, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.GetSubtasks(parentID)
+	return database.GetSubtasksWithContext(ctx, parentID)
 }
 
 // ── Task Note ─────────────────────────────────────────────────────────────────
 
 func (s *DBStore) CreateTaskNote(taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.CreateTaskNote(taskID, noteType, content, authorName, authorID)
+	return database.CreateTaskNoteWithContext(ctx, taskID, noteType, content, authorName, authorID)
 }
 
 func (s *DBStore) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, false, err
 	}
-	return database.UpsertTaskNoteByExternal(p)
+	return database.UpsertTaskNoteByExternalWithContext(ctx, p)
 }
 
 func (s *DBStore) GetTaskNotes(taskID string) ([]database.TaskNote, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.GetTaskNotes(taskID)
+	return database.GetTaskNotesWithContext(ctx, taskID)
 }
 
 func (s *DBStore) GetTaskNote(noteID string) (*database.TaskNote, error) {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return nil, err
 	}
-	return database.GetTaskNote(noteID)
+	return database.GetTaskNoteWithContext(ctx, noteID)
 }
 
 func (s *DBStore) UpdateTaskNote(noteID string, content string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.UpdateTaskNote(noteID, content)
+	return database.UpdateTaskNoteWithContext(ctx, noteID, content)
 }
 
 func (s *DBStore) DeleteTaskNote(noteID string) error {
-	if _, err := s.ctx(); err != nil {
+	ctx, err := s.ctx()
+	if err != nil {
 		return err
 	}
-	return database.DeleteTaskNote(noteID)
+	return database.DeleteTaskNoteWithContext(ctx, noteID)
 }

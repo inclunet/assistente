@@ -3,6 +3,8 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -195,6 +197,103 @@ func TestExternalModeValidatesBearerJWT(t *testing.T) {
 	if login.Code != http.StatusNotFound {
 		t.Fatalf("external login status = %d", login.Code)
 	}
+}
+
+func TestExternalModeUsesConfiguredRoleClaimAndScopes(t *testing.T) {
+	signer, err := auth.NewTokenSigner()
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(signer.JWKSet())
+	}))
+	defer jwksServer.Close()
+
+	external := auth.NewExternalAuthenticator(auth.ExternalAuthConfig{
+		Issuer:            "https://idp.example.com",
+		Audience:          "assistente",
+		JWKSURL:           jwksServer.URL,
+		AllowedAlgorithms: []string{"EdDSA"},
+		RequiredScopes:    []string{"assistente:read"},
+		RoleClaim:         "groups",
+	})
+	server := New(Config{Mode: "external", External: external})
+
+	now := time.Now()
+	token, err := signExternalToken(t, signer, map[string]any{
+		"iss":    "https://idp.example.com",
+		"aud":    "assistente",
+		"sub":    "external-admin",
+		"iat":    now.Unix(),
+		"exp":    now.Add(time.Minute).Unix(),
+		"scope":  "profile assistente:read",
+		"groups": []string{"admin", "operator"},
+	})
+	if err != nil {
+		t.Fatalf("sign external token: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var me struct {
+		UserID string `json:"userId"`
+		Role   string `json:"role"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
+		t.Fatalf("decode me: %v", err)
+	}
+	if me.UserID != "external-admin" || me.Role != "admin" {
+		t.Fatalf("me = %+v, want external-admin/admin", me)
+	}
+
+	noScope, err := signExternalToken(t, signer, map[string]any{
+		"iss":    "https://idp.example.com",
+		"aud":    "assistente",
+		"sub":    "external-admin",
+		"iat":    now.Unix(),
+		"exp":    now.Add(time.Minute).Unix(),
+		"scope":  "profile",
+		"groups": []string{"admin"},
+	})
+	if err != nil {
+		t.Fatalf("sign no-scope token: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer "+noScope)
+	rec = httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing scope status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func signExternalToken(t *testing.T, signer *auth.TokenSigner, claims map[string]any) (string, error) {
+	t.Helper()
+	privateEncoded, err := signer.ExportPrivateKey()
+	if err != nil {
+		return "", err
+	}
+	privateRaw, err := base64.RawURLEncoding.DecodeString(privateEncoded)
+	if err != nil {
+		return "", err
+	}
+	jwks := signer.JWKSet()
+	header := map[string]string{"alg": "EdDSA", "kid": jwks.Keys[0].KeyID, "typ": "JWT"}
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		return "", err
+	}
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
+	signingInput := base64.RawURLEncoding.EncodeToString(headerJSON) + "." + base64.RawURLEncoding.EncodeToString(claimsJSON)
+	signature := ed25519.Sign(ed25519.PrivateKey(privateRaw), []byte(signingInput))
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature), nil
 }
 
 func requestJSON(t *testing.T, server *Server, method, path string, payload any) *httptest.ResponseRecorder {
