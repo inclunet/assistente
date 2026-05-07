@@ -171,3 +171,32 @@ func TestRefreshAuthTriesCredentialStoreAfterStaleKeyringToken(t *testing.T) {
 		t.Fatal("stale keyring token should not revoke the current stored session")
 	}
 }
+
+func TestGetAuthStatusDoesNotRequireSessionService(t *testing.T) {
+	db := setupAuthAppTestDB(t)
+	if err := db.Create(&database.User{
+		Username:     "admin",
+		PasswordHash: "hash",
+		Role:         database.UserRoleAdmin,
+		IsActive:     true,
+	}).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	credStore := credentials.NewDBStore()
+	app := &App{
+		ctx:         context.Background(),
+		credStore:   credStore,
+		identitySvc: auth.NewIdentityService(db),
+		vaultSvc:    auth.NewVaultService(credStore, nil),
+		sessionSvc:  nil,
+	}
+
+	status, err := app.GetAuthStatus()
+	if err != nil {
+		t.Fatalf("GetAuthStatus() should not depend on JWT session service: %v", err)
+	}
+	if !status.HasUsers {
+		t.Fatalf("expected HasUsers=true, got %+v", status)
+	}
+}

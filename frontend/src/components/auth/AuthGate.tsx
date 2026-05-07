@@ -29,6 +29,21 @@ export function AuthGate({ children }: AuthGateProps) {
     return <>{children}</>;
   }
 
+  if (!status && error) {
+    return (
+      <main style={styles.shell} aria-busy={isLoading}>
+        <section style={styles.card}>
+          <h1 style={styles.title}>Autenticação indisponível</h1>
+          <p style={styles.description}>Não foi possível carregar o estado do cofre.</p>
+          <p style={styles.error}>{error}</p>
+          <button disabled={isLoading} style={styles.button} onClick={() => void loadStatus()}>
+            {isLoading ? 'Aguarde...' : 'Tentar novamente'}
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   const title = !status?.vaultConfigured
     ? 'Inicializar cofre'
     : !status.vaultUnlocked

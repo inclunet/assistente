@@ -66,7 +66,7 @@ func (a *App) configureSessionService() {
 }
 
 func (a *App) GetAuthStatus() (AuthStatus, error) {
-	if err := a.ensureAuthServices(); err != nil {
+	if err := a.ensureAuthCoreServices(); err != nil {
 		return AuthStatus{}, err
 	}
 
@@ -88,21 +88,21 @@ func (a *App) GetAuthStatus() (AuthStatus, error) {
 }
 
 func (a *App) SetupVault(masterPassword string) (string, error) {
-	if err := a.ensureAuthServices(); err != nil {
+	if err := a.ensureAuthCoreServices(); err != nil {
 		return "", err
 	}
 	return a.vaultSvc.Setup(context.Background(), masterPassword)
 }
 
 func (a *App) UnlockVault(kind, secret string) error {
-	if err := a.ensureAuthServices(); err != nil {
+	if err := a.ensureAuthCoreServices(); err != nil {
 		return err
 	}
 	return a.vaultSvc.Unlock(context.Background(), kind, secret)
 }
 
 func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
-	if err := a.ensureAuthServices(); err != nil {
+	if err := a.ensureAuthCoreServices(); err != nil {
 		return nil, err
 	}
 
@@ -133,7 +133,10 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
 
-	if err := a.ensureAuthServices(); err != nil {
+	if err := a.ensureAuthCoreServices(); err != nil {
+		return nil, err
+	}
+	if err := a.ensureSessionService(); err != nil {
 		return nil, err
 	}
 
@@ -165,7 +168,10 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
 
-	if err := a.ensureAuthServices(); err != nil {
+	if err := a.ensureAuthCoreServices(); err != nil {
+		return nil, err
+	}
+	if err := a.ensureSessionService(); err != nil {
 		return nil, err
 	}
 
@@ -235,7 +241,7 @@ func (a *App) Logout(req LogoutRequest) error {
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
 
-	if err := a.ensureAuthServices(); err != nil {
+	if err := a.ensureAuthCoreServices(); err != nil {
 		return err
 	}
 	refreshToken := strings.TrimSpace(req.RefreshToken)
@@ -245,7 +251,7 @@ func (a *App) Logout(req LogoutRequest) error {
 		}
 	}
 	var err error
-	if refreshToken != "" {
+	if refreshToken != "" && a.ensureSessionService() == nil {
 		err = a.sessionSvc.Logout(context.Background(), refreshToken)
 	}
 	_ = a.clearAuthRefreshToken()
@@ -328,7 +334,10 @@ func (a *App) deleteAuthRefreshTokenFromKeychain() error {
 }
 
 func (a *App) GetAuthUser() (*AuthUser, error) {
-	if err := a.ensureAuthServices(); err != nil {
+	if err := a.ensureAuthCoreServices(); err != nil {
+		return nil, err
+	}
+	if err := a.ensureSessionService(); err != nil {
 		return nil, err
 	}
 	a.authMu.RLock()
@@ -395,8 +404,26 @@ func (a *App) reloadUserScopedRuntime() {
 }
 
 func (a *App) ensureAuthServices() error {
-	if a.identitySvc == nil || a.sessionSvc == nil || a.vaultSvc == nil {
+	if err := a.ensureAuthCoreServices(); err != nil {
+		return err
+	}
+	return a.ensureSessionService()
+}
+
+func (a *App) ensureAuthCoreServices() error {
+	if a.identitySvc == nil || a.vaultSvc == nil {
 		return errors.New("serviços de autenticação não inicializados")
+	}
+	return nil
+}
+
+func (a *App) ensureSessionService() error {
+	if a.sessionSvc != nil {
+		return nil
+	}
+	a.configureSessionService()
+	if a.sessionSvc == nil {
+		return errors.New("sessão de autenticação indisponível: desbloqueie o cofre ou verifique a DEK")
 	}
 	return nil
 }
