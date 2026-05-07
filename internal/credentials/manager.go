@@ -302,7 +302,7 @@ func (m *Manager) LoadFromStore(ctx context.Context) error {
 	}
 
 	for _, entry := range entries {
-		if err := m.registerEncryptedPattern(entry.ID, entry.Pattern, entry.Auth); err != nil {
+		if err := m.registerEncryptedPattern(entry.ID, entry.UserID, entry.Pattern, entry.Auth); err != nil {
 			return err
 		}
 	}
@@ -325,7 +325,7 @@ func (m *Manager) Reset(encryptionKey []byte, persist bool) {
 	m.persist = persist && m.store != nil
 }
 
-func (m *Manager) registerEncryptedPattern(id string, pattern string, encAuth *AuthConfig) error {
+func (m *Manager) registerEncryptedPattern(id, userID, pattern string, encAuth *AuthConfig) error {
 	if pattern == "" || encAuth == nil {
 		return errors.New("pattern e auth não podem ser vazios")
 	}
@@ -341,14 +341,16 @@ func (m *Manager) registerEncryptedPattern(id string, pattern string, encAuth *A
 
 	updated := false
 	for i, existing := range m.credentials {
-		if existing.Pattern == pattern || (id != "" && existing.ID == id) {
-			m.credentials[i] = &DomainCredential{ID: id, Pattern: pattern, regex: regex, Auth: encAuth}
+		sameStoredCredential := id != "" && existing.ID == id
+		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
+		if sameStoredCredential || sameScopedPattern {
+			m.credentials[i] = &DomainCredential{ID: id, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
 			updated = true
 			break
 		}
 	}
 	if !updated {
-		m.credentials = append(m.credentials, &DomainCredential{ID: id, Pattern: pattern, regex: regex, Auth: encAuth})
+		m.credentials = append(m.credentials, &DomainCredential{ID: id, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth})
 	}
 
 	return nil

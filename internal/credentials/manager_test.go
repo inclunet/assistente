@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"assistente/internal/database"
 )
 
 func TestWildcardToRegex(t *testing.T) {
@@ -695,6 +697,70 @@ func TestRegisterStoredCredentialRequiresPersistedIDAfterSave(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "id da credencial persistida não encontrado") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+type staticCredentialStore struct {
+	entries []StoredCredential
+}
+
+func (s *staticCredentialStore) SaveCredential(context.Context, StoredCredential) error {
+	return nil
+}
+
+func (s *staticCredentialStore) ListCredentials(context.Context) ([]StoredCredential, error) {
+	return s.entries, nil
+}
+
+func (s *staticCredentialStore) DeleteCredential(context.Context, string) error {
+	return nil
+}
+
+func (s *staticCredentialStore) SaveKeyWrap(context.Context, KeyWrap) error {
+	return nil
+}
+
+func (s *staticCredentialStore) GetKeyWrap(context.Context, string) (*KeyWrap, error) {
+	return nil, nil
+}
+
+func (s *staticCredentialStore) HasKeyWrap(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func TestLoadFromStorePreservesUserScope(t *testing.T) {
+	key := []byte("test-key-exactly-32-bytes-long!!")
+	encoder := NewManager(key)
+	encAuth, err := encoder.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-user-1"})
+	if err != nil {
+		t.Fatalf("encrypt auth: %v", err)
+	}
+
+	store := &staticCredentialStore{entries: []StoredCredential{{
+		ID:      "cred-1",
+		UserID:  "user-1",
+		Pattern: "llm.inclunet.com.br",
+		Auth:    encAuth,
+	}}}
+	mgr := NewManagerWithStoreAndPersistence(key, store, true)
+	if err := mgr.LoadFromStore(context.Background()); err != nil {
+		t.Fatalf("LoadFromStore() error = %v", err)
+	}
+
+	auth, err := mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-1"), "llm.inclunet.com.br")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext() error = %v", err)
+	}
+	if auth == nil || auth.Token != "sk-user-1" {
+		t.Fatalf("expected scoped credential for user-1, got %+v", auth)
+	}
+
+	otherAuth, err := mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-2"), "llm.inclunet.com.br")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext(other) error = %v", err)
+	}
+	if otherAuth != nil {
+		t.Fatalf("credential leaked across users: %+v", otherAuth)
 	}
 }
 

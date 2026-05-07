@@ -151,6 +151,9 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 	}
 	a.setCurrentUserID(claims.Subject)
 	a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
+	if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
+		return nil, err
+	}
 	a.reloadUserScopedRuntime()
 	return a.GetAuthUser()
 }
@@ -183,6 +186,9 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 	if err == nil {
 		a.setCurrentUserID(claims.Subject)
 		a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
+		if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
+			return nil, err
+		}
 		a.reloadUserScopedRuntime()
 	}
 	return a.GetAuthUser()
@@ -291,6 +297,16 @@ func (a *App) setCurrentAuthUser(user *AuthUser) {
 	}
 	copy := *user
 	a.currentAuthUser = &copy
+}
+
+func (a *App) adoptLegacyDataForUser(userID string) error {
+	if err := database.AdoptLegacyData(userID); err != nil {
+		return err
+	}
+	if a.credMgr != nil {
+		return a.credMgr.LoadFromStore(context.Background())
+	}
+	return nil
 }
 
 func (a *App) authenticatedContext() context.Context {
