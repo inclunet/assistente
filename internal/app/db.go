@@ -89,7 +89,7 @@ func assignMessageNodeOriginalIndexes(nodes []chat.MessageNode, indexesByID map[
 }
 
 func messageTimelineItemKey(message database.ChatMessage) string {
-	// Produces the canonical key shared with the frontend timeline.
+	// Produces the canonical key shared with frontend getTimelineNodeKey.
 	// User messages stay standalone even if bad data carries TurnID; TurnID only groups assistant/tool responses.
 	if message.Role != "user" && message.TurnID != nil && *message.TurnID != "" {
 		return "turn:" + *message.TurnID
@@ -104,9 +104,11 @@ func timelineWindowItemKey(item database.MessageWindowItem) string {
 	return "message:" + item.MessageID
 }
 
+// Contract with the frontend renderer: this source marks a synthetic assistant placeholder
+// for turns that only persisted tool result messages and have no assistant response.
 const toolOnlyTurnPlaceholderSource = "tool_only_turn_placeholder"
 
-func parseToolCalls(raw string) []map[string]interface{} {
+func parseToolCalls(messageID string, raw string) []map[string]interface{} {
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
@@ -118,7 +120,7 @@ func parseToolCalls(raw string) []map[string]interface{} {
 		if singleErr := json.Unmarshal([]byte(raw), &call); singleErr == nil {
 			return []map[string]interface{}{call}
 		} else {
-			log.Printf("[Chat] tool_calls JSON inválido descartado: array=%v object=%v", err, singleErr)
+			log.Printf("[Chat] tool_calls JSON inválido descartado message_id=%s: array=%v object=%v", messageID, err, singleErr)
 		}
 	}
 	return nil
@@ -128,6 +130,13 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 	if len(messages) == 0 {
 		return database.ChatMessage{}
 	}
+	messages = append([]database.ChatMessage(nil), messages...)
+	sort.SliceStable(messages, func(i, j int) bool {
+		if !messages[i].CreatedAt.Equal(messages[j].CreatedAt) {
+			return messages[i].CreatedAt.Before(messages[j].CreatedAt)
+		}
+		return messages[i].ID < messages[j].ID
+	})
 	toolResults := make(map[string]string)
 	for _, message := range messages {
 		if message.Role == "tool" && message.ToolCallID != "" {
@@ -152,7 +161,7 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 		if message.Reasoning != "" {
 			finalReasoning = message.Reasoning
 		}
-		for _, call := range parseToolCalls(message.ToolCalls) {
+		for _, call := range parseToolCalls(message.ID, message.ToolCalls) {
 			callID, _ := call["id"].(string)
 			if callID != "" {
 				if result, ok := toolResults[callID]; ok {

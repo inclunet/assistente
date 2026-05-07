@@ -167,6 +167,36 @@ describe('MessageList', () => {
     expect(props.node.message.content).toBe('intermediário');
   });
 
+  it('preserva segmentos canônicos ao consolidar nó de backend com transitório do mesmo turno', () => {
+    hoisted.messageNodeMock.mockClear();
+    const canonicalNode = createNode('assistant-canonical');
+    canonicalNode.message.role = 'assistant';
+    canonicalNode.message.turnId = 'turn-1';
+    canonicalNode.message.content = 'resposta canônica';
+    (canonicalNode.message as typeof canonicalNode.message & { _turnSegments?: unknown })._turnSegments = [
+      { type: 'text', content: 'segmento canônico' },
+      { type: 'tool_calls', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+    ];
+    const streamingNode = createNode('streaming-turn-1');
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.turnId = 'turn-1';
+    streamingNode.message.content = 'continuação transitória';
+    streamingNode.message.isStreaming = true;
+
+    render(<MessageList threadedMessages={[canonicalNode, streamingNode]} />);
+
+    const props = hoisted.messageNodeMock.mock.calls[0][0] as {
+      node: main.MessageNode & { message: main.EnrichedMessage & { _turnSegments?: unknown[] } };
+    };
+    expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(1);
+    expect(props.node.message.id).toBe('streaming-turn-1');
+    expect(props.node.message._turnSegments).toEqual([
+      { type: 'text', content: 'segmento canônico' },
+      { type: 'tool_calls', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+      { type: 'text', content: 'continuação transitória' },
+    ]);
+  });
+
   it('dispara callbacks de salto por Ctrl+Home e Ctrl+End', () => {
     const onJumpToStart = vi.fn();
     const onJumpToEnd = vi.fn();

@@ -90,8 +90,10 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
       }
     }
 
-    // Build segments in chronological order from assistant messages
-    const segments: TurnSegment[] = [];
+    // Build segments in chronological order from assistant messages.
+    // Backend-provided segments are canonical; locally derived segments only cover transient split nodes.
+    const canonicalSegments: TurnSegment[] = [];
+    const derivedSegments: TurnSegment[] = [];
     const allToolCalls: unknown[] = [];
     let finalContent = '';
     let finalReasoning = '';
@@ -100,10 +102,17 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
     for (const tn of turnNodes) {
       if (tn.message.role !== 'assistant') continue;
       finalNode = tn;
+      const existingSegments = (tn.message as Message)._turnSegments;
+      const hasCanonicalSegments = existingSegments && existingSegments.length > 0;
+      if (hasCanonicalSegments) {
+        canonicalSegments.push(...existingSegments);
+      }
 
       // Text segment (intermediate reasoning or final answer)
-      if (tn.message.content) {
-        segments.push({ type: 'text', content: tn.message.content });
+      if (tn.message.content && !hasCanonicalSegments) {
+        derivedSegments.push({ type: 'text', content: tn.message.content });
+        finalContent = tn.message.content;
+      } else if (tn.message.content) {
         finalContent = tn.message.content;
       }
 
@@ -129,12 +138,12 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
               result: callId ? toolResults.get(callId) ?? undefined : undefined,
             };
           });
-          segments.push({ type: 'tool_calls', toolCalls: enrichedCalls });
+          if (!hasCanonicalSegments) {
+            derivedSegments.push({ type: 'tool_calls', toolCalls: enrichedCalls });
+          }
           allToolCalls.push(...enrichedCalls);
         } catch (error) {
-          if (import.meta.env.DEV) {
-            console.warn('[MessageList] invalid toolCalls JSON skipped during turn consolidation', error);
-          }
+          console.warn('[MessageList] invalid toolCalls JSON skipped during turn consolidation', error);
         }
       }
 
@@ -159,8 +168,12 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
       .find((index): index is number => index !== undefined);
     consolidated.originalIndex = firstOriginalIndex ?? finalNode.originalIndex;
 
-    // Attach segments only for multi-step turns (more than just the final text)
-    if (segments.length > 1) {
+    const segments = canonicalSegments.length > 0
+      ? [...canonicalSegments, ...derivedSegments]
+      : derivedSegments;
+
+    // Backend-provided segments are preserved even when a transient sibling temporarily splits the turn.
+    if (canonicalSegments.length > 0 || segments.length > 1) {
       (consolidated.message as Message)._turnSegments = segments;
     }
 

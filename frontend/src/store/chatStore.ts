@@ -1207,7 +1207,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         ? stripInternalMessageTurnId(message)
         : message;
       if (message.turnId) {
-        console.warn('[Chat] addInternalMessage recebeu turnId; removendo para evitar colisão com timeline canônica');
+        const warning = '[Chat] addInternalMessage recebeu turnId; removendo para evitar colisão com timeline canônica';
+        if (import.meta.env.DEV) {
+          console.error(new Error(warning));
+        } else {
+          console.warn(warning);
+        }
       }
 
       set((state) => {

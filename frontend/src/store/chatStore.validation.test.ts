@@ -780,7 +780,7 @@ describe('chatStore validation', () => {
   });
 
   it('remove turnId de mensagem interna antes de atualizar a timeline', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const userNode = createMessageNode('user-1') as unknown as MessageNode;
     const assistantNode = createMessageNode('assistant-1') as unknown as MessageNode;
     assistantNode.message.role = 'assistant';
@@ -816,7 +816,8 @@ describe('chatStore validation', () => {
     const internalMessage = localThread.find((node) => node.message.id === 'internal-1')?.message;
     expect(internalMessage?.turnId).toBeUndefined();
     expect(Object.prototype.hasOwnProperty.call(internalMessage, 'turnId')).toBe(false);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('addInternalMessage recebeu turnId'));
+    expect(error).toHaveBeenCalledWith(expect.any(Error));
+    expect((error.mock.calls[0][0] as Error).message).toContain('addInternalMessage recebeu turnId');
   });
 
   it('propaga mensagem interna para superfícies visíveis sem gravar no cache compartilhado', async () => {

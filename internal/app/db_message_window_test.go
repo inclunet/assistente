@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/chat"
 	"assistente/internal/database"
@@ -57,6 +58,38 @@ func TestConsolidateTimelineTurnMessages_ToolOnlyPlaceholderOrdersToolCalls(t *t
 	}
 	if len(calls) != 2 || calls[0].ID != "tool-a" || calls[1].ID != "tool-b" {
 		t.Fatalf("expected deterministic tool call order by id, got %+v", calls)
+	}
+}
+
+func TestConsolidateTimelineTurnMessages_OrdersMessagesBeforeChoosingRepresentative(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	consolidated := consolidateTimelineTurnMessages([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime.Add(2 * time.Minute)},
+			Role:      "assistant",
+			Content:   "resposta final",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-intermediate", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			Content:   "resposta intermediária",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-first", CreatedAt: baseTime},
+			Role:      "assistant",
+			Content:   "primeira resposta",
+			TurnID:    &turnID,
+		},
+	})
+
+	if consolidated.ID != "assistant-final" {
+		t.Fatalf("expected latest assistant as representative, got %s", consolidated.ID)
+	}
+	if consolidated.Content != "resposta final" {
+		t.Fatalf("expected latest non-empty content, got %q", consolidated.Content)
 	}
 }
 
