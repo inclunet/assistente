@@ -219,6 +219,30 @@ func TestTransport_NoCredentialFallthrough(t *testing.T) {
 	}
 }
 
+func TestTransport_NoCredentialWithManagedPlaceholderReturnsError(t *testing.T) {
+	mgr := newTestManager(t)
+	capture := &captureTransport{}
+	transport := &CredentialTransport{
+		Base:        capture,
+		CredMgr:     mgr,
+		CredPattern: "llm.inclunet.com.br",
+	}
+
+	req := httptest.NewRequest("POST", "http://llm.inclunet.com.br/v1/responses", nil)
+	req.Header.Set("Authorization", "Bearer managed-by-credential-transport")
+
+	resp, err := transport.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected unresolved managed credential error")
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response, got %+v", resp)
+	}
+	if capture.captured != nil {
+		t.Fatal("request with unresolved managed credential should not reach base transport")
+	}
+}
+
 func TestTransport_NilManagerFallthrough(t *testing.T) {
 	capture := &captureTransport{}
 	transport := &CredentialTransport{
@@ -260,16 +284,15 @@ func TestTransport_EmptyTokenNotInjected(t *testing.T) {
 	req := httptest.NewRequest("GET", "https://empty.example.com/api", nil)
 	req.Header.Set("Authorization", "Bearer managed-by-credential-transport")
 
-	_, err := transport.RoundTrip(req)
-	if err != nil {
-		t.Fatal(err)
+	resp, err := transport.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected unresolved managed credential error for empty token")
 	}
-
-	// Com token vazio, o placeholder original fica (não substituído)
-	// Este é exatamente o cenário do bug: token_enc perdido na migração → token vazio → placeholder enviado
-	got := capture.captured.Header.Get("Authorization")
-	if got != "Bearer managed-by-credential-transport" {
-		t.Errorf("com token vazio, header deveria ficar inalterado, obteve %q", got)
+	if resp != nil {
+		t.Fatalf("expected nil response, got %+v", resp)
+	}
+	if capture.captured != nil {
+		t.Fatal("request with empty managed credential should not reach base transport")
 	}
 }
 
