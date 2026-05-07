@@ -142,6 +142,31 @@ describe('MessageList', () => {
     ]));
   });
 
+  it('usa o último assistant como representante ao consolidar turno local', () => {
+    hoisted.messageNodeMock.mockClear();
+    const firstAssistant = createNode('assistant-1');
+    firstAssistant.message.role = 'assistant';
+    firstAssistant.message.turnId = 'turn-1';
+    firstAssistant.message.content = 'intermediário';
+    const secondAssistant = createNode('assistant-2');
+    secondAssistant.message.role = 'assistant';
+    secondAssistant.message.turnId = 'turn-1';
+    secondAssistant.message.content = '';
+    secondAssistant.message.toolCalls = JSON.stringify([{ id: 'tool-1' }]);
+    const thirdAssistant = createNode('assistant-3');
+    thirdAssistant.message.role = 'assistant';
+    thirdAssistant.message.turnId = 'turn-1';
+    thirdAssistant.message.content = '';
+    thirdAssistant.message.toolCalls = JSON.stringify([{ id: 'tool-2' }]);
+
+    render(<MessageList threadedMessages={[firstAssistant, secondAssistant, thirdAssistant]} />);
+
+    const props = hoisted.messageNodeMock.mock.calls[0][0] as { node: main.MessageNode };
+    expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(1);
+    expect(props.node.message.id).toBe('assistant-3');
+    expect(props.node.message.content).toBe('intermediário');
+  });
+
   it('dispara callbacks de salto por Ctrl+Home e Ctrl+End', () => {
     const onJumpToStart = vi.fn();
     const onJumpToEnd = vi.fn();

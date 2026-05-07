@@ -94,8 +94,10 @@ export function finalizeStreamingNode<TConversation extends ChatTreeConversation
   conversation: TConversation,
   syntheticId: string,
   finalId?: string | null,
+  finalTurnId?: string | null,
 ): TConversation {
   const collidesWithExistingRealId = !!finalId && hasMessageId(conversation.threadedMessages, finalId, syntheticId);
+  const finalMessagePatch: Partial<Message> = finalTurnId ? { turnId: finalTurnId } : {};
   const markDone = (nodes: MessageNode[]): MessageNode[] => nodes.flatMap((node) => {
     const id = String(node.message.id);
     if (id === syntheticId) {
@@ -106,12 +108,13 @@ export function finalizeStreamingNode<TConversation extends ChatTreeConversation
         message: cloneMessage(node.message, {
           id: finalId ?? node.message.id,
           isStreaming: false,
+          ...finalMessagePatch,
         }),
         children: node.children?.length ? markDone(node.children) : node.children,
       })];
     } else if (collidesWithExistingRealId && finalId && id === finalId) {
       return [cloneNode(node, {
-        message: cloneMessage(node.message, { isStreaming: false }),
+        message: cloneMessage(node.message, { isStreaming: false, ...finalMessagePatch }),
         children: node.children?.length ? markDone(node.children) : node.children,
       })];
     }

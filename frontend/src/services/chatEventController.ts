@@ -92,6 +92,7 @@ interface ChatSegmentDoneEvent {
 
 interface ChatDoneEvent {
   conversationId: string;
+  assistantMessageId?: string;
   turnId?: string;
   hadToolCalls?: boolean;
   errorMessage?: string;
@@ -299,10 +300,10 @@ export function startChatEventController({
     resolveDone();
   };
 
-  const finalizeStreaming = (finalId?: string | null) => {
+  const finalizeStreaming = (finalId?: string | null, finalTurnId: string | null = currentTurnId) => {
     adapter.patchConversation(
       conversationId,
-      (conversation) => finalizeStreamingNode(conversation, streamingMsgId, finalId),
+      (conversation) => finalizeStreamingNode(conversation, streamingMsgId, finalId, finalTurnId),
     );
   };
 
@@ -414,7 +415,7 @@ export function startChatEventController({
       flushStreamingUpdate();
       if (event.content) updateStreamingMessage(event.content);
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
-      finalizeStreaming(backendAssistantId);
+      finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
 
       const flatMessages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
       const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || streamingMsgId));
@@ -543,12 +544,13 @@ export function startChatEventController({
       ensureAssistantNode();
       flushStreamingUpdate();
       updateStreamingMessage(i18next.t('chat.errorPrefix', { message: event.errorMessage }));
-      finalizeStreaming();
+      finalizeStreaming(null, currentTurnId);
       cleanup();
       return;
     }
 
-    finalizeStreaming();
+    const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
+    finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
 
     if (event.hadToolCalls) {
       reloadConversationSnapshot(conversationId, INITIAL_MESSAGE_WINDOW_SIZE).then((snapshot) => {
@@ -564,6 +566,15 @@ export function startChatEventController({
             currentSession.messageWindow.totalCount > 0
             && currentSession.messageWindow.endIndex >= currentSession.messageWindow.totalCount - 1
           );
+        const pagedWindowUpdate = currentSession.messageWindow && !isSurfaceAtLiveTail
+          ? {
+            messageWindow: {
+              ...currentSession.messageWindow,
+              totalCount: Math.max(currentSession.messageWindow.totalCount, snapshot.messageWindow.totalCount),
+              hasAfter: snapshot.messageWindow.totalCount > currentSession.messageWindow.endIndex + 1,
+            },
+          }
+          : {};
         patchCurrentSession({
           conversation: {
             ...conversation,
@@ -575,7 +586,7 @@ export function startChatEventController({
               messageWindow: snapshot.messageWindow,
               hasOlderMessages: snapshot.hasOlderMessages,
             }
-            : {}),
+            : pagedWindowUpdate),
           completedSegments: [],
         });
       }).catch((err) => {

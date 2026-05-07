@@ -450,6 +450,66 @@ describe('chatStore validation', () => {
     expect(visibleIds?.some((id) => String(id).startsWith('streaming-'))).toBe(false);
   });
 
+  it('preserva nó persistido na superfície quando patch de streaming colide no mesmo turno', async () => {
+    const canonicalNode = createMessageNode('assistant-final') as unknown as MessageNode;
+    canonicalNode.message.role = 'assistant';
+    canonicalNode.message.turnId = 'turn-1';
+    canonicalNode.message.content = 'resposta persistida';
+    canonicalNode.originalIndex = 1;
+
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: { id: defaultConversationId, title: 'Conversa', threadedMessages: [canonicalNode] },
+          visibleThreadedMessages: [canonicalNode],
+        },
+      },
+    });
+
+    mockSendMessage.mockImplementationOnce(() => {
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        content: 'rascunho',
+        turnId: 'turn-1',
+        done: false,
+      });
+      return Promise.resolve();
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'novo prompt');
+
+    const visible = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.visibleThreadedMessages;
+    expect(visible?.map((node) => node.message.id)).toEqual(['assistant-final']);
+    expect(visible?.[0]?.message.content).toBe('resposta persistida');
+    expect(visible?.[0]?.message.isStreaming).not.toBe(true);
+  });
+
+  it('propaga turnId do backend ao finalizar streaming criado antes de messages_ready', async () => {
+    mockSendMessage.mockImplementationOnce(() => {
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        content: 'parcial',
+        done: false,
+      });
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        messageId: 'assistant-final',
+        content: 'final',
+        turnId: 'turn-race',
+        done: true,
+      });
+      return Promise.resolve();
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'novo prompt');
+
+    const threadedMessages = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages;
+    const assistant = threadedMessages?.find((node) => node.message.id === 'assistant-final');
+    expect(assistant?.message.turnId).toBe('turn-race');
+    expect(assistant?.message.isStreaming).toBe(false);
+  });
+
   it('recalcula metadados da janela usando índices persistidos quando há transient visível', async () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `tab-a:${defaultConversationId}`;

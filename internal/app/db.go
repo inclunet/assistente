@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 
 	"assistente/internal/chat"
@@ -174,6 +175,11 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 				"result":   result,
 			})
 		}
+		sort.Slice(placeholderCalls, func(i, j int) bool {
+			left, _ := placeholderCalls[i]["id"].(string)
+			right, _ := placeholderCalls[j]["id"].(string)
+			return left < right
+		})
 		if len(placeholderCalls) > 0 {
 			if encoded, err := json.Marshal(placeholderCalls); err == nil {
 				consolidated.ToolCalls = string(encoded)

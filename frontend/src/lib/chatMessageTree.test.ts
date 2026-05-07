@@ -82,4 +82,19 @@ describe('chatMessageTree', () => {
     expect(updated.threadedMessages[0].message.id).toBe('backend');
     expect(updated.threadedMessages[0].message.isStreaming).toBe(false);
   });
+
+  it('preserves backend turn id when finalizing a streaming node', () => {
+    const conversation = {
+      id: 'conversation-1',
+      title: 'Conversation',
+      threadedMessages: [node(message('synthetic', 'assistant'))],
+    };
+    conversation.threadedMessages[0].message.isStreaming = true;
+
+    const updated = finalizeStreamingNode(conversation, 'synthetic', 'backend', 'turn-1');
+
+    expect(updated.threadedMessages[0].message.id).toBe('backend');
+    expect(updated.threadedMessages[0].message.turnId).toBe('turn-1');
+    expect(updated.threadedMessages[0].message.isStreaming).toBe(false);
+  });
 });

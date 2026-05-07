@@ -99,12 +99,12 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 
     for (const tn of turnNodes) {
       if (tn.message.role !== 'assistant') continue;
+      finalNode = tn;
 
       // Text segment (intermediate reasoning or final answer)
       if (tn.message.content) {
         segments.push({ type: 'text', content: tn.message.content });
         finalContent = tn.message.content;
-        finalNode = tn;
       }
 
       // Tool calls segment (enriched with results)

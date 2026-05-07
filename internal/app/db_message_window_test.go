@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -27,6 +28,36 @@ func setupMessageWindowAppTestDB(t *testing.T) {
 			_ = sqlDB.Close()
 		}
 	})
+}
+
+func TestConsolidateTimelineTurnMessages_ToolOnlyPlaceholderOrdersToolCalls(t *testing.T) {
+	turnID := "turn-1"
+	consolidated := consolidateTimelineTurnMessages([]database.ChatMessage{
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-b-message"},
+			Role:       "tool",
+			Content:    "resultado b",
+			TurnID:     &turnID,
+			ToolCallID: "tool-b",
+		},
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-a-message"},
+			Role:       "tool",
+			Content:    "resultado a",
+			TurnID:     &turnID,
+			ToolCallID: "tool-a",
+		},
+	})
+
+	var calls []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(consolidated.ToolCalls), &calls); err != nil {
+		t.Fatalf("unmarshal placeholder tool calls: %v", err)
+	}
+	if len(calls) != 2 || calls[0].ID != "tool-a" || calls[1].ID != "tool-b" {
+		t.Fatalf("expected deterministic tool call order by id, got %+v", calls)
+	}
 }
 
 func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {

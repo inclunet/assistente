@@ -456,6 +456,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const updatedVisible = visibleNodes.map((node) => {
       const incoming = incomingByKey.get(getTimelineNodeKey(node));
       if (!incoming) return node;
+      if (isPersistedMessageNode(node) && !isPersistedMessageNode(incoming)) return node;
+      if (!isPersistedMessageNode(node) && isPersistedMessageNode(incoming)) return incoming;
       return mergeMessageNode(node, incoming);
     });
     if (window?.hasAfter && !appendNewNodes) return updatedVisible;
