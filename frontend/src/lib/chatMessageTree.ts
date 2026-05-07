@@ -29,19 +29,33 @@ export interface ChatTreeConversation {
 }
 
 function cloneMessage(message: Message, overrides: Partial<Message> = {}): Message {
-  return new main.EnrichedMessage({
+  const cloned = new main.EnrichedMessage({
     ...message,
     ...overrides,
   }) as Message;
+  // Omitting _turnSegments in overrides preserves existing segments; pass [] to clear explicitly.
+  const turnSegments = overrides._turnSegments ?? message._turnSegments;
+  if (turnSegments) cloned._turnSegments = turnSegments;
+  return cloned;
 }
 
 function createNode(input: Partial<MessageNode> & { message: Message }): MessageNode {
-  return new main.MessageNode({
+  const node = new main.MessageNode({
     children: [],
     childCount: 0,
     level: 0,
     ...input,
   }) as MessageNode;
+  if (!Object.prototype.hasOwnProperty.call(input.message, 'turnId')) {
+    delete (node.message as Message & { turnId?: string }).turnId;
+  }
+  if ((input.message as Message)._turnSegments) {
+    (node.message as Message)._turnSegments = (input.message as Message)._turnSegments;
+  }
+  if (input.children) {
+    node.children = [...input.children];
+  }
+  return node;
 }
 
 function cloneNode(node: MessageNode, overrides: Partial<MessageNode> = {}): MessageNode {
@@ -94,8 +108,10 @@ export function finalizeStreamingNode<TConversation extends ChatTreeConversation
   conversation: TConversation,
   syntheticId: string,
   finalId?: string | null,
+  finalTurnId?: string | null,
 ): TConversation {
   const collidesWithExistingRealId = !!finalId && hasMessageId(conversation.threadedMessages, finalId, syntheticId);
+  const finalMessagePatch: Partial<Message> = finalTurnId ? { turnId: finalTurnId } : {};
   const markDone = (nodes: MessageNode[]): MessageNode[] => nodes.flatMap((node) => {
     const id = String(node.message.id);
     if (id === syntheticId) {
@@ -106,12 +122,13 @@ export function finalizeStreamingNode<TConversation extends ChatTreeConversation
         message: cloneMessage(node.message, {
           id: finalId ?? node.message.id,
           isStreaming: false,
+          ...finalMessagePatch,
         }),
         children: node.children?.length ? markDone(node.children) : node.children,
       })];
     } else if (collidesWithExistingRealId && finalId && id === finalId) {
       return [cloneNode(node, {
-        message: cloneMessage(node.message, { isStreaming: false }),
+        message: cloneMessage(node.message, { isStreaming: false, ...finalMessagePatch }),
         children: node.children?.length ? markDone(node.children) : node.children,
       })];
     }
@@ -197,8 +214,38 @@ function findLastUserMessage(nodes: MessageNode[]): MessageNode | null {
   return null;
 }
 
+function replaceMessageInTree(nodes: MessageNode[], message: Message): { nodes: MessageNode[]; found: boolean } {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (String(node.message.id) === String(message.id)) {
+      const updatedNodes = [...nodes];
+      // Re-emitted internal messages update in place; structural parent is intentionally preserved.
+      updatedNodes[index] = cloneNode(node, {
+        message: cloneMessage(node.message, {
+          ...message,
+          parentId: node.message.parentId,
+        }),
+      });
+      return { nodes: updatedNodes, found: true };
+    }
+
+    if (node.children && node.children.length > 0) {
+      const result = replaceMessageInTree(node.children, message);
+      if (result.found) {
+        const updatedNodes = [...nodes];
+        updatedNodes[index] = cloneNode(node, { children: result.nodes });
+        return { nodes: updatedNodes, found: true };
+      }
+    }
+  }
+
+  return { nodes, found: false };
+}
+
 export function appendInternalMessageToTree(nodes: MessageNode[], message: Message): MessageNode[] {
   const parentId = message.parentId?.toString();
+  const existingResult = replaceMessageInTree(nodes, message);
+  if (existingResult.found) return existingResult.nodes;
 
   if (!parentId) {
     const newNode = createNode({

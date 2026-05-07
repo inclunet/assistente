@@ -218,6 +218,16 @@ O PR #111 completa o contrato operacional de sessão de chat:
 - Canais externos entram na `ConversationTurnQueue` por `conversationId` e usam origem externa explícita, em vez de adaptar comportamento pela aba ativa.
 - Eventos `chat:*` carregam `surfaceOrigin` quando a origem é conhecida, permitindo que controllers, voz e anúncios escolham a sessão correta.
 
+#### Consolidação no PR #113 e relação com AEP-0059
+
+O PR #113 consolidou o carregamento incremental sem enfraquecer a identidade de superfície:
+
+- `ConversationTimeline` continua sendo o cache compartilhado por `conversationId`.
+- `ChatSurfaceSession` passou a carregar sua própria janela renderizada, cursores e estado de carregamento de janela.
+- Duas superfícies da mesma conversa podem manter pontos diferentes do histórico sem compartilhar scroll, paginação ou contagem local.
+
+O próximo PR da AEP-0059 Fase 2.1 preserva esse contrato. A unidade canônica de timeline será calculada no backend por `conversationId`, mas a janela visível continuará pertencendo à `ChatSurfaceSession`.
+
 ## Riscos
 
 - Separar timeline e sessão visual aumenta a complexidade inicial do domínio de chat.

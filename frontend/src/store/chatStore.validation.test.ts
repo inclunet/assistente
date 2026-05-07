@@ -261,7 +261,9 @@ describe('chatStore validation', () => {
 
   it('carrega janela anterior apenas para a superfície solicitada', async () => {
     const currentNode = createMessageNode('message-10') as unknown as MessageNode;
+    currentNode.originalIndex = 9;
     const olderNode = createMessageNode('message-09') as unknown as MessageNode;
+    olderNode.originalIndex = 8;
     mockGetConversationMessageWindow.mockResolvedValue({
       scope: 'conversation',
       conversationId: defaultConversationId,
@@ -325,11 +327,415 @@ describe('chatStore validation', () => {
 
     await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, 'surface-a');
 
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith(expect.objectContaining({
+      anchorMessageId: 'message-10',
+      direction: 'before',
+    }));
     const state = useChatStore.getState();
     expect(state.surfaceSessionsByKey['surface-a'].visibleThreadedMessages?.map((node) => node.message.id))
       .toEqual(['message-09', 'message-10']);
     expect(state.surfaceSessionsByKey['surface-b'].visibleThreadedMessages?.map((node) => node.message.id))
       .toEqual(['message-10']);
+  });
+
+  it('não usa mensagem sintética de streaming como âncora de paginação anterior', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.isStreaming = true;
+    const currentNode = createMessageNode('message-10') as unknown as MessageNode;
+    currentNode.originalIndex = 9;
+    const olderNode = createMessageNode('message-09') as unknown as MessageNode;
+    olderNode.originalIndex = 8;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [olderNode],
+      totalCount: 10,
+      startIndex: 8,
+      endIndex: 8,
+      hasBefore: true,
+      hasAfter: true,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [streamingNode, currentNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        'surface-a': {
+          ...createEmptyChatSession(defaultConversationId, 'surface-a'),
+          hasOlderMessages: true,
+          visibleThreadedMessages: [streamingNode, currentNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 10,
+            startIndex: 9,
+            endIndex: 9,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, 'surface-a');
+
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith(expect.objectContaining({
+      anchorMessageId: 'message-10',
+      direction: 'before',
+    }));
+  });
+
+  it('preserva nó persistido quando streaming local colide na mesma chave de turno', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const userNode = createMessageNode('user-1') as unknown as MessageNode;
+    userNode.originalIndex = 1;
+    const canonicalNode = createMessageNode('assistant-final') as unknown as MessageNode;
+    canonicalNode.message.role = 'assistant';
+    canonicalNode.message.turnId = 'user-1';
+    canonicalNode.originalIndex = 2;
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.turnId = 'user-1';
+    streamingNode.message.isStreaming = true;
+    const olderNode = createMessageNode('message-00') as unknown as MessageNode;
+    olderNode.originalIndex = 0;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [olderNode],
+      totalCount: 3,
+      startIndex: 0,
+      endIndex: 0,
+      hasBefore: false,
+      hasAfter: true,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [userNode, canonicalNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        'surface-a': {
+          ...createEmptyChatSession(defaultConversationId, 'surface-a'),
+          hasOlderMessages: true,
+          visibleThreadedMessages: [userNode, canonicalNode, streamingNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 3,
+            startIndex: 1,
+            endIndex: 2,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, 'surface-a');
+
+    const visibleIds = useChatStore.getState().surfaceSessionsByKey['surface-a'].visibleThreadedMessages?.map((node) => node.message.id);
+    expect(visibleIds).toEqual(['message-00', 'user-1', 'assistant-final']);
+    expect(visibleIds?.some((id) => String(id).startsWith('streaming-'))).toBe(false);
+  });
+
+  it('mantém representante persistido mais recente quando outro persistido colide no mesmo turno', async () => {
+    mockGetConversationInfo.mockResolvedValueOnce({ title: 'Conversa' });
+    const existingRepresentative = createMessageNode('assistant-newer') as unknown as MessageNode;
+    existingRepresentative.message.role = 'assistant';
+    existingRepresentative.message.turnId = 'turn-1';
+    existingRepresentative.message.content = 'representante mais novo';
+    existingRepresentative.originalIndex = 5;
+    const incomingRepresentative = createMessageNode('assistant-older') as unknown as MessageNode;
+    incomingRepresentative.message.role = 'assistant';
+    incomingRepresentative.message.turnId = 'turn-1';
+    incomingRepresentative.message.content = 'representante antigo';
+    incomingRepresentative.originalIndex = 2;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [incomingRepresentative],
+      totalCount: 6,
+      startIndex: 2,
+      endIndex: 2,
+      hasBefore: true,
+      hasAfter: true,
+    });
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [existingRepresentative],
+        },
+      },
+    });
+
+    await useChatStore.getState().loadConversationSession(defaultConversationId);
+
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages.map((node) => node.message.id))
+      .toEqual(['assistant-newer']);
+  });
+
+  it('mantém representante existente quando persistidos colidem com mesmo índice de turno', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockGetConversationInfo.mockResolvedValueOnce({ title: 'Conversa' });
+    const existingRepresentative = createMessageNode('assistant-existing') as unknown as MessageNode;
+    existingRepresentative.message.role = 'assistant';
+    existingRepresentative.message.turnId = 'turn-1';
+    existingRepresentative.message.content = 'representante existente';
+    existingRepresentative.originalIndex = 5;
+    const incomingRepresentative = createMessageNode('assistant-incoming') as unknown as MessageNode;
+    incomingRepresentative.message.role = 'assistant';
+    incomingRepresentative.message.turnId = 'turn-1';
+    incomingRepresentative.message.content = 'representante novo';
+    incomingRepresentative.originalIndex = 5;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [incomingRepresentative],
+      totalCount: 6,
+      startIndex: 5,
+      endIndex: 5,
+      hasBefore: true,
+      hasAfter: false,
+    });
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [existingRepresentative],
+        },
+      },
+    });
+
+    await useChatStore.getState().loadConversationSession(defaultConversationId);
+
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages.map((node) => node.message.id))
+      .toEqual(['assistant-existing']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('conflito de representante persistido'), expect.any(Object));
+  });
+
+  it('preserva nó persistido na superfície quando patch de streaming colide no mesmo turno', async () => {
+    const canonicalNode = createMessageNode('assistant-final') as unknown as MessageNode;
+    canonicalNode.message.role = 'assistant';
+    canonicalNode.message.turnId = 'turn-1';
+    canonicalNode.message.content = 'resposta persistida';
+    canonicalNode.originalIndex = 1;
+
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: { id: defaultConversationId, title: 'Conversa', threadedMessages: [canonicalNode] },
+          visibleThreadedMessages: [canonicalNode],
+        },
+      },
+    });
+
+    mockSendMessage.mockImplementationOnce(() => {
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        content: 'rascunho',
+        turnId: 'turn-1',
+        done: false,
+      });
+      return Promise.resolve();
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'novo prompt');
+
+    const visible = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.visibleThreadedMessages;
+    expect(visible?.map((node) => node.message.id)).toEqual(['assistant-final']);
+    expect(visible?.[0]?.message.content).toBe('resposta persistida');
+    expect(visible?.[0]?.message.isStreaming).not.toBe(true);
+  });
+
+  it('propaga turnId do backend ao finalizar streaming criado antes de messages_ready', async () => {
+    mockSendMessage.mockImplementationOnce(() => {
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        content: 'parcial',
+        done: false,
+      });
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        messageId: 'assistant-final',
+        content: 'final',
+        turnId: 'turn-race',
+        done: true,
+      });
+      return Promise.resolve();
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'novo prompt');
+
+    const threadedMessages = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages;
+    const assistant = threadedMessages?.find((node) => node.message.id === 'assistant-final');
+    expect(assistant?.message.turnId).toBe('turn-race');
+    expect(assistant?.message.isStreaming).toBe(false);
+  });
+
+  it('recalcula metadados da janela usando índices persistidos quando há transient visível', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const currentNode = createMessageNode('current-message') as unknown as MessageNode;
+    currentNode.originalIndex = 10;
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.turnId = 'stream-turn';
+    streamingNode.message.isStreaming = true;
+    const olderNode = createMessageNode('older-message') as unknown as MessageNode;
+    olderNode.originalIndex = 9;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [olderNode],
+      totalCount: 11,
+      startIndex: 9,
+      endIndex: 9,
+      hasBefore: true,
+      hasAfter: true,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [currentNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          hasOlderMessages: true,
+          visibleThreadedMessages: [currentNode, streamingNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 100,
+            startIndex: 10,
+            endIndex: 99,
+            hasBefore: true,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, originSessionKey);
+
+    expect(useChatStore.getState().surfaceSessionsByKey[originSessionKey].messageWindow).toMatchObject({
+      startIndex: 9,
+      endIndex: 10,
+      totalCount: 11,
+      hasAfter: false,
+    });
+  });
+
+  it('não extrapola totalCount quando índice local antigo excede resposta canônica', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const staleNode = createMessageNode('stale-tail-message') as unknown as MessageNode;
+    staleNode.originalIndex = 99;
+    const olderNode = createMessageNode('older-message') as unknown as MessageNode;
+    olderNode.originalIndex = 88;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [olderNode],
+      totalCount: 90,
+      startIndex: 88,
+      endIndex: 88,
+      hasBefore: true,
+      hasAfter: false,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [staleNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          hasOlderMessages: true,
+          visibleThreadedMessages: [staleNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 100,
+            startIndex: 99,
+            endIndex: 99,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, originSessionKey);
+
+    expect(useChatStore.getState().surfaceSessionsByKey[originSessionKey].messageWindow).toMatchObject({
+      totalCount: 90,
+      hasAfter: false,
+    });
+  });
+
+  it('limpa hasBefore quando não há âncora persistida para paginação anterior', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.isStreaming = true;
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [streamingNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        'surface-a': {
+          ...createEmptyChatSession(defaultConversationId, 'surface-a'),
+          hasOlderMessages: true,
+          visibleThreadedMessages: [streamingNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 1,
+            startIndex: 0,
+            endIndex: 0,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadOlderMessagesForConversation(defaultConversationId, 'surface-a');
+
+    expect(mockGetConversationMessageWindow).not.toHaveBeenCalled();
+    const session = useChatStore.getState().surfaceSessionsByKey['surface-a'];
+    expect(session?.hasOlderMessages).toBe(false);
+    expect(session?.messageWindow?.hasBefore).toBe(false);
   });
 
   it('repassa parâmetros estruturados de surface no envio', async () => {
@@ -411,6 +817,198 @@ describe('chatStore validation', () => {
 
     expect(useChatStore.getState().timelinesByConversationId[orphanConversationId]).toBeUndefined();
     expect(useChatStore.getState().surfaceSessionsByKey[orphanSessionKey]).toBeUndefined();
+  });
+
+  it('remove turnId de mensagem interna antes de atualizar a timeline', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const userNode = createMessageNode('user-1') as unknown as MessageNode;
+    const assistantNode = createMessageNode('assistant-1') as unknown as MessageNode;
+    assistantNode.message.role = 'assistant';
+    assistantNode.message.turnId = 'user-1';
+    assistantNode.message.content = 'Resposta canônica';
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: {
+            id: defaultConversationId,
+            title: 'Conversa',
+            threadedMessages: [userNode, assistantNode],
+          },
+        },
+      },
+    });
+
+    useChatStore.getState().addInternalMessage({
+      id: 'internal-1',
+      conversationId: defaultConversationId,
+      role: 'system',
+      content: 'Aviso interno',
+      turnId: 'user-1',
+      createdAt: new Date().toISOString(),
+    } as unknown as import('../lib/chatMessageTree').Message);
+
+    const timeline = useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages ?? [];
+    const localThread = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages ?? [];
+    expect(timeline.map((node) => node.message.id)).toEqual(['user-1', 'assistant-1']);
+    expect(localThread.map((node) => node.message.id)).toEqual(['user-1', 'assistant-1', 'internal-1']);
+    expect(timeline.find((node) => node.message.id === 'assistant-1')?.message.content).toBe('Resposta canônica');
+    const internalMessage = localThread.find((node) => node.message.id === 'internal-1')?.message;
+    expect(internalMessage?.turnId).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(internalMessage, 'turnId')).toBe(false);
+    expect(error).toHaveBeenCalledWith(expect.any(Error));
+    expect((error.mock.calls[0][0] as Error).message).toContain('addInternalMessage recebeu turnId');
+  });
+
+  it('propaga mensagem interna para superfícies visíveis sem gravar no cache compartilhado', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const node = createMessageNode('message-1') as unknown as MessageNode;
+    const surfaceA = `tab-a:${defaultConversationId}`;
+    const surfaceB = `tab-b:${defaultConversationId}`;
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: {
+            id: defaultConversationId,
+            title: 'Conversa',
+            threadedMessages: [node],
+          },
+        },
+      },
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [node],
+        },
+      },
+      surfaceSessionsByKey: {
+        [surfaceA]: {
+          ...createEmptyChatSession(defaultConversationId, surfaceA),
+          visibleThreadedMessages: [node],
+        },
+        [surfaceB]: {
+          ...createEmptyChatSession(defaultConversationId, surfaceB),
+          visibleThreadedMessages: [node],
+        },
+      },
+    });
+
+    useChatStore.getState().addInternalMessage({
+      id: 'internal-shared',
+      conversationId: defaultConversationId,
+      role: 'system',
+      content: 'Aviso interno',
+      createdAt: new Date().toISOString(),
+    } as unknown as import('../lib/chatMessageTree').Message);
+
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages.map((item) => item.message.id))
+      .toEqual(['message-1']);
+    expect(useChatStore.getState().surfaceSessionsByKey[surfaceA].visibleThreadedMessages?.map((item) => item.message.id))
+      .toEqual(['message-1', 'internal-shared']);
+    expect(useChatStore.getState().surfaceSessionsByKey[surfaceB].visibleThreadedMessages?.map((item) => item.message.id))
+      .toEqual(['message-1', 'internal-shared']);
+  });
+
+  it('atualiza mensagem interna existente quando o mesmo id é reenviado', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const node = createMessageNode('message-1') as unknown as MessageNode;
+    const surfaceA = `tab-a:${defaultConversationId}`;
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: {
+            id: defaultConversationId,
+            title: 'Conversa',
+            threadedMessages: [node],
+          },
+        },
+      },
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [node],
+        },
+      },
+      surfaceSessionsByKey: {
+        [surfaceA]: {
+          ...createEmptyChatSession(defaultConversationId, surfaceA),
+          visibleThreadedMessages: [node],
+        },
+      },
+    });
+
+    useChatStore.getState().addInternalMessage({
+      id: 'internal-rate-limit',
+      conversationId: defaultConversationId,
+      role: 'system',
+      content: 'Tente novamente em 5s',
+      createdAt: new Date().toISOString(),
+    } as unknown as import('../lib/chatMessageTree').Message);
+    useChatStore.getState().addInternalMessage({
+      id: 'internal-rate-limit',
+      conversationId: defaultConversationId,
+      role: 'system',
+      content: 'Tente novamente em 10s',
+      createdAt: new Date().toISOString(),
+    } as unknown as import('../lib/chatMessageTree').Message);
+
+    const localThread = useChatStore.getState().sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages ?? [];
+    const surfaceThread = useChatStore.getState().surfaceSessionsByKey[surfaceA].visibleThreadedMessages ?? [];
+    expect(localThread.map((item) => item.message.id)).toEqual(['message-1', 'internal-rate-limit']);
+    expect(localThread.find((item) => item.message.id === 'internal-rate-limit')?.message.content).toBe('Tente novamente em 10s');
+    expect(surfaceThread.map((item) => item.message.id)).toEqual(['message-1', 'internal-rate-limit']);
+    expect(surfaceThread.find((item) => item.message.id === 'internal-rate-limit')?.message.content).toBe('Tente novamente em 10s');
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages.map((item) => item.message.id))
+      .toEqual(['message-1']);
+  });
+
+  it('propaga mensagem interna para janela materializada da sessão default', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const node = createMessageNode('message-1') as unknown as MessageNode;
+    const defaultSessionKey = `conversation:${defaultConversationId}`;
+    useChatStore.setState({
+      sessionsByConversationId: {
+        [defaultConversationId]: {
+          ...useChatStore.getState().sessionsByConversationId[defaultConversationId],
+          conversation: {
+            id: defaultConversationId,
+            title: 'Conversa',
+            threadedMessages: [node],
+          },
+          visibleThreadedMessages: [node],
+        },
+      },
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [node],
+        },
+      },
+      surfaceSessionsByKey: {
+        [defaultSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, defaultSessionKey),
+          visibleThreadedMessages: [node],
+        },
+      },
+    });
+
+    useChatStore.getState().addInternalMessage({
+      id: 'internal-default',
+      conversationId: defaultConversationId,
+      role: 'system',
+      content: 'Aviso interno',
+      createdAt: new Date().toISOString(),
+    } as unknown as import('../lib/chatMessageTree').Message);
+
+    expect(useChatStore.getState().surfaceSessionsByKey[defaultSessionKey].visibleThreadedMessages?.map((item) => item.message.id))
+      .toEqual(['message-1', 'internal-default']);
+    expect(useChatStore.getState().timelinesByConversationId[defaultConversationId]?.threadedMessages.map((item) => item.message.id))
+      .toEqual(['message-1']);
   });
 
   it('envia sem recarregar quando timeline já está carregada sem sessão legada', async () => {
@@ -867,6 +1465,106 @@ describe('chatStore validation', () => {
     });
   });
 
+  it('não usa mensagem sintética de streaming como âncora de paginação posterior', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const currentNode = createMessageNode('current-message') as unknown as MessageNode;
+    currentNode.originalIndex = 1;
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.turnId = 'current-message';
+    streamingNode.message.isStreaming = true;
+    const newerNode = createMessageNode('newer-message') as unknown as MessageNode;
+    newerNode.message.role = 'assistant';
+    newerNode.message.turnId = 'current-message';
+    newerNode.originalIndex = 2;
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: [newerNode],
+      totalCount: 4,
+      startIndex: 2,
+      endIndex: 2,
+      hasBefore: true,
+      hasAfter: false,
+    });
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [currentNode, streamingNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [currentNode, streamingNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 4,
+            startIndex: 1,
+            endIndex: 1,
+            hasBefore: true,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadNewerMessagesForConversation(defaultConversationId, originSessionKey);
+
+    expect(mockGetConversationMessageWindow).toHaveBeenCalledWith(expect.objectContaining({
+      anchorMessageId: 'current-message',
+      direction: 'after',
+    }));
+    const surfaceSession = useChatStore.getState().surfaceSessionsByKey[originSessionKey];
+    expect(surfaceSession.visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['current-message', 'newer-message']);
+    expect(surfaceSession.visibleThreadedMessages?.some((node) => node.message.id.startsWith('streaming-')))
+      .toBe(false);
+  });
+
+  it('limpa hasAfter quando não há âncora persistida para paginação posterior', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `tab-a:${defaultConversationId}`;
+    const streamingNode = createMessageNode('streaming-conversation-1-1') as unknown as MessageNode;
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.isStreaming = true;
+
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [streamingNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [streamingNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 1,
+            startIndex: 0,
+            endIndex: 0,
+            hasBefore: false,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    await useChatStore.getState().loadNewerMessagesForConversation(defaultConversationId, originSessionKey);
+
+    expect(mockGetConversationMessageWindow).not.toHaveBeenCalled();
+    expect(useChatStore.getState().surfaceSessionsByKey[originSessionKey]?.messageWindow?.hasAfter).toBe(false);
+  });
+
   it('carrega mensagens posteriores sem acionar estado de mensagens anteriores', async () => {
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `tab-a:${defaultConversationId}`;
@@ -990,17 +1688,14 @@ describe('chatStore validation', () => {
     });
     const turnUser = nodes[239];
     const turnAssistant = createMessageNode('message-240') as unknown as MessageNode;
-    const turnTool = createMessageNode('message-241') as unknown as MessageNode;
     turnUser.message.turnId = 'turn-boundary';
     turnAssistant.message.turnId = 'turn-boundary';
     turnAssistant.message.role = 'assistant';
-    turnTool.message.turnId = 'turn-boundary';
-    turnTool.message.role = 'tool';
     turnAssistant.originalIndex = 240;
     mockGetConversationMessageWindow.mockResolvedValueOnce({
       scope: 'conversation',
       conversationId: defaultConversationId,
-      nodes: [turnAssistant, turnTool],
+      nodes: [turnAssistant],
       totalCount: 241,
       startIndex: 240,
       endIndex: 240,
@@ -1039,7 +1734,6 @@ describe('chatStore validation', () => {
     const ids = surfaceSession.visibleThreadedMessages?.map((node) => node.message.id) ?? [];
     expect(ids).toContain('message-239');
     expect(ids).toContain('message-240');
-    expect(ids).toContain('message-241');
   });
 
   it('substitui a janela visível ao saltar para o início da conversa', async () => {
@@ -1451,6 +2145,7 @@ describe('chatStore validation', () => {
   });
 
   it('não anexa refresh completo à superfície que está navegando histórico antigo', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `page:tab-a:${defaultConversationId}`;
     const initialNode = createMessageNode('initial-message') as unknown as MessageNode;
@@ -1496,7 +2191,17 @@ describe('chatStore validation', () => {
         },
       },
     });
-    mockGetMessages.mockResolvedValueOnce(refreshedNodes);
+    mockGetConversationInfo.mockResolvedValueOnce({ title: 'Conversa' });
+    mockGetConversationMessageWindow.mockResolvedValueOnce({
+      scope: 'conversation',
+      conversationId: defaultConversationId,
+      nodes: refreshedNodes,
+      totalCount: refreshedNodes.length,
+      startIndex: 0,
+      endIndex: refreshedNodes.length - 1,
+      hasBefore: false,
+      hasAfter: false,
+    });
     mockSendMessage.mockImplementationOnce(() => {
       emitEvent('chat:done', {
         conversationId: defaultConversationId,
@@ -1521,5 +2226,6 @@ describe('chatStore validation', () => {
       'initial-message',
     ]);
     expect(state.timelinesByConversationId[defaultConversationId]?.threadedMessages).toHaveLength(refreshedNodes.length);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('snapshot retornou totalCount menor'), expect.any(Object));
   });
 });

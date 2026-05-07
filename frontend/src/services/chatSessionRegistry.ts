@@ -221,6 +221,15 @@ export const getMessageNodeOrder = (node: MessageNode): number => {
   return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
 };
 
+export const getTimelineNodeKey = (node: MessageNode): string => {
+  // Keep this rule in sync with backend messageTimelineItemKey.
+  const turnId = String(node.message.turnId ?? '').trim();
+  if (turnId !== '' && node.message.role !== 'user') {
+    return `turn:${turnId}`;
+  }
+  return `message:${String(node.message.id)}`;
+};
+
 export const mergeMessageNode = (existing: MessageNode, incoming: MessageNode): MessageNode => {
   const incomingChildCount = incoming.childCount ?? 0;
   const existingChildCount = existing.childCount ?? 0;
@@ -248,6 +257,47 @@ export const sortMessageNodes = (nodes: MessageNode[]): MessageNode[] => (
     return order !== 0 ? order : String(a.message.id).localeCompare(String(b.message.id));
   })
 );
+
+export const sortTimelineNodes = (nodes: MessageNode[]): MessageNode[] => (
+  [...nodes].sort((a, b) => {
+    // OriginalIndex is the backend canonical order; transient/unindexed nodes fall back to creation time.
+    if (a.originalIndex !== undefined && b.originalIndex !== undefined && a.originalIndex !== b.originalIndex) {
+      return a.originalIndex - b.originalIndex;
+    }
+    const order = getMessageNodeOrder(a) - getMessageNodeOrder(b);
+    return order !== 0 ? order : String(a.message.id).localeCompare(String(b.message.id));
+  })
+);
+
+/**
+ * Local-only timeline IDs that must not enter the shared conversation cache.
+ * Before adding a prefix here, ensure no backend-persisted message can use it
+ * and add registry/store tests that prove it stays scoped to the active surface.
+ */
+export const TRANSIENT_TIMELINE_NODE_ID_PREFIXES = [
+  'streaming-',
+  'tool-',
+  'displaced-',
+  'reasoning-event-',
+  'queued-',
+  'internal-',
+];
+
+export const isPersistedTimelineNode = (node: MessageNode): boolean => {
+  const id = String(node.message.id ?? '');
+  return !node.message.isStreaming
+    && id !== ''
+    && !TRANSIENT_TIMELINE_NODE_ID_PREFIXES.some((prefix) => id.startsWith(prefix));
+};
+
+const toTimelineCacheConversation = (conversation: ConversationTimeline): ConversationTimeline => {
+  const threadedMessages = conversation.threadedMessages.filter(isPersistedTimelineNode);
+  if (threadedMessages.length === conversation.threadedMessages.length) return conversation;
+  return {
+    ...conversation,
+    threadedMessages,
+  };
+};
 
 const reconcileWindowForVisibleMessages = (
   window: MessageWindowState | undefined,
@@ -286,21 +336,24 @@ const mergeTimelineConversation = (
   current: ConversationTimeline | null,
   incoming: ConversationTimeline,
 ): ConversationTimeline => {
-  if (!current) return incoming;
-  const byId = new Map<string, MessageNode>();
-  for (const node of current.threadedMessages) {
-    byId.set(String(node.message.id), node);
+  const incomingCache = toTimelineCacheConversation(incoming);
+  if (!current) return incomingCache;
+  const currentCache = toTimelineCacheConversation(current);
+  const byKey = new Map<string, MessageNode>();
+  for (const node of currentCache.threadedMessages) {
+    byKey.set(getTimelineNodeKey(node), node);
   }
-  for (const node of incoming.threadedMessages) {
-    const existing = byId.get(String(node.message.id));
-    byId.set(String(node.message.id), existing
+  for (const node of incomingCache.threadedMessages) {
+    const key = getTimelineNodeKey(node);
+    const existing = byKey.get(key);
+    byKey.set(key, existing
       ? mergeMessageNode(existing, node)
       : node);
   }
   return {
-    ...current,
-    ...incoming,
-    threadedMessages: sortMessageNodes(Array.from(byId.values())),
+    ...currentCache,
+    ...incomingCache,
+    threadedMessages: sortTimelineNodes(Array.from(byKey.values())),
   };
 };
 
@@ -349,7 +402,7 @@ export function getChatSession(
     conversation: timeline
       ? {
         ...timeline,
-        threadedMessages: surfaceSession.visibleThreadedMessages ?? timeline.threadedMessages,
+        threadedMessages: surfaceSession.visibleThreadedMessages ?? toTimelineCacheConversation(timeline).threadedMessages,
       }
       : null,
   };

@@ -121,6 +121,7 @@ const es = {
       modelThinking: 'El modelo está pensando',
       modelReasoning: 'Razonamiento del modelo',
       reasoning: 'Razonamiento',
+      toolOnlyTurnPlaceholder: 'Turno sin respuesta del asistente. Los resultados de herramientas preservados aparecen abajo.',
       slashCommands: 'Slash commands',
       noSkillsFound: 'Ningún skill encontrado',
       availableSkills: 'Skills disponibles',

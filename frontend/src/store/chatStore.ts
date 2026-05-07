@@ -38,13 +38,16 @@ import {
 } from '../services/messageWindowLimits';
 import {
   createEmptyChatSurfaceSession,
+  getDefaultChatSessionKey,
   getChatSession,
   getConversationTimeline,
   patchChatConversation,
   patchChatSession,
   removeChatSession,
+  getTimelineNodeKey,
+  isPersistedTimelineNode,
   mergeMessageNode,
-  sortMessageNodes,
+  sortTimelineNodes,
   type ActiveConversation,
   type ChatConversationSession,
   type ChatSurfaceSession,
@@ -90,6 +93,37 @@ const getErrorMessage = (error: unknown): string => {
   } catch {
     return String(error);
   }
+};
+
+const isPersistedMessageNode = (node: MessageNode | undefined): boolean => {
+  if (!node) return false;
+  return isPersistedTimelineNode(node);
+};
+
+const stripInternalMessageTurnId = (message: Message): Message => {
+  const messageWithoutTurnId = { ...(message as Message & { turnId?: string }) };
+  delete messageWithoutTurnId.turnId;
+  return messageWithoutTurnId as Message;
+};
+
+const getLastPersistedMessageId = (nodes: MessageNode[]): string | null => {
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index];
+    if (isPersistedMessageNode(node)) {
+      return node.message.id;
+    }
+  }
+  return null;
+};
+
+const getFirstPersistedMessageId = (nodes: MessageNode[]): string | null => {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (isPersistedMessageNode(node)) {
+      return node.message.id;
+    }
+  }
+  return null;
 };
 
 const fileToBase64 = (file: File): Promise<string> => {
@@ -274,19 +308,45 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
   const mergeConversationNodes = (existing: MessageNode[], incoming: MessageNode[]): MessageNode[] => {
     if (incoming.length === 0) return existing;
-    const byId = new Map<string, MessageNode>();
+    const byKey = new Map<string, MessageNode>();
+    const mergeTimelineNode = (existingNode: MessageNode, incomingNode: MessageNode, key: string): MessageNode => {
+      const existingIsPersisted = isPersistedMessageNode(existingNode);
+      const incomingIsPersisted = isPersistedMessageNode(incomingNode);
+      if (existingIsPersisted && !incomingIsPersisted) return existingNode;
+      if (!existingIsPersisted && incomingIsPersisted) return incomingNode;
+      if (
+        key.startsWith('turn:')
+        && existingIsPersisted
+        && incomingIsPersisted
+        && String(existingNode.message.id) !== String(incomingNode.message.id)
+      ) {
+        const existingIndex = existingNode.originalIndex ?? Number.NEGATIVE_INFINITY;
+        const incomingIndex = incomingNode.originalIndex ?? Number.NEGATIVE_INFINITY;
+        if (incomingIndex === existingIndex && import.meta.env.DEV) {
+          console.warn('[Chat] conflito de representante persistido para turno', {
+            key,
+            existingMessageId: existingNode.message.id,
+            incomingMessageId: incomingNode.message.id,
+            originalIndex: existingNode.originalIndex,
+          });
+        }
+        return incomingIndex > existingIndex ? incomingNode : existingNode;
+      }
+      return mergeMessageNode(existingNode, incomingNode);
+    };
     for (const node of existing) {
-      byId.set(String(node.message.id), node);
+      byKey.set(getTimelineNodeKey(node), node);
     }
     for (const node of incoming) {
-      const existingNode = byId.get(String(node.message.id));
+      const key = getTimelineNodeKey(node);
+      const existingNode = byKey.get(key);
       if (!existingNode) {
-        byId.set(String(node.message.id), node);
+        byKey.set(key, node);
         continue;
       }
-      byId.set(String(node.message.id), mergeMessageNode(existingNode, node));
+      byKey.set(key, mergeTimelineNode(existingNode, node, key));
     }
-    return sortMessageNodes(Array.from(byId.values()));
+    return sortTimelineNodes(Array.from(byKey.values()));
   };
 
   const capRenderedNodesAtEnd = (nodes: MessageNode[]): MessageNode[] => {
@@ -308,8 +368,37 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     window: MessageWindowState,
     keep: 'start' | 'end',
   ): { nodes: MessageNode[]; window: MessageWindowState } => {
+    const reconcileWindowFromNodes = (visibleNodes: MessageNode[], fallbackWindow: MessageWindowState): MessageWindowState => {
+      if (visibleNodes.length === 0) {
+        return {
+          ...fallbackWindow,
+          startIndex: 0,
+          endIndex: -1,
+          hasBefore: false,
+          hasAfter: fallbackWindow.totalCount > 0,
+        };
+      }
+      const explicitIndexes = visibleNodes
+        .map((node) => node.originalIndex)
+        .filter((index): index is number => index !== undefined);
+      if (explicitIndexes.length === 0) {
+        return fallbackWindow;
+      }
+      const startIndex = Math.min(...explicitIndexes);
+      const endIndex = Math.max(...explicitIndexes);
+      const totalCount = fallbackWindow.totalCount;
+      return {
+        ...fallbackWindow,
+        totalCount,
+        startIndex,
+        endIndex,
+        hasBefore: startIndex > 0,
+        hasAfter: totalCount > 0 && endIndex < totalCount - 1,
+      };
+    };
+
     if (nodes.length <= MAX_MESSAGE_WINDOW_NODES) {
-      return { nodes, window };
+      return { nodes, window: reconcileWindowFromNodes(nodes, window) };
     }
 
     let trimStart = keep === 'start' ? 0 : nodes.length - MAX_MESSAGE_WINDOW_NODES;
@@ -332,21 +421,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
     }
     const trimmedNodes = nodes.slice(trimStart, trimEnd);
-    const explicitIndexes = trimmedNodes
-      .map((node) => node.originalIndex)
-      .filter((index): index is number => index !== undefined);
-    const startIndex = explicitIndexes.length ? Math.min(...explicitIndexes) : window.startIndex;
-    const endIndex = explicitIndexes.length ? Math.max(...explicitIndexes) : window.endIndex;
-
     return {
       nodes: trimmedNodes,
-      window: {
-        ...window,
-        startIndex,
-        endIndex,
-        hasBefore: startIndex > 0,
-        hasAfter: window.totalCount > 0 && endIndex < window.totalCount - 1,
-      },
+      window: reconcileWindowFromNodes(trimmedNodes, window),
     };
   };
 
@@ -396,15 +473,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     appendNewNodes = false,
   ): MessageNode[] | undefined => {
     if (!visibleNodes) return undefined;
-    const incomingById = new Map(incomingNodes.map((node) => [String(node.message.id), node]));
-    const visibleIds = new Set(visibleNodes.map((node) => String(node.message.id)));
+    const incomingByKey = new Map(incomingNodes.map((node) => [getTimelineNodeKey(node), node]));
+    const visibleKeys = new Set(visibleNodes.map((node) => getTimelineNodeKey(node)));
     const updatedVisible = visibleNodes.map((node) => {
-      const incoming = incomingById.get(String(node.message.id));
+      const incoming = incomingByKey.get(getTimelineNodeKey(node));
       if (!incoming) return node;
+      if (isPersistedMessageNode(node) && !isPersistedMessageNode(incoming)) return node;
+      if (!isPersistedMessageNode(node) && isPersistedMessageNode(incoming)) return incoming;
       return mergeMessageNode(node, incoming);
     });
     if (window?.hasAfter && !appendNewNodes) return updatedVisible;
-    const appendedNodes = incomingNodes.filter((node) => !visibleIds.has(String(node.message.id)));
+    const appendedNodes = incomingNodes.filter((node) => !visibleKeys.has(getTimelineNodeKey(node)));
     return appendedNodes.length
       ? capRenderedNodesAtEnd([...updatedVisible, ...appendedNodes])
       : updatedVisible;
@@ -842,8 +921,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const conversation = session.conversation;
       if (!conversation || session.isLoadingMessageWindow || !session.hasOlderMessages) return;
 
-      const firstMessageId = conversation.threadedMessages[0]?.message.id;
-      if (!firstMessageId) return;
+      const firstMessageId = getFirstPersistedMessageId(conversation.threadedMessages);
+      if (!firstMessageId) {
+        set((current) => {
+          const currentSession = getSession(current, conversationId, sessionKey);
+          if (!currentSession.hasOlderMessages && !currentSession.messageWindow?.hasBefore) return current;
+          return patchSession(current, conversationId, {
+            hasOlderMessages: false,
+            messageWindow: currentSession.messageWindow
+              ? {
+                ...currentSession.messageWindow,
+                hasBefore: false,
+              }
+              : undefined,
+          }, sessionKey);
+        });
+        return;
+      }
 
       set((current) => {
         const currentSession = getSession(current, conversationId, sessionKey);
@@ -872,13 +966,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }, sessionKey);
             return patches;
           }
-          const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
-          const dedupedOlderNodes = olderMessages.nodes.filter((node) => !existingIds.has(node.message.id));
-          const expandedVisibleThreadedMessages = [...dedupedOlderNodes, ...currentSession.conversation.threadedMessages];
+          const expandedVisibleThreadedMessages = mergeConversationNodes(
+            olderMessages.nodes,
+            currentSession.conversation.threadedMessages,
+          );
           const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
+          // The active surface can contain transient local nodes; only persisted nodes enter the shared timeline cache.
           const cachedThreadedMessages = mergeConversationNodes(
             timeline.threadedMessages,
-            expandedVisibleThreadedMessages,
+            expandedVisibleThreadedMessages.filter(isPersistedMessageNode),
           );
           const expandedMessageWindow = {
             ...olderMessages.messageWindow,
@@ -928,8 +1024,21 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const conversation = session.conversation;
       if (!conversation || session.isLoadingMessageWindow || !session.messageWindow?.hasAfter) return;
 
-      const lastMessageId = conversation.threadedMessages[conversation.threadedMessages.length - 1]?.message.id;
-      if (!lastMessageId) return;
+      const lastMessageId = getLastPersistedMessageId(conversation.threadedMessages);
+      if (!lastMessageId) {
+        set((current) => {
+          const currentSession = getSession(current, conversationId, sessionKey);
+          const currentWindow = currentSession.messageWindow;
+          if (!currentWindow?.hasAfter) return current;
+          return patchSession(current, conversationId, {
+            messageWindow: {
+              ...currentWindow,
+              hasAfter: false,
+            },
+          }, sessionKey);
+        });
+        return;
+      }
 
       set((current) => {
         const currentSession = getSession(current, conversationId, sessionKey);
@@ -950,9 +1059,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           if (!currentSession.conversation) {
             return patchSession(current, conversationId, { isLoadingMessageWindow: false }, sessionKey);
           }
-          const existingIds = new Set(currentSession.conversation.threadedMessages.map((node) => node.message.id));
-          const dedupedNewerNodes = newerMessages.nodes.filter((node) => !existingIds.has(node.message.id));
-          if (dedupedNewerNodes.length === 0) {
+          if (newerMessages.nodes.length === 0) {
             const currentWindow = currentSession.messageWindow ?? newerMessages.messageWindow;
             const messageWindow = {
               ...currentWindow,
@@ -965,11 +1072,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               messageWindow,
             }, sessionKey);
           }
-          const expandedVisibleThreadedMessages = [...currentSession.conversation.threadedMessages, ...dedupedNewerNodes];
+          const expandedVisibleThreadedMessages = mergeConversationNodes(
+            currentSession.conversation.threadedMessages,
+            newerMessages.nodes,
+          );
           const timeline = getConversationTimeline(current, conversation.id) ?? currentSession.conversation;
+          // The active surface can contain transient local nodes; only persisted nodes enter the shared timeline cache.
           const cachedThreadedMessages = mergeConversationNodes(
             timeline.threadedMessages,
-            expandedVisibleThreadedMessages,
+            expandedVisibleThreadedMessages.filter(isPersistedMessageNode),
           );
           const expandedMessageWindow = {
             ...newerMessages.messageWindow,
@@ -1100,16 +1211,53 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     addInternalMessage: (message) => {
       const conversationId = String(message.conversationId || '');
       if (!conversationId) return;
+      const messageForTree = message.turnId
+        ? stripInternalMessageTurnId(message)
+        : message;
+      if (message.turnId) {
+        const warning = '[Chat] addInternalMessage recebeu turnId; removendo para evitar colisão com timeline canônica';
+        if (import.meta.env.DEV) {
+          console.error(new Error(warning));
+        } else {
+          console.warn(warning);
+        }
+      }
 
       set((state) => {
         const session = getSession(state, conversationId);
         if (!session.conversation) return state;
-        return patchSession(state, conversationId, {
+        const patches = patchSession(state, conversationId, {
           conversation: {
             ...session.conversation,
-            threadedMessages: appendInternalMessageToTree(session.conversation.threadedMessages, message),
+            threadedMessages: appendInternalMessageToTree(session.conversation.threadedMessages, messageForTree),
           },
         });
+        const updatedTimeline = patches.timelinesByConversationId?.[conversationId]
+          ?? getConversationTimeline(state, conversationId)
+          ?? session.conversation;
+        const timelinesByConversationId = { ...(patches.timelinesByConversationId ?? state.timelinesByConversationId ?? {}) };
+        timelinesByConversationId[conversationId] = {
+          ...updatedTimeline,
+          threadedMessages: updatedTimeline.threadedMessages.filter(isPersistedMessageNode),
+        };
+        const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey ?? {}) };
+        const defaultSessionKey = getDefaultChatSessionKey(conversationId);
+        for (const [key, surfaceSession] of Object.entries(state.surfaceSessionsByKey ?? {})) {
+          if (key === defaultSessionKey || surfaceSession.conversationId !== conversationId || !surfaceSession.visibleThreadedMessages) {
+            continue;
+          }
+          surfaceSessionsByKey[key] = {
+            ...surfaceSession,
+            visibleThreadedMessages: capRenderedNodesAtEnd(
+              appendInternalMessageToTree(surfaceSession.visibleThreadedMessages, messageForTree),
+            ),
+          };
+        }
+        return {
+          ...patches,
+          timelinesByConversationId,
+          surfaceSessionsByKey,
+        };
       });
     },
 
