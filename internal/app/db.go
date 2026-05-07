@@ -6,6 +6,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"sync"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -108,6 +109,23 @@ func timelineWindowItemKey(item database.MessageWindowItem) string {
 // for turns that only persisted tool result messages and have no assistant response.
 const toolOnlyTurnPlaceholderSource = "tool_only_turn_placeholder"
 
+var invalidToolCallsLogState = struct {
+	sync.Mutex
+	seen map[string]struct{}
+}{
+	seen: make(map[string]struct{}),
+}
+
+func shouldLogInvalidToolCalls(messageID string) bool {
+	invalidToolCallsLogState.Lock()
+	defer invalidToolCallsLogState.Unlock()
+	if _, ok := invalidToolCallsLogState.seen[messageID]; ok {
+		return false
+	}
+	invalidToolCallsLogState.seen[messageID] = struct{}{}
+	return true
+}
+
 func parseToolCalls(messageID string, raw string) []map[string]interface{} {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -123,7 +141,9 @@ func parseToolCalls(messageID string, raw string) []map[string]interface{} {
 	if singleErr == nil {
 		return []map[string]interface{}{call}
 	}
-	log.Printf("[Chat] tool_calls JSON inválido descartado message_id=%s: array=%v object=%v", messageID, arrayErr, singleErr)
+	if shouldLogInvalidToolCalls(messageID) {
+		log.Printf("[Chat] tool_calls JSON inválido descartado message_id=%s: array=%v object=%v", messageID, arrayErr, singleErr)
+	}
 	return nil
 }
 
@@ -180,6 +200,8 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 		}
 	}
 	if !hasAssistant {
+		// Keep the persisted tool message ID as representative so backend pagination anchors
+		// still resolve to a real row; frontend delete shortcuts must treat this source as non-deletable.
 		consolidated.Role = "assistant"
 		consolidated.Content = ""
 		consolidated.Reasoning = ""

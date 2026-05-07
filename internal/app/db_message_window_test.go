@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"strings"
 	"testing"
 	"time"
@@ -139,6 +141,21 @@ func TestConsolidateTimelineTurnMessages_DeduplicatesToolCallsByID(t *testing.T)
 func TestParseToolCalls_InvalidJSONReturnsNil(t *testing.T) {
 	if calls := parseToolCalls("message-invalid", "{invalid"); calls != nil {
 		t.Fatalf("expected invalid tool calls JSON to be discarded, got %+v", calls)
+	}
+}
+
+func TestParseToolCalls_InvalidJSONLogsOncePerMessage(t *testing.T) {
+	var buf bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(previousWriter)
+
+	messageID := "message-invalid-log-once"
+	parseToolCalls(messageID, "{invalid")
+	parseToolCalls(messageID, "{invalid")
+
+	if got := strings.Count(buf.String(), messageID); got != 1 {
+		t.Fatalf("expected one invalid tool_calls log for %s, got %d logs: %s", messageID, got, buf.String())
 	}
 }
 
