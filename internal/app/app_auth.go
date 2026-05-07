@@ -403,13 +403,6 @@ func (a *App) reloadUserScopedRuntime() {
 	}
 }
 
-func (a *App) ensureAuthServices() error {
-	if err := a.ensureAuthCoreServices(); err != nil {
-		return err
-	}
-	return a.ensureSessionService()
-}
-
 func (a *App) ensureAuthCoreServices() error {
 	if a.identitySvc == nil || a.vaultSvc == nil {
 		return errors.New("serviços de autenticação não inicializados")
