@@ -31,3 +31,21 @@ type Store interface {
 	GetKeyWrap(ctx context.Context, kind string) (*KeyWrap, error)
 	HasKeyWrap(ctx context.Context, kind string) (bool, error)
 }
+
+type credentialPresenceStore interface {
+	HasAnyCredentials(ctx context.Context) (bool, error)
+}
+
+func HasAnyStoredCredentials(ctx context.Context, store Store) (bool, error) {
+	if store == nil {
+		return false, ErrStoreNotReady
+	}
+	if presence, ok := store.(credentialPresenceStore); ok {
+		return presence.HasAnyCredentials(ctx)
+	}
+	entries, err := store.ListCredentials(ctx)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) > 0, nil
+}

@@ -203,7 +203,7 @@ func ImportConversationsWithResolutions(
 	if err := validateCredentialEnvelope(file); err != nil {
 		return nil, err
 	}
-	analysis, err := analyzeImportFile(file, credMgr, credentialPassword)
+	analysis, err := analyzeImportFile(ctx, file, credMgr, credentialPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -304,6 +304,13 @@ func ImportConversationsWithResolutions(
 }
 
 func AnalyzeImportData(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
+	return AnalyzeImportDataWithContext(context.Background(), jsonData, credMgr, credentialPassword)
+}
+
+func AnalyzeImportDataWithContext(ctx context.Context, jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	file, unsupportedResourceTypes, err := parseExportFile(jsonData)
 	if err != nil {
 		return nil, err
@@ -314,7 +321,7 @@ func AnalyzeImportData(jsonData string, credMgr *credentials.Manager, credential
 	if err := validateCredentialEnvelope(file); err != nil {
 		return nil, err
 	}
-	analysis, err := analyzeImportFile(file, credMgr, credentialPassword)
+	analysis, err := analyzeImportFile(ctx, file, credMgr, credentialPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -669,7 +676,7 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
+func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
 	analysis := &ImportAnalysis{
 		Version:               file.Version,
 		AppVersion:            file.AppVersion,
@@ -703,7 +710,7 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 					analysis.Warnings = append(analysis.Warnings, "Não foi possível analisar as credenciais com a senha informada.")
 				} else {
 					analysis.CredentialCount = len(creds)
-					existingCredentialIDs, existingCredentialPatterns, err := loadExistingCredentialIdentifiers()
+					existingCredentialIDs, existingCredentialPatterns, err := loadExistingCredentialIdentifiers(ctx)
 					if err != nil {
 						return nil, fmt.Errorf("erro ao analisar credenciais existentes: %w", err)
 					}
@@ -747,9 +754,10 @@ func decodeCredentialExports(blob *CredentialCipher, credentialPassword string) 
 	return creds, nil
 }
 
-func loadExistingCredentialIdentifiers() (map[string]struct{}, map[string]struct{}, error) {
+func loadExistingCredentialIdentifiers(ctx context.Context) (map[string]struct{}, map[string]struct{}, error) {
 	var entries []database.CredentialEntry
-	if err := database.DB().Find(&entries).Error; err != nil {
+	query := database.ScopeByUser(ctx, database.DB(), "user_id")
+	if err := query.Find(&entries).Error; err != nil {
 		return nil, nil, err
 	}
 

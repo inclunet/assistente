@@ -16,6 +16,7 @@ import (
 	"assistente/internal/database"
 
 	"github.com/glebarez/sqlite"
+	"github.com/zalando/go-keyring"
 	"gorm.io/gorm"
 )
 
@@ -308,8 +309,30 @@ func TestVaultSetupDoesNotReplaceUnreadableKeyringDEK(t *testing.T) {
 	}
 }
 
+func TestVaultSetupDoesNotReplaceMissingKeyringDEKWhenCredentialsExist(t *testing.T) {
+	store := newMemoryCredentialStore()
+	store.credentials = []credentials.StoredCredential{{Pattern: "api.example.com", Auth: &credentials.AuthConfig{Type: "bearer", Token: "ciphertext"}}}
+
+	vault := NewVaultService(store, nil)
+	vault.loadKeyring = func() ([]byte, error) {
+		return nil, keyring.ErrNotFound
+	}
+	vault.saveKeyring = func([]byte) error {
+		t.Fatal("setup must not save a new DEK when credentials already exist")
+		return nil
+	}
+
+	if _, err := vault.Setup(context.Background(), "master-password"); !errors.Is(err, credentials.ErrExistingCredentialsWithoutDEK) {
+		t.Fatalf("expected ErrExistingCredentialsWithoutDEK, got %v", err)
+	}
+	if has, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster); err != nil || has {
+		t.Fatalf("master wrap should not be created when credentials already exist: has=%v err=%v", has, err)
+	}
+}
+
 type memoryCredentialStore struct {
-	wraps map[string]credentials.KeyWrap
+	wraps       map[string]credentials.KeyWrap
+	credentials []credentials.StoredCredential
 }
 
 func newMemoryCredentialStore() *memoryCredentialStore {
@@ -321,7 +344,7 @@ func (s *memoryCredentialStore) SaveCredential(context.Context, credentials.Stor
 }
 
 func (s *memoryCredentialStore) ListCredentials(context.Context) ([]credentials.StoredCredential, error) {
-	return nil, nil
+	return s.credentials, nil
 }
 
 func (s *memoryCredentialStore) DeleteCredential(context.Context, string) error {

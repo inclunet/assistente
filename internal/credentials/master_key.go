@@ -26,7 +26,10 @@ const (
 	argonKeyLen         = 32
 )
 
-var ErrKeyWrapNotFound = errors.New("embrulho da chave não encontrado")
+var (
+	ErrKeyWrapNotFound               = errors.New("embrulho da chave não encontrado")
+	ErrExistingCredentialsWithoutDEK = errors.New("credenciais existentes sem DEK no keyring")
+)
 
 // MasterKeySetupResult contém dados gerados na configuração inicial.
 type MasterKeySetupResult struct {
@@ -56,7 +59,17 @@ func SetupMasterKey(store Store, masterPassword string) (*MasterKeySetupResult, 
 // não puder ser lida, falha em vez de gerar uma nova DEK e tornar credenciais
 // já persistidas indecifráveis.
 func SetupMasterKeyAdoptingKeychain(store Store, masterPassword string) (*MasterKeySetupResult, error) {
-	existingDEK, err := LoadDEKFromKeychain()
+	return setupMasterKeyAdoptingKeychain(store, masterPassword, LoadDEKFromKeychain)
+}
+
+func setupMasterKeyAdoptingKeychain(store Store, masterPassword string, loadKeyring func() ([]byte, error)) (*MasterKeySetupResult, error) {
+	if store == nil {
+		return nil, ErrStoreNotReady
+	}
+	if loadKeyring == nil {
+		loadKeyring = LoadDEKFromKeychain
+	}
+	existingDEK, err := loadKeyring()
 	if err == nil {
 		if len(existingDEK) == 0 {
 			return nil, errors.New("DEK existente no keyring está vazia")
@@ -65,6 +78,13 @@ func SetupMasterKeyAdoptingKeychain(store Store, masterPassword string) (*Master
 	}
 	if !IsKeychainNotFound(err) {
 		return nil, err
+	}
+	hasCredentials, err := HasAnyStoredCredentials(contextBackground(), store)
+	if err != nil {
+		return nil, err
+	}
+	if hasCredentials {
+		return nil, ErrExistingCredentialsWithoutDEK
 	}
 	return SetupMasterKey(store, masterPassword)
 }

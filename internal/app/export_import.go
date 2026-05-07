@@ -99,7 +99,7 @@ func (a *App) ImportDataWithResolutions(req ImportRequest) (*ImportResult, error
 }
 
 func (a *App) AnalyzeImportData(jsonData string, credentialExportPassword string) (*ImportAnalysis, error) {
-	return portability.AnalyzeImportData(jsonData, a.credMgr, credentialExportPassword)
+	return portability.AnalyzeImportDataWithContext(a.importExportContext(), jsonData, a.credMgr, credentialExportPassword)
 }
 
 func (a *App) ExportConversationsToFile(ids []string, format string) (string, error) {

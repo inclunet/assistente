@@ -128,6 +128,19 @@ func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, erro
 	return result, nil
 }
 
+func (s *DBStore) HasAnyCredentials(ctx context.Context) (bool, error) {
+	db, err := s.ensureDB()
+	if err != nil {
+		return false, err
+	}
+
+	var count int64
+	if err := db.WithContext(ctx).Model(&database.CredentialEntry{}).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (s *DBStore) DeleteCredential(ctx context.Context, pattern string) error {
 	db, err := s.ensureDB()
 	if err != nil {

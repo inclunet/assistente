@@ -159,6 +159,10 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 // ResolveForURL resolve credenciais para uma URL
 // Retorna nil se não encontrar
 func (m *Manager) ResolveForURL(urlStr string) (*AuthConfig, error) {
+	return m.ResolveForURLWithContext(context.Background(), urlStr)
+}
+
+func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (*AuthConfig, error) {
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return nil, fmt.Errorf("URL inválida: %w", err)
@@ -173,8 +177,18 @@ func (m *Manager) ResolveForURL(urlStr string) (*AuthConfig, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	userID := ""
+	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
+		userID = scopedUser
+	}
 	// Procura em ordem (primeira match vence)
 	for _, dc := range m.credentials {
+		if userID != "" && dc.UserID != userID {
+			continue
+		}
+		if userID == "" && dc.UserID != "" {
+			continue
+		}
 		if dc.regex.MatchString(domain) {
 			// Descriptografar antes de retornar
 			auth, err := m.decryptAuth(dc.Auth)
@@ -268,6 +282,9 @@ func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (
 	}
 	for _, dc := range m.credentials {
 		if userID != "" && dc.UserID != userID {
+			continue
+		}
+		if userID == "" && dc.UserID != "" {
 			continue
 		}
 		if dc.Pattern == pattern {

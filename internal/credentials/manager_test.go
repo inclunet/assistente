@@ -726,6 +726,46 @@ func TestListVisibleCredentialsSkipsUnreadableManagedPatterns(t *testing.T) {
 	}
 }
 
+func TestUnscopedLookupsIgnoreUserScopedCredentials(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-1")
+	mgr := NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	if err := mgr.RegisterPatternWithContext(ctx, "api.example.com", &AuthConfig{Type: "bearer", Token: "user-token"}); err != nil {
+		t.Fatalf("RegisterPatternWithContext() error = %v", err)
+	}
+
+	auth, err := mgr.GetByPattern("api.example.com")
+	if err != nil {
+		t.Fatalf("GetByPattern() error = %v", err)
+	}
+	if auth != nil {
+		t.Fatalf("unscoped GetByPattern should not resolve user-scoped credential, got %+v", auth)
+	}
+
+	auth, err = mgr.ResolveForURL("https://api.example.com/v1/models")
+	if err != nil {
+		t.Fatalf("ResolveForURL() error = %v", err)
+	}
+	if auth != nil {
+		t.Fatalf("unscoped ResolveForURL should not resolve user-scoped credential, got %+v", auth)
+	}
+
+	auth, err = mgr.GetByPatternWithContext(ctx, "api.example.com")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext() error = %v", err)
+	}
+	if auth == nil || auth.Token != "user-token" {
+		t.Fatalf("scoped lookup should resolve user credential, got %+v", auth)
+	}
+
+	auth, err = mgr.ResolveForURLWithContext(ctx, "https://api.example.com/v1/models")
+	if err != nil {
+		t.Fatalf("ResolveForURLWithContext() error = %v", err)
+	}
+	if auth == nil || auth.Token != "user-token" {
+		t.Fatalf("scoped URL lookup should resolve user credential, got %+v", auth)
+	}
+}
+
 type staticCredentialStore struct {
 	entries []StoredCredential
 }

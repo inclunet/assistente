@@ -120,6 +120,36 @@ func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	assertOwnedRows(t, "task_lists", user.ID)
 }
 
+func TestAdoptLegacyDataKeepsInternalSecretsInstanceScoped(t *testing.T) {
+	setupMultiUserTestDB(t)
+
+	user := &User{Username: "admin", PasswordHash: "hash", Role: UserRoleAdmin, IsActive: true}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := db.Create(&CredentialEntry{Pattern: "internal-auth:refresh-token", AuthType: "secret"}).Error; err != nil {
+		t.Fatalf("create instance refresh secret: %v", err)
+	}
+	if err := db.Create(&CredentialEntry{UserID: user.ID, Pattern: "internal-auth:refresh-token", AuthType: "secret"}).Error; err != nil {
+		t.Fatalf("create user-scoped duplicate refresh secret: %v", err)
+	}
+
+	if err := AdoptLegacyData(user.ID); err != nil {
+		t.Fatalf("adopt legacy data: %v", err)
+	}
+
+	var entries []CredentialEntry
+	if err := db.Where("pattern = ?", "internal-auth:refresh-token").Find(&entries).Error; err != nil {
+		t.Fatalf("list internal secrets: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected duplicate internal secret to be collapsed, got %+v", entries)
+	}
+	if entries[0].UserID != "" {
+		t.Fatalf("internal secret should remain instance-scoped, got user_id=%q", entries[0].UserID)
+	}
+}
+
 func columnExists(t *testing.T, sqlDB *sql.DB, table, column string) bool {
 	t.Helper()
 

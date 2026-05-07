@@ -72,6 +72,13 @@ func (s *VaultService) Setup(ctx context.Context, masterPassword string) (string
 		}
 	}
 	if result == nil {
+		hasCredentials, hasCredErr := credentials.HasAnyStoredCredentials(ctx, s.store)
+		if hasCredErr != nil {
+			return "", hasCredErr
+		}
+		if hasCredentials {
+			return "", credentials.ErrExistingCredentialsWithoutDEK
+		}
 		result, err = credentials.SetupMasterKey(s.store, masterPassword)
 	}
 	if err != nil {

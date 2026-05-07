@@ -1919,6 +1919,55 @@ func TestImportConversationsSkipsCredentialConflictByPattern(t *testing.T) {
 	}
 }
 
+func TestAnalyzeImportDataScopesCredentialConflictsByUser(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	userA := database.WithUserID(context.Background(), "user-a")
+	userB := database.WithUserID(context.Background(), "user-b")
+	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
+	if err := credMgr.RegisterPatternWithContext(userB, "api.openai.com", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "token-b",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext(existing) error = %v", err)
+	}
+
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Options: ExportOptions{
+			IncludeCredentials: true,
+		},
+	}
+	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
+		{ID: "different-id", Pattern: "api.openai.com", AuthType: "bearer", Token: "token-importado"},
+	})
+	if err != nil {
+		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
+	}
+	file.Resources.Credentials = blob
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	analysis, err := AnalyzeImportDataWithContext(userA, string(raw), credMgr, "senha-teste")
+	if err != nil {
+		t.Fatalf("AnalyzeImportDataWithContext(userA) error = %v", err)
+	}
+	if len(analysis.CredentialConflicts) != 0 {
+		t.Fatalf("userA should not see userB credential conflicts: %+v", analysis.CredentialConflicts)
+	}
+
+	analysis, err = AnalyzeImportDataWithContext(userB, string(raw), credMgr, "senha-teste")
+	if err != nil {
+		t.Fatalf("AnalyzeImportDataWithContext(userB) error = %v", err)
+	}
+	if len(analysis.CredentialConflicts) != 1 {
+		t.Fatalf("userB should see own credential conflict: %+v", analysis.CredentialConflicts)
+	}
+}
+
 func TestImportConversationsOverwritesCredentialConflictByPattern(t *testing.T) {
 	setupPortabilityTestDB(t)
 
