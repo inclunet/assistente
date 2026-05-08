@@ -38,7 +38,12 @@ func Evaluate(commandLine string, al *allowlist.Allowlist) EvaluationResult {
 
 	if len(parsed.Commands) == 0 {
 		result.Decision = combineDecision(result.Decision, allowlist.DecisionConfirm)
-		result.Reasons = append(result.Reasons, "nenhum comando atomico reconhecido")
+		// Evita duplicar com parsed.Errors, que ja contem a mesma mensagem quando
+		// o parser nao reconhece nenhum atomo (e que sera reformatada como
+		// "sintaxe ambigua" abaixo).
+		if !containsString(parsed.Errors, "nenhum comando atomico reconhecido") {
+			result.Reasons = append(result.Reasons, "nenhum comando atomico reconhecido")
+		}
 	}
 
 	if parsed.RequiresConfirmation() && result.Decision != allowlist.DecisionDeny {
@@ -54,9 +59,13 @@ func Evaluate(commandLine string, al *allowlist.Allowlist) EvaluationResult {
 	return result
 }
 
+// evaluateAtom avalia um unico comando atomico contra a allowlist e devolve
+// uma reason segura para usuario/log: usamos apenas cmd.Program (e nao
+// cmd.String()) para evitar replicar args completos em logs ou no output da
+// tool, que pode conter segredos (tokens, paths, credenciais).
 func evaluateAtom(cmd Command, al *allowlist.Allowlist) (allowlist.Decision, string) {
 	if al == nil {
-		return allowlist.DecisionConfirm, fmt.Sprintf("%q exige confirmacao: sem allowlist ativa", cmd.String())
+		return allowlist.DecisionConfirm, fmt.Sprintf("%q exige confirmacao: sem allowlist ativa", cmd.Program)
 	}
 
 	if cmd.Program == "" {
@@ -64,35 +73,44 @@ func evaluateAtom(cmd Command, al *allowlist.Allowlist) (allowlist.Decision, str
 	}
 
 	if rule, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionDeny); ok {
-		return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por regra estruturada: %s", cmd.String(), describeRule(rule))
+		return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por regra estruturada: %s", cmd.Program, describeRule(rule))
 	}
 
 	for _, pattern := range al.AlwaysDeny {
 		if allowlist.MatchPattern(cmd.String(), pattern) {
-			return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por always_deny: %s", cmd.String(), pattern)
+			return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por always_deny: %s", cmd.Program, pattern)
 		}
 	}
 
 	if rule, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionConfirm); ok {
-		return allowlist.DecisionConfirm, fmt.Sprintf("%q exige confirmacao por regra estruturada: %s", cmd.String(), describeRule(rule))
+		return allowlist.DecisionConfirm, fmt.Sprintf("%q exige confirmacao por regra estruturada: %s", cmd.Program, describeRule(rule))
 	}
 
 	if rule, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionApprove); ok {
-		return allowlist.DecisionApprove, fmt.Sprintf("%q aprovado por regra estruturada: %s", cmd.String(), describeRule(rule))
+		return allowlist.DecisionApprove, fmt.Sprintf("%q aprovado por regra estruturada: %s", cmd.Program, describeRule(rule))
 	}
 
 	for _, pattern := range al.AutoApprove {
 		if allowlist.MatchPattern(cmd.String(), pattern) {
-			return allowlist.DecisionApprove, fmt.Sprintf("%q aprovado por auto_approve: %s", cmd.String(), pattern)
+			return allowlist.DecisionApprove, fmt.Sprintf("%q aprovado por auto_approve: %s", cmd.Program, pattern)
 		}
 	}
 
 	switch strings.ToLower(al.DefaultAction) {
 	case "deny":
-		return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por default_action=deny", cmd.String())
+		return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por default_action=deny", cmd.Program)
 	default:
-		return allowlist.DecisionConfirm, fmt.Sprintf("%q exige confirmacao por default_action=confirm", cmd.String())
+		return allowlist.DecisionConfirm, fmt.Sprintf("%q exige confirmacao por default_action=confirm", cmd.Program)
 	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, v := range values {
+		if v == target {
+			return true
+		}
+	}
+	return false
 }
 
 func combineDecision(current, next allowlist.Decision) allowlist.Decision {

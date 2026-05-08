@@ -1,6 +1,7 @@
 package commandpolicy
 
 import (
+	"strings"
 	"testing"
 
 	"assistente/internal/allowlist"
@@ -127,6 +128,59 @@ func TestEvaluate_ConservativeFeaturesForceConfirmation(t *testing.T) {
 				t.Fatalf("decision = %s, want confirm; reasons=%v", got.Decision, got.Reasons)
 			}
 		})
+	}
+}
+
+func TestEvaluate_ReasonsDoNotLeakCommandArguments(t *testing.T) {
+	al := &allowlist.Allowlist{
+		AutoApprove:   []string{"kubectl get *"},
+		AlwaysDeny:    []string{"rm *"},
+		DefaultAction: "confirm",
+		CommandRules: []allowlist.CommandRule{
+			{Program: "psql", Subcommands: []string{"-h"}, Args: []string{"*"}, Decision: "confirm"},
+		},
+	}
+
+	commands := []string{
+		"kubectl get secret api-token-prod-supersecret",
+		"rm /tmp/secret-token-XYZ",
+		"psql -h db.prod.internal -U admin -W hunter2",
+		"docker run -e PASSWORD=hunter2 alpine",
+	}
+
+	leakedFragments := []string{
+		"api-token-prod-supersecret",
+		"secret-token-XYZ",
+		"db.prod.internal",
+		"hunter2",
+		"PASSWORD",
+	}
+
+	for _, command := range commands {
+		t.Run(command, func(t *testing.T) {
+			got := Evaluate(command, al)
+			joined := strings.Join(got.Reasons, " | ")
+			for _, fragment := range leakedFragments {
+				if strings.Contains(joined, fragment) {
+					t.Fatalf("reasons %q leaked argument fragment %q", joined, fragment)
+				}
+			}
+		})
+	}
+}
+
+func TestEvaluate_NoDuplicateReasonForUnrecognizedCommand(t *testing.T) {
+	al := &allowlist.Allowlist{DefaultAction: "confirm"}
+
+	got := Evaluate(";", al)
+	count := 0
+	for _, reason := range got.Reasons {
+		if reason == "nenhum comando atomico reconhecido" {
+			count++
+		}
+	}
+	if count > 1 {
+		t.Fatalf("reason 'nenhum comando atomico reconhecido' duplicada %d vezes: %v", count, got.Reasons)
 	}
 }
 
