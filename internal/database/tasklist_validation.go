@@ -34,10 +34,6 @@ func ParseTaskListValidationPolicyJSON(raw string) (*TaskListValidationPolicy, e
 	return &p, nil
 }
 
-func loadTaskListValidationPolicy(taskListID string) (*TaskListValidationPolicy, error) {
-	return loadTaskListValidationPolicyWithContext(context.Background(), taskListID)
-}
-
 func loadTaskListValidationPolicyWithContext(ctx context.Context, taskListID string) (*TaskListValidationPolicy, error) {
 	var tl TaskList
 	if err := ScopeByUser(ctx, db.WithContext(ctx).Select("validation_policy"), "user_id").First(&tl, "id = ?", taskListID).Error; err != nil {

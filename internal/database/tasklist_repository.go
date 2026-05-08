@@ -13,10 +13,6 @@ import (
 
 const MaxTaskLists = 100
 
-func taskListQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
-	return ScopeByUser(ctx, base.WithContext(ctx), "task_lists.user_id")
-}
-
 func taskQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
 	return ScopeByUser(ctx,
 		base.WithContext(ctx).Joins("JOIN task_lists ON task_lists.id = tasks.task_list_id"),
@@ -227,11 +223,6 @@ func DeleteTaskListWithContext(ctx context.Context, id string) error {
 }
 
 // ==================== Workflow Operations ====================
-
-// createWorkflowForTaskList cria um workflow padrão ou a partir de um template
-func createWorkflowForTaskList(taskListID string, template *TaskListWorkflow) (*TaskListWorkflow, error) {
-	return createWorkflowForTaskListWithContext(context.Background(), taskListID, template)
-}
 
 func createWorkflowForTaskListWithContext(ctx context.Context, taskListID string, template *TaskListWorkflow) (*TaskListWorkflow, error) {
 	var workflow *TaskListWorkflow
@@ -1092,10 +1083,6 @@ func FindTaskNoteByExternalRefWithContext(ctx context.Context, externalSource, e
 	return &note, nil
 }
 
-func applyTaskNoteExternalUpsertUpdates(noteID string, p UpsertTaskNoteByExternalParams) error {
-	return applyTaskNoteExternalUpsertUpdatesWithContext(context.Background(), noteID, p)
-}
-
 func applyTaskNoteExternalUpsertUpdatesWithContext(ctx context.Context, noteID string, p UpsertTaskNoteByExternalParams) error {
 	updates := map[string]interface{}{
 		"content":            p.Content,
@@ -1206,10 +1193,6 @@ func UpsertTaskNoteByExternalWithContext(ctx context.Context, p UpsertTaskNoteBy
 	}
 
 	return note, true, nil
-}
-
-func finishNoteUpdate(noteID string, updates map[string]interface{}) (*TaskNote, bool, error) {
-	return finishNoteUpdateWithContext(context.Background(), noteID, updates)
 }
 
 func finishNoteUpdateWithContext(ctx context.Context, noteID string, updates map[string]interface{}) (*TaskNote, bool, error) {

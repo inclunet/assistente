@@ -203,4 +203,19 @@ func TestMessageRepositoryEnforcesUserScopeByMessageID(t *testing.T) {
 	if _, ok := counts[leoMsg.ID]; ok {
 		t.Fatalf("ana should not receive child counts for leo message: %#v", counts)
 	}
+
+	stats, err := GetAllTokenStatsWithContext(anaCtx)
+	if err != nil {
+		t.Fatalf("ana token stats: %v", err)
+	}
+	if stats["total_tokens"] != 0 {
+		t.Fatalf("ana token stats leaked leo tokens: %#v", stats)
+	}
+	stats, err = GetAllTokenStatsWithContext(leoCtx)
+	if err != nil {
+		t.Fatalf("leo token stats: %v", err)
+	}
+	if stats["total_tokens"] != 10 {
+		t.Fatalf("leo token stats = %#v, want own 10 tokens", stats)
+	}
 }

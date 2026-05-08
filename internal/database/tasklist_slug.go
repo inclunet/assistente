@@ -49,11 +49,6 @@ func FindTaskListBySlugWithContext(ctx context.Context, slug string) (*TaskList,
 	return &tl, nil
 }
 
-// slugTakenByOtherThan retorna true se outra lista já usa esse slug.
-func slugTakenByOtherThan(normalizedSlug string, excludeID string) (bool, error) {
-	return slugTakenByOtherThanWithContext(context.Background(), normalizedSlug, excludeID)
-}
-
 func slugTakenByOtherThanWithContext(ctx context.Context, normalizedSlug string, excludeID string) (bool, error) {
 	if normalizedSlug == "" {
 		return false, nil

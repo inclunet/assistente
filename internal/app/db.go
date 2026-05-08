@@ -284,15 +284,6 @@ func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWind
 	return assignMessageNodeOriginalIndexes(buildMessageNodes(ctx, representatives, parentID), originalIndexesByMessageID)
 }
 
-func (a *App) requireConversationAccess(conversationID string) error {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return err
-	}
-	_, err = database.GetConversationInfoWithContext(ctx, conversationID)
-	return err
-}
-
 // GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
 func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.MessageNode, error) {
 	ctx, err := a.requireAuthenticatedContext()
@@ -652,7 +643,11 @@ func (a *App) AddChildMessage(conversationID string, parentID string, role, cont
 }
 
 func (a *App) GetAllTokenStats() (map[string]int, error) {
-	return database.GetAllTokenStats()
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return database.GetAllTokenStatsWithContext(ctx)
 }
 
 // ==================== Rolling Context (Summary) ====================

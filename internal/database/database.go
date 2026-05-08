@@ -1308,13 +1308,17 @@ func GetConversationTokenStats(conversationID string) (map[string]int, error) {
 
 // GetAllTokenStats retorna estatísticas de tokens de todas as conversas
 func GetAllTokenStats() (map[string]int, error) {
+	return GetAllTokenStatsWithContext(context.Background())
+}
+
+func GetAllTokenStatsWithContext(ctx context.Context) (map[string]int, error) {
 	var result struct {
 		TotalPromptTokens     int
 		TotalCompletionTokens int
 		TotalTokens           int
 	}
-	err := db.Model(&ChatMessage{}).
-		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens").
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -1522,10 +1526,6 @@ func GetDetailedTokenStatsWithContext(ctx context.Context, conversationID string
 }
 
 // getToolUsageBreakdown extrai informações de uso de tools das mensagens
-func getToolUsageBreakdown(conversationID string) ([]ToolUsageBreakdown, int) {
-	return getToolUsageBreakdownWithContext(context.Background(), conversationID)
-}
-
 func getToolUsageBreakdownWithContext(ctx context.Context, conversationID string) ([]ToolUsageBreakdown, int) {
 	var messages []ChatMessage
 	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
