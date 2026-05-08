@@ -61,6 +61,7 @@ export default function AllowlistPage() {
           description: a.description || '',
           auto_approve: [],
           always_deny: [],
+          command_rules: [],
           default_action: 'confirm',
           ruleCount: a.ruleCount,
         }));
@@ -74,8 +75,12 @@ export default function AllowlistPage() {
           description: full?.description || '',
           auto_approve: full?.auto_approve || [],
           always_deny: full?.always_deny || [],
+          command_rules: full?.command_rules || [],
           default_action: full?.default_action || 'confirm',
-          ruleCount: (full?.auto_approve || []).length + (full?.always_deny || []).length,
+          ruleCount:
+            (full?.auto_approve || []).length +
+            (full?.always_deny || []).length +
+            (full?.command_rules || []).length,
         } as AllowlistRow;
       },
       createItem: async (data) => {
@@ -84,6 +89,7 @@ export default function AllowlistPage() {
           description: data.description,
           auto_approve: data.auto_approve || [],
           always_deny: data.always_deny || [],
+          command_rules: data.command_rules || [],
           default_action: data.default_action || 'confirm',
         };
         return await CreateAllowlist(payload);
@@ -94,6 +100,7 @@ export default function AllowlistPage() {
           description: data.description,
           auto_approve: data.auto_approve || [],
           always_deny: data.always_deny || [],
+          command_rules: data.command_rules || [],
           default_action: data.default_action || 'confirm',
         };
         await UpdateAllowlist(id as string, payload);
@@ -121,6 +128,7 @@ export default function AllowlistPage() {
         description: '',
         auto_approve: [],
         always_deny: [],
+        command_rules: [],
         default_action: 'confirm',
         ruleCount: 0,
       }),
