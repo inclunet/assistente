@@ -8,39 +8,14 @@ import (
 )
 
 // DBStore implementa ProviderStore usando o banco de dados SQLite via GORM.
-type DBStore struct {
-	ctxProvider func() context.Context
-	requireUser bool
-}
+type DBStore struct{}
 
 // NewDBStore cria um DBStore pronto para uso.
 func NewDBStore() *DBStore { return &DBStore{} }
 
-// NewScopedDBStore cria um store para runtime autenticado.
-func NewScopedDBStore(ctxProvider func() context.Context) *DBStore {
-	return &DBStore{ctxProvider: ctxProvider, requireUser: true}
-}
-
-func (s *DBStore) ctx() (context.Context, error) {
-	ctx := context.Background()
-	if s.ctxProvider != nil {
-		ctx = s.ctxProvider()
-	}
-	if s.requireUser {
-		if _, err := database.RequireUserID(ctx); err != nil {
-			return nil, err
-		}
-	}
-	return ctx, nil
-}
-
 // Save persiste todos os provedores fornecidos no banco.
 // Usa GORM Save (upsert por primary key).
-func (s *DBStore) Save(providers []*llm.ProviderConfig) error {
-	ctx, err := s.ctx()
-	if err != nil {
-		return err
-	}
+func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) error {
 	for _, p := range providers {
 		dbP := toDBModel(p)
 		if err := database.SaveLLMProviderWithContext(ctx, dbP); err != nil {
@@ -51,11 +26,7 @@ func (s *DBStore) Save(providers []*llm.ProviderConfig) error {
 }
 
 // Load retorna todos os provedores do banco convertidos para ProviderConfig.
-func (s *DBStore) Load() ([]*llm.ProviderConfig, error) {
-	ctx, err := s.ctx()
-	if err != nil {
-		return nil, err
-	}
+func (s *DBStore) Load(ctx context.Context) ([]*llm.ProviderConfig, error) {
 	dbProviders, err := database.GetLLMProvidersWithContext(ctx)
 	if err != nil {
 		return nil, err
@@ -68,20 +39,12 @@ func (s *DBStore) Load() ([]*llm.ProviderConfig, error) {
 }
 
 // SetDefault marca o provedor com o ID fornecido como padrão no banco.
-func (s *DBStore) SetDefault(id string) error {
-	ctx, err := s.ctx()
-	if err != nil {
-		return err
-	}
+func (s *DBStore) SetDefault(ctx context.Context, id string) error {
 	return database.SetDefaultProviderWithContext(ctx, id)
 }
 
 // GetDefault retorna o provedor marcado como padrão, ou nil + erro se nenhum.
-func (s *DBStore) GetDefault() (*llm.ProviderConfig, error) {
-	ctx, err := s.ctx()
-	if err != nil {
-		return nil, err
-	}
+func (s *DBStore) GetDefault(ctx context.Context) (*llm.ProviderConfig, error) {
 	dbP, err := database.GetDefaultProviderWithContext(ctx)
 	if err != nil {
 		return nil, err
@@ -90,11 +53,7 @@ func (s *DBStore) GetDefault() (*llm.ProviderConfig, error) {
 }
 
 // Get retorna um provedor por ID.
-func (s *DBStore) Get(id string) (*llm.ProviderConfig, error) {
-	ctx, err := s.ctx()
-	if err != nil {
-		return nil, err
-	}
+func (s *DBStore) Get(ctx context.Context, id string) (*llm.ProviderConfig, error) {
 	dbP, err := database.GetLLMProviderWithContext(ctx, id)
 	if err != nil {
 		return nil, err
@@ -103,11 +62,7 @@ func (s *DBStore) Get(id string) (*llm.ProviderConfig, error) {
 }
 
 // Count retorna a contagem total de provedores no banco.
-func (s *DBStore) Count() (int, error) {
-	ctx, err := s.ctx()
-	if err != nil {
-		return 0, err
-	}
+func (s *DBStore) Count(ctx context.Context) (int, error) {
 	n, err := database.CountLLMProvidersWithContext(ctx)
 	return int(n), err
 }

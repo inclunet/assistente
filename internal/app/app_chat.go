@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+
 	"assistente/internal/chat"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
@@ -60,13 +62,13 @@ func (a *App) loadConversationHistory(conversationID string, profile *profiles.P
 		Transcribe: a.whisperTranscribeFunc(),
 		MaxMsgs:    maxCtxMsgs,
 	}
-	return loader.Load(conversationID)
+	return loader.Load(a.authenticatedContext(), conversationID)
 }
 
 // whisperTranscribeFunc cria o callback de transcrição para o MediaHistoryLoader e PreprocessMessages.
 func (a *App) whisperTranscribeFunc() chat.TranscribeFunc {
-	return func(audioBase64, filename string) (string, error) {
-		result, err := a.speechSvc.Transcribe(audioBase64, filename)
+	return func(ctx context.Context, audioBase64, filename string) (string, error) {
+		result, err := a.speechSvc.Transcribe(ctx, audioBase64, filename)
 		if err != nil {
 			return "", err
 		}

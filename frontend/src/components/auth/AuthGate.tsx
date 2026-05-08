@@ -44,7 +44,18 @@ export function AuthGate({ children }: AuthGateProps) {
     );
   }
 
-  const title = !status?.vaultConfigured
+  if (!status) {
+    return (
+      <main style={styles.shell} aria-busy="true">
+        <section style={styles.card}>
+          <h1 style={styles.title}>Carregando autenticação</h1>
+          <p style={styles.description}>Verificando o estado do cofre e da sessão.</p>
+        </section>
+      </main>
+    );
+  }
+
+  const title = !status.vaultConfigured
     ? 'Inicializar cofre'
     : !status.vaultUnlocked
       ? 'Desbloquear cofre'
@@ -54,7 +65,7 @@ export function AuthGate({ children }: AuthGateProps) {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!status?.vaultConfigured) {
+    if (!status.vaultConfigured) {
       if (secret !== confirmSecret) return;
       setRecoveryKey(await setupVault(secret));
       setSecret('');
@@ -91,7 +102,7 @@ export function AuthGate({ children }: AuthGateProps) {
           </div>
         )}
 
-        {status?.vaultUnlocked && (
+        {status.vaultUnlocked && (
           <label style={styles.label}>
             Usuário
             <input
@@ -111,12 +122,12 @@ export function AuthGate({ children }: AuthGateProps) {
             onChange={(event) => setSecret(event.target.value)}
             required
             type="password"
-            autoComplete={status?.hasUsers ? 'current-password' : 'new-password'}
+            autoComplete={status.hasUsers ? 'current-password' : 'new-password'}
             style={styles.input}
           />
         </label>
 
-        {(!status?.vaultConfigured || (status?.vaultUnlocked && !status?.hasUsers)) && (
+        {(!status.vaultConfigured || (status.vaultUnlocked && !status.hasUsers)) && (
           <label style={styles.label}>
             Confirmar senha
             <input

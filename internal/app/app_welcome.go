@@ -53,7 +53,7 @@ func (a *App) validateWizardURL(baseURL string) error {
 // NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas.
 func (a *App) NeedsWelcomeWizard() bool {
 	if a.welcomeCtrl != nil {
-		return a.welcomeCtrl.NeedsWelcomeWizard()
+		return a.welcomeCtrl.NeedsWelcomeWizard(a.authenticatedContext())
 	}
 
 	store := credentials.NewDBStore()
@@ -64,7 +64,7 @@ func (a *App) NeedsWelcomeWizard() bool {
 	if a.providerSvc == nil {
 		return true
 	}
-	count, err := a.providerSvc.Count()
+	count, err := a.providerSvc.Count(a.authenticatedContext())
 	if err != nil {
 		return true
 	}

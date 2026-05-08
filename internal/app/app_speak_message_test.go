@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -22,19 +24,19 @@ func newMockAudioRepo() *mockAudioRepo {
 	}
 }
 
-func (m *mockAudioRepo) GetMessageAudio(id string) (string, string, error) {
+func (m *mockAudioRepo) GetMessageAudio(_ context.Context, id string) (string, string, error) {
 	if a, ok := m.audio[id]; ok {
 		return a.base64, a.mime, nil
 	}
 	return "", "", nil
 }
 
-func (m *mockAudioRepo) SaveMessageAudio(id string, base64, mime string) error {
+func (m *mockAudioRepo) SaveMessageAudio(_ context.Context, id string, base64, mime string) error {
 	m.audio[id] = struct{ base64, mime string }{base64, mime}
 	return nil
 }
 
-func (m *mockAudioRepo) GetMessageContent(id string) (string, error) {
+func (m *mockAudioRepo) GetMessageContent(_ context.Context, id string) (string, error) {
 	if c, ok := m.content[id]; ok {
 		return c, nil
 	}
@@ -47,7 +49,9 @@ type testProfileProvider struct{}
 func (testProfileProvider) GetActive() (*profiles.Profile, error) {
 	return nil, nil
 }
-func (testProfileProvider) ResolveDefaults(p *profiles.Profile) *profiles.Profile { return p }
+func (testProfileProvider) ResolveDefaults(_ context.Context, p *profiles.Profile) *profiles.Profile {
+	return p
+}
 
 // newTestSpeechSvc cria um speech.Service para testes.
 func newTestSpeechSvc(repo speech.AudioRepository, reg speech.ProviderRegistry) *speech.Service {

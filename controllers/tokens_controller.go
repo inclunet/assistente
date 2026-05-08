@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -39,26 +40,26 @@ func NewTokensController(cfg TokensControllerConfig) *TokensController {
 }
 
 // GetConversationTokenStats retorna estatísticas de tokens de uma conversa.
-func (c *TokensController) GetConversationTokenStats(conversationID string) (*chat.TokenStats, error) {
+func (c *TokensController) GetConversationTokenStats(ctx context.Context, conversationID string) (*chat.TokenStats, error) {
 	contextLimit := 0
 	if profile, err := c.profileMgr.GetActive(); err == nil && profile != nil {
 		contextLimit = profile.Chat.ContextWindow
 	}
-	return c.tokenSvc.GetConversationStats(conversationID, contextLimit)
+	return c.tokenSvc.GetConversationStats(ctx, conversationID, contextLimit)
 }
 
 // GetTurnTokenStats retorna estatísticas de tokens para um turno específico.
-func (c *TokensController) GetTurnTokenStats(conversationID string, turnID string) (*chat.TokenStats, error) {
-	return c.tokenSvc.GetTurnStats(conversationID, turnID)
+func (c *TokensController) GetTurnTokenStats(ctx context.Context, conversationID string, turnID string) (*chat.TokenStats, error) {
+	return c.tokenSvc.GetTurnStats(ctx, conversationID, turnID)
 }
 
 // GetRecentMessagesTokenCount retorna o total de tokens das N mensagens mais recentes.
-func (c *TokensController) GetRecentMessagesTokenCount(conversationID string, messageLimit int) (int, error) {
-	return c.tokenSvc.GetRecentTokenCount(conversationID, messageLimit)
+func (c *TokensController) GetRecentMessagesTokenCount(ctx context.Context, conversationID string, messageLimit int) (int, error) {
+	return c.tokenSvc.GetRecentTokenCount(ctx, conversationID, messageLimit)
 }
 
 // CheckContextWindowThreshold verifica se a conversa está próxima do limite de contexto.
-func (c *TokensController) CheckContextWindowThreshold(conversationID string, threshold float64) (bool, float64, error) {
+func (c *TokensController) CheckContextWindowThreshold(ctx context.Context, conversationID string, threshold float64) (bool, float64, error) {
 	if threshold <= 0 {
 		threshold = 80.0
 	}
@@ -72,7 +73,7 @@ func (c *TokensController) CheckContextWindowThreshold(conversationID string, th
 	}
 
 	contextLimit := profile.Chat.ContextWindow
-	above, percentage, err := c.tokenSvc.CheckContextThreshold(conversationID, contextLimit, threshold)
+	above, percentage, err := c.tokenSvc.CheckContextThreshold(ctx, conversationID, contextLimit, threshold)
 	if err != nil {
 		return false, 0, err
 	}

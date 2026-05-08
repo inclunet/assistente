@@ -45,7 +45,7 @@ type ServiceConfig struct {
 	ToolExecutor     *tools.Executor
 	ResponseNotifier *messaging.ResponseNotifier
 	GetTokenStats    func(string) (*chat.TokenStats, error)
-	TriggerSummarize func(string)
+	TriggerSummarize func(context.Context, string)
 	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
 	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
 	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
@@ -58,7 +58,7 @@ type Service struct {
 	toolExecutor     *tools.Executor
 	responseNotifier *messaging.ResponseNotifier
 	getTokenStats    func(string) (*chat.TokenStats, error)
-	triggerSummarize func(string)
+	triggerSummarize func(context.Context, string)
 	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 }
 
@@ -205,7 +205,7 @@ func (s *Service) RunAgenticLoop(
 			}
 
 			// 4. finish_reason="stop" → resposta final
-			s.SaveAndFinish(conversationID, turnID, result, params.ProfileSlug, &LoopStats{
+			s.SaveAndFinish(ctx, conversationID, turnID, result, params.ProfileSlug, &LoopStats{
 				IterationCount: iteration + 1,
 				ToolCallCount:  totalToolCallCount,
 				ToolsUsed:      toolsUsedSet,
@@ -224,7 +224,7 @@ func (s *Service) RunAgenticLoop(
 
 		// 5a. Persiste MCP calls nativas desta iteração antes das bridge calls
 		if len(result.NativeMCPEvents) > 0 {
-			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents, iteration)
+			s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, iteration)
 			// AEP-0039: contabiliza MCP native tools
 			for _, ev := range result.NativeMCPEvents {
 				if ev.IsCompleted {
@@ -397,6 +397,7 @@ func (s *Service) RunAgenticLoop(
 		}
 		toolCallsJSON, _ := json.Marshal(enrichedCalls)
 		_, err := s.msgRepo.AddAssistantToolMessage(
+			ctx,
 			conversationID,
 			turnID,
 			result.FullResponse,
@@ -418,6 +419,7 @@ func (s *Service) RunAgenticLoop(
 			// Persiste conteúdo original (antes do pre-check de context window, mas
 			// possivelmente já truncado por MaxResultSize do Executor) no banco
 			_, err := s.msgRepo.AddToolResultMessage(
+				ctx,
 				conversationID,
 				turnID,
 				execResult.Result.Content,
@@ -509,7 +511,7 @@ func (s *Service) RunAgenticLoop(
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(conversationID)
+			s.triggerSummarize(ctx, conversationID)
 		}()
 	}
 }
@@ -526,6 +528,7 @@ type LoopStats struct {
 // Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
 // loopStats é opcional — se nil, apenas os campos enriquecidos derivados das estatísticas do loop ficam vazios.
 func (s *Service) SaveAndFinish(
+	ctx context.Context,
 	conversationID, turnID string,
 	result AgenticResult,
 	profileSlug string,
@@ -539,7 +542,7 @@ func (s *Service) SaveAndFinish(
 			if loopStats != nil && loopStats.IterationCount > 0 {
 				finalIteration = loopStats.IterationCount - 1
 			}
-			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents, finalIteration)
+			s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, finalIteration)
 		}
 
 		opts := chat.MessageOptions{
@@ -557,7 +560,7 @@ func (s *Service) SaveAndFinish(
 		}
 
 		var err error
-		savedMsgID, err = chat.SaveAssistantMessage(s.msgRepo, opts)
+		savedMsgID, err = chat.SaveAssistantMessage(ctx, s.msgRepo, opts)
 		if errors.Is(err, chat.ErrConversationGone) {
 			return
 		}
@@ -626,7 +629,7 @@ func (s *Service) SaveAndFinish(
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(conversationID)
+			s.triggerSummarize(ctx, conversationID)
 		}()
 	}
 
@@ -724,7 +727,7 @@ func extractLogicalToolName(toolName string) string {
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
 // uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
 // AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
-func (s *Service) persistNativeMCPCalls(conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
+func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
 	var toolCalls []llm.EnrichedToolCall
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
@@ -752,7 +755,7 @@ func (s *Service) persistNativeMCPCalls(conversationID, turnID string, mcpEvents
 		return
 	}
 
-	_, err = s.msgRepo.AddAssistantToolMessage(conversationID, turnID, "", string(toolCallsJSON), "", "")
+	_, err = s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", "")
 	if err != nil {
 		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
 		return
@@ -766,7 +769,7 @@ func (s *Service) persistNativeMCPCalls(conversationID, turnID string, mcpEvents
 		if ev.Error != "" {
 			content = "ERROR: " + ev.Error
 		}
-		_, err := s.msgRepo.AddToolResultMessage(conversationID, turnID, content, ev.ID)
+		_, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID)
 		if err != nil {
 			log.Printf("[MCP Native] Erro ao salvar tool result (id=%s): %v", ev.ID, err)
 		}

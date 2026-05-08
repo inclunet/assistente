@@ -54,8 +54,8 @@ func NewCredentialsController(cfg CredentialsControllerConfig) *CredentialsContr
 }
 
 // ListCredentials retorna credenciais registradas (sem valores sensíveis).
-func (c *CredentialsController) ListCredentials() ([]CredentialSummary, error) {
-	return c.ListCredentialsWithContext(context.Background())
+func (c *CredentialsController) ListCredentials(ctx context.Context) ([]CredentialSummary, error) {
+	return c.ListCredentialsWithContext(ctx)
 }
 
 func (c *CredentialsController) ListCredentialsWithContext(ctx context.Context) ([]CredentialSummary, error) {
@@ -91,8 +91,8 @@ func (c *CredentialsController) ListCredentialsWithContext(ctx context.Context) 
 }
 
 // UpsertCredential cria ou atualiza uma credencial no credential manager.
-func (c *CredentialsController) UpsertCredential(input CredentialInput) error {
-	return c.UpsertCredentialWithContext(context.Background(), input)
+func (c *CredentialsController) UpsertCredential(ctx context.Context, input CredentialInput) error {
+	return c.UpsertCredentialWithContext(ctx, input)
 }
 
 func (c *CredentialsController) UpsertCredentialWithContext(ctx context.Context, input CredentialInput) error {
@@ -141,8 +141,8 @@ func (c *CredentialsController) UpsertCredentialWithContext(ctx context.Context,
 }
 
 // DeleteCredential remove uma credencial pelo padrão.
-func (c *CredentialsController) DeleteCredential(pattern string) error {
-	return c.DeleteCredentialWithContext(context.Background(), pattern)
+func (c *CredentialsController) DeleteCredential(ctx context.Context, pattern string) error {
+	return c.DeleteCredentialWithContext(ctx, pattern)
 }
 
 func (c *CredentialsController) DeleteCredentialWithContext(ctx context.Context, pattern string) error {

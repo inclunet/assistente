@@ -41,8 +41,8 @@ type Service struct {
 }
 
 // Count retorna o número de provedores no store.
-func (s *Service) Count() (int, error) {
-	return s.store.Count()
+func (s *Service) Count(ctx context.Context) (int, error) {
+	return s.store.Count(ctx)
 }
 
 // NewService cria um Service com as dependências injetadas.
@@ -79,14 +79,14 @@ func ExtractHostname(baseURL string) (string, error) {
 // ============================================================================
 
 // Save persiste todos os provedores do registry no store.
-func (s *Service) Save() error {
+func (s *Service) Save(ctx context.Context) error {
 	providers := s.registry.List()
-	return s.store.Save(providers)
+	return s.store.Save(ctx, providers)
 }
 
 // Load carrega provedores do store para o registry.
-func (s *Service) Load() error {
-	providers, err := s.store.Load()
+func (s *Service) Load(ctx context.Context) error {
+	providers, err := s.store.Load(ctx)
 	if err != nil {
 		return err
 	}
@@ -109,11 +109,11 @@ func (s *Service) Load() error {
 		}
 	}
 	log.Printf("[providers] %d provedor(es) carregado(s) do store", len(providers))
-	s.EnsureDefault()
+	s.EnsureDefault(ctx)
 
 	// Persistir api_format materializado para não repetir inferência no próximo boot
 	if needsSave {
-		if err := s.Save(); err != nil {
+		if err := s.Save(ctx); err != nil {
 			log.Printf("[providers] Erro ao persistir api_format materializado: %v", err)
 		}
 	}
@@ -122,8 +122,8 @@ func (s *Service) Load() error {
 
 // EnsureDefault garante que pelo menos um provedor está marcado como padrão.
 // Chamado automaticamente após Load. Seguro executar múltiplas vezes.
-func (s *Service) EnsureDefault() {
-	defaultProv, err := s.store.GetDefault()
+func (s *Service) EnsureDefault(ctx context.Context) {
+	defaultProv, err := s.store.GetDefault(ctx)
 	if err == nil && defaultProv != nil {
 		return
 	}
@@ -136,7 +136,7 @@ func (s *Service) EnsureDefault() {
 	first := all[0]
 	log.Printf("[providers] Nenhum provedor default — marcando '%s' como default", first.Name)
 
-	if err := s.store.SetDefault(first.ID); err != nil {
+	if err := s.store.SetDefault(ctx, first.ID); err != nil {
 		log.Printf("[providers] Erro ao definir default: %v", err)
 		return
 	}
@@ -145,7 +145,7 @@ func (s *Service) EnsureDefault() {
 	if first.DefaultModel == "" && first.Model != "" {
 		first.DefaultModel = first.Model
 		// Persiste o DefaultModel preenchido
-		if err := s.store.Save([]*llm.ProviderConfig{first}); err != nil {
+		if err := s.store.Save(ctx, []*llm.ProviderConfig{first}); err != nil {
 			log.Printf("[providers] Erro ao salvar DefaultModel: %v", err)
 		}
 	}
@@ -214,11 +214,11 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	if err := s.registry.Register(provider); err != nil {
 		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
 	}
-	if err := s.Save(); err != nil {
+	if err := s.Save(ctx); err != nil {
 		log.Printf("[providers] Erro ao salvar após criação: %v", err)
 	}
 	if isFirst {
-		if err := s.store.SetDefault(req.ID); err != nil {
+		if err := s.store.SetDefault(ctx, req.ID); err != nil {
 			log.Printf("[providers] Aviso: erro ao marcar como default: %v", err)
 		}
 	}
@@ -308,7 +308,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if err := s.registry.Register(updated); err != nil {
 		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
 	}
-	if err := s.Save(); err != nil {
+	if err := s.Save(ctx); err != nil {
 		log.Printf("[providers] Erro ao salvar após atualização: %v", err)
 	}
 
@@ -317,7 +317,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 }
 
 // Delete remove um provedor do registry.
-func (s *Service) Delete(id string) error {
+func (s *Service) Delete(ctx context.Context, id string) error {
 	if s.registry.Get(id) == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
 	}
@@ -329,11 +329,11 @@ func (s *Service) Delete(id string) error {
 }
 
 // SetDefault marca um provedor como padrão do sistema.
-func (s *Service) SetDefault(id string) error {
+func (s *Service) SetDefault(ctx context.Context, id string) error {
 	if s.registry.Get(id) == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
 	}
-	if err := s.store.SetDefault(id); err != nil {
+	if err := s.store.SetDefault(ctx, id); err != nil {
 		return fmt.Errorf("erro ao definir provider default: %w", err)
 	}
 	for _, p := range s.registry.List() {
@@ -377,7 +377,7 @@ func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 
 // ResolveProfileDefaults substitui sentinelas "$default" no perfil pelo provedor/modelo
 // padrão do sistema. Retorna uma cópia modificada — não altera o perfil em disco.
-func (s *Service) ResolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
+func (s *Service) ResolveProfileDefaults(ctx context.Context, p *profiles.Profile) *profiles.Profile {
 	if p == nil {
 		return nil
 	}
@@ -389,7 +389,7 @@ func (s *Service) ResolveProfileDefaults(p *profiles.Profile) *profiles.Profile 
 		return p
 	}
 
-	defaultProvider, err := s.store.GetDefault()
+	defaultProvider, err := s.store.GetDefault(ctx)
 	if err != nil || defaultProvider == nil {
 		log.Printf("[providers] Nenhum provedor default encontrado para resolução: %v", err)
 		return p
@@ -557,7 +557,7 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 
 // GetChatProvider returns a ready-to-use ChatProvider for the given provider ID.
 // Looks up the provider config in the registry and wraps it with the credential manager.
-func (s *Service) GetChatProvider(providerID string) (llm.ChatProvider, error) {
+func (s *Service) GetChatProvider(ctx context.Context, providerID string) (llm.ChatProvider, error) {
 	if s.registry == nil {
 		return nil, fmt.Errorf("registro de provedores não inicializado")
 	}
@@ -634,11 +634,11 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 // GetModels retorna os modelos disponíveis para o provedor do perfil ativo.
 // Resolve sentinelas $default antes de consultar o provider.
 func (s *Service) GetModels(ctx context.Context, activeProfile *profiles.Profile) ([]string, error) {
-	activeProfile = s.ResolveProfileDefaults(activeProfile)
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
 		return nil, fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
 	}
-	cp, err := s.GetChatProvider(activeProfile.Chat.LLMProvider)
+	cp, err := s.GetChatProvider(ctx, activeProfile.Chat.LLMProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -650,7 +650,7 @@ func (s *Service) GetModelsByProvider(ctx context.Context, providerID string) ([
 	if providerID == "" {
 		return []string{}, nil
 	}
-	cp, err := s.GetChatProvider(providerID)
+	cp, err := s.GetChatProvider(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
@@ -668,11 +668,11 @@ type ActiveProviderInfo struct {
 }
 
 // GetActiveProviderInfo retorna informações sobre o provedor do perfil ativo.
-func (s *Service) GetActiveProviderInfo(activeProfile *profiles.Profile) ActiveProviderInfo {
+func (s *Service) GetActiveProviderInfo(ctx context.Context, activeProfile *profiles.Profile) ActiveProviderInfo {
 	if activeProfile == nil {
 		return ActiveProviderInfo{Error: "perfil ativo não encontrado"}
 	}
-	activeProfile = s.ResolveProfileDefaults(activeProfile)
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
 
 	if s.registry == nil {
 		return ActiveProviderInfo{Error: "registro de provedores não inicializado"}

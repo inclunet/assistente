@@ -51,6 +51,19 @@ describe('AuthGate', () => {
     expect(mockSetupVault).not.toHaveBeenCalled();
   });
 
+  it('mostra estado neutro enquanto o status inicial ainda não carregou', () => {
+    mockGetAuthStatus.mockImplementationOnce(() => new Promise(() => undefined));
+
+    render(
+      <AuthGate>
+        <div>Aplicação</div>
+      </AuthGate>,
+    );
+
+    expect(screen.getByRole('heading', { name: 'Carregando autenticação' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Inicializar cofre' })).not.toBeInTheDocument();
+  });
+
   it('permite tentar carregar status novamente após falha', async () => {
     mockGetAuthStatus
       .mockRejectedValueOnce(new Error('falha temporária'))
@@ -157,5 +170,21 @@ describe('AuthGate', () => {
 
     expect(mockLogin).toHaveBeenNthCalledWith(1, { username: 'ana', password: 'senha-ana', clientLabel: 'Wails desktop' });
     expect(mockLogin).toHaveBeenNthCalledWith(2, { username: 'leo', password: 'senha-leo', clientLabel: 'Wails desktop' });
+  });
+
+  it('mantém o gate de login quando refresh falha no carregamento inicial', async () => {
+    mockGetAuthStatus.mockResolvedValueOnce({ vaultConfigured: true, vaultUnlocked: true, hasUsers: true });
+    mockRefreshAuth.mockRejectedValueOnce(new Error('refresh expirado'));
+
+    render(
+      <AuthGate>
+        <div>Aplicação</div>
+      </AuthGate>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Entrar' })).toBeInTheDocument();
+    expect(screen.queryByText('Aplicação')).not.toBeInTheDocument();
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 });

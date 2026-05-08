@@ -33,7 +33,7 @@ type emitFunc func(event string, data any)
 type SynthesizeTTSFunc func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error)
 
 // SaveAudioFunc é a assinatura da função que salva áudio no DB.
-type SaveAudioFunc func(messageID string, audioBase64 string, mimeType string) error
+type SaveAudioFunc func(ctx context.Context, messageID string, audioBase64 string, mimeType string) error
 
 // ApproveContactFunc é a assinatura da função que solicita aprovação para autorizar um contato.
 // Retorna true se aprovado, false caso contrário.
@@ -50,15 +50,15 @@ type ApproveContactFunc func(ctx context.Context, channel, displayName, contactI
 //  5. Quando resposta fica pronta, Notifier dispara callback
 //  6. Gateway reenvia resposta ao mensageiro de origem
 type Gateway struct {
-	mu            sync.RWMutex
-	messengers    map[string]Messenger
-	notifier      *ResponseNotifier
-	ttsBroker     *TTSBroker
-	sendMessage   SendMessageFunc
-	emitEvent     emitFunc
+	mu             sync.RWMutex
+	messengers     map[string]Messenger
+	notifier       *ResponseNotifier
+	ttsBroker      *TTSBroker
+	sendMessage    SendMessageFunc
+	emitEvent      emitFunc
 	approveContact ApproveContactFunc
-	synthesizeTTS SynthesizeTTSFunc // Opcional: sintetiza áudio para respostas em modo áudio
-	saveAudio     SaveAudioFunc     // Opcional: salva áudio no DB
+	synthesizeTTS  SynthesizeTTSFunc // Opcional: sintetiza áudio para respostas em modo áudio
+	saveAudio      SaveAudioFunc     // Opcional: salva áudio no DB
 }
 
 // NewGateway cria um novo Gateway de mensageria.
@@ -71,14 +71,14 @@ func NewGateway(
 	saveAudio SaveAudioFunc,
 ) *Gateway {
 	return &Gateway{
-		messengers:    make(map[string]Messenger),
-		notifier:      notifier,
-		ttsBroker:     NewTTSBroker(),
-		sendMessage:   sendMessage,
-		emitEvent:     emitEvent,
+		messengers:     make(map[string]Messenger),
+		notifier:       notifier,
+		ttsBroker:      NewTTSBroker(),
+		sendMessage:    sendMessage,
+		emitEvent:      emitEvent,
 		approveContact: approveContact,
-		synthesizeTTS: synthesizeTTS,
-		saveAudio:     saveAudio,
+		synthesizeTTS:  synthesizeTTS,
+		saveAudio:      saveAudio,
 	}
 }
 
@@ -316,7 +316,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 
 					// Salva o áudio TTS na mensagem do assistente no DB
 					if g.saveAudio != nil {
-						if err := g.saveAudio(assistantMsgID, base64.StdEncoding.EncodeToString(payload.Data), payload.MIMEType); err != nil {
+						if err := g.saveAudio(ctx, assistantMsgID, base64.StdEncoding.EncodeToString(payload.Data), payload.MIMEType); err != nil {
 							log.Printf("[Gateway] trace=%s conv=%s msgID=%s erro ao salvar áudio TTS no DB: %v",
 								traceID, conversationID, assistantMsgID, err)
 						} else {
@@ -392,4 +392,3 @@ func maskIdentifier(value string) string {
 	visible := value[len(value)-4:]
 	return strings.Repeat("*", len(value)-4) + visible
 }
-

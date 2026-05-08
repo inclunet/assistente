@@ -204,19 +204,19 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
 		Registry: a.llmRegistry,
 		CredMgr:  a.credMgr,
-		Store:    providers.NewScopedDBStore(a.authenticatedContext),
+		Store:    providers.NewDBStore(),
 	})
 
 	// Inicializa o Token Service (estatísticas de tokens)
-	a.tokenSvc = chat.NewTokenService(chat.NewScopedDBMessageStore(a.authenticatedContext))
+	a.tokenSvc = chat.NewTokenService(chat.NewDBMessageStore())
 
 	// Inicializa o TaskList Service (business logic de listas de tarefas)
 	a.taskSvc = a.newTaskListService()
 
 	// Inicializa repositórios de audio e conversa
 	a.audioSvc = speech.NewDBAudioStore()
-	a.convSvc = chat.NewScopedDBConversationStore(a.authenticatedContext)
-	a.msgRepo = chat.NewScopedDBMessageStore(a.authenticatedContext)
+	a.convSvc = chat.NewDBConversationStore()
+	a.msgRepo = chat.NewDBMessageStore()
 
 	// Inicializa o Speech Service aqui (antes de initMessaging, que depende dele)
 	a.speechSvc = speech.NewService(speech.ServiceConfig{
@@ -229,12 +229,14 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Summary Service (sumarização de conversas)
 	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
-		Repo:            summarization.NewDBStore(),
-		Emitter:         a.emitter,
-		LLMRegistry:     a.llmRegistry,
-		CredMgr:         a.credMgr,
-		ProfileManager:  a.profileManager,
-		ProfileResolver: a.resolveProfileDefaults,
+		Repo:           summarization.NewDBStore(),
+		Emitter:        a.emitter,
+		LLMRegistry:    a.llmRegistry,
+		CredMgr:        a.credMgr,
+		ProfileManager: a.profileManager,
+		ProfileResolver: func(ctx context.Context, p *profiles.Profile) *profiles.Profile {
+			return a.providerSvc.ResolveProfileDefaults(ctx, p)
+		},
 	})
 	// Inicializa managers de terminal, confirmação e allowlists
 	a.initTerminalAndAllowlists()

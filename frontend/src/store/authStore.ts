@@ -49,12 +49,13 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const status = (await GetAuthStatus()) as AuthStatus;
-      set({ status, isLoading: false });
+      set({ status });
       if (status.vaultUnlocked && status.hasUsers) {
         await get().refresh();
       }
+      set({ isLoading: false });
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false, isAuthenticated: false });
+      set({ error: errorMessage(error), isLoading: false, user: null, isAuthenticated: false });
     }
   },
 
@@ -76,10 +77,11 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     try {
       await UnlockVault(kind, secret);
       const status = (await GetAuthStatus()) as AuthStatus;
-      set({ status, isLoading: false });
+      set({ status });
       if (status.vaultUnlocked && status.hasUsers) {
         await get().refresh();
       }
+      set({ isLoading: false });
     } catch (error) {
       set({ error: errorMessage(error), isLoading: false });
       throw error;
@@ -106,9 +108,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         user,
         isAuthenticated: true,
         isLoading: false,
+        error: null,
       });
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false, isAuthenticated: false });
+      set({ error: errorMessage(error), isLoading: false, user: null, isAuthenticated: false });
       throw error;
     }
   },
@@ -132,7 +135,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   logout: async () => {
     await Logout({}).catch(() => undefined);
     localStorage.removeItem(legacyRefreshTokenKey);
-    set({ user: null, isAuthenticated: false });
+    set({ user: null, isAuthenticated: false, error: null });
   },
 }));
 

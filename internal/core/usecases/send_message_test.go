@@ -154,10 +154,11 @@ func TestSendMessageUseCase_ReturnsErrorWhenNoLLMProviders(t *testing.T) {
 // erro quando o provedor referenciado no perfil não existe no registry.
 func TestSendMessageUseCase_ReturnsErrorWhenProviderNotFound(t *testing.T) {
 	setupTestDB(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
 
 	// Insere um provider no DB para que Count() > 0 e PrepareContext passe o check inicial.
 	store := providers.NewDBStore()
-	if err := store.Save([]*llm.ProviderConfig{{
+	if err := store.Save(ctx, []*llm.ProviderConfig{{
 		ID:      "dummy",
 		Name:    "Dummy",
 		Type:    "openai",
@@ -170,14 +171,14 @@ func TestSendMessageUseCase_ReturnsErrorWhenProviderNotFound(t *testing.T) {
 	// Perfil aponta para "nonexistent" — diferente do "dummy" no BD.
 	setupProfileWith(t, mgr, minValidProfile("Test Provider", "nonexistent"))
 
-	conv, err := database.CreateConversation("test-conv", "")
+	conv, err := database.CreateConversationWithContext(ctx, "test-conv", "")
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 
 	uc := newTestUseCase(t, mgr)
 	_, err = uc.Execute(usecases.SendMessageRequest{
-		Ctx:            context.Background(),
+		Ctx:            ctx,
 		ConversationID: conv.ID,
 		UserContent:    "hello",
 		Source:         "test",
@@ -194,9 +195,10 @@ func TestSendMessageUseCase_ReturnsErrorWhenProviderNotFound(t *testing.T) {
 
 func TestSendMessageUseCase_RetryExistingUserMessageDoesNotDuplicateUserRow(t *testing.T) {
 	setupTestDB(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
 
 	store := providers.NewDBStore()
-	if err := store.Save([]*llm.ProviderConfig{{
+	if err := store.Save(ctx, []*llm.ProviderConfig{{
 		ID:      "dummy",
 		Name:    "Dummy",
 		Type:    "openai",
@@ -208,11 +210,11 @@ func TestSendMessageUseCase_RetryExistingUserMessageDoesNotDuplicateUserRow(t *t
 	mgr := setupProfileDir(t)
 	setupProfileWith(t, mgr, minValidProfile("Retry Existing Message", "nonexistent"))
 
-	conv, err := database.CreateConversation("retry-conv", "")
+	conv, err := database.CreateConversationWithContext(ctx, "retry-conv", "")
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
-	userMsg, err := database.CreateMessage(database.MessageOptions{
+	userMsg, err := database.CreateMessageWithContext(ctx, database.MessageOptions{
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "mensagem original",
@@ -224,7 +226,7 @@ func TestSendMessageUseCase_RetryExistingUserMessageDoesNotDuplicateUserRow(t *t
 
 	uc := newTestUseCase(t, mgr)
 	_, err = uc.Execute(usecases.SendMessageRequest{
-		Ctx:            context.Background(),
+		Ctx:            ctx,
 		ConversationID: conv.ID,
 		RetryMessageID: userMsg.ID,
 		Source:         "wails",

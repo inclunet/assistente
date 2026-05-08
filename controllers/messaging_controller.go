@@ -142,16 +142,16 @@ func (c *MessagingController) Init() {
 			}
 		}
 
-		if !c.speechSvc.EnsureSpeechManager() {
+		if !c.speechSvc.EnsureSpeechManager(ctx) {
 			return nil, fmt.Errorf("speech manager indisponível para TTS")
 		}
 
 		var result *speech.SynthesisResult
 		var err error
 		if profile != nil && profile.Voice.Assistant.VoiceID != "" {
-			result, err = c.speechSvc.SynthesizeWithVoice(text, profile.Voice.Assistant.VoiceID)
+			result, err = c.speechSvc.SynthesizeWithVoice(ctx, text, profile.Voice.Assistant.VoiceID)
 		} else {
-			result, err = c.speechSvc.Synthesize(text)
+			result, err = c.speechSvc.Synthesize(ctx, text)
 		}
 		if err != nil {
 			return nil, err
@@ -420,10 +420,10 @@ func (c *MessagingController) AssignConversationToChannel(conversationID string,
 	if channel == "" || contactID == "" {
 		return fmt.Errorf("canal e contato são obrigatórios")
 	}
-	if _, err := c.convSvc.GetConversationInfo(conversationID); err != nil {
+	if _, err := c.convSvc.GetConversationInfo(c.ctx, conversationID); err != nil {
 		return fmt.Errorf("conversa %s não encontrada: %w", conversationID, err)
 	}
-	if err := c.convSvc.UpdateConversationChannel(conversationID, channel, contactID); err != nil {
+	if err := c.convSvc.UpdateConversationChannel(c.ctx, conversationID, channel, contactID); err != nil {
 		return fmt.Errorf("erro ao atualizar conversa: %w", err)
 	}
 	log.Printf("[Bridge] Conversa %s atribuída ao canal %s (contato: %s)", conversationID, channel, contactID)
@@ -432,7 +432,7 @@ func (c *MessagingController) AssignConversationToChannel(conversationID string,
 
 // UnassignConversationFromChannel remove a vinculação de uma conversa com um canal externo.
 func (c *MessagingController) UnassignConversationFromChannel(conversationID string) error {
-	if err := c.convSvc.UpdateConversationChannel(conversationID, "", ""); err != nil {
+	if err := c.convSvc.UpdateConversationChannel(c.ctx, conversationID, "", ""); err != nil {
 		return fmt.Errorf("erro ao remover canal da conversa: %w", err)
 	}
 	log.Printf("[Bridge] Conversa %s desvinculada de canal externo", conversationID)
@@ -441,7 +441,7 @@ func (c *MessagingController) UnassignConversationFromChannel(conversationID str
 
 // GetConversationChannel retorna o canal e contato vinculados a uma conversa.
 func (c *MessagingController) GetConversationChannel(conversationID string) (string, string, error) {
-	conv, err := c.convSvc.GetConversationInfo(conversationID)
+	conv, err := c.convSvc.GetConversationInfo(c.ctx, conversationID)
 	if err != nil {
 		return "", "", err
 	}
@@ -481,7 +481,7 @@ func (c *MessagingController) persistChannelCredentials(channelName string, cfg 
 	if cfg == nil || c.credMgr == nil || !c.credMgr.CanPersist() {
 		return nil
 	}
-	ctx := context.Background()
+	ctx := c.ctx
 	switch channelName {
 	case "telegram":
 		if cfg.BotTokenRef == "" && cfg.BotToken != "" {

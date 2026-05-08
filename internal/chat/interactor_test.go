@@ -44,9 +44,11 @@ var _ events.Emitter = (*spyEmitter)(nil)
 // noopConvRepo is a minimal ConversationRepository for tests.
 type noopConvRepo struct{}
 
-func (noopConvRepo) GetConversationInfo(_ string) (*Conversation, error) { return nil, nil }
-func (noopConvRepo) UpdateConversation(_ string, _, _ string) error      { return nil }
-func (noopConvRepo) UpdateConversationChannel(_ string, _, _ string) error {
+func (noopConvRepo) GetConversationInfo(_ context.Context, _ string) (*Conversation, error) {
+	return nil, nil
+}
+func (noopConvRepo) UpdateConversation(_ context.Context, _ string, _, _ string) error { return nil }
+func (noopConvRepo) UpdateConversationChannel(_ context.Context, _ string, _, _ string) error {
 	return nil
 }
 
@@ -61,50 +63,50 @@ type retryMessageRepoStub struct {
 	getMessage func(messageID string) (*database.ChatMessage, error)
 }
 
-func (r *retryMessageRepoStub) CreateMessage(_ MessageOptions) (*Message, error) {
+func (r *retryMessageRepoStub) CreateMessage(_ context.Context, _ MessageOptions) (*Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetMessage(messageID string) (*Message, error) {
+func (r *retryMessageRepoStub) GetMessage(_ context.Context, messageID string) (*Message, error) {
 	if r.getMessage != nil {
 		return r.getMessage(messageID)
 	}
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetMessages(_ string, _ *string) ([]Message, error) {
+func (r *retryMessageRepoStub) GetMessages(_ context.Context, _ string, _ *string) ([]Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetConversationSummary(_ string) (string, string, error) {
+func (r *retryMessageRepoStub) GetConversationSummary(_ context.Context, _ string) (string, string, error) {
 	return "", "", nil
 }
 
-func (r *retryMessageRepoStub) GetDetailedTokenStats(_ string, _ string) (*DetailedTokenStats, error) {
+func (r *retryMessageRepoStub) GetDetailedTokenStats(_ context.Context, _ string, _ string) (*DetailedTokenStats, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetContextWindowUsage(_ string, _ int) (float64, int, error) {
+func (r *retryMessageRepoStub) GetContextWindowUsage(_ context.Context, _ string, _ int) (float64, int, error) {
 	return 0, 0, nil
 }
 
-func (r *retryMessageRepoStub) GetRecentMessagesTokenCount(_ string, _ int) (int, error) {
+func (r *retryMessageRepoStub) GetRecentMessagesTokenCount(_ context.Context, _ string, _ int) (int, error) {
 	return 0, nil
 }
 
-func (r *retryMessageRepoStub) GetTurnTokenStats(_ string, _ string) (*database.TokenStats, error) {
+func (r *retryMessageRepoStub) GetTurnTokenStats(_ context.Context, _ string, _ string) (*database.TokenStats, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) AddAssistantToolMessage(_ string, _ string, _, _, _, _ string) (*Message, error) {
+func (r *retryMessageRepoStub) AddAssistantToolMessage(_ context.Context, _ string, _ string, _, _, _, _ string) (*Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) AddToolResultMessage(_ string, _ string, _, _ string) (*Message, error) {
+func (r *retryMessageRepoStub) AddToolResultMessage(_ context.Context, _ string, _ string, _, _ string) (*Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) SearchMessages(_ string, _ int) ([]MessageSearchResult, error) {
+func (r *retryMessageRepoStub) SearchMessages(_ context.Context, _ string, _ int) ([]MessageSearchResult, error) {
 	return nil, nil
 }
 
@@ -224,7 +226,7 @@ func TestGetRetryableUserMessage_ReturnsDomainErrorWhenMessageNotFound(t *testin
 		},
 	})
 
-	msg, err := interactor.GetRetryableUserMessage("7", "42")
+	msg, err := interactor.GetRetryableUserMessage(context.Background(), "7", "42")
 	if msg != nil {
 		t.Fatalf("expected nil message, got %+v", msg)
 	}
@@ -239,7 +241,7 @@ func TestGetRetryableUserMessage_ReturnsDomainErrorWhenMessageNotFound(t *testin
 func TestGetRetryableUserMessage_ReturnsErrorWhenRepositoryIsUnavailable(t *testing.T) {
 	interactor := NewInteractor(InteractorConfig{})
 
-	msg, err := interactor.GetRetryableUserMessage("7", "42")
+	msg, err := interactor.GetRetryableUserMessage(context.Background(), "7", "42")
 	if msg != nil {
 		t.Fatalf("expected nil message, got %+v", msg)
 	}

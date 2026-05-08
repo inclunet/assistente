@@ -231,7 +231,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 		func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			return []byte("audio-bytes"), nil
 		},
-		func(messageID string, audioBase64 string, mimeType string) error {
+		func(_ context.Context, messageID string, audioBase64 string, mimeType string) error {
 			savedAudio.msgID = messageID
 			savedAudio.data = audioBase64
 			savedAudio.mime = mimeType

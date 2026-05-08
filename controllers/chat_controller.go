@@ -74,7 +74,7 @@ func NewChatController(cfg ChatControllerConfig) *ChatController {
 // Registra o bridge canal↔Wails antes de delegar para o Use Case.
 func (c *ChatController) SendMessage(ctx context.Context, conversationID string, userContent, userMedia string, params llm.ChatParams) (string, error) {
 	if conversationID != "" && c.msgGateway != nil && c.responseNotifier != nil {
-		c.registerChannelBridge(conversationID)
+		c.registerChannelBridge(ctx, conversationID)
 	}
 	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
 		Ctx:            ctx,
@@ -89,7 +89,7 @@ func (c *ChatController) SendMessage(ctx context.Context, conversationID string,
 // RetryMessage reexecuta o turno a partir de uma mensagem já persistida, sem duplicar a mensagem do usuário.
 func (c *ChatController) RetryMessage(ctx context.Context, conversationID string, messageID string, params llm.ChatParams) (string, error) {
 	if conversationID != "" && c.msgGateway != nil && c.responseNotifier != nil {
-		c.registerChannelBridge(conversationID)
+		c.registerChannelBridge(ctx, conversationID)
 	}
 	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
 		Ctx:            ctx,
@@ -119,8 +119,8 @@ func (c *ChatController) CancelStreamingForConversation(conversationID string) {
 
 // registerChannelBridge registra um callback para reenviar a resposta do assistente
 // ao canal de mensageria de origem (bridge Wails → canal externo).
-func (c *ChatController) registerChannelBridge(conversationID string) {
-	conv, err := c.convRepo.GetConversationInfo(conversationID)
+func (c *ChatController) registerChannelBridge(ctx context.Context, conversationID string) {
+	conv, err := c.convRepo.GetConversationInfo(ctx, conversationID)
 	if err != nil || conv == nil || conv.Channel == "" || conv.ContactID == "" {
 		return // Conversa local do Wails, não precisa de bridge.
 	}

@@ -1629,7 +1629,11 @@ func GetConversationSummaryWithContext(ctx context.Context, conversationID strin
 
 // UpdateConversationSummary atualiza o resumo de uma conversa
 func UpdateConversationSummary(conversationID string, summary string, upToMessageID string) error {
-	return db.Model(&Conversation{}).Where("id = ?", conversationID).Updates(map[string]interface{}{
+	return UpdateConversationSummaryWithContext(context.Background(), conversationID, summary, upToMessageID)
+}
+
+func UpdateConversationSummaryWithContext(ctx context.Context, conversationID string, summary string, upToMessageID string) error {
+	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", conversationID).Updates(map[string]interface{}{
 		"summary":                  summary,
 		"summary_up_to_message_id": upToMessageID,
 		"summarizing_in_progress":  false,
@@ -1638,14 +1642,22 @@ func UpdateConversationSummary(conversationID string, summary string, upToMessag
 
 // SetSummarizingInProgress marca se uma sumarização está em andamento
 func SetSummarizingInProgress(conversationID string, inProgress bool) error {
-	return db.Model(&Conversation{}).Where("id = ?", conversationID).
+	return SetSummarizingInProgressWithContext(context.Background(), conversationID, inProgress)
+}
+
+func SetSummarizingInProgressWithContext(ctx context.Context, conversationID string, inProgress bool) error {
+	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", conversationID).
 		Update("summarizing_in_progress", inProgress).Error
 }
 
 // IsSummarizingInProgress verifica se há sumarização em andamento
 func IsSummarizingInProgress(conversationID string) (bool, error) {
+	return IsSummarizingInProgressWithContext(context.Background(), conversationID)
+}
+
+func IsSummarizingInProgressWithContext(ctx context.Context, conversationID string) (bool, error) {
 	var conv Conversation
-	err := db.Select("summarizing_in_progress").First(&conv, "id = ?", conversationID).Error
+	err := ScopeByUser(ctx, db.WithContext(ctx).Select("summarizing_in_progress"), "user_id").First(&conv, "id = ?", conversationID).Error
 	if err != nil {
 		return false, err
 	}

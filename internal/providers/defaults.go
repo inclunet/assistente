@@ -175,7 +175,7 @@ func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey s
 		}
 	}
 
-	if err := s.Save(); err != nil {
+	if err := s.Save(ctx); err != nil {
 		return fmt.Errorf("erro ao salvar provedor: %w", err)
 	}
 

@@ -1,6 +1,10 @@
 package chat
 
-import "assistente/internal/database"
+import (
+	"context"
+
+	"assistente/internal/database"
+)
 
 // MessageOptions é um alias para database.MessageOptions, exposto no domínio chat
 // para que os chamadores não precisem importar o pacote de infraestrutura diretamente.
@@ -24,50 +28,50 @@ var ErrParentMessageDeleted = database.ErrParentMessageDeleted
 // Implementado por DBMessageStore; pode ser mockado em testes.
 type MessageRepository interface {
 	// CreateMessage persiste uma mensagem no banco.
-	CreateMessage(opts MessageOptions) (*Message, error)
+	CreateMessage(ctx context.Context, opts MessageOptions) (*Message, error)
 
 	// GetMessage retorna uma mensagem completa pelo ID.
-	GetMessage(messageID string) (*Message, error)
+	GetMessage(ctx context.Context, messageID string) (*Message, error)
 
 	// GetMessages retorna mensagens de uma conversa, opcionalmente filtradas por parentID.
-	GetMessages(conversationID string, parentID *string) ([]Message, error)
+	GetMessages(ctx context.Context, conversationID string, parentID *string) ([]Message, error)
 
 	// GetConversationSummary retorna o resumo salvo e o ID da última mensagem resumida.
-	GetConversationSummary(conversationID string) (summary string, upToMessageID string, err error)
+	GetConversationSummary(ctx context.Context, conversationID string) (summary string, upToMessageID string, err error)
 
 	// GetDetailedTokenStats retorna estatísticas detalhadas de uso de tokens.
-	GetDetailedTokenStats(conversationID string, summaryUpToMessageID string) (*DetailedTokenStats, error)
+	GetDetailedTokenStats(ctx context.Context, conversationID string, summaryUpToMessageID string) (*DetailedTokenStats, error)
 
 	// GetContextWindowUsage retorna o percentual de uso da janela de contexto.
-	GetContextWindowUsage(conversationID string, contextLimit int) (percentage float64, totalTokens int, err error)
+	GetContextWindowUsage(ctx context.Context, conversationID string, contextLimit int) (percentage float64, totalTokens int, err error)
 
 	// GetRecentMessagesTokenCount retorna a contagem de tokens das N mensagens mais recentes.
-	GetRecentMessagesTokenCount(conversationID string, messageLimit int) (int, error)
+	GetRecentMessagesTokenCount(ctx context.Context, conversationID string, messageLimit int) (int, error)
 
 	// GetTurnTokenStats retorna estatísticas de tokens de um turno específico.
 	// Retorna database.TokenStats (tipo de infraestrutura com 5 campos) — não confundir com
 	// chat.TokenStats que é o tipo enriquecido para o frontend.
-	GetTurnTokenStats(conversationID string, turnID string) (*database.TokenStats, error)
+	GetTurnTokenStats(ctx context.Context, conversationID string, turnID string) (*database.TokenStats, error)
 
 	// AddAssistantToolMessage persiste mensagem de assistant com tool_calls JSON.
-	AddAssistantToolMessage(conversationID string, turnID string, content, toolCalls, reasoning, model string) (*Message, error)
+	AddAssistantToolMessage(ctx context.Context, conversationID string, turnID string, content, toolCalls, reasoning, model string) (*Message, error)
 
 	// AddToolResultMessage persiste o resultado de uma tool call.
-	AddToolResultMessage(conversationID string, turnID string, content, toolCallID string) (*Message, error)
+	AddToolResultMessage(ctx context.Context, conversationID string, turnID string, content, toolCallID string) (*Message, error)
 
 	// SearchMessages busca mensagens usando full-text search (FTS5).
-	SearchMessages(query string, limit int) ([]MessageSearchResult, error)
+	SearchMessages(ctx context.Context, query string, limit int) ([]MessageSearchResult, error)
 }
 
 // ConversationRepository abstrai operações sobre conversas.
 // Implementado por DBConversationStore; pode ser mockado em testes.
 type ConversationRepository interface {
 	// GetConversationInfo retorna os metadados de uma conversa pelo ID.
-	GetConversationInfo(id string) (*Conversation, error)
+	GetConversationInfo(ctx context.Context, id string) (*Conversation, error)
 
 	// UpdateConversation atualiza título e/ou modelo de uma conversa.
-	UpdateConversation(id string, title, model string) error
+	UpdateConversation(ctx context.Context, id string, title, model string) error
 
 	// UpdateConversationChannel associa/desassocia um canal de mensageria a uma conversa.
-	UpdateConversationChannel(id string, channel, contactID string) error
+	UpdateConversationChannel(ctx context.Context, id string, channel, contactID string) error
 }

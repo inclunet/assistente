@@ -190,6 +190,10 @@ func DefaultAllowlist() *Allowlist {
 			// Git (somente leitura)
 			"git status", "git diff", "git log", "git branch", "git remote",
 			"git show", "git blame", "git stash list", "git tag",
+			"git rev-parse", "git remote get-url", "git --no-pager diff",
+			"git --no-pager log", "git --no-pager show",
+			// GitHub CLI (review de PR / leitura)
+			"gh pr view", "gh pr list", "gh api",
 			// Informações do sistema
 			"echo", "env", "printenv", "whoami", "hostname", "uname",
 			// Linguagens (versões e info)

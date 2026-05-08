@@ -20,7 +20,7 @@ import (
 func (a *App) GetLLMProviders() []*llm.ProviderConfig       { return a.llmCtrl.GetLLMProviders() }
 func (a *App) GetLLMProvider(id string) *llm.ProviderConfig { return a.llmCtrl.GetLLMProvider(id) }
 func (a *App) GetActiveProviderInfo() map[string]interface{} {
-	return a.llmCtrl.GetActiveProviderInfo()
+	return a.llmCtrl.GetActiveProviderInfo(a.authenticatedContext())
 }
 func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 	return a.llmCtrl.GetLLMProvidersWithStatus(a.authenticatedContext())
@@ -50,16 +50,18 @@ func (a *App) UpdateLLMProvider(id string, req controllers.UpdateLLMProviderRequ
 	return a.llmCtrl.UpdateLLMProvider(a.authenticatedContext(), id, req)
 }
 
-func (a *App) SetDefaultProvider(id string) error { return a.llmCtrl.SetDefaultProvider(id) }
+func (a *App) SetDefaultProvider(id string) error {
+	return a.llmCtrl.SetDefaultProvider(a.authenticatedContext(), id)
+}
 
 func (a *App) DeleteLLMProvider(_ context.Context, id string) error {
-	return a.llmCtrl.DeleteLLMProvider(id)
+	return a.llmCtrl.DeleteLLMProvider(a.authenticatedContext(), id)
 }
 
 // saveLLMProviders e helpers permanecem em App pois são chamados internamente.
-func (a *App) saveLLMProviders() error { return a.providerSvc.Save() }
-func (a *App) loadLLMProviders() error { return a.providerSvc.Load() }
-func (a *App) ensureDefaultProvider()  { a.providerSvc.EnsureDefault() }
+func (a *App) saveLLMProviders() error { return a.providerSvc.Save(a.authenticatedContext()) }
+func (a *App) loadLLMProviders() error { return a.providerSvc.Load(a.authenticatedContext()) }
+func (a *App) ensureDefaultProvider()  { a.providerSvc.EnsureDefault(a.authenticatedContext()) }
 
 // ============================================================================
 // LLM Client / Provider Init
@@ -93,13 +95,13 @@ func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 	if a.providerSvc == nil {
 		return p
 	}
-	return a.providerSvc.ResolveProfileDefaults(p)
+	return a.providerSvc.ResolveProfileDefaults(a.authenticatedContext(), p)
 }
 
 // initLLMProviders inicializa o registro de provedores LLM a partir do store.
 func (a *App) initLLMProviders() {
 	if err := a.loadLLMProviders(); err != nil {
-		count, countErr := a.providerSvc.Count()
+		count, countErr := a.providerSvc.Count(a.authenticatedContext())
 		if countErr != nil || count == 0 {
 			log.Printf("Nenhum provedor encontrado. Configure um provedor nas configurações ou crie um perfil.")
 		}
@@ -117,5 +119,5 @@ func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, e
 	if a.providerSvc == nil {
 		return nil, fmt.Errorf("provider service not initialized")
 	}
-	return a.providerSvc.GetChatProvider(providerID)
+	return a.providerSvc.GetChatProvider(a.authenticatedContext(), providerID)
 }

@@ -74,7 +74,7 @@ func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.Messa
 	if err != nil {
 		return nil, err
 	}
-	messages, err := a.msgRepo.GetMessages(conversationID, parentID)
+	messages, err := a.msgRepo.GetMessages(ctx, conversationID, parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -592,7 +592,11 @@ func (a *App) UpdateConversationModel(id string, model string) error {
 // ==================== ChatMessage ====================
 
 func (a *App) CreateMessage(conversationID string, role, content string) (*ChatMessage, error) {
-	return a.msgRepo.CreateMessage(database.MessageOptions{
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.msgRepo.CreateMessage(ctx, database.MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
@@ -600,15 +604,27 @@ func (a *App) CreateMessage(conversationID string, role, content string) (*ChatM
 }
 
 func (a *App) AddMessage(conversationID string, role, content string) (*ChatMessage, error) {
-	return a.msgRepo.CreateMessage(database.MessageOptions{ConversationID: conversationID, Role: role, Content: content})
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.msgRepo.CreateMessage(ctx, database.MessageOptions{ConversationID: conversationID, Role: role, Content: content})
 }
 
 func (a *App) AddMessageWithMedia(conversationID string, role, content, media string) (*ChatMessage, error) {
-	return a.msgRepo.CreateMessage(database.MessageOptions{ConversationID: conversationID, Role: role, Content: content, Media: media})
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.msgRepo.CreateMessage(ctx, database.MessageOptions{ConversationID: conversationID, Role: role, Content: content, Media: media})
 }
 
 func (a *App) AddMessageWithTokens(conversationID string, role, content string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
-	return a.msgRepo.CreateMessage(database.MessageOptions{
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.msgRepo.CreateMessage(ctx, database.MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
@@ -620,7 +636,11 @@ func (a *App) AddMessageWithTokens(conversationID string, role, content string, 
 }
 
 func (a *App) AddMessageWithTokensAndMedia(conversationID string, role, content, media string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
-	return a.msgRepo.CreateMessage(database.MessageOptions{
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.msgRepo.CreateMessage(ctx, database.MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
@@ -633,7 +653,11 @@ func (a *App) AddMessageWithTokensAndMedia(conversationID string, role, content,
 }
 
 func (a *App) AddChildMessage(conversationID string, parentID string, role, content, model string) (*ChatMessage, error) {
-	return a.msgRepo.CreateMessage(database.MessageOptions{
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.msgRepo.CreateMessage(ctx, database.MessageOptions{
 		ConversationID: conversationID,
 		ParentID:       &parentID,
 		Role:           role,
@@ -670,7 +694,7 @@ func (a *App) GetConversationSummary(conversationID string) (*ConversationSummar
 	if err != nil {
 		return nil, err
 	}
-	inProgress, _ := database.IsSummarizingInProgress(conversationID)
+	inProgress, _ := database.IsSummarizingInProgressWithContext(ctx, conversationID)
 	return &ConversationSummaryInfo{
 		Summary:               summary,
 		SummaryUpToMessageID:  upToID,

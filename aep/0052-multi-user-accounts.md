@@ -161,7 +161,24 @@ Recursos no DB recebem `user_id` nesta AEP:
 
 - `llm_providers`, `conversations`, `credential_entries`, `task_lists`
 
-Recursos em filesystem (profiles, skills, MCP) permanecem fora de escopo nesta AEP.
+Recursos em filesystem não devem ser “prefixados” ad hoc por usuário nesta AEP. Enquanto não migram para DB, ficam classificados explicitamente:
+
+| Recurso em disco | Classe | Decisão nesta AEP | Próximo passo correto |
+|------------------|--------|-------------------|-----------------------|
+| `conversations.db` | misto, com tabelas user-scoped e instance-scoped | Tabelas de dados de usuário exigem `user_id`; segredos internos usam `user_id=''` | manter guarda arquitetural para impedir chamadas DB sem contexto |
+| `credential_key_wraps` / DEK / recovery | instância | Sem `user_id`; pré-requisito do servidor/local daemon | manter fora de listagens de credenciais do usuário |
+| Refresh token no keyring do cliente | cliente/sessão local | Instância do cliente, não recurso compartilhado do servidor | no split, cada cliente guarda seu próprio refresh token |
+| `profiles/*.json` | usuário | Não isolar por caminho nesta AEP para evitar árvore paralela frágil | migrar para DB em AEP-0050 com `user_id` obrigatório |
+| `skills/` e skills customizadas | usuário | Não duplicar por pasta de usuário nesta AEP | migrar para DB em AEP-0051 com ownership e compartilhamento explícito |
+| `mcp/*.json` e tokens OAuth MCP | usuário/integração | Config em arquivo ainda é legado; tokens ficam no secret manager com contexto do usuário quando acessados | migrar config para DB em AEP-0049 com `user_id` obrigatório |
+| `channels/*.json`, contatos e mapeamento contato→conversa | usuário/integração | Legado em arquivo; ao tocar credenciais do canal, usar contexto autenticado | mover canais/contatos para DB ou tabela própria antes de modo multiusuário remoto |
+| `jobs/` e logs de jobs | usuário/automação | Logs em disco ainda são legado local | migrar jobs para DB em AEP-0048 com `user_id` e retention |
+| `workspace.yaml`, `workspaces/index.yaml` | cliente/UX local | Estado de UI do cliente, não autorização do servidor | no split, tratar como estado do cliente; IDs referenciados continuam validados no backend |
+| `editor/state.json` e `editor/drafts/` | cliente/UX local | Estado local do cliente, pode conter conteúdo sensível | no split, manter local ao cliente ou migrar para recurso user-scoped se sincronizar |
+| allowlists (`allowlists/*.json`) | usuário/perfil | Legado em arquivo vinculado ao perfil | migrar junto de profiles/skills ou referenciar por `user_id` no DB |
+| config global (`config.json`, TLS, HTTP bind, updater) | instância | Sem `user_id` | manter como configuração operacional da instância |
+
+Regra arquitetural: se o dado influencia autorização, histórico, credenciais, providers, tarefas, integrações ou conteúdo gerado pelo usuário, o destino correto é DB com `user_id`. Arquivos podem permanecer apenas para bootstrap da instância ou estado local do cliente, nunca como isolamento multiusuário definitivo.
 
 ### D11. Herança de `user_id` por hierarquia
 

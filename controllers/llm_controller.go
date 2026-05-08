@@ -85,12 +85,12 @@ func (c *LLMController) GetLLMProvider(id string) *llm.ProviderConfig {
 	return c.llmRegistry.Get(id)
 }
 
-func (c *LLMController) GetActiveProviderInfo() map[string]interface{} {
+func (c *LLMController) GetActiveProviderInfo(ctx context.Context) map[string]interface{} {
 	activeProfile, err := c.profileMgr.GetActive()
 	if err != nil || activeProfile == nil {
 		return map[string]interface{}{"error": "perfil ativo não encontrado"}
 	}
-	info := c.providerSvc.GetActiveProviderInfo(activeProfile)
+	info := c.providerSvc.GetActiveProviderInfo(ctx, activeProfile)
 	if info.Error != "" {
 		return map[string]interface{}{
 			"error":      info.Error,
@@ -183,8 +183,8 @@ func (c *LLMController) UpdateLLMProvider(ctx context.Context, id string, req Up
 	return providerToMap(p, p.CredentialPattern, res.CredentialConfigured), nil
 }
 
-func (c *LLMController) SetDefaultProvider(id string) error {
-	if err := c.providerSvc.SetDefault(id); err != nil {
+func (c *LLMController) SetDefaultProvider(ctx context.Context, id string) error {
+	if err := c.providerSvc.SetDefault(ctx, id); err != nil {
 		return err
 	}
 	if c.onProviderChange != nil {
@@ -193,8 +193,8 @@ func (c *LLMController) SetDefaultProvider(id string) error {
 	return nil
 }
 
-func (c *LLMController) DeleteLLMProvider(id string) error {
-	return c.providerSvc.Delete(id)
+func (c *LLMController) DeleteLLMProvider(ctx context.Context, id string) error {
+	return c.providerSvc.Delete(ctx, id)
 }
 
 func (c *LLMController) GetLLMProvidersWithStatus(ctx context.Context) []map[string]interface{} {

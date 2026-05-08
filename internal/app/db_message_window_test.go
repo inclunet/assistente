@@ -455,7 +455,7 @@ func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceh
 func TestGetMessageChildrenUsesParentConversationForScope(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	app := newMessageWindowTestApp()
-	app.msgRepo = chat.NewScopedDBMessageStore(app.authenticatedContext)
+	app.msgRepo = chat.NewDBMessageStore()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	root, err := database.AddMessage(conv.ID, "assistant", "root")
@@ -479,7 +479,7 @@ func TestGetMessageChildrenUsesParentConversationForScope(t *testing.T) {
 func TestGetMessageChildrenRejectsOtherUsersParent(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	app := newMessageWindowTestApp()
-	app.msgRepo = chat.NewScopedDBMessageStore(app.authenticatedContext)
+	app.msgRepo = chat.NewDBMessageStore()
 
 	otherConv, err := database.CreateConversation("Outra", "")
 	if err != nil {

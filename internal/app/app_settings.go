@@ -83,11 +83,13 @@ func (a *App) TestConnection() (bool, error)      { return a.settingsCtrl.TestCo
 func (a *App) TestConnectionWithModels() ([]string, error) {
 	return a.settingsCtrl.TestConnectionWithModels()
 }
-func (a *App) ResetConfig() error         { return a.settingsCtrl.ResetConfig() }
-func (a *App) ClearAllCredentials() error { return a.settingsCtrl.ClearAllCredentials() }
-func (a *App) ClearAllProfiles() error    { return a.settingsCtrl.ClearAllProfiles() }
-func (a *App) ClearAllSkills() error      { return a.settingsCtrl.ClearAllSkills() }
-func (a *App) ClearAllChannels() error    { return a.settingsCtrl.ClearAllChannels() }
+func (a *App) ResetConfig() error { return a.settingsCtrl.ResetConfig() }
+func (a *App) ClearAllCredentials() error {
+	return a.settingsCtrl.ClearAllCredentials(a.authenticatedContext())
+}
+func (a *App) ClearAllProfiles() error { return a.settingsCtrl.ClearAllProfiles() }
+func (a *App) ClearAllSkills() error   { return a.settingsCtrl.ClearAllSkills() }
+func (a *App) ClearAllChannels() error { return a.settingsCtrl.ClearAllChannels() }
 
 // parseSlashCommand é um shim para manter compatibilidade com testes e código existente.
 func parseSlashCommand(content string) (slug string, args string, ok bool) {

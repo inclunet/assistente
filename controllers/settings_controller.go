@@ -77,7 +77,7 @@ func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm
 	}
 	activeProfile, _ := c.profileMgr.GetActive()
 	if c.providerSvc != nil {
-		activeProfile = c.providerSvc.ResolveProfileDefaults(activeProfile)
+		activeProfile = c.providerSvc.ResolveProfileDefaults(ctx, activeProfile)
 	}
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
 		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
@@ -85,7 +85,7 @@ func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm
 	if c.providerSvc == nil {
 		return "", fmt.Errorf("provider service not initialized")
 	}
-	cp, err := c.providerSvc.GetChatProvider(activeProfile.Chat.LLMProvider)
+	cp, err := c.providerSvc.GetChatProvider(ctx, activeProfile.Chat.LLMProvider)
 	if err != nil {
 		return "", err
 	}
@@ -182,11 +182,11 @@ func (c *SettingsController) ResetConfig() error {
 	return nil
 }
 
-func (c *SettingsController) ClearAllCredentials() error {
+func (c *SettingsController) ClearAllCredentials(ctx context.Context) error {
 	if c.credMgr == nil {
 		return fmt.Errorf("gerenciador de credenciais não disponível")
 	}
-	if err := c.credMgr.DeletePattern(context.Background(), ""); err != nil {
+	if err := c.credMgr.DeletePattern(ctx, ""); err != nil {
 		return fmt.Errorf("erro ao limpar credenciais: %v", err)
 	}
 	log.Println("[ClearAllCredentials] Credenciais apagadas")

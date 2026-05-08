@@ -96,7 +96,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 
 	var retryUserMsg *chat.Message
 	if req.RetryMessageID != "" {
-		reused, err := uc.chatInteractor.GetRetryableUserMessage(req.ConversationID, req.RetryMessageID)
+		reused, err := uc.chatInteractor.GetRetryableUserMessage(ctx, req.ConversationID, req.RetryMessageID)
 		if err != nil {
 			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar mensagem para retry: " + err.Error()})
 			return "", err
@@ -190,7 +190,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 
 	// Detecta slash skill, compõe system prompt e pré-processa mídia.
-	prepResult := uc.chatInteractor.PrepareMessages(chat.PrepareMessagesRequest{
+	prepResult := uc.chatInteractor.PrepareMessages(ctx, chat.PrepareMessagesRequest{
 		Messages:            messages,
 		UserContent:         userContent,
 		ConversationSummary: conversationSummary,
@@ -218,7 +218,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		return "", fmt.Errorf("%s", errMsg)
 	}
 
-	requestStreamer, err := uc.providerSvc.GetChatProvider(activeProfile.Chat.LLMProvider)
+	requestStreamer, err := uc.providerSvc.GetChatProvider(ctx, activeProfile.Chat.LLMProvider)
 	if err != nil {
 		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
 		log.Printf("[SendMessage] ERRO: %s", errMsg)
@@ -262,7 +262,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			)
 		}()
 	} else {
-		handler := uc.agentSvc.NewSimpleStreamHandler(req.ConversationID, userMsg.ID, params.ProfileSlug, surfaceOrigin)
+		handler := uc.agentSvc.NewSimpleStreamHandler(ctx, req.ConversationID, userMsg.ID, params.ProfileSlug, surfaceOrigin)
 		go func() {
 			defer func() {
 				r := recover()
@@ -277,8 +277,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 
 // whisperTranscribeFunc cria o callback de transcrição STT para o pipeline.
 func (uc *SendMessageUseCase) whisperTranscribeFunc() chat.TranscribeFunc {
-	return func(audioBase64, filename string) (string, error) {
-		result, err := uc.speechSvc.Transcribe(audioBase64, filename)
+	return func(ctx context.Context, audioBase64, filename string) (string, error) {
+		result, err := uc.speechSvc.Transcribe(ctx, audioBase64, filename)
 		if err != nil {
 			return "", err
 		}
