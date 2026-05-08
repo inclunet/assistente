@@ -232,6 +232,58 @@ func TestEvaluate_StructuredConfirmBeatsStructuredApproveForSameAtom(t *testing.
 	}
 }
 
+func TestEvaluate_LegacyPatternWithQuotesStillMatches(t *testing.T) {
+	// Patterns legados (pre-AEP-0060) podem ter sido escritos com aspas
+	// envolvendo args com espaco. O parser remove as aspas em Args, entao
+	// precisamos garantir que o matching tente tambem a forma re-quotada para
+	// nao quebrar perfis existentes.
+	al := &allowlist.Allowlist{
+		AutoApprove:   []string{`echo "a b"`},
+		DefaultAction: "confirm",
+	}
+
+	got := Evaluate(`echo "a b"`, al)
+	if got.Decision != allowlist.DecisionApprove {
+		t.Fatalf("decision = %s, want approve (legacy quoted pattern); reasons=%v", got.Decision, got.Reasons)
+	}
+}
+
+func TestEvaluate_LegacyPatternWithoutQuotesStillMatches(t *testing.T) {
+	// O matching duplo nao pode quebrar quem tinha pattern sem aspas casando
+	// argumentos com espaco (Args:["a b"] devolvia String() "echo a b").
+	al := &allowlist.Allowlist{
+		AutoApprove:   []string{"echo a b"},
+		DefaultAction: "confirm",
+	}
+
+	got := Evaluate(`echo "a b"`, al)
+	if got.Decision != allowlist.DecisionApprove {
+		t.Fatalf("decision = %s, want approve (legacy unquoted pattern); reasons=%v", got.Decision, got.Reasons)
+	}
+}
+
+func TestCommand_QuotedString(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  Command
+		want string
+	}{
+		{name: "no args", cmd: Command{Program: "ls"}, want: "ls"},
+		{name: "simple args", cmd: Command{Program: "git", Args: []string{"status"}}, want: "git status"},
+		{name: "arg com espaco", cmd: Command{Program: "echo", Args: []string{"a b"}}, want: `echo "a b"`},
+		{name: "arg com aspas duplas", cmd: Command{Program: "echo", Args: []string{`a"b`}}, want: `echo "a\"b"`},
+		{name: "arg vazio", cmd: Command{Program: "echo", Args: []string{""}}, want: `echo ""`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cmd.QuotedString(); got != tt.want {
+				t.Fatalf("QuotedString() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEvaluate_DefaultAllowlistKubectlPolicy(t *testing.T) {
 	al := allowlist.DefaultAllowlist()
 

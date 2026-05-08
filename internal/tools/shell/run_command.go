@@ -255,7 +255,11 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}, nil
 }
 
-// evaluateCommand avalia o comando contra a allowlist ativa.
+// evaluateCommand avalia o comando passando pelo pipeline do commandpolicy:
+// parsing conservador da linha (separa atomos, detecta features de shell
+// como redirecionamentos, pipes e substituicao de comando) e agregacao de
+// decisoes (deny/confirm/approve) consultando a allowlist ativa do perfil.
+// Quando nao ha allowlist configurada, o resultado e sempre confirm.
 func (rc *RunCommand) evaluateCommand(command string) commandpolicy.EvaluationResult {
 	if rc.getAllowlistFn == nil {
 		return commandpolicy.Evaluate(command, nil)

@@ -119,7 +119,7 @@ Adicionamos uma migração idempotente, executada após o early-return:
 - Se `padrao.json` existe, é carregado.
 - Para cada `CommandRule` em `DefaultAllowlist()`, comparamos `Program` (case-insensitive) contra os programas já presentes em `al.CommandRules`.
 - Programas ausentes recebem todas as regras default daquele programa.
-- Se nada precisa ser adicionado, nenhum I/O extra é feito.
+- Se nada precisa ser adicionado, **nenhuma escrita** acontece. A leitura (`Exists` + `loadFromFile`) sempre é executada para descobrir o estado atual; o que evitamos quando não há regras a mesclar é apenas a re-serialização e o `Write` no disco.
 
 A migração respeita personalizações: se o usuário já tem qualquer regra estruturada para `kubectl`, deixamos suas regras intactas. Apenas programas inexistentes nas regras estruturadas do usuário recebem o default.
 

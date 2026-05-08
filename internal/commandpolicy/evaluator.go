@@ -93,7 +93,7 @@ func evaluateAtom(cmd Command, al *allowlist.Allowlist) (allowlist.Decision, str
 	}
 
 	for _, pattern := range al.AlwaysDeny {
-		if allowlist.MatchPattern(cmd.String(), pattern) {
+		if matchesLegacyPattern(cmd, pattern) {
 			return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por always_deny: %s", cmd.Program, pattern)
 		}
 	}
@@ -107,7 +107,7 @@ func evaluateAtom(cmd Command, al *allowlist.Allowlist) (allowlist.Decision, str
 	}
 
 	for _, pattern := range al.AutoApprove {
-		if allowlist.MatchPattern(cmd.String(), pattern) {
+		if matchesLegacyPattern(cmd, pattern) {
 			return allowlist.DecisionApprove, fmt.Sprintf("%q aprovado por auto_approve: %s", cmd.Program, pattern)
 		}
 	}
@@ -123,6 +123,25 @@ func evaluateAtom(cmd Command, al *allowlist.Allowlist) (allowlist.Decision, str
 func containsString(values []string, target string) bool {
 	for _, v := range values {
 		if v == target {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesLegacyPattern testa o pattern legado contra duas representacoes do
+// comando: a forma "shell-like" sem aspas (cmd.String()) e a forma com aspas
+// reaplicadas (cmd.QuotedString()). Patterns legados podem ter sido escritos
+// antes do AEP-0060 contendo aspas (ex.: `echo "a b"`); como o parser remove
+// aspas no Args, sem este matching duplo a regra deixaria silenciosamente de
+// casar. Tentar as duas formas preserva 100% de compatibilidade: novos
+// patterns podem ser escritos sem aspas, antigos com aspas continuam validos.
+func matchesLegacyPattern(cmd Command, pattern string) bool {
+	if allowlist.MatchPattern(cmd.String(), pattern) {
+		return true
+	}
+	if quoted := cmd.QuotedString(); quoted != cmd.String() {
+		if allowlist.MatchPattern(quoted, pattern) {
 			return true
 		}
 	}

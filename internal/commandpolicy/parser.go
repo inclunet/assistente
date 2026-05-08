@@ -248,7 +248,11 @@ func lex(input string) ([]token, []Feature, []string) {
 				current.WriteByte(input[i])
 				continue
 			}
-			current.WriteByte(ch)
+			// Em shells POSIX, "\" no fim da linha e continuacao de linha
+			// (sintaxe incompleta). Tratamos como ambiguo para forcar
+			// confirmacao em vez de aceitar a barra como caractere literal.
+			errors = append(errors, "barra invertida no fim da linha sem caractere para escapar")
+			features = appendFeature(features, FeatureAmbiguousSyntax)
 
 		default:
 			current.WriteByte(ch)

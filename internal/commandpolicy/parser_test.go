@@ -196,6 +196,7 @@ func TestParse_AmbiguousSyntaxRequiresConfirmation(t *testing.T) {
 		"git status &&",
 		"echo ok >",
 		"&& git status",
+		`echo trailing\`,
 	}
 
 	for _, input := range tests {
