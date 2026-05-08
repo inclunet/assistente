@@ -15,6 +15,7 @@ import (
 type BaseStreamHandler struct {
 	Emitter        events.Emitter
 	ConversationID string
+	TurnID         string
 	SurfaceOrigin  *ports.ChatSurfaceOrigin
 
 	accumulatedContent   string
@@ -71,6 +72,7 @@ func (h *BaseStreamHandler) emitStreamEvent() {
 		Content:        h.accumulatedContent,
 		Done:           false,
 		ConversationId: h.ConversationID,
+		TurnID:         h.TurnID,
 		SurfaceOrigin:  h.SurfaceOrigin,
 	})
 }
@@ -83,6 +85,7 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 		h.isThinking = true
 		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
 			ConversationID: h.ConversationID,
+			TurnID:         h.TurnID,
 			Content:        content,
 			Done:           false,
 			Started:        true,
@@ -124,6 +127,7 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 func (h *BaseStreamHandler) emitThinkingEvent() {
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
 		ConversationID: h.ConversationID,
+		TurnID:         h.TurnID,
 		Content:        h.accumulatedReasoning,
 		Done:           false,
 		SurfaceOrigin:  h.SurfaceOrigin,
@@ -142,6 +146,7 @@ func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
 		ConversationID: h.ConversationID,
+		TurnID:         h.TurnID,
 		Content:        fullReasoning,
 		Done:           true,
 		SurfaceOrigin:  h.SurfaceOrigin,

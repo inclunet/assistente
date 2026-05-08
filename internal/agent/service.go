@@ -96,6 +96,7 @@ func (s *Service) RunAgenticLoop(
 		log.Printf("🔴 [AGENT] streamer nil na conversa %s", conversationID)
 		s.emitter.Emit("chat:done", ports.DoneEvent{
 			ConversationID: conversationID,
+			TurnID:         turnID,
 			SurfaceOrigin:  surfaceOrigin,
 			Reason:         "error",
 			ErrorMessage:   errMsg,
@@ -137,6 +138,7 @@ func (s *Service) RunAgenticLoop(
 			sort.Strings(cancelToolsUsed)
 			s.emitter.Emit("chat:done", ports.DoneEvent{
 				ConversationID:   conversationID,
+				TurnID:           turnID,
 				SurfaceOrigin:    surfaceOrigin,
 				HadToolCalls:     totalToolCallCount > 0,
 				Reason:           "error",
@@ -173,6 +175,7 @@ func (s *Service) RunAgenticLoop(
 			sort.Strings(errToolsUsed)
 			s.emitter.Emit("chat:done", ports.DoneEvent{
 				ConversationID:   conversationID,
+				TurnID:           turnID,
 				SurfaceOrigin:    surfaceOrigin,
 				HadToolCalls:     totalToolCallCount > 0,
 				Reason:           "error",
@@ -193,6 +196,7 @@ func (s *Service) RunAgenticLoop(
 			if result.FullResponse != "" {
 				s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
 					ConversationID: conversationID,
+					TurnID:         turnID,
 					Content:        result.FullResponse,
 					Iteration:      iteration,
 					HasMore:        false,
@@ -250,7 +254,7 @@ func (s *Service) RunAgenticLoop(
 
 		// 5d. Executa ferramentas em paralelo
 		toolCalls := convertToolCalls(result.ToolCalls)
-		s.emitToolStarts(conversationID, result.ToolCalls, surfaceOrigin)
+		s.emitToolStarts(conversationID, turnID, result.ToolCalls, surfaceOrigin)
 		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
 
 		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
@@ -263,6 +267,7 @@ func (s *Service) RunAgenticLoop(
 				// Emite tool_end para a tentativa que falhou (attempt=0)
 				EmitToolEnd(s.emitter, ports.ToolEndEvent{
 					ConversationID: conversationID,
+					TurnID:         turnID,
 					Name:           retryName,
 					CallID:         execResult.CallID,
 					Status:         "error",
@@ -276,6 +281,7 @@ func (s *Service) RunAgenticLoop(
 				// Emite tool_failure com willRetry=true
 				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
 					ConversationID: conversationID,
+					TurnID:         turnID,
 					Name:           retryName,
 					CallID:         execResult.CallID,
 					ErrorKind:      string(execResult.ErrorKind),
@@ -291,6 +297,7 @@ func (s *Service) RunAgenticLoop(
 				// Emite tool_start para a nova tentativa (attempt=1)
 				EmitToolStart(s.emitter, ports.ToolStartEvent{
 					ConversationID: conversationID,
+					TurnID:         turnID,
 					Name:           retryName,
 					CallID:         execResult.CallID,
 					Args:           toolCalls[i].Function.Arguments,
@@ -319,6 +326,7 @@ func (s *Service) RunAgenticLoop(
 			}
 			EmitToolEnd(s.emitter, ports.ToolEndEvent{
 				ConversationID: conversationID,
+				TurnID:         turnID,
 				Name:           logicalName,
 				CallID:         execResult.CallID,
 				Status:         status,
@@ -334,6 +342,7 @@ func (s *Service) RunAgenticLoop(
 			if execResult.Result.IsError && execResult.ErrorKind != "" {
 				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
 					ConversationID: conversationID,
+					TurnID:         turnID,
 					Name:           logicalName,
 					CallID:         execResult.CallID,
 					ErrorKind:      string(execResult.ErrorKind),
@@ -461,6 +470,7 @@ func (s *Service) RunAgenticLoop(
 		allIterTools := append(iterationNativeTools, iterationTools...)
 		s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
 			ConversationID:   conversationID,
+			TurnID:           turnID,
 			Content:          result.FullResponse,
 			Iteration:        iteration,
 			HasMore:          true,
@@ -475,6 +485,7 @@ func (s *Service) RunAgenticLoop(
 		Content:        "Limite de iterações do agente atingido. A resposta pode estar incompleta.",
 		Done:           true,
 		ConversationId: conversationID,
+		TurnID:         turnID,
 		SurfaceOrigin:  surfaceOrigin,
 	})
 	toolsUsedList := make([]string, 0, len(toolsUsedSet))
@@ -484,6 +495,7 @@ func (s *Service) RunAgenticLoop(
 	sort.Strings(toolsUsedList)
 	s.emitter.Emit("chat:done", ports.DoneEvent{
 		ConversationID:   conversationID,
+		TurnID:           turnID,
 		HadToolCalls:     totalToolCallCount > 0,
 		Reason:           "limit_reached",
 		IterationCount:   maxIterations,
@@ -563,6 +575,7 @@ func (s *Service) SaveAndFinish(
 		Content:        result.FullResponse,
 		Done:           true,
 		ConversationId: conversationID,
+		TurnID:         turnID,
 		FullResponse:   result.FullResponse,
 		SurfaceOrigin:  surfaceOrigin,
 	})
@@ -572,12 +585,13 @@ func (s *Service) SaveAndFinish(
 		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
 	}
 
-	hadTools := turnID != ""
+	hadTools := false
 	if loopStats != nil {
 		hadTools = loopStats.ToolCallCount > 0 || len(result.NativeMCPEvents) > 0
 	}
 	doneEvent := ports.DoneEvent{
 		ConversationID:     conversationID,
+		TurnID:             turnID,
 		AssistantMessageID: savedMsgID,
 		HadToolCalls:       hadTools,
 		Reason:             "completed",
@@ -667,12 +681,13 @@ func (s *Service) emitTokenStats(conversationID string) {
 	}
 }
 
-func (s *Service) emitToolStarts(conversationID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
+func (s *Service) emitToolStarts(conversationID string, turnID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	for _, call := range calls {
 		origin, serverLabel := detectToolOrigin(call.Function.Name)
 		name := extractLogicalToolName(call.Function.Name)
 		EmitToolStart(s.emitter, ports.ToolStartEvent{
 			ConversationID: conversationID,
+			TurnID:         turnID,
 			Name:           name,
 			CallID:         call.ID,
 			Args:           call.Function.Arguments,

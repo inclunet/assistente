@@ -20,6 +20,7 @@ import './ChatMessage.css';
 const HEAVY_MARKDOWN_CONTENT_LENGTH = 8_000;
 const HEAVY_ARIA_CONTENT_PREVIEW_LENGTH = 1_200;
 const HEAVY_AGENTIC_SEGMENT_COUNT = 8;
+const TOOL_ONLY_TURN_PLACEHOLDER_SOURCE = 'tool_only_turn_placeholder';
 
 export interface ChatMessageProps {
   message: Message;
@@ -102,6 +103,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const effectiveIsStreaming = liveIsStreaming !== null ? liveIsStreaming : isStreaming;
   const effectiveReasoning = liveReasoning !== null ? liveReasoning : reasoning;
   const effectiveToolCallsRaw = liveToolCallsRaw !== null ? liveToolCallsRaw : toolCalls;
+  const isToolOnlyTurnPlaceholder = message.source === TOOL_ONLY_TURN_PLACEHOLDER_SOURCE;
+  const placeholderContent = isToolOnlyTurnPlaceholder && !effectiveContent
+    ? t('chat.toolOnlyTurnPlaceholder')
+    : effectiveContent;
 
   const hasAgenticSegments = !!(message._turnSegments || (completedSegments && completedSegments.length > 0));
   const isAgenticStreaming = effectiveIsStreaming && hasAgenticSegments;
@@ -116,7 +121,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   // Quando `text_edit` é usado, o conteúdo do assistente pode vir poluído com fences (ex.: ```markdown).
   // Como a UI já mostra as tool calls, omitimos o corpo textual para evitar ruído.
-  const displayContent = isEditing ? externalEditContent : (toolCallsHasTextEdit ? '' : effectiveContent);
+  const displayContent = isEditing ? externalEditContent : (toolCallsHasTextEdit ? '' : placeholderContent);
   const segmentCount = (message._turnSegments || completedSegments || []).length;
   const shouldDeferHeavyContent =
     !effectiveIsStreaming &&
@@ -371,7 +376,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           <h3 className="chat-message__role">
             {getDisplayRole()}
           </h3>
-          {message.source && message.source !== 'wails' && message.source !== '' && (
+          {message.source && message.source !== 'wails' && message.source !== '' && !isToolOnlyTurnPlaceholder && (
             <span className="chat-message__source-badge" aria-label={`${t('chat.via')} ${message.source}`}>
               {message.source === 'telegram' && <SendOutlined aria-hidden="true" />}
               {message.source === 'signal' && <LockOutlined aria-hidden="true" />}

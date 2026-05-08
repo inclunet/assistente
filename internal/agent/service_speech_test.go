@@ -9,6 +9,7 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
+	"assistente/internal/llm"
 )
 
 // --- Mocks ---
@@ -38,11 +39,13 @@ func (m *mockEmitter) getEvents() []emittedEvent {
 }
 
 type mockMsgRepo struct {
-	nextID int
+	nextID                int
+	lastCreateMessageOpts *chat.MessageOptions
 }
 
 func (m *mockMsgRepo) CreateMessage(opts chat.MessageOptions) (*chat.Message, error) {
 	m.nextID++
+	m.lastCreateMessageOpts = &opts
 	id := fmt.Sprintf("%d", m.nextID)
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: id}, Role: opts.Role, Content: opts.Content}, nil
 }
@@ -219,6 +222,36 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestSimpleStreamHandler_PersistsAssistantWithTurnID(t *testing.T) {
+	emitter := &mockEmitter{}
+	repo := &mockMsgRepo{}
+	svc := NewService(ServiceConfig{
+		Emitter: emitter,
+		MsgRepo: repo,
+	})
+
+	handler := svc.NewSimpleStreamHandler("conversation-1", "user-1", "profile", nil)
+	handler.OnDone("Resposta simples", llm.Usage{}, "test-model")
+
+	if repo.lastCreateMessageOpts == nil {
+		t.Fatal("expected assistant message to be saved")
+	}
+	if repo.lastCreateMessageOpts.TurnID == nil || *repo.lastCreateMessageOpts.TurnID != "user-1" {
+		t.Fatalf("expected assistant turnID=user-1, got %v", repo.lastCreateMessageOpts.TurnID)
+	}
+
+	for _, event := range emitter.getEvents() {
+		if event.name == "chat:done" {
+			done := event.data.(ports.DoneEvent)
+			if done.TurnID != "user-1" {
+				t.Fatalf("expected chat:done turnID=user-1, got %q", done.TurnID)
+			}
+			return
+		}
+	}
+	t.Fatal("chat:done não emitido")
 }
 
 func TestSurfacePayloadPrefixesIdentifyField(t *testing.T) {

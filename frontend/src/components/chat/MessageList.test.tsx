@@ -110,6 +110,93 @@ describe('MessageList', () => {
     ]));
   });
 
+  it('usa posições canônicas quando o backend retorna item de turno consolidado', () => {
+    hoisted.messageNodeMock.mockClear();
+    const userNode = createNode('user-1');
+    const turnNode = createNode('assistant-final');
+    turnNode.message.role = 'assistant';
+    turnNode.message.turnId = 'user-1';
+    turnNode.message.toolCalls = JSON.stringify([{ id: 'tool-1', result: 'ok' }]);
+    (userNode as typeof userNode & { originalIndex?: number }).originalIndex = 0;
+    (turnNode as typeof turnNode & { originalIndex?: number }).originalIndex = 1;
+
+    render(
+      <MessageList
+        threadedMessages={[userNode, turnNode]}
+        messageWindow={{
+          scope: 'conversation',
+          conversationId: 'conversation-1',
+          totalCount: 2,
+          startIndex: 0,
+          endIndex: 1,
+          hasBefore: false,
+          hasAfter: false,
+        }}
+      />
+    );
+
+    const calls = hoisted.messageNodeMock.mock.calls.map(([props]) => props);
+    expect(calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ariaPosition: 1, ariaSetSize: 2 }),
+      expect.objectContaining({ ariaPosition: 2, ariaSetSize: 2 }),
+    ]));
+  });
+
+  it('usa o último assistant como representante ao consolidar turno local', () => {
+    hoisted.messageNodeMock.mockClear();
+    const firstAssistant = createNode('assistant-1');
+    firstAssistant.message.role = 'assistant';
+    firstAssistant.message.turnId = 'turn-1';
+    firstAssistant.message.content = 'intermediário';
+    const secondAssistant = createNode('assistant-2');
+    secondAssistant.message.role = 'assistant';
+    secondAssistant.message.turnId = 'turn-1';
+    secondAssistant.message.content = '';
+    secondAssistant.message.toolCalls = JSON.stringify([{ id: 'tool-1' }]);
+    const thirdAssistant = createNode('assistant-3');
+    thirdAssistant.message.role = 'assistant';
+    thirdAssistant.message.turnId = 'turn-1';
+    thirdAssistant.message.content = '';
+    thirdAssistant.message.toolCalls = JSON.stringify([{ id: 'tool-2' }]);
+
+    render(<MessageList threadedMessages={[firstAssistant, secondAssistant, thirdAssistant]} />);
+
+    const props = hoisted.messageNodeMock.mock.calls[0][0] as { node: main.MessageNode };
+    expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(1);
+    expect(props.node.message.id).toBe('assistant-3');
+    expect(props.node.message.content).toBe('intermediário');
+  });
+
+  it('preserva segmentos canônicos ao consolidar nó de backend com transitório do mesmo turno', () => {
+    hoisted.messageNodeMock.mockClear();
+    const canonicalNode = createNode('assistant-canonical');
+    canonicalNode.message.role = 'assistant';
+    canonicalNode.message.turnId = 'turn-1';
+    canonicalNode.message.content = 'resposta canônica';
+    (canonicalNode.message as typeof canonicalNode.message & { _turnSegments?: unknown })._turnSegments = [
+      { type: 'text', content: 'segmento canônico' },
+      { type: 'tool_calls', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+    ];
+    const streamingNode = createNode('streaming-turn-1');
+    streamingNode.message.role = 'assistant';
+    streamingNode.message.turnId = 'turn-1';
+    streamingNode.message.content = 'continuação transitória';
+    streamingNode.message.isStreaming = true;
+
+    render(<MessageList threadedMessages={[canonicalNode, streamingNode]} />);
+
+    const props = hoisted.messageNodeMock.mock.calls[0][0] as {
+      node: main.MessageNode & { message: main.EnrichedMessage & { _turnSegments?: unknown[] } };
+    };
+    expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(1);
+    expect(props.node.message.id).toBe('streaming-turn-1');
+    expect(props.node.message._turnSegments).toEqual([
+      { type: 'text', content: 'segmento canônico' },
+      { type: 'tool_calls', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+      { type: 'text', content: 'continuação transitória' },
+    ]);
+  });
+
   it('dispara callbacks de salto por Ctrl+Home e Ctrl+End', () => {
     const onJumpToStart = vi.fn();
     const onJumpToEnd = vi.fn();
@@ -159,5 +246,28 @@ describe('MessageList', () => {
     Object.defineProperty(container, 'scrollTop', { configurable: true, value: 800 });
     fireEvent.scroll(container);
     expect(onLoadNewer).toHaveBeenCalledTimes(1);
+  });
+
+  it('não pagina mensagens posteriores a partir de nó de streaming', () => {
+    hoisted.messageNodeMock.mockClear();
+    const onLoadNewer = vi.fn();
+    const onReachEnd = vi.fn();
+    const streamingNode = createNode('streaming-conversation-1-1');
+    streamingNode.message.isStreaming = true;
+
+    render(
+      <MessageList
+        threadedMessages={[streamingNode]}
+        hasNewerMessages
+        onLoadNewer={onLoadNewer}
+        onReachEnd={onReachEnd}
+      />
+    );
+
+    const props = hoisted.messageNodeMock.mock.calls[0][0] as { onReachEnd: () => void };
+    props.onReachEnd();
+
+    expect(onLoadNewer).not.toHaveBeenCalled();
+    expect(onReachEnd).toHaveBeenCalledTimes(1);
   });
 });

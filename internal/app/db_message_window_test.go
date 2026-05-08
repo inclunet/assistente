@@ -1,8 +1,12 @@
 package app
 
 import (
+	"bytes"
+	"encoding/json"
+	"log"
 	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/chat"
 	"assistente/internal/database"
@@ -27,6 +31,145 @@ func setupMessageWindowAppTestDB(t *testing.T) {
 			_ = sqlDB.Close()
 		}
 	})
+}
+
+func TestConsolidateTimelineTurnMessages_ToolOnlyPlaceholderOrdersToolCalls(t *testing.T) {
+	turnID := "turn-1"
+	consolidated := consolidateTimelineTurnMessages([]database.ChatMessage{
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-b-message"},
+			Role:       "tool",
+			Content:    "resultado b",
+			TurnID:     &turnID,
+			ToolCallID: "tool-b",
+		},
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-a-message"},
+			Role:       "tool",
+			Content:    "resultado a",
+			TurnID:     &turnID,
+			ToolCallID: "tool-a",
+		},
+	})
+
+	var calls []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(consolidated.ToolCalls), &calls); err != nil {
+		t.Fatalf("unmarshal placeholder tool calls: %v", err)
+	}
+	if len(calls) != 2 || calls[0].ID != "tool-a" || calls[1].ID != "tool-b" {
+		t.Fatalf("expected deterministic tool call order by id, got %+v", calls)
+	}
+}
+
+func TestConsolidateTimelineTurnMessages_OrdersMessagesBeforeChoosingRepresentative(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	consolidated := consolidateTimelineTurnMessages([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime.Add(2 * time.Minute)},
+			Role:      "assistant",
+			Content:   "resposta final",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-intermediate", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			Content:   "resposta intermediária",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-first", CreatedAt: baseTime},
+			Role:      "assistant",
+			Content:   "primeira resposta",
+			TurnID:    &turnID,
+		},
+	})
+
+	if consolidated.ID != "assistant-final" {
+		t.Fatalf("expected latest assistant as representative, got %s", consolidated.ID)
+	}
+	if consolidated.Content != "resposta final" {
+		t.Fatalf("expected latest non-empty content, got %q", consolidated.Content)
+	}
+}
+
+func TestConsolidateTimelineTurnMessages_DeduplicatesToolCallsByID(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	consolidated := consolidateTimelineTurnMessages([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-first", CreatedAt: baseTime},
+			Role:      "assistant",
+			TurnID:    &turnID,
+			ToolCalls: `[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-duplicate", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			TurnID:    &turnID,
+			ToolCalls: `[{"id":"tool-1","type":"function","function":{"name":"search_again","arguments":"{}"}}]`,
+		},
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-result", CreatedAt: baseTime.Add(2 * time.Minute)},
+			Role:       "tool",
+			Content:    "resultado preservado",
+			TurnID:     &turnID,
+			ToolCallID: "tool-1",
+		},
+	})
+
+	var calls []struct {
+		ID       string `json:"id"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(consolidated.ToolCalls), &calls); err != nil {
+		t.Fatalf("unmarshal consolidated tool calls: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected one deduplicated tool call, got %+v", calls)
+	}
+	if calls[0].ID != "tool-1" || calls[0].Function.Name != "search" || calls[0].Result != "resultado preservado" {
+		t.Fatalf("expected first tool call enriched with result, got %+v", calls[0])
+	}
+}
+
+func TestParseToolCalls_InvalidJSONReturnsNil(t *testing.T) {
+	if calls := parseToolCalls("message-invalid", "{invalid"); calls != nil {
+		t.Fatalf("expected invalid tool calls JSON to be discarded, got %+v", calls)
+	}
+}
+
+func TestParseToolCalls_InvalidJSONLogsOncePerMessage(t *testing.T) {
+	var buf bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(previousWriter)
+
+	messageID := "message-invalid-log-once"
+	parseToolCalls(messageID, "{invalid")
+	parseToolCalls(messageID, "{invalid")
+
+	if got := strings.Count(buf.String(), messageID); got != 1 {
+		t.Fatalf("expected one invalid tool_calls log for %s, got %d logs: %s", messageID, got, buf.String())
+	}
+}
+
+func TestMessageTimelineItemKey_UserMessagesIgnoreTurnID(t *testing.T) {
+	turnID := "turn-1"
+	message := database.ChatMessage{
+		UUIDModel: database.UUIDModel{ID: "user-1"},
+		Role:      "user",
+		TurnID:    &turnID,
+	}
+
+	if key := messageTimelineItemKey(message); key != "message:user-1" {
+		t.Fatalf("expected user message key to ignore TurnID, got %q", key)
+	}
 }
 
 func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
@@ -145,7 +288,7 @@ func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 	}
 }
 
-func TestGetConversationMessageWindow_ExpandsTurnBoundaries(t *testing.T) {
+func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	app := &App{}
 
@@ -157,7 +300,7 @@ func TestGetConversationMessageWindow_ExpandsTurnBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	assistant, err := database.AddAssistantToolMessage(
+	_, err = database.AddAssistantToolMessage(
 		conv.ID,
 		user.ID,
 		"vou buscar",
@@ -168,43 +311,54 @@ func TestGetConversationMessageWindow_ExpandsTurnBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create assistant tool call: %v", err)
 	}
-	toolResult, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1")
-	if err != nil {
+	if _, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
 		t.Fatalf("create tool result: %v", err)
 	}
+	finalAssistant, err := database.AddMessageWithTokens(conv.ID, "assistant", "resposta final", 0, 0, 0, "")
+	if err != nil {
+		t.Fatalf("create final assistant: %v", err)
+	}
+	finalAssistant.TurnID = &user.ID
+	if err := database.DB().Save(finalAssistant).Error; err != nil {
+		t.Fatalf("save final assistant turn: %v", err)
+	}
 
 	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
-		ConversationID:  conv.ID,
-		Scope:           chat.MessageWindowScopeConversation,
-		AnchorMessageID: assistant.ID,
-		Direction:       chat.MessageWindowDirectionAfter,
-		Limit:           1,
+		ConversationID: conv.ID,
+		Scope:          chat.MessageWindowScopeConversation,
+		Anchor:         chat.MessageWindowAnchorEnd,
+		Direction:      chat.MessageWindowDirectionBefore,
+		Limit:          10,
 	})
 	if err != nil {
 		t.Fatalf("get window: %v", err)
 	}
 
-	ids := make(map[string]bool)
-	for _, node := range window.Nodes {
-		ids[node.Message.ID] = true
+	if window.TotalCount != 2 {
+		t.Fatalf("expected user item + consolidated turn item, got total=%d", window.TotalCount)
 	}
-	if !ids[assistant.ID] {
-		t.Fatalf("expected assistant message to be included, got ids=%v", ids)
+	if len(window.Nodes) != 2 {
+		t.Fatalf("expected 2 rendered timeline nodes, got %d", len(window.Nodes))
 	}
-	if len(window.Nodes) < 2 {
-		t.Fatalf("expected turn expansion to include more than raw limited row, got %d node(s)", len(window.Nodes))
+	if window.Nodes[0].Message.ID != user.ID {
+		t.Fatalf("expected first node to be user item, got %s", window.Nodes[0].Message.ID)
 	}
-	for _, node := range window.Nodes {
-		if node.Message.ID == assistant.ID && node.OriginalIndex != nil {
-			t.Fatalf("expanded assistant outside raw window should not receive invented originalIndex")
-		}
-		if node.Message.ID == toolResult.ID && node.OriginalIndex == nil {
-			t.Fatalf("raw window message should preserve originalIndex")
-		}
+	turnNode := window.Nodes[1]
+	if turnNode.Message.ID != finalAssistant.ID {
+		t.Fatalf("expected turn representative to be final assistant, got %s", turnNode.Message.ID)
+	}
+	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
+		t.Fatalf("expected canonical originalIndex=1 for turn item, got %v", turnNode.OriginalIndex)
+	}
+	if turnNode.Message.Content != "resposta final" {
+		t.Fatalf("expected final content, got %q", turnNode.Message.Content)
+	}
+	if !strings.Contains(turnNode.Message.ToolCalls, "resultado") {
+		t.Fatalf("expected enriched tool call result, got %s", turnNode.Message.ToolCalls)
 	}
 }
 
-func TestGetConversationMessageWindow_BoundsTurnExpansion(t *testing.T) {
+func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	app := &App{}
 
@@ -227,10 +381,12 @@ func TestGetConversationMessageWindow_BoundsTurnExpansion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create assistant tool call: %v", err)
 	}
-	for i := 0; i < database.MaxMessageWindowRows+50; i++ {
-		if _, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
-			t.Fatalf("create tool result %d: %v", i, err)
-		}
+	if _, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
+		t.Fatalf("create tool result: %v", err)
+	}
+	nextUser, err := database.AddMessage(conv.ID, "user", "pergunta seguinte")
+	if err != nil {
+		t.Fatalf("create next user: %v", err)
 	}
 
 	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
@@ -243,75 +399,55 @@ func TestGetConversationMessageWindow_BoundsTurnExpansion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get window: %v", err)
 	}
-	if len(window.Nodes) > database.MaxMessageWindowRows+1 {
-		t.Fatalf("turn expansion should stay bounded, got %d node(s)", len(window.Nodes))
+	if len(window.Nodes) != 1 || window.Nodes[0].Message.ID != nextUser.ID {
+		t.Fatalf("expected anchor inside turn to page after the whole turn, got %+v", window.Nodes)
 	}
 }
 
-func TestExpandWindowTurnMessages_DoesNotStarveLaterTurns(t *testing.T) {
+func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceholder(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
+	app := &App{}
 
 	conv, err := database.CreateConversation("Conversa", "")
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
-	userOne, err := database.AddMessage(conv.ID, "user", "pergunta 1")
+	user, err := database.AddMessage(conv.ID, "user", "pergunta")
 	if err != nil {
-		t.Fatalf("create user one: %v", err)
+		t.Fatalf("create user: %v", err)
 	}
-	assistantOne, err := database.AddAssistantToolMessage(
-		conv.ID,
-		userOne.ID,
-		"vou buscar 1",
-		`[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
-		"",
-		"",
-	)
+	tool, err := database.AddToolResultMessage(conv.ID, user.ID, "resultado preservado", "tool-1")
 	if err != nil {
-		t.Fatalf("create assistant one: %v", err)
-	}
-	var firstTurnTool *database.ChatMessage
-	for i := 0; i < 20; i++ {
-		tool, err := database.AddToolResultMessage(conv.ID, userOne.ID, "resultado 1", "tool-1")
-		if err != nil {
-			t.Fatalf("create first turn tool %d: %v", i, err)
-		}
-		if firstTurnTool == nil {
-			firstTurnTool = tool
-		}
-	}
-	userTwo, err := database.AddMessage(conv.ID, "user", "pergunta 2")
-	if err != nil {
-		t.Fatalf("create user two: %v", err)
-	}
-	assistantTwo, err := database.AddAssistantToolMessage(
-		conv.ID,
-		userTwo.ID,
-		"vou buscar 2",
-		`[{"id":"tool-2","type":"function","function":{"name":"search","arguments":"{}"}}]`,
-		"",
-		"",
-	)
-	if err != nil {
-		t.Fatalf("create assistant two: %v", err)
-	}
-	secondTurnTool, err := database.AddToolResultMessage(conv.ID, userTwo.ID, "resultado 2", "tool-2")
-	if err != nil {
-		t.Fatalf("create second turn tool: %v", err)
+		t.Fatalf("create tool-only turn: %v", err)
 	}
 
-	messages, err := expandWindowTurnMessages(conv.ID, nil, []database.ChatMessage{*firstTurnTool, *secondTurnTool}, 6)
+	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+		ConversationID: conv.ID,
+		Scope:          chat.MessageWindowScopeConversation,
+		Anchor:         chat.MessageWindowAnchorStart,
+		Direction:      chat.MessageWindowDirectionAfter,
+		Limit:          10,
+	})
 	if err != nil {
-		t.Fatalf("expand messages: %v", err)
+		t.Fatalf("get window: %v", err)
 	}
-	ids := make(map[string]bool)
-	for _, message := range messages {
-		ids[message.ID] = true
+	if window.TotalCount != 2 || len(window.Nodes) != 2 {
+		t.Fatalf("expected user item + tool-only turn item, got total=%d nodes=%d", window.TotalCount, len(window.Nodes))
 	}
-	if !ids[assistantOne.ID] {
-		t.Fatalf("expected first large turn to keep a non-tool anchor")
+	turnNode := window.Nodes[1]
+	if turnNode.Message.ID != tool.ID {
+		t.Fatalf("expected tool message id to remain representative, got %s", turnNode.Message.ID)
 	}
-	if !ids[assistantTwo.ID] || !ids[secondTurnTool.ID] {
-		t.Fatalf("expected later turn to expand despite earlier large turn, got ids=%v", ids)
+	if turnNode.Message.Role != "assistant" || turnNode.Message.Content != "" {
+		t.Fatalf("expected assistant placeholder for tool-only turn, got role=%q content=%q", turnNode.Message.Role, turnNode.Message.Content)
+	}
+	if turnNode.Message.Source != toolOnlyTurnPlaceholderSource {
+		t.Fatalf("expected tool-only placeholder source, got %q", turnNode.Message.Source)
+	}
+	if !strings.Contains(turnNode.Message.ToolCalls, "resultado preservado") {
+		t.Fatalf("expected tool result preserved in placeholder tool calls, got %s", turnNode.Message.ToolCalls)
+	}
+	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
+		t.Fatalf("expected canonical originalIndex=1 for tool-only turn, got %v", turnNode.OriginalIndex)
 	}
 }

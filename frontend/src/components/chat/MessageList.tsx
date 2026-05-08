@@ -5,7 +5,7 @@ import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
 import { main } from '../../../wailsjs/go/models';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
-import type { MessageWindowState } from '../../services/chatSessionRegistry';
+import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
 import './MessageList.css';
 
 export interface MessageListProps {
@@ -53,18 +53,17 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
   if (!nodes || nodes.length === 0) return nodes;
 
   const turnMap = new Map<string, MessageNode[]>();
-  let hasTurns = false;
 
   for (const node of nodes) {
     const turnId = node.message.turnId;
     if (turnId) {
-      hasTurns = true;
       if (!turnMap.has(turnId)) turnMap.set(turnId, []);
       turnMap.get(turnId)!.push(node);
     }
   }
 
-  if (!hasTurns) return nodes;
+  const hasSplitTurns = Array.from(turnMap.values()).some((turnNodes) => turnNodes.length > 1);
+  if (!hasSplitTurns) return nodes;
 
   const processedTurnIds = new Set<string>();
   const result: MessageNode[] = [];
@@ -91,8 +90,10 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
       }
     }
 
-    // Build segments in chronological order from assistant messages
-    const segments: TurnSegment[] = [];
+    // Build segments in chronological order from assistant messages.
+    // Backend-provided segments are canonical; locally derived segments only cover transient split nodes.
+    const canonicalSegments: TurnSegment[] = [];
+    const derivedSegments: TurnSegment[] = [];
     const allToolCalls: unknown[] = [];
     let finalContent = '';
     let finalReasoning = '';
@@ -100,12 +101,19 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 
     for (const tn of turnNodes) {
       if (tn.message.role !== 'assistant') continue;
+      finalNode = tn;
+      const existingSegments = (tn.message as Message)._turnSegments;
+      const hasCanonicalSegments = existingSegments && existingSegments.length > 0;
+      if (hasCanonicalSegments) {
+        canonicalSegments.push(...existingSegments);
+      }
 
       // Text segment (intermediate reasoning or final answer)
-      if (tn.message.content) {
-        segments.push({ type: 'text', content: tn.message.content });
+      if (tn.message.content && !hasCanonicalSegments) {
+        derivedSegments.push({ type: 'text', content: tn.message.content });
         finalContent = tn.message.content;
-        finalNode = tn;
+      } else if (tn.message.content) {
+        finalContent = tn.message.content;
       }
 
       // Tool calls segment (enriched with results)
@@ -130,10 +138,12 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
               result: callId ? toolResults.get(callId) ?? undefined : undefined,
             };
           });
-          segments.push({ type: 'tool_calls', toolCalls: enrichedCalls });
+          if (!hasCanonicalSegments) {
+            derivedSegments.push({ type: 'tool_calls', toolCalls: enrichedCalls });
+          }
           allToolCalls.push(...enrichedCalls);
         } catch {
-          // Invalid JSON — skip
+          // Invalid local toolCalls payload; skip this derived segment in render.
         }
       }
 
@@ -158,8 +168,12 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
       .find((index): index is number => index !== undefined);
     consolidated.originalIndex = firstOriginalIndex ?? finalNode.originalIndex;
 
-    // Attach segments only for multi-step turns (more than just the final text)
-    if (segments.length > 1) {
+    const segments = canonicalSegments.length > 0
+      ? [...canonicalSegments, ...derivedSegments]
+      : derivedSegments;
+
+    // Backend-provided segments are preserved even when a transient sibling temporarily splits the turn.
+    if (canonicalSegments.length > 0 || segments.length > 1) {
       (consolidated.message as Message)._turnSegments = segments;
     }
 
@@ -168,6 +182,11 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 
   return result;
 }
+
+const isPersistedMessageNode = (node: MessageNode | undefined): boolean => {
+  if (!node) return false;
+  return isPersistedTimelineNode(node);
+};
 
 export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProps>((
   {
@@ -205,11 +224,13 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   // Use external ref if provided, otherwise use internal ref
   const containerRef = (ref as React.RefObject<HTMLDivElement>) || internalContainerRef;
 
-  // Consolida mensagens de turnos com tool calling em entradas únicas
+  // Fallback transitório: o backend já retorna timeline items canônicos;
+  // durante streaming ainda podem existir múltiplos nós locais do mesmo turnId.
   const displayMessages = useMemo(
     () => consolidateTurnMessages(threadedMessages),
     [threadedMessages]
   );
+  const canLoadNewerFromDisplayEnd = isPersistedMessageNode(displayMessages[displayMessages.length - 1]);
   const hasConsolidatedTurns = displayMessages.length !== threadedMessages.length;
   const messagePositions = useMemo(() => {
     // Until AEP-0059 phase 2.1 moves absolute counts to canonical timeline items,
@@ -244,16 +265,16 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     const duplicates = new Set<string>();
 
     for (const node of displayMessages) {
-      const id = String(node.message.id);
-      if (seen.has(id)) {
-        duplicates.add(id);
+      const key = getTimelineNodeKey(node);
+      if (seen.has(key)) {
+        duplicates.add(key);
       } else {
-        seen.add(id);
+        seen.add(key);
       }
     }
 
     if (duplicates.size === 0) return;
-    console.warn('[MessageList] duplicate message ids detected in display messages', Array.from(duplicates));
+    console.warn('[MessageList] duplicate timeline keys detected in display messages', Array.from(duplicates));
   }, [displayMessages, threadedMessages]);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
@@ -302,7 +323,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     : undefined;
 
   const handleReachEnd = () => {
-    if (hasNewerMessages && onLoadNewer && !isLoadingMessageWindow) {
+    if (hasNewerMessages && onLoadNewer && !isLoadingMessageWindow && canLoadNewerFromDisplayEnd) {
       handleLoadNewer();
       return;
     }
@@ -339,7 +360,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         return;
       }
       const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      if (distanceToBottom < 48 && hasNewerMessages && !isLoadingMessageWindow) {
+      if (distanceToBottom < 48 && hasNewerMessages && !isLoadingMessageWindow && canLoadNewerFromDisplayEnd) {
         handleLoadNewer();
       }
     };
@@ -352,7 +373,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       }
       suppressNextScrollLoadRef.current = false;
     };
-  }, [hasNewerMessages, hasOlderMessages, isLoadingMessageWindow, onLoadNewer, onLoadOlder]);
+  }, [canLoadNewerFromDisplayEnd, hasNewerMessages, hasOlderMessages, isLoadingMessageWindow, onLoadNewer, onLoadOlder]);
 
   if (threadedMessages.length === 0) {
     return (
@@ -421,7 +442,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         >
           {displayMessages.map((node, index) => (
             <MessageNodeComponent
-              key={node.message.id}
+              key={getTimelineNodeKey(node)}
               node={node}
               level={0}
               siblingIndex={index}

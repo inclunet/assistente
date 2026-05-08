@@ -152,11 +152,46 @@ A lista virtualizada deve manter experiência consistente para teclado e leitor 
 
 ### Fase 2.1 — Timeline items canônicos
 
+Esta é a fase alvo do PR dedicado posterior ao PR #113.
+
 - Evoluir `GetConversationMessageWindow` para paginar itens de timeline, não linhas brutas de `chat_messages`.
 - Agrupar turnos por `turnId` no backend e retornar nós/segmentos já coerentes com a lista navegável.
 - Calcular `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` pela quantidade de itens renderizáveis.
 - Garantir que streaming crie um item transitório reconciliável pelo mesmo `turnId`.
 - Remover a dependência de consolidação local para definir posições acessíveis.
+
+#### Consolidação no PR #113
+
+O PR #113 concluiu a primeira entrega de janela incremental por sessão:
+
+- `GetConversationMessageWindow` passou a ser a API única de carregamento incremental de conversa e thread.
+- Janelas visuais passaram a pertencer à `ChatSurfaceSession`, preservando independência entre superfícies.
+- O carregamento inicial e a paginação deixaram de depender de carregar a conversa inteira.
+- A UI passou a usar contagem local honesta quando a consolidação visual de turnos ainda era feita no frontend, evitando anunciar posições absolutas cruas incorretas.
+- A expansão de fronteiras de turno foi mantida apenas como mitigação temporária, não como contrato final de timeline item.
+
+#### Contrato do PR de Fase 2.1
+
+O PR de Fase 2.1 conclui a semântica canônica de itens de timeline:
+
+- A unidade de paginação, contagem e acessibilidade é o item de timeline.
+- Um item normal representa uma mensagem navegável sem consolidação.
+- Um item de turno representa as mensagens não-usuário persistidas com o mesmo `turnId`, como respostas de assistant, chamadas de tool e registros técnicos associados ao turno.
+- `turnId` continua apontando para o ID da mensagem de usuário que iniciou o turno.
+- `anchorMessageId` pode apontar para a mensagem representante ou para uma mensagem interna de um turno; o backend normaliza isso para o item de timeline correspondente.
+- `originalIndex`, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` são calculados pelo backend sobre itens de timeline.
+- O frontend consome esses índices como canônicos e não corrige posições absolutas com agrupamento local.
+- O backend monta os itens em lote, com número pequeno e previsível de consultas por janela (contagem, normalização opcional de âncora e busca em lote das mensagens internas), sem uma consulta por item.
+
+#### Decisão pós-Fase 2.1 sobre virtualização
+
+Após a Fase 2.1, a próxima decisão de performance deve ser baseada em medição com a nova unidade canônica. Virtualização acessível continua pertencendo às Fases 4 e 5, mas não deve entrar no mesmo PR da Fase 2.1 salvo se os testes de conversa longa ainda mostrarem renderização perceptivelmente bloqueante com a janela já limitada.
+
+Critério prático:
+
+- Se a janela canônica limitada mantiver a UI responsiva em conversas sintéticas de 500+ mensagens, virtualização fica em PR separado.
+- Se a renderização da própria janela continuar pesada, o próximo PR deve implementar virtualização acessível antes de expandir features que aumentem conteúdo renderizado.
+- A decisão deve preservar `aria-posinset`/`aria-setsize` canônicos e navegação por teclado independente do DOM completo.
 
 ### Fase 3 — Memoização e atualização granular
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageNode } from './MessageNode';
 import { main } from '../../../wailsjs/go/models';
 
@@ -95,5 +95,34 @@ describe('MessageNode', () => {
     expect(screen.getByRole('listitem')).toHaveAttribute('data-message-id', '1');
     expect(screen.getByTestId('chat-message')).toBeInTheDocument();
     expect(chatMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ hasThreadIndicator: true }));
+  });
+
+  it('não dispara delete por teclado para placeholder de turno só com tool', () => {
+    const onDelete = vi.fn();
+    render(
+      <MessageNode
+        onDelete={onDelete}
+        node={main.MessageNode.createFrom({
+          message: new main.EnrichedMessage({
+            id: 'tool-message-1',
+            conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+            role: 'assistant',
+            content: '',
+            source: 'tool_only_turn_placeholder',
+            createdAt: new Date().toISOString(),
+            timestamp: Date.now(),
+            isStreaming: false,
+            internal: false,
+          }),
+          childCount: 0,
+          level: 0,
+          children: [],
+        })}
+      />
+    );
+
+    fireEvent.keyDown(screen.getByRole('listitem'), { key: 'Delete' });
+
+    expect(onDelete).not.toHaveBeenCalled();
   });
 });

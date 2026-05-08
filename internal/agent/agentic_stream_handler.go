@@ -24,11 +24,12 @@ type AgenticStreamHandler struct {
 }
 
 // NewAgenticStreamHandler cria um handler para uma iteração do agentic loop.
-func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iteration int, surfaceOrigin *ports.ChatSurfaceOrigin) *AgenticStreamHandler {
+func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iteration int, surfaceOrigin *ports.ChatSurfaceOrigin, turnID string) *AgenticStreamHandler {
 	return &AgenticStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        emitter,
 			ConversationID: conversationID,
+			TurnID:         turnID,
 			SurfaceOrigin:  surfaceOrigin,
 		},
 		iteration: iteration,
@@ -81,6 +82,7 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 
 		EmitToolEnd(h.Emitter, ports.ToolEndEvent{
 			ConversationID: h.ConversationID,
+			TurnID:         h.TurnID,
 			Name:           event.Name,
 			CallID:         event.ID,
 			Status:         status,
@@ -94,6 +96,7 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		if event.Error != "" {
 			EmitToolFailure(h.Emitter, ports.ToolFailureEvent{
 				ConversationID: h.ConversationID,
+				TurnID:         h.TurnID,
 				Name:           event.Name,
 				CallID:         event.ID,
 				ErrorKind:      "unknown",
@@ -111,6 +114,7 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 	} else {
 		EmitToolStart(h.Emitter, ports.ToolStartEvent{
 			ConversationID: h.ConversationID,
+			TurnID:         h.TurnID,
 			Name:           event.Name,
 			CallID:         event.ID,
 			Args:           event.Arguments,
