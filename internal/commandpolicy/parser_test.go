@@ -128,6 +128,68 @@ func TestParse_DetectsConservativeFeatures(t *testing.T) {
 	}
 }
 
+func TestParse_DetectsSubstitutionInsideDoubleQuotes(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		feature Feature
+	}{
+		{
+			name:    "command substitution in double quotes",
+			input:   `echo "$(pwd)"`,
+			feature: FeatureCommandSubstitution,
+		},
+		{
+			name:    "backtick substitution in double quotes",
+			input:   "echo \"`pwd`\"",
+			feature: FeatureBacktickSubstitution,
+		},
+		{
+			name:    "command substitution mixed with literal text",
+			input:   `printf "user=%s home=%s\n" "$(whoami)" "$HOME"`,
+			feature: FeatureCommandSubstitution,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Parse(tt.input)
+			if !hasFeature(got.Features, tt.feature) {
+				t.Fatalf("features = %v, want %s", got.Features, tt.feature)
+			}
+			if !got.RequiresConfirmation() {
+				t.Fatalf("substitution inside double quotes should require confirmation: %#v", got)
+			}
+		})
+	}
+}
+
+func TestParse_EscapedSubstitutionInDoubleQuotesIsLiteral(t *testing.T) {
+	got := Parse(`echo "\$(pwd)"`)
+	if hasFeature(got.Features, FeatureCommandSubstitution) {
+		t.Fatalf("escaped $( should not trigger command substitution: %#v", got)
+	}
+	if hasFeature(got.Features, FeatureBacktickSubstitution) {
+		t.Fatalf("no backticks were used: %#v", got)
+	}
+	if got.RequiresConfirmation() {
+		t.Fatalf("escaped substitution should not require confirmation: %#v", got)
+	}
+}
+
+func TestParse_SingleQuotesNeverTriggerSubstitution(t *testing.T) {
+	got := Parse(`echo '$(pwd)' '` + "`pwd`" + `'`)
+	if hasFeature(got.Features, FeatureCommandSubstitution) {
+		t.Fatalf("single quotes should not expand $(): %#v", got)
+	}
+	if hasFeature(got.Features, FeatureBacktickSubstitution) {
+		t.Fatalf("single quotes should not expand backticks: %#v", got)
+	}
+	if got.RequiresConfirmation() {
+		t.Fatalf("literal single-quoted text should not require confirmation: %#v", got)
+	}
+}
+
 func TestParse_AmbiguousSyntaxRequiresConfirmation(t *testing.T) {
 	tests := []string{
 		`echo "unterminated`,

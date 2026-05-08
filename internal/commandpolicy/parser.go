@@ -197,6 +197,10 @@ func lex(input string) ([]token, []Feature, []string) {
 				i = len(input)
 				continue
 			}
+			// Em POSIX, aspas simples nao expandem nada, mas mantemos a agregacao por consistencia.
+			for _, f := range next.features {
+				features = appendFeature(features, f)
+			}
 			current.WriteString(next.value)
 			i = next.end
 
@@ -208,6 +212,11 @@ func lex(input string) ([]token, []Feature, []string) {
 				current.WriteString(input[i+1:])
 				i = len(input)
 				continue
+			}
+			// Aspas duplas em POSIX continuam expandindo $(...) e crases;
+			// agregamos as features detectadas pelo readQuoted para forcar confirmacao.
+			for _, f := range next.features {
+				features = appendFeature(features, f)
 			}
 			current.WriteString(next.value)
 			i = next.end
@@ -251,12 +260,14 @@ func lex(input string) ([]token, []Feature, []string) {
 }
 
 type quotedValue struct {
-	value string
-	end   int
+	value    string
+	end      int
+	features []Feature
 }
 
 func readQuoted(input string, start int, quote byte) (quotedValue, bool) {
 	var out strings.Builder
+	var features []Feature
 	for i := start; i < len(input); i++ {
 		ch := input[i]
 		if quote == '"' && ch == '\\' && i+1 < len(input) {
@@ -265,7 +276,16 @@ func readQuoted(input string, start int, quote byte) (quotedValue, bool) {
 			continue
 		}
 		if ch == quote {
-			return quotedValue{value: out.String(), end: i}, true
+			return quotedValue{value: out.String(), end: i, features: features}, true
+		}
+		// Em aspas duplas, $(...) e crases continuam ativando substituicao em
+		// shells POSIX. Marcamos as features para que o caller force confirmacao.
+		if quote == '"' {
+			if ch == '$' && i+1 < len(input) && input[i+1] == '(' {
+				features = appendFeature(features, FeatureCommandSubstitution)
+			} else if ch == '`' {
+				features = appendFeature(features, FeatureBacktickSubstitution)
+			}
 		}
 		out.WriteByte(ch)
 	}

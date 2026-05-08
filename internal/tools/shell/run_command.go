@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,7 +137,13 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// Avalia o comando contra a politica (allowlist + parser conservador)
 	policyResult := rc.evaluateCommand(a.Command)
 	decision := policyResult.Decision
-	log.Printf("[RunCommand] Comando: %q, decisão: %s, motivos: %v", a.Command, decision, policyResult.Reasons)
+	// Evitamos logar policyResult.Reasons quando a decisao for approve, pois eles
+	// repetem o comando/args completos e poluiriam o log com possiveis segredos.
+	if decision == allowlist.DecisionApprove {
+		log.Printf("[RunCommand] Comando: %q, decisão: %s", a.Command, decision)
+	} else {
+		log.Printf("[RunCommand] Comando: %q, decisão: %s, motivos: %s", a.Command, decision, summarizePolicyReasons(policyResult))
+	}
 
 	switch decision {
 	case allowlist.DecisionDeny:
@@ -256,4 +263,24 @@ func (rc *RunCommand) evaluateCommand(command string) commandpolicy.EvaluationRe
 
 	al := rc.getAllowlistFn()
 	return commandpolicy.Evaluate(command, al)
+}
+
+// summarizePolicyReasons gera um resumo curto e seguro para log a partir do
+// resultado da politica. Evita repetir o comando/args completos (que podem
+// conter segredos) e foca em features detectadas, erros de parse e contagens.
+func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
+	parts := make([]string, 0, 4)
+	parts = append(parts, fmt.Sprintf("atomos=%d", len(result.Parse.Commands)))
+	parts = append(parts, fmt.Sprintf("motivos=%d", len(result.Reasons)))
+	if len(result.Parse.Features) > 0 {
+		featureNames := make([]string, 0, len(result.Parse.Features))
+		for _, f := range result.Parse.Features {
+			featureNames = append(featureNames, string(f))
+		}
+		parts = append(parts, "features=["+strings.Join(featureNames, ",")+"]")
+	}
+	if len(result.Parse.Errors) > 0 {
+		parts = append(parts, "parse_errors="+strconv.Itoa(len(result.Parse.Errors)))
+	}
+	return strings.Join(parts, " ")
 }
