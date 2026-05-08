@@ -58,15 +58,30 @@ func (c Command) String() string {
 	return out
 }
 
-// QuotedString devolve o comando atomico re-aplicando aspas em args que
-// originalmente exigiam aspas (espaco em branco, aspas, "$", crase, "\").
-// E a forma usada para matching de patterns legados que dependiam da forma
-// quotada do comando (ex.: pattern legado `echo "a b"` deve continuar
-// casando com o input `echo "a b"`, mesmo que o parser tenha removido as
-// aspas no Args). evaluateAtom tenta os dois formatos para preservar
-// compatibilidade — qualquer pattern que casava antes do AEP-0060 continua
-// casando, e novos patterns podem usar a forma sem aspas.
+// QuotedString devolve o comando atomico re-aplicando aspas duplas em args
+// que originalmente exigiam aspas (espaco em branco, aspas, "$", crase,
+// "\"). E uma das formas usadas para matching de patterns legados que
+// dependiam da forma quotada do comando (ex.: pattern legado `echo "a b"`
+// deve continuar casando com o input `echo "a b"`, mesmo que o parser tenha
+// removido as aspas no Args). Veja tambem SingleQuotedString para a variante
+// com aspas simples.
 func (c Command) QuotedString() string {
+	return c.quoted(shellQuoteWithDouble)
+}
+
+// SingleQuotedString devolve o comando atomico re-aplicando aspas simples
+// em args com caracteres especiais. E usada como tentativa adicional de
+// matching legacy: alguns perfis pre-AEP-0060 podem ter usado aspas simples
+// em vez de duplas (ex.: pattern `echo 'a b'`). Como aspas simples em POSIX
+// nao expandem nada, a unica opcao de "escape" para um arg que contenha
+// aspa simples e fechar a aspa, escapar a aspa via aspas duplas e reabrir
+// — para esse caso de borda, devolvemos o argumento sem aspas (matching
+// pode falhar, mas evitamos uma string mal-formada).
+func (c Command) SingleQuotedString() string {
+	return c.quoted(shellQuoteWithSingle)
+}
+
+func (c Command) quoted(quoter func(string) string) string {
 	if c.Program == "" {
 		return ""
 	}
@@ -76,15 +91,15 @@ func (c Command) QuotedString() string {
 	parts := make([]string, 0, len(c.Args)+1)
 	parts = append(parts, c.Program)
 	for _, arg := range c.Args {
-		parts = append(parts, shellQuoteIfNeeded(arg))
+		parts = append(parts, quoter(arg))
 	}
 	return strings.Join(parts, " ")
 }
 
-// shellQuoteIfNeeded envolve s em aspas duplas e escapa "\" e `"` quando o
-// argumento contem caracteres que normalmente exigem quoting em uma shell.
+// shellQuoteWithDouble envolve s em aspas duplas e escapa "\" e `"` quando
+// o argumento contem caracteres que normalmente exigem quoting em uma shell.
 // Retorna o proprio s quando nao ha necessidade de aspas (caso comum).
-func shellQuoteIfNeeded(s string) string {
+func shellQuoteWithDouble(s string) string {
 	if s == "" {
 		return `""`
 	}
@@ -94,6 +109,26 @@ func shellQuoteIfNeeded(s string) string {
 	escaped := strings.ReplaceAll(s, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
 	return `"` + escaped + `"`
+}
+
+// shellQuoteWithSingle envolve s em aspas simples quando precisa de quoting.
+// Em POSIX, aspas simples sao literais e nao expandem nada — perfeito para
+// matching legacy, mas nao conseguem conter o proprio caractere "'".
+// Quando s contem aspas simples, devolvemos s sem aspas (a melhor coisa que
+// podemos fazer sem produzir uma string mal-formada que confundiria o
+// MatchPattern). Isso e raro o suficiente para nao justificar a complexidade
+// extra de quoting hibrido.
+func shellQuoteWithSingle(s string) string {
+	if s == "" {
+		return `''`
+	}
+	if !strings.ContainsAny(s, " \t\"'`$\\") {
+		return s
+	}
+	if strings.ContainsRune(s, '\'') {
+		return s
+	}
+	return `'` + s + `'`
 }
 
 // ParseResult contem os comandos atomicos e avisos conservadores detectados.

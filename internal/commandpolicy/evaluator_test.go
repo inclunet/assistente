@@ -262,6 +262,62 @@ func TestEvaluate_LegacyPatternWithoutQuotesStillMatches(t *testing.T) {
 	}
 }
 
+func TestEvaluate_LegacyPatternWithSingleQuotesStillMatches(t *testing.T) {
+	// Patterns legados podem ter sido escritos com aspas simples
+	// (ex.: `echo 'a b'`). O parser remove ambas as aspas em Args, entao o
+	// matching precisa tentar a forma com aspas simples re-aplicadas alem
+	// das outras duas formas.
+	al := &allowlist.Allowlist{
+		AutoApprove:   []string{`echo 'a b'`},
+		DefaultAction: "confirm",
+	}
+
+	got := Evaluate(`echo "a b"`, al)
+	if got.Decision != allowlist.DecisionApprove {
+		t.Fatalf("decision = %s, want approve (legacy single-quoted pattern); reasons=%v", got.Decision, got.Reasons)
+	}
+}
+
+func TestEvaluate_StructuredRuleConsumesAllArgsWhenSubcommandsEndWithWildcard(t *testing.T) {
+	// Antes: matchSequence retornava true sem indicar tokens consumidos e o
+	// chamador usava len(rule.Subcommands), que descartava args reais quando
+	// o ultimo Subcommand era "*". Agora consumed reflete o consumo real.
+	al := &allowlist.Allowlist{
+		DefaultAction: "confirm",
+		CommandRules: []allowlist.CommandRule{
+			{Program: "kubectl", Subcommands: []string{"get", "*"}, Decision: "approve"},
+		},
+	}
+
+	got := Evaluate("kubectl get pods deployment -n production", al)
+	if got.Decision != allowlist.DecisionApprove {
+		t.Fatalf("decision = %s, want approve; reasons=%v", got.Decision, got.Reasons)
+	}
+}
+
+func TestCommand_SingleQuotedString(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  Command
+		want string
+	}{
+		{name: "no args", cmd: Command{Program: "ls"}, want: "ls"},
+		{name: "simple args sem caractere especial", cmd: Command{Program: "git", Args: []string{"status"}}, want: "git status"},
+		{name: "arg com espaco", cmd: Command{Program: "echo", Args: []string{"a b"}}, want: `echo 'a b'`},
+		{name: "arg com aspas duplas usa aspas simples", cmd: Command{Program: "echo", Args: []string{`a"b`}}, want: `echo 'a"b'`},
+		{name: "arg com aspa simples cai para sem aspas", cmd: Command{Program: "echo", Args: []string{"a'b"}}, want: `echo a'b`},
+		{name: "arg vazio", cmd: Command{Program: "echo", Args: []string{""}}, want: `echo ''`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cmd.SingleQuotedString(); got != tt.want {
+				t.Fatalf("SingleQuotedString() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCommand_QuotedString(t *testing.T) {
 	tests := []struct {
 		name string

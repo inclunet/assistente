@@ -22,14 +22,14 @@ func (al *Allowlist) Evaluate(command string) Decision {
 
 	// 1. Verifica AlwaysDeny primeiro
 	for _, pattern := range al.AlwaysDeny {
-		if matchPattern(cmd, pattern) {
+		if MatchPattern(cmd, pattern) {
 			return DecisionDeny
 		}
 	}
 
 	// 2. Verifica AutoApprove
 	for _, pattern := range al.AutoApprove {
-		if matchPattern(cmd, pattern) {
+		if MatchPattern(cmd, pattern) {
 			return DecisionApprove
 		}
 	}
@@ -78,9 +78,4 @@ func MatchPattern(command, pattern string) bool {
 
 	// O comando começa com o pattern seguido de espaço (o pattern é o "base command")
 	return strings.HasPrefix(command, pattern+" ")
-}
-
-// matchPattern é mantido como alias interno para preservar chamadas legadas.
-func matchPattern(command, pattern string) bool {
-	return MatchPattern(command, pattern)
 }

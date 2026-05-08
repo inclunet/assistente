@@ -3,9 +3,11 @@ package shell
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"assistente/internal/allowlist"
+	"assistente/internal/commandpolicy"
 )
 
 func TestRunCommand_RejectsMissingCommand(t *testing.T) {
@@ -100,6 +102,53 @@ func TestRunCommand_RedirectForcesConfirmation(t *testing.T) {
 	}
 	if !result.IsError {
 		t.Fatalf("expected error result when confirmation is rejected")
+	}
+}
+
+func TestRedactCommandForLog_DoesNotIncludeArgs(t *testing.T) {
+	// O log nao pode conter args (que podem ter tokens). Verificamos que o
+	// resumo so menciona o programa e a contagem.
+	cases := []struct {
+		name        string
+		command     string
+		mustContain []string
+		mustNotHave []string
+	}{
+		{
+			name:        "single command com flag sensivel",
+			command:     "psql -h db -U admin -W hunter2",
+			mustContain: []string{"psql", "args"},
+			mustNotHave: []string{"hunter2", "admin", "-W"},
+		},
+		{
+			name:        "compound command",
+			command:     "git status && curl -H 'Authorization: Bearer secret-token' https://api",
+			mustContain: []string{"git", "curl", "|"},
+			mustNotHave: []string{"secret-token", "Authorization", "Bearer", "api"},
+		},
+		{
+			name:        "input vazio cai em fallback unparsed",
+			command:     "",
+			mustContain: []string{"unparsed"},
+			mustNotHave: []string{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			parse := commandpolicy.Parse(tc.command)
+			summary := redactCommandForLog(tc.command, commandpolicy.EvaluationResult{Parse: parse})
+			for _, want := range tc.mustContain {
+				if !strings.Contains(summary, want) {
+					t.Errorf("summary %q nao contem %q", summary, want)
+				}
+			}
+			for _, leak := range tc.mustNotHave {
+				if strings.Contains(summary, leak) {
+					t.Errorf("summary %q vazou %q (nunca deveria conter args)", summary, leak)
+				}
+			}
+		})
 	}
 }
 

@@ -129,19 +129,29 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-// matchesLegacyPattern testa o pattern legado contra duas representacoes do
-// comando: a forma "shell-like" sem aspas (cmd.String()) e a forma com aspas
-// reaplicadas (cmd.QuotedString()). Patterns legados podem ter sido escritos
-// antes do AEP-0060 contendo aspas (ex.: `echo "a b"`); como o parser remove
-// aspas no Args, sem este matching duplo a regra deixaria silenciosamente de
-// casar. Tentar as duas formas preserva 100% de compatibilidade: novos
-// patterns podem ser escritos sem aspas, antigos com aspas continuam validos.
+// matchesLegacyPattern testa um pattern legado contra ate tres representacoes
+// do comando atomico:
+//
+//  1. cmd.String()             — forma "shell-like" sem aspas (caso comum).
+//  2. cmd.QuotedString()       — args com espaco/aspas re-quotados em "...".
+//  3. cmd.SingleQuotedString() — variante com aspas simples '...'.
+//
+// O parser remove as aspas do Args durante o lexing, entao patterns legados
+// que dependiam da forma quotada (ex.: `auto_approve: ["echo 'a b'"]` ou
+// `auto_approve: ["echo \"a b\""]`) deixariam silenciosamente de casar caso
+// so a forma sem aspas fosse testada. Tentar as tres formas cobre os perfis
+// pre-AEP-0060 mais comuns; o unico caso nao coberto e arg que contem aspa
+// simples literal — raro o suficiente para nao justificar quoting hibrido.
 func matchesLegacyPattern(cmd Command, pattern string) bool {
-	if allowlist.MatchPattern(cmd.String(), pattern) {
-		return true
-	}
+	candidates := []string{cmd.String()}
 	if quoted := cmd.QuotedString(); quoted != cmd.String() {
-		if allowlist.MatchPattern(quoted, pattern) {
+		candidates = append(candidates, quoted)
+	}
+	if singleQuoted := cmd.SingleQuotedString(); singleQuoted != cmd.String() && singleQuoted != cmd.QuotedString() {
+		candidates = append(candidates, singleQuoted)
+	}
+	for _, candidate := range candidates {
+		if allowlist.MatchPattern(candidate, pattern) {
 			return true
 		}
 	}
@@ -166,15 +176,23 @@ func matchStructuredRule(cmd Command, rules []allowlist.CommandRule, decision al
 		if !strings.EqualFold(strings.TrimSpace(rule.Program), cmd.Program) {
 			continue
 		}
-		if !matchSequence(cmd.Args, rule.Subcommands) {
+		consumed, ok := matchSequence(cmd.Args, rule.Subcommands)
+		if !ok {
 			continue
 		}
-		remainingStart := len(rule.Subcommands)
-		if remainingStart > len(cmd.Args) {
-			remainingStart = len(cmd.Args)
+		// Quando "*" e o ultimo Subcommand, ele consome todo o restante de
+		// cmd.Args. Aplicar Args sobre algo que ja foi consumido pelo "*"
+		// nao faz sentido; a validacao em allowlist.Validate() rejeita esse
+		// combo, mas para perfis legados/editados manualmente, ignoramos
+		// rule.Args nesse caso para evitar matching contra-intuitivo.
+		if consumed >= len(cmd.Args) {
+			if len(rule.Args) == 0 || (len(rule.Args) == 1 && rule.Args[0] == "*") {
+				return rule, true
+			}
+			continue
 		}
-		remainingArgs := cmd.Args[remainingStart:]
-		if !matchSequence(remainingArgs, rule.Args) {
+		remainingArgs := cmd.Args[consumed:]
+		if _, ok := matchSequence(remainingArgs, rule.Args); !ok {
 			continue
 		}
 		return rule, true
@@ -182,34 +200,39 @@ func matchStructuredRule(cmd Command, rules []allowlist.CommandRule, decision al
 	return allowlist.CommandRule{}, false
 }
 
-// matchSequence faz casamento posicional de patterns contra values.
+// matchSequence faz casamento posicional de patterns contra values e devolve
+// quantos elementos de values foram consumidos.
 //
-// O coringa "*" so e tratado como wildcard quando aparece como ultimo
-// elemento da lista de patterns (consome o restante de values). Em qualquer
-// outra posicao, "*" e tratado como literal — um usuario que escreva
-// Subcommands: ["pod", "*", "--force"] espera, intuitivamente, que --force
-// seja obrigatorio. A validacao em allowlist.Validate() rejeita "*" fora da
-// ultima posicao no momento do save, mas mantemos esse comportamento defensivo
-// aqui para perfis legados ou regras editadas manualmente.
-func matchSequence(values, patterns []string) bool {
+// Regras:
+//   - patterns vazio       -> match sem consumir nada (consumed=0).
+//   - "*" como ultimo      -> consome todo o restante de values (wildcard de cauda).
+//   - "*" em outra posicao -> tratado como literal (a validacao em
+//     allowlist.Validate() rejeita esse caso no save; aqui mantemos a
+//     interpretacao literal como defesa em profundidade para perfis legados).
+//   - Demais patterns      -> casamento case-insensitive posicao a posicao.
+//
+// O retorno consumido e usado por matchStructuredRule para calcular o sufixo
+// que sera testado contra rule.Args, evitando o bug onde len(rule.Subcommands)
+// era usado direto e descartava um arg real quando o ultimo pattern era "*".
+func matchSequence(values, patterns []string) (consumed int, ok bool) {
 	if len(patterns) == 0 {
-		return true
+		return 0, true
 	}
 	if len(patterns) == 1 && patterns[0] == "*" {
-		return true
+		return len(values), true
 	}
 	if len(values) < len(patterns) {
-		return false
+		return 0, false
 	}
 	for i, pattern := range patterns {
 		if i == len(patterns)-1 && pattern == "*" {
-			return true
+			return len(values), true
 		}
 		if !strings.EqualFold(values[i], pattern) {
-			return false
+			return 0, false
 		}
 	}
-	return true
+	return len(patterns), true
 }
 
 func parseRuleDecision(value string) allowlist.Decision {

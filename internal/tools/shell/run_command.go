@@ -137,12 +137,16 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// Avalia o comando contra a politica (allowlist + parser conservador)
 	policyResult := rc.evaluateCommand(a.Command)
 	decision := policyResult.Decision
-	// Evitamos logar policyResult.Reasons quando a decisao for approve, pois eles
-	// repetem o comando/args completos e poluiriam o log com possiveis segredos.
+	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
+	// flags (-W, --token=) ou env inline. Em vez disso, derivamos um resumo
+	// seguro do parse (programas + tamanho/contagem de args). Reasons so vao
+	// para o log quando a decisao for diferente de approve, e mesmo assim
+	// usam summarizePolicyReasons (sem repetir args).
+	commandSummary := redactCommandForLog(a.Command, policyResult)
 	if decision == allowlist.DecisionApprove {
-		log.Printf("[RunCommand] Comando: %q, decisão: %s", a.Command, decision)
+		log.Printf("[RunCommand] Comando: %s, decisão: %s", commandSummary, decision)
 	} else {
-		log.Printf("[RunCommand] Comando: %q, decisão: %s, motivos: %s", a.Command, decision, summarizePolicyReasons(policyResult))
+		log.Printf("[RunCommand] Comando: %s, decisão: %s, motivos: %s", commandSummary, decision, summarizePolicyReasons(policyResult))
 	}
 
 	switch decision {
@@ -267,6 +271,30 @@ func (rc *RunCommand) evaluateCommand(command string) commandpolicy.EvaluationRe
 
 	al := rc.getAllowlistFn()
 	return commandpolicy.Evaluate(command, al)
+}
+
+// redactCommandForLog devolve uma representacao segura do command line
+// para log. Em vez de imprimir a.Command (que pode conter tokens, senhas
+// em flags ou env inline), exibimos:
+//   - lista de programas detectados pelo parser, separados por " | ";
+//   - quando algum atomo nao tem programa identificado (parse vazio),
+//     fallback para "<unparsed:N bytes>" com o tamanho original.
+//
+// Evita expor args/values mas preserva diagnostico minimo (qual ferramenta
+// foi pedida).
+func redactCommandForLog(command string, result commandpolicy.EvaluationResult) string {
+	if len(result.Parse.Commands) == 0 {
+		return fmt.Sprintf("<unparsed:%d bytes>", len(command))
+	}
+	programs := make([]string, 0, len(result.Parse.Commands))
+	for _, cmd := range result.Parse.Commands {
+		program := cmd.Program
+		if program == "" {
+			program = "<empty>"
+		}
+		programs = append(programs, fmt.Sprintf("%s(%d args)", program, len(cmd.Args)))
+	}
+	return strings.Join(programs, " | ")
 }
 
 // summarizePolicyReasons gera um resumo curto e seguro para log a partir do

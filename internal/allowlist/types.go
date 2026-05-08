@@ -156,6 +156,13 @@ func (r CommandRule) Validate() error {
 		errs = append(errs, fmt.Sprintf("args[%d]: \"*\" so pode aparecer como ultimo elemento", pos))
 	}
 
+	// "*" no fim de Subcommands consome todo o restante de cmd.Args, entao
+	// args nao-vazio nessa combinacao seria sempre testado contra um sufixo
+	// vazio (ou "*"). Rejeitamos para evitar regras silenciosamente inertes.
+	if hasTailingWildcard(r.Subcommands) && hasMeaningfulArgs(r.Args) {
+		errs = append(errs, "subcommands termina com \"*\" e args nao-vazio: a regra ficaria ambigua porque \"*\" ja consome todos os args")
+	}
+
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))
 	}
@@ -174,4 +181,25 @@ func wildcardOutOfTail(values []string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// hasTailingWildcard retorna true quando o ultimo elemento de values e "*".
+func hasTailingWildcard(values []string) bool {
+	if len(values) == 0 {
+		return false
+	}
+	return values[len(values)-1] == "*"
+}
+
+// hasMeaningfulArgs retorna true quando args tem qualquer elemento que nao
+// seja apenas "*". Args=[] ou Args=["*"] sao no-ops em termos de matching e
+// nao conflitam com Subcommands terminando em "*".
+func hasMeaningfulArgs(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	if len(args) == 1 && args[0] == "*" {
+		return false
+	}
+	return true
 }

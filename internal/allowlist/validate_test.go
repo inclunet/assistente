@@ -133,6 +133,57 @@ func TestAllowlist_Validate_RejectsInvalidDefaultAction(t *testing.T) {
 	}
 }
 
+func TestAllowlist_Validate_RejectsTrailingWildcardSubcommandsWithArgs(t *testing.T) {
+	// Subcommands terminando em "*" consome todo o restante de cmd.Args, entao
+	// declarar Args nao-vazio depois e ambiguo: a regra ficaria silenciosamente
+	// inerte porque rule.Args nunca chegaria a ser testado.
+	cases := []struct {
+		name string
+		rule CommandRule
+	}{
+		{
+			name: "trailing * in subcommands + args literal",
+			rule: CommandRule{Program: "kubectl", Subcommands: []string{"get", "*"}, Args: []string{"--force"}, Decision: "deny"},
+		},
+		{
+			name: "trailing * in subcommands + args composto",
+			rule: CommandRule{Program: "kubectl", Subcommands: []string{"*"}, Args: []string{"-n", "*"}, Decision: "approve"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			al := &Allowlist{Name: "x", DefaultAction: "confirm", CommandRules: []CommandRule{tc.rule}}
+			err := al.Validate()
+			if err == nil {
+				t.Fatal("Validate() = nil, want error")
+			}
+			if !strings.Contains(err.Error(), "subcommands termina com") {
+				t.Fatalf("error %q nao menciona o conflito subcommands+args", err.Error())
+			}
+		})
+	}
+}
+
+func TestAllowlist_Validate_AcceptsTrailingWildcardSubcommandsWithEmptyArgs(t *testing.T) {
+	// Args vazio ou Args=["*"] sao no-op em termos de matching, entao nao
+	// conflitam com Subcommands terminando em "*".
+	cases := []struct {
+		name string
+		rule CommandRule
+	}{
+		{name: "args vazio", rule: CommandRule{Program: "kubectl", Subcommands: []string{"get", "*"}, Decision: "approve"}},
+		{name: "args wildcard solo", rule: CommandRule{Program: "kubectl", Subcommands: []string{"get", "*"}, Args: []string{"*"}, Decision: "approve"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			al := &Allowlist{Name: "x", DefaultAction: "confirm", CommandRules: []CommandRule{tc.rule}}
+			if err := al.Validate(); err != nil {
+				t.Fatalf("Validate() = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestAllowlist_Validate_AggregatesMultipleErrors(t *testing.T) {
 	al := &Allowlist{
 		Name:          "",

@@ -41,9 +41,9 @@ func TestMatchPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := matchPattern(tt.command, tt.pattern)
+			got := MatchPattern(tt.command, tt.pattern)
 			if got != tt.want {
-				t.Errorf("matchPattern(%q, %q) = %v, want %v", tt.command, tt.pattern, got, tt.want)
+				t.Errorf("MatchPattern(%q, %q) = %v, want %v", tt.command, tt.pattern, got, tt.want)
 			}
 		})
 	}
