@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"assistente/internal/allowlist"
+	"assistente/internal/commandpolicy"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 )
@@ -132,13 +134,14 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 
 	// Avalia allowlist
-	decision := rc.evaluateCommand(a.Command)
-	log.Printf("[RunCommand] Comando: %q, decisão: %s", a.Command, decision)
+	policyResult := rc.evaluateCommand(a.Command)
+	decision := policyResult.Decision
+	log.Printf("[RunCommand] Comando: %q, decisão: %s, motivos: %v", a.Command, decision, policyResult.Reasons)
 
 	switch decision {
 	case allowlist.DecisionDeny:
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Comando bloqueado pela allowlist: %q", a.Command),
+			Content: fmt.Sprintf("Comando bloqueado pela allowlist: %q\nMotivos: %s", a.Command, strings.Join(policyResult.Reasons, "; ")),
 			IsError: true,
 		}, nil
 
@@ -246,11 +249,11 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 }
 
 // evaluateCommand avalia o comando contra a allowlist ativa.
-func (rc *RunCommand) evaluateCommand(command string) allowlist.Decision {
+func (rc *RunCommand) evaluateCommand(command string) commandpolicy.EvaluationResult {
 	if rc.getAllowlistFn == nil {
-		return allowlist.DecisionConfirm
+		return commandpolicy.Evaluate(command, nil)
 	}
 
 	al := rc.getAllowlistFn()
-	return al.Evaluate(command)
+	return commandpolicy.Evaluate(command, al)
 }
