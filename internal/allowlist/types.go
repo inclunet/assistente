@@ -46,9 +46,22 @@ type Allowlist struct {
 	// Mesma lógica de matching que AutoApprove.
 	AlwaysDeny []string `json:"always_deny"`
 
+	// CommandRules contém regras estruturadas por programa/subcomando.
+	// Elas permitem diferenciar comandos como "kubectl get" e "kubectl delete".
+	CommandRules []CommandRule `json:"command_rules,omitempty"`
+
 	// DefaultAction define o que fazer quando nenhum pattern corresponde.
 	// Valores válidos: "confirm" (padrão) ou "deny"
 	DefaultAction string `json:"default_action"`
+}
+
+// CommandRule define uma regra estruturada para comandos atomicos.
+type CommandRule struct {
+	Program     string   `json:"program"`
+	Subcommands []string `json:"subcommands,omitempty"`
+	Args        []string `json:"args,omitempty"`
+	Decision    string   `json:"decision"`
+	Description string   `json:"description,omitempty"`
 }
 
 // AllowlistInfo contém informações resumidas de uma allowlist (para listagem).

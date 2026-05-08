@@ -1,6 +1,7 @@
 package allowlist
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -165,6 +166,44 @@ func TestEvaluate_DefaultAllowlist(t *testing.T) {
 		if al.Evaluate(cmd) != DecisionConfirm {
 			t.Errorf("default allowlist should confirm %q", cmd)
 		}
+	}
+}
+
+func TestAllowlist_CommandRulesJSONCompatibility(t *testing.T) {
+	raw := []byte(`{
+		"name": "Kubernetes",
+		"auto_approve": ["git status"],
+		"always_deny": ["rm -rf *"],
+		"command_rules": [
+			{
+				"program": "kubectl",
+				"subcommands": ["get"],
+				"args": ["*"],
+				"decision": "approve",
+				"description": "leitura"
+			}
+		],
+		"default_action": "confirm"
+	}`)
+
+	var al Allowlist
+	if err := json.Unmarshal(raw, &al); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if len(al.CommandRules) != 1 {
+		t.Fatalf("command rule count = %d, want 1", len(al.CommandRules))
+	}
+	rule := al.CommandRules[0]
+	if rule.Program != "kubectl" || rule.Subcommands[0] != "get" || rule.Args[0] != "*" || rule.Decision != "approve" {
+		t.Fatalf("unexpected command rule: %#v", rule)
+	}
+
+	encoded, err := json.Marshal(&al)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	if !json.Valid(encoded) {
+		t.Fatalf("encoded allowlist is not valid JSON: %s", string(encoded))
 	}
 }
 

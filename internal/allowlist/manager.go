@@ -49,7 +49,7 @@ func (m *Manager) List() ([]AllowlistInfo, error) {
 			Slug:        f.Name,
 			Name:        al.Name,
 			Description: al.Description,
-			RuleCount:   len(al.AutoApprove) + len(al.AlwaysDeny),
+			RuleCount:   len(al.AutoApprove) + len(al.AlwaysDeny) + len(al.CommandRules),
 		})
 	}
 
@@ -213,6 +213,43 @@ func DefaultAllowlist() *Allowlist {
 			"sudo rm *",
 			"sudo shutdown",
 			"sudo reboot",
+		},
+		CommandRules: []CommandRule{
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"get"},
+				Args:        []string{"*"},
+				Decision:    "approve",
+				Description: "Leitura de recursos Kubernetes",
+			},
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"describe"},
+				Args:        []string{"*"},
+				Decision:    "approve",
+				Description: "Inspecao de recursos Kubernetes",
+			},
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"logs"},
+				Args:        []string{"*"},
+				Decision:    "approve",
+				Description: "Leitura de logs Kubernetes",
+			},
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"delete"},
+				Args:        []string{"*"},
+				Decision:    "confirm",
+				Description: "Exclusao de recursos Kubernetes exige confirmacao",
+			},
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"patch"},
+				Args:        []string{"*"},
+				Decision:    "confirm",
+				Description: "Alteracao parcial de recursos Kubernetes exige confirmacao",
+			},
 		},
 		DefaultAction: "confirm",
 	}
