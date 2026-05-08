@@ -1,0 +1,134 @@
+# AEP-0060: Parser e Política de Comandos
+
+## Status: Draft
+
+## Resumo
+
+Criar um pacote interno dedicado para analisar linhas de comando antes da execução da ferramenta `run_command`, separando comandos compostos em unidades avaliáveis e aplicando uma política de segurança por programa, subcomando, argumentos e recursos de shell usados.
+
+A implementação deve ser agnóstica de plataforma por contrato: em vez de tentar reproduzir integralmente Bash, PowerShell ou `cmd.exe`, o projeto define uma subset comum e conservadora. Comandos fora dessa subset não são autoaprovados.
+
+## Motivação
+
+A allowlist atual avalia a string inteira do comando. Isso causa dois problemas:
+
+- comandos compostos seguros, como `git status && git diff`, pedem confirmação mesmo quando cada comando individual já é permitido;
+- comandos parcialmente perigosos podem ficar difíceis de classificar, porque a política não distingue programa, subcomando e operadores.
+
+Também há comandos em que o primeiro token não basta para decidir segurança. `kubectl get pods` costuma ser leitura, enquanto `kubectl delete pod x` é destrutivo e `kubectl patch deployment x` altera estado. O sistema precisa expressar essa diferença sem depender de heurísticas frágeis no ponto de execução.
+
+## Decisões
+
+### 1. Pacote dedicado
+
+Adicionar `internal/commandpolicy` para concentrar:
+
+- parsing da linha de comando;
+- representação de comandos atômicos;
+- detecção de features conservadoras;
+- avaliação e agregação de decisões.
+
+`internal/tools/shell/run_command.go` deve apenas solicitar a avaliação, decidir se pede confirmação e executar a string original no PTY quando permitido.
+
+### 2. Subset cross-platform
+
+O parser da primeira entrega reconhece uma subset comum:
+
+- comandos simples com argumentos;
+- aspas simples e duplas;
+- escapes básicos;
+- separadores `;`, `&&`, `||` e newline;
+- redirecionamentos `>`, `>>`, `2>`, `2>>`, `<`, `<<`;
+- pipe `|`, background `&` e constructs suspeitos como features conservadoras.
+
+Tokens de separação ou redirecionamento dentro de aspas são tratados como argumentos comuns.
+
+Qualquer sintaxe ambígua, incompleta ou fora da subset resulta em decisão `confirm`, nunca `approve`.
+
+### 3. Avaliação por comando atômico
+
+Uma linha composta é aprovada automaticamente apenas quando todos os comandos atômicos são aprovados e nenhuma feature conservadora exige confirmação.
+
+A agregação segue precedência conservadora:
+
+1. qualquer `deny` torna a linha `deny`;
+2. qualquer `confirm` torna a linha `confirm`;
+3. somente tudo `approve` torna a linha `approve`.
+
+### 4. Regras estruturadas
+
+Estender a allowlist com regras estruturadas, mantendo compatibilidade com `AutoApprove` e `AlwaysDeny`.
+
+As regras estruturadas permitem diferenciar subcomandos:
+
+```go
+type CommandRule struct {
+    Program     string   `json:"program"`
+    Subcommands []string `json:"subcommands,omitempty"`
+    Args        []string `json:"args,omitempty"`
+    Decision    string   `json:"decision"`
+}
+```
+
+Exemplos esperados:
+
+- `kubectl get *` pode ser `approve`;
+- `kubectl describe *` pode ser `approve`;
+- `kubectl delete *` deve ser `confirm` ou `deny`;
+- `kubectl patch *` deve ser `confirm`.
+
+Regras `deny` têm precedência sobre regras `confirm` e `approve`.
+
+### 5. Compatibilidade
+
+As listas legadas `AutoApprove` e `AlwaysDeny` continuam funcionando para perfis e allowlists existentes. Elas passam a ser avaliadas contra cada comando atômico quando a linha puder ser parseada com segurança.
+
+## Fases
+
+### Fase 1 — Documentação arquitetural
+
+- Registrar esta AEP.
+- Definir a primeira subset suportada e os comportamentos conservadores.
+
+### Fase 2 — Package `commandpolicy`
+
+- Criar AST mínima para comandos atômicos.
+- Implementar parser da subset comum.
+- Detectar separadores, redirecionamentos, pipes, background e sintaxe ambígua.
+- Adicionar testes unitários do parser.
+
+### Fase 3 — Allowlist estruturada
+
+- Estender o modelo de allowlist com regras estruturadas.
+- Manter compatibilidade com regras legadas.
+- Cobrir precedência e subcomandos com testes.
+
+### Fase 4 — Integração com `run_command`
+
+- Substituir a avaliação direta de string por `commandpolicy.Evaluate`.
+- Logar motivos de confirmação/bloqueio para facilitar diagnóstico.
+- Preservar execução da string original no PTY.
+
+### Fase 5 — Validação
+
+- Rodar testes do pacote de política.
+- Rodar testes de allowlist e shell afetados.
+- Garantir que comandos compostos seguros sejam autoaprovados e comandos destrutivos exijam confirmação ou sejam bloqueados.
+
+## Riscos
+
+- Um parser permissivo demais pode autoaprovar comandos que deveriam pedir confirmação.
+- Um parser restritivo demais pode gerar prompts extras, mas esse é o erro aceitável para a primeira entrega.
+- PowerShell e `cmd.exe` têm gramáticas próprias; por isso a subset do projeto deve ser explícita e não vendida como parser completo dessas shells.
+- Redirecionamentos e heredocs podem alterar arquivos ou esconder efeitos colaterais; na primeira entrega eles exigem confirmação.
+
+## Critérios de aceitação
+
+- `git status && git diff` pode ser autoaprovado quando ambos os comandos são permitidos.
+- `git status && rm -rf dist` não pode ser autoaprovado.
+- `kubectl get pods` pode ser autoaprovado por regra estruturada.
+- `kubectl delete pod x` e `kubectl patch deployment x` não são autoaprovados por uma regra genérica de `kubectl`.
+- `>`, `>>`, `2>`, `2>>`, `<`, `<<`, `|`, `$()` e backticks forçam confirmação na primeira entrega.
+- Tokens especiais dentro de aspas não são tratados como operadores.
+- Regras legadas continuam funcionando.
+- Testes cobrem parser, agregação de decisões, regras estruturadas e integração com `run_command`.
