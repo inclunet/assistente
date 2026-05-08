@@ -152,6 +152,61 @@ func TestRedactCommandForLog_DoesNotIncludeArgs(t *testing.T) {
 	}
 }
 
+func TestRunCommand_DenyContentDoesNotLeakRawCommand(t *testing.T) {
+	// O Content retornado em DecisionDeny vai para o LLM. Nunca deve conter
+	// tokens/senhas em flags inline — usa a forma redigida em vez de %q da
+	// string crua.
+	al := &allowlist.Allowlist{
+		AlwaysDeny:    []string{"psql"},
+		DefaultAction: "confirm",
+	}
+
+	rc := NewRunCommand(nil, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	command := `psql -h db -U admin -W hunter2-supersecret`
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"`+command+`"}`))
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error result for denied command")
+	}
+	if strings.Contains(result.Content, "hunter2-supersecret") {
+		t.Errorf("Content vazou senha (%q): %s", "hunter2-supersecret", result.Content)
+	}
+	if strings.Contains(result.Content, "-W") {
+		t.Errorf("Content vazou flag sensivel (-W): %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "psql") {
+		t.Errorf("Content deveria mencionar o programa para diagnostico minimo: %s", result.Content)
+	}
+}
+
+func TestRunCommand_ConfirmRejectedContentDoesNotLeakRawCommand(t *testing.T) {
+	al := &allowlist.Allowlist{DefaultAction: "confirm"}
+
+	confirmFn := func(ctx context.Context, command, workDir string) (bool, error) {
+		return false, nil
+	}
+
+	rc := NewRunCommand(nil, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+
+	command := `curl -H 'Authorization: Bearer secret-bearer-token' https://api`
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"`+command+`"}`))
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error when confirmation rejected")
+	}
+	if strings.Contains(result.Content, "secret-bearer-token") {
+		t.Errorf("Content vazou token: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "curl") {
+		t.Errorf("Content deveria mencionar o programa: %s", result.Content)
+	}
+}
+
 func TestRunCommand_ConfirmRejected(t *testing.T) {
 	al := &allowlist.Allowlist{DefaultAction: "confirm"}
 

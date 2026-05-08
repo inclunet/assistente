@@ -151,13 +151,19 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	switch decision {
 	case allowlist.DecisionDeny:
+		// Nao retornamos a.Command cru: este Content e enviado ao LLM e poderia
+		// vazar tokens/senhas em flags ou env inline. Usamos o mesmo resumo
+		// redigido aplicado nos logs (programas + contagem de args). Os Reasons
+		// ja foram sanitizados em commandpolicy.evaluateAtom (so cmd.Program).
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %q\nMotivos: %s", a.Command, strings.Join(policyResult.Reasons, "; ")),
+			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
 			IsError: true,
 		}, nil
 
 	case allowlist.DecisionConfirm:
 		if rc.confirmFn != nil {
+			// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
+			// UI local para decidir, e esse caminho nao vai para o LLM.
 			approved, err := rc.confirmFn(ctx, a.Command, workDir)
 			if err != nil {
 				return tools.ToolResult{
@@ -166,8 +172,10 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 				}, nil
 			}
 			if !approved {
+				// Mesmo motivo do deny acima: a string vai para o LLM, nao
+				// repetimos o comando bruto aqui.
 				return tools.ToolResult{
-					Content: fmt.Sprintf("Comando negado pelo usuário: %q", a.Command),
+					Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
 					IsError: true,
 				}, nil
 			}

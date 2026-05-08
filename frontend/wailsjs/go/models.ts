@@ -38,15 +38,7 @@ export namespace allowlist {
 	        this.description = source["description"];
 	        this.auto_approve = source["auto_approve"];
 	        this.always_deny = source["always_deny"];
-	        // Garantimos que cada elemento de command_rules vire instancia de
-	        // CommandRule, em paralelo ao padrao usado por convertValues nas
-	        // demais classes deste arquivo (evitamos definir convertValues como
-	        // metodo aqui para nao alterar o shape do tipo Allowlist, que e
-	        // construido como literal em varios lugares do frontend).
-	        const rawRules = source["command_rules"];
-	        this.command_rules = Array.isArray(rawRules)
-	            ? rawRules.map((rule: any) => rule instanceof CommandRule ? rule : new CommandRule(rule))
-	            : rawRules;
+	        this.command_rules = source["command_rules"];
 	        this.default_action = source["default_action"];
 	    }
 	}
