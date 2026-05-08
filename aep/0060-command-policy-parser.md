@@ -79,9 +79,49 @@ Exemplos esperados:
 
 Regras `deny` têm precedência sobre regras `confirm` e `approve`.
 
+#### Precedência entre regras que casam o mesmo átomo
+
+Quando mais de uma regra casa o mesmo `(program, subcommands, args)` para um átomo, a ordem de resolução é fail-closed e separada da agregação entre átomos compostos:
+
+1. regra estruturada `deny`;
+2. pattern legado `always_deny`;
+3. regra estruturada `confirm` — **antes** de `approve`;
+4. regra estruturada `approve`;
+5. pattern legado `auto_approve`;
+6. `default_action` da allowlist.
+
+A intenção é permitir que o usuário adicione uma exceção restritiva (ex.: `kubectl get secret` com `decision=confirm`) sobre uma regra mais permissiva (`kubectl get *` com `decision=approve`) sem ter que reordenar manualmente. Para a agregação entre átomos compostos (linha `git status && rm -rf dist`), a precedência continua sendo `deny > confirm > approve`, conforme item 3.
+
+#### Wildcard `*`
+
+`*` em `Subcommands`/`Args` é interpretado como "casa o restante" e só é permitido na **última posição** da lista. Em qualquer outra posição é tratado como literal — uma regra como `Subcommands: ["pod", "*", "--force"]` jamais casa, porque `*` no meio nunca é wildcard. A validação no `Manager.save` rejeita explicitamente regras com `*` fora da última posição, mas o evaluator preserva o mesmo comportamento defensivo para regras carregadas de perfis legados ou editadas manualmente.
+
+#### Validação no save
+
+O `Manager.save` rejeita allowlists com regras estruturadas inválidas:
+
+- `Program` vazio ou só whitespace;
+- `Decision` ausente ou diferente de `approve|confirm|deny` (case-insensitive);
+- `*` fora da última posição em `Subcommands` ou `Args`.
+
+Em runtime, `parseRuleDecision` mantém o fail-closed: valor desconhecido vira `confirm`. A combinação garante que o problema seja detectado cedo (no save) e que perfis pré-existentes inválidos não exponham o sistema a aprovações indevidas.
+
 ### 5. Compatibilidade
 
 As listas legadas `AutoApprove` e `AlwaysDeny` continuam funcionando para perfis e allowlists existentes. Elas passam a ser avaliadas contra cada comando atômico quando a linha puder ser parseada com segurança.
+
+### 6. Migração de allowlists existentes
+
+`Manager.EnsureDefaults` é executado no boot e historicamente só criava `padrao.json` quando o diretório de allowlists estava vazio. Isso impediria que usuários pré-existentes recebessem as novas `CommandRules` para `kubectl` introduzidas neste AEP.
+
+Adicionamos uma migração idempotente, executada após o early-return:
+
+- Se `padrao.json` existe, é carregado.
+- Para cada `CommandRule` em `DefaultAllowlist()`, comparamos `Program` (case-insensitive) contra os programas já presentes em `al.CommandRules`.
+- Programas ausentes recebem todas as regras default daquele programa.
+- Se nada precisa ser adicionado, nenhum I/O extra é feito.
+
+A migração respeita personalizações: se o usuário já tem qualquer regra estruturada para `kubectl`, deixamos suas regras intactas. Apenas programas inexistentes nas regras estruturadas do usuário recebem o default.
 
 ## Fases
 

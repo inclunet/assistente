@@ -184,6 +184,54 @@ func TestEvaluate_NoDuplicateReasonForUnrecognizedCommand(t *testing.T) {
 	}
 }
 
+func TestEvaluate_WildcardInMiddleIsLiteral(t *testing.T) {
+	// Regra estruturada com "*" no meio jamais deve casar (defesa em
+	// profundidade — a validacao de save tambem rejeita esse caso, mas o
+	// runtime deve se proteger contra perfis legados/manualmente editados).
+	al := &allowlist.Allowlist{
+		DefaultAction: "confirm",
+		CommandRules: []allowlist.CommandRule{
+			{Program: "kubectl", Subcommands: []string{"pod", "*", "--force"}, Decision: "approve"},
+		},
+	}
+
+	got := Evaluate("kubectl pod something --force", al)
+	if got.Decision == allowlist.DecisionApprove {
+		t.Fatalf("regra com * no meio nao deveria aprovar: reasons=%v", got.Reasons)
+	}
+}
+
+func TestEvaluate_WildcardAtTailMatches(t *testing.T) {
+	al := &allowlist.Allowlist{
+		DefaultAction: "confirm",
+		CommandRules: []allowlist.CommandRule{
+			{Program: "kubectl", Subcommands: []string{"get"}, Args: []string{"*"}, Decision: "approve"},
+		},
+	}
+
+	got := Evaluate("kubectl get pods -n production", al)
+	if got.Decision != allowlist.DecisionApprove {
+		t.Fatalf("decision = %s, want approve; reasons=%v", got.Decision, got.Reasons)
+	}
+}
+
+func TestEvaluate_StructuredConfirmBeatsStructuredApproveForSameAtom(t *testing.T) {
+	// Documenta a precedencia interna: quando duas regras estruturadas casam
+	// o mesmo atomo, "confirm" vence "approve" (fail-closed).
+	al := &allowlist.Allowlist{
+		DefaultAction: "confirm",
+		CommandRules: []allowlist.CommandRule{
+			{Program: "kubectl", Subcommands: []string{"get"}, Args: []string{"*"}, Decision: "approve"},
+			{Program: "kubectl", Subcommands: []string{"get"}, Args: []string{"*"}, Decision: "confirm"},
+		},
+	}
+
+	got := Evaluate("kubectl get secret api-token", al)
+	if got.Decision != allowlist.DecisionConfirm {
+		t.Fatalf("decision = %s, want confirm (precedencia interna)", got.Decision)
+	}
+}
+
 func TestEvaluate_DefaultAllowlistKubectlPolicy(t *testing.T) {
 	al := allowlist.DefaultAllowlist()
 

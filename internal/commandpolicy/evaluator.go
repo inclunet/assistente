@@ -63,6 +63,22 @@ func Evaluate(commandLine string, al *allowlist.Allowlist) EvaluationResult {
 // uma reason segura para usuario/log: usamos apenas cmd.Program (e nao
 // cmd.String()) para evitar replicar args completos em logs ou no output da
 // tool, que pode conter segredos (tokens, paths, credenciais).
+//
+// Precedencia interna (fail-closed) quando varias regras casam o mesmo atomo:
+//
+//  1. structured deny
+//  2. legacy always_deny
+//  3. structured confirm     // antes de approve para preservar excecoes restritivas
+//  4. structured approve
+//  5. legacy auto_approve
+//  6. default_action da allowlist
+//
+// Esta ordem é diferente da agregacao entre atomos compostos
+// (deny > confirm > approve, em ParseResult/Evaluate): aqui ela existe para
+// que um usuario consiga adicionar uma regra restritiva (ex.:
+// "kubectl get secret confirm") sobre uma regra mais permissiva
+// ("kubectl get * approve") sem precisar reordenar. Documentado tambem em
+// aep/0060-command-policy-parser.md.
 func evaluateAtom(cmd Command, al *allowlist.Allowlist) (allowlist.Decision, string) {
 	if al == nil {
 		return allowlist.DecisionConfirm, fmt.Sprintf("%q exige confirmacao: sem allowlist ativa", cmd.Program)
@@ -147,6 +163,15 @@ func matchStructuredRule(cmd Command, rules []allowlist.CommandRule, decision al
 	return allowlist.CommandRule{}, false
 }
 
+// matchSequence faz casamento posicional de patterns contra values.
+//
+// O coringa "*" so e tratado como wildcard quando aparece como ultimo
+// elemento da lista de patterns (consome o restante de values). Em qualquer
+// outra posicao, "*" e tratado como literal — um usuario que escreva
+// Subcommands: ["pod", "*", "--force"] espera, intuitivamente, que --force
+// seja obrigatorio. A validacao em allowlist.Validate() rejeita "*" fora da
+// ultima posicao no momento do save, mas mantemos esse comportamento defensivo
+// aqui para perfis legados ou regras editadas manualmente.
 func matchSequence(values, patterns []string) bool {
 	if len(patterns) == 0 {
 		return true
@@ -158,7 +183,7 @@ func matchSequence(values, patterns []string) bool {
 		return false
 	}
 	for i, pattern := range patterns {
-		if pattern == "*" {
+		if i == len(patterns)-1 && pattern == "*" {
 			return true
 		}
 		if !strings.EqualFold(values[i], pattern) {
