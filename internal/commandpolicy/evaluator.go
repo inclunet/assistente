@@ -68,7 +68,7 @@ func evaluateAtom(cmd Command, al *allowlist.Allowlist) (allowlist.Decision, str
 	}
 
 	for _, pattern := range al.AlwaysDeny {
-		if matchLegacyPattern(cmd.String(), pattern) {
+		if allowlist.MatchPattern(cmd.String(), pattern) {
 			return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por always_deny: %s", cmd.String(), pattern)
 		}
 	}
@@ -82,7 +82,7 @@ func evaluateAtom(cmd Command, al *allowlist.Allowlist) (allowlist.Decision, str
 	}
 
 	for _, pattern := range al.AutoApprove {
-		if matchLegacyPattern(cmd.String(), pattern) {
+		if allowlist.MatchPattern(cmd.String(), pattern) {
 			return allowlist.DecisionApprove, fmt.Sprintf("%q aprovado por auto_approve: %s", cmd.String(), pattern)
 		}
 	}
@@ -171,25 +171,3 @@ func describeRule(rule allowlist.CommandRule) string {
 	return strings.Join(parts, " ")
 }
 
-func matchLegacyPattern(command, pattern string) bool {
-	pattern = strings.TrimSpace(pattern)
-	if pattern == "" {
-		return false
-	}
-
-	if strings.HasSuffix(pattern, " *") {
-		prefix := strings.TrimSuffix(pattern, "*")
-		return strings.HasPrefix(command, prefix)
-	}
-
-	if strings.HasSuffix(pattern, "*") {
-		prefix := strings.TrimSuffix(pattern, "*")
-		return strings.HasPrefix(command, prefix)
-	}
-
-	if command == pattern {
-		return true
-	}
-
-	return strings.HasPrefix(command, pattern+" ")
-}

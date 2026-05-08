@@ -111,9 +111,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}, nil
 	}
 
-	if a.Command == "" {
+	if strings.TrimSpace(a.Command) == "" {
 		return tools.ToolResult{
-			Content: "O parâmetro 'command' é obrigatório",
+			Content: "O parâmetro 'command' é obrigatório e não pode ser vazio",
 			IsError: true,
 		}, nil
 	}
@@ -133,7 +133,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 	}
 
-	// Avalia allowlist
+	// Avalia o comando contra a politica (allowlist + parser conservador)
 	policyResult := rc.evaluateCommand(a.Command)
 	decision := policyResult.Decision
 	log.Printf("[RunCommand] Comando: %q, decisão: %s, motivos: %v", a.Command, decision, policyResult.Reasons)
@@ -141,7 +141,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	switch decision {
 	case allowlist.DecisionDeny:
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Comando bloqueado pela allowlist: %q\nMotivos: %s", a.Command, strings.Join(policyResult.Reasons, "; ")),
+			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %q\nMotivos: %s", a.Command, strings.Join(policyResult.Reasons, "; ")),
 			IsError: true,
 		}, nil
 

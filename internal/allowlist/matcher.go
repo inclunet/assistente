@@ -43,14 +43,17 @@ func (al *Allowlist) Evaluate(command string) Decision {
 	}
 }
 
-// matchPattern verifica se um comando corresponde a um pattern.
+// MatchPattern verifica se um comando corresponde a um pattern legado.
 //
 // Regras de matching:
 //   - Pattern exato: "git status" casa com "git status" apenas
 //   - Pattern com wildcard no final: "git *" casa com qualquer comando que começa com "git "
 //   - Pattern simples (sem wildcard): "ls" casa com "ls" ou "ls <args>"
 //     (ou seja, o comando deve ser exatamente o pattern ou começar com pattern seguido de espaço)
-func matchPattern(command, pattern string) bool {
+//
+// Esta função é exportada para que outros pacotes (ex.: commandpolicy)
+// possam reaproveitar o mesmo matching e evitar divergências.
+func MatchPattern(command, pattern string) bool {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
 		return false
@@ -75,4 +78,9 @@ func matchPattern(command, pattern string) bool {
 
 	// O comando começa com o pattern seguido de espaço (o pattern é o "base command")
 	return strings.HasPrefix(command, pattern+" ")
+}
+
+// matchPattern é mantido como alias interno para preservar chamadas legadas.
+func matchPattern(command, pattern string) bool {
+	return MatchPattern(command, pattern)
 }
