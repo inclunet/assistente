@@ -153,8 +153,12 @@ func (m *Manager) EnsureDefaults() error {
 // E idempotente: se padrao.json ja contem qualquer regra para "kubectl", nao
 // tocamos em nenhuma regra de "kubectl" — respeitamos a customizacao mesmo
 // que ela cubra so um subcomando. So adicionamos regras de programas
-// totalmente ausentes em al.CommandRules. Se nada precisa ser feito, nenhum
-// I/O e executado.
+// totalmente ausentes em al.CommandRules.
+//
+// Custo: a funcao sempre executa Exists + loadFromFile (leitura + unmarshal)
+// para descobrir se ha programas ausentes; o que evitamos quando nada precisa
+// ser feito e a escrita no disco (e a re-validacao via save). Em outras
+// palavras, runs subsequentes sao "no-write" mas nao "no-I/O".
 //
 // Falhas aqui sao logadas mas nao bloqueiam o boot do app: a feature nova fica
 // indisponivel para o usuario (igual a hoje), mas o sistema sobe normal.

@@ -110,7 +110,11 @@ func (a *Allowlist) Validate() error {
 	}
 
 	if _, ok := validDefaultActions[strings.ToLower(strings.TrimSpace(a.DefaultAction))]; !ok {
-		errs = append(errs, fmt.Sprintf("default_action: valor invalido %q (esperado: approve|confirm|deny)", a.DefaultAction))
+		// "approve" intencionalmente NAO e aceito como default_action: seria
+		// equivalente a auto-aprovar tudo que nao casa nenhuma regra, oposto
+		// da postura fail-closed do projeto. Vazio e aceito porque o evaluator
+		// trata como "confirm" por padrao.
+		errs = append(errs, fmt.Sprintf("default_action: valor invalido %q (esperado: confirm|deny ou vazio)", a.DefaultAction))
 	}
 
 	for i, rule := range a.CommandRules {

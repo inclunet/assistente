@@ -212,6 +212,7 @@ export default function AllowlistPage() {
         description: full?.description || row.description || '',
         auto_approve: full?.auto_approve || [],
         always_deny: full?.always_deny || [],
+        command_rules: full?.command_rules || [],
         default_action: full?.default_action || 'confirm',
       };
       const newSlug = await CreateAllowlist(payload);
@@ -223,7 +224,10 @@ export default function AllowlistPage() {
         slug: newSlug,
         name: payload.name,
         description: payload.description || '',
-        ruleCount: payload.auto_approve.length + payload.always_deny.length,
+        ruleCount:
+          payload.auto_approve.length +
+          payload.always_deny.length +
+          (payload.command_rules?.length ?? 0),
       } as AllowlistRow);
     } catch (error: unknown) {
         addToast(getErrorMessage(error) || t('allowlist.error.duplicate'), 'error');
