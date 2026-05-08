@@ -4,45 +4,6 @@ import (
 	"strings"
 )
 
-// Evaluate avalia um comando contra as regras da allowlist.
-// Ordem de avaliação:
-//  1. AlwaysDeny — se bater, retorna DecisionDeny
-//  2. AutoApprove — se bater, retorna DecisionApprove
-//  3. DefaultAction — "confirm" (padrão) ou "deny"
-func (al *Allowlist) Evaluate(command string) Decision {
-	if al == nil {
-		return DecisionConfirm
-	}
-
-	// Normaliza o comando (remove espaços extras)
-	cmd := strings.TrimSpace(command)
-	if cmd == "" {
-		return DecisionDeny
-	}
-
-	// 1. Verifica AlwaysDeny primeiro
-	for _, pattern := range al.AlwaysDeny {
-		if MatchPattern(cmd, pattern) {
-			return DecisionDeny
-		}
-	}
-
-	// 2. Verifica AutoApprove
-	for _, pattern := range al.AutoApprove {
-		if MatchPattern(cmd, pattern) {
-			return DecisionApprove
-		}
-	}
-
-	// 3. Decisão padrão
-	switch strings.ToLower(al.DefaultAction) {
-	case "deny":
-		return DecisionDeny
-	default:
-		return DecisionConfirm
-	}
-}
-
 // MatchPattern verifica se um comando corresponde a um pattern legado.
 //
 // Regras de matching:
@@ -51,8 +12,11 @@ func (al *Allowlist) Evaluate(command string) Decision {
 //   - Pattern simples (sem wildcard): "ls" casa com "ls" ou "ls <args>"
 //     (ou seja, o comando deve ser exatamente o pattern ou começar com pattern seguido de espaço)
 //
-// Esta função é exportada para que outros pacotes (ex.: commandpolicy)
-// possam reaproveitar o mesmo matching e evitar divergências.
+// Esta funcao e o ponto unico de matching de patterns legados (auto_approve /
+// always_deny) e e consumida por commandpolicy.Evaluate, que e o avaliador
+// efetivo (parser conservador + politica). O metodo Allowlist.Evaluate antigo
+// foi removido (AEP-0060): toda decisao de comando passa por
+// commandpolicy.Evaluate, evitando dois caminhos divergentes.
 func MatchPattern(command, pattern string) bool {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {

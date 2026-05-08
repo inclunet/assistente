@@ -340,6 +340,113 @@ func TestCommand_QuotedString(t *testing.T) {
 	}
 }
 
+func TestEvaluate_NilAllowlistRequiresConfirmation(t *testing.T) {
+	// Migrado de TestEvaluate_NilAllowlist (Allowlist.Evaluate, removido no
+	// AEP-0060). Sem allowlist ativa, qualquer comando deve cair para
+	// confirmacao — fail-closed.
+	got := Evaluate("ls", nil)
+	if got.Decision != allowlist.DecisionConfirm {
+		t.Fatalf("decision = %s, want confirm; reasons=%v", got.Decision, got.Reasons)
+	}
+}
+
+func TestEvaluate_EmptyCommandIsDenied(t *testing.T) {
+	// Migrado de TestEvaluate_EmptyCommand. String vazia ou apenas whitespace
+	// nunca deve ser executada.
+	for _, cmd := range []string{"", "   ", "\t\n"} {
+		t.Run(cmd, func(t *testing.T) {
+			got := Evaluate(cmd, &allowlist.Allowlist{DefaultAction: "confirm"})
+			if got.Decision != allowlist.DecisionDeny {
+				t.Fatalf("decision = %s, want deny; reasons=%v", got.Decision, got.Reasons)
+			}
+		})
+	}
+}
+
+func TestEvaluate_LegacyDenyTakesPriorityOverApprove(t *testing.T) {
+	// Migrado de TestEvaluate_DenyTakesPriority. A precedencia
+	// always_deny > auto_approve para o mesmo atomo continua valendo via
+	// commandpolicy.evaluateAtom.
+	al := &allowlist.Allowlist{
+		AutoApprove:   []string{"rm"},
+		AlwaysDeny:    []string{"rm -rf /"},
+		DefaultAction: "confirm",
+	}
+
+	if got := Evaluate("rm -rf /", al); got.Decision != allowlist.DecisionDeny {
+		t.Fatalf("'rm -rf /': decision = %s, want deny; reasons=%v", got.Decision, got.Reasons)
+	}
+	if got := Evaluate("rm file.txt", al); got.Decision != allowlist.DecisionApprove {
+		t.Fatalf("'rm file.txt': decision = %s, want approve; reasons=%v", got.Decision, got.Reasons)
+	}
+}
+
+func TestEvaluate_DefaultActionDenyForUnknownCommand(t *testing.T) {
+	// Migrado de TestEvaluate_DefaultActionDeny. default_action="deny" deve
+	// negar comandos que nao casam nenhuma regra explicita.
+	al := &allowlist.Allowlist{
+		AutoApprove:   []string{"ls"},
+		DefaultAction: "deny",
+	}
+
+	if got := Evaluate("ls", al); got.Decision != allowlist.DecisionApprove {
+		t.Fatalf("'ls': decision = %s, want approve; reasons=%v", got.Decision, got.Reasons)
+	}
+	if got := Evaluate("curl https://example.com", al); got.Decision != allowlist.DecisionDeny {
+		t.Fatalf("unknown command: decision = %s, want deny; reasons=%v", got.Decision, got.Reasons)
+	}
+}
+
+func TestEvaluate_DefaultAllowlistEndToEnd(t *testing.T) {
+	// Migrado e expandido a partir de TestEvaluate_DefaultAllowlist (era
+	// TestEvaluate_DefaultAllowlist no allowlist_test.go). Verifica a
+	// politica empacotada com o app — qualquer regressao na configuracao
+	// padrao quebra aqui.
+	al := allowlist.DefaultAllowlist()
+
+	approved := []string{
+		"ls", "ls -la",
+		"pwd",
+		"git status", "git diff main",
+		"echo hello",
+		"go version",
+		"go test ./...",
+	}
+	for _, cmd := range approved {
+		t.Run("approve/"+cmd, func(t *testing.T) {
+			if got := Evaluate(cmd, al); got.Decision != allowlist.DecisionApprove {
+				t.Fatalf("decision = %s, want approve; reasons=%v", got.Decision, got.Reasons)
+			}
+		})
+	}
+
+	denied := []string{
+		"rm -rf /",
+		"shutdown",
+		"reboot",
+	}
+	for _, cmd := range denied {
+		t.Run("deny/"+cmd, func(t *testing.T) {
+			if got := Evaluate(cmd, al); got.Decision != allowlist.DecisionDeny {
+				t.Fatalf("decision = %s, want deny; reasons=%v", got.Decision, got.Reasons)
+			}
+		})
+	}
+
+	confirm := []string{
+		"rm temp.txt",
+		"curl https://example.com",
+		"docker rm container",
+	}
+	for _, cmd := range confirm {
+		t.Run("confirm/"+cmd, func(t *testing.T) {
+			if got := Evaluate(cmd, al); got.Decision != allowlist.DecisionConfirm {
+				t.Fatalf("decision = %s, want confirm; reasons=%v", got.Decision, got.Reasons)
+			}
+		})
+	}
+}
+
 func TestEvaluate_DefaultAllowlistKubectlPolicy(t *testing.T) {
 	al := allowlist.DefaultAllowlist()
 

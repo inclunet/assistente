@@ -49,125 +49,13 @@ func TestMatchPattern(t *testing.T) {
 	}
 }
 
-func TestEvaluate_NilAllowlist(t *testing.T) {
-	var al *Allowlist
-	if al.Evaluate("ls") != DecisionConfirm {
-		t.Error("nil allowlist should return DecisionConfirm")
-	}
-}
-
-func TestEvaluate_EmptyCommand(t *testing.T) {
-	al := &Allowlist{}
-	if al.Evaluate("") != DecisionDeny {
-		t.Error("empty command should be denied")
-	}
-	if al.Evaluate("  ") != DecisionDeny {
-		t.Error("whitespace command should be denied")
-	}
-}
-
-func TestEvaluate_DenyTakesPriority(t *testing.T) {
-	al := &Allowlist{
-		AutoApprove: []string{"rm"},
-		AlwaysDeny:  []string{"rm -rf /"},
-	}
-
-	// "rm -rf /" está em deny E em approve (via base match) — deny ganha
-	if al.Evaluate("rm -rf /") != DecisionDeny {
-		t.Error("deny should take priority over approve")
-	}
-
-	// "rm file.txt" está apenas em approve
-	if al.Evaluate("rm file.txt") != DecisionApprove {
-		t.Error("'rm file.txt' should be approved")
-	}
-}
-
-func TestEvaluate_AutoApprove(t *testing.T) {
-	al := &Allowlist{
-		AutoApprove:   []string{"ls", "git status", "git diff *"},
-		DefaultAction: "confirm",
-	}
-
-	tests := []struct {
-		command  string
-		expected Decision
-	}{
-		{"ls", DecisionApprove},
-		{"ls -la", DecisionApprove},
-		{"git status", DecisionApprove},
-		{"git status --short", DecisionApprove},
-		{"git diff HEAD~1", DecisionApprove},
-		{"git push", DecisionConfirm}, // não está na allowlist
-		{"rm -rf /", DecisionConfirm}, // não está em deny nem approve
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.command, func(t *testing.T) {
-			got := al.Evaluate(tt.command)
-			if got != tt.expected {
-				t.Errorf("Evaluate(%q) = %v, want %v", tt.command, got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestEvaluate_DefaultActionDeny(t *testing.T) {
-	al := &Allowlist{
-		AutoApprove:   []string{"ls"},
-		DefaultAction: "deny",
-	}
-
-	if al.Evaluate("ls") != DecisionApprove {
-		t.Error("'ls' should be approved")
-	}
-	if al.Evaluate("rm -rf /") != DecisionDeny {
-		t.Error("unknown command with default 'deny' should be denied")
-	}
-}
-
-func TestEvaluate_DefaultAllowlist(t *testing.T) {
-	al := DefaultAllowlist()
-
-	// Comandos que devem ser aprovados
-	approved := []string{
-		"ls", "ls -la",
-		"pwd",
-		"git status", "git diff main",
-		"echo hello",
-		"go version",
-		"go test ./...",
-	}
-	for _, cmd := range approved {
-		if al.Evaluate(cmd) != DecisionApprove {
-			t.Errorf("default allowlist should approve %q", cmd)
-		}
-	}
-
-	// Comandos que devem ser negados
-	denied := []string{
-		"rm -rf /",
-		"shutdown",
-		"reboot",
-	}
-	for _, cmd := range denied {
-		if al.Evaluate(cmd) != DecisionDeny {
-			t.Errorf("default allowlist should deny %q", cmd)
-		}
-	}
-
-	// Comandos que devem pedir confirmação
-	confirm := []string{
-		"rm temp.txt",
-		"curl https://example.com",
-		"docker rm container",
-	}
-	for _, cmd := range confirm {
-		if al.Evaluate(cmd) != DecisionConfirm {
-			t.Errorf("default allowlist should confirm %q", cmd)
-		}
-	}
-}
+// Os testes que cobriam Allowlist.Evaluate (removido no AEP-0060) foram
+// migrados para internal/commandpolicy/evaluator_test.go: a semantica geral
+// (deny vence approve, default_action, DefaultAllowlist end-to-end, nil
+// allowlist, comando vazio) e responsabilidade do commandpolicy, que agora
+// e o unico avaliador de comandos. Aqui mantemos apenas os testes
+// relacionados ao MatchPattern, ao schema JSON da Allowlist e a utilitarios
+// internos do pacote.
 
 func TestAllowlist_CommandRulesJSONCompatibility(t *testing.T) {
 	raw := []byte(`{
