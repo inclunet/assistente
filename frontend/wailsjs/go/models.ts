@@ -1,10 +1,31 @@
 export namespace allowlist {
 	
+	export class CommandRule {
+	    program: string;
+	    subcommands?: string[];
+	    args?: string[];
+	    decision: string;
+	    description?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandRule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.program = source["program"];
+	        this.subcommands = source["subcommands"];
+	        this.args = source["args"];
+	        this.decision = source["decision"];
+	        this.description = source["description"];
+	    }
+	}
 	export class Allowlist {
 	    name: string;
 	    description?: string;
 	    auto_approve: string[];
 	    always_deny: string[];
+	    command_rules?: CommandRule[];
 	    default_action: string;
 	
 	    static createFrom(source: any = {}) {
@@ -17,6 +38,7 @@ export namespace allowlist {
 	        this.description = source["description"];
 	        this.auto_approve = source["auto_approve"];
 	        this.always_deny = source["always_deny"];
+	        this.command_rules = source["command_rules"];
 	        this.default_action = source["default_action"];
 	    }
 	}
