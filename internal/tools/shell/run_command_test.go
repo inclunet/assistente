@@ -132,6 +132,23 @@ func TestRedactCommandForLog_DoesNotIncludeArgs(t *testing.T) {
 			mustContain: []string{"unparsed"},
 			mustNotHave: []string{},
 		},
+		{
+			// Copilot review: env inline (KEY=VALUE cmd) ja era o caso mais
+			// perigoso do redactCommandForLog. O parser agora consome essas
+			// atribuicoes em Command.EnvAssignments, entao Program vira o
+			// programa real ("git"), o resumo cita apenas "[env=N]" sem o
+			// nome ou o valor da variavel.
+			name:        "env inline assignment",
+			command:     "TOKEN=supersecret git status",
+			mustContain: []string{"git", "args", "env=1"},
+			mustNotHave: []string{"supersecret", "TOKEN", "TOKEN=supersecret"},
+		},
+		{
+			name:        "multiple env inline assignments",
+			command:     "FOO=bar BAZ=qux curl https://api/admin",
+			mustContain: []string{"curl", "env=2"},
+			mustNotHave: []string{"bar", "qux", "FOO", "BAZ", "admin", "api"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -213,6 +230,41 @@ func TestRunCommand_DenyContentDoesNotLeakAllowlistPattern(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, `"curl" bloqueado por always_deny[0]`) {
 		t.Errorf("Content deveria citar o motivo safe (program + idx): %s", result.Content)
+	}
+}
+
+func TestRunCommand_EnvInlineDoesNotLeakInContent(t *testing.T) {
+	// Copilot review thread (PR #117): "TOKEN=secret cmd ..." nunca pode
+	// vazar o valor no Content devolvido ao LLM. O parser consome o env
+	// assignment em Command.EnvAssignments e a feature env_assignment forca
+	// confirm; aqui validamos o caminho de confirmacao rejeitada (que tambem
+	// retorna Content para o LLM).
+	al := &allowlist.Allowlist{
+		AutoApprove:   []string{"git status"},
+		DefaultAction: "confirm",
+	}
+
+	confirmFn := func(ctx context.Context, command, workDir string) (bool, error) {
+		return false, nil
+	}
+
+	rc := NewRunCommand(nil, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+
+	command := `TOKEN=supersecret git status`
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"`+command+`"}`))
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error result when env inline forces confirmation rejected")
+	}
+	for _, fragment := range []string{"supersecret", "TOKEN=supersecret"} {
+		if strings.Contains(result.Content, fragment) {
+			t.Errorf("Content (LLM-bound) vazou env inline %q: %s", fragment, result.Content)
+		}
+	}
+	if !strings.Contains(result.Content, "git") {
+		t.Errorf("Content deveria mencionar o programa real: %s", result.Content)
 	}
 }
 

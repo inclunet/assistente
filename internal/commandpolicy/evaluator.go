@@ -118,8 +118,14 @@ func (r *EvaluationResult) appendReason(reason string) {
 // ("kubectl get * approve") sem precisar reordenar. Documentado tambem em
 // aep/0060-command-policy-parser.md.
 func evaluateAtom(cmd Command, al *allowlist.Allowlist) (decision allowlist.Decision, safe, detailed string) {
+	// safeProgram protege contra qualquer Program que tenha escapado da
+	// limpeza do parser e ainda contenha "=" (env inline nao consumido por
+	// algum motivo, perfis legados, configuracoes manuais). Defesa em
+	// profundidade: as Reasons jamais devem replicar o lado direito do "=".
+	prog := redactProgramForReason(cmd.Program)
+
 	if al == nil {
-		msg := fmt.Sprintf("%q exige confirmacao: sem allowlist ativa", cmd.Program)
+		msg := fmt.Sprintf("%q exige confirmacao: sem allowlist ativa", prog)
 		return allowlist.DecisionConfirm, msg, msg
 	}
 
@@ -129,46 +135,61 @@ func evaluateAtom(cmd Command, al *allowlist.Allowlist) (decision allowlist.Deci
 
 	if rule, idx, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionDeny); ok {
 		return allowlist.DecisionDeny,
-			fmt.Sprintf("%q bloqueado por regra estruturada (rule[%d])", cmd.Program, idx),
-			fmt.Sprintf("%q bloqueado por regra estruturada: %s", cmd.Program, describeRule(rule))
+			fmt.Sprintf("%q bloqueado por regra estruturada (rule[%d])", prog, idx),
+			fmt.Sprintf("%q bloqueado por regra estruturada: %s", prog, describeRule(rule))
 	}
 
 	for i, pattern := range al.AlwaysDeny {
 		if matchesLegacyPattern(cmd, pattern) {
 			return allowlist.DecisionDeny,
-				fmt.Sprintf("%q bloqueado por always_deny[%d]", cmd.Program, i),
-				fmt.Sprintf("%q bloqueado por always_deny: %s", cmd.Program, pattern)
+				fmt.Sprintf("%q bloqueado por always_deny[%d]", prog, i),
+				fmt.Sprintf("%q bloqueado por always_deny: %s", prog, pattern)
 		}
 	}
 
 	if rule, idx, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionConfirm); ok {
 		return allowlist.DecisionConfirm,
-			fmt.Sprintf("%q exige confirmacao por regra estruturada (rule[%d])", cmd.Program, idx),
-			fmt.Sprintf("%q exige confirmacao por regra estruturada: %s", cmd.Program, describeRule(rule))
+			fmt.Sprintf("%q exige confirmacao por regra estruturada (rule[%d])", prog, idx),
+			fmt.Sprintf("%q exige confirmacao por regra estruturada: %s", prog, describeRule(rule))
 	}
 
 	if rule, idx, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionApprove); ok {
 		return allowlist.DecisionApprove,
-			fmt.Sprintf("%q aprovado por regra estruturada (rule[%d])", cmd.Program, idx),
-			fmt.Sprintf("%q aprovado por regra estruturada: %s", cmd.Program, describeRule(rule))
+			fmt.Sprintf("%q aprovado por regra estruturada (rule[%d])", prog, idx),
+			fmt.Sprintf("%q aprovado por regra estruturada: %s", prog, describeRule(rule))
 	}
 
 	for i, pattern := range al.AutoApprove {
 		if matchesLegacyPattern(cmd, pattern) {
 			return allowlist.DecisionApprove,
-				fmt.Sprintf("%q aprovado por auto_approve[%d]", cmd.Program, i),
-				fmt.Sprintf("%q aprovado por auto_approve: %s", cmd.Program, pattern)
+				fmt.Sprintf("%q aprovado por auto_approve[%d]", prog, i),
+				fmt.Sprintf("%q aprovado por auto_approve: %s", prog, pattern)
 		}
 	}
 
 	switch strings.ToLower(al.DefaultAction) {
 	case "deny":
-		msg := fmt.Sprintf("%q bloqueado por default_action=deny", cmd.Program)
+		msg := fmt.Sprintf("%q bloqueado por default_action=deny", prog)
 		return allowlist.DecisionDeny, msg, msg
 	default:
-		msg := fmt.Sprintf("%q exige confirmacao por default_action=confirm", cmd.Program)
+		msg := fmt.Sprintf("%q exige confirmacao por default_action=confirm", prog)
 		return allowlist.DecisionConfirm, msg, msg
 	}
+}
+
+// redactProgramForReason garante que o nome do programa interpolado em
+// reasons jamais carregue o valor de uma atribuicao inline. O parser ja
+// consome KEY=VALUE em Command.EnvAssignments, mas mantemos esta funcao
+// como defesa em profundidade para perfis legados/manuais e para qualquer
+// caminho futuro que crie Commands fora do parser. A regra: se Program tem
+// "=", devolvemos so a parte ANTES do primeiro "=", anexando "=<redacted>"
+// para sinalizar a redaction sem revelar o valor.
+func redactProgramForReason(program string) string {
+	eq := strings.IndexByte(program, '=')
+	if eq < 0 {
+		return program
+	}
+	return program[:eq] + "=<redacted>"
 }
 
 func containsString(values []string, target string) bool {

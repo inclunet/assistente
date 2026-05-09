@@ -30,12 +30,25 @@ const (
 	FeatureCommandSubstitution  Feature = "command_substitution"
 	FeatureBacktickSubstitution Feature = "backtick_substitution"
 	FeatureAmbiguousSyntax      Feature = "ambiguous_syntax"
+	// FeatureEnvAssignment indica que o atomo tinha prefixos KEY=VALUE antes
+	// do programa real (ex.: `TOKEN=secret curl ...`). O parser consome esses
+	// prefixos em Command.EnvAssignments para que Program/Args fiquem limpos
+	// e nao vazem em log/Reasons. A presenca desta feature forca confirmacao
+	// (RequiresConfirmation()) — env inline e ambiguo demais para auto-aprovar
+	// porque o valor pode ser um segredo que o usuario nao quer fazer fluir
+	// para o LLM ou para arquivos de log que possam ser anexados a bug reports.
+	FeatureEnvAssignment Feature = "env_assignment"
 )
 
 // Command e a unidade atomica avaliada pela politica.
 type Command struct {
-	Program        string
-	Args           []string
+	Program string
+	Args    []string
+	// EnvAssignments contem as atribuicoes inline do shell (KEY=VALUE) que
+	// vieram antes do programa. O parser as separa de Program/Args para nao
+	// vazar nos canais "safe" (Reasons, log) — e o conteudo so e exposto em
+	// confirmFn (UI local), onde o usuario ja precisa decidir se aprova.
+	EnvAssignments []string
 	OperatorBefore Operator
 	Features       []Feature
 }

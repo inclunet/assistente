@@ -44,9 +44,33 @@ func Parse(input string) ParseResult {
 			commandFeatures = nil
 			return
 		}
+		// Peela atribuicoes inline KEY=VALUE antes do programa real. Em POSIX
+		// shells, "TOKEN=secret cmd" exporta TOKEN apenas para cmd. Sem isso,
+		// o parser tomaria "TOKEN=secret" como Program e o valor secreto
+		// vazaria no log, em Reasons e no Content devolvido ao LLM.
+		envAssignments, programIdx := splitEnvAssignments(words)
+		if programIdx >= len(words) {
+			// Linha so com env assignments e sem comando real. Isso nao e um
+			// atomo executavel — tratamos como sintaxe ambigua para forcar
+			// confirmacao em vez de aceitar silenciosamente, e nao registramos
+			// um Command (nao tem Program). A reason fica generica para nao
+			// vazar o nome da variavel que pode ser tao sensivel quanto o valor.
+			result.Errors = append(result.Errors, "atribuicao de env sem comando")
+			words = nil
+			commandFeatures = nil
+			pendingOperator = OperatorSequence
+			lastWasOperator = false
+			return
+		}
+		if len(envAssignments) > 0 {
+			commandFeatures = append(commandFeatures, FeatureEnvAssignment)
+			result.Features = appendFeature(result.Features, FeatureEnvAssignment)
+		}
+		programWords := words[programIdx:]
 		result.Commands = append(result.Commands, Command{
-			Program:        words[0],
-			Args:           append([]string(nil), words[1:]...),
+			Program:        programWords[0],
+			Args:           append([]string(nil), programWords[1:]...),
+			EnvAssignments: append([]string(nil), envAssignments...),
 			OperatorBefore: pendingOperator,
 			Features:       uniqueFeatures(commandFeatures),
 		})
@@ -311,4 +335,44 @@ func uniqueFeatures(features []Feature) []Feature {
 		out = appendFeature(out, feature)
 	}
 	return out
+}
+
+// splitEnvAssignments pega os tokens iniciais no formato KEY=VALUE (atribuicoes
+// inline de env do shell) e devolve a lista deles + o indice do primeiro
+// token que e um programa real. Quando nenhum prefixo casa, devolve nil + 0.
+//
+// Regra POSIX: o nome da variavel deve comecar com letra/underscore e conter
+// apenas letras, digitos ou underscore. Tokens como "=foo" ou "1A=x" nao
+// sao atribuicoes — sao argumentos comuns (ou nomes de programa esquisitos)
+// e devem ser tratados como Program para nao falhar matching.
+func splitEnvAssignments(words []string) (assignments []string, programIdx int) {
+	for i, w := range words {
+		if !looksLikeEnvAssignment(w) {
+			return assignments, i
+		}
+		assignments = append(assignments, w)
+	}
+	return assignments, len(words)
+}
+
+func looksLikeEnvAssignment(token string) bool {
+	eq := strings.IndexByte(token, '=')
+	if eq <= 0 {
+		return false
+	}
+	name := token[:eq]
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		if ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
+			continue
+		}
+		if i == 0 {
+			return false
+		}
+		if ch >= '0' && ch <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }

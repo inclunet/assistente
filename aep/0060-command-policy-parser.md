@@ -110,6 +110,21 @@ Em runtime, `parseRuleDecision` mantém o fail-closed: valor desconhecido vira `
 
 As listas legadas `AutoApprove` e `AlwaysDeny` continuam funcionando para perfis e allowlists existentes. Elas passam a ser avaliadas contra cada comando atômico quando a linha puder ser parseada com segurança.
 
+### 5b. Atribuições inline (`KEY=VALUE cmd ...`) e contrato de não-vazamento
+
+Atribuições inline de env (`TOKEN=secret cmd ...`) são uma porta fácil para que valores sensíveis vazem em log, em `Reasons` e no `Content` devolvido ao LLM. O parser as trata explicitamente:
+
+- tokens iniciais que casam o formato POSIX `[A-Za-z_][A-Za-z0-9_]*=...` são consumidos em `Command.EnvAssignments` antes de o `Program` ser definido;
+- a presença desses prefixos adiciona `FeatureEnvAssignment`, que faz `RequiresConfirmation()` devolver `true` — env inline jamais é auto-aprovado mesmo quando o programa real está em `AutoApprove`;
+- uma linha contendo apenas atribuições (`TOKEN=secret`) é tratada como sintaxe ambígua e não gera `Command`, com mensagem genérica para não revelar nem o nome nem o valor da variável.
+
+`EvaluationResult` separa **dois** slices de motivos:
+
+- `Reasons`: seguro para envio externo (LLM, telemetria). Contém apenas `program`, tipo da regra e índice de correlação (`rule[N]`, `always_deny[N]`, `auto_approve[N]`). Nunca interpola pattern bruto, `Subcommands`/`Args`/`Description` de regras estruturadas, nem o lado direito de uma atribuição que tenha escapado.
+- `DetailedReasons`: uso **estritamente** ao vivo na UI do desktop, onde o usuário já enxerga o conteúdo da allowlist. Mantém a forma verbosa anterior. Nunca deve ser escrito em arquivo de log nem anexado a relatos de bug.
+
+Como defesa em profundidade, o evaluator e o `redactCommandForLog` aplicam `redactProgramForReason`/`redactProgramSegment` em qualquer `Program` que contenha `=` (perfis legados, `Command` construído fora do parser): o lado direito vira `=<redacted>`. Logs locais usam `Reasons` (safe) e contagens/features — nunca `DetailedReasons`.
+
 ### 6. Migração de allowlists existentes
 
 `Manager.EnsureDefaults` é executado no boot e historicamente só criava `padrao.json` quando o diretório de allowlists estava vazio. Isso impediria que usuários pré-existentes recebessem as novas `CommandRules` para `kubectl` introduzidas neste AEP.
@@ -172,3 +187,4 @@ A migração respeita personalizações: se o usuário já tem qualquer regra es
 - Tokens especiais dentro de aspas não são tratados como operadores.
 - Regras legadas continuam funcionando.
 - Testes cobrem parser, agregação de decisões, regras estruturadas e integração com `run_command`.
+- Atribuições inline `KEY=VALUE` antes do programa são consumidas em `Command.EnvAssignments`, forçam `confirm` e nunca aparecem em `Reasons`, log do `run_command` ou `Content` devolvido ao LLM.

@@ -288,31 +288,49 @@ func (rc *RunCommand) evaluateCommand(command string) commandpolicy.EvaluationRe
 // para log. Em vez de imprimir a.Command (que pode conter tokens, senhas
 // em flags ou env inline), exibimos:
 //   - lista de programas detectados pelo parser, separados por " | ";
+//   - contagem de env assignments (sem valores) e de args para cada atomo;
 //   - quando algum atomo nao tem programa identificado (parse vazio),
 //     fallback para "<unparsed:N bytes>" com o tamanho original.
 //
 // Evita expor args/values mas preserva diagnostico minimo (qual ferramenta
-// foi pedida).
+// foi pedida e se houve env inline). Aplica defesa em profundidade via
+// redactProgramSegment para o caso raro em que o parser deixe escapar um
+// Program contendo "=" (perfis legados, configuracoes manuais).
 func redactCommandForLog(command string, result commandpolicy.EvaluationResult) string {
 	if len(result.Parse.Commands) == 0 {
 		return fmt.Sprintf("<unparsed:%d bytes>", len(command))
 	}
 	programs := make([]string, 0, len(result.Parse.Commands))
 	for _, cmd := range result.Parse.Commands {
-		program := cmd.Program
+		program := redactProgramSegment(cmd.Program)
 		if program == "" {
 			program = "<empty>"
 		}
-		programs = append(programs, fmt.Sprintf("%s(%d args)", program, len(cmd.Args)))
+		segment := fmt.Sprintf("%s(%d args)", program, len(cmd.Args))
+		if envCount := len(cmd.EnvAssignments); envCount > 0 {
+			segment = fmt.Sprintf("[env=%d]%s", envCount, segment)
+		}
+		programs = append(programs, segment)
 	}
 	return strings.Join(programs, " | ")
 }
 
-// summarizePolicyReasons gera um resumo curto para log LOCAL. Diferente do
-// Content enviado ao LLM, o log fica na maquina do usuario, entao incluimos
-// as DetailedReasons (que citam patterns/subcommands/description). Mesmo
-// assim evitamos repetir args do comando bruto: o resumo agrega contagens,
-// features detectadas e os motivos verbosos resumidos por palavras-chave.
+// redactProgramSegment redige qualquer "=" no nome do programa (defesa em
+// profundidade contra Programs que escaparam do parser ainda contendo
+// atribuicoes inline). Mesma logica do redactProgramForReason no evaluator.
+func redactProgramSegment(program string) string {
+	eq := strings.IndexByte(program, '=')
+	if eq < 0 {
+		return program
+	}
+	return program[:eq] + "=<redacted>"
+}
+
+// summarizePolicyReasons gera um resumo curto para log LOCAL. Como esses
+// logs podem ser anexados a bug reports ou copiados manualmente, usamos
+// EXCLUSIVAMENTE Reasons (safe, sem patterns/description) — DetailedReasons
+// fica reservado para uso ao vivo na UI do desktop, onde o usuario ja tem
+// visibilidade do conteudo da allowlist e nao ha risco de envio externo.
 func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
 	parts := make([]string, 0, 5)
 	parts = append(parts, fmt.Sprintf("atomos=%d", len(result.Parse.Commands)))
@@ -327,8 +345,8 @@ func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
 	if len(result.Parse.Errors) > 0 {
 		parts = append(parts, "parse_errors="+strconv.Itoa(len(result.Parse.Errors)))
 	}
-	if len(result.DetailedReasons) > 0 {
-		parts = append(parts, "detail=["+strings.Join(result.DetailedReasons, " | ")+"]")
+	if len(result.Reasons) > 0 {
+		parts = append(parts, "reasons=["+strings.Join(result.Reasons, " | ")+"]")
 	}
 	return strings.Join(parts, " ")
 }

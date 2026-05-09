@@ -383,6 +383,176 @@ func TestEvaluate_ReasonsAndDetailedReasonsHaveSameLength(t *testing.T) {
 	}
 }
 
+func TestParse_EnvInlineAssignmentsArePeeledAndForceConfirm(t *testing.T) {
+	// Copilot review thread (PR #117): "TOKEN=secret cmd ..." nao pode
+	// deixar TOKEN=secret virar Program — vazaria o valor para Reasons,
+	// log e Content. O parser deve consumir esses prefixos em
+	// Command.EnvAssignments, marcar FeatureEnvAssignment (forca confirm)
+	// e deixar Program/Args limpos.
+	tests := []struct {
+		name             string
+		input            string
+		wantProgram      string
+		wantArgs         []string
+		wantAssignments  []string
+		wantHasEnvFeat   bool
+		wantConfirmation bool
+	}{
+		{
+			name:             "single env assignment",
+			input:            "TOKEN=supersecret git status",
+			wantProgram:      "git",
+			wantArgs:         []string{"status"},
+			wantAssignments:  []string{"TOKEN=supersecret"},
+			wantHasEnvFeat:   true,
+			wantConfirmation: true,
+		},
+		{
+			name:             "multiple env assignments",
+			input:            "FOO=bar BAZ=qux curl https://api",
+			wantProgram:      "curl",
+			wantArgs:         []string{"https://api"},
+			wantAssignments:  []string{"FOO=bar", "BAZ=qux"},
+			wantHasEnvFeat:   true,
+			wantConfirmation: true,
+		},
+		{
+			name:             "name with underscore and digits after first char",
+			input:            "MY_TOKEN_2=abc cmd",
+			wantProgram:      "cmd",
+			wantArgs:         nil,
+			wantAssignments:  []string{"MY_TOKEN_2=abc"},
+			wantHasEnvFeat:   true,
+			wantConfirmation: true,
+		},
+		{
+			name:             "no env assignment when first char is digit",
+			input:            "1A=x cmd",
+			wantProgram:      "1A=x",
+			wantArgs:         []string{"cmd"},
+			wantAssignments:  nil,
+			wantHasEnvFeat:   false,
+			wantConfirmation: false,
+		},
+		{
+			name:             "no env assignment when starts with =",
+			input:            "=foo cmd",
+			wantProgram:      "=foo",
+			wantArgs:         []string{"cmd"},
+			wantAssignments:  nil,
+			wantHasEnvFeat:   false,
+			wantConfirmation: false,
+		},
+		{
+			name:             "regular command without assignments",
+			input:            "git status",
+			wantProgram:      "git",
+			wantArgs:         []string{"status"},
+			wantAssignments:  nil,
+			wantHasEnvFeat:   false,
+			wantConfirmation: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed := Parse(tt.input)
+			if len(parsed.Commands) != 1 {
+				t.Fatalf("got %d commands, want 1: %+v", len(parsed.Commands), parsed.Commands)
+			}
+			cmd := parsed.Commands[0]
+			if cmd.Program != tt.wantProgram {
+				t.Errorf("Program = %q, want %q", cmd.Program, tt.wantProgram)
+			}
+			if !equalStringSlice(cmd.Args, tt.wantArgs) {
+				t.Errorf("Args = %v, want %v", cmd.Args, tt.wantArgs)
+			}
+			if !equalStringSlice(cmd.EnvAssignments, tt.wantAssignments) {
+				t.Errorf("EnvAssignments = %v, want %v", cmd.EnvAssignments, tt.wantAssignments)
+			}
+			if has := hasFeature(parsed.Features, FeatureEnvAssignment); has != tt.wantHasEnvFeat {
+				t.Errorf("FeatureEnvAssignment present = %v, want %v (features=%v)", has, tt.wantHasEnvFeat, parsed.Features)
+			}
+			if got := parsed.RequiresConfirmation(); got != tt.wantConfirmation {
+				t.Errorf("RequiresConfirmation() = %v, want %v", got, tt.wantConfirmation)
+			}
+		})
+	}
+}
+
+func TestParse_EnvOnlyLineIsAmbiguousAndProducesNoCommand(t *testing.T) {
+	// "TOKEN=secret" sozinho nao e um comando executavel. O parser deve
+	// tratar como sintaxe ambigua e nao registrar um Command (caso contrario
+	// teriamos um Command com Program vazio e EnvAssignments populado, o que
+	// confundiria evaluateAtom). A reason fica generica para nao vazar o
+	// nome da variavel.
+	parsed := Parse("TOKEN=secret")
+	if len(parsed.Commands) != 0 {
+		t.Fatalf("expected no commands, got %d: %+v", len(parsed.Commands), parsed.Commands)
+	}
+	if !parsed.RequiresConfirmation() {
+		t.Errorf("env-only line deve forcar confirmacao")
+	}
+	joined := strings.Join(parsed.Errors, " | ")
+	if !strings.Contains(joined, "atribuicao de env sem comando") {
+		t.Errorf("error generico esperado, got %q", joined)
+	}
+	if strings.Contains(joined, "secret") {
+		t.Errorf("error vazou o valor: %q", joined)
+	}
+	if strings.Contains(joined, "TOKEN") {
+		t.Errorf("error vazou o nome da variavel: %q", joined)
+	}
+}
+
+func TestEvaluate_EnvInlineDoesNotLeakValueInReasons(t *testing.T) {
+	// Caso end-to-end no evaluator: "TOKEN=supersecret git status" com a
+	// allowlist permitindo "git status" deve cair em DecisionConfirm
+	// (forcado pela feature env_assignment) e jamais expor "supersecret"
+	// em Reasons ou DetailedReasons.
+	al := &allowlist.Allowlist{
+		AutoApprove:   []string{"git status"},
+		DefaultAction: "confirm",
+	}
+
+	got := Evaluate("TOKEN=supersecret git status", al)
+	if got.Decision != allowlist.DecisionConfirm {
+		t.Fatalf("decision = %s, want confirm; reasons=%v", got.Decision, got.Reasons)
+	}
+
+	for _, fragment := range []string{"supersecret", "TOKEN=supersecret"} {
+		if strings.Contains(strings.Join(got.Reasons, " | "), fragment) {
+			t.Errorf("Reasons vazou %q: %v", fragment, got.Reasons)
+		}
+		if strings.Contains(strings.Join(got.DetailedReasons, " | "), fragment) {
+			t.Errorf("DetailedReasons vazou %q: %v", fragment, got.DetailedReasons)
+		}
+	}
+}
+
+func TestEvaluate_DefenseInDepthRedactsProgramWithEqualsSign(t *testing.T) {
+	// Defesa em profundidade: caso algum Command construido fora do parser
+	// (perfil legado, codigo de teste, manipulacao manual) chegue ao
+	// evaluator com Program contendo "=", redactProgramForReason redige.
+	// Validamos chamando evaluateAtom diretamente com um Command sintetico.
+	al := &allowlist.Allowlist{DefaultAction: "confirm"}
+
+	cmd := Command{Program: "TOKEN=supersecret", Args: []string{"foo"}}
+	_, safe, detailed := evaluateAtom(cmd, al)
+
+	for _, fragment := range []string{"supersecret"} {
+		if strings.Contains(safe, fragment) {
+			t.Errorf("safe reason vazou %q: %s", fragment, safe)
+		}
+		if strings.Contains(detailed, fragment) {
+			t.Errorf("detailed reason vazou %q: %s", fragment, detailed)
+		}
+	}
+	if !strings.Contains(safe, "TOKEN=<redacted>") {
+		t.Errorf("safe reason devia redigir o valor com placeholder: %s", safe)
+	}
+}
+
 func TestEvaluate_NoDuplicateReasonForUnrecognizedCommand(t *testing.T) {
 	al := &allowlist.Allowlist{DefaultAction: "confirm"}
 
@@ -683,4 +853,16 @@ func TestEvaluate_DefaultAllowlistKubectlPolicy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func equalStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
