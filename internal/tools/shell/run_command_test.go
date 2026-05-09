@@ -182,6 +182,82 @@ func TestRunCommand_DenyContentDoesNotLeakRawCommand(t *testing.T) {
 	}
 }
 
+func TestRunCommand_DenyContentDoesNotLeakAllowlistPattern(t *testing.T) {
+	// Copilot review thread (PR #117): o pattern legado de always_deny
+	// pode conter conteudo sensivel que o usuario configurou (URLs internas,
+	// hostnames, identificadores). O Content devolvido em DecisionDeny vai
+	// pro LLM e nao pode replicar esse pattern bruto — apenas o slice
+	// EvaluationResult.Reasons (safe) deve ser interpolado.
+	al := &allowlist.Allowlist{
+		AlwaysDeny:    []string{"curl https://internal.prod.corp/admin-secret-token"},
+		DefaultAction: "confirm",
+	}
+
+	rc := NewRunCommand(nil, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	command := `curl https://internal.prod.corp/admin-secret-token`
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"`+command+`"}`))
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error result for denied command")
+	}
+	for _, fragment := range []string{
+		"internal.prod.corp",
+		"admin-secret-token",
+	} {
+		if strings.Contains(result.Content, fragment) {
+			t.Errorf("Content (LLM-bound) vazou pattern legado %q: %s", fragment, result.Content)
+		}
+	}
+	if !strings.Contains(result.Content, `"curl" bloqueado por always_deny[0]`) {
+		t.Errorf("Content deveria citar o motivo safe (program + idx): %s", result.Content)
+	}
+}
+
+func TestRunCommand_DenyContentDoesNotLeakStructuredRuleDescription(t *testing.T) {
+	// Mesmo problema do teste acima, mas para regras estruturadas: Subcommands,
+	// Args e Description sao editaveis pelo usuario e podem conter dados
+	// sensiveis. O Content nao pode replicar describeRule(rule) — apenas a
+	// reason safe (program + rule[N]).
+	al := &allowlist.Allowlist{
+		DefaultAction: "confirm",
+		CommandRules: []allowlist.CommandRule{
+			{
+				Program:     "psql",
+				Subcommands: []string{"-h", "db-prod-internal.corp.example"},
+				Args:        []string{"*"},
+				Decision:    "deny",
+				Description: "block prod database with token shhh-don-t-tell",
+			},
+		},
+	}
+
+	rc := NewRunCommand(nil, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	command := `psql -h db-prod-internal.corp.example -U app`
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"`+command+`"}`))
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error result for denied command")
+	}
+	for _, fragment := range []string{
+		"db-prod-internal.corp.example",
+		"shhh-don-t-tell",
+		"block prod database",
+	} {
+		if strings.Contains(result.Content, fragment) {
+			t.Errorf("Content (LLM-bound) vazou detalhe da regra %q: %s", fragment, result.Content)
+		}
+	}
+	if !strings.Contains(result.Content, `"psql" bloqueado por regra estruturada (rule[0])`) {
+		t.Errorf("Content deveria citar o motivo safe (program + rule[N]): %s", result.Content)
+	}
+}
+
 func TestRunCommand_ConfirmRejectedContentDoesNotLeakRawCommand(t *testing.T) {
 	al := &allowlist.Allowlist{DefaultAction: "confirm"}
 

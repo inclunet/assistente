@@ -8,10 +8,23 @@ import (
 )
 
 // EvaluationResult descreve a decisao final para uma linha de comando.
+//
+// Contrato de seguranca: Reasons e o unico campo seguro para enviar ao LLM
+// (ou qualquer canal externo, como telemetria). DetailedReasons existe para
+// uso LOCAL apenas (logs do app, UI dentro do desktop) — pode replicar
+// patterns legados, subcommands/args/descricoes de regras estruturadas e
+// outros conteudos que o usuario configurou na allowlist e que podem incluir
+// dados sensiveis (URLs internas, hostnames, descricoes com identificadores).
+//
+// Quando uma reason nao envolve conteudo controlado pelo usuario (ex.: "comando
+// atomico vazio", "feature conservadora detectada: pipe"), o mesmo texto vai
+// para os dois slices — eles tem sempre o mesmo tamanho e a mesma ordem, para
+// que callers possam correlacionar uma posicao na UI com seu detalhe.
 type EvaluationResult struct {
-	Decision allowlist.Decision
-	Parse    ParseResult
-	Reasons  []string
+	Decision        allowlist.Decision
+	Parse           ParseResult
+	Reasons         []string
+	DetailedReasons []string
 }
 
 // Evaluate parseia e avalia uma linha de comando contra a allowlist.
@@ -19,8 +32,9 @@ func Evaluate(commandLine string, al *allowlist.Allowlist) EvaluationResult {
 	trimmed := strings.TrimSpace(commandLine)
 	if trimmed == "" {
 		return EvaluationResult{
-			Decision: allowlist.DecisionDeny,
-			Reasons:  []string{"comando vazio"},
+			Decision:        allowlist.DecisionDeny,
+			Reasons:         []string{"comando vazio"},
+			DetailedReasons: []string{"comando vazio"},
 		}
 	}
 
@@ -31,8 +45,9 @@ func Evaluate(commandLine string, al *allowlist.Allowlist) EvaluationResult {
 	}
 
 	for _, cmd := range parsed.Commands {
-		decision, reason := evaluateAtom(cmd, al)
-		result.Reasons = append(result.Reasons, reason)
+		decision, safe, detailed := evaluateAtom(cmd, al)
+		result.Reasons = append(result.Reasons, safe)
+		result.DetailedReasons = append(result.DetailedReasons, detailed)
 		result.Decision = combineDecision(result.Decision, decision)
 	}
 
@@ -42,27 +57,50 @@ func Evaluate(commandLine string, al *allowlist.Allowlist) EvaluationResult {
 		// o parser nao reconhece nenhum atomo (e que sera reformatada como
 		// "sintaxe ambigua" abaixo).
 		if !containsString(parsed.Errors, "nenhum comando atomico reconhecido") {
-			result.Reasons = append(result.Reasons, "nenhum comando atomico reconhecido")
+			result.appendReason("nenhum comando atomico reconhecido")
 		}
 	}
 
 	if parsed.RequiresConfirmation() && result.Decision != allowlist.DecisionDeny {
 		result.Decision = combineDecision(result.Decision, allowlist.DecisionConfirm)
+		// Features sao um enum fechado em types.go — nomes sao seguros.
+		// Erros do parser sao mensagens estaticas ou interpolam apenas tokens
+		// de operador (`;`, `&&`, etc.), tambem seguros.
 		for _, feature := range parsed.Features {
-			result.Reasons = append(result.Reasons, fmt.Sprintf("feature conservadora detectada: %s", feature))
+			result.appendReason(fmt.Sprintf("feature conservadora detectada: %s", feature))
 		}
 		for _, err := range parsed.Errors {
-			result.Reasons = append(result.Reasons, fmt.Sprintf("sintaxe ambigua: %s", err))
+			result.appendReason(fmt.Sprintf("sintaxe ambigua: %s", err))
 		}
 	}
 
 	return result
 }
 
+// appendReason adiciona o mesmo texto a Reasons e DetailedReasons. Use apenas
+// quando o conteudo nao envolve dados controlados pelo usuario (patterns,
+// subcommands, args, description). Caso contrario, append explicito nos dois
+// slices com versoes diferentes.
+func (r *EvaluationResult) appendReason(reason string) {
+	r.Reasons = append(r.Reasons, reason)
+	r.DetailedReasons = append(r.DetailedReasons, reason)
+}
+
 // evaluateAtom avalia um unico comando atomico contra a allowlist e devolve
-// uma reason segura para usuario/log: usamos apenas cmd.Program (e nao
-// cmd.String()) para evitar replicar args completos em logs ou no output da
-// tool, que pode conter segredos (tokens, paths, credenciais).
+// uma decisao + duas reasons:
+//
+//   - safe: para envio externo (LLM, telemetria). Inclui apenas cmd.Program,
+//     o tipo da regra e um indice de correlacao (rule[N], always_deny[N],
+//     auto_approve[N]). Nunca interpola pattern bruto, subcommands, args
+//     ou description — todos campos controlados pelo usuario que podem
+//     conter dados sensiveis (URLs internas, hostnames, identificadores).
+//   - detailed: para uso LOCAL (logs do app, UI dentro do desktop). Mantem
+//     a forma verbosa anterior, citando o pattern legado completo ou o
+//     describeRule(rule). O usuario ja tem visibilidade desses valores na
+//     UI da allowlist, entao expor localmente nao introduz risco novo.
+//
+// Quando a reason nao envolve conteudo do usuario (ex.: "comando atomico vazio",
+// "sem allowlist ativa", default_action), os dois textos sao iguais.
 //
 // Precedencia interna (fail-closed) quando varias regras casam o mesmo atomo:
 //
@@ -79,44 +117,57 @@ func Evaluate(commandLine string, al *allowlist.Allowlist) EvaluationResult {
 // "kubectl get secret confirm") sobre uma regra mais permissiva
 // ("kubectl get * approve") sem precisar reordenar. Documentado tambem em
 // aep/0060-command-policy-parser.md.
-func evaluateAtom(cmd Command, al *allowlist.Allowlist) (allowlist.Decision, string) {
+func evaluateAtom(cmd Command, al *allowlist.Allowlist) (decision allowlist.Decision, safe, detailed string) {
 	if al == nil {
-		return allowlist.DecisionConfirm, fmt.Sprintf("%q exige confirmacao: sem allowlist ativa", cmd.Program)
+		msg := fmt.Sprintf("%q exige confirmacao: sem allowlist ativa", cmd.Program)
+		return allowlist.DecisionConfirm, msg, msg
 	}
 
 	if cmd.Program == "" {
-		return allowlist.DecisionDeny, "comando atomico vazio"
+		return allowlist.DecisionDeny, "comando atomico vazio", "comando atomico vazio"
 	}
 
-	if rule, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionDeny); ok {
-		return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por regra estruturada: %s", cmd.Program, describeRule(rule))
+	if rule, idx, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionDeny); ok {
+		return allowlist.DecisionDeny,
+			fmt.Sprintf("%q bloqueado por regra estruturada (rule[%d])", cmd.Program, idx),
+			fmt.Sprintf("%q bloqueado por regra estruturada: %s", cmd.Program, describeRule(rule))
 	}
 
-	for _, pattern := range al.AlwaysDeny {
+	for i, pattern := range al.AlwaysDeny {
 		if matchesLegacyPattern(cmd, pattern) {
-			return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por always_deny: %s", cmd.Program, pattern)
+			return allowlist.DecisionDeny,
+				fmt.Sprintf("%q bloqueado por always_deny[%d]", cmd.Program, i),
+				fmt.Sprintf("%q bloqueado por always_deny: %s", cmd.Program, pattern)
 		}
 	}
 
-	if rule, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionConfirm); ok {
-		return allowlist.DecisionConfirm, fmt.Sprintf("%q exige confirmacao por regra estruturada: %s", cmd.Program, describeRule(rule))
+	if rule, idx, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionConfirm); ok {
+		return allowlist.DecisionConfirm,
+			fmt.Sprintf("%q exige confirmacao por regra estruturada (rule[%d])", cmd.Program, idx),
+			fmt.Sprintf("%q exige confirmacao por regra estruturada: %s", cmd.Program, describeRule(rule))
 	}
 
-	if rule, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionApprove); ok {
-		return allowlist.DecisionApprove, fmt.Sprintf("%q aprovado por regra estruturada: %s", cmd.Program, describeRule(rule))
+	if rule, idx, ok := matchStructuredRule(cmd, al.CommandRules, allowlist.DecisionApprove); ok {
+		return allowlist.DecisionApprove,
+			fmt.Sprintf("%q aprovado por regra estruturada (rule[%d])", cmd.Program, idx),
+			fmt.Sprintf("%q aprovado por regra estruturada: %s", cmd.Program, describeRule(rule))
 	}
 
-	for _, pattern := range al.AutoApprove {
+	for i, pattern := range al.AutoApprove {
 		if matchesLegacyPattern(cmd, pattern) {
-			return allowlist.DecisionApprove, fmt.Sprintf("%q aprovado por auto_approve: %s", cmd.Program, pattern)
+			return allowlist.DecisionApprove,
+				fmt.Sprintf("%q aprovado por auto_approve[%d]", cmd.Program, i),
+				fmt.Sprintf("%q aprovado por auto_approve: %s", cmd.Program, pattern)
 		}
 	}
 
 	switch strings.ToLower(al.DefaultAction) {
 	case "deny":
-		return allowlist.DecisionDeny, fmt.Sprintf("%q bloqueado por default_action=deny", cmd.Program)
+		msg := fmt.Sprintf("%q bloqueado por default_action=deny", cmd.Program)
+		return allowlist.DecisionDeny, msg, msg
 	default:
-		return allowlist.DecisionConfirm, fmt.Sprintf("%q exige confirmacao por default_action=confirm", cmd.Program)
+		msg := fmt.Sprintf("%q exige confirmacao por default_action=confirm", cmd.Program)
+		return allowlist.DecisionConfirm, msg, msg
 	}
 }
 
@@ -168,8 +219,11 @@ func combineDecision(current, next allowlist.Decision) allowlist.Decision {
 	return allowlist.DecisionApprove
 }
 
-func matchStructuredRule(cmd Command, rules []allowlist.CommandRule, decision allowlist.Decision) (allowlist.CommandRule, bool) {
-	for _, rule := range rules {
+// matchStructuredRule procura a primeira regra estruturada que case com cmd
+// e tenha a decision pedida. Devolve a regra encontrada, seu indice no slice
+// rules (para correlacao em reasons safe — ex.: "rule[2]") e ok=true.
+func matchStructuredRule(cmd Command, rules []allowlist.CommandRule, decision allowlist.Decision) (allowlist.CommandRule, int, bool) {
+	for i, rule := range rules {
 		if parseRuleDecision(rule.Decision) != decision {
 			continue
 		}
@@ -187,7 +241,7 @@ func matchStructuredRule(cmd Command, rules []allowlist.CommandRule, decision al
 		// rule.Args nesse caso para evitar matching contra-intuitivo.
 		if consumed >= len(cmd.Args) {
 			if len(rule.Args) == 0 || (len(rule.Args) == 1 && rule.Args[0] == "*") {
-				return rule, true
+				return rule, i, true
 			}
 			continue
 		}
@@ -195,9 +249,9 @@ func matchStructuredRule(cmd Command, rules []allowlist.CommandRule, decision al
 		if _, ok := matchSequence(remainingArgs, rule.Args); !ok {
 			continue
 		}
-		return rule, true
+		return rule, i, true
 	}
-	return allowlist.CommandRule{}, false
+	return allowlist.CommandRule{}, -1, false
 }
 
 // matchSequence faz casamento posicional de patterns contra values e devolve

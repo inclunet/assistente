@@ -169,6 +169,220 @@ func TestEvaluate_ReasonsDoNotLeakCommandArguments(t *testing.T) {
 	}
 }
 
+func TestEvaluate_ReasonsDoNotLeakLegacyPatterns(t *testing.T) {
+	// Copilot review threads (PR #117): patterns legados de always_deny e
+	// auto_approve podem conter conteudo sensivel colocado pelo usuario
+	// (URLs internas, hostnames, identificadores). Como Reasons vai pro LLM
+	// via run_command.Content, jamais devemos interpolar o pattern bruto.
+	// Validamos aqui que (a) Reasons cita apenas program + idx e
+	// (b) DetailedReasons mantem o pattern para uso local/debug.
+	al := &allowlist.Allowlist{
+		AlwaysDeny: []string{
+			"curl https://internal.prod.corp/admin",
+			"wget https://api.prod.corp/secret-token-xyz",
+		},
+		AutoApprove: []string{
+			"git push https://token-abc123@github.com/private/repo",
+		},
+		DefaultAction: "confirm",
+	}
+
+	leakedFragments := []string{
+		"internal.prod.corp",
+		"secret-token-xyz",
+		"token-abc123",
+		"github.com/private/repo",
+	}
+
+	checks := []struct {
+		name           string
+		command        string
+		want           allowlist.Decision
+		wantSafePrefix string
+	}{
+		{
+			name:           "always_deny",
+			command:        "curl https://internal.prod.corp/admin",
+			want:           allowlist.DecisionDeny,
+			wantSafePrefix: `"curl" bloqueado por always_deny[0]`,
+		},
+		{
+			name:           "auto_approve",
+			command:        "git push https://token-abc123@github.com/private/repo",
+			want:           allowlist.DecisionApprove,
+			wantSafePrefix: `"git" aprovado por auto_approve[0]`,
+		},
+	}
+
+	for _, tc := range checks {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Evaluate(tc.command, al)
+			if got.Decision != tc.want {
+				t.Fatalf("decision = %s, want %s", got.Decision, tc.want)
+			}
+
+			joinedSafe := strings.Join(got.Reasons, " | ")
+			for _, fragment := range leakedFragments {
+				if strings.Contains(joinedSafe, fragment) {
+					t.Errorf("Reasons (LLM-bound) vazou %q: %s", fragment, joinedSafe)
+				}
+			}
+			if !strings.Contains(joinedSafe, tc.wantSafePrefix) {
+				t.Errorf("Reasons devia citar %q, got %s", tc.wantSafePrefix, joinedSafe)
+			}
+
+			joinedDetailed := strings.Join(got.DetailedReasons, " | ")
+			leakedAny := false
+			for _, fragment := range leakedFragments {
+				if strings.Contains(joinedDetailed, fragment) {
+					leakedAny = true
+					break
+				}
+			}
+			if !leakedAny {
+				t.Errorf("DetailedReasons devia manter o pattern para uso local/debug, got %s", joinedDetailed)
+			}
+		})
+	}
+}
+
+func TestEvaluate_ReasonsDoNotLeakStructuredRuleDetails(t *testing.T) {
+	// Reasons vai pro LLM. describeRule(rule) concatena Subcommands, Args e
+	// Description — todos campos editaveis pelo usuario que podem conter
+	// dados sensiveis (paths internos, nomes de cluster, descricoes com
+	// identificadores). Validamos que Reasons cita apenas program + rule[N]
+	// e DetailedReasons mantem o describeRule para inspecao local.
+	al := &allowlist.Allowlist{
+		DefaultAction: "confirm",
+		CommandRules: []allowlist.CommandRule{
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"get"},
+				Args:        []string{"*"},
+				Decision:    "approve",
+				Description: "leitura de recursos no cluster prod-eu-west-secret",
+			},
+			{
+				Program:     "psql",
+				Subcommands: []string{"-h", "db-internal-prod.corp.example"},
+				Args:        []string{"*"},
+				Decision:    "deny",
+				Description: "block prod database with token shhh-don-t-tell",
+			},
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"delete"},
+				Args:        []string{"*"},
+				Decision:    "confirm",
+				Description: "deletes ate em ns customer-internal-acme",
+			},
+		},
+	}
+
+	leakedFragments := []string{
+		"prod-eu-west-secret",
+		"db-internal-prod.corp.example",
+		"shhh-don-t-tell",
+		"customer-internal-acme",
+		"leitura de recursos",
+		"block prod database",
+		"deletes ate em ns",
+	}
+
+	checks := []struct {
+		name           string
+		command        string
+		want           allowlist.Decision
+		wantSafePrefix string
+	}{
+		{
+			name:           "approve via structured rule",
+			command:        "kubectl get pods",
+			want:           allowlist.DecisionApprove,
+			wantSafePrefix: `"kubectl" aprovado por regra estruturada (rule[0])`,
+		},
+		{
+			name:           "deny via structured rule",
+			command:        "psql -h db-internal-prod.corp.example -U app",
+			want:           allowlist.DecisionDeny,
+			wantSafePrefix: `"psql" bloqueado por regra estruturada (rule[1])`,
+		},
+		{
+			name:           "confirm via structured rule",
+			command:        "kubectl delete pod x",
+			want:           allowlist.DecisionConfirm,
+			wantSafePrefix: `"kubectl" exige confirmacao por regra estruturada (rule[2])`,
+		},
+	}
+
+	for _, tc := range checks {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Evaluate(tc.command, al)
+			if got.Decision != tc.want {
+				t.Fatalf("decision = %s, want %s; reasons=%v", got.Decision, tc.want, got.Reasons)
+			}
+
+			joinedSafe := strings.Join(got.Reasons, " | ")
+			for _, fragment := range leakedFragments {
+				if strings.Contains(joinedSafe, fragment) {
+					t.Errorf("Reasons (LLM-bound) vazou %q: %s", fragment, joinedSafe)
+				}
+			}
+			if !strings.Contains(joinedSafe, tc.wantSafePrefix) {
+				t.Errorf("Reasons devia citar %q, got %s", tc.wantSafePrefix, joinedSafe)
+			}
+
+			joinedDetailed := strings.Join(got.DetailedReasons, " | ")
+			leakedAny := false
+			for _, fragment := range leakedFragments {
+				if strings.Contains(joinedDetailed, fragment) {
+					leakedAny = true
+					break
+				}
+			}
+			if !leakedAny {
+				t.Errorf("DetailedReasons devia manter o describeRule para uso local/debug, got %s", joinedDetailed)
+			}
+		})
+	}
+}
+
+func TestEvaluate_ReasonsAndDetailedReasonsHaveSameLength(t *testing.T) {
+	// Contrato documentado em EvaluationResult: Reasons e DetailedReasons
+	// devem ter o mesmo tamanho e a mesma ordem, para que UIs locais possam
+	// pegar a versao detalhada do mesmo motivo cuja versao safe ja foi
+	// exibida ou enviada externamente.
+	al := &allowlist.Allowlist{
+		AutoApprove:   []string{"echo"},
+		AlwaysDeny:    []string{"rm /"},
+		DefaultAction: "confirm",
+		CommandRules: []allowlist.CommandRule{
+			{Program: "kubectl", Subcommands: []string{"delete"}, Args: []string{"*"}, Decision: "deny"},
+		},
+	}
+
+	commands := []string{
+		"echo ok",
+		"rm /",
+		"kubectl delete pod x",
+		"git status > out.txt",                        // forca confirm (feature)
+		"git status && kubectl delete pod x",          // compound mistura aprov + deny
+		"unknown-cmd --x",                             // default_action
+		"",                                            // empty
+		";",                                           // sem atomo
+	}
+
+	for _, cmd := range commands {
+		t.Run(cmd, func(t *testing.T) {
+			got := Evaluate(cmd, al)
+			if len(got.Reasons) != len(got.DetailedReasons) {
+				t.Fatalf("Reasons (%d) vs DetailedReasons (%d): %v / %v",
+					len(got.Reasons), len(got.DetailedReasons), got.Reasons, got.DetailedReasons)
+			}
+		})
+	}
+}
+
 func TestEvaluate_NoDuplicateReasonForUnrecognizedCommand(t *testing.T) {
 	al := &allowlist.Allowlist{DefaultAction: "confirm"}
 

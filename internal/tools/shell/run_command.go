@@ -139,9 +139,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	decision := policyResult.Decision
 	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
 	// flags (-W, --token=) ou env inline. Em vez disso, derivamos um resumo
-	// seguro do parse (programas + tamanho/contagem de args). Reasons so vao
-	// para o log quando a decisao for diferente de approve, e mesmo assim
-	// usam summarizePolicyReasons (sem repetir args).
+	// seguro do parse (programas + contagem de args). Reasons so vao para o
+	// log quando a decisao for diferente de approve, e mesmo assim usam
+	// summarizePolicyReasons (sem repetir args do comando).
 	commandSummary := redactCommandForLog(a.Command, policyResult)
 	if decision == allowlist.DecisionApprove {
 		log.Printf("[RunCommand] Comando: %s, decisão: %s", commandSummary, decision)
@@ -153,8 +153,11 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	case allowlist.DecisionDeny:
 		// Nao retornamos a.Command cru: este Content e enviado ao LLM e poderia
 		// vazar tokens/senhas em flags ou env inline. Usamos o mesmo resumo
-		// redigido aplicado nos logs (programas + contagem de args). Os Reasons
-		// ja foram sanitizados em commandpolicy.evaluateAtom (so cmd.Program).
+		// redigido aplicado nos logs (programas + contagem de args). Reasons
+		// (vs DetailedReasons) e o slice "safe" do EvaluationResult — citamos
+		// apenas programa, tipo de regra e indice (rule[N]/always_deny[N]) e
+		// nunca interpolamos pattern bruto, subcommands/args/description que o
+		// usuario possa ter colocado na allowlist com dados sensiveis.
 		return tools.ToolResult{
 			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
 			IsError: true,
@@ -305,11 +308,13 @@ func redactCommandForLog(command string, result commandpolicy.EvaluationResult) 
 	return strings.Join(programs, " | ")
 }
 
-// summarizePolicyReasons gera um resumo curto e seguro para log a partir do
-// resultado da politica. Evita repetir o comando/args completos (que podem
-// conter segredos) e foca em features detectadas, erros de parse e contagens.
+// summarizePolicyReasons gera um resumo curto para log LOCAL. Diferente do
+// Content enviado ao LLM, o log fica na maquina do usuario, entao incluimos
+// as DetailedReasons (que citam patterns/subcommands/description). Mesmo
+// assim evitamos repetir args do comando bruto: o resumo agrega contagens,
+// features detectadas e os motivos verbosos resumidos por palavras-chave.
 func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
-	parts := make([]string, 0, 4)
+	parts := make([]string, 0, 5)
 	parts = append(parts, fmt.Sprintf("atomos=%d", len(result.Parse.Commands)))
 	parts = append(parts, fmt.Sprintf("motivos=%d", len(result.Reasons)))
 	if len(result.Parse.Features) > 0 {
@@ -321,6 +326,9 @@ func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
 	}
 	if len(result.Parse.Errors) > 0 {
 		parts = append(parts, "parse_errors="+strconv.Itoa(len(result.Parse.Errors)))
+	}
+	if len(result.DetailedReasons) > 0 {
+		parts = append(parts, "detail=["+strings.Join(result.DetailedReasons, " | ")+"]")
 	}
 	return strings.Join(parts, " ")
 }
