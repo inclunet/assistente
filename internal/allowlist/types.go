@@ -137,6 +137,13 @@ func (a *Allowlist) Validate() error {
 //   - "*" so pode aparecer na ultima posicao de Subcommands ou Args (em outras
 //     posicoes seria silenciosamente tratado como literal pelo evaluator,
 //     enganando o autor da regra).
+//   - Tokens em Subcommands/Args nao podem ser vazios nem whitespace-only.
+//     O matcher faz comparacao literal (case-insensitive) sem TrimSpace,
+//     entao essas entradas tornariam a regra silenciosamente inerte —
+//     "get " jamais casa com cmd.Args = ["get"].
+//   - "*" como token deve ser exatamente "*" (sem whitespace adjacente).
+//     "* " ou " *" jamais casa o wildcard real e tambem nunca casa um arg
+//     literal "*", entao a regra ficaria silenciosamente inerte.
 func (r CommandRule) Validate() error {
 	var errs []string
 
@@ -156,6 +163,17 @@ func (r CommandRule) Validate() error {
 		errs = append(errs, fmt.Sprintf("args[%d]: \"*\" so pode aparecer como ultimo elemento", pos))
 	}
 
+	for i, token := range r.Subcommands {
+		if reason, ok := invalidRuleToken(token); ok {
+			errs = append(errs, fmt.Sprintf("subcommands[%d]: %s", i, reason))
+		}
+	}
+	for i, token := range r.Args {
+		if reason, ok := invalidRuleToken(token); ok {
+			errs = append(errs, fmt.Sprintf("args[%d]: %s", i, reason))
+		}
+	}
+
 	// "*" no fim de Subcommands consome todo o restante de cmd.Args, entao
 	// args nao-vazio nessa combinacao seria sempre testado contra um sufixo
 	// vazio (ou "*"). Rejeitamos para evitar regras silenciosamente inertes.
@@ -167,6 +185,38 @@ func (r CommandRule) Validate() error {
 		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// invalidRuleToken devolve uma razao + ok=true quando o token de
+// Subcommands/Args nao casaria com nenhum input real (regra inerte) por
+// causa de whitespace nos extremos. matchSequence usa strings.EqualFold
+// sem TrimSpace, entao "get " jamais casa cmd.Args = ["get"] e "* " jamais
+// e tratado como wildcard.
+//
+// Casos rejeitados:
+//   - string vazia ("");
+//   - apenas whitespace ("  ", "\t");
+//   - whitespace nas extremidades, incluindo "*" cercado de whitespace
+//     (" *", "*  ", " * ") — provavel intencao de wildcard que jamais casa.
+//
+// Tokens contendo espaco INTERNO (ex.: "a b", vindos de args quotados pelo
+// parser) sao aceitos: esses casam com cmd.Args produzidos a partir de
+// `echo "a b"` e sao genuinos.
+func invalidRuleToken(token string) (string, bool) {
+	if token == "" {
+		return "token vazio", true
+	}
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return "token apenas whitespace", true
+	}
+	if trimmed != token {
+		if trimmed == "*" {
+			return "wildcard \"*\" com whitespace adjacente — use exatamente \"*\"", true
+		}
+		return fmt.Sprintf("whitespace nas extremidades (%q) — o matcher faz comparacao literal e a regra ficaria inerte", token), true
+	}
+	return "", false
 }
 
 // wildcardOutOfTail devolve a posicao do primeiro "*" encontrado fora da

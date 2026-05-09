@@ -113,7 +113,8 @@ O `Manager.save` rejeita allowlists com regras estruturadas inválidas:
 
 - `Program` vazio ou só whitespace;
 - `Decision` ausente ou diferente de `approve|confirm|deny` (case-insensitive);
-- `*` fora da última posição em `Subcommands` ou `Args`.
+- `*` fora da última posição em `Subcommands` ou `Args`;
+- tokens em `Subcommands`/`Args` vazios, apenas whitespace, ou com whitespace nas extremidades (ex.: `"get "`, `" *"`). O matcher (`matchSequence` em `commandpolicy/evaluator.go`) faz comparação literal case-insensitive sem `TrimSpace`, então essas entradas tornariam a regra silenciosamente inerte. Tokens com whitespace **interno** (ex.: `"a b"`, vindos de args quotados pelo parser) continuam sendo aceitos — esse é o caso legítimo.
 
 Em runtime, `parseRuleDecision` mantém o fail-closed: valor desconhecido vira `confirm`. A combinação garante que o problema seja detectado cedo (no save) e que perfis pré-existentes inválidos não exponham o sistema a aprovações indevidas.
 
