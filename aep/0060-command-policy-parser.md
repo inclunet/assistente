@@ -36,12 +36,20 @@ O parser da primeira entrega reconhece uma subset comum:
 
 - comandos simples com argumentos;
 - aspas simples e duplas;
-- escapes básicos;
+- escapes básicos **dentro de aspas duplas** (ver nota abaixo);
 - separadores `;`, `&&`, `||` e newline;
 - redirecionamentos `>`, `>>`, `2>`, `2>>`, `<`, `<<`;
 - pipe `|`, background `&` e constructs suspeitos como features conservadoras.
 
 Tokens de separação ou redirecionamento dentro de aspas são tratados como argumentos comuns.
+
+#### Backslash (`\`) fora de aspas é literal
+
+Em POSIX, `\` fora de aspas é caractere de escape. Esta subset diverge intencionalmente: `\` fora de aspas é **literal** (e o byte seguinte continua processado normalmente). Justificativas:
+
+- Windows usa `\` como separador de path. Tratar como escape POSIX engole a barra (`C:\Windows` viraria `C:Windows`) e quebra paths reais e patterns da allowlist — o `AlwaysDeny` default `del /s /q C:\` deixaria de bater silenciosamente, degradando uma decisão de `deny` para `confirm`.
+- O contexto de entrada é uma única linha de comando vinda de `a.Command` (não um script multi-linha), então `\` no fim de linha é mais provavelmente um path Windows do que continuação de linha.
+- Dentro de aspas duplas, `\` continua funcionando como escape para `\"`, `\\`, `` \` `` e `\$` (ver `readQuoted`). Quem precisar de escape POSIX usa aspas duplas.
 
 Qualquer sintaxe ambígua, incompleta ou fora da subset resulta em decisão `confirm`, nunca `approve`.
 
@@ -67,8 +75,11 @@ type CommandRule struct {
     Subcommands []string `json:"subcommands,omitempty"`
     Args        []string `json:"args,omitempty"`
     Decision    string   `json:"decision"`
+    Description string   `json:"description,omitempty"`
 }
 ```
+
+`Description` é texto livre exibido na UI da allowlist e nas razões verbosas (`DetailedReasons`); nunca aparece em `Reasons` (LLM-bound) — ver §5b.
 
 Exemplos esperados:
 

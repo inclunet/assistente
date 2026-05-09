@@ -267,16 +267,20 @@ func lex(input string) ([]token, []Feature, []string) {
 			current.WriteByte(ch)
 
 		case '\\':
-			if i+1 < len(input) {
-				i++
-				current.WriteByte(input[i])
-				continue
-			}
-			// Em shells POSIX, "\" no fim da linha e continuacao de linha
-			// (sintaxe incompleta). Tratamos como ambiguo para forcar
-			// confirmacao em vez de aceitar a barra como caractere literal.
-			errors = append(errors, "barra invertida no fim da linha sem caractere para escapar")
-			features = appendFeature(features, FeatureAmbiguousSyntax)
+			// "\" fora de aspas e LITERAL nesta subset, nao escape POSIX.
+			// Motivos:
+			//   - Windows usa "\" como separador de path (C:\Windows,
+			//     del /s /q C:\). Tratar como escape POSIX engole a barra
+			//     e quebra paths reais e patterns da allowlist (o
+			//     AlwaysDeny default "del /s /q C:\\" deixa de bater).
+			//   - "\" no fim de linha em POSIX e continuacao de linha,
+			//     mas no contexto deste parser (uma unica linha de
+			//     comando vinda de a.Command) e mais provavel ser path
+			//     Windows terminando em "\" do que continuacao de linha.
+			//   - Quem precisar de escape POSIX (\$, \&, \") pode usar
+			//     aspas duplas — readQuoted preserva o escape \ dentro
+			//     de aspas duplas para os casos legitimos.
+			current.WriteByte(ch)
 
 		default:
 			current.WriteByte(ch)

@@ -808,6 +808,11 @@ func TestEvaluate_DefaultAllowlistEndToEnd(t *testing.T) {
 		"rm -rf /",
 		"shutdown",
 		"reboot",
+		// Pattern Windows do AlwaysDeny default. Quebraria se o lexer
+		// tratasse "\" final como escape POSIX (a barra sumiria do arg
+		// e o pattern "del /s /q C:\\" deixaria de bater). Cobre direto
+		// o thread A2q5_/A2q6D do Copilot (PR #117).
+		`del /s /q C:\`,
 	}
 	for _, cmd := range denied {
 		t.Run("deny/"+cmd, func(t *testing.T) {

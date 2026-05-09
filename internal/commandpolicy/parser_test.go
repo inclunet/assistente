@@ -196,7 +196,6 @@ func TestParse_AmbiguousSyntaxRequiresConfirmation(t *testing.T) {
 		"git status &&",
 		"echo ok >",
 		"&& git status",
-		`echo trailing\`,
 	}
 
 	for _, input := range tests {
@@ -207,6 +206,68 @@ func TestParse_AmbiguousSyntaxRequiresConfirmation(t *testing.T) {
 			}
 			if len(got.Errors) == 0 && !hasFeature(got.Features, FeatureAmbiguousSyntax) {
 				t.Fatalf("expected errors or ambiguous feature, got %#v", got)
+			}
+		})
+	}
+}
+
+func TestParse_BackslashIsLiteralOutsideQuotes(t *testing.T) {
+	// Copilot review threads (PR #117): "\" fora de aspas precisa ser
+	// literal para que paths Windows funcionem (C:\Windows nao pode virar
+	// C:Windows) e para que patterns da allowlist com "\" sigam casando
+	// (ex.: o AlwaysDeny default "del /s /q C:\" precisa bater).
+	tests := []struct {
+		name        string
+		input       string
+		wantProgram string
+		wantArgs    []string
+		wantConfirm bool
+	}{
+		{
+			name:        "windows path no meio do arg",
+			input:       `dir C:\Windows`,
+			wantProgram: "dir",
+			wantArgs:    []string{`C:\Windows`},
+			wantConfirm: false,
+		},
+		{
+			name:        "windows path com varios separadores",
+			input:       `cd C:\Users\foo\bar`,
+			wantProgram: "cd",
+			wantArgs:    []string{`C:\Users\foo\bar`},
+			wantConfirm: false,
+		},
+		{
+			name:        "barra invertida final preservada (path raiz Windows)",
+			input:       `del /s /q C:\`,
+			wantProgram: "del",
+			wantArgs:    []string{"/s", "/q", `C:\`},
+			wantConfirm: false,
+		},
+		{
+			name:        "barra invertida final solitaria",
+			input:       `echo trailing\`,
+			wantProgram: "echo",
+			wantArgs:    []string{`trailing\`},
+			wantConfirm: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Parse(tt.input)
+			if len(got.Commands) != 1 {
+				t.Fatalf("got %d commands, want 1: %#v", len(got.Commands), got)
+			}
+			cmd := got.Commands[0]
+			if cmd.Program != tt.wantProgram {
+				t.Errorf("Program = %q, want %q", cmd.Program, tt.wantProgram)
+			}
+			if !equalStringSlice(cmd.Args, tt.wantArgs) {
+				t.Errorf("Args = %#v, want %#v", cmd.Args, tt.wantArgs)
+			}
+			if got.RequiresConfirmation() != tt.wantConfirm {
+				t.Errorf("RequiresConfirmation() = %v, want %v (errors=%v features=%v)", got.RequiresConfirmation(), tt.wantConfirm, got.Errors, got.Features)
 			}
 		})
 	}
