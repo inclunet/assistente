@@ -209,6 +209,43 @@ func (s *SessionService) Logout(ctx context.Context, refreshToken string) error 
 		Update("revoked_at", now).Error
 }
 
+// PurgeExpiredSessions remove permanentemente do DB sessions que estejam:
+//   - expiradas há pelo menos `retention` (i.e., `expires_at < now - retention`); ou
+//   - revogadas há pelo menos `retention` (i.e., `revoked_at < now - retention`).
+//
+// Sessions ainda dentro da janela de retenção são preservadas para que
+// auditorias possam confirmar logout/expiração recentes. Retorna o total
+// de linhas deletadas.
+//
+// Decisões (review do AEP-0052, Bloco 6, Mi38):
+//
+//   - **Retention configurável:** o caller decide (default sugerido: 30 dias).
+//     `retention<=0` é tratado como "purga tudo que expirou ou revogou" sem
+//     janela de carência (útil em testes ou jobs administrativos).
+//   - **Hard delete:** não soft-delete; sessions são append-only e expiradas
+//     são permanentemente inúteis (refresh_token_hash não é referenciado).
+//   - **Index existente:** `Session.ExpiresAt` e `Session.RevokedAt` já são
+//     indexados (tag GORM no model), então o WHERE é eficiente.
+//   - **Sem batching:** SQLite single-process é tolerante a DELETE em massa
+//     local. Em backends multi-tenant futuros, considerar `LIMIT` + loop.
+func (s *SessionService) PurgeExpiredSessions(ctx context.Context, retention time.Duration) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, errors.New("session service não inicializado")
+	}
+	if retention < 0 {
+		retention = 0
+	}
+	cutoff := s.now().Add(-retention)
+
+	res := s.db.WithContext(ctx).
+		Where("expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)", cutoff, cutoff).
+		Delete(&database.Session{})
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
+}
+
 func (s *SessionService) VerifyAccessToken(token string) (*AccessClaims, error) {
 	return s.signer.VerifyAccessToken(token, s.issuer, s.audience, s.now(), time.Minute)
 }

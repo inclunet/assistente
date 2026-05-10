@@ -94,6 +94,10 @@ func Init() error {
 		return fmt.Errorf("erro na migração UUIDv7: %w", err)
 	}
 
+	// Bases legadas pré-AEP-0052 podem ter (user_id, pattern) duplicado em
+	// credential_entries; dedup antes do AutoMigrate criar o índice unique.
+	dedupCredentialEntriesBeforeMigrate()
+
 	// Auto migrate - apenas tabelas de conversas, mensagens e abas
 	// Perfis agora são gerenciados via arquivos JSON em .assistente/profiles/
 	if err := db.AutoMigrate(
@@ -116,15 +120,16 @@ func Init() error {
 	ensureTaskListSlugUniqueIndex()
 	ensureChatMessageWindowIndex()
 	ensureCredentialEntryUserPatternIndex()
+	if err := ensureUsernameCaseInsensitive(); err != nil {
+		return err
+	}
 
 	// Normalizar campos booleanos: SQLite armazena bool como INTEGER 0/1,
 	// mas valores corrompidos (ex: 4) causam erro no GORM Scan.
 	db.Exec(`UPDATE conversations SET summarizing_in_progress = CASE WHEN summarizing_in_progress > 0 THEN 1 ELSE 0 END WHERE summarizing_in_progress NOT IN (0, 1)`)
 
-	// Migração: mover refresh_url → refresh_token_enc (coluna renomeada)
-	if db.Migrator().HasColumn(&CredentialEntry{}, "refresh_url") {
-		db.Exec(`UPDATE credential_entries SET refresh_token_enc = refresh_url WHERE refresh_url != '' AND (refresh_token_enc IS NULL OR refresh_token_enc = '')`)
-		_ = db.Migrator().DropColumn(&CredentialEntry{}, "refresh_url")
+	if err := migrateRefreshURLToEnc(); err != nil {
+		return err
 	}
 
 	// Inicializa FTS5 (full-text search) para busca em mensagens
@@ -2190,13 +2195,190 @@ func ensureChatMessageWindowIndex() {
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_timeline_window ON chat_messages (conversation_id, parent_id, turn_id, created_at, id)`)
 }
 
+// dedupCredentialEntriesBeforeMigrate remove duplicatas em
+// `(user_id, pattern)` em bases legadas antes que o AutoMigrate tente
+// criar o índice unique. Mantém a entry mais recente (maior `updated_at`,
+// ties por `id` UUIDv7 desc) por chave (user_id, pattern). É idempotente:
+// se a tabela ainda não existe ou já está sem duplicatas, é noop.
+//
+// Roda **antes** do AutoMigrate porque o GORM cria o índice unique a
+// partir da tag `uniqueIndex` no model, e bases pré-AEP-0052 podiam ter
+// `pattern` repetido entre `user_id=''` legacy — sem dedup prévio o
+// AutoMigrate falha e o app não sobe (review do AEP-0052, Bloco 6, B31).
+func dedupCredentialEntriesBeforeMigrate() {
+	if db == nil {
+		return
+	}
+	if !db.Migrator().HasTable("credential_entries") {
+		return
+	}
+	if !legacyColumnExists("credential_entries", "user_id") {
+		return
+	}
+	res := db.Exec(`
+		DELETE FROM credential_entries
+		WHERE pattern IS NOT NULL
+		AND id NOT IN (
+			SELECT id FROM credential_entries ce
+			WHERE ce.id = (
+			    SELECT inner_ce.id FROM credential_entries inner_ce
+			    WHERE inner_ce.user_id = ce.user_id
+			      AND inner_ce.pattern = ce.pattern
+			    ORDER BY inner_ce.updated_at DESC, inner_ce.id DESC
+			    LIMIT 1
+			)
+		)
+	`)
+	if res.Error != nil {
+		log.Printf("[Database] AVISO: dedup de credential_entries falhou: %v", res.Error)
+	} else if res.RowsAffected > 0 {
+		log.Printf("[Database] dedup de credential_entries: %d duplicatas removidas (user_id, pattern)", res.RowsAffected)
+	}
+}
+
+// ensureCredentialEntryUserPatternIndex limpa índices legados que possam
+// existir em DBs antigos. O índice unique atual em (user_id, pattern) é
+// criado pela tag `uniqueIndex:ux_credential_entries_user_pattern` no
+// `CredentialEntry` model durante o AutoMigrate.
+//
+// Limitação aceita (review do AEP-0052, M42): o índice é full, não filtra
+// `pattern=''`. Patterns vazios também disputam unicidade. Isso é exigência
+// do SQLite para que o UPSERT (`clause.OnConflict`) usado em
+// `credentials/db_store.go` funcione — SQLite só aceita ON CONFLICT contra
+// índices unique sem `WHERE`. Em prática o app sempre grava patterns
+// não-vazios.
 func ensureCredentialEntryUserPatternIndex() {
 	if db == nil {
 		return
 	}
 
-	// AEP-0052 troca o namespace global de credentials por unicidade por usuário.
-	// Bancos antigos podem manter o índice global criado pelo tag gorm:"uniqueIndex".
 	db.Exec(`DROP INDEX IF EXISTS idx_credential_entries_pattern`)
-	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_credential_entries_user_pattern ON credential_entries (user_id, pattern)`)
+}
+
+// ensureUsernameCaseInsensitive normaliza usernames legados para lowercase e
+// aplica defesa em DB contra registros case-variantes (Alice vs alice).
+//
+// Decisões (review do AEP-0052, Bloco 6, B34):
+//
+//   - **Normalização one-shot:** percorre `users` cujo `username` contém
+//     maiúsculas e tenta `LOWER(username)`. Se há colisão (ex.: já existe
+//     `alice` e tentamos baixar `Alice`), preserva o registro mais antigo
+//     (menor `id` UUIDv7 ≈ criado primeiro) e desativa o duplicado em vez de
+//     deletar — evita perda silenciosa de dados de um usuário real.
+//   - **Defesa em DB:** cria `UNIQUE INDEX users_username_lower_unique ON
+//     users(LOWER(username))` para impedir que INSERTs futuros com case
+//     diferente coexistam (defense in depth — `IdentityService` já normaliza
+//     no `Save`, mas migrações externas ou ferramentas administrativas podiam
+//     burlar).
+//   - **Compatibilidade:** mantém o índice unique padrão em `username` —
+//     ambos coexistem (o em LOWER apenas adiciona invariante adicional).
+func ensureUsernameCaseInsensitive() error {
+	if db == nil {
+		return nil
+	}
+	if !db.Migrator().HasTable(&User{}) {
+		return nil
+	}
+
+	type userRow struct {
+		ID       string
+		Username string
+	}
+	var legacyMixedCase []userRow
+	if err := db.Raw(`SELECT id, username FROM users WHERE username <> LOWER(username)`).Scan(&legacyMixedCase).Error; err != nil {
+		return fmt.Errorf("scan legacy mixed-case usernames: %w", err)
+	}
+
+	for _, row := range legacyMixedCase {
+		lower := strings.ToLower(row.Username)
+		var conflictID string
+		err := db.Raw(`SELECT id FROM users WHERE username = ? AND id <> ? LIMIT 1`, lower, row.ID).Scan(&conflictID).Error
+		if err != nil {
+			return fmt.Errorf("check username collision %q: %w", row.Username, err)
+		}
+		if conflictID != "" {
+			loser := row.ID
+			if conflictID < loser {
+				loser = conflictID
+			}
+			suffix := loser
+			if len(suffix) > 8 {
+				suffix = suffix[:8]
+			}
+			deactivated := fmt.Sprintf("%s.legacy.%s", lower, suffix)
+			if err := db.Exec(`UPDATE users SET username = ?, is_active = 0 WHERE id = ?`, deactivated, loser).Error; err != nil {
+				return fmt.Errorf("deactivate legacy duplicate username %q: %w", row.Username, err)
+			}
+			log.Printf("[Database] AVISO: username legacy %q desativado por colisão case-insensitive (id=%s renomeado para %q)", row.Username, loser, deactivated)
+			if loser == row.ID {
+				continue
+			}
+		}
+		if err := db.Exec(`UPDATE users SET username = ? WHERE id = ?`, lower, row.ID).Error; err != nil {
+			return fmt.Errorf("normalize username %q: %w", row.Username, err)
+		}
+	}
+
+	if len(legacyMixedCase) > 0 {
+		log.Printf("[Database] usernames legacy normalizados para lowercase: %d", len(legacyMixedCase))
+	}
+
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique ON users (LOWER(username))`)
+	return nil
+}
+
+// migrateRefreshURLToEnc move dados da coluna legacy `refresh_url` (texto plano)
+// para `refresh_token_enc` em `credential_entries` e dropa a coluna antiga.
+//
+// Decisões (review do AEP-0052, Bloco 6, B30):
+//
+//   - **Idempotente:** se a coluna `refresh_url` já foi dropada em boot
+//     anterior, é noop.
+//   - **Não cifra:** o conteúdo era texto plano (URL com token na query) e
+//     vai para `refresh_token_enc` como está. A re-cifragem é responsabilidade
+//     de quem ler/usar o valor (`credentials.Manager` cifra no save). Isso
+//     **não** atende à expectativa do reviewer de cifragem por DEK durante a
+//     migração (DEK não está disponível no boot, antes do login). Após esta
+//     migração, o conteúdo permanece em plain dentro de `refresh_token_enc`
+//     até o próximo write/refresh.
+//   - **Logs:** registra quantas linhas foram tocadas e se o drop falhou.
+//   - **DROP COLUMN via SQL direto:** `Migrator().DropColumn` faz lookup na
+//     struct Go (que não tem mais o campo) e vira noop silencioso. SQL puro
+//     `ALTER TABLE ... DROP COLUMN` é suportado em SQLite >= 3.35 (todas as
+//     builds modernas, inclusive `glebarez/sqlite` Pure Go).
+//   - **Sem transação dedicada:** GORM/SQLite executa ALTER + UPDATE em
+//     auto-commit, mas em caso de crash entre passos a próxima execução
+//     reinicia do ponto correto (idempotente).
+func migrateRefreshURLToEnc() error {
+	if db == nil {
+		return nil
+	}
+	if !legacyColumnExists("credential_entries", "refresh_url") {
+		return nil
+	}
+
+	res := db.Exec(`UPDATE credential_entries SET refresh_token_enc = refresh_url WHERE refresh_url IS NOT NULL AND refresh_url <> '' AND (refresh_token_enc IS NULL OR refresh_token_enc = '')`)
+	if res.Error != nil {
+		return fmt.Errorf("migrar refresh_url para refresh_token_enc: %w", res.Error)
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("[Database] credential_entries: %d linhas migradas refresh_url → refresh_token_enc", res.RowsAffected)
+	}
+
+	if err := db.Exec(`ALTER TABLE credential_entries DROP COLUMN refresh_url`).Error; err != nil {
+		log.Printf("[Database] AVISO: falha ao dropar coluna legacy refresh_url: %v", err)
+	}
+	return nil
+}
+
+// legacyColumnExists checa se uma coluna existe no DB via PRAGMA, sem
+// depender da struct Go atual (necessário para colunas removidas do model
+// mas ainda presentes no schema legado).
+func legacyColumnExists(table, column string) bool {
+	if db == nil {
+		return false
+	}
+	var n int
+	err := db.Raw(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&n).Error
+	return err == nil && n > 0
 }

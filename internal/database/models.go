@@ -128,6 +128,19 @@ type ChatMessage struct {
 // ==================== Credenciais ====================
 
 // CredentialEntry armazena credenciais por padrão de domínio (com campos sensíveis criptografados).
+//
+// Unicidade: índice `ux_credential_entries_user_pattern` em (user_id, pattern)
+// criado pelo GORM AutoMigrate via tag `uniqueIndex`. O índice é full
+// (não-parcial) porque o UPSERT do `credentials/db_store.go` usa
+// `clause.OnConflict{Columns: [user_id, pattern]}`, que o SQLite só aceita
+// contra índices unique sem cláusula `WHERE`.
+//
+// Patterns vazios (`pattern=''`) ficam sob o mesmo invariante de unicidade —
+// na prática o app sempre grava patterns não-vazios (instance secrets têm
+// nomes específicos como `internal-auth:refresh-token`). Bases legadas com
+// duplicatas em (user_id, pattern) são deduplicadas em
+// `dedupCredentialEntriesBeforeMigrate` antes do AutoMigrate aplicar o
+// índice (review do AEP-0052, B31).
 type CredentialEntry struct {
 	UUIDModel
 	UserID          string `json:"userId,omitempty" gorm:"index;uniqueIndex:ux_credential_entries_user_pattern"`

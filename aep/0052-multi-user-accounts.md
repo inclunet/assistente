@@ -714,4 +714,149 @@ navega\u00e7\u00e3o por leitor de tela.
 `vitest-axe`. Quando novas etapas forem adicionadas (criar admin,
 desbloquear cofre, retry) os testes seguem o mesmo padr\u00e3o.
 
+---
+
+## TODOs pós-merge (review da Fatia 6 — Migrações + Schema)
+
+O reviewer descreveu uma arquitetura de migrações versionada
+(`internal/database/migrations/{migrate.go, 0001_users.go, 0002_sessions.go,
+0003_credential_entries.go, 0004_credential_key_wraps.go,
+0005_channel_refresh_token_enc.go}` com tabela `schema_migrations` e
+sequenciador transacional `Apply + record_version`) que **não existe** no
+projeto. O sistema atual é:
+
+- `gorm.AutoMigrate(...)` declarativo a partir dos models em `models.go`.
+- Uma migração one-shot legacy `migrateToUUIDv7()` em `migration_uuid.go`
+  (já transacional via `tx.Begin/Commit`).
+- Helpers `ensureXxxIndex()` / `ensureXxxCaseInsensitive()` para índices
+  parciais e invariantes que GORM tag não expressa.
+- Migrações de dados pontuais inline em `Init()` (refresh_url, normalização
+  de booleans corrompidos, etc.).
+
+Itens aplicáveis foram endereçados neste PR. Os itens abaixo ficam como
+TODO porque dependem de mudanças arquiteturais ou de funcionalidades que
+ainda não existem.
+
+### B29 — Apply + record_version transacional
+
+**N/A no código atual**: não há tabela `schema_migrations` nem sequenciador
+de versões. `migrateToUUIDv7()` (a única migração custom) já é transacional;
+`AutoMigrate` é gerenciado pelo GORM. Quando introduzirmos sistema
+versionado (provavelmente junto de migrations cross-dialect para futuro
+cloud), essa transação por step é parte do contrato.
+
+### B32 — Re-cifragem de credentials legacy
+
+**N/A**: o schema atual não tem coluna `storage` nem mistura `'plain'` com
+`'enc'`. Credenciais já são cifradas via DEK no save (`credentials.Manager`)
+e descifradas on-read; bases pré-cifragem são tratadas como entries
+inválidas e descartadas. Se introduzirmos formato versionado de cifragem
+(rotação de algoritmo), precisaremos do job background de re-encrypt
+descrito no review.
+
+### B33 — Cifragem retroativa de mensagens
+
+**N/A**: não existe cifragem por mensagem hoje (`ChatMessage.Content` é
+texto plano em SQLite local). A discussão de cifragem de mensagens com
+flag `is_content_encrypted` está em escopo da AEP de cofre por usuário
+(futura, ainda não escrita) e do plano cloud (AEP-0055). Quando isso for
+introduzido, este TODO vira blocker da migração com job background +
+gating do `vault_setup_completed`.
+
+### M38 — Forward-only / rollback
+
+**Política deliberada**: AutoMigrate + migrações idempotentes one-shot são
+forward-only por design. Recovery = restore de backup pré-migração (já
+implementado em `createBackup()` no `migrateToUUIDv7`). Para sistema
+versionado futuro, o reviewer está certo: cada migration precisa de
+`Down()` testado.
+
+### M39 — PRAGMA cross-dialect
+
+**N/A hoje, mitigado**: SQLite-only. Os helpers que precisam introspeção de
+schema usam `pragma_table_info(...)` (B30) ou `db.Migrator().HasTable/HasColumn`
+(quando o lookup no struct GORM é suficiente). Em portabilidade futura para
+Postgres/MySQL, substituir os PRAGMAs por queries `information_schema` —
+listadas como pré-requisito da AEP de cloud.
+
+### M40 — FK `credential_key_wraps → users` com CASCADE
+
+**N/A**: `CredentialKeyWrap` é per-instância (kind ∈ `{master, recovery}`),
+não tem `UserID`. Cofre é global por instância. Quando introduzirmos cofre
+por-usuário (AEP futura), aí sim precisará de FK + CASCADE.
+
+### M41 — Index em `sessions.expires_at`
+
+**Já existe**: `Session.ExpiresAt` declara `gorm:"index"` em `models.go`,
+e GORM AutoMigrate cria automaticamente. `RevokedAt` também é indexado.
+Validado pelos testes de `PurgeExpiredSessions` que usam ambos no WHERE.
+
+### M44 — Timestamp em milissegundos
+
+**N/A**: sem `applied_at` (não há tabela `schema_migrations`). O log de
+`migrateToUUIDv7` agora registra elapsed via `time.Since(...).Truncate(ms)`.
+
+### M45 — DROP COLUMN `refresh_url`
+
+**Aplicado**: `migrateRefreshURLToEnc` (B30) executa `ALTER TABLE ... DROP
+COLUMN refresh_url` após copiar dados (SQL puro porque GORM `DropColumn`
+faz lookup na struct e vira noop quando o campo já foi removido do model).
+
+### M46 — Gap em migrations
+
+**N/A**: AutoMigrate não tem sequenciamento numérico. Cada model é
+auto-migrado idempotentemente em todo boot.
+
+### Mi32 — Filename convention enforcement
+
+**N/A**: sem migrations numeradas. Quando vier o sistema versionado, o
+linter pode validar `^\d{4}_[a-z_]+\.go$` em CI.
+
+### Mi34 — `created_at`/`updated_at` em users
+
+**Já existe**: `User` embute `UUIDModel` que declara `CreatedAt time.Time`
+e `UpdatedAt time.Time`. GORM hooks tocam ambos automaticamente.
+
+### Mi35/Mi36/Mi37 — CHECK constraints (`password_hash`, `wrap_alg`, `id` formato)
+
+**N/A no contexto atual**: validação acontece em camada de serviço
+(`password.go` exige Argon2id válido, signer valida `wrap_alg` antes de
+persistir, `BeforeCreate` em `UUIDModel` gera UUIDv7 e rejeita IDs
+malformados). CHECK constraint seria defense-in-depth útil, mas exige
+cuidado em SQLite (sem `IF NOT EXISTS` para CHECK; recriar tabela).
+Listado para inclusão na primeira migração com sistema versionado.
+
+### Mi39 — Timezone em `applied_at`
+
+**N/A**: sem `applied_at`. GORM persiste `time.Time` em UTC desde a
+configuração do projeto. Em sistema versionado futuro, o timestamp será
+ISO 8601 UTC explícito.
+
+### Aplicados neste PR (Bloco 6)
+
+- **B30**: `migrateRefreshURLToEnc` extraída para função dedicada com log
+  de RowsAffected, drop via SQL direto, idempotência testada.
+- **B31**: nova `dedupCredentialEntriesBeforeMigrate` roda **antes** do
+  AutoMigrate, deduplicando entries com mesmo `(user_id, pattern)` em
+  bases legadas (mantém a entry com maior `updated_at`, ties por `id`
+  UUIDv7 desc). Sem isso o AutoMigrate falha ao criar o índice unique
+  e o app não sobe.
+- **M42**: trade-off documentado, não endereçado por restrição do SQLite.
+  O reviewer pediu índice parcial `WHERE pattern <> ''`; o `clause.OnConflict`
+  do `credentials/db_store.go` (UPSERT) só funciona contra índices unique
+  full em SQLite, então o índice ficou non-partial. Em prática o app
+  sempre grava patterns não-vazios (instance secrets têm nomes
+  específicos), tornando o filtro irrelevante. Se um dia trocarmos
+  o store para 2-step (try-update-then-insert), reabrimos o item.
+- **B34**: nova função `ensureUsernameCaseInsensitive` normaliza usernames
+  legacy para lowercase, desativa duplicatas case-variantes (rename para
+  `<username>.legacy.<idprefix>` + `is_active=0`) e cria índice
+  `users_username_lower_unique ON users(LOWER(username))` como defesa em
+  DB contra INSERTs futuros com case diferente.
+- **Mi33**: `migrateToUUIDv7` loga elapsed time em milissegundos.
+- **Mi38**: `SessionService.PurgeExpiredSessions(ctx, retention)` apaga
+  sessions cujo `expires_at` ou `revoked_at` ultrapassou a janela de
+  retenção, com testes para retenção configurável e modo administrativo
+  (retention=0).
+
 

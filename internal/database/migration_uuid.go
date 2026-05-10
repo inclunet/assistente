@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -30,7 +31,11 @@ func migrateToUUIDv7() error {
 		return nil
 	}
 
+	startedAt := time.Now()
 	log.Println("[Migration] Iniciando migração de IDs INTEGER → UUIDv7...")
+	defer func() {
+		log.Printf("[Migration] migrateToUUIDv7 finalizado em %s", time.Since(startedAt).Truncate(time.Millisecond))
+	}()
 
 	// Backup antes de migrar.
 	// Decisão de design: falha de backup NÃO aborta a migração.

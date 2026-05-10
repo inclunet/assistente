@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"strings"
+	"time"
 
 	"assistente/internal/auth"
 	"assistente/internal/channels"
@@ -82,7 +83,19 @@ func (a *App) configureSessionService() {
 	a.authMu.Lock()
 	a.sessionSvc = sessionSvc
 	a.authMu.Unlock()
+
+	if deleted, err := sessionSvc.PurgeExpiredSessions(context.Background(), sessionPurgeRetention); err != nil {
+		log.Printf("[Auth] purge de sessions expiradas/revogadas falhou: %v", err)
+	} else if deleted > 0 {
+		log.Printf("[Auth] %d sessions expiradas/revogadas removidas (retention %s)", deleted, sessionPurgeRetention)
+	}
 }
+
+// sessionPurgeRetention é a janela em que sessions expiradas/revogadas
+// permanecem persistidas para auditoria antes de serem hard-deleted no
+// próximo boot. 30 dias é suficiente para suportar investigação de
+// logout/expiração recentes sem inflar o DB indefinidamente.
+const sessionPurgeRetention = 30 * 24 * time.Hour
 
 func (a *App) GetAuthStatus() (AuthStatus, error) {
 	if err := a.ensureAuthCoreServices(); err != nil {
