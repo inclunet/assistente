@@ -1460,7 +1460,13 @@ func GetTurnTokenStatsWithContext(ctx context.Context, conversationID string, tu
 
 // GetConversationDetailedTokenStatsWithContext retorna estatísticas detalhadas
 // de tokens de uma conversa pertencente ao usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna
+// ErrUserScopeRequired.
 func GetConversationDetailedTokenStatsWithContext(ctx context.Context, conversationID string) (*TokenStats, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var result struct {
 		TotalPromptTokens     int
 		TotalCompletionTokens int
@@ -1495,8 +1501,15 @@ func GetConversationDetailedTokenStatsWithContext(ctx context.Context, conversat
 
 // GetDetailedTokenStatsWithContext retorna agregação completa de tokens com
 // breakdown por categoria, restrita ao usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052). A guarda explícita evita que callers
+// distraídos descubram o número de tokens de qualquer conversa por ID — a
+// rota natural via DBStore já enforça userID, mas chamadas diretas a esta
+// função (em util/test/scripts) precisam falhar em vez de vazar.
 func GetDetailedTokenStatsWithContext(ctx context.Context, conversationID string, summaryUpToMessageID string) (*DetailedTokenStats, error) {
-	// 1. Dados básicos da conversa
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	basicStats, err := GetConversationDetailedTokenStatsWithContext(ctx, conversationID)
 	if err != nil {
 		return nil, err
@@ -1664,7 +1677,13 @@ func GetRecentMessagesTokenCountWithContext(ctx context.Context, conversationID 
 
 // GetConversationSummaryWithContext retorna o resumo e o ID da última mensagem
 // resumida de uma conversa do usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna
+// ErrUserScopeRequired — não cabe ler resumo cross-user.
 func GetConversationSummaryWithContext(ctx context.Context, conversationID string) (summary string, upToMessageID string, err error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return "", "", err
+	}
 	var conv Conversation
 	err = ScopeByUser(ctx, db.WithContext(ctx).Select("summary", "summary_up_to_message_id"), "user_id").First(&conv, "id = ?", conversationID).Error
 	if err != nil {
@@ -1675,7 +1694,14 @@ func GetConversationSummaryWithContext(ctx context.Context, conversationID strin
 
 // UpdateConversationSummaryWithContext atualiza o resumo de uma conversa do
 // usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna
+// ErrUserScopeRequired — escrita global de summary é vetor de poluição
+// cross-user.
 func UpdateConversationSummaryWithContext(ctx context.Context, conversationID string, summary string, upToMessageID string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", conversationID).Updates(map[string]interface{}{
 		"summary":                  summary,
 		"summary_up_to_message_id": upToMessageID,
@@ -1685,14 +1711,26 @@ func UpdateConversationSummaryWithContext(ctx context.Context, conversationID st
 
 // SetSummarizingInProgressWithContext marca se uma sumarização está em
 // andamento para o usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna
+// ErrUserScopeRequired.
 func SetSummarizingInProgressWithContext(ctx context.Context, conversationID string, inProgress bool) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", conversationID).
 		Update("summarizing_in_progress", inProgress).Error
 }
 
 // IsSummarizingInProgressWithContext verifica se há sumarização em andamento
 // para o usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna
+// ErrUserScopeRequired.
 func IsSummarizingInProgressWithContext(ctx context.Context, conversationID string) (bool, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return false, err
+	}
 	var conv Conversation
 	err := ScopeByUser(ctx, db.WithContext(ctx).Select("summarizing_in_progress"), "user_id").First(&conv, "id = ?", conversationID).Error
 	if err != nil {
@@ -1706,7 +1744,13 @@ func IsSummarizingInProgressWithContext(ctx context.Context, conversationID stri
 // ordenada por created_at em vez de comparação lexicográfica de IDs, evitando
 // problemas com UUIDs gerados no mesmo milissegundo. Se afterID for vazio,
 // retorna todas as mensagens raiz.
+//
+// SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna
+// ErrUserScopeRequired.
 func GetMessagesAfterIDWithContext(ctx context.Context, conversationID string, afterID string) ([]ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var messages []ChatMessage
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID).
@@ -1889,7 +1933,15 @@ func RebuildFTSIndex(ctx context.Context) error {
 // conversas do usuário do contexto usando FTS5 + BM25. query suporta sintaxe
 // FTS5: palavras, "frases exatas", prefixo*, operadores OR/AND/NOT. Retorna
 // até `limit` resultados ranqueados por relevância.
+//
+// SECURITY: fail-closed. Sem userID no ctx, retorna ErrUserScopeRequired —
+// FTS5 indexa todas as conversas do banco e a junção com `conversations`
+// só protege se filtrarmos por user_id obrigatoriamente. AEP-0052.
 func SearchMessageContentWithContext(ctx context.Context, query string, limit int) ([]MessageSearchResult, error) {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, nil
@@ -1913,19 +1965,16 @@ func SearchMessageContentWithContext(ctx context.Context, query string, limit in
 		JOIN chat_messages m ON m.rowid = fts.rowid
 		JOIN conversations c ON c.id = m.conversation_id
 		WHERE chat_messages_fts MATCH ?
+		  AND c.user_id = ?
 	`
-	args := []interface{}{query}
-	if userID, ok := UserIDFromContext(ctx); ok {
-		baseSQL += ` AND c.user_id = ?`
-		args = append(args, userID)
-	}
+	args := []interface{}{query, userID}
 	baseSQL += `
 		ORDER BY bm25(chat_messages_fts)
 		LIMIT ?
 	`
 	args = append(args, limit)
 
-	err := db.WithContext(ctx).Raw(baseSQL, args...).Scan(&results).Error
+	err = db.WithContext(ctx).Raw(baseSQL, args...).Scan(&results).Error
 
 	if err != nil {
 		if strings.Contains(err.Error(), "fts5: syntax error") || strings.Contains(err.Error(), "no such column") {

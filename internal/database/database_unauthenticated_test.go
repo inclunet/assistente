@@ -158,6 +158,52 @@ func TestDatabaseFunctionsRejectUnauthenticatedContext(t *testing.T) {
 			t.Fatalf("want ErrUserScopeRequired, got %v", err)
 		}
 	})
+
+	// Search (FTS5)
+	t.Run("SearchMessageContentWithContext", func(t *testing.T) {
+		if _, err := SearchMessageContentWithContext(bg, "qualquer", 10); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+
+	// Summary (rolling context)
+	t.Run("GetConversationSummaryWithContext", func(t *testing.T) {
+		if _, _, err := GetConversationSummaryWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("UpdateConversationSummaryWithContext", func(t *testing.T) {
+		if err := UpdateConversationSummaryWithContext(bg, "x", "summary", "msg"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("SetSummarizingInProgressWithContext", func(t *testing.T) {
+		if err := SetSummarizingInProgressWithContext(bg, "x", true); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("IsSummarizingInProgressWithContext", func(t *testing.T) {
+		if _, err := IsSummarizingInProgressWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("GetMessagesAfterIDWithContext", func(t *testing.T) {
+		if _, err := GetMessagesAfterIDWithContext(bg, "x", ""); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+
+	// Token stats
+	t.Run("GetConversationDetailedTokenStatsWithContext", func(t *testing.T) {
+		if _, err := GetConversationDetailedTokenStatsWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("GetDetailedTokenStatsWithContext", func(t *testing.T) {
+		if _, err := GetDetailedTokenStatsWithContext(bg, "x", ""); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
 }
 
 // TestFindOrCreateChannelConversationWithContext_AcceptsBootstrap garante que
