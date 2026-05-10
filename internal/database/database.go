@@ -153,6 +153,12 @@ func Init() error {
 
 // AdoptLegacyData vincula registros single-user existentes ao usuário criado
 // durante o fluxo de adoção da AEP-0052. A operação é idempotente.
+//
+// SECURITY: instance-wide — varre TODAS as tabelas independentemente do
+// escopo de usuário, atribuindo registros órfãos (user_id="") ao userID
+// fornecido por argumento. É a contraparte legítima do bootstrap que
+// gravou dados pré-AEP-0052; chamada apenas pelo fluxo de criação do
+// primeiro usuário (Login após CreateAdminUser).
 func AdoptLegacyData(userID string) error {
 	if db == nil {
 		return errors.New("banco de dados não inicializado")
@@ -261,7 +267,16 @@ func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (
 // FindOrCreateChannelConversationWithContext localiza ou cria uma conversa de
 // canal pertencente ao usuário do contexto. Mensagens vindas de canais
 // externos (WhatsApp/Telegram/etc.) precisam ser associadas ao usuário dono
-// do canal — o caller deve injetar esse userID no contexto via WithUserID.
+// do canal — o caller deve injetar esse userID no contexto via WithUserID
+// (gateway carrega ChannelConfig.OwnerUserID e propaga; ver
+// internal/messaging/gateway.go).
+//
+// SECURITY: bootstrap-tolerant — quando o ctx não carrega userID (config
+// de canal pré-AEP-0052 sem OwnerUserID, ou outro caminho legado), a
+// conversa nasce órfã (user_id="") e fica invisível a todos os usuários
+// até AdoptLegacyData a atribuir explicitamente. ScopeByUser fail-open é
+// intencional aqui pelo mesmo motivo: a busca também passa, devolvendo
+// conversas órfãs para serem reaproveitadas.
 func FindOrCreateChannelConversationWithContext(ctx context.Context, channel, contactID, contactName string) (*Conversation, bool, error) {
 	var conv Conversation
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
@@ -1749,6 +1764,12 @@ func initFTS5() error {
 
 // RebuildFTSIndex reconstrói o índice FTS5 a partir das mensagens existentes.
 // Limpa o índice e repovoa apenas com mensagens de user/assistant.
+//
+// SECURITY: instance-wide — opera sobre o índice FTS global, sem filtro
+// de userID. O entry point Wails (App.RebuildSearchIndex) exige sessão
+// autenticada antes de chamar (ver internal/app/db.go), garantindo que
+// nenhum disparo aconteça pré-login mesmo sendo uma operação de banco
+// que ignora o escopo.
 func RebuildFTSIndex() error {
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -1834,6 +1855,12 @@ func SearchMessageContentWithContext(ctx context.Context, query string, limit in
 
 // SaveLLMProviderWithContext salva ou atualiza um provedor associado ao
 // usuário do contexto.
+//
+// SECURITY: bootstrap-tolerant — o caller (providers.DBStore.Save) já
+// chama RequireUserIDOrBootstrap, então sem userID e sem bootstrap a
+// gravação é rejeitada antes de chegar aqui. Esta função apenas obedece
+// ao userID que vier no ctx (se vier) sem aplicar guard adicional, para
+// preservar o caminho de bootstrap pré-login (CLI setup).
 func SaveLLMProviderWithContext(ctx context.Context, provider *LLMProvider) error {
 	if provider != nil && provider.UserID == "" {
 		if userID, ok := UserIDFromContext(ctx); ok {
