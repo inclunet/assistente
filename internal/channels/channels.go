@@ -214,3 +214,41 @@ func LoadEnabled() (map[string]*ChannelConfig, error) {
 	}
 	return enabled, nil
 }
+
+// AdoptOrphans atribui userID como OwnerUserID em todos os canais que estão
+// sem dono (configs pré-AEP-0052) e devolve a lista de canais migrados.
+//
+// Faz parte do fluxo AdoptLegacyData (AEP-0052 / Blocker D do re-review):
+// na primeira atribuição de dados legados, varremos channels/*.json e
+// carimbamos OwnerUserID para canais herdados. Sem isso, mensagens
+// recebidas em canais legados eram rejeitadas pelo gateway (ver
+// internal/messaging/gateway.go) e o usuário não enxergava nada na UI até
+// reabrir e re-salvar manualmente as configurações de cada canal.
+//
+// Idempotente: canais que já têm OwnerUserID preservam o valor existente
+// (não sobrescreve dono pré-existente, mesmo se for outro usuário). Apenas
+// configs sem dono são reatribuídas.
+func AdoptOrphans(userID string) ([]string, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, fmt.Errorf("userID obrigatório para AdoptOrphans")
+	}
+
+	all, err := ListAll()
+	if err != nil {
+		return nil, err
+	}
+
+	migrated := make([]string, 0, len(all))
+	for name, cfg := range all {
+		if cfg == nil || strings.TrimSpace(cfg.OwnerUserID) != "" {
+			continue
+		}
+		cfg.OwnerUserID = userID
+		if err := Save(name, cfg); err != nil {
+			return migrated, fmt.Errorf("erro ao migrar canal %s: %w", name, err)
+		}
+		migrated = append(migrated, name)
+	}
+	return migrated, nil
+}

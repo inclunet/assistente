@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"assistente/internal/auth"
+	"assistente/internal/channels"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 )
@@ -376,6 +377,11 @@ func (a *App) setCurrentAuthUser(user *AuthUser) {
 func (a *App) adoptLegacyDataForUser(userID string) error {
 	if err := database.AdoptLegacyData(userID); err != nil {
 		return err
+	}
+	if migrated, err := channels.AdoptOrphans(userID); err != nil {
+		log.Printf("[AdoptLegacyData] erro ao migrar canais legados: %v", err)
+	} else if len(migrated) > 0 {
+		log.Printf("[AdoptLegacyData] %d canal(is) legado(s) reatribuído(s) ao usuário %s: %v", len(migrated), userID, migrated)
 	}
 	if a.credMgr != nil {
 		return a.credMgr.LoadFromStore(context.Background())
