@@ -25,7 +25,11 @@ type ImportResolution = portability.ImportResolution
 // ==================== Export Functions ====================
 
 func (a *App) ExportConversations(ids []string) (string, error) {
-	return portability.ExportConversationsWithContext(a.importExportContext(), ids, a.credMgr, portability.ExportRequest{
+	ctx, err := a.importExportContext()
+	if err != nil {
+		return "", err
+	}
+	return portability.ExportConversationsWithContext(ctx, ids, a.credMgr, portability.ExportRequest{
 		OutputFormat: portability.FormatJSON,
 	}, AppVersion)
 }
@@ -38,7 +42,10 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 		return "", err
 	}
 
-	ctx := a.importExportContext()
+	ctx, err := a.importExportContext()
+	if err != nil {
+		return "", err
+	}
 	conversationIDs, err := resolveConversationIDs(ctx, req)
 	if err != nil {
 		return "", err
@@ -81,16 +88,28 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 // ==================== Import Functions ====================
 
 func (a *App) ImportConversations(jsonData string) (*ImportResult, error) {
-	return portability.ImportConversationsWithContext(a.importExportContext(), jsonData, a.credMgr, "")
+	ctx, err := a.importExportContext()
+	if err != nil {
+		return nil, err
+	}
+	return portability.ImportConversationsWithContext(ctx, jsonData, a.credMgr, "")
 }
 
 func (a *App) ImportData(jsonData string, credentialExportPassword string) (*ImportResult, error) {
-	return portability.ImportConversationsWithContext(a.importExportContext(), jsonData, a.credMgr, credentialExportPassword)
+	ctx, err := a.importExportContext()
+	if err != nil {
+		return nil, err
+	}
+	return portability.ImportConversationsWithContext(ctx, jsonData, a.credMgr, credentialExportPassword)
 }
 
 func (a *App) ImportDataWithResolutions(req ImportRequest) (*ImportResult, error) {
+	ctx, err := a.importExportContext()
+	if err != nil {
+		return nil, err
+	}
 	return portability.ImportConversationsWithResolutions(
-		a.importExportContext(),
+		ctx,
 		req.JSONData,
 		a.credMgr,
 		req.CredentialExportPassword,
@@ -99,7 +118,11 @@ func (a *App) ImportDataWithResolutions(req ImportRequest) (*ImportResult, error
 }
 
 func (a *App) AnalyzeImportData(jsonData string, credentialExportPassword string) (*ImportAnalysis, error) {
-	return portability.AnalyzeImportDataWithContext(a.importExportContext(), jsonData, a.credMgr, credentialExportPassword)
+	ctx, err := a.importExportContext()
+	if err != nil {
+		return nil, err
+	}
+	return portability.AnalyzeImportDataWithContext(ctx, jsonData, a.credMgr, credentialExportPassword)
 }
 
 func (a *App) ExportConversationsToFile(ids []string, format string) (string, error) {
@@ -114,7 +137,11 @@ func (a *App) ExportConversationsToFile(ids []string, format string) (string, er
 		return "", fmt.Errorf("formato de exportação não suportado: %s", format)
 	}
 
-	file, err := portability.BuildConversationExportFileWithContext(a.importExportContext(), ids, a.credMgr, req, AppVersion)
+	ctx, err := a.importExportContext()
+	if err != nil {
+		return "", err
+	}
+	file, err := portability.BuildConversationExportFileWithContext(ctx, ids, a.credMgr, req, AppVersion)
 	if err != nil {
 		return "", err
 	}
@@ -166,7 +193,10 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 		}
 		return path, nil
 	case portability.FormatHTML, portability.FormatPDF:
-		ctx := a.importExportContext()
+		ctx, err := a.importExportContext()
+		if err != nil {
+			return "", err
+		}
 		conversationIDs, err := resolveConversationIDs(ctx, req)
 		if err != nil {
 			return "", err
@@ -354,9 +384,9 @@ func defaultConversationExportFilename(format string) string {
 	return "conversas_" + timestamp + "." + format
 }
 
-func (a *App) importExportContext() context.Context {
-	if a != nil {
-		return a.authenticatedContext()
+func (a *App) importExportContext() (context.Context, error) {
+	if a == nil {
+		return context.Background(), nil
 	}
-	return context.Background()
+	return a.requireAuthenticatedContext()
 }

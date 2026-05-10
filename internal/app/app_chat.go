@@ -11,17 +11,29 @@ import (
 // SendMessage é o binding Wails para envio de mensagens. Source padrão: "wails".
 // A bridge canal↔Wails é gerenciada internamente pelo ChatController.
 func (a *App) SendMessage(conversationID string, userContent string, userMedia string, params ChatParams) (string, error) {
-	return a.chatCtrl.SendMessage(a.authenticatedContext(), conversationID, userContent, userMedia, params)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return "", err
+	}
+	return a.chatCtrl.SendMessage(ctx, conversationID, userContent, userMedia, params)
 }
 
 // RetryMessage reexecuta a resposta a partir de uma mensagem do usuário já persistida.
 func (a *App) RetryMessage(conversationID string, messageID string, params ChatParams) (string, error) {
-	return a.chatCtrl.RetryMessage(a.authenticatedContext(), conversationID, messageID, params)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return "", err
+	}
+	return a.chatCtrl.RetryMessage(ctx, conversationID, messageID, params)
 }
 
 // SendMessageFromChannel é chamado pelo Gateway de mensageria.
 func (a *App) SendMessageFromChannel(conversationID string, content, media string, params ChatParams, source string) (string, error) {
-	return a.chatCtrl.SendMessageFromChannel(a.authenticatedContext(), conversationID, content, media, params, source)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return "", err
+	}
+	return a.chatCtrl.SendMessageFromChannel(ctx, conversationID, content, media, params, source)
 }
 
 // DefaultSystemPrompt é re-exportado de internal/chat para compatibilidade.
@@ -53,6 +65,10 @@ func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, 
 // loadConversationHistory carrega o histórico de mensagens de uma conversa.
 // Respeita rolling context: se há resumo, exclui mensagens já resumidas do contexto.
 func (a *App) loadConversationHistory(conversationID string, profile *profiles.Profile) ([]Message, string, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, "", err
+	}
 	maxCtxMsgs := chat.DefaultMaxContextMessages
 	if profile != nil {
 		maxCtxMsgs = profile.GetMaxContextMessages()
@@ -62,7 +78,7 @@ func (a *App) loadConversationHistory(conversationID string, profile *profiles.P
 		Transcribe: a.whisperTranscribeFunc(),
 		MaxMsgs:    maxCtxMsgs,
 	}
-	return loader.Load(a.authenticatedContext(), conversationID)
+	return loader.Load(ctx, conversationID)
 }
 
 // whisperTranscribeFunc cria o callback de transcrição para o MediaHistoryLoader e PreprocessMessages.

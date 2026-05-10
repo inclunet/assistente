@@ -20,42 +20,74 @@ import (
 func (a *App) GetLLMProviders() []*llm.ProviderConfig       { return a.llmCtrl.GetLLMProviders() }
 func (a *App) GetLLMProvider(id string) *llm.ProviderConfig { return a.llmCtrl.GetLLMProvider(id) }
 func (a *App) GetActiveProviderInfo() map[string]interface{} {
-	return a.llmCtrl.GetActiveProviderInfo(a.authenticatedContext())
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil
+	}
+	return a.llmCtrl.GetActiveProviderInfo(ctx)
 }
 func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
-	return a.llmCtrl.GetLLMProvidersWithStatus(a.authenticatedContext())
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil
+	}
+	return a.llmCtrl.GetLLMProvidersWithStatus(ctx)
 }
 
 func (a *App) TestLLMProvider(req controllers.TestLLMProviderRequest) (ok bool, retErr error) {
 	if a.ctx == nil {
 		return false, fmt.Errorf("aplicação ainda não está pronta, aguarde")
 	}
-	return a.llmCtrl.TestLLMProvider(a.authenticatedContext(), req)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return false, err
+	}
+	return a.llmCtrl.TestLLMProvider(ctx, req)
 }
 
 func (a *App) ListModelsRaw(req controllers.TestLLMProviderRequest) (models []string, retErr error) {
 	if a.ctx == nil {
 		return nil, fmt.Errorf("aplicação ainda não está pronta, aguarde")
 	}
-	ctx, cancel := context.WithTimeout(a.authenticatedContext(), 15*time.Second)
+	authCtx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(authCtx, 15*time.Second)
 	defer cancel()
 	return a.llmCtrl.ListModelsRaw(ctx, req)
 }
 
 func (a *App) CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[string]interface{}, error) {
-	return a.llmCtrl.CreateLLMProvider(a.authenticatedContext(), req)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.llmCtrl.CreateLLMProvider(ctx, req)
 }
 
 func (a *App) UpdateLLMProvider(id string, req controllers.UpdateLLMProviderRequest) (map[string]interface{}, error) {
-	return a.llmCtrl.UpdateLLMProvider(a.authenticatedContext(), id, req)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.llmCtrl.UpdateLLMProvider(ctx, id, req)
 }
 
 func (a *App) SetDefaultProvider(id string) error {
-	return a.llmCtrl.SetDefaultProvider(a.authenticatedContext(), id)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.llmCtrl.SetDefaultProvider(ctx, id)
 }
 
 func (a *App) DeleteLLMProvider(_ context.Context, id string) error {
-	return a.llmCtrl.DeleteLLMProvider(a.authenticatedContext(), id)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.llmCtrl.DeleteLLMProvider(ctx, id)
 }
 
 // saveLLMProviders e helpers permanecem em App pois são chamados internamente.

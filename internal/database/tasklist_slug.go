@@ -28,11 +28,8 @@ func ValidateTaskListSlugFormat(normalizedSlug string) error {
 	return nil
 }
 
-// FindTaskListBySlug retorna a lista pelo slug normalizado, ou nil se não existir.
-func FindTaskListBySlug(slug string) (*TaskList, error) {
-	return FindTaskListBySlugWithContext(context.Background(), slug)
-}
-
+// FindTaskListBySlugWithContext retorna a lista pelo slug normalizado no
+// escopo do usuário do contexto, ou nil se não existir.
 func FindTaskListBySlugWithContext(ctx context.Context, slug string) (*TaskList, error) {
 	s := NormalizeTaskListSlug(slug)
 	if s == "" {
@@ -60,11 +57,8 @@ func slugTakenByOtherThanWithContext(ctx context.Context, normalizedSlug string,
 	return n > 0, nil
 }
 
-// SetTaskListSlug define ou limpa o slug de uma lista (normalizado). slug vazio remove.
-func SetTaskListSlug(taskListID string, slug string) error {
-	return SetTaskListSlugWithContext(context.Background(), taskListID, slug)
-}
-
+// SetTaskListSlugWithContext define ou limpa o slug de uma lista (normalizado)
+// pertencente ao usuário do contexto. slug vazio remove.
 func SetTaskListSlugWithContext(ctx context.Context, taskListID string, slug string) error {
 	s := NormalizeTaskListSlug(slug)
 	if err := ValidateTaskListSlugFormat(s); err != nil {
@@ -82,13 +76,10 @@ func SetTaskListSlugWithContext(ctx context.Context, taskListID string, slug str
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Where("id = ?", taskListID).Update("slug", s).Error
 }
 
-// ResolveTaskListID resolve identificação por id e/ou slug.
-// Regras: é obrigatório pelo menos um de id (não vazio) ou slug não vazio.
-// Se ambos forem informados, devem referir-se à mesma lista.
-func ResolveTaskListID(taskListID *string, taskListSlug string) (string, error) {
-	return ResolveTaskListIDWithContext(context.Background(), taskListID, taskListSlug)
-}
-
+// ResolveTaskListIDWithContext resolve identificação por id e/ou slug no
+// escopo do usuário do contexto. Regras: é obrigatório pelo menos um de id
+// (não vazio) ou slug não vazio. Se ambos forem informados, devem referir-se à
+// mesma lista.
 func ResolveTaskListIDWithContext(ctx context.Context, taskListID *string, taskListSlug string) (string, error) {
 	var idVal string
 	if taskListID != nil {

@@ -40,10 +40,11 @@ func newAppForTest(credMgr *credentials.Manager, llmRegistry *llm.ProviderRegist
 		Store:    providers.NewDBStore(),
 	})
 	a := &App{
-		ctx:         context.Background(),
-		credMgr:     credMgr,
-		llmRegistry: llmRegistry,
-		providerSvc: svc,
+		ctx:           context.Background(),
+		credMgr:       credMgr,
+		llmRegistry:   llmRegistry,
+		providerSvc:   svc,
+		currentUserID: "test-user",
 	}
 	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
 		LLMRegistry: llmRegistry,
@@ -98,9 +99,13 @@ func TestCreateProviderWithAPIKey(t *testing.T) {
 	}
 
 	// Verificar que credencial foi salva
-	cred, err := credMgr.GetByPattern("api.openai.com")
+	credCtx := database.WithUserID(context.Background(), "test-user")
+	cred, err := credMgr.GetByPatternWithContext(credCtx, "api.openai.com")
 	if err != nil {
 		t.Fatalf("Credencial não foi salva: %v", err)
+	}
+	if cred == nil {
+		t.Fatal("Credencial não encontrada para test-user")
 	}
 	if cred.Token != "sk-test123456" {
 		t.Errorf("Token incorreto: %s", cred.Token)
@@ -146,9 +151,13 @@ func TestUpdateProvider(t *testing.T) {
 	}
 
 	// Verificar que credencial foi atualizada
-	cred, err := credMgr.GetByPattern("api.openai.com")
+	credCtx := database.WithUserID(context.Background(), "test-user")
+	cred, err := credMgr.GetByPatternWithContext(credCtx, "api.openai.com")
 	if err != nil {
 		t.Fatalf("Credencial não encontrada: %v", err)
+	}
+	if cred == nil {
+		t.Fatal("Credencial não encontrada para test-user")
 	}
 	if cred.Token != "sk-new-key" {
 		t.Errorf("Token não foi atualizado: %s", cred.Token)

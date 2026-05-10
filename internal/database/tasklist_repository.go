@@ -38,13 +38,10 @@ func taskListWorkflowQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
 
 // ==================== TaskList Operations ====================
 
-// CreateTaskList cria uma nova tasklist com workflow padrão
-// templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em Progresso, Concluído)
-// slug: opcional; normalizado e único quando não vazio.
-func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflow, slug string) (*TaskList, error) {
-	return CreateTaskListWithContext(context.Background(), title, description, templateWorkflow, slug)
-}
-
+// CreateTaskListWithContext cria uma nova tasklist pertencente ao usuário do
+// contexto, com workflow padrão.
+// templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em
+// Progresso, Concluído). slug: opcional; normalizado e único quando não vazio.
 func CreateTaskListWithContext(ctx context.Context, title, description string, templateWorkflow *TaskListWorkflow, slug string) (*TaskList, error) {
 	// Valida limite
 	var count int64
@@ -86,11 +83,8 @@ func CreateTaskListWithContext(ctx context.Context, title, description string, t
 	return taskList, nil
 }
 
-// GetTaskList retorna uma tasklist pelo ID com workflow e tasks
-func GetTaskList(id string) (*TaskList, error) {
-	return GetTaskListWithContext(context.Background(), id)
-}
-
+// GetTaskListWithContext retorna uma tasklist do usuário do contexto pelo ID,
+// com workflow e tasks.
 func GetTaskListWithContext(ctx context.Context, id string) (*TaskList, error) {
 	var taskList TaskList
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
@@ -105,11 +99,8 @@ func GetTaskListWithContext(ctx context.Context, id string) (*TaskList, error) {
 	return &taskList, err
 }
 
-// GetAllTaskLists retorna todas as tasklists ordenadas por data de criação
-func GetAllTaskLists() ([]TaskList, error) {
-	return GetAllTaskListsWithContext(context.Background())
-}
-
+// GetAllTaskListsWithContext retorna todas as tasklists do usuário do
+// contexto, ordenadas por data de criação.
 func GetAllTaskListsWithContext(ctx context.Context) ([]TaskList, error) {
 	var taskLists []TaskList
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
@@ -121,11 +112,8 @@ func GetAllTaskListsWithContext(ctx context.Context) ([]TaskList, error) {
 	return taskLists, err
 }
 
-// UpdateTaskList atualiza title e description de uma tasklist
-func UpdateTaskList(id string, title, description string) error {
-	return UpdateTaskListWithContext(context.Background(), id, title, description)
-}
-
+// UpdateTaskListWithContext atualiza title e description de uma tasklist do
+// usuário do contexto.
 func UpdateTaskListWithContext(ctx context.Context, id string, title, description string) error {
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
 		Where("id = ?", id).
@@ -135,11 +123,8 @@ func UpdateTaskListWithContext(ctx context.Context, id string, title, descriptio
 		}).Error
 }
 
-// SetTaskListViewMode define o modo de visualização (list ou kanban)
-func SetTaskListViewMode(id string, viewMode string) error {
-	return SetTaskListViewModeWithContext(context.Background(), id, viewMode)
-}
-
+// SetTaskListViewModeWithContext define o modo de visualização (list ou
+// kanban) de uma tasklist do usuário do contexto.
 func SetTaskListViewModeWithContext(ctx context.Context, id string, viewMode string) error {
 	if viewMode != "list" && viewMode != "kanban" {
 		return errors.New("view mode inválido: use 'list' ou 'kanban'")
@@ -147,11 +132,8 @@ func SetTaskListViewModeWithContext(ctx context.Context, id string, viewMode str
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Where("id = ?", id).Update("preferred_view_mode", viewMode).Error
 }
 
-// CloneTaskList clona uma tasklist com seu workflow mas sem as tasks
-func CloneTaskList(id string, newTitle string) (*TaskList, error) {
-	return CloneTaskListWithContext(context.Background(), id, newTitle)
-}
-
+// CloneTaskListWithContext clona uma tasklist do usuário do contexto com seu
+// workflow mas sem as tasks.
 func CloneTaskListWithContext(ctx context.Context, id string, newTitle string) (*TaskList, error) {
 	// Busca tasklist original
 	original, err := GetTaskListWithContext(ctx, id)
@@ -175,11 +157,8 @@ func CloneTaskListWithContext(ctx context.Context, id string, newTitle string) (
 	return cloned, nil
 }
 
-// ClearTaskList remove todas as tasks de uma tasklist, mantendo a lista e o workflow
-func ClearTaskList(id string) error {
-	return ClearTaskListWithContext(context.Background(), id)
-}
-
+// ClearTaskListWithContext remove todas as tasks de uma tasklist do usuário
+// do contexto, mantendo a lista e o workflow.
 func ClearTaskListWithContext(ctx context.Context, id string) error {
 	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ?", id))
 	// Deleta notas de todas as tasks da lista
@@ -193,11 +172,8 @@ func ClearTaskListWithContext(ctx context.Context, id string) error {
 	return nil
 }
 
-// DeleteTaskList deleta uma tasklist e todas suas tasks
-func DeleteTaskList(id string) error {
-	return DeleteTaskListWithContext(context.Background(), id)
-}
-
+// DeleteTaskListWithContext deleta uma tasklist do usuário do contexto e
+// todas suas tasks.
 func DeleteTaskListWithContext(ctx context.Context, id string) error {
 	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ?", id))
 	// Deleta notas de todas as tasks da lista
@@ -266,11 +242,8 @@ func createWorkflowForTaskListWithContext(ctx context.Context, taskListID string
 	return workflow, nil
 }
 
-// GetWorkflow retorna o workflow de uma tasklist
-func GetWorkflow(taskListID string) (*TaskListWorkflow, error) {
-	return GetWorkflowWithContext(context.Background(), taskListID)
-}
-
+// GetWorkflowWithContext retorna o workflow de uma tasklist do usuário do
+// contexto.
 func GetWorkflowWithContext(ctx context.Context, taskListID string) (*TaskListWorkflow, error) {
 	var workflow TaskListWorkflow
 	err := taskListWorkflowQuery(ctx, db.Model(&TaskListWorkflow{})).
@@ -279,11 +252,8 @@ func GetWorkflowWithContext(ctx context.Context, taskListID string) (*TaskListWo
 	return &workflow, err
 }
 
-// UpdateWorkflow atualiza statuses e/ou transitions de um workflow
-func UpdateWorkflow(taskListID string, statuses []TaskListWorkflowStatus, transitions TaskListWorkflowTransitions) error {
-	return UpdateWorkflowWithContext(context.Background(), taskListID, statuses, transitions)
-}
-
+// UpdateWorkflowWithContext atualiza statuses e/ou transitions de um workflow
+// pertencente ao usuário do contexto.
 func UpdateWorkflowWithContext(ctx context.Context, taskListID string, statuses []TaskListWorkflowStatus, transitions TaskListWorkflowTransitions) error {
 	statusesJSON, _ := json.Marshal(statuses)
 	transitionsJSON, _ := json.Marshal(transitions)
@@ -298,22 +268,13 @@ func UpdateWorkflowWithContext(ctx context.Context, taskListID string, statuses 
 		}).Error
 }
 
-// UpdateWorkflowFull atualiza statuses, transitions e initial_status_id de um workflow
-// com validação completa:
+// UpdateWorkflowFullWithContext atualiza statuses, transitions e
+// initial_status_id de um workflow pertencente ao usuário do contexto, com
+// validação completa:
 // - initial_status_id deve existir nos statuses
 // - todas as transições devem referenciar status IDs válidos
 // - status IDs em uso por tasks não podem ser removidos (a menos que status_migration mapeie-os)
 // - status_migration pode ser nil se nenhum status será removido
-func UpdateWorkflowFull(
-	taskListID string,
-	statuses []TaskListWorkflowStatus,
-	transitions TaskListWorkflowTransitions,
-	initialStatusID int,
-	statusMigration map[int]int,
-) error {
-	return UpdateWorkflowFullWithContext(context.Background(), taskListID, statuses, transitions, initialStatusID, statusMigration)
-}
-
 func UpdateWorkflowFullWithContext(
 	ctx context.Context,
 	taskListID string,
@@ -411,11 +372,8 @@ func UpdateWorkflowFullWithContext(
 	})
 }
 
-// GetTaskCountsByStatus retorna a contagem de tasks por status_id para uma tasklist
-func GetTaskCountsByStatus(taskListID string) (map[int]int64, error) {
-	return GetTaskCountsByStatusWithContext(context.Background(), taskListID)
-}
-
+// GetTaskCountsByStatusWithContext retorna a contagem de tasks por status_id
+// para uma tasklist do usuário do contexto.
 func GetTaskCountsByStatusWithContext(ctx context.Context, taskListID string) (map[int]int64, error) {
 	var counts []struct {
 		StatusID int
@@ -437,12 +395,10 @@ func GetTaskCountsByStatusWithContext(ctx context.Context, taskListID string) (m
 	return result, nil
 }
 
-// UpdateTaskListFull atualiza title, description e preferred_view_mode de uma tasklist.
-// slug: nil = não altera slug; ponteiro para string vazia = limpa slug; valor = define slug normalizado.
-func UpdateTaskListFull(id string, title, description, preferredViewMode string, slug *string) error {
-	return UpdateTaskListFullWithContext(context.Background(), id, title, description, preferredViewMode, slug)
-}
-
+// UpdateTaskListFullWithContext atualiza title, description e
+// preferred_view_mode de uma tasklist do usuário do contexto.
+// slug: nil = não altera slug; ponteiro para string vazia = limpa slug;
+// valor = define slug normalizado.
 func UpdateTaskListFullWithContext(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error {
 	updates := map[string]interface{}{
 		"title":       title,
@@ -470,11 +426,8 @@ func UpdateTaskListFullWithContext(ctx context.Context, id string, title, descri
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Where("id = ?", id).Updates(updates).Error
 }
 
-// ReorderWorkflowStatuses reordena os statuses mantendo seus IDs e labels
-func ReorderWorkflowStatuses(taskListID string, statusOrder []int) error {
-	return ReorderWorkflowStatusesWithContext(context.Background(), taskListID, statusOrder)
-}
-
+// ReorderWorkflowStatusesWithContext reordena os statuses do workflow do
+// usuário do contexto, mantendo seus IDs e labels.
 func ReorderWorkflowStatusesWithContext(ctx context.Context, taskListID string, statusOrder []int) error {
 	// Busca workflow atual
 	workflow, err := GetWorkflowWithContext(ctx, taskListID)
@@ -512,13 +465,10 @@ func ReorderWorkflowStatusesWithContext(ctx context.Context, taskListID string, 
 		Update("statuses", string(statusesJSON)).Error
 }
 
-// ValidateStatusTransition valida se uma transição de status é permitida.
-// Permite transição livre quando o status atual é inválido/vazio (0 ou ausente no workflow),
-// desde que o status destino exista no workflow.
-func ValidateStatusTransition(taskListID string, fromStatusID, toStatusID int) error {
-	return ValidateStatusTransitionWithContext(context.Background(), taskListID, fromStatusID, toStatusID)
-}
-
+// ValidateStatusTransitionWithContext valida se uma transição de status é
+// permitida no workflow do usuário do contexto. Permite transição livre quando
+// o status atual é inválido/vazio (0 ou ausente no workflow), desde que o
+// status destino exista no workflow.
 func ValidateStatusTransitionWithContext(ctx context.Context, taskListID string, fromStatusID, toStatusID int) error {
 	if fromStatusID == toStatusID {
 		return nil
@@ -575,11 +525,8 @@ func ValidateStatusTransitionWithContext(ctx context.Context, taskListID string,
 
 // ==================== Task Operations ====================
 
-// CreateTask cria uma nova task em uma tasklist
-func CreateTask(taskListID string, title, description, code, link string, parentID *string) (*Task, error) {
-	return CreateTaskWithContext(context.Background(), taskListID, title, description, code, link, parentID)
-}
-
+// CreateTaskWithContext cria uma nova task em uma tasklist do usuário do
+// contexto.
 func CreateTaskWithContext(ctx context.Context, taskListID string, title, description, code, link string, parentID *string) (*Task, error) {
 	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
 		return nil, err
@@ -631,11 +578,8 @@ func CreateTaskWithContext(ctx context.Context, taskListID string, title, descri
 	return task, nil
 }
 
-// CreateTaskFull cria uma nova task com todos os campos, incluindo assignee e creator
-func CreateTaskFull(taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*Task, error) {
-	return CreateTaskFullWithContext(context.Background(), taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
-}
-
+// CreateTaskFullWithContext cria uma nova task em uma tasklist do usuário do
+// contexto, com todos os campos, incluindo assignee e creator.
 func CreateTaskFullWithContext(ctx context.Context, taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*Task, error) {
 	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
 		return nil, err
@@ -689,12 +633,8 @@ func CreateTaskFullWithContext(ctx context.Context, taskListID string, title, de
 	return task, nil
 }
 
-// FindTaskByCode busca uma task pelo code dentro de uma tasklist.
-// Retorna nil, nil se nao encontrar.
-func FindTaskByCode(taskListID string, code string) (*Task, error) {
-	return FindTaskByCodeWithContext(context.Background(), taskListID, code)
-}
-
+// FindTaskByCodeWithContext busca uma task pelo code dentro de uma tasklist
+// do usuário do contexto. Retorna nil, nil se nao encontrar.
 func FindTaskByCodeWithContext(ctx context.Context, taskListID string, code string) (*Task, error) {
 	var task Task
 	err := taskQuery(ctx, db.Model(&Task{})).
@@ -709,11 +649,8 @@ func FindTaskByCodeWithContext(ctx context.Context, taskListID string, code stri
 	return &task, nil
 }
 
-// GetTask retorna uma task com subtasks
-func GetTask(id string) (*Task, error) {
-	return GetTaskWithContext(context.Background(), id)
-}
-
+// GetTaskWithContext retorna uma task do usuário do contexto, incluindo
+// subtasks.
 func GetTaskWithContext(ctx context.Context, id string) (*Task, error) {
 	var task Task
 	err := taskQuery(ctx, db.Model(&Task{})).Preload("Subtasks", func(db *gorm.DB) *gorm.DB {
@@ -723,11 +660,8 @@ func GetTaskWithContext(ctx context.Context, id string) (*Task, error) {
 	return &task, err
 }
 
-// GetTasksByTaskListID retorna todas as tasks principais de uma tasklist (sem subtasks nested)
-func GetTasksByTaskListID(taskListID string) ([]Task, error) {
-	return GetTasksByTaskListIDWithContext(context.Background(), taskListID)
-}
-
+// GetTasksByTaskListIDWithContext retorna todas as tasks principais de uma
+// tasklist do usuário do contexto (sem subtasks nested).
 func GetTasksByTaskListIDWithContext(ctx context.Context, taskListID string) ([]Task, error) {
 	var tasks []Task
 	err := taskQuery(ctx, db.Model(&Task{})).
@@ -737,11 +671,8 @@ func GetTasksByTaskListIDWithContext(ctx context.Context, taskListID string) ([]
 	return tasks, err
 }
 
-// GetTasksByStatus retorna todas as tasks de um status específico
-func GetTasksByStatus(taskListID string, statusID int) ([]Task, error) {
-	return GetTasksByStatusWithContext(context.Background(), taskListID, statusID)
-}
-
+// GetTasksByStatusWithContext retorna todas as tasks de um status específico
+// dentro de uma tasklist do usuário do contexto.
 func GetTasksByStatusWithContext(ctx context.Context, taskListID string, statusID int) ([]Task, error) {
 	var tasks []Task
 	err := taskQuery(ctx, db.Model(&Task{})).
@@ -751,11 +682,8 @@ func GetTasksByStatusWithContext(ctx context.Context, taskListID string, statusI
 	return tasks, err
 }
 
-// UpdateTask atualiza title, description, code e link de uma task
-func UpdateTask(id string, title, description, code, link string) error {
-	return UpdateTaskWithContext(context.Background(), id, title, description, code, link)
-}
-
+// UpdateTaskWithContext atualiza title, description, code e link de uma task
+// do usuário do contexto.
 func UpdateTaskWithContext(ctx context.Context, id string, title, description, code, link string) error {
 	task, err := GetTaskWithContext(ctx, id)
 	if err != nil {
@@ -776,11 +704,8 @@ func UpdateTaskWithContext(ctx context.Context, id string, title, description, c
 		}).Error
 }
 
-// UpdateTaskFull atualiza todos os campos editáveis de uma task, incluindo assignee e creator
-func UpdateTaskFull(id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
-	return UpdateTaskFullWithContext(context.Background(), id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
-}
-
+// UpdateTaskFullWithContext atualiza todos os campos editáveis de uma task do
+// usuário do contexto, incluindo assignee e creator.
 func UpdateTaskFullWithContext(ctx context.Context, id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
 	task, err := GetTaskWithContext(ctx, id)
 	if err != nil {
@@ -805,11 +730,8 @@ func UpdateTaskFullWithContext(ctx context.Context, id string, title, descriptio
 		}).Error
 }
 
-// UpdateTaskAssignee atualiza apenas o assignee de uma task
-func UpdateTaskAssignee(id string, assigneeName, assigneeID string) error {
-	return UpdateTaskAssigneeWithContext(context.Background(), id, assigneeName, assigneeID)
-}
-
+// UpdateTaskAssigneeWithContext atualiza apenas o assignee de uma task do
+// usuário do contexto.
 func UpdateTaskAssigneeWithContext(ctx context.Context, id string, assigneeName, assigneeID string) error {
 	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
 	return db.WithContext(ctx).Model(&Task{}).
@@ -821,11 +743,8 @@ func UpdateTaskAssigneeWithContext(ctx context.Context, id string, assigneeName,
 		}).Error
 }
 
-// UpdateTaskStatus atualiza o status de uma task com validação de transição
-func UpdateTaskStatus(id string, newStatusID int) error {
-	return UpdateTaskStatusWithContext(context.Background(), id, newStatusID)
-}
-
+// UpdateTaskStatusWithContext atualiza o status de uma task do usuário do
+// contexto, com validação de transição.
 func UpdateTaskStatusWithContext(ctx context.Context, id string, newStatusID int) error {
 	// Busca task
 	task, err := GetTaskWithContext(ctx, id)
@@ -861,11 +780,8 @@ func UpdateTaskStatusWithContext(ctx context.Context, id string, newStatusID int
 	return db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).Where("id IN (?)", taskIDs).Updates(updates).Error
 }
 
-// ReorderTasks reordena as tasks dentro de um status/parent
-func ReorderTasks(taskListID string, statusID int, orderedIDs []string) error {
-	return ReorderTasksWithContext(context.Background(), taskListID, statusID, orderedIDs)
-}
-
+// ReorderTasksWithContext reordena as tasks dentro de um status/parent
+// pertencente ao usuário do contexto.
 func ReorderTasksWithContext(ctx context.Context, taskListID string, statusID int, orderedIDs []string) error {
 	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
 		return err
@@ -882,11 +798,8 @@ func ReorderTasksWithContext(ctx context.Context, taskListID string, statusID in
 	return nil
 }
 
-// PromoteTask move uma subtask para uma task principal (remove parent)
-func PromoteTask(id string) error {
-	return PromoteTaskWithContext(context.Background(), id)
-}
-
+// PromoteTaskWithContext move uma subtask do usuário do contexto para uma
+// task principal (remove parent).
 func PromoteTaskWithContext(ctx context.Context, id string) error {
 	task, err := GetTaskWithContext(ctx, id)
 	if err != nil {
@@ -901,11 +814,8 @@ func PromoteTaskWithContext(ctx context.Context, id string) error {
 	return db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).Where("id IN (?)", taskIDs).Update("parent_id", nil).Error
 }
 
-// DemoteTask move uma task para ser subtask de outra (define parent)
-func DemoteTask(id string, parentID string) error {
-	return DemoteTaskWithContext(context.Background(), id, parentID)
-}
-
+// DemoteTaskWithContext move uma task do usuário do contexto para ser subtask
+// de outra (define parent).
 func DemoteTaskWithContext(ctx context.Context, id string, parentID string) error {
 	task, err := GetTaskWithContext(ctx, id)
 	if err != nil {
@@ -922,12 +832,9 @@ func DemoteTaskWithContext(ctx context.Context, id string, parentID string) erro
 	return db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).Where("id IN (?)", taskIDs).Update("parent_id", parentID).Error
 }
 
-// MoveTaskToList move uma task (e suas subtasks) para outra tasklist.
-// Reseta status para o inicial do workflow destino, limpa parent e recalcula order.
-func MoveTaskToList(taskID string, targetTaskListID string) (*Task, error) {
-	return MoveTaskToListWithContext(context.Background(), taskID, targetTaskListID)
-}
-
+// MoveTaskToListWithContext move uma task do usuário do contexto (e suas
+// subtasks) para outra tasklist do mesmo usuário. Reseta status para o
+// inicial do workflow destino, limpa parent e recalcula order.
 func MoveTaskToListWithContext(ctx context.Context, taskID string, targetTaskListID string) (*Task, error) {
 	task, err := GetTaskWithContext(ctx, taskID)
 	if err != nil {
@@ -979,11 +886,8 @@ func MoveTaskToListWithContext(ctx context.Context, taskID string, targetTaskLis
 	return GetTaskWithContext(ctx, taskID)
 }
 
-// GetSubtasks retorna todas as subtasks de uma task
-func GetSubtasks(parentID string) ([]Task, error) {
-	return GetSubtasksWithContext(context.Background(), parentID)
-}
-
+// GetSubtasksWithContext retorna todas as subtasks de uma task do usuário do
+// contexto.
 func GetSubtasksWithContext(ctx context.Context, parentID string) ([]Task, error) {
 	var tasks []Task
 	err := taskQuery(ctx, db.Model(&Task{})).Where("tasks.parent_id = ?", parentID).
@@ -992,11 +896,8 @@ func GetSubtasksWithContext(ctx context.Context, parentID string) ([]Task, error
 	return tasks, err
 }
 
-// DeleteTask deleta uma task, suas notas e todas suas subtasks
-func DeleteTask(id string) error {
-	return DeleteTaskWithContext(context.Background(), id)
-}
-
+// DeleteTaskWithContext deleta uma task do usuário do contexto, suas notas e
+// todas suas subtasks.
 func DeleteTaskWithContext(ctx context.Context, id string) error {
 	if _, err := GetTaskWithContext(ctx, id); err != nil {
 		return err
@@ -1024,11 +925,8 @@ func DeleteTaskWithContext(ctx context.Context, id string) error {
 
 // ==================== TaskNote Operations ====================
 
-// CreateTaskNote cria uma nova nota/interação para uma task.
-func CreateTaskNote(taskID string, noteType TaskNoteType, content, authorName, authorID string) (*TaskNote, error) {
-	return CreateTaskNoteWithContext(context.Background(), taskID, noteType, content, authorName, authorID)
-}
-
+// CreateTaskNoteWithContext cria uma nova nota/interação para uma task do
+// usuário do contexto.
 func CreateTaskNoteWithContext(ctx context.Context, taskID string, noteType TaskNoteType, content, authorName, authorID string) (*TaskNote, error) {
 	if _, err := GetTaskWithContext(ctx, taskID); err != nil {
 		return nil, fmt.Errorf("task %s não encontrada: %w", taskID, err)
@@ -1059,11 +957,9 @@ func isSQLiteUniqueConstraintError(err error) bool {
 		strings.Contains(s, "SQLITE_CONSTRAINT_UNIQUE")
 }
 
-// FindTaskNoteByExternalRef retorna a nota com a origem e ID externos informados, ou nil se não existir.
-func FindTaskNoteByExternalRef(externalSource, externalID string) (*TaskNote, error) {
-	return FindTaskNoteByExternalRefWithContext(context.Background(), externalSource, externalID)
-}
-
+// FindTaskNoteByExternalRefWithContext retorna a nota com a origem e ID
+// externos informados pertencente ao usuário do contexto, ou nil se não
+// existir.
 func FindTaskNoteByExternalRefWithContext(ctx context.Context, externalSource, externalID string) (*TaskNote, error) {
 	src := strings.TrimSpace(externalSource)
 	ext := strings.TrimSpace(externalID)
@@ -1102,12 +998,10 @@ func applyTaskNoteExternalUpsertUpdatesWithContext(ctx context.Context, noteID s
 	return db.WithContext(ctx).Model(&TaskNote{}).Where("id = ?", noteID).Where("id IN (?)", noteIDs).Updates(updates).Error
 }
 
-// UpsertTaskNoteByExternal cria ou atualiza uma nota de forma idempotente usando external_source + external_id.
-// O segundo retorno indica se a nota foi criada (true) ou apenas atualizada (false).
-func UpsertTaskNoteByExternal(p UpsertTaskNoteByExternalParams) (*TaskNote, bool, error) {
-	return UpsertTaskNoteByExternalWithContext(context.Background(), p)
-}
-
+// UpsertTaskNoteByExternalWithContext cria ou atualiza uma nota de forma
+// idempotente usando external_source + external_id, no escopo do usuário do
+// contexto. O segundo retorno indica se a nota foi criada (true) ou apenas
+// atualizada (false).
 func UpsertTaskNoteByExternalWithContext(ctx context.Context, p UpsertTaskNoteByExternalParams) (*TaskNote, bool, error) {
 	src := strings.TrimSpace(p.ExternalSource)
 	ext := strings.TrimSpace(p.ExternalID)
@@ -1204,11 +1098,7 @@ func finishNoteUpdateWithContext(ctx context.Context, noteID string, updates map
 	return out, false, err
 }
 
-// GetTaskNote retorna uma nota pelo ID
-func GetTaskNote(noteID string) (*TaskNote, error) {
-	return GetTaskNoteWithContext(context.Background(), noteID)
-}
-
+// GetTaskNoteWithContext retorna uma nota do usuário do contexto pelo ID.
 func GetTaskNoteWithContext(ctx context.Context, noteID string) (*TaskNote, error) {
 	var note TaskNote
 	if err := taskNoteQuery(ctx, db.Model(&TaskNote{})).First(&note, "task_notes.id = ?", noteID).Error; err != nil {
@@ -1217,11 +1107,8 @@ func GetTaskNoteWithContext(ctx context.Context, noteID string) (*TaskNote, erro
 	return &note, nil
 }
 
-// GetTaskNotes retorna todas as notas de uma task ordenadas cronologicamente
-func GetTaskNotes(taskID string) ([]TaskNote, error) {
-	return GetTaskNotesWithContext(context.Background(), taskID)
-}
-
+// GetTaskNotesWithContext retorna todas as notas de uma task do usuário do
+// contexto, ordenadas cronologicamente.
 func GetTaskNotesWithContext(ctx context.Context, taskID string) ([]TaskNote, error) {
 	var notes []TaskNote
 	err := taskNoteQuery(ctx, db.Model(&TaskNote{})).
@@ -1231,11 +1118,8 @@ func GetTaskNotesWithContext(ctx context.Context, taskID string) ([]TaskNote, er
 	return notes, err
 }
 
-// UpdateTaskNote atualiza o conteúdo de uma nota existente
-func UpdateTaskNote(noteID string, content string) error {
-	return UpdateTaskNoteWithContext(context.Background(), noteID, content)
-}
-
+// UpdateTaskNoteWithContext atualiza o conteúdo de uma nota existente do
+// usuário do contexto.
 func UpdateTaskNoteWithContext(ctx context.Context, noteID string, content string) error {
 	noteIDs := taskNoteQuery(ctx, db.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.id = ?", noteID))
 	return db.WithContext(ctx).Model(&TaskNote{}).
@@ -1244,21 +1128,14 @@ func UpdateTaskNoteWithContext(ctx context.Context, noteID string, content strin
 		Update("content", content).Error
 }
 
-// DeleteTaskNote remove uma nota
-func DeleteTaskNote(noteID string) error {
-	return DeleteTaskNoteWithContext(context.Background(), noteID)
-}
-
+// DeleteTaskNoteWithContext remove uma nota do usuário do contexto.
 func DeleteTaskNoteWithContext(ctx context.Context, noteID string) error {
 	noteIDs := taskNoteQuery(ctx, db.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.id = ?", noteID))
 	return db.WithContext(ctx).Where("id IN (?)", noteIDs).Delete(&TaskNote{}).Error
 }
 
-// DeleteTaskNotes remove todas as notas de uma task (usado em cascata ao deletar tasks)
-func DeleteTaskNotes(taskID string) error {
-	return DeleteTaskNotesWithContext(context.Background(), taskID)
-}
-
+// DeleteTaskNotesWithContext remove todas as notas de uma task do usuário do
+// contexto (usado em cascata ao deletar tasks).
 func DeleteTaskNotesWithContext(ctx context.Context, taskID string) error {
 	noteIDs := taskNoteQuery(ctx, db.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.task_id = ?", taskID))
 	return db.WithContext(ctx).Where("id IN (?)", noteIDs).Delete(&TaskNote{}).Error
@@ -1266,11 +1143,8 @@ func DeleteTaskNotesWithContext(ctx context.Context, taskID string) error {
 
 // ==================== Utility Functions ====================
 
-// GetTaskListStats retorna estatísticas de uma tasklist (total, por status)
-func GetTaskListStats(taskListID string) (map[string]interface{}, error) {
-	return GetTaskListStatsWithContext(context.Background(), taskListID)
-}
-
+// GetTaskListStatsWithContext retorna estatísticas de uma tasklist do usuário
+// do contexto (total, por status).
 func GetTaskListStatsWithContext(ctx context.Context, taskListID string) (map[string]interface{}, error) {
 	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
 		return nil, err
@@ -1302,11 +1176,8 @@ func GetTaskListStatsWithContext(ctx context.Context, taskListID string) (map[st
 	}, nil
 }
 
-// GetTaskListWithHierarchy retorna uma tasklist com hierarquia completa de tasks
-func GetTaskListWithHierarchy(id string) (*TaskList, error) {
-	return GetTaskListWithHierarchyWithContext(context.Background(), id)
-}
-
+// GetTaskListWithHierarchyWithContext retorna uma tasklist do usuário do
+// contexto com hierarquia completa de tasks.
 func GetTaskListWithHierarchyWithContext(ctx context.Context, id string) (*TaskList, error) {
 	taskList, err := GetTaskListWithContext(ctx, id)
 	if err != nil {

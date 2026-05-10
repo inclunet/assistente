@@ -242,17 +242,29 @@ func (a *App) CanPersistCredentials() bool {
 
 // ListCredentials retorna credenciais registradas (sem valores sensíveis).
 func (a *App) ListCredentials() ([]CredentialSummary, error) {
-	return a.credentialsCtrl.ListCredentialsWithContext(a.authenticatedContext())
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.credentialsCtrl.ListCredentialsWithContext(ctx)
 }
 
 // UpsertCredential cria ou atualiza uma credencial no credential manager.
 func (a *App) UpsertCredential(input CredentialInput) error {
-	return a.credentialsCtrl.UpsertCredentialWithContext(a.authenticatedContext(), input)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.credentialsCtrl.UpsertCredentialWithContext(ctx, input)
 }
 
 // DeleteCredential remove uma credencial pelo padrão.
 func (a *App) DeleteCredential(pattern string) error {
-	return a.credentialsCtrl.DeleteCredentialWithContext(a.authenticatedContext(), pattern)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.credentialsCtrl.DeleteCredentialWithContext(ctx, pattern)
 }
 
 // ListExternalSources lista fontes externas disponíveis para autocomplete.

@@ -176,7 +176,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 		t.Fatalf("conversationID não foi criado")
 	}
 
-	conv, err := database.GetConversationInfo(sentConversationID)
+	conv, err := database.GetConversationInfoWithContext(context.Background(), sentConversationID)
 	if err != nil {
 		t.Fatalf("erro ao buscar conversa: %v", err)
 	}

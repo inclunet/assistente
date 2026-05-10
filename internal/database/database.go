@@ -207,11 +207,10 @@ func AdoptLegacyData(userID string) error {
 
 // ==================== Conversation ====================
 
-// CreateConversation cria uma nova conversa
-func CreateConversation(title, model string) (*Conversation, error) {
-	return CreateConversationWithContext(context.Background(), title, model)
-}
-
+// CreateConversationWithContext cria uma nova conversa pertencente ao usuário
+// do contexto. Não existe mais um wrapper sem contexto: callers que precisam
+// criar conversas devem propagar o ctx autenticado (via
+// requireAuthenticatedContext nas bindings Wails ou WithUserID em testes).
 func CreateConversationWithContext(ctx context.Context, title, model string) (*Conversation, error) {
 	userID, _ := UserIDFromContext(ctx)
 	conv := &Conversation{
@@ -225,13 +224,10 @@ func CreateConversationWithContext(ctx context.Context, title, model string) (*C
 	return conv, nil
 }
 
-// RecycleOrCreateConversation busca uma conversa vazia (0 mensagens, sem canal,
-// não vinculada a nenhuma tab aberta) e a recicla, resetando título e timestamps.
-// Se não encontrar candidata, cria uma nova. Evita acumular registros orfãos no banco.
-func RecycleOrCreateConversation(title string) (*Conversation, error) {
-	return RecycleOrCreateConversationWithContext(context.Background(), title)
-}
-
+// RecycleOrCreateConversationWithContext busca uma conversa vazia (0 mensagens,
+// sem canal, não vinculada a nenhuma tab aberta) do usuário do contexto e a
+// recicla, resetando título e timestamps. Se não encontrar candidata, cria uma
+// nova. Evita acumular registros órfãos no banco.
 func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (*Conversation, error) {
 	var candidate Conversation
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
@@ -262,11 +258,15 @@ func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (
 	return CreateConversationWithContext(ctx, title, "")
 }
 
-// FindOrCreateChannelConversation busca uma conversa existente para um canal+contato.
-// Se não existir, cria uma nova. Retorna a conversa e se foi criada (true) ou encontrada (false).
-func FindOrCreateChannelConversation(channel, contactID, contactName string) (*Conversation, bool, error) {
+// FindOrCreateChannelConversationWithContext localiza ou cria uma conversa de
+// canal pertencente ao usuário do contexto. Mensagens vindas de canais
+// externos (WhatsApp/Telegram/etc.) precisam ser associadas ao usuário dono
+// do canal — o caller deve injetar esse userID no contexto via WithUserID.
+func FindOrCreateChannelConversationWithContext(ctx context.Context, channel, contactID, contactName string) (*Conversation, bool, error) {
 	var conv Conversation
-	err := db.Where("channel = ? AND contact_id = ?", channel, contactID).First(&conv).Error
+	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
+		Where("channel = ? AND contact_id = ?", channel, contactID).
+		First(&conv).Error
 	if err == nil {
 		return &conv, false, nil
 	}
@@ -276,22 +276,22 @@ func FindOrCreateChannelConversation(channel, contactID, contactName string) (*C
 	if title == "" {
 		title = contactID
 	}
+	userID, _ := UserIDFromContext(ctx)
 	conv = Conversation{
 		Title:     title,
 		Channel:   channel,
 		ContactID: contactID,
+		UserID:    userID,
 	}
-	if err := db.Create(&conv).Error; err != nil {
+	if err := db.WithContext(ctx).Create(&conv).Error; err != nil {
 		return nil, false, err
 	}
 	return &conv, true, nil
 }
 
-// GetConversations retorna todas as conversas ordenadas por data
-func GetConversations() ([]Conversation, error) {
-	return GetConversationsWithContext(context.Background())
-}
-
+// GetConversationsWithContext retorna as conversas do usuário do contexto,
+// ordenadas pela última atualização. Não existe wrapper sem contexto: callers
+// precisam estar autenticados.
 func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 	var conversations []Conversation
 
@@ -310,12 +310,10 @@ func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 	return conversations, nil
 }
 
-// GetConversation retorna uma conversa com suas mensagens
-// Deprecated: Use GetConversationInfo + GetMessages for lazy loading
-func GetConversation(id string) (*Conversation, error) {
-	return GetConversationWithContext(context.Background(), id)
-}
-
+// GetConversationWithContext retorna uma conversa do usuário do contexto com
+// suas mensagens. Deprecated em favor de GetConversationInfoWithContext +
+// GetMessagesWithContext (lazy loading), mas mantida para callers que ainda
+// precisam do payload completo.
 func GetConversationWithContext(ctx context.Context, id string) (*Conversation, error) {
 	var conv Conversation
 	query := ScopeByUser(ctx, db.WithContext(ctx), "user_id")
@@ -328,11 +326,8 @@ func GetConversationWithContext(ctx context.Context, id string) (*Conversation, 
 	return &conv, nil
 }
 
-// GetConversationInfo retorna apenas metadados da conversa (sem mensagens)
-func GetConversationInfo(id string) (*Conversation, error) {
-	return GetConversationInfoWithContext(context.Background(), id)
-}
-
+// GetConversationInfoWithContext retorna apenas metadados da conversa
+// pertencente ao usuário do contexto.
 func GetConversationInfoWithContext(ctx context.Context, id string) (*Conversation, error) {
 	var conv Conversation
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&conv, "id = ?", id).Error
@@ -342,11 +337,7 @@ func GetConversationInfoWithContext(ctx context.Context, id string) (*Conversati
 	return &conv, nil
 }
 
-// UpdateConversation atualiza título da conversa
-func UpdateConversation(id string, title, model string) error {
-	return UpdateConversationWithContext(context.Background(), id, title, model)
-}
-
+// UpdateConversationWithContext atualiza título da conversa do usuário do contexto.
 func UpdateConversationWithContext(ctx context.Context, id string, title, model string) error {
 	updates := map[string]interface{}{
 		"title":      title,
@@ -356,12 +347,9 @@ func UpdateConversationWithContext(ctx context.Context, id string, title, model 
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", id).Updates(updates).Error
 }
 
-// UpdateConversationChannel atualiza o canal e contato vinculados a uma conversa.
-// Passar channel="" e contactID="" desvincula a conversa do canal.
-func UpdateConversationChannel(id string, channel, contactID string) error {
-	return UpdateConversationChannelWithContext(context.Background(), id, channel, contactID)
-}
-
+// UpdateConversationChannelWithContext atualiza o canal e contato vinculados
+// a uma conversa do usuário do contexto. Passar channel="" e contactID=""
+// desvincula a conversa do canal.
 func UpdateConversationChannelWithContext(ctx context.Context, id string, channel, contactID string) error {
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", id).Updates(map[string]interface{}{
 		"channel":    channel,
@@ -370,11 +358,8 @@ func UpdateConversationChannelWithContext(ctx context.Context, id string, channe
 	}).Error
 }
 
-// DeleteConversation deleta uma conversa e suas mensagens
-func DeleteConversation(id string) error {
-	return DeleteConversationWithContext(context.Background(), id)
-}
-
+// DeleteConversationWithContext deleta uma conversa do usuário do contexto e
+// suas mensagens.
 func DeleteConversationWithContext(ctx context.Context, id string) error {
 	if _, err := GetConversationInfoWithContext(ctx, id); err != nil {
 		return err
@@ -414,11 +399,9 @@ func scopedMessageQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
 	)
 }
 
-// CreateMessage cria uma mensagem com todas as opções disponíveis
-func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
-	return CreateMessageWithContext(context.Background(), opts)
-}
-
+// CreateMessageWithContext cria uma mensagem em uma conversa do usuário do
+// contexto. Bloqueia silenciosamente quando o ctx não tem userID — o caller
+// (DBMessageStore.CreateMessage) é responsável por exigir RequireUserID antes.
 func CreateMessageWithContext(ctx context.Context, opts MessageOptions) (*ChatMessage, error) {
 	// Verifica se a conversa ainda existe antes de criar a mensagem
 	var conv Conversation
@@ -464,18 +447,20 @@ func CreateMessageWithContext(ctx context.Context, opts MessageOptions) (*ChatMe
 	return msg, nil
 }
 
-// AddMessage adiciona uma mensagem simples (sem parent - nível 0)
-func AddMessage(conversationID string, role, content string) (*ChatMessage, error) {
-	return CreateMessage(MessageOptions{
+// AddMessageWithContext adiciona uma mensagem simples (sem parent - nível 0)
+// para o usuário do contexto.
+func AddMessageWithContext(ctx context.Context, conversationID string, role, content string) (*ChatMessage, error) {
+	return CreateMessageWithContext(ctx, MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
 	})
 }
 
-// AddMessageWithMedia adiciona uma mensagem com mídias (sem parent - nível 0)
-func AddMessageWithMedia(conversationID string, role, content, media string) (*ChatMessage, error) {
-	return CreateMessage(MessageOptions{
+// AddMessageWithMediaWithContext adiciona uma mensagem com mídias (sem parent
+// - nível 0) para o usuário do contexto.
+func AddMessageWithMediaWithContext(ctx context.Context, conversationID string, role, content, media string) (*ChatMessage, error) {
+	return CreateMessageWithContext(ctx, MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
@@ -483,9 +468,10 @@ func AddMessageWithMedia(conversationID string, role, content, media string) (*C
 	})
 }
 
-// AddMessageWithTokens adiciona uma mensagem com informações de tokens
-func AddMessageWithTokens(conversationID string, role, content string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
-	return CreateMessage(MessageOptions{
+// AddMessageWithTokensWithContext adiciona uma mensagem com informações de
+// tokens para o usuário do contexto.
+func AddMessageWithTokensWithContext(ctx context.Context, conversationID string, role, content string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
+	return CreateMessageWithContext(ctx, MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
@@ -496,9 +482,10 @@ func AddMessageWithTokens(conversationID string, role, content string, promptTok
 	})
 }
 
-// AddMessageWithTokensAndMedia adiciona uma mensagem com mídias e informações de tokens
-func AddMessageWithTokensAndMedia(conversationID string, role, content, media string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
-	return CreateMessage(MessageOptions{
+// AddMessageWithTokensAndMediaWithContext adiciona uma mensagem com mídias e
+// informações de tokens para o usuário do contexto.
+func AddMessageWithTokensAndMediaWithContext(ctx context.Context, conversationID string, role, content, media string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
+	return CreateMessageWithContext(ctx, MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
@@ -510,12 +497,9 @@ func AddMessageWithTokensAndMedia(conversationID string, role, content, media st
 	})
 }
 
-// GetMessageAudio retorna o áudio base64 e MIME de uma mensagem.
-// Retorna ("", "", nil) se a mensagem não tem áudio.
-func GetMessageAudio(messageID string) (string, string, error) {
-	return GetMessageAudioWithContext(context.Background(), messageID)
-}
-
+// GetMessageAudioWithContext retorna o áudio base64 e MIME de uma mensagem
+// pertencente ao usuário do contexto. Retorna ("", "", nil) se a mensagem não
+// tem áudio.
 func GetMessageAudioWithContext(ctx context.Context, messageID string) (string, string, error) {
 	var msg ChatMessage
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
@@ -526,11 +510,8 @@ func GetMessageAudioWithContext(ctx context.Context, messageID string) (string, 
 	return msg.Audio, msg.AudioMimeType, nil
 }
 
-// SaveMessageAudio salva áudio (base64) numa mensagem existente.
-func SaveMessageAudio(messageID string, audioBase64 string, mimeType string) error {
-	return SaveMessageAudioWithContext(context.Background(), messageID, audioBase64, mimeType)
-}
-
+// SaveMessageAudioWithContext salva áudio (base64) numa mensagem existente do
+// usuário do contexto.
 func SaveMessageAudioWithContext(ctx context.Context, messageID string, audioBase64 string, mimeType string) error {
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
 	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
@@ -539,22 +520,16 @@ func SaveMessageAudioWithContext(ctx context.Context, messageID string, audioBas
 	}).Error
 }
 
-// HasMessageAudio verifica se uma mensagem tem áudio salvo.
-func HasMessageAudio(messageID string) bool {
-	return HasMessageAudioWithContext(context.Background(), messageID)
-}
-
+// HasMessageAudioWithContext verifica se uma mensagem do usuário do contexto
+// tem áudio salvo.
 func HasMessageAudioWithContext(ctx context.Context, messageID string) bool {
 	var count int64
 	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.id = ? AND chat_messages.audio != '' AND chat_messages.audio IS NOT NULL", messageID).Count(&count)
 	return count > 0
 }
 
-// GetMessageContent retorna o conteúdo textual de uma mensagem.
-func GetMessageContent(messageID string) (string, error) {
-	return GetMessageContentWithContext(context.Background(), messageID)
-}
-
+// GetMessageContentWithContext retorna o conteúdo textual de uma mensagem
+// pertencente ao usuário do contexto.
 func GetMessageContentWithContext(ctx context.Context, messageID string) (string, error) {
 	var msg ChatMessage
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
@@ -565,11 +540,8 @@ func GetMessageContentWithContext(ctx context.Context, messageID string) (string
 	return msg.Content, nil
 }
 
-// GetMessage retorna a mensagem completa pelo ID.
-func GetMessage(messageID string) (*ChatMessage, error) {
-	return GetMessageWithContext(context.Background(), messageID)
-}
-
+// GetMessageWithContext retorna a mensagem completa pelo ID, restrita ao
+// usuário do contexto.
 func GetMessageWithContext(ctx context.Context, messageID string) (*ChatMessage, error) {
 	var msg ChatMessage
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).First(&msg, "chat_messages.id = ?", messageID).Error; err != nil {
@@ -578,21 +550,19 @@ func GetMessageWithContext(ctx context.Context, messageID string) (*ChatMessage,
 	return &msg, nil
 }
 
-// AddToolMessage adiciona uma mensagem de role="tool" (resposta de tool ao orquestrador)
-func AddToolMessage(conversationID string, content string) (*ChatMessage, error) {
-	return CreateMessage(MessageOptions{
+// AddToolMessageWithContext adiciona uma mensagem de role="tool" (resposta de
+// tool ao orquestrador) para o usuário do contexto.
+func AddToolMessageWithContext(ctx context.Context, conversationID string, content string) (*ChatMessage, error) {
+	return CreateMessageWithContext(ctx, MessageOptions{
 		ConversationID: conversationID,
 		Role:           "tool",
 		Content:        content,
 	})
 }
 
-// AddToolResultMessage adiciona uma mensagem de resultado de tool com TurnID e ToolCallID.
-// Usado pelo agentic loop para salvar o resultado de uma execução de ferramenta.
-func AddToolResultMessage(conversationID string, turnID string, content, toolCallID string) (*ChatMessage, error) {
-	return AddToolResultMessageWithContext(context.Background(), conversationID, turnID, content, toolCallID)
-}
-
+// AddToolResultMessageWithContext adiciona uma mensagem de resultado de tool
+// com TurnID e ToolCallID para o usuário do contexto. Usado pelo agentic loop
+// para salvar o resultado de uma execução de ferramenta.
 func AddToolResultMessageWithContext(ctx context.Context, conversationID string, turnID string, content, toolCallID string) (*ChatMessage, error) {
 	return CreateMessageWithContext(ctx, MessageOptions{
 		ConversationID: conversationID,
@@ -603,12 +573,9 @@ func AddToolResultMessageWithContext(ctx context.Context, conversationID string,
 	})
 }
 
-// AddAssistantToolMessage adiciona uma mensagem do assistente que contém tool_calls.
-// Usada quando o LLM responde com texto + pedidos de ferramentas.
-func AddAssistantToolMessage(conversationID string, turnID string, content, toolCalls, reasoning, model string) (*ChatMessage, error) {
-	return AddAssistantToolMessageWithContext(context.Background(), conversationID, turnID, content, toolCalls, reasoning, model)
-}
-
+// AddAssistantToolMessageWithContext adiciona uma mensagem do assistente que
+// contém tool_calls para o usuário do contexto. Usada quando o LLM responde
+// com texto + pedidos de ferramentas.
 func AddAssistantToolMessageWithContext(ctx context.Context, conversationID string, turnID string, content, toolCalls, reasoning, model string) (*ChatMessage, error) {
 	return CreateMessageWithContext(ctx, MessageOptions{
 		ConversationID: conversationID,
@@ -621,36 +588,43 @@ func AddAssistantToolMessageWithContext(ctx context.Context, conversationID stri
 	})
 }
 
-// GetTurnMessages retorna todas as mensagens de um turno (mesmo TurnID), ordenadas por criação.
-func GetTurnMessages(turnID string) ([]ChatMessage, error) {
+// GetTurnMessagesWithContext retorna todas as mensagens de um turno (mesmo
+// TurnID) pertencentes ao usuário do contexto, ordenadas por criação.
+func GetTurnMessagesWithContext(ctx context.Context, turnID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("turn_id = ?", turnID).Order("created_at ASC, id ASC").Find(&messages).Error
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.turn_id = ?", turnID).
+		Order("chat_messages.created_at ASC, chat_messages.id ASC").
+		Find(&messages).Error
 	return messages, err
 }
 
-// GetMessagesByTurnID retorna mensagens de um turno específico.
-// Mantém o mesmo escopo de parent da janela para não misturar raiz e threads.
-func GetMessagesByTurnID(conversationID string, parentID *string, turnID string, limit int) ([]ChatMessage, error) {
+// GetMessagesByTurnIDWithContext retorna mensagens de um turno específico
+// pertencentes ao usuário do contexto. Mantém o mesmo escopo de parent da
+// janela para não misturar raiz e threads.
+func GetMessagesByTurnIDWithContext(ctx context.Context, conversationID string, parentID *string, turnID string, limit int) ([]ChatMessage, error) {
 	if turnID == "" {
 		return []ChatMessage{}, nil
 	}
-	query := db.Where("conversation_id = ? AND turn_id = ?", conversationID, turnID)
+	query := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", conversationID, turnID)
 	if parentID != nil {
-		query = query.Where("parent_id = ?", *parentID)
+		query = query.Where("chat_messages.parent_id = ?", *parentID)
 	} else {
-		query = query.Where("parent_id IS NULL")
+		query = query.Where("chat_messages.parent_id IS NULL")
 	}
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
 	var messages []ChatMessage
-	err := query.Order("created_at ASC, id ASC").Find(&messages).Error
+	err := query.Order("chat_messages.created_at ASC, chat_messages.id ASC").Find(&messages).Error
 	return messages, err
 }
 
-// AddChildMessage adiciona uma mensagem filha (com ParentID definido)
-func AddChildMessage(conversationID string, parentID string, role, content, model string) (*ChatMessage, error) {
-	return CreateMessage(MessageOptions{
+// AddChildMessageWithContext adiciona uma mensagem filha (com ParentID
+// definido) para o usuário do contexto.
+func AddChildMessageWithContext(ctx context.Context, conversationID string, parentID string, role, content, model string) (*ChatMessage, error) {
+	return CreateMessageWithContext(ctx, MessageOptions{
 		ConversationID: conversationID,
 		ParentID:       &parentID,
 		Role:           role,
@@ -659,11 +633,8 @@ func AddChildMessage(conversationID string, parentID string, role, content, mode
 	})
 }
 
-// UpdateMessageContent atualiza o conteúdo e tokens de uma mensagem existente
-func UpdateMessageContent(messageID string, content string, promptTokens, completionTokens, totalTokens int, model string) error {
-	return UpdateMessageContentWithContext(context.Background(), messageID, content, promptTokens, completionTokens, totalTokens, model)
-}
-
+// UpdateMessageContentWithContext atualiza o conteúdo e tokens de uma mensagem
+// existente do usuário do contexto.
 func UpdateMessageContentWithContext(ctx context.Context, messageID string, content string, promptTokens, completionTokens, totalTokens int, model string) error {
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
 	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
@@ -675,11 +646,8 @@ func UpdateMessageContentWithContext(ctx context.Context, messageID string, cont
 	}).Error
 }
 
-// DeleteMessage exclui uma mensagem e todas as suas filhas (respostas)
-func DeleteMessage(messageID string) error {
-	return DeleteMessageWithContext(context.Background(), messageID)
-}
-
+// DeleteMessageWithContext exclui uma mensagem e todas as suas filhas
+// (respostas) do usuário do contexto.
 func DeleteMessageWithContext(ctx context.Context, messageID string) error {
 	var childIDs []string
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.parent_id = ?", messageID).Pluck("chat_messages.id", &childIDs).Error; err != nil {
@@ -694,31 +662,30 @@ func DeleteMessageWithContext(ctx context.Context, messageID string) error {
 	return db.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error
 }
 
-// DeleteAllMessages remove todas as mensagens de uma conversa
-func DeleteAllMessages(conversationID string) error {
-	return DeleteAllMessagesWithContext(context.Background(), conversationID)
-}
-
+// DeleteAllMessagesWithContext remove todas as mensagens de uma conversa
+// pertencente ao usuário do contexto.
 func DeleteAllMessagesWithContext(ctx context.Context, conversationID string) error {
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.conversation_id = ?", conversationID))
 	return db.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error
 }
 
-func ClearAllConversations() error {
-	if err := db.Where("1 = 1").Delete(&ChatMessage{}).Error; err != nil {
+// ClearAllConversationsWithContext apaga mensagens e conversas pertencentes ao
+// usuário do contexto. Quando o contexto não traz userID, mantém o
+// comportamento legado de limpar globalmente — exigir userID é responsabilidade
+// dos callers (Wails bindings/Controllers já fazem requireAuthenticatedContext).
+func ClearAllConversationsWithContext(ctx context.Context) error {
+	messageIDs := scopedMessageQuery(ctx, db.WithContext(ctx).Model(&ChatMessage{}).Select("chat_messages.id"))
+	if err := db.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error; err != nil {
 		return fmt.Errorf("erro ao limpar mensagens: %w", err)
 	}
-	if err := db.Where("1 = 1").Delete(&Conversation{}).Error; err != nil {
+	if err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Delete(&Conversation{}).Error; err != nil {
 		return fmt.Errorf("erro ao limpar conversas: %w", err)
 	}
 	return nil
 }
 
-// GetMessages retorna mensagens de uma conversa com filtro opcional por parent
-func GetMessages(conversationID string, parentID *string) ([]ChatMessage, error) {
-	return GetMessagesWithContext(context.Background(), conversationID, parentID)
-}
-
+// GetMessagesWithContext retorna mensagens de uma conversa do usuário do
+// contexto, com filtro opcional por parent.
 func GetMessagesWithContext(ctx context.Context, conversationID string, parentID *string) ([]ChatMessage, error) {
 	var messages []ChatMessage
 	query := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Order("chat_messages.created_at ASC, chat_messages.id ASC")
@@ -739,12 +706,8 @@ func GetMessagesWithContext(ctx context.Context, conversationID string, parentID
 	return messages, err
 }
 
-// GetRecentRootMessages retorna as mensagens raiz mais recentes de uma conversa,
-// preservando ordem cronológica no retorno.
-func GetRecentRootMessages(conversationID string, limit int) ([]ChatMessage, error) {
-	return GetRecentRootMessagesWithContext(context.Background(), conversationID, limit)
-}
-
+// GetRecentRootMessagesWithContext retorna as mensagens raiz mais recentes de
+// uma conversa do usuário do contexto, preservando ordem cronológica no retorno.
 func GetRecentRootMessagesWithContext(ctx context.Context, conversationID string, limit int) ([]ChatMessage, error) {
 	if conversationID == "" {
 		return nil, fmt.Errorf("conversationID é obrigatório para buscar mensagens recentes")
@@ -768,12 +731,8 @@ func GetRecentRootMessagesWithContext(ctx context.Context, conversationID string
 	return messages, nil
 }
 
-// GetRootMessagesBefore retorna mensagens raiz anteriores a beforeID,
-// preservando ordem cronológica no retorno.
-func GetRootMessagesBefore(conversationID string, beforeID string, limit int) ([]ChatMessage, error) {
-	return GetRootMessagesBeforeWithContext(context.Background(), conversationID, beforeID, limit)
-}
-
+// GetRootMessagesBeforeWithContext retorna mensagens raiz anteriores a
+// beforeID, do usuário do contexto, preservando ordem cronológica no retorno.
 func GetRootMessagesBeforeWithContext(ctx context.Context, conversationID string, beforeID string, limit int) ([]ChatMessage, error) {
 	if conversationID == "" {
 		return nil, fmt.Errorf("conversationID é obrigatório para buscar mensagens anteriores")
@@ -1069,12 +1028,9 @@ func fetchMessagesForTimelineItems(conversationID string, parentID *string, item
 	return messages, nil
 }
 
-// GetMessageWindow retorna uma fatia ordenada de itens de timeline,
-// acompanhada de metadados absolutos para renderização acessível e navegação incremental.
-func GetMessageWindow(query MessageWindowQuery) (*MessageWindowResult, error) {
-	return GetMessageWindowWithContext(context.Background(), query)
-}
-
+// GetMessageWindowWithContext retorna uma fatia ordenada de itens de timeline
+// para o usuário do contexto, acompanhada de metadados absolutos para
+// renderização acessível e navegação incremental.
 func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
 	if query.ConversationID == "" {
 		return nil, fmt.Errorf("conversationID é obrigatório para buscar janela de mensagens")
@@ -1215,18 +1171,19 @@ func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) 
 	}, nil
 }
 
-// GetAllConversationMessages retorna todas as mensagens de uma conversa (incluindo filhas)
-func GetAllConversationMessages(conversationID string) ([]ChatMessage, error) {
+// GetAllConversationMessagesWithContext retorna todas as mensagens de uma
+// conversa (incluindo filhas) pertencente ao usuário do contexto.
+func GetAllConversationMessagesWithContext(ctx context.Context, conversationID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("conversation_id = ?", conversationID).Order("created_at ASC, id ASC").Find(&messages).Error
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ?", conversationID).
+		Order("chat_messages.created_at ASC, chat_messages.id ASC").
+		Find(&messages).Error
 	return messages, err
 }
 
-// CountChildren retorna a contagem de filhos para cada mensagem
-func CountChildren(messageIDs []string) (map[string]int, error) {
-	return CountChildrenWithContext(context.Background(), messageIDs)
-}
-
+// CountChildrenWithContext retorna a contagem de filhos para cada mensagem do
+// usuário do contexto.
 func CountChildrenWithContext(ctx context.Context, messageIDs []string) (map[string]int, error) {
 	if len(messageIDs) == 0 {
 		return make(map[string]int), nil
@@ -1256,45 +1213,51 @@ func CountChildrenWithContext(ctx context.Context, messageIDs []string) (map[str
 	return counts, nil
 }
 
-// GetMessageTree retorna uma mensagem com todos os seus descendentes
-func GetMessageTree(messageID string) (*ChatMessage, []ChatMessage, error) {
+// GetMessageTreeWithContext retorna uma mensagem do usuário do contexto com
+// todos os seus descendentes.
+func GetMessageTreeWithContext(ctx context.Context, messageID string) (*ChatMessage, []ChatMessage, error) {
 	var message ChatMessage
-	if err := db.First(&message, "id = ?", messageID).Error; err != nil {
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		First(&message, "chat_messages.id = ?", messageID).Error; err != nil {
 		return nil, nil, err
 	}
 
 	var descendants []ChatMessage
-	if err := getDescendants(messageID, &descendants); err != nil {
+	if err := getDescendantsWithContext(ctx, messageID, &descendants); err != nil {
 		return nil, nil, err
 	}
 
 	return &message, descendants, nil
 }
 
-func getDescendants(parentID string, descendants *[]ChatMessage) error {
+func getDescendantsWithContext(ctx context.Context, parentID string, descendants *[]ChatMessage) error {
 	var children []ChatMessage
-	if err := db.Where("parent_id = ?", parentID).Order("created_at ASC").Find(&children).Error; err != nil {
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.parent_id = ?", parentID).
+		Order("chat_messages.created_at ASC").
+		Find(&children).Error; err != nil {
 		return err
 	}
 	for _, child := range children {
 		*descendants = append(*descendants, child)
-		if err := getDescendants(child.ID, descendants); err != nil {
+		if err := getDescendantsWithContext(ctx, child.ID, descendants); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// GetConversationTokenStats retorna estatísticas de tokens de uma conversa
-func GetConversationTokenStats(conversationID string) (map[string]int, error) {
+// GetConversationTokenStatsWithContext retorna estatísticas de tokens de uma
+// conversa pertencente ao usuário do contexto.
+func GetConversationTokenStatsWithContext(ctx context.Context, conversationID string) (map[string]int, error) {
 	var result struct {
 		TotalPromptTokens     int
 		TotalCompletionTokens int
 		TotalTokens           int
 	}
-	err := db.Model(&ChatMessage{}).
-		Where("conversation_id = ?", conversationID).
-		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens").
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ?", conversationID).
+		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -1306,11 +1269,8 @@ func GetConversationTokenStats(conversationID string) (map[string]int, error) {
 	}, nil
 }
 
-// GetAllTokenStats retorna estatísticas de tokens de todas as conversas
-func GetAllTokenStats() (map[string]int, error) {
-	return GetAllTokenStatsWithContext(context.Background())
-}
-
+// GetAllTokenStatsWithContext retorna estatísticas de tokens de todas as
+// conversas do usuário do contexto.
 func GetAllTokenStatsWithContext(ctx context.Context) (map[string]int, error) {
 	var result struct {
 		TotalPromptTokens     int
@@ -1370,11 +1330,8 @@ type DetailedTokenStats struct {
 	ToolBreakdown  []ToolUsageBreakdown `json:"tool_breakdown"`
 }
 
-// GetTurnTokenStats retorna estatísticas de tokens para um turno específico
-func GetTurnTokenStats(conversationID string, turnID string) (*TokenStats, error) {
-	return GetTurnTokenStatsWithContext(context.Background(), conversationID, turnID)
-}
-
+// GetTurnTokenStatsWithContext retorna estatísticas de tokens para um turno
+// específico do usuário do contexto.
 func GetTurnTokenStatsWithContext(ctx context.Context, conversationID string, turnID string) (*TokenStats, error) {
 	var result struct {
 		TotalPromptTokens     int
@@ -1397,11 +1354,8 @@ func GetTurnTokenStatsWithContext(ctx context.Context, conversationID string, tu
 	}, nil
 }
 
-// GetConversationDetailedTokenStats retorna estatísticas detalhadas de tokens de uma conversa
-func GetConversationDetailedTokenStats(conversationID string) (*TokenStats, error) {
-	return GetConversationDetailedTokenStatsWithContext(context.Background(), conversationID)
-}
-
+// GetConversationDetailedTokenStatsWithContext retorna estatísticas detalhadas
+// de tokens de uma conversa pertencente ao usuário do contexto.
 func GetConversationDetailedTokenStatsWithContext(ctx context.Context, conversationID string) (*TokenStats, error) {
 	var result struct {
 		TotalPromptTokens     int
@@ -1435,11 +1389,8 @@ func GetConversationDetailedTokenStatsWithContext(ctx context.Context, conversat
 	}, nil
 }
 
-// GetDetailedTokenStats retorna agregação completa de tokens com breakdown por categoria
-func GetDetailedTokenStats(conversationID string, summaryUpToMessageID string) (*DetailedTokenStats, error) {
-	return GetDetailedTokenStatsWithContext(context.Background(), conversationID, summaryUpToMessageID)
-}
-
+// GetDetailedTokenStatsWithContext retorna agregação completa de tokens com
+// breakdown por categoria, restrita ao usuário do contexto.
 func GetDetailedTokenStatsWithContext(ctx context.Context, conversationID string, summaryUpToMessageID string) (*DetailedTokenStats, error) {
 	// 1. Dados básicos da conversa
 	basicStats, err := GetConversationDetailedTokenStatsWithContext(ctx, conversationID)
@@ -1578,11 +1529,8 @@ func getToolUsageBreakdownWithContext(ctx context.Context, conversationID string
 	return result, len(toolMap)
 }
 
-// GetContextWindowUsage calcula a porcentagem de uso da janela de contexto
-func GetContextWindowUsage(conversationID string, contextLimit int) (float64, int, error) {
-	return GetContextWindowUsageWithContext(context.Background(), conversationID, contextLimit)
-}
-
+// GetContextWindowUsageWithContext calcula a porcentagem de uso da janela de
+// contexto para o usuário do contexto.
 func GetContextWindowUsageWithContext(ctx context.Context, conversationID string, contextLimit int) (float64, int, error) {
 	stats, err := GetConversationDetailedTokenStatsWithContext(ctx, conversationID)
 	if err != nil {
@@ -1595,11 +1543,8 @@ func GetContextWindowUsageWithContext(ctx context.Context, conversationID string
 	return percentage, stats.TotalTokens, nil
 }
 
-// GetRecentMessagesTokenCount retorna o total de tokens das N mensagens mais recentes
-func GetRecentMessagesTokenCount(conversationID string, messageLimit int) (int, error) {
-	return GetRecentMessagesTokenCountWithContext(context.Background(), conversationID, messageLimit)
-}
-
+// GetRecentMessagesTokenCountWithContext retorna o total de tokens das N
+// mensagens mais recentes do usuário do contexto.
 func GetRecentMessagesTokenCountWithContext(ctx context.Context, conversationID string, messageLimit int) (int, error) {
 	var totalTokens int
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
@@ -1613,11 +1558,8 @@ func GetRecentMessagesTokenCountWithContext(ctx context.Context, conversationID 
 
 // ==================== Rolling Context (Summary) ====================
 
-// GetConversationSummary retorna o resumo e o ID da última mensagem resumida de uma conversa
-func GetConversationSummary(conversationID string) (summary string, upToMessageID string, err error) {
-	return GetConversationSummaryWithContext(context.Background(), conversationID)
-}
-
+// GetConversationSummaryWithContext retorna o resumo e o ID da última mensagem
+// resumida de uma conversa do usuário do contexto.
 func GetConversationSummaryWithContext(ctx context.Context, conversationID string) (summary string, upToMessageID string, err error) {
 	var conv Conversation
 	err = ScopeByUser(ctx, db.WithContext(ctx).Select("summary", "summary_up_to_message_id"), "user_id").First(&conv, "id = ?", conversationID).Error
@@ -1627,11 +1569,8 @@ func GetConversationSummaryWithContext(ctx context.Context, conversationID strin
 	return conv.Summary, conv.SummaryUpToMessageID, nil
 }
 
-// UpdateConversationSummary atualiza o resumo de uma conversa
-func UpdateConversationSummary(conversationID string, summary string, upToMessageID string) error {
-	return UpdateConversationSummaryWithContext(context.Background(), conversationID, summary, upToMessageID)
-}
-
+// UpdateConversationSummaryWithContext atualiza o resumo de uma conversa do
+// usuário do contexto.
 func UpdateConversationSummaryWithContext(ctx context.Context, conversationID string, summary string, upToMessageID string) error {
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", conversationID).Updates(map[string]interface{}{
 		"summary":                  summary,
@@ -1640,21 +1579,15 @@ func UpdateConversationSummaryWithContext(ctx context.Context, conversationID st
 	}).Error
 }
 
-// SetSummarizingInProgress marca se uma sumarização está em andamento
-func SetSummarizingInProgress(conversationID string, inProgress bool) error {
-	return SetSummarizingInProgressWithContext(context.Background(), conversationID, inProgress)
-}
-
+// SetSummarizingInProgressWithContext marca se uma sumarização está em
+// andamento para o usuário do contexto.
 func SetSummarizingInProgressWithContext(ctx context.Context, conversationID string, inProgress bool) error {
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", conversationID).
 		Update("summarizing_in_progress", inProgress).Error
 }
 
-// IsSummarizingInProgress verifica se há sumarização em andamento
-func IsSummarizingInProgress(conversationID string) (bool, error) {
-	return IsSummarizingInProgressWithContext(context.Background(), conversationID)
-}
-
+// IsSummarizingInProgressWithContext verifica se há sumarização em andamento
+// para o usuário do contexto.
 func IsSummarizingInProgressWithContext(ctx context.Context, conversationID string) (bool, error) {
 	var conv Conversation
 	err := ScopeByUser(ctx, db.WithContext(ctx).Select("summarizing_in_progress"), "user_id").First(&conv, "id = ?", conversationID).Error
@@ -1664,14 +1597,16 @@ func IsSummarizingInProgressWithContext(ctx context.Context, conversationID stri
 	return conv.SummarizingInProgress, nil
 }
 
-// GetMessagesAfterID retorna mensagens raiz de uma conversa criadas após a
-// mensagem afterID. Usa posição na lista ordenada por created_at em vez de
-// comparação lexicográfica de IDs, evitando problemas com UUIDs gerados no
-// mesmo milissegundo. Se afterID for vazio, retorna todas as mensagens raiz.
-func GetMessagesAfterID(conversationID string, afterID string) ([]ChatMessage, error) {
+// GetMessagesAfterIDWithContext retorna mensagens raiz de uma conversa do
+// usuário do contexto, criadas após a mensagem afterID. Usa posição na lista
+// ordenada por created_at em vez de comparação lexicográfica de IDs, evitando
+// problemas com UUIDs gerados no mesmo milissegundo. Se afterID for vazio,
+// retorna todas as mensagens raiz.
+func GetMessagesAfterIDWithContext(ctx context.Context, conversationID string, afterID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("conversation_id = ? AND parent_id IS NULL", conversationID).
-		Order("created_at ASC").Find(&messages).Error
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID).
+		Order("chat_messages.created_at ASC").Find(&messages).Error
 	if err != nil {
 		return nil, err
 	}
@@ -1687,13 +1622,14 @@ func GetMessagesAfterID(conversationID string, afterID string) ([]ChatMessage, e
 	return messages, nil
 }
 
-// GetMessagesBetweenIDs retorna mensagens raiz criadas após startAfterID até
-// endID (inclusive). Usa posição na lista ordenada por created_at em vez de
-// comparação lexicográfica de IDs.
-func GetMessagesBetweenIDs(conversationID string, startAfterID string, endID string) ([]ChatMessage, error) {
+// GetMessagesBetweenIDsWithContext retorna mensagens raiz do usuário do
+// contexto criadas após startAfterID até endID (inclusive). Usa posição na
+// lista ordenada por created_at em vez de comparação lexicográfica de IDs.
+func GetMessagesBetweenIDsWithContext(ctx context.Context, conversationID string, startAfterID string, endID string) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("conversation_id = ? AND parent_id IS NULL", conversationID).
-		Order("created_at ASC").Find(&messages).Error
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID).
+		Order("chat_messages.created_at ASC").Find(&messages).Error
 	if err != nil {
 		return nil, err
 	}
@@ -1729,11 +1665,8 @@ func GenerateTitle(content string) string {
 	return content
 }
 
-// SearchConversations busca conversas por título
-func SearchConversations(query string) ([]Conversation, error) {
-	return SearchConversationsWithContext(context.Background(), query)
-}
-
+// SearchConversationsWithContext busca conversas por título no escopo do
+// usuário do contexto.
 func SearchConversationsWithContext(ctx context.Context, query string) ([]Conversation, error) {
 	var conversations []Conversation
 	query = strings.ToLower(strings.TrimSpace(query))
@@ -1839,13 +1772,10 @@ func RebuildFTSIndex() error {
 	return nil
 }
 
-// SearchMessageContent busca no conteúdo das mensagens de todas as conversas usando FTS5 + BM25.
-// query suporta sintaxe FTS5: palavras, "frases exatas", prefixo*, operadores OR/AND/NOT.
-// Retorna até `limit` resultados ranqueados por relevância.
-func SearchMessageContent(query string, limit int) ([]MessageSearchResult, error) {
-	return SearchMessageContentWithContext(context.Background(), query, limit)
-}
-
+// SearchMessageContentWithContext busca no conteúdo das mensagens das
+// conversas do usuário do contexto usando FTS5 + BM25. query suporta sintaxe
+// FTS5: palavras, "frases exatas", prefixo*, operadores OR/AND/NOT. Retorna
+// até `limit` resultados ranqueados por relevância.
 func SearchMessageContentWithContext(ctx context.Context, query string, limit int) ([]MessageSearchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -1902,11 +1832,8 @@ func SearchMessageContentWithContext(ctx context.Context, query string, limit in
 
 // ==================== LLM Providers ====================
 
-// SaveLLMProvider salva ou atualiza um provedor
-func SaveLLMProvider(provider *LLMProvider) error {
-	return SaveLLMProviderWithContext(context.Background(), provider)
-}
-
+// SaveLLMProviderWithContext salva ou atualiza um provedor associado ao
+// usuário do contexto.
 func SaveLLMProviderWithContext(ctx context.Context, provider *LLMProvider) error {
 	if provider != nil && provider.UserID == "" {
 		if userID, ok := UserIDFromContext(ctx); ok {
@@ -1916,22 +1843,16 @@ func SaveLLMProviderWithContext(ctx context.Context, provider *LLMProvider) erro
 	return db.WithContext(ctx).Save(provider).Error
 }
 
-// GetLLMProviders retorna todos os provedores
-func GetLLMProviders() ([]*LLMProvider, error) {
-	return GetLLMProvidersWithContext(context.Background())
-}
-
+// GetLLMProvidersWithContext retorna todos os provedores do usuário do
+// contexto.
 func GetLLMProvidersWithContext(ctx context.Context) ([]*LLMProvider, error) {
 	var providers []*LLMProvider
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Order("created_at ASC").Find(&providers).Error
 	return providers, err
 }
 
-// GetLLMProvider busca um provedor por ID
-func GetLLMProvider(id string) (*LLMProvider, error) {
-	return GetLLMProviderWithContext(context.Background(), id)
-}
-
+// GetLLMProviderWithContext busca um provedor por ID no escopo do usuário do
+// contexto.
 func GetLLMProviderWithContext(ctx context.Context, id string) (*LLMProvider, error) {
 	var provider LLMProvider
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&provider, "id = ?", id).Error
@@ -1941,31 +1862,21 @@ func GetLLMProviderWithContext(ctx context.Context, id string) (*LLMProvider, er
 	return &provider, nil
 }
 
-// DeleteLLMProvider remove um provedor
-func DeleteLLMProvider(id string) error {
-	return DeleteLLMProviderWithContext(context.Background(), id)
-}
-
+// DeleteLLMProviderWithContext remove um provedor do usuário do contexto.
 func DeleteLLMProviderWithContext(ctx context.Context, id string) error {
 	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Delete(&LLMProvider{}, "id = ?", id).Error
 }
 
-// CountLLMProviders retorna o número total de provedores
-func CountLLMProviders() (int64, error) {
-	return CountLLMProvidersWithContext(context.Background())
-}
-
+// CountLLMProvidersWithContext retorna o número total de provedores do
+// usuário do contexto.
 func CountLLMProvidersWithContext(ctx context.Context) (int64, error) {
 	var count int64
 	err := ScopeByUser(ctx, db.WithContext(ctx).Model(&LLMProvider{}), "user_id").Count(&count).Error
 	return count, err
 }
 
-// SetDefaultProvider marca um provedor como default (e desmarca os demais).
-func SetDefaultProvider(id string) error {
-	return SetDefaultProviderWithContext(context.Background(), id)
-}
-
+// SetDefaultProviderWithContext marca um provedor como default (e desmarca os
+// demais) no escopo do usuário do contexto.
 func SetDefaultProviderWithContext(ctx context.Context, id string) error {
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		scoped := ScopeByUser(ctx, tx.Model(&LLMProvider{}), "user_id")
@@ -1976,11 +1887,8 @@ func SetDefaultProviderWithContext(ctx context.Context, id string) error {
 	})
 }
 
-// GetDefaultProvider retorna o provedor marcado como default, ou nil se nenhum.
-func GetDefaultProvider() (*LLMProvider, error) {
-	return GetDefaultProviderWithContext(context.Background())
-}
-
+// GetDefaultProviderWithContext retorna o provedor marcado como default no
+// escopo do usuário do contexto, ou nil se nenhum.
 func GetDefaultProviderWithContext(ctx context.Context) (*LLMProvider, error) {
 	var provider LLMProvider
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&provider, "is_default = ?", true).Error

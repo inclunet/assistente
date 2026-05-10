@@ -112,6 +112,7 @@ func newMinimalApp() *App {
 		emitter:          &testEmitter{},
 		responseNotifier: notifier,
 		streamMgr:        chat.NewStreamingManager(notifier),
+		currentUserID:    "test-user",
 	}
 }
 

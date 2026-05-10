@@ -43,15 +43,27 @@ func synthesisResultInfo(r *speech.SynthesisResult) *SynthesisResultInfo {
 // ============================================================================
 
 func (a *App) InitSpeechManagerFromProfile() error {
-	return a.speechSvc.InitFromProfile(a.authenticatedContext())
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.speechSvc.InitFromProfile(ctx)
 }
 
 func (a *App) TranscribeWhisper(audioBase64, filename string) (*speech.TranscriptionResult, error) {
-	return a.speechSvc.Transcribe(a.authenticatedContext(), audioBase64, filename)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.speechSvc.Transcribe(ctx, audioBase64, filename)
 }
 
 func (a *App) SynthesizeOpenAI(text string) (*SynthesisResultInfo, error) {
-	r, err := a.speechSvc.Synthesize(a.authenticatedContext(), text)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	r, err := a.speechSvc.Synthesize(ctx, text)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +71,11 @@ func (a *App) SynthesizeOpenAI(text string) (*SynthesisResultInfo, error) {
 }
 
 func (a *App) SynthesizeOpenAIWithVoice(text, voice string) (*SynthesisResultInfo, error) {
-	r, err := a.speechSvc.SynthesizeWithVoice(a.authenticatedContext(), text, voice)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	r, err := a.speechSvc.SynthesizeWithVoice(ctx, text, voice)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +83,11 @@ func (a *App) SynthesizeOpenAIWithVoice(text, voice string) (*SynthesisResultInf
 }
 
 func (a *App) SynthesizeOpenAIStream(text, voice, sessionID string) error {
-	return a.speechSvc.SynthesizeStream(a.authenticatedContext(), text, voice, sessionID)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.speechSvc.SynthesizeStream(ctx, text, voice, sessionID)
 }
 
 func (a *App) GetOpenAITTSVoices() []speech.TTSVoiceInfo {
@@ -82,19 +102,35 @@ func (a *App) SetOpenAITTSSpeed(rate int)     { a.speechSvc.SetTTSSpeed(float64(
 // ============================================================================
 
 func (a *App) GetMessageAudio(messageID string) (*speech.AudioResult, error) {
-	return a.speechSvc.GetMessageAudio(a.authenticatedContext(), messageID)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.speechSvc.GetMessageAudio(ctx, messageID)
 }
 
 func (a *App) SaveMessageAudio(messageID string, audioBase64, mimeType string) error {
-	return a.speechSvc.SaveMessageAudio(a.authenticatedContext(), messageID, audioBase64, mimeType)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.speechSvc.SaveMessageAudio(ctx, messageID, audioBase64, mimeType)
 }
 
 func (a *App) GenerateAndSaveMessageAudio(messageID string, text string) (*speech.AudioResult, error) {
-	return a.speechSvc.GenerateAndSaveMessageAudio(a.authenticatedContext(), messageID, text)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.speechSvc.GenerateAndSaveMessageAudio(ctx, messageID, text)
 }
 
 func (a *App) SpeakMessage(messageID string, providerID, model, voiceID string, rate float64) (*speech.AudioResult, error) {
-	return a.speechSvc.SpeakMessage(a.authenticatedContext(), messageID, providerID, model, voiceID, rate)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.speechSvc.SpeakMessage(ctx, messageID, providerID, model, voiceID, rate)
 }
 
 // ============================================================================
@@ -106,19 +142,35 @@ func (a *App) GetSpeechProviders() []*llm.ProviderConfig {
 }
 
 func (a *App) GetTTSModels(providerID string) []speech.TTSModelInfo {
-	return a.speechSvc.GetTTSModels(a.authenticatedContext(), providerID)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil
+	}
+	return a.speechSvc.GetTTSModels(ctx, providerID)
 }
 
 func (a *App) GetTTSVoices(providerID, modelID string) []speech.TTSVoiceInfo {
-	return a.speechSvc.GetTTSVoices(a.authenticatedContext(), providerID, modelID)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil
+	}
+	return a.speechSvc.GetTTSVoices(ctx, providerID, modelID)
 }
 
 func (a *App) GetSTTModels(providerID string) []speech.SpeechModelInfo {
-	return a.speechSvc.GetSTTModels(a.authenticatedContext(), providerID)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil
+	}
+	return a.speechSvc.GetSTTModels(ctx, providerID)
 }
 
 func (a *App) SpeakPreview(providerID, model, voiceID string, rate, volume float64, language, text, sessionID string) error {
-	return a.speechSvc.SpeakPreview(a.authenticatedContext(), speech.SpeakPreviewParams{
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.speechSvc.SpeakPreview(ctx, speech.SpeakPreviewParams{
 		ProviderID: providerID,
 		Model:      model,
 		VoiceID:    voiceID,

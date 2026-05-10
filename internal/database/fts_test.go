@@ -37,9 +37,9 @@ func setupTestDBWithFTS(t *testing.T) {
 func seedTestMessages(t *testing.T) (conv1ID, conv2ID string) {
 	t.Helper()
 
-	conv1 := &Conversation{Title: "Projeto autenticação JWT"}
+	conv1 := &Conversation{Title: "Projeto autenticação JWT", UserID: testUserID}
 	db.Create(conv1)
-	conv2 := &Conversation{Title: "Deploy Kubernetes"}
+	conv2 := &Conversation{Title: "Deploy Kubernetes", UserID: testUserID}
 	db.Create(conv2)
 
 	msgs := []ChatMessage{
@@ -63,7 +63,7 @@ func TestSearchMessageContent_BasicSearch(t *testing.T) {
 	setupTestDBWithFTS(t)
 	seedTestMessages(t)
 
-	results, err := SearchMessageContent("JWT", 20)
+	results, err := SearchMessageContentWithContext(testCtx(), "JWT", 20)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestSearchMessageContent_IgnoresToolMessages(t *testing.T) {
 	setupTestDBWithFTS(t)
 	seedTestMessages(t)
 
-	results, err := SearchMessageContent("resultado da tool", 20)
+	results, err := SearchMessageContentWithContext(testCtx(), "resultado da tool", 20)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestSearchMessageContent_RankedByRelevance(t *testing.T) {
 	setupTestDBWithFTS(t)
 	seedTestMessages(t)
 
-	results, err := SearchMessageContent("autenticação", 20)
+	results, err := SearchMessageContentWithContext(testCtx(), "autenticação", 20)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestSearchMessageContent_PhraseSearch(t *testing.T) {
 	setupTestDBWithFTS(t)
 	seedTestMessages(t)
 
-	results, err := SearchMessageContent(`"rolling update"`, 20)
+	results, err := SearchMessageContentWithContext(testCtx(), `"rolling update"`, 20)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestSearchMessageContent_EmptyQuery(t *testing.T) {
 	setupTestDBWithFTS(t)
 	seedTestMessages(t)
 
-	results, err := SearchMessageContent("", 20)
+	results, err := SearchMessageContentWithContext(testCtx(), "", 20)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestSearchMessageContent_NoResults(t *testing.T) {
 	setupTestDBWithFTS(t)
 	seedTestMessages(t)
 
-	results, err := SearchMessageContent("blockchain", 20)
+	results, err := SearchMessageContentWithContext(testCtx(), "blockchain", 20)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestSearchMessageContent_FallbackOnSyntaxError(t *testing.T) {
 	seedTestMessages(t)
 
 	// Caracteres que podem causar erro de sintaxe no FTS5
-	results, err := SearchMessageContent("Go?", 20)
+	results, err := SearchMessageContentWithContext(testCtx(), "Go?", 20)
 	if err != nil {
 		t.Fatalf("should fallback gracefully, got error: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestSearchMessageContent_LimitRespected(t *testing.T) {
 	setupTestDBWithFTS(t)
 	seedTestMessages(t)
 
-	results, err := SearchMessageContent("token", 2)
+	results, err := SearchMessageContentWithContext(testCtx(), "token", 2)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestRebuildFTSIndex(t *testing.T) {
 	seedTestMessages(t)
 
 	// Busca deve funcionar (triggers popularam)
-	results1, _ := SearchMessageContent("JWT", 20)
+	results1, _ := SearchMessageContentWithContext(testCtx(), "JWT", 20)
 	if len(results1) == 0 {
 		t.Fatal("expected results before rebuild")
 	}
@@ -221,7 +221,7 @@ func TestRebuildFTSIndex(t *testing.T) {
 		t.Fatalf("rebuild failed: %v", err)
 	}
 
-	results2, _ := SearchMessageContent("JWT", 20)
+	results2, _ := SearchMessageContentWithContext(testCtx(), "JWT", 20)
 	if len(results2) == 0 {
 		t.Fatal("expected results after rebuild")
 	}
@@ -233,20 +233,20 @@ func TestRebuildFTSIndex(t *testing.T) {
 func TestFTS5_DeleteMessageRemovesFromIndex(t *testing.T) {
 	setupTestDBWithFTS(t)
 
-	conv := &Conversation{Title: "Test"}
+	conv := &Conversation{Title: "Test", UserID: testUserID}
 	db.Create(conv)
 
 	msg := &ChatMessage{ConversationID: conv.ID, Role: "user", Content: "palavra unica xyzzy123"}
 	db.Create(msg)
 
-	results, _ := SearchMessageContent("xyzzy123", 20)
+	results, _ := SearchMessageContentWithContext(testCtx(), "xyzzy123", 20)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
 	db.Delete(msg)
 
-	results, _ = SearchMessageContent("xyzzy123", 20)
+	results, _ = SearchMessageContentWithContext(testCtx(), "xyzzy123", 20)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results after delete, got %d", len(results))
 	}

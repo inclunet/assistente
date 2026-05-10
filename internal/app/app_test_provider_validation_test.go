@@ -10,6 +10,7 @@ import (
 	"assistente/adapters/noop"
 	"assistente/controllers"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/providers"
 )
@@ -23,10 +24,11 @@ func setupTestApp() *App {
 		Store:    providers.NewMemoryStore(),
 	})
 	a := &App{
-		ctx:         context.Background(),
-		credMgr:     credMgr,
-		llmRegistry: llmRegistry,
-		providerSvc: svc,
+		ctx:           context.Background(),
+		credMgr:       credMgr,
+		llmRegistry:   llmRegistry,
+		providerSvc:   svc,
+		currentUserID: "test-user",
 	}
 	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
 		LLMRegistry: llmRegistry,
@@ -340,7 +342,8 @@ func TestTestLLMProviderUsesExistingCredential(t *testing.T) {
 		CredentialPattern: hostname,
 	}
 	_ = app.llmRegistry.Register(provider)
-	_ = app.credMgr.RegisterPatternWithContext(context.Background(), hostname, &credentials.AuthConfig{
+	credCtx := database.WithUserID(context.Background(), "test-user")
+	_ = app.credMgr.RegisterPatternWithContext(credCtx, hostname, &credentials.AuthConfig{
 		Type:  "bearer",
 		Token: "sk-existing-secret",
 	})

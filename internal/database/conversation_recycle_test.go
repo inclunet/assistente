@@ -30,8 +30,9 @@ func setupRecycleTestDB(t *testing.T) {
 
 func TestRecycleOrCreateConversation_CreatesWhenNoCandidates(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	conv, err := RecycleOrCreateConversation("Minha Conversa")
+	conv, err := RecycleOrCreateConversationWithContext(ctx, "Minha Conversa")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -51,14 +52,15 @@ func TestRecycleOrCreateConversation_CreatesWhenNoCandidates(t *testing.T) {
 
 func TestRecycleOrCreateConversation_RecyclesEmptyOrphan(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	orphan, err := CreateConversation("Conversa Orfã", "")
+	orphan, err := CreateConversationWithContext(ctx, "Conversa Orfã", "")
 	if err != nil {
 		t.Fatalf("failed to create orphan: %v", err)
 	}
 	orphanID := orphan.ID
 
-	conv, err := RecycleOrCreateConversation("Reciclada")
+	conv, err := RecycleOrCreateConversationWithContext(ctx, "Reciclada")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -79,11 +81,12 @@ func TestRecycleOrCreateConversation_RecyclesEmptyOrphan(t *testing.T) {
 
 func TestRecycleOrCreateConversation_DoesNotRecycleWithMessages(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	conv, _ := CreateConversation("Com Mensagens", "")
+	conv, _ := CreateConversationWithContext(ctx, "Com Mensagens", "")
 	db.Create(&ChatMessage{ConversationID: conv.ID, Role: "user", Content: "oi"})
 
-	result, err := RecycleOrCreateConversation("Nova")
+	result, err := RecycleOrCreateConversationWithContext(ctx, "Nova")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -101,11 +104,12 @@ func TestRecycleOrCreateConversation_DoesNotRecycleWithMessages(t *testing.T) {
 
 func TestRecycleOrCreateConversation_DoesNotRecycleChannelConversation(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	conv := &Conversation{Title: "Signal Chat", Channel: "signal", ContactID: "+5511999"}
+	conv := &Conversation{Title: "Signal Chat", Channel: "signal", ContactID: "+5511999", UserID: testUserID}
 	db.Create(conv)
 
-	result, err := RecycleOrCreateConversation("Nova")
+	result, err := RecycleOrCreateConversationWithContext(ctx, "Nova")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -117,11 +121,12 @@ func TestRecycleOrCreateConversation_DoesNotRecycleChannelConversation(t *testin
 
 func TestRecycleOrCreateConversation_RecyclesOldestFirst(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	first, _ := CreateConversation("Primeira", "")
-	second, _ := CreateConversation("Segunda", "")
+	first, _ := CreateConversationWithContext(ctx, "Primeira", "")
+	second, _ := CreateConversationWithContext(ctx, "Segunda", "")
 
-	result, err := RecycleOrCreateConversation("Reciclada")
+	result, err := RecycleOrCreateConversationWithContext(ctx, "Reciclada")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,14 +143,15 @@ func TestRecycleOrCreateConversation_RecyclesOldestFirst(t *testing.T) {
 
 func TestRecycleOrCreateConversation_ResetsSummaryFields(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	conv, _ := CreateConversation("Com Resumo", "")
+	conv, _ := CreateConversationWithContext(ctx, "Com Resumo", "")
 	db.Model(conv).Updates(map[string]interface{}{
 		"summary":                  "resumo antigo",
 		"summary_up_to_message_id": 42,
 	})
 
-	result, err := RecycleOrCreateConversation("Limpa")
+	result, err := RecycleOrCreateConversationWithContext(ctx, "Limpa")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

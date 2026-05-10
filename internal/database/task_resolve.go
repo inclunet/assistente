@@ -9,16 +9,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// ResolveTaskID resolve uma task por id numérico e/ou (lista + code).
+// ResolveTaskIDWithContext resolve uma task no escopo do usuário do contexto
+// por id numérico e/ou (lista + code).
 // Regras:
 //   - É obrigatório task_id (>0) ou code não vazio.
-//   - Com code sem task_id, é obrigatório task_list_id e/ou task_list_slug (mesmas regras que ResolveTaskListID).
-//   - Com task_id e code, a task existente deve ter exatamente esse code (após trim no argumento).
-//   - Com task_id e referência de lista, a task deve pertencer à lista resolvida.
-func ResolveTaskID(taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
-	return ResolveTaskIDWithContext(context.Background(), taskListID, taskListSlug, taskID, code)
-}
-
+//   - Com code sem task_id, é obrigatório task_list_id e/ou task_list_slug
+//     (mesmas regras que ResolveTaskListIDWithContext).
+//   - Com task_id e code, a task existente deve ter exatamente esse code
+//     (após trim no argumento).
+//   - Com task_id e referência de lista, a task deve pertencer à lista
+//     resolvida.
 func ResolveTaskIDWithContext(ctx context.Context, taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
 	codeTrim := strings.TrimSpace(code)
 	var idVal string
@@ -89,11 +89,8 @@ func ResolveTaskIDWithContext(ctx context.Context, taskListID *string, taskListS
 	return task.ID, nil
 }
 
-// ResolveTaskIDByTaskCode localiza uma task pelo campo Task.Code (ex.: ticket FSD-12345).
-func ResolveTaskIDByTaskCode(taskListID *string, taskCode string) (string, error) {
-	return ResolveTaskIDByTaskCodeWithContext(context.Background(), taskListID, taskCode)
-}
-
+// ResolveTaskIDByTaskCodeWithContext localiza uma task do usuário do contexto
+// pelo campo Task.Code (ex.: ticket FSD-12345).
 func ResolveTaskIDByTaskCodeWithContext(ctx context.Context, taskListID *string, taskCode string) (string, error) {
 	codeTrim := strings.TrimSpace(taskCode)
 	if codeTrim == "" {

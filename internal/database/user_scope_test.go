@@ -48,12 +48,12 @@ func TestConversationQueriesCanBeScopedByUser(t *testing.T) {
 		t.Fatalf("expected only ana conversation, got %+v", conversations)
 	}
 
-	all, err := GetConversations()
+	leoConversations, err := GetConversationsWithContext(leoCtx)
 	if err != nil {
-		t.Fatalf("get all conversations: %v", err)
+		t.Fatalf("get leo scoped conversations: %v", err)
 	}
-	if len(all) != 2 {
-		t.Fatalf("unscoped compatibility query should return 2 conversations, got %d", len(all))
+	if len(leoConversations) != 1 || leoConversations[0].UserID != "user-leo" {
+		t.Fatalf("expected only leo conversation, got %+v", leoConversations)
 	}
 }
 

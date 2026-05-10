@@ -211,8 +211,11 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// 2. Busca (ou cria) a conversa dedicada para este canal+contato.
 	//    Primeiro verifica o config do canal (persistido entre reinícios),
 	//    depois busca no DB por channel+contactID.
-	conv, created, err := database.FindOrCreateChannelConversation(
-		msg.Channel, msg.From.ID, msg.From.DisplayName,
+	//    TODO(AEP-0052): canais ainda não têm dono mapeado a userID; quando o
+	//    mapeamento existir, propagar `database.WithUserID(ctx, ownerUserID)`
+	//    aqui para isolar conversas de canal por usuário.
+	conv, created, err := database.FindOrCreateChannelConversationWithContext(
+		ctx, msg.Channel, msg.From.ID, msg.From.DisplayName,
 	)
 	if err != nil {
 		log.Printf("[Gateway] trace=%s conv=? channel=%s contact=%s erro ao buscar/criar conversa: %v",

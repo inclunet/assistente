@@ -382,6 +382,15 @@ func (a *App) adoptLegacyDataForUser(userID string) error {
 	return nil
 }
 
+// authenticatedContext retorna um context.Context com o userID atual injetado
+// (quando há sessão ativa). Quando NÃO há sessão, retorna o ctx base sem userID.
+//
+// AVISO: NÃO use em bindings Wails ou em qualquer ponto de entrada que processe
+// dados de usuário. Use requireAuthenticatedContext() — ele falha-fechado quando
+// não há login. authenticatedContext() existe apenas para inicializações internas
+// que precisam tolerar a ausência de userID (ex.: registerEnvCredentials, que
+// já guarda explicitamente com UserIDFromContext, e fluxos de bootstrap antes
+// do primeiro login).
 func (a *App) authenticatedContext() context.Context {
 	ctx := context.Background()
 	if a != nil && a.ctx != nil {
@@ -395,6 +404,10 @@ func (a *App) authenticatedContext() context.Context {
 	return database.WithUserID(ctx, a.currentUserID)
 }
 
+// requireAuthenticatedContext retorna o context com userID e um erro
+// (ErrUserScopeRequired) quando não há sessão autenticada. É a função correta
+// para qualquer binding Wails / handler HTTP / API pública que toque dados
+// do usuário.
 func (a *App) requireAuthenticatedContext() (context.Context, error) {
 	ctx := a.authenticatedContext()
 	if _, err := database.RequireUserID(ctx); err != nil {

@@ -591,10 +591,11 @@ func newSentinelTestApp(registry *llm.ProviderRegistry, credMgr *credentials.Man
 		Store:    providers.NewDBStore(),
 	})
 	return &App{
-		ctx:         context.Background(),
-		llmRegistry: registry,
-		credMgr:     credMgr,
-		providerSvc: svc,
+		ctx:           context.Background(),
+		llmRegistry:   registry,
+		credMgr:       credMgr,
+		providerSvc:   svc,
+		currentUserID: "test-user",
 	}
 }
 
@@ -633,15 +634,16 @@ func TestDefaultSentinel_RoutesToCorrectProvider(t *testing.T) {
 		BaseURL: otherServer.URL,
 	})
 
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	testCtx := database.WithUserID(context.Background(), "test-user")
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "default-prov", Name: "Default Provider", Type: "custom",
 		BaseURL: defaultServer.URL, DefaultModel: "default-model", IsDefault: true,
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "other-prov", Name: "Other Provider", Type: "custom",
 		BaseURL: otherServer.URL,
 	})
-	_ = database.SetDefaultProvider("default-prov")
+	_ = database.SetDefaultProviderWithContext(testCtx, "default-prov")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -710,11 +712,12 @@ func TestDefaultSentinel_ModelSentInRequest(t *testing.T) {
 		ID: "my-provider", Name: "My Provider", Type: llm.ProviderCustom,
 		BaseURL: server.URL, DefaultModel: "resolved-model-v2", IsDefault: true,
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	testCtx := database.WithUserID(context.Background(), "test-user")
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "my-provider", Name: "My Provider", Type: "custom",
 		BaseURL: server.URL, DefaultModel: "resolved-model-v2", IsDefault: true,
 	})
-	_ = database.SetDefaultProvider("my-provider")
+	_ = database.SetDefaultProviderWithContext(testCtx, "my-provider")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -775,15 +778,16 @@ func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
 		ID: "prov-b", Name: "Provider B", Type: llm.ProviderCustom,
 		BaseURL: serverB.URL, DefaultModel: "model-b",
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	testCtx := database.WithUserID(context.Background(), "test-user")
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "prov-a", Name: "Provider A", Type: "custom",
 		BaseURL: serverA.URL, DefaultModel: "model-a", IsDefault: true,
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "prov-b", Name: "Provider B", Type: "custom",
 		BaseURL: serverB.URL, DefaultModel: "model-b",
 	})
-	_ = database.SetDefaultProvider("prov-a")
+	_ = database.SetDefaultProviderWithContext(testCtx, "prov-a")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -803,7 +807,7 @@ func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
 	}
 
 	// Switch default to Provider B
-	_ = database.SetDefaultProvider("prov-b")
+	_ = database.SetDefaultProviderWithContext(testCtx, "prov-b")
 
 	// Round 2: same $default profile → now routes to Provider B
 	resolved2 := app.resolveProfileDefaults(profile)
@@ -858,15 +862,16 @@ func TestDefaultSentinel_MixedProfilesRouteCorrectly(t *testing.T) {
 		ID: "concrete-prov", Name: "Concrete", Type: llm.ProviderCustom,
 		BaseURL: concreteServer.URL,
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	testCtx := database.WithUserID(context.Background(), "test-user")
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "default-prov", Name: "Default", Type: "custom",
 		BaseURL: defaultServer.URL, DefaultModel: "dm", IsDefault: true,
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "concrete-prov", Name: "Concrete", Type: "custom",
 		BaseURL: concreteServer.URL,
 	})
-	_ = database.SetDefaultProvider("default-prov")
+	_ = database.SetDefaultProviderWithContext(testCtx, "default-prov")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)

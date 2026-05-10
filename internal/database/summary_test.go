@@ -31,7 +31,7 @@ func setupTestDB(t *testing.T) {
 
 func createTestConversation(t *testing.T, title string) string {
 	t.Helper()
-	conv := &Conversation{Title: title}
+	conv := &Conversation{Title: title, UserID: testUserID}
 	if err := db.Create(conv).Error; err != nil {
 		t.Fatalf("failed to create conversation: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestGetConversationSummary_Empty(t *testing.T) {
 	setupTestDB(t)
 	convID := createTestConversation(t, "Test")
 
-	summary, upToID, err := GetConversationSummary(convID)
+	summary, upToID, err := GetConversationSummaryWithContext(testCtx(), convID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestGetConversationSummary_Empty(t *testing.T) {
 func TestGetConversationSummary_NotFound(t *testing.T) {
 	setupTestDB(t)
 
-	_, _, err := GetConversationSummary("99999")
+	_, _, err := GetConversationSummaryWithContext(testCtx(), "99999")
 	if err == nil {
 		t.Error("expected error for non-existent conversation")
 	}
@@ -84,12 +84,12 @@ func TestUpdateConversationSummary(t *testing.T) {
 	setupTestDB(t)
 	convID := createTestConversation(t, "Test")
 
-	err := UpdateConversationSummary(convID, "This is a summary", "42")
+	err := UpdateConversationSummaryWithContext(testCtx(), convID, "This is a summary", "42")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	summary, upToID, err := GetConversationSummary(convID)
+	summary, upToID, err := GetConversationSummaryWithContext(testCtx(), convID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,15 +105,15 @@ func TestUpdateConversationSummary_ClearsSummarizingFlag(t *testing.T) {
 	setupTestDB(t)
 	convID := createTestConversation(t, "Test")
 
-	if err := SetSummarizingInProgress(convID, true); err != nil {
+	if err := SetSummarizingInProgressWithContext(testCtx(), convID, true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := UpdateConversationSummary(convID, "Done", "10"); err != nil {
+	if err := UpdateConversationSummaryWithContext(testCtx(), convID, "Done", "10"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	inProgress, err := IsSummarizingInProgress(convID)
+	inProgress, err := IsSummarizingInProgressWithContext(testCtx(), convID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -126,15 +126,15 @@ func TestUpdateConversationSummary_Incremental(t *testing.T) {
 	setupTestDB(t)
 	convID := createTestConversation(t, "Test")
 
-	if err := UpdateConversationSummary(convID, "First summary", "5"); err != nil {
+	if err := UpdateConversationSummaryWithContext(testCtx(), convID, "First summary", "5"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := UpdateConversationSummary(convID, "Extended summary with more context", "15"); err != nil {
+	if err := UpdateConversationSummaryWithContext(testCtx(), convID, "Extended summary with more context", "15"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	summary, upToID, err := GetConversationSummary(convID)
+	summary, upToID, err := GetConversationSummaryWithContext(testCtx(), convID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestSummarizingInProgress(t *testing.T) {
 	setupTestDB(t)
 	convID := createTestConversation(t, "Test")
 
-	inProgress, err := IsSummarizingInProgress(convID)
+	inProgress, err := IsSummarizingInProgressWithContext(testCtx(), convID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -160,11 +160,11 @@ func TestSummarizingInProgress(t *testing.T) {
 		t.Error("expected false initially")
 	}
 
-	if err := SetSummarizingInProgress(convID, true); err != nil {
+	if err := SetSummarizingInProgressWithContext(testCtx(), convID, true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	inProgress, err = IsSummarizingInProgress(convID)
+	inProgress, err = IsSummarizingInProgressWithContext(testCtx(), convID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -172,11 +172,11 @@ func TestSummarizingInProgress(t *testing.T) {
 		t.Error("expected true after setting")
 	}
 
-	if err := SetSummarizingInProgress(convID, false); err != nil {
+	if err := SetSummarizingInProgressWithContext(testCtx(), convID, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	inProgress, err = IsSummarizingInProgress(convID)
+	inProgress, err = IsSummarizingInProgressWithContext(testCtx(), convID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestSummarizingInProgress(t *testing.T) {
 func TestIsSummarizingInProgress_NotFound(t *testing.T) {
 	setupTestDB(t)
 
-	_, err := IsSummarizingInProgress("99999")
+	_, err := IsSummarizingInProgressWithContext(testCtx(), "99999")
 	if err == nil {
 		t.Error("expected error for non-existent conversation")
 	}
@@ -204,7 +204,7 @@ func TestGetMessagesAfterID(t *testing.T) {
 	createTestMessage(t, convID, "assistant", "msg2")
 	createTestMessage(t, convID, "user", "msg3")
 
-	msgs, err := GetMessagesAfterID(convID, id1)
+	msgs, err := GetMessagesAfterIDWithContext(testCtx(), convID, id1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestGetMessagesAfterID_AllAfterZero(t *testing.T) {
 	createTestMessage(t, convID, "user", "a")
 	createTestMessage(t, convID, "assistant", "b")
 
-	msgs, err := GetMessagesAfterID(convID, "")
+	msgs, err := GetMessagesAfterIDWithContext(testCtx(), convID, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestGetMessagesAfterID_ExcludesChildMessages(t *testing.T) {
 		t.Fatalf("failed to create child: %v", err)
 	}
 
-	msgs, err := GetMessagesAfterID(convID, "")
+	msgs, err := GetMessagesAfterIDWithContext(testCtx(), convID, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestGetMessagesAfterID_EmptyResult(t *testing.T) {
 
 	id := createTestMessage(t, convID, "user", "only")
 
-	msgs, err := GetMessagesAfterID(convID, id)
+	msgs, err := GetMessagesAfterIDWithContext(testCtx(), convID, id)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestGetMessagesBetweenIDs(t *testing.T) {
 	id3 := createTestMessage(t, convID, "user", "msg3")
 	createTestMessage(t, convID, "assistant", "msg4")
 
-	msgs, err := GetMessagesBetweenIDs(convID, id1, id3)
+	msgs, err := GetMessagesBetweenIDsWithContext(testCtx(), convID, id1, id3)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestGetMessagesBetweenIDs_EmptyRange(t *testing.T) {
 
 	id1 := createTestMessage(t, convID, "user", "msg1")
 
-	msgs, err := GetMessagesBetweenIDs(convID, id1, id1)
+	msgs, err := GetMessagesBetweenIDsWithContext(testCtx(), convID, id1, id1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestGetMessagesBetweenIDs_DifferentConversation(t *testing.T) {
 	createTestMessage(t, conv1, "user", "conv1 msg")
 	id2 := createTestMessage(t, conv2, "user", "conv2 msg")
 
-	msgs, err := GetMessagesBetweenIDs(conv1, "", id2)
+	msgs, err := GetMessagesBetweenIDsWithContext(testCtx(), conv1, "", id2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestSummaryWorkflow(t *testing.T) {
 		createTestMessage(t, convID, role, "message content")
 	}
 
-	summary, upToID, err := GetConversationSummary(convID)
+	summary, upToID, err := GetConversationSummaryWithContext(testCtx(), convID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -357,16 +357,16 @@ func TestSummaryWorkflow(t *testing.T) {
 		t.Error("expected empty initial summary")
 	}
 
-	inProgress, _ := IsSummarizingInProgress(convID)
+	inProgress, _ := IsSummarizingInProgressWithContext(testCtx(), convID)
 	if inProgress {
 		t.Error("expected not in progress initially")
 	}
 
-	if err := SetSummarizingInProgress(convID, true); err != nil {
+	if err := SetSummarizingInProgressWithContext(testCtx(), convID, true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	msgs, err := GetMessagesAfterID(convID, "")
+	msgs, err := GetMessagesAfterIDWithContext(testCtx(), convID, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -375,11 +375,11 @@ func TestSummaryWorkflow(t *testing.T) {
 	}
 
 	cutoffID := msgs[5].ID
-	if err := UpdateConversationSummary(convID, "Summary of first 6 messages", cutoffID); err != nil {
+	if err := UpdateConversationSummaryWithContext(testCtx(), convID, "Summary of first 6 messages", cutoffID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	summary, upToID, err = GetConversationSummary(convID)
+	summary, upToID, err = GetConversationSummaryWithContext(testCtx(), convID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -390,12 +390,12 @@ func TestSummaryWorkflow(t *testing.T) {
 		t.Errorf("expected upToID %s, got %s", cutoffID, upToID)
 	}
 
-	inProgress, _ = IsSummarizingInProgress(convID)
+	inProgress, _ = IsSummarizingInProgressWithContext(testCtx(), convID)
 	if inProgress {
 		t.Error("summarizing should be cleared after UpdateConversationSummary")
 	}
 
-	remainingMsgs, err := GetMessagesAfterID(convID, cutoffID)
+	remainingMsgs, err := GetMessagesAfterIDWithContext(testCtx(), convID, cutoffID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

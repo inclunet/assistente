@@ -269,9 +269,12 @@ func (c *SettingsController) ResetDatabase() error {
 	return nil
 }
 
-// ClearMessages apaga todas as mensagens e conversas, mantendo a estrutura do banco.
-func (c *SettingsController) ClearMessages() error {
-	if err := database.ClearAllConversations(); err != nil {
+// ClearMessages apaga as mensagens e conversas pertencentes ao usuário do
+// contexto. Usa ClearAllConversationsWithContext, que respeita o escopo do
+// usuário; o caller (Wails binding) é responsável por validar autenticação
+// antes de chamar.
+func (c *SettingsController) ClearMessages(ctx context.Context) error {
+	if err := database.ClearAllConversationsWithContext(ctx); err != nil {
 		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
 	}
 	log.Println("[ClearMessages] Mensagens e conversas apagadas")

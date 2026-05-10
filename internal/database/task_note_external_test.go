@@ -35,18 +35,19 @@ func setupTaskNoteExternalTestDB(t *testing.T) {
 
 func TestUpsertTaskNoteByExternal_CreateAndUpdate(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
+	ctx := testCtx()
 
-	tl, err := CreateTaskList("L", "", nil, "")
+	tl, err := CreateTaskListWithContext(ctx, "L", "", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := CreateTask(tl.ID, "T", "", "", "", nil)
+	task, err := CreateTaskWithContext(ctx, tl.ID, "T", "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	typ := TaskNoteCustomer
-	n1, created, err := UpsertTaskNoteByExternal(UpsertTaskNoteByExternalParams{
+	n1, created, err := UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
 		TaskID:           task.ID,
 		Type:             &typ,
 		Content:          "a",
@@ -59,7 +60,7 @@ func TestUpsertTaskNoteByExternal_CreateAndUpdate(t *testing.T) {
 		t.Fatalf("create: err=%v created=%v note=%+v", err, created, n1)
 	}
 
-	n2, created2, err := UpsertTaskNoteByExternal(UpsertTaskNoteByExternalParams{
+	n2, created2, err := UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
 		TaskID:         task.ID,
 		Content:        "b",
 		AuthorName:     "u2",
@@ -70,7 +71,7 @@ func TestUpsertTaskNoteByExternal_CreateAndUpdate(t *testing.T) {
 		t.Fatalf("update: err=%v created=%v note=%+v", err, created2, n2)
 	}
 
-	notes, err := GetTaskNotes(task.ID)
+	notes, err := GetTaskNotesWithContext(ctx, task.ID)
 	if err != nil || len(notes) != 1 {
 		t.Fatalf("notes: %v %#v", err, notes)
 	}
@@ -78,12 +79,13 @@ func TestUpsertTaskNoteByExternal_CreateAndUpdate(t *testing.T) {
 
 func TestUpsertTaskNoteByExternal_UniqueIndexRaceRetry(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
+	ctx := testCtx()
 
-	tl, err := CreateTaskList("L", "", nil, "")
+	tl, err := CreateTaskListWithContext(ctx, "L", "", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := CreateTask(tl.ID, "T", "", "", "", nil)
+	task, err := CreateTaskWithContext(ctx, tl.ID, "T", "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +103,7 @@ func TestUpsertTaskNoteByExternal_UniqueIndexRaceRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	n, created, err := UpsertTaskNoteByExternal(UpsertTaskNoteByExternalParams{
+	n, created, err := UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
 		TaskID:         task.ID,
 		Type:           &typ,
 		Content:        "after",
@@ -115,16 +117,17 @@ func TestUpsertTaskNoteByExternal_UniqueIndexRaceRetry(t *testing.T) {
 
 func TestUpsertTaskNoteByExternal_WrongTaskError(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
+	ctx := testCtx()
 
-	tl, err := CreateTaskList("L", "", nil, "")
+	tl, err := CreateTaskListWithContext(ctx, "L", "", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t1, _ := CreateTask(tl.ID, "A", "", "", "", nil)
-	t2, _ := CreateTask(tl.ID, "B", "", "", "", nil)
+	t1, _ := CreateTaskWithContext(ctx, tl.ID, "A", "", "", "", nil)
+	t2, _ := CreateTaskWithContext(ctx, tl.ID, "B", "", "", "", nil)
 
 	typ := TaskNoteSystem
-	_, _, err = UpsertTaskNoteByExternal(UpsertTaskNoteByExternalParams{
+	_, _, err = UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
 		TaskID:         t1.ID,
 		Type:           &typ,
 		Content:        "x",
@@ -134,7 +137,7 @@ func TestUpsertTaskNoteByExternal_WrongTaskError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = UpsertTaskNoteByExternal(UpsertTaskNoteByExternalParams{
+	_, _, err = UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
 		TaskID:         t2.ID,
 		Type:           &typ,
 		Content:        "y",
@@ -148,11 +151,12 @@ func TestUpsertTaskNoteByExternal_WrongTaskError(t *testing.T) {
 
 func TestFindTaskNoteByExternalRef(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
+	ctx := testCtx()
 
-	tl, _ := CreateTaskList("L", "", nil, "")
-	task, _ := CreateTask(tl.ID, "T", "", "", "", nil)
+	tl, _ := CreateTaskListWithContext(ctx, "L", "", nil, "")
+	task, _ := CreateTaskWithContext(ctx, tl.ID, "T", "", "", "", nil)
 	typ := TaskNoteInternal
-	_, _, _ = UpsertTaskNoteByExternal(UpsertTaskNoteByExternalParams{
+	_, _, _ = UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
 		TaskID:         task.ID,
 		Type:           &typ,
 		Content:        "z",
@@ -160,11 +164,11 @@ func TestFindTaskNoteByExternalRef(t *testing.T) {
 		ExternalID:     "y",
 	})
 
-	got, err := FindTaskNoteByExternalRef("x", "y")
+	got, err := FindTaskNoteByExternalRefWithContext(ctx, "x", "y")
 	if err != nil || got == nil || got.Content != "z" {
 		t.Fatalf("find: err=%v got=%+v", err, got)
 	}
-	empty, err := FindTaskNoteByExternalRef("", "y")
+	empty, err := FindTaskNoteByExternalRefWithContext(ctx, "", "y")
 	if err != nil || empty != nil {
 		t.Fatalf("empty source: %v %#v", err, empty)
 	}
@@ -172,11 +176,12 @@ func TestFindTaskNoteByExternalRef(t *testing.T) {
 
 func TestCreateTaskNote_ManualStillWorks(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
+	ctx := testCtx()
 
-	tl, _ := CreateTaskList("L", "", nil, "")
-	task, _ := CreateTask(tl.ID, "T", "", "", "", nil)
+	tl, _ := CreateTaskListWithContext(ctx, "L", "", nil, "")
+	task, _ := CreateTaskWithContext(ctx, tl.ID, "T", "", "", "", nil)
 
-	n, err := CreateTaskNote(task.ID, TaskNoteAgent, "hello", "", "")
+	n, err := CreateTaskNoteWithContext(ctx, task.ID, TaskNoteAgent, "hello", "", "")
 	if err != nil || n.ExternalSource != "" || n.ExternalID != "" {
 		t.Fatalf("manual note: err=%v n=%+v", err, n)
 	}
@@ -184,17 +189,18 @@ func TestCreateTaskNote_ManualStillWorks(t *testing.T) {
 
 func TestUpdateTaskNote_ByIDStillWorks(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
+	ctx := testCtx()
 
-	tl, _ := CreateTaskList("L", "", nil, "")
-	task, _ := CreateTask(tl.ID, "T", "", "", "", nil)
-	n, err := CreateTaskNote(task.ID, TaskNoteInternal, "a", "", "")
+	tl, _ := CreateTaskListWithContext(ctx, "L", "", nil, "")
+	task, _ := CreateTaskWithContext(ctx, tl.ID, "T", "", "", "", nil)
+	n, err := CreateTaskNoteWithContext(ctx, task.ID, TaskNoteInternal, "a", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateTaskNote(n.ID, "b"); err != nil {
+	if err := UpdateTaskNoteWithContext(ctx, n.ID, "b"); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := GetTaskNote(n.ID)
+	got, _ := GetTaskNoteWithContext(ctx, n.ID)
 	if got.Content != "b" {
 		t.Fatalf("content %q", got.Content)
 	}
@@ -202,23 +208,24 @@ func TestUpdateTaskNote_ByIDStillWorks(t *testing.T) {
 
 func TestUpsertTaskNoteByExternal_ExternalUpdatedAtOptional(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
+	ctx := testCtx()
 
-	tl, _ := CreateTaskList("L", "", nil, "")
-	task, _ := CreateTask(tl.ID, "T", "", "", "", nil)
+	tl, _ := CreateTaskListWithContext(ctx, "L", "", nil, "")
+	task, _ := CreateTaskWithContext(ctx, tl.ID, "T", "", "", "", nil)
 	typ := TaskNoteInternal
 	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	_, _, err := UpsertTaskNoteByExternal(UpsertTaskNoteByExternalParams{
-		TaskID:             task.ID,
-		Type:               &typ,
-		Content:            "t",
-		ExternalSource:     "jira",
-		ExternalID:         "e1",
-		ExternalUpdatedAt:  &ts,
+	_, _, err := UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
+		TaskID:            task.ID,
+		Type:              &typ,
+		Content:           "t",
+		ExternalSource:    "jira",
+		ExternalID:        "e1",
+		ExternalUpdatedAt: &ts,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = UpsertTaskNoteByExternal(UpsertTaskNoteByExternalParams{
+	_, _, err = UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
 		TaskID:         task.ID,
 		Content:        "t2",
 		ExternalSource: "jira",
@@ -227,7 +234,7 @@ func TestUpsertTaskNoteByExternal_ExternalUpdatedAtOptional(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, _ := FindTaskNoteByExternalRef("jira", "e1")
+	n, _ := FindTaskNoteByExternalRefWithContext(ctx, "jira", "e1")
 	if n == nil || n.ExternalUpdatedAt == nil || !n.ExternalUpdatedAt.Equal(ts) {
 		// omitting external_updated_at on update must not clear prior value
 		t.Fatalf("expected timestamp preserved, got %+v", n)

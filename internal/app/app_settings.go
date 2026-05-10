@@ -67,7 +67,11 @@ func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, er
 	if a.settingsCtrl == nil {
 		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
 	}
-	return a.settingsCtrl.SendMessageSync(a.authenticatedContext(), messages, params)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return "", err
+	}
+	return a.settingsCtrl.SendMessageSync(ctx, messages, params)
 }
 
 func (a *App) SetChatModel(model string) error {
@@ -85,7 +89,11 @@ func (a *App) TestConnectionWithModels() ([]string, error) {
 }
 func (a *App) ResetConfig() error { return a.settingsCtrl.ResetConfig() }
 func (a *App) ClearAllCredentials() error {
-	return a.settingsCtrl.ClearAllCredentials(a.authenticatedContext())
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.settingsCtrl.ClearAllCredentials(ctx)
 }
 func (a *App) ClearAllProfiles() error { return a.settingsCtrl.ClearAllProfiles() }
 func (a *App) ClearAllSkills() error   { return a.settingsCtrl.ClearAllSkills() }

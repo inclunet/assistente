@@ -71,7 +71,7 @@ func TestSpeakMessage_ReturnsCachedAudio(t *testing.T) {
 	repo.content["1"] = "Hello world"
 	reg := llm.NewProviderRegistry()
 
-	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
+	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg), currentUserID: "test-user"}
 
 	// Cache hit — provider params são ignorados
 	result, err := app.SpeakMessage("1", "any-provider", "any-model", "any-voice", 1.0)
@@ -96,6 +96,7 @@ func TestSpeakMessage_ErrorWhenProviderNotFound(t *testing.T) {
 		llmRegistry:    reg,
 		profileManager: profiles.NewManager(),
 		speechSvc:      newTestSpeechSvc(repo, reg),
+		currentUserID:  "test-user",
 	}
 
 	_, err := app.SpeakMessage("2", "nonexistent-provider", "tts-1", "voice", 1.0)
@@ -112,7 +113,7 @@ func TestSpeakMessage_ErrorWhenMessageNotFound(t *testing.T) {
 	// Mensagem 999 não existe no mock
 	reg := llm.NewProviderRegistry()
 
-	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
+	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg), currentUserID: "test-user"}
 
 	_, err := app.SpeakMessage("999", "provider", "", "voice", 1.0)
 	if err == nil {
@@ -125,7 +126,7 @@ func TestSpeakMessage_ErrorWhenContentEmpty(t *testing.T) {
 	repo.content["3"] = "   " // só espaços
 	reg := llm.NewProviderRegistry()
 
-	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
+	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg), currentUserID: "test-user"}
 
 	_, err := app.SpeakMessage("3", "provider", "", "voice", 1.0)
 	if err == nil {
@@ -143,7 +144,7 @@ func TestSpeakMessage_CacheHitSkipsGeneration(t *testing.T) {
 	// Nem provider — não deve ser chamado
 	reg := llm.NewProviderRegistry()
 
-	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
+	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg), currentUserID: "test-user"}
 
 	result, err := app.SpeakMessage("5", "", "", "", 1.0)
 	if err != nil {
@@ -170,6 +171,7 @@ func TestSpeakMessage_ErrorWhenHTTPModelMissing(t *testing.T) {
 		llmRegistry:    reg,
 		profileManager: profiles.NewManager(),
 		speechSvc:      newTestSpeechSvc(repo, reg),
+		currentUserID:  "test-user",
 	}
 
 	_, err := app.SpeakMessage("10", "local-piper", "", "pt_BR-dii", 1.0)
@@ -197,6 +199,7 @@ func TestSpeakMessage_ModelOnlyRejectsVoiceID(t *testing.T) {
 		llmRegistry:    reg,
 		profileManager: profiles.NewManager(),
 		speechSvc:      newTestSpeechSvc(repo, reg),
+		currentUserID:  "test-user",
 	}
 
 	_, err := app.SpeakMessage("12", "local-piper", "voice-pt_BR-dii", "pt_BR-dii", 1.0)
@@ -225,6 +228,7 @@ func TestSpeakMessage_SpeedNormalization(t *testing.T) {
 		llmRegistry:    reg,
 		profileManager: profiles.NewManager(),
 		speechSvc:      newTestSpeechSvc(repo, reg),
+		currentUserID:  "test-user",
 	}
 
 	// Rate 0 deve ser normalizada para 1.0 — o provider será criado mas síntese falhará

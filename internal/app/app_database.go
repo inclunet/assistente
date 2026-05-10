@@ -9,5 +9,9 @@ func (a *App) ResetDatabase() error {
 }
 
 func (a *App) ClearMessages() error {
-	return a.settingsCtrl.ClearMessages()
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.settingsCtrl.ClearMessages(ctx)
 }

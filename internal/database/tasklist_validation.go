@@ -62,11 +62,8 @@ func ValidateTaskCodeAgainstPolicy(code string, p *TaskListValidationPolicy) err
 	return nil
 }
 
-// ValidateTaskCodeForTaskList aplica task_code_regex quando configurado. Code vazio não é validado.
-func ValidateTaskCodeForTaskList(taskListID string, code string) error {
-	return ValidateTaskCodeForTaskListWithContext(context.Background(), taskListID, code)
-}
-
+// ValidateTaskCodeForTaskListWithContext aplica task_code_regex da tasklist do
+// usuário do contexto quando configurado. Code vazio não é validado.
 func ValidateTaskCodeForTaskListWithContext(ctx context.Context, taskListID string, code string) error {
 	p, err := loadTaskListValidationPolicyWithContext(ctx, taskListID)
 	if err != nil {
@@ -121,11 +118,8 @@ func ValidateExternalNoteAgainstPolicy(source, externalID, externalParentID stri
 	return nil
 }
 
-// ValidateExternalNoteForTaskList aplica allowed_note_sources e regexes de nota quando configurados.
-func ValidateExternalNoteForTaskList(taskListID string, source, externalID, externalParentID string) error {
-	return ValidateExternalNoteForTaskListWithContext(context.Background(), taskListID, source, externalID, externalParentID)
-}
-
+// ValidateExternalNoteForTaskListWithContext aplica allowed_note_sources e
+// regexes de nota da tasklist do usuário do contexto quando configurados.
 func ValidateExternalNoteForTaskListWithContext(ctx context.Context, taskListID string, source, externalID, externalParentID string) error {
 	p, err := loadTaskListValidationPolicyWithContext(ctx, taskListID)
 	if err != nil {
@@ -134,11 +128,8 @@ func ValidateExternalNoteForTaskListWithContext(ctx context.Context, taskListID 
 	return ValidateExternalNoteAgainstPolicy(source, externalID, externalParentID, p)
 }
 
-// SetTaskListValidationPolicy persiste o JSON da política (string vazia = sem regras).
-func SetTaskListValidationPolicy(taskListID string, policyJSON string) error {
-	return SetTaskListValidationPolicyWithContext(context.Background(), taskListID, policyJSON)
-}
-
+// SetTaskListValidationPolicyWithContext persiste o JSON da política da
+// tasklist do usuário do contexto (string vazia = sem regras).
 func SetTaskListValidationPolicyWithContext(ctx context.Context, taskListID string, policyJSON string) error {
 	s := strings.TrimSpace(policyJSON)
 	if s != "" {
