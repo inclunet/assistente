@@ -1,4 +1,4 @@
-package app
+﻿package app
 
 import (
 	"context"
@@ -55,10 +55,10 @@ func (a *App) initCredentialManager() {
 		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
 	}
 	// initCredentialManager roda em OnStartup, antes de qualquer login;
-	// bootstrapAwareCtx é o caminho legítimo aqui. registerEnvCredentials
+	// internalBootstrapCtx é o caminho legítimo aqui. registerEnvCredentials
 	// já guarda explicitamente com UserIDFromContext, então sem sessão
 	// vira no-op (o reload pós-login carrega as envs depois).
-	a.registerEnvCredentials(a.bootstrapAwareCtx(), a.credMgr)
+	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
 }
 
 // migrateLegacyConfig detecta config.json com campos legados e migra para novo sistema
@@ -212,9 +212,9 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
 	}
 	// configureCredentialManager pode rodar pré-login (carrega DEK do
-	// keychain antes de qualquer sessão). bootstrapAwareCtx é o caminho
+	// keychain antes de qualquer sessão). internalBootstrapCtx é o caminho
 	// legítimo aqui; registerEnvCredentials já guarda com UserIDFromContext.
-	a.registerEnvCredentials(a.bootstrapAwareCtx(), a.credMgr)
+	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
 }
 
 // HasMasterKey verifica se uma master key (senha mestre) já foi configurada no banco.

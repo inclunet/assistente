@@ -3,6 +3,7 @@ package app
 import (
 	"assistente/controllers"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/providers"
 	"context"
 	"fmt"
@@ -52,35 +53,54 @@ func (a *App) validateWizardURL(baseURL string) error {
 
 // NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas.
 //
-// Question 14 do review do AEP-0052: o wizard tem partes per-instance
-// (master key, primeiro usuário) e parte per-user (provedores LLM). O check
-// é dual-mode:
+// Question 14 + Blocker C do re-review do AEP-0052: o wizard tem partes
+// per-instance (master key, primeiro usuário) e parte per-user (provedores
+// LLM). Sem distinguir os dois modos a função engolia ErrUserScopeRequired
+// silenciosamente e dava certo "por acidente". A versão dual-mode explícita:
 //
-//   - Pré-login (CLI `assistente setup`): bootstrapAwareCtx devolve ctx sem
-//     userID. Sem master key OU sem usuário ativo retorna true; o caminho
-//     "providers do usuário atual" naturalmente devolve count=0 e força o
-//     wizard, exatamente o que o CLI precisa.
-//   - Pós-login (UI rodando depois do AuthGate): ctx carrega o userID do
-//     usuário atual; o check de provedores fica per-user.
+//   - Pré-login (CLI `assistente setup` ou primeira boot da UI antes do
+//     AuthGate): wizard é puramente instance-wide. Decide só por (a)
+//     existência de master key e (b) existência de algum usuário cadastrado.
+//     NÃO consulta provedores — eles são per-user.
+//   - Pós-login (UI rodando depois do AuthGate): ctx carrega o userID; o
+//     check de provedores fica per-user via requireAuthenticatedContext.
 //
-// É o único binding Wails que tolera ctx sem userID, justamente porque seu
-// contrato é "preciso de wizard?" — o wizard é, em parte, o que cria a
-// sessão de fato. Para qualquer outra leitura/escrita de dados de usuário,
-// use requireAuthenticatedContext.
+// Esse é o único binding Wails que tolera "sem sessão", e mesmo assim só
+// para devolver true/false consistentes — nada é lido de tabelas de usuário
+// pré-login.
 func (a *App) NeedsWelcomeWizard() bool {
-	if a.welcomeCtrl != nil {
-		return a.welcomeCtrl.NeedsWelcomeWizard(a.bootstrapAwareCtx())
-	}
-
 	store := credentials.NewDBStore()
 	hasMasterKey, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster)
 	if err != nil {
 		return true
 	}
+
+	a.authMu.RLock()
+	loggedIn := a.currentUserID != ""
+	a.authMu.RUnlock()
+
+	if !loggedIn {
+		var userCount int64
+		if database.DB() == nil {
+			return true
+		}
+		if err := database.DB().Model(&database.User{}).Count(&userCount).Error; err != nil {
+			return true
+		}
+		return !hasMasterKey || userCount == 0
+	}
+
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return true
+	}
+	if a.welcomeCtrl != nil {
+		return a.welcomeCtrl.NeedsWelcomeWizard(ctx)
+	}
 	if a.providerSvc == nil {
 		return true
 	}
-	count, err := a.providerSvc.Count(a.bootstrapAwareCtx())
+	count, err := a.providerSvc.Count(ctx)
 	if err != nil {
 		return true
 	}

@@ -383,24 +383,32 @@ func (a *App) adoptLegacyDataForUser(userID string) error {
 	return nil
 }
 
-// bootstrapAwareCtx retorna um context.Context com o userID atual injetado
+// internalBootstrapCtx retorna o ctx do app com o userID atual injetado
 // (quando há sessão ativa). Quando NÃO há sessão, retorna o ctx base sem
-// userID. É deliberadamente fail-open e existe APENAS para os poucos
-// caminhos legítimos de bootstrap pré-login ou dual-mode CLI/UI.
+// userID. É FAIL-OPEN e EXISTE APENAS para os poucos caminhos legítimos
+// de bootstrap pré-login que o Wails dispara ANTES de qualquer Login —
+// ler/gravar credenciais via OnStartup e processar mensagens entrantes
+// na UI antes da primeira sessão. Para tudo o mais use
+// requireAuthenticatedContext (fail-closed).
+//
+// O nome é propositalmente assustador (Blocker C do re-review do AEP-0052)
+// para evitar o vetor de autocomplete que dois reviews seguidos
+// flagaram: bootstrapAwareCtx parecia "consciente" e respeitável; o
+// reviewer disse "se vai chamar isso, prove que cabe num dos call sites
+// listados abaixo, ou está com bug".
 //
 // USO PERMITIDO (e nada mais):
 //
-//   - initCredentialManager / configureCredentialManager: rodam no
-//     OnStartup antes de qualquer login. registerEnvCredentials ali dentro
-//     já é guard-protegido por UserIDFromContext.
-//   - NeedsWelcomeWizard: chamado tanto pelo CLI (pré-login) quanto pela
-//     UI (pós-login). É o único binding Wails que tolera ctx sem userID.
+//   - initCredentialManager / configureCredentialManager (OnStartup):
+//     registerEnvCredentials já se guarda com UserIDFromContext.
+//   - MCP SetAuthContextProvider: o manager precisa ser usável
+//     pré-login (descoberta de servidores) e pós-login (credenciais
+//     escopadas). Os escritores reais dentro do MCP fail-close por conta.
 //
-// Para QUALQUER outro caso (binding Wails, helper interno chamado pós-login,
-// CRUD de dados de usuário) use requireAuthenticatedContext, que falha
-// fechado. O nome propositalmente diferente evita o vetor de autocomplete
-// que originou o Blocker 4 do review do AEP-0052.
-func (a *App) bootstrapAwareCtx() context.Context {
+// Para qualquer outro lugar (binding Wails, helper interno chamado
+// pós-login, CRUD de dados de usuário, NeedsWelcomeWizard, qualquer
+// resolveX/loadX/saveX) use requireAuthenticatedContext.
+func (a *App) internalBootstrapCtx() context.Context {
 	ctx := context.Background()
 	if a != nil && a.ctx != nil {
 		ctx = a.ctx
@@ -419,7 +427,7 @@ func (a *App) bootstrapAwareCtx() context.Context {
 // do usuário e para todos os helpers internos chamados a partir de fluxos
 // pós-login.
 func (a *App) requireAuthenticatedContext() (context.Context, error) {
-	ctx := a.bootstrapAwareCtx()
+	ctx := a.internalBootstrapCtx()
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}

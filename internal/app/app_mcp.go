@@ -79,10 +79,10 @@ func (a *App) initMCP() {
 
 	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, a.credMgr, emitEvent)
 	// MCP Manager precisa funcionar tanto pré quanto pós-login (descobre
-	// servidores no startup); bootstrapAwareCtx aqui propaga o userID quando
-	// existe e devolve ctx puro durante o boot. Os escritores reais dentro
-	// do MCP manager seguem usando RequireUserID nos pontos certos.
-	a.mcpMgr.SetAuthContextProvider(a.bootstrapAwareCtx)
+	// servidores no startup); internalBootstrapCtx aqui propaga o userID
+	// quando existe e devolve ctx puro durante o boot. Os escritores reais
+	// dentro do MCP manager seguem usando RequireUserID nos pontos certos.
+	a.mcpMgr.SetAuthContextProvider(a.internalBootstrapCtx)
 
 	// Carrega configs e auto-conecta servidores habilitados
 	if err := a.mcpMgr.LoadConfigs(); err != nil {

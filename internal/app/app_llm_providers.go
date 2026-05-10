@@ -148,15 +148,24 @@ func (a *App) ReloadLLMClient() {
 }
 
 // resolveProfileDefaults substitui sentinelas "$default" no profile pelo
-// provedor/modelo padrão. Read-only e seguro pré-login: sem userID,
-// ResolveProfileDefaults não encontra provedores escopados e devolve o
-// profile inalterado, em vez de panicar. Os escritores reais (CRUD de
-// provedores) já estão sob requireAuthenticatedContext.
+// provedor/modelo padrão do usuário autenticado.
+//
+// Blocker C do re-review do AEP-0052: a versão anterior usava
+// bootstrapAwareCtx e justificava como "read-only seguro pré-login";
+// o reviewer corretamente apontou que misturar caminhos pré- e pós-login
+// num helper aumenta superfície sem motivo. Sem sessão devolvemos o profile
+// inalterado de forma explícita; os callers de produção
+// (initLLMClient/resolveSpeechProfile) só rodam pós-login mesmo, então o
+// caminho "sem sessão" só existe para defesa em testes/boot incompleto.
 func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 	if a.providerSvc == nil {
 		return p
 	}
-	return a.providerSvc.ResolveProfileDefaults(a.bootstrapAwareCtx(), p)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return p
+	}
+	return a.providerSvc.ResolveProfileDefaults(ctx, p)
 }
 
 // initLLMProviders inicializa o registro de provedores LLM a partir do store.
@@ -180,9 +189,10 @@ func (a *App) initLLMProviders() {
 // o ctx do app não carrega userID (caminho CLI antes do primeiro login),
 // marcamos explicitamente com WithBootstrap para que providers.DBStore.Save
 // aceite a gravação. Pós-login (wizard de UI rodando após AuthGate) o ctx
-// já carrega userID e o WithBootstrap é redundante.
+// já carrega userID e WithBootstrap não é aplicado — o provedor é criado
+// com user_id do usuário autenticado.
 func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
-	ctx := a.bootstrapAwareCtx()
+	ctx := a.internalBootstrapCtx()
 	if _, ok := database.UserIDFromContext(ctx); !ok {
 		ctx = database.WithBootstrap(ctx)
 	}
