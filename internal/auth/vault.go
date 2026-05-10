@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"assistente/internal/credentials"
 )
@@ -12,6 +13,17 @@ type VaultService struct {
 	onUnlocked  func(dek []byte)
 	loadKeyring func() ([]byte, error)
 	saveKeyring func([]byte) error
+
+	// runtimeMu protege runtimeUnlocked. O flag reflete o estado de
+	// runtime: foi setado por Setup/Unlock e segue verdadeiro até a
+	// próxima chamada explícita de Lock (quando existir). Existe para
+	// que Status() não dependa exclusivamente da disponibilidade do
+	// keyring (M7 do review da Fatia 1): em ambientes onde o keyring
+	// pode ficar momentaneamente indisponível (logout do SO, etc.) o
+	// app continua tendo a DEK em memória e está, do ponto de vista
+	// funcional, "unlocked".
+	runtimeMu       sync.RWMutex
+	runtimeUnlocked bool
 }
 
 type VaultStatus struct {
@@ -37,13 +49,25 @@ func (s *VaultService) Status(ctx context.Context) (VaultStatus, error) {
 		return VaultStatus{}, err
 	}
 
-	unlocked := false
-	if configured && s.loadKeyring != nil {
+	unlocked := s.isRuntimeUnlocked()
+	if !unlocked && configured && s.loadKeyring != nil {
 		if _, err := s.loadKeyring(); err == nil {
 			unlocked = true
 		}
 	}
 	return VaultStatus{Configured: configured, Unlocked: unlocked}, nil
+}
+
+func (s *VaultService) isRuntimeUnlocked() bool {
+	s.runtimeMu.RLock()
+	defer s.runtimeMu.RUnlock()
+	return s.runtimeUnlocked
+}
+
+func (s *VaultService) markRuntimeUnlocked() {
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
+	s.runtimeUnlocked = true
 }
 
 func (s *VaultService) Setup(ctx context.Context, masterPassword string) (string, error) {
@@ -84,6 +108,7 @@ func (s *VaultService) Setup(ctx context.Context, masterPassword string) (string
 	if err != nil {
 		return "", err
 	}
+	s.markRuntimeUnlocked()
 	if s.onUnlocked != nil {
 		s.onUnlocked(result.DEK)
 	}
@@ -110,6 +135,7 @@ func (s *VaultService) Unlock(ctx context.Context, kind, secret string) error {
 			return err
 		}
 	}
+	s.markRuntimeUnlocked()
 	if s.onUnlocked != nil {
 		s.onUnlocked(dek)
 	}

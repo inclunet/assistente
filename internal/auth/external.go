@@ -90,6 +90,10 @@ func (v ExternalValidator) Validate(token string, jwks JWKSet) (*ExternalClaims,
 	if claims.Issuer != v.Issuer || !claims.Audience.Contains(v.Audience) {
 		return nil, errors.New("issuer ou audience externos inválidos")
 	}
+	if strings.TrimSpace(claims.Subject) == "" {
+		// Mi3: token sem `sub` não identifica o portador — recusar.
+		return nil, errors.New("subject externo obrigatório")
+	}
 	if now().Add(-skew).Unix() > claims.ExpiresAt {
 		return nil, errors.New("token externo expirado")
 	}
@@ -155,6 +159,12 @@ func verifyExternalSignature(parts []string, key JWK) error {
 		nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
 		if err != nil {
 			return errors.New("chave externa inválida")
+		}
+		// Mi2: rejeitar chaves RSA abaixo de 2048 bits (256 bytes em N).
+		// RSA-1024 é considerado quebrável em 2026; RSA-512 é trivial.
+		// Mesmo vindo de IdP confiável, defesa em profundidade.
+		if len(nBytes) < 256 {
+			return errors.New("chave RSA externa fraca (mínimo 2048 bits)")
 		}
 		eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
 		if err != nil {

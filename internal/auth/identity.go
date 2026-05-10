@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"assistente/internal/database"
@@ -16,6 +17,33 @@ var (
 	ErrInvalidCredential = errors.New("usuário ou senha inválidos")
 	ErrInactiveUser      = errors.New("usuário inativo")
 )
+
+// dummyPasswordHash é um hash argon2id válido de uma senha aleatória,
+// gerado lazy na primeira chamada de AuthenticateLocal. Existe APENAS para
+// equalizar o tempo de resposta do path "user not found" com o path
+// "wrong password" e mitigar enumeração de usuários por timing
+// (M2 do review da Fatia 1). NUNCA é usado para autenticação real — só
+// como argumento de VerifyPassword cujo resultado é descartado.
+var (
+	dummyPasswordHash     string
+	dummyPasswordHashOnce sync.Once
+)
+
+func ensureDummyPasswordHash() string {
+	dummyPasswordHashOnce.Do(func() {
+		// Senha aleatória de 32 bytes hex = 64 chars (acima do mínimo).
+		// Hash gerado uma vez por processo; custo idêntico a um hash real.
+		hash, err := HashPassword(strings.Repeat("dummy-password", 2))
+		if err != nil {
+			// Fallback degradado: continuamos sem dummy, aceitando a
+			// regressão de timing. Não há por que crashar a app por isso.
+			dummyPasswordHash = ""
+			return
+		}
+		dummyPasswordHash = hash
+	})
+	return dummyPasswordHash
+}
 
 type IdentityService struct {
 	db  *gorm.DB
@@ -86,6 +114,12 @@ func (s *IdentityService) AuthenticateLocal(ctx context.Context, username, passw
 	err := s.db.WithContext(ctx).Where("username = ?", normalizeUsername(username)).First(&user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Anti-enumeration: roda VerifyPassword com hash dummy para
+			// igualar o tempo de resposta com o caminho onde o user
+			// existe. O resultado é deliberadamente descartado.
+			if dummy := ensureDummyPasswordHash(); dummy != "" {
+				_, _ = VerifyPassword(password, dummy)
+			}
 			return nil, ErrInvalidCredential
 		}
 		return nil, err

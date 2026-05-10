@@ -61,7 +61,18 @@ func (a *App) configureSessionService() {
 		a.authMu.Unlock()
 		return
 	}
-	sessionSvc, err := auth.NewSessionService(database.DB(), auth.SessionConfig{Signer: signer})
+	pepper, err := auth.LoadOrCreateRefreshTokenPepper(a.credMgr)
+	if err != nil {
+		log.Printf("[Auth] erro ao carregar pepper de refresh token: %v", err)
+		a.authMu.Lock()
+		a.sessionSvc = nil
+		a.authMu.Unlock()
+		return
+	}
+	sessionSvc, err := auth.NewSessionService(database.DB(), auth.SessionConfig{
+		Signer:             signer,
+		RefreshTokenPepper: pepper,
+	})
 	if err != nil {
 		a.authMu.Lock()
 		a.sessionSvc = nil
@@ -157,19 +168,50 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 		return nil, err
 	}
 	if err := a.storeAuthRefreshToken(pair.RefreshToken); err != nil {
+		// Sessão já existe no DB mas não conseguimos persistir o token
+		// localmente — revoga para não deixar sessão "fantasma".
+		_ = a.sessionSvc.Logout(context.Background(), pair.RefreshToken)
 		return nil, err
 	}
 	claims, err := a.sessionSvc.VerifyAccessToken(pair.AccessToken)
 	if err != nil {
+		_ = a.sessionSvc.Logout(context.Background(), pair.RefreshToken)
+		_ = a.clearAuthRefreshToken()
 		return nil, err
 	}
 	a.setCurrentUserID(claims.Subject)
 	a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
 	if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
+		// B5: failure aqui ANTES era silencioso para o backend — o
+		// frontend recebia o erro mas a sessão continuava ativa no DB,
+		// o token no keychain, e currentUserID setado. O próximo
+		// RefreshAuth funcionaria, criando a impressão de que o Login
+		// "funcionou-mas-não-funcionou". Agora reverte estado completo:
+		// sessão revogada, token apagado, memória limpa.
+		a.rollbackLoginState(pair.RefreshToken)
 		return nil, err
 	}
 	a.reloadUserScopedRuntime()
 	return a.GetAuthUser()
+}
+
+// rollbackLoginState desfaz o estado parcial deixado por um Login
+// que iniciou bem mas falhou em uma etapa pós-IssueSession. Idempotente
+// e melhor-esforço: cada limpeza é tentada independentemente.
+func (a *App) rollbackLoginState(refreshToken string) {
+	if a.sessionSvc != nil && refreshToken != "" {
+		if err := a.sessionSvc.Logout(context.Background(), refreshToken); err != nil {
+			log.Printf("[Auth] rollback: erro ao revogar sessão: %v", err)
+		}
+	}
+	if err := a.clearAuthRefreshToken(); err != nil {
+		log.Printf("[Auth] rollback: erro ao apagar refresh token local: %v", err)
+	}
+	a.setCurrentUserID("")
+	a.setCurrentAuthUser(nil)
+	if a.llmRegistry != nil {
+		a.llmRegistry.Clear()
+	}
 }
 
 func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
@@ -204,17 +246,24 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 		return nil, err
 	}
 	if err := a.storeAuthRefreshToken(pair.RefreshToken); err != nil {
+		_ = a.sessionSvc.Logout(context.Background(), pair.RefreshToken)
 		return nil, err
 	}
 	claims, err := a.sessionSvc.VerifyAccessToken(pair.AccessToken)
-	if err == nil {
-		a.setCurrentUserID(claims.Subject)
-		a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
-		if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
-			return nil, err
-		}
-		a.reloadUserScopedRuntime()
+	if err != nil {
+		// Refresh produziu um access token que não verifica — situação
+		// muito anormal (signer mudou mid-flight?). Reverte.
+		a.rollbackLoginState(pair.RefreshToken)
+		return nil, err
 	}
+	a.setCurrentUserID(claims.Subject)
+	a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
+	if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
+		// Mesmo padrão do Login: rollback completo se a adoção falhar.
+		a.rollbackLoginState(pair.RefreshToken)
+		return nil, err
+	}
+	a.reloadUserScopedRuntime()
 	return a.GetAuthUser()
 }
 
@@ -245,6 +294,15 @@ func (a *App) loadAuthRefreshTokenCandidates() []string {
 	return tokens
 }
 
+// Logout é sempre best-effort do ponto de vista do caller (M6 do review
+// da Fatia 1). Tentamos revogar a sessão remota e limpar todo estado
+// local; falhas no revoke remoto são logadas mas NÃO retornam erro,
+// porque o usuário fez "logout" e o estado local já foi limpo —
+// retornar erro confunde a UI sem nenhum ganho prático (a sessão
+// remota expira sozinha em até RefreshTTL). Isso elimina o cenário
+// inconsistente onde local-clean + erro retornado fazia o frontend
+// pensar que o logout falhou enquanto, do ponto de vista do app, ele
+// já tinha completado.
 func (a *App) Logout(req LogoutRequest) error {
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
@@ -258,9 +316,10 @@ func (a *App) Logout(req LogoutRequest) error {
 			refreshToken = stored
 		}
 	}
-	var err error
 	if refreshToken != "" && a.ensureSessionService() == nil {
-		err = a.sessionSvc.Logout(context.Background(), refreshToken)
+		if err := a.sessionSvc.Logout(context.Background(), refreshToken); err != nil {
+			log.Printf("[Auth] logout: erro ao revogar sessão remota (estado local já foi limpo, sessão remota expira em RefreshTTL): %v", err)
+		}
 	}
 	_ = a.clearAuthRefreshToken()
 	a.setCurrentUserID("")
@@ -268,7 +327,7 @@ func (a *App) Logout(req LogoutRequest) error {
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
-	return err
+	return nil
 }
 
 func (a *App) loadAuthRefreshToken() (string, bool, error) {
@@ -374,12 +433,29 @@ func (a *App) setCurrentAuthUser(user *AuthUser) {
 	a.currentAuthUser = &copy
 }
 
+// adoptLegacyDataForUser executa as migrações pré-AEP-0052 para o
+// usuário recém-autenticado:
+//
+//  1. database.AdoptLegacyData: atribui registros órfãos (user_id="")
+//     do banco ao userID. Falha aqui é HARD: se não conseguimos escrever
+//     no DB, qualquer operação subsequente vai falhar de qualquer jeito,
+//     então propaga.
+//  2. channels.AdoptOrphans: marca configs de canal pré-AEP em disco
+//     como pertencentes ao usuário. Esta é BEST-EFFORT por design (B4
+//     do review da Fatia 1): falhas em I/O de arquivo no diretório de
+//     channels não devem bloquear o Login. Configs que ficarem sem
+//     OwnerUserID continuam visíveis na UI com flag de "unowned" (ver
+//     channels.IsOrphan) e o gateway rejeita mensagens entrantes nelas
+//     até reativação manual — o usuário tem como notar e corrigir.
+//  3. credMgr.LoadFromStore: recarrega credenciais escopadas. Falha aqui
+//     também é HARD: sem credenciais, providers ficam off-line e a UI
+//     vai parecer quebrada.
 func (a *App) adoptLegacyDataForUser(userID string) error {
 	if err := database.AdoptLegacyData(userID); err != nil {
 		return err
 	}
 	if migrated, err := channels.AdoptOrphans(userID); err != nil {
-		log.Printf("[AdoptLegacyData] erro ao migrar canais legados: %v", err)
+		log.Printf("[AdoptLegacyData] erro best-effort ao migrar canais legados (canais sem OwnerUserID continuam órfãos e marcados como unowned na UI): %v", err)
 	} else if len(migrated) > 0 {
 		log.Printf("[AdoptLegacyData] %d canal(is) legado(s) reatribuído(s) ao usuário %s: %v", len(migrated), userID, migrated)
 	}

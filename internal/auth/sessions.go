@@ -2,8 +2,10 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"strings"
@@ -21,14 +23,21 @@ var (
 	ErrSessionRevoked      = errors.New("sessão revogada")
 )
 
+// maxClientLabelLength é o limite duro para o clientLabel armazenado em
+// `sessions.client_label`. O frontend (Wails) envia valores curtos
+// derivados de hostname/UA, mas defesa em profundidade contra payloads
+// adversários grandes (Mi4 do review da Fatia 1).
+const maxClientLabelLength = 256
+
 type SessionService struct {
-	db         *gorm.DB
-	signer     *TokenSigner
-	issuer     string
-	audience   string
-	accessTTL  time.Duration
-	refreshTTL time.Duration
-	now        func() time.Time
+	db            *gorm.DB
+	signer        *TokenSigner
+	issuer        string
+	audience      string
+	accessTTL     time.Duration
+	refreshTTL    time.Duration
+	refreshPepper []byte
+	now           func() time.Time
 }
 
 type SessionConfig struct {
@@ -37,6 +46,12 @@ type SessionConfig struct {
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
 	Signer     *TokenSigner
+	// RefreshTokenPepper é a chave secreta usada para HMAC-SHA256 do
+	// refresh secret antes de persistir em DB. Pode ser nil em testes —
+	// nesse caso o serviço usa SHA-256 puro (modo legacy compatível).
+	// Em produção, App carrega/cria via credentials.Manager
+	// (InstanceSecretRefreshTokenPepper) e injeta aqui.
+	RefreshTokenPepper []byte
 }
 
 type TokenPair struct {
@@ -70,13 +85,14 @@ func NewSessionService(db *gorm.DB, cfg SessionConfig) (*SessionService, error) 
 	}
 
 	return &SessionService{
-		db:         db,
-		signer:     signer,
-		issuer:     cfg.Issuer,
-		audience:   cfg.Audience,
-		accessTTL:  cfg.AccessTTL,
-		refreshTTL: cfg.RefreshTTL,
-		now:        time.Now,
+		db:            db,
+		signer:        signer,
+		issuer:        cfg.Issuer,
+		audience:      cfg.Audience,
+		accessTTL:     cfg.AccessTTL,
+		refreshTTL:    cfg.RefreshTTL,
+		refreshPepper: append([]byte(nil), cfg.RefreshTokenPepper...),
+		now:           time.Now,
 	}, nil
 }
 
@@ -94,11 +110,15 @@ func (s *SessionService) IssueSession(ctx context.Context, user *database.User, 
 		return nil, err
 	}
 
+	label := strings.TrimSpace(clientLabel)
+	if len(label) > maxClientLabelLength {
+		label = label[:maxClientLabelLength]
+	}
 	session := &database.Session{
 		UserID:           user.ID,
-		RefreshTokenHash: hashRefreshSecret(secret),
+		RefreshTokenHash: s.hashRefreshSecret(secret),
 		ExpiresAt:        now.Add(s.refreshTTL),
-		ClientLabel:      strings.TrimSpace(clientLabel),
+		ClientLabel:      label,
 	}
 	if err := s.db.WithContext(ctx).Create(session).Error; err != nil {
 		return nil, err
@@ -141,7 +161,7 @@ func (s *SessionService) refresh(ctx context.Context, refreshToken string, revok
 	if !now.Before(session.ExpiresAt) {
 		return nil, ErrSessionExpired
 	}
-	if session.RefreshTokenHash != hashRefreshSecret(secret) {
+	if !s.matchRefreshSecret(session.RefreshTokenHash, secret) {
 		if revokeOnMismatch {
 			revokedAt := now
 			_ = s.db.WithContext(ctx).Model(&database.Session{}).Where("id = ?", session.ID).Update("revoked_at", revokedAt).Error
@@ -163,7 +183,7 @@ func (s *SessionService) refresh(ctx context.Context, refreshToken string, revok
 	}
 	lastUsedAt := now
 	updates := map[string]interface{}{
-		"refresh_token_hash": hashRefreshSecret(nextSecret),
+		"refresh_token_hash": s.hashRefreshSecret(nextSecret),
 		"last_used_at":       lastUsedAt,
 		"expires_at":         now.Add(s.refreshTTL),
 	}
@@ -246,7 +266,40 @@ func parseRefreshToken(token string) (sessionID string, secret string, err error
 	return parts[1], parts[2], nil
 }
 
-func hashRefreshSecret(secret string) string {
+// hashRefreshSecret produz o hash persistido em sessions.refresh_token_hash.
+// Em produção usa HMAC-SHA256(pepper, secret) — defesa em camadas contra
+// recovery por DB leak (B2 do review da Fatia 1). Em testes onde pepper
+// é nil, fallback SHA-256 puro mantém compatibilidade.
+func (s *SessionService) hashRefreshSecret(secret string) string {
+	if len(s.refreshPepper) > 0 {
+		mac := hmac.New(sha256.New, s.refreshPepper)
+		mac.Write([]byte(secret))
+		return "h1:" + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	}
 	sum := sha256.Sum256([]byte(secret))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+// matchRefreshSecret verifica se `stored` (lido do DB) corresponde ao
+// `secret` apresentado pelo cliente. Aceita BOTH:
+//   - hashes legacy SHA-256 puro (instalações pré-pepper);
+//   - hashes novos HMAC-SHA256 com pepper (prefixo "h1:").
+//
+// A migração é transparente: a sessão é re-hashada com o formato corrente
+// no próximo refresh (ver `refresh()`), então o hash legacy desaparece
+// naturalmente em até `RefreshTTL`. Compara em tempo constante para evitar
+// timing attacks.
+func (s *SessionService) matchRefreshSecret(stored, secret string) bool {
+	if strings.HasPrefix(stored, "h1:") {
+		if len(s.refreshPepper) == 0 {
+			return false
+		}
+		mac := hmac.New(sha256.New, s.refreshPepper)
+		mac.Write([]byte(secret))
+		expected := "h1:" + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+		return subtle.ConstantTimeCompare([]byte(stored), []byte(expected)) == 1
+	}
+	sum := sha256.Sum256([]byte(secret))
+	expected := base64.RawURLEncoding.EncodeToString(sum[:])
+	return subtle.ConstantTimeCompare([]byte(stored), []byte(expected)) == 1
 }

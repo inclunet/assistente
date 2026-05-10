@@ -71,7 +71,7 @@ func TestIdentityServiceCreatesAndAuthenticatesUser(t *testing.T) {
 
 	user, err := service.CreateLocalUser(context.Background(), CreateUserParams{
 		Username: " Admin ",
-		Password: "secret",
+		Password: "secret-password",
 		Admin:    true,
 	})
 	if err != nil {
@@ -84,7 +84,7 @@ func TestIdentityServiceCreatesAndAuthenticatesUser(t *testing.T) {
 		t.Fatalf("expected admin role, got %q", user.Role)
 	}
 
-	authenticated, err := service.AuthenticateLocal(context.Background(), "ADMIN", "secret")
+	authenticated, err := service.AuthenticateLocal(context.Background(), "ADMIN", "secret-password")
 	if err != nil {
 		t.Fatalf("authenticate: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestIdentityServiceCreatesAndAuthenticatesUser(t *testing.T) {
 		t.Fatal("expected last login timestamp")
 	}
 
-	if _, err := service.AuthenticateLocal(context.Background(), "admin", "wrong"); !errors.Is(err, ErrInvalidCredential) {
+	if _, err := service.AuthenticateLocal(context.Background(), "admin", "wrong-password"); !errors.Is(err, ErrInvalidCredential) {
 		t.Fatalf("expected invalid credential, got %v", err)
 	}
 }
@@ -105,7 +105,7 @@ func TestSessionServiceRefreshRotatesAndRejectsReuse(t *testing.T) {
 	identity := NewIdentityService(db)
 	user, err := identity.CreateLocalUser(context.Background(), CreateUserParams{
 		Username: "admin",
-		Password: "secret",
+		Password: "secret-password",
 		Admin:    true,
 	})
 	if err != nil {
@@ -383,4 +383,250 @@ func signExternalTestToken(t *testing.T, privateKey ed25519.PrivateKey, keyID st
 	input := base64.RawURLEncoding.EncodeToString(headerJSON) + "." + base64.RawURLEncoding.EncodeToString(claimsJSON)
 	signature := ed25519.Sign(privateKey, []byte(input))
 	return input + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+// TestParseArgonParamsRejectsZeroMemoryOrTime cobre B1 do review da
+// Fatia 1: hash com m=0 ou t=0 antes passava silenciosamente porque
+// parseUint32 retornava (0, nil). Agora deve falhar com ErrInvalidPasswordHash.
+func TestParseArgonParamsRejectsZeroMemoryOrTime(t *testing.T) {
+	cases := []struct {
+		name    string
+		hashRaw string
+	}{
+		{"m=0", "$assistente-argon2id$v=1$m=0,t=3,p=2$YWJjZGVmZ2hpamtsbW5vcA$" + base64.RawStdEncoding.EncodeToString(make([]byte, 32))},
+		{"t=0", "$assistente-argon2id$v=1$m=65536,t=0,p=2$YWJjZGVmZ2hpamtsbW5vcA$" + base64.RawStdEncoding.EncodeToString(make([]byte, 32))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := VerifyPassword("any", tc.hashRaw)
+			if !errors.Is(err, ErrInvalidPasswordHash) {
+				t.Fatalf("want ErrInvalidPasswordHash, got %v", err)
+			}
+		})
+	}
+}
+
+// TestHashPasswordRejectsTooShort cobre M4 do review da Fatia 1.
+func TestHashPasswordRejectsTooShort(t *testing.T) {
+	if _, err := HashPassword("a"); !errors.Is(err, ErrPasswordTooShort) {
+		t.Fatalf("expected ErrPasswordTooShort, got %v", err)
+	}
+	if _, err := HashPassword("1234567"); !errors.Is(err, ErrPasswordTooShort) {
+		t.Fatalf("expected ErrPasswordTooShort para 7 chars, got %v", err)
+	}
+	if _, err := HashPassword("12345678"); err != nil {
+		t.Fatalf("8 chars deveria ser aceito, got %v", err)
+	}
+}
+
+// TestAuthenticateLocalEqualizesTimingForUnknownUser cobre M2 do review
+// da Fatia 1 — anti-enumeration. Não medimos tempo absoluto (frágil em
+// CI), só checamos que ambos os caminhos produzem ErrInvalidCredential
+// e que o caminho "user not found" exercita o dummy hash sem panic.
+func TestAuthenticateLocalEqualizesTimingForUnknownUser(t *testing.T) {
+	db := setupAuthTestDB(t)
+	service := NewIdentityService(db)
+
+	if _, err := service.CreateLocalUser(context.Background(), CreateUserParams{
+		Username: "alice",
+		Password: "alice-password",
+		Admin:    true,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	if _, err := service.AuthenticateLocal(context.Background(), "ghost", "anything-here"); !errors.Is(err, ErrInvalidCredential) {
+		t.Fatalf("ghost user: want ErrInvalidCredential, got %v", err)
+	}
+	if _, err := service.AuthenticateLocal(context.Background(), "alice", "wrong-password"); !errors.Is(err, ErrInvalidCredential) {
+		t.Fatalf("wrong password: want ErrInvalidCredential, got %v", err)
+	}
+}
+
+// TestSessionServiceRefreshAcceptsLegacySHA256Hash cobre B2 do review
+// da Fatia 1: sessões emitidas em instalações pré-pepper continuam
+// válidas e migram transparente no próximo refresh para HMAC.
+func TestSessionServiceRefreshAcceptsLegacySHA256Hash(t *testing.T) {
+	db := setupAuthTestDB(t)
+	identity := NewIdentityService(db)
+	user, err := identity.CreateLocalUser(context.Background(), CreateUserParams{
+		Username: "legacy-user",
+		Password: "legacy-password",
+		Admin:    true,
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// Cria sessão diretamente no DB com hash legacy SHA-256 puro
+	// (formato pré-pepper).
+	legacySecret := "legacy-secret-32-bytes-long-x"
+	legacyHashSum := sha256.Sum256([]byte(legacySecret))
+	legacyHash := base64.RawURLEncoding.EncodeToString(legacyHashSum[:])
+	session := &database.Session{
+		UserID:           user.ID,
+		RefreshTokenHash: legacyHash,
+		ExpiresAt:        time.Now().Add(time.Hour),
+	}
+	if err := db.Create(session).Error; err != nil {
+		t.Fatalf("create legacy session: %v", err)
+	}
+	legacyToken := "v1." + session.ID + "." + legacySecret
+
+	pepper := []byte("pepper-de-pelo-menos-32-bytes-de-tamanho-fixo")
+	sessions, err := NewSessionService(db, SessionConfig{
+		Issuer:             "test",
+		Audience:           "test",
+		AccessTTL:          time.Minute,
+		RefreshTTL:         time.Hour,
+		RefreshTokenPepper: pepper,
+	})
+	if err != nil {
+		t.Fatalf("new session service: %v", err)
+	}
+
+	pair, err := sessions.Refresh(context.Background(), legacyToken)
+	if err != nil {
+		t.Fatalf("refresh legacy: %v", err)
+	}
+	if pair.RefreshToken == legacyToken {
+		t.Fatal("expected new refresh token after migration")
+	}
+
+	// Após o refresh, o hash em DB deve estar no formato HMAC novo.
+	var migrated database.Session
+	if err := db.First(&migrated, "id = ?", session.ID).Error; err != nil {
+		t.Fatalf("reload session: %v", err)
+	}
+	if !strings.HasPrefix(migrated.RefreshTokenHash, "h1:") {
+		t.Fatalf("expected HMAC-prefixed hash after refresh, got %q", migrated.RefreshTokenHash)
+	}
+}
+
+// TestExternalValidatorRejectsRSAKeyTooSmall cobre Mi2 do review da
+// Fatia 1: chaves RSA com N < 2048 bits são rejeitadas mesmo se a
+// assinatura for matematicamente válida.
+func TestExternalValidatorRejectsRSAKeyTooSmall(t *testing.T) {
+	smallN := make([]byte, 128) // 1024 bits
+	for i := range smallN {
+		smallN[i] = byte(i + 1)
+	}
+	jwk := JWK{
+		KeyType:   "RSA",
+		KeyID:     "rsa-1024",
+		Algorithm: "RS256",
+		N:         base64.RawURLEncoding.EncodeToString(smallN),
+		E:         base64.RawURLEncoding.EncodeToString([]byte{0x01, 0x00, 0x01}),
+	}
+	parts := []string{
+		base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","kid":"rsa-1024"}`)),
+		base64.RawURLEncoding.EncodeToString([]byte(`{}`)),
+		base64.RawURLEncoding.EncodeToString([]byte("fake-signature")),
+	}
+	if err := verifyExternalSignature(parts, jwk); err == nil || !strings.Contains(err.Error(), "RSA externa fraca") {
+		t.Fatalf("expected weak RSA error, got %v", err)
+	}
+}
+
+// TestExternalValidatorRejectsEmptySubject cobre Mi3 do review da
+// Fatia 1: token sem `sub` não identifica o portador e deve ser rejeitado.
+func TestExternalValidatorRejectsEmptySubject(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	now := time.Now()
+	token := signExternalTestToken(t, privateKey, "kid", map[string]any{
+		"iss": "issuer",
+		"aud": "audience",
+		// "sub" deliberadamente vazio
+		"iat": now.Unix(),
+		"exp": now.Add(time.Minute).Unix(),
+	})
+	validator := ExternalValidator{
+		Issuer:            "issuer",
+		Audience:          "audience",
+		AllowedAlgorithms: map[string]bool{"EdDSA": true},
+		Now:               func() time.Time { return now },
+	}
+	_, err = validator.Validate(token, JWKSet{Keys: []JWK{{
+		KeyType:   "OKP",
+		KeyID:     "kid",
+		Algorithm: "EdDSA",
+		Curve:     "Ed25519",
+		X:         base64.RawURLEncoding.EncodeToString(publicKey),
+	}}})
+	if err == nil || !strings.Contains(err.Error(), "subject externo obrigatório") {
+		t.Fatalf("expected empty-subject rejection, got %v", err)
+	}
+}
+
+// TestIssueSessionTruncatesClientLabel cobre Mi4 do review da Fatia 1.
+func TestIssueSessionTruncatesClientLabel(t *testing.T) {
+	db := setupAuthTestDB(t)
+	identity := NewIdentityService(db)
+	user, err := identity.CreateLocalUser(context.Background(), CreateUserParams{
+		Username: "label-user",
+		Password: "label-password",
+		Admin:    true,
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sessions, err := NewSessionService(db, SessionConfig{
+		Issuer:     "test",
+		Audience:   "test",
+		AccessTTL:  time.Minute,
+		RefreshTTL: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("new session service: %v", err)
+	}
+
+	huge := strings.Repeat("x", 1024)
+	pair, err := sessions.IssueSession(context.Background(), user, huge)
+	if err != nil {
+		t.Fatalf("issue session: %v", err)
+	}
+
+	var session database.Session
+	if err := db.First(&session, "id = ?", pair.SessionID).Error; err != nil {
+		t.Fatalf("reload session: %v", err)
+	}
+	if len(session.ClientLabel) != 256 {
+		t.Fatalf("expected ClientLabel truncated to 256, got %d", len(session.ClientLabel))
+	}
+}
+
+// TestVaultStatusUsesRuntimeFlagWhenKeyringFails cobre M7 do review da
+// Fatia 1: depois de Setup/Unlock o status reporta "unlocked" mesmo se
+// o keyring estiver indisponível posteriormente, porque a DEK ainda
+// está em runtime.
+func TestVaultStatusUsesRuntimeFlagWhenKeyringFails(t *testing.T) {
+	store := newMemoryCredentialStore()
+	vault := NewVaultService(store, nil)
+	// Setup precisa de NotFound (não há DEK pré-existente) para criar.
+	vault.loadKeyring = func() ([]byte, error) {
+		return nil, keyring.ErrNotFound
+	}
+	vault.saveKeyring = func([]byte) error { return nil }
+
+	if _, err := vault.Setup(context.Background(), "master-password"); err != nil {
+		t.Fatalf("setup vault: %v", err)
+	}
+
+	// Após Setup, runtime está unlocked. Simulamos keyring quebrado:
+	// ainda assim Status deve retornar Unlocked=true porque a flag de
+	// runtime sobrevive.
+	vault.loadKeyring = func() ([]byte, error) {
+		return nil, errors.New("keyring offline")
+	}
+
+	status, err := vault.Status(context.Background())
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !status.Unlocked {
+		t.Fatal("expected runtime-flag to keep vault marked as unlocked")
+	}
 }

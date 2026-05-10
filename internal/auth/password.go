@@ -19,13 +19,25 @@ const (
 	argonThreads       = 2
 	argonKeyLen        = 32
 	argonSaltLen       = 16
+
+	// MinPasswordLength reflete a baseline NIST SP 800-63B para senhas
+	// memorizáveis. Não bloqueamos por complexidade (caracteres especiais
+	// etc.) — comprimento + alta entropia random é mais eficaz contra
+	// brute-force do que regras de composição (M4 do review da Fatia 1).
+	MinPasswordLength = 8
 )
 
-var ErrInvalidPasswordHash = errors.New("hash de senha inválido")
+var (
+	ErrInvalidPasswordHash = errors.New("hash de senha inválido")
+	ErrPasswordTooShort    = fmt.Errorf("senha precisa de pelo menos %d caracteres", MinPasswordLength)
+)
 
 func HashPassword(password string) (string, error) {
 	if strings.TrimSpace(password) == "" {
 		return "", errors.New("senha obrigatória")
+	}
+	if len(password) < MinPasswordLength {
+		return "", ErrPasswordTooShort
 	}
 
 	salt := make([]byte, argonSaltLen)
@@ -87,11 +99,11 @@ func parseArgonParams(raw string) (argonParams, error) {
 		values[key] = value
 	}
 
-	memory, err := parseUint32(values["m"])
+	memory, err := parsePositiveUint32(values["m"])
 	if err != nil {
 		return argonParams{}, ErrInvalidPasswordHash
 	}
-	timeCost, err := parseUint32(values["t"])
+	timeCost, err := parsePositiveUint32(values["t"])
 	if err != nil {
 		return argonParams{}, ErrInvalidPasswordHash
 	}
@@ -107,10 +119,16 @@ func parseArgonParams(raw string) (argonParams, error) {
 	}, nil
 }
 
-func parseUint32(raw string) (uint32, error) {
+// parsePositiveUint32 parseia um uint32 e rejeita o valor zero, evitando
+// que um hash malformado com m=0 ou t=0 chegue a argon2.IDKey com
+// parâmetros inválidos (Blocker B1 do review da Fatia 1).
+func parsePositiveUint32(raw string) (uint32, error) {
 	value, err := strconv.ParseUint(raw, 10, 32)
-	if err != nil || value == 0 {
+	if err != nil {
 		return 0, err
+	}
+	if value == 0 {
+		return 0, ErrInvalidPasswordHash
 	}
 	return uint32(value), nil
 }

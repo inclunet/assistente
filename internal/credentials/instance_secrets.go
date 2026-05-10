@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	InstanceSecretJWTSigningKey    = "internal-auth:jwt-signing-key"
-	InstanceSecretAuthRefreshToken = "internal-auth:refresh-token"
-	InstanceSecretTLSPrivateKey    = "internal-tls:private-key"
-	InstanceSecretTLSCertificate   = "internal-tls:certificate"
+	InstanceSecretJWTSigningKey       = "internal-auth:jwt-signing-key"
+	InstanceSecretAuthRefreshToken    = "internal-auth:refresh-token"
+	InstanceSecretRefreshTokenPepper  = "internal-auth:refresh-token-pepper"
+	InstanceSecretTLSPrivateKey       = "internal-tls:private-key"
+	InstanceSecretTLSCertificate      = "internal-tls:certificate"
 )
 
 func IsInstanceSecretPattern(pattern string) bool {

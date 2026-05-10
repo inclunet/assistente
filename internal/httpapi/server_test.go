@@ -32,7 +32,7 @@ func setupHTTPAPITestServer(t *testing.T) *Server {
 	ids := auth.NewIdentityService(db)
 	user, err := ids.CreateLocalUser(context.Background(), auth.CreateUserParams{
 		Username: "admin",
-		Password: "secret",
+		Password: "secret-password",
 		Admin:    true,
 	})
 	if err != nil || user == nil {
@@ -60,7 +60,7 @@ func TestAuthLoginRefreshMeAndLogout(t *testing.T) {
 
 	login := requestJSON(t, server, http.MethodPost, "/auth/login", map[string]string{
 		"username": "admin",
-		"password": "secret",
+		"password": "secret-password",
 	})
 	if login.Code != http.StatusOK {
 		t.Fatalf("login status = %d body=%s", login.Code, login.Body.String())
