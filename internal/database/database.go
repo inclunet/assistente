@@ -140,7 +140,7 @@ func Init() error {
 		_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages WHERE role IN ('user','assistant') AND content != ''`).Scan(&msgCount)
 		if msgCount > 0 && ftsCount < msgCount {
 			log.Printf("[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...", ftsCount, msgCount)
-			if err := RebuildFTSIndex(); err != nil {
+			if err := RebuildFTSIndex(context.Background()); err != nil {
 				log.Printf("[Database] ERRO: falha ao reconstruir FTS5 — busca de histórico pode estar incompleta. Será retentado no próximo startup. Erro: %v", err)
 			} else {
 				log.Printf("[Database] Índice FTS5 reconstruído (%d mensagens)", msgCount)
@@ -1854,23 +1854,26 @@ func initFTS5() error {
 // RebuildFTSIndex reconstrói o índice FTS5 a partir das mensagens existentes.
 // Limpa o índice e repovoa apenas com mensagens de user/assistant.
 //
+// Aceita ctx para permitir cancelamento via timeout/Cancel ao caller, mesmo
+// que a operação seja instance-wide e não filtre por userID (Minor I do
+// re-review do AEP-0052: simetria com o resto da API *WithContext).
+//
 // SECURITY: instance-wide — opera sobre o índice FTS global, sem filtro
 // de userID. O entry point Wails (App.RebuildSearchIndex) exige sessão
 // autenticada antes de chamar (ver internal/app/db.go), garantindo que
 // nenhum disparo aconteça pré-login mesmo sendo uma operação de banco
 // que ignora o escopo.
-func RebuildFTSIndex() error {
+func RebuildFTSIndex(ctx context.Context) error {
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
 	}
 
-	// 'delete-all' é o comando seguro para limpar FTS5 external-content tables
-	if _, err := sqlDB.Exec(`INSERT INTO chat_messages_fts(chat_messages_fts) VALUES('delete-all')`); err != nil {
+	if _, err := sqlDB.ExecContext(ctx, `INSERT INTO chat_messages_fts(chat_messages_fts) VALUES('delete-all')`); err != nil {
 		return fmt.Errorf("erro ao limpar FTS: %w", err)
 	}
 
-	if _, err := sqlDB.Exec(`
+	if _, err := sqlDB.ExecContext(ctx, `
 		INSERT INTO chat_messages_fts(rowid, content, role, conversation_id)
 		SELECT rowid, content, role, conversation_id
 		FROM chat_messages

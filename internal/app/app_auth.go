@@ -450,7 +450,7 @@ func (a *App) reloadUserScopedRuntime() {
 		return
 	}
 	a.registerEnvCredentials(ctx, a.credMgr)
-	a.migrateLegacyConfig()
+	a.migrateLegacyConfig(ctx)
 	if a.providerSvc != nil {
 		a.initLLMProviders()
 	}

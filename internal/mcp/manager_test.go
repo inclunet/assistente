@@ -1030,6 +1030,49 @@ func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
 	}
 }
 
+// TestBuildAuthHTTPClient_LogoutMidFlightDegrades cobre o vetor descrito no
+// Major H do re-review do AEP-0052: o AuthContextProvider devolve ctx
+// avaliado em runtime (não na hora do startup); se o usuário fizer logout
+// enquanto um servidor MCP está ativo, a próxima resolução de credencial
+// chega com ctx sem userID. O comportamento esperado é degradação limpa
+// (cliente sem auth, sem panic, sem corrupção de estado), nunca
+// reaproveitamento de credencial de outro usuário.
+func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newTestManager()
+	userCtx := database.WithUserID(context.Background(), "user-1")
+	loggedInOut := userCtx
+	m.SetAuthContextProvider(func() context.Context { return loggedInOut })
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "user-token",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext failed: %v", err)
+	}
+
+	clientLoggedIn := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if clientLoggedIn == nil {
+		t.Fatal("expected authenticated client while logged in")
+	}
+
+	loggedInOut = context.Background()
+
+	clientLoggedOut := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if clientLoggedOut != nil {
+		t.Fatalf("logout-mid-flight should not return an authenticated client (got %T)", clientLoggedOut)
+	}
+}
+
 func TestBuildAuthHTTPClientResolvesUserScopedBearer(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

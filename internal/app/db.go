@@ -771,10 +771,11 @@ func (a *App) SearchConversationHistory(query string, limit int) ([]MessageSearc
 // quando a operação interna nao tem escopo de usuário (defesa em
 // profundidade contra disparos pré-login).
 func (a *App) RebuildSearchIndex() error {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return err
 	}
-	return database.RebuildFTSIndex()
+	return database.RebuildFTSIndex(ctx)
 }
 
 // ==================== Model ====================

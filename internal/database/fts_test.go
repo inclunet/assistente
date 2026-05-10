@@ -217,7 +217,7 @@ func TestRebuildFTSIndex(t *testing.T) {
 	}
 
 	// Rebuild e verifica que continua funcionando
-	if err := RebuildFTSIndex(); err != nil {
+	if err := RebuildFTSIndex(context.Background()); err != nil {
 		t.Fatalf("rebuild failed: %v", err)
 	}
 

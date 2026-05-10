@@ -582,6 +582,50 @@ func setupRoutingTestDB(t *testing.T) {
 	database.SetDB(db)
 }
 
+// TestResolveProfileDefaults_NoSessionReturnsProfileUnchanged cobre Q1 do
+// re-review do AEP-0052: pré-login, resolveProfileDefaults não pode panicar
+// nem vazar dados. Como providerSvc.ResolveProfileDefaults agora exige
+// userID via store.GetDefault, sem sessão devolvemos o profile original
+// inalterado (sentinelas $default permanecem).
+func TestResolveProfileDefaults_NoSessionReturnsProfileUnchanged(t *testing.T) {
+	setupRoutingTestDB(t)
+
+	registry := llm.NewProviderRegistry()
+	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: registry,
+		CredMgr:  credMgr,
+		Store:    providers.NewDBStore(),
+	})
+	app := &App{
+		ctx:         context.Background(),
+		llmRegistry: registry,
+		credMgr:     credMgr,
+		providerSvc: svc,
+	}
+
+	profile := &profiles.Profile{
+		Name: "No-Session Profile",
+		Chat: profiles.ChatConfig{
+			LLMProvider: profiles.DefaultProviderSentinel,
+			Model:       profiles.DefaultProviderSentinel,
+		},
+	}
+
+	resolved := app.resolveProfileDefaults(profile)
+	if resolved == nil {
+		t.Fatal("resolved is nil — esperava profile inalterado, não nil")
+	}
+	if resolved.Chat.LLMProvider != profiles.DefaultProviderSentinel {
+		t.Fatalf("Chat.LLMProvider mudou pré-login: got %q, want %q",
+			resolved.Chat.LLMProvider, profiles.DefaultProviderSentinel)
+	}
+	if resolved.Chat.Model != profiles.DefaultProviderSentinel {
+		t.Fatalf("Chat.Model mudou pré-login: got %q, want %q",
+			resolved.Chat.Model, profiles.DefaultProviderSentinel)
+	}
+}
+
 // newSentinelTestApp cria um App com providerSvc inicializado via DBStore.
 // Necessário nos testes que precisam que resolveProfileDefaults resolva $default.
 func newSentinelTestApp(registry *llm.ProviderRegistry, credMgr *credentials.Manager) *App {

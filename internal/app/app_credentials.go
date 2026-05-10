@@ -61,61 +61,59 @@ func (a *App) initCredentialManager() {
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
 }
 
-// migrateLegacyConfig detecta config.json com campos legados e migra para novo sistema
+// migrateLegacyConfig detecta config.json com campos legados e migra para o
+// novo sistema. Recebe o ctx já autenticado do caller — Major G do
+// re-review do AEP-0052: a versão anterior chamava requireAuthenticatedContext
+// internamente e, se falhasse, "pulava silenciosamente". Como a função SÓ é
+// chamada de dentro de reloadUserScopedRuntime (que já validou auth no topo),
+// um ctx sem userID aqui é bug do caller — engolir o erro mascarava a
+// regressão. Agora o ctx é passado explicitamente; falha em
+// RegisterPatternWithContext gera log de ERROR e a função retorna sem
+// migrar, mas o invariante (caller validou auth) é deixado a cargo do caller.
+//
 // Migração:
 // 1. Se APIKey existir → registra como credencial no credentials.Manager
 // 2. Se APIKey existir → garante que provider default está usando as credenciais
 // 3. Limpa campos legados do config.json
-func (a *App) migrateLegacyConfig() {
+func (a *App) migrateLegacyConfig(ctx context.Context) {
 	if a.settingsSvc == nil {
 		return
 	}
 	cfg, err := a.settingsSvc.GetConfig()
 	if err != nil {
-		// Sem config, sem migração necessária
 		return
 	}
 
 	needsMigration := false
 	migratedFields := []string{}
 
-	// Verificar se tem APIKey (campo principal legado)
 	if cfg.APIKey != "" {
 		needsMigration = true
 		migratedFields = append(migratedFields, "APIKey")
 
-		// Extrair domínio do BaseURL
 		baseURL := cfg.APIBaseURL
 		if baseURL == "" {
 			baseURL = "https://api.openai.com/v1"
 		}
 
-		// Determinar pattern baseado no baseURL
 		pattern := ""
 		if extractedHost, hostErr := providers.ExtractHostname(baseURL); hostErr == nil && extractedHost != "" {
 			pattern = extractedHost
 		} else if strings.Contains(baseURL, "anthropic") {
 			pattern = "api.anthropic.com"
 		} else if strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1") {
-			pattern = "" // local, sem pattern
+			pattern = ""
 		} else {
-			pattern = "api.openai.com" // fallback para OpenAI
+			pattern = "api.openai.com"
 		}
 
-		// Registrar credencial no credentials.Manager.
-		// migrateLegacyConfig roda dentro de reloadUserScopedRuntime, sempre
-		// pós-login, então o ctx precisa carregar userID — falha-fechado
-		// quando a invariante for violada.
 		if pattern != "" {
 			authCfg := &credentials.AuthConfig{
 				Type:  "bearer",
 				Token: cfg.APIKey,
 			}
-			ctx, ctxErr := a.requireAuthenticatedContext()
-			if ctxErr != nil {
-				log.Printf("[Migration] Pulando migração de APIKey: %v", ctxErr)
-			} else if err := a.credMgr.RegisterPatternWithContext(ctx, pattern, authCfg); err != nil {
-				log.Printf("[Migration] Erro ao registrar credencial do config.json: %v", err)
+			if err := a.credMgr.RegisterPatternWithContext(ctx, pattern, authCfg); err != nil {
+				log.Printf("[Migration] ERRO ao registrar credencial do config.json: %v (ctx pode estar sem userID — verifique caller)", err)
 			} else {
 				log.Printf("[Migration] ✓ APIKey migrado para credentials.Manager (pattern: %s)", pattern)
 			}
