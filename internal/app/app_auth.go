@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 
 	"assistente/internal/auth"
@@ -382,16 +383,24 @@ func (a *App) adoptLegacyDataForUser(userID string) error {
 	return nil
 }
 
-// authenticatedContext retorna um context.Context com o userID atual injetado
-// (quando há sessão ativa). Quando NÃO há sessão, retorna o ctx base sem userID.
+// bootstrapAwareCtx retorna um context.Context com o userID atual injetado
+// (quando há sessão ativa). Quando NÃO há sessão, retorna o ctx base sem
+// userID. É deliberadamente fail-open e existe APENAS para os poucos
+// caminhos legítimos de bootstrap pré-login ou dual-mode CLI/UI.
 //
-// AVISO: NÃO use em bindings Wails ou em qualquer ponto de entrada que processe
-// dados de usuário. Use requireAuthenticatedContext() — ele falha-fechado quando
-// não há login. authenticatedContext() existe apenas para inicializações internas
-// que precisam tolerar a ausência de userID (ex.: registerEnvCredentials, que
-// já guarda explicitamente com UserIDFromContext, e fluxos de bootstrap antes
-// do primeiro login).
-func (a *App) authenticatedContext() context.Context {
+// USO PERMITIDO (e nada mais):
+//
+//   - initCredentialManager / configureCredentialManager: rodam no
+//     OnStartup antes de qualquer login. registerEnvCredentials ali dentro
+//     já é guard-protegido por UserIDFromContext.
+//   - NeedsWelcomeWizard: chamado tanto pelo CLI (pré-login) quanto pela
+//     UI (pós-login). É o único binding Wails que tolera ctx sem userID.
+//
+// Para QUALQUER outro caso (binding Wails, helper interno chamado pós-login,
+// CRUD de dados de usuário) use requireAuthenticatedContext, que falha
+// fechado. O nome propositalmente diferente evita o vetor de autocomplete
+// que originou o Blocker 4 do review do AEP-0052.
+func (a *App) bootstrapAwareCtx() context.Context {
 	ctx := context.Background()
 	if a != nil && a.ctx != nil {
 		ctx = a.ctx
@@ -407,9 +416,10 @@ func (a *App) authenticatedContext() context.Context {
 // requireAuthenticatedContext retorna o context com userID e um erro
 // (ErrUserScopeRequired) quando não há sessão autenticada. É a função correta
 // para qualquer binding Wails / handler HTTP / API pública que toque dados
-// do usuário.
+// do usuário e para todos os helpers internos chamados a partir de fluxos
+// pós-login.
 func (a *App) requireAuthenticatedContext() (context.Context, error) {
-	ctx := a.authenticatedContext()
+	ctx := a.bootstrapAwareCtx()
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -420,7 +430,12 @@ func (a *App) reloadUserScopedRuntime() {
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
-	a.registerEnvCredentials(a.authenticatedContext(), a.credMgr)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		log.Printf("[reloadUserScopedRuntime] sem sessão autenticada, abortando: %v", err)
+		return
+	}
+	a.registerEnvCredentials(ctx, a.credMgr)
 	a.migrateLegacyConfig()
 	if a.providerSvc != nil {
 		a.initLLMProviders()

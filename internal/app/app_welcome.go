@@ -51,9 +51,25 @@ func (a *App) validateWizardURL(baseURL string) error {
 }
 
 // NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas.
+//
+// Question 14 do review do AEP-0052: o wizard tem partes per-instance
+// (master key, primeiro usuário) e parte per-user (provedores LLM). O check
+// é dual-mode:
+//
+//   - Pré-login (CLI `assistente setup`): bootstrapAwareCtx devolve ctx sem
+//     userID. Sem master key OU sem usuário ativo retorna true; o caminho
+//     "providers do usuário atual" naturalmente devolve count=0 e força o
+//     wizard, exatamente o que o CLI precisa.
+//   - Pós-login (UI rodando depois do AuthGate): ctx carrega o userID do
+//     usuário atual; o check de provedores fica per-user.
+//
+// É o único binding Wails que tolera ctx sem userID, justamente porque seu
+// contrato é "preciso de wizard?" — o wizard é, em parte, o que cria a
+// sessão de fato. Para qualquer outra leitura/escrita de dados de usuário,
+// use requireAuthenticatedContext.
 func (a *App) NeedsWelcomeWizard() bool {
 	if a.welcomeCtrl != nil {
-		return a.welcomeCtrl.NeedsWelcomeWizard(a.authenticatedContext())
+		return a.welcomeCtrl.NeedsWelcomeWizard(a.bootstrapAwareCtx())
 	}
 
 	store := credentials.NewDBStore()
@@ -64,7 +80,7 @@ func (a *App) NeedsWelcomeWizard() bool {
 	if a.providerSvc == nil {
 		return true
 	}
-	count, err := a.providerSvc.Count(a.authenticatedContext())
+	count, err := a.providerSvc.Count(a.bootstrapAwareCtx())
 	if err != nil {
 		return true
 	}

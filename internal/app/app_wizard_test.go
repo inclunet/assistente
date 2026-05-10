@@ -70,7 +70,7 @@ func setupWizardTestApp(t *testing.T) *App {
 		CredMgr:          credMgr,
 		ProviderSvc:      svc,
 		LLMRegistry:      llmRegistry,
-		SaveLLMProviders: func() error { return svc.Save(a.authenticatedContext()) },
+		SaveLLMProviders: func() error { return svc.Save(a.bootstrapAwareCtx()) },
 	})
 	return a
 }
@@ -128,7 +128,7 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 		CredMgr:          credMgr,
 		ProviderSvc:      svc,
 		LLMRegistry:      llmRegistry,
-		SaveLLMProviders: func() error { return svc.Save(a.authenticatedContext()) },
+		SaveLLMProviders: func() error { return svc.Save(a.bootstrapAwareCtx()) },
 	})
 	return a, pm
 }

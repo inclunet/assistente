@@ -147,12 +147,16 @@ func (a *App) ReloadLLMClient() {
 	a.initLLMClient()
 }
 
-// resolveProfileDefaults substitui sentinelas "$default" no profile pelo provedor/modelo padrão.
+// resolveProfileDefaults substitui sentinelas "$default" no profile pelo
+// provedor/modelo padrão. Read-only e seguro pré-login: sem userID,
+// ResolveProfileDefaults não encontra provedores escopados e devolve o
+// profile inalterado, em vez de panicar. Os escritores reais (CRUD de
+// provedores) já estão sob requireAuthenticatedContext.
 func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 	if a.providerSvc == nil {
 		return p
 	}
-	return a.providerSvc.ResolveProfileDefaults(a.authenticatedContext(), p)
+	return a.providerSvc.ResolveProfileDefaults(a.bootstrapAwareCtx(), p)
 }
 
 // initLLMProviders inicializa o registro de provedores LLM a partir do store.
@@ -178,7 +182,7 @@ func (a *App) initLLMProviders() {
 // aceite a gravação. Pós-login (wizard de UI rodando após AuthGate) o ctx
 // já carrega userID e o WithBootstrap é redundante.
 func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
-	ctx := a.authenticatedContext()
+	ctx := a.bootstrapAwareCtx()
 	if _, ok := database.UserIDFromContext(ctx); !ok {
 		ctx = database.WithBootstrap(ctx)
 	}
@@ -191,5 +195,9 @@ func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, e
 	if a.providerSvc == nil {
 		return nil, fmt.Errorf("provider service not initialized")
 	}
-	return a.providerSvc.GetChatProvider(a.authenticatedContext(), providerID)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.providerSvc.GetChatProvider(ctx, providerID)
 }

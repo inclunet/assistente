@@ -54,7 +54,11 @@ func (a *App) initCredentialManager() {
 	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {
 		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
 	}
-	a.registerEnvCredentials(a.authenticatedContext(), a.credMgr)
+	// initCredentialManager roda em OnStartup, antes de qualquer login;
+	// bootstrapAwareCtx é o caminho legítimo aqui. registerEnvCredentials
+	// já guarda explicitamente com UserIDFromContext, então sem sessão
+	// vira no-op (o reload pós-login carrega as envs depois).
+	a.registerEnvCredentials(a.bootstrapAwareCtx(), a.credMgr)
 }
 
 // migrateLegacyConfig detecta config.json com campos legados e migra para novo sistema
@@ -98,13 +102,19 @@ func (a *App) migrateLegacyConfig() {
 			pattern = "api.openai.com" // fallback para OpenAI
 		}
 
-		// Registrar credencial no credentials.Manager
+		// Registrar credencial no credentials.Manager.
+		// migrateLegacyConfig roda dentro de reloadUserScopedRuntime, sempre
+		// pós-login, então o ctx precisa carregar userID — falha-fechado
+		// quando a invariante for violada.
 		if pattern != "" {
 			authCfg := &credentials.AuthConfig{
 				Type:  "bearer",
 				Token: cfg.APIKey,
 			}
-			if err := a.credMgr.RegisterPatternWithContext(a.authenticatedContext(), pattern, authCfg); err != nil {
+			ctx, ctxErr := a.requireAuthenticatedContext()
+			if ctxErr != nil {
+				log.Printf("[Migration] Pulando migração de APIKey: %v", ctxErr)
+			} else if err := a.credMgr.RegisterPatternWithContext(ctx, pattern, authCfg); err != nil {
 				log.Printf("[Migration] Erro ao registrar credencial do config.json: %v", err)
 			} else {
 				log.Printf("[Migration] ✓ APIKey migrado para credentials.Manager (pattern: %s)", pattern)
@@ -201,7 +211,10 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {
 		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
 	}
-	a.registerEnvCredentials(a.authenticatedContext(), a.credMgr)
+	// configureCredentialManager pode rodar pré-login (carrega DEK do
+	// keychain antes de qualquer sessão). bootstrapAwareCtx é o caminho
+	// legítimo aqui; registerEnvCredentials já guarda com UserIDFromContext.
+	a.registerEnvCredentials(a.bootstrapAwareCtx(), a.credMgr)
 }
 
 // HasMasterKey verifica se uma master key (senha mestre) já foi configurada no banco.
