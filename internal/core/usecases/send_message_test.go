@@ -2,6 +2,7 @@ package usecases_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -135,8 +136,10 @@ func TestSendMessageUseCase_ReturnsErrorWhenNoLLMProviders(t *testing.T) {
 	uc := newTestUseCase(t, mgr)
 
 	// ConversationID pode ser qualquer valor pois Count==0 falha antes do check de conv.
+	// Ctx precisa carregar userID por causa do fail-closed em Execute (B14 / AEP-0052).
+	ctx := database.WithUserID(context.Background(), "test-user")
 	_, err := uc.Execute(usecases.SendMessageRequest{
-		Ctx:            context.Background(),
+		Ctx:            ctx,
 		ConversationID: "1",
 		UserContent:    "hello",
 		Source:         "test",
@@ -147,6 +150,28 @@ func TestSendMessageUseCase_ReturnsErrorWhenNoLLMProviders(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "provedor LLM") {
 		t.Errorf("unexpected error message: %q", err.Error())
+	}
+}
+
+// TestSendMessageUseCase_RejectsUnauthenticatedContext garante o fail-closed
+// de B14: ctx sem userID retorna ErrUserScopeRequired antes de qualquer
+// query no banco/registry.
+func TestSendMessageUseCase_RejectsUnauthenticatedContext(t *testing.T) {
+	setupTestDB(t)
+	mgr := setupProfileDir(t)
+	uc := newTestUseCase(t, mgr)
+
+	_, err := uc.Execute(usecases.SendMessageRequest{
+		Ctx:            context.Background(),
+		ConversationID: "1",
+		UserContent:    "hello",
+		Source:         "test",
+	})
+	if err == nil {
+		t.Fatal("ctx sem userID deveria falhar")
+	}
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Errorf("esperava ErrUserScopeRequired, recebeu: %v", err)
 	}
 }
 

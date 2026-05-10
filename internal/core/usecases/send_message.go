@@ -9,6 +9,7 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/config"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
@@ -82,10 +83,21 @@ type SendMessageRequest struct {
 // Execute executa o pipeline de mensagem: prepara contexto → persiste → monta prompt
 // → resolve LLM → lança goroutine de streaming (agêntico ou simples).
 // Retorna o conversationID ou erro síncrono (problemas de configuração, banco, etc.).
+//
+// SECURITY (B14 / AEP-0052): rejeita ctx sem userID antes de tocar qualquer
+// camada de dados. O ctx aqui propaga para chat repository, agent loop,
+// summarization em background e tools — todos os caminhos que dependem do
+// escopo. Quem chama do controller Wails recebe ctx de
+// requireAuthenticatedContext; quem chama do gateway de canais recebe ctx
+// carimbado com OwnerUserID. Qualquer ctx puro chegando aqui é bug de
+// wiring, não input legítimo.
 func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	ctx := req.Ctx
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return "", err
 	}
 
 	// Resolve modelo padrão do config como fallback.

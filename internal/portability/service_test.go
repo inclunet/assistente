@@ -623,7 +623,10 @@ func TestBuildExportFileIncludesProviders(t *testing.T) {
 
 	provider := createPortableProviderFixture(t)
 
-	file, err := BuildExportFile(nil, []string{provider.ID}, nil, nil, ExportRequest{}, "test")
+	// Usa o ctx escopado por usuário porque GetLLMProviderWithContext agora
+	// é fail-closed (B11 / AEP-0052): a versão sem ctx só funciona se o
+	// caller passar bootstrap explícito, fora do escopo deste teste.
+	file, err := BuildExportFileWithContext(portabilityTestCtx(), nil, []string{provider.ID}, nil, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}
@@ -645,7 +648,9 @@ func TestAnalyzeImportDataDetectsProviderConflicts(t *testing.T) {
 
 	provider := createPortableProviderFixture(t)
 
-	file, err := BuildExportFile(nil, []string{provider.ID}, nil, nil, ExportRequest{}, "test")
+	// Mesmo motivo do teste acima: GetLLMProviderWithContext fail-closed
+	// exige ctx escopado por usuário (B11 / AEP-0052).
+	file, err := BuildExportFileWithContext(portabilityTestCtx(), nil, []string{provider.ID}, nil, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}

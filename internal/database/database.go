@@ -581,7 +581,14 @@ func SaveMessageAudioWithContext(ctx context.Context, messageID string, audioBas
 
 // HasMessageAudioWithContext verifica se uma mensagem do usuário do contexto
 // tem áudio salvo.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID retorna false sem tocar
+// o banco — antes vazava existência de áudio em mensagens cross-user via
+// scopedMessageQuery (fail-open).
 func HasMessageAudioWithContext(ctx context.Context, messageID string) bool {
+	if _, err := RequireUserID(ctx); err != nil {
+		return false
+	}
 	var count int64
 	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.id = ? AND chat_messages.audio != '' AND chat_messages.audio IS NOT NULL", messageID).Count(&count)
 	return count > 0
@@ -1319,7 +1326,17 @@ func CountChildrenWithContext(ctx context.Context, messageIDs []string) (map[str
 
 // GetMessageTreeWithContext retorna uma mensagem do usuário do contexto com
 // todos os seus descendentes.
+// GetMessageTreeWithContext retorna a mensagem raiz e todos os descendentes
+// pertencentes ao usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID no ctx retorna
+// ErrUserScopeRequired — sem isso, scopedMessageQuery passa fail-open via
+// ScopeByUser e qualquer messageID poderia ser usado para enumerar
+// estruturas de conversas alheias.
 func GetMessageTreeWithContext(ctx context.Context, messageID string) (*ChatMessage, []ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, nil, err
+	}
 	var message ChatMessage
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		First(&message, "chat_messages.id = ?", messageID).Error; err != nil {
@@ -1353,7 +1370,12 @@ func getDescendantsWithContext(ctx context.Context, parentID string, descendants
 
 // GetConversationTokenStatsWithContext retorna estatísticas de tokens de uma
 // conversa pertencente ao usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 func GetConversationTokenStatsWithContext(ctx context.Context, conversationID string) (map[string]int, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var result struct {
 		TotalPromptTokens     int
 		TotalCompletionTokens int
@@ -1375,7 +1397,13 @@ func GetConversationTokenStatsWithContext(ctx context.Context, conversationID st
 
 // GetAllTokenStatsWithContext retorna estatísticas de tokens de todas as
 // conversas do usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID retornaria estatísticas
+// agregadas globalmente — vetor de inferência sobre uso da instância.
 func GetAllTokenStatsWithContext(ctx context.Context) (map[string]int, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var result struct {
 		TotalPromptTokens     int
 		TotalCompletionTokens int
@@ -1436,7 +1464,12 @@ type DetailedTokenStats struct {
 
 // GetTurnTokenStatsWithContext retorna estatísticas de tokens para um turno
 // específico do usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 func GetTurnTokenStatsWithContext(ctx context.Context, conversationID string, turnID string) (*TokenStats, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var result struct {
 		TotalPromptTokens     int
 		TotalCompletionTokens int
@@ -1648,7 +1681,15 @@ func getToolUsageBreakdownWithContext(ctx context.Context, conversationID string
 
 // GetContextWindowUsageWithContext calcula a porcentagem de uso da janela de
 // contexto para o usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Embora delegue para
+// GetConversationDetailedTokenStatsWithContext (que já tem gate), valida
+// no topo para defesa em camadas — se o gate interno for relaxado por
+// engano em refactor futuro, este nível continua fail-closed.
 func GetContextWindowUsageWithContext(ctx context.Context, conversationID string, contextLimit int) (float64, int, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return 0, 0, err
+	}
 	stats, err := GetConversationDetailedTokenStatsWithContext(ctx, conversationID)
 	if err != nil {
 		return 0, 0, err
@@ -1662,7 +1703,12 @@ func GetContextWindowUsageWithContext(ctx context.Context, conversationID string
 
 // GetRecentMessagesTokenCountWithContext retorna o total de tokens das N
 // mensagens mais recentes do usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 func GetRecentMessagesTokenCountWithContext(ctx context.Context, conversationID string, messageLimit int) (int, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return 0, err
+	}
 	var totalTokens int
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
@@ -1773,7 +1819,12 @@ func GetMessagesAfterIDWithContext(ctx context.Context, conversationID string, a
 // GetMessagesBetweenIDsWithContext retorna mensagens raiz do usuário do
 // contexto criadas após startAfterID até endID (inclusive). Usa posição na
 // lista ordenada por created_at em vez de comparação lexicográfica de IDs.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 func GetMessagesBetweenIDsWithContext(ctx context.Context, conversationID string, startAfterID string, endID string) ([]ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var messages []ChatMessage
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID).
@@ -1815,7 +1866,15 @@ func GenerateTitle(content string) string {
 
 // SearchConversationsWithContext busca conversas por título no escopo do
 // usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
+// Antes, ScopeByUser passava fail-open e devolvia conversas de todos os
+// usuários — vetor crítico porque é alcançado pelo SearchConversationsTool
+// exposto ao LLM (cross-user leak via prompt do agente).
 func SearchConversationsWithContext(ctx context.Context, query string) ([]Conversation, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var conversations []Conversation
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
@@ -1997,12 +2056,15 @@ func SearchMessageContentWithContext(ctx context.Context, query string, limit in
 // SaveLLMProviderWithContext salva ou atualiza um provedor associado ao
 // usuário do contexto.
 //
-// SECURITY: bootstrap-tolerant — o caller (providers.DBStore.Save) já
-// chama RequireUserIDOrBootstrap, então sem userID e sem bootstrap a
-// gravação é rejeitada antes de chegar aqui. Esta função apenas obedece
-// ao userID que vier no ctx (se vier) sem aplicar guard adicional, para
-// preservar o caminho de bootstrap pré-login (CLI setup).
+// SECURITY: fail-closed bootstrap-tolerant (AEP-0052 / B11). Aceita ctx com
+// userID OU marcado por WithBootstrap (CLI setup, registro de credenciais
+// via env). Sem nenhum dos dois, retorna ErrUserScopeRequired — antes era
+// fail-open silencioso (provider.UserID ficava em branco e gravava órfão).
+// Defesa em camadas: o caller providers.DBStore.Save também valida.
 func SaveLLMProviderWithContext(ctx context.Context, provider *LLMProvider) error {
+	if err := RequireUserIDOrBootstrap(ctx); err != nil {
+		return err
+	}
 	if provider != nil && provider.UserID == "" {
 		if userID, ok := UserIDFromContext(ctx); ok {
 			provider.UserID = userID
@@ -2013,7 +2075,14 @@ func SaveLLMProviderWithContext(ctx context.Context, provider *LLMProvider) erro
 
 // GetLLMProvidersWithContext retorna todos os provedores do usuário do
 // contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
+// Retornar lista global expõe IDs/credenciais (mesmo cifradas/refs) de
+// todos os usuários da instância.
 func GetLLMProvidersWithContext(ctx context.Context) ([]*LLMProvider, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var providers []*LLMProvider
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Order("created_at ASC").Find(&providers).Error
 	return providers, err
@@ -2021,7 +2090,14 @@ func GetLLMProvidersWithContext(ctx context.Context) ([]*LLMProvider, error) {
 
 // GetLLMProviderWithContext busca um provedor por ID no escopo do usuário do
 // contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
+// Antes, ScopeByUser fail-open + First por ID = leitura cross-user de
+// provedor alheio com todos os metadados.
 func GetLLMProviderWithContext(ctx context.Context, id string) (*LLMProvider, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var provider LLMProvider
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&provider, "id = ?", id).Error
 	if err != nil {
@@ -2031,13 +2107,25 @@ func GetLLMProviderWithContext(ctx context.Context, id string) (*LLMProvider, er
 }
 
 // DeleteLLMProviderWithContext remove um provedor do usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
+// Sem isso, DELETE por ID puro apaga provedor de qualquer usuário.
 func DeleteLLMProviderWithContext(ctx context.Context, id string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Delete(&LLMProvider{}, "id = ?", id).Error
 }
 
 // CountLLMProvidersWithContext retorna o número total de provedores do
 // usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID retornaria contagem
+// global — vetor de inferência sobre uso/dimensão da instância.
 func CountLLMProvidersWithContext(ctx context.Context) (int64, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return 0, err
+	}
 	var count int64
 	err := ScopeByUser(ctx, db.WithContext(ctx).Model(&LLMProvider{}), "user_id").Count(&count).Error
 	return count, err
@@ -2045,7 +2133,13 @@ func CountLLMProvidersWithContext(ctx context.Context) (int64, error) {
 
 // SetDefaultProviderWithContext marca um provedor como default (e desmarca os
 // demais) no escopo do usuário do contexto.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID, o reset is_default=false
+// limparia o default de TODOS os usuários — operação destrutiva cross-user.
 func SetDefaultProviderWithContext(ctx context.Context, id string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		scoped := ScopeByUser(ctx, tx.Model(&LLMProvider{}), "user_id")
 		if err := scoped.Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
@@ -2057,7 +2151,13 @@ func SetDefaultProviderWithContext(ctx context.Context, id string) error {
 
 // GetDefaultProviderWithContext retorna o provedor marcado como default no
 // escopo do usuário do contexto, ou nil se nenhum.
+//
+// SECURITY: fail-closed (AEP-0052 / B11). Sem userID retornaria o primeiro
+// default que aparecer no banco — vetor de leak de provider alheio.
 func GetDefaultProviderWithContext(ctx context.Context) (*LLMProvider, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var provider LLMProvider
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&provider, "is_default = ?", true).Error
 	if err != nil {

@@ -193,7 +193,7 @@ func TestDatabaseFunctionsRejectUnauthenticatedContext(t *testing.T) {
 		}
 	})
 
-	// Token stats
+	// Token stats (B11 — antes fail-open via scopedMessageQuery)
 	t.Run("GetConversationDetailedTokenStatsWithContext", func(t *testing.T) {
 		if _, err := GetConversationDetailedTokenStatsWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
 			t.Fatalf("want ErrUserScopeRequired, got %v", err)
@@ -202,6 +202,105 @@ func TestDatabaseFunctionsRejectUnauthenticatedContext(t *testing.T) {
 	t.Run("GetDetailedTokenStatsWithContext", func(t *testing.T) {
 		if _, err := GetDetailedTokenStatsWithContext(bg, "x", ""); !errors.Is(err, ErrUserScopeRequired) {
 			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("GetConversationTokenStatsWithContext", func(t *testing.T) {
+		if _, err := GetConversationTokenStatsWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("GetAllTokenStatsWithContext", func(t *testing.T) {
+		if _, err := GetAllTokenStatsWithContext(bg); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("GetTurnTokenStatsWithContext", func(t *testing.T) {
+		if _, err := GetTurnTokenStatsWithContext(bg, "x", "y"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("GetContextWindowUsageWithContext", func(t *testing.T) {
+		if _, _, err := GetContextWindowUsageWithContext(bg, "x", 4096); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("GetRecentMessagesTokenCountWithContext", func(t *testing.T) {
+		if _, err := GetRecentMessagesTokenCountWithContext(bg, "x", 10); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+
+	// Mensagens cross-conversation
+	t.Run("GetMessagesBetweenIDsWithContext", func(t *testing.T) {
+		if _, err := GetMessagesBetweenIDsWithContext(bg, "x", "a", "b"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("GetMessageTreeWithContext", func(t *testing.T) {
+		if _, _, err := GetMessageTreeWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+
+	// Search por título (Search Conversations Tool path)
+	t.Run("SearchConversationsWithContext", func(t *testing.T) {
+		if _, err := SearchConversationsWithContext(bg, "qualquer"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+
+	// HasMessageAudio: retorno é bool, valida que sem userID retorna false
+	// sem tocar o banco em vez de vazar existência cross-user.
+	t.Run("HasMessageAudioWithContext", func(t *testing.T) {
+		if HasMessageAudioWithContext(bg, "qualquer-id") {
+			t.Fatalf("HasMessageAudioWithContext sem userID deveria retornar false")
+		}
+	})
+
+	// LLM Providers (vetor crítico — antes vazava credenciais)
+	t.Run("GetLLMProvidersWithContext", func(t *testing.T) {
+		if _, err := GetLLMProvidersWithContext(bg); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("GetLLMProviderWithContext", func(t *testing.T) {
+		if _, err := GetLLMProviderWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("DeleteLLMProviderWithContext", func(t *testing.T) {
+		if err := DeleteLLMProviderWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("CountLLMProvidersWithContext", func(t *testing.T) {
+		if _, err := CountLLMProvidersWithContext(bg); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("SetDefaultProviderWithContext", func(t *testing.T) {
+		if err := SetDefaultProviderWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("GetDefaultProviderWithContext", func(t *testing.T) {
+		if _, err := GetDefaultProviderWithContext(bg); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	// SaveLLMProviderWithContext aceita bootstrap como caminho legítimo;
+	// sem userID e sem bootstrap, falha fechado.
+	t.Run("SaveLLMProviderWithContext", func(t *testing.T) {
+		err := SaveLLMProviderWithContext(bg, &LLMProvider{ID: "x", UserID: ""})
+		if !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("ctx vazio: want ErrUserScopeRequired, got %v", err)
+		}
+	})
+	t.Run("SaveLLMProviderWithContext_BootstrapAccepted", func(t *testing.T) {
+		bootstrap := WithBootstrap(bg)
+		err := SaveLLMProviderWithContext(bootstrap, &LLMProvider{ID: "bootstrap-prov", UserID: ""})
+		if err != nil {
+			t.Fatalf("bootstrap legítimo: erro inesperado %v", err)
 		}
 	})
 }
