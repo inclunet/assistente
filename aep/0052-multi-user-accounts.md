@@ -859,4 +859,205 @@ ISO 8601 UTC explícito.
   retenção, com testes para retenção configurável e modo administrativo
   (retention=0).
 
+## TODOs pós-merge (review da Fatia 7 — Controllers + CLI)
+
+O reviewer descreveu uma camada de controllers/CLI com `Mount(ctx)`,
+`c.appCtx`, `app.ListAllMessages`, `database.ListMessages()`,
+`controllers/messages_controller.go`, comandos `db data backup`,
+`db data restore`, `db wipe`, e uma versão de `app.Context()` que injeta
+`userID` condicionalmente. **Nada disso existe no código.** A fatia
+ficou predominantemente fora de escopo porque a triagem revelou que
+quase todos os blockers e majors descrevem componentes alucinados.
+Documentamos abaixo o que cabe ao código real e o que não.
+
+### Aplicado neste PR
+
+- **Achado real adicional (não estava no review)**: `App.ResetDatabase()`
+  em `internal/app/app_database.go` era exposto via Wails Bind sem
+  qualquer gate de auth. Em deployment multi-user, qualquer caller
+  derrubava o DB inteiro de todos os usuários. Adicionado novo helper
+  `requireAdminContext` (`internal/app/app_auth.go`) que combina
+  `requireAuthenticatedContext` com checagem de `currentAuthUser.Role`
+  sob lock — pré-login devolve `ErrUserScopeRequired`, logado mas
+  não-admin devolve `ErrAdminRequired` (constante exportada). O método
+  `ResetDatabase` agora chama esse gate antes de tocar em qualquer
+  arquivo, e quando o reset real falha o caller recebe um erro genérico
+  (`ErrDatabaseResetFailed`) — o detalhe (path, syscall, motivo) só vai
+  para `log.Printf` local, evitando vazar estrutura de filesystem em
+  multi-user. Cobertura em `internal/app/bloco7_admin_gate_test.go`
+  com 5 cenários (pré-login, role=user, role=admin, ResetDatabase
+  pré-auth, ResetDatabase role=user).
+
+### N/A no contexto atual
+
+#### B35 — `app.ListAllMessages` cross-user
+
+**N/A — alucinação completa.** A função `ListAllMessages` não existe em
+`internal/app/`, em `controllers/` nem em `internal/database/`. Não há
+arquivo `internal/app/messages.go` nem `controllers/messages_controller.go`.
+A função `database.ListMessages()` sem ctx não existe. Os endpoints
+reais de mensagens (`GetMessages`, `GetRecentMessages`,
+`GetMessagesBefore`, `GetConversationMessageWindow`,
+`SearchConversationHistory`, etc.) em `internal/app/db.go` **todos**
+chamam `requireAuthenticatedContext` no início (29 endpoints, validados
+pelos testes de cross-user no Bloco 3) e propagam ctx autenticado para
+repositórios fail-closed que executam `RequireUserID` antes de qualquer
+JOIN.
+
+#### B36 — Controllers sem `requireAuthenticatedContext`
+
+**N/A na forma descrita.** O reviewer cita endpoints específicos
+(`GetAllChannelConfigs`, `GetAuthorizedContacts`, `GetAvailableChannels`,
+`GetLLMProviders`, `GetDefaultProvider`, `ListMessagesByConversation`)
+como "expostos pre-login sem gate". Verificação direta:
+
+- `GetAllChannelConfigs`, `GetAuthorizedContacts`, `GetAvailableChannels`
+  em `internal/app/app_messaging.go` **JÁ chamam**
+  `requireAuthenticatedContext` antes de tocar dados (B6 do Bloco 2,
+  já endereçado).
+- `ListMessagesByConversation` não existe; `GetMessages(convID, parentID)`
+  é o método análogo e **JÁ chama** `requireAuthenticatedContext` em
+  `db.go:73`.
+- `GetLLMProviders()` e `GetLLMProvider(id)` lêem de
+  `a.llmRegistry` em memória. O registry só é populado via
+  `reloadUserScopedRuntime` (rodado pós-Login/RefreshAuth) e limpo no
+  `setCurrentAuthUser(nil)` do Logout. Pré-login retorna lista vazia,
+  não há vazamento cross-user. Trade-off: frontend não distingue
+  "sem providers" de "não logado" — coberto pelo `AuthGate` que
+  bloqueia toda a UI antes do Login (Bloco 5).
+
+A camada de controllers desse projeto **não é** o que o reviewer
+descreveu. Não há `Controllers` struct com `appCtx` field, não há
+`Mount(ctx)`, controllers não têm bindings Wails diretas (só métodos
+de `*App` viram bindings). Cada controller é um agregado de dependências
+injetadas no construtor; ctx vem como argumento do método (Wails
+injeta automaticamente quando o primeiro param é `context.Context`).
+
+#### B37 — CLI bypassa auth
+
+**N/A — alucinação.** Os subcomandos descritos (`db data backup`,
+`db data restore`, `db wipe`) **não existem** em `cmd/asst/`. Os
+comandos reais são `asst data export`, `asst data analyze`,
+`asst data import`, todos delegando para `app.ExportData`/`ImportData`/
+`AnalyzeImportData` que internamente passam por `importExportContext()`
+(`internal/app/export_import.go:387`) — que só devolve um ctx
+autenticado via `requireAuthenticatedContext`. Resultado: rodar
+`asst data export --all` pré-login devolve `authenticated user
+required`. Não há "dump completo cross-user" possível pelo CLI hoje.
+
+#### B38 — `Context()` retorna ctx cru se `currentUserID==""`
+
+**N/A na forma descrita.** A função `App.Context()` em
+`internal/app/app.go:171` é literalmente `return a.ctx` — não injeta
+userID condicionalmente. A função análoga ao código mostrado pelo
+reviewer é `internalBootstrapCtx()` em `app_auth.go:521`, que JÁ:
+
+1. Tem nome propositalmente assustador (Blocker C do re-review do
+   AEP-0052) para evitar autocomplete enganoso.
+2. Documenta os **2 únicos call sites permitidos**
+   (`initCredentialManager` e MCP `SetAuthContextProvider`).
+3. Encoraja `requireAuthenticatedContext` (existente desde a Fatia 1)
+   para tudo o mais — que já é o padrão usado pelos 29 endpoints de
+   `db.go`, pelos endpoints de messaging, providers, profiles, jobs,
+   tokens etc.
+
+A renomeação `Context() → AuthenticatedContext()` proposta pelo
+reviewer é redundante: já temos `requireAuthenticatedContext` (fail-
+closed) e `internalBootstrapCtx` (fail-open com nome bloqueador).
+
+#### B39 — Race em `controllers.appCtx`
+
+**N/A — alucinação.** Não existe `controllers/controllers.go`, não
+existe `appCtx` field em nenhum controller, não existe método `Mount`.
+Os controllers são montados em `app.go:339-444` via `NewXController`
+com dependências passadas por struct config — sem field de ctx
+mutável. A única struct compartilhada com lock é `App` (que tem
+`authMu`, `authSessionMu`, `currentUserMu` etc., todos cobertos por
+testes).
+
+#### M47 — `CreateDefaultLLMProvider` persiste com `user_id=''`
+
+**Trade-off documentado e auditado.** Em `app_llm_providers.go:194-200`
+a função usa `internalBootstrapCtx`; quando não há userID, faz
+`database.WithBootstrap(ctx)` explícito — único caminho permitido para
+gravar provider sem userID, fail-closed em qualquer outra rota
+(repositório de providers exige `RequireUserID` ou `IsBootstrap`).
+Provider criado pelo wizard pré-login fica órfão até o primeiro
+`AdoptLegacyData` (Login/Refresh do primeiro usuário). Em segundo
+deployment multi-user, o operador roda `CreateDefaultLLMProvider`
+**após** o login do admin, e o ctx já carrega userID — não é mais
+órfão. Refatoração para "default como template em código + materializar
+no Login" é desejável mas escopo de outra AEP (provider templates por
+canal/perfil).
+
+#### M48 — CLI sem confirmação interativa em operações destrutivas
+
+**N/A.** Não há `wipe`, `restore` ou `backup` no CLI. O único caminho
+destrutivo (`asst data import`) sobrescreve dados via arquivo
+explícito; o usuário já cita o caminho. O `asst setup` JÁ tem prompt
+"Deseja reconfigurar? (s/N)" quando detecta DB existente
+(`cmd/asst/setup.go:71`).
+
+#### M49 — Tests cross-user em controllers
+
+**N/A na forma descrita.** Controllers não têm bindings Wails diretas
+(só métodos de `*App` são expostos). Os testes cross-user existem
+no nível de use-case e repositório (Blocos 1–3): DBStore.GetByID
+rejeita acesso de outro user, `RequireUserID` é exigido em todos os
+escritores fail-closed, e o pipeline de `SendMessage` valida
+`OwnerUserID` no gateway (Bloco 2). Cobertura do gate admin do
+Bloco 7 fica em `bloco7_admin_gate_test.go`.
+
+#### M50 — `ListMessagesByConversation` ownership
+
+**N/A — função não existe.** O método análogo é `App.GetMessages` em
+`db.go:72`, que faz `requireAuthenticatedContext` e propaga ctx para
+o repositório de chat — que executa `WHERE conversations.user_id = ?`
+implicitamente via `database.ScopeByUser`. Cobertura nos testes de
+cross-user da Fatia 3.
+
+#### M51 — Setup detecta instância existente
+
+**Já aplicado.** `cmd/asst/setup.go:69` chama `NeedsWelcomeWizard()`
+e, quando há setup prévio, prompta "Deseja reconfigurar? (s/N)".
+O reviewer alegou que setup "sobrescreve config crítica" — falso:
+ele só re-roda os passos de senha mestre (sob `HasMasterKey()`) e de
+provider; nada destrutivo de dados de usuário.
+
+#### M52 — Audit log CLI
+
+**Trade-off.** Sem audit log dedicado em `~/.assistente/audit.log`. O
+CLI já registra cada operação destrutiva via `log.Printf` (capturado
+pelo logger padrão). Audit log persistente append-only entra na
+trilha de "deployment hardening" — escopo da AEP de cloud, não desta.
+
+#### M53 — Sanitização de erros em controllers
+
+**Parcialmente endereçado pelo único caminho real desta fatia**:
+`ResetDatabase` agora retorna `ErrDatabaseResetFailed` genérico em
+vez de `fmt.Errorf("erro ao remover banco de dados: %v", err)` que
+vazava paths de filesystem. Os outros caminhos sensíveis (chat,
+conversa, providers) já filtram no nível do app — o frontend recebe
+mensagens curtas via i18n (Bloco 5).
+
+### Minors — N/A
+
+- **Mi40** (`mountController` dupla montagem): `mountController` não
+  existe.
+- **Mi41** (CLI `--help` rico): Cobra já gera `--help` por subcomando.
+- **Mi42** (Documentação de bindings): bindings Wails são
+  auto-geradas (`frontend/wailsjs/go/app/App.d.ts`); `tsc --noEmit`
+  no CI valida tipos.
+- **Mi43** (`closeController` timeout): `closeController` não existe.
+- **Mi44** (Versionamento de schema em export): `portability` JÁ
+  versiona via `Version` no envelope JSON (`internal/portability/`)
+  e o `analyze` reporta a versão antes do import.
+- **Mi45** (CLI `--dry-run`): pendente; baixa prioridade — `data
+  analyze` cobre o caso de inspecionar antes de importar.
+- **Mi46** (`--quiet/--verbose`): existe `--verbose` global em
+  `cmd/asst/main.go:105`.
+- **Mi47** (Path traversal em `--out`): `cobra` aceita o path; em
+  contexto desktop o usuário escolhe onde escrever. Em deployment
+  CLI-via-web (não suportado pelo projeto hoje) seria validação
+  extra.
 

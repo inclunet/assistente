@@ -544,6 +544,35 @@ func (a *App) requireAuthenticatedContext() (context.Context, error) {
 	return ctx, nil
 }
 
+// ErrAdminRequired é retornado quando uma operação privilegiada é chamada
+// por usuário não-admin (ou pré-login). Operações instance-wide
+// (ResetDatabase, gestão de outros usuários, dump global) exigem role admin
+// para evitar que qualquer usuário autenticado destrua dados de toda a
+// instância em deployment multi-user.
+var ErrAdminRequired = errors.New("admin role required")
+
+// requireAdminContext devolve um context autenticado e exige que o usuário
+// atual tenha role admin. Combina `requireAuthenticatedContext` com checagem
+// de `currentAuthUser.Role` sob lock — sem race com Login/Logout
+// concorrentes. É a função correta para bindings/handlers que executam
+// ações instance-wide irreversíveis em deployments multi-user.
+func (a *App) requireAdminContext() (context.Context, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	a.authMu.RLock()
+	role := ""
+	if a.currentAuthUser != nil {
+		role = a.currentAuthUser.Role
+	}
+	a.authMu.RUnlock()
+	if role != database.UserRoleAdmin {
+		return nil, ErrAdminRequired
+	}
+	return ctx, nil
+}
+
 func (a *App) reloadUserScopedRuntime() {
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
