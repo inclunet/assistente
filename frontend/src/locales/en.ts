@@ -1998,6 +1998,61 @@ const en = {
         submitError: 'Error submitting questionnaire',
       },
     },
+    auth: {
+      titles: {
+        loading: 'Loading authentication',
+        unavailable: 'Authentication unavailable',
+        setup: 'Initialize vault',
+        unlock: 'Unlock vault',
+        createAdmin: 'Create local admin',
+        signIn: 'Sign in',
+      },
+      descriptions: {
+        loading: 'Checking vault and session state.',
+        unavailable: 'Could not load the vault state.',
+        setup: 'Set a master password to protect the vault DEK.',
+        unlock: 'Enter the master password to unlock the local vault.',
+        createAdmin: 'Create the first local account. This password will be used to sign in as admin.',
+        signIn: 'Sign in with your local account to continue.',
+      },
+      labels: {
+        username: 'Username',
+        password: 'Password',
+        adminPassword: 'Admin password',
+        masterPassword: 'Master password',
+        confirmPassword: 'Confirm password',
+      },
+      hints: {
+        passwordMin: 'Use at least 8 characters.',
+        masterPassword: 'This password protects the DEK and cannot be recovered.',
+        confirmPassword: 'Repeat the password to confirm.',
+      },
+      buttons: {
+        continue: 'Continue',
+        loading: 'Please wait...',
+        retry: 'Try again',
+      },
+      recovery: {
+        title: 'Recovery code',
+        instructions: 'Store this code in a safe place before continuing.',
+      },
+      validation: {
+        passwordsDoNotMatch: 'Passwords do not match.',
+      },
+      errors: {
+        invalidCredentials: 'Invalid username or password.',
+        inactiveUser: 'Account disabled. Contact the administrator.',
+        sessionExpired: 'Your session expired. Sign in again.',
+        vaultUnavailable: 'Vault is unavailable. Please try again.',
+        adminAlreadyExists: 'The initial admin user has already been created.',
+        unknown: 'An unexpected error occurred. Please try again.',
+      },
+      a11y: {
+        formBusy: 'Processing authentication',
+        recoveryAnnouncement: 'Vault created. Take note of the recovery code shown on screen.',
+        loginSuccess: 'Session started successfully.',
+      },
+    },
   },
 };
 

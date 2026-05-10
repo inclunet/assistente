@@ -21,11 +21,27 @@ interface AuthUser {
   role: string;
 }
 
+/**
+ * `i18nKey` referencia uma chave de `auth.errors.*` nos locales. O store
+ * NUNCA renderiza uma string crua do backend — o caller usa a chave para
+ * lookup com `useTranslation()`. Isso resolve M28 do review do Bloco 5
+ * (mensagens hardcoded em pt-BR vazando para a UI quando o backend muda)
+ * e a regra do CLAUDE.md (i18n obrigatório).
+ *
+ * `detail` mantém o texto original do erro só para anúncios em live
+ * regions / log estruturado quando faz sentido (raríssimo) — a UI
+ * sempre prefere a tradução de `i18nKey`.
+ */
+export interface AuthError {
+  i18nKey: string;
+  detail?: string;
+}
+
 interface AuthState {
   status: AuthStatus | null;
   user: AuthUser | null;
   isLoading: boolean;
-  error: string | null;
+  error: AuthError | null;
   isAuthenticated: boolean;
   loadStatus: () => Promise<void>;
   setupVault: (masterPassword: string) => Promise<string>;
@@ -36,7 +52,77 @@ interface AuthState {
   logout: () => Promise<void>;
 }
 
-const legacyRefreshTokenKey = 'assistente-auth-refresh-token';
+/**
+ * Versões antigas do app guardavam o refresh token em `localStorage`.
+ * O fluxo atual (AEP-0052) persiste o refresh **só no backend**:
+ * cifrado pela DEK do vault em `internal-auth:refresh-token` e
+ * espelhado no keychain do SO. O frontend não toca mais nesse token.
+ *
+ * A constante existe apenas para uma migração defensiva: ao boot do app
+ * apagamos qualquer resíduo legado para que extensões/scripts não tenham
+ * mais acesso ao token via `localStorage.getItem`. Após +1 release sem
+ * nenhuma instalação reportar resíduo, este bloco pode ser removido.
+ */
+const LEGACY_REFRESH_TOKEN_KEY = 'assistente-auth-refresh-token';
+
+function purgeLegacyTokenStorage() {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(LEGACY_REFRESH_TOKEN_KEY);
+    }
+  } catch {
+    /* localStorage indisponível em algum sandbox — ignore. */
+  }
+}
+
+/**
+ * Mapeia mensagens conhecidas do backend para chaves de i18n. O backend
+ * de auth core (Fatia 1) padronizou ErrInvalidCredentials,
+ * ErrInactiveUser, ErrInvalidRefreshToken, ErrInvalidVaultSecret. Quando
+ * a string não bate com nenhum padrão conhecido caímos no fallback
+ * genérico — nunca renderizamos a mensagem crua, evitando vazar
+ * estrutura interna do servidor.
+ */
+function mapBackendError(error: unknown): AuthError {
+  const detail = error instanceof Error ? error.message : String(error);
+  const lower = detail.toLowerCase();
+  if (lower.includes('credenciais') || lower.includes('invalid credential') || lower.includes('senha')) {
+    return { i18nKey: 'auth.errors.invalidCredentials', detail };
+  }
+  if (lower.includes('inactive') || lower.includes('inativ')) {
+    return { i18nKey: 'auth.errors.inactiveUser', detail };
+  }
+  if (lower.includes('refresh')) {
+    return { i18nKey: 'auth.errors.sessionExpired', detail };
+  }
+  if (lower.includes('vault') || lower.includes('cofre') || lower.includes('dek')) {
+    return { i18nKey: 'auth.errors.vaultUnavailable', detail };
+  }
+  if (lower.includes('admin') && lower.includes('já')) {
+    return { i18nKey: 'auth.errors.adminAlreadyExists', detail };
+  }
+  return { i18nKey: 'auth.errors.unknown', detail };
+}
+
+/**
+ * `refreshGuard` serializa execuções concorrentes de `refresh()`. Antes,
+ * múltiplos `loadStatus()` em paralelo (ex: alt-tab → focus event) podiam
+ * disparar refreshes simultâneos que se sobrescreviam no setState. Agora
+ * o segundo caller espera a mesma promise e ambos enxergam o mesmo
+ * resultado — equivalente ao mutex pedido no M36 do review.
+ */
+let refreshGuard: Promise<void> | null = null;
+
+/**
+ * Counter monotônico de logout. Quando um logout acontece DURANTE um
+ * refresh em flight, o resultado do refresh é descartado para evitar o
+ * cenário "token zumbi": refresh retorna access novo de uma sessão que
+ * já foi revogada pelo logout do usuário. Combinada com `refreshGuard`,
+ * esta defesa cobre M36 do Bloco 5.
+ */
+let logoutGeneration = 0;
+
+purgeLegacyTokenStorage();
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
   status: null,
@@ -55,7 +141,13 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       }
       set({ isLoading: false });
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false, user: null, isAuthenticated: false });
+      console.error('[authStore] loadStatus failed', error);
+      set({
+        error: mapBackendError(error),
+        isLoading: false,
+        user: null,
+        isAuthenticated: false,
+      });
     }
   },
 
@@ -67,7 +159,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       set({ status, isLoading: false });
       return recoveryKey;
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false });
+      console.error('[authStore] setupVault failed', error);
+      set({ error: mapBackendError(error), isLoading: false });
       throw error;
     }
   },
@@ -83,7 +176,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       }
       set({ isLoading: false });
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false });
+      console.error('[authStore] unlockVault failed', error);
+      set({ error: mapBackendError(error), isLoading: false });
       throw error;
     }
   },
@@ -95,7 +189,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       const status = (await GetAuthStatus()) as AuthStatus;
       set({ status, isLoading: false });
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false });
+      console.error('[authStore] createAdmin failed', error);
+      set({ error: mapBackendError(error), isLoading: false });
       throw error;
     }
   },
@@ -111,34 +206,68 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         error: null,
       });
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false, user: null, isAuthenticated: false });
+      console.error('[authStore] login failed', error);
+      set({
+        error: mapBackendError(error),
+        isLoading: false,
+        user: null,
+        isAuthenticated: false,
+      });
       throw error;
     }
   },
 
   refresh: async () => {
+    if (refreshGuard) {
+      await refreshGuard;
+      return;
+    }
+    const generationAtStart = logoutGeneration;
+    refreshGuard = (async () => {
+      try {
+        const user = (await RefreshAuth({})) as AuthUser;
+        if (logoutGeneration !== generationAtStart) {
+          // Logout aconteceu durante o refresh — descartamos o resultado
+          // para não ressuscitar a sessão (M36 do review).
+          console.warn('[authStore] refresh result discarded: logout in flight');
+          return;
+        }
+        set({ user, isAuthenticated: true, error: null });
+      } catch (error) {
+        if (logoutGeneration !== generationAtStart) {
+          // Mesma defesa: o erro do refresh não importa se o usuário já
+          // pediu logout — o estado correto é "deslogado".
+          return;
+        }
+        console.warn('[authStore] refresh failed', error);
+        set({ user: null, isAuthenticated: false });
+      }
+    })();
     try {
-      const legacyRefreshToken = localStorage.getItem(legacyRefreshTokenKey) || '';
-      const user = (await RefreshAuth(legacyRefreshToken ? { refreshToken: legacyRefreshToken } : {})) as AuthUser;
-      localStorage.removeItem(legacyRefreshTokenKey);
-      set({
-        user,
-        isAuthenticated: true,
-        error: null,
-      });
-    } catch {
-      localStorage.removeItem(legacyRefreshTokenKey);
-      set({ user: null, isAuthenticated: false });
+      await refreshGuard;
+    } finally {
+      refreshGuard = null;
     }
   },
 
   logout: async () => {
-    await Logout({}).catch(() => undefined);
-    localStorage.removeItem(legacyRefreshTokenKey);
+    logoutGeneration += 1;
+    try {
+      await Logout({});
+    } catch (error) {
+      // Backend já trata logout como best-effort (M23 do Bloco 4); aqui
+      // apenas logamos para telemetria e seguimos limpando o estado.
+      console.warn('[authStore] logout RPC failed', error);
+    }
+    purgeLegacyTokenStorage();
     set({ user: null, isAuthenticated: false, error: null });
   },
 }));
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export const __testing__ = {
+  resetGuards() {
+    refreshGuard = null;
+    logoutGeneration = 0;
+  },
+  mapBackendError,
+};

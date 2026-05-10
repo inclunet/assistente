@@ -623,3 +623,95 @@ Hoje a chave é persistida como `base64(privateKey)`. Adicionar wrapper
 JSON com `{"version": 1, "keys": [...]}` na próxima migração de schema
 do signer (junto com B22).
 
+---
+
+## TODOs pós-merge (review da Fatia 5 — Frontend + Token Persistence)
+
+### B23 — Access token nunca persistido no frontend
+
+**Estado atual**: o frontend Wails N\u00c3O recebe o JWT de access. As
+bindings (`Login`, `RefreshAuth`) devolvem apenas `{userId, sessionId, role}`;
+o backend retém o access token em mem\u00f3ria do `SessionService` e o
+encaixa nas chamadas Wails como contexto interno via `currentAuthUser`.
+Logo n\u00e3o existe `localStorage.setItem(ACCESS_TOKEN, ...)` nem
+`setAccessToken()` no `authStore` real.
+
+**Quando endere\u00e7ar**: ao introduzir o cliente web tradicional (AEP-0055).
+Nesse cen\u00e1rio:
+
+1. Backend devolve o access em response body do `/auth/login` HTTP.
+2. Frontend mant\u00e9m o token apenas em mem\u00f3ria do store; nunca
+   persiste em `localStorage`/`sessionStorage`.
+3. Refresh token vira cookie `httpOnly; Secure; SameSite=Strict;
+   Path=/auth` (B19 do Bloco 4).
+4. Boot da SPA: `refreshSession()` valida a sess\u00e3o pelo cookie e
+   recebe access novo a cada reload.
+
+### B24 — Refresh token nunca em texto plano
+
+**Estado atual**: em vez do `internal/auth/state/store.go` que o reviewer
+descreveu, o backend persiste o refresh token via:
+
+- `credMgr.RegisterInstanceSecret(InstanceSecretAuthRefreshToken, ...)`,
+  que cifra com a DEK do vault em `users` (mesmo store das credenciais).
+- Espelho no keychain do SO (`SaveAuthRefreshTokenToKeychain`) atrav\u00e9s
+  do `go-keyring` — Windows Credential Manager / macOS Keychain /
+  Secret Service no Linux.
+
+Nenhum caminho deixa o token em texto plano em arquivo de configura\u00e7\u00e3o.
+Backups do vault permanecem cifrados pela DEK.
+
+**Quando reabrir**: caso futuramente algum binding caia em fallback que
+grave em arquivo plano (ex: ambiente sem keychain como container CI),
+documentar o trade-off e cifrar com DEK antes de gravar.
+
+### B25 — Boot via backend (sem confiar em localStorage)
+
+**Estado atual**: o `authStore.refresh()` n\u00e3o l\u00ea token de
+`localStorage` — chama `RefreshAuth({})` e o backend procura o token
+nas duas fontes seguras (vault + keychain). O `legacyRefreshTokenKey` em
+`localStorage` \u00e9 usado apenas como **purge** (apaga qualquer res\u00edduo
+de vers\u00e3o antiga) no boot do store e em logout. Ap\u00f3s +1 release
+sem reportes de res\u00edduos, removemos a const por completo.
+
+### B26 — Mutex de refresh
+
+**Estado atual**: `refreshGuard` no `authStore` serializa chamadas
+concorrentes; m\u00faltiplos disparos em paralelo (alt-tab, focus,
+loadStatus) compartilham a mesma promise. N\u00e3o existe par\u00e2metro
+`silent` para burlar a guarda — o caller que quiser silenciar UI de
+loading deve fazer isso na pr\u00f3pria UI, nunca na pol\u00edtica de
+sincroniza\u00e7\u00e3o do refresh.
+
+### B27/B28 — Hooks de network/idle ainda n\u00e3o existem
+
+`useAuthErrorRecovery`, `useIdleAuthRefresh` e `useAuthRefresh` s\u00e3o
+hooks descritos pelo reviewer mas que **n\u00e3o existem no c\u00f3digo
+atual**. O store hoje s\u00f3 expõe `loadStatus()` (chamado uma vez no
+mount do `AuthGate`). Se algum dia introduzirmos refresh peri\u00f3dico
+ou recovery em foreground:
+
+1. Debounce de 1s em listeners `visibilitychange`/`focus`.
+2. Diferenciar erros de rede ("conex\u00e3o perdida, reconectando...")
+   de 401 (logout for\u00e7ado) e 5xx (toast gen\u00e9rico).
+3. Reusar o `refreshGuard` para n\u00e3o duplicar requests.
+
+### M30/M31 — A11y do `AuthGate`
+
+**Aplicado neste PR**: `AuthGate.tsx` agora usa `useTranslation()` (i18n
+em pt-BR/en/es), `useAnnouncer()` para feedback de erros e sucesso,
+`aria-describedby` ligando inputs aos hints, `aria-labelledby` no card,
+labels formais com `htmlFor`. CSS migrado para tokens `theme.css`
+(zero cor hardcoded). Erros do servidor s\u00e3o anunciados via live
+region global (assertive); erros de valida\u00e7\u00e3o local usam
+`role="alert"` apenas dentro do card e n\u00e3o roubam contexto da
+navega\u00e7\u00e3o por leitor de tela.
+
+### Mi26 — Testes axe-core
+
+**Aplicado neste PR**: dois cen\u00e1rios cobertos
+(`AuthGate.test.tsx` — telas de signIn e setup) integrados ao
+`vitest-axe`. Quando novas etapas forem adicionadas (criar admin,
+desbloquear cofre, retry) os testes seguem o mesmo padr\u00e3o.
+
+

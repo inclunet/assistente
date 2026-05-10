@@ -1973,6 +1973,61 @@ const ptBR = {
         submitError: 'Erro ao enviar questionário',
       },
     },
+    auth: {
+      titles: {
+        loading: 'Carregando autenticação',
+        unavailable: 'Autenticação indisponível',
+        setup: 'Inicializar cofre',
+        unlock: 'Desbloquear cofre',
+        createAdmin: 'Criar admin local',
+        signIn: 'Entrar',
+      },
+      descriptions: {
+        loading: 'Verificando o estado do cofre e da sessão.',
+        unavailable: 'Não foi possível carregar o estado do cofre.',
+        setup: 'Configure uma senha mestre para proteger a DEK do cofre.',
+        unlock: 'Digite a senha mestre para desbloquear o cofre local.',
+        createAdmin: 'Crie a primeira conta local. Esta senha será usada para entrar como admin.',
+        signIn: 'Entre com sua conta local para continuar.',
+      },
+      labels: {
+        username: 'Usuário',
+        password: 'Senha',
+        adminPassword: 'Senha do admin',
+        masterPassword: 'Senha mestre',
+        confirmPassword: 'Confirmar senha',
+      },
+      hints: {
+        passwordMin: 'Use pelo menos 8 caracteres.',
+        masterPassword: 'Esta senha protege a DEK e não pode ser recuperada.',
+        confirmPassword: 'Repita a senha para confirmar.',
+      },
+      buttons: {
+        continue: 'Continuar',
+        loading: 'Aguarde...',
+        retry: 'Tentar novamente',
+      },
+      recovery: {
+        title: 'Código de recuperação',
+        instructions: 'Guarde este código em local seguro antes de continuar.',
+      },
+      validation: {
+        passwordsDoNotMatch: 'As senhas não coincidem.',
+      },
+      errors: {
+        invalidCredentials: 'Usuário ou senha inválidos.',
+        inactiveUser: 'Conta desativada. Procure o administrador.',
+        sessionExpired: 'Sua sessão expirou. Entre novamente.',
+        vaultUnavailable: 'Cofre indisponível no momento. Tente novamente.',
+        adminAlreadyExists: 'O usuário admin inicial já foi criado.',
+        unknown: 'Ocorreu um erro inesperado. Tente novamente.',
+      },
+      a11y: {
+        formBusy: 'Processando autenticação',
+        recoveryAnnouncement: 'Cofre criado. Anote o código de recuperação exibido.',
+        loginSuccess: 'Sessão iniciada com sucesso.',
+      },
+    },
   },
 };
 

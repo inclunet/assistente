@@ -1,12 +1,25 @@
-import { useEffect, useState } from 'react';
-import type { CSSProperties, FormEvent, ReactNode } from 'react';
-import { useAuthStore } from '../../store/authStore';
+import { useEffect, useId, useMemo, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useAuthStore, type AuthStatus } from '../../store/authStore';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import './AuthGate.css';
 
 interface AuthGateProps {
   children: ReactNode;
 }
 
+type AuthStep = 'setup' | 'unlock' | 'createAdmin' | 'signIn';
+
+function deriveStep(status: AuthStatus): AuthStep {
+  if (!status.vaultConfigured) return 'setup';
+  if (!status.vaultUnlocked) return 'unlock';
+  if (!status.hasUsers) return 'createAdmin';
+  return 'signIn';
+}
+
 export function AuthGate({ children }: AuthGateProps) {
+  const { t } = useTranslation();
   const status = useAuthStore((s) => s.status);
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
@@ -16,14 +29,51 @@ export function AuthGate({ children }: AuthGateProps) {
   const unlockVault = useAuthStore((s) => s.unlockVault);
   const createAdmin = useAuthStore((s) => s.createAdmin);
   const login = useAuthStore((s) => s.login);
+  const { announce } = useAnnouncer();
+
   const [secret, setSecret] = useState('');
   const [confirmSecret, setConfirmSecret] = useState('');
   const [username, setUsername] = useState('');
   const [recoveryKey, setRecoveryKey] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const headingId = useId();
+  const descriptionId = useId();
+  const errorId = useId();
+  const passwordHintId = useId();
+  const confirmHintId = useId();
 
   useEffect(() => {
     void loadStatus();
   }, [loadStatus]);
+
+  // Anuncia erros do servidor para leitores de tela quando aparecerem.
+  // Em vez de role="alert" agressivo no markup (M30 do review), usamos a
+  // live region global do ScreenReaderAnnouncer; usuário com leitor de
+  // tela ouve a mensagem sem perder o contexto do formulário.
+  useEffect(() => {
+    if (error) {
+      announce(t(error.i18nKey, error.detail ?? ''), 'assertive');
+    }
+  }, [error, announce, t]);
+
+  useEffect(() => {
+    if (recoveryKey) {
+      announce(t('auth.a11y.recoveryAnnouncement'), 'assertive');
+    }
+  }, [recoveryKey, announce, t]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      announce(t('auth.a11y.loginSuccess'), 'polite');
+    }
+  }, [isAuthenticated, announce, t]);
+
+  const localizedError = useMemo(() => {
+    if (validationError) return validationError;
+    if (!error) return null;
+    return t(error.i18nKey, t('auth.errors.unknown'));
+  }, [error, validationError, t]);
 
   if (isAuthenticated) {
     return <>{children}</>;
@@ -31,13 +81,30 @@ export function AuthGate({ children }: AuthGateProps) {
 
   if (!status && error) {
     return (
-      <main style={styles.shell} aria-busy={isLoading}>
-        <section style={styles.card}>
-          <h1 style={styles.title}>Autenticação indisponível</h1>
-          <p style={styles.description}>Não foi possível carregar o estado do cofre.</p>
-          <p style={styles.error}>{error}</p>
-          <button disabled={isLoading} style={styles.button} onClick={() => void loadStatus()}>
-            {isLoading ? 'Aguarde...' : 'Tentar novamente'}
+      <main className="auth-gate__shell" aria-busy={isLoading}>
+        <section
+          className="auth-gate__card"
+          aria-labelledby={headingId}
+          aria-describedby={descriptionId}
+        >
+          <h1 id={headingId} className="auth-gate__title">
+            {t('auth.titles.unavailable')}
+          </h1>
+          <p id={descriptionId} className="auth-gate__description">
+            {t('auth.descriptions.unavailable')}
+          </p>
+          {localizedError && (
+            <p id={errorId} className="auth-gate__error" role="alert">
+              {localizedError}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={isLoading}
+            className="auth-gate__button"
+            onClick={() => void loadStatus()}
+          >
+            {isLoading ? t('auth.buttons.loading') : t('auth.buttons.retry')}
           </button>
         </section>
       </main>
@@ -46,156 +113,225 @@ export function AuthGate({ children }: AuthGateProps) {
 
   if (!status) {
     return (
-      <main style={styles.shell} aria-busy="true">
-        <section style={styles.card}>
-          <h1 style={styles.title}>Carregando autenticação</h1>
-          <p style={styles.description}>Verificando o estado do cofre e da sessão.</p>
+      <main className="auth-gate__shell" aria-busy="true">
+        <section
+          className="auth-gate__card"
+          aria-labelledby={headingId}
+          aria-describedby={descriptionId}
+        >
+          <h1 id={headingId} className="auth-gate__title">
+            {t('auth.titles.loading')}
+          </h1>
+          <p id={descriptionId} className="auth-gate__description">
+            {t('auth.descriptions.loading')}
+          </p>
         </section>
       </main>
     );
   }
 
-  const title = !status.vaultConfigured
-    ? 'Inicializar cofre'
-    : !status.vaultUnlocked
-      ? 'Desbloquear cofre'
-      : !status.hasUsers
-        ? 'Criar admin local'
-        : 'Entrar';
+  const step = deriveStep(status);
+  const title = t(`auth.titles.${step === 'signIn' ? 'signIn' : step}`);
+  const description = t(`auth.descriptions.${step === 'signIn' ? 'signIn' : step}`);
+  const passwordLabel =
+    step === 'setup' || step === 'unlock'
+      ? t('auth.labels.masterPassword')
+      : step === 'createAdmin'
+        ? t('auth.labels.adminPassword')
+        : t('auth.labels.password');
+  const passwordHint =
+    step === 'setup' || step === 'unlock'
+      ? t('auth.hints.masterPassword')
+      : t('auth.hints.passwordMin');
+  const requiresUsername = step === 'createAdmin' || step === 'signIn';
+  const requiresConfirmation = step === 'setup' || step === 'createAdmin';
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!status.vaultConfigured) {
-      if (secret !== confirmSecret) return;
-      setRecoveryKey(await setupVault(secret));
-      setSecret('');
-      setConfirmSecret('');
+    setValidationError(null);
+
+    if (requiresConfirmation && secret !== confirmSecret) {
+      const message = t('auth.validation.passwordsDoNotMatch');
+      setValidationError(message);
+      announce(message, 'assertive');
       return;
     }
-    if (!status.vaultUnlocked) {
-      await unlockVault('master', secret);
+
+    try {
+      if (step === 'setup') {
+        const recovery = await setupVault(secret);
+        setRecoveryKey(recovery);
+        setSecret('');
+        setConfirmSecret('');
+        return;
+      }
+      if (step === 'unlock') {
+        await unlockVault('master', secret);
+        setSecret('');
+        return;
+      }
+      if (step === 'createAdmin') {
+        await createAdmin(username, secret);
+        setSecret('');
+        setConfirmSecret('');
+        return;
+      }
+      await login(username, secret);
       setSecret('');
-      return;
+    } catch {
+      // O store já registra o erro via `error`. Não precisamos rethrowar.
     }
-    if (!status.hasUsers) {
-      if (secret !== confirmSecret) return;
-      await createAdmin(username, secret);
-      setSecret('');
-      setConfirmSecret('');
-      return;
-    }
-    await login(username, secret);
-    setSecret('');
   };
 
   return (
-    <main style={styles.shell} aria-busy={isLoading}>
-      <form style={styles.card} onSubmit={(event) => void submit(event)}>
-        <h1 style={styles.title}>{title}</h1>
-        <p style={styles.description}>{getStepDescription(status)}</p>
+    <main
+      className="auth-gate__shell"
+      aria-busy={isLoading}
+      aria-label={isLoading ? t('auth.a11y.formBusy') : undefined}
+    >
+      <form
+        className="auth-gate__card"
+        onSubmit={(event) => void submit(event)}
+        aria-labelledby={headingId}
+        aria-describedby={`${descriptionId} ${localizedError ? errorId : ''}`.trim()}
+      >
+        <h1 id={headingId} className="auth-gate__title">
+          {title}
+        </h1>
+        <p id={descriptionId} className="auth-gate__description">
+          {description}
+        </p>
 
         {recoveryKey && (
-          <div style={styles.recovery}>
-            <strong>Código de recuperação</strong>
-            <code style={styles.code}>{recoveryKey}</code>
-            <span>Guarde este código em local seguro antes de continuar.</span>
+          <div className="auth-gate__recovery" role="status">
+            <strong>{t('auth.recovery.title')}</strong>
+            <code className="auth-gate__code">{recoveryKey}</code>
+            <span>{t('auth.recovery.instructions')}</span>
           </div>
         )}
 
-        {status.vaultUnlocked && (
-          <label style={styles.label}>
-            Usuário
-            <input
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              required
-              autoComplete="username"
-              style={styles.input}
-            />
-          </label>
-        )}
-
-        <label style={styles.label}>
-          {getPasswordLabel(status)}
-          <input
-            value={secret}
-            onChange={(event) => setSecret(event.target.value)}
-            required
-            type="password"
-            autoComplete={status.hasUsers ? 'current-password' : 'new-password'}
-            style={styles.input}
+        {requiresUsername && (
+          <UsernameField
+            value={username}
+            onChange={setUsername}
+            disabled={isLoading}
+            label={t('auth.labels.username')}
           />
-        </label>
-
-        {(!status.vaultConfigured || (status.vaultUnlocked && !status.hasUsers)) && (
-          <label style={styles.label}>
-            Confirmar senha
-            <input
-              value={confirmSecret}
-              onChange={(event) => setConfirmSecret(event.target.value)}
-              required
-              type="password"
-              autoComplete="new-password"
-              style={styles.input}
-            />
-          </label>
         )}
 
-        {error && <p style={styles.error}>{error}</p>}
-        <button disabled={isLoading || (!!confirmSecret && secret !== confirmSecret)} style={styles.button}>
-          {isLoading ? 'Aguarde...' : 'Continuar'}
+        <PasswordField
+          id={`${descriptionId}-password`}
+          label={passwordLabel}
+          hint={passwordHint}
+          hintId={passwordHintId}
+          value={secret}
+          onChange={setSecret}
+          autoComplete={step === 'signIn' ? 'current-password' : 'new-password'}
+          disabled={isLoading}
+        />
+
+        {requiresConfirmation && (
+          <PasswordField
+            id={`${descriptionId}-confirm`}
+            label={t('auth.labels.confirmPassword')}
+            hint={t('auth.hints.confirmPassword')}
+            hintId={confirmHintId}
+            value={confirmSecret}
+            onChange={setConfirmSecret}
+            autoComplete="new-password"
+            disabled={isLoading}
+          />
+        )}
+
+        {localizedError && (
+          <p id={errorId} className="auth-gate__error" role="alert">
+            {localizedError}
+          </p>
+        )}
+
+        {/* Não desabilitamos o botão por mismatch de senha: o usuário
+         * com leitor de tela precisa poder submeter para ouvir a
+         * mensagem de validação anunciada. Controle de mismatch fica
+         * em `submit()`. */}
+        <button type="submit" disabled={isLoading} className="auth-gate__button">
+          {isLoading ? t('auth.buttons.loading') : t('auth.buttons.continue')}
         </button>
       </form>
     </main>
   );
 }
 
-const styles: Record<string, CSSProperties> = {
-  shell: {
-    alignItems: 'center',
-    background: 'var(--color-bg-primary, #111827)',
-    color: 'var(--color-text-primary, #fff)',
-    display: 'flex',
-    minHeight: '100vh',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  card: {
-    background: 'var(--color-bg-secondary, #1f2937)',
-    border: '1px solid var(--color-border, #374151)',
-    borderRadius: 16,
-    display: 'grid',
-    gap: 16,
-    maxWidth: 420,
-    padding: 24,
-    width: '100%',
-  },
-  title: { fontSize: 24, margin: 0 },
-  description: { margin: 0, opacity: 0.8 },
-  label: { display: 'grid', gap: 6, fontWeight: 600 },
-  input: { borderRadius: 8, border: '1px solid #4b5563', padding: '10px 12px' },
-  button: { borderRadius: 8, cursor: 'pointer', fontWeight: 700, padding: '10px 12px' },
-  error: { color: '#fca5a5', margin: 0 },
-  recovery: { display: 'grid', gap: 8, padding: 12, border: '1px solid #4b5563', borderRadius: 8 },
-  code: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
-};
-
-function getStepDescription(status: ReturnType<typeof useAuthStore.getState>['status']): string {
-  if (!status?.vaultConfigured) {
-    return 'Configure uma senha mestre para proteger a DEK do cofre.';
-  }
-  if (!status.vaultUnlocked) {
-    return 'Digite a senha mestre para desbloquear o cofre local.';
-  }
-  if (!status.hasUsers) {
-    return 'Crie a primeira conta local. Esta senha será usada para entrar como admin.';
-  }
-  return 'Entre com sua conta local para continuar.';
+interface UsernameFieldProps {
+  value: string;
+  onChange: (next: string) => void;
+  disabled: boolean;
+  label: string;
 }
 
-function getPasswordLabel(status: ReturnType<typeof useAuthStore.getState>['status']): string {
-  if (!status?.vaultConfigured || !status.vaultUnlocked) {
-    return 'Senha mestre';
-  }
-  return status.hasUsers ? 'Senha' : 'Senha do admin';
+function UsernameField({ value, onChange, disabled, label }: UsernameFieldProps) {
+  const id = useId();
+  return (
+    <div className="auth-gate__field">
+      <label htmlFor={id} className="auth-gate__label">
+        {label}
+      </label>
+      <input
+        id={id}
+        className="auth-gate__input"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        required
+        autoComplete="username"
+        aria-required="true"
+        aria-disabled={disabled || undefined}
+        disabled={disabled}
+      />
+    </div>
+  );
+}
+
+interface PasswordFieldProps {
+  id: string;
+  label: string;
+  hint: string;
+  hintId: string;
+  value: string;
+  onChange: (next: string) => void;
+  autoComplete: 'new-password' | 'current-password';
+  disabled: boolean;
+}
+
+function PasswordField({
+  id,
+  label,
+  hint,
+  hintId,
+  value,
+  onChange,
+  autoComplete,
+  disabled,
+}: PasswordFieldProps) {
+  return (
+    <div className="auth-gate__field">
+      <label htmlFor={id} className="auth-gate__label">
+        {label}
+      </label>
+      <input
+        id={id}
+        className="auth-gate__input"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        required
+        type="password"
+        autoComplete={autoComplete}
+        aria-required="true"
+        aria-describedby={hintId}
+        aria-disabled={disabled || undefined}
+        disabled={disabled}
+      />
+      <span id={hintId} className="auth-gate__hint">
+        {hint}
+      </span>
+    </div>
+  );
 }

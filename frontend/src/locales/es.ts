@@ -1997,6 +1997,61 @@ const es = {
         submitError: 'Error al enviar el cuestionario',
       },
     },
+    auth: {
+      titles: {
+        loading: 'Cargando autenticación',
+        unavailable: 'Autenticación no disponible',
+        setup: 'Inicializar bóveda',
+        unlock: 'Desbloquear bóveda',
+        createAdmin: 'Crear administrador local',
+        signIn: 'Entrar',
+      },
+      descriptions: {
+        loading: 'Comprobando el estado de la bóveda y de la sesión.',
+        unavailable: 'No se pudo cargar el estado de la bóveda.',
+        setup: 'Define una contraseña maestra para proteger la DEK de la bóveda.',
+        unlock: 'Ingresa la contraseña maestra para desbloquear la bóveda local.',
+        createAdmin: 'Crea la primera cuenta local. Esta contraseña se usará para entrar como administrador.',
+        signIn: 'Inicia sesión con tu cuenta local para continuar.',
+      },
+      labels: {
+        username: 'Usuario',
+        password: 'Contraseña',
+        adminPassword: 'Contraseña del administrador',
+        masterPassword: 'Contraseña maestra',
+        confirmPassword: 'Confirmar contraseña',
+      },
+      hints: {
+        passwordMin: 'Usa al menos 8 caracteres.',
+        masterPassword: 'Esta contraseña protege la DEK y no se puede recuperar.',
+        confirmPassword: 'Repite la contraseña para confirmar.',
+      },
+      buttons: {
+        continue: 'Continuar',
+        loading: 'Espera...',
+        retry: 'Reintentar',
+      },
+      recovery: {
+        title: 'Código de recuperación',
+        instructions: 'Guarda este código en un lugar seguro antes de continuar.',
+      },
+      validation: {
+        passwordsDoNotMatch: 'Las contraseñas no coinciden.',
+      },
+      errors: {
+        invalidCredentials: 'Usuario o contraseña inválidos.',
+        inactiveUser: 'Cuenta desactivada. Contacta al administrador.',
+        sessionExpired: 'Tu sesión expiró. Inicia sesión otra vez.',
+        vaultUnavailable: 'La bóveda no está disponible. Inténtalo de nuevo.',
+        adminAlreadyExists: 'El usuario administrador inicial ya fue creado.',
+        unknown: 'Ocurrió un error inesperado. Inténtalo de nuevo.',
+      },
+      a11y: {
+        formBusy: 'Procesando autenticación',
+        recoveryAnnouncement: 'Bóveda creada. Anota el código de recuperación mostrado.',
+        loginSuccess: 'Sesión iniciada con éxito.',
+      },
+    },
   },
 };
 
