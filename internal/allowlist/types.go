@@ -1,5 +1,11 @@
 package allowlist
 
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
 // Decision representa a decisão de controle de acesso para um comando.
 type Decision int
 
@@ -46,9 +52,22 @@ type Allowlist struct {
 	// Mesma lógica de matching que AutoApprove.
 	AlwaysDeny []string `json:"always_deny"`
 
+	// CommandRules contém regras estruturadas por programa/subcomando.
+	// Elas permitem diferenciar comandos como "kubectl get" e "kubectl delete".
+	CommandRules []CommandRule `json:"command_rules,omitempty"`
+
 	// DefaultAction define o que fazer quando nenhum pattern corresponde.
 	// Valores válidos: "confirm" (padrão) ou "deny"
 	DefaultAction string `json:"default_action"`
+}
+
+// CommandRule define uma regra estruturada para comandos atomicos.
+type CommandRule struct {
+	Program     string   `json:"program"`
+	Subcommands []string `json:"subcommands,omitempty"`
+	Args        []string `json:"args,omitempty"`
+	Decision    string   `json:"decision"`
+	Description string   `json:"description,omitempty"`
 }
 
 // AllowlistInfo contém informações resumidas de uma allowlist (para listagem).
@@ -57,4 +76,180 @@ type AllowlistInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	RuleCount   int    `json:"ruleCount"`
+}
+
+// validRuleDecisions contém as decisões aceitas em CommandRule.Decision.
+var validRuleDecisions = map[string]struct{}{
+	"approve": {},
+	"confirm": {},
+	"deny":    {},
+}
+
+// validDefaultActions contém as ações aceitas em Allowlist.DefaultAction.
+// Vazio também é aceito (o evaluator trata como "confirm" por padrão).
+var validDefaultActions = map[string]struct{}{
+	"confirm": {},
+	"deny":    {},
+	"":        {},
+}
+
+// Validate verifica a integridade semantica de uma allowlist antes da
+// persistencia. Os erros sao agrupados para que o frontend possa exibir todos
+// de uma vez. Em runtime mantemos comportamento fail-closed (decision
+// desconhecido => confirm), mas aqui falhamos cedo para sinalizar problemas
+// na origem (UI ou edicao manual do JSON).
+func (a *Allowlist) Validate() error {
+	if a == nil {
+		return errors.New("allowlist nao pode ser nil")
+	}
+
+	var errs []string
+
+	if strings.TrimSpace(a.Name) == "" {
+		errs = append(errs, "name: obrigatorio")
+	}
+
+	if _, ok := validDefaultActions[strings.ToLower(strings.TrimSpace(a.DefaultAction))]; !ok {
+		// "approve" intencionalmente NAO e aceito como default_action: seria
+		// equivalente a auto-aprovar tudo que nao casa nenhuma regra, oposto
+		// da postura fail-closed do projeto. Vazio e aceito porque o evaluator
+		// trata como "confirm" por padrao.
+		errs = append(errs, fmt.Sprintf("default_action: valor invalido %q (esperado: confirm|deny ou vazio)", a.DefaultAction))
+	}
+
+	for i, rule := range a.CommandRules {
+		if err := rule.Validate(); err != nil {
+			errs = append(errs, fmt.Sprintf("command_rules[%d]: %v", i, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("allowlist invalida: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// Validate verifica a consistencia de uma regra estruturada.
+//
+// Regras obrigatorias:
+//   - Program nao pode ser vazio.
+//   - Decision deve ser approve|confirm|deny (case-insensitive).
+//   - "*" so pode aparecer na ultima posicao de Subcommands ou Args (em outras
+//     posicoes seria silenciosamente tratado como literal pelo evaluator,
+//     enganando o autor da regra).
+//   - Tokens em Subcommands/Args nao podem ser vazios nem whitespace-only.
+//     O matcher faz comparacao literal (case-insensitive) sem TrimSpace,
+//     entao essas entradas tornariam a regra silenciosamente inerte —
+//     "get " jamais casa com cmd.Args = ["get"].
+//   - "*" como token deve ser exatamente "*" (sem whitespace adjacente).
+//     "* " ou " *" jamais casa o wildcard real e tambem nunca casa um arg
+//     literal "*", entao a regra ficaria silenciosamente inerte.
+func (r CommandRule) Validate() error {
+	var errs []string
+
+	if strings.TrimSpace(r.Program) == "" {
+		errs = append(errs, "program: obrigatorio")
+	}
+
+	decisionKey := strings.ToLower(strings.TrimSpace(r.Decision))
+	if _, ok := validRuleDecisions[decisionKey]; !ok {
+		errs = append(errs, fmt.Sprintf("decision: valor invalido %q (esperado: approve|confirm|deny)", r.Decision))
+	}
+
+	if pos, ok := wildcardOutOfTail(r.Subcommands); ok {
+		errs = append(errs, fmt.Sprintf("subcommands[%d]: \"*\" so pode aparecer como ultimo elemento", pos))
+	}
+	if pos, ok := wildcardOutOfTail(r.Args); ok {
+		errs = append(errs, fmt.Sprintf("args[%d]: \"*\" so pode aparecer como ultimo elemento", pos))
+	}
+
+	for i, token := range r.Subcommands {
+		if reason, ok := invalidRuleToken(token); ok {
+			errs = append(errs, fmt.Sprintf("subcommands[%d]: %s", i, reason))
+		}
+	}
+	for i, token := range r.Args {
+		if reason, ok := invalidRuleToken(token); ok {
+			errs = append(errs, fmt.Sprintf("args[%d]: %s", i, reason))
+		}
+	}
+
+	// "*" no fim de Subcommands consome todo o restante de cmd.Args, entao
+	// args nao-vazio nessa combinacao seria sempre testado contra um sufixo
+	// vazio (ou "*"). Rejeitamos para evitar regras silenciosamente inertes.
+	if hasTailingWildcard(r.Subcommands) && hasMeaningfulArgs(r.Args) {
+		errs = append(errs, "subcommands termina com \"*\" e args nao-vazio: a regra ficaria ambigua porque \"*\" ja consome todos os args")
+	}
+
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// invalidRuleToken devolve uma razao + ok=true quando o token de
+// Subcommands/Args nao casaria com nenhum input real (regra inerte) por
+// causa de whitespace nos extremos. matchSequence usa strings.EqualFold
+// sem TrimSpace, entao "get " jamais casa cmd.Args = ["get"] e "* " jamais
+// e tratado como wildcard.
+//
+// Casos rejeitados:
+//   - string vazia ("");
+//   - apenas whitespace ("  ", "\t");
+//   - whitespace nas extremidades, incluindo "*" cercado de whitespace
+//     (" *", "*  ", " * ") — provavel intencao de wildcard que jamais casa.
+//
+// Tokens contendo espaco INTERNO (ex.: "a b", vindos de args quotados pelo
+// parser) sao aceitos: esses casam com cmd.Args produzidos a partir de
+// `echo "a b"` e sao genuinos.
+func invalidRuleToken(token string) (string, bool) {
+	if token == "" {
+		return "token vazio", true
+	}
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return "token apenas whitespace", true
+	}
+	if trimmed != token {
+		if trimmed == "*" {
+			return "wildcard \"*\" com whitespace adjacente — use exatamente \"*\"", true
+		}
+		return fmt.Sprintf("whitespace nas extremidades (%q) — o matcher faz comparacao literal e a regra ficaria inerte", token), true
+	}
+	return "", false
+}
+
+// wildcardOutOfTail devolve a posicao do primeiro "*" encontrado fora da
+// ultima posicao da slice. Se nao houver violacao, ok=false.
+func wildcardOutOfTail(values []string) (int, bool) {
+	if len(values) == 0 {
+		return 0, false
+	}
+	for i := 0; i < len(values)-1; i++ {
+		if values[i] == "*" {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// hasTailingWildcard retorna true quando o ultimo elemento de values e "*".
+func hasTailingWildcard(values []string) bool {
+	if len(values) == 0 {
+		return false
+	}
+	return values[len(values)-1] == "*"
+}
+
+// hasMeaningfulArgs retorna true quando args tem qualquer elemento que nao
+// seja apenas "*". Args=[] ou Args=["*"] sao no-ops em termos de matching e
+// nao conflitam com Subcommands terminando em "*".
+func hasMeaningfulArgs(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	if len(args) == 1 && args[0] == "*" {
+		return false
+	}
+	return true
 }

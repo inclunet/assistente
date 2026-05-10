@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"time"
 
 	"assistente/internal/allowlist"
+	"assistente/internal/commandpolicy"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 )
@@ -109,9 +112,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}, nil
 	}
 
-	if a.Command == "" {
+	if strings.TrimSpace(a.Command) == "" {
 		return tools.ToolResult{
-			Content: "O parâmetro 'command' é obrigatório",
+			Content: "O parâmetro 'command' é obrigatório e não pode ser vazio",
 			IsError: true,
 		}, nil
 	}
@@ -131,19 +134,39 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 	}
 
-	// Avalia allowlist
-	decision := rc.evaluateCommand(a.Command)
-	log.Printf("[RunCommand] Comando: %q, decisão: %s", a.Command, decision)
+	// Avalia o comando contra a politica (allowlist + parser conservador)
+	policyResult := rc.evaluateCommand(a.Command)
+	decision := policyResult.Decision
+	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
+	// flags (-W, --token=) ou env inline. Em vez disso, derivamos um resumo
+	// seguro do parse (programas + contagem de args). Reasons so vao para o
+	// log quando a decisao for diferente de approve, e mesmo assim usam
+	// summarizePolicyReasons (sem repetir args do comando).
+	commandSummary := redactCommandForLog(a.Command, policyResult)
+	if decision == allowlist.DecisionApprove {
+		log.Printf("[RunCommand] Comando: %s, decisão: %s", commandSummary, decision)
+	} else {
+		log.Printf("[RunCommand] Comando: %s, decisão: %s, motivos: %s", commandSummary, decision, summarizePolicyReasons(policyResult))
+	}
 
 	switch decision {
 	case allowlist.DecisionDeny:
+		// Nao retornamos a.Command cru: este Content e enviado ao LLM e poderia
+		// vazar tokens/senhas em flags ou env inline. Usamos o mesmo resumo
+		// redigido aplicado nos logs (programas + contagem de args). Reasons
+		// (vs DetailedReasons) e o slice "safe" do EvaluationResult — citamos
+		// apenas programa, tipo de regra e indice (rule[N]/always_deny[N]) e
+		// nunca interpolamos pattern bruto, subcommands/args/description que o
+		// usuario possa ter colocado na allowlist com dados sensiveis.
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Comando bloqueado pela allowlist: %q", a.Command),
+			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
 			IsError: true,
 		}, nil
 
 	case allowlist.DecisionConfirm:
 		if rc.confirmFn != nil {
+			// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
+			// UI local para decidir, e esse caminho nao vai para o LLM.
 			approved, err := rc.confirmFn(ctx, a.Command, workDir)
 			if err != nil {
 				return tools.ToolResult{
@@ -152,8 +175,10 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 				}, nil
 			}
 			if !approved {
+				// Mesmo motivo do deny acima: a string vai para o LLM, nao
+				// repetimos o comando bruto aqui.
 				return tools.ToolResult{
-					Content: fmt.Sprintf("Comando negado pelo usuário: %q", a.Command),
+					Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
 					IsError: true,
 				}, nil
 			}
@@ -245,12 +270,83 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}, nil
 }
 
-// evaluateCommand avalia o comando contra a allowlist ativa.
-func (rc *RunCommand) evaluateCommand(command string) allowlist.Decision {
+// evaluateCommand avalia o comando passando pelo pipeline do commandpolicy:
+// parsing conservador da linha (separa atomos, detecta features de shell
+// como redirecionamentos, pipes e substituicao de comando) e agregacao de
+// decisoes (deny/confirm/approve) consultando a allowlist ativa do perfil.
+// Quando nao ha allowlist configurada, o resultado e sempre confirm.
+func (rc *RunCommand) evaluateCommand(command string) commandpolicy.EvaluationResult {
 	if rc.getAllowlistFn == nil {
-		return allowlist.DecisionConfirm
+		return commandpolicy.Evaluate(command, nil)
 	}
 
 	al := rc.getAllowlistFn()
-	return al.Evaluate(command)
+	return commandpolicy.Evaluate(command, al)
+}
+
+// redactCommandForLog devolve uma representacao segura do command line
+// para log. Em vez de imprimir a.Command (que pode conter tokens, senhas
+// em flags ou env inline), exibimos:
+//   - lista de programas detectados pelo parser, separados por " | ";
+//   - contagem de env assignments (sem valores) e de args para cada atomo;
+//   - quando algum atomo nao tem programa identificado (parse vazio),
+//     fallback para "<unparsed:N bytes>" com o tamanho original.
+//
+// Evita expor args/values mas preserva diagnostico minimo (qual ferramenta
+// foi pedida e se houve env inline). Aplica defesa em profundidade via
+// redactProgramSegment para o caso raro em que o parser deixe escapar um
+// Program contendo "=" (perfis legados, configuracoes manuais).
+func redactCommandForLog(command string, result commandpolicy.EvaluationResult) string {
+	if len(result.Parse.Commands) == 0 {
+		return fmt.Sprintf("<unparsed:%d bytes>", len(command))
+	}
+	programs := make([]string, 0, len(result.Parse.Commands))
+	for _, cmd := range result.Parse.Commands {
+		program := redactProgramSegment(cmd.Program)
+		if program == "" {
+			program = "<empty>"
+		}
+		segment := fmt.Sprintf("%s(%d args)", program, len(cmd.Args))
+		if envCount := len(cmd.EnvAssignments); envCount > 0 {
+			segment = fmt.Sprintf("[env=%d]%s", envCount, segment)
+		}
+		programs = append(programs, segment)
+	}
+	return strings.Join(programs, " | ")
+}
+
+// redactProgramSegment redige qualquer "=" no nome do programa (defesa em
+// profundidade contra Programs que escaparam do parser ainda contendo
+// atribuicoes inline). Mesma logica do redactProgramForReason no evaluator.
+func redactProgramSegment(program string) string {
+	eq := strings.IndexByte(program, '=')
+	if eq < 0 {
+		return program
+	}
+	return program[:eq] + "=<redacted>"
+}
+
+// summarizePolicyReasons gera um resumo curto para log LOCAL. Como esses
+// logs podem ser anexados a bug reports ou copiados manualmente, usamos
+// EXCLUSIVAMENTE Reasons (safe, sem patterns/description) — DetailedReasons
+// fica reservado para uso ao vivo na UI do desktop, onde o usuario ja tem
+// visibilidade do conteudo da allowlist e nao ha risco de envio externo.
+func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
+	parts := make([]string, 0, 5)
+	parts = append(parts, fmt.Sprintf("atomos=%d", len(result.Parse.Commands)))
+	parts = append(parts, fmt.Sprintf("motivos=%d", len(result.Reasons)))
+	if len(result.Parse.Features) > 0 {
+		featureNames := make([]string, 0, len(result.Parse.Features))
+		for _, f := range result.Parse.Features {
+			featureNames = append(featureNames, string(f))
+		}
+		parts = append(parts, "features=["+strings.Join(featureNames, ",")+"]")
+	}
+	if len(result.Parse.Errors) > 0 {
+		parts = append(parts, "parse_errors="+strconv.Itoa(len(result.Parse.Errors)))
+	}
+	if len(result.Reasons) > 0 {
+		parts = append(parts, "reasons=["+strings.Join(result.Reasons, " | ")+"]")
+	}
+	return strings.Join(parts, " ")
 }
