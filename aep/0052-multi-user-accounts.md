@@ -549,3 +549,77 @@ AEP-0051 (Skills DB)     │
     ↓                     │
 AEP-0050 (Profiles DB) ──┘ (depende de 0051)
 ```
+
+---
+
+## TODOs pós-merge (review da Fatia 4 — HTTP API + JWKS)
+
+Estes itens foram triados durante o review do PR mas não cabem no escopo
+da entrega inicial — ficam registrados aqui para que o próximo trabalho
+sobre a API HTTP saiba o estado conhecido.
+
+### B19 — Refresh token via JSON body
+
+**Estado atual**: `POST /auth/refresh` recebe o refresh token em
+`{"refreshToken": "..."}`. Não há cookie `httpOnly` neste canal porque
+o cliente Wails persiste o refresh token no keyring do SO (sem acesso
+JS), de modo que o vetor "JS comprometido lê localStorage" não se
+aplica.
+
+**Quando endereçar**: ao introduzir cliente web tradicional (browser
+servindo a UI) — AEP-0055 ou similar. A migração esperada é:
+
+1. Login emite cookie `Set-Cookie: refresh=...; HttpOnly; Secure; SameSite=Strict; Path=/auth`.
+2. `/auth/refresh` lê o cookie; aceita body apenas para clientes não-browser explicitamente identificados (ex: API token CLI).
+3. CSRF token (double-submit cookie) protege contra requests cross-origin.
+
+### B22 — Multi-key signer (rotação)
+
+**Estado atual**: `LoadOrCreateTokenSigner` carrega uma chave Ed25519 e
+emite/verifica tokens com ela. JWKS publica `[chave_atual]`. Não há
+rotação automática.
+
+**Implicação**: trocar a chave (apagar o segredo `jwt-signing-key`)
+invalida tokens em voo. Como access tokens duram 15min e refresh
+emite novos a cada uso, a janela é curta — porém não documentada para
+o operador.
+
+**Quando endereçar**: quando houver caso operacional para rotacionar
+(suspeita de comprometimento, política de compliance). A
+implementação esperada:
+
+1. `tokenSignerRecord` ganha campo `Version int` (Mi22 do review) para
+   compatibilidade futura.
+2. Storage passa a manter `Active key + N anteriores` (ex: 2 últimas).
+3. `Sign` usa a `Active`; `Verify` aceita qualquer `kid` conhecido.
+4. JWKS publica todas as chaves não revogadas.
+5. Rotação automática opcional via background goroutine (configurável,
+   default 30 dias com retenção de 2 anteriores).
+6. `invalidateJWKSCache` é chamado após cada rotação.
+
+### M21 — Rate-limit cluster-aware
+
+**Estado atual**: `rateLimiter` é in-memory, per-instance. Adequado
+para deploy single-process (que é o atual). Em deploys
+multi-instância, atacante distribui requests entre réplicas.
+
+**Quando endereçar**: ao introduzir deploy multi-instância. Substituir
+backend in-memory por Redis (`token_bucket` em Lua) ou usar
+`sliding_window` no proxy reverso (nginx/envoy).
+
+### M22 — Cache LRU de tokens verificados
+
+**Estado atual**: `requireAccess` chama `VerifyAccessToken` em todo
+request autenticado (Ed25519 verify + lookup no signer). Em throughput
+baixo é negligível; em throughput alto vira contention no signer mutex.
+
+**Quando endereçar**: ao instrumentar a API com observabilidade e
+detectar contention. Implementar LRU bounded com TTL = `exp - iat` do
+token verificado (~15min); chave do cache = hash do token.
+
+### Mi22 — `tokenSignerRecord` sem campo Version
+
+Hoje a chave é persistida como `base64(privateKey)`. Adicionar wrapper
+JSON com `{"version": 1, "keys": [...]}` na próxima migração de schema
+do signer (junto com B22).
+

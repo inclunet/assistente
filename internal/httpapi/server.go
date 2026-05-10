@@ -3,9 +3,11 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"assistente/internal/auth"
 	"assistente/internal/credentials"
@@ -19,6 +21,20 @@ type Server struct {
 	mode     string
 	external *auth.ExternalAuthenticator
 	mux      *http.ServeMux
+
+	// jwksCache (B20 do review) absorve picos de tráfego em
+	// /.well-known/jwks.json sem segurar lock no signer a cada request.
+	// Atualizado via Compare-and-Store quando cacheTTL expira.
+	jwksCache atomic.Pointer[jwksCacheEntry]
+
+	// authLimiter throttle agressivo em /auth/login e /auth/refresh para
+	// reduzir brute-force/credential-stuffing antes de chegar nas
+	// validações Argon2 (caras de propósito). M21 do review.
+	authLimiter *rateLimiter
+	// jwksLimiter mais permissivo em /.well-known/jwks.json — endpoint
+	// público e cacheado, mas vale ter um teto para não esgotar
+	// goroutines/sockets em DoS rude.
+	jwksLimiter *rateLimiter
 }
 
 type Config struct {
@@ -28,17 +44,43 @@ type Config struct {
 	Sessions func() *auth.SessionService
 	Mode     string
 	External *auth.ExternalAuthenticator
+	// AuthRate / AuthBurst e JWKSRate / JWKSBurst permitem ajustar os
+	// limites por deploy. Defaults conservadores aplicados quando não
+	// configurados — evitam que um teste/integração local "sem cargo"
+	// fique mais frágil que o setup atual.
+	AuthRate   float64
+	AuthBurst  float64
+	JWKSRate   float64
+	JWKSBurst  float64
 }
 
 func New(cfg Config) *Server {
+	authRate := cfg.AuthRate
+	if authRate <= 0 {
+		authRate = 5
+	}
+	authBurst := cfg.AuthBurst
+	if authBurst <= 0 {
+		authBurst = 10
+	}
+	jwksRate := cfg.JWKSRate
+	if jwksRate <= 0 {
+		jwksRate = 50
+	}
+	jwksBurst := cfg.JWKSBurst
+	if jwksBurst <= 0 {
+		jwksBurst = 100
+	}
 	s := &Server{
-		vault:    cfg.Vault,
-		ids:      cfg.IDs,
-		session:  cfg.Session,
-		sessions: cfg.Sessions,
-		mode:     cfg.Mode,
-		external: cfg.External,
-		mux:      http.NewServeMux(),
+		vault:       cfg.Vault,
+		ids:         cfg.IDs,
+		session:     cfg.Session,
+		sessions:    cfg.Sessions,
+		mode:        cfg.Mode,
+		external:    cfg.External,
+		mux:         http.NewServeMux(),
+		authLimiter: newRateLimiter(authRate, authBurst),
+		jwksLimiter: newRateLimiter(jwksRate, jwksBurst),
 	}
 	if s.mode == "" {
 		s.mode = "local"
@@ -62,17 +104,17 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /vault/status", s.handleVaultStatus)
 	s.mux.HandleFunc("POST /vault/setup", s.handleVaultSetup)
 	s.mux.HandleFunc("POST /vault/unlock", s.handleVaultUnlock)
-	s.mux.HandleFunc("POST /auth/login", s.handleLogin)
-	s.mux.HandleFunc("POST /auth/refresh", s.handleRefresh)
+	s.mux.HandleFunc("POST /auth/login", s.rateLimit(s.authLimiter, "auth.login", s.handleLogin))
+	s.mux.HandleFunc("POST /auth/refresh", s.rateLimit(s.authLimiter, "auth.refresh", s.handleRefresh))
 	s.mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	s.mux.HandleFunc("GET /auth/me", s.handleMe)
-	s.mux.HandleFunc("GET /.well-known/jwks.json", s.handleJWKS)
+	s.mux.HandleFunc("GET /.well-known/jwks.json", s.rateLimit(s.jwksLimiter, "auth.jwks", s.handleJWKS))
 }
 
 func (s *Server) handleVaultStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := s.vault.Status(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		s.writeInternalErr(w, "vault.status", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
@@ -102,7 +144,9 @@ func (s *Server) handleVaultUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.vault.Unlock(r.Context(), req.Kind, req.Secret); err != nil {
-		writeError(w, http.StatusUnauthorized, err)
+		// Mensagem genérica para que kind/secret específicos não vazem
+		// pelo erro do unlock. O log mantém o detalhe.
+		s.writeAuthErr(w, "vault.unlock", http.StatusUnauthorized, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"unlocked": true})
@@ -127,7 +171,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, auth.ErrInactiveUser) {
 			status = http.StatusForbidden
 		}
-		writeError(w, status, err)
+		s.writeAuthErr(w, "auth.login", status, err)
 		return
 	}
 	session := s.sessionService()
@@ -135,9 +179,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("serviço de sessão indisponível"))
 		return
 	}
-	pair, err := session.IssueSession(r.Context(), user, req.ClientLabel)
+	pair, err := session.IssueSession(r.Context(), user, extractClientLabel(req.ClientLabel))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		s.writeInternalErr(w, "auth.login.issue", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, pair)
@@ -148,6 +192,12 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("refresh local indisponível em auth.mode=external"))
 		return
 	}
+	// B19 do review: o refresh vem por JSON body porque a API HTTP do
+	// assistente é hoje local-only (loopback) e o cliente Wails persiste
+	// o refresh token em keyring do SO — não há cookie httpOnly neste
+	// canal. Quando a API for exposta para clientes web tradicionais, o
+	// suporte a cookie httpOnly + CSRF token deve substituir o body
+	// (issue de roadmap pós-AEP-0052).
 	var req struct {
 		RefreshToken string `json:"refreshToken"`
 	}
@@ -161,7 +211,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	pair, err := session.Refresh(r.Context(), req.RefreshToken)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err)
+		s.writeAuthErr(w, "auth.refresh", http.StatusUnauthorized, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, pair)
@@ -183,9 +233,12 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("serviço de sessão indisponível"))
 		return
 	}
+	// M23 do review: logout é best-effort do ponto de vista do cliente
+	// (sempre retorna 204). Quando a revogação falha, logamos com nível
+	// estruturado para alertas / dashboards: o token JWT continua
+	// válido até expirar, então a falha é importante para investigação.
 	if err := session.Logout(r.Context(), req.RefreshToken); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
+		log.Printf("[httpapi] op=auth.logout status=revoke_failed err=%v", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -202,13 +255,28 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleJWKS é endpoint público sem auth — vetor clássico de DoS por
+// contention no signer mutex (B20). O cache em jwksCache + Cache-Control
+// resolve as duas frentes: zero lock no signer no caminho quente e
+// downstream/CDN podem reusar o resultado por jwksCacheTTL.
 func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
-	session := s.sessionService()
-	if session == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("serviço de sessão indisponível"))
+	entry, err := s.jwksFromCacheOrSigner()
+	if err != nil {
+		if errors.Is(err, errSessionUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, err)
+			return
+		}
+		s.writeInternalErr(w, "auth.jwks", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, session.JWKSet())
+	if etag := r.Header.Get("If-None-Match"); etag != "" && etag == entry.etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("ETag", entry.etag)
+	_, _ = w.Write(entry.payload)
 }
 
 type principal struct {
@@ -220,17 +288,17 @@ type principal struct {
 func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*principal, bool) {
 	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	if token == "" {
-		writeError(w, http.StatusUnauthorized, errors.New("access token obrigatório"))
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "access token obrigatório"})
 		return nil, false
 	}
 	if s.mode == "external" {
 		if s.external == nil {
-			writeError(w, http.StatusUnauthorized, errors.New("auth.mode=external sem validador configurado"))
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "validador externo indisponível"})
 			return nil, false
 		}
 		claims, err := s.external.Validate(r.Context(), token)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, err)
+			s.writeAuthErr(w, "auth.access.external", http.StatusUnauthorized, err)
 			return nil, false
 		}
 		role := "user"
@@ -246,7 +314,7 @@ func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*princip
 	}
 	claims, err := session.VerifyAccessToken(token)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err)
+		s.writeAuthErr(w, "auth.access.local", http.StatusUnauthorized, err)
 		return nil, false
 	}
 	return &principal{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role}, true
