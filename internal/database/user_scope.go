@@ -12,7 +12,7 @@ type userIDContextKey struct{}
 
 type bootstrapContextKey struct{}
 
-var ErrUserScopeRequired = errors.New("usuário autenticado obrigatório")
+var ErrUserScopeRequired = errors.New("authenticated user required")
 
 func WithUserID(ctx context.Context, userID string) context.Context {
 	return context.WithValue(ctx, userIDContextKey{}, strings.TrimSpace(userID))

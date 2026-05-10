@@ -221,6 +221,69 @@ func TestMessageRepositoryEnforcesUserScopeByMessageID(t *testing.T) {
 	}
 }
 
+// TestClearAllConversationsWithContext_ScopedByUser garante que ClearMessages
+// (App.ClearMessages → SettingsController.ClearMessages →
+// database.ClearAllConversationsWithContext) apaga apenas as conversas e
+// mensagens do usuário do ctx, sem vazar para outros usuários (Blocker 1 do
+// review do AEP-0052).
+func TestClearAllConversationsWithContext_ScopedByUser(t *testing.T) {
+	setupUserScopeTestDB(t)
+
+	anaCtx := WithUserID(context.Background(), "user-ana")
+	leoCtx := WithUserID(context.Background(), "user-leo")
+
+	anaConv, err := CreateConversationWithContext(anaCtx, "Ana", "")
+	if err != nil {
+		t.Fatalf("create ana conversation: %v", err)
+	}
+	leoConv, err := CreateConversationWithContext(leoCtx, "Leo", "")
+	if err != nil {
+		t.Fatalf("create leo conversation: %v", err)
+	}
+	if _, err := CreateMessageWithContext(anaCtx, MessageOptions{
+		ConversationID: anaConv.ID,
+		Role:           "user",
+		Content:        "ana msg",
+	}); err != nil {
+		t.Fatalf("create ana message: %v", err)
+	}
+	if _, err := CreateMessageWithContext(leoCtx, MessageOptions{
+		ConversationID: leoConv.ID,
+		Role:           "user",
+		Content:        "leo msg",
+	}); err != nil {
+		t.Fatalf("create leo message: %v", err)
+	}
+
+	if err := ClearAllConversationsWithContext(anaCtx); err != nil {
+		t.Fatalf("clear ana conversations: %v", err)
+	}
+
+	anaConvs, err := GetConversationsWithContext(anaCtx)
+	if err != nil {
+		t.Fatalf("get ana conversations: %v", err)
+	}
+	if len(anaConvs) != 0 {
+		t.Fatalf("ana conversations not cleared: %+v", anaConvs)
+	}
+
+	leoConvs, err := GetConversationsWithContext(leoCtx)
+	if err != nil {
+		t.Fatalf("get leo conversations: %v", err)
+	}
+	if len(leoConvs) != 1 || leoConvs[0].UserID != "user-leo" {
+		t.Fatalf("leo conversations leaked or wiped: %+v", leoConvs)
+	}
+
+	leoMsgs, err := GetAllConversationMessagesWithContext(leoCtx, leoConv.ID)
+	if err != nil {
+		t.Fatalf("get leo messages: %v", err)
+	}
+	if len(leoMsgs) != 1 || leoMsgs[0].Content != "leo msg" {
+		t.Fatalf("leo messages were affected by ana ClearMessages: %+v", leoMsgs)
+	}
+}
+
 // TestScopeByUserStrict_FailsClosed valida o opt-in fail-closed (Suggestion 13
 // do review do AEP-0052): quando o ctx não carrega userID, a query envenenada
 // devolve ErrUserScopeRequired em qualquer operação subsequente, sem precisar
