@@ -20,7 +20,7 @@ func (a *App) initMessaging() {
 		ToolRegistry:     a.toolRegistry,
 		Emitter:          a.emitter,
 		ConvSvc:          a.convSvc,
-		SendMessageFn:    a.SendMessageFromChannel,
+		SendMessageFn:    a.sendMessageFromChannel,
 	})
 	a.msgCtrl.Init()
 	a.msgGateway = a.msgCtrl.Gateway()

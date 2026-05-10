@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"assistente/internal/chat"
+	"assistente/internal/database"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 )
@@ -27,10 +28,22 @@ func (a *App) RetryMessage(conversationID string, messageID string, params ChatP
 	return a.chatCtrl.RetryMessage(ctx, conversationID, messageID, params)
 }
 
-// SendMessageFromChannel é chamado pelo Gateway de mensageria.
-func (a *App) SendMessageFromChannel(conversationID string, content, media string, params ChatParams, source string) (string, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
+// sendMessageFromChannel é chamado pelo Gateway de mensageria com um ctx que
+// carrega o OwnerUserID do canal (AEP-0052). NÃO usa requireAuthenticatedContext:
+// mensagens de canal precisam funcionar mesmo com a UI fechada/sem login —
+// se substituíssemos o ctx pelo derivado de currentUserID, qualquer usuário
+// que não estivesse logado na UI veria suas mensagens entrantes descartadas.
+//
+// O fail-closed aqui é diferente do path Wails: confiamos que o gateway
+// carimbou o ctx com o owner do canal antes de chamar; se o ctx chegar sem
+// userID é bug do gateway (config sem OwnerUserID, p.ex.). Validamos com
+// RequireUserID e devolvemos ErrUserScopeRequired explícito para o caller
+// poder logar/notificar.
+//
+// É deliberadamente não exportado — não é binding Wails, só callback do
+// SendMessageFunc do gateway.
+func (a *App) sendMessageFromChannel(ctx context.Context, conversationID string, content, media string, params ChatParams, source string) (string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", err
 	}
 	return a.chatCtrl.SendMessageFromChannel(ctx, conversationID, content, media, params, source)

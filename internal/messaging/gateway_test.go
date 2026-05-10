@@ -102,7 +102,7 @@ func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
 		emitted = append(emitted, event)
 	}
 
-	gateway := NewGateway(notifier, func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		t.Fatalf("sendMessage não deveria ser chamado para contato não autorizado")
 		return "", nil
 	}, emitEvent, nil, nil, nil)
@@ -140,7 +140,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
 	var sentConversationID string
-	sendMessage := func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	sendMessage := func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		sentConversationID = conversationID
 		if source != "telegram" {
 			return "", fmt.Errorf("source inesperado: %s", source)
@@ -222,7 +222,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 
 	gateway := NewGateway(
 		notifier,
-		func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 			sentConversationID = conversationID
 			return conversationID, nil
 		},
@@ -294,7 +294,7 @@ func TestGateway_ContactLimitRejectsSilently(t *testing.T) {
 	}
 
 	called := 0
-	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		called++
 		return conversationID, nil
 	}, emitEvent, nil, nil, nil)
@@ -331,7 +331,7 @@ func TestGateway_AttachmentsConvertedToMediaJSON(t *testing.T) {
 	}
 
 	var capturedMedia string
-	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		capturedMedia = media
 		return conversationID, nil
 	}, nil, nil, nil, nil)
@@ -386,7 +386,7 @@ func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
-	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		return conversationID, fmt.Errorf("falha de envio")
 	}, nil, nil, nil, nil)
 	gateway.Register("telegram", fake)
@@ -435,8 +435,11 @@ func TestGateway_ChannelOwnerScopesConversation(t *testing.T) {
 	}
 
 	var sentConversationID string
-	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	var sendCtxUserID string
+	var sendCtxHasUserID bool
+	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		sentConversationID = conversationID
+		sendCtxUserID, sendCtxHasUserID = database.UserIDFromContext(ctx)
 		return conversationID, nil
 	}, nil, nil, nil, nil)
 
@@ -449,6 +452,11 @@ func TestGateway_ChannelOwnerScopesConversation(t *testing.T) {
 
 	if sentConversationID == "" {
 		t.Fatalf("conversationID não foi criado")
+	}
+
+	if !sendCtxHasUserID || sendCtxUserID != ownerID {
+		t.Fatalf("SendMessageFunc recebeu ctx sem OwnerUserID (got userID=%q, has=%v) — gateway falhou em propagar AEP-0052",
+			sendCtxUserID, sendCtxHasUserID)
 	}
 
 	conv, err := database.GetConversationInfoWithContext(database.WithUserID(context.Background(), ownerID), sentConversationID)
@@ -481,7 +489,7 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 	var sentConversationID string
 	gateway := NewGateway(
 		notifier,
-		func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 			sentConversationID = conversationID
 			return conversationID, nil
 		},

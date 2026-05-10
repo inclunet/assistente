@@ -18,10 +18,18 @@ import (
 	"assistente/internal/llm"
 )
 
-// SendMessageFunc é a assinatura da função App.SendMessage (ou wrapper).
-// Recebe conversationID (0=criar nova), conteúdo, mídia, params e source.
-// Retorna o conversationID usado.
-type SendMessageFunc func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error)
+// SendMessageFunc é a assinatura do callback usado pelo gateway para enviar
+// uma mensagem entrante de canal ao pipeline de chat. Recebe o ctx do
+// gateway (que já carrega o OwnerUserID do canal via WithUserID — AEP-0052),
+// conversationID (não vazio), conteúdo, mídia, params e source.
+// Retorna o conversationID efetivamente usado.
+//
+// O caller é responsável por injetar o userID antes de chamar — gateway
+// faz isso a partir de channelCfg.OwnerUserID. O destinatário NÃO deve
+// substituir o ctx por um derivado de currentUserID (sessão Wails da UI),
+// porque mensagens de canal precisam funcionar mesmo com a UI fechada/sem
+// login: o owner do canal é a fonte de verdade, não o usuário ativo na UI.
+type SendMessageFunc func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error)
 
 // emitFunc é a callback para emitir eventos Wails.
 type emitFunc func(event string, data any)
@@ -360,7 +368,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		params.ProfileSlug = channelCfg.Profile
 		log.Printf("[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelCfg.Profile)
 	}
-	_, err = g.sendMessage(conversationID, msg.Text, mediaJSON, params, msg.Channel)
+	_, err = g.sendMessage(ctx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
 		log.Printf("[Gateway] trace=%s conv=%s channel=%s erro ao processar mensagem: %v", traceID, conversationID, msg.Channel, err)
 		g.mu.RLock()
