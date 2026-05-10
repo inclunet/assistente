@@ -602,12 +602,16 @@ func TestIssueSessionTruncatesClientLabel(t *testing.T) {
 // Fatia 1: depois de Setup/Unlock o status reporta "unlocked" mesmo se
 // o keyring estiver indisponível posteriormente, porque a DEK ainda
 // está em runtime.
+//
+// Setup é executado pelo caminho "DEK pré-existente no keyring" (cf.
+// vault.Setup) para evitar SetupMasterKey + SaveDEKToKeychain global,
+// que dependeriam de Secret Service real (indisponível no Linux CI).
 func TestVaultStatusUsesRuntimeFlagWhenKeyringFails(t *testing.T) {
 	store := newMemoryCredentialStore()
 	vault := NewVaultService(store, nil)
-	// Setup precisa de NotFound (não há DEK pré-existente) para criar.
+	existingDEK := []byte("01234567890123456789012345678901")
 	vault.loadKeyring = func() ([]byte, error) {
-		return nil, keyring.ErrNotFound
+		return existingDEK, nil
 	}
 	vault.saveKeyring = func([]byte) error { return nil }
 
