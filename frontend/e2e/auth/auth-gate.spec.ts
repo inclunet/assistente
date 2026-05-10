@@ -6,7 +6,11 @@ test.describe('AuthGate', () => {
 
     await wails.gotoApp();
 
-    await expect(page.getByRole('heading', { name: 'Entrar' })).toBeVisible();
+    // O AuthGate usa i18n; conforme o locale detectado o heading muda
+    // entre "Entrar" / "Sign in" / "Entrar". Usamos regex para casar
+    // independente do idioma (a regra do CLAUDE.md sobre i18n proíbe
+    // hardcode em pt-BR no markup).
+    await expect(page.getByRole('heading', { name: /^(Entrar|Sign in)$/ })).toBeVisible();
     await expect(page.locator('.workspace-layout')).toHaveCount(0);
   });
 });
