@@ -197,13 +197,6 @@ func TestMigrateRefreshURLToEnc_CopiesLegacyData(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	type rawEntry struct {
-		ID              string
-		UserID          string
-		Pattern         string
-		RefreshURL      string
-		RefreshTokenEnc string
-	}
 	mustInsert := func(pattern, refreshURL, refreshTokenEnc string) string {
 		entry := &CredentialEntry{UserID: user.ID, Pattern: pattern, AuthType: "bearer"}
 		if err := db.Create(entry).Error; err != nil {
