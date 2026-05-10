@@ -147,10 +147,20 @@ func TestGateway_LegacyChannelWithoutOwnerRejectsMessage(t *testing.T) {
 	}
 
 	called := 0
-	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	var emittedEvents []string
+	emitEvent := func(event string, data any) {
+		emittedEvents = append(emittedEvents, event)
+	}
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		called++
 		return conversationID, nil
-	}, nil, nil, nil, nil)
+	}, emitEvent, nil, nil, nil)
+	gateway.Register("telegram", fake)
 
 	gateway.handleIncoming(context.Background(), IncomingMessage{
 		ID:      "msg-legacy",
@@ -161,6 +171,113 @@ func TestGateway_LegacyChannelWithoutOwnerRejectsMessage(t *testing.T) {
 
 	if called != 0 {
 		t.Fatalf("sendMessage não deveria ser chamado para canal sem OwnerUserID, called=%d", called)
+	}
+
+	// M13: valida que callback NÃO foi registrado (antes era um silent
+	// failure — o handler retornava sem cancelar nada porque também não
+	// registrava. Hoje permanece sem callback, mas sem cobertura podia
+	// regredir).
+	if notifier.PendingCount() != 0 {
+		t.Fatalf("canal legado registrou callback (pending=%d) — gateway deveria rejeitar antes do Register", notifier.PendingCount())
+	}
+
+	// M8: evento legacy_channel_dropped é emitido para o frontend.
+	foundDropped := false
+	for _, ev := range emittedEvents {
+		if ev == "messaging:legacy_channel_dropped" {
+			foundDropped = true
+			break
+		}
+	}
+	if !foundDropped {
+		t.Fatalf("esperava evento messaging:legacy_channel_dropped, got=%v", emittedEvents)
+	}
+
+	// M8: aviso enviado ao remetente externo via fakeMessenger.
+	select {
+	case msg := <-fake.sentCh:
+		if msg.ChatID != "123" {
+			t.Fatalf("aviso enviado para ChatID errado: %q", msg.ChatID)
+		}
+		if msg.Text == "" {
+			t.Fatalf("aviso de canal legado vazio")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout esperando aviso de canal legado para o remetente")
+	}
+}
+
+// TestGateway_SendMessageErrorCancelsCallback cobre B7 do review da
+// Fatia 2: quando sendMessage retorna erro, o callback registrado
+// para a conversa deve ser cancelado imediatamente — antes ficava
+// pendurado para sempre, virando leak crescente.
+func TestGateway_SendMessageErrorCancelsCallback(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
+		t.Fatalf("erro ao autorizar contato: %v", err)
+	}
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		return conversationID, fmt.Errorf("falha simulada")
+	}, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID:      "msg-err",
+		Channel: "telegram",
+		From:    Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text:    "Oi",
+	})
+
+	// Drena o aviso enviado ao remetente para não bloquear o fakeMessenger.
+	select {
+	case <-fake.sentCh:
+	case <-time.After(time.Second):
+		t.Fatalf("aviso de erro não enviado ao remetente")
+	}
+
+	if notifier.PendingCount() != 0 {
+		t.Fatalf("callback não cancelado após erro de sendMessage — leak (pending=%d)", notifier.PendingCount())
+	}
+}
+
+// TestGateway_UnregisterCancelsPendingCallbacks cobre B7. Quando um
+// canal é desregistrado (ex.: usuário desabilitou Telegram em
+// settings), callbacks pendentes daquele canal não podem ficar
+// pendurados — Unregister deve invocar CancelByChannel.
+func TestGateway_UnregisterCancelsPendingCallbacks(t *testing.T) {
+	resetState(t)
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		return conversationID, nil
+	}, nil, nil, nil, nil)
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected}
+	gateway.Register("telegram", fake)
+
+	notifier.Register("conv-1", ResponseCallback{Channel: "telegram", TraceID: "t1", Callback: func(string, string) {}})
+	notifier.Register("conv-2", ResponseCallback{Channel: "telegram", TraceID: "t2", Callback: func(string, string) {}})
+	notifier.Register("conv-3", ResponseCallback{Channel: "signal", TraceID: "s1", Callback: func(string, string) {}})
+
+	if notifier.PendingCount() != 3 {
+		t.Fatalf("expected 3 pending, got %d", notifier.PendingCount())
+	}
+
+	gateway.Unregister("telegram")
+
+	if notifier.PendingCount() != 1 {
+		t.Fatalf("expected 1 pending após Unregister(telegram), got %d", notifier.PendingCount())
 	}
 }
 

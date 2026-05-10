@@ -101,10 +101,15 @@ func (g *Gateway) Register(name string, m Messenger) {
 }
 
 // Unregister desconecta e remove um messenger pelo nome.
+//
+// B7: cancela todos os callbacks pendentes do canal removido. Sem isso,
+// um adapter que sai de cena (ex.: usuário desabilitou Telegram em
+// settings) deixava callbacks órfãos pendurados — a próxima vez que
+// alguém chamasse Notify para a conversa correspondente, dispararia
+// callback contra um messenger inexistente (Send falharia silenciosamente)
+// ou ficaria pendente para sempre se Notify nunca fosse chamado.
 func (g *Gateway) Unregister(name string) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-
 	if m, ok := g.messengers[name]; ok {
 		log.Printf("[Gateway] Desconectando '%s'...", name)
 		if err := m.Disconnect(); err != nil {
@@ -112,20 +117,34 @@ func (g *Gateway) Unregister(name string) {
 		}
 		delete(g.messengers, name)
 	}
+	g.mu.Unlock()
+
+	if g.notifier != nil {
+		if cancelled := g.notifier.CancelByChannel(name); cancelled > 0 {
+			log.Printf("[Gateway] %d callback(s) cancelado(s) ao remover canal '%s'", cancelled, name)
+		}
+	}
 }
 
-// Shutdown desconecta todos os messengers.
+// Shutdown desconecta todos os messengers e cancela callbacks pendentes (B7).
 func (g *Gateway) Shutdown() {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-
+	channelNames := make([]string, 0, len(g.messengers))
 	for name, m := range g.messengers {
 		log.Printf("[Gateway] Desconectando '%s'...", name)
 		if err := m.Disconnect(); err != nil {
 			log.Printf("[Gateway] Erro ao desconectar '%s': %v", name, err)
 		}
+		channelNames = append(channelNames, name)
 	}
 	g.messengers = make(map[string]Messenger)
+	g.mu.Unlock()
+
+	if g.notifier != nil {
+		for _, name := range channelNames {
+			g.notifier.CancelByChannel(name)
+		}
+	}
 }
 
 // GetStatus retorna o status de todos os messengers registrados.
@@ -173,8 +192,36 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// primeiro login pós-upgrade. Sem essa migração o canal fica em modo
 	// degradado mas nada vaza para outro usuário.
 	if channelCfg == nil || channelCfg.OwnerUserID == "" {
-		log.Printf("[Gateway] trace=%s channel=%s mensagem rejeitada: canal sem OwnerUserID (config legado pré-AEP-0052; reabra as configurações do canal e salve para reatribuir)",
+		// M8: era silent failure — sem feedback ao remetente, sem evento
+		// ao frontend, sem métrica. Agora:
+		//   1. Loga estruturado (canal=legacy_owner_missing) para
+		//      contagem em logs.
+		//   2. Emite evento para o frontend (UI pode mostrar banner de
+		//      "canal legado precisa ser reativado").
+		//   3. Manda uma resposta humana ao remetente externo dizendo
+		//      que o canal está em modo legado — sem isso a pessoa
+		//      do outro lado fica falando com vácuo.
+		log.Printf("[Gateway] trace=%s channel=%s status=legacy_owner_missing mensagem rejeitada (config pré-AEP-0052; reabra settings do canal para reatribuir)",
 			traceID, msg.Channel)
+		if g.emitEvent != nil {
+			g.emitEvent("messaging:legacy_channel_dropped", map[string]any{
+				"channel":   msg.Channel,
+				"from":      msg.From.DisplayName,
+				"fromId":    msg.From.ID,
+				"messageId": msg.ID,
+				"reason":    "owner_missing",
+			})
+		}
+		if messenger, ok := g.GetMessenger(msg.Channel); ok && msg.From.ID != "" {
+			outMsg := OutgoingMessage{
+				ChatID: msg.From.ID,
+				Text:   "Este canal está em modo legado e aguarda reativação pelo administrador da instância. Sua mensagem não será processada.",
+			}
+			if err := messenger.Send(ctx, outMsg); err != nil {
+				log.Printf("[Gateway] trace=%s channel=%s erro ao enviar aviso de canal legado: %v",
+					traceID, msg.Channel, err)
+			}
+		}
 		return
 	}
 	ctx = database.WithUserID(ctx, channelCfg.OwnerUserID)
@@ -380,6 +427,13 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	_, err = g.sendMessage(ctx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
 		log.Printf("[Gateway] trace=%s conv=%s channel=%s erro ao processar mensagem: %v", traceID, conversationID, msg.Channel, err)
+		// B7: o callback registrado acima nunca seria invocado porque
+		// sendMessage falhou antes do agentic loop chegar a saveAndFinish
+		// (que dispara Notify). Sem este Cancel, ele ficaria pendurado
+		// até expirar pelo TTL do notifier — em conversas de canal de
+		// alto volume isso vira backlog crescente. Cancela explicitamente
+		// para liberar a slot imediatamente.
+		g.notifier.Cancel(conversationID)
 		g.mu.RLock()
 		messenger, ok := g.messengers[msg.Channel]
 		g.mu.RUnlock()
@@ -408,6 +462,10 @@ func attachmentsToMediaJSON(attachments []Attachment) string {
 	}
 	data, err := json.Marshal(parts)
 	if err != nil {
+		// Mi7: improvável com map[string]interface{}, mas registra para
+		// não silenciar diagnóstico em caso patológico (ex.: sob fuzzing
+		// ou se a estrutura mudar e introduzir um valor não-serializável).
+		log.Printf("[Gateway] erro ao serializar attachments para media JSON: %v", err)
 		return ""
 	}
 	return string(data)

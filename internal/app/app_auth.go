@@ -145,6 +145,25 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 	if err := database.AdoptLegacyData(user.ID); err != nil {
 		return nil, err
 	}
+	// B10 (AEP-0052): adoção de canais legados acontece APENAS aqui,
+	// no fluxo de criação do primeiro admin. NÃO em Login/RefreshAuth.
+	// Antes, o primeiro usuário a logar herdava todos os canais sem
+	// dono — em multi-user isso quebrava: o segundo usuário (migrado
+	// de outra instância) perdia acesso aos próprios canais. Agora o
+	// admin inicial absorve os legados, e usuários adicionais resolvem
+	// canais órfãos por fluxo explícito de re-saving (ver
+	// app_messaging.go.SaveChannelConfig).
+	migrated, adoptErr := channels.AdoptOrphans(user.ID)
+	if len(migrated) > 0 {
+		log.Printf("[CreateAdminUser] %d canal(is) legado(s) reatribuído(s) ao admin %s: %v", len(migrated), user.ID, migrated)
+	}
+	if adoptErr != nil {
+		// Best-effort: o admin foi criado e é o único que pode adotar
+		// canais sem dono — propagamos o erro só em log para não
+		// bloquear setup. Canais que ficaram sem dono podem ser
+		// reativados manualmente pelas settings.
+		log.Printf("[CreateAdminUser] erro best-effort em channels.AdoptOrphans: %v", adoptErr)
+	}
 	return user, nil
 }
 
@@ -440,24 +459,20 @@ func (a *App) setCurrentAuthUser(user *AuthUser) {
 //     do banco ao userID. Falha aqui é HARD: se não conseguimos escrever
 //     no DB, qualquer operação subsequente vai falhar de qualquer jeito,
 //     então propaga.
-//  2. channels.AdoptOrphans: marca configs de canal pré-AEP em disco
-//     como pertencentes ao usuário. Esta é BEST-EFFORT por design (B4
-//     do review da Fatia 1): falhas em I/O de arquivo no diretório de
-//     channels não devem bloquear o Login. Configs que ficarem sem
-//     OwnerUserID continuam visíveis na UI com flag de "unowned" (ver
-//     channels.IsOrphan) e o gateway rejeita mensagens entrantes nelas
-//     até reativação manual — o usuário tem como notar e corrigir.
-//  3. credMgr.LoadFromStore: recarrega credenciais escopadas. Falha aqui
+//  2. credMgr.LoadFromStore: recarrega credenciais escopadas. Falha aqui
 //     também é HARD: sem credenciais, providers ficam off-line e a UI
 //     vai parecer quebrada.
+//
+// NOTA (B10 / AEP-0052): channels.AdoptOrphans NÃO é chamado aqui.
+// Foi movido para CreateAdminUser exclusivamente. Em multi-user, fazer
+// "first-login-takes-all" sobre canais sem dono prejudicava o segundo
+// usuário, que perderia acesso aos canais migrados de instâncias
+// single-user prévias. Canais que ficarem sem OwnerUserID continuam
+// rejeitando mensagens entrantes (ver gateway.handleIncoming) e o
+// usuário precisa reabrir as settings para reatribuir explicitamente.
 func (a *App) adoptLegacyDataForUser(userID string) error {
 	if err := database.AdoptLegacyData(userID); err != nil {
 		return err
-	}
-	if migrated, err := channels.AdoptOrphans(userID); err != nil {
-		log.Printf("[AdoptLegacyData] erro best-effort ao migrar canais legados (canais sem OwnerUserID continuam órfãos e marcados como unowned na UI): %v", err)
-	} else if len(migrated) > 0 {
-		log.Printf("[AdoptLegacyData] %d canal(is) legado(s) reatribuído(s) ao usuário %s: %v", len(migrated), userID, migrated)
 	}
 	if a.credMgr != nil {
 		return a.credMgr.LoadFromStore(context.Background())
