@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -281,35 +280,6 @@ func TestClearAllConversationsWithContext_ScopedByUser(t *testing.T) {
 	}
 	if len(leoMsgs) != 1 || leoMsgs[0].Content != "leo msg" {
 		t.Fatalf("leo messages were affected by ana ClearMessages: %+v", leoMsgs)
-	}
-}
-
-// TestScopeByUserStrict_FailsClosed valida o opt-in fail-closed (Suggestion 13
-// do review do AEP-0052): quando o ctx não carrega userID, a query envenenada
-// devolve ErrUserScopeRequired em qualquer operação subsequente, sem precisar
-// de check explícito no caller.
-func TestScopeByUserStrict_FailsClosed(t *testing.T) {
-	setupUserScopeTestDB(t)
-
-	// Sem userID no ctx → query envenenada.
-	bgCtx := context.Background()
-	var convs []Conversation
-	if err := ScopeByUserStrict(bgCtx, db.WithContext(bgCtx), "user_id").Find(&convs).Error; err == nil {
-		t.Fatal("ScopeByUserStrict deveria envenenar a query sem userID")
-	} else if !errors.Is(err, ErrUserScopeRequired) {
-		t.Fatalf("erro esperado ErrUserScopeRequired, obteve %v", err)
-	}
-
-	// Com userID → comportamento normal (filtra por user_id).
-	anaCtx := WithUserID(context.Background(), "user-ana")
-	if _, err := CreateConversationWithContext(anaCtx, "Ana", ""); err != nil {
-		t.Fatalf("create ana conv: %v", err)
-	}
-	if err := ScopeByUserStrict(anaCtx, db.WithContext(anaCtx), "user_id").Find(&convs).Error; err != nil {
-		t.Fatalf("ScopeByUserStrict com userID falhou: %v", err)
-	}
-	if len(convs) != 1 || convs[0].UserID != "user-ana" {
-		t.Fatalf("ScopeByUserStrict não aplicou filtro: %+v", convs)
 	}
 }
 

@@ -100,10 +100,6 @@ func RequireUserIDOrBootstrap(ctx context.Context) error {
 //     camada já validou; este filtro garante isolamento mesmo em casos
 //     de bug nas camadas acima (defesa em profundidade).
 //
-// Para funções novas que querem opt-in fail-closed direto na query (sem
-// depender da camada 1/2), use ScopeByUserStrict — ele retorna erro
-// quando o ctx não tem userID.
-//
 // Funções instance-wide deliberadas (AdoptLegacyData, RebuildFTSIndex,
 // FindOrCreateChannelConversationWithContext no caminho de bootstrap)
 // NÃO chamam ScopeByUser — usam db.WithContext(...) diretamente e estão
@@ -115,33 +111,6 @@ func ScopeByUser(ctx context.Context, query *gorm.DB, column string) *gorm.DB {
 	userID, ok := UserIDFromContext(ctx)
 	if !ok {
 		return query
-	}
-	if strings.TrimSpace(column) == "" {
-		column = "user_id"
-	}
-	return query.Where(column+" = ?", userID)
-}
-
-// ScopeByUserStrict é a variante fail-closed de ScopeByUser. Aplica o
-// mesmo filtro user_id = ? quando o ctx carrega userID, e retorna a query
-// envenenada com ErrUserScopeRequired (via gorm.AddError) quando NÃO
-// carrega — qualquer .Find/.First/.Save/.Update/.Delete subsequente
-// devolverá o erro automaticamente, sem precisar de check explícito no
-// caller.
-//
-// Use ScopeByUserStrict em código novo ou em funções *WithContext que
-// queiram fechar o invariante diretamente na camada de query, em vez de
-// depender da chamada a RequireUserID em uma camada anterior. Combina bem
-// com tests que injetam context.Background() para validar fail-closed.
-func ScopeByUserStrict(ctx context.Context, query *gorm.DB, column string) *gorm.DB {
-	if query == nil {
-		return query
-	}
-	userID, ok := UserIDFromContext(ctx)
-	if !ok {
-		poisoned := query.Session(&gorm.Session{})
-		_ = poisoned.AddError(ErrUserScopeRequired)
-		return poisoned
 	}
 	if strings.TrimSpace(column) == "" {
 		column = "user_id"

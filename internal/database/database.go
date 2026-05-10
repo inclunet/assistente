@@ -214,11 +214,15 @@ func AdoptLegacyData(userID string) error {
 // ==================== Conversation ====================
 
 // CreateConversationWithContext cria uma nova conversa pertencente ao usuário
-// do contexto. Não existe mais um wrapper sem contexto: callers que precisam
-// criar conversas devem propagar o ctx autenticado (via
-// requireAuthenticatedContext nas bindings Wails ou WithUserID em testes).
+// do contexto. Falha fechado com ErrUserScopeRequired se o ctx não carregar
+// userID — uma conversa sem dono não pode existir no modelo AEP-0052
+// (canais legados usam FindOrCreateChannelConversationWithContext +
+// WithBootstrap explícito).
 func CreateConversationWithContext(ctx context.Context, title, model string) (*Conversation, error) {
-	userID, _ := UserIDFromContext(ctx)
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	conv := &Conversation{
 		Title:  title,
 		UserID: userID,
@@ -235,6 +239,9 @@ func CreateConversationWithContext(ctx context.Context, title, model string) (*C
 // recicla, resetando título e timestamps. Se não encontrar candidata, cria uma
 // nova. Evita acumular registros órfãos no banco.
 func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (*Conversation, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var candidate Conversation
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
 		Where("channel = '' AND contact_id = ''").
@@ -271,13 +278,20 @@ func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (
 // (gateway carrega ChannelConfig.OwnerUserID e propaga; ver
 // internal/messaging/gateway.go).
 //
-// SECURITY: bootstrap-tolerant — quando o ctx não carrega userID (config
-// de canal pré-AEP-0052 sem OwnerUserID, ou outro caminho legado), a
-// conversa nasce órfã (user_id="") e fica invisível a todos os usuários
-// até AdoptLegacyData a atribuir explicitamente. ScopeByUser fail-open é
-// intencional aqui pelo mesmo motivo: a busca também passa, devolvendo
-// conversas órfãs para serem reaproveitadas.
+// SECURITY: bootstrap-tolerant — esta é a única função de banco do AEP-0052
+// que aceita ctx sem userID, e mesmo assim só quando o caller marca
+// explicitamente com WithBootstrap. Esse caminho é necessário para configs
+// de canal pré-AEP-0052 (ChannelConfig.OwnerUserID == ""): o gateway aceita
+// receber a mensagem, mas marca o ctx com WithBootstrap antes de chamar.
+// A conversa nasce órfã (user_id="") e fica invisível até AdoptLegacyData
+// a atribuir ao primeiro usuário, e o gateway pode logar/notificar.
+//
+// Sem userID e sem WithBootstrap, retorna ErrUserScopeRequired — bug do
+// caller, não fall-through silencioso.
 func FindOrCreateChannelConversationWithContext(ctx context.Context, channel, contactID, contactName string) (*Conversation, bool, error) {
+	if err := RequireUserIDOrBootstrap(ctx); err != nil {
+		return nil, false, err
+	}
 	var conv Conversation
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
 		Where("channel = ? AND contact_id = ?", channel, contactID).
@@ -286,7 +300,6 @@ func FindOrCreateChannelConversationWithContext(ctx context.Context, channel, co
 		return &conv, false, nil
 	}
 
-	// Cria nova conversa dedicada para este contato
 	title := contactName
 	if title == "" {
 		title = contactID
@@ -305,9 +318,13 @@ func FindOrCreateChannelConversationWithContext(ctx context.Context, channel, co
 }
 
 // GetConversationsWithContext retorna as conversas do usuário do contexto,
-// ordenadas pela última atualização. Não existe wrapper sem contexto: callers
-// precisam estar autenticados.
+// ordenadas pela última atualização. Falha fechado com ErrUserScopeRequired
+// se o ctx não carregar userID — listar conversas sem escopo retornaria
+// dados de todos os usuários.
 func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var conversations []Conversation
 
 	// Usa subquery para contar mensagens em uma única query (evita N+1)
@@ -330,6 +347,9 @@ func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 // GetMessagesWithContext (lazy loading), mas mantida para callers que ainda
 // precisam do payload completo.
 func GetConversationWithContext(ctx context.Context, id string) (*Conversation, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var conv Conversation
 	query := ScopeByUser(ctx, db.WithContext(ctx), "user_id")
 	err := query.Preload("Messages", func(db *gorm.DB) *gorm.DB {
@@ -342,8 +362,13 @@ func GetConversationWithContext(ctx context.Context, id string) (*Conversation, 
 }
 
 // GetConversationInfoWithContext retorna apenas metadados da conversa
-// pertencente ao usuário do contexto.
+// pertencente ao usuário do contexto. Falha fechado sem userID — sem isso
+// um caller distraído lendo conv por ID veria dados de qualquer usuário
+// (ScopeByUser fail-open + First por id = vazamento silencioso).
 func GetConversationInfoWithContext(ctx context.Context, id string) (*Conversation, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var conv Conversation
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&conv, "id = ?", id).Error
 	if err != nil {
@@ -354,6 +379,9 @@ func GetConversationInfoWithContext(ctx context.Context, id string) (*Conversati
 
 // UpdateConversationWithContext atualiza título da conversa do usuário do contexto.
 func UpdateConversationWithContext(ctx context.Context, id string, title, model string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	updates := map[string]interface{}{
 		"title":      title,
 		"updated_at": time.Now(),
@@ -366,6 +394,9 @@ func UpdateConversationWithContext(ctx context.Context, id string, title, model 
 // a uma conversa do usuário do contexto. Passar channel="" e contactID=""
 // desvincula a conversa do canal.
 func UpdateConversationChannelWithContext(ctx context.Context, id string, channel, contactID string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", id).Updates(map[string]interface{}{
 		"channel":    channel,
 		"contact_id": contactID,
@@ -376,6 +407,9 @@ func UpdateConversationChannelWithContext(ctx context.Context, id string, channe
 // DeleteConversationWithContext deleta uma conversa do usuário do contexto e
 // suas mensagens.
 func DeleteConversationWithContext(ctx context.Context, id string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	if _, err := GetConversationInfoWithContext(ctx, id); err != nil {
 		return err
 	}
@@ -415,10 +449,14 @@ func scopedMessageQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
 }
 
 // CreateMessageWithContext cria uma mensagem em uma conversa do usuário do
-// contexto. Bloqueia silenciosamente quando o ctx não tem userID — o caller
-// (DBMessageStore.CreateMessage) é responsável por exigir RequireUserID antes.
+// contexto. Falha fechado com ErrUserScopeRequired sem userID — uma mensagem
+// sem dono é cross-user leak garantido (a query de busca de conversa pai
+// passa fail-open via ScopeByUser e qualquer conversa por ID seria
+// candidata).
 func CreateMessageWithContext(ctx context.Context, opts MessageOptions) (*ChatMessage, error) {
-	// Verifica se a conversa ainda existe antes de criar a mensagem
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var conv Conversation
 	if err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&conv, "id = ?", opts.ConversationID).Error; err != nil {
 		return nil, fmt.Errorf("%w: conversa %s", ErrConversationDeleted, opts.ConversationID)
@@ -516,6 +554,9 @@ func AddMessageWithTokensAndMediaWithContext(ctx context.Context, conversationID
 // pertencente ao usuário do contexto. Retorna ("", "", nil) se a mensagem não
 // tem áudio.
 func GetMessageAudioWithContext(ctx context.Context, messageID string) (string, string, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return "", "", err
+	}
 	var msg ChatMessage
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Select("chat_messages.audio", "chat_messages.audio_mime_type").
@@ -528,6 +569,9 @@ func GetMessageAudioWithContext(ctx context.Context, messageID string) (string, 
 // SaveMessageAudioWithContext salva áudio (base64) numa mensagem existente do
 // usuário do contexto.
 func SaveMessageAudioWithContext(ctx context.Context, messageID string, audioBase64 string, mimeType string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
 	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
 		"audio":           audioBase64,
@@ -546,6 +590,9 @@ func HasMessageAudioWithContext(ctx context.Context, messageID string) bool {
 // GetMessageContentWithContext retorna o conteúdo textual de uma mensagem
 // pertencente ao usuário do contexto.
 func GetMessageContentWithContext(ctx context.Context, messageID string) (string, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return "", err
+	}
 	var msg ChatMessage
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Select("chat_messages.content").
@@ -556,8 +603,12 @@ func GetMessageContentWithContext(ctx context.Context, messageID string) (string
 }
 
 // GetMessageWithContext retorna a mensagem completa pelo ID, restrita ao
-// usuário do contexto.
+// usuário do contexto. Falha fechado sem userID — leitura por ID sem escopo
+// retornaria mensagens de qualquer usuário (vetor de leak silencioso).
 func GetMessageWithContext(ctx context.Context, messageID string) (*ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var msg ChatMessage
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).First(&msg, "chat_messages.id = ?", messageID).Error; err != nil {
 		return nil, err
@@ -606,6 +657,9 @@ func AddAssistantToolMessageWithContext(ctx context.Context, conversationID stri
 // GetTurnMessagesWithContext retorna todas as mensagens de um turno (mesmo
 // TurnID) pertencentes ao usuário do contexto, ordenadas por criação.
 func GetTurnMessagesWithContext(ctx context.Context, turnID string) ([]ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var messages []ChatMessage
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.turn_id = ?", turnID).
@@ -618,6 +672,9 @@ func GetTurnMessagesWithContext(ctx context.Context, turnID string) ([]ChatMessa
 // pertencentes ao usuário do contexto. Mantém o mesmo escopo de parent da
 // janela para não misturar raiz e threads.
 func GetMessagesByTurnIDWithContext(ctx context.Context, conversationID string, parentID *string, turnID string, limit int) ([]ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	if turnID == "" {
 		return []ChatMessage{}, nil
 	}
@@ -651,6 +708,9 @@ func AddChildMessageWithContext(ctx context.Context, conversationID string, pare
 // UpdateMessageContentWithContext atualiza o conteúdo e tokens de uma mensagem
 // existente do usuário do contexto.
 func UpdateMessageContentWithContext(ctx context.Context, messageID string, content string, promptTokens, completionTokens, totalTokens int, model string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
 	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
 		"content":           content,
@@ -664,6 +724,9 @@ func UpdateMessageContentWithContext(ctx context.Context, messageID string, cont
 // DeleteMessageWithContext exclui uma mensagem e todas as suas filhas
 // (respostas) do usuário do contexto.
 func DeleteMessageWithContext(ctx context.Context, messageID string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	var childIDs []string
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.parent_id = ?", messageID).Pluck("chat_messages.id", &childIDs).Error; err != nil {
 		return err
@@ -680,15 +743,23 @@ func DeleteMessageWithContext(ctx context.Context, messageID string) error {
 // DeleteAllMessagesWithContext remove todas as mensagens de uma conversa
 // pertencente ao usuário do contexto.
 func DeleteAllMessagesWithContext(ctx context.Context, conversationID string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.conversation_id = ?", conversationID))
 	return db.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error
 }
 
 // ClearAllConversationsWithContext apaga mensagens e conversas pertencentes ao
-// usuário do contexto. Quando o contexto não traz userID, mantém o
-// comportamento legado de limpar globalmente — exigir userID é responsabilidade
-// dos callers (Wails bindings/Controllers já fazem requireAuthenticatedContext).
+// usuário do contexto. Falha fechado com ErrUserScopeRequired sem userID —
+// não há caso legítimo de "limpar global"; AdoptLegacyData/RebuildFTSIndex
+// têm assinaturas próprias para operações instance-wide. Antes do AEP-0052
+// esta função apagava tudo de todos quando chamada sem ctx; o comportamento
+// foi removido para não ser uma bomba-relógio assinada.
 func ClearAllConversationsWithContext(ctx context.Context) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
 	messageIDs := scopedMessageQuery(ctx, db.WithContext(ctx).Model(&ChatMessage{}).Select("chat_messages.id"))
 	if err := db.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error; err != nil {
 		return fmt.Errorf("erro ao limpar mensagens: %w", err)
@@ -702,6 +773,9 @@ func ClearAllConversationsWithContext(ctx context.Context) error {
 // GetMessagesWithContext retorna mensagens de uma conversa do usuário do
 // contexto, com filtro opcional por parent.
 func GetMessagesWithContext(ctx context.Context, conversationID string, parentID *string) ([]ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var messages []ChatMessage
 	query := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Order("chat_messages.created_at ASC, chat_messages.id ASC")
 
@@ -724,6 +798,9 @@ func GetMessagesWithContext(ctx context.Context, conversationID string, parentID
 // GetRecentRootMessagesWithContext retorna as mensagens raiz mais recentes de
 // uma conversa do usuário do contexto, preservando ordem cronológica no retorno.
 func GetRecentRootMessagesWithContext(ctx context.Context, conversationID string, limit int) ([]ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	if conversationID == "" {
 		return nil, fmt.Errorf("conversationID é obrigatório para buscar mensagens recentes")
 	}
@@ -749,6 +826,9 @@ func GetRecentRootMessagesWithContext(ctx context.Context, conversationID string
 // GetRootMessagesBeforeWithContext retorna mensagens raiz anteriores a
 // beforeID, do usuário do contexto, preservando ordem cronológica no retorno.
 func GetRootMessagesBeforeWithContext(ctx context.Context, conversationID string, beforeID string, limit int) ([]ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	if conversationID == "" {
 		return nil, fmt.Errorf("conversationID é obrigatório para buscar mensagens anteriores")
 	}
@@ -1047,6 +1127,9 @@ func fetchMessagesForTimelineItems(conversationID string, parentID *string, item
 // para o usuário do contexto, acompanhada de metadados absolutos para
 // renderização acessível e navegação incremental.
 func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	if query.ConversationID == "" {
 		return nil, fmt.Errorf("conversationID é obrigatório para buscar janela de mensagens")
 	}
@@ -1189,6 +1272,9 @@ func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) 
 // GetAllConversationMessagesWithContext retorna todas as mensagens de uma
 // conversa (incluindo filhas) pertencente ao usuário do contexto.
 func GetAllConversationMessagesWithContext(ctx context.Context, conversationID string) ([]ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	var messages []ChatMessage
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
@@ -1200,6 +1286,9 @@ func GetAllConversationMessagesWithContext(ctx context.Context, conversationID s
 // CountChildrenWithContext retorna a contagem de filhos para cada mensagem do
 // usuário do contexto.
 func CountChildrenWithContext(ctx context.Context, messageIDs []string) (map[string]int, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	if len(messageIDs) == 0 {
 		return make(map[string]int), nil
 	}

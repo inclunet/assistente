@@ -95,6 +95,10 @@ func resetState(t *testing.T) {
 func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
 	resetState(t)
 
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+
 	notifier := NewResponseNotifier()
 
 	var emitted []string
@@ -125,10 +129,45 @@ func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
 	}
 }
 
-func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
+// TestGateway_LegacyChannelWithoutOwnerRejectsMessage valida que mensagens de
+// canais sem OwnerUserID (config pré-AEP-0052) são rejeitadas com log em vez
+// de criar conversas órfãs invisíveis. Sem esse fail-closed, qualquer canal
+// legado seguia recebendo mensagens silenciosamente — o usuário enxergava
+// "tudo OK" na UI mas o conteúdo nunca aparecia. Blocker D do re-review do
+// AEP-0052: o fix completo (migração de OwnerUserID em AdoptLegacyData) virá
+// depois; até lá, falhar fechado é melhor que vazar para órfão.
+func TestGateway_LegacyChannelWithoutOwnerRejectsMessage(t *testing.T) {
 	resetState(t)
 
 	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
+		t.Fatalf("erro ao autorizar contato: %v", err)
+	}
+
+	called := 0
+	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		called++
+		return conversationID, nil
+	}, nil, nil, nil, nil)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID:      "msg-legacy",
+		Channel: "telegram",
+		From:    Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text:    "Oi",
+	})
+
+	if called != 0 {
+		t.Fatalf("sendMessage não deveria ser chamado para canal sem OwnerUserID, called=%d", called)
+	}
+}
+
+func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
@@ -176,7 +215,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 		t.Fatalf("conversationID não foi criado")
 	}
 
-	conv, err := database.GetConversationInfoWithContext(context.Background(), sentConversationID)
+	conv, err := database.GetConversationInfoWithContext(database.WithUserID(context.Background(), "test-owner"), sentConversationID)
 	if err != nil {
 		t.Fatalf("erro ao buscar conversa: %v", err)
 	}
@@ -202,7 +241,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
@@ -281,7 +320,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 func TestGateway_ContactLimitRejectsSilently(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "111", "Contato 1", "user1", 1); err != nil {
@@ -323,7 +362,7 @@ func TestGateway_ContactLimitRejectsSilently(t *testing.T) {
 func TestGateway_AttachmentsConvertedToMediaJSON(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
@@ -377,7 +416,7 @@ func TestGateway_AttachmentsConvertedToMediaJSON(t *testing.T) {
 func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
@@ -476,7 +515,7 @@ func TestGateway_ChannelOwnerScopesConversation(t *testing.T) {
 func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {

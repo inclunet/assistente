@@ -163,12 +163,21 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// AEP-0052: propaga o dono do canal (definido em SaveChannelConfig com o
 	// userID autenticado) no contexto. FindOrCreateChannelConversation usa
 	// esse userID como dono da conversa criada — sem isso, mensagens
-	// recebidas em canais criariam conversas órfãs (user_id=""). Configs
-	// pré-AEP-0052 ficam sem OwnerUserID até que o usuário re-salve;
-	// nesse meio-tempo o ctx fica sem userID e a conversa nasce órfã.
-	if channelCfg != nil && channelCfg.OwnerUserID != "" {
-		ctx = database.WithUserID(ctx, channelCfg.OwnerUserID)
+	// recebidas em canais criariam conversas órfãs (user_id="").
+	//
+	// Caminho legado: configs pré-AEP-0052 podem chegar com OwnerUserID="".
+	// Em vez de criar conversas órfãs (que ficariam invisíveis a todos os
+	// usuários), rejeitamos a mensagem com log explícito. O fluxo correto é
+	// o usuário reabrir as settings do canal e salvar de novo (que carimba
+	// OwnerUserID via App.SaveChannelConfig), ou rodar AdoptLegacyData no
+	// primeiro login pós-upgrade. Sem essa migração o canal fica em modo
+	// degradado mas nada vaza para outro usuário.
+	if channelCfg == nil || channelCfg.OwnerUserID == "" {
+		log.Printf("[Gateway] trace=%s channel=%s mensagem rejeitada: canal sem OwnerUserID (config legado pré-AEP-0052; reabra as configurações do canal e salve para reatribuir)",
+			traceID, msg.Channel)
+		return
 	}
+	ctx = database.WithUserID(ctx, channelCfg.OwnerUserID)
 
 	hasContacts, isAllowed := contacts.IsAuthorized(msg.Channel, maxContacts, msg.From.ID, msg.From.Username)
 
