@@ -4,6 +4,7 @@ import (
 	"assistente/controllers"
 	"assistente/internal/channels"
 	"assistente/internal/contacts"
+	"assistente/internal/database"
 )
 
 // initMessaging cria e inicializa o MessagingController, que gerencia o gateway,
@@ -37,7 +38,23 @@ func (a *App) GetChannelConfig(channelName string) (*channels.ChannelConfig, err
 }
 
 // SaveChannelConfig delega para MessagingController.
+//
+// Carimba o config do canal com o userID autenticado atual em OwnerUserID
+// (AEP-0052). Esse valor é o que o gateway usa para escopar conversas
+// criadas por mensagens recebidas. O frontend não precisa enviar o campo —
+// a fonte da verdade é a sessão ativa do usuário que está configurando o
+// canal.
 func (a *App) SaveChannelConfig(channelName string, cfg *channels.ChannelConfig) error {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	if cfg == nil {
+		cfg = &channels.ChannelConfig{}
+	}
+	if userID, ok := database.UserIDFromContext(ctx); ok {
+		cfg.OwnerUserID = userID
+	}
 	return a.msgCtrl.SaveChannelConfig(channelName, cfg)
 }
 

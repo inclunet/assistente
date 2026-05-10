@@ -145,9 +145,21 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	traceID := uuid.NewString()
 
 	// 1. Verifica contato autorizado (contacts.json centralizado + max_contacts do canal)
+	//    Carrega o config uma única vez e reusa para owner/profile abaixo.
+	channelCfg, _ := channels.Load(msg.Channel)
 	maxContacts := 1
-	if chCfg, _ := channels.Load(msg.Channel); chCfg != nil {
-		maxContacts = chCfg.GetMaxContacts()
+	if channelCfg != nil {
+		maxContacts = channelCfg.GetMaxContacts()
+	}
+
+	// AEP-0052: propaga o dono do canal (definido em SaveChannelConfig com o
+	// userID autenticado) no contexto. FindOrCreateChannelConversation usa
+	// esse userID como dono da conversa criada — sem isso, mensagens
+	// recebidas em canais criariam conversas órfãs (user_id=""). Configs
+	// pré-AEP-0052 ficam sem OwnerUserID até que o usuário re-salve;
+	// nesse meio-tempo o ctx fica sem userID e a conversa nasce órfã.
+	if channelCfg != nil && channelCfg.OwnerUserID != "" {
+		ctx = database.WithUserID(ctx, channelCfg.OwnerUserID)
 	}
 
 	hasContacts, isAllowed := contacts.IsAuthorized(msg.Channel, maxContacts, msg.From.ID, msg.From.Username)
@@ -210,10 +222,9 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 
 	// 2. Busca (ou cria) a conversa dedicada para este canal+contato.
 	//    Primeiro verifica o config do canal (persistido entre reinícios),
-	//    depois busca no DB por channel+contactID.
-	//    TODO(AEP-0052): canais ainda não têm dono mapeado a userID; quando o
-	//    mapeamento existir, propagar `database.WithUserID(ctx, ownerUserID)`
-	//    aqui para isolar conversas de canal por usuário.
+	//    depois busca no DB por channel+contactID. O ctx já carrega o
+	//    OwnerUserID do canal (injetado acima) — FindOrCreateChannelConversation
+	//    o usa como dono da conversa criada.
 	conv, created, err := database.FindOrCreateChannelConversationWithContext(
 		ctx, msg.Channel, msg.From.ID, msg.From.DisplayName,
 	)
@@ -345,9 +356,9 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// 7. Chama o mesmo SendMessage que o Wails usa (com o conversationID dedicado)
 	//    Usa o perfil do canal (se configurado) em vez do perfil ativo global.
 	params := llm.ChatParams{}
-	if chCfg, _ := channels.Load(msg.Channel); chCfg != nil && chCfg.Profile != "" {
-		params.ProfileSlug = chCfg.Profile
-		log.Printf("[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, chCfg.Profile)
+	if channelCfg != nil && channelCfg.Profile != "" {
+		params.ProfileSlug = channelCfg.Profile
+		log.Printf("[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelCfg.Profile)
 	}
 	_, err = g.sendMessage(conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {

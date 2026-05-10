@@ -40,6 +40,15 @@ type ChannelConfig struct {
 	MaxHistory  int    `json:"max_history,omitempty"`   // Mensagens no contexto (0 = padrão)
 	MaxContacts int    `json:"max_contacts,omitempty"`  // Máximo de contatos autorizados (0 = 1)
 
+	// OwnerUserID é o userID que deve ser usado como dono das conversas
+	// criadas a partir de mensagens recebidas neste canal (AEP-0052).
+	// Preenchido automaticamente por App.SaveChannelConfig com o userID
+	// autenticado atual. Configurações pré-AEP-0052 ficam com OwnerUserID=""
+	// até que o usuário re-salve o canal — nesse meio-tempo, conversas
+	// criadas por mensagens recebidas nascem órfãs (user_id="") e são
+	// adotadas pelo primeiro usuário em AdoptLegacyData.
+	OwnerUserID string `json:"owner_user_id,omitempty"`
+
 	// Conversations mapeia contactID → conversationID (persistido entre reinícios).
 	// Permite reaproveitar conversas existentes ao reiniciar o app.
 	Conversations map[string]string `json:"conversations,omitempty"`

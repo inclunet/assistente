@@ -414,6 +414,57 @@ func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 	}
 }
 
+// TestGateway_ChannelOwnerScopesConversation valida o fix do Blocker 2 do
+// review do AEP-0052: o config do canal carrega OwnerUserID (preenchido por
+// App.SaveChannelConfig com o userID autenticado), e o gateway propaga esse
+// valor via WithUserID antes de criar/buscar a conversa. Sem isso, mensagens
+// recebidas criariam conversas órfãs (user_id="") visíveis a qualquer caller.
+func TestGateway_ChannelOwnerScopesConversation(t *testing.T) {
+	resetState(t)
+
+	const ownerID = "user-ana"
+	if err := channels.Save("telegram", &channels.ChannelConfig{
+		Enabled:     true,
+		MaxContacts: 1,
+		OwnerUserID: ownerID,
+	}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
+		t.Fatalf("erro ao autorizar contato: %v", err)
+	}
+
+	var sentConversationID string
+	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		sentConversationID = conversationID
+		return conversationID, nil
+	}, nil, nil, nil, nil)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID:      "msg-owner",
+		Channel: "telegram",
+		From:    Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text:    "Oi",
+	})
+
+	if sentConversationID == "" {
+		t.Fatalf("conversationID não foi criado")
+	}
+
+	conv, err := database.GetConversationInfoWithContext(database.WithUserID(context.Background(), ownerID), sentConversationID)
+	if err != nil {
+		t.Fatalf("erro ao buscar conversa com ctx do owner: %v", err)
+	}
+	if conv.UserID != ownerID {
+		t.Fatalf("conversa criada com user_id=%q, esperava %q", conv.UserID, ownerID)
+	}
+
+	// Ctx de outro usuário não deve enxergar a conversa.
+	if _, err := database.GetConversationInfoWithContext(database.WithUserID(context.Background(), "user-leo"), sentConversationID); err == nil {
+		t.Fatalf("conversa do canal vazou para outro usuário")
+	}
+}
+
 func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 	resetState(t)
 
