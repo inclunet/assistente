@@ -180,13 +180,10 @@ func (s *Server) jwksFromCacheOrSigner() (*jwksCacheEntry, error) {
 	return entry, nil
 }
 
-// invalidateJWKSCache zera o cache para que o próximo request gere um
-// novo snapshot a partir do signer. Hoje só é chamado de testes; quando
-// rotação de chave for implementada (B22), o caller que troca a chave
-// deve invocar isto.
-func (s *Server) invalidateJWKSCache() {
-	s.jwksCache.Store(nil)
-}
+// NOTE: ao implementar B22 (rotação de chave), adicione um método
+// (s *Server) InvalidateJWKSCache() que chame s.jwksCache.Store(nil) e
+// invoque-o de dentro do signer logo após a troca. Função removida hoje
+// para satisfazer o linter `unused` — sem caller real ainda.
 
 // extractClientLabel sanitiza o ClientLabel recebido em /auth/login.
 // Mi4 do bloco 1 pediu cap em ~256 chars; aplicamos aqui antes de
