@@ -764,7 +764,16 @@ func (a *App) SearchConversationHistory(query string, limit int) ([]MessageSearc
 }
 
 // RebuildSearchIndex reconstrói o índice de busca full-text.
+//
+// Operação instance-wide (afeta o índice de todos os usuários), mas o
+// binding Wails exige autenticação: AEP-0052 mantém o invariante de que
+// nenhum entry point publico ao frontend roda sem sessão ativa, mesmo
+// quando a operação interna nao tem escopo de usuário (defesa em
+// profundidade contra disparos pré-login).
 func (a *App) RebuildSearchIndex() error {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return err
+	}
 	return database.RebuildFTSIndex()
 }
 
