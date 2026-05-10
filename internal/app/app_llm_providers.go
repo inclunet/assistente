@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"assistente/controllers"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 )
@@ -90,10 +91,34 @@ func (a *App) DeleteLLMProvider(_ context.Context, id string) error {
 	return a.llmCtrl.DeleteLLMProvider(ctx, id)
 }
 
-// saveLLMProviders e helpers permanecem em App pois são chamados internamente.
-func (a *App) saveLLMProviders() error { return a.providerSvc.Save(a.authenticatedContext()) }
-func (a *App) loadLLMProviders() error { return a.providerSvc.Load(a.authenticatedContext()) }
-func (a *App) ensureDefaultProvider()  { a.providerSvc.EnsureDefault(a.authenticatedContext()) }
+// saveLLMProviders, loadLLMProviders e ensureDefaultProvider são helpers
+// internos chamados pós-login (a partir de reloadUserScopedRuntime ou de
+// callbacks acionados após o usuário estar autenticado). Falham fechado
+// quando não há sessão ativa — o caminho de bootstrap pré-login deve usar
+// CreateDefaultLLMProvider, que marca o ctx com WithBootstrap explicitamente.
+func (a *App) saveLLMProviders() error {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.providerSvc.Save(ctx)
+}
+
+func (a *App) loadLLMProviders() error {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.providerSvc.Load(ctx)
+}
+
+func (a *App) ensureDefaultProvider() {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return
+	}
+	a.providerSvc.EnsureDefault(ctx)
+}
 
 // ============================================================================
 // LLM Client / Provider Init
@@ -131,18 +156,33 @@ func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 }
 
 // initLLMProviders inicializa o registro de provedores LLM a partir do store.
+// Só faz sentido após o login — sem userID o repositório não tem provedores
+// para devolver e o registry global ficaria vazio mesmo se prosseguíssemos.
 func (a *App) initLLMProviders() {
-	if err := a.loadLLMProviders(); err != nil {
-		count, countErr := a.providerSvc.Count(a.authenticatedContext())
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return
+	}
+	if err := a.providerSvc.Load(ctx); err != nil {
+		count, countErr := a.providerSvc.Count(ctx)
 		if countErr != nil || count == 0 {
 			log.Printf("Nenhum provedor encontrado. Configure um provedor nas configurações ou crie um perfil.")
 		}
 	}
 }
 
-// CreateDefaultLLMProvider cria o primeiro provedor durante o wizard.
+// CreateDefaultLLMProvider cria o primeiro provedor durante o wizard ou
+// CLI setup. É um dos poucos pontos legítimos de bootstrap pré-login: quando
+// o ctx do app não carrega userID (caminho CLI antes do primeiro login),
+// marcamos explicitamente com WithBootstrap para que providers.DBStore.Save
+// aceite a gravação. Pós-login (wizard de UI rodando após AuthGate) o ctx
+// já carrega userID e o WithBootstrap é redundante.
 func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
-	return a.providerSvc.CreateFromTemplate(a.authenticatedContext(), providerType, apiKey)
+	ctx := a.authenticatedContext()
+	if _, ok := database.UserIDFromContext(ctx); !ok {
+		ctx = database.WithBootstrap(ctx)
+	}
+	return a.providerSvc.CreateFromTemplate(ctx, providerType, apiKey)
 }
 
 // getChatProviderForProvider é uma fina camada de delegação para providerSvc.GetChatProvider.

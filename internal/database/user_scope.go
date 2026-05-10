@@ -10,6 +10,8 @@ import (
 
 type userIDContextKey struct{}
 
+type bootstrapContextKey struct{}
+
 var ErrUserScopeRequired = errors.New("usuário autenticado obrigatório")
 
 func WithUserID(ctx context.Context, userID string) context.Context {
@@ -31,6 +33,50 @@ func RequireUserID(ctx context.Context) (string, error) {
 		return "", ErrUserScopeRequired
 	}
 	return userID, nil
+}
+
+// WithBootstrap marca o contexto como pertencente a um fluxo de bootstrap
+// pré-AEP-0052 — fluxos legítimos que precisam gravar dados antes de
+// existir uma sessão autenticada (wizard de boas-vindas/CLI setup, registro
+// de credenciais via env, migrações legadas).
+//
+// É a única forma suportada de bypassar RequireUserID em camadas que falham
+// fechado. Callers DEVEM justificar o uso e o invariante deve permanecer
+// excepcional (provedores/credenciais ficam órfãos com user_id="" até
+// AdoptLegacyData os atribuir ao primeiro usuário).
+//
+// NÃO use WithBootstrap para conveniência: prefira propagar um contexto
+// autenticado real. Bypassar RequireUserID por engano é exatamente o vetor
+// que esta marca tenta tornar visível.
+func WithBootstrap(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, bootstrapContextKey{}, true)
+}
+
+// IsBootstrap retorna true quando o contexto foi explicitamente marcado por
+// WithBootstrap. Camadas fail-closed (como providers.DBStore.Save) usam isso
+// como única exceção permitida ao RequireUserID.
+func IsBootstrap(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(bootstrapContextKey{}).(bool)
+	return v
+}
+
+// RequireUserIDOrBootstrap aceita o contexto se carrega userID OU se foi
+// explicitamente marcado por WithBootstrap. Usado por escritas que precisam
+// suportar tanto o caminho autenticado normal quanto o bootstrap pré-login.
+func RequireUserIDOrBootstrap(ctx context.Context) error {
+	if _, ok := UserIDFromContext(ctx); ok {
+		return nil
+	}
+	if IsBootstrap(ctx) {
+		return nil
+	}
+	return ErrUserScopeRequired
 }
 
 // ScopeByUser aplica filtro por user_id à query.

@@ -16,12 +16,20 @@ func NewDBStore() *DBStore { return &DBStore{} }
 // Save persiste todos os provedores fornecidos no banco.
 // Usa GORM Save (upsert por primary key).
 //
-// Observação: Save não exige RequireUserID porque o wizard de boas-vindas
-// (bootstrap pré-AEP-0052) cria provedores antes do primeiro login. Esses
-// registros ficam com user_id="" até que AdoptLegacyData os atribua ao
-// primeiro usuário. As leituras (Load/Get/Count/etc.) sempre exigem userID,
-// então provedores órfãos ficam invisíveis até a adoção.
+// Save é fail-closed: exige que o contexto carregue um userID OU esteja
+// explicitamente marcado por database.WithBootstrap. Sem nenhum dos dois
+// retorna ErrUserScopeRequired. Essa garantia fecha o vetor levantado no
+// review do AEP-0052 onde Save sem proteção podia gravar provedores órfãos
+// se chamado por engano fora do caminho de bootstrap.
+//
+// Caminho normal (post-login): o ctx carrega o userID via WithUserID.
+// Caminho bootstrap (CLI setup, wizard pré-login): o caller marca o ctx
+// com WithBootstrap deliberadamente. Os registros nascem órfãos
+// (user_id="") e são adotados pelo primeiro usuário em AdoptLegacyData.
 func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) error {
+	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
+		return err
+	}
 	for _, p := range providers {
 		dbP := toDBModel(p)
 		if err := database.SaveLLMProviderWithContext(ctx, dbP); err != nil {
