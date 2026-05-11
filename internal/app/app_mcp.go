@@ -84,7 +84,9 @@ func (a *App) initMCP() {
 	// dentro do MCP manager seguem usando RequireUserID nos pontos certos.
 	a.mcpMgr.SetAuthContextProvider(a.internalBootstrapCtx)
 
-	// Carrega configs e auto-conecta servidores habilitados
+	// Carrega configs (NÃO conecta — auto-connect é disparado por
+	// reloadUserScopedRuntime pós-login, quando as credenciais
+	// user-scoped já estão em memória; ver AEP-0061).
 	if err := a.mcpMgr.LoadConfigs(); err != nil {
 		log.Printf("[MCP] Erro ao carregar configurações: %v", err)
 	}

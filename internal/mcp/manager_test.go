@@ -509,7 +509,7 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 	}
 
 	rt := &pkceRoundTripper{credMgr: m.credMgr, serverSlug: "test"}
-	rt.persistClientCreds("stored-client-id", "stored-secret")
+	rt.persistClientCreds(context.Background(), "stored-client-id", "stored-secret")
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
 	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{

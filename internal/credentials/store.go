@@ -12,6 +12,15 @@ type StoredCredential struct {
 }
 
 // KeyWrap contém a DEK embrulhada com senha mestre ou recovery key.
+//
+// `DekID` é a `DEKIdentity(dek)` da DEK que está embrulhada em `WrappedDEK`.
+// Existe para que possamos detectar divergência entre a DEK que está no
+// keychain do SO e a DEK que cifrou as credenciais sem precisar
+// desembrulhar o wrap (que requereria a senha mestre). Toda gravação
+// dessa struct via `Store.SaveKeyWrap` DEVE ter `DekID` calculado a
+// partir da DEK que foi efetivamente embrulhada — wraps gravados sem
+// `DekID` são herança de versões anteriores e o boot é responsável por
+// repopular o campo. Veja AEP-0061.
 type KeyWrap struct {
 	Kind         string
 	Salt         string
@@ -19,6 +28,7 @@ type KeyWrap struct {
 	ArgonTime    uint32
 	ArgonMemory  uint32
 	ArgonThreads uint8
+	DekID        string
 }
 
 // Store define a interface de persistência de credenciais e chaves.

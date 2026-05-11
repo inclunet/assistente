@@ -394,6 +394,14 @@ func (a *App) Logout(req LogoutRequest) error {
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
+	if a.mcpMgr != nil {
+		// Solta as conexões MCP do user que está saindo. As credenciais
+		// `mcp-tokens:*` desse user não estão mais válidas neste
+		// processo (o vault vai ser locked logo abaixo); deixar as
+		// conexões abertas é (a) leak de file descriptors, (b) risco
+		// de que requests pendentes vazem para o user seguinte.
+		a.mcpMgr.DisconnectAll()
+	}
 	if a.vaultSvc != nil {
 		a.vaultSvc.Lock()
 	}
@@ -510,9 +518,11 @@ func (a *App) setCurrentAuthUser(user *AuthUser) {
 //     do banco ao userID. Falha aqui é HARD: se não conseguimos escrever
 //     no DB, qualquer operação subsequente vai falhar de qualquer jeito,
 //     então propaga.
-//  2. credMgr.LoadFromStore: recarrega credenciais escopadas. Falha aqui
-//     também é HARD: sem credenciais, providers ficam off-line e a UI
-//     vai parecer quebrada.
+//  2. credMgr.LoadUserCredentials: hidrata o cache em memória do
+//     Manager com as credenciais do user. Sem esse passo,
+//     ResolveForURLWithContext não acha as credenciais user-scoped
+//     mesmo com elas gravadas no DB, e todo request HTTP do user
+//     bate em `unresolvedCredentialError`.
 //
 // NOTA (B10 / AEP-0052): channels.AdoptOrphans NÃO é chamado aqui.
 // Foi movido para CreateAdminUser exclusivamente. Em multi-user, fazer
@@ -526,7 +536,7 @@ func (a *App) adoptLegacyDataForUser(userID string) error {
 		return err
 	}
 	if a.credMgr != nil {
-		return a.credMgr.LoadFromStore(context.Background())
+		return a.credMgr.LoadUserCredentials(context.Background(), userID)
 	}
 	return nil
 }
@@ -638,6 +648,20 @@ func (a *App) reloadUserScopedRuntime() {
 	}
 	if a.profileManager != nil && a.llmRegistry != nil {
 		a.initLLMClient()
+	}
+	if a.mcpMgr != nil {
+		// Auto-connect MCP só agora: depois de adoptLegacyDataForUser →
+		// LoadUserCredentials, as credenciais user-scoped (incluindo os
+		// tokens OAuth `mcp-tokens:*` / `mcp-client:*`) estão em memória.
+		// Sem isso o auto-connect cairia em fallback "sem token" e
+		// abriria o navegador em paralelo para todos (ver AEP-0061).
+		//
+		// Não herda do `ctx` local (que tem timeout de 10s para o reload
+		// inteiro); o AutoConnectAll é serial e demora N×handshake, e
+		// cada Connect tem seu próprio timeout interno. Herda só o
+		// userID do contexto autenticado vigente.
+		userID, _ := database.UserIDFromContext(authedCtx)
+		go a.mcpMgr.AutoConnectAll(database.WithUserID(context.Background(), userID))
 	}
 	if err := ctx.Err(); err != nil {
 		log.Printf("[reloadUserScopedRuntime] timeout/cancel atingido (%s): %v — runtime pode estar parcialmente inicializado", reloadUserScopedRuntimeTimeout, err)

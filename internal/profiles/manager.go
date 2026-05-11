@@ -67,7 +67,15 @@ func (m *Manager) List() ([]ProfileInfo, error) {
 	return infos, nil
 }
 
-// Get carrega um perfil pelo slug (nome do arquivo sem extensão)
+// Get carrega um perfil pelo slug (nome do arquivo sem extensão).
+//
+// Aplica a normalização de routing fields (`normalizeRoutingFields`)
+// imediatamente após o decode: profiles legacy com
+// `Chat.LLMProvider`/`Chat.Model`/`Voice.Assistant.LLMProviderID`/
+// `Input.LLMProviderID` vazios passam a expor `$default` para o resto
+// do app. Isso elimina a ambiguidade "vazio quer dizer o quê?" no
+// callsite — para `providers.Service.ResolveProfileDefaults` o
+// significado de `$default` já é explícito e auditável.
 func (m *Manager) Get(slug string) (*Profile, error) {
 	filename := slug + ".json"
 
@@ -81,7 +89,31 @@ func (m *Manager) Get(slug string) (*Profile, error) {
 		return nil, fmt.Errorf("failed to parse profile %s: %w", slug, err)
 	}
 
+	normalizeRoutingFields(&profile)
 	return &profile, nil
+}
+
+// normalizeRoutingFields garante que campos de routing nunca sejam
+// vazios em profiles em memória. A semântica é simples: "campo vazio
+// num profile salvo é o equivalente legacy de `$default`". Profiles
+// novos (criados via wizard) já vêm com `$default` explicitamente
+// (ver DefaultProfile em types.go).
+func normalizeRoutingFields(p *Profile) {
+	if p == nil {
+		return
+	}
+	if strings.TrimSpace(p.Chat.LLMProvider) == "" {
+		p.Chat.LLMProvider = DefaultProviderSentinel
+	}
+	if strings.TrimSpace(p.Chat.Model) == "" {
+		p.Chat.Model = DefaultProviderSentinel
+	}
+	if strings.TrimSpace(p.Voice.Assistant.LLMProviderID) == "" {
+		p.Voice.Assistant.LLMProviderID = DefaultProviderSentinel
+	}
+	if strings.TrimSpace(p.Input.LLMProviderID) == "" {
+		p.Input.LLMProviderID = DefaultProviderSentinel
+	}
 }
 
 // Create cria um novo perfil no diretório home (~/.assistente/profiles/)

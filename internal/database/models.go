@@ -157,6 +157,13 @@ type CredentialEntry struct {
 }
 
 // CredentialKeyWrap armazena a DEK embrulhada com senha mestre ou recovery key.
+//
+// `DekID` é a `credentials.DEKIdentity(dek)` (hex 32 chars) da DEK
+// efetivamente embrulhada em `WrappedDEK`. Permite detectar
+// divergência entre keychain e wraps sem ter a senha mestre.
+// Wraps pré-AEP-0061 vêm com `DekID == ""` e são repopulados pelo
+// boot a partir da DEK do keychain (assumindo o keychain como
+// fonte autoritativa naquele instante).
 type CredentialKeyWrap struct {
 	UUIDModel
 	Kind         string `json:"kind" gorm:"uniqueIndex"` // master | recovery
@@ -165,6 +172,7 @@ type CredentialKeyWrap struct {
 	ArgonTime    uint32 `json:"argon_time"`
 	ArgonMemory  uint32 `json:"argon_memory"`
 	ArgonThreads uint8  `json:"argon_threads"`
+	DekID        string `json:"dek_id" gorm:"type:text;not null;default:''"`
 }
 
 // ==================== Task List Manager ====================

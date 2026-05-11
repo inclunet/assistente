@@ -190,11 +190,9 @@ func TestSettingsService_ClearAllCredentials_NilCleaner(t *testing.T) {
 	}
 }
 
-// TestSettingsService_ClearAllCredentials_NeverPassesEmptyPattern blinda
-// o invariante violado no incident report AEP-0053 (10/05/2026): o
-// cleaner JAMAIS pode receber `pattern=""`. A versão buggy chamava
-// `DeletePattern(ctx, "")` direto e dependia de o Manager rejeitar; o
-// cleaner aqui afirma o contrato ao nível do SettingsService.
+// TestSettingsService_ClearAllCredentials_NeverPassesEmptyPattern
+// documenta o contrato: o cleaner JAMAIS recebe `pattern=""`, mesmo
+// quando a lista visível inclui uma entrada degenerada.
 func TestSettingsService_ClearAllCredentials_NeverPassesEmptyPattern(t *testing.T) {
 	em := &mockEmitter{}
 	cred := &mockCredCleaner{visible: []VisibleCredential{
@@ -209,7 +207,7 @@ func TestSettingsService_ClearAllCredentials_NeverPassesEmptyPattern(t *testing.
 
 	for _, p := range cred.deleted {
 		if p == "" {
-			t.Fatalf("ClearAllCredentials passou pattern vazio para o cleaner — regressão AEP-0053")
+			t.Fatalf("ClearAllCredentials passou pattern vazio para o cleaner")
 		}
 	}
 	if len(cred.deleted) != 1 || cred.deleted[0] != "api.openai.com" {

@@ -336,9 +336,10 @@ func TestPersistAndLoadClientCreds(t *testing.T) {
 		serverSlug: "test-server",
 	}
 
-	rt.persistClientCreds("my-client-id", "my-client-secret")
+	ctx := context.Background()
+	rt.persistClientCreds(ctx, "my-client-id", "my-client-secret")
 
-	cid, csec := loadClientCreds(credMgr, "test-server")
+	cid, csec := loadClientCreds(ctx, credMgr, "test-server")
 	if cid != "my-client-id" {
 		t.Errorf("ClientID: got %q, want %q", cid, "my-client-id")
 	}
@@ -349,8 +350,9 @@ func TestPersistAndLoadClientCreds(t *testing.T) {
 
 func TestBuildPKCEHTTPClient_AutoImportsClientIDFromConfig(t *testing.T) {
 	credMgr := newTestCredMgr()
+	ctx := context.Background()
 
-	cid, _ := loadClientCreds(credMgr, "slack")
+	cid, _ := loadClientCreds(ctx, credMgr, "slack")
 	if cid != "" {
 		t.Fatal("precondition: cred manager should be empty")
 	}
@@ -361,9 +363,9 @@ func TestBuildPKCEHTTPClient_AutoImportsClientIDFromConfig(t *testing.T) {
 		OAuth2AuthURL:  "https://slack.com/oauth/v2_user/authorize",
 		OAuth2TokenURL: "https://slack.com/api/oauth.v2.user.access",
 	}
-	_ = buildPKCEHTTPClient(cfg, credMgr, nil, "slack", nil)
+	_ = buildPKCEHTTPClient(cfg, credMgr, nil, "slack", nil, nil)
 
-	cid, _ = loadClientCreds(credMgr, "slack")
+	cid, _ = loadClientCreds(ctx, credMgr, "slack")
 	if cid != "pre-registered-id" {
 		t.Errorf("expected client_id to be auto-imported, got %q", cid)
 	}
@@ -371,9 +373,10 @@ func TestBuildPKCEHTTPClient_AutoImportsClientIDFromConfig(t *testing.T) {
 
 func TestBuildPKCEHTTPClient_DoesNotOverwriteExistingCreds(t *testing.T) {
 	credMgr := newTestCredMgr()
+	ctx := context.Background()
 
 	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "test"}
-	rt.persistClientCreds("existing-id", "existing-secret")
+	rt.persistClientCreds(ctx, "existing-id", "existing-secret")
 
 	cfg := ServerConfig{
 		URL:            "https://example.com/mcp",
@@ -381,9 +384,9 @@ func TestBuildPKCEHTTPClient_DoesNotOverwriteExistingCreds(t *testing.T) {
 		OAuth2AuthURL:  "https://example.com/auth",
 		OAuth2TokenURL: "https://example.com/token",
 	}
-	_ = buildPKCEHTTPClient(cfg, credMgr, nil, "test", nil)
+	_ = buildPKCEHTTPClient(cfg, credMgr, nil, "test", nil, nil)
 
-	cid, csec := loadClientCreds(credMgr, "test")
+	cid, csec := loadClientCreds(ctx, credMgr, "test")
 	if cid != "existing-id" {
 		t.Errorf("expected cred manager value to be preserved, got %q", cid)
 	}
@@ -404,9 +407,10 @@ func TestPersistAndLoadUserTokens(t *testing.T) {
 		AccessToken:  "access-123",
 		RefreshToken: "refresh-456",
 	}
-	rt.persistTokens(toOAuth2Token(token))
+	ctx := context.Background()
+	rt.persistTokens(ctx, toOAuth2Token(token))
 
-	loaded := loadUserTokens(credMgr, "test-server")
+	loaded := loadUserTokens(ctx, credMgr, "test-server")
 	if loaded == nil {
 		t.Fatal("loadUserTokens retornou nil")
 	}
@@ -419,14 +423,14 @@ func TestPersistAndLoadUserTokens(t *testing.T) {
 }
 
 func TestLoadClientCreds_NilManager(t *testing.T) {
-	cid, csec := loadClientCreds(nil, "test")
+	cid, csec := loadClientCreds(context.Background(), nil, "test")
 	if cid != "" || csec != "" {
 		t.Errorf("Esperado strings vazias para credMgr nil, got %q, %q", cid, csec)
 	}
 }
 
 func TestLoadUserTokens_NilManager(t *testing.T) {
-	token := loadUserTokens(nil, "test")
+	token := loadUserTokens(context.Background(), nil, "test")
 	if token != nil {
 		t.Errorf("Esperado nil para credMgr nil, got %+v", token)
 	}
@@ -434,7 +438,7 @@ func TestLoadUserTokens_NilManager(t *testing.T) {
 
 func TestLoadUserTokens_NoEntry(t *testing.T) {
 	credMgr := newTestCredMgr()
-	token := loadUserTokens(credMgr, "nonexistent")
+	token := loadUserTokens(context.Background(), credMgr, "nonexistent")
 	if token != nil {
 		t.Errorf("Esperado nil para servidor inexistente, got %+v", token)
 	}

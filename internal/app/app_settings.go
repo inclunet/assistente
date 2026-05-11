@@ -12,9 +12,8 @@ import (
 )
 
 // credentialCleanerAdapter adapta credentials.Manager para
-// config.CredentialCleaner. ListVisible delega para
-// ListVisibleCredentialsWithContext (que filtra instance secrets e
-// credenciais de outros usuários por construção, ver AEP-0053).
+// config.CredentialCleaner; ListVisibleCredentialsWithContext já filtra
+// instance secrets e cross-user.
 type credentialCleanerAdapter struct{ mgr *credentials.Manager }
 
 func (a credentialCleanerAdapter) ListVisible(ctx context.Context) ([]config.VisibleCredential, error) {

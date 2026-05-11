@@ -182,22 +182,9 @@ func (c *SettingsController) ResetConfig() error {
 	return nil
 }
 
-// ClearAllCredentials apaga todas as credenciais visíveis ao usuário do
-// contexto. Iterar+apagar pattern por pattern é o caminho seguro: passar
-// `pattern=""` para o Manager retorna erro hoje, mas o caminho buggy
-// (incident report AEP-0053) era exatamente esse, e deixava o usuário
-// achando que tinha "limpado tudo" enquanto o erro era engolido em log.
-//
-// Invariantes:
-//
-//   - Falha-fechado se o `ctx` não carrega user_id — limpar credenciais
-//     "globais" sem dono é caminho perigoso e nunca deveria existir
-//     pela UI; o caller deve estar autenticado.
-//   - Apaga apenas credenciais visíveis ao user (`ListVisibleCredentials`),
-//     que já filtra `internal-auth:*`/`internal-tls:*` (instance secrets)
-//     e o que não pertence ao user — então nunca derruba secrets de
-//     bootstrap nem credenciais de outros usuários.
-//   - Cada delete é logado individualmente via DBStore.DeleteCredential.
+// ClearAllCredentials apaga todas as credenciais visíveis ao usuário
+// do contexto, iterando pattern por pattern (ListVisible já filtra
+// instance secrets e cross-user). Exige `userID` no `ctx`.
 func (c *SettingsController) ClearAllCredentials(ctx context.Context) error {
 	if c.credMgr == nil {
 		return fmt.Errorf("gerenciador de credenciais não disponível")

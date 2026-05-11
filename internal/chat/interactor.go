@@ -58,32 +58,6 @@ type Interactor struct {
 	promptBuilder SystemPromptBuilder
 }
 
-func inheritProfileRoutingFields(base *profiles.Profile, fallback *profiles.Profile) *profiles.Profile {
-	if base == nil || fallback == nil {
-		return base
-	}
-
-	merged := *base
-	merged.Chat = base.Chat
-	merged.Voice = base.Voice
-	merged.Input = base.Input
-
-	if strings.TrimSpace(merged.Chat.LLMProvider) == "" {
-		merged.Chat.LLMProvider = fallback.Chat.LLMProvider
-	}
-	if strings.TrimSpace(merged.Chat.Model) == "" {
-		merged.Chat.Model = fallback.Chat.Model
-	}
-	if strings.TrimSpace(merged.Voice.Assistant.LLMProviderID) == "" {
-		merged.Voice.Assistant.LLMProviderID = fallback.Voice.Assistant.LLMProviderID
-	}
-	if strings.TrimSpace(merged.Input.LLMProviderID) == "" {
-		merged.Input.LLMProviderID = fallback.Input.LLMProviderID
-	}
-
-	return &merged
-}
-
 // NewInteractor creates an Interactor with its required dependencies.
 func NewInteractor(cfg InteractorConfig) *Interactor {
 	return &Interactor{
@@ -174,13 +148,6 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if err != nil {
 			log.Printf("[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", req.Params.ProfileSlug, err)
 			activeProfile, err = i.profileMgr.GetActive()
-		} else {
-			globalActive, globalErr := i.profileMgr.GetActive()
-			if globalErr != nil {
-				log.Printf("[PrepareContext] Erro ao obter perfil ativo global para fallback: %v", globalErr)
-			} else {
-				activeProfile = inheritProfileRoutingFields(activeProfile, globalActive)
-			}
 		}
 	} else {
 		activeProfile, err = i.profileMgr.GetActive()

@@ -46,6 +46,11 @@ type Manager struct {
 	encKey      []byte // para criptografar credenciais em memória
 	store       Store
 	persist     bool
+
+	// integrity guarda o último resultado de `verifyDEKConsistency`,
+	// consultável via `IntegrityStatus()`. Atualizado em
+	// `LoadInstanceSecrets` e `Reset`.
+	integrity vaultIntegrity
 }
 
 type instanceCredentialStore interface {
@@ -130,7 +135,7 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 			return err
 		}
 		if cred.ID == "" {
-			persisted, err := m.persistedCredentials(ctx)
+			persisted, err := m.lookupPersistedByScope(ctx, userID)
 			if err != nil {
 				return fmt.Errorf("listar credenciais persistidas após salvar: %w", err)
 			}
@@ -349,34 +354,90 @@ func (m *Manager) CanPersist() bool {
 	return m.persist && m.store != nil
 }
 
-// LoadFromStore carrega credenciais persistidas (já criptografadas).
-func (m *Manager) LoadFromStore(ctx context.Context) error {
-	if m.store == nil || !m.persist {
+// LoadInstanceSecrets carrega para a memória APENAS os segredos
+// instance-scoped (`internal-auth:*`, `internal-tls:*`). É o caminho
+// chamado no boot pré-login: ainda não há sessão, então as credenciais
+// user-scoped não podem (e não devem) entrar em memória.
+//
+// Para credenciais user-scoped use `LoadUserCredentials` após o
+// Login/RefreshAuth.
+func (m *Manager) LoadInstanceSecrets(ctx context.Context) error {
+	if m.store == nil {
 		return nil
 	}
-
-	entries, err := m.persistedCredentials(ctx)
+	// Verificação de consistência DEK_keychain ↔ DEK_wraps DEVE rodar
+	// antes de qualquer escrita (e antes mesmo de aceitar carregar
+	// segredos, para evitar populá-los em memória se houver
+	// divergência crítica que vá impactar serviços que dependem
+	// deles). Se o store não está pronto a verificação é no-op.
+	if err := m.verifyDEKConsistency(ctx); err != nil {
+		// Falhas de leitura do wrap não bloqueiam o carregamento
+		// (instance secrets não dependem de wraps), mas são logadas
+		// dentro de verifyDEKConsistency.
+		_ = err
+	}
+	if !m.persist {
+		return nil
+	}
+	entries, err := m.lookupPersistedByScope(ctx, "")
 	if err != nil {
 		return err
 	}
-
 	for _, entry := range entries {
 		if err := m.registerEncryptedPattern(entry.ID, entry.UserID, entry.Pattern, entry.Auth); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
-func (m *Manager) persistedCredentials(ctx context.Context) ([]StoredCredential, error) {
-	if _, ok := database.UserIDFromContext(ctx); ok {
-		return m.store.ListCredentials(ctx)
+// LoadUserCredentials carrega para a memória as credenciais do
+// usuário informado. É o caminho que precisa rodar pós-Login para que
+// `ResolveForURLWithContext` encontre as credenciais user-scoped no
+// cache do Manager — sem isso, todo request HTTP do user falha com
+// `unresolvedCredentialError` mesmo com a credencial gravada no DB.
+//
+// `userID` é obrigatório (não há "carregar credenciais do usuário sem
+// usuário"). O ctx é usado apenas para deadline/cancel; o escopo de
+// query é construído explicitamente a partir do `userID`.
+func (m *Manager) LoadUserCredentials(ctx context.Context, userID string) error {
+	if m.store == nil || !m.persist {
+		return nil
 	}
-	if instanceStore, ok := m.store.(instanceCredentialStore); ok {
+	if strings.TrimSpace(userID) == "" {
+		return database.ErrUserScopeRequired
+	}
+	entries, err := m.lookupPersistedByScope(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := m.registerEncryptedPattern(entry.ID, entry.UserID, entry.Pattern, entry.Auth); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// lookupPersistedByScope é o ÚNICO lugar do Manager que decide
+// "user-scoped vs instance-scoped" para leituras do store, e ele faz
+// isso a partir do `userID` recebido (não do ctx). Centralizar aqui
+// elimina o ramo mágico que a versão anterior (`persistedCredentials`)
+// tinha — onde o callsite passava `context.Background()` achando que
+// "carregava tudo" e silenciosamente caía em instance-only.
+//
+//   - userID == ""   → instance secrets (`internal-auth:*`/`internal-tls:*`)
+//   - userID != ""   → todas as credenciais daquele user
+func (m *Manager) lookupPersistedByScope(ctx context.Context, userID string) ([]StoredCredential, error) {
+	if userID == "" {
+		instanceStore, ok := m.store.(instanceCredentialStore)
+		if !ok {
+			return nil, nil
+		}
 		return instanceStore.ListInstanceCredentials(ctx)
 	}
-	return m.store.ListCredentials(ctx)
+	scoped := database.WithUserID(ctx, userID)
+	return m.store.ListCredentials(scoped)
 }
 
 // Reset redefine a chave de criptografia e limpa credenciais em memória.

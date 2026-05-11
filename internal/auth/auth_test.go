@@ -264,8 +264,12 @@ func TestVaultSetupAdoptsExistingKeyringDEK(t *testing.T) {
 	vault.loadKeyring = func() ([]byte, error) {
 		return existingDEK, nil
 	}
-	vault.saveKeyring = func([]byte) error {
-		t.Fatal("setup with existing keyring DEK should not save a new DEK")
+	// vault.Setup com DEK pré-existente cai no caminho
+	// SetupMasterKeyWrapsForDEK (sem gravar no keychain). Se essa
+	// invariante regredir, o teste finaliza com erro de keychain
+	// indisponível em CI — explícito o suficiente.
+	vault.persistDEK = func(context.Context, credentials.Store, []byte) error {
+		t.Fatal("setup with existing keyring DEK should not call persistDEK")
 		return nil
 	}
 
@@ -296,8 +300,8 @@ func TestVaultSetupDoesNotReplaceUnreadableKeyringDEK(t *testing.T) {
 	vault.loadKeyring = func() ([]byte, error) {
 		return nil, keyringErr
 	}
-	vault.saveKeyring = func([]byte) error {
-		t.Fatal("setup must not save a new DEK when keyring read fails")
+	vault.persistDEK = func(context.Context, credentials.Store, []byte) error {
+		t.Fatal("setup must not call persistDEK when keyring read fails")
 		return nil
 	}
 
@@ -317,8 +321,8 @@ func TestVaultSetupDoesNotReplaceMissingKeyringDEKWhenCredentialsExist(t *testin
 	vault.loadKeyring = func() ([]byte, error) {
 		return nil, keyring.ErrNotFound
 	}
-	vault.saveKeyring = func([]byte) error {
-		t.Fatal("setup must not save a new DEK when credentials already exist")
+	vault.persistDEK = func(context.Context, credentials.Store, []byte) error {
+		t.Fatal("setup must not call persistDEK when credentials already exist")
 		return nil
 	}
 
@@ -613,7 +617,7 @@ func TestVaultStatusUsesRuntimeFlagWhenKeyringFails(t *testing.T) {
 	vault.loadKeyring = func() ([]byte, error) {
 		return existingDEK, nil
 	}
-	vault.saveKeyring = func([]byte) error { return nil }
+	vault.persistDEK = func(context.Context, credentials.Store, []byte) error { return nil }
 
 	if _, err := vault.Setup(context.Background(), "master-password"); err != nil {
 		t.Fatalf("setup vault: %v", err)
@@ -648,7 +652,7 @@ func TestVaultStatus_PrefersKeyringOverRuntimeFlag(t *testing.T) {
 	vault := NewVaultService(store, nil)
 	existingDEK := []byte("01234567890123456789012345678901")
 	vault.loadKeyring = func() ([]byte, error) { return existingDEK, nil }
-	vault.saveKeyring = func([]byte) error { return nil }
+	vault.persistDEK = func(context.Context, credentials.Store, []byte) error { return nil }
 
 	if _, err := vault.Setup(context.Background(), "master-password"); err != nil {
 		t.Fatalf("setup vault: %v", err)
@@ -679,7 +683,7 @@ func TestVaultStatus_ReportsLockedAfterLockEvenIfPreviouslyUnlocked(t *testing.T
 	vault := NewVaultService(store, nil)
 	existingDEK := []byte("01234567890123456789012345678901")
 	vault.loadKeyring = func() ([]byte, error) { return existingDEK, nil }
-	vault.saveKeyring = func([]byte) error { return nil }
+	vault.persistDEK = func(context.Context, credentials.Store, []byte) error { return nil }
 
 	if _, err := vault.Setup(context.Background(), "master-password"); err != nil {
 		t.Fatalf("setup vault: %v", err)

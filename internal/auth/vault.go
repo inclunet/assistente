@@ -8,11 +8,17 @@ import (
 	"assistente/internal/credentials"
 )
 
+// persistDEKFunc é a assinatura usada para gravar a DEK no keychain
+// de forma consistente com os wraps (ver `credentials.PersistDEKConsistent`).
+// Para forçar sobrescrita deliberada, use `forceSaveKeyring` separado.
+type persistDEKFunc func(ctx context.Context, store credentials.Store, dek []byte) error
+
 type VaultService struct {
-	store       credentials.Store
-	onUnlocked  func(dek []byte)
-	loadKeyring func() ([]byte, error)
-	saveKeyring func([]byte) error
+	store            credentials.Store
+	onUnlocked       func(dek []byte)
+	loadKeyring      func() ([]byte, error)
+	persistDEK       persistDEKFunc // gravação consistente; recusa sobrescrita
+	forceSaveKeyring func([]byte) error // sobrescrita explícita (recovery confirmado)
 
 	// runtimeMu protege runtimeUnlocked. O flag é setado por
 	// Setup/Unlock (cofre acabou de ser configurado/aberto) e zerado
@@ -42,7 +48,10 @@ func NewVaultService(store credentials.Store, onUnlocked func(dek []byte)) *Vaul
 		store:       store,
 		onUnlocked:  onUnlocked,
 		loadKeyring: credentials.LoadDEKFromKeychain,
-		saveKeyring: credentials.SaveDEKToKeychain,
+		persistDEK: func(ctx context.Context, store credentials.Store, dek []byte) error {
+			return credentials.PersistDEKConsistent(ctx, store, dek, credentials.LoadDEKFromKeychain, nil)
+		},
+		forceSaveKeyring: nil, // só populado em testes ou via SetForceSaveKeyring
 	}
 }
 
@@ -158,6 +167,29 @@ func (s *VaultService) Setup(ctx context.Context, masterPassword string) (string
 	return result.RecoveryKey, nil
 }
 
+// Unlock recupera a DEK pela senha mestre / recovery key e a deixa
+// disponível para a sessão (em runtime e, se possível, no keychain).
+//
+// CONTRATO DE INVARIANTE (AEP-0061):
+//
+//   - Se o keychain está vazio, grava a DEK desembrulhada nele
+//     (caminho típico de "primeira execução em nova máquina" ou após
+//     limpeza do keychain).
+//
+//   - Se o keychain já tem uma DEK e ela bate com a desembrulhada,
+//     é no-op (idempotente).
+//
+//   - Se o keychain tem uma DEK DIFERENTE da desembrulhada, retorna
+//     `credentials.ErrDEKWouldOverwrite` SEM sobrescrever. Esse caso é
+//     o cenário do incidente AEP-0061: o keychain está com uma DEK_Y
+//     que provavelmente cifrou créditos novos; sobrescrever por DEK_X
+//     do wrap tornaria essas creds novas ilegíveis. O caller (UI)
+//     deve confirmar com o usuário e usar `UnlockOverwriteKeychain`
+//     se a sobrescrita for desejada.
+//
+// Em ambos os casos de sucesso, a DEK fica disponível em runtime via
+// `onUnlocked` para que `credentials.Manager` possa decifrar creds
+// nesta sessão, mesmo se a gravação no keychain tiver sido recusada.
 func (s *VaultService) Unlock(ctx context.Context, kind, secret string) error {
 	if s == nil || s.store == nil {
 		return credentials.ErrStoreNotReady
@@ -173,10 +205,46 @@ func (s *VaultService) Unlock(ctx context.Context, kind, secret string) error {
 	if err != nil {
 		return err
 	}
-	if s.saveKeyring != nil {
-		if err := s.saveKeyring(dek); err != nil {
-			return err
+	if s.persistDEK != nil {
+		if err := s.persistDEK(ctx, s.store, dek); err != nil {
+			if !errors.Is(err, credentials.ErrDEKWouldOverwrite) {
+				return err
+			}
+			// Divergência detectada: NÃO sobrescrevemos o keychain. A
+			// sessão fica unlocked em runtime mesmo assim — o caller
+			// pode operar com as creds que decifram com a DEK do
+			// wrap, e a UI deve oferecer recovery deliberada via
+			// UnlockOverwriteKeychain.
 		}
+	}
+	s.markRuntimeUnlocked()
+	if s.onUnlocked != nil {
+		s.onUnlocked(dek)
+	}
+	return nil
+}
+
+// UnlockOverwriteKeychain desembrulha a DEK pela senha mestre / recovery
+// e SOBRESCREVE incondicionalmente a DEK do keychain, aceitando que
+// credenciais cifradas com a DEK anterior fiquem ilegíveis. Use SOMENTE
+// após confirmação explícita do usuário (UI mostrando o impacto).
+func (s *VaultService) UnlockOverwriteKeychain(ctx context.Context, kind, secret string) error {
+	if s == nil || s.store == nil {
+		return credentials.ErrStoreNotReady
+	}
+	if kind == "" {
+		kind = credentials.KeyWrapKindMaster
+	}
+	if kind != credentials.KeyWrapKindMaster && kind != credentials.KeyWrapKindRecovery {
+		return errors.New("tipo de desbloqueio inválido")
+	}
+
+	dek, err := credentials.UnlockDEKWithSecret(s.store, kind, secret)
+	if err != nil {
+		return err
+	}
+	if err := credentials.OverwriteKeychainDEK(ctx, s.store, dek, s.forceSaveKeyring); err != nil {
+		return err
 	}
 	s.markRuntimeUnlocked()
 	if s.onUnlocked != nil {

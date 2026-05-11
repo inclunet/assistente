@@ -809,8 +809,8 @@ func TestLoadFromStorePreservesUserScope(t *testing.T) {
 		Auth:    encAuth,
 	}}}
 	mgr := NewManagerWithStoreAndPersistence(key, store, true)
-	if err := mgr.LoadFromStore(context.Background()); err != nil {
-		t.Fatalf("LoadFromStore() error = %v", err)
+	if err := mgr.LoadUserCredentials(context.Background(), "user-1"); err != nil {
+		t.Fatalf("LoadUserCredentials() error = %v", err)
 	}
 
 	auth, err := mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-1"), "llm.inclunet.com.br")
@@ -846,8 +846,8 @@ func TestGetByPatternWithContextReportsUnreadableCredential(t *testing.T) {
 		Auth:    encAuth,
 	}}}
 	mgr := NewManagerWithStoreAndPersistence(wrongKey, store, true)
-	if err := mgr.LoadFromStore(context.Background()); err != nil {
-		t.Fatalf("LoadFromStore() error = %v", err)
+	if err := mgr.LoadUserCredentials(context.Background(), "user-1"); err != nil {
+		t.Fatalf("LoadUserCredentials() error = %v", err)
 	}
 
 	_, err = mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-1"), "llm.inclunet.com.br")

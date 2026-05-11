@@ -51,14 +51,59 @@ func (a *App) initCredentialManager() {
 	}()
 
 	a.credMgr = credentials.NewManagerWithStore(dek, a.credStore, persist)
-	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {
-		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
+	// initCredentialManager roda em OnStartup, antes de qualquer login.
+	// Sem sessão, só instance secrets (refresh-token-pepper, signing
+	// key, etc.) precisam estar em memória. As credenciais user-scoped
+	// entram pós-Login via adoptLegacyDataForUser → LoadUserCredentials.
+	if err := a.credMgr.LoadInstanceSecrets(a.internalBootstrapCtx()); err != nil {
+		log.Printf("[Credentials] Erro ao carregar instance secrets: %v", err)
 	}
-	// initCredentialManager roda em OnStartup, antes de qualquer login;
-	// internalBootstrapCtx é o caminho legítimo aqui. registerEnvCredentials
-	// já guarda explicitamente com UserIDFromContext, então sem sessão
-	// vira no-op (o reload pós-login carrega as envs depois).
+	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
+}
+
+// handleVaultIntegrityOnBoot reage ao status de integridade do vault
+// que foi calculado em LoadInstanceSecrets. Política atual (AEP-0061):
+//
+//   - Se há credenciais ilegíveis (cifradas com DEK que não bate com
+//     a do keychain), faz purge automático após log explícito. Decisão
+//     arquitetural: o usuário escolheu a política `auto_purge` quando
+//     adotamos o AEP — manter creds ilegíveis no banco só causa
+//     confusão e ainda esbarra em validações user-scope. A UI mostra
+//     o histórico via `App.GetVaultIntegrityStatus`.
+//   - Se há divergência DEK_keychain ↔ DEK_wraps (não só órfãs, mas
+//     wrap embrulhando outra DEK), apenas LOGA e mantém o estado
+//     bloqueado para escritas; recovery exige ação explícita do
+//     usuário (UnlockOverwriteKeychain ou setup nova senha).
+func (a *App) handleVaultIntegrityOnBoot() {
+	if a.credMgr == nil {
+		return
+	}
+	status := a.credMgr.IntegrityStatus()
+	if !status.OK {
+		log.Printf("[Credentials] vault integrity: NOT OK — %s (keychain=%s wraps=%s)", status.Reason, status.KeychainDekID, status.WrapsDekID)
+	}
+	if len(status.UnreadableCredentialIDs) == 0 {
+		return
+	}
+	log.Printf("[Credentials] %d credenciais ilegíveis encontradas (cifradas com DEK divergente da atual): %v — removendo automaticamente", len(status.UnreadableCredentialIDs), status.UnreadableCredentialIDs)
+	removed, err := a.credMgr.PurgeUnreadableCredentials(a.internalBootstrapCtx())
+	if err != nil {
+		log.Printf("[Credentials] erro ao purgar credenciais ilegíveis: %v", err)
+		return
+	}
+	log.Printf("[Credentials] %d credenciais ilegíveis removidas. Reemita as credenciais correspondentes via UI/wizard.", removed)
+}
+
+// GetVaultIntegrityStatus expõe o status de integridade do vault
+// (DEK_keychain ↔ DEK_wraps) para a UI. Frontend usa para mostrar
+// banner quando há divergência ou credenciais ilegíveis recém
+// purgadas.
+func (a *App) GetVaultIntegrityStatus() credentials.VaultIntegrityStatus {
+	if a.credMgr == nil {
+		return credentials.VaultIntegrityStatus{}
+	}
+	return a.credMgr.IntegrityStatus()
 }
 
 // migrateLegacyConfig detecta config.json com campos legados e migra para o
@@ -206,12 +251,13 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 		a.credMgr.Reset(dek, persist)
 	}
 
-	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {
-		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
-	}
 	// configureCredentialManager pode rodar pré-login (carrega DEK do
-	// keychain antes de qualquer sessão). internalBootstrapCtx é o caminho
-	// legítimo aqui; registerEnvCredentials já guarda com UserIDFromContext.
+	// keychain antes de qualquer sessão). Só instance secrets entram em
+	// memória aqui; user-scoped vem depois via LoadUserCredentials.
+	if err := a.credMgr.LoadInstanceSecrets(a.internalBootstrapCtx()); err != nil {
+		log.Printf("[Credentials] Erro ao carregar instance secrets: %v", err)
+	}
+	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
 }
 

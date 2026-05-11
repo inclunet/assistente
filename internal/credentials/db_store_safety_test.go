@@ -8,11 +8,11 @@ import (
 	"assistente/internal/database"
 )
 
-// TestDBStore_DeleteCredential_RejectsEmptyPattern blinda o invariante
-// do incident report AEP-0053 (10/05/2026): `DeleteCredential("")` é
-// SEMPRE um bug do caller. Falhar fechado evita que (a) "limpar tudo"
-// seja confundido com `pattern=""` (silent no-op), (b) refatorações
-// futuras que aceitem wildcards se tornem vetor de mass-delete.
+// TestDBStore_DeleteCredential_RejectsEmptyPattern documenta o
+// contrato: `DeleteCredential("")` é sempre erro do caller. "Limpar
+// tudo" tem que ser expressado como iteração sobre a lista visível,
+// não como uma chamada sem nome que pode ser confundida com no-op ou,
+// no futuro, com mass-delete por wildcard.
 func TestDBStore_DeleteCredential_RejectsEmptyPattern(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)
 
@@ -42,9 +42,9 @@ func TestDBStore_DeleteCredential_RejectsEmptyPattern(t *testing.T) {
 	}
 }
 
-// TestDBStore_SaveCredential_RejectsEmptyPattern garante simetria:
-// não dá para gravar uma row com pattern vazio (que viraria target de
-// um eventual bug de mass-delete).
+// TestDBStore_SaveCredential_RejectsEmptyPattern garante simetria com
+// DeleteCredential: pattern é parte da identidade da credencial, não
+// pode ser vazio.
 func TestDBStore_SaveCredential_RejectsEmptyPattern(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)
 
@@ -67,11 +67,9 @@ func TestDBStore_SaveCredential_RejectsEmptyPattern(t *testing.T) {
 	}
 }
 
-// TestDBStore_DeleteCredential_DoesNotAffectOtherUsers blinda o
-// invariante de scope: deletar pattern com user_id no contexto NUNCA
-// pode tocar credenciais de outro usuário com o mesmo pattern. Esse é
-// o invariante mais crítico do AEP-0052: um caller comprometido não
-// consegue derrubar credenciais de outros usuários via pattern guess.
+// TestDBStore_DeleteCredential_DoesNotAffectOtherUsers prova o
+// isolamento por user: deletar com user_id no contexto NUNCA toca em
+// credenciais de outro usuário com o mesmo pattern (AEP-0052).
 func TestDBStore_DeleteCredential_DoesNotAffectOtherUsers(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)
 
@@ -132,11 +130,9 @@ func TestDBStore_DeleteCredential_InstanceSecretScopedToInstance(t *testing.T) {
 }
 
 // TestDBStore_DeleteCredential_UnauthenticatedCannotDeleteUserScoped
-// valida o invariante anti-mass-delete: um caller sem user no contexto
-// NUNCA consegue apagar credenciais user-scoped (mesmo órfãs). Isso é
-// fundamental para que callers de bootstrap não consigam derrubar
-// credenciais legacy por engano: a única forma de adoção é via
-// AdoptLegacyData (que faz UPDATE do user_id, não DELETE).
+// prova o contrato: sem userID no contexto, ninguém apaga credenciais
+// user-scoped (nem legacy órfãs). A única adoção válida é via
+// `AdoptLegacyData`, que faz UPDATE do `user_id` — nunca DELETE.
 func TestDBStore_DeleteCredential_UnauthenticatedCannotDeleteUserScoped(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)
 
