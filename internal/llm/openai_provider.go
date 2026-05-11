@@ -227,11 +227,18 @@ func (p *OpenAIProvider) getModelsHTTP(ctx context.Context) ([]string, error) {
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("models_endpoint_not_supported")
 	}
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("API Key inválida ou não autorizada")
-	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("provedor retornou status %d", resp.StatusCode)
+		// Preserva o body do upstream na mensagem de erro. Sem isso,
+		// status 400/403/etc. viravam caixa preta — o usuário e os
+		// logs ficavam sem o motivo real informado pelo provedor (ex.:
+		// chave revogada, team_id faltando, header customizado exigido
+		// pelo gateway).
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		summary := summarizeHTTPError(resp.StatusCode, errBody)
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("API Key inválida ou não autorizada (%s)", summary)
+		}
+		return nil, fmt.Errorf("erro ao listar modelos: %s", summary)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))

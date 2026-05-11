@@ -445,7 +445,7 @@ func (s *Service) TestConnection(ctx context.Context, req TestRequest) (bool, er
 		return false, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 
-	apiKey := req.APIKey
+	apiKey := strings.TrimSpace(req.APIKey)
 	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
 		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
 			if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
@@ -498,7 +498,7 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 		return nil, fmt.Errorf("URL deve começar com http:// ou https://")
 	}
 
-	apiKey := req.APIKey
+	apiKey := strings.TrimSpace(req.APIKey)
 	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
 		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
 			if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
@@ -577,6 +577,30 @@ type ListModelsRawRequest struct {
 	ProviderID string // opcional; usado para recuperar credencial existente
 }
 
+// buildTempProviderForListModels monta o ProviderConfig efêmero usado em
+// `ListModelsRaw`. Espelha campos críticos do provider persistido (quando
+// disponível) para que a rota usada no teste de chave coincida com a rota
+// usada em produção. Sem o espelhamento de `APIFormat`, o teste cairia no
+// client default (Chat Completions) enquanto o uso real bateria em
+// Responses API — divergência que mascarava o motivo real do 400.
+//
+// Extraído como função pura para permitir teste unitário sem precisar
+// rodar o pipeline HTTP completo. Não toca `s.credMgr` nem o registry.
+func buildTempProviderForListModels(req ListModelsRawRequest, hostname string, existing *llm.ProviderConfig) *llm.ProviderConfig {
+	temp := &llm.ProviderConfig{
+		ID:                "temp-form",
+		Name:              "temp",
+		Type:              llm.ProviderType(req.Type),
+		BaseURL:           req.BaseURL,
+		CredentialPattern: hostname,
+		Timeout:           15,
+	}
+	if existing != nil {
+		temp.APIFormat = existing.APIFormat
+	}
+	return temp
+}
+
 // ListModelsRaw lista modelos de um provedor usando credenciais ad-hoc ou existentes.
 // Não requer que o provedor já esteja persistido — usado pelo formulário de criação/edição.
 func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) ([]string, error) {
@@ -594,25 +618,20 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 		return nil, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 
-	apiKey := req.APIKey
+	apiKey := strings.TrimSpace(req.APIKey)
 	// Fallback: busca credencial existente quando provider_id informado e api_key ausente
-	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
-		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
-				apiKey = auth.Token
-			}
+	var existingProvider *llm.ProviderConfig
+	if req.ProviderID != "" && s.registry != nil {
+		existingProvider = s.registry.Get(req.ProviderID)
+	}
+	if apiKey == "" && existingProvider != nil && existingProvider.CredentialPattern != "" && s.credMgr != nil {
+		if auth, err := s.credMgr.GetByPatternWithContext(ctx, existingProvider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
+			apiKey = auth.Token
 		}
 	}
 
 	hostname := parsedURL.Hostname()
-	tempProvider := &llm.ProviderConfig{
-		ID:                "temp-form",
-		Name:              "temp",
-		Type:              llm.ProviderType(req.Type),
-		BaseURL:           req.BaseURL,
-		CredentialPattern: hostname,
-		Timeout:           15,
-	}
+	tempProvider := buildTempProviderForListModels(req, hostname, existingProvider)
 
 	cm, _ := s.credMgr.(*credentials.Manager)
 
