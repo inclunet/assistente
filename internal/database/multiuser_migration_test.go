@@ -120,6 +120,58 @@ func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	assertOwnedRows(t, "task_lists", user.ID)
 }
 
+// TestAdoptLegacyData_OrphanWithExistingClaim cobre o cenário que travou
+// o login do primeiro admin em produção (Wails dev log
+// `database.go:208 UNIQUE constraint failed: credential_entries.user_id,
+// credential_entries.pattern`):
+//
+//   - banco contém um par (user_id='', pattern=X) — herdado de boots
+//     pré-AEP-0052 que ainda gravavam órfãos depois do AutoMigrate.
+//   - o usuário corrente já tem (user_id=X, pattern=X) gravado por um
+//     login bem-sucedido anterior.
+//   - AdoptLegacyData tenta `UPDATE ... SET user_id = X WHERE user_id =
+//     ''` e o índice `ux_credential_entries_user_pattern` aborta a
+//     transação inteira.
+//
+// Resultado observado pelo usuário: CreateAdminUser cria o User no banco,
+// mas o Login subsequente falha; a próxima tentativa de criar admin bate
+// em "admin inicial já foi criado". A correção descarta a órfã antes do
+// UPDATE.
+func TestAdoptLegacyData_OrphanWithExistingClaim(t *testing.T) {
+	setupMultiUserTestDB(t)
+
+	user := &User{Username: "admin", PasswordHash: "hash", Role: UserRoleAdmin, IsActive: true}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	pattern := "api.openai.com"
+	if err := db.Create(&CredentialEntry{UserID: user.ID, Pattern: pattern, AuthType: "bearer"}).Error; err != nil {
+		t.Fatalf("create claimed credential: %v", err)
+	}
+	if err := db.Create(&CredentialEntry{Pattern: pattern, AuthType: "bearer"}).Error; err != nil {
+		t.Fatalf("create orphan credential: %v", err)
+	}
+
+	if err := AdoptLegacyData(user.ID); err != nil {
+		t.Fatalf("adopt legacy data should not violate unique index: %v", err)
+	}
+
+	var entries []CredentialEntry
+	if err := db.Where("pattern = ?", pattern).Find(&entries).Error; err != nil {
+		t.Fatalf("list credentials: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected single canonical credential after adopt, got %d: %+v", len(entries), entries)
+	}
+	if entries[0].UserID != user.ID {
+		t.Fatalf("expected canonical entry to belong to admin %q, got %q", user.ID, entries[0].UserID)
+	}
+
+	if err := AdoptLegacyData(user.ID); err != nil {
+		t.Fatalf("second adopt should remain idempotent: %v", err)
+	}
+}
+
 func TestAdoptLegacyDataKeepsInternalSecretsInstanceScoped(t *testing.T) {
 	setupMultiUserTestDB(t)
 

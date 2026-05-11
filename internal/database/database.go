@@ -205,6 +205,35 @@ func AdoptLegacyData(userID string) error {
 				return err
 			}
 		}
+		// Antes do UPDATE genérico de credential_entries, removemos órfãs
+		// (user_id IS NULL/'') cujo `pattern` JÁ está reivindicado pelo
+		// userID corrente. Sem isso o UPDATE viola
+		// `ux_credential_entries_user_pattern` (user_id, pattern) e a
+		// transação inteira aborta, deixando o login do admin recém-criado
+		// em estado inconsistente: o User existe no banco, mas a sessão
+		// nunca completa e a próxima tentativa de CreateAdminUser bate em
+		// "admin inicial já foi criado".
+		//
+		// O `dedupCredentialEntriesBeforeMigrate` que roda antes do
+		// AutoMigrate só dedupa pares EXATAMENTE iguais em (user_id,
+		// pattern), então não pega o cenário órfã+claimed do mesmo pattern.
+		// A versão claimed é sempre canônica (foi escrita pelo user real,
+		// possui chave wrap atualizada); a órfã é resíduo de boots antigos
+		// e pode ser descartada sem perda de dados.
+		if err := tx.Exec(
+			`DELETE FROM credential_entries
+			 WHERE (user_id IS NULL OR user_id = '')
+			   AND pattern NOT LIKE 'internal-auth:%'
+			   AND pattern NOT LIKE 'internal-tls:%'
+			   AND EXISTS (
+			     SELECT 1 FROM credential_entries claimed
+			     WHERE claimed.pattern = credential_entries.pattern
+			       AND claimed.user_id = ?
+			   )`,
+			userID,
+		).Error; err != nil {
+			return err
+		}
 		if err := tx.Exec(
 			"UPDATE credential_entries SET user_id = ? WHERE (user_id IS NULL OR user_id = '') AND pattern NOT LIKE 'internal-auth:%' AND pattern NOT LIKE 'internal-tls:%'",
 			userID,
