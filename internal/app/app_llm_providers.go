@@ -171,9 +171,20 @@ func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 // initLLMProviders inicializa o registro de provedores LLM a partir do store.
 // Só faz sentido após o login — sem userID o repositório não tem provedores
 // para devolver e o registry global ficaria vazio mesmo se prosseguíssemos.
-func (a *App) initLLMProviders() {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
+//
+// Recebe `ctx` do caller (pós-P1-2 do re-review do PR #94) para que
+// timeouts/cancels propaguem até o store. Se `ctx == nil`, derivamos um
+// ctx autenticado próprio — preserva o contrato anterior para call sites
+// que ainda não passam ctx (boot single-user pré-login).
+func (a *App) initLLMProviders(ctx context.Context) {
+	if ctx == nil {
+		authed, err := a.requireAuthenticatedContext()
+		if err != nil {
+			return
+		}
+		ctx = authed
+	}
+	if _, err := database.RequireUserID(ctx); err != nil {
 		return
 	}
 	if err := a.providerSvc.Load(ctx); err != nil {

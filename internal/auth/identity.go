@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,13 @@ func ensureDummyPasswordHash() string {
 		if err != nil {
 			// Fallback degradado: continuamos sem dummy, aceitando a
 			// regressão de timing. Não há por que crashar a app por isso.
+			//
+			// P2-1 do re-review do PR #94: sinalizar em log com nível
+			// crítico para que o operador saiba que a defesa contra
+			// enumeração por timing (M2) não está ativa. Em produção
+			// isso só acontece em condições muito patológicas (ex.:
+			// argon2 falhando por OOM real).
+			log.Printf("[Auth] CRITICO: dummy_password_hash falhou na inicializacao - defesa contra enumeracao por timing DESATIVADA: %v", err)
 			dummyPasswordHash = ""
 			return
 		}

@@ -227,13 +227,39 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 	return a.GetAuthUser()
 }
 
+// logLogoutError distingue os 3 cenários relevantes de falha em
+// `sessionSvc.Logout` para incident response (P1-4 do re-review do
+// PR #94). Antes desta separação, qualquer erro caía na mesma linha
+// genérica e era impossível diferenciar "token mal formatado" de
+// "DB indisponível" só pelos logs.
+func (a *App) logLogoutError(err error) {
+	switch {
+	case errors.Is(err, auth.ErrInvalidRefreshToken):
+		log.Printf("[Auth] Logout: refresh token mal formatado (possível tampering ou sessão local corrompida): %v", err)
+	default:
+		log.Printf("[Auth] Logout: erro ao revogar sessão remota (estado local já foi limpo, sessão remota expira em RefreshTTL): %v", err)
+	}
+}
+
+// rollbackLogoutTimeout é o tempo máximo aceitável para revogar uma
+// sessão durante rollback de login. Em DB saudável o UPDATE responde em
+// <50ms; 2s é um teto generoso para covers de variação. Acima disso é
+// problema maior (DB sob lock global, deadlock, IO travado) e não vale
+// segurar o usuário no caminho de erro: o estado local já foi limpo,
+// e a sessão remota expira pelo TTL natural mesmo se o Update não rodar
+// (P1-2 do re-review do PR #94).
+const rollbackLogoutTimeout = 2 * time.Second
+
 // rollbackLoginState desfaz o estado parcial deixado por um Login
 // que iniciou bem mas falhou em uma etapa pós-IssueSession. Idempotente
 // e melhor-esforço: cada limpeza é tentada independentemente.
 func (a *App) rollbackLoginState(refreshToken string) {
 	if a.sessionSvc != nil && refreshToken != "" {
-		if err := a.sessionSvc.Logout(context.Background(), refreshToken); err != nil {
-			log.Printf("[Auth] rollback: erro ao revogar sessão: %v", err)
+		ctx, cancel := context.WithTimeout(context.Background(), rollbackLogoutTimeout)
+		err := a.sessionSvc.Logout(ctx, refreshToken)
+		cancel()
+		if err != nil {
+			log.Printf("[Auth] rollback: erro ao revogar sessão (ctx<=%s): %v", rollbackLogoutTimeout, err)
 		}
 	}
 	if err := a.clearAuthRefreshToken(); err != nil {
@@ -299,6 +325,12 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 	return a.GetAuthUser()
 }
 
+// appendUniqueToken adiciona `token` em `tokens` se ainda não estiver
+// presente, ignorando trim de espaços. É O(n²) por design — N é
+// tipicamente <=3 candidates por Refresh (request body + keychain +
+// fallback do credMgr) e a economia de uma struct/map nessa hot path
+// não compensa o overhead. Se a lista crescer (>10), migrar para
+// `map[string]struct{}` (P2-3 do re-review do PR #94).
 func appendUniqueToken(tokens []string, token string) []string {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -349,8 +381,11 @@ func (a *App) Logout(req LogoutRequest) error {
 		}
 	}
 	if refreshToken != "" && a.ensureSessionService() == nil {
-		if err := a.sessionSvc.Logout(context.Background(), refreshToken); err != nil {
-			log.Printf("[Auth] logout: erro ao revogar sessão remota (estado local já foi limpo, sessão remota expira em RefreshTTL): %v", err)
+		ctx, cancel := context.WithTimeout(context.Background(), rollbackLogoutTimeout)
+		err := a.sessionSvc.Logout(ctx, refreshToken)
+		cancel()
+		if err != nil {
+			a.logLogoutError(err)
 		}
 	}
 	_ = a.clearAuthRefreshToken()
@@ -576,22 +611,36 @@ func (a *App) requireAdminContext() (context.Context, error) {
 	return ctx, nil
 }
 
+// reloadUserScopedRuntimeTimeout é o teto agregado para o
+// reload do runtime (registerEnvCredentials + migrateLegacyConfig +
+// initLLMProviders + initLLMClient). 10s é generoso para DB local
+// + provider init em ambiente saudável; acima disso o caminho
+// crítico do Login fica preso em UX-critical e o usuário força quit
+// deixando estado parcial. P1-2 do re-review do PR #94.
+const reloadUserScopedRuntimeTimeout = 10 * time.Second
+
 func (a *App) reloadUserScopedRuntime() {
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
-	ctx, err := a.requireAuthenticatedContext()
+	authedCtx, err := a.requireAuthenticatedContext()
 	if err != nil {
 		log.Printf("[reloadUserScopedRuntime] sem sessão autenticada, abortando: %v", err)
 		return
 	}
+	ctx, cancel := context.WithTimeout(authedCtx, reloadUserScopedRuntimeTimeout)
+	defer cancel()
+
 	a.registerEnvCredentials(ctx, a.credMgr)
 	a.migrateLegacyConfig(ctx)
 	if a.providerSvc != nil {
-		a.initLLMProviders()
+		a.initLLMProviders(ctx)
 	}
 	if a.profileManager != nil && a.llmRegistry != nil {
 		a.initLLMClient()
+	}
+	if err := ctx.Err(); err != nil {
+		log.Printf("[reloadUserScopedRuntime] timeout/cancel atingido (%s): %v — runtime pode estar parcialmente inicializado", reloadUserScopedRuntimeTimeout, err)
 	}
 }
 

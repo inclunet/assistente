@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -119,15 +120,18 @@ func parseArgonParams(raw string) (argonParams, error) {
 	}, nil
 }
 
-// parsePositiveUint32 parseia um uint32 e rejeita o valor zero, evitando
-// que um hash malformado com m=0 ou t=0 chegue a argon2.IDKey com
-// parâmetros inválidos (Blocker B1 do review da Fatia 1).
+// parsePositiveUint32 parseia um uint32 e rejeita o valor zero por
+// design — parâmetros Argon2 (memory, time, parallelism) com valor
+// zero indicam hash corrompido (B1 do review da Fatia 1). Um user
+// com hash assim precisa redefinir a senha; aqui sinalizamos em log
+// para o operador (P2-2 do re-review do PR #94).
 func parsePositiveUint32(raw string) (uint32, error) {
 	value, err := strconv.ParseUint(raw, 10, 32)
 	if err != nil {
 		return 0, err
 	}
 	if value == 0 {
+		log.Printf("[Auth] hash de senha com parametro Argon2 zero detectado - corrupcao provavel, user precisa redefinir senha")
 		return 0, ErrInvalidPasswordHash
 	}
 	return uint32(value), nil
