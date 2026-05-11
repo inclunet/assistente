@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"assistente/internal/database"
 )
 
 // AuthConfig descreve como autenticar em um domínio
@@ -31,6 +33,7 @@ type AuthConfig struct {
 // DomainCredential mapeia um padrão de domínio a credenciais
 type DomainCredential struct {
 	ID      string
+	UserID  string
 	Pattern string // "*.github.com", "api.example.com", etc
 	regex   *regexp.Regexp
 	Auth    *AuthConfig
@@ -43,6 +46,15 @@ type Manager struct {
 	encKey      []byte // para criptografar credenciais em memória
 	store       Store
 	persist     bool
+
+	// integrity guarda o último resultado de `verifyDEKConsistency`,
+	// consultável via `IntegrityStatus()`. Atualizado em
+	// `LoadInstanceSecrets` e `Reset`.
+	integrity vaultIntegrity
+}
+
+type instanceCredentialStore interface {
+	ListInstanceCredentials(ctx context.Context) ([]StoredCredential, error)
 }
 
 // NewManager cria novo credential manager (sem persistência).
@@ -109,18 +121,28 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 	}
 
 	persistedID := cred.ID
+	userID := cred.UserID
+	if userID == "" {
+		if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
+			userID = scopedUserID
+		}
+	}
+	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
+		return database.ErrUserScopeRequired
+	}
 	if m.persist && m.store != nil {
-		if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, Pattern: pattern, Auth: encAuth}); err != nil {
+		if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, UserID: userID, Pattern: pattern, Auth: encAuth}); err != nil {
 			return err
 		}
 		if cred.ID == "" {
-			persisted, err := m.store.ListCredentials(ctx)
+			persisted, err := m.lookupPersistedByScope(ctx, userID)
 			if err != nil {
 				return fmt.Errorf("listar credenciais persistidas após salvar: %w", err)
 			}
 			for _, entry := range persisted {
-				if entry.Pattern == pattern && entry.ID != "" {
+				if entry.Pattern == pattern && entry.UserID == userID && entry.ID != "" {
 					persistedID = entry.ID
+					userID = entry.UserID
 					break
 				}
 			}
@@ -134,12 +156,14 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 	defer m.mu.Unlock()
 
 	for i, existing := range m.credentials {
-		if existing.Pattern == pattern || (persistedID != "" && existing.ID == persistedID) {
-			m.credentials[i] = &DomainCredential{ID: persistedID, Pattern: pattern, regex: regex, Auth: encAuth}
+		sameStoredCredential := persistedID != "" && existing.ID == persistedID
+		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
+		if sameStoredCredential || sameScopedPattern {
+			m.credentials[i] = &DomainCredential{ID: persistedID, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
 			return nil
 		}
 	}
-	m.credentials = append(m.credentials, &DomainCredential{ID: persistedID, Pattern: pattern, regex: regex, Auth: encAuth})
+	m.credentials = append(m.credentials, &DomainCredential{ID: persistedID, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth})
 
 	return nil
 }
@@ -147,6 +171,10 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 // ResolveForURL resolve credenciais para uma URL
 // Retorna nil se não encontrar
 func (m *Manager) ResolveForURL(urlStr string) (*AuthConfig, error) {
+	return m.ResolveForURLWithContext(context.Background(), urlStr)
+}
+
+func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (*AuthConfig, error) {
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return nil, fmt.Errorf("URL inválida: %w", err)
@@ -161,8 +189,18 @@ func (m *Manager) ResolveForURL(urlStr string) (*AuthConfig, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	userID := ""
+	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
+		userID = scopedUser
+	}
 	// Procura em ordem (primeira match vence)
 	for _, dc := range m.credentials {
+		if userID != "" && dc.UserID != userID {
+			continue
+		}
+		if userID == "" && dc.UserID != "" {
+			continue
+		}
 		if dc.regex.MatchString(domain) {
 			// Descriptografar antes de retornar
 			auth, err := m.decryptAuth(dc.Auth)
@@ -191,16 +229,51 @@ func (m *Manager) ListPatterns() []string {
 // ListCredentials retorna credenciais descriptografadas sem resolver referências externas.
 // Refs como keyring://... e env://... ficam visíveis para exibição na UI.
 func (m *Manager) ListCredentials() ([]StoredCredential, error) {
+	return m.ListCredentialsWithContext(context.Background())
+}
+
+func (m *Manager) ListCredentialsWithContext(ctx context.Context) ([]StoredCredential, error) {
+	return m.listCredentialsWithContext(ctx, false)
+}
+
+// ListVisibleCredentialsWithContext retorna apenas credenciais editáveis/visíveis
+// ao usuário. Patterns gerenciados são filtrados antes de descriptografar para
+// que segredos internos ilegíveis não bloqueiem a tela de credenciais.
+func (m *Manager) ListVisibleCredentialsWithContext(ctx context.Context) ([]StoredCredential, error) {
+	return m.listCredentialsWithContext(ctx, true)
+}
+
+func (m *Manager) listCredentialsWithContext(ctx context.Context, skipManaged bool) ([]StoredCredential, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	result := make([]StoredCredential, 0, len(m.credentials))
+	userID := ""
+	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
+		userID = scopedUser
+	}
 	for _, dc := range m.credentials {
+		if userID != "" && dc.UserID != userID {
+			continue
+		}
+		if skipManaged && IsManagedPattern(dc.Pattern) {
+			continue
+		}
 		auth, err := m.decryptAuthRaw(dc.Auth)
 		if err != nil {
+			if skipManaged {
+				result = append(result, StoredCredential{
+					ID:         dc.ID,
+					UserID:     dc.UserID,
+					Pattern:    dc.Pattern,
+					Auth:       &AuthConfig{Type: dc.Auth.Type},
+					Unreadable: true,
+				})
+				continue
+			}
 			return nil, err
 		}
-		result = append(result, StoredCredential{ID: dc.ID, Pattern: dc.Pattern, Auth: auth})
+		result = append(result, StoredCredential{ID: dc.ID, UserID: dc.UserID, Pattern: dc.Pattern, Auth: auth})
 	}
 
 	return result, nil
@@ -208,12 +281,34 @@ func (m *Manager) ListCredentials() ([]StoredCredential, error) {
 
 // GetByPattern retorna credenciais para um padrão exato.
 func (m *Manager) GetByPattern(pattern string) (*AuthConfig, error) {
+	return m.GetByPatternWithContext(context.Background(), pattern)
+}
+
+func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (*AuthConfig, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	userID := ""
+	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
+		userID = scopedUser
+	}
 	for _, dc := range m.credentials {
+		if userID != "" && dc.UserID != userID {
+			continue
+		}
+		if userID == "" && dc.UserID != "" {
+			continue
+		}
 		if dc.Pattern == pattern {
-			return m.decryptAuth(dc.Auth)
+			auth, err := m.decryptAuth(dc.Auth)
+			if err != nil {
+				scope := userID
+				if scope == "" {
+					scope = "<sem usuario autenticado>"
+				}
+				return nil, fmt.Errorf("credencial %q ilegível para usuário %q: %w", pattern, scope, err)
+			}
+			return auth, nil
 		}
 	}
 
@@ -229,9 +324,16 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	userID := ""
+	if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
+		userID = scopedUserID
+	}
+	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
+		return database.ErrUserScopeRequired
+	}
 	filtered := m.credentials[:0]
 	for _, dc := range m.credentials {
-		if dc.Pattern != pattern {
+		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
 			filtered = append(filtered, dc)
 		}
 	}
@@ -252,24 +354,90 @@ func (m *Manager) CanPersist() bool {
 	return m.persist && m.store != nil
 }
 
-// LoadFromStore carrega credenciais persistidas (já criptografadas).
-func (m *Manager) LoadFromStore(ctx context.Context) error {
-	if m.store == nil || !m.persist {
+// LoadInstanceSecrets carrega para a memória APENAS os segredos
+// instance-scoped (`internal-auth:*`, `internal-tls:*`). É o caminho
+// chamado no boot pré-login: ainda não há sessão, então as credenciais
+// user-scoped não podem (e não devem) entrar em memória.
+//
+// Para credenciais user-scoped use `LoadUserCredentials` após o
+// Login/RefreshAuth.
+func (m *Manager) LoadInstanceSecrets(ctx context.Context) error {
+	if m.store == nil {
 		return nil
 	}
-
-	entries, err := m.store.ListCredentials(ctx)
+	// Verificação de consistência DEK_keychain ↔ DEK_wraps DEVE rodar
+	// antes de qualquer escrita (e antes mesmo de aceitar carregar
+	// segredos, para evitar populá-los em memória se houver
+	// divergência crítica que vá impactar serviços que dependem
+	// deles). Se o store não está pronto a verificação é no-op.
+	if err := m.verifyDEKConsistency(ctx); err != nil {
+		// Falhas de leitura do wrap não bloqueiam o carregamento
+		// (instance secrets não dependem de wraps), mas são logadas
+		// dentro de verifyDEKConsistency.
+		_ = err
+	}
+	if !m.persist {
+		return nil
+	}
+	entries, err := m.lookupPersistedByScope(ctx, "")
 	if err != nil {
 		return err
 	}
-
 	for _, entry := range entries {
-		if err := m.registerEncryptedPattern(entry.ID, entry.Pattern, entry.Auth); err != nil {
+		if err := m.registerEncryptedPattern(entry.ID, entry.UserID, entry.Pattern, entry.Auth); err != nil {
 			return err
 		}
 	}
-
 	return nil
+}
+
+// LoadUserCredentials carrega para a memória as credenciais do
+// usuário informado. É o caminho que precisa rodar pós-Login para que
+// `ResolveForURLWithContext` encontre as credenciais user-scoped no
+// cache do Manager — sem isso, todo request HTTP do user falha com
+// `unresolvedCredentialError` mesmo com a credencial gravada no DB.
+//
+// `userID` é obrigatório (não há "carregar credenciais do usuário sem
+// usuário"). O ctx é usado apenas para deadline/cancel; o escopo de
+// query é construído explicitamente a partir do `userID`.
+func (m *Manager) LoadUserCredentials(ctx context.Context, userID string) error {
+	if m.store == nil || !m.persist {
+		return nil
+	}
+	if strings.TrimSpace(userID) == "" {
+		return database.ErrUserScopeRequired
+	}
+	entries, err := m.lookupPersistedByScope(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := m.registerEncryptedPattern(entry.ID, entry.UserID, entry.Pattern, entry.Auth); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// lookupPersistedByScope é o ÚNICO lugar do Manager que decide
+// "user-scoped vs instance-scoped" para leituras do store, e ele faz
+// isso a partir do `userID` recebido (não do ctx). Centralizar aqui
+// elimina o ramo mágico que a versão anterior (`persistedCredentials`)
+// tinha — onde o callsite passava `context.Background()` achando que
+// "carregava tudo" e silenciosamente caía em instance-only.
+//
+//   - userID == ""   → instance secrets (`internal-auth:*`/`internal-tls:*`)
+//   - userID != ""   → todas as credenciais daquele user
+func (m *Manager) lookupPersistedByScope(ctx context.Context, userID string) ([]StoredCredential, error) {
+	if userID == "" {
+		instanceStore, ok := m.store.(instanceCredentialStore)
+		if !ok {
+			return nil, nil
+		}
+		return instanceStore.ListInstanceCredentials(ctx)
+	}
+	scoped := database.WithUserID(ctx, userID)
+	return m.store.ListCredentials(scoped)
 }
 
 // Reset redefine a chave de criptografia e limpa credenciais em memória.
@@ -287,7 +455,7 @@ func (m *Manager) Reset(encryptionKey []byte, persist bool) {
 	m.persist = persist && m.store != nil
 }
 
-func (m *Manager) registerEncryptedPattern(id string, pattern string, encAuth *AuthConfig) error {
+func (m *Manager) registerEncryptedPattern(id, userID, pattern string, encAuth *AuthConfig) error {
 	if pattern == "" || encAuth == nil {
 		return errors.New("pattern e auth não podem ser vazios")
 	}
@@ -303,14 +471,16 @@ func (m *Manager) registerEncryptedPattern(id string, pattern string, encAuth *A
 
 	updated := false
 	for i, existing := range m.credentials {
-		if existing.Pattern == pattern || (id != "" && existing.ID == id) {
-			m.credentials[i] = &DomainCredential{ID: id, Pattern: pattern, regex: regex, Auth: encAuth}
+		sameStoredCredential := id != "" && existing.ID == id
+		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
+		if sameStoredCredential || sameScopedPattern {
+			m.credentials[i] = &DomainCredential{ID: id, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
 			updated = true
 			break
 		}
 	}
 	if !updated {
-		m.credentials = append(m.credentials, &DomainCredential{ID: id, Pattern: pattern, regex: regex, Auth: encAuth})
+		m.credentials = append(m.credentials, &DomainCredential{ID: id, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth})
 	}
 
 	return nil
@@ -571,6 +741,8 @@ func (m *Manager) decrypt(ciphertext string) (string, error) {
 var managedPrefixes = []string{
 	"mcp-client:",
 	"mcp-tokens:",
+	"internal-auth:",
+	"internal-tls:",
 }
 
 // IsManagedPattern retorna true se o pattern pertence a uma credencial gerenciada

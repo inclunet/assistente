@@ -38,7 +38,7 @@ func setupOrderingTestDB(t *testing.T) {
 func createConvWithOrderedMessages(t *testing.T) (convID string, msgIDs []string) {
 	t.Helper()
 
-	conv := &Conversation{Title: "ordering-test"}
+	conv := &Conversation{Title: "ordering-test", UserID: testUserID}
 	if err := db.Create(conv).Error; err != nil {
 		t.Fatalf("failed to create conversation: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestGetMessagesAfterID_UsesCreatedAtNotLex(t *testing.T) {
 	convID, ids := createConvWithOrderedMessages(t)
 
 	// Ask for messages after the first one (by created_at order).
-	msgs, err := GetMessagesAfterID(convID, ids[0])
+	msgs, err := GetMessagesAfterIDWithContext(testCtx(), convID, ids[0])
 	if err != nil {
 		t.Fatalf("GetMessagesAfterID: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestGetMessagesAfterID_EmptyAfterID(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithOrderedMessages(t)
 
-	msgs, err := GetMessagesAfterID(convID, "")
+	msgs, err := GetMessagesAfterIDWithContext(testCtx(), convID, "")
 	if err != nil {
 		t.Fatalf("GetMessagesAfterID empty: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestGetMessagesBetweenIDs_UsesCreatedAtNotLex(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithOrderedMessages(t)
 
-	msgs, err := GetMessagesBetweenIDs(convID, ids[0], ids[2])
+	msgs, err := GetMessagesBetweenIDsWithContext(testCtx(), convID, ids[0], ids[2])
 	if err != nil {
 		t.Fatalf("GetMessagesBetweenIDs: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestGetDetailedTokenStats_CutoffByCreatedAt(t *testing.T) {
 	// ids[0] has 10 tokens, ids[1] has 20 tokens, ids[2] has 30 tokens
 	// summaryUpToMessageID = ids[1] → out-of-context: ids[0]+ids[1] = 30 tokens,
 	// in-context: ids[2] = 30 tokens
-	stats, err := GetDetailedTokenStats(convID, ids[1])
+	stats, err := GetDetailedTokenStatsWithContext(testCtx(), convID, ids[1])
 	if err != nil {
 		t.Fatalf("GetDetailedTokenStats: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestGetDetailedTokenStats_NoSummary(t *testing.T) {
 	convID, _ := createConvWithOrderedMessages(t)
 
 	// No summary → all messages are in-context
-	stats, err := GetDetailedTokenStats(convID, "")
+	stats, err := GetDetailedTokenStatsWithContext(testCtx(), convID, "")
 	if err != nil {
 		t.Fatalf("GetDetailedTokenStats: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestGetDetailedTokenStats_NoSummary(t *testing.T) {
 func createConvWithSameTimestampRootMessages(t *testing.T) (convID string, msgIDs []string) {
 	t.Helper()
 
-	conv := &Conversation{Title: "pagination-test"}
+	conv := &Conversation{Title: "pagination-test", UserID: testUserID}
 	if err := db.Create(conv).Error; err != nil {
 		t.Fatalf("failed to create conversation: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestGetRecentRootMessages_LimitAndStableOrder(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
-	msgs, err := GetRecentRootMessages(convID, 3)
+	msgs, err := GetRecentRootMessagesWithContext(testCtx(), convID, 3)
 	if err != nil {
 		t.Fatalf("GetRecentRootMessages: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestGetRootMessagesBefore_CursorLimitAndStableOrder(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
-	msgs, err := GetRootMessagesBefore(convID, ids[3], 2)
+	msgs, err := GetRootMessagesBeforeWithContext(testCtx(), convID, ids[3], 2)
 	if err != nil {
 		t.Fatalf("GetRootMessagesBefore: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestGetMessageWindow_EndBeforeReturnsAbsoluteMetadata(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
-	window, err := GetMessageWindow(MessageWindowQuery{
+	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID: convID,
 		Anchor:         "end",
 		Direction:      "before",
@@ -378,7 +378,7 @@ func TestGetMessageWindow_RejectsInvalidCursorShape(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := GetMessageWindow(tc.query)
+			_, err := GetMessageWindowWithContext(testCtx(), tc.query)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected error containing %q, got %v", tc.want, err)
 			}
@@ -390,7 +390,7 @@ func TestGetMessageWindow_BeforeAnchorUsesAbsoluteIndex(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
-	window, err := GetMessageWindow(MessageWindowQuery{
+	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  convID,
 		AnchorMessageID: ids[4],
 		Direction:       "before",
@@ -418,7 +418,7 @@ func TestGetMessageWindow_BeforeAnchorNearStartDoesNotIncludeAnchor(t *testing.T
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
-	window, err := GetMessageWindow(MessageWindowQuery{
+	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  convID,
 		AnchorMessageID: ids[0],
 		Direction:       "before",
@@ -445,7 +445,7 @@ func TestGetMessageWindow_AroundRebalancesAtEnd(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
-	window, err := GetMessageWindow(MessageWindowQuery{
+	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  convID,
 		AnchorMessageID: ids[4],
 		Direction:       "around",
@@ -490,28 +490,28 @@ func TestComputeMessageWindowHasAfter(t *testing.T) {
 
 func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
 	setupOrderingTestDB(t)
-	conv, err := CreateConversation("timeline-items", "")
+	conv, err := CreateConversationWithContext(testCtx(), "timeline-items", "")
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
-	user, err := AddMessage(conv.ID, "user", "pergunta")
+	user, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	assistant, err := AddAssistantToolMessage(conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
+	assistant, err := AddAssistantToolMessageWithContext(testCtx(), conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
 	if err != nil {
 		t.Fatalf("create assistant: %v", err)
 	}
-	tool, err := AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1")
+	tool, err := AddToolResultMessageWithContext(testCtx(), conv.ID, user.ID, "resultado", "tool-1")
 	if err != nil {
 		t.Fatalf("create tool: %v", err)
 	}
-	nextUser, err := AddMessage(conv.ID, "user", "pergunta seguinte")
+	nextUser, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta seguinte")
 	if err != nil {
 		t.Fatalf("create next user: %v", err)
 	}
 
-	window, err := GetMessageWindow(MessageWindowQuery{
+	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID: conv.ID,
 		Anchor:         "start",
 		Direction:      "after",
@@ -547,15 +547,15 @@ func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
 
 func TestGetMessageWindow_UserRemainsStandaloneAndAssistantFormsTurn(t *testing.T) {
 	setupOrderingTestDB(t)
-	conv, err := CreateConversation("timeline-user-turn-invariant", "")
+	conv, err := CreateConversationWithContext(testCtx(), "timeline-user-turn-invariant", "")
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
-	user, err := AddMessage(conv.ID, "user", "pergunta")
+	user, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	assistant, err := AddMessageWithTokens(conv.ID, "assistant", "resposta", 0, 0, 0, "")
+	assistant, err := AddMessageWithTokensWithContext(testCtx(), conv.ID, "assistant", "resposta", 0, 0, 0, "")
 	if err != nil {
 		t.Fatalf("create assistant: %v", err)
 	}
@@ -564,7 +564,7 @@ func TestGetMessageWindow_UserRemainsStandaloneAndAssistantFormsTurn(t *testing.
 		t.Fatalf("save assistant turn: %v", err)
 	}
 
-	window, err := GetMessageWindow(MessageWindowQuery{
+	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID: conv.ID,
 		Anchor:         "start",
 		Direction:      "after",
@@ -586,27 +586,27 @@ func TestGetMessageWindow_UserRemainsStandaloneAndAssistantFormsTurn(t *testing.
 
 func TestGetMessageWindow_AnchorInsideTurnPagesByWholeItem(t *testing.T) {
 	setupOrderingTestDB(t)
-	conv, err := CreateConversation("timeline-anchor", "")
+	conv, err := CreateConversationWithContext(testCtx(), "timeline-anchor", "")
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
-	user, err := AddMessage(conv.ID, "user", "pergunta")
+	user, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	assistant, err := AddAssistantToolMessage(conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
+	assistant, err := AddAssistantToolMessageWithContext(testCtx(), conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
 	if err != nil {
 		t.Fatalf("create assistant: %v", err)
 	}
-	if _, err := AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
+	if _, err := AddToolResultMessageWithContext(testCtx(), conv.ID, user.ID, "resultado", "tool-1"); err != nil {
 		t.Fatalf("create tool: %v", err)
 	}
-	nextUser, err := AddMessage(conv.ID, "user", "pergunta seguinte")
+	nextUser, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta seguinte")
 	if err != nil {
 		t.Fatalf("create next user: %v", err)
 	}
 
-	window, err := GetMessageWindow(MessageWindowQuery{
+	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  conv.ID,
 		AnchorMessageID: assistant.ID,
 		Direction:       "after",
@@ -625,27 +625,27 @@ func TestGetMessageWindow_AnchorInsideTurnPagesByWholeItem(t *testing.T) {
 
 func TestGetMessageWindow_BeforeAnchorInsideTurnPagesBeforeWholeItem(t *testing.T) {
 	setupOrderingTestDB(t)
-	conv, err := CreateConversation("timeline-anchor-before", "")
+	conv, err := CreateConversationWithContext(testCtx(), "timeline-anchor-before", "")
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
-	beforeUser, err := AddMessage(conv.ID, "user", "pergunta anterior")
+	beforeUser, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta anterior")
 	if err != nil {
 		t.Fatalf("create before user: %v", err)
 	}
-	user, err := AddMessage(conv.ID, "user", "pergunta")
+	user, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	assistant, err := AddAssistantToolMessage(conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
+	assistant, err := AddAssistantToolMessageWithContext(testCtx(), conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
 	if err != nil {
 		t.Fatalf("create assistant: %v", err)
 	}
-	if _, err := AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1"); err != nil {
+	if _, err := AddToolResultMessageWithContext(testCtx(), conv.ID, user.ID, "resultado", "tool-1"); err != nil {
 		t.Fatalf("create tool: %v", err)
 	}
 
-	window, err := GetMessageWindow(MessageWindowQuery{
+	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  conv.ID,
 		AnchorMessageID: assistant.ID,
 		Direction:       "before",
@@ -664,30 +664,30 @@ func TestGetMessageWindow_BeforeAnchorInsideTurnPagesBeforeWholeItem(t *testing.
 
 func TestGetMessageWindow_AroundAnchorInsideToolCentersWholeTurn(t *testing.T) {
 	setupOrderingTestDB(t)
-	conv, err := CreateConversation("timeline-anchor-around", "")
+	conv, err := CreateConversationWithContext(testCtx(), "timeline-anchor-around", "")
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
-	if _, err := AddMessage(conv.ID, "user", "pergunta anterior"); err != nil {
+	if _, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta anterior"); err != nil {
 		t.Fatalf("create before user: %v", err)
 	}
-	user, err := AddMessage(conv.ID, "user", "pergunta")
+	user, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	if _, err := AddAssistantToolMessage(conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", ""); err != nil {
+	if _, err := AddAssistantToolMessageWithContext(testCtx(), conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", ""); err != nil {
 		t.Fatalf("create assistant: %v", err)
 	}
-	tool, err := AddToolResultMessage(conv.ID, user.ID, "resultado", "tool-1")
+	tool, err := AddToolResultMessageWithContext(testCtx(), conv.ID, user.ID, "resultado", "tool-1")
 	if err != nil {
 		t.Fatalf("create tool: %v", err)
 	}
-	nextUser, err := AddMessage(conv.ID, "user", "pergunta seguinte")
+	nextUser, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta seguinte")
 	if err != nil {
 		t.Fatalf("create next user: %v", err)
 	}
 
-	window, err := GetMessageWindow(MessageWindowQuery{
+	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  conv.ID,
 		AnchorMessageID: tool.ID,
 		Direction:       "around",
@@ -712,7 +712,7 @@ func TestGetMessageWindow_ThreadScopeCountsChildren(t *testing.T) {
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
 	parentID := ids[2]
-	window, err := GetMessageWindow(MessageWindowQuery{
+	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID: convID,
 		ParentID:       &parentID,
 		Anchor:         "start",

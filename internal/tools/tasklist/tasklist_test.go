@@ -137,7 +137,7 @@ func (f *fakeTaskListManager) findTaskListIDBySlug(norm string) string {
 	return ""
 }
 
-func (f *fakeTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
+func (f *fakeTaskListManager) CreateTaskList(_ context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
 	if f.createListErr != nil {
 		return nil, f.createListErr
 	}
@@ -156,7 +156,7 @@ func (f *fakeTaskListManager) CreateTaskList(title, description string, template
 	return tl, nil
 }
 
-func (f *fakeTaskListManager) GetTaskList(id string) (*database.TaskList, error) {
+func (f *fakeTaskListManager) GetTaskList(_ context.Context, id string) (*database.TaskList, error) {
 	if f.getListErr != nil {
 		return nil, f.getListErr
 	}
@@ -167,7 +167,7 @@ func (f *fakeTaskListManager) GetTaskList(id string) (*database.TaskList, error)
 	return tl, nil
 }
 
-func (f *fakeTaskListManager) GetAllTaskLists() ([]database.TaskList, error) {
+func (f *fakeTaskListManager) GetAllTaskLists(_ context.Context) ([]database.TaskList, error) {
 	if f.getAllErr != nil {
 		return nil, f.getAllErr
 	}
@@ -178,7 +178,7 @@ func (f *fakeTaskListManager) GetAllTaskLists() ([]database.TaskList, error) {
 	return result, nil
 }
 
-func (f *fakeTaskListManager) GetTaskListStats(taskListID string) (map[string]interface{}, error) {
+func (f *fakeTaskListManager) GetTaskListStats(_ context.Context, taskListID string) (map[string]interface{}, error) {
 	if f.statsErr != nil {
 		return nil, f.statsErr
 	}
@@ -196,7 +196,7 @@ func (f *fakeTaskListManager) GetTaskListStats(taskListID string) (map[string]in
 	}, nil
 }
 
-func (f *fakeTaskListManager) CreateTask(taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
+func (f *fakeTaskListManager) CreateTask(_ context.Context, taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
 	if f.createTaskErr != nil {
 		return nil, f.createTaskErr
 	}
@@ -216,8 +216,8 @@ func (f *fakeTaskListManager) CreateTask(taskListID string, title, description, 
 	return task, nil
 }
 
-func (f *fakeTaskListManager) CreateTaskFull(taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*database.Task, error) {
-	task, err := f.CreateTask(taskListID, title, description, code, link, parentID)
+func (f *fakeTaskListManager) CreateTaskFull(ctx context.Context, taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*database.Task, error) {
+	task, err := f.CreateTask(ctx, taskListID, title, description, code, link, parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +228,7 @@ func (f *fakeTaskListManager) CreateTaskFull(taskListID string, title, descripti
 	return task, nil
 }
 
-func (f *fakeTaskListManager) GetTask(id string) (*database.Task, error) {
+func (f *fakeTaskListManager) GetTask(_ context.Context, id string) (*database.Task, error) {
 	if f.getTaskErr != nil {
 		return nil, f.getTaskErr
 	}
@@ -239,7 +239,7 @@ func (f *fakeTaskListManager) GetTask(id string) (*database.Task, error) {
 	return task, nil
 }
 
-func (f *fakeTaskListManager) FindTaskByCode(taskListID string, code string) (*database.Task, error) {
+func (f *fakeTaskListManager) FindTaskByCode(_ context.Context, taskListID string, code string) (*database.Task, error) {
 	for _, task := range f.tasks {
 		if task.TaskListID == taskListID && task.Code == code {
 			return task, nil
@@ -248,7 +248,7 @@ func (f *fakeTaskListManager) FindTaskByCode(taskListID string, code string) (*d
 	return nil, nil
 }
 
-func (f *fakeTaskListManager) UpdateTask(id string, title, description, code, link string) error {
+func (f *fakeTaskListManager) UpdateTask(_ context.Context, id string, title, description, code, link string) error {
 	if f.updateTaskErr != nil {
 		return f.updateTaskErr
 	}
@@ -267,8 +267,8 @@ func (f *fakeTaskListManager) UpdateTask(id string, title, description, code, li
 	return nil
 }
 
-func (f *fakeTaskListManager) UpdateTaskFull(id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
-	if err := f.UpdateTask(id, title, description, code, link); err != nil {
+func (f *fakeTaskListManager) UpdateTaskFull(ctx context.Context, id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	if err := f.UpdateTask(ctx, id, title, description, code, link); err != nil {
 		return err
 	}
 	task := f.tasks[id]
@@ -279,7 +279,7 @@ func (f *fakeTaskListManager) UpdateTaskFull(id string, title, description, code
 	return nil
 }
 
-func (f *fakeTaskListManager) UpdateTaskAssignee(id string, assigneeName, assigneeID string) error {
+func (f *fakeTaskListManager) UpdateTaskAssignee(_ context.Context, id string, assigneeName, assigneeID string) error {
 	task, ok := f.tasks[id]
 	if !ok {
 		return fmt.Errorf("task not found: %s", id)
@@ -289,7 +289,7 @@ func (f *fakeTaskListManager) UpdateTaskAssignee(id string, assigneeName, assign
 	return nil
 }
 
-func (f *fakeTaskListManager) UpdateTaskStatus(id string, newStatusID int) error {
+func (f *fakeTaskListManager) UpdateTaskStatus(_ context.Context, id string, newStatusID int) error {
 	if f.updateStatErr != nil {
 		return f.updateStatErr
 	}
@@ -349,7 +349,7 @@ func (f *fakeTaskListManager) UpdateTaskStatus(id string, newStatusID int) error
 	return fmt.Errorf("transição de status %d para %d não é permitida pelo workflow", task.StatusID, newStatusID)
 }
 
-func (f *fakeTaskListManager) DeleteTask(id string) error {
+func (f *fakeTaskListManager) DeleteTask(_ context.Context, id string) error {
 	if f.deleteTaskErr != nil {
 		return f.deleteTaskErr
 	}
@@ -360,7 +360,7 @@ func (f *fakeTaskListManager) DeleteTask(id string) error {
 	return nil
 }
 
-func (f *fakeTaskListManager) MoveTaskToList(taskID string, targetTaskListID string) (*database.Task, error) {
+func (f *fakeTaskListManager) MoveTaskToList(_ context.Context, taskID string, targetTaskListID string) (*database.Task, error) {
 	task, ok := f.tasks[taskID]
 	if !ok {
 		return nil, fmt.Errorf("task not found: %s", taskID)
@@ -381,7 +381,7 @@ func (f *fakeTaskListManager) MoveTaskToList(taskID string, targetTaskListID str
 	return task, nil
 }
 
-func (f *fakeTaskListManager) GetWorkflow(taskListID string) (*database.TaskListWorkflow, error) {
+func (f *fakeTaskListManager) GetWorkflow(_ context.Context, taskListID string) (*database.TaskListWorkflow, error) {
 	if f.getWorkflowErr != nil {
 		return nil, f.getWorkflowErr
 	}
@@ -392,7 +392,7 @@ func (f *fakeTaskListManager) GetWorkflow(taskListID string) (*database.TaskList
 	return wf, nil
 }
 
-func (f *fakeTaskListManager) CreateTaskNote(taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
+func (f *fakeTaskListManager) CreateTaskNote(_ context.Context, taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
 	if f.createNoteErr != nil {
 		return nil, f.createNoteErr
 	}
@@ -414,7 +414,7 @@ func (f *fakeTaskListManager) CreateTaskNote(taskID string, noteType database.Ta
 	return &sl[len(sl)-1], nil
 }
 
-func (f *fakeTaskListManager) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
+func (f *fakeTaskListManager) UpsertTaskNoteByExternal(_ context.Context, p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
 	if f.createNoteErr != nil {
 		return nil, false, f.createNoteErr
 	}
@@ -465,15 +465,15 @@ func (f *fakeTaskListManager) UpsertTaskNoteByExternal(p database.UpsertTaskNote
 	id := fmt.Sprintf("%d", f.nextNoteID)
 	f.nextNoteID++
 	note := database.TaskNote{
-		TaskID:              p.TaskID,
-		Type:                *p.Type,
-		Content:             p.Content,
-		AuthorName:          strings.TrimSpace(p.AuthorName),
-		AuthorID:            strings.TrimSpace(p.AuthorID),
-		ExternalSource:      src,
-		ExternalID:          ext,
-		ExternalParentID:    strings.TrimSpace(p.ExternalParentID),
-		ExternalUpdatedAt:   p.ExternalUpdatedAt,
+		TaskID:            p.TaskID,
+		Type:              *p.Type,
+		Content:           p.Content,
+		AuthorName:        strings.TrimSpace(p.AuthorName),
+		AuthorID:          strings.TrimSpace(p.AuthorID),
+		ExternalSource:    src,
+		ExternalID:        ext,
+		ExternalParentID:  strings.TrimSpace(p.ExternalParentID),
+		ExternalUpdatedAt: p.ExternalUpdatedAt,
 	}
 	note.ID = id
 	f.notes[p.TaskID] = append(f.notes[p.TaskID], note)
@@ -482,7 +482,7 @@ func (f *fakeTaskListManager) UpsertTaskNoteByExternal(p database.UpsertTaskNote
 	return &sl[len(sl)-1], true, nil
 }
 
-func (f *fakeTaskListManager) UpdateTaskNote(noteID string, content string) error {
+func (f *fakeTaskListManager) UpdateTaskNote(_ context.Context, noteID string, content string) error {
 	for taskID, notes := range f.notes {
 		for i, n := range notes {
 			if n.ID == noteID {
@@ -494,14 +494,14 @@ func (f *fakeTaskListManager) UpdateTaskNote(noteID string, content string) erro
 	return fmt.Errorf("note not found: %s", noteID)
 }
 
-func (f *fakeTaskListManager) GetTaskNotes(taskID string) ([]database.TaskNote, error) {
+func (f *fakeTaskListManager) GetTaskNotes(_ context.Context, taskID string) ([]database.TaskNote, error) {
 	if f.getNotesErr != nil {
 		return nil, f.getNotesErr
 	}
 	return f.notes[taskID], nil
 }
 
-func (f *fakeTaskListManager) GetTaskNote(noteID string) (*database.TaskNote, error) {
+func (f *fakeTaskListManager) GetTaskNote(_ context.Context, noteID string) (*database.TaskNote, error) {
 	for _, notes := range f.notes {
 		for i, n := range notes {
 			if n.ID == noteID {
@@ -512,7 +512,7 @@ func (f *fakeTaskListManager) GetTaskNote(noteID string) (*database.TaskNote, er
 	return nil, fmt.Errorf("note not found: %s", noteID)
 }
 
-func (f *fakeTaskListManager) UpdateTaskListFull(id string, title, description, preferredViewMode string, slug *string) error {
+func (f *fakeTaskListManager) UpdateTaskListFull(_ context.Context, id string, title, description, preferredViewMode string, slug *string) error {
 	tl, ok := f.taskLists[id]
 	if !ok {
 		return fmt.Errorf("task list not found: %s", id)
@@ -537,7 +537,7 @@ func (f *fakeTaskListManager) UpdateTaskListFull(id string, title, description, 
 	return nil
 }
 
-func (f *fakeTaskListManager) ResolveTaskListRef(taskListID *string, taskListSlug string) (string, error) {
+func (f *fakeTaskListManager) ResolveTaskListRef(_ context.Context, taskListID *string, taskListSlug string) (string, error) {
 	var idVal string
 	if taskListID != nil {
 		idVal = *taskListID
@@ -574,7 +574,7 @@ func (f *fakeTaskListManager) ResolveTaskListRef(taskListID *string, taskListSlu
 	return idVal, nil
 }
 
-func (f *fakeTaskListManager) ResolveTaskRef(taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
+func (f *fakeTaskListManager) ResolveTaskRef(ctx context.Context, taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
 	codeTrim := strings.TrimSpace(code)
 	var idVal string
 	if taskID != nil {
@@ -604,7 +604,7 @@ func (f *fakeTaskListManager) ResolveTaskRef(taskListID *string, taskListSlug st
 	}
 
 	if !hasID && hasCode {
-		listID, err := f.ResolveTaskListRef(listPtr, taskListSlug)
+		listID, err := f.ResolveTaskListRef(ctx, listPtr, taskListSlug)
 		if err != nil {
 			return "", err
 		}
@@ -624,7 +624,7 @@ func (f *fakeTaskListManager) ResolveTaskRef(taskListID *string, taskListSlug st
 		return "", fmt.Errorf("task_id %s e code %q não correspondem à mesma task", idVal, codeTrim)
 	}
 	if hasListRef {
-		listID, err := f.ResolveTaskListRef(listPtr, taskListSlug)
+		listID, err := f.ResolveTaskListRef(ctx, listPtr, taskListSlug)
 		if err != nil {
 			return "", err
 		}
@@ -635,7 +635,7 @@ func (f *fakeTaskListManager) ResolveTaskRef(taskListID *string, taskListSlug st
 	return task.ID, nil
 }
 
-func (f *fakeTaskListManager) ResolveTaskIDByTaskCode(taskListID *string, taskCode string) (string, error) {
+func (f *fakeTaskListManager) ResolveTaskIDByTaskCode(_ context.Context, taskListID *string, taskCode string) (string, error) {
 	codeTrim := strings.TrimSpace(taskCode)
 	if codeTrim == "" {
 		return "", fmt.Errorf("task_code não pode ser vazio")
@@ -666,7 +666,7 @@ func (f *fakeTaskListManager) ResolveTaskIDByTaskCode(taskListID *string, taskCo
 	}
 }
 
-func (f *fakeTaskListManager) SetTaskListValidationPolicy(id string, policyJSON string) error {
+func (f *fakeTaskListManager) SetTaskListValidationPolicy(_ context.Context, id string, policyJSON string) error {
 	tl, ok := f.taskLists[id]
 	if !ok {
 		return fmt.Errorf("task list not found: %s", id)
@@ -689,7 +689,7 @@ func fakeListPolicy(f *fakeTaskListManager, taskListID string) (*database.TaskLi
 	return database.ParseTaskListValidationPolicyJSON(tl.ValidationPolicy)
 }
 
-func (f *fakeTaskListManager) UpdateWorkflowFull(taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+func (f *fakeTaskListManager) UpdateWorkflowFull(_ context.Context, taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
 	wf, ok := f.workflows[taskListID]
 	if !ok {
 		return fmt.Errorf("workflow not found for task list: %s", taskListID)
@@ -747,7 +747,7 @@ func (f *fakeTaskListManager) UpdateWorkflowFull(taskListID string, statuses []d
 	return nil
 }
 
-func (f *fakeTaskListManager) GetTaskCountsByStatus(taskListID string) (map[int]int64, error) {
+func (f *fakeTaskListManager) GetTaskCountsByStatus(_ context.Context, taskListID string) (map[int]int64, error) {
 	counts := make(map[int]int64)
 	for _, task := range f.tasks {
 		if task.TaskListID == taskListID {
@@ -944,8 +944,8 @@ func TestTask_ReadWithNotes(t *testing.T) {
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 
-	mgr.CreateTaskNote(task.ID, 1, "First note", "Alice", "")   //nolint:errcheck
-	mgr.CreateTaskNote(task.ID, 2, "Customer replied", "Bob", "") //nolint:errcheck
+	mgr.CreateTaskNote(context.Background(), task.ID, 1, "First note", "Alice", "")     //nolint:errcheck
+	mgr.CreateTaskNote(context.Background(), task.ID, 2, "Customer replied", "Bob", "") //nolint:errcheck
 
 	tool := NewTask(mgr)
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
@@ -1518,7 +1518,7 @@ func TestUpsertTaskNote_CreateWithListSlugAndCode(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("unexpected error: %s", result.Content)
 	}
-	notes, _ := mgr.GetTaskNotes(task.ID)
+	notes, _ := mgr.GetTaskNotes(context.Background(), task.ID)
 	if len(notes) != 1 || notes[0].Content != "via slug+code" {
 		t.Fatalf("expected one note on task, got %+v", notes)
 	}
@@ -1551,7 +1551,7 @@ func TestUpsertTaskNote_UpdateSuccess(t *testing.T) {
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 
-	note, _ := mgr.CreateTaskNote(task.ID, 1, "Original content", "Alice", "")
+	note, _ := mgr.CreateTaskNote(context.Background(), task.ID, 1, "Original content", "Alice", "")
 	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1568,7 +1568,7 @@ func TestUpsertTaskNote_UpdateSuccess(t *testing.T) {
 	if !strings.Contains(result.Content, "updated") {
 		t.Fatalf("expected 'updated' in content, got: %s", result.Content)
 	}
-	updated, _ := mgr.GetTaskNote(note.ID)
+	updated, _ := mgr.GetTaskNote(context.Background(), note.ID)
 	if updated.Content != "Updated content" {
 		t.Errorf("expected content 'Updated content', got '%s'", updated.Content)
 	}
@@ -1599,7 +1599,7 @@ func TestUpsertTaskNote_UpdateWrongTask(t *testing.T) {
 	task1 := mgr.addTask(tl.ID, "Task 1", 1)
 	task2 := mgr.addTask(tl.ID, "Task 2", 1)
 
-	note, _ := mgr.CreateTaskNote(task1.ID, 1, "Note on task 1", "Alice", "")
+	note, _ := mgr.CreateTaskNote(context.Background(), task1.ID, 1, "Note on task 1", "Alice", "")
 	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1721,15 +1721,15 @@ func TestUpsertTaskNote_ExternalIdempotentTwice(t *testing.T) {
 	tool := NewTaskNote(mgr)
 
 	base := map[string]any{
-		"task_id":              task.ID,
-		"type":                 2,
-		"source":               "jira",
-		"external_id":          "comment-98765",
-		"external_parent_id":   "FSD-123",
-		"author_name":          "Fulano",
-		"author_id":            "abc",
-		"content":              "Comentário vindo do Jira",
-		"external_updated_at":  "2026-04-08T12:00:00Z",
+		"task_id":             task.ID,
+		"type":                2,
+		"source":              "jira",
+		"external_id":         "comment-98765",
+		"external_parent_id":  "FSD-123",
+		"author_name":         "Fulano",
+		"author_id":           "abc",
+		"content":             "Comentário vindo do Jira",
+		"external_updated_at": "2026-04-08T12:00:00Z",
 	}
 	r1, err := tool.Execute(context.Background(), mustMarshal(t, base))
 	if err != nil || r1.IsError {
@@ -1755,7 +1755,7 @@ func TestUpsertTaskNote_ExternalIdempotentTwice(t *testing.T) {
 	if r2.Metadata["action"] != "updated" {
 		t.Fatalf("expected updated, got %#v", r2.Metadata)
 	}
-	notes, _ := mgr.GetTaskNotes(task.ID)
+	notes, _ := mgr.GetTaskNotes(context.Background(), task.ID)
 	if len(notes) != 1 {
 		t.Fatalf("expected 1 note, got %d", len(notes))
 	}
@@ -1784,7 +1784,7 @@ func TestUpsertTaskNote_ExternalUpdateWithoutType(t *testing.T) {
 	if err != nil || r2.IsError {
 		t.Fatalf("update without type: %v %s", err, r2.Content)
 	}
-	notes, _ := mgr.GetTaskNotes(task.ID)
+	notes, _ := mgr.GetTaskNotes(context.Background(), task.ID)
 	if len(notes) != 1 || notes[0].Content != "v2" {
 		t.Fatalf("notes: %+v", notes)
 	}
@@ -1840,7 +1840,7 @@ func TestUpsertTaskNote_ExternalConflictDifferentTask(t *testing.T) {
 func TestUpsertTaskNote_ByTaskCode_ManualCreate(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	task, err := mgr.CreateTask(tl.ID, "Issue", "", "FSD-12345", "", nil)
+	task, err := mgr.CreateTask(context.Background(), tl.ID, "Issue", "", "FSD-12345", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1854,7 +1854,7 @@ func TestUpsertTaskNote_ByTaskCode_ManualCreate(t *testing.T) {
 	if err != nil || r.IsError {
 		t.Fatalf("execute: %v %s", err, r.Content)
 	}
-	notes, _ := mgr.GetTaskNotes(task.ID)
+	notes, _ := mgr.GetTaskNotes(context.Background(), task.ID)
 	if len(notes) != 1 || notes[0].Content != "nota via code" {
 		t.Fatalf("notes: %+v", notes)
 	}
@@ -1863,7 +1863,7 @@ func TestUpsertTaskNote_ByTaskCode_ManualCreate(t *testing.T) {
 func TestUpsertTaskNote_ExternalByTaskCode_Idempotent(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	task, err := mgr.CreateTask(tl.ID, "Issue", "", "FSD-12345", "", nil)
+	task, err := mgr.CreateTask(context.Background(), tl.ID, "Issue", "", "FSD-12345", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1893,7 +1893,7 @@ func TestUpsertTaskNote_ExternalByTaskCode_Idempotent(t *testing.T) {
 	if id1 != id2 {
 		t.Fatalf("expected same note id")
 	}
-	notes, _ := mgr.GetTaskNotes(task.ID)
+	notes, _ := mgr.GetTaskNotes(context.Background(), task.ID)
 	if len(notes) != 1 || notes[0].Content != "Comentário sincronizado (v2)" {
 		t.Fatalf("notes: %+v", notes)
 	}
@@ -1902,7 +1902,7 @@ func TestUpsertTaskNote_ExternalByTaskCode_Idempotent(t *testing.T) {
 func TestUpsertTaskNote_TaskCodeNotFound(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	_, _ = mgr.CreateTask(tl.ID, "Issue", "", "OTHER", "", nil)
+	_, _ = mgr.CreateTask(context.Background(), tl.ID, "Issue", "", "OTHER", "", nil)
 	tool := NewTaskNote(mgr)
 
 	r, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1922,8 +1922,8 @@ func TestUpsertTaskNote_TaskCodeAmbiguous(t *testing.T) {
 	mgr := newFakeManager()
 	tl1 := mgr.addTaskList("A", defaultStatuses())
 	tl2 := mgr.addTaskList("B", defaultStatuses())
-	_, _ = mgr.CreateTask(tl1.ID, "t", "", "SAME", "", nil)
-	_, _ = mgr.CreateTask(tl2.ID, "t", "", "SAME", "", nil)
+	_, _ = mgr.CreateTask(context.Background(), tl1.ID, "t", "", "SAME", "", nil)
+	_, _ = mgr.CreateTask(context.Background(), tl2.ID, "t", "", "SAME", "", nil)
 	tool := NewTaskNote(mgr)
 
 	r, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1945,8 +1945,8 @@ func TestUpsertTaskNote_TaskCodeWithListSlug_Disambiguates(t *testing.T) {
 	tl1.Slug = "lista-a"
 	tl2 := mgr.addTaskList("B", defaultStatuses())
 	tl2.Slug = "lista-b"
-	taskB, _ := mgr.CreateTask(tl2.ID, "t", "", "KEY", "", nil)
-	_, _ = mgr.CreateTask(tl1.ID, "t", "", "KEY", "", nil)
+	taskB, _ := mgr.CreateTask(context.Background(), tl2.ID, "t", "", "KEY", "", nil)
+	_, _ = mgr.CreateTask(context.Background(), tl1.ID, "t", "", "KEY", "", nil)
 	tool := NewTaskNote(mgr)
 
 	r, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1958,7 +1958,7 @@ func TestUpsertTaskNote_TaskCodeWithListSlug_Disambiguates(t *testing.T) {
 	if err != nil || r.IsError {
 		t.Fatalf("execute: %v %s", err, r.Content)
 	}
-	notes, _ := mgr.GetTaskNotes(taskB.ID)
+	notes, _ := mgr.GetTaskNotes(context.Background(), taskB.ID)
 	if len(notes) != 1 || notes[0].Content != "scoped" {
 		t.Fatalf("expected note on task B, notes=%+v", notes)
 	}
@@ -1967,7 +1967,7 @@ func TestUpsertTaskNote_TaskCodeWithListSlug_Disambiguates(t *testing.T) {
 func TestUpsertTaskNote_TaskIDWithMismatchedTaskCode(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	task, _ := mgr.CreateTask(tl.ID, "Issue", "", "FSD-1", "", nil)
+	task, _ := mgr.CreateTask(context.Background(), tl.ID, "Issue", "", "FSD-1", "", nil)
 	tool := NewTaskNote(mgr)
 
 	r, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1989,7 +1989,7 @@ func TestTask_ReadNotesIncludeExternalFields(t *testing.T) {
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	ts := time.Date(2026, 4, 8, 15, 30, 0, 0, time.UTC)
-	_, _, _ = mgr.UpsertTaskNoteByExternal(database.UpsertTaskNoteByExternalParams{
+	_, _, _ = mgr.UpsertTaskNoteByExternal(context.Background(), database.UpsertTaskNoteByExternalParams{
 		TaskID:            task.ID,
 		Type:              ptrTaskNoteType(database.TaskNoteCustomer),
 		Content:           "synced",

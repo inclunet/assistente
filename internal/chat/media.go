@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -58,7 +59,7 @@ func ExtractAudio(mediaJSON string) (audioBase64, mimeType string) {
 
 // TranscribeFunc abstrai a transcrição de áudio sem acoplar este pacote ao internal/speech.
 // Retorna o texto transcrito ou string vazia em caso de falha (nunca erro fatal).
-type TranscribeFunc func(audioBase64, filename string) (string, error)
+type TranscribeFunc func(ctx context.Context, audioBase64, filename string) (string, error)
 
 // MediaHistoryLoader carrega o histórico de conversa convertendo mídias para o formato LLM.
 type MediaHistoryLoader struct {
@@ -68,9 +69,9 @@ type MediaHistoryLoader struct {
 }
 
 // Load retorna as mensagens formatadas para o LLM e o resumo existente da conversa.
-func (l *MediaHistoryLoader) Load(conversationID string) ([]llm.Message, string, error) {
+func (l *MediaHistoryLoader) Load(ctx context.Context, conversationID string) ([]llm.Message, string, error) {
 	h := HistoryLoader{Repo: l.Repo, MaxMsgs: l.MaxMsgs}
-	dbMessages, existingSummary, err := h.Load(conversationID)
+	dbMessages, existingSummary, err := h.Load(ctx, conversationID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -96,7 +97,7 @@ func (l *MediaHistoryLoader) Load(conversationID string) ([]llm.Message, string,
 		if m.Media != "" {
 			var mediaParts []map[string]interface{}
 			if err := json.Unmarshal([]byte(m.Media), &mediaParts); err == nil {
-				msg.Content = l.convertMediaParts(mediaParts, m.Content)
+				msg.Content = l.convertMediaParts(ctx, mediaParts, m.Content)
 			} else {
 				msg.Content = m.Content
 			}
@@ -111,7 +112,7 @@ func (l *MediaHistoryLoader) Load(conversationID string) ([]llm.Message, string,
 }
 
 // convertMediaParts converte os mediaParts do banco para o formato multimodal do LLM.
-func (l *MediaHistoryLoader) convertMediaParts(mediaParts []map[string]interface{}, textContent string) []interface{} {
+func (l *MediaHistoryLoader) convertMediaParts(ctx context.Context, mediaParts []map[string]interface{}, textContent string) []interface{} {
 	var content []interface{}
 
 	// Se já existe transcrição de áudio no Content, inclui como texto inicial
@@ -144,7 +145,7 @@ func (l *MediaHistoryLoader) convertMediaParts(mediaParts []map[string]interface
 				log.Printf("[Media] Áudio ignorado no histórico — já temos transcrição no content")
 				continue
 			}
-			content = append(content, l.convertAudioPart(data, mediaType)...)
+			content = append(content, l.convertAudioPart(ctx, data, mediaType)...)
 
 		case mediaType == "application/pdf" || strings.HasPrefix(mediaType, "text/"):
 			content = append(content, map[string]interface{}{
@@ -177,7 +178,7 @@ func (l *MediaHistoryLoader) convertMediaParts(mediaParts []map[string]interface
 }
 
 // convertAudioPart converte um áudio para formato LLM, transcrevendo via Whisper se necessário.
-func (l *MediaHistoryLoader) convertAudioPart(data, mediaType string) []interface{} {
+func (l *MediaHistoryLoader) convertAudioPart(ctx context.Context, data, mediaType string) []interface{} {
 	audioFmt := strings.TrimPrefix(mediaType, "audio/")
 
 	if SupportedAudioFormats[audioFmt] {
@@ -194,7 +195,7 @@ func (l *MediaHistoryLoader) convertAudioPart(data, mediaType string) []interfac
 	if l.Transcribe != nil {
 		filename := WhisperFilename(audioFmt)
 		log.Printf("[Media] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
-		text, err := l.Transcribe(data, filename)
+		text, err := l.Transcribe(ctx, data, filename)
 		if err != nil {
 			log.Printf("[Media] Erro ao transcrever %s via Whisper: %v", audioFmt, err)
 		} else if text != "" {
@@ -218,7 +219,7 @@ func (l *MediaHistoryLoader) convertAudioPart(data, mediaType string) []interfac
 //   - Converte formatos de áudio não suportados (aac, ogg, webm, etc.) para texto via Whisper
 //   - Se audioSupported é false, transcreve todo áudio com Whisper
 //   - Se docSupported é false, converte documentos em texto placeholder
-func PreprocessMessages(messages []llm.Message, transcribe TranscribeFunc, audioSupported *bool, docSupported *bool) []llm.Message {
+func PreprocessMessages(ctx context.Context, messages []llm.Message, transcribe TranscribeFunc, audioSupported *bool, docSupported *bool) []llm.Message {
 	for i, msg := range messages {
 		content, ok := msg.Content.([]interface{})
 		if !ok {
@@ -251,7 +252,7 @@ func PreprocessMessages(messages []llm.Message, transcribe TranscribeFunc, audio
 						if audioData != "" && transcribe != nil {
 							filename := WhisperFilename(audioFmt)
 							log.Printf("[Preprocess] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
-							text, err := transcribe(audioData, filename)
+							text, err := transcribe(ctx, audioData, filename)
 							if err != nil {
 								log.Printf("[Preprocess] Erro ao transcrever áudio %s: %v", audioFmt, err)
 							} else if text != "" {

@@ -1,6 +1,10 @@
 package chat
 
-import "assistente/internal/database"
+import (
+	"context"
+
+	"assistente/internal/database"
+)
 
 // DBMessageStore implementa MessageRepository usando o banco de dados SQLite via GORM.
 type DBMessageStore struct{}
@@ -8,48 +12,81 @@ type DBMessageStore struct{}
 // NewDBMessageStore cria um DBMessageStore pronto para uso.
 func NewDBMessageStore() *DBMessageStore { return &DBMessageStore{} }
 
-func (s *DBMessageStore) CreateMessage(opts database.MessageOptions) (*database.ChatMessage, error) {
-	return database.CreateMessage(opts)
+func (s *DBMessageStore) CreateMessage(ctx context.Context, opts database.MessageOptions) (*database.ChatMessage, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.CreateMessageWithContext(ctx, opts)
 }
 
-func (s *DBMessageStore) GetMessage(messageID string) (*database.ChatMessage, error) {
-	return database.GetMessage(messageID)
+func (s *DBMessageStore) GetMessage(ctx context.Context, messageID string) (*database.ChatMessage, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetMessageWithContext(ctx, messageID)
 }
 
-func (s *DBMessageStore) GetMessages(conversationID string, parentID *string) ([]database.ChatMessage, error) {
-	return database.GetMessages(conversationID, parentID)
+func (s *DBMessageStore) GetMessages(ctx context.Context, conversationID string, parentID *string) ([]database.ChatMessage, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetMessagesWithContext(ctx, conversationID, parentID)
 }
 
-func (s *DBMessageStore) GetConversationSummary(conversationID string) (string, string, error) {
-	return database.GetConversationSummary(conversationID)
+func (s *DBMessageStore) GetConversationSummary(ctx context.Context, conversationID string) (string, string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return "", "", err
+	}
+	return database.GetConversationSummaryWithContext(ctx, conversationID)
 }
 
-func (s *DBMessageStore) GetDetailedTokenStats(conversationID string, summaryUpToMessageID string) (*database.DetailedTokenStats, error) {
-	return database.GetDetailedTokenStats(conversationID, summaryUpToMessageID)
+func (s *DBMessageStore) GetDetailedTokenStats(ctx context.Context, conversationID string, summaryUpToMessageID string) (*database.DetailedTokenStats, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetDetailedTokenStatsWithContext(ctx, conversationID, summaryUpToMessageID)
 }
 
-func (s *DBMessageStore) GetContextWindowUsage(conversationID string, contextLimit int) (float64, int, error) {
-	return database.GetContextWindowUsage(conversationID, contextLimit)
+func (s *DBMessageStore) GetContextWindowUsage(ctx context.Context, conversationID string, contextLimit int) (float64, int, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return 0, 0, err
+	}
+	return database.GetContextWindowUsageWithContext(ctx, conversationID, contextLimit)
 }
 
-func (s *DBMessageStore) GetRecentMessagesTokenCount(conversationID string, messageLimit int) (int, error) {
-	return database.GetRecentMessagesTokenCount(conversationID, messageLimit)
+func (s *DBMessageStore) GetRecentMessagesTokenCount(ctx context.Context, conversationID string, messageLimit int) (int, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return 0, err
+	}
+	return database.GetRecentMessagesTokenCountWithContext(ctx, conversationID, messageLimit)
 }
 
-func (s *DBMessageStore) GetTurnTokenStats(conversationID string, turnID string) (*database.TokenStats, error) {
-	return database.GetTurnTokenStats(conversationID, turnID)
+func (s *DBMessageStore) GetTurnTokenStats(ctx context.Context, conversationID string, turnID string) (*database.TokenStats, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTurnTokenStatsWithContext(ctx, conversationID, turnID)
 }
 
-func (s *DBMessageStore) AddAssistantToolMessage(conversationID, turnID string, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
-	return database.AddAssistantToolMessage(conversationID, turnID, content, toolCalls, reasoning, model)
+func (s *DBMessageStore) AddAssistantToolMessage(ctx context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.AddAssistantToolMessageWithContext(ctx, conversationID, turnID, content, toolCalls, reasoning, model)
 }
 
-func (s *DBMessageStore) AddToolResultMessage(conversationID, turnID string, content, toolCallID string) (*database.ChatMessage, error) {
-	return database.AddToolResultMessage(conversationID, turnID, content, toolCallID)
+func (s *DBMessageStore) AddToolResultMessage(ctx context.Context, conversationID, turnID string, content, toolCallID string) (*database.ChatMessage, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.AddToolResultMessageWithContext(ctx, conversationID, turnID, content, toolCallID)
 }
 
-func (s *DBMessageStore) SearchMessages(query string, limit int) ([]database.MessageSearchResult, error) {
-	return database.SearchMessageContent(query, limit)
+func (s *DBMessageStore) SearchMessages(ctx context.Context, query string, limit int) ([]database.MessageSearchResult, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.SearchMessageContentWithContext(ctx, query, limit)
 }
 
 // DBConversationStore implementa ConversationRepository usando o banco de dados SQLite via GORM.
@@ -58,14 +95,23 @@ type DBConversationStore struct{}
 // NewDBConversationStore cria um DBConversationStore pronto para uso.
 func NewDBConversationStore() *DBConversationStore { return &DBConversationStore{} }
 
-func (s *DBConversationStore) GetConversationInfo(id string) (*database.Conversation, error) {
-	return database.GetConversationInfo(id)
+func (s *DBConversationStore) GetConversationInfo(ctx context.Context, id string) (*database.Conversation, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetConversationInfoWithContext(ctx, id)
 }
 
-func (s *DBConversationStore) UpdateConversation(id string, title, model string) error {
-	return database.UpdateConversation(id, title, model)
+func (s *DBConversationStore) UpdateConversation(ctx context.Context, id string, title, model string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateConversationWithContext(ctx, id, title, model)
 }
 
-func (s *DBConversationStore) UpdateConversationChannel(id string, channel, contactID string) error {
-	return database.UpdateConversationChannel(id, channel, contactID)
+func (s *DBConversationStore) UpdateConversationChannel(ctx context.Context, id string, channel, contactID string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateConversationChannelWithContext(ctx, id, channel, contactID)
 }

@@ -1,6 +1,7 @@
 package portability
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,8 +14,8 @@ import (
 	"gorm.io/gorm"
 )
 
-func exportTaskList(taskListID string) (TaskListExport, error) {
-	taskList, err := database.GetTaskList(taskListID)
+func exportTaskListWithContext(ctx context.Context, taskListID string) (TaskListExport, error) {
+	taskList, err := database.GetTaskListWithContext(ctx, taskListID)
 	if err != nil {
 		return TaskListExport{}, err
 	}
@@ -181,15 +182,15 @@ func derefString(value *string) string {
 	return *value
 }
 
-func importTaskList(taskList TaskListExport) (bool, error) {
-	if existing, err := findExistingTaskListByExport(taskList); err != nil {
+func importTaskList(ctx context.Context, taskList TaskListExport) (bool, error) {
+	if existing, err := findExistingTaskListByExport(ctx, taskList); err != nil {
 		return false, err
 	} else if existing != nil {
-		return overwriteTaskList(taskList)
+		return overwriteTaskList(ctx, taskList)
 	}
 
-	err := database.DB().Transaction(func(tx *gorm.DB) error {
-		return persistTaskList(tx, taskList, nil)
+	err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return persistTaskList(ctx, tx, taskList, nil)
 	})
 	if err != nil {
 		return false, err
@@ -198,17 +199,17 @@ func importTaskList(taskList TaskListExport) (bool, error) {
 	return true, nil
 }
 
-func overwriteTaskList(taskList TaskListExport) (bool, error) {
-	existing, err := findExistingTaskListByExport(taskList)
+func overwriteTaskList(ctx context.Context, taskList TaskListExport) (bool, error) {
+	existing, err := findExistingTaskListByExport(ctx, taskList)
 	if err != nil {
 		return false, err
 	}
 	if existing == nil {
-		return importTaskList(taskList)
+		return importTaskList(ctx, taskList)
 	}
 
-	err = database.DB().Transaction(func(tx *gorm.DB) error {
-		return persistTaskList(tx, taskList, existing)
+	err = database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return persistTaskList(ctx, tx, taskList, existing)
 	})
 	if err != nil {
 		return false, err
@@ -217,7 +218,7 @@ func overwriteTaskList(taskList TaskListExport) (bool, error) {
 	return true, nil
 }
 
-func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.TaskList) error {
+func persistTaskList(ctx context.Context, tx *gorm.DB, taskList TaskListExport, existing *database.TaskList) error {
 	taskListID := strings.TrimSpace(taskList.ID)
 	if taskListID == "" {
 		return fmt.Errorf("tasklist %q sem id não pode ser importada no formato version %d", taskList.Title, ExportVersion)
@@ -266,6 +267,9 @@ func persistTaskList(tx *gorm.DB, taskList TaskListExport, existing *database.Ta
 		Description:       taskList.Description,
 		PreferredViewMode: viewMode,
 		ValidationPolicy:  strings.TrimSpace(taskList.ValidationPolicy),
+	}
+	if userID, ok := database.UserIDFromContext(ctx); ok {
+		model.UserID = userID
 	}
 	if existing == nil {
 		if err := tx.Create(&model).Error; err != nil {
@@ -464,10 +468,10 @@ func importTaskNode(
 	return nil
 }
 
-func findExistingTaskListByExport(taskList TaskListExport) (*database.TaskList, error) {
+func findExistingTaskListByExport(ctx context.Context, taskList TaskListExport) (*database.TaskList, error) {
 	if id := strings.TrimSpace(taskList.ID); id != "" {
 		var existing database.TaskList
-		err := database.DB().Where("id = ?", id).First(&existing).Error
+		err := database.ScopeByUser(ctx, database.DB(), "user_id").Where("id = ?", id).First(&existing).Error
 		if err == nil {
 			return &existing, nil
 		}

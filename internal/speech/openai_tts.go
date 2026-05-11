@@ -408,8 +408,11 @@ func (c *TTSClient) listModelsSafe(ctx context.Context) (page *pagination.Page[o
 }
 
 // FetchTTSModels retorna modelos disponíveis para TTS.
-func (c *TTSClient) FetchTTSModels() ([]TTSModelInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (c *TTSClient) FetchTTSModels(ctx context.Context) ([]TTSModelInfo, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	page, err := c.listModelsSafe(ctx)
@@ -435,7 +438,7 @@ func (c *TTSClient) FetchTTSModels() ([]TTSModelInfo, error) {
 }
 
 // FetchVoices retorna vozes disponíveis para um modelo TTS específico.
-func (c *TTSClient) FetchVoices(modelID string) ([]TTSVoiceInfo, error) {
+func (c *TTSClient) FetchVoices(_ context.Context, modelID string) ([]TTSVoiceInfo, error) {
 	if modelID == "" {
 		return nil, fmt.Errorf("model is required to list TTS voices")
 	}
@@ -714,8 +717,11 @@ func isSTTModel(id string) bool {
 // FetchSTTModels retorna modelos STT disponíveis no provider.
 // Busca via /v1/models e filtra por prefixo "whisper" ou sufixo "-transcribe".
 // Em caso de falha, retorna a lista estática.
-func (c *TTSClient) FetchSTTModels() []SpeechModelInfo {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (c *TTSClient) FetchSTTModels(ctx context.Context) []SpeechModelInfo {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	page, err := c.listModelsSafe(ctx)

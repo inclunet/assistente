@@ -29,44 +29,45 @@ func setupTaskResolveTestDB(t *testing.T) {
 
 func TestResolveTaskIDByIDAndCode(t *testing.T) {
 	setupTaskResolveTestDB(t)
-	list, err := CreateTaskList("L", "", nil, "my-list")
+	ctx := testCtx()
+	list, err := CreateTaskListWithContext(ctx, "L", "", nil, "my-list")
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := CreateTask(list.ID, "T", "", "ABC-1", "", nil)
+	task, err := CreateTaskWithContext(ctx, list.ID, "T", "", "ABC-1", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	id := task.ID
 	idPtr := id
 
-	got, err := ResolveTaskID(nil, "", &idPtr, "")
+	got, err := ResolveTaskIDWithContext(ctx, nil, "", &idPtr, "")
 	if err != nil || got != id {
 		t.Fatalf("by id only: got %s err %v", got, err)
 	}
 
-	got, err = ResolveTaskID(nil, "", &idPtr, "ABC-1")
+	got, err = ResolveTaskIDWithContext(ctx, nil, "", &idPtr, "ABC-1")
 	if err != nil || got != id {
 		t.Fatalf("by id+code: got %s err %v", got, err)
 	}
 
-	_, err = ResolveTaskID(nil, "", &idPtr, "WRONG")
+	_, err = ResolveTaskIDWithContext(ctx, nil, "", &idPtr, "WRONG")
 	if err == nil {
 		t.Fatal("expected code mismatch")
 	}
 
 	lid := list.ID
-	got, err = ResolveTaskID(&lid, "my-list", &idPtr, "ABC-1")
+	got, err = ResolveTaskIDWithContext(ctx, &lid, "my-list", &idPtr, "ABC-1")
 	if err != nil || got != id {
 		t.Fatalf("by id+code+list: got %s err %v", got, err)
 	}
 
-	got, err = ResolveTaskID(nil, "my-list", nil, "ABC-1")
+	got, err = ResolveTaskIDWithContext(ctx, nil, "my-list", nil, "ABC-1")
 	if err != nil || got != id {
 		t.Fatalf("by slug+code: got %s err %v", got, err)
 	}
 
-	_, err = ResolveTaskID(nil, "", nil, "ABC-1")
+	_, err = ResolveTaskIDWithContext(ctx, nil, "", nil, "ABC-1")
 	if err == nil {
 		t.Fatal("expected error without list for code-only")
 	}
@@ -74,12 +75,13 @@ func TestResolveTaskIDByIDAndCode(t *testing.T) {
 
 func TestResolveTaskIDListMismatchWithCode(t *testing.T) {
 	setupTaskResolveTestDB(t)
-	a, _ := CreateTaskList("A", "", nil, "list-a")
-	b, _ := CreateTaskList("B", "", nil, "list-b")
-	task, _ := CreateTask(a.ID, "T", "", "X", "", nil)
+	ctx := testCtx()
+	a, _ := CreateTaskListWithContext(ctx, "A", "", nil, "list-a")
+	b, _ := CreateTaskListWithContext(ctx, "B", "", nil, "list-b")
+	task, _ := CreateTaskWithContext(ctx, a.ID, "T", "", "X", "", nil)
 	idPtr := task.ID
 	bid := b.ID
-	_, err := ResolveTaskID(&bid, "", &idPtr, "X")
+	_, err := ResolveTaskIDWithContext(ctx, &bid, "", &idPtr, "X")
 	if err == nil {
 		t.Fatal("expected list mismatch when id+code+wrong list")
 	}
@@ -87,15 +89,16 @@ func TestResolveTaskIDListMismatchWithCode(t *testing.T) {
 
 func TestResolveTaskIDByTaskCode_GlobalUnique(t *testing.T) {
 	setupTaskResolveTestDB(t)
-	list, err := CreateTaskList("L", "", nil, "my-list")
+	ctx := testCtx()
+	list, err := CreateTaskListWithContext(ctx, "L", "", nil, "my-list")
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := CreateTask(list.ID, "T", "", "FSD-99", "", nil)
+	task, err := CreateTaskWithContext(ctx, list.ID, "T", "", "FSD-99", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := ResolveTaskIDByTaskCode(nil, "FSD-99")
+	got, err := ResolveTaskIDByTaskCodeWithContext(ctx, nil, "FSD-99")
 	if err != nil || got != task.ID {
 		t.Fatalf("got %s err %v", got, err)
 	}
@@ -103,9 +106,10 @@ func TestResolveTaskIDByTaskCode_GlobalUnique(t *testing.T) {
 
 func TestResolveTaskIDByTaskCode_NotFound(t *testing.T) {
 	setupTaskResolveTestDB(t)
-	list, _ := CreateTaskList("L", "", nil, "my-list")
-	_, _ = CreateTask(list.ID, "T", "", "ONLY", "", nil)
-	_, err := ResolveTaskIDByTaskCode(nil, "MISSING")
+	ctx := testCtx()
+	list, _ := CreateTaskListWithContext(ctx, "L", "", nil, "my-list")
+	_, _ = CreateTaskWithContext(ctx, list.ID, "T", "", "ONLY", "", nil)
+	_, err := ResolveTaskIDByTaskCodeWithContext(ctx, nil, "MISSING")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -113,16 +117,17 @@ func TestResolveTaskIDByTaskCode_NotFound(t *testing.T) {
 
 func TestResolveTaskIDByTaskCode_Ambiguous(t *testing.T) {
 	setupTaskResolveTestDB(t)
-	a, _ := CreateTaskList("A", "", nil, "la")
-	b, _ := CreateTaskList("B", "", nil, "lb")
-	ta, _ := CreateTask(a.ID, "T", "", "DUP", "", nil)
-	_, _ = CreateTask(b.ID, "T", "", "DUP", "", nil)
-	_, err := ResolveTaskIDByTaskCode(nil, "DUP")
+	ctx := testCtx()
+	a, _ := CreateTaskListWithContext(ctx, "A", "", nil, "la")
+	b, _ := CreateTaskListWithContext(ctx, "B", "", nil, "lb")
+	ta, _ := CreateTaskWithContext(ctx, a.ID, "T", "", "DUP", "", nil)
+	_, _ = CreateTaskWithContext(ctx, b.ID, "T", "", "DUP", "", nil)
+	_, err := ResolveTaskIDByTaskCodeWithContext(ctx, nil, "DUP")
 	if err == nil {
 		t.Fatal("expected ambiguous error")
 	}
 	lid := a.ID
-	got, err := ResolveTaskIDByTaskCode(&lid, "DUP")
+	got, err := ResolveTaskIDByTaskCodeWithContext(ctx, &lid, "DUP")
 	if err != nil || got != ta.ID {
 		t.Fatalf("got %s err %v want %s", got, err, ta.ID)
 	}
@@ -130,11 +135,12 @@ func TestResolveTaskIDByTaskCode_Ambiguous(t *testing.T) {
 
 func TestResolveTaskIDByTaskCode_ScopedNotFound(t *testing.T) {
 	setupTaskResolveTestDB(t)
-	a, _ := CreateTaskList("A", "", nil, "la")
-	b, _ := CreateTaskList("B", "", nil, "lb")
-	_, _ = CreateTask(a.ID, "T", "", "X1", "", nil)
+	ctx := testCtx()
+	a, _ := CreateTaskListWithContext(ctx, "A", "", nil, "la")
+	b, _ := CreateTaskListWithContext(ctx, "B", "", nil, "lb")
+	_, _ = CreateTaskWithContext(ctx, a.ID, "T", "", "X1", "", nil)
 	lid := b.ID
-	_, err := ResolveTaskIDByTaskCode(&lid, "X1")
+	_, err := ResolveTaskIDByTaskCodeWithContext(ctx, &lid, "X1")
 	if err == nil {
 		t.Fatal("expected not found in list B")
 	}

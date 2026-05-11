@@ -11,6 +11,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/profiles"
+	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
 
@@ -44,9 +45,11 @@ var _ events.Emitter = (*spyEmitter)(nil)
 // noopConvRepo is a minimal ConversationRepository for tests.
 type noopConvRepo struct{}
 
-func (noopConvRepo) GetConversationInfo(_ string) (*Conversation, error) { return nil, nil }
-func (noopConvRepo) UpdateConversation(_ string, _, _ string) error      { return nil }
-func (noopConvRepo) UpdateConversationChannel(_ string, _, _ string) error {
+func (noopConvRepo) GetConversationInfo(_ context.Context, _ string) (*Conversation, error) {
+	return nil, nil
+}
+func (noopConvRepo) UpdateConversation(_ context.Context, _ string, _, _ string) error { return nil }
+func (noopConvRepo) UpdateConversationChannel(_ context.Context, _ string, _, _ string) error {
 	return nil
 }
 
@@ -61,50 +64,58 @@ type retryMessageRepoStub struct {
 	getMessage func(messageID string) (*database.ChatMessage, error)
 }
 
-func (r *retryMessageRepoStub) CreateMessage(_ MessageOptions) (*Message, error) {
+type staticWorkspaceProvider struct {
+	ws *workspace.Workspace
+}
+
+func (s staticWorkspaceProvider) Active() *workspace.Workspace {
+	return s.ws
+}
+
+func (r *retryMessageRepoStub) CreateMessage(_ context.Context, _ MessageOptions) (*Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetMessage(messageID string) (*Message, error) {
+func (r *retryMessageRepoStub) GetMessage(_ context.Context, messageID string) (*Message, error) {
 	if r.getMessage != nil {
 		return r.getMessage(messageID)
 	}
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetMessages(_ string, _ *string) ([]Message, error) {
+func (r *retryMessageRepoStub) GetMessages(_ context.Context, _ string, _ *string) ([]Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetConversationSummary(_ string) (string, string, error) {
+func (r *retryMessageRepoStub) GetConversationSummary(_ context.Context, _ string) (string, string, error) {
 	return "", "", nil
 }
 
-func (r *retryMessageRepoStub) GetDetailedTokenStats(_ string, _ string) (*DetailedTokenStats, error) {
+func (r *retryMessageRepoStub) GetDetailedTokenStats(_ context.Context, _ string, _ string) (*DetailedTokenStats, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetContextWindowUsage(_ string, _ int) (float64, int, error) {
+func (r *retryMessageRepoStub) GetContextWindowUsage(_ context.Context, _ string, _ int) (float64, int, error) {
 	return 0, 0, nil
 }
 
-func (r *retryMessageRepoStub) GetRecentMessagesTokenCount(_ string, _ int) (int, error) {
+func (r *retryMessageRepoStub) GetRecentMessagesTokenCount(_ context.Context, _ string, _ int) (int, error) {
 	return 0, nil
 }
 
-func (r *retryMessageRepoStub) GetTurnTokenStats(_ string, _ string) (*database.TokenStats, error) {
+func (r *retryMessageRepoStub) GetTurnTokenStats(_ context.Context, _ string, _ string) (*database.TokenStats, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) AddAssistantToolMessage(_ string, _ string, _, _, _, _ string) (*Message, error) {
+func (r *retryMessageRepoStub) AddAssistantToolMessage(_ context.Context, _ string, _ string, _, _, _, _ string) (*Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) AddToolResultMessage(_ string, _ string, _, _ string) (*Message, error) {
+func (r *retryMessageRepoStub) AddToolResultMessage(_ context.Context, _ string, _ string, _, _ string) (*Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) SearchMessages(_ string, _ int) ([]MessageSearchResult, error) {
+func (r *retryMessageRepoStub) SearchMessages(_ context.Context, _ string, _ int) ([]MessageSearchResult, error) {
 	return nil, nil
 }
 
@@ -224,7 +235,7 @@ func TestGetRetryableUserMessage_ReturnsDomainErrorWhenMessageNotFound(t *testin
 		},
 	})
 
-	msg, err := interactor.GetRetryableUserMessage("7", "42")
+	msg, err := interactor.GetRetryableUserMessage(context.Background(), "7", "42")
 	if msg != nil {
 		t.Fatalf("expected nil message, got %+v", msg)
 	}
@@ -239,7 +250,7 @@ func TestGetRetryableUserMessage_ReturnsDomainErrorWhenMessageNotFound(t *testin
 func TestGetRetryableUserMessage_ReturnsErrorWhenRepositoryIsUnavailable(t *testing.T) {
 	interactor := NewInteractor(InteractorConfig{})
 
-	msg, err := interactor.GetRetryableUserMessage("7", "42")
+	msg, err := interactor.GetRetryableUserMessage(context.Background(), "7", "42")
 	if msg != nil {
 		t.Fatalf("expected nil message, got %+v", msg)
 	}
@@ -251,7 +262,20 @@ func TestGetRetryableUserMessage_ReturnsErrorWhenRepositoryIsUnavailable(t *test
 	}
 }
 
-func TestPrepareContext_ProfileSlugInheritsProviderAndModelFromActiveProfile(t *testing.T) {
+// TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile
+// é o teste de regressão do bug "selecionei perfil Y mas o app usa X
+// do perfil global". A versão antiga do interactor chamava
+// `inheritProfileRoutingFields(panel, globalActive)` e qualquer campo
+// de routing vazio em `panel` virava silenciosamente o do global,
+// produzindo um Active profile híbrido — o perfil escolhido herdando
+// provider/model de OUTRO perfil sem nenhum sinal pra UI ou pro user.
+//
+// O comportamento correto é: cada profile vive sozinho. Profiles
+// legacy com campos vazios são normalizados na carga (`Manager.Get`)
+// para `$default`, o sentinela explícito que `ResolveProfileDefaults`
+// já sabe resolver para o provider default do user. NUNCA o valor
+// concreto de OUTRO profile.
+func TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile(t *testing.T) {
 	spy := &spyEmitter{}
 	profileMgr := setupProfileTestEnv(t)
 
@@ -270,6 +294,9 @@ func TestPrepareContext_ProfileSlugInheritsProviderAndModelFromActiveProfile(t *
 		t.Fatalf("set active profile: %v", err)
 	}
 
+	// Panel legacy: salvo no disco com campos de routing VAZIOS.
+	// Manager.Get vai normalizar para `$default` na leitura — esse é o
+	// valor que o interactor deve devolver, NÃO os concretos do global.
 	panel := profiles.DefaultProfile()
 	panel.Name = "Perfil do Editor"
 	panel.Active = false
@@ -307,19 +334,102 @@ func TestPrepareContext_ProfileSlugInheritsProviderAndModelFromActiveProfile(t *
 	if resp == nil || resp.ActiveProfile == nil {
 		t.Fatal("expected activeProfile in response")
 	}
-	if resp.ActiveProfile.Chat.LLMProvider != "provider-global" {
-		t.Fatalf("LLMProvider = %q, want provider-global", resp.ActiveProfile.Chat.LLMProvider)
+
+	// CONTRATO: o profile escolhido NÃO herda nada do global ativo.
+	// Campos de routing legacy vazios viram `$default` (sentinela
+	// resolvido por providers.Service.ResolveProfileDefaults), que é
+	// o valor explícito de "use o default do user", não o valor
+	// concreto de outro profile.
+	if resp.ActiveProfile.Chat.LLMProvider != profiles.DefaultProviderSentinel {
+		t.Fatalf("LLMProvider = %q, want %q (cross-profile leak detected)", resp.ActiveProfile.Chat.LLMProvider, profiles.DefaultProviderSentinel)
 	}
-	if resp.ActiveProfile.Chat.Model != "model-global" {
-		t.Fatalf("Model = %q, want model-global", resp.ActiveProfile.Chat.Model)
+	if resp.ActiveProfile.Chat.Model != profiles.DefaultProviderSentinel {
+		t.Fatalf("Model = %q, want %q (cross-profile leak detected)", resp.ActiveProfile.Chat.Model, profiles.DefaultProviderSentinel)
 	}
-	if resp.ActiveProfile.Voice.Assistant.LLMProviderID != "voice-global" {
-		t.Fatalf("Voice.Assistant.LLMProviderID = %q, want voice-global", resp.ActiveProfile.Voice.Assistant.LLMProviderID)
+	if resp.ActiveProfile.Voice.Assistant.LLMProviderID != profiles.DefaultProviderSentinel {
+		t.Fatalf("Voice.Assistant.LLMProviderID = %q, want %q (cross-profile leak detected)", resp.ActiveProfile.Voice.Assistant.LLMProviderID, profiles.DefaultProviderSentinel)
 	}
-	if resp.ActiveProfile.Input.LLMProviderID != "stt-global" {
-		t.Fatalf("Input.LLMProviderID = %q, want stt-global", resp.ActiveProfile.Input.LLMProviderID)
+	if resp.ActiveProfile.Input.LLMProviderID != profiles.DefaultProviderSentinel {
+		t.Fatalf("Input.LLMProviderID = %q, want %q (cross-profile leak detected)", resp.ActiveProfile.Input.LLMProviderID, profiles.DefaultProviderSentinel)
 	}
+
+	// E os campos não-routing do panel preservados intactos.
 	if resp.ActiveProfile.Chat.Temperature != 0.2 {
 		t.Fatalf("Temperature = %v, want 0.2", resp.ActiveProfile.Chat.Temperature)
+	}
+	if resp.ActiveProfile.Name != "Perfil do Editor" {
+		t.Fatalf("Name = %q, want %q", resp.ActiveProfile.Name, "Perfil do Editor")
+	}
+}
+
+func TestPrepareContext_ResolvePerfilDoWorkspaceQuandoParamsNaoTrazemSlug(t *testing.T) {
+	spy := &spyEmitter{}
+	profileMgr := setupProfileTestEnv(t)
+
+	active := profiles.DefaultProfile()
+	active.Name = "Padrão"
+	active.Active = true
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatalf("create active profile: %v", err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatalf("set active profile: %v", err)
+	}
+
+	qwen := profiles.DefaultProfile()
+	qwen.Name = "Qwen4"
+	qwen.Active = false
+	qwen.Chat.LLMProvider = "localai-provider"
+	qwenSlug, err := profileMgr.Create(qwen)
+	if err != nil {
+		t.Fatalf("create qwen profile: %v", err)
+	}
+
+	inter := NewInteractor(InteractorConfig{
+		Emitter:    spy,
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
+			ID:      "ws-1",
+			Name:    "Workspace",
+			Profile: activeSlug,
+			Tabs: workspace.TabsState{
+				Active: "tab-chat",
+				Items: []workspace.Tab{
+					{
+						ID:             "tab-chat",
+						Type:           workspace.TabTypeChat,
+						ConversationID: "conv-1",
+						ProfileOverride: map[string]any{
+							"slug": qwenSlug,
+						},
+					},
+				},
+			},
+		}},
+	})
+
+	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		Source:         "wails",
+		Params: ChatParams{
+			SurfaceTabID: "tab-chat",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if resp == nil || resp.ActiveProfile == nil {
+		t.Fatal("expected activeProfile in response")
+	}
+	if resp.Params.ProfileSlug != qwenSlug {
+		t.Fatalf("ProfileSlug = %q, want %q", resp.Params.ProfileSlug, qwenSlug)
+	}
+	if resp.ActiveProfile.Name != "Qwen4" {
+		t.Fatalf("active profile = %q, want Qwen4", resp.ActiveProfile.Name)
+	}
+	if resp.ActiveProfile.Chat.LLMProvider != "localai-provider" {
+		t.Fatalf("LLMProvider = %q, want localai-provider", resp.ActiveProfile.Chat.LLMProvider)
 	}
 }

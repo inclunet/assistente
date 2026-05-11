@@ -263,6 +263,16 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     apiFormat: 'openai',
     tts: DYNAMIC_TTS,
   },
+  llamacpp: {
+    label: 'llama.cpp (server)',
+    defaultUrl: 'http://localhost:8080',
+    urlEditable: true,
+    apiKeyRequired: false,
+    testRequiresApiKey: false,
+    helpText: 'llama.cpp server (--api-server). API key is not required by default.',
+    apiFormat: 'openai',
+    tts: NO_TTS,
+  },
 
   // --- Proxy ---
   litellm: {

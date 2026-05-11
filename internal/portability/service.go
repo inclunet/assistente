@@ -23,11 +23,19 @@ var supportedPortableResourceTypes = map[string]struct{}{
 }
 
 func ExportConversations(ids []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
-	return ExportPortableData(ids, nil, nil, credMgr, req, appVersion)
+	return ExportConversationsWithContext(context.Background(), ids, credMgr, req, appVersion)
+}
+
+func ExportConversationsWithContext(ctx context.Context, ids []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
+	return ExportPortableDataWithContext(ctx, ids, nil, nil, credMgr, req, appVersion)
 }
 
 func ExportPortableData(conversationIDs []string, providerIDs []string, taskListIDs []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
-	file, err := BuildExportFile(conversationIDs, providerIDs, taskListIDs, credMgr, req, appVersion)
+	return ExportPortableDataWithContext(context.Background(), conversationIDs, providerIDs, taskListIDs, credMgr, req, appVersion)
+}
+
+func ExportPortableDataWithContext(ctx context.Context, conversationIDs []string, providerIDs []string, taskListIDs []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (string, error) {
+	file, err := BuildExportFileWithContext(ctx, conversationIDs, providerIDs, taskListIDs, credMgr, req, appVersion)
 	if err != nil {
 		return "", err
 	}
@@ -40,18 +48,26 @@ func ExportPortableData(conversationIDs []string, providerIDs []string, taskList
 }
 
 func BuildConversationExportFile(ids []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
-	return BuildExportFile(ids, nil, nil, credMgr, req, appVersion)
+	return BuildConversationExportFileWithContext(context.Background(), ids, credMgr, req, appVersion)
+}
+
+func BuildConversationExportFileWithContext(ctx context.Context, ids []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
+	return BuildExportFileWithContext(ctx, ids, nil, nil, credMgr, req, appVersion)
 }
 
 func BuildExportFile(conversationIDs []string, providerIDs []string, taskListIDs []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
-	conversations, err := buildConversationExports(conversationIDs, req.IncludeAudio)
+	return BuildExportFileWithContext(context.Background(), conversationIDs, providerIDs, taskListIDs, credMgr, req, appVersion)
+}
+
+func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, providerIDs []string, taskListIDs []string, credMgr *credentials.Manager, req ExportRequest, appVersion string) (*ExportFile, error) {
+	conversations, err := buildConversationExports(ctx, conversationIDs, req.IncludeAudio)
 	if err != nil {
 		return nil, err
 	}
 
 	providers := make([]ProviderExport, 0, len(providerIDs))
 	for _, id := range providerIDs {
-		provider, err := database.GetLLMProvider(id)
+		provider, err := database.GetLLMProviderWithContext(ctx, id)
 		if err != nil {
 			return nil, fmt.Errorf("erro ao buscar provider %s: %w", id, err)
 		}
@@ -60,7 +76,7 @@ func BuildExportFile(conversationIDs []string, providerIDs []string, taskListIDs
 
 	taskLists := make([]TaskListExport, 0, len(taskListIDs))
 	for _, id := range taskListIDs {
-		taskList, err := exportTaskList(id)
+		taskList, err := exportTaskListWithContext(ctx, id)
 		if err != nil {
 			return nil, fmt.Errorf("erro ao buscar tasklist %s: %w", id, err)
 		}
@@ -86,7 +102,7 @@ func BuildExportFile(conversationIDs []string, providerIDs []string, taskListIDs
 		if credMgr == nil || !credMgr.CanPersist() {
 			return nil, fmt.Errorf("cofre de credenciais indisponível para exportação")
 		}
-		creds, err := exportCredentials(credMgr)
+		creds, err := exportCredentials(ctx, credMgr)
 		if err != nil {
 			return nil, err
 		}
@@ -100,7 +116,7 @@ func BuildExportFile(conversationIDs []string, providerIDs []string, taskListIDs
 	return file, nil
 }
 
-func buildConversationExports(conversationIDs []string, includeAudio bool) ([]ConversationExport, error) {
+func buildConversationExports(ctx context.Context, conversationIDs []string, includeAudio bool) ([]ConversationExport, error) {
 	if len(conversationIDs) == 0 {
 		return nil, nil
 	}
@@ -120,7 +136,7 @@ func buildConversationExports(conversationIDs []string, includeAudio bool) ([]Co
 	}
 
 	var conversations []database.Conversation
-	if err := database.DB().
+	if err := database.ScopeByUser(ctx, database.DB(), "user_id").
 		Where("id IN ?", uniqueIDs).
 		Find(&conversations).Error; err != nil {
 		return nil, fmt.Errorf("erro ao buscar conversas para exportação: %w", err)
@@ -187,7 +203,7 @@ func ImportConversationsWithResolutions(
 	if err := validateCredentialEnvelope(file); err != nil {
 		return nil, err
 	}
-	analysis, err := analyzeImportFile(file, credMgr, credentialPassword)
+	analysis, err := analyzeImportFile(ctx, file, credMgr, credentialPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +230,7 @@ func ImportConversationsWithResolutions(
 			result.SkippedEmptyConversations++
 			continue
 		}
-		imported, err := importConversation(conv, file.Options.IncludeAudio)
+		imported, err := importConversation(ctx, conv, file.Options.IncludeAudio)
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
 			result.Failed++
@@ -226,7 +242,7 @@ func ImportConversationsWithResolutions(
 	}
 
 	for _, provider := range file.Resources.Providers {
-		imported, err := importProvider(provider)
+		imported, err := importProvider(ctx, provider)
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
 			result.Failed++
@@ -238,7 +254,7 @@ func ImportConversationsWithResolutions(
 	}
 
 	for _, taskList := range file.Resources.TaskLists {
-		imported, err := importTaskList(taskList)
+		imported, err := importTaskList(ctx, taskList)
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
 			result.Failed++
@@ -288,6 +304,13 @@ func ImportConversationsWithResolutions(
 }
 
 func AnalyzeImportData(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
+	return AnalyzeImportDataWithContext(context.Background(), jsonData, credMgr, credentialPassword)
+}
+
+func AnalyzeImportDataWithContext(ctx context.Context, jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	file, unsupportedResourceTypes, err := parseExportFile(jsonData)
 	if err != nil {
 		return nil, err
@@ -298,7 +321,7 @@ func AnalyzeImportData(jsonData string, credMgr *credentials.Manager, credential
 	if err := validateCredentialEnvelope(file); err != nil {
 		return nil, err
 	}
-	analysis, err := analyzeImportFile(file, credMgr, credentialPassword)
+	analysis, err := analyzeImportFile(ctx, file, credMgr, credentialPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -371,15 +394,15 @@ func exportConversation(conv *database.Conversation, includeAudio bool) Conversa
 	}
 }
 
-func importConversation(conv ConversationExport, includeAudio bool) (bool, error) {
-	if existing, err := findExistingConversationForImport(conv); err != nil {
+func importConversation(ctx context.Context, conv ConversationExport, includeAudio bool) (bool, error) {
+	if existing, err := findExistingConversationForImport(ctx, conv); err != nil {
 		return false, err
 	} else if existing != nil {
-		return overwriteConversationByExisting(conv, includeAudio, existing)
+		return overwriteConversationByExisting(ctx, conv, includeAudio, existing)
 	}
 
-	err := database.DB().Transaction(func(tx *gorm.DB) error {
-		newConv, err := createImportedConversation(tx, conv)
+	err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		newConv, err := createImportedConversation(ctx, tx, conv)
 		if err != nil {
 			return err
 		}
@@ -392,8 +415,8 @@ func importConversation(conv ConversationExport, includeAudio bool) (bool, error
 	return true, nil
 }
 
-func overwriteConversationByExisting(conv ConversationExport, includeAudio bool, existing *database.Conversation) (bool, error) {
-	err := database.DB().Transaction(func(tx *gorm.DB) error {
+func overwriteConversationByExisting(ctx context.Context, conv ConversationExport, includeAudio bool, existing *database.Conversation) (bool, error) {
+	err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		updatedAt := conv.CreatedAt
 		if updatedAt.IsZero() {
 			updatedAt = time.Now().UTC()
@@ -421,7 +444,7 @@ func overwriteConversationByExisting(conv ConversationExport, includeAudio bool,
 	return true, nil
 }
 
-func createImportedConversation(tx *gorm.DB, conv ConversationExport) (*database.Conversation, error) {
+func createImportedConversation(ctx context.Context, tx *gorm.DB, conv ConversationExport) (*database.Conversation, error) {
 	conversationID := strings.TrimSpace(conv.ID)
 	if conversationID == "" {
 		return nil, fmt.Errorf("conversa %q sem id não pode ser importada no formato version %d", conv.Title, ExportVersion)
@@ -435,6 +458,9 @@ func createImportedConversation(tx *gorm.DB, conv ConversationExport) (*database
 		Channel:   conv.Channel,
 		ContactID: conv.ContactID,
 		Summary:   conv.Summary,
+	}
+	if userID, ok := database.UserIDFromContext(ctx); ok {
+		newConv.UserID = userID
 	}
 	if !conv.CreatedAt.IsZero() {
 		newConv.CreatedAt = conv.CreatedAt
@@ -537,19 +563,19 @@ func resolveImportedMessageLink(
 	return resolveImportedMessageReference(index, idMap, label)
 }
 
-func exportCredentials(credMgr *credentials.Manager) ([]CredentialExport, error) {
-	list, err := credMgr.ListCredentials()
+func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]CredentialExport, error) {
+	list, err := credMgr.ListVisibleCredentialsWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	idByPattern := make(map[string]string)
 	var entries []database.CredentialEntry
-	if err := database.DB().Find(&entries).Error; err != nil {
+	if err := database.ScopeByUser(ctx, database.DB(), "user_id").Find(&entries).Error; err != nil {
 		return nil, fmt.Errorf("erro ao carregar credenciais persistidas para exportação: %w", err)
 	}
 	for _, entry := range entries {
 		pattern := strings.TrimSpace(entry.Pattern)
-		if pattern == "" || strings.TrimSpace(entry.ID) == "" {
+		if pattern == "" || strings.TrimSpace(entry.ID) == "" || !isPortableCredentialPattern(pattern) {
 			continue
 		}
 		idByPattern[pattern] = strings.TrimSpace(entry.ID)
@@ -557,7 +583,8 @@ func exportCredentials(credMgr *credentials.Manager) ([]CredentialExport, error)
 
 	result := make([]CredentialExport, 0, len(list))
 	for _, entry := range list {
-		if entry.Auth == nil {
+		pattern := strings.TrimSpace(entry.Pattern)
+		if entry.Auth == nil || entry.Unreadable || !isPortableCredentialPattern(pattern) {
 			continue
 		}
 		id := strings.TrimSpace(entry.ID)
@@ -566,7 +593,7 @@ func exportCredentials(credMgr *credentials.Manager) ([]CredentialExport, error)
 		}
 		result = append(result, CredentialExport{
 			ID:           id,
-			Pattern:      entry.Pattern,
+			Pattern:      pattern,
 			AuthType:     entry.Auth.Type,
 			Token:        entry.Auth.Token,
 			Username:     entry.Auth.Username,
@@ -602,6 +629,9 @@ func importCredentials(
 	imported := 0
 
 	for _, cred := range creds {
+		if err := validatePortableCredentialExport(cred); err != nil {
+			return imported, skipped, err
+		}
 		identifier := credentialConflictIdentifier(cred)
 		credentialID := strings.TrimSpace(cred.ID)
 		if _, hasConflict := conflictIdentifiers[identifier]; hasConflict {
@@ -639,6 +669,19 @@ func importCredentials(
 	return imported, skipped, nil
 }
 
+func isPortableCredentialPattern(pattern string) bool {
+	pattern = strings.TrimSpace(pattern)
+	return pattern != "" && !credentials.IsManagedPattern(pattern)
+}
+
+func validatePortableCredentialExport(cred CredentialExport) error {
+	pattern := strings.TrimSpace(cred.Pattern)
+	if !isPortableCredentialPattern(pattern) {
+		return fmt.Errorf("credencial gerenciada/interna não pode ser importada: %q", pattern)
+	}
+	return nil
+}
+
 func intPtr(v int) *int {
 	return &v
 }
@@ -650,7 +693,7 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
+func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentials.Manager, credentialPassword string) (*ImportAnalysis, error) {
 	analysis := &ImportAnalysis{
 		Version:               file.Version,
 		AppVersion:            file.AppVersion,
@@ -684,11 +727,16 @@ func analyzeImportFile(file *ExportFile, credMgr *credentials.Manager, credentia
 					analysis.Warnings = append(analysis.Warnings, "Não foi possível analisar as credenciais com a senha informada.")
 				} else {
 					analysis.CredentialCount = len(creds)
-					existingCredentialIDs, existingCredentialPatterns, err := loadExistingCredentialIdentifiers()
+					existingCredentialIDs, existingCredentialPatterns, err := loadExistingCredentialIdentifiers(ctx)
 					if err != nil {
 						return nil, fmt.Errorf("erro ao analisar credenciais existentes: %w", err)
 					}
 					for _, cred := range creds {
+						if err := validatePortableCredentialExport(cred); err != nil {
+							analysis.CredentialAnalysisError = err.Error()
+							analysis.Warnings = append(analysis.Warnings, err.Error())
+							continue
+						}
 						if id := strings.TrimSpace(cred.ID); id != "" {
 							if _, exists := existingCredentialIDs[id]; exists {
 								continue
@@ -728,20 +776,24 @@ func decodeCredentialExports(blob *CredentialCipher, credentialPassword string) 
 	return creds, nil
 }
 
-func loadExistingCredentialIdentifiers() (map[string]struct{}, map[string]struct{}, error) {
+func loadExistingCredentialIdentifiers(ctx context.Context) (map[string]struct{}, map[string]struct{}, error) {
 	var entries []database.CredentialEntry
-	if err := database.DB().Find(&entries).Error; err != nil {
+	query := database.ScopeByUser(ctx, database.DB(), "user_id")
+	if err := query.Find(&entries).Error; err != nil {
 		return nil, nil, err
 	}
 
 	ids := make(map[string]struct{}, len(entries))
 	patterns := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
+		if pattern := strings.TrimSpace(entry.Pattern); pattern != "" {
+			if !isPortableCredentialPattern(pattern) {
+				continue
+			}
+			patterns[pattern] = struct{}{}
+		}
 		if id := strings.TrimSpace(entry.ID); id != "" {
 			ids[id] = struct{}{}
-		}
-		if pattern := strings.TrimSpace(entry.Pattern); pattern != "" {
-			patterns[pattern] = struct{}{}
 		}
 	}
 	return ids, patterns, nil
@@ -849,16 +901,16 @@ func importResolutionMapKey(resourceType, identifier string) string {
 	return strings.TrimSpace(resourceType) + "|" + strings.TrimSpace(identifier)
 }
 
-func findExistingConversationForImport(conv ConversationExport) (*database.Conversation, error) {
+func findExistingConversationForImport(ctx context.Context, conv ConversationExport) (*database.Conversation, error) {
 	if id := strings.TrimSpace(conv.ID); id != "" {
-		return findExistingConversationByID(id)
+		return findExistingConversationByID(ctx, id)
 	}
 	return nil, nil
 }
 
-func findExistingConversationByID(id string) (*database.Conversation, error) {
+func findExistingConversationByID(ctx context.Context, id string) (*database.Conversation, error) {
 	var existing database.Conversation
-	err := database.DB().Where("id = ?", strings.TrimSpace(id)).First(&existing).Error
+	err := database.ScopeByUser(ctx, database.DB(), "user_id").Where("id = ?", strings.TrimSpace(id)).First(&existing).Error
 	if err == nil {
 		return &existing, nil
 	}

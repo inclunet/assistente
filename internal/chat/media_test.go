@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -15,16 +16,16 @@ type stubRepo struct {
 	sumUpTo  string
 }
 
-func (r *stubRepo) GetMessages(_ string, _ *string) ([]database.ChatMessage, error) {
+func (r *stubRepo) GetMessages(_ context.Context, _ string, _ *string) ([]database.ChatMessage, error) {
 	return r.messages, nil
 }
-func (r *stubRepo) GetConversationSummary(_ string) (string, string, error) {
+func (r *stubRepo) GetConversationSummary(_ context.Context, _ string) (string, string, error) {
 	return r.summary, r.sumUpTo, nil
 }
-func (r *stubRepo) CreateMessage(_ database.MessageOptions) (*database.ChatMessage, error) {
+func (r *stubRepo) CreateMessage(_ context.Context, _ database.MessageOptions) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *stubRepo) GetMessage(messageID string) (*database.ChatMessage, error) {
+func (r *stubRepo) GetMessage(_ context.Context, messageID string) (*database.ChatMessage, error) {
 	for i := range r.messages {
 		if r.messages[i].ID == messageID {
 			msg := r.messages[i]
@@ -33,21 +34,25 @@ func (r *stubRepo) GetMessage(messageID string) (*database.ChatMessage, error) {
 	}
 	return nil, nil
 }
-func (r *stubRepo) GetDetailedTokenStats(_ string, _ string) (*database.DetailedTokenStats, error) {
+func (r *stubRepo) GetDetailedTokenStats(_ context.Context, _ string, _ string) (*database.DetailedTokenStats, error) {
 	return nil, nil
 }
-func (r *stubRepo) GetContextWindowUsage(_ string, _ int) (float64, int, error) { return 0, 0, nil }
-func (r *stubRepo) GetRecentMessagesTokenCount(_ string, _ int) (int, error)    { return 0, nil }
-func (r *stubRepo) GetTurnTokenStats(_ string, _ string) (*database.TokenStats, error) {
+func (r *stubRepo) GetContextWindowUsage(_ context.Context, _ string, _ int) (float64, int, error) {
+	return 0, 0, nil
+}
+func (r *stubRepo) GetRecentMessagesTokenCount(_ context.Context, _ string, _ int) (int, error) {
+	return 0, nil
+}
+func (r *stubRepo) GetTurnTokenStats(_ context.Context, _ string, _ string) (*database.TokenStats, error) {
 	return nil, nil
 }
-func (r *stubRepo) AddAssistantToolMessage(_ string, _ string, _, _, _, _ string) (*database.ChatMessage, error) {
+func (r *stubRepo) AddAssistantToolMessage(_ context.Context, _ string, _ string, _, _, _, _ string) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *stubRepo) AddToolResultMessage(_ string, _ string, _, _ string) (*database.ChatMessage, error) {
+func (r *stubRepo) AddToolResultMessage(_ context.Context, _ string, _ string, _, _ string) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *stubRepo) SearchMessages(_ string, _ int) ([]database.MessageSearchResult, error) {
+func (r *stubRepo) SearchMessages(_ context.Context, _ string, _ int) ([]database.MessageSearchResult, error) {
 	return nil, nil
 }
 
@@ -81,7 +86,7 @@ func TestWhisperFilename(t *testing.T) {
 
 func TestMediaHistoryLoader_PlainText(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Content: "olá"}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +100,7 @@ func TestMediaHistoryLoader_Image(t *testing.T) {
 		{"type": "image/png", "data": "abc123", "name": "foto.png"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +116,7 @@ func TestMediaHistoryLoader_AudioSupported(t *testing.T) {
 		{"type": "audio/wav", "data": "wavdata"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,12 +134,12 @@ func TestMediaHistoryLoader_AudioUnsupported_Transcribed(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
 	loader := &MediaHistoryLoader{
 		Repo: repo,
-		Transcribe: func(audio, _ string) (string, error) {
+		Transcribe: func(_ context.Context, audio, _ string) (string, error) {
 			return "transcrição do áudio", nil
 		},
 		MaxMsgs: 100,
 	}
-	msgs, _, err := loader.Load("1")
+	msgs, _, err := loader.Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +155,7 @@ func TestMediaHistoryLoader_AudioUnsupported_NoTranscribe_Placeholder(t *testing
 		{"type": "audio/webm", "data": "webmdata"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, Transcribe: nil, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, Transcribe: nil, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +177,7 @@ func TestMediaHistoryLoader_AudioSkippedWhenHasTextContent(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{
 		{Role: "user", Content: "transcrição anterior", Media: media},
 	}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +195,7 @@ func TestMediaHistoryLoader_Document(t *testing.T) {
 		{"type": "application/pdf", "data": "pdfdata", "name": "doc.pdf"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +210,7 @@ func TestMediaHistoryLoader_Video(t *testing.T) {
 		{"type": "video/mp4", "data": "videodata", "name": "vid.mp4"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +225,7 @@ func TestMediaHistoryLoader_UnknownType_Placeholder(t *testing.T) {
 		{"type": "application/zip", "data": "zipdata", "name": "file.zip"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +240,7 @@ func TestMediaHistoryLoader_ReturnsSummary(t *testing.T) {
 		messages: []database.ChatMessage{{Role: "user", Content: "hi"}},
 		summary:  "resumo anterior",
 	}
-	_, summary, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	_, summary, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +255,7 @@ func TestMediaHistoryLoader_FiltersTool(t *testing.T) {
 		{Role: "tool", Content: "result"},
 		{Role: "assistant", Content: "tudo bem"},
 	}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +279,7 @@ func TestMediaHistoryLoader_FiltersEmptyAssistantToolCall(t *testing.T) {
 		{Role: "tool", Content: "result", ToolCallID: "x"},
 		{Role: "assistant", Content: "resposta final"},
 	}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +293,7 @@ func TestMediaHistoryLoader_KeepsAssistantWithTextAndToolCalls(t *testing.T) {
 		{Role: "user", Content: "oi"},
 		{Role: "assistant", Content: "Vou buscar...", ToolCalls: `[{"id":"x"}]`},
 	}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load("1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +333,7 @@ func fileMsg(filename, mime string) llm.Message {
 }
 
 func TestPreprocess_SupportedAudioPassthrough(t *testing.T) {
-	result := PreprocessMessages([]llm.Message{audioMsg("wav", "d")}, nil, nil, nil)
+	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("wav", "d")}, nil, nil, nil)
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
 	if m["type"] != "input_audio" {
 		t.Errorf("supported audio must pass through, got type=%v", m["type"])
@@ -337,7 +342,7 @@ func TestPreprocess_SupportedAudioPassthrough(t *testing.T) {
 
 func TestPreprocess_UnsupportedAudio_Transcribed(t *testing.T) {
 	called := false
-	result := PreprocessMessages([]llm.Message{audioMsg("aac", "d")}, func(_, _ string) (string, error) {
+	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("aac", "d")}, func(_ context.Context, _, _ string) (string, error) {
 		called = true
 		return "texto transcrito", nil
 	}, nil, nil)
@@ -351,7 +356,7 @@ func TestPreprocess_UnsupportedAudio_Transcribed(t *testing.T) {
 }
 
 func TestPreprocess_UnsupportedAudio_NoTranscribe_Placeholder(t *testing.T) {
-	result := PreprocessMessages([]llm.Message{audioMsg("ogg", "d")}, nil, nil, nil)
+	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("ogg", "d")}, nil, nil, nil)
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
 	if m["type"] != "text" {
 		t.Errorf("expected placeholder text, got type=%v", m["type"])
@@ -361,7 +366,7 @@ func TestPreprocess_UnsupportedAudio_NoTranscribe_Placeholder(t *testing.T) {
 func TestPreprocess_AudioSupportedFalse_ForcesWhisper(t *testing.T) {
 	// Mesmo wav (suportado nativamente), audioSupported=false → Whisper obrigatório
 	called := false
-	result := PreprocessMessages([]llm.Message{audioMsg("wav", "d")}, func(_, _ string) (string, error) {
+	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("wav", "d")}, func(_ context.Context, _, _ string) (string, error) {
 		called = true
 		return "whisper text", nil
 	}, boolPtr(false), nil)
@@ -375,7 +380,7 @@ func TestPreprocess_AudioSupportedFalse_ForcesWhisper(t *testing.T) {
 }
 
 func TestPreprocess_DocSupportedFalse_Placeholder(t *testing.T) {
-	result := PreprocessMessages([]llm.Message{fileMsg("rel.pdf", "application/pdf")}, nil, nil, boolPtr(false))
+	result := PreprocessMessages(context.Background(), []llm.Message{fileMsg("rel.pdf", "application/pdf")}, nil, nil, boolPtr(false))
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
 	if m["type"] != "text" || m["text"] == "" {
 		t.Errorf("expected non-empty placeholder text, got type=%v text=%v", m["type"], m["text"])
@@ -383,7 +388,7 @@ func TestPreprocess_DocSupportedFalse_Placeholder(t *testing.T) {
 }
 
 func TestPreprocess_DocSupportedTrue_Passthrough(t *testing.T) {
-	result := PreprocessMessages([]llm.Message{fileMsg("rel.pdf", "application/pdf")}, nil, nil, boolPtr(true))
+	result := PreprocessMessages(context.Background(), []llm.Message{fileMsg("rel.pdf", "application/pdf")}, nil, nil, boolPtr(true))
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
 	if m["type"] != "file" {
 		t.Errorf("doc must pass through when docSupported=true, got type=%v", m["type"])
@@ -392,7 +397,7 @@ func TestPreprocess_DocSupportedTrue_Passthrough(t *testing.T) {
 
 func TestPreprocess_StringContentUnchanged(t *testing.T) {
 	msgs := []llm.Message{{Role: "user", Content: "texto simples"}}
-	result := PreprocessMessages(msgs, nil, nil, nil)
+	result := PreprocessMessages(context.Background(), msgs, nil, nil, nil)
 	if result[0].Content != "texto simples" {
 		t.Errorf("string content must be unchanged, got %v", result[0].Content)
 	}

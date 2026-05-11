@@ -12,7 +12,7 @@ import { buildWailsMockScript } from './mocks/wails-runtime';
 export interface WailsMock {
   /** Sobrescreve a resposta de uma função Wails. Pode ser chamado antes ou depois de waitForApp. */
   setResponse: (fn: string, value: unknown) => Promise<void>;
-  /** Configura uma função Wails para rejeitar com erro. Só funciona após waitForApp. */
+  /** Configura uma função Wails para rejeitar com erro. */
   setError: (fn: string, message: string) => Promise<void>;
   /** Remove erro configurado para uma função Wails. Só funciona após waitForApp. */
   clearError: (fn: string) => Promise<void>;
@@ -22,6 +22,8 @@ export interface WailsMock {
   getCallLog: () => Promise<Array<{ fn: string; args: unknown[] }>>;
   /** Navega e espera a aplicação estar pronta (layout renderizado). */
   waitForApp: () => Promise<void>;
+  /** Navega para a aplicação sem exigir que o layout autenticado esteja visível. */
+  gotoApp: () => Promise<void>;
 }
 
 export const test = base.extend<{ wails: WailsMock }>({
@@ -31,6 +33,25 @@ export const test = base.extend<{ wails: WailsMock }>({
 
     let navigated = false;
     const pendingResponses: Array<{ fn: string; value: unknown }> = [];
+    const pendingErrors: Array<{ fn: string; message: string }> = [];
+
+    async function applyPendingMocks() {
+      if (pendingResponses.length === 0 && pendingErrors.length === 0) {
+        return;
+      }
+      const script = pendingResponses
+        .map(({ fn, value }) => {
+          const serialized = JSON.stringify(value);
+          return `window.__wailsMock.setResponse(${JSON.stringify(fn)}, ${serialized});`;
+        })
+        .concat(pendingErrors.map(({ fn, message }) => (
+          `window.__wailsMock.setError(${JSON.stringify(fn)}, ${JSON.stringify(message)});`
+        )))
+        .join('\n');
+      await page.addInitScript({ content: script });
+      pendingResponses.length = 0;
+      pendingErrors.length = 0;
+    }
 
     const mock: WailsMock = {
       async setResponse(fn: string, value: unknown) {
@@ -46,10 +67,14 @@ export const test = base.extend<{ wails: WailsMock }>({
       },
 
       async setError(fn: string, message: string) {
-        await page.evaluate(
-          ({ fn, message }) => window.__wailsMock.setError(fn, message),
-          { fn, message },
-        );
+        if (!navigated) {
+          pendingErrors.push({ fn, message });
+        } else {
+          await page.evaluate(
+            ({ fn, message }) => window.__wailsMock.setError(fn, message),
+            { fn, message },
+          );
+        }
       },
 
       async clearError(fn: string) {
@@ -72,22 +97,19 @@ export const test = base.extend<{ wails: WailsMock }>({
 
       async waitForApp() {
         // Injeta respostas pendentes como init scripts (rodam antes do app)
-        if (pendingResponses.length > 0) {
-          const script = pendingResponses
-            .map(({ fn, value }) => {
-              const serialized = JSON.stringify(value);
-              return `window.__wailsMock.setResponse(${JSON.stringify(fn)}, ${serialized});`;
-            })
-            .join('\n');
-          await page.addInitScript({ content: script });
-          pendingResponses.length = 0;
-        }
+        await applyPendingMocks();
 
         await page.goto('/');
         navigated = true;
 
         // Espera o layout principal renderizar
         await page.waitForSelector('.workspace-layout, .layout', { timeout: 15_000 });
+      },
+
+      async gotoApp() {
+        await applyPendingMocks();
+        await page.goto('/');
+        navigated = true;
       },
     };
 

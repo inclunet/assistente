@@ -2,10 +2,13 @@ package llm
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	mcplib "assistente/internal/mcp"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go/responses"
@@ -1114,6 +1117,58 @@ func TestMCPServerConfig_AllowedToolsPreserved(t *testing.T) {
 	}
 	if openaiP.mcpServers[0].AllowedTools[0] != "create_issue" {
 		t.Errorf("AllowedTools[0] = %q, want %q", openaiP.mcpServers[0].AllowedTools[0], "create_issue")
+	}
+}
+
+type noopStreamHandler struct {
+	err string
+}
+
+func (h *noopStreamHandler) OnChunk(string) {}
+
+func (h *noopStreamHandler) OnThinking(string) {}
+
+func (h *noopStreamHandler) OnThinkingDone(string) {}
+
+func (h *noopStreamHandler) OnToolCalls([]ToolCall, string, Usage, string) {}
+
+func (h *noopStreamHandler) OnError(err string) { h.err = err }
+
+func (h *noopStreamHandler) OnDone(string, Usage, string) {}
+
+func (h *noopStreamHandler) OnMCPToolEvent(MCPToolEvent) {}
+
+func TestOpenAIResponsesStreamInjectsScopedCredential(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		http.Error(w, "stop after auth capture", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	ctx := database.WithUserID(context.Background(), "user-1")
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	if err := credMgr.RegisterPatternWithContext(ctx, "llm.inclunet.com.br", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "sk-litellm-user-1",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext() error = %v", err)
+	}
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID:                "litellm-test",
+		Name:              "LiteLLM Test",
+		BaseURL:           server.URL + "/v1",
+		APIFormat:         APIFormatOpenAIResponses,
+		CredentialPattern: "llm.inclunet.com.br",
+		DefaultModel:      "test-model",
+	}, credMgr)
+
+	handler := &noopStreamHandler{}
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "hello"}}, ChatParams{Model: "test-model"}, handler)
+
+	if gotAuth != "Bearer sk-litellm-user-1" {
+		t.Fatalf("Authorization header = %q, want %q", gotAuth, "Bearer sk-litellm-user-1")
 	}
 }
 

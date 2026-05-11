@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { GetConfig, RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/app/App";
 import { EventsOn } from "@wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
+import { useAuthStore } from './store/authStore';
 import { useUIStore } from './store/uiStore';
 import { useChatStore } from './store/chatStore';
 import { parseDeepLink, executeDeepLink } from './lib/deepLinks';
@@ -16,6 +17,7 @@ import { ConfigProvider } from 'antd';
 import type { Locale } from 'antd/es/locale';
 import { getAntdTheme } from './theme/antdTheme';
 import { waitForWailsBridge } from './lib/waitForWailsBridge';
+import { AuthGate } from './components/auth/AuthGate';
 
 function useAntdLocale(lang: string): Locale | undefined {
     const [locale, setLocale] = useState<Locale | undefined>(undefined);
@@ -39,6 +41,8 @@ function App() {
     const navigate = useNavigate();
     const antLocale = useAntdLocale(i18n.language);
     const { setConfig, setLoading, setError } = useSettingsStore();
+    const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+    const authUser = useAuthStore((s) => s.user);
     const addToast = useUIStore((s) => s.addToast);
     const handleConversationDeleted = useChatStore((s) => s.handleConversationDeleted);
     const handleConversationCleared = useChatStore((s) => s.handleConversationCleared);
@@ -63,6 +67,10 @@ function App() {
         const loadConfig = async () => {
             await waitForWailsBridge({ signal: controller.signal });
             if (controller.signal.aborted) return;
+            if (!isAuthenticated || !authUser) {
+                setLoading(false);
+                return;
+            }
 
             setLoading(true);
             try {
@@ -123,7 +131,7 @@ function App() {
             console.error('Erro ao carregar configuração:', error);
         });
         return () => controller.abort();
-    }, [setConfig, setLoading, setError, addToast]);
+    }, [setConfig, setLoading, setError, addToast, isAuthenticated, authUser]);
 
     // Escuta eventos de conversa deletada/limpa
     useEffect(() => {
@@ -308,16 +316,16 @@ function App() {
     return (
         <ConfigProvider theme={getAntdTheme(theme)} locale={antLocale}>
             <ScreenReaderAnnouncer />
-            <Outlet />
-
-            <ConfirmHost />
-
-            <QuestionnaireDialog
-                isOpen={effectiveQuestionnaireOpen}
-                data={effectiveQuestionnaireData}
-                onSubmit={handleQuestionnaireSubmit}
-                onCancel={handleQuestionnaireCancel}
-            />
+            <AuthGate>
+                <Outlet />
+                <ConfirmHost />
+                <QuestionnaireDialog
+                    isOpen={effectiveQuestionnaireOpen}
+                    data={effectiveQuestionnaireData}
+                    onSubmit={handleQuestionnaireSubmit}
+                    onCancel={handleQuestionnaireCancel}
+                />
+            </AuthGate>
         </ConfigProvider>
     )
 }

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -20,7 +21,7 @@ func TestHistoryLoader_MissingSummaryUpToID_ClearsSummary(t *testing.T) {
 	}
 
 	loader := &HistoryLoader{Repo: repo, MaxMsgs: 100}
-	msgs, summary, err := loader.Load("conv-1")
+	msgs, summary, err := loader.Load(context.Background(), "conv-1")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -47,7 +48,7 @@ func TestHistoryLoader_ValidSummaryUpToID_RetainsSummary(t *testing.T) {
 	}
 
 	loader := &HistoryLoader{Repo: repo, MaxMsgs: 100}
-	msgs, summary, err := loader.Load("conv-1")
+	msgs, summary, err := loader.Load(context.Background(), "conv-1")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

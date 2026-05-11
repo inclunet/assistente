@@ -41,6 +41,8 @@ export function CheckContextWindowThreshold(arg1:string,arg2:number):Promise<boo
 
 export function CheckForUpdates():Promise<updater.UpdateInfo>;
 
+export function CreateAdminUser(arg1:any):Promise<any>;
+
 export function ClearAllChannels():Promise<void>;
 
 export function ClearAllCredentials():Promise<void>;
@@ -180,6 +182,10 @@ export function GetActiveProfileSlug():Promise<string>;
 export function GetActiveProviderInfo():Promise<Record<string, any>>;
 
 export function GetActiveWorkspace():Promise<workspace.Workspace>;
+
+export function GetAuthStatus():Promise<any>;
+
+export function GetAuthUser():Promise<any>;
 
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
 
@@ -361,6 +367,10 @@ export function ListTerminalSessions():Promise<Array<terminal.SessionInfo>>;
 
 export function ListWorkspaces():Promise<Array<workspace.WorkspaceInfo>>;
 
+export function Login(arg1:any):Promise<any>;
+
+export function Logout(arg1:any):Promise<void>;
+
 export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Workspace>;
 
 export function NeedsWelcomeWizard():Promise<boolean>;
@@ -409,6 +419,10 @@ export function RunTerminalCommand(arg1:string,arg2:string):Promise<void>;
 
 export function RunWelcomeWizard():Promise<boolean>;
 
+export function RefreshAuth(arg1:any):Promise<any>;
+
+export function SetupVault(arg1:string):Promise<string>;
+
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 
 export function SaveJob(arg1:string):Promise<void>;
@@ -430,8 +444,6 @@ export function SearchConversationHistory(arg1:string,arg2:number):Promise<Array
 export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<string>;
 
 export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promise<string>;
-
-export function SendMessageFromChannel(arg1:string,arg2:string,arg3:string,arg4:llm.ChatParams,arg5:string):Promise<string>;
 
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
 
@@ -536,6 +548,8 @@ export function UpdateTaskList(arg1:string,arg2:string,arg3:string):Promise<void
 export function UpdateTaskNote(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateTaskStatus(arg1:string,arg2:number):Promise<void>;
+
+export function UnlockVault(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateWorkflow(arg1:string,arg2:Array<database.TaskListWorkflowStatus>,arg3:Record<number, Array<number>>):Promise<void>;
 

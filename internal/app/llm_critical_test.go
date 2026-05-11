@@ -61,10 +61,10 @@ type mockMessageRepo struct {
 	err      error
 }
 
-func (r *mockMessageRepo) CreateMessage(opts database.MessageOptions) (*database.ChatMessage, error) {
+func (r *mockMessageRepo) CreateMessage(_ context.Context, opts database.MessageOptions) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *mockMessageRepo) GetMessage(messageID string) (*database.ChatMessage, error) {
+func (r *mockMessageRepo) GetMessage(_ context.Context, messageID string) (*database.ChatMessage, error) {
 	for i := range r.messages {
 		if r.messages[i].ID == messageID {
 			msg := r.messages[i]
@@ -73,34 +73,34 @@ func (r *mockMessageRepo) GetMessage(messageID string) (*database.ChatMessage, e
 	}
 	return nil, nil
 }
-func (r *mockMessageRepo) GetMessages(conversationID string, parentID *string) ([]database.ChatMessage, error) {
+func (r *mockMessageRepo) GetMessages(_ context.Context, conversationID string, parentID *string) ([]database.ChatMessage, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
 	return r.messages, nil
 }
-func (r *mockMessageRepo) GetConversationSummary(conversationID string) (string, string, error) {
+func (r *mockMessageRepo) GetConversationSummary(_ context.Context, conversationID string) (string, string, error) {
 	return r.summary, r.upToID, nil
 }
-func (r *mockMessageRepo) GetDetailedTokenStats(conversationID string, summaryUpToMessageID string) (*database.DetailedTokenStats, error) {
+func (r *mockMessageRepo) GetDetailedTokenStats(_ context.Context, conversationID string, summaryUpToMessageID string) (*database.DetailedTokenStats, error) {
 	return &database.DetailedTokenStats{}, nil
 }
-func (r *mockMessageRepo) GetContextWindowUsage(conversationID string, contextLimit int) (float64, int, error) {
+func (r *mockMessageRepo) GetContextWindowUsage(_ context.Context, conversationID string, contextLimit int) (float64, int, error) {
 	return 0, 0, nil
 }
-func (r *mockMessageRepo) GetRecentMessagesTokenCount(conversationID string, messageLimit int) (int, error) {
+func (r *mockMessageRepo) GetRecentMessagesTokenCount(_ context.Context, conversationID string, messageLimit int) (int, error) {
 	return 0, nil
 }
-func (r *mockMessageRepo) GetTurnTokenStats(conversationID string, turnID string) (*database.TokenStats, error) {
+func (r *mockMessageRepo) GetTurnTokenStats(_ context.Context, conversationID string, turnID string) (*database.TokenStats, error) {
 	return &database.TokenStats{}, nil
 }
-func (r *mockMessageRepo) AddAssistantToolMessage(conversationID, turnID string, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
+func (r *mockMessageRepo) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *mockMessageRepo) AddToolResultMessage(conversationID, turnID string, content, toolCallID string) (*database.ChatMessage, error) {
+func (r *mockMessageRepo) AddToolResultMessage(_ context.Context, conversationID, turnID string, content, toolCallID string) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *mockMessageRepo) SearchMessages(query string, limit int) ([]database.MessageSearchResult, error) {
+func (r *mockMessageRepo) SearchMessages(_ context.Context, query string, limit int) ([]database.MessageSearchResult, error) {
 	return nil, nil
 }
 
@@ -112,6 +112,7 @@ func newMinimalApp() *App {
 		emitter:          &testEmitter{},
 		responseNotifier: notifier,
 		streamMgr:        chat.NewStreamingManager(notifier),
+		currentUserID:    "test-user",
 	}
 }
 

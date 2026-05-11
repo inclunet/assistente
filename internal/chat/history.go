@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 )
@@ -16,15 +17,15 @@ type HistoryLoader struct {
 
 // Load retorna as mensagens filtradas e o resumo da conversa.
 // Os mensagens retornadas estão prontas para conversão ao formato LLM.
-func (h *HistoryLoader) Load(conversationID string) ([]Message, string, error) {
-	existingSummary, summaryUpToID, err := h.Repo.GetConversationSummary(conversationID)
+func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Message, string, error) {
+	existingSummary, summaryUpToID, err := h.Repo.GetConversationSummary(ctx, conversationID)
 	if err != nil {
 		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %s: %v", conversationID, err)
 		existingSummary = ""
 		summaryUpToID = ""
 	}
 
-	allRootMessages, err := h.Repo.GetMessages(conversationID, nil)
+	allRootMessages, err := h.Repo.GetMessages(ctx, conversationID, nil)
 	if err != nil {
 		return nil, "", err
 	}

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -88,6 +89,7 @@ type Manager struct {
 	connectCancels map[string]context.CancelFunc                          // slug -> cancel for in-flight Connect()
 	ctx            context.Context
 	cancel         context.CancelFunc
+	authContext    func() context.Context
 	roots          []Root // workspace roots globais
 	lastSelfWrite  time.Time
 }
@@ -106,6 +108,28 @@ func NewManager(registry *tools.Registry, credMgr *credentials.Manager, emitEven
 		ctx:            ctx,
 		cancel:         cancel,
 	}
+}
+
+// SetAuthContextProvider configura o contexto usado para resolver credenciais
+// user-scoped de servidores MCP.
+func (m *Manager) SetAuthContextProvider(provider func() context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.authContext = provider
+}
+
+func (m *Manager) credentialContext() context.Context {
+	m.mu.RLock()
+	provider := m.authContext
+	m.mu.RUnlock()
+	if provider == nil {
+		return context.Background()
+	}
+	ctx := provider()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 // SetSamplingHandler configura o handler para requisições de sampling dos servidores.
@@ -161,6 +185,16 @@ func (m *Manager) GetWorkspaceRoots() []Root {
 }
 
 // LoadConfigs carrega todas as configurações de servidores MCP e conecta os que têm auto_connect.
+// LoadConfigs lê os configs de servidores MCP do disco e popula o
+// estado em memória do Manager. NÃO conecta aos servidores — para isso
+// chame AutoConnectAll depois (tipicamente do reloadUserScopedRuntime
+// pós-Login, quando as credenciais user-scoped já estão em memória).
+//
+// A separação é o fix do AEP-0061: a versão antiga disparava
+// `go m.Connect(slug)` para cada server enabled+autoconnect dentro
+// daqui, e como LoadConfigs roda no startup pré-login, todos os
+// servidores OAuth perdiam a credencial em memória, caíam no fallback
+// "sem token", abriam o navegador para reauth — N janelas em paralelo.
 func (m *Manager) LoadConfigs() error {
 	files, err := m.resolver.List()
 	if err != nil {
@@ -185,6 +219,7 @@ func (m *Manager) LoadConfigs() error {
 			log.Printf("[MCP] Erro ao parsear %s: %v", f.Filename, err)
 			continue
 		}
+		m.applyInlineAuthFromConfig(slug, &cfg, data)
 		m.mu.Lock()
 		m.servers[slug] = &ServerStatus{
 			Slug:   slug,
@@ -196,18 +231,45 @@ func (m *Manager) LoadConfigs() error {
 
 		log.Printf("[MCP] Servidor carregado: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
 			slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
-
-		// Auto-connect se habilitado
-		if cfg.Enabled && cfg.AutoConnect {
-			go func(s string) {
-				if err := m.Connect(s); err != nil {
-					log.Printf("[MCP] Erro ao conectar '%s': %v", s, err)
-				}
-			}(slug)
-		}
 	}
 
 	return nil
+}
+
+// AutoConnectAll conecta sequencialmente a todos os servidores
+// `Enabled && AutoConnect`. É o caminho legítimo pós-login: o caller
+// (reloadUserScopedRuntime) já garantiu que as credenciais user-scoped
+// estão em memória, então cada Connect resolve o token sem cair no
+// flow OAuth interativo.
+//
+// Ordem é determinística (slug ordenado), serializada (um Connect por
+// vez) e cancela imediatamente se `ctx` for cancelado. Se algum
+// servidor precisar de OAuth interativo (refresh expirado de
+// verdade), o `oauthFlowArbiter` global mantém o serial — outras
+// conexões não-OAuth seguem.
+func (m *Manager) AutoConnectAll(ctx context.Context) {
+	m.mu.RLock()
+	slugs := make([]string, 0, len(m.servers))
+	for slug, s := range m.servers {
+		if s.Config.Enabled && s.Config.AutoConnect {
+			slugs = append(slugs, slug)
+		}
+	}
+	m.mu.RUnlock()
+
+	sort.Strings(slugs)
+
+	for _, slug := range slugs {
+		select {
+		case <-ctx.Done():
+			log.Printf("[MCP] AutoConnectAll cancelado: %v", ctx.Err())
+			return
+		default:
+		}
+		if err := m.connectWithContext(ctx, slug); err != nil {
+			log.Printf("[MCP] AutoConnectAll: erro ao conectar '%s': %v", slug, err)
+		}
+	}
 }
 
 // Connect conecta a um servidor MCP pelo slug.
@@ -721,10 +783,26 @@ func (m *Manager) DeleteConfig(slug string) error {
 	return nil
 }
 
-// CloseAll desconecta todos os servidores e cancela operações pendentes.
+// CloseAll desconecta todos os servidores e cancela operações
+// pendentes. É shutdown DEFINITIVO do Manager — depois desta chamada
+// o Manager não conecta mais (`m.cancel()` invalida o ctx base).
+// Use no Stop do app. Para logout/troca de user use DisconnectAll.
 func (m *Manager) CloseAll() {
 	m.cancel()
+	m.disconnectAllConnections("shutdown")
+	log.Printf("[MCP] Todos os servidores MCP desconectados")
+}
 
+// DisconnectAll fecha todas as conexões abertas SEM derrubar o
+// Manager. É o caminho do logout/troca de user: as conexões do user
+// anterior precisam soltar (porque os tokens user-scoped vão sair de
+// memória), mas o Manager continua vivo para conectar de novo
+// quando o próximo user fizer login.
+func (m *Manager) DisconnectAll() {
+	m.disconnectAllConnections("logout")
+}
+
+func (m *Manager) disconnectAllConnections(reason string) {
 	m.mu.RLock()
 	slugs := make([]string, 0, len(m.connections))
 	for slug := range m.connections {
@@ -734,11 +812,9 @@ func (m *Manager) CloseAll() {
 
 	for _, slug := range slugs {
 		if err := m.Disconnect(slug); err != nil {
-			log.Printf("[MCP] Erro ao desconectar '%s' no shutdown: %v", slug, err)
+			log.Printf("[MCP] Erro ao desconectar '%s' (%s): %v", slug, reason, err)
 		}
 	}
-
-	log.Printf("[MCP] Todos os servidores MCP desconectados")
 }
 
 // createTransport cria o transport apropriado para o tipo de servidor,
@@ -805,12 +881,12 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 				log.Printf("[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
 			}
 		}
-		client := buildPKCEHTTPClient(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate)
+		client := buildPKCEHTTPClient(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext)
 		log.Printf("[MCP:%s] HTTP client configurado com OAuth2 PKCE", slug)
 		return client
 
 	case AuthOAuth2ClientCredentials:
-		_, clientSecret := loadClientCreds(m.credMgr, slug)
+		_, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
 		if clientSecret != "" {
 			client := buildClientCredentialsHTTPClient(cfg, clientSecret)
 			log.Printf("[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
@@ -821,7 +897,7 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 
 	case AuthBearer:
 		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Token != "" {
+			if auth, err := m.credMgr.ResolveForURLWithContext(m.credentialContext(), cfg.URL); err == nil && auth != nil && auth.Token != "" {
 				client := &http.Client{
 					Transport: &bearerRoundTripper{
 						base:  newMCPTransport(),
@@ -837,7 +913,7 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 
 	case AuthBasic:
 		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Username != "" {
+			if auth, err := m.credMgr.ResolveForURLWithContext(m.credentialContext(), cfg.URL); err == nil && auth != nil && auth.Username != "" {
 				client := &http.Client{
 					Transport: &basicAuthRoundTripper{
 						base:     newMCPTransport(),
@@ -952,7 +1028,7 @@ type bearerRoundTripper struct {
 
 func (rt *bearerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned := req.Clone(req.Context())
-	cloned.Header.Set("Authorization", "Bearer "+rt.token)
+	cloned.Header.Set("Authorization", bearerAuthorizationHeader(rt.token))
 	return rt.base.RoundTrip(cloned)
 }
 
@@ -1039,7 +1115,8 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		return false, nil
 	}
 
-	auth, err := m.credMgr.GetByPattern(userTokensPattern(slug))
+	authCtx := m.credentialContext()
+	auth, err := m.credMgr.GetByPatternWithContext(authCtx, userTokensPattern(slug))
 	if err != nil || auth == nil {
 		return false, nil
 	}
@@ -1064,12 +1141,12 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		log.Printf("[MCP:%s] Token expira em %v — forçando refresh proativo", slug, timeUntilExpiry.Round(time.Second))
 	}
 
-	clientID, clientSecret := loadClientCreds(m.credMgr, slug)
+	clientID, clientSecret := loadClientCreds(authCtx, m.credMgr, slug)
 	if clientID == "" {
 		clientID = cfg.OAuth2ClientID
 	}
 
-	token := loadUserTokens(m.credMgr, slug)
+	token := loadUserTokens(authCtx, m.credMgr, slug)
 	if token == nil || token.RefreshToken == "" {
 		log.Printf("[MCP:%s] Sem refresh_token disponível para refresh", slug)
 		return false, nil
@@ -1582,10 +1659,14 @@ func (m *Manager) HandleSamplingRequest(ctx context.Context, slug string, reques
 // Skips servers that already exist (won't overwrite).
 func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 	type mcpEntry struct {
-		Command string            `json:"command"`
-		Args    []string          `json:"args"`
-		Env     map[string]string `json:"env"`
-		URL     string            `json:"url"`
+		Command     string            `json:"command"`
+		Args        []string          `json:"args"`
+		Env         map[string]string `json:"env"`
+		URL         string            `json:"url"`
+		Headers     map[string]string `json:"headers"`
+		RequestInit struct {
+			Headers map[string]string `json:"headers"`
+		} `json:"requestInit"`
 	}
 
 	// Try Cursor/Claude format: {"mcpServers": {...}}
@@ -1630,6 +1711,13 @@ func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 			AutoConnect: true,
 		}
 		cfg.applyDefaults(slug)
+		if token := extractBearerTokenFromHeaders(entry.RequestInit.Headers); token != "" {
+			cfg.AuthType = AuthBearer
+			m.importBearerCredential(slug, cfg.URL, token)
+		} else if token := extractBearerTokenFromHeaders(entry.Headers); token != "" {
+			cfg.AuthType = AuthBearer
+			m.importBearerCredential(slug, cfg.URL, token)
+		}
 
 		cfgData, err := json.MarshalIndent(cfg, "", "  ")
 		if err != nil {
@@ -1745,17 +1833,16 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 			srv.ToolNames = append(srv.ToolNames, t.FullName)
 		}
 
-		// Resolve auth token se disponível
+		// Resolve auth token se disponível (escopado pelo user vigente)
 		if m.credMgr != nil {
-			// Tenta OAuth tokens primeiro (mcp-tokens:{slug})
-			if auth, err := m.credMgr.GetByPattern(userTokensPattern(slug)); err == nil && auth != nil && auth.Token != "" {
+			authCtx := m.credentialContext()
+			if auth, err := m.credMgr.GetByPatternWithContext(authCtx, userTokensPattern(slug)); err == nil && auth != nil && auth.Token != "" {
 				srv.AuthToken = auth.Token
 				log.Printf("[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
 					slug, userTokensPattern(slug), len(auth.Token), auth.ExpiresAt)
 			} else {
-				// Fallback: tenta por hostname
 				if hostname := hostnameFromURL(status.Config.URL); hostname != "" {
-					if auth, err := m.credMgr.GetByPattern(hostname); err == nil && auth != nil && auth.Token != "" {
+					if auth, err := m.credMgr.GetByPatternWithContext(authCtx, hostname); err == nil && auth != nil && auth.Token != "" {
 						srv.AuthToken = auth.Token
 						log.Printf("[MCP] servidor %q: token resolvido por hostname (pattern=%s)", slug, hostname)
 					} else {

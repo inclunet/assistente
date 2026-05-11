@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	watchDebounce    = 500 * time.Millisecond
+	watchDebounce     = 500 * time.Millisecond
 	selfWriteCooldown = 2 * time.Second
 )
 
@@ -33,17 +33,8 @@ func (m *Manager) WatchConfigs() {
 	}
 
 	dirs := m.resolver.GetSearchPaths()
-	watching := 0
-	for _, dir := range dirs {
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			if err := watcher.Add(dir); err != nil {
-				log.Printf("[MCP:watch] Erro ao observar %s: %v", dir, err)
-			} else {
-				watching++
-				log.Printf("[MCP:watch] Observando %s", dir)
-			}
-		}
-	}
+	watchedDirs := make(map[string]struct{})
+	watching := m.addConfigWatchDirs(watcher, dirs, watchedDirs)
 
 	if watching == 0 {
 		log.Printf("[MCP:watch] Nenhum diretório de config encontrado para observar")
@@ -63,12 +54,14 @@ func (m *Manager) WatchConfigs() {
 			if !ok {
 				return
 			}
-			if !isConfigFile(ev.Name) {
-				continue
-			}
 			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) == 0 {
 				continue
 			}
+			if !shouldHandleConfigWatchEvent(ev.Name, dirs) {
+				continue
+			}
+
+			watching += m.addConfigWatchDirs(watcher, dirs, watchedDirs)
 
 			log.Printf("[MCP:watch] Arquivo alterado: %s (%s)", filepath.Base(ev.Name), ev.Op)
 			pending = true
@@ -100,6 +93,82 @@ func (m *Manager) WatchConfigs() {
 	}
 }
 
+type configWatcher interface {
+	Add(string) error
+}
+
+func (m *Manager) addConfigWatchDirs(watcher configWatcher, dirs []string, watchedDirs map[string]struct{}) int {
+	added := 0
+
+	for _, dir := range dirs {
+		if addWatchDir(watcher, dir, watchedDirs) {
+			added++
+			continue
+		}
+
+		// Se o diretório mcp ainda não existe, observa o ancestral existente
+		// mais próximo para detectar quando .assistente/mcp for criado por fora.
+		for parent := filepath.Dir(dir); parent != "." && parent != dir; parent = filepath.Dir(parent) {
+			if _, ok := watchedDirs[filepath.Clean(parent)]; ok {
+				break
+			}
+			if addWatchDir(watcher, parent, watchedDirs) {
+				added++
+				break
+			}
+		}
+	}
+
+	return added
+}
+
+func addWatchDir(watcher configWatcher, dir string, watchedDirs map[string]struct{}) bool {
+	cleanDir := filepath.Clean(dir)
+	if _, ok := watchedDirs[cleanDir]; ok {
+		return false
+	}
+
+	if info, err := os.Stat(cleanDir); err != nil || !info.IsDir() {
+		return false
+	}
+
+	if err := watcher.Add(cleanDir); err != nil {
+		log.Printf("[MCP:watch] Erro ao observar %s: %v", cleanDir, err)
+		return false
+	}
+
+	watchedDirs[cleanDir] = struct{}{}
+	log.Printf("[MCP:watch] Observando %s", cleanDir)
+	return true
+}
+
+func shouldHandleConfigWatchEvent(path string, dirs []string) bool {
+	cleanPath := filepath.Clean(path)
+
+	for _, dir := range dirs {
+		cleanDir := filepath.Clean(dir)
+		if isConfigFile(cleanPath) && isPathWithin(cleanPath, cleanDir) {
+			return true
+		}
+		if cleanPath == cleanDir {
+			return true
+		}
+		if isPathWithin(cleanDir, cleanPath) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isPathWithin(path, parent string) bool {
+	rel, err := filepath.Rel(parent, path)
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
 // syncConfigsFromDisk relê todos os configs do disco e sincroniza com o estado em memória.
 func (m *Manager) syncConfigsFromDisk() {
 	files, err := m.resolver.List()
@@ -126,6 +195,7 @@ func (m *Manager) syncConfigsFromDisk() {
 			log.Printf("[MCP:watch] Erro ao parsear %s: %v", f.Filename, err)
 			continue
 		}
+		m.applyInlineAuthFromConfig(f.Name, &cfg, data)
 
 		onDisk[f.Name] = cfg
 	}

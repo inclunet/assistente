@@ -14,6 +14,7 @@ import (
 	"assistente/internal/providers"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
+	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
 
@@ -36,6 +37,10 @@ type SystemPromptBuilder interface {
 	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
 }
 
+type WorkspaceProvider interface {
+	Active() *workspace.Workspace
+}
+
 // InteractorConfig groups all dependencies for Interactor.
 type InteractorConfig struct {
 	Emitter       events.Emitter
@@ -43,6 +48,7 @@ type InteractorConfig struct {
 	ConvRepo      ConversationRepository
 	ProviderSvc   *providers.Service
 	ProfileMgr    *profiles.Manager
+	Workspace     WorkspaceProvider
 	SkillMgr      skills.InvokerManager // optional during startup; safe to be nil
 	PromptBuilder SystemPromptBuilder   // optional during startup; safe to be nil
 }
@@ -54,34 +60,9 @@ type Interactor struct {
 	convRepo      ConversationRepository
 	providerSvc   *providers.Service
 	profileMgr    *profiles.Manager
+	workspace     WorkspaceProvider
 	skillMgr      skills.InvokerManager
 	promptBuilder SystemPromptBuilder
-}
-
-func inheritProfileRoutingFields(base *profiles.Profile, fallback *profiles.Profile) *profiles.Profile {
-	if base == nil || fallback == nil {
-		return base
-	}
-
-	merged := *base
-	merged.Chat = base.Chat
-	merged.Voice = base.Voice
-	merged.Input = base.Input
-
-	if strings.TrimSpace(merged.Chat.LLMProvider) == "" {
-		merged.Chat.LLMProvider = fallback.Chat.LLMProvider
-	}
-	if strings.TrimSpace(merged.Chat.Model) == "" {
-		merged.Chat.Model = fallback.Chat.Model
-	}
-	if strings.TrimSpace(merged.Voice.Assistant.LLMProviderID) == "" {
-		merged.Voice.Assistant.LLMProviderID = fallback.Voice.Assistant.LLMProviderID
-	}
-	if strings.TrimSpace(merged.Input.LLMProviderID) == "" {
-		merged.Input.LLMProviderID = fallback.Input.LLMProviderID
-	}
-
-	return &merged
 }
 
 // NewInteractor creates an Interactor with its required dependencies.
@@ -92,9 +73,39 @@ func NewInteractor(cfg InteractorConfig) *Interactor {
 		convRepo:      cfg.ConvRepo,
 		providerSvc:   cfg.ProviderSvc,
 		profileMgr:    cfg.ProfileMgr,
+		workspace:     cfg.Workspace,
 		skillMgr:      cfg.SkillMgr,
 		promptBuilder: cfg.PromptBuilder,
 	}
+}
+
+func (i *Interactor) resolveWorkspaceProfileSlug(conversationID string, params ChatParams) string {
+	if i.workspace == nil {
+		return ""
+	}
+	ws := i.workspace.Active()
+	if ws == nil {
+		return ""
+	}
+	if params.SurfaceTabID != "" {
+		if slug := profileSlugFromWorkspaceTab(ws.FindTab(params.SurfaceTabID)); slug != "" {
+			return slug
+		}
+	}
+	if conversationID != "" {
+		if slug := profileSlugFromWorkspaceTab(ws.FindTabByConversation(conversationID)); slug != "" {
+			return slug
+		}
+	}
+	return strings.TrimSpace(ws.Profile)
+}
+
+func profileSlugFromWorkspaceTab(tab *workspace.Tab) string {
+	if tab == nil || tab.ProfileOverride == nil {
+		return ""
+	}
+	slug, _ := tab.ProfileOverride["slug"].(string)
+	return strings.TrimSpace(slug)
 }
 
 // PrepareContextRequest carries the raw inputs for a message send request.
@@ -132,7 +143,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 
 	// 2. Verify that at least one LLM provider is configured
 	if i.providerSvc != nil {
-		providerCount, _ := i.providerSvc.Count()
+		providerCount, _ := i.providerSvc.Count(ctx)
 		if providerCount == 0 {
 			msg := "Nenhum provedor LLM configurado. Configure um provedor nas configurações."
 			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: msg})
@@ -149,13 +160,13 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 
 	// 4. Auto-rename conversation if it still has the generic default title
 	if req.UserContent != "" {
-		conv, convErr := i.convRepo.GetConversationInfo(req.ConversationID)
+		conv, convErr := i.convRepo.GetConversationInfo(ctx, req.ConversationID)
 		if convErr == nil && conv != nil && conv.Title == "Nova Conversa" {
 			title := req.UserContent
 			if len(title) > 50 {
 				title = title[:50]
 			}
-			if err := i.convRepo.UpdateConversation(req.ConversationID, title, ""); err == nil {
+			if err := i.convRepo.UpdateConversation(ctx, req.ConversationID, title, ""); err == nil {
 				i.emitter.Emit("conversation:renamed", ports.ConversationRenamedEvent{
 					ConversationID: req.ConversationID,
 					NewTitle:       title,
@@ -167,20 +178,18 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 5. Resolve active profile
 	var err error
 	var activeProfile *profiles.Profile
+	resolvedProfileSlug := req.Params.ProfileSlug
+	if resolvedProfileSlug == "" && req.Source == "wails" {
+		resolvedProfileSlug = i.resolveWorkspaceProfileSlug(req.ConversationID, req.Params)
+		req.Params.ProfileSlug = resolvedProfileSlug
+	}
 	if i.profileMgr == nil {
 		log.Printf("[PrepareContext] profileManager não inicializado — continuando sem perfil")
-	} else if req.Params.ProfileSlug != "" {
-		activeProfile, err = i.profileMgr.Get(req.Params.ProfileSlug)
+	} else if resolvedProfileSlug != "" {
+		activeProfile, err = i.profileMgr.Get(resolvedProfileSlug)
 		if err != nil {
-			log.Printf("[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", req.Params.ProfileSlug, err)
+			log.Printf("[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
 			activeProfile, err = i.profileMgr.GetActive()
-		} else {
-			globalActive, globalErr := i.profileMgr.GetActive()
-			if globalErr != nil {
-				log.Printf("[PrepareContext] Erro ao obter perfil ativo global para fallback: %v", globalErr)
-			} else {
-				activeProfile = inheritProfileRoutingFields(activeProfile, globalActive)
-			}
 		}
 	} else {
 		activeProfile, err = i.profileMgr.GetActive()
@@ -191,7 +200,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 
 	// 6. Resolve $default sentinels (provider/model)
 	if activeProfile != nil && i.providerSvc != nil {
-		activeProfile = i.providerSvc.ResolveProfileDefaults(activeProfile)
+		activeProfile = i.providerSvc.ResolveProfileDefaults(ctx, activeProfile)
 	}
 
 	// 7. Apply profile-level chat defaults onto Params
@@ -259,11 +268,11 @@ type RecordUserMessageResponse struct {
 }
 
 // GetRetryableUserMessage retorna uma mensagem existente validando que ela pode ser reenviada.
-func (i *Interactor) GetRetryableUserMessage(conversationID string, messageID string) (*Message, error) {
+func (i *Interactor) GetRetryableUserMessage(ctx context.Context, conversationID string, messageID string) (*Message, error) {
 	if i.repo == nil {
 		return nil, errors.New("repositório de mensagens indisponível")
 	}
-	userMsg, err := i.repo.GetMessage(messageID)
+	userMsg, err := i.repo.GetMessage(ctx, messageID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("mensagem não encontrada")
@@ -284,7 +293,7 @@ func (i *Interactor) GetRetryableUserMessage(conversationID string, messageID st
 
 // RecordUserMessage persiste a mensagem do usuário, emite o evento ready e carrega o histórico da conversa.
 func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessageRequest) (*RecordUserMessageResponse, error) {
-	userMsg, err := i.repo.CreateMessage(MessageOptions{
+	userMsg, err := i.repo.CreateMessage(ctx, MessageOptions{
 		ConversationID: req.ConversationID,
 		Role:           "user",
 		Content:        req.Content,
@@ -310,7 +319,7 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 }
 
 // ReuseLoadedUserMessage monta a resposta de retry a partir de uma mensagem já validada/carregada.
-func (i *Interactor) ReuseLoadedUserMessage(_ context.Context, req RecordUserMessageRequest, userMsg *Message) (*RecordUserMessageResponse, error) {
+func (i *Interactor) ReuseLoadedUserMessage(ctx context.Context, req RecordUserMessageRequest, userMsg *Message) (*RecordUserMessageResponse, error) {
 	if userMsg == nil {
 		return nil, errors.New("mensagem não encontrada")
 	}
@@ -324,7 +333,7 @@ func (i *Interactor) ReuseLoadedUserMessage(_ context.Context, req RecordUserMes
 		Transcribe: req.Transcribe,
 		MaxMsgs:    maxCtxMsgs,
 	}
-	messages, summary, err := loader.Load(req.ConversationID)
+	messages, summary, err := loader.Load(ctx, req.ConversationID)
 	if err != nil {
 		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar histórico: " + err.Error()})
 		return nil, err
@@ -339,7 +348,7 @@ func (i *Interactor) ReuseLoadedUserMessage(_ context.Context, req RecordUserMes
 
 // ReuseUserMessage carrega uma mensagem de usuário já persistida para um retry sem duplicá-la no banco.
 func (i *Interactor) ReuseUserMessage(ctx context.Context, req RecordUserMessageRequest, messageID string) (*RecordUserMessageResponse, error) {
-	userMsg, err := i.GetRetryableUserMessage(req.ConversationID, messageID)
+	userMsg, err := i.GetRetryableUserMessage(ctx, req.ConversationID, messageID)
 	if err != nil {
 		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar mensagem para retry: " + err.Error()})
 		return nil, err
@@ -366,7 +375,7 @@ type ResolveUserContentResponse struct {
 // ResolveUserContent extrai o áudio do media, aplica fallback STT para canais não-Wails
 // e transcreve automaticamente quando o conteúdo está vazio e há mídia de áudio.
 // Esta é lógica pura de domínio — sem acesso a banco ou I/O externo além de Transcribe.
-func (i *Interactor) ResolveUserContent(_ context.Context, req ResolveUserContentRequest) ResolveUserContentResponse {
+func (i *Interactor) ResolveUserContent(ctx context.Context, req ResolveUserContentRequest) ResolveUserContentResponse {
 	audioBase64, audioMime := ExtractAudio(req.Media)
 
 	content := req.Content
@@ -379,7 +388,7 @@ func (i *Interactor) ResolveUserContent(_ context.Context, req ResolveUserConten
 			}
 		}
 		if content == "" && req.Transcribe != nil {
-			if text, err := req.Transcribe(audioBase64, WhisperFilename(strings.TrimPrefix(audioMime, "audio/"))); err == nil {
+			if text, err := req.Transcribe(ctx, audioBase64, WhisperFilename(strings.TrimPrefix(audioMime, "audio/"))); err == nil {
 				content = text
 			}
 		}
@@ -414,7 +423,7 @@ type PrepareMessagesResponse struct {
 // and preprocesses media messages (audio transcription, unsupported format fallbacks).
 // It replaces the app-layer helpers prepareMessages, buildFullSystemPrompt,
 // and effectivePromptBuilder.
-func (i *Interactor) PrepareMessages(req PrepareMessagesRequest) PrepareMessagesResponse {
+func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesRequest) PrepareMessagesResponse {
 	var skillTplData TemplateData
 	if i.promptBuilder != nil {
 		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params, req.ConversationID)
@@ -458,7 +467,7 @@ func (i *Interactor) PrepareMessages(req PrepareMessagesRequest) PrepareMessages
 		audioSupported = req.ActiveProfile.MediaSupport.Audio
 		docSupported = req.ActiveProfile.MediaSupport.Document
 	}
-	messages = PreprocessMessages(messages, req.Transcribe, audioSupported, docSupported)
+	messages = PreprocessMessages(ctx, messages, req.Transcribe, audioSupported, docSupported)
 
 	return PrepareMessagesResponse{
 		Messages:         messages,

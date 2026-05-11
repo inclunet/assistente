@@ -1,9 +1,16 @@
 package speech
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
+
+	"assistente/internal/credentials"
+	"assistente/internal/database"
 
 	"github.com/openai/openai-go/packages/param"
 )
@@ -24,6 +31,46 @@ func TestTTSConstants(t *testing.T) {
 	}
 	if TtsTimeoutPerChunk != 30*time.Second {
 		t.Errorf("TtsTimeoutPerChunk = %v, esperado 30s", TtsTimeoutPerChunk)
+	}
+}
+
+func TestFetchTTSModelsUsesRequestContextForCredentials(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"tts-1","object":"model"}]}`))
+	}))
+	defer srv.Close()
+
+	parsed, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("Parse server URL failed: %v", err)
+	}
+
+	credMgr := credentials.NewManager(nil)
+	userCtx := database.WithUserID(context.Background(), "user-1")
+	if err := credMgr.RegisterPatternWithContext(userCtx, parsed.Hostname(), &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "speech-token",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext failed: %v", err)
+	}
+
+	client := NewTTSClient(TTSConfig{
+		BaseURL:           srv.URL,
+		CredentialPattern: parsed.Hostname(),
+	}, credMgr)
+
+	models, err := client.FetchTTSModels(userCtx)
+	if err != nil {
+		t.Fatalf("FetchTTSModels failed: %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "tts-1" {
+		t.Fatalf("models: got %#v, want tts-1", models)
+	}
+	if gotAuth != "Bearer speech-token" {
+		t.Fatalf("Authorization header: got %q, want %q", gotAuth, "Bearer speech-token")
 	}
 }
 

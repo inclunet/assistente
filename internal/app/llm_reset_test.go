@@ -35,11 +35,3 @@ func TestParseSlashCommand_ResetCommands(t *testing.T) {
 	}
 }
 
-// TestResetFunctionsAreImplemented verifica que as funções de reset foram implementadas
-// Este é um teste básico que valida que o tipo App compila com os métodos reset
-func TestResetFunctionsAreImplemented(t *testing.T) {
-	// Se o código compila, os métodos existem
-	// Este é um teste de compilação implícito
-	_ = &App{}
-	t.Log("All reset functions (ClearMessages, ClearAllCredentials, etc.) are implemented")
-}

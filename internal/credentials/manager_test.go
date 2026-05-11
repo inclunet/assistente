@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"assistente/internal/database"
 )
 
 func TestWildcardToRegex(t *testing.T) {
@@ -538,6 +540,8 @@ func TestIsManagedPattern(t *testing.T) {
 		{"mcp-tokens:atlassian", true},
 		{"mcp-client:", true},
 		{"mcp-tokens:", true},
+		{"internal-auth:jwt-signing-key", true},
+		{"internal-tls:private-key", true},
 		{"*.github.com", false},
 		{"api.example.com", false},
 		{"channel:slack:bot_token", false},
@@ -549,6 +553,23 @@ func TestIsManagedPattern(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("IsManagedPattern(%q): got %v, want %v", tc.pattern, got, tc.want)
 		}
+	}
+}
+
+func TestInstanceSecretsUseManagedPatterns(t *testing.T) {
+	mgr := NewManager(nil)
+	if err := mgr.RegisterInstanceSecret(InstanceSecretJWTSigningKey, "private-key"); err != nil {
+		t.Fatalf("register instance secret: %v", err)
+	}
+	value, ok, err := mgr.GetInstanceSecret(InstanceSecretJWTSigningKey)
+	if err != nil {
+		t.Fatalf("get instance secret: %v", err)
+	}
+	if !ok || value != "private-key" {
+		t.Fatalf("unexpected instance secret: ok=%v value=%q", ok, value)
+	}
+	if err := mgr.RegisterInstanceSecret("api.example.com", "secret"); err == nil {
+		t.Fatal("expected non-managed instance secret pattern to fail")
 	}
 }
 
@@ -621,7 +642,7 @@ func TestRegisterStoredCredentialDoesNotHoldLockDuringStoreIO(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- mgr.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
+		done <- mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
 			Pattern: "api.example.com",
 			Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
 		})
@@ -650,7 +671,7 @@ func TestRegisterStoredCredentialReturnsListCredentialsError(t *testing.T) {
 	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
 	store.manager = mgr
 
-	err := mgr.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
+	err := mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
 		Pattern: "api.example.com",
 		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
 	})
@@ -667,7 +688,7 @@ func TestRegisterStoredCredentialRequiresPersistedIDAfterSave(t *testing.T) {
 	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
 	store.manager = mgr
 
-	err := mgr.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
+	err := mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
 		Pattern: "api.example.com",
 		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
 	})
@@ -676,6 +697,168 @@ func TestRegisterStoredCredentialRequiresPersistedIDAfterSave(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "id da credencial persistida não encontrado") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestListVisibleCredentialsSkipsUnreadableManagedPatterns(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-1")
+	mgr := NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	if err := mgr.RegisterPatternWithContext(ctx, "api.example.com", &AuthConfig{Type: "bearer", Token: "secret"}); err != nil {
+		t.Fatalf("RegisterPatternWithContext() error = %v", err)
+	}
+	if err := mgr.registerEncryptedPattern("managed-id", "user-1", InstanceSecretJWTSigningKey, &AuthConfig{
+		Type:  "secret",
+		Token: "not-valid-base64",
+	}); err != nil {
+		t.Fatalf("registerEncryptedPattern() error = %v", err)
+	}
+
+	visible, err := mgr.ListVisibleCredentialsWithContext(ctx)
+	if err != nil {
+		t.Fatalf("ListVisibleCredentialsWithContext() error = %v", err)
+	}
+	if len(visible) != 1 || visible[0].Pattern != "api.example.com" {
+		t.Fatalf("expected only visible provider credential, got %+v", visible)
+	}
+
+	if _, err := mgr.ListCredentialsWithContext(ctx); err == nil {
+		t.Fatal("ListCredentialsWithContext() should still report unreadable managed credentials")
+	}
+}
+
+func TestUnscopedLookupsIgnoreUserScopedCredentials(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-1")
+	mgr := NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	if err := mgr.RegisterPatternWithContext(ctx, "api.example.com", &AuthConfig{Type: "bearer", Token: "user-token"}); err != nil {
+		t.Fatalf("RegisterPatternWithContext() error = %v", err)
+	}
+
+	auth, err := mgr.GetByPattern("api.example.com")
+	if err != nil {
+		t.Fatalf("GetByPattern() error = %v", err)
+	}
+	if auth != nil {
+		t.Fatalf("unscoped GetByPattern should not resolve user-scoped credential, got %+v", auth)
+	}
+
+	auth, err = mgr.ResolveForURL("https://api.example.com/v1/models")
+	if err != nil {
+		t.Fatalf("ResolveForURL() error = %v", err)
+	}
+	if auth != nil {
+		t.Fatalf("unscoped ResolveForURL should not resolve user-scoped credential, got %+v", auth)
+	}
+
+	auth, err = mgr.GetByPatternWithContext(ctx, "api.example.com")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext() error = %v", err)
+	}
+	if auth == nil || auth.Token != "user-token" {
+		t.Fatalf("scoped lookup should resolve user credential, got %+v", auth)
+	}
+
+	auth, err = mgr.ResolveForURLWithContext(ctx, "https://api.example.com/v1/models")
+	if err != nil {
+		t.Fatalf("ResolveForURLWithContext() error = %v", err)
+	}
+	if auth == nil || auth.Token != "user-token" {
+		t.Fatalf("scoped URL lookup should resolve user credential, got %+v", auth)
+	}
+}
+
+type staticCredentialStore struct {
+	entries []StoredCredential
+}
+
+func (s *staticCredentialStore) SaveCredential(context.Context, StoredCredential) error {
+	return nil
+}
+
+func (s *staticCredentialStore) ListCredentials(context.Context) ([]StoredCredential, error) {
+	return s.entries, nil
+}
+
+func (s *staticCredentialStore) DeleteCredential(context.Context, string) error {
+	return nil
+}
+
+func (s *staticCredentialStore) SaveKeyWrap(context.Context, KeyWrap) error {
+	return nil
+}
+
+func (s *staticCredentialStore) GetKeyWrap(context.Context, string) (*KeyWrap, error) {
+	return nil, nil
+}
+
+func (s *staticCredentialStore) HasKeyWrap(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func TestLoadFromStorePreservesUserScope(t *testing.T) {
+	key := []byte("test-key-exactly-32-bytes-long!!")
+	encoder := NewManager(key)
+	encAuth, err := encoder.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-user-1"})
+	if err != nil {
+		t.Fatalf("encrypt auth: %v", err)
+	}
+
+	store := &staticCredentialStore{entries: []StoredCredential{{
+		ID:      "cred-1",
+		UserID:  "user-1",
+		Pattern: "llm.inclunet.com.br",
+		Auth:    encAuth,
+	}}}
+	mgr := NewManagerWithStoreAndPersistence(key, store, true)
+	if err := mgr.LoadUserCredentials(context.Background(), "user-1"); err != nil {
+		t.Fatalf("LoadUserCredentials() error = %v", err)
+	}
+
+	auth, err := mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-1"), "llm.inclunet.com.br")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext() error = %v", err)
+	}
+	if auth == nil || auth.Token != "sk-user-1" {
+		t.Fatalf("expected scoped credential for user-1, got %+v", auth)
+	}
+
+	otherAuth, err := mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-2"), "llm.inclunet.com.br")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext(other) error = %v", err)
+	}
+	if otherAuth != nil {
+		t.Fatalf("credential leaked across users: %+v", otherAuth)
+	}
+}
+
+func TestGetByPatternWithContextReportsUnreadableCredential(t *testing.T) {
+	goodKey := []byte("test-key-exactly-32-bytes-long!!")
+	wrongKey := []byte("wrong-key-exactly-32-bytes-long!")
+	encoder := NewManager(goodKey)
+	encAuth, err := encoder.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-old-key"})
+	if err != nil {
+		t.Fatalf("encrypt auth: %v", err)
+	}
+
+	store := &staticCredentialStore{entries: []StoredCredential{{
+		ID:      "cred-1",
+		UserID:  "user-1",
+		Pattern: "llm.inclunet.com.br",
+		Auth:    encAuth,
+	}}}
+	mgr := NewManagerWithStoreAndPersistence(wrongKey, store, true)
+	if err := mgr.LoadUserCredentials(context.Background(), "user-1"); err != nil {
+		t.Fatalf("LoadUserCredentials() error = %v", err)
+	}
+
+	_, err = mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-1"), "llm.inclunet.com.br")
+	if err == nil {
+		t.Fatal("expected unreadable credential error")
+	}
+	if !strings.Contains(err.Error(), `credencial "llm.inclunet.com.br" ilegível`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "user-1") {
+		t.Fatalf("error should include user scope: %v", err)
 	}
 }
 

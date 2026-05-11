@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 
 	"assistente/controllers"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
+	"assistente/internal/auth"
 	"assistente/internal/chat"
 	"assistente/internal/config"
 	"assistente/internal/core/ports"
@@ -60,8 +62,19 @@ type App struct {
 	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
 
-	credMgr   *credentials.Manager
-	credStore credentials.Store
+	credMgr           *credentials.Manager
+	credStore         credentials.Store
+	vaultSvc          *auth.VaultService
+	identitySvc       *auth.IdentityService
+	sessionSvc        *auth.SessionService
+	httpAPIServer     *http.Server
+	authMu            sync.RWMutex
+	authSessionMu     sync.Mutex
+	currentUserID     string
+	currentAuthUser   *AuthUser
+	authKeyringLoad   func() (string, error)
+	authKeyringSave   func(string) error
+	authKeyringDelete func() error
 
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu    sync.Mutex
@@ -185,6 +198,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa Credential Manager PRIMEIRO (antes de qualquer uso)
 	a.initCredentialManager()
+	a.initAuthServices()
 
 	// Inicializa o Provider Service (camada de negócio para provedores LLM)
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
@@ -215,21 +229,15 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Summary Service (sumarização de conversas)
 	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
-		Repo:            summarization.NewDBStore(),
-		Emitter:         a.emitter,
-		LLMRegistry:     a.llmRegistry,
-		CredMgr:         a.credMgr,
-		ProfileManager:  a.profileManager,
-		ProfileResolver: a.resolveProfileDefaults,
+		Repo:           summarization.NewDBStore(),
+		Emitter:        a.emitter,
+		LLMRegistry:    a.llmRegistry,
+		CredMgr:        a.credMgr,
+		ProfileManager: a.profileManager,
+		ProfileResolver: func(ctx context.Context, p *profiles.Profile) *profiles.Profile {
+			return a.providerSvc.ResolveProfileDefaults(ctx, p)
+		},
 	})
-	a.initLLMProviders()
-
-	// Inicializa o cliente LLM (usa credMgr + registry já populado)
-	a.initLLMClient()
-
-	// Migra config.json legado para novo sistema (se necessário)
-	a.migrateLegacyConfig()
-
 	// Inicializa managers de terminal, confirmação e allowlists
 	a.initTerminalAndAllowlists()
 
@@ -292,7 +300,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o Settings Service (config CRUD e reset de dados)
 	a.settingsSvc = config.NewSettingsService(config.SettingsServiceConfig{
 		Emitter:        a.emitter,
-		CredCleaner:    a.credMgr,
+		CredCleaner:    credentialCleanerAdapter{mgr: a.credMgr},
 		ProfileCleaner: profileCleanerAdapter{app: a},
 		SkillCleaner:   skillCleanerAdapter{app: a},
 		ReloadLLM:      a.initLLMClient,
@@ -305,6 +313,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		ConvRepo:      a.convSvc,
 		ProviderSvc:   a.providerSvc,
 		ProfileMgr:    a.profileManager,
+		Workspace:     a.workspaceMgr,
 		SkillMgr:      a.skillMgr,
 		PromptBuilder: a.promptBuilder,
 	})
@@ -430,6 +439,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	})
 	a.signalCtrl = controllers.NewSignalController()
 
+	if err := a.startHTTPAPI(); err != nil {
+		return err
+	}
+
 	// Verifica atualizações no startup (não bloqueante)
 	go a.checkForUpdatesOnStartup()
 
@@ -444,6 +457,10 @@ func (a *App) ShowWindow() {
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
 	a.stopAllEditorWatches()
+
+	if a.httpAPIServer != nil {
+		_ = a.httpAPIServer.Shutdown(context.Background())
+	}
 
 	if a.hotkeyCtrl != nil {
 		a.hotkeyCtrl.Stop()

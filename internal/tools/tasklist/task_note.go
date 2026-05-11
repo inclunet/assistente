@@ -12,20 +12,20 @@ import (
 )
 
 type taskNoteArgs struct {
-	TaskListID        string `json:"task_list_id,omitempty"`
-	TaskListSlug      string `json:"task_list_slug,omitempty"`
+	TaskListID        string  `json:"task_list_id,omitempty"`
+	TaskListSlug      string  `json:"task_list_slug,omitempty"`
 	TaskID            *string `json:"task_id,omitempty"`
-	TaskCode          string `json:"task_code,omitempty"`
-	Code              string `json:"code,omitempty"`
+	TaskCode          string  `json:"task_code,omitempty"`
+	Code              string  `json:"code,omitempty"`
 	NoteID            *string `json:"note_id,omitempty"`
-	Type              *int   `json:"type,omitempty"`
-	Content           string `json:"content"`
-	AuthorName        string `json:"author_name,omitempty"`
-	AuthorID          string `json:"author_id,omitempty"`
-	Source            string `json:"source,omitempty"`
-	ExternalID        string `json:"external_id,omitempty"`
-	ExternalParentID  string `json:"external_parent_id,omitempty"`
-	ExternalUpdatedAt string `json:"external_updated_at,omitempty"`
+	Type              *int    `json:"type,omitempty"`
+	Content           string  `json:"content"`
+	AuthorName        string  `json:"author_name,omitempty"`
+	AuthorID          string  `json:"author_id,omitempty"`
+	Source            string  `json:"source,omitempty"`
+	ExternalID        string  `json:"external_id,omitempty"`
+	ExternalParentID  string  `json:"external_parent_id,omitempty"`
+	ExternalUpdatedAt string  `json:"external_updated_at,omitempty"`
 }
 
 type TaskNoteTool struct {
@@ -110,14 +110,14 @@ func (t *TaskNoteTool) Parameters() json.RawMessage {
 }
 
 // resolveTaskID resolves which task the note targets. Priority: task_id (with optional consistency checks) > task_code > task_list + code.
-func (t *TaskNoteTool) resolveTaskID(params taskNoteArgs) (string, error) {
+func (t *TaskNoteTool) resolveTaskID(ctx context.Context, params taskNoteArgs) (string, error) {
 	listIP := uintPtrIfPositive(params.TaskListID)
 	tidPtr := taskIDPtrForResolve(params.TaskID)
 	taskCodeTrim := strings.TrimSpace(params.TaskCode)
 	codeTrim := strings.TrimSpace(params.Code)
 
 	if tidPtr != nil {
-		task, err := t.mgr.GetTask(*tidPtr)
+		task, err := t.mgr.GetTask(ctx, *tidPtr)
 		if err != nil {
 			return "", fmt.Errorf("task_id %s não encontrado: %w", *tidPtr, err)
 		}
@@ -129,7 +129,7 @@ func (t *TaskNoteTool) resolveTaskID(params taskNoteArgs) (string, error) {
 		}
 		hasListRef := listIP != nil || strings.TrimSpace(params.TaskListSlug) != ""
 		if hasListRef {
-			listID, err := t.mgr.ResolveTaskListRef(listIP, params.TaskListSlug)
+			listID, err := t.mgr.ResolveTaskListRef(ctx, listIP, params.TaskListSlug)
 			if err != nil {
 				return "", err
 			}
@@ -143,16 +143,16 @@ func (t *TaskNoteTool) resolveTaskID(params taskNoteArgs) (string, error) {
 	if taskCodeTrim != "" {
 		var scope *string
 		if listIP != nil || strings.TrimSpace(params.TaskListSlug) != "" {
-			lid, err := t.mgr.ResolveTaskListRef(listIP, params.TaskListSlug)
+			lid, err := t.mgr.ResolveTaskListRef(ctx, listIP, params.TaskListSlug)
 			if err != nil {
 				return "", err
 			}
 			scope = &lid
 		}
-		return t.mgr.ResolveTaskIDByTaskCode(scope, taskCodeTrim)
+		return t.mgr.ResolveTaskIDByTaskCode(ctx, scope, taskCodeTrim)
 	}
 
-	return t.mgr.ResolveTaskRef(listIP, params.TaskListSlug, nil, codeTrim)
+	return t.mgr.ResolveTaskRef(ctx, listIP, params.TaskListSlug, nil, codeTrim)
 }
 
 func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
@@ -172,13 +172,13 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	codeTrim := strings.TrimSpace(params.Code)
 
 	if params.NoteID != nil {
-		note, err := t.mgr.GetTaskNote(*params.NoteID)
+		note, err := t.mgr.GetTaskNote(ctx, *params.NoteID)
 		if err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("Note not found (id=%s): %v", *params.NoteID, err), IsError: true}, nil
 		}
 		var taskID string
 		if tidPtr != nil || taskCodeTrim != "" || codeTrim != "" || listIP != nil || strings.TrimSpace(params.TaskListSlug) != "" {
-			resolved, err := t.resolveTaskID(params)
+			resolved, err := t.resolveTaskID(ctx, params)
 			if err != nil {
 				return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 			}
@@ -189,10 +189,10 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		} else {
 			taskID = note.TaskID
 		}
-		return t.updateNote(*params.NoteID, taskID, content)
+		return t.updateNote(ctx, *params.NoteID, taskID, content)
 	}
 
-	resolvedTaskID, err := t.resolveTaskID(params)
+	resolvedTaskID, err := t.resolveTaskID(ctx, params)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
@@ -203,16 +203,16 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		if src == "" || extID == "" {
 			return tools.ToolResult{Content: "for external idempotent upsert, both source and external_id are required", IsError: true}, nil
 		}
-		return t.upsertExternalNote(resolvedTaskID, content, params.AuthorName, params.AuthorID, src, extID, strings.TrimSpace(params.ExternalParentID), params.ExternalUpdatedAt, params.Type)
+		return t.upsertExternalNote(ctx, resolvedTaskID, content, params.AuthorName, params.AuthorID, src, extID, strings.TrimSpace(params.ExternalParentID), params.ExternalUpdatedAt, params.Type)
 	}
 
 	if params.Type == nil {
 		return tools.ToolResult{Content: "type is required when creating a new note without external source + external_id", IsError: true}, nil
 	}
-	return t.createNote(resolvedTaskID, *params.Type, content, params.AuthorName, params.AuthorID)
+	return t.createNote(ctx, resolvedTaskID, *params.Type, content, params.AuthorName, params.AuthorID)
 }
 
-func (t *TaskNoteTool) upsertExternalNote(taskID string, content, authorName, authorID, source, externalID, externalParentID, externalUpdatedAtRaw string, typeArg *int) (tools.ToolResult, error) {
+func (t *TaskNoteTool) upsertExternalNote(ctx context.Context, taskID string, content, authorName, authorID, source, externalID, externalParentID, externalUpdatedAtRaw string, typeArg *int) (tools.ToolResult, error) {
 	var extTime *time.Time
 	if strings.TrimSpace(externalUpdatedAtRaw) != "" {
 		ts, err := parseExternalUpdatedAt(externalUpdatedAtRaw)
@@ -232,16 +232,16 @@ func (t *TaskNoteTool) upsertExternalNote(taskID string, content, authorName, au
 		typePtr = &tv
 	}
 
-	note, created, err := t.mgr.UpsertTaskNoteByExternal(database.UpsertTaskNoteByExternalParams{
-		TaskID:             taskID,
-		Type:               typePtr,
-		Content:            content,
-		AuthorName:         authorName,
-		AuthorID:           authorID,
-		ExternalSource:     source,
-		ExternalID:         externalID,
-		ExternalParentID:   externalParentID,
-		ExternalUpdatedAt:  extTime,
+	note, created, err := t.mgr.UpsertTaskNoteByExternal(ctx, database.UpsertTaskNoteByExternalParams{
+		TaskID:            taskID,
+		Type:              typePtr,
+		Content:           content,
+		AuthorName:        authorName,
+		AuthorID:          authorID,
+		ExternalSource:    source,
+		ExternalID:        externalID,
+		ExternalParentID:  externalParentID,
+		ExternalUpdatedAt: extTime,
 	})
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error upserting external note on task %s: %v", taskID, err), IsError: true}, nil
@@ -258,12 +258,12 @@ func (t *TaskNoteTool) upsertExternalNote(taskID string, content, authorName, au
 	}
 
 	resultMap := map[string]any{
-		"id":           note.ID,
-		"task_id":      note.TaskID,
-		"type":         typeLabel,
-		"action":       action,
-		"source":       source,
-		"external_id":  externalID,
+		"id":          note.ID,
+		"task_id":     note.TaskID,
+		"type":        typeLabel,
+		"action":      action,
+		"source":      source,
+		"external_id": externalID,
 	}
 	if note.AuthorName != "" {
 		resultMap["author_name"] = note.AuthorName
@@ -309,7 +309,7 @@ func parseExternalUpdatedAt(s string) (*time.Time, error) {
 	return nil, fmt.Errorf("could not parse timestamp: %v", lastErr)
 }
 
-func (t *TaskNoteTool) createNote(taskID string, noteType int, content, authorName, authorID string) (tools.ToolResult, error) {
+func (t *TaskNoteTool) createNote(ctx context.Context, taskID string, noteType int, content, authorName, authorID string) (tools.ToolResult, error) {
 	if noteType < 1 || noteType > 4 {
 		return tools.ToolResult{Content: "type must be 1 (internal), 2 (customer), 3 (agent), or 4 (system)", IsError: true}, nil
 	}
@@ -317,7 +317,7 @@ func (t *TaskNoteTool) createNote(taskID string, noteType int, content, authorNa
 	authorName = strings.TrimSpace(authorName)
 	authorID = strings.TrimSpace(authorID)
 
-	note, err := t.mgr.CreateTaskNote(taskID, database.TaskNoteType(noteType), content, authorName, authorID)
+	note, err := t.mgr.CreateTaskNote(ctx, taskID, database.TaskNoteType(noteType), content, authorName, authorID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating note on task %s: %v", taskID, err), IsError: true}, nil
 	}
@@ -343,8 +343,8 @@ func (t *TaskNoteTool) createNote(taskID string, noteType int, content, authorNa
 	}, nil
 }
 
-func (t *TaskNoteTool) updateNote(noteID string, taskID string, content string) (tools.ToolResult, error) {
-	existing, err := t.mgr.GetTaskNote(noteID)
+func (t *TaskNoteTool) updateNote(ctx context.Context, noteID string, taskID string, content string) (tools.ToolResult, error) {
+	existing, err := t.mgr.GetTaskNote(ctx, noteID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Note not found (id=%s): %v", noteID, err), IsError: true}, nil
 	}
@@ -353,7 +353,7 @@ func (t *TaskNoteTool) updateNote(noteID string, taskID string, content string) 
 		return tools.ToolResult{Content: fmt.Sprintf("Note %s does not belong to task %s", noteID, taskID), IsError: true}, nil
 	}
 
-	if err := t.mgr.UpdateTaskNote(noteID, content); err != nil {
+	if err := t.mgr.UpdateTaskNote(ctx, noteID, content); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error updating note %s: %v", noteID, err), IsError: true}, nil
 	}
 

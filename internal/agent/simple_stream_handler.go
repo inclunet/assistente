@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"log"
 
 	"assistente/internal/core/ports"
@@ -14,13 +15,17 @@ import (
 type SimpleStreamHandler struct {
 	BaseStreamHandler
 	svc           *Service
+	ctx           context.Context
 	userMessageID string // ID of the user message (root of this response thread)
 	profileSlug   string // Profile slug for TTS resolution
 }
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
 // It is created by the owning Service so it can close over its dependencies.
-func (s *Service) NewSimpleStreamHandler(conversationID, userMessageID string, profileSlug string, surfaceOrigin *ports.ChatSurfaceOrigin) *SimpleStreamHandler {
+func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, userMessageID string, profileSlug string, surfaceOrigin *ports.ChatSurfaceOrigin) *SimpleStreamHandler {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &SimpleStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        s.emitter,
@@ -29,6 +34,7 @@ func (s *Service) NewSimpleStreamHandler(conversationID, userMessageID string, p
 			SurfaceOrigin:  surfaceOrigin,
 		},
 		svc:           s,
+		ctx:           ctx,
 		userMessageID: userMessageID,
 		profileSlug:   profileSlug,
 	}
@@ -73,7 +79,7 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 
 	// Delegate save, notify, and event emission to the Service (same as agentic path).
 	// The user message remains a standalone item; the assistant response carries the turn id.
-	h.svc.SaveAndFinish(h.ConversationID, h.userMessageID, AgenticResult{
+	h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, AgenticResult{
 		FullResponse: finalContent,
 		Reasoning:    accumulatedReasoning,
 		Usage:        usage,

@@ -3,7 +3,6 @@
   "name": "Padrão",
   "description": "Configuração padrão.",
   "icon": "chatbox",
-  "active": true,
   "chat": {
     "llm_provider": "$default",
     "model": "$default",

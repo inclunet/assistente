@@ -12,6 +12,7 @@ import (
 
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/tools"
 )
 
@@ -508,7 +509,7 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 	}
 
 	rt := &pkceRoundTripper{credMgr: m.credMgr, serverSlug: "test"}
-	rt.persistClientCreds("stored-client-id", "stored-secret")
+	rt.persistClientCreds(context.Background(), "stored-client-id", "stored-secret")
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
 	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
@@ -873,6 +874,85 @@ func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
 	}
 }
 
+func TestLoadConfigsImportsRequestInitBearerAuth(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	m.SetAuthContextProvider(func() context.Context { return ctx })
+
+	data := []byte(`{
+		"url": "https://api.githubcopilot.com/mcp/",
+		"requestInit": {
+			"headers": {
+				"Authorization": "Bearer ghp_test_token"
+			}
+		}
+	}`)
+	if err := m.resolver.Write("github.json", data); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatalf("LoadConfigs failed: %v", err)
+	}
+
+	m.mu.RLock()
+	cfg := m.servers["github"].Config
+	m.mu.RUnlock()
+	if cfg.AuthType != AuthBearer {
+		t.Fatalf("auth type: got %q, want %q", cfg.AuthType, AuthBearer)
+	}
+
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, "api.githubcopilot.com")
+	if err != nil {
+		t.Fatalf("GetByPattern failed: %v", err)
+	}
+	if auth == nil || auth.Token != "ghp_test_token" {
+		t.Fatalf("imported token: got %#v, want ghp_test_token", auth)
+	}
+}
+
+func TestImportFromMCPJSONImportsRequestInitBearerAuth(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	m.SetAuthContextProvider(func() context.Context { return ctx })
+
+	mcpJSON := []byte(`{
+		"mcpServers": {
+			"github": {
+				"url": "https://api.githubcopilot.com/mcp/",
+				"requestInit": {
+					"headers": {
+						"Authorization": "Bearer ghp_imported"
+					}
+				}
+			}
+		}
+	}`)
+
+	count, err := m.ImportFromMCPJSON(mcpJSON)
+	if err != nil {
+		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("import count: got %d, want 1", count)
+	}
+
+	m.mu.RLock()
+	cfg := m.servers["github"].Config
+	m.mu.RUnlock()
+	if cfg.AuthType != AuthBearer {
+		t.Fatalf("auth type: got %q, want %q", cfg.AuthType, AuthBearer)
+	}
+
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, "api.githubcopilot.com")
+	if err != nil {
+		t.Fatalf("GetByPattern failed: %v", err)
+	}
+	if auth == nil || auth.Token != "ghp_imported" {
+		t.Fatalf("imported token: got %#v, want ghp_imported", auth)
+	}
+}
+
 func TestImportFromMCPJSON_SkipsExisting(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
 	m.servers["existing-server"] = &ServerStatus{
@@ -922,6 +1002,122 @@ func TestImportFromMCPJSON_InvalidJSON(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}
+}
+
+func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
+	var gotAuth string
+	rt := &bearerRoundTripper{
+		base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotAuth = req.Header.Get("Authorization")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       http.NoBody,
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}),
+		token: "Bearer already-prefixed",
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if gotAuth != "Bearer already-prefixed" {
+		t.Fatalf("Authorization header: got %q, want %q", gotAuth, "Bearer already-prefixed")
+	}
+}
+
+// TestBuildAuthHTTPClient_LogoutMidFlightDegrades cobre o vetor descrito no
+// Major H do re-review do AEP-0052: o AuthContextProvider devolve ctx
+// avaliado em runtime (não na hora do startup); se o usuário fizer logout
+// enquanto um servidor MCP está ativo, a próxima resolução de credencial
+// chega com ctx sem userID. O comportamento esperado é degradação limpa
+// (cliente sem auth, sem panic, sem corrupção de estado), nunca
+// reaproveitamento de credencial de outro usuário.
+func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newTestManager()
+	userCtx := database.WithUserID(context.Background(), "user-1")
+	loggedInOut := userCtx
+	m.SetAuthContextProvider(func() context.Context { return loggedInOut })
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "user-token",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext failed: %v", err)
+	}
+
+	clientLoggedIn := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if clientLoggedIn == nil {
+		t.Fatal("expected authenticated client while logged in")
+	}
+
+	loggedInOut = context.Background()
+
+	clientLoggedOut := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if clientLoggedOut != nil {
+		t.Fatalf("logout-mid-flight should not return an authenticated client (got %T)", clientLoggedOut)
+	}
+}
+
+func TestBuildAuthHTTPClientResolvesUserScopedBearer(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newTestManager()
+	userCtx := database.WithUserID(context.Background(), "user-1")
+	m.SetAuthContextProvider(func() context.Context { return userCtx })
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "user-token",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext failed: %v", err)
+	}
+
+	client := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if client == nil {
+		t.Fatal("expected authenticated HTTP client")
+	}
+
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if gotAuth != "Bearer user-token" {
+		t.Fatalf("Authorization header: got %q, want %q", gotAuth, "Bearer user-token")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
 func TestIsNativeMCPEligibleURL(t *testing.T) {

@@ -42,7 +42,7 @@ func (p *GoogleProvider) WithMCPServers(_ []MCPServerConfig) ChatProvider {
 func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
 	apiKey := ""
 	if p.credMgr != nil && p.provider.CredentialPattern != "" {
-		if auth, err := p.credMgr.GetByPattern(p.provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
+		if auth, err := p.credMgr.GetByPatternWithContext(ctx, p.provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
 			apiKey = auth.Token
 		}
 	}

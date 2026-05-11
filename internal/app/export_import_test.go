@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -49,7 +50,7 @@ func TestNormalizeRichConversationExportRequestClearsCredentialFields(t *testing
 }
 
 func TestResolveConversationIDsRespectsExplicitSelection(t *testing.T) {
-	ids, err := resolveConversationIDs(ExportRequest{
+	ids, err := resolveConversationIDs(context.Background(), ExportRequest{
 		ExplicitSelection:  true,
 		IncludeCredentials: true,
 	})
@@ -63,7 +64,7 @@ func TestResolveConversationIDsRespectsExplicitSelection(t *testing.T) {
 
 func TestResolveConversationIDsAcceptsUUIDStrings(t *testing.T) {
 	const id = "01926b90-7a5a-7c4e-8d3f-000000000001"
-	ids, err := resolveConversationIDs(ExportRequest{
+	ids, err := resolveConversationIDs(context.Background(), ExportRequest{
 		ConversationIDs: []string{id},
 	})
 	if err != nil {
@@ -76,7 +77,7 @@ func TestResolveConversationIDsAcceptsUUIDStrings(t *testing.T) {
 
 func TestResolveTaskListIDsAcceptsUUIDStrings(t *testing.T) {
 	const id = "01926b90-7a5a-7c4e-8d3f-000000000003"
-	ids, err := resolveTaskListIDs(ExportRequest{
+	ids, err := resolveTaskListIDs(context.Background(), ExportRequest{
 		TaskListIDs: []string{id},
 	})
 	if err != nil {

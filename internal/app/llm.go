@@ -29,13 +29,21 @@ type ChatParams = llm.ChatParams
 
 // GetModels retorna a lista de modelos disponíveis na API do provedor ativo.
 func (a *App) GetModels() ([]string, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
 	activeProfile, _ := a.profileManager.GetActive()
-	return a.providerSvc.GetModels(a.ctx, activeProfile)
+	return a.providerSvc.GetModels(ctx, activeProfile)
 }
 
 // GetModelsByProvider retorna a lista de modelos de um provedor específico.
 func (a *App) GetModelsByProvider(providerID string) ([]string, error) {
-	return a.providerSvc.GetModelsByProvider(a.ctx, providerID)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.providerSvc.GetModelsByProvider(ctx, providerID)
 }
 
 // Constantes de validação de input — re-exportadas de internal/chat para uso no pacote main.

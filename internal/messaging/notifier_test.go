@@ -188,3 +188,159 @@ func TestNotifier_CancelNonExistent(t *testing.T) {
 		t.Fatalf("expected 0 pending, got %d", n.PendingCount())
 	}
 }
+
+// TestNotifier_RecoverFromPanicCallback cobre M11 do review da Fatia 2.
+// Antes: callback que panicava derrubava o processo todo (via go func).
+// Agora: defer/recover isola e logs — outros callbacks devem continuar
+// disparando normalmente.
+func TestNotifier_RecoverFromPanicCallback(t *testing.T) {
+	n := NewResponseNotifier()
+	defer n.Stop()
+
+	var mu sync.Mutex
+	survived := false
+
+	n.Register("conv-panic", ResponseCallback{
+		Channel: "telegram",
+		TraceID: "trace-panic",
+		Callback: func(response string, msgID string) {
+			panic("adapter mal escrito")
+		},
+	})
+	n.Register("conv-panic", ResponseCallback{
+		Channel: "signal",
+		TraceID: "trace-survive",
+		Callback: func(response string, msgID string) {
+			mu.Lock()
+			survived = true
+			mu.Unlock()
+		},
+	})
+
+	n.Notify("conv-panic", "resposta", "msg-1")
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	if !survived {
+		t.Fatal("callback irmão não foi chamado — panic em um derrubou o processo")
+	}
+	mu.Unlock()
+}
+
+// TestNotifier_TTLExpiresOldCallbacks cobre B7 (TTL no notifier).
+// Callbacks que ficam pendurados além do TTL devem ser descartados pela
+// goroutine de housekeeping para evitar leak.
+func TestNotifier_TTLExpiresOldCallbacks(t *testing.T) {
+	now := time.Now()
+	clock := func() time.Time { return now }
+	n := newResponseNotifierWithClock(clock)
+	defer n.Stop()
+
+	n.Register("conv-old", ResponseCallback{
+		Channel: "telegram",
+		TraceID: "trace-old",
+		Callback: func(string, string) {
+			t.Fatal("callback expirado não deveria ser chamado")
+		},
+	})
+
+	if n.PendingCount() != 1 {
+		t.Fatalf("expected 1 pending, got %d", n.PendingCount())
+	}
+
+	now = now.Add(callbackTTL + time.Minute)
+	n.expireOldCallbacks()
+
+	if n.PendingCount() != 0 {
+		t.Fatalf("callback expirado não foi removido, pending=%d", n.PendingCount())
+	}
+}
+
+// TestNotifier_TTLDoesNotExpireFreshCallbacks garante que o cleanup só
+// remove callbacks vencidos — fresh callbacks ficam intactos.
+func TestNotifier_TTLDoesNotExpireFreshCallbacks(t *testing.T) {
+	now := time.Now()
+	clock := func() time.Time { return now }
+	n := newResponseNotifierWithClock(clock)
+	defer n.Stop()
+
+	n.Register("conv-fresh", ResponseCallback{
+		Channel: "telegram",
+		TraceID: "trace-fresh",
+		Callback: func(string, string) {},
+	})
+
+	now = now.Add(time.Minute)
+	n.expireOldCallbacks()
+
+	if n.PendingCount() != 1 {
+		t.Fatalf("callback fresh foi removido indevidamente, pending=%d", n.PendingCount())
+	}
+}
+
+// TestNotifier_CancelByChannel cobre B7. Quando um canal é desregistrado
+// (Unregister/Shutdown do gateway), todos os callbacks pendentes daquele
+// canal devem ser cancelados — não só os de uma conversa específica.
+func TestNotifier_CancelByChannel(t *testing.T) {
+	n := NewResponseNotifier()
+	defer n.Stop()
+
+	called := map[string]bool{}
+	var mu sync.Mutex
+	mark := func(key string) func(string, string) {
+		return func(string, string) {
+			mu.Lock()
+			called[key] = true
+			mu.Unlock()
+		}
+	}
+
+	n.Register("conv-tel-1", ResponseCallback{Channel: "telegram", TraceID: "t1", Callback: mark("tel-1")})
+	n.Register("conv-tel-2", ResponseCallback{Channel: "telegram", TraceID: "t2", Callback: mark("tel-2")})
+	n.Register("conv-sig-1", ResponseCallback{Channel: "signal", TraceID: "s1", Callback: mark("sig-1")})
+
+	if n.PendingCount() != 3 {
+		t.Fatalf("expected 3 pending, got %d", n.PendingCount())
+	}
+
+	cancelled := n.CancelByChannel("telegram")
+	if cancelled != 2 {
+		t.Fatalf("expected 2 cancelled, got %d", cancelled)
+	}
+	if n.PendingCount() != 1 {
+		t.Fatalf("expected 1 pending after cancel-by-channel, got %d", n.PendingCount())
+	}
+
+	// Notify dos cancelados não dispara callback.
+	n.Notify("conv-tel-1", "x", "")
+	n.Notify("conv-tel-2", "x", "")
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	if called["tel-1"] || called["tel-2"] {
+		t.Fatalf("callback de canal cancelado foi chamado: %+v", called)
+	}
+	mu.Unlock()
+
+	// O canal signal continua intacto.
+	n.Notify("conv-sig-1", "y", "")
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	if !called["sig-1"] {
+		t.Fatal("callback de canal não cancelado deveria ter disparado")
+	}
+	mu.Unlock()
+}
+
+// TestNotifier_CancelByChannelEmpty é um sanity check: passar canal
+// vazio é no-op (não cancela tudo por engano).
+func TestNotifier_CancelByChannelEmpty(t *testing.T) {
+	n := NewResponseNotifier()
+	defer n.Stop()
+	n.Register("conv-1", ResponseCallback{Channel: "telegram", Callback: func(string, string) {}})
+	if n.CancelByChannel("") != 0 {
+		t.Fatal("CancelByChannel(\"\") deveria ser no-op")
+	}
+	if n.PendingCount() != 1 {
+		t.Fatalf("pending alterado por canal vazio: %d", n.PendingCount())
+	}
+}

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"errors"
 	"log"
 )
@@ -13,12 +14,12 @@ var ErrConversationGone = errors.New("conversa deletada ou pai ausente")
 // Retorna ("", nil) se content for vazio ou conversationID == "" (noop).
 // Retorna ("", ErrConversationGone) se a conversa foi deletada — o chamador deve abortar.
 // Retorna ("", err) para outros erros de banco.
-func SaveAssistantMessage(msgRepo MessageRepository, opts MessageOptions) (string, error) {
+func SaveAssistantMessage(ctx context.Context, msgRepo MessageRepository, opts MessageOptions) (string, error) {
 	if opts.ConversationID == "" || opts.Content == "" {
 		return "", nil
 	}
 
-	msg, err := msgRepo.CreateMessage(opts)
+	msg, err := msgRepo.CreateMessage(ctx, opts)
 	if err != nil {
 		if errors.Is(err, ErrConversationDeleted) || errors.Is(err, ErrParentMessageDeleted) {
 			log.Printf("[Chat] conversa %s deletada — abortando processamento", opts.ConversationID)
