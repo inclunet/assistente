@@ -3,7 +3,6 @@
   "name": "Programação",
   "description": "Otimizado para programação e código.",
   "icon": "code-slash-outline",
-  "active": true,
   "chat": {
     "llm_provider": "$default",
     "model": "$default",

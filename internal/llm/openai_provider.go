@@ -67,7 +67,15 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 
 	opts := []option.RequestOption{
 		option.WithHTTPClient(httpClient),
-		option.WithAPIKey("managed-by-credential-transport"),
+	}
+	if providerUsesPlaceholderAPIKey(provider) {
+		opts = append(opts, option.WithAPIKey("managed-by-credential-transport"))
+	} else {
+		// Provedores AuthModeNone (Ollama, LocalAI, llama.cpp): o SDK
+		// openai-go exige uma APIKey; passamos string vazia explicita
+		// para que ele não inclua o header Authorization. O transport
+		// também remove qualquer placeholder residual como defesa.
+		opts = append(opts, option.WithAPIKey(""))
 	}
 
 	baseURL := strings.TrimSuffix(provider.BaseURL, "/")

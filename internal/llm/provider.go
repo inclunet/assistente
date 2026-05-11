@@ -22,7 +22,41 @@ const (
 	ProviderFireworks  ProviderType = "fireworks"
 	ProviderPerplexity ProviderType = "perplexity"
 	ProviderOllama     ProviderType = "ollama"
+	ProviderLocalAI    ProviderType = "localai"
+	ProviderLlamaCPP   ProviderType = "llamacpp"
 	ProviderCustom     ProviderType = "custom"
+)
+
+// AuthMode descreve o tratamento de autenticação para o provedor.
+//
+// Modos:
+//
+//   - AuthModeRequired (default): a credencial é obrigatória. Ausência
+//     dispara erro explícito ("credencial gerenciada não resolvida"),
+//     evitando que o request vá para upstream sem chave e gere um 401
+//     opaco. Este é o comportamento esperado para provedores cloud
+//     (OpenAI, Anthropic, etc.).
+//
+//   - AuthModeOptional: a credencial pode ou não existir. Quando existe,
+//     o transport injeta normalmente (Authorization header). Quando
+//     ausente, o request segue sem header — útil para provedores que
+//     suportam autenticação opcional (LocalAI, LiteLLM standalone,
+//     Ollama com proxy custom).
+//
+//   - AuthModeNone: o provedor explicitamente não usa Authorization.
+//     O SDK não injeta o placeholder "managed-by-credential-transport",
+//     e o transport remove qualquer header Authorization residual.
+//     Para Ollama/llama.cpp puros que rejeitam headers desconhecidos.
+//
+// O default vazio é tratado como AuthModeRequired apenas para CredentialPattern != "".
+// Se CredentialPattern == "" e AuthMode == "", trata como AuthModeNone (compatibilidade
+// com configs existentes onde "sem pattern" significava "sem auth").
+type AuthMode string
+
+const (
+	AuthModeRequired AuthMode = "required"
+	AuthModeOptional AuthMode = "optional"
+	AuthModeNone     AuthMode = "none"
 )
 
 // APIFormat determina qual SDK/protocolo usar para comunicação com o provedor.
@@ -84,6 +118,25 @@ type ProviderConfig struct {
 	Timeout           int               `json:"timeout,omitempty"`
 	Headers           map[string]string `json:"headers,omitempty"`
 	CredentialPattern string            `json:"credential_pattern,omitempty"`
+	// AuthMode controla o tratamento de credenciais. Ver `AuthMode` para detalhes.
+	// Vazio = inferido a partir de CredentialPattern (sem pattern → none, com pattern → required).
+	AuthMode AuthMode `json:"auth_mode,omitempty"`
+}
+
+// EffectiveAuthMode devolve o AuthMode resolvido, aplicando a inferência
+// de compat: configs antigas sem AuthMode tinham `CredentialPattern: ""`
+// para indicar "sem auth" (caso ollama). Mantemos esse contrato.
+func (p *ProviderConfig) EffectiveAuthMode() AuthMode {
+	if p == nil {
+		return AuthModeRequired
+	}
+	if p.AuthMode != "" {
+		return p.AuthMode
+	}
+	if strings.TrimSpace(p.CredentialPattern) == "" {
+		return AuthModeNone
+	}
+	return AuthModeRequired
 }
 
 // GetAPIFormat retorna o api_format efetivo.

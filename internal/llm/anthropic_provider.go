@@ -30,7 +30,11 @@ func NewAnthropicProvider(provider *ProviderConfig, credMgr *credentials.Manager
 
 	opts := []anthropicoption.RequestOption{
 		anthropicoption.WithHTTPClient(httpClient),
-		anthropicoption.WithAPIKey("managed-by-credential-transport"),
+	}
+	if providerUsesPlaceholderAPIKey(provider) {
+		opts = append(opts, anthropicoption.WithAPIKey("managed-by-credential-transport"))
+	} else {
+		opts = append(opts, anthropicoption.WithAPIKey(""))
 	}
 
 	if provider.BaseURL != "" {

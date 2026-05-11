@@ -24,6 +24,14 @@ var builtinProfilesFS embed.FS
 //   - File exists with _builtin_version → update if embedded is newer
 //   - File exists without _builtin_version → legacy builtin (pre-versioning), treat as "0.0.0" and update
 //
+// CRÍTICO: campos de runtime NUNCA são sobrescritos do embedded.
+// Embedded carrega "factory defaults" (chat config, voice, input, etc).
+// Runtime do usuário (Active, MediaSupport) é preservado do disco —
+// caso contrário, cada upgrade builtin ressuscitaria o flag de active
+// embarcado, podendo deixar dois perfis com active=true ao mesmo tempo
+// (foi exatamente esse bug que travou o picker em "Padrão" mesmo com
+// outro perfil escolhido pelo usuário).
+//
 // To prevent updates, users can set _builtin_version to "999.0.0" in their profile JSON.
 func (a *App) installBuiltinProfiles() {
 	resolver := configdir.NewResolver("profiles")
@@ -66,14 +74,21 @@ func (a *App) installBuiltinProfiles() {
 			continue
 		}
 
+		// Defesa em profundidade: jamais aceitar `active: true` num arquivo
+		// embarcado. Active é estado de runtime do user, não dado de fábrica.
+		// Se algum dev esquecer e marcar active=true no embedded, esse zero
+		// aqui evita que o flag escape para o disco do usuário.
+		embeddedProfile.Active = false
+
 		targetFile := filepath.Join(homeDir, entry.Name())
 
+		var existingProfile *profiles.Profile
 		if existingData, err := os.ReadFile(targetFile); err == nil {
-			var existingProfile profiles.Profile
-			if err := json.Unmarshal(existingData, &existingProfile); err == nil {
-				installedVersion := existingProfile.BuiltinVersion
+			var existing profiles.Profile
+			if err := json.Unmarshal(existingData, &existing); err == nil {
+				existingProfile = &existing
+				installedVersion := existing.BuiltinVersion
 				if installedVersion == "" {
-					// Legacy profile (pre-versioning, created by old EnsureDefaults) — treat as 0.0.0
 					installedVersion = "0.0.0"
 					log.Printf("[Profiles] Migrating legacy profile %s (no _builtin_version → v0.0.0)", entry.Name())
 				}
@@ -87,7 +102,9 @@ func (a *App) installBuiltinProfiles() {
 			log.Printf("[Profiles] Installing builtin profile %s v%s", entry.Name(), embeddedProfile.BuiltinVersion)
 		}
 
-		prettyData, err := json.MarshalIndent(embeddedProfile, "", "  ")
+		toWrite := mergeBuiltinPreservingRuntime(embeddedProfile, existingProfile)
+
+		prettyData, err := json.MarshalIndent(toWrite, "", "  ")
 		if err != nil {
 			log.Printf("[Profiles] Error marshaling profile %s: %v", entry.Name(), err)
 			continue
@@ -99,6 +116,26 @@ func (a *App) installBuiltinProfiles() {
 	}
 
 	a.ensureActiveProfile()
+}
+
+// mergeBuiltinPreservingRuntime aplica o conteúdo embedded (factory defaults)
+// preservando campos de runtime escritos pelo usuário/sistema.
+//
+// Por que separar runtime de factory: o embedded reflete a opinião do build
+// (defaults de chat/voice/input/skills). O runtime reflete decisões do user
+// no app (perfil ativo, suporte a mídia detectado). Sobrescrever runtime a
+// cada upgrade builtin desfaz silenciosamente escolhas do user — foi a
+// origem do bug de "active: true" ressuscitando em perfis builtin.
+func mergeBuiltinPreservingRuntime(embedded profiles.Profile, existing *profiles.Profile) profiles.Profile {
+	merged := embedded
+	if existing == nil {
+		return merged
+	}
+	merged.Active = existing.Active
+	if existing.MediaSupport != nil {
+		merged.MediaSupport = existing.MediaSupport
+	}
+	return merged
 }
 
 // ensureActiveProfile verifies that at least one profile is marked Active.

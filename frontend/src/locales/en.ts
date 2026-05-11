@@ -92,6 +92,7 @@ const en = {
       conversation: 'Conversation',
       conversationCleared: 'Conversation cleared',
       clearError: 'Error clearing conversation',
+      profileChangeError: 'Could not change profile. Please try again.',
       errorPrefix: 'Error: {{message}}',
       sendErrorPrefix: 'Error sending message: {{message}}',
       historyLabel: 'History',

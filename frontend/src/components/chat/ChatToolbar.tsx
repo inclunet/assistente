@@ -13,6 +13,7 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useUIStore } from '../../store/uiStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
 import { useChatSession } from './ChatSessionContext';
@@ -48,6 +49,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
+  const addToast = useUIStore((s) => s.addToast);
 
   const tabProfileSlug = panelTab.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
@@ -156,12 +158,28 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [enableShortcuts, handleClearConversation]);
 
-  const handleProfileChange = useCallback((slug: string) => {
-    void updateWsTab(panelTab.id, {
-      profile_override: { slug },
-    });
-    focusInput();
-  }, [focusInput, panelTab.id, updateWsTab]);
+  const handleProfileChange = useCallback(async (slug: string) => {
+    try {
+      // Aguarda o round-trip do backend para garantir que o picker, o
+      // store local e o YAML do workspace fiquem sincronizados antes
+      // de devolver o foco para o input. O fire-and-forget anterior
+      // (`void updateWsTab(...)`) escondia falhas do Wails — o picker
+      // mostrava o slug novo otimisticamente mas o profile não chegava
+      // ao backend, e a próxima mensagem ia pro perfil errado sem
+      // qualquer feedback ao usuário.
+      await updateWsTab(panelTab.id, {
+        profile_override: { slug },
+      });
+    } catch (error) {
+      console.error('[ChatToolbar] Erro ao trocar perfil:', error);
+      addToast(
+        t('chat.profileChangeError', 'Não foi possível alterar o perfil. Tente novamente.'),
+        'error'
+      );
+    } finally {
+      focusInput();
+    }
+  }, [focusInput, panelTab.id, updateWsTab, addToast, t]);
 
   const handleHistoryChange = async (nextConversationId: string, conversation: { title?: string }) => {
     const nextTitle = conversation.title || t('chat.newConversation');

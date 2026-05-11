@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"assistente/adapters/noop"
@@ -1027,21 +1028,33 @@ func TestEnsureDefaultProvider_DoesNotOverrideExistingDefault(t *testing.T) {
 	}
 }
 
-// --- Builtin padrao.json has active:true ---
-
-func TestBuiltinPadraoJSON_HasActiveTrue(t *testing.T) {
-	data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/padrao.json")
+// TestBuiltinProfilesJSON_DoNotEmbedActive garante que NENHUM profile
+// builtin embarque `active: true`. Active é estado runtime do user;
+// embarcar no factory default ressuscitava o flag a cada upgrade
+// builtin (installBuiltinProfiles reescreve os arquivos), criando
+// múltiplos perfis com active=true ao mesmo tempo e sobrescrevendo a
+// escolha do user. A ativação inicial passa exclusivamente por
+// `ensureActiveProfile` em runtime.
+func TestBuiltinProfilesJSON_DoNotEmbedActive(t *testing.T) {
+	entries, err := fs.ReadDir(builtinProfilesFS, "builtin/profiles")
 	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
+		t.Fatalf("ReadDir: %v", err)
 	}
-
-	var p profiles.Profile
-	if err := json.Unmarshal(data, &p); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-
-	if !p.Active {
-		t.Error("padrao.json should have active=true")
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/"+entry.Name())
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", entry.Name(), err)
+		}
+		var p profiles.Profile
+		if err := json.Unmarshal(data, &p); err != nil {
+			t.Fatalf("Unmarshal %s: %v", entry.Name(), err)
+		}
+		if p.Active {
+			t.Errorf("builtin %s tem active=true; é proibido embarcar Active no factory default", entry.Name())
+		}
 	}
 }
 

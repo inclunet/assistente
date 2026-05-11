@@ -91,6 +91,7 @@ const es = {
       conversation: 'Conversación',
       conversationCleared: 'Conversación vaciada',
       clearError: 'Error al vaciar conversación',
+      profileChangeError: 'No se pudo cambiar el perfil. Inténtalo de nuevo.',
       errorPrefix: 'Error: {{message}}',
       sendErrorPrefix: 'Error al enviar el mensaje: {{message}}',
       historyLabel: 'Historial',

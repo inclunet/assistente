@@ -375,8 +375,19 @@ func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 // Profile defaults resolution
 // ============================================================================
 
-// ResolveProfileDefaults substitui sentinelas "$default" no perfil pelo provedor/modelo
-// padrão do sistema. Retorna uma cópia modificada — não altera o perfil em disco.
+// ResolveProfileDefaults substitui sentinelas "$default" no perfil pelo
+// provedor/modelo correspondente. Retorna uma cópia modificada — não altera
+// o perfil em disco.
+//
+// Regra do modelo: `Model == $default` significa "use o modelo padrão **do
+// provider escolhido**", não o modelo do provider default global. Se o
+// profile fixou `LLMProvider="ollama-local"` mas deixou `Model=""` (que
+// `normalizeRoutingFields` transformou em $default), o modelo resolvido
+// vem de `ollama-local.DefaultModel`. Antes esse caminho usava o
+// `defaultProvider.DefaultModel`, o que misturava providers — um profile
+// `Modelo Local` acabava enviando o modelo padrão da OpenAI para o
+// servidor local. Esse cross-provider leak gerava o sintoma "troquei o
+// perfil mas continua usando OpenAI".
 func (s *Service) ResolveProfileDefaults(ctx context.Context, p *profiles.Profile) *profiles.Profile {
 	if p == nil {
 		return nil
@@ -389,22 +400,32 @@ func (s *Service) ResolveProfileDefaults(ctx context.Context, p *profiles.Profil
 		return p
 	}
 
-	defaultProvider, err := s.store.GetDefault(ctx)
-	if err != nil || defaultProvider == nil {
-		log.Printf("[providers] Nenhum provedor default encontrado para resolução: %v", err)
-		return p
-	}
-
 	resolved := *p
 	resolved.Chat = p.Chat
 	resolved.Voice = p.Voice
 	resolved.Input = p.Input
 
+	// Resolve o provider default só se for realmente necessário: se algum
+	// dos campos *Provider* do profile estiver com $default, ou se Model
+	// estiver $default e Chat.LLMProvider também (caso em que precisamos
+	// herdar provider+modelo do default global).
+	var defaultProvider *llm.ProviderConfig
+	needsDefaultProvider := resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel ||
+		resolved.Voice.Assistant.LLMProviderID == profiles.DefaultProviderSentinel ||
+		resolved.Input.LLMProviderID == profiles.DefaultProviderSentinel ||
+		(resolved.Chat.Model == profiles.DefaultProviderSentinel && resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel)
+
+	if needsDefaultProvider {
+		dp, err := s.store.GetDefault(ctx)
+		if err != nil || dp == nil {
+			log.Printf("[providers] Nenhum provedor default encontrado para resolução: %v", err)
+			return p
+		}
+		defaultProvider = dp
+	}
+
 	if resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel {
 		resolved.Chat.LLMProvider = defaultProvider.ID
-	}
-	if resolved.Chat.Model == profiles.DefaultProviderSentinel {
-		resolved.Chat.Model = defaultProvider.DefaultModel
 	}
 	if resolved.Voice.Assistant.LLMProviderID == profiles.DefaultProviderSentinel {
 		resolved.Voice.Assistant.LLMProviderID = defaultProvider.ID
@@ -413,7 +434,32 @@ func (s *Service) ResolveProfileDefaults(ctx context.Context, p *profiles.Profil
 		resolved.Input.LLMProviderID = defaultProvider.ID
 	}
 
-	log.Printf("[providers] Resolvido $default → provider=%s, model=%s", defaultProvider.ID, defaultProvider.DefaultModel)
+	if resolved.Chat.Model == profiles.DefaultProviderSentinel {
+		// IMPORTANTE: o modelo é resolvido a partir do provider que o
+		// profile (já resolvido acima) acabou de fixar. Evita pegar o
+		// modelo do provider global quando o profile escolheu outro.
+		var modelSourceProvider *llm.ProviderConfig
+		if s.registry != nil {
+			modelSourceProvider = s.registry.Get(resolved.Chat.LLMProvider)
+		}
+		if modelSourceProvider == nil {
+			modelSourceProvider = defaultProvider
+		}
+		resolvedModel := ""
+		if modelSourceProvider != nil {
+			if modelSourceProvider.DefaultModel != "" {
+				resolvedModel = modelSourceProvider.DefaultModel
+			} else if modelSourceProvider.Model != "" {
+				resolvedModel = modelSourceProvider.Model
+			}
+		}
+		resolved.Chat.Model = resolvedModel
+		if modelSourceProvider != nil {
+			log.Printf("[providers] Resolvido $default model → provider=%s, model=%s", modelSourceProvider.ID, resolvedModel)
+		}
+	} else if defaultProvider != nil {
+		log.Printf("[providers] Resolvido $default → provider=%s", defaultProvider.ID)
+	}
 	return &resolved
 }
 

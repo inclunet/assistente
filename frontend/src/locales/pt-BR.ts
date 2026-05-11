@@ -92,6 +92,7 @@ const ptBR = {
       conversation: 'Conversa',
       conversationCleared: 'Conversa limpa',
       clearError: 'Erro ao limpar conversa',
+      profileChangeError: 'Não foi possível alterar o perfil. Tente novamente.',
       errorPrefix: 'Erro: {{message}}',
       sendErrorPrefix: 'Erro ao enviar mensagem: {{message}}',
       historyLabel: 'Histórico',
