@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 )
 
 type inlineAuthConfig struct {
@@ -34,7 +35,12 @@ func (m *Manager) importBearerCredential(slug, rawURL, token string) {
 		log.Printf("[MCP:%s] Authorization Bearer encontrado, mas URL inválida para credencial", slug)
 		return
 	}
-	if err := m.credMgr.RegisterPatternWithContext(m.credentialContext(), hostname, &credentials.AuthConfig{
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		log.Printf("[MCP:%s] Authorization Bearer encontrado, mas usuário autenticado é obrigatório para importar credencial", slug)
+		return
+	}
+	if err := m.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{
 		Type:  "bearer",
 		Token: token,
 	}); err != nil {

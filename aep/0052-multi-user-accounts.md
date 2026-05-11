@@ -546,6 +546,21 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 13. **External mode**: valida JWT do IdP via JWKS e aplica scopes/roles do IdP.
 14. **Compatibilidade**: instalação existente migra sem perda (backfill de `user_id`).
 
+### Matriz de cobertura deste PR
+
+| Área | Cobertura atual |
+|------|-----------------|
+| Cofre e `VaultLocked` | Implementado para bootstrap local; `/vault/status`, `/vault/setup` e `/vault/unlock` permanecem sem login, enquanto sessão/JWKS retornam indisponível quando a sessão ainda não existe. |
+| Identidade local | Implementado com criação de admin, login por username manual, refresh rotation, logout e roles `admin`/`user`. |
+| JWT/JWKS local | Implementado com Ed25519/EdDSA e JWKS publicado. `jti` e ES256 não fazem parte da implementação atual deste PR. |
+| HTTP/TLS | HTTP API local implementada. Bind não-local sem TLS falha, exceto com `dev_insecure`; certificado/chave TLS são configurados por caminho, não gerados nem armazenados automaticamente como `internal-tls:*` neste PR. |
+| External mode | Implementado como resource server via JWKS, issuer/audience, allowlist de algoritmos e scopes/roles configuráveis. A implementação atual suporta EdDSA e RS256. |
+| Scoping por `user_id` | Implementado com fail-closed nos dados user-scoped, contexto autenticado no app, canais, import/export, mensagens, providers, conversas, credenciais, task lists, tasks por hierarquia e `task_notes`. |
+| Credenciais | Credenciais de usuário exigem contexto autenticado; segredos de instância `internal-auth:*` e `internal-tls:*` ficam com `user_id=''`; MCP exige contexto de usuário para tokens/inline auth. |
+| Constraints multiusuário | Implementado para providers/credenciais já existentes e ajustado para `task_lists.slug` e `task_notes` externos por usuário. |
+| Frontend | `AuthGate` só renderiza a aplicação com sessão autenticada e usuário válido; refresh inválido não abre a UI; chamadas concorrentes de status são deduplicadas. |
+| Legados em arquivo | Permanecem como escopo explícito de AEPs seguintes (`profiles`, `skills`, `mcp` config, `channels`, `jobs`, allowlists). Este PR impede que credenciais/tokens associados sejam usados sem contexto de usuário. |
+
 ---
 
 ## Riscos

@@ -110,6 +110,7 @@ func ScopeByUser(ctx context.Context, query *gorm.DB, column string) *gorm.DB {
 	}
 	userID, ok := UserIDFromContext(ctx)
 	if !ok {
+		_ = query.AddError(ErrUserScopeRequired)
 		return query
 	}
 	if strings.TrimSpace(column) == "" {

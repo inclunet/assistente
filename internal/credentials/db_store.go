@@ -56,6 +56,9 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 	if IsInstanceSecretPattern(cred.Pattern) {
 		userID = ""
 	}
+	if userID == "" && !IsInstanceSecretPattern(cred.Pattern) {
+		return database.ErrUserScopeRequired
+	}
 
 	entry := database.CredentialEntry{
 		UUIDModel: database.UUIDModel{
@@ -75,6 +78,9 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 	}
 
 	if cred.ID != "" {
+		if IsInstanceSecretPattern(cred.Pattern) {
+			return db.WithContext(ctx).Where("user_id = '' AND id = ?", cred.ID).Save(&entry).Error
+		}
 		return database.ScopeByUser(ctx, db.WithContext(ctx), "user_id").Save(&entry).Error
 	}
 
@@ -128,6 +134,48 @@ func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, erro
 	return result, nil
 }
 
+func (s *DBStore) ListInstanceCredentials(ctx context.Context) ([]StoredCredential, error) {
+	db, err := s.ensureDB()
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []database.CredentialEntry
+	if err := db.WithContext(ctx).
+		Where("user_id = ''").
+		Where("pattern LIKE ? OR pattern LIKE ?", "internal-auth:%", "internal-tls:%").
+		Find(&entries).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]StoredCredential, 0, len(entries))
+	for _, entry := range entries {
+		headers := map[string]string{}
+		if entry.HeadersEnc != "" {
+			if err := json.Unmarshal([]byte(entry.HeadersEnc), &headers); err != nil {
+				return nil, err
+			}
+		}
+		result = append(result, StoredCredential{
+			ID:      entry.ID,
+			UserID:  entry.UserID,
+			Pattern: entry.Pattern,
+			Auth: &AuthConfig{
+				Type:         entry.AuthType,
+				Token:        entry.TokenEnc,
+				Username:     entry.Username,
+				Password:     entry.PasswordEnc,
+				Headers:      headers,
+				ExpiresAt:    entry.ExpiresAt,
+				RefreshURL:   entry.RefreshTokenEnc,
+				ClientID:     entry.ClientIDEnc,
+				ClientSecret: entry.ClientSecretEnc,
+			},
+		})
+	}
+	return result, nil
+}
+
 func (s *DBStore) HasAnyCredentials(ctx context.Context) (bool, error) {
 	db, err := s.ensureDB()
 	if err != nil {
@@ -145,6 +193,9 @@ func (s *DBStore) DeleteCredential(ctx context.Context, pattern string) error {
 	db, err := s.ensureDB()
 	if err != nil {
 		return err
+	}
+	if IsInstanceSecretPattern(pattern) {
+		return db.WithContext(ctx).Where("user_id = '' AND pattern = ?", pattern).Delete(&database.CredentialEntry{}).Error
 	}
 	query := database.ScopeByUser(ctx, db.WithContext(ctx), "user_id")
 	return query.Where("pattern = ?", pattern).Delete(&database.CredentialEntry{}).Error

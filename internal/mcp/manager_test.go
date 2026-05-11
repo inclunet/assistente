@@ -876,6 +876,8 @@ func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
 
 func TestLoadConfigsImportsRequestInitBearerAuth(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	m.SetAuthContextProvider(func() context.Context { return ctx })
 
 	data := []byte(`{
 		"url": "https://api.githubcopilot.com/mcp/",
@@ -900,7 +902,7 @@ func TestLoadConfigsImportsRequestInitBearerAuth(t *testing.T) {
 		t.Fatalf("auth type: got %q, want %q", cfg.AuthType, AuthBearer)
 	}
 
-	auth, err := m.credMgr.GetByPattern("api.githubcopilot.com")
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, "api.githubcopilot.com")
 	if err != nil {
 		t.Fatalf("GetByPattern failed: %v", err)
 	}
@@ -911,6 +913,8 @@ func TestLoadConfigsImportsRequestInitBearerAuth(t *testing.T) {
 
 func TestImportFromMCPJSONImportsRequestInitBearerAuth(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	m.SetAuthContextProvider(func() context.Context { return ctx })
 
 	mcpJSON := []byte(`{
 		"mcpServers": {
@@ -940,7 +944,7 @@ func TestImportFromMCPJSONImportsRequestInitBearerAuth(t *testing.T) {
 		t.Fatalf("auth type: got %q, want %q", cfg.AuthType, AuthBearer)
 	}
 
-	auth, err := m.credMgr.GetByPattern("api.githubcopilot.com")
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, "api.githubcopilot.com")
 	if err != nil {
 		t.Fatalf("GetByPattern failed: %v", err)
 	}

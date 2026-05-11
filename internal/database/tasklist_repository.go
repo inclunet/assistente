@@ -931,8 +931,13 @@ func CreateTaskNoteWithContext(ctx context.Context, taskID string, noteType Task
 	if _, err := GetTaskWithContext(ctx, taskID); err != nil {
 		return nil, fmt.Errorf("task %s não encontrada: %w", taskID, err)
 	}
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	note := &TaskNote{
+		UserID:     userID,
 		TaskID:     taskID,
 		Type:       noteType,
 		Content:    content,
@@ -1052,7 +1057,13 @@ func UpsertTaskNoteByExternalWithContext(ctx context.Context, p UpsertTaskNoteBy
 		return nil, false, fmt.Errorf("type é obrigatório ao criar nota externa nova")
 	}
 
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
 	note := &TaskNote{
+		UserID:            userID,
 		TaskID:            p.TaskID,
 		Type:              *p.Type,
 		Content:           p.Content,

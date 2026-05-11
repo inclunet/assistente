@@ -135,7 +135,7 @@ type ChatMessage struct {
 // `clause.OnConflict{Columns: [user_id, pattern]}`, que o SQLite só aceita
 // contra índices unique sem cláusula `WHERE`.
 //
-// Patterns vazios (`pattern=''`) ficam sob o mesmo invariante de unicidade —
+// Patterns vazios (`pattern=”`) ficam sob o mesmo invariante de unicidade —
 // na prática o app sempre grava patterns não-vazios (instance secrets têm
 // nomes específicos como `internal-auth:refresh-token`). Bases legadas com
 // duplicatas em (user_id, pattern) são deduplicadas em
@@ -249,6 +249,7 @@ const (
 // TaskNote representa uma nota ou interação associada a uma task
 type TaskNote struct {
 	UUIDModel
+	UserID     string       `json:"userId,omitempty" gorm:"index"`
 	TaskID     string       `json:"task_id" gorm:"not null;index"`
 	Type       TaskNoteType `json:"type" gorm:"not null;default:1"`
 	Content    string       `json:"content" gorm:"type:text;not null"`

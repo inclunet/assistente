@@ -137,5 +137,6 @@ func ensureTaskListSlugUniqueIndex() {
 	if db == nil {
 		return
 	}
-	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_lists_slug ON task_lists (slug) WHERE slug <> ''`)
+	db.Exec(`DROP INDEX IF EXISTS ux_task_lists_slug`)
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_lists_user_slug ON task_lists (user_id, slug) WHERE slug <> ''`)
 }

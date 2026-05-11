@@ -42,6 +42,7 @@ function App() {
     const antLocale = useAntdLocale(i18n.language);
     const { setConfig, setLoading, setError } = useSettingsStore();
     const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+    const authUser = useAuthStore((s) => s.user);
     const addToast = useUIStore((s) => s.addToast);
     const handleConversationDeleted = useChatStore((s) => s.handleConversationDeleted);
     const handleConversationCleared = useChatStore((s) => s.handleConversationCleared);
@@ -66,7 +67,7 @@ function App() {
         const loadConfig = async () => {
             await waitForWailsBridge({ signal: controller.signal });
             if (controller.signal.aborted) return;
-            if (!isAuthenticated) {
+            if (!isAuthenticated || !authUser) {
                 setLoading(false);
                 return;
             }
@@ -130,7 +131,7 @@ function App() {
             console.error('Erro ao carregar configuração:', error);
         });
         return () => controller.abort();
-    }, [setConfig, setLoading, setError, addToast, isAuthenticated]);
+    }, [setConfig, setLoading, setError, addToast, isAuthenticated, authUser]);
 
     // Escuta eventos de conversa deletada/limpa
     useEffect(() => {
@@ -317,16 +318,14 @@ function App() {
             <ScreenReaderAnnouncer />
             <AuthGate>
                 <Outlet />
+                <ConfirmHost />
+                <QuestionnaireDialog
+                    isOpen={effectiveQuestionnaireOpen}
+                    data={effectiveQuestionnaireData}
+                    onSubmit={handleQuestionnaireSubmit}
+                    onCancel={handleQuestionnaireCancel}
+                />
             </AuthGate>
-
-            <ConfirmHost />
-
-            <QuestionnaireDialog
-                isOpen={effectiveQuestionnaireOpen}
-                data={effectiveQuestionnaireData}
-                onSubmit={handleQuestionnaireSubmit}
-                onCancel={handleQuestionnaireCancel}
-            />
         </ConfigProvider>
     )
 }

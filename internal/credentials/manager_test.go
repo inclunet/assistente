@@ -642,7 +642,7 @@ func TestRegisterStoredCredentialDoesNotHoldLockDuringStoreIO(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- mgr.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
+		done <- mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
 			Pattern: "api.example.com",
 			Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
 		})
@@ -671,7 +671,7 @@ func TestRegisterStoredCredentialReturnsListCredentialsError(t *testing.T) {
 	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
 	store.manager = mgr
 
-	err := mgr.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
+	err := mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
 		Pattern: "api.example.com",
 		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
 	})
@@ -688,7 +688,7 @@ func TestRegisterStoredCredentialRequiresPersistedIDAfterSave(t *testing.T) {
 	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
 	store.manager = mgr
 
-	err := mgr.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
+	err := mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
 		Pattern: "api.example.com",
 		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
 	})

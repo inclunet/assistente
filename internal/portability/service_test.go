@@ -130,7 +130,8 @@ func TestBuildExportFileLoadsConversationsInBatchPreservingRequestedOrder(t *tes
 				CreatedAt: now,
 				UpdatedAt: now,
 			},
-			Title: "Primeira",
+			Title:  "Primeira",
+			UserID: portabilityTestUserID,
 		},
 		{
 			UUIDModel: database.UUIDModel{
@@ -138,7 +139,8 @@ func TestBuildExportFileLoadsConversationsInBatchPreservingRequestedOrder(t *tes
 				CreatedAt: now.Add(time.Minute),
 				UpdatedAt: now.Add(time.Minute),
 			},
-			Title: "Segunda",
+			Title:  "Segunda",
+			UserID: portabilityTestUserID,
 		},
 	}
 	if err := database.DB().Create(&conversations).Error; err != nil {
@@ -169,7 +171,7 @@ func TestBuildExportFileLoadsConversationsInBatchPreservingRequestedOrder(t *tes
 		t.Fatalf("Create(messages) error = %v", err)
 	}
 
-	file, err := BuildExportFile([]string{conversations[1].ID, conversations[0].ID, conversations[1].ID}, nil, nil, nil, ExportRequest{}, "test")
+	file, err := BuildExportFileWithContext(portabilityTestCtx(), []string{conversations[1].ID, conversations[0].ID, conversations[1].ID}, nil, nil, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}
@@ -188,7 +190,7 @@ func TestBuildExportFileReturnsClearErrorForMissingConversation(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	missingID := "01926b90-0000-7000-8000-000000000999"
-	_, err := BuildExportFile([]string{missingID}, nil, nil, nil, ExportRequest{}, "test")
+	_, err := BuildExportFileWithContext(portabilityTestCtx(), []string{missingID}, nil, nil, nil, ExportRequest{}, "test")
 	if err == nil {
 		t.Fatal("BuildExportFile() error = nil, want missing conversation error")
 	}
@@ -423,7 +425,7 @@ func TestAnalyzeImportDataDoesNotDetectNaturalConversationConflicts(t *testing.T
 		t.Fatalf("falha ao serializar export file: %v", err)
 	}
 
-	analysis, err := AnalyzeImportData(string(raw), credMgr, "senha-teste")
+	analysis, err := AnalyzeImportDataWithContext(portabilityTestCtx(), string(raw), credMgr, "senha-teste")
 	if err != nil {
 		t.Fatalf("AnalyzeImportData() error = %v", err)
 	}
@@ -536,7 +538,7 @@ func TestAnalyzeImportDataWarnsAboutEmptyConversations(t *testing.T) {
 		t.Fatalf("falha ao serializar export file: %v", err)
 	}
 
-	analysis, err := AnalyzeImportData(string(raw), nil, "")
+	analysis, err := AnalyzeImportDataWithContext(portabilityTestCtx(), string(raw), nil, "")
 	if err != nil {
 		t.Fatalf("AnalyzeImportData() error = %v", err)
 	}
@@ -561,7 +563,7 @@ func TestAnalyzeImportDataReportsUnsupportedResourceTypes(t *testing.T) {
 		}
 	}`
 
-	analysis, err := AnalyzeImportData(raw, nil, "")
+	analysis, err := AnalyzeImportDataWithContext(portabilityTestCtx(), raw, nil, "")
 	if err != nil {
 		t.Fatalf("AnalyzeImportData() error = %v", err)
 	}
@@ -579,7 +581,7 @@ func TestBuildExportFileIncludesTaskLists(t *testing.T) {
 
 	taskList := createPortableTaskListFixture(t)
 
-	file, err := BuildExportFile(nil, nil, []string{taskList.ID}, nil, ExportRequest{}, "test")
+	file, err := BuildExportFileWithContext(portabilityTestCtx(), nil, nil, []string{taskList.ID}, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}
@@ -659,7 +661,7 @@ func TestAnalyzeImportDataDetectsProviderConflicts(t *testing.T) {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 
-	analysis, err := AnalyzeImportData(string(raw), nil, "")
+	analysis, err := AnalyzeImportDataWithContext(portabilityTestCtx(), string(raw), nil, "")
 	if err != nil {
 		t.Fatalf("AnalyzeImportData() error = %v", err)
 	}
@@ -677,7 +679,7 @@ func TestAnalyzeImportDataDetectsTaskListConflicts(t *testing.T) {
 
 	taskList := createPortableTaskListFixture(t)
 
-	file, err := BuildExportFile(nil, nil, []string{taskList.ID}, nil, ExportRequest{}, "test")
+	file, err := BuildExportFileWithContext(portabilityTestCtx(), nil, nil, []string{taskList.ID}, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}
@@ -686,7 +688,7 @@ func TestAnalyzeImportDataDetectsTaskListConflicts(t *testing.T) {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 
-	analysis, err := AnalyzeImportData(string(raw), nil, "")
+	analysis, err := AnalyzeImportDataWithContext(portabilityTestCtx(), string(raw), nil, "")
 	if err != nil {
 		t.Fatalf("AnalyzeImportData() error = %v", err)
 	}
@@ -707,7 +709,7 @@ func TestAnalyzeImportDataDetectsTaskListConflictsWithNormalizedSlug(t *testing.
 
 	taskList := createPortableTaskListFixture(t)
 
-	file, err := BuildExportFile(nil, nil, []string{taskList.ID}, nil, ExportRequest{}, "test")
+	file, err := BuildExportFileWithContext(portabilityTestCtx(), nil, nil, []string{taskList.ID}, nil, ExportRequest{}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFile() error = %v", err)
 	}
@@ -718,7 +720,7 @@ func TestAnalyzeImportDataDetectsTaskListConflictsWithNormalizedSlug(t *testing.
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 
-	analysis, err := AnalyzeImportData(string(raw), nil, "")
+	analysis, err := AnalyzeImportDataWithContext(portabilityTestCtx(), string(raw), nil, "")
 	if err != nil {
 		t.Fatalf("AnalyzeImportData() error = %v", err)
 	}
@@ -1819,7 +1821,7 @@ func TestImportConversationsPropagatesContextToCredentialPersistence(t *testing.
 	}
 
 	type ctxKey string
-	ctx := context.WithValue(context.Background(), ctxKey("source"), "test-import")
+	ctx := database.WithUserID(context.WithValue(context.Background(), ctxKey("source"), "test-import"), portabilityTestUserID)
 	_, err = ImportConversationsWithContext(ctx, string(raw), credMgr, "senha-teste")
 	if err != nil {
 		t.Fatalf("ImportConversationsWithContext() error = %v", err)
@@ -1851,7 +1853,7 @@ func TestExportCredentialsSkipsManagedAndInternalSecrets(t *testing.T) {
 		t.Fatalf("register instance secret: %v", err)
 	}
 
-	file, err := BuildExportFileWithContext(t.Context(), nil, nil, nil, credMgr, ExportRequest{
+	file, err := BuildExportFileWithContext(portabilityTestCtx(), nil, nil, nil, credMgr, ExportRequest{
 		IncludeCredentials:       true,
 		CredentialExportPassword: "senha-teste",
 	}, "test")
@@ -1989,7 +1991,7 @@ func TestImportConversationsSkipsCredentialConflictByPattern(t *testing.T) {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 
-	analysis, err := AnalyzeImportData(string(raw), credMgr, "senha-teste")
+	analysis, err := AnalyzeImportDataWithContext(portabilityTestCtx(), string(raw), credMgr, "senha-teste")
 	if err != nil {
 		t.Fatalf("AnalyzeImportData() error = %v", err)
 	}

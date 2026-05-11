@@ -121,6 +121,7 @@ let refreshGuard: Promise<void> | null = null;
  * esta defesa cobre M36 do Bloco 5.
  */
 let logoutGeneration = 0;
+let loadStatusInFlight: Promise<void> | null = null;
 
 purgeLegacyTokenStorage();
 
@@ -132,23 +133,32 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   isAuthenticated: false,
 
   loadStatus: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const status = (await GetAuthStatus()) as AuthStatus;
-      set({ status });
-      if (status.vaultUnlocked && status.hasUsers) {
-        await get().refresh();
-      }
-      set({ isLoading: false });
-    } catch (error) {
-      console.error('[authStore] loadStatus failed', error);
-      set({
-        error: mapBackendError(error),
-        isLoading: false,
-        user: null,
-        isAuthenticated: false,
-      });
+    if (loadStatusInFlight && get().isLoading) {
+      return loadStatusInFlight;
     }
+    loadStatusInFlight = null;
+    loadStatusInFlight = (async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const status = (await GetAuthStatus()) as AuthStatus;
+        set({ status });
+        if (status.vaultUnlocked && status.hasUsers) {
+          await get().refresh();
+        }
+        set({ isLoading: false });
+      } catch (error) {
+        console.error('[authStore] loadStatus failed', error);
+        set({
+          error: mapBackendError(error),
+          isLoading: false,
+          user: null,
+          isAuthenticated: false,
+        });
+      } finally {
+        loadStatusInFlight = null;
+      }
+    })();
+    return loadStatusInFlight;
   },
 
   setupVault: async (masterPassword) => {
@@ -198,7 +208,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   login: async (username, password) => {
     set({ isLoading: true, error: null });
     try {
-      const user = (await Login({ username, password, clientLabel: 'Wails desktop' })) as AuthUser;
+      const user = parseAuthUser(await Login({ username, password, clientLabel: 'Wails desktop' }));
       set({
         user,
         isAuthenticated: true,
@@ -225,7 +235,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     const generationAtStart = logoutGeneration;
     refreshGuard = (async () => {
       try {
-        const user = (await RefreshAuth({})) as AuthUser;
+        const user = parseAuthUser(await RefreshAuth({}));
         if (logoutGeneration !== generationAtStart) {
           // Logout aconteceu durante o refresh — descartamos o resultado
           // para não ressuscitar a sessão (M36 do review).
@@ -264,10 +274,26 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 }));
 
+function parseAuthUser(value: unknown): AuthUser {
+  if (!isAuthUser(value)) {
+    throw new Error('sessão inválida retornada pelo backend');
+  }
+  return value;
+}
+
+function isAuthUser(value: unknown): value is AuthUser {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const user = value as Partial<AuthUser>;
+  return Boolean(user.userId && user.sessionId && user.role);
+}
+
 export const __testing__ = {
   resetGuards() {
     refreshGuard = null;
     logoutGeneration = 0;
+    loadStatusInFlight = null;
   },
   mapBackendError,
 };

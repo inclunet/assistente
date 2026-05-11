@@ -48,6 +48,10 @@ type Manager struct {
 	persist     bool
 }
 
+type instanceCredentialStore interface {
+	ListInstanceCredentials(ctx context.Context) ([]StoredCredential, error)
+}
+
 // NewManager cria novo credential manager (sem persistência).
 func NewManager(encryptionKey []byte) *Manager {
 	return NewManagerWithStoreAndPersistence(encryptionKey, nil, false)
@@ -118,12 +122,15 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 			userID = scopedUserID
 		}
 	}
+	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
+		return database.ErrUserScopeRequired
+	}
 	if m.persist && m.store != nil {
 		if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, UserID: userID, Pattern: pattern, Auth: encAuth}); err != nil {
 			return err
 		}
 		if cred.ID == "" {
-			persisted, err := m.store.ListCredentials(ctx)
+			persisted, err := m.persistedCredentials(ctx)
 			if err != nil {
 				return fmt.Errorf("listar credenciais persistidas após salvar: %w", err)
 			}
@@ -316,6 +323,9 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
 		userID = scopedUserID
 	}
+	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
+		return database.ErrUserScopeRequired
+	}
 	filtered := m.credentials[:0]
 	for _, dc := range m.credentials {
 		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
@@ -345,7 +355,7 @@ func (m *Manager) LoadFromStore(ctx context.Context) error {
 		return nil
 	}
 
-	entries, err := m.store.ListCredentials(ctx)
+	entries, err := m.persistedCredentials(ctx)
 	if err != nil {
 		return err
 	}
@@ -357,6 +367,16 @@ func (m *Manager) LoadFromStore(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (m *Manager) persistedCredentials(ctx context.Context) ([]StoredCredential, error) {
+	if _, ok := database.UserIDFromContext(ctx); ok {
+		return m.store.ListCredentials(ctx)
+	}
+	if instanceStore, ok := m.store.(instanceCredentialStore); ok {
+		return instanceStore.ListInstanceCredentials(ctx)
+	}
+	return m.store.ListCredentials(ctx)
 }
 
 // Reset redefine a chave de criptografia e limpa credenciais em memória.

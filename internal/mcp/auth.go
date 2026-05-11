@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 )
 
 func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clientSecret string) error {
@@ -17,6 +18,9 @@ func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clie
 	}
 
 	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
 
 	switch authType {
 	case "bearer":
@@ -58,6 +62,9 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 	}
 
 	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
 
 	// Limpar entradas OAuth (client + tokens)
 	_ = m.credMgr.DeletePattern(ctx, clientCredPattern(slug))
@@ -85,7 +92,12 @@ func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
 	}
 
 	// Verifica entrada OAuth (mcp-client:{slug})
-	clientAuth, _ := m.credMgr.GetByPattern(clientCredPattern(slug))
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return "", false, err
+	}
+
+	clientAuth, _ := m.credMgr.GetByPatternWithContext(ctx, clientCredPattern(slug))
 	if clientAuth != nil {
 		if cfg.AuthType != "" && cfg.AuthType != AuthNone {
 			return string(cfg.AuthType), true, nil
@@ -99,7 +111,7 @@ func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
 		return "", false, nil
 	}
 
-	auth, err := m.credMgr.GetByPattern(hostname)
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, hostname)
 	if err != nil || auth == nil {
 		return "", false, err
 	}
