@@ -1,6 +1,11 @@
 # AEP-0052 — Sistema de Contas de Usuário
 
-**Status**: Em implementação  
+**Status**: Em implementação — **multi-user single-tenant alpha**
+(P1-1 do re-review do PR #94). Não cobre cenários "enterprise
+multi-tenant" (rotação multi-key com grace period, federação SSO,
+isolamento criptográfico por usuário). Esses pontos estão listados
+em [Limitações conhecidas](#limitacoes-conhecidas) e nas seções de
+TODOs pós-merge.  
 **Criado em**: 2026-04-21  
 **Depende de**: AEP-0046 (UUIDv7 Migration), AEP-0047 (Import/Export)  
 **Precede**: AEP-0048 (Jobs DB), AEP-0049 (MCP DB), AEP-0050 (Profiles DB), AEP-0051 (Skills DB), AEP-0054/AEP-0055 (split/clientes)  
@@ -22,6 +27,42 @@ Dois modos de autenticação/autorização são suportados:
 
 - **`auth.mode=local`** (100% local): o Assistente emite e valida seus próprios tokens (JWT access + refresh token com rotação) e aplica roles `admin/user`.
 - **`auth.mode=external`** (IdP existente): o Assistente atua como **resource server**, valida JWT do IdP via JWKS e aplica scopes/roles definidos externamente (sem sessão própria do Assistente nesta fase).
+
+---
+
+## Limitações conhecidas
+
+Esta AEP entrega **multi-user single-tenant alpha**. Cenários abaixo
+ficam fora deste escopo e exigem trabalho adicional antes de qualquer
+claim "enterprise":
+
+- **Rotação multi-key com grace period**: hoje há uma única chave
+  Ed25519 ativa para JWT; rotação é manual e gera janela de até 15min
+  de access tokens em voo inválidos. Procedimento operacional em
+  [`docs/operations/key-rotation.md`](../docs/operations/key-rotation.md).
+  TODO: aceitar tokens assinados com chave antiga durante uma janela
+  configurável; JWKS expõe ambas. Pré-requisito para integração com
+  consumidores HTTP que não tolerem 401 transitório.
+- **Federação SSO**: `auth.mode=external` valida JWT de IdP via JWKS,
+  mas não cobre OIDC discovery automático, mapeamento dinâmico de
+  scopes para roles, nem provisionamento just-in-time. Fora de escopo
+  inicial.
+- **Isolamento criptográfico por usuário**: a DEK é global por
+  instância. Isolamento entre usuários é lógico (`user_id` em queries),
+  não criptográfico. Em ambiente "operador hostil ao tenant" — admin
+  da instância acessando dados de outros — não há defesa. Ver §3 da
+  Motivação para a justificativa.
+- **Persistência de callbacks de canal externo (M14)**: respostas a
+  mensagens de Telegram/Signal podem ser perdidas se o app crashar
+  entre o registro do callback e a resposta do agente. Mitigado por
+  TTL + recover, não por persistência. Ver
+  [`internal/messaging/notifier.go`](../internal/messaging/notifier.go).
+- **Detecção robusta de violação de unique constraint multi-dialect**:
+  `isUniqueConstraintError` é heurística por string match, cobre
+  SQLite/Postgres/MySQL via mensagem do driver. Quando o projeto
+  adicionar driver Postgres/MySQL como dependência direta, trocar por
+  `errors.As` contra os tipos concretos (`pgconn.PgError`,
+  `mysql.MySQLError`).
 
 ---
 

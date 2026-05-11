@@ -66,6 +66,29 @@ type pendingCallback struct {
 // contra paths de erro esquecidos pelos callers (B7 do review da Fatia 2).
 //
 // Thread-safe para uso concorrente.
+//
+// LIMITAÇÃO CONHECIDA — callbacks in-memory only (M14 / P0-3 do
+// re-review da Fatia 2). Se o app crashar (panic, OOM, sigkill) entre
+// o Register e o Notify, o callback é perdido junto com o processo.
+// Consequência: a resposta do assistente nunca chega ao mensageiro
+// externo (Telegram, Signal, Slack) — sem retry, sem feedback ao
+// remetente. O bot pode aparentar ter "sumido com a mensagem" do
+// ponto de vista do usuário externo.
+//
+// Mitigações ATUAIS:
+//   - TTL evita callback órfão acumulado em memória (B7).
+//   - panic/recover no callback evita derrubar o processo (M11).
+//   - O remetente externo pode reenviar a mensagem.
+//
+// Mitigações PENDENTES:
+//   - Persistir intent (channel_response_pending) no DB para que
+//     uma varredura no startup re-dispare callbacks órfãos por crash.
+//     TODO(aep-0052): tracking issue + schema + startup hook em fatia
+//     futura. Hoje é aceito por: (a) crash do app é raro em operação
+//     normal, (b) integrações externas já são best-effort do ponto de
+//     vista de SLA, (c) a mensagem do usuário externo permanece no
+//     histórico do app — nada se perde ali, só a resposta perdida no
+//     vácuo do pipeline.
 type ResponseNotifier struct {
 	mu        sync.Mutex
 	callbacks map[string][]pendingCallback // conversationID -> callbacks pendentes

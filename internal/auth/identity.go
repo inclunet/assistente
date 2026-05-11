@@ -145,7 +145,30 @@ func normalizeUsername(username string) string {
 	return strings.ToLower(strings.TrimSpace(username))
 }
 
+// isUniqueConstraintError detecta violação de unique index em múltiplos
+// dialects (M5 do review da Fatia 1).
+//
+// Hoje o projeto usa SQLite (`glebarez/sqlite` → `modernc.org/sqlite`)
+// que retorna mensagens com "constraint failed: UNIQUE constraint
+// failed". Para que a mesma função detecte conflitos quando rodando
+// contra Postgres ou MySQL — exatamente o que o AEP-0052 prevê em
+// deployment futuro — incluímos as strings desses drivers no fallback:
+//
+//   - SQLite (`modernc`): "UNIQUE constraint failed"
+//   - Postgres (`pq`/`pgx`): "duplicate key value violates unique
+//     constraint" (SQLSTATE 23505)
+//   - MySQL: "Error 1062: Duplicate entry"
+//
+// Quando algum desses drivers virar dependência direta, trocar a
+// heurística por `errors.As` contra o tipo concreto do driver
+// (sqlite3.Error.ExtendedCode, pgconn.PgError.Code, MySQLError.Number).
 func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "unique constraint") || strings.Contains(msg, "constraint failed")
+	return strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "constraint failed") ||
+		strings.Contains(msg, "duplicate key") ||
+		strings.Contains(msg, "duplicate entry")
 }

@@ -634,3 +634,87 @@ func TestVaultStatusUsesRuntimeFlagWhenKeyringFails(t *testing.T) {
 		t.Fatal("expected runtime-flag to keep vault marked as unlocked")
 	}
 }
+
+// TestVaultStatus_PrefersKeyringOverRuntimeFlag cobre P0-2 do
+// re-review da Fatia 1: Status() não pode curto-circuitar a checagem
+// do keyring quando a flag de runtime está `true`. Antes do fix, basta
+// um Setup/Unlock prévio para a flag fazer Status devolver
+// `unlocked: true` para sempre — mesmo se a DEK fosse perdida do
+// keyring entre chamadas. Agora o keyring é fonte autoritativa: se
+// devolve uma DEK, `unlocked` é true; a flag só atua como fallback
+// positivo quando o keyring fica fora do ar.
+func TestVaultStatus_PrefersKeyringOverRuntimeFlag(t *testing.T) {
+	store := newMemoryCredentialStore()
+	vault := NewVaultService(store, nil)
+	existingDEK := []byte("01234567890123456789012345678901")
+	vault.loadKeyring = func() ([]byte, error) { return existingDEK, nil }
+	vault.saveKeyring = func([]byte) error { return nil }
+
+	if _, err := vault.Setup(context.Background(), "master-password"); err != nil {
+		t.Fatalf("setup vault: %v", err)
+	}
+
+	keyringCalls := 0
+	vault.loadKeyring = func() ([]byte, error) {
+		keyringCalls++
+		return existingDEK, nil
+	}
+
+	if _, err := vault.Status(context.Background()); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if keyringCalls == 0 {
+		t.Fatal("Status deveria sempre consultar o keyring (flag não pode curto-circuitar a verificação)")
+	}
+}
+
+// TestVaultStatus_ReportsLockedAfterLockEvenIfPreviouslyUnlocked
+// cobre o cenário regressivo do P0-2: depois de `Lock()` (chamado em
+// Logout), a flag volta a `false`. Se o keyring também perdeu a DEK
+// (cenário pessimista), Status() deve reportar `unlocked: false`. O
+// bug original deixaria `unlocked: true` para sempre porque a flag
+// nunca era resetada.
+func TestVaultStatus_ReportsLockedAfterLockEvenIfPreviouslyUnlocked(t *testing.T) {
+	store := newMemoryCredentialStore()
+	vault := NewVaultService(store, nil)
+	existingDEK := []byte("01234567890123456789012345678901")
+	vault.loadKeyring = func() ([]byte, error) { return existingDEK, nil }
+	vault.saveKeyring = func([]byte) error { return nil }
+
+	if _, err := vault.Setup(context.Background(), "master-password"); err != nil {
+		t.Fatalf("setup vault: %v", err)
+	}
+
+	vault.Lock()
+
+	vault.loadKeyring = func() ([]byte, error) {
+		return nil, errors.New("keyring offline")
+	}
+
+	status, err := vault.Status(context.Background())
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if status.Unlocked {
+		t.Fatal("após Lock() + keyring indisponível, Status deveria reportar locked")
+	}
+	if !status.Configured {
+		t.Fatal("Lock() não deveria afetar o flag Configured (cofre persistido continua existindo)")
+	}
+}
+
+// TestVaultLock_IsIdempotent garante que `Lock()` pode ser chamado
+// múltiplas vezes (e em vault nil) sem efeitos colaterais — `Logout`
+// é melhor-esforço e pode invocar Lock em ordem qualquer.
+func TestVaultLock_IsIdempotent(t *testing.T) {
+	var nilVault *VaultService
+	nilVault.Lock()
+
+	store := newMemoryCredentialStore()
+	vault := NewVaultService(store, nil)
+	vault.Lock()
+	vault.Lock()
+	if vault.isRuntimeUnlocked() {
+		t.Fatal("Lock duplo não deveria deixar flag positiva")
+	}
+}

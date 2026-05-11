@@ -20,6 +20,26 @@ import (
 // rotation pode ser introduzida sem schema change estendendo o vetor
 // retornado por TokenSigner.JWKSet com chaves "old" — fora de escopo
 // para o PR atual.
+//
+// TODO(aep-0052/key-rotation): rotação multi-key com grace period.
+// Cenário NÃO coberto hoje: rotação de emergência (chave vazada,
+// suspeita de comprometimento). Procedimento atual:
+//
+//  1. Apagar manualmente `instance-jwt-signing-key` no cofre
+//     (`asst data export --only-credentials` → editar → import) ou
+//     resetar o vault via UI.
+//  2. App gera nova chave automaticamente no próximo boot.
+//  3. JWKS expõe só a nova chave; access tokens em voo (≤15min)
+//     param de validar; clientes externos refazem fetch de JWKS.
+//
+// Janela de impacto: até 15min para access tokens em voo cessarem.
+// Sessões abertas seguem via refresh (que emite novos access tokens
+// com a nova chave). Aceitável para single-instance alpha; revisar
+// antes de qualquer claim "enterprise multi-tenant" — multi-key com
+// grace period vira requisito quando JWKS for consumido por
+// integrações que não tolerem 15min de erro 401.
+//
+// Documentação operacional: docs/operations/key-rotation.md.
 func LoadOrCreateTokenSigner(credMgr *credentials.Manager) (*TokenSigner, error) {
 	if credMgr == nil {
 		return NewTokenSigner()

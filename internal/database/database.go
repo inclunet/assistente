@@ -156,14 +156,33 @@ func Init() error {
 	return nil
 }
 
-// AdoptLegacyData vincula registros single-user existentes ao usuário criado
-// durante o fluxo de adoção da AEP-0052. A operação é idempotente.
+// AdoptLegacyData vincula registros single-user existentes (user_id IS NULL
+// ou user_id='') ao usuário ativo. A operação é idempotente.
 //
-// SECURITY: instance-wide — varre TODAS as tabelas independentemente do
-// escopo de usuário, atribuindo registros órfãos (user_id="") ao userID
-// fornecido por argumento. É a contraparte legítima do bootstrap que
-// gravou dados pré-AEP-0052; chamada apenas pelo fluxo de criação do
-// primeiro usuário (Login após CreateAdminUser).
+// PONTOS DE CHAMADA (P0-4 do re-review da Fatia 1):
+//   - Login (`app_auth.go` em `adoptLegacyDataForUser`): roda em TODO
+//     login bem-sucedido. Idempotente após o primeiro: a partir do
+//     segundo login do mesmo usuário, o WHERE não casa nada.
+//   - RefreshAuth (`app_auth.go` em `adoptLegacyDataForUser`): roda em
+//     TODO refresh bem-sucedido. Mesma idempotência.
+//
+// (`CreateAdminUser` por si só NÃO chama AdoptLegacyData — quem adota
+// é o primeiro Login após a criação do admin, exatamente como descrito
+// nos call sites acima.)
+//
+// SECURITY: instance-wide — varre TODAS as tabelas que carregam
+// `user_id`. O WHERE é restrito a `user_id IS NULL OR user_id = ''`,
+// portanto registros legitimamente atribuídos a outro usuário NÃO são
+// re-atribuídos. Concretamente: User B logando depois de User A NÃO
+// herda dados de A — o A já adotou tudo no primeiro login dele e o
+// WHERE da B não casa mais nada.
+//
+// PREMISSA CRÍTICA: nenhum caminho produz registros órfãos (user_id
+// vazio) DEPOIS do bootstrap. Se alguma migração futura (import legacy,
+// fix de schema, restore de backup pré-AEP-0052) introduzir órfãos em
+// runtime, o próximo login a executar AdoptLegacyData os atribuirá ao
+// caller — possivelmente ao usuário errado. Validar essa premissa
+// antes de qualquer mudança que produza órfãos em runtime.
 func AdoptLegacyData(userID string) error {
 	if db == nil {
 		return errors.New("banco de dados não inicializado")

@@ -359,6 +359,9 @@ func (a *App) Logout(req LogoutRequest) error {
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
+	if a.vaultSvc != nil {
+		a.vaultSvc.Lock()
+	}
 	return nil
 }
 
