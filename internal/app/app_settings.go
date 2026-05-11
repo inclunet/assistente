@@ -1,13 +1,43 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 
 	"assistente/controllers"
 	"assistente/internal/config"
+	"assistente/internal/credentials"
 	"assistente/internal/skills"
 )
+
+// credentialCleanerAdapter adapta credentials.Manager para
+// config.CredentialCleaner. ListVisible delega para
+// ListVisibleCredentialsWithContext (que filtra instance secrets e
+// credenciais de outros usuários por construção, ver AEP-0053).
+type credentialCleanerAdapter struct{ mgr *credentials.Manager }
+
+func (a credentialCleanerAdapter) ListVisible(ctx context.Context) ([]config.VisibleCredential, error) {
+	if a.mgr == nil {
+		return nil, fmt.Errorf("credential manager indisponível")
+	}
+	creds, err := a.mgr.ListVisibleCredentialsWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]config.VisibleCredential, 0, len(creds))
+	for _, c := range creds {
+		out = append(out, config.VisibleCredential{Pattern: c.Pattern})
+	}
+	return out, nil
+}
+
+func (a credentialCleanerAdapter) DeletePattern(ctx context.Context, pattern string) error {
+	if a.mgr == nil {
+		return fmt.Errorf("credential manager indisponível")
+	}
+	return a.mgr.DeletePattern(ctx, pattern)
+}
 
 // GetNativeTTSProviders retorna os IDs de provedores TTS nativos
 // disponíveis na plataforma atual (ex.: webspeech sempre, sapi5 apenas no Windows).

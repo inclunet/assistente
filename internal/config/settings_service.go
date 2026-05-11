@@ -20,8 +20,22 @@ type SettingsService struct {
 }
 
 // CredentialCleaner limpa credenciais armazenadas.
+//
+// O contrato é "iterar e deletar pattern por pattern" para evitar que
+// chamadores confundam "limpar tudo" com `DeletePattern("")` — caminho
+// que provocou perda silenciosa de 13 credenciais no incident de
+// 10/05/2026 (AEP-0053). `ListVisible` já filtra instance secrets
+// (`internal-auth:*`/`internal-tls:*`) e credenciais de outros usuários,
+// então iterar é seguro por construção.
 type CredentialCleaner interface {
+	ListVisible(ctx context.Context) ([]VisibleCredential, error)
 	DeletePattern(ctx context.Context, pattern string) error
+}
+
+// VisibleCredential é a forma mínima exposta para o cleaner saber o que
+// pode apagar — não carrega segredos.
+type VisibleCredential struct {
+	Pattern string
 }
 
 // ProfileCleaner lista e deleta perfis.
@@ -131,17 +145,31 @@ func (s *SettingsService) ResetConfig() error {
 	return nil
 }
 
-// ClearAllCredentials apaga todas as credenciais armazenadas.
+// ClearAllCredentials apaga todas as credenciais visíveis ao usuário do
+// contexto, iterando pattern por pattern. Falha-fechado se o caller
+// passar um cleaner sem implementação de `ListVisible` (proteção contra
+// regressão para o bug do incident report AEP-0053).
 func (s *SettingsService) ClearAllCredentials(ctx context.Context) error {
 	if s.credCleaner == nil {
 		return fmt.Errorf("gerenciador de credenciais não disponível")
 	}
 
-	if err := s.credCleaner.DeletePattern(ctx, ""); err != nil {
-		return fmt.Errorf("erro ao limpar credenciais: %w", err)
+	creds, err := s.credCleaner.ListVisible(ctx)
+	if err != nil {
+		return fmt.Errorf("erro ao listar credenciais: %w", err)
+	}
+	deleted := 0
+	for _, cred := range creds {
+		if cred.Pattern == "" {
+			continue
+		}
+		if err := s.credCleaner.DeletePattern(ctx, cred.Pattern); err != nil {
+			return fmt.Errorf("erro ao apagar credencial %q: %w", cred.Pattern, err)
+		}
+		deleted++
 	}
 
-	log.Println("[ClearAllCredentials] Credenciais apagadas")
+	log.Printf("[ClearAllCredentials] %d credenciais apagadas", deleted)
 	s.emitter.Emit("credentials:cleared", nil)
 
 	return nil

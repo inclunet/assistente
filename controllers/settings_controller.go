@@ -182,14 +182,45 @@ func (c *SettingsController) ResetConfig() error {
 	return nil
 }
 
+// ClearAllCredentials apaga todas as credenciais visíveis ao usuário do
+// contexto. Iterar+apagar pattern por pattern é o caminho seguro: passar
+// `pattern=""` para o Manager retorna erro hoje, mas o caminho buggy
+// (incident report AEP-0053) era exatamente esse, e deixava o usuário
+// achando que tinha "limpado tudo" enquanto o erro era engolido em log.
+//
+// Invariantes:
+//
+//   - Falha-fechado se o `ctx` não carrega user_id — limpar credenciais
+//     "globais" sem dono é caminho perigoso e nunca deveria existir
+//     pela UI; o caller deve estar autenticado.
+//   - Apaga apenas credenciais visíveis ao user (`ListVisibleCredentials`),
+//     que já filtra `internal-auth:*`/`internal-tls:*` (instance secrets)
+//     e o que não pertence ao user — então nunca derruba secrets de
+//     bootstrap nem credenciais de outros usuários.
+//   - Cada delete é logado individualmente via DBStore.DeleteCredential.
 func (c *SettingsController) ClearAllCredentials(ctx context.Context) error {
 	if c.credMgr == nil {
 		return fmt.Errorf("gerenciador de credenciais não disponível")
 	}
-	if err := c.credMgr.DeletePattern(ctx, ""); err != nil {
-		return fmt.Errorf("erro ao limpar credenciais: %v", err)
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return fmt.Errorf("ClearAllCredentials requer usuário autenticado: %w", err)
 	}
-	log.Println("[ClearAllCredentials] Credenciais apagadas")
+
+	creds, err := c.credMgr.ListVisibleCredentialsWithContext(ctx)
+	if err != nil {
+		return fmt.Errorf("erro ao listar credenciais: %w", err)
+	}
+	deleted := 0
+	for _, cred := range creds {
+		if cred.Pattern == "" {
+			continue
+		}
+		if err := c.credMgr.DeletePattern(ctx, cred.Pattern); err != nil {
+			return fmt.Errorf("erro ao apagar credencial %q: %w", cred.Pattern, err)
+		}
+		deleted++
+	}
+	log.Printf("[ClearAllCredentials] %d credenciais apagadas (escopo do usuário autenticado)", deleted)
 	c.emitter.Emit("credentials:cleared", nil)
 	return nil
 }

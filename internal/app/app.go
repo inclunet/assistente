@@ -300,7 +300,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o Settings Service (config CRUD e reset de dados)
 	a.settingsSvc = config.NewSettingsService(config.SettingsServiceConfig{
 		Emitter:        a.emitter,
-		CredCleaner:    a.credMgr,
+		CredCleaner:    credentialCleanerAdapter{mgr: a.credMgr},
 		ProfileCleaner: profileCleanerAdapter{app: a},
 		SkillCleaner:   skillCleanerAdapter{app: a},
 		ReloadLLM:      a.initLLMClient,
