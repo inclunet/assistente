@@ -154,6 +154,30 @@ func TestEffectiveAuthMode_ComPatternInfereRequired(t *testing.T) {
 	}
 }
 
+func TestEffectiveAuthMode_LocalAIComPatternInfereOptional(t *testing.T) {
+	cfg := &llm.ProviderConfig{
+		ID:                "localai-legacy",
+		Type:              llm.ProviderLocalAI,
+		BaseURL:           "http://inclunet:30090/v1",
+		CredentialPattern: "inclunet",
+	}
+	if got := cfg.EffectiveAuthMode(); got != llm.AuthModeOptional {
+		t.Errorf("EffectiveAuthMode = %q; esperado %q", got, llm.AuthModeOptional)
+	}
+}
+
+func TestGetAPIFormat_LocalAINaoUsaResponsesMesmoSeLegado(t *testing.T) {
+	cfg := &llm.ProviderConfig{
+		ID:        "localai-legacy",
+		Type:      llm.ProviderLocalAI,
+		APIFormat: llm.APIFormatOpenAIResponses,
+		BaseURL:   "http://inclunet:30090/v1",
+	}
+	if got := cfg.GetAPIFormat(); got != llm.APIFormatOpenAI {
+		t.Errorf("GetAPIFormat = %q; esperado %q", got, llm.APIFormatOpenAI)
+	}
+}
+
 func TestEffectiveAuthMode_RespeitaExplicito(t *testing.T) {
 	cfg := &llm.ProviderConfig{
 		ID:                "litellm-optional",

@@ -112,11 +112,12 @@ func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 		IsDefault:         p.IsDefault,
 		Timeout:           p.Timeout,
 		CredentialPattern: p.CredentialPattern,
+		AuthMode:          string(p.AuthMode),
 	}
 }
 
 func fromDBModel(dbP *database.LLMProvider) *llm.ProviderConfig {
-	return &llm.ProviderConfig{
+	p := &llm.ProviderConfig{
 		ID:                dbP.ID,
 		Name:              dbP.Name,
 		Type:              llm.ProviderType(dbP.Type),
@@ -127,5 +128,8 @@ func fromDBModel(dbP *database.LLMProvider) *llm.ProviderConfig {
 		IsDefault:         dbP.IsDefault,
 		Timeout:           dbP.Timeout,
 		CredentialPattern: dbP.CredentialPattern,
+		AuthMode:          llm.AuthMode(dbP.AuthMode),
 	}
+	normalizeProviderRuntimeDefaults(p)
+	return p
 }

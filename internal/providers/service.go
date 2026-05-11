@@ -173,6 +173,41 @@ type CreateResult struct {
 	CredentialConfigured bool
 }
 
+func defaultAuthModeForProviderType(providerType llm.ProviderType) llm.AuthMode {
+	switch providerType {
+	case llm.ProviderLocalAI:
+		return llm.AuthModeOptional
+	case llm.ProviderOllama, llm.ProviderLlamaCPP:
+		return llm.AuthModeNone
+	default:
+		return ""
+	}
+}
+
+func normalizeProviderAuthMode(p *llm.ProviderConfig) {
+	if p == nil || p.AuthMode != "" {
+		return
+	}
+	p.AuthMode = defaultAuthModeForProviderType(p.Type)
+}
+
+func normalizeProviderAPIFormat(p *llm.ProviderConfig) {
+	if p == nil {
+		return
+	}
+	switch p.Type {
+	case llm.ProviderLocalAI, llm.ProviderOllama, llm.ProviderLlamaCPP:
+		if p.APIFormat == "" || p.APIFormat == llm.APIFormatOpenAIResponses {
+			p.APIFormat = llm.APIFormatOpenAI
+		}
+	}
+}
+
+func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
+	normalizeProviderAuthMode(p)
+	normalizeProviderAPIFormat(p)
+}
+
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
 	if req.ID == "" || req.Name == "" || req.BaseURL == "" {
@@ -210,6 +245,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		Timeout:           180,
 		CredentialPattern: hostname,
 	}
+	normalizeProviderRuntimeDefaults(provider)
 
 	if err := s.registry.Register(provider); err != nil {
 		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
@@ -265,6 +301,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		IsDefault:         existing.IsDefault,
 		Timeout:           existing.Timeout,
 		CredentialPattern: existing.CredentialPattern,
+		AuthMode:          existing.AuthMode,
 	}
 
 	if req.Name != "" {
@@ -272,6 +309,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 	if req.Type != "" {
 		updated.Type = llm.ProviderType(req.Type)
+		updated.AuthMode = defaultAuthModeForProviderType(updated.Type)
 	}
 	if req.APIFormat != "" {
 		updated.APIFormat = llm.APIFormat(req.APIFormat)
@@ -287,6 +325,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		updated.BaseURL = req.BaseURL
 		updated.CredentialPattern = hostname
 	}
+	normalizeProviderRuntimeDefaults(updated)
 
 	credConfigured := false
 	if req.APIKey != "" {

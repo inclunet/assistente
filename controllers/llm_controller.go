@@ -140,7 +140,7 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 		"id":                    p.ID,
 		"name":                  p.Name,
 		"type":                  string(p.Type),
-		"api_format":            string(p.APIFormat),
+		"api_format":            string(p.GetAPIFormat()),
 		"base_url":              p.BaseURL,
 		"model":                 p.Model,
 		"default_model":         p.DefaultModel,
@@ -148,6 +148,7 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 		"timeout":               p.Timeout,
 		"credential_pattern":    credentialPattern,
 		"credential_configured": credentialConfigured,
+		"auth_mode":             string(p.EffectiveAuthMode()),
 	}
 }
 

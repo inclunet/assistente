@@ -133,6 +133,12 @@ func (p *ProviderConfig) EffectiveAuthMode() AuthMode {
 	if p.AuthMode != "" {
 		return p.AuthMode
 	}
+	switch p.Type {
+	case ProviderLocalAI:
+		return AuthModeOptional
+	case ProviderOllama, ProviderLlamaCPP:
+		return AuthModeNone
+	}
 	if strings.TrimSpace(p.CredentialPattern) == "" {
 		return AuthModeNone
 	}
@@ -151,7 +157,17 @@ func (p *ProviderConfig) EffectiveAuthMode() AuthMode {
 // sem exigir migração manual de configs existentes.
 func (p *ProviderConfig) GetAPIFormat() APIFormat {
 	if p.APIFormat != "" {
+		switch p.Type {
+		case ProviderLocalAI, ProviderOllama, ProviderLlamaCPP:
+			if p.APIFormat == APIFormatOpenAIResponses {
+				return APIFormatOpenAI
+			}
+		}
 		return p.APIFormat
+	}
+	switch p.Type {
+	case ProviderLocalAI, ProviderOllama, ProviderLlamaCPP:
+		return APIFormatOpenAI
 	}
 	if isOpenAIRealURL(p.BaseURL) {
 		return APIFormatOpenAIResponses

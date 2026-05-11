@@ -11,6 +11,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/profiles"
+	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
 
@@ -61,6 +62,14 @@ func newTestInteractor(em events.Emitter) *Interactor {
 
 type retryMessageRepoStub struct {
 	getMessage func(messageID string) (*database.ChatMessage, error)
+}
+
+type staticWorkspaceProvider struct {
+	ws *workspace.Workspace
+}
+
+func (s staticWorkspaceProvider) Active() *workspace.Workspace {
+	return s.ws
 }
 
 func (r *retryMessageRepoStub) CreateMessage(_ context.Context, _ MessageOptions) (*Message, error) {
@@ -350,5 +359,77 @@ func TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile(t *test
 	}
 	if resp.ActiveProfile.Name != "Perfil do Editor" {
 		t.Fatalf("Name = %q, want %q", resp.ActiveProfile.Name, "Perfil do Editor")
+	}
+}
+
+func TestPrepareContext_ResolvePerfilDoWorkspaceQuandoParamsNaoTrazemSlug(t *testing.T) {
+	spy := &spyEmitter{}
+	profileMgr := setupProfileTestEnv(t)
+
+	active := profiles.DefaultProfile()
+	active.Name = "Padrão"
+	active.Active = true
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatalf("create active profile: %v", err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatalf("set active profile: %v", err)
+	}
+
+	qwen := profiles.DefaultProfile()
+	qwen.Name = "Qwen4"
+	qwen.Active = false
+	qwen.Chat.LLMProvider = "localai-provider"
+	qwenSlug, err := profileMgr.Create(qwen)
+	if err != nil {
+		t.Fatalf("create qwen profile: %v", err)
+	}
+
+	inter := NewInteractor(InteractorConfig{
+		Emitter:    spy,
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
+			ID:      "ws-1",
+			Name:    "Workspace",
+			Profile: activeSlug,
+			Tabs: workspace.TabsState{
+				Active: "tab-chat",
+				Items: []workspace.Tab{
+					{
+						ID:             "tab-chat",
+						Type:           workspace.TabTypeChat,
+						ConversationID: "conv-1",
+						ProfileOverride: map[string]any{
+							"slug": qwenSlug,
+						},
+					},
+				},
+			},
+		}},
+	})
+
+	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		Source:         "wails",
+		Params: ChatParams{
+			SurfaceTabID: "tab-chat",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if resp == nil || resp.ActiveProfile == nil {
+		t.Fatal("expected activeProfile in response")
+	}
+	if resp.Params.ProfileSlug != qwenSlug {
+		t.Fatalf("ProfileSlug = %q, want %q", resp.Params.ProfileSlug, qwenSlug)
+	}
+	if resp.ActiveProfile.Name != "Qwen4" {
+		t.Fatalf("active profile = %q, want Qwen4", resp.ActiveProfile.Name)
+	}
+	if resp.ActiveProfile.Chat.LLMProvider != "localai-provider" {
+		t.Fatalf("LLMProvider = %q, want localai-provider", resp.ActiveProfile.Chat.LLMProvider)
 	}
 }

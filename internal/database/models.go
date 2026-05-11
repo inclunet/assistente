@@ -73,6 +73,7 @@ type LLMProvider struct {
 	IsDefault         bool `gorm:"default:false"`
 	Timeout           int
 	CredentialPattern string
+	AuthMode          string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }

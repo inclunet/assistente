@@ -313,6 +313,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		ConvRepo:      a.convSvc,
 		ProviderSvc:   a.providerSvc,
 		ProfileMgr:    a.profileManager,
+		Workspace:     a.workspaceMgr,
 		SkillMgr:      a.skillMgr,
 		PromptBuilder: a.promptBuilder,
 	})

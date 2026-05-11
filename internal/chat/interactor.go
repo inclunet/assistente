@@ -14,6 +14,7 @@ import (
 	"assistente/internal/providers"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
+	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
 
@@ -36,6 +37,10 @@ type SystemPromptBuilder interface {
 	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
 }
 
+type WorkspaceProvider interface {
+	Active() *workspace.Workspace
+}
+
 // InteractorConfig groups all dependencies for Interactor.
 type InteractorConfig struct {
 	Emitter       events.Emitter
@@ -43,6 +48,7 @@ type InteractorConfig struct {
 	ConvRepo      ConversationRepository
 	ProviderSvc   *providers.Service
 	ProfileMgr    *profiles.Manager
+	Workspace     WorkspaceProvider
 	SkillMgr      skills.InvokerManager // optional during startup; safe to be nil
 	PromptBuilder SystemPromptBuilder   // optional during startup; safe to be nil
 }
@@ -54,6 +60,7 @@ type Interactor struct {
 	convRepo      ConversationRepository
 	providerSvc   *providers.Service
 	profileMgr    *profiles.Manager
+	workspace     WorkspaceProvider
 	skillMgr      skills.InvokerManager
 	promptBuilder SystemPromptBuilder
 }
@@ -66,9 +73,39 @@ func NewInteractor(cfg InteractorConfig) *Interactor {
 		convRepo:      cfg.ConvRepo,
 		providerSvc:   cfg.ProviderSvc,
 		profileMgr:    cfg.ProfileMgr,
+		workspace:     cfg.Workspace,
 		skillMgr:      cfg.SkillMgr,
 		promptBuilder: cfg.PromptBuilder,
 	}
+}
+
+func (i *Interactor) resolveWorkspaceProfileSlug(conversationID string, params ChatParams) string {
+	if i.workspace == nil {
+		return ""
+	}
+	ws := i.workspace.Active()
+	if ws == nil {
+		return ""
+	}
+	if params.SurfaceTabID != "" {
+		if slug := profileSlugFromWorkspaceTab(ws.FindTab(params.SurfaceTabID)); slug != "" {
+			return slug
+		}
+	}
+	if conversationID != "" {
+		if slug := profileSlugFromWorkspaceTab(ws.FindTabByConversation(conversationID)); slug != "" {
+			return slug
+		}
+	}
+	return strings.TrimSpace(ws.Profile)
+}
+
+func profileSlugFromWorkspaceTab(tab *workspace.Tab) string {
+	if tab == nil || tab.ProfileOverride == nil {
+		return ""
+	}
+	slug, _ := tab.ProfileOverride["slug"].(string)
+	return strings.TrimSpace(slug)
 }
 
 // PrepareContextRequest carries the raw inputs for a message send request.
@@ -141,12 +178,17 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 5. Resolve active profile
 	var err error
 	var activeProfile *profiles.Profile
+	resolvedProfileSlug := req.Params.ProfileSlug
+	if resolvedProfileSlug == "" && req.Source == "wails" {
+		resolvedProfileSlug = i.resolveWorkspaceProfileSlug(req.ConversationID, req.Params)
+		req.Params.ProfileSlug = resolvedProfileSlug
+	}
 	if i.profileMgr == nil {
 		log.Printf("[PrepareContext] profileManager não inicializado — continuando sem perfil")
-	} else if req.Params.ProfileSlug != "" {
-		activeProfile, err = i.profileMgr.Get(req.Params.ProfileSlug)
+	} else if resolvedProfileSlug != "" {
+		activeProfile, err = i.profileMgr.Get(resolvedProfileSlug)
 		if err != nil {
-			log.Printf("[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", req.Params.ProfileSlug, err)
+			log.Printf("[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
 			activeProfile, err = i.profileMgr.GetActive()
 		}
 	} else {
