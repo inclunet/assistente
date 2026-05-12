@@ -257,11 +257,34 @@ func TestFilterToolNamesByEnabledToolsUsesProfileAllowlist(t *testing.T) {
 	}
 }
 
+func TestFilterToolNamesByEnabledToolsNormalizesWhitespace(t *testing.T) {
+	got := FilterToolNamesByEnabledTools(
+		[]string{" read_file ", "", " write_file "},
+		[]string{" read_file ", "  "},
+		false,
+	)
+	want := []string{"read_file"}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v, want %#v", got, want)
+		}
+	}
+}
+
 func TestFilterToolNamesByEnabledToolsNilMeansDynamicCatalogCanSelectAnyTool(t *testing.T) {
-	names := []string{"read_file", "write_file"}
+	names := []string{" read_file ", "write_file", ""}
 	got := FilterToolNamesByEnabledTools(names, nil, false)
-	if len(got) != len(names) {
-		t.Fatalf("got %#v, want %#v", got, names)
+	want := []string{"read_file", "write_file"}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v, want %#v", got, want)
+		}
 	}
 }
 

@@ -22,3 +22,33 @@ func TestNormalizeRuntimeToolCatalogLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeToolCatalogFilterToToolsNormalizesStrings(t *testing.T) {
+	got := runtimeToolCatalogFilterToTools(RuntimeToolCatalogFilter{
+		Origin:             " mcp_bridge ",
+		MCPServerID:        " server-id ",
+		Category:           " mcp:github ",
+		Class:              " mcp_tool ",
+		Package:            " coding ",
+		Risk:               " network ",
+		AvailabilityStatus: " available ",
+		IncludeUnavailable: true,
+		Limit:              99,
+	})
+
+	if got.Origin != "mcp_bridge" ||
+		got.MCPServerID != "server-id" ||
+		got.Category != "mcp:github" ||
+		got.Class != "mcp_tool" ||
+		got.Package != "coding" ||
+		got.Risk != "network" ||
+		got.AvailabilityStatus != "available" {
+		t.Fatalf("filter was not normalized: %#v", got)
+	}
+	if !got.IncludeUnavailable {
+		t.Fatal("IncludeUnavailable should be preserved")
+	}
+	if got.Limit != 50 {
+		t.Fatalf("Limit = %d, want 50", got.Limit)
+	}
+}

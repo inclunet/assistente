@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"reflect"
+	"strings"
 
 	"assistente/internal/llm"
 	mcplib "assistente/internal/mcp"
@@ -108,14 +109,28 @@ func FilterToolNamesByEnabledTools(names []string, enabledTools []string, disabl
 		return nil
 	}
 	if enabledTools == nil {
-		return names
+		filtered := make([]string, 0, len(names))
+		for _, name := range names {
+			if name = strings.TrimSpace(name); name != "" {
+				filtered = append(filtered, name)
+			}
+		}
+		return filtered
 	}
 	enabledSet := make(map[string]struct{}, len(enabledTools))
 	for _, name := range enabledTools {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
 		enabledSet[name] = struct{}{}
 	}
 	filtered := make([]string, 0, len(names))
 	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
 		if _, ok := enabledSet[name]; ok {
 			filtered = append(filtered, name)
 		}

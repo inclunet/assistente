@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"assistente/controllers"
@@ -70,6 +71,20 @@ func normalizeRuntimeToolCatalogLimit(limit int) int {
 	return limit
 }
 
+func runtimeToolCatalogFilterToTools(filter RuntimeToolCatalogFilter) tools.ToolCatalogFilter {
+	return tools.ToolCatalogFilter{
+		Origin:             strings.TrimSpace(filter.Origin),
+		MCPServerID:        strings.TrimSpace(filter.MCPServerID),
+		Category:           strings.TrimSpace(filter.Category),
+		Class:              strings.TrimSpace(filter.Class),
+		Package:            strings.TrimSpace(filter.Package),
+		Risk:               strings.TrimSpace(filter.Risk),
+		AvailabilityStatus: strings.TrimSpace(filter.AvailabilityStatus),
+		IncludeUnavailable: filter.IncludeUnavailable,
+		Limit:              normalizeRuntimeToolCatalogLimit(filter.Limit),
+	}
+}
+
 func (a *App) GetRuntimeToolCatalog(filter RuntimeToolCatalogFilter) ([]RuntimeToolCatalogEntry, error) {
 	if a.mcpMgr == nil {
 		return []RuntimeToolCatalogEntry{}, nil
@@ -78,17 +93,7 @@ func (a *App) GetRuntimeToolCatalog(filter RuntimeToolCatalogFilter) ([]RuntimeT
 	if err != nil {
 		return nil, err
 	}
-	entries, err := a.mcpMgr.ListToolCatalog(ctx, tools.ToolCatalogFilter{
-		Origin:             filter.Origin,
-		MCPServerID:        filter.MCPServerID,
-		Category:           filter.Category,
-		Class:              filter.Class,
-		Package:            filter.Package,
-		Risk:               filter.Risk,
-		AvailabilityStatus: filter.AvailabilityStatus,
-		IncludeUnavailable: filter.IncludeUnavailable,
-		Limit:              normalizeRuntimeToolCatalogLimit(filter.Limit),
-	})
+	entries, err := a.mcpMgr.ListToolCatalog(ctx, runtimeToolCatalogFilterToTools(filter))
 	if err != nil {
 		return nil, err
 	}
