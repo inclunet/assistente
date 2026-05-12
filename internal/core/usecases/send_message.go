@@ -273,6 +273,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin, userMsg.ID)
 				},
 				func(names []string) []llm.ToolDefinition {
+					names = chat.FilterToolNamesByEnabledTools(names, profileEnabledTools, disableTools)
 					names = chat.FilterToolNamesForNativeMCP(requestStreamer, uc.mcpMgr, names, disableTools)
 					return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
 				},

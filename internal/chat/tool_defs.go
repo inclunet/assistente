@@ -103,6 +103,26 @@ func BuildLLMToolDefsByNames(registry *tools.Registry, names []string, disableTo
 	return result
 }
 
+func FilterToolNamesByEnabledTools(names []string, enabledTools []string, disableTools bool) []string {
+	if disableTools || len(names) == 0 {
+		return nil
+	}
+	if enabledTools == nil {
+		return names
+	}
+	enabledSet := make(map[string]struct{}, len(enabledTools))
+	for _, name := range enabledTools {
+		enabledSet[name] = struct{}{}
+	}
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		if _, ok := enabledSet[name]; ok {
+			filtered = append(filtered, name)
+		}
+	}
+	return filtered
+}
+
 func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool) []string {
 	if disableTools || len(names) == 0 || NativeMCPManagerIsNil(mcpMgr) || ChatProviderIsNil(streamer) {
 		return names

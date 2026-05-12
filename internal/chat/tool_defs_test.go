@@ -240,6 +240,37 @@ func TestBuildLLMToolDefsByNames_DisabledOrEmpty(t *testing.T) {
 	}
 }
 
+func TestFilterToolNamesByEnabledToolsUsesProfileAllowlist(t *testing.T) {
+	got := FilterToolNamesByEnabledTools(
+		[]string{"read_file", "write_file", "mcp_srv__do"},
+		[]string{tools.ToolCatalogName, "read_file", "mcp_srv__do"},
+		false,
+	)
+	want := []string{"read_file", "mcp_srv__do"}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestFilterToolNamesByEnabledToolsNilMeansDynamicCatalogCanSelectAnyTool(t *testing.T) {
+	names := []string{"read_file", "write_file"}
+	got := FilterToolNamesByEnabledTools(names, nil, false)
+	if len(got) != len(names) {
+		t.Fatalf("got %#v, want %#v", got, names)
+	}
+}
+
+func TestFilterToolNamesByEnabledToolsDisabledReturnsNil(t *testing.T) {
+	if got := FilterToolNamesByEnabledTools([]string{"read_file"}, []string{"read_file"}, true); got != nil {
+		t.Fatalf("got %#v, want nil", got)
+	}
+}
+
 func TestFilterToolNamesForNativeMCPRemovesNativeBridgeNames(t *testing.T) {
 	p := &mockChatProvider{supportsNative: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
