@@ -217,6 +217,27 @@ func TestImportDataAcceptsExternalMCPServersJSON(t *testing.T) {
 	}
 }
 
+func TestImportMCPServersJSONContinuesAfterInvalidServer(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	payload := []byte(`{"mcpServers":{"good":{"url":"https://good.example/mcp"},"broken":{"name":"Broken"}}}`)
+
+	result, err := ImportMCPServersJSONWithContext(ctx, payload, nil)
+	if err != nil {
+		t.Fatalf("ImportMCPServersJSONWithContext: %v", err)
+	}
+	if result.Imported != 1 || result.Failed != 1 || len(result.Errors) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	var row database.MCPServer
+	if err := database.DB().Where("user_id = ? AND slug = ?", portabilityTestUserID, "good").First(&row).Error; err != nil {
+		t.Fatalf("load imported mcp server: %v", err)
+	}
+	if row.URL != "https://good.example/mcp" {
+		t.Fatalf("unexpected imported server: %#v", row)
+	}
+}
+
 func TestImportDataAcceptsEmptyExternalMCPServersJSON(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
@@ -315,6 +336,33 @@ func TestImportLegacyMCPServersIsReusableAndIdempotent(t *testing.T) {
 	}
 	if row.Name != "GitHub" || row.URL != "https://github.example/mcp" {
 		t.Fatalf("legacy import overwrote existing server: %#v", row)
+	}
+}
+
+func TestImportLegacyMCPServersContinuesAfterInvalidFile(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	source := &memoryLegacyImportSource{
+		files: []LegacyImportFile{
+			{Name: "broken", Filename: "broken.json", Path: "/legacy/broken.json", Source: "home"},
+			{Name: "github", Filename: "github.json", Path: "/legacy/github.json", Source: "home"},
+		},
+		data: map[string][]byte{
+			"broken.json": []byte(`{"name":`),
+			"github.json": []byte(`{"name":"GitHub","transport":"streamable","url":"https://github.example/mcp","enabled":true,"auto_connect":true}`),
+		},
+	}
+
+	result, err := ImportLegacyMCPServersWithContext(ctx, source, nil)
+	if err != nil {
+		t.Fatalf("ImportLegacyMCPServersWithContext: %v", err)
+	}
+	if result.Imported != 1 || result.Failed != 1 || len(result.Errors) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	var row database.MCPServer
+	if err := database.DB().Where("user_id = ? AND slug = ?", portabilityTestUserID, "github").First(&row).Error; err != nil {
+		t.Fatalf("load mcp server: %v", err)
 	}
 }
 

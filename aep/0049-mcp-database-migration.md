@@ -249,6 +249,15 @@ Follow-up: centralizar essa lógica em uma abstração única (por exemplo `Tool
 
 Issue de acompanhamento: <https://github.com/inclunet/assistente/issues/119>.
 
+#### Follow-ups arquiteturais adicionais
+
+A solução deste PR deixa alguns pontos deliberadamente funcionais, mas que devem evoluir em trabalhos futuros para reduzir acoplamento e melhorar a governança do catálogo:
+
+- **Catálogo como capability geral**: `tool_catalog` hoje é persistido pelo repository MCP por conveniência de entrega, mas o catálogo já indexa builtin tools globais e deve virar repository/service próprio, sem depender de `internal/mcp`. Issue: <https://github.com/inclunet/assistente/issues/120>.
+- **Planner real de tools**: a tool `tool_catalog` entrega descoberta e expansão dinâmica, mas ainda não substitui um planner completo com orçamento por bytes de schema, ranking, pacotes preferenciais, policies e resolução formal de conflitos. Issue: <https://github.com/inclunet/assistente/issues/121>.
+- **Metadados declarativos nas builtin tools**: os metadados de categoria/classe/pacote/risco das builtin tools estão centralizados em mapa determinístico. No futuro, cada builtin tool deve declarar seus próprios metadados no descriptor/registro da tool. Issue: <https://github.com/inclunet/assistente/issues/122>.
+- **Importações legadas como serviço observável**: o gatilho pós-login atual é suficiente para MCP, mas quando skills e outros recursos entrarem no fluxo, a importação legada deve virar um serviço registrável e observável, com resultados estruturados. Issue: <https://github.com/inclunet/assistente/issues/123>.
+
 ### D17 — Dry run/teste de tools
 
 Builtin tools e MCP tools devem poder ser testadas por um fluxo de dry run semelhante ao dos jobs:

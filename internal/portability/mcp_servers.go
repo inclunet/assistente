@@ -395,7 +395,7 @@ func ImportMCPServersJSONWithContext(ctx context.Context, data []byte, credMgr *
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, err.Error())
-			return result, err
+			continue
 		}
 		if imported {
 			result.Imported++

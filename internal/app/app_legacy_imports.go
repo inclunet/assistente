@@ -34,6 +34,9 @@ func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 		for _, warning := range result.Warnings {
 			log.Printf("[LegacyImport] %s: %s", importer.name, warning)
 		}
+		for _, itemErr := range result.Errors {
+			log.Printf("[LegacyImport] %s: %s", importer.name, itemErr)
+		}
 		if result.Imported > 0 || result.Skipped > 0 || result.Failed > 0 {
 			log.Printf("[LegacyImport] %s: %d importados, %d já existentes, %d falhas", importer.name, result.Imported, result.Skipped, result.Failed)
 		}

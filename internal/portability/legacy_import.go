@@ -70,21 +70,21 @@ func ImportLegacyResourcesWithContext[T any](ctx context.Context, req LegacyImpo
 			result.Failed++
 			msg := fmt.Sprintf("erro ao ler %s legado %s: %v", req.ResourceType, file.Filename, err)
 			result.Errors = append(result.Errors, msg)
-			return result, fmt.Errorf("%s", msg)
+			continue
 		}
 		item, err := req.Parse(file, data)
 		if err != nil {
 			result.Failed++
 			msg := fmt.Sprintf("erro ao parsear %s legado %s: %v", req.ResourceType, file.Filename, err)
 			result.Errors = append(result.Errors, msg)
-			return result, fmt.Errorf("%s", msg)
+			continue
 		}
 		imported, err := req.Import(ctx, item)
 		if err != nil {
 			result.Failed++
 			msg := fmt.Sprintf("erro ao importar %s legado %s: %v", req.ResourceType, file.Filename, err)
 			result.Errors = append(result.Errors, msg)
-			return result, fmt.Errorf("%s", msg)
+			continue
 		}
 		if imported {
 			result.Imported++
