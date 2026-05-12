@@ -60,6 +60,16 @@ type RuntimeToolCatalogEntry struct {
 	UpdatedAt          time.Time       `json:"updatedAt"`
 }
 
+func normalizeRuntimeToolCatalogLimit(limit int) int {
+	if limit <= 0 {
+		return 20
+	}
+	if limit > 50 {
+		return 50
+	}
+	return limit
+}
+
 func (a *App) GetRuntimeToolCatalog(filter RuntimeToolCatalogFilter) ([]RuntimeToolCatalogEntry, error) {
 	if a.mcpMgr == nil {
 		return []RuntimeToolCatalogEntry{}, nil
@@ -77,7 +87,7 @@ func (a *App) GetRuntimeToolCatalog(filter RuntimeToolCatalogFilter) ([]RuntimeT
 		Risk:               filter.Risk,
 		AvailabilityStatus: filter.AvailabilityStatus,
 		IncludeUnavailable: filter.IncludeUnavailable,
-		Limit:              filter.Limit,
+		Limit:              normalizeRuntimeToolCatalogLimit(filter.Limit),
 	})
 	if err != nil {
 		return nil, err

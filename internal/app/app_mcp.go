@@ -81,6 +81,10 @@ func (a *App) initMCP() {
 	}
 
 	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, a.credMgr, emitEvent)
+	// MCP Manager precisa existir tanto pré quanto pós-login. O contexto
+	// propaga o userID quando existe e devolve ctx puro durante o boot.
+	// Escritores reais dentro do MCP manager seguem usando RequireUserID.
+	a.mcpMgr.SetAuthContextProvider(a.internalBootstrapCtx)
 	if database.DB() != nil {
 		repo := mcpmgr.NewDBRepository(database.DB())
 		a.mcpMgr.SetRepository(repo)
@@ -91,17 +95,12 @@ func (a *App) initMCP() {
 		if err := a.mcpMgr.SyncBuiltinTools(database.WithBootstrap(a.internalBootstrapCtx())); err != nil {
 			log.Printf("[MCP] Erro ao sincronizar catálogo de builtin tools: %v", err)
 		}
-	}
-	// MCP Manager precisa existir tanto pré quanto pós-login. O contexto
-	// propaga o userID quando existe e devolve ctx puro durante o boot.
-	// Escritores reais dentro do MCP manager seguem usando RequireUserID.
-	a.mcpMgr.SetAuthContextProvider(a.internalBootstrapCtx)
-
-	// Carrega configs somente do DB (NÃO importa filesystem e NÃO conecta).
-	// Importações legadas e auto-connect rodam no reloadUserScopedRuntime
-	// pós-login, quando as credenciais user-scoped já estão em memória.
-	if err := a.mcpMgr.LoadConfigs(); err != nil {
-		log.Printf("[MCP] Erro ao carregar configurações: %v", err)
+		// Carrega configs somente do DB (NÃO importa filesystem e NÃO conecta).
+		// Importações legadas e auto-connect rodam no reloadUserScopedRuntime
+		// pós-login, quando as credenciais user-scoped já estão em memória.
+		if err := a.mcpMgr.LoadConfigs(); err != nil {
+			log.Printf("[MCP] Erro ao carregar configurações: %v", err)
+		}
 	}
 
 	log.Printf("[MCP] Manager inicializado")
