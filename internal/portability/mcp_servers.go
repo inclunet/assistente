@@ -239,17 +239,6 @@ func decodeStringSlice(raw string) ([]string, error) {
 	return result, nil
 }
 
-func decodeStringMap(raw string) (map[string]string, error) {
-	if strings.TrimSpace(raw) == "" {
-		return nil, nil
-	}
-	var result map[string]string
-	if err := json.Unmarshal([]byte(raw), &result); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
 func encodeJSON(value any) (string, error) {
 	if value == nil {
 		return "", nil
