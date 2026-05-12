@@ -221,9 +221,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if activeProfile != nil {
 		enabledTools = activeProfile.Chat.EnabledTools
 	}
-	if enabledTools == nil && !disableTools && uc.toolRegistry != nil && uc.toolRegistry.Has(tools.ToolCatalogName) {
-		enabledTools = []string{tools.ToolCatalogName}
-	}
+	enabledTools = chat.ResolveInitialEnabledTools(uc.toolRegistry, enabledTools, disableTools)
 	llmToolDefs := chat.BuildLLMToolDefs(uc.toolRegistry, enabledTools, disableTools)
 
 	// Resolve o ChatProvider para o provedor do perfil ativo.

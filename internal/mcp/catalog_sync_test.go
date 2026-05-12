@@ -50,6 +50,58 @@ func TestSyncBuiltinToolsCatalogsGlobalToolsOnly(t *testing.T) {
 	}
 }
 
+func TestCatalogToolQueriesPersistedRepository(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	registry := tools.NewRegistry()
+	registry.MustRegister(catalogTestTool{name: "read_file"})
+	registry.MustRegister(catalogTestTool{name: "grep_search"})
+
+	m := NewManager(registry, nil, nil)
+	m.SetRepository(repo)
+	if err := m.SyncBuiltinTools(context.Background()); err != nil {
+		t.Fatalf("SyncBuiltinTools: %v", err)
+	}
+	if err := repo.UpsertTool(context.Background(), &tools.ToolCatalogEntry{
+		Name:               "old_search",
+		DisplayName:        "old_search",
+		Description:        "Unavailable search",
+		Origin:             tools.ToolOriginBuiltin,
+		Category:           "filesystem",
+		Class:              "read_context",
+		Package:            "coding_readonly",
+		Risk:               "read",
+		Schema:             json.RawMessage(`{"type":"object"}`),
+		AvailabilityStatus: tools.ToolAvailabilityUnavailable,
+		AvailabilityReason: "removed",
+	}); err != nil {
+		t.Fatalf("upsert unavailable builtin: %v", err)
+	}
+
+	result, err := tools.NewCatalogTool(repo).Execute(userA, json.RawMessage(`{"package":"coding_readonly","limit":10}`))
+	if err != nil {
+		t.Fatalf("catalog execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("catalog returned error: %s", result.Content)
+	}
+	var payload struct {
+		SelectedTools []string `json:"selected_tools"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode catalog response: %v", err)
+	}
+	got := map[string]bool{}
+	for _, name := range payload.SelectedTools {
+		got[name] = true
+	}
+	if !got["read_file"] || !got["grep_search"] {
+		t.Fatalf("catalog did not return synced builtin tools: %#v", payload.SelectedTools)
+	}
+	if got["old_search"] {
+		t.Fatalf("catalog returned unavailable tool without include_unavailable: %#v", payload.SelectedTools)
+	}
+}
+
 func TestSyncMCPToolsCatalogsServerScopedAvailability(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
 	server := &ServerConfig{

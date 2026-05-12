@@ -172,6 +172,50 @@ func TestBuildLLMToolDefs_ParametersPreserved(t *testing.T) {
 	}
 }
 
+func TestResolveInitialEnabledTools_UsesCatalogWhenProfileDoesNotPinTools(t *testing.T) {
+	r := registryWith(tools.ToolCatalogName, "read_file", "grep_search")
+	got := ResolveInitialEnabledTools(r, nil, false)
+	if len(got) != 1 || got[0] != tools.ToolCatalogName {
+		t.Fatalf("expected only tool_catalog initially, got %#v", got)
+	}
+	defs := BuildLLMToolDefs(r, got, false)
+	if len(defs) != 1 || defs[0].Function.Name != tools.ToolCatalogName {
+		t.Fatalf("expected only tool_catalog definition, got %#v", defs)
+	}
+}
+
+func TestResolveInitialEnabledTools_PreservesExplicitProfileSelection(t *testing.T) {
+	r := registryWith(tools.ToolCatalogName, "read_file", "grep_search")
+	got := ResolveInitialEnabledTools(r, []string{"read_file"}, false)
+	if len(got) != 1 || got[0] != "read_file" {
+		t.Fatalf("expected explicit enabled tools unchanged, got %#v", got)
+	}
+}
+
+func TestResolveInitialEnabledTools_EmptyExplicitSelectionStaysEmpty(t *testing.T) {
+	r := registryWith(tools.ToolCatalogName, "read_file")
+	got := ResolveInitialEnabledTools(r, []string{}, false)
+	if got == nil || len(got) != 0 {
+		t.Fatalf("expected explicit empty selection, got %#v", got)
+	}
+	defs := BuildLLMToolDefs(r, got, false)
+	if len(defs) != 0 {
+		t.Fatalf("expected no tool definitions, got %#v", defs)
+	}
+}
+
+func TestResolveInitialEnabledTools_FallsBackToAllWithoutCatalog(t *testing.T) {
+	r := registryWith("read_file", "grep_search")
+	got := ResolveInitialEnabledTools(r, nil, false)
+	if got != nil {
+		t.Fatalf("expected nil to preserve legacy all-tools fallback without catalog, got %#v", got)
+	}
+	defs := BuildLLMToolDefs(r, got, false)
+	if len(defs) != 2 {
+		t.Fatalf("expected all tools without catalog, got %#v", defs)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ApplyNativeMCP
 // ---------------------------------------------------------------------------

@@ -74,6 +74,16 @@ func BuildLLMToolDefs(registry *tools.Registry, enabledTools []string, disableTo
 	return result
 }
 
+func ResolveInitialEnabledTools(registry *tools.Registry, enabledTools []string, disableTools bool) []string {
+	if disableTools || enabledTools != nil || registry == nil {
+		return enabledTools
+	}
+	if registry.Has(tools.ToolCatalogName) {
+		return []string{tools.ToolCatalogName}
+	}
+	return nil
+}
+
 func BuildLLMToolDefsByNames(registry *tools.Registry, names []string, disableTools bool) []llm.ToolDefinition {
 	if disableTools || registry == nil || len(names) == 0 {
 		return nil

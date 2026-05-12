@@ -368,9 +368,7 @@ func (s *Service) RunAgenticLoop(
 			totalToolCallCount++
 			toolsUsedSet[logicalName] = struct{}{}
 		}
-		if resolveToolDefs != nil {
-			toolDefs = appendUniqueToolDefs(toolDefs, resolveToolDefs(selectedToolsFromCatalog(execResults))...)
-		}
+		toolDefs = expandToolDefsFromCatalogResults(toolDefs, execResults, resolveToolDefs)
 
 		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário.
 		// Usa cópia para truncamento; o conteúdo original é preservado para persistência no DB.
@@ -850,6 +848,17 @@ func appendUniqueToolDefs(existing []llm.ToolDefinition, additions ...llm.ToolDe
 		seen[def.Function.Name] = struct{}{}
 	}
 	return existing
+}
+
+func expandToolDefsFromCatalogResults(
+	existing []llm.ToolDefinition,
+	results []tools.ToolExecutionResult,
+	resolveToolDefs func([]string) []llm.ToolDefinition,
+) []llm.ToolDefinition {
+	if resolveToolDefs == nil {
+		return existing
+	}
+	return appendUniqueToolDefs(existing, resolveToolDefs(selectedToolsFromCatalog(results))...)
 }
 
 func truncateString(s string, maxLen int) string {
