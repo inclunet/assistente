@@ -357,6 +357,13 @@ func TestDBRepositoryUpsertToolPersistsZeroValueUpdates(t *testing.T) {
 	if err := repo.UpsertTool(userA, entry); err != nil {
 		t.Fatalf("upsert initial: %v", err)
 	}
+	var initial database.ToolCatalog
+	if err := repo.db.Where("name = ?", entry.Name).First(&initial).Error; err != nil {
+		t.Fatalf("load initial tool: %v", err)
+	}
+	if initial.LastUnavailableAt == nil {
+		t.Fatal("LastUnavailableAt should be set for unavailable upsert")
+	}
 	entry.Description = ""
 	entry.AvailabilityStatus = tools.ToolAvailabilityAvailable
 	entry.AvailabilityReason = ""

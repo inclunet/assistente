@@ -470,6 +470,9 @@ func (r *DBRepository) normalizeToolEntry(ctx context.Context, entry tools.ToolC
 	if entry.AvailabilityStatus == tools.ToolAvailabilityAvailable && entry.LastAvailableAt == nil {
 		entry.LastAvailableAt = &now
 	}
+	if entry.AvailabilityStatus == tools.ToolAvailabilityUnavailable && entry.LastUnavailableAt == nil {
+		entry.LastUnavailableAt = &now
+	}
 	switch entry.Origin {
 	case tools.ToolOriginBuiltin:
 		entry.UserID = ""
