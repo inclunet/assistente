@@ -297,21 +297,49 @@ func (m *Manager) LoadConfigs() error {
 	if err != nil {
 		return err
 	}
-	next := make(map[string]*ServerStatus, len(configs))
+	roots := m.GetWorkspaceRoots()
+	configBySlug := make(map[string]ServerConfig, len(configs))
 	for _, cfg := range configs {
 		cfg.applyDefaults(cfg.Slug)
-		next[cfg.Slug] = &ServerStatus{
-			ID:     cfg.ID,
-			Slug:   cfg.Slug,
-			Config: cfg,
-			Status: StatusDisconnected,
-			Tools:  []MCPToolInfo{},
-			Roots:  m.GetWorkspaceRoots(),
-		}
+		configBySlug[cfg.Slug] = cfg
 		log.Printf("[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
 			cfg.Slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
 	}
+
+	m.mu.RLock()
+	removed := make([]string, 0)
+	for slug := range m.servers {
+		if _, ok := configBySlug[slug]; !ok {
+			removed = append(removed, slug)
+		}
+	}
+	m.mu.RUnlock()
+	for _, slug := range removed {
+		if err := m.Disconnect(slug); err != nil {
+			log.Printf("[MCP] erro ao desconectar servidor removido '%s' durante LoadConfigs: %v", slug, err)
+		}
+	}
+
+	next := make(map[string]*ServerStatus, len(configBySlug))
 	m.mu.Lock()
+	for slug, cfg := range configBySlug {
+		if existing, ok := m.servers[slug]; ok {
+			existing.ID = cfg.ID
+			existing.Slug = slug
+			existing.Config = cfg
+			existing.Roots = roots
+			next[slug] = existing
+			continue
+		}
+		next[slug] = &ServerStatus{
+			ID:     cfg.ID,
+			Slug:   slug,
+			Config: cfg,
+			Status: StatusDisconnected,
+			Tools:  []MCPToolInfo{},
+			Roots:  roots,
+		}
+	}
 	m.servers = next
 	m.mu.Unlock()
 	return nil

@@ -935,6 +935,49 @@ func TestAnalyzeImportDataDetectsProviderConflicts(t *testing.T) {
 	}
 }
 
+func TestAnalyzeImportDataDetectsMCPServerConflicts(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	if err := database.DB().Create(&database.MCPServer{
+		UserID:      portabilityTestUserID,
+		Slug:        "github",
+		Name:        "GitHub",
+		Transport:   "streamable",
+		URL:         "https://github.example/mcp",
+		Enabled:     true,
+		AutoConnect: true,
+	}).Error; err != nil {
+		t.Fatalf("create mcp server: %v", err)
+	}
+	file := &ExportFile{
+		Version: ExportVersion,
+		Resources: ExportResources{
+			MCPServers: []MCPServerExport{{
+				Slug:      "github",
+				Name:      "GitHub Import",
+				Transport: "streamable",
+				URL:       "https://import.example/mcp",
+			}},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	analysis, err := AnalyzeImportDataWithContext(ctx, string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("AnalyzeImportData() error = %v", err)
+	}
+	if analysis.ConflictCount != 1 || len(analysis.MCPServerConflicts) != 1 {
+		t.Fatalf("MCP conflicts not detected: %+v", analysis)
+	}
+	conflict := analysis.MCPServerConflicts[0]
+	if conflict.Identifier != "github" || conflict.ResourceType != "mcpServer" {
+		t.Fatalf("unexpected conflict: %+v", conflict)
+	}
+}
+
 func TestAnalyzeImportDataDetectsTaskListConflicts(t *testing.T) {
 	setupPortabilityTestDB(t)
 

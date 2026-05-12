@@ -3,16 +3,22 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 )
 
 type fakeCatalogToolStore struct {
 	entries []ToolCatalogEntry
 	filter  ToolCatalogFilter
+	err     error
 }
 
 func (s *fakeCatalogToolStore) ListTools(_ context.Context, filter ToolCatalogFilter) ([]ToolCatalogEntry, error) {
 	s.filter = filter
+	if s.err != nil {
+		return nil, s.err
+	}
 	return s.entries, nil
 }
 
@@ -68,5 +74,24 @@ func TestCatalogToolClampsLimitToMaximum(t *testing.T) {
 	}
 	if store.filter.Limit != 50 {
 		t.Fatalf("filter limit = %d, want 50", store.filter.Limit)
+	}
+}
+
+func TestCatalogToolErrorsArePortuguese(t *testing.T) {
+	result, err := NewCatalogTool(nil).Execute(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Execute nil store: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "catálogo de tools não configurado") {
+		t.Fatalf("unexpected nil store result: %#v", result)
+	}
+
+	store := &fakeCatalogToolStore{err: errors.New("boom")}
+	result, err = NewCatalogTool(store).Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute store error: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "erro ao consultar catálogo de tools") {
+		t.Fatalf("unexpected store error result: %#v", result)
 	}
 }

@@ -737,6 +737,28 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 		analysis.MessageCount += len(conv.Messages)
 	}
 	analysis.TaskCount, analysis.TaskNoteCount = countExportedTasks(file.Resources.TaskLists)
+	if len(file.Resources.MCPServers) > 0 {
+		existingMCPSlugs, err := loadExistingMCPServerSlugs(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao analisar servidores MCP existentes: %w", err)
+		}
+		for _, server := range file.Resources.MCPServers {
+			normalized := normalizeMCPServerExport(server)
+			slug := strings.TrimSpace(normalized.Slug)
+			if slug == "" {
+				continue
+			}
+			if _, exists := existingMCPSlugs[slug]; !exists {
+				continue
+			}
+			analysis.MCPServerConflicts = append(analysis.MCPServerConflicts, ImportConflict{
+				ResourceType:        "mcpServer",
+				Identifier:          slug,
+				Reason:              "Já existe um servidor MCP registrado com o mesmo slug.",
+				SupportedStrategies: []ConflictResolutionStrategy{ConflictResolutionSkip},
+			})
+		}
+	}
 
 	if analysis.IncludesCredentials {
 		analysis.RequiresCredentialPassword = true
@@ -788,6 +810,22 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 		analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("%d conversa(s) vazia(s) serão descartadas na importação.", emptyCount))
 	}
 	return analysis, nil
+}
+
+func loadExistingMCPServerSlugs(ctx context.Context) (map[string]struct{}, error) {
+	var rows []database.MCPServer
+	if err := database.ScopeByUser(ctx, database.DB().WithContext(ctx), "user_id").
+		Select("slug").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		if slug := strings.TrimSpace(row.Slug); slug != "" {
+			result[slug] = struct{}{}
+		}
+	}
+	return result, nil
 }
 
 func decodeCredentialExports(blob *CredentialCipher, credentialPassword string) ([]CredentialExport, error) {

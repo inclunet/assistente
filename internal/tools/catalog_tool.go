@@ -74,12 +74,12 @@ func (t *CatalogTool) Parameters() json.RawMessage {
 
 func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 	if t.store == nil {
-		return ToolResult{Content: "tool catalog store not configured", IsError: true}, nil
+		return ToolResult{Content: "catálogo de tools não configurado", IsError: true}, nil
 	}
 	var req catalogToolRequest
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &req); err != nil {
-			return ToolResult{Content: fmt.Sprintf("invalid tool_catalog arguments: %v", err), IsError: true}, nil
+			return ToolResult{Content: fmt.Sprintf("argumentos inválidos para tool_catalog: %v", err), IsError: true}, nil
 		}
 	}
 	limit := req.Limit
@@ -100,7 +100,7 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 	}
 	entries, err := t.store.ListTools(ctx, filter)
 	if err != nil {
-		return ToolResult{Content: fmt.Sprintf("error querying tool catalog: %v", err), IsError: true}, nil
+		return ToolResult{Content: fmt.Sprintf("erro ao consultar catálogo de tools: %v", err), IsError: true}, nil
 	}
 	if len(entries) > limit {
 		entries = entries[:limit]
@@ -126,7 +126,7 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {
-		return ToolResult{Content: fmt.Sprintf("error encoding tool catalog response: %v", err), IsError: true}, nil
+		return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
 	}
 	return ToolResult{Content: string(data)}, nil
 }
