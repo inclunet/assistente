@@ -138,7 +138,7 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 		default:
 			row.ID = existing.ID
 			row.CreatedAt = existing.CreatedAt
-			if err := tx.Model(&existing).Updates(row).Error; err != nil {
+			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
 				return err
 			}
 			cfg.ID = existing.ID
@@ -279,7 +279,7 @@ func (r *DBRepository) UpsertTool(ctx context.Context, entry *tools.ToolCatalogE
 		if normalized.Origin == tools.ToolOriginBuiltin {
 			query = query.Where("origin = ? AND name = ? AND mcp_server_id IS NULL", normalized.Origin, normalized.Name)
 		} else {
-			query = query.Where("mcp_server_id = ? AND name = ?", normalized.MCPServerID, normalized.Name)
+			query = query.Where("user_id = ? AND mcp_server_id = ? AND name = ?", normalized.UserID, normalized.MCPServerID, normalized.Name)
 		}
 		err := query.First(&existing).Error
 		switch {
@@ -294,7 +294,7 @@ func (r *DBRepository) UpsertTool(ctx context.Context, entry *tools.ToolCatalogE
 		default:
 			row.ID = existing.ID
 			row.CreatedAt = existing.CreatedAt
-			if err := tx.Model(&existing).Updates(row).Error; err != nil {
+			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
 				return err
 			}
 			entry.ID = existing.ID
@@ -349,17 +349,21 @@ func (r *DBRepository) ListTools(ctx context.Context, filter tools.ToolCatalogFi
 }
 
 func (r *DBRepository) MarkServerToolsUnavailable(ctx context.Context, serverID string, seenNames []string, reason string) (int, error) {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return 0, err
 	}
 	serverID = strings.TrimSpace(serverID)
 	if serverID == "" {
 		return 0, fmt.Errorf("serverID é obrigatório")
 	}
+	if _, err := r.GetServerByID(ctx, serverID); err != nil {
+		return 0, err
+	}
 	now := r.now()
 	query := r.db.WithContext(ctx).
 		Model(&database.ToolCatalog{}).
-		Where("mcp_server_id = ?", serverID)
+		Where("user_id = ? AND mcp_server_id = ?", userID, serverID)
 	if len(seenNames) > 0 {
 		query = query.Where("name NOT IN ?", seenNames)
 	}
@@ -435,6 +439,9 @@ func (r *DBRepository) normalizeToolEntry(ctx context.Context, entry tools.ToolC
 		}
 		if strings.TrimSpace(entry.MCPServerID) == "" {
 			return entry, fmt.Errorf("mcp_server_id é obrigatório para tool MCP")
+		}
+		if _, err := r.GetServerByID(ctx, entry.MCPServerID); err != nil {
+			return entry, err
 		}
 		entry.UserID = userID
 	default:

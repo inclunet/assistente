@@ -54,13 +54,13 @@ type MCPServerLog struct {
 // Builtins usam UserID/MCPServerID nulos; MCP tools herdam escopo via MCPServerID.
 type ToolCatalog struct {
 	UUIDModel
-	UserID      *string `json:"userId,omitempty" gorm:"index"`
-	MCPServerID *string `json:"mcpServerId,omitempty" gorm:"index"`
+	UserID      *string `json:"userId,omitempty" gorm:"index;uniqueIndex:ux_tool_catalog_mcp,where:mcp_server_id IS NOT NULL"`
+	MCPServerID *string `json:"mcpServerId,omitempty" gorm:"index;uniqueIndex:ux_tool_catalog_mcp,where:mcp_server_id IS NOT NULL"`
 
-	Name        string `json:"name" gorm:"not null;index"`
+	Name        string `json:"name" gorm:"not null;index;uniqueIndex:ux_tool_catalog_builtin,where:origin = 'builtin';uniqueIndex:ux_tool_catalog_mcp,where:mcp_server_id IS NOT NULL"`
 	DisplayName string `json:"displayName" gorm:"not null"`
 	Description string `json:"description,omitempty" gorm:"type:text"`
-	Origin      string `json:"origin" gorm:"not null;index"`
+	Origin      string `json:"origin" gorm:"not null;index;uniqueIndex:ux_tool_catalog_builtin,where:origin = 'builtin'"`
 	Category    string `json:"category,omitempty" gorm:"index"`
 	Class       string `json:"class,omitempty" gorm:"index"`
 	Package     string `json:"package,omitempty" gorm:"column:package;index"`

@@ -24,44 +24,44 @@ const (
 // ToolCatalogEntry descreve uma capability persistida no catálogo de tools.
 // O registry runtime continua sendo a fonte executável; o catálogo é índice/metadata.
 type ToolCatalogEntry struct {
-	ID          string
-	UserID      string
-	MCPServerID string
+	ID          string `json:"id"`
+	UserID      string `json:"user_id,omitempty"`
+	MCPServerID string `json:"mcp_server_id,omitempty"`
 
-	Name        string
-	DisplayName string
-	Description string
-	Origin      string
-	Category    string
-	Class       string
-	Package     string
-	Risk        string
-	Schema      json.RawMessage
-	SchemaHash  string
-	SchemaBytes int
-	Tags        []string
+	Name        string          `json:"name"`
+	DisplayName string          `json:"display_name"`
+	Description string          `json:"description,omitempty"`
+	Origin      string          `json:"origin"`
+	Category    string          `json:"category,omitempty"`
+	Class       string          `json:"class,omitempty"`
+	Package     string          `json:"package,omitempty"`
+	Risk        string          `json:"risk,omitempty"`
+	Schema      json.RawMessage `json:"schema,omitempty"`
+	SchemaHash  string          `json:"schema_hash,omitempty"`
+	SchemaBytes int             `json:"schema_bytes,omitempty"`
+	Tags        []string        `json:"tags,omitempty"`
 
-	AvailabilityStatus string
-	AvailabilityReason string
-	LastSeenAt         *time.Time
-	LastAvailableAt    *time.Time
-	LastUnavailableAt  *time.Time
-	LastTestedAt       *time.Time
-	LastTestStatus     string
-	LastTestError      string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	AvailabilityStatus string     `json:"availability_status"`
+	AvailabilityReason string     `json:"availability_reason,omitempty"`
+	LastSeenAt         *time.Time `json:"last_seen_at,omitempty"`
+	LastAvailableAt    *time.Time `json:"last_available_at,omitempty"`
+	LastUnavailableAt  *time.Time `json:"last_unavailable_at,omitempty"`
+	LastTestedAt       *time.Time `json:"last_tested_at,omitempty"`
+	LastTestStatus     string     `json:"last_test_status,omitempty"`
+	LastTestError      string     `json:"last_test_error,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 type ToolCatalogFilter struct {
-	Origin             string
-	MCPServerID        string
-	Category           string
-	Class              string
-	Package            string
-	Risk               string
-	AvailabilityStatus string
-	IncludeUnavailable bool
+	Origin             string `json:"origin,omitempty"`
+	MCPServerID        string `json:"mcp_server_id,omitempty"`
+	Category           string `json:"category,omitempty"`
+	Class              string `json:"class,omitempty"`
+	Package            string `json:"package,omitempty"`
+	Risk               string `json:"risk,omitempty"`
+	AvailabilityStatus string `json:"availability_status,omitempty"`
+	IncludeUnavailable bool   `json:"include_unavailable,omitempty"`
 }
 
 func CatalogEntryFromTool(tool Tool) ToolCatalogEntry {

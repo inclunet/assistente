@@ -2,6 +2,7 @@ package app
 
 import (
 	"log"
+	"time"
 
 	"assistente/controllers"
 	"assistente/internal/database"
@@ -86,6 +87,7 @@ func (a *App) initMCP() {
 		if a.toolRegistry != nil && !a.toolRegistry.Has(toolpkg.ToolCatalogName) {
 			a.toolRegistry.MustRegister(toolpkg.NewCatalogTool(repo))
 		}
+		a.mcpMgr.StartLogRetention(24*time.Hour, 30*24*time.Hour)
 		if err := a.mcpMgr.SyncBuiltinTools(database.WithBootstrap(a.internalBootstrapCtx())); err != nil {
 			log.Printf("[MCP] Erro ao sincronizar catálogo de builtin tools: %v", err)
 		}

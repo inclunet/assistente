@@ -20,6 +20,7 @@ func (m *Manager) migrateFilesystemConfigsToRepository(ctx context.Context, repo
 
 	files, err := m.resolver.List()
 	if err != nil {
+		log.Printf("[MCP] Migração filesystem → DB ignorada: não foi possível listar configs legadas: %v", err)
 		return nil
 	}
 	jsonFiles := make([]string, 0, len(files))

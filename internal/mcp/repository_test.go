@@ -75,6 +75,38 @@ func TestDBRepositoryRequiresUserForServers(t *testing.T) {
 	}
 }
 
+func TestDBRepositorySaveServerPersistsZeroValueUpdates(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	cfg := &ServerConfig{
+		Slug:               "jira",
+		Name:               "Jira",
+		Description:        "old description",
+		Transport:          TransportStreamable,
+		URL:                "https://jira.example/mcp",
+		OAuth2CallbackPort: 7777,
+		Enabled:            true,
+		AutoConnect:        true,
+	}
+	if err := repo.SaveServer(userA, cfg); err != nil {
+		t.Fatalf("save initial: %v", err)
+	}
+	cfg.Description = ""
+	cfg.URL = ""
+	cfg.OAuth2CallbackPort = 0
+	cfg.Enabled = false
+	cfg.AutoConnect = false
+	if err := repo.SaveServer(userA, cfg); err != nil {
+		t.Fatalf("save update: %v", err)
+	}
+	got, err := repo.GetServer(userA, "jira")
+	if err != nil {
+		t.Fatalf("get updated: %v", err)
+	}
+	if got.Description != "" || got.URL != "" || got.OAuth2CallbackPort != 0 || got.Enabled || got.AutoConnect {
+		t.Fatalf("zero-value update not persisted: %#v", got)
+	}
+}
+
 func TestDBRepositoryToolCatalogBuiltinAndMCPVisibility(t *testing.T) {
 	repo, userA, userB := setupRepositoryTest(t)
 
@@ -177,6 +209,82 @@ func TestDBRepositoryMarksMissingServerToolsUnavailable(t *testing.T) {
 	}
 	if statusByName["mcp_jira__search_issue"] != tools.ToolAvailabilityUnavailable {
 		t.Fatalf("search_issue deveria ficar unavailable, got %q", statusByName["mcp_jira__search_issue"])
+	}
+}
+
+func TestDBRepositoryToolUpdatesAreScopedByServerOwner(t *testing.T) {
+	repo, userA, userB := setupRepositoryTest(t)
+	serverA := &ServerConfig{Slug: "jira", Name: "Jira A", Transport: TransportStreamable, URL: "https://jira-a.example/mcp", Enabled: true, AutoConnect: true}
+	if err := repo.SaveServer(userA, serverA); err != nil {
+		t.Fatalf("save server A: %v", err)
+	}
+	if err := repo.UpsertTool(userA, &tools.ToolCatalogEntry{
+		Name:               "mcp_jira__create_issue",
+		DisplayName:        "create_issue",
+		Origin:             tools.ToolOriginMCPBridge,
+		MCPServerID:        serverA.ID,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		Schema:             json.RawMessage(`{"type":"object"}`),
+	}); err != nil {
+		t.Fatalf("upsert user A tool: %v", err)
+	}
+	err := repo.UpsertTool(userB, &tools.ToolCatalogEntry{
+		Name:               "mcp_jira__create_issue",
+		DisplayName:        "create_issue",
+		Origin:             tools.ToolOriginMCPBridge,
+		MCPServerID:        serverA.ID,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		Schema:             json.RawMessage(`{"type":"object"}`),
+	})
+	if err == nil {
+		t.Fatal("expected cross-user MCP tool upsert to fail")
+	}
+	if _, err := repo.MarkServerToolsUnavailable(userB, serverA.ID, nil, "not discovered"); err == nil {
+		t.Fatal("expected cross-user unavailable update to fail")
+	}
+}
+
+func TestDBRepositoryUpsertToolPersistsZeroValueUpdates(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	server := &ServerConfig{Slug: "jira", Name: "Jira", Transport: TransportStreamable, URL: "https://jira.example/mcp", Enabled: true, AutoConnect: true}
+	if err := repo.SaveServer(userA, server); err != nil {
+		t.Fatalf("save server: %v", err)
+	}
+	entry := &tools.ToolCatalogEntry{
+		Name:               "mcp_jira__create_issue",
+		DisplayName:        "create_issue",
+		Description:        "old",
+		Origin:             tools.ToolOriginMCPBridge,
+		MCPServerID:        server.ID,
+		AvailabilityStatus: tools.ToolAvailabilityUnavailable,
+		AvailabilityReason: "missing",
+		LastTestStatus:     tools.ToolTestStatusError,
+		LastTestError:      "boom",
+		Schema:             json.RawMessage(`{"type":"object"}`),
+	}
+	if err := repo.UpsertTool(userA, entry); err != nil {
+		t.Fatalf("upsert initial: %v", err)
+	}
+	entry.Description = ""
+	entry.AvailabilityStatus = tools.ToolAvailabilityAvailable
+	entry.AvailabilityReason = ""
+	entry.LastTestStatus = tools.ToolTestStatusOK
+	entry.LastTestError = ""
+	if err := repo.UpsertTool(userA, entry); err != nil {
+		t.Fatalf("upsert update: %v", err)
+	}
+	entries, err := repo.ListTools(userA, tools.ToolCatalogFilter{})
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	var found tools.ToolCatalogEntry
+	for _, got := range entries {
+		if got.Name == entry.Name {
+			found = got
+		}
+	}
+	if found.Description != "" || found.AvailabilityReason != "" || found.LastTestError != "" || found.LastTestStatus != tools.ToolTestStatusOK {
+		t.Fatalf("zero-value tool update not persisted: %#v", found)
 	}
 }
 

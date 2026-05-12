@@ -150,6 +150,36 @@ func (m *Manager) ListToolCatalog(ctx context.Context, filter tools.ToolCatalogF
 	return repo.ListTools(ctx, filter)
 }
 
+func (m *Manager) StartLogRetention(interval, maxAge time.Duration) {
+	repo := m.repository()
+	if repo == nil || interval <= 0 || maxAge <= 0 {
+		return
+	}
+	go func() {
+		clean := func() {
+			deleted, err := repo.CleanOldLogs(maxAge)
+			if err != nil {
+				log.Printf("[MCP] erro ao limpar logs antigos: %v", err)
+				return
+			}
+			if deleted > 0 {
+				log.Printf("[MCP] logs antigos removidos: %d", deleted)
+			}
+		}
+		clean()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-ticker.C:
+				clean()
+			}
+		}
+	}()
+}
+
 // SetAuthContextProvider configura o contexto usado para resolver credenciais
 // user-scoped de servidores MCP.
 func (m *Manager) SetAuthContextProvider(provider func() context.Context) {
@@ -518,6 +548,10 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	m.emit("mcp:server_connected", map[string]any{
 		"slug": slug,
 	})
+	m.logEvent(slug, "connected", "Servidor MCP conectado", map[string]any{
+		"tool_count": len(m.GetTools(slug)),
+		"transport":  cfg.Transport,
+	})
 
 	return nil
 }
@@ -652,6 +686,7 @@ func (m *Manager) Disconnect(slug string) error {
 			m.mu.Unlock()
 			log.Printf("[MCP] Conexão em andamento de '%s' cancelada pelo usuário", slug)
 			m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
+			m.logEvent(slug, "disconnect", "Conexão MCP cancelada pelo usuário", nil)
 			return nil
 		}
 		m.mu.Unlock()
@@ -695,6 +730,7 @@ func (m *Manager) Disconnect(slug string) error {
 
 	m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
 	m.emit("mcp:tools_changed", nil)
+	m.logEvent(slug, "disconnect", "Servidor MCP desconectado", nil)
 
 	return nil
 }
@@ -1185,6 +1221,7 @@ func (m *Manager) setError(slug, errMsg string) {
 	m.mu.Unlock()
 
 	log.Printf("[MCP] Erro no servidor '%s': %s", slug, errMsg)
+	m.logEvent(slug, "error", errMsg, nil)
 	m.emit("mcp:server_error", map[string]string{
 		"slug":  slug,
 		"error": errMsg,
@@ -1195,6 +1232,31 @@ func (m *Manager) setError(slug, errMsg string) {
 func (m *Manager) emit(event string, data any) {
 	if m.emitEvent != nil {
 		m.emitEvent(event, data)
+	}
+}
+
+func (m *Manager) logEvent(slug, eventType, message string, data map[string]any) {
+	repo := m.repository()
+	if repo == nil {
+		return
+	}
+	var payload json.RawMessage
+	if len(data) > 0 {
+		b, err := json.Marshal(data)
+		if err != nil {
+			log.Printf("[MCP:%s] erro ao serializar log %s: %v", slug, eventType, err)
+			return
+		}
+		payload = b
+	}
+	if err := repo.LogEvent(m.credentialContext(), &MCPServerLog{
+		Slug:      slug,
+		Type:      eventType,
+		Message:   message,
+		Data:      payload,
+		Timestamp: time.Now(),
+	}); err != nil {
+		log.Printf("[MCP:%s] erro ao persistir log %s: %v", slug, eventType, err)
 	}
 }
 
@@ -1452,6 +1514,7 @@ func (m *Manager) performHealthCheck(slug string) {
 			"slug":  slug,
 			"error": err.Error(),
 		})
+		m.logEvent(slug, "health_check_failed", "Health check MCP falhou", map[string]any{"error": err.Error()})
 	}
 }
 
@@ -1476,6 +1539,7 @@ func (m *Manager) handleToolCallError(slug string, err error) {
 		"slug":  slug,
 		"error": err.Error(),
 	})
+	m.logEvent(slug, "transport_error", "Erro de sessão/transporte durante tool call", map[string]any{"error": err.Error()})
 
 	go m.reconnectWithRetry(slug)
 }

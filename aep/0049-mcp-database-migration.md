@@ -3,7 +3,7 @@
 ## Dependências
 
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Deve ser implementada primeiro. Fornece o `UUIDModel` com hook `BeforeCreate` que gera UUIDv7 automaticamente. Todas as PKs das tabelas desta AEP usam esse modelo.
-- **AEP-0052** (Multi-user accounts): Deve estar disponível para que servidores MCP sejam sempre vinculados ao usuário logado via `user_id`.
+- **Multi-user accounts** (implementado no PR #94): Deve estar disponível para que servidores MCP sejam sempre vinculados ao usuário logado via `user_id`.
 
 ## Resumo
 
@@ -45,7 +45,7 @@ Cada servidor MCP é **um arquivo JSON** com nome = slug:
 - Hot reload via `fsnotify.Watcher` (debounce 500ms, cooldown 2s para escritas próprias)
 - Smart defaults no parse: transport inferido, enabled/auto_connect default true
 - Credenciais em `credentials.Manager` por patterns: `mcp-client:{slug}`, `mcp-tokens:{slug}`, hostname
-- OAuth auto-discovery via RFC 9470 + RFC 8414
+- OAuth auto-discovery via RFC 9728 + RFC 8414
 - Estado runtime em `ServerStatus` (in-memory, não persistido)
 - Tools MCP descobertas ficam apenas em `ServerStatus.Tools` e no `tools.Registry` runtime
 - Tools builtin ficam apenas registradas em memória no `tools.Registry`
@@ -131,9 +131,9 @@ Uma tabela `mcp_server_logs` registra eventos do lifecycle do servidor:
 
 Isso permite diagnóstico sem depender de logs do sistema operacional. Retenção: 30 dias (mesma política da AEP-0048).
 
-### D6 — Frontend inalterado
+### D6 — Compatibilidade das APIs Wails existentes
 
-A API Wails (`ListMCPServers`, `SaveMCPServer`, `ConnectMCPServer`, etc.) mantém as mesmas assinaturas e tipos de retorno. O frontend não percebe a mudança de backing store.
+As APIs Wails existentes (`ListMCPServers`, `SaveMCPServer`, `ConnectMCPServer`, etc.) mantêm as mesmas assinaturas e tipos de retorno. O frontend não percebe a mudança de backing store. Novas APIs podem ser adicionadas para logs, catálogo e dry run, desde que não quebrem os contratos já publicados.
 
 ### D7 — Migração one-time de filesystem para banco
 
@@ -151,14 +151,14 @@ A persistência é abstraída por uma interface `Repository`:
 
 ```go
 type MCPRepository interface {
-    ListServers() ([]ServerConfig, error)
-    GetServer(slug string) (*ServerConfig, error)
-    GetServerByID(id string) (*ServerConfig, error)
-    SaveServer(cfg *ServerConfig) error
-    DeleteServer(slug string) error
-    DuplicateServer(slug, newSlug string) (*ServerConfig, error)
-    LogEvent(entry *MCPServerLog) error
-    GetLogs(slug string, limit int) ([]MCPServerLog, error)
+    ListServers(ctx context.Context) ([]ServerConfig, error)
+    GetServer(ctx context.Context, slug string) (*ServerConfig, error)
+    GetServerByID(ctx context.Context, id string) (*ServerConfig, error)
+    SaveServer(ctx context.Context, cfg *ServerConfig) error
+    DeleteServer(ctx context.Context, slug string) error
+    DuplicateServer(ctx context.Context, slug, newSlug string) (*ServerConfig, error)
+    LogEvent(ctx context.Context, entry *MCPServerLog) error
+    GetLogs(ctx context.Context, slug string, limit int) ([]MCPServerLog, error)
     CleanOldLogs(maxAge time.Duration) (int, error)
 }
 ```
