@@ -232,6 +232,23 @@ A seleção dinâmica de tools para chat deve usar uma tool pequena de catálogo
 
 Regras determinísticas baseadas em texto do usuário não são o mecanismo principal, porque dependem de idioma e vocabulário. Elas podem existir apenas como otimizações conservadoras baseadas em perfil/superfície.
 
+#### Follow-up arquitetural — política única de seleção de tools
+
+A implementação desta AEP garante o contrato de segurança no caminho crítico: quando `EnabledTools` é explícito no perfil, a expansão dinâmica via catálogo não pode ativar tools fora dessa allowlist; quando `DisableTools=true`, nenhuma tool é ativada; e quando `EnabledTools=nil`, a seleção dinâmica permanece aberta ao catálogo.
+
+Ainda assim, a política de seleção/autorização de tools ficou distribuída entre helpers de tool definitions, integração com MCP nativo, callback de expansão dinâmica e filtros do catálogo. Isso é aceitável para esta entrega, mas não é a arquitetura final desejada.
+
+Follow-up: centralizar essa lógica em uma abstração única (por exemplo `ToolSelectionPolicy` ou `ToolScope`) derivada do perfil ativo e do runtime/provider atual. Essa política deve ser a fonte de verdade para:
+
+- tools iniciais enviadas ao LLM
+- expansão dinâmica a partir de `tool_catalog`
+- `AllowedTools` de MCP nativo
+- remoção de bridge tools duplicadas quando MCP nativo estiver ativo
+- semântica de `EnabledTools=nil`, `EnabledTools=[]`, allowlist explícita e `DisableTools`
+- eventual restrição da própria consulta/listagem do catálogo ao escopo permitido pelo perfil
+
+Issue de acompanhamento: <https://github.com/inclunet/assistente/issues/119>.
+
 ### D17 — Dry run/teste de tools
 
 Builtin tools e MCP tools devem poder ser testadas por um fluxo de dry run semelhante ao dos jobs:
