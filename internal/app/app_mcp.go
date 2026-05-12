@@ -6,6 +6,7 @@ import (
 	"assistente/controllers"
 	"assistente/internal/database"
 	mcpmgr "assistente/internal/mcp"
+	toolpkg "assistente/internal/tools"
 )
 
 // ============================================================================
@@ -80,7 +81,11 @@ func (a *App) initMCP() {
 
 	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, a.credMgr, emitEvent)
 	if database.DB() != nil {
-		a.mcpMgr.SetRepository(mcpmgr.NewDBRepository(database.DB()))
+		repo := mcpmgr.NewDBRepository(database.DB())
+		a.mcpMgr.SetRepository(repo)
+		if a.toolRegistry != nil && !a.toolRegistry.Has(toolpkg.ToolCatalogName) {
+			a.toolRegistry.MustRegister(toolpkg.NewCatalogTool(repo))
+		}
 		if err := a.mcpMgr.SyncBuiltinTools(database.WithBootstrap(a.internalBootstrapCtx())); err != nil {
 			log.Printf("[MCP] Erro ao sincronizar catálogo de builtin tools: %v", err)
 		}

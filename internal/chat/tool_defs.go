@@ -74,6 +74,25 @@ func BuildLLMToolDefs(registry *tools.Registry, enabledTools []string, disableTo
 	return result
 }
 
+func BuildLLMToolDefsByNames(registry *tools.Registry, names []string, disableTools bool) []llm.ToolDefinition {
+	if disableTools || registry == nil || len(names) == 0 {
+		return nil
+	}
+	toolDefs := registry.FilterByNames(names)
+	result := make([]llm.ToolDefinition, len(toolDefs))
+	for i, td := range toolDefs {
+		result[i] = llm.ToolDefinition{
+			Type: td.Type,
+			Function: llm.FunctionDefinition{
+				Name:        td.Function.Name,
+				Description: td.Function.Description,
+				Parameters:  td.Function.Parameters,
+			},
+		}
+	}
+	return result
+}
+
 // ApplyNativeMCP configura servidores MCP HTTP nativos no ChatProvider e remove
 // as bridge tools correspondentes do toolDefs para evitar duplicatas.
 func ApplyNativeMCP(

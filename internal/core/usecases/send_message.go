@@ -221,6 +221,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if activeProfile != nil {
 		enabledTools = activeProfile.Chat.EnabledTools
 	}
+	if enabledTools == nil && !disableTools && uc.toolRegistry != nil && uc.toolRegistry.Has(tools.ToolCatalogName) {
+		enabledTools = []string{tools.ToolCatalogName}
+	}
 	llmToolDefs := chat.BuildLLMToolDefs(uc.toolRegistry, enabledTools, disableTools)
 
 	// Resolve o ChatProvider para o provedor do perfil ativo.
@@ -270,6 +273,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			uc.agentSvc.RunAgenticLoop(agentCtx, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer, surfaceOrigin,
 				func(convID string, iter int) agent.IterationHandler {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin, userMsg.ID)
+				},
+				func(names []string) []llm.ToolDefinition {
+					return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
 				},
 			)
 		}()
