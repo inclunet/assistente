@@ -82,6 +82,43 @@ func TestSaveConfigInitializesWorkspaceRoots(t *testing.T) {
 	}
 }
 
+func TestSaveConfigUpdatesWorkspaceRoots(t *testing.T) {
+	mgr := NewManager(tools.NewRegistry(), credentials.NewManager(nil), func(string, any) {})
+	repo, _, _ := setupRepositoryTest(t)
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr.SetRepository(repo)
+	mgr.SetAuthContextProvider(func() context.Context { return ctx })
+	if err := mgr.SaveConfig("server", ServerConfig{
+		Name:        "Servidor MCP",
+		Transport:   TransportStdio,
+		Command:     "node",
+		Enabled:     true,
+		AutoConnect: false,
+	}); err != nil {
+		t.Fatalf("SaveConfig inicial falhou: %v", err)
+	}
+	if err := mgr.SetWorkspaceRoots([]Root{{URI: "file:///workspace-updated", Name: "workspace"}}); err != nil {
+		t.Fatalf("SetWorkspaceRoots falhou: %v", err)
+	}
+
+	if err := mgr.SaveConfig("server", ServerConfig{
+		Name:        "Servidor MCP Atualizado",
+		Transport:   TransportStdio,
+		Command:     "node",
+		Enabled:     true,
+		AutoConnect: false,
+	}); err != nil {
+		t.Fatalf("SaveConfig update falhou: %v", err)
+	}
+
+	mgr.mu.RLock()
+	status := mgr.servers["server"]
+	mgr.mu.RUnlock()
+	if status == nil || len(status.Roots) != 1 || status.Roots[0].URI != "file:///workspace-updated" {
+		t.Fatalf("roots do server atualizado = %#v", status)
+	}
+}
+
 func TestSaveConfigNormalizesSlugForRuntimeState(t *testing.T) {
 	mgr := NewManager(tools.NewRegistry(), credentials.NewManager(nil), func(string, any) {})
 	repo, _, _ := setupRepositoryTest(t)

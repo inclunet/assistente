@@ -822,6 +822,7 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 	if existing, ok := m.servers[slug]; ok {
 		existing.ID = cfg.ID
 		existing.Config = cfg
+		existing.Roots = roots
 	} else {
 		m.servers[slug] = &ServerStatus{
 			ID:     cfg.ID,
