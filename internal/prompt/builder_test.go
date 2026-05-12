@@ -266,6 +266,33 @@ func TestBuildSkillsSection_DisableOnDemand_NoAvailableSection(t *testing.T) {
 	}
 }
 
+func TestBuildSkillsSection_ToolCallingDisabledSkipsToolDependentSkills(t *testing.T) {
+	toolSkill := makeSkill("tool-skill", "Tool Skill", "Uses tools", "Tool skill content.", true, false)
+	toolSkill.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}}
+	filesystemSkill := makeSkill("filesystem-skill", "Filesystem Skill", "Uses filesystem", "Filesystem skill content.", true, false)
+	filesystemSkill.Filesystem = &skills.FilesystemPermissions{Read: []string{"~/.assistente/**"}}
+	contextOnlySkill := makeSkill("context-skill", "Context Skill", "No tools", "Context skill content.", true, false)
+	available := makeSkill("available", "Available", "Available desc", "Available content.", false, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		autoSkills:      []skills.Skill{toolSkill, filesystemSkill, contextOnlySkill},
+		availableSkills: []skills.Skill{available},
+	}}
+
+	result := b.BuildSkillsSection(nil, false, chat.TemplateData{ToolCallingEnabled: false})
+	if strings.Contains(result, "Tool skill content.") {
+		t.Fatalf("tool-dependent skill should be omitted when tool calling is disabled: %q", result)
+	}
+	if strings.Contains(result, "Filesystem skill content.") {
+		t.Fatalf("filesystem-dependent skill should be omitted when tool calling is disabled: %q", result)
+	}
+	if strings.Contains(result, "<available_skills>") {
+		t.Fatalf("available skills should be omitted when tool calling is disabled: %q", result)
+	}
+	if !strings.Contains(result, "Context skill content.") {
+		t.Fatalf("context-only skill should remain available, got: %q", result)
+	}
+}
+
 func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	s := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, false)
 	b := &prompt.Builder{Skills: &mockSkillReader{

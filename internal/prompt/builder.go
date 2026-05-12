@@ -242,6 +242,11 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		}
 	}
 
+	if templateToolCallingDisabled(tplData) {
+		autoSkills = filterSkillsWithoutToolDependencies(autoSkills)
+		availableSkills = nil
+	}
+
 	if len(autoSkills) == 0 && len(availableSkills) == 0 {
 		return ""
 	}
@@ -333,6 +338,50 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 	}
 
 	return sb.String()
+}
+
+func templateToolCallingDisabled(tplData any) bool {
+	switch data := tplData.(type) {
+	case chat.TemplateData:
+		return !data.ToolCallingEnabled
+	case *chat.TemplateData:
+		return data != nil && !data.ToolCallingEnabled
+	default:
+		return false
+	}
+}
+
+func filterSkillsWithoutToolDependencies(input []skills.Skill) []skills.Skill {
+	if len(input) == 0 {
+		return input
+	}
+	filtered := make([]skills.Skill, 0, len(input))
+	for _, s := range input {
+		if skillDependsOnTools(s) {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+	return filtered
+}
+
+func skillDependsOnTools(s skills.Skill) bool {
+	if s.Tools != nil {
+		if len(s.Tools.Allowed) > 0 || len(s.Tools.Denied) > 0 || s.Tools.BashCommands != nil {
+			return true
+		}
+	}
+	if s.Filesystem != nil {
+		if len(s.Filesystem.Read) > 0 || len(s.Filesystem.Write) > 0 || len(s.Filesystem.Deny) > 0 {
+			return true
+		}
+	}
+	if s.Network != nil {
+		if len(s.Network.AllowedHosts) > 0 || len(s.Network.DeniedHosts) > 0 {
+			return true
+		}
+	}
+	return s.MCP != nil
 }
 
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.
