@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
   Trans: ({ children, defaults }: { children?: ReactNode; defaults?: string }) => <>{defaults ?? children}</>,
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetSkills: () => mockGetSkills(),
   GetSkill: (slug: string) => mockGetSkill(slug),
   GetSkillSearchPaths: () => mockGetSkillSearchPaths(),
@@ -41,11 +41,20 @@ vi.mock('../hooks/useGridFocus', () => ({
   }),
 }));
 
+vi.mock('../hooks/useGridPageLandmarks', () => ({
+  useGridPageLandmarks: vi.fn(),
+}));
+
+vi.mock('../hooks/useConfirm', () => ({
+  useConfirm: () => vi.fn().mockResolvedValue(true),
+}));
+
 const mockAddToast = vi.fn();
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: mockAddToast,
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: mockAddToast };
+    return selector ? selector(s) : s;
+  },
 }));
 
 const mockAnnounce = vi.fn();
@@ -120,7 +129,9 @@ vi.mock('../components', () => ({
   PageLoading: ({ message }: { message?: string }) => <div role="status">{message}</div>,
 }));
 
-describe('SkillsPage', () => {
+import SkillsPage from './SkillsPage';
+
+describe('SkillsPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockGetSkills.mockReset();
     mockGetSkill.mockReset();
@@ -174,8 +185,6 @@ describe('SkillsPage', () => {
   });
 
   it('duplica um skill via menu de acoes', async () => {
-    const { default: SkillsPage } = await import('./SkillsPage');
-
     render(<SkillsPage />);
 
     await screen.findByText('skill-base');

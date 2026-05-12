@@ -29,7 +29,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetChannelConfig: (name: string) => mockGetChannelConfig(name),
   SaveChannelConfig: (name: string, payload: unknown) => mockSaveChannelConfig(name, payload),
   GetMessagingStatus: () => mockGetMessagingStatus(),
@@ -48,9 +48,10 @@ vi.mock('@wailsjs/go/models', () => ({
 }));
 
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: mockAddToast,
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: mockAddToast };
+    return selector ? selector(s) : s;
+  },
 }));
 
 vi.mock('../hooks/useAnnouncer', () => ({

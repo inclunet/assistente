@@ -3,7 +3,7 @@ import { test, expect } from '../fixtures';
 const now = new Date().toISOString();
 
 const baseConversation = {
-  id: 1,
+  id: '01926b90-0000-7000-8000-000000000001',
   title: 'Test Conversation',
   created_at: now,
   updated_at: now,
@@ -13,8 +13,8 @@ const baseConversation = {
 
 const userMessage = {
   message: {
-    id: 1,
-    conversationId: 1,
+    id: '01926b90-0000-7000-8000-000000000010',
+    conversationId: '01926b90-0000-7000-8000-000000000001',
     role: 'user',
     content: 'Teste',
     createdAt: now,
@@ -31,21 +31,44 @@ async function sendAndStream(
   markdownContent: string,
 ) {
   const textarea = page.locator('.chat-input__textarea');
+  await expect(textarea).toBeEditable({ timeout: 5_000 });
+  await textarea.click();
   await textarea.fill('Teste');
   await textarea.press('Enter');
 
+  await page.waitForFunction(() => {
+    return window.__wailsMock.getCallLog().some(
+      (c: { fn: string }) => c.fn === 'SendMessage',
+    );
+  }, { timeout: 5_000 });
+
+  await wails.emit('chat:messages_ready', {
+    conversationId: '01926b90-0000-7000-8000-000000000001',
+    userMessageId: '01926b90-0000-7000-8000-100000000100',
+    userContent: 'Teste',
+  });
+
+  await page.waitForFunction(() => {
+    return document.querySelectorAll('.message-node').length >= 2;
+  }, { timeout: 5_000 });
+
   // Stream com conteúdo
   await wails.emit('chat:stream', {
-    conversationId: 1,
-    messageId: 2,
+    conversationId: '01926b90-0000-7000-8000-000000000001',
+    messageId: '01926b90-0000-7000-8000-100000000002',
     token: markdownContent,
     done: false,
+    content: markdownContent,
   });
+
+  await page.waitForFunction(() => {
+    return document.querySelectorAll('.message-node').length >= 3;
+  }, { timeout: 5_000 });
 
   // Finaliza stream
   await wails.emit('chat:stream', {
-    conversationId: 1,
-    messageId: 2,
+    conversationId: '01926b90-0000-7000-8000-000000000001',
+    messageId: '01926b90-0000-7000-8000-100000000002',
     token: '',
     done: true,
     content: markdownContent,
@@ -57,7 +80,7 @@ async function sendAndStream(
 test.describe('Chat — Renderização Markdown', () => {
   test.beforeEach(async ({ wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('SendMessage', 2);
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000002');
     await wails.setResponse('EnsureConversation', baseConversation);
   });
 

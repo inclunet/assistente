@@ -217,3 +217,44 @@
 .tool-calls-section__result-toggle:hover {
   background-color: var(--bg-hover);
 }
+
+/* Badges de origem e metadata (AEP-0039 Fase 5) */
+.tool-calls-section__origin-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.7em;
+  font-weight: 600;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.tool-calls-section__origin-badge--builtin {
+  background-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.tool-calls-section__origin-badge--mcp_bridge {
+  background-color: var(--color-info-dim);
+  color: var(--color-info);
+}
+
+.tool-calls-section__origin-badge--mcp_native {
+  background-color: var(--color-success-dim);
+  color: var(--color-success);
+}
+
+.tool-calls-section__server-label {
+  font-size: 0.75em;
+  color: var(--text-muted);
+  font-style: italic;
+  flex-shrink: 0;
+}
+
+.tool-calls-section__duration {
+  font-size: 0.75em;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: auto;
+}

@@ -29,11 +29,12 @@ func setupTaskListSlugTestDB(t *testing.T) {
 
 func TestResolveTaskListID(t *testing.T) {
 	setupTaskListSlugTestDB(t)
-	a, err := CreateTaskList("A", "", nil, "my-alpha")
+	ctx := testCtx()
+	a, err := CreateTaskListWithContext(ctx, "A", "", nil, "my-alpha")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := CreateTaskList("B", "", nil, "beta")
+	b, err := CreateTaskListWithContext(ctx, "B", "", nil, "beta")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,27 +43,27 @@ func TestResolveTaskListID(t *testing.T) {
 	id := a.ID
 	idPtr := id
 
-	got, err := ResolveTaskListID(&idPtr, "")
+	got, err := ResolveTaskListIDWithContext(ctx, &idPtr, "")
 	if err != nil || got != id {
-		t.Fatalf("by id: got %d err %v", got, err)
+		t.Fatalf("by id: got %s err %v", got, err)
 	}
 
-	got, err = ResolveTaskListID(nil, "MY-ALPHA")
+	got, err = ResolveTaskListIDWithContext(ctx, nil, "MY-ALPHA")
 	if err != nil || got != id {
-		t.Fatalf("by slug: got %d err %v", got, err)
+		t.Fatalf("by slug: got %s err %v", got, err)
 	}
 
-	got, err = ResolveTaskListID(&idPtr, "my-alpha")
+	got, err = ResolveTaskListIDWithContext(ctx, &idPtr, "my-alpha")
 	if err != nil || got != id {
-		t.Fatalf("both consistent: got %d err %v", got, err)
+		t.Fatalf("both consistent: got %s err %v", got, err)
 	}
 
-	_, err = ResolveTaskListID(&idPtr, "beta")
+	_, err = ResolveTaskListIDWithContext(ctx, &idPtr, "beta")
 	if err == nil {
 		t.Fatal("expected mismatch id vs slug")
 	}
 
-	_, err = ResolveTaskListID(nil, "")
+	_, err = ResolveTaskListIDWithContext(ctx, nil, "")
 	if err == nil {
 		t.Fatal("expected error when no id and no slug")
 	}
@@ -70,10 +71,11 @@ func TestResolveTaskListID(t *testing.T) {
 
 func TestCreateTaskListDuplicateSlug(t *testing.T) {
 	setupTaskListSlugTestDB(t)
-	if _, err := CreateTaskList("A", "", nil, "dup"); err != nil {
+	ctx := testCtx()
+	if _, err := CreateTaskListWithContext(ctx, "A", "", nil, "dup"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CreateTaskList("B", "", nil, "dup"); err == nil {
+	if _, err := CreateTaskListWithContext(ctx, "B", "", nil, "dup"); err == nil {
 		t.Fatal("expected duplicate slug error")
 	}
 }

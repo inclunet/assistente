@@ -6,7 +6,7 @@ import {
   SendTerminalInput,
   InterruptTerminalCommand,
   GetTerminalHistory,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { terminal } from '../../wailsjs/go/models';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
@@ -15,6 +15,8 @@ import { announce } from '../hooks/useAnnouncer';
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
 let announceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingOutput = '';
+let terminalEventListenerRefCount = 0;
+let terminalEventListenerCleanup: (() => void) | null = null;
 
 function scheduleOutputAnnounce(chunk: string) {
   pendingOutput += chunk;
@@ -39,39 +41,38 @@ export type HistoryEntry = terminal.HistoryEntry;
 
 interface TerminalState {
   sessions: SessionInfo[];
-  activeSessionId: string | null;
   historyBySession: Record<string, HistoryEntry[]>;
   /** ID do último entry que está recebendo raw output (modo interativo) */
   activeEntryBySession: Record<string, string | null>;
-  isLoading: boolean;
+  isLoadingSessions: boolean;
+  loadingHistoryBySession: Record<string, boolean>;
 
   // Actions
   loadSessions: () => Promise<void>;
-  createSession: (name?: string) => Promise<void>;
+  createSession: (name?: string) => Promise<string | null>;
   closeSession: (id: string) => Promise<void>;
-  setActiveSession: (id: string) => void;
-  sendInput: (input: string) => Promise<void>;
-  interrupt: () => Promise<void>;
+  sendInput: (sessionId: string, input: string) => Promise<void>;
+  interrupt: (sessionId: string) => Promise<void>;
   loadHistory: (sessionId: string) => Promise<void>;
   setupEventListeners: () => () => void;
 }
 
-export const useTerminalStore = create<TerminalState>((set, get) => ({
+export const useTerminalStore = create<TerminalState>((set) => ({
   sessions: [],
-  activeSessionId: null,
   historyBySession: {},
   activeEntryBySession: {},
-  isLoading: false,
+  isLoadingSessions: false,
+  loadingHistoryBySession: {},
 
   loadSessions: async () => {
-    set({ isLoading: true });
+    set({ isLoadingSessions: true });
     try {
       const sessions = await ListTerminalSessions();
       set({ sessions: sessions || [] });
     } catch (err) {
       console.error('[Terminal] Erro ao carregar sessões:', err);
     } finally {
-      set({ isLoading: false });
+      set({ isLoadingSessions: false });
     }
   },
 
@@ -79,74 +80,92 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     try {
       const info = await CreateTerminalSession(name || '');
       if (info) {
-        set({ activeSessionId: info.id });
+        return info.id;
       }
+      return null;
     } catch (err) {
       console.error('[Terminal] Erro ao criar sessão:', err);
+      return null;
     }
   },
 
   closeSession: async (id: string) => {
     try {
       await CloseTerminalSession(id);
-
-      const state = get();
-      if (state.activeSessionId === id) {
-        const remaining = state.sessions.filter(s => s.id !== id);
-        set({ activeSessionId: remaining.length > 0 ? remaining[0].id : null });
-      }
     } catch (err) {
       console.error('[Terminal] Erro ao fechar sessão:', err);
     }
   },
 
-  setActiveSession: (id: string) => {
-    set({ activeSessionId: id });
-
-    const state = get();
-    if (!state.historyBySession[id]) {
-      get().loadHistory(id);
-    }
-  },
-
-  sendInput: async (input: string) => {
-    const state = get();
-    if (!state.activeSessionId) return;
+  sendInput: async (sessionId: string, input: string) => {
+    if (!sessionId) return;
 
     try {
       playSendSound();
-      await SendTerminalInput(state.activeSessionId, input);
+      await SendTerminalInput(sessionId, input);
     } catch (err) {
       console.error('[Terminal] Erro ao enviar input:', err);
     }
   },
 
-  interrupt: async () => {
-    const state = get();
-    if (!state.activeSessionId) return;
+  interrupt: async (sessionId: string) => {
+    if (!sessionId) return;
 
     try {
-      await InterruptTerminalCommand(state.activeSessionId);
+      await InterruptTerminalCommand(sessionId);
     } catch (err) {
       console.error('[Terminal] Erro ao interromper:', err);
     }
   },
 
   loadHistory: async (sessionId: string) => {
+    set(state => ({
+      loadingHistoryBySession: {
+        ...state.loadingHistoryBySession,
+        [sessionId]: true,
+      },
+    }));
     try {
       const history = await GetTerminalHistory(sessionId);
-      set(state => ({
-        historyBySession: {
-          ...state.historyBySession,
-          [sessionId]: history || [],
-        },
-      }));
+      set(state => {
+        const sessionExists = state.sessions.some(session => session.id === sessionId);
+        if (!sessionExists) return state;
+
+        return {
+          historyBySession: {
+            ...state.historyBySession,
+            [sessionId]: history || [],
+          },
+        };
+      });
     } catch (err) {
       console.error('[Terminal] Erro ao carregar histórico:', err);
+    } finally {
+      set(state => {
+        const nextLoading = { ...state.loadingHistoryBySession };
+        const sessionExists = state.sessions.some(session => session.id === sessionId);
+        if (sessionExists) {
+          nextLoading[sessionId] = false;
+        } else {
+          delete nextLoading[sessionId];
+        }
+        return { loadingHistoryBySession: nextLoading };
+      });
     }
   },
 
   setupEventListeners: () => {
+    terminalEventListenerRefCount += 1;
+    if (terminalEventListenerCleanup) {
+      return () => {
+        terminalEventListenerRefCount = Math.max(0, terminalEventListenerRefCount - 1);
+        if (terminalEventListenerRefCount === 0 && terminalEventListenerCleanup) {
+          terminalEventListenerCleanup();
+          terminalEventListenerCleanup = null;
+        }
+      };
+    }
+
     const unsubs: Array<() => void> = [];
 
     // Sessão criada
@@ -167,10 +186,13 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         delete newHistory[data.sessionId];
         const newActiveEntry = { ...state.activeEntryBySession };
         delete newActiveEntry[data.sessionId];
+        const newLoadingHistory = { ...state.loadingHistoryBySession };
+        delete newLoadingHistory[data.sessionId];
         return {
           sessions: state.sessions.filter(s => s.id !== data.sessionId),
           historyBySession: newHistory,
           activeEntryBySession: newActiveEntry,
+          loadingHistoryBySession: newLoadingHistory,
         };
       });
     }));
@@ -294,8 +316,16 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       });
     }));
 
-    return () => {
+    terminalEventListenerCleanup = () => {
       unsubs.forEach(fn => fn());
+    };
+
+    return () => {
+      terminalEventListenerRefCount = Math.max(0, terminalEventListenerRefCount - 1);
+      if (terminalEventListenerRefCount === 0 && terminalEventListenerCleanup) {
+        terminalEventListenerCleanup();
+        terminalEventListenerCleanup = null;
+      }
     };
   },
 }));

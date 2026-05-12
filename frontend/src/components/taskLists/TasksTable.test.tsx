@@ -34,8 +34,8 @@ vi.mock('../ui/DataGrid', () => ({
     items,
     getRowActions,
   }: {
-    items?: Array<{ id: number; title: string; parentId?: number }>;
-    getRowActions?: (item: { id: number; title: string }) => Array<{ id: string; label: string; action: () => void }>;
+    items?: Array<{ id: string; title: string; parentId?: string }>;
+    getRowActions?: (item: { id: string; title: string }) => Array<{ id: string; label: string; action: () => void }>;
   }) => (
     <div data-testid="data-grid">
       {items?.map((item) => (
@@ -73,7 +73,7 @@ vi.mock('../ui/Button', () => ({
 vi.mock('./TaskForm', () => ({
   default: ({ onSuccess, onCancel }: { onSuccess?: (t: unknown) => void; onCancel?: () => void }) => (
     <div data-testid="task-form">
-      <button onClick={() => onSuccess?.({ id: 99, title: 'Nova tarefa', taskListId: 1, statusId: 1, order: 0, description: '', createdAt: '', updatedAt: '' })}>
+      <button onClick={() => onSuccess?.({ id: "99", title: 'Nova tarefa', taskListId: "1", statusId: 1, order: 0, description: '', createdAt: '', updatedAt: '' })}>
         salvar
       </button>
       <button onClick={onCancel}>cancelar</button>
@@ -84,13 +84,13 @@ vi.mock('./TaskForm', () => ({
 /* ── dados de teste ─────────────────────────────────────────── */
 
 const baseWorkflow = {
-  id: 1,
-  taskListId: 1,
+  id: "1",
+  taskListId: "1",
   statuses: [
     { id: 1, order: 0, label: 'Todo', color: 'gray', icon: '⬜' },
     { id: 2, order: 1, label: 'Done', color: 'green', icon: '✅' },
   ],
-  allowedTransitions: { 1: [2], 2: [1] },
+  allowedTransitions: { 1: [2], 2: [1] } as Record<number, number[]>,
   initialStatusId: 1,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
@@ -98,8 +98,8 @@ const baseWorkflow = {
 
 const makeTasks = () => [
   {
-    id: 10,
-    taskListId: 1,
+    id: "10",
+    taskListId: "1",
     title: 'Tarefa raiz',
     description: '',
     statusId: 1,
@@ -108,12 +108,12 @@ const makeTasks = () => [
     updatedAt: '2024-01-01T00:00:00Z',
   },
   {
-    id: 11,
-    taskListId: 1,
+    id: "11",
+    taskListId: "1",
     title: 'Subtarefa',
     description: '',
     statusId: 1,
-    parentId: 10,
+    parentId: "10",
     order: 1,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
@@ -138,10 +138,10 @@ describe('TasksTable', () => {
     return render(
       <MemoryRouter>
         <TasksTable
-          taskListId={1}
+          taskListId={"1"}
           tasks={tasks}
           taskList={{
-            id: 1,
+            id: "1",
             title: 'Lista 1',
             description: '',
             preferredViewMode: 'list' as const,
@@ -199,7 +199,7 @@ describe('TasksTable', () => {
     await user.click(deleteButtons[0]);
 
     await waitFor(() => {
-      expect(mockDeleteTask).toHaveBeenCalledWith(10);
+      expect(mockDeleteTask).toHaveBeenCalledWith("10");
     });
   });
 
@@ -234,7 +234,7 @@ describe('TasksTable', () => {
     await user.click(promoteBtn);
 
     await waitFor(() => {
-      expect(mockPromoteTask).toHaveBeenCalledWith(11);
+      expect(mockPromoteTask).toHaveBeenCalledWith("11");
     });
   });
 
@@ -257,7 +257,7 @@ describe('TasksTable', () => {
     await user.click(candidateBtn);
 
     await waitFor(() => {
-      expect(mockDemoteTask).toHaveBeenCalledWith(10, 11);
+      expect(mockDemoteTask).toHaveBeenCalledWith("10", "11");
     });
   });
 
@@ -275,7 +275,7 @@ describe('TasksTable', () => {
     await user.click(salvarBtn);
 
     expect(onTaskCreated).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 99, title: 'Nova tarefa' }),
+      expect.objectContaining({ id: "99", title: 'Nova tarefa' }),
     );
   });
 });

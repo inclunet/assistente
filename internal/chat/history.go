@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 )
@@ -16,27 +17,40 @@ type HistoryLoader struct {
 
 // Load retorna as mensagens filtradas e o resumo da conversa.
 // Os mensagens retornadas estão prontas para conversão ao formato LLM.
-func (h *HistoryLoader) Load(conversationID uint) ([]Message, string, error) {
-	existingSummary, summaryUpToID, err := h.Repo.GetConversationSummary(conversationID)
+func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Message, string, error) {
+	existingSummary, summaryUpToID, err := h.Repo.GetConversationSummary(ctx, conversationID)
 	if err != nil {
-		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %d: %v", conversationID, err)
+		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %s: %v", conversationID, err)
 		existingSummary = ""
-		summaryUpToID = 0
+		summaryUpToID = ""
 	}
 
-	allRootMessages, err := h.Repo.GetMessages(conversationID, nil)
+	allRootMessages, err := h.Repo.GetMessages(ctx, conversationID, nil)
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Filtra mensagens para o contexto: apenas as que vêm depois do resumo
+	// Filtra mensagens para o contexto: apenas as que vêm depois do resumo.
+	// Usa índice na lista (já ordenada por created_at ASC) em vez de comparação
+	// lexicográfica de IDs, evitando problemas com UUIDs gerados no mesmo ms.
 	var dbMessages []Message
-	if summaryUpToID > 0 {
-		for _, m := range allRootMessages {
-			if m.ID > summaryUpToID {
-				dbMessages = append(dbMessages, m)
+	if summaryUpToID != "" {
+		cutIdx := -1
+		for i, m := range allRootMessages {
+			if m.ID == summaryUpToID {
+				cutIdx = i
+				break
 			}
 		}
+		if cutIdx >= 0 && cutIdx+1 < len(allRootMessages) {
+			dbMessages = allRootMessages[cutIdx+1:]
+		} else if cutIdx < 0 {
+			// summaryUpToID não encontrado (mensagem deletada?): descartar resumo
+			// para evitar duplicação (resumo + mensagens já resumidas no prompt).
+			existingSummary = ""
+			dbMessages = allRootMessages
+		}
+		// cutIdx == last index → nenhuma mensagem depois do resumo
 	} else {
 		dbMessages = allRootMessages
 	}
@@ -66,8 +80,6 @@ func (h *HistoryLoader) Load(conversationID uint) ([]Message, string, error) {
 			}
 			dbMessages = append(dbMessages[:2], dbMessages[total-kept:]...)
 		}
-	} else {
-		// total <= MaxMsgs — use all in context
 	}
 
 	// Garante que a primeira mensagem no contexto é uma user message
@@ -98,7 +110,7 @@ func (h *HistoryLoader) Load(conversationID uint) ([]Message, string, error) {
 	cleaned := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
 		if m.Role == "tool" && m.ToolCallID != "" && !offeredIDs[m.ToolCallID] {
-			log.Printf("[History] removendo tool_result órfão: %s (conversa %d)", m.ToolCallID, conversationID)
+			log.Printf("[History] removendo tool_result órfão: %s (conversa %s)", m.ToolCallID, conversationID)
 			continue
 		}
 		if m.ToolCalls != "" {
@@ -112,7 +124,7 @@ func (h *HistoryLoader) Load(conversationID uint) ([]Message, string, error) {
 					if answeredIDs[tc.ID] {
 						kept = append(kept, tcs[i])
 					} else {
-						log.Printf("[History] removendo tool_use órfão: %s (conversa %d)", tc.ID, conversationID)
+						log.Printf("[History] removendo tool_use órfão: %s (conversa %s)", tc.ID, conversationID)
 					}
 				}
 				if len(kept) == 0 {

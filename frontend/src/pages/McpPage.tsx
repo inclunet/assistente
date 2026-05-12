@@ -16,7 +16,7 @@ import {
   GetMCPServerAuthInfo,
   DiscoverMCPServerAuth,
   DuplicateMCPServer,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { MenuButton } from '../components/layout/MenuButton';
@@ -64,7 +64,7 @@ function statusLabel(status: string, t: (key: string) => string): string {
 
 export default function McpPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'mcp-page' });

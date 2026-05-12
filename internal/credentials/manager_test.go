@@ -2,9 +2,14 @@ package credentials
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
+
+	"assistente/internal/database"
 )
 
 func TestWildcardToRegex(t *testing.T) {
@@ -214,7 +219,7 @@ func TestListPatterns(t *testing.T) {
 
 	patterns := []string{"*.github.com", "gitlab.com", "api.*.internal"}
 	for _, p := range patterns {
-		mgr.RegisterPattern(p, &AuthConfig{Type: "bearer", Token: "test"})
+		_ = mgr.RegisterPattern(p, &AuthConfig{Type: "bearer", Token: "test"})
 	}
 
 	listed := mgr.ListPatterns()
@@ -340,8 +345,8 @@ func TestPriorityOrder(t *testing.T) {
 	auth1 := &AuthConfig{Type: "bearer", Token: "token_from_first"}
 	auth2 := &AuthConfig{Type: "bearer", Token: "token_from_second"}
 
-	mgr.RegisterPattern("*.github.com", auth1)
-	mgr.RegisterPattern("api.*", auth2)
+	_ = mgr.RegisterPattern("*.github.com", auth1)
+	_ = mgr.RegisterPattern("api.*", auth2)
 
 	resolved, _ := mgr.ResolveForURL("https://api.github.com/data")
 	if resolved == nil || resolved.Token != "token_from_first" {
@@ -535,6 +540,8 @@ func TestIsManagedPattern(t *testing.T) {
 		{"mcp-tokens:atlassian", true},
 		{"mcp-client:", true},
 		{"mcp-tokens:", true},
+		{"internal-auth:jwt-signing-key", true},
+		{"internal-tls:private-key", true},
 		{"*.github.com", false},
 		{"api.example.com", false},
 		{"channel:slack:bot_token", false},
@@ -549,14 +556,31 @@ func TestIsManagedPattern(t *testing.T) {
 	}
 }
 
+func TestInstanceSecretsUseManagedPatterns(t *testing.T) {
+	mgr := NewManager(nil)
+	if err := mgr.RegisterInstanceSecret(InstanceSecretJWTSigningKey, "private-key"); err != nil {
+		t.Fatalf("register instance secret: %v", err)
+	}
+	value, ok, err := mgr.GetInstanceSecret(InstanceSecretJWTSigningKey)
+	if err != nil {
+		t.Fatalf("get instance secret: %v", err)
+	}
+	if !ok || value != "private-key" {
+		t.Fatalf("unexpected instance secret: ok=%v value=%q", ok, value)
+	}
+	if err := mgr.RegisterInstanceSecret("api.example.com", "secret"); err == nil {
+		t.Fatal("expected non-managed instance secret pattern to fail")
+	}
+}
+
 func TestUpdateExistingPattern(t *testing.T) {
 	mgr := NewManager(nil)
 
 	auth1 := &AuthConfig{Type: "bearer", Token: "old-token"}
-	mgr.RegisterPattern("api.test.com", auth1)
+	_ = mgr.RegisterPattern("api.test.com", auth1)
 
 	auth2 := &AuthConfig{Type: "bearer", Token: "new-token"}
-	mgr.RegisterPattern("api.test.com", auth2)
+	_ = mgr.RegisterPattern("api.test.com", auth2)
 
 	if len(mgr.ListPatterns()) != 1 {
 		t.Fatalf("Esperado 1 padrão, got %d", len(mgr.ListPatterns()))
@@ -565,6 +589,276 @@ func TestUpdateExistingPattern(t *testing.T) {
 	resolved, _ := mgr.GetByPattern("api.test.com")
 	if resolved == nil || resolved.Token != "new-token" {
 		t.Errorf("Pattern não foi atualizado: %+v", resolved)
+	}
+}
+
+type reentrantCredentialStore struct {
+	manager *Manager
+	saved   StoredCredential
+	listErr error
+	noID    bool
+}
+
+func (s *reentrantCredentialStore) SaveCredential(_ context.Context, cred StoredCredential) error {
+	s.saved = cred
+	_ = s.manager.ListPatterns()
+	return nil
+}
+
+func (s *reentrantCredentialStore) ListCredentials(context.Context) ([]StoredCredential, error) {
+	if s.saved.Pattern == "" {
+		return nil, nil
+	}
+	cred := s.saved
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	if cred.ID == "" && !s.noID {
+		cred.ID = "persisted-credential-id"
+	}
+	return []StoredCredential{cred}, nil
+}
+
+func (s *reentrantCredentialStore) DeleteCredential(context.Context, string) error {
+	return nil
+}
+
+func (s *reentrantCredentialStore) SaveKeyWrap(context.Context, KeyWrap) error {
+	return nil
+}
+
+func (s *reentrantCredentialStore) GetKeyWrap(context.Context, string) (*KeyWrap, error) {
+	return nil, nil
+}
+
+func (s *reentrantCredentialStore) HasKeyWrap(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func TestRegisterStoredCredentialDoesNotHoldLockDuringStoreIO(t *testing.T) {
+	store := &reentrantCredentialStore{}
+	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	store.manager = mgr
+
+	done := make(chan error, 1)
+	go func() {
+		done <- mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
+			Pattern: "api.example.com",
+			Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+		})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RegisterStoredCredentialWithContext() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RegisterStoredCredentialWithContext() appears to hold manager lock during store I/O")
+	}
+
+	creds, err := mgr.ListCredentials()
+	if err != nil {
+		t.Fatalf("ListCredentials() error = %v", err)
+	}
+	if len(creds) != 1 || creds[0].ID != "persisted-credential-id" {
+		t.Fatalf("expected persisted credential id in memory, got %+v", creds)
+	}
+}
+
+func TestRegisterStoredCredentialReturnsListCredentialsError(t *testing.T) {
+	store := &reentrantCredentialStore{listErr: errors.New("store unavailable")}
+	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	store.manager = mgr
+
+	err := mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
+		Pattern: "api.example.com",
+		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "listar credenciais persistidas após salvar") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRegisterStoredCredentialRequiresPersistedIDAfterSave(t *testing.T) {
+	store := &reentrantCredentialStore{noID: true}
+	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	store.manager = mgr
+
+	err := mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
+		Pattern: "api.example.com",
+		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "id da credencial persistida não encontrado") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestListVisibleCredentialsSkipsUnreadableManagedPatterns(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-1")
+	mgr := NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	if err := mgr.RegisterPatternWithContext(ctx, "api.example.com", &AuthConfig{Type: "bearer", Token: "secret"}); err != nil {
+		t.Fatalf("RegisterPatternWithContext() error = %v", err)
+	}
+	if err := mgr.registerEncryptedPattern("managed-id", "user-1", InstanceSecretJWTSigningKey, &AuthConfig{
+		Type:  "secret",
+		Token: "not-valid-base64",
+	}); err != nil {
+		t.Fatalf("registerEncryptedPattern() error = %v", err)
+	}
+
+	visible, err := mgr.ListVisibleCredentialsWithContext(ctx)
+	if err != nil {
+		t.Fatalf("ListVisibleCredentialsWithContext() error = %v", err)
+	}
+	if len(visible) != 1 || visible[0].Pattern != "api.example.com" {
+		t.Fatalf("expected only visible provider credential, got %+v", visible)
+	}
+
+	if _, err := mgr.ListCredentialsWithContext(ctx); err == nil {
+		t.Fatal("ListCredentialsWithContext() should still report unreadable managed credentials")
+	}
+}
+
+func TestUnscopedLookupsIgnoreUserScopedCredentials(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-1")
+	mgr := NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	if err := mgr.RegisterPatternWithContext(ctx, "api.example.com", &AuthConfig{Type: "bearer", Token: "user-token"}); err != nil {
+		t.Fatalf("RegisterPatternWithContext() error = %v", err)
+	}
+
+	auth, err := mgr.GetByPattern("api.example.com")
+	if err != nil {
+		t.Fatalf("GetByPattern() error = %v", err)
+	}
+	if auth != nil {
+		t.Fatalf("unscoped GetByPattern should not resolve user-scoped credential, got %+v", auth)
+	}
+
+	auth, err = mgr.ResolveForURL("https://api.example.com/v1/models")
+	if err != nil {
+		t.Fatalf("ResolveForURL() error = %v", err)
+	}
+	if auth != nil {
+		t.Fatalf("unscoped ResolveForURL should not resolve user-scoped credential, got %+v", auth)
+	}
+
+	auth, err = mgr.GetByPatternWithContext(ctx, "api.example.com")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext() error = %v", err)
+	}
+	if auth == nil || auth.Token != "user-token" {
+		t.Fatalf("scoped lookup should resolve user credential, got %+v", auth)
+	}
+
+	auth, err = mgr.ResolveForURLWithContext(ctx, "https://api.example.com/v1/models")
+	if err != nil {
+		t.Fatalf("ResolveForURLWithContext() error = %v", err)
+	}
+	if auth == nil || auth.Token != "user-token" {
+		t.Fatalf("scoped URL lookup should resolve user credential, got %+v", auth)
+	}
+}
+
+type staticCredentialStore struct {
+	entries []StoredCredential
+}
+
+func (s *staticCredentialStore) SaveCredential(context.Context, StoredCredential) error {
+	return nil
+}
+
+func (s *staticCredentialStore) ListCredentials(context.Context) ([]StoredCredential, error) {
+	return s.entries, nil
+}
+
+func (s *staticCredentialStore) DeleteCredential(context.Context, string) error {
+	return nil
+}
+
+func (s *staticCredentialStore) SaveKeyWrap(context.Context, KeyWrap) error {
+	return nil
+}
+
+func (s *staticCredentialStore) GetKeyWrap(context.Context, string) (*KeyWrap, error) {
+	return nil, nil
+}
+
+func (s *staticCredentialStore) HasKeyWrap(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func TestLoadFromStorePreservesUserScope(t *testing.T) {
+	key := []byte("test-key-exactly-32-bytes-long!!")
+	encoder := NewManager(key)
+	encAuth, err := encoder.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-user-1"})
+	if err != nil {
+		t.Fatalf("encrypt auth: %v", err)
+	}
+
+	store := &staticCredentialStore{entries: []StoredCredential{{
+		ID:      "cred-1",
+		UserID:  "user-1",
+		Pattern: "llm.inclunet.com.br",
+		Auth:    encAuth,
+	}}}
+	mgr := NewManagerWithStoreAndPersistence(key, store, true)
+	if err := mgr.LoadUserCredentials(context.Background(), "user-1"); err != nil {
+		t.Fatalf("LoadUserCredentials() error = %v", err)
+	}
+
+	auth, err := mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-1"), "llm.inclunet.com.br")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext() error = %v", err)
+	}
+	if auth == nil || auth.Token != "sk-user-1" {
+		t.Fatalf("expected scoped credential for user-1, got %+v", auth)
+	}
+
+	otherAuth, err := mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-2"), "llm.inclunet.com.br")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext(other) error = %v", err)
+	}
+	if otherAuth != nil {
+		t.Fatalf("credential leaked across users: %+v", otherAuth)
+	}
+}
+
+func TestGetByPatternWithContextReportsUnreadableCredential(t *testing.T) {
+	goodKey := []byte("test-key-exactly-32-bytes-long!!")
+	wrongKey := []byte("wrong-key-exactly-32-bytes-long!")
+	encoder := NewManager(goodKey)
+	encAuth, err := encoder.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-old-key"})
+	if err != nil {
+		t.Fatalf("encrypt auth: %v", err)
+	}
+
+	store := &staticCredentialStore{entries: []StoredCredential{{
+		ID:      "cred-1",
+		UserID:  "user-1",
+		Pattern: "llm.inclunet.com.br",
+		Auth:    encAuth,
+	}}}
+	mgr := NewManagerWithStoreAndPersistence(wrongKey, store, true)
+	if err := mgr.LoadUserCredentials(context.Background(), "user-1"); err != nil {
+		t.Fatalf("LoadUserCredentials() error = %v", err)
+	}
+
+	_, err = mgr.GetByPatternWithContext(database.WithUserID(context.Background(), "user-1"), "llm.inclunet.com.br")
+	if err == nil {
+		t.Fatal("expected unreadable credential error")
+	}
+	if !strings.Contains(err.Error(), `credencial "llm.inclunet.com.br" ilegível`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "user-1") {
+		t.Fatalf("error should include user scope: %v", err)
 	}
 }
 
@@ -684,7 +978,7 @@ func TestConcurrentRegisterAndResolve(t *testing.T) {
 			pattern := fmt.Sprintf("api%d.example.com", idx)
 			token := fmt.Sprintf("token_%d", idx)
 			auth := &AuthConfig{Type: "bearer", Token: token}
-			mgr.RegisterPattern(pattern, auth)
+			_ = mgr.RegisterPattern(pattern, auth)
 			done <- true
 		}(i)
 	}
@@ -694,7 +988,7 @@ func TestConcurrentRegisterAndResolve(t *testing.T) {
 		go func(idx int) {
 			pattern := fmt.Sprintf("api%d.example.com", idx)
 			url := fmt.Sprintf("https://%s/api", pattern)
-			mgr.ResolveForURL(url)
+			_, _ = mgr.ResolveForURL(url)
 			done <- true
 		}(i)
 	}
@@ -714,7 +1008,7 @@ func TestConcurrentRegisterAndResolve(t *testing.T) {
 func TestInvalidURL(t *testing.T) {
 	mgr := NewManager(nil)
 
-	mgr.RegisterPattern("*.example.com", &AuthConfig{Type: "bearer", Token: "test"})
+	_ = mgr.RegisterPattern("*.example.com", &AuthConfig{Type: "bearer", Token: "test"})
 
 	// URLs com scheme malformado devem retornar erro
 	invalidURLs := []string{
@@ -736,8 +1030,8 @@ func TestNilEncryptionKey(t *testing.T) {
 
 	auth := &AuthConfig{Type: "bearer", Token: "test_secret"}
 
-	mgr1.RegisterPattern("test.com", auth)
-	mgr2.RegisterPattern("test.com", auth)
+	_ = mgr1.RegisterPattern("test.com", auth)
+	_ = mgr2.RegisterPattern("test.com", auth)
 
 	// Keys devem ser diferentes (aleatórias)
 	if string(mgr1.encKey) == string(mgr2.encKey) {
@@ -795,7 +1089,7 @@ func TestHeadersPreservation(t *testing.T) {
 		Headers: headers,
 	}
 
-	mgr.RegisterPattern("api.test.com", auth)
+	_ = mgr.RegisterPattern("api.test.com", auth)
 
 	resolved, _ := mgr.ResolveForURL("https://api.test.com/endpoint")
 	if resolved == nil {

@@ -52,8 +52,8 @@ vi.mock('react-i18next', () => ({
 }));
 
 // Mock Wails API
-vi.mock("@wailsjs/go/main/App", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wailsjs/go/main/App")>();
+vi.mock("@wailsjs/go/app/App", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wailsjs/go/app/App")>();
   return {
     ...actual,
     ListModelsRaw: vi.fn(() => Promise.resolve(["gpt-4o", "gpt-4o-mini"])),
@@ -62,7 +62,7 @@ vi.mock("@wailsjs/go/main/App", async (importOriginal) => {
   };
 });
 
-import * as App from "@wailsjs/go/main/App";
+import * as App from "@wailsjs/go/app/App";
 
 describe("ProviderForm - Edição de API Key", () => {
   beforeEach(() => {

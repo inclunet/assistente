@@ -2,9 +2,8 @@ import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
-import { useChatStore } from '../../store/chatStore';
 import { useNavigationStore } from '../../store/navigationStore';
-import { ClearConversation, GetActiveProfileSlug } from '@wailsjs/go/main/App';
+import { ClearConversation, GetActiveProfileSlug } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { HistoryPicker, HistoryPickerRef } from '../pickers';
 import { ProfilePicker, ProfilePickerRef } from '../pickers/ProfilePicker';
@@ -14,29 +13,45 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useUIStore } from '../../store/uiStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
+import { useChatSession } from './ChatSessionContext';
+import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
   inputRef?: React.RefObject<HTMLTextAreaElement>;
+  conversationId?: string | null;
+  enableShortcuts?: boolean;
 }
 
 export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   inputRef,
+  conversationId,
+  enableShortcuts = true,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { getActiveConversation, clearMessages, isLoading, loadConversation } = useChatStore();
+  const {
+    conversationId: sessionConversationId,
+    session,
+    conversation: activeConversation,
+    isLoading,
+    clearConversationMessages,
+    loadConversationSession,
+  } = useChatSession();
+  const { tab: panelTab } = useWorkspacePanel();
+  const effectiveConversationId = sessionConversationId || conversationId || null;
+  const queuedTurnCount = session?.queuedTurnCount ?? 0;
   const { announce } = useAnnouncer();
-  const activeConversation = getActiveConversation();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
-  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
+  const addToast = useUIStore((s) => s.addToast);
 
-  const tabProfileSlug = wsActiveTab?.profileOverride?.slug as string | undefined;
+  const tabProfileSlug = panelTab.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const historyPickerRef = useRef<HistoryPickerRef>(null);
@@ -103,13 +118,13 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
   const handleClearConversation = useCallback(async () => {
     try {
-      const conv = getActiveConversation();
+      const conv = activeConversation;
 
       if (conv?.id) {
         await ClearConversation(conv.id);
-        await loadConversation(conv.id);
-      } else {
-        clearMessages();
+        await loadConversationSession(conv.id, { refreshSurfaceWindows: true });
+      } else if (effectiveConversationId) {
+        clearConversationMessages(effectiveConversationId);
       }
 
       announce(t('chat.conversationCleared'));
@@ -118,9 +133,10 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       announce(t('chat.clearError'));
     }
     focusInput();
-  }, [announce, clearMessages, focusInput, getActiveConversation, loadConversation]);
+  }, [announce, activeConversation, clearConversationMessages, effectiveConversationId, focusInput, loadConversationSession]);
 
   useEffect(() => {
+    if (!enableShortcuts) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'l') {
         e.preventDefault();
@@ -140,21 +156,46 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleClearConversation]);
+  }, [enableShortcuts, handleClearConversation]);
 
-  const handleProfileChange = useCallback((slug: string) => {
-    if (wsActiveTab) {
-      void updateWsTab(wsActiveTab.id, {
+  const handleProfileChange = useCallback(async (slug: string) => {
+    try {
+      // Aguarda o round-trip do backend para garantir que o picker, o
+      // store local e o YAML do workspace fiquem sincronizados antes
+      // de devolver o foco para o input. O fire-and-forget anterior
+      // (`void updateWsTab(...)`) escondia falhas do Wails — o picker
+      // mostrava o slug novo otimisticamente mas o profile não chegava
+      // ao backend, e a próxima mensagem ia pro perfil errado sem
+      // qualquer feedback ao usuário.
+      await updateWsTab(panelTab.id, {
         profile_override: { slug },
       });
+    } catch (error) {
+      console.error('[ChatToolbar] Erro ao trocar perfil:', error);
+      addToast(
+        t('chat.profileChangeError', 'Não foi possível alterar o perfil. Tente novamente.'),
+        'error'
+      );
+    } finally {
+      focusInput();
     }
-    focusInput();
-  }, [focusInput, wsActiveTab, updateWsTab]);
+  }, [focusInput, panelTab.id, updateWsTab, addToast, t]);
 
-  const handleHistoryChange = async (conversationId: number, conversation: { title?: string }) => {
+  const handleHistoryChange = async (nextConversationId: string, conversation: { title?: string }) => {
+    const nextTitle = conversation.title || t('chat.newConversation');
     try {
-      await loadConversation(conversationId);
-      announce(`${t('chat.conversationLoaded')}: ${conversation.title || t('chat.conversationLoaded')}`);
+      if (panelTab.type === 'chat') {
+        await Promise.all([
+          loadConversationSession(nextConversationId),
+          updateWsTab(panelTab.id, {
+            conversation_id: nextConversationId,
+            title: nextTitle,
+          }),
+        ]);
+      } else {
+        await loadConversationSession(nextConversationId);
+      }
+      announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
     } catch (error) {
       console.error('[ChatToolbar] Erro ao carregar conversa:', error);
       announce(t('chat.loadError'));
@@ -168,9 +209,16 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         ariaLabel={t('chat.toolbarLabel')}
         isLoading={isLoading}
         left={
-          <h2 className="chat-toolbar__title" id="chat-heading">
-            {conversationTitle}
-          </h2>
+          <div className="chat-toolbar__heading">
+            <h2 className="chat-toolbar__title" id="chat-heading">
+              {conversationTitle}
+            </h2>
+            {queuedTurnCount > 0 && (
+              <span className="chat-toolbar__queue-status" role="status" aria-live="polite">
+                {t('chat.queue.pending', { count: queuedTurnCount })}
+              </span>
+            )}
+          </div>
         }
         right={
           <>

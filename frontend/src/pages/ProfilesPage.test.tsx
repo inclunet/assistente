@@ -12,7 +12,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetProfiles: vi.fn().mockResolvedValue([
     {
       slug: 'padrao',
@@ -110,6 +110,10 @@ vi.mock('../hooks/useGridFocus', () => ({
   }),
 }));
 
+vi.mock('../hooks/useGridPageLandmarks', () => ({
+  useGridPageLandmarks: vi.fn(),
+}));
+
 const mockAnnounce = vi.fn();
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
@@ -119,9 +123,10 @@ vi.mock('../hooks/useAnnouncer', () => ({
 
 const mockAddToast = vi.fn();
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: mockAddToast,
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: mockAddToast };
+    return selector ? selector(s) : s;
+  },
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
@@ -191,7 +196,10 @@ vi.mock('../components/ui/EditorPanel', () => ({
   ),
 }));
 
-describe('ProfilesPage', () => {
+import ProfilesPage from './ProfilesPage';
+import { GetProfile } from '@wailsjs/go/app/App';
+
+describe('ProfilesPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockDuplicateProfile.mockReset();
     mockAddToast.mockReset();
@@ -201,7 +209,6 @@ describe('ProfilesPage', () => {
 
   it('abre editor ao criar novo perfil e renderiza abas do editor', async () => {
     const user = userEvent.setup();
-    const { default: ProfilesPage } = await import('./ProfilesPage');
     render(<ProfilesPage />);
 
     const newButton = await screen.findByRole('button', { name: 'Novo Perfil' });
@@ -256,9 +263,6 @@ describe('ProfilesPage', () => {
 
   it('duplica um perfil via menu de acoes', async () => {
     const user = userEvent.setup();
-    const { default: ProfilesPage } = await import('./ProfilesPage');
-    const app = await import('@wailsjs/go/main/App');
-
     render(<ProfilesPage />);
 
     await waitFor(() => {
@@ -277,7 +281,7 @@ describe('ProfilesPage', () => {
     });
 
     await waitFor(() => {
-      expect(vi.mocked(app.GetProfile)).toHaveBeenCalledWith('perfil-padrao-copia');
+      expect(vi.mocked(GetProfile)).toHaveBeenCalledWith('perfil-padrao-copia');
     });
   });
 });

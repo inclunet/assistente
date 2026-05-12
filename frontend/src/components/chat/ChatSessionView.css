@@ -1,0 +1,18 @@
+.chat-session-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--bg-surface);
+}
+
+.chat-session-view--embedded {
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-session-view .ant-alert {
+  border-radius: 0;
+}

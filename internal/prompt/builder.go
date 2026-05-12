@@ -50,6 +50,11 @@ type Builder struct {
 	Skills    SkillReader
 	Workspace WorkspaceReader
 	Tools     *tools.Registry
+
+	// OpenEditorPaths retorna os caminhos absolutos de arquivos abertos em abas de editor.
+	// Se definido e não-vazio, o Build() adiciona uma seção ao system prompt
+	// informando ao modelo que esses arquivos podem ser lidos/editados via tools.
+	OpenEditorPaths func() []string
 }
 
 // TemplateData é um alias para chat.TemplateData — a definição canônica vive em internal/chat
@@ -60,24 +65,26 @@ type TemplateData = chat.TemplateData
 type TabInfo = chat.TabInfo
 
 // BuildTemplateData monta o TemplateData a partir do perfil ativo e do workspace.
-func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) TemplateData {
+func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
 	enabledToolNames := b.ComputeEnabledToolNames(activeProfile)
 	data := TemplateData{
 		Profile:            activeProfile,
-		ProfileSlug:        profileSlug,
+		ProfileSlug:        params.ProfileSlug,
 		ToolCallingEnabled: len(enabledToolNames) > 0,
 		EnabledTools:       enabledToolNames,
 		EnabledToolCount:   len(enabledToolNames),
 		ConversationID:     conversationID,
 	}
 
+	var activeTab *workspace.Tab
 	if workspaceReaderIsUsable(b.Workspace) {
 		if ws := b.Workspace.Active(); ws != nil {
 			data.WorkspaceName = ws.Name
 			data.WorkspaceProfile = ws.Profile
 			data.TabCount = len(ws.Tabs.Items)
 			data.Tabs = make([]TabInfo, 0, len(ws.Tabs.Items))
-			for _, tab := range ws.Tabs.Items {
+			for idx := range ws.Tabs.Items {
+				tab := ws.Tabs.Items[idx]
 				isActive := tab.ID == ws.Tabs.Active
 				info := TabInfo{
 					Title:     tab.Title,
@@ -87,10 +94,35 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, profileSlug
 				}
 				data.Tabs = append(data.Tabs, info)
 				if isActive {
+					activeTab = &ws.Tabs.Items[idx]
 					data.ActiveTabTitle = tab.Title
 					data.ActiveTabType = string(tab.Type)
 				}
 			}
+		}
+	}
+
+	surfaceType := strings.TrimSpace(params.TabType)
+	if surfaceType == "" {
+		surfaceType = data.ActiveTabType
+	}
+	activeTabMatchesSurface := activeTab != nil && (surfaceType == "" || string(activeTab.Type) == surfaceType)
+	surfaceTitle := ""
+	if activeTabMatchesSurface {
+		surfaceTitle = data.ActiveTabTitle
+	}
+	surfaceState := chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[prompt] surface state json")
+	if surfaceState == nil && activeTabMatchesSurface && len(activeTab.State) > 0 {
+		surfaceState = activeTab.State
+	}
+	surfaceContext := chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[prompt] surface context json")
+
+	if surfaceType != "" || surfaceTitle != "" || surfaceState != nil || surfaceContext != nil {
+		data.Surface = &chat.SurfaceInfo{
+			Type:    surfaceType,
+			Title:   surfaceTitle,
+			State:   surfaceState,
+			Context: surfaceContext,
 		}
 	}
 
@@ -133,6 +165,38 @@ func (b *Builder) Build(
 	// 4. Resumo da conversa (rolling context)
 	if conversationSummary != "" {
 		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
+	}
+
+	// 5. Arquivos abertos em abas de editor (acessíveis via filesystem tools)
+	if b.OpenEditorPaths != nil {
+		if paths := b.OpenEditorPaths(); len(paths) > 0 {
+			var sb strings.Builder
+			sb.WriteString("\n\n<open_editor_files>\n")
+			sb.WriteString("The following files are currently open in the user's editor tabs. ")
+			sb.WriteString("You MAY use read_file, write_file, edit_file, and grep_search on ONLY these exact file paths, ")
+			sb.WriteString("even if one of the listed files is outside the working directory. ")
+			sb.WriteString("This exception applies ONLY to the exact full paths listed below — not to their parent directories, sibling files, or any other related paths. ")
+			sb.WriteString("Structural operations (move_file, copy_file, delete_file, list_directory) are NOT allowed on these files outside the workspace. ")
+			sb.WriteString("Normal tool policies still apply: denylisted or sensitive files (e.g. .env) may still be blocked even if listed here. ")
+			sb.WriteString("If the active skill restricts filesystem access, those restrictions still apply on top of this exception. ")
+			sb.WriteString("Any other path remains subject to the normal workspace roots and filesystem access policies:\n")
+			for _, p := range paths {
+				// Sanitize to prevent prompt injection via filenames while keeping
+				// the path usable by filesystem tools (which need the real path).
+				// Strip chars that could break XML-like prompt structure or confuse
+				// LLM markdown parsing; do NOT use html.EscapeString which corrupts
+				// chars like & and " making the path unusable for tool calls.
+				safe := strings.NewReplacer(
+					"<", "", ">", "", "`", "",
+					"\n", "_", "\r", "_",
+				).Replace(p)
+				sb.WriteString("- ")
+				sb.WriteString(safe)
+				sb.WriteString("\n")
+			}
+			sb.WriteString("</open_editor_files>")
+			parts = append(parts, sb.String())
+		}
 	}
 
 	return chat.InjectSystemPrompt(messages, strings.Join(parts, ""))

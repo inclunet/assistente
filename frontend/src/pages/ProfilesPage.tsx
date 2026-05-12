@@ -17,7 +17,7 @@ import {
   DeleteProfile,
   DuplicateProfile,
   GetProfileSearchPaths,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import { profiles } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
@@ -48,7 +48,7 @@ interface ProfileRow extends Profile {
 
 export default function ProfilesPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'profiles-page' });

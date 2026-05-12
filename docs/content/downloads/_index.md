@@ -5,9 +5,37 @@ weight: 1
 
 # Downloads
 
+## App Desktop
+
 Baixe a última versão do Assistente para o seu sistema operacional. Os links abaixo são atualizados automaticamente a cada nova release.
 
 {{< github-downloads >}}
+
+## CLI (Terminal)
+
+O Assistente também está disponível como ferramenta de linha de comando (`asst`) — sem interface gráfica, ideal para servidores, automação e quem prefere o terminal.
+
+Instalação rápida:
+
+{{< tabs title="Instalar CLI" >}}
+{{% tab title="Linux / macOS" %}}
+```bash
+curl -sSL https://raw.githubusercontent.com/inclunet/assistente/main/install.sh | sh
+```
+{{% /tab %}}
+{{% tab title="Windows" %}}
+```powershell
+irm https://raw.githubusercontent.com/inclunet/assistente/main/install.ps1 | iex
+```
+{{% /tab %}}
+{{% tab title="Go" %}}
+```bash
+go install github.com/inclunet/assistente/cmd/asst@latest
+```
+{{% /tab %}}
+{{< /tabs >}}
+
+[Documentação completa da CLI →]({{< relref "cli" >}})
 
 ## Provedores de IA Suportados
 

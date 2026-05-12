@@ -27,14 +27,15 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
   },
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   StartUpdate: () => mockStartUpdate(),
 }));
 
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: mockAddToast,
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: mockAddToast };
+    return selector ? selector(s) : s;
+  },
 }));
 
 import UpdatePage from './UpdatePage';

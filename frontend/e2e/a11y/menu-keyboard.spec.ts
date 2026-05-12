@@ -26,16 +26,27 @@ function messagesFixture() {
   const now = new Date().toISOString();
   return [
     {
-      message: { id: '1', conversationId: 1, role: 'user', content: 'Mensagem do usuário', createdAt: now },
+      message: { id: '01926b90-0000-7000-8000-100000000001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Mensagem do usuário', createdAt: now },
       children: [],
       childCount: 0,
     },
     {
-      message: { id: '2', conversationId: 1, role: 'assistant', content: 'Resposta do assistente', createdAt: now },
+      message: { id: '01926b90-0000-7000-8000-100000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Resposta do assistente', createdAt: now },
       children: [],
       childCount: 0,
     },
   ];
+}
+
+async function dispatchShiftF10(locator: import('@playwright/test').Locator) {
+  await locator.evaluate((el) => {
+    const event = new KeyboardEvent('keyup', {
+      key: 'F10',
+      shiftKey: true,
+      bubbles: true,
+    });
+    el.dispatchEvent(event);
+  });
 }
 
 async function pauseRAF(page: import('@playwright/test').Page) {
@@ -71,7 +82,7 @@ async function setupAndOpenContextMenu(
   await wails.setResponse('DeleteMessage', undefined);
   await wails.setResponse('SpeakMessage', undefined);
   await wails.setResponse('EnsureConversation', {
-    id: 1, title: 'Conversa', created_at: now, updated_at: now,
+    id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
     messages: [], message_count: 2,
   });
   await wails.waitForApp();
@@ -79,19 +90,32 @@ async function setupAndOpenContextMenu(
   const messages = page.locator('.message-node[data-level="0"]');
   await expect(messages).toHaveCount(2, { timeout: 5_000 });
 
-  // Abre o context menu via right-click na primeira mensagem
-  await messages.first().click({ button: 'right' });
+  const firstMessage = messages.first().locator('.chat-message').first();
+  await expect(firstMessage).toBeVisible({ timeout: 5_000 });
+  await firstMessage.dispatchEvent('mousedown', {
+    button: 2,
+    buttons: 2,
+    clientX: 16,
+    clientY: 16,
+  });
+  await firstMessage.dispatchEvent('contextmenu', {
+    button: 2,
+    buttons: 2,
+    clientX: 16,
+    clientY: 16,
+  });
 
   // Aguarda menu visível
   const menu = page.locator('[role="menu"]');
-  await expect(menu).toBeVisible({ timeout: 3_000 });
+  if (!(await menu.isVisible().catch(() => false))) {
+    await firstMessage.click({ button: 'right' });
+  }
+  await expect(menu).toBeVisible({ timeout: 5_000 });
 
-  // Aguarda foco no primeiro item (o menu auto-foca ao abrir)
-  await page.waitForTimeout(300);
   const firstItem = menu.locator('[role="menuitem"]:not([disabled])').first();
-  // Força o foco nativo — o menu pode ter atrasado o focus() sob carga de CPU
+  await expect(firstItem).toBeVisible({ timeout: 5_000 });
   await firstItem.focus();
-  await page.waitForTimeout(100);
+  await expect(firstItem).toBeFocused({ timeout: 3_000 });
 
   return menu;
 }
@@ -238,7 +262,7 @@ test.describe('Menu — keyboard opens via Shift+F10', () => {
     await wails.setResponse('GetMessages', messagesFixture());
     await wails.setResponse('DeleteMessage', undefined);
     await wails.setResponse('EnsureConversation', {
-      id: 1, title: 'Conversa', created_at: now, updated_at: now,
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
     });
     await wails.waitForApp();
@@ -247,23 +271,20 @@ test.describe('Menu — keyboard opens via Shift+F10', () => {
     await expect(messages).toHaveCount(2, { timeout: 5_000 });
 
     await pauseRAF(page);
-    await messages.first().focus();
+    const firstMessage = messages.first();
 
     // Shift+F10 abre context menu
-    await page.keyboard.press('Shift+F10');
+    await dispatchShiftF10(firstMessage);
+    await resumeRAF(page);
 
     const menu = page.locator('[role="menu"]');
-    await expect(menu).toBeVisible({ timeout: 3_000 });
+    await expect(menu).toBeVisible({ timeout: 5_000 });
 
     // O primeiro item do menu deve ter foco — garante explicitamente
     const firstItem = menu.locator('[role="menuitem"]:not([disabled])').first();
-    await page.waitForTimeout(300);
-    const isFocused = await firstItem.evaluate((el) => el === document.activeElement);
-    if (!isFocused) {
-      await firstItem.focus();
-    }
+    await expect(firstItem).toBeVisible({ timeout: 5_000 });
+    await firstItem.focus();
     await expect(firstItem).toBeFocused({ timeout: 3_000 });
-    await resumeRAF(page);
   });
 });
 

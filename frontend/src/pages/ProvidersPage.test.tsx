@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetLLMProvidersWithStatus: () => mockGetProviders(),
   CreateLLMProvider: (payload: unknown) => mockCreateProvider(payload),
   DeleteLLMProvider: (_ctx: unknown, id: string) => mockDeleteProvider(id),
@@ -35,9 +35,10 @@ vi.mock('../hooks/useAnnouncer', () => ({
 }));
 
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: mockAddToast,
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: mockAddToast };
+    return selector ? selector(s) : s;
+  },
 }));
 
 vi.mock('../hooks/useConfirm', () => ({

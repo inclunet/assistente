@@ -157,15 +157,15 @@ describe('VoicePicker', () => {
     });
   });
 
-  it('busca vozes com getVoicesForProvider quando providerId e profileId são fornecidos', async () => {
+  it('busca vozes com getVoicesForProvider quando providerId é fornecido', async () => {
     render(<VoicePicker value="" onChange={() => {}} providerId="openai-1" profileId="prof-1" />);
 
     await waitFor(() => {
-      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', 'prof-1');
+      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', '');
     });
   });
 
-  it('busca vozes com profileId vazio quando providerId existe mas não profileId', async () => {
+  it('busca vozes sem depender de profileId', async () => {
     render(<VoicePicker value="" onChange={() => {}} providerId="openai-1" />);
 
     await waitFor(() => {
@@ -177,14 +177,14 @@ describe('VoicePicker', () => {
     const { rerender } = render(<VoicePicker value="" onChange={() => {}} providerId="webspeech" profileId="test" />);
 
     await waitFor(() => {
-      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('webspeech', 'test');
+      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('webspeech', '');
     });
 
     getVoicesForProviderSpy.mockClear();
     rerender(<VoicePicker value="" onChange={() => {}} providerId="openai-1" profileId="test" />);
 
     await waitFor(() => {
-      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', 'test');
+      expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', '');
     });
   });
 });

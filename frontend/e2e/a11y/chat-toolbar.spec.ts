@@ -16,12 +16,12 @@ function messagesFixture() {
   const now = new Date().toISOString();
   return [
     {
-      message: { id: '1', conversationId: 1, role: 'user', content: 'Mensagem', createdAt: now },
+      message: { id: '01926b90-0000-7000-8000-100000000001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Mensagem', createdAt: now },
       children: [],
       childCount: 0,
     },
     {
-      message: { id: '2', conversationId: 1, role: 'assistant', content: 'Resposta', createdAt: now },
+      message: { id: '01926b90-0000-7000-8000-100000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Resposta', createdAt: now },
       children: [],
       childCount: 0,
     },
@@ -67,7 +67,7 @@ test.describe('ChatToolbar — Ctrl+L limpa conversa', () => {
     await wails.setResponse('ClearMessages', undefined);
     // Após limpar, GetMessages retorna vazio
     await wails.setResponse('EnsureConversation', {
-      id: 1, title: 'Conversa', created_at: now, updated_at: now,
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
     });
     await wails.waitForApp();
@@ -90,7 +90,7 @@ test.describe('ChatToolbar — Ctrl+L limpa conversa', () => {
     await wails.setResponse('ClearConversation', undefined);
     const now = new Date().toISOString();
     await wails.setResponse('EnsureConversation', {
-      id: 1, title: 'Conversa', created_at: now, updated_at: now,
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
     });
     await wails.waitForApp();
@@ -125,6 +125,58 @@ test.describe('ChatToolbar — Ctrl+H history picker', () => {
     );
     // Ctrl+H deve ter disparado ao menos uma chamada ao backend
     expect(historyCall).toBeDefined();
+  });
+
+  test('selecionar conversa no history picker persiste a aba ativa e atualiza o título', async ({ page, wails }) => {
+    const now = new Date().toISOString();
+    await wails.waitForApp();
+
+    await wails.setResponse('GetConversations', [
+      {
+        id: '01926b90-0000-7000-8000-000000000001',
+        title: 'Conversa atual',
+        created_at: now,
+        updated_at: now,
+        message_count: 1,
+      },
+      {
+        id: '01926b90-0000-7000-8000-000000000002',
+        title: 'Conversa importada',
+        created_at: now,
+        updated_at: now,
+        message_count: 3,
+      },
+    ]);
+    await wails.setResponse('GetConversationInfo', {
+      id: '01926b90-0000-7000-8000-000000000002',
+      title: 'Conversa importada',
+      created_at: now,
+      updated_at: now,
+      message_count: 3,
+      channel: '',
+      contact_id: '',
+    });
+    await wails.setResponse('GetMessages', []);
+    await wails.setResponse('UpdateWorkspaceTab', undefined);
+
+    const historyBtn = page.locator('.ws-content-toolbar .picker-button').first();
+    await historyBtn.click();
+
+    const option = page.locator('[role="option"]').filter({ hasText: 'Conversa importada' });
+    await expect(option).toBeVisible({ timeout: 5_000 });
+    await option.click();
+
+    await expect(page.locator('#chat-heading')).toHaveText('Conversa importada', { timeout: 5_000 });
+    await expect(page.locator('button[role="tab"]').first()).toContainText('Conversa importada');
+
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some((c) =>
+        c.fn === 'UpdateWorkspaceTab' &&
+        c.args[0] === 'tab-1' &&
+        c.args[1]?.conversation_id === '01926b90-0000-7000-8000-000000000002' &&
+        c.args[1]?.title === 'Conversa importada',
+      );
+    }, { timeout: 5_000 });
   });
 });
 

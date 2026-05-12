@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -8,110 +9,113 @@ import (
 	"gorm.io/gorm"
 )
 
-// ResolveTaskID resolve uma task por id numérico e/ou (lista + code).
+// ResolveTaskIDWithContext resolve uma task no escopo do usuário do contexto
+// por id numérico e/ou (lista + code).
 // Regras:
 //   - É obrigatório task_id (>0) ou code não vazio.
-//   - Com code sem task_id, é obrigatório task_list_id e/ou task_list_slug (mesmas regras que ResolveTaskListID).
-//   - Com task_id e code, a task existente deve ter exatamente esse code (após trim no argumento).
-//   - Com task_id e referência de lista, a task deve pertencer à lista resolvida.
-func ResolveTaskID(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error) {
+//   - Com code sem task_id, é obrigatório task_list_id e/ou task_list_slug
+//     (mesmas regras que ResolveTaskListIDWithContext).
+//   - Com task_id e code, a task existente deve ter exatamente esse code
+//     (após trim no argumento).
+//   - Com task_id e referência de lista, a task deve pertencer à lista
+//     resolvida.
+func ResolveTaskIDWithContext(ctx context.Context, taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
 	codeTrim := strings.TrimSpace(code)
-	var idVal uint
+	var idVal string
 	if taskID != nil {
 		idVal = *taskID
 	}
-	hasID := idVal > 0
+	hasID := idVal != ""
 	hasCode := codeTrim != ""
 	listPtr := taskListID
-	if listPtr != nil && *listPtr == 0 {
+	if listPtr != nil && *listPtr == "" {
 		listPtr = nil
 	}
 	hasListRef := listPtr != nil || strings.TrimSpace(taskListSlug) != ""
 
 	if !hasID && !hasCode {
-		return 0, fmt.Errorf("informe task_id ou code")
+		return "", fmt.Errorf("informe task_id ou code")
 	}
 	if hasCode && !hasID && !hasListRef {
-		return 0, fmt.Errorf("com code é necessário task_list_id ou task_list_slug")
+		return "", fmt.Errorf("com code é necessário task_list_id ou task_list_slug")
 	}
 
 	// Somente task_id: lista não entra na identidade (permite usar task_list_id/slug como destino em move/duplicate).
 	if hasID && !hasCode {
-		task, err := GetTask(idVal)
+		task, err := GetTaskWithContext(ctx, idVal)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return 0, fmt.Errorf("task_id %d não encontrado", idVal)
+				return "", fmt.Errorf("task_id %s não encontrado", idVal)
 			}
-			return 0, err
+			return "", err
 		}
 		return task.ID, nil
 	}
 
 	if !hasID && hasCode {
-		listID, err := ResolveTaskListID(listPtr, taskListSlug)
+		listID, err := ResolveTaskListIDWithContext(ctx, listPtr, taskListSlug)
 		if err != nil {
-			return 0, err
+			return "", err
 		}
-		task, err := FindTaskByCode(listID, codeTrim)
+		task, err := FindTaskByCodeWithContext(ctx, listID, codeTrim)
 		if err != nil {
-			return 0, err
+			return "", err
 		}
 		if task == nil {
-			return 0, fmt.Errorf("nenhuma task com code %q na lista", codeTrim)
+			return "", fmt.Errorf("nenhuma task com code %q na lista", codeTrim)
 		}
 		return task.ID, nil
 	}
 
-	task, err := GetTask(idVal)
+	task, err := GetTaskWithContext(ctx, idVal)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, fmt.Errorf("task_id %d não encontrado", idVal)
+			return "", fmt.Errorf("task_id %s não encontrado", idVal)
 		}
-		return 0, err
+		return "", err
 	}
 	if task.Code != codeTrim {
-		return 0, fmt.Errorf("task_id %d e code %q não correspondem à mesma task", idVal, codeTrim)
+		return "", fmt.Errorf("task_id %s e code %q não correspondem à mesma task", idVal, codeTrim)
 	}
 	if hasListRef {
-		listID, err := ResolveTaskListID(listPtr, taskListSlug)
+		listID, err := ResolveTaskListIDWithContext(ctx, listPtr, taskListSlug)
 		if err != nil {
-			return 0, err
+			return "", err
 		}
 		if task.TaskListID != listID {
-			return 0, fmt.Errorf("task_id %d e lista referenciada não correspondem à mesma task", idVal)
+			return "", fmt.Errorf("task_id %s e lista referenciada não correspondem à mesma task", idVal)
 		}
 	}
 	return task.ID, nil
 }
 
-// ResolveTaskIDByTaskCode localiza uma task pelo campo Task.Code (ex.: ticket FSD-12345).
-// Se taskListID != nil, a busca é restrita a essa lista (útil para desambiguar quando o mesmo code existe em várias listas).
-// Erros: code vazio; nenhuma task; ou múltiplas tasks com o mesmo code quando a busca é global.
-func ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error) {
+// ResolveTaskIDByTaskCodeWithContext localiza uma task do usuário do contexto
+// pelo campo Task.Code (ex.: ticket FSD-12345).
+func ResolveTaskIDByTaskCodeWithContext(ctx context.Context, taskListID *string, taskCode string) (string, error) {
 	codeTrim := strings.TrimSpace(taskCode)
 	if codeTrim == "" {
-		return 0, fmt.Errorf("task_code não pode ser vazio")
+		return "", fmt.Errorf("task_code não pode ser vazio")
 	}
-	q := db.Model(&Task{}).Where("code = ?", codeTrim)
-	if taskListID != nil && *taskListID > 0 {
-		q = q.Where("task_list_id = ?", *taskListID)
+	q := taskQuery(ctx, db.Model(&Task{})).Where("tasks.code = ?", codeTrim)
+	if taskListID != nil && *taskListID != "" {
+		q = q.Where("tasks.task_list_id = ?", *taskListID)
 	}
 	var tasks []Task
 	if err := q.Find(&tasks).Error; err != nil {
-		return 0, err
+		return "", err
 	}
 	switch len(tasks) {
 	case 0:
-		if taskListID != nil && *taskListID > 0 {
-			return 0, fmt.Errorf("nenhuma task com task_code %q na lista %d", codeTrim, *taskListID)
+		if taskListID != nil && *taskListID != "" {
+			return "", fmt.Errorf("nenhuma task com task_code %q na lista %s", codeTrim, *taskListID)
 		}
-		return 0, fmt.Errorf("nenhuma task com task_code %q", codeTrim)
+		return "", fmt.Errorf("nenhuma task com task_code %q", codeTrim)
 	case 1:
 		return tasks[0].ID, nil
 	default:
-		if taskListID != nil && *taskListID > 0 {
-			return 0, fmt.Errorf("múltiplas tasks com task_code %q na lista %d", codeTrim, *taskListID)
+		if taskListID != nil && *taskListID != "" {
+			return "", fmt.Errorf("múltiplas tasks com task_code %q na lista %s", codeTrim, *taskListID)
 		}
-		return 0, fmt.Errorf("várias tasks com task_code %q; informe task_list_id ou task_list_slug para restringir à lista", codeTrim)
+		return "", fmt.Errorf("várias tasks com task_code %q; informe task_list_id ou task_list_slug para restringir à lista", codeTrim)
 	}
 }

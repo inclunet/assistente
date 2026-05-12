@@ -18,16 +18,17 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetAppVersion: () => mockGetVersion(),
   CheckForUpdates: () => mockCheckForUpdates(),
   StartUpdate: () => mockStartUpdate(),
 }));
 
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: mockAddToast,
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: mockAddToast };
+    return selector ? selector(s) : s;
+  },
 }));
 
 import AboutPage from './AboutPage';

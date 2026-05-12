@@ -28,8 +28,6 @@ func TestIntegration_FirstMessageNoProviderConfigured(t *testing.T) {
 	// 2. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Sem Provider",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -109,8 +107,6 @@ func TestIntegration_FirstMessageNoCredentialsForProvider(t *testing.T) {
 	// 5. Não criar mensagem sem credencial válida
 	conv := &database.Conversation{
 		Title:     "Sem Credencial",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -186,8 +182,6 @@ func TestIntegration_FirstMessageProviderSelectionFlow(t *testing.T) {
 	// 4. Criar conversa e primeira mensagem COM provider selecionado
 	conv := &database.Conversation{
 		Title:     "Com Provider Selecionado",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -199,7 +193,6 @@ func TestIntegration_FirstMessageProviderSelectionFlow(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Seu primeiro teste com provider selecionado",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -220,8 +213,6 @@ func TestIntegration_FirstMessageAPITimeout(t *testing.T) {
 	// 1. Setup: criar conversa e primeira mensagem
 	conv := &database.Conversation{
 		Title:     "Timeout Test",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -233,7 +224,6 @@ func TestIntegration_FirstMessageAPITimeout(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Esta mensagem causará timeout",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -296,8 +286,6 @@ func TestIntegration_FirstMessageFallbackProvider(t *testing.T) {
 	// 2. Criar conversa e primeira mensagem
 	conv := &database.Conversation{
 		Title:     "Fallback Test",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -308,7 +296,6 @@ func TestIntegration_FirstMessageFallbackProvider(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Teste de fallback entre providers",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -330,7 +317,6 @@ func TestIntegration_FirstMessageFallbackProvider(t *testing.T) {
 		Content:        "Resposta obtida via Claude (fallback)",
 		Model:          "claude-3-5-sonnet", // Rastreando qual provider foi usado
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(500 * time.Millisecond),
 	}
 
 	if err := db.Create(fallbackMsg).Error; err != nil {
@@ -362,8 +348,6 @@ func TestIntegration_FirstMessageRetryMechanism(t *testing.T) {
 	// 1. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Retry Mechanism",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -375,7 +359,6 @@ func TestIntegration_FirstMessageRetryMechanism(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Qual é sua resposta?",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -406,7 +389,6 @@ func TestIntegration_FirstMessageRetryMechanism(t *testing.T) {
 		Content:        "Resposta após retry bem-sucedido",
 		Model:          "gpt-4o",
 		TurnID:         &userMsg.ID,
-		CreatedAt:      userMsg.CreatedAt.Add(2 * time.Second), // Mais tempo na 2ª tentativa
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -442,8 +424,6 @@ func TestIntegration_FirstMessageErrorRecoveryUI(t *testing.T) {
 	// 1. Criar conversa e mensagem
 	conv := &database.Conversation{
 		Title:     "Error UI Test",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -454,7 +434,6 @@ func TestIntegration_FirstMessageErrorRecoveryUI(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Teste de UI de erro",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -518,8 +497,6 @@ func TestIntegration_FirstMessageGracefulDegradation(t *testing.T) {
 	// 2. Criar conversa e primeira mensagem
 	conv := &database.Conversation{
 		Title:     "Degradação Graciosa",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -530,7 +507,6 @@ func TestIntegration_FirstMessageGracefulDegradation(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Primeira mensagem com degradação graciosa",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -552,7 +528,6 @@ func TestIntegration_FirstMessageGracefulDegradation(t *testing.T) {
 		Content:        "Resposta obtida via Ollama (modelo local)",
 		Model:          "llama2",
 		TurnID:         &userMsg.ID,
-		CreatedAt:      time.Now().Add(1 * time.Second),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {

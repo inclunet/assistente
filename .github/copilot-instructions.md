@@ -54,14 +54,31 @@
 O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven definida na AEP-0040.
 
 ### Regras absolutas
-- **NUNCA crie uma nova função de envio de mensagens.** Existe UMA única `SendMessage` no backend (`app_chat.go`) e UMA única `sendMessage` no frontend (`chatStore`). Toda mensagem — vinda do frontend, de canais, de deep links, de qualquer lugar — DEVE passar por essas funções. Se precisar customizar comportamento, use parâmetros.
+- **NUNCA crie fluxo alternativo de envio de mensagens.** Existe UMA única `SendMessage` no backend (`app_chat.go`) para mensagens novas e `RetryMessage` para retry explícito. No frontend, componentes e controllers por aba/conversa devem reutilizar o contrato/pipeline compartilhado de envio; não duplique validação, serialização, parâmetros ou chamada ao backend em wrappers divergentes.
 - **NUNCA crie mensagens locais no frontend.** O frontend não gera IDs, não insere mensagens otimistas, não cria placeholders. Só renderiza o que o backend emite via eventos.
 - **Mensagens só podem ser enviadas para conversas que já existem.** `SendMessage` com `conversationID=0` ou inexistente é erro. Nunca crie conversa implicitamente dentro do fluxo de envio.
 - **Todo evento de chat DEVE carregar `conversationId`.** Sem exceções.
 - **Conversas são independentes de abas.** Conversas existem no banco sem vínculo com UI. Canais (Telegram, Signal) criam conversas sem abas.
+- **Controllers por aba/conversa são permitidos.** Cada controller deve filtrar eventos por `conversationId`, manter apenas seu estado visual próprio e delegar envio/retry ao contrato compartilhado.
+- **Announcer, TTS e STT são serviços globais arbitrados.** Não crie múltiplas live regions por aba; TTS não pode falar em paralelo; STT local só pode escutar a aba ativa.
 
 ### Referência
-- Detalhes completos: `aep/0040-backend-driven-messaging.md`
+- Detalhes completos no AEP de backend-driven-messaging em `aep/`.
+
+## AEPs — Architecture Evolution Proposals (OBRIGATÓRIO)
+
+O diretório `aep/` é o repositório único de decisões arquiteturais do projeto. Contém 45+ documentos numerados que definem contratos, protocolos, decisões de design e planos de evolução.
+
+### Regras absolutas
+- **NUNCA crie outro diretório** para AEPs (ex.: `aeps/`, `docs/aep/`, `proposals/`). Tudo fica em `aep/`.
+- **Antes de implementar qualquer feature significativa**, consulte os AEPs relevantes em `aep/` para verificar se já existe decisão arquitetural sobre o tema.
+- **O código DEVE estar alinhado com os AEPs.** Se encontrar divergência entre um AEP e o código:
+  1. NÃO assuma que o código está certo e o AEP desatualizado.
+  2. Pergunte ao usuário: "O AEP `aep/XXXX` diz X, mas o código faz Y. O AEP precisa ser atualizado ou o código precisa ser corrigido?"
+  3. Só prossiga após confirmação.
+- **Ao criar novo AEP**, use numeração sequencial a partir do último existente (consulte `aep/` para o maior número).
+- **Formato**: Markdown, em português, com seções: Resumo, Motivação, Decisões, Fases, Riscos, Critérios de aceitação.
+- **Para descobrir AEPs relevantes**, liste `aep/` e leia os títulos — os nomes dos arquivos descrevem o tema.
 
 ## i18n (Internacionalização — OBRIGATÓRIO)
 - TODAS as strings visíveis ao usuário DEVEM usar `t('namespace.key')` via `react-i18next`

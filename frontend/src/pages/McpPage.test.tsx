@@ -37,7 +37,7 @@ vi.mock('../store/mcpStore', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   SaveMCPServerAuth: vi.fn(() => Promise.resolve()),
   DeleteMCPServerAuth: vi.fn(() => Promise.resolve()),
   GetMCPServerAuthInfo: vi.fn(() => Promise.resolve({ hasAuth: false })),
@@ -62,9 +62,10 @@ vi.mock('../hooks/useConfirm', () => ({
 }));
 
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: vi.fn(),
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: vi.fn() };
+    return selector ? selector(s) : s;
+  },
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({

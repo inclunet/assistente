@@ -3,9 +3,11 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Limites padrão do executor
@@ -87,6 +89,7 @@ func (e *Executor) ExecuteOne(ctx context.Context, call ToolCall) ToolExecutionR
 // executeSingle executa uma única tool com timeout e tratamento de erro.
 func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecutionResult {
 	toolName := call.Function.Name
+	start := time.Now()
 
 	// Busca a ferramenta no registry
 	tool, ok := e.registry.Get(toolName)
@@ -98,6 +101,10 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Ferramenta '%s' não encontrada", toolName),
 				IsError: true,
 			},
+			Error:      fmt.Errorf("ferramenta '%s' não encontrada", toolName),
+			ErrorKind:  ErrorKindNotFound,
+			Retryable:  false,
+			DurationMs: time.Since(start).Milliseconds(),
 		}
 	}
 
@@ -111,6 +118,10 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Argumentos inválidos para '%s': JSON malformado", toolName),
 				IsError: true,
 			},
+			Error:      fmt.Errorf("argumentos inválidos para '%s': JSON malformado", toolName),
+			ErrorKind:  ErrorKindInvalidArgs,
+			Retryable:  false,
+			DurationMs: time.Since(start).Milliseconds(),
 		}
 	}
 
@@ -130,12 +141,23 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 						Content: fmt.Sprintf("Erro interno em '%s': %v", toolName, r),
 						IsError: true,
 					},
+					Error:      fmt.Errorf("panic: %v", r),
+					ErrorKind:  ErrorKindPanic,
+					Retryable:  false,
+					DurationMs: time.Since(start).Milliseconds(),
 				}
 			}
 		}()
 
 		result, err := tool.Execute(toolCtx, args)
 		if err != nil {
+			// Detecta se o erro é um timeout (context deadline exceeded)
+			errKind := ErrorKindUnknown
+			retryable := false
+			if errors.Is(err, context.DeadlineExceeded) && toolCtx.Err() != nil {
+				errKind = ErrorKindTimeout
+				retryable = true
+			}
 			resultCh <- ToolExecutionResult{
 				CallID:   call.ID,
 				ToolName: toolName,
@@ -143,18 +165,30 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					Content: fmt.Sprintf("Erro ao executar '%s': %v", toolName, err),
 					IsError: true,
 				},
-				Error: err,
+				Error:      err,
+				ErrorKind:  errKind,
+				Retryable:  retryable,
+				DurationMs: time.Since(start).Milliseconds(),
 			}
 			return
 		}
 
-		// Trunca resultado se necessário
+		// Trunca resultado se necessário (UTF-8 safe).
+		// Reserva bytes para o aviso de truncamento, garantindo que
+		// result.Content final ≤ MaxResultSize.
 		if len(result.Content) > e.config.MaxResultSize {
-			truncated := result.Content[:e.config.MaxResultSize]
-			result.Content = truncated + fmt.Sprintf(
+			origSize := len(result.Content)
+			warning := fmt.Sprintf(
 				"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-				len(result.Content)+len(truncated), e.config.MaxResultSize,
+				origSize, e.config.MaxResultSize,
 			)
+			contentBudget := e.config.MaxResultSize - len(warning)
+			if contentBudget >= 1 {
+				result.Content = truncateUTF8(result.Content, contentBudget) + warning
+			} else {
+				// Warning não cabe — trunca sem aviso para respeitar o limite.
+				result.Content = truncateUTF8(result.Content, e.config.MaxResultSize)
+			}
 			if result.Metadata == nil {
 				result.Metadata = make(map[string]any)
 			}
@@ -162,19 +196,38 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		}
 
 		resultCh <- ToolExecutionResult{
-			CallID:   call.ID,
-			ToolName: toolName,
-			Result:   result,
+			CallID:     call.ID,
+			ToolName:   toolName,
+			Result:     result,
+			DurationMs: time.Since(start).Milliseconds(),
 		}
 	}()
 
 	// Aguarda resultado ou timeout/cancelamento
 	select {
 	case result := <-resultCh:
+		// Reclassifica: se a goroutine retornou um erro genérico mas o contexto
+		// já foi cancelado/expirado, normaliza o ErrorKind e Result.Content para consistência.
+		if result.Result.IsError && result.ErrorKind == ErrorKindUnknown {
+			if ctx.Err() != nil {
+				// Contexto pai cancelado — não é retryable
+				result.ErrorKind = ErrorKindCancelled
+				result.Retryable = false
+				result.Result.Content = fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName)
+				result.Error = ctx.Err()
+			} else if toolCtx.Err() != nil {
+				// Timeout da tool
+				result.ErrorKind = ErrorKindTimeout
+				result.Retryable = true
+				result.Result.Content = fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout)
+				result.Error = context.DeadlineExceeded
+			}
+		}
 		return result
 	case <-toolCtx.Done():
+		elapsed := time.Since(start).Milliseconds()
 		if ctx.Err() != nil {
-			// Contexto pai cancelado (usuário cancelou)
+			// Contexto pai cancelado (usuário cancelou) — não é timeout
 			return ToolExecutionResult{
 				CallID:   call.ID,
 				ToolName: toolName,
@@ -182,7 +235,10 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					Content: fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName),
 					IsError: true,
 				},
-				Error: ctx.Err(),
+				Error:      ctx.Err(),
+				ErrorKind:  ErrorKindCancelled,
+				Retryable:  false,
+				DurationMs: elapsed,
 			}
 		}
 		// Timeout da tool
@@ -193,9 +249,24 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout),
 				IsError: true,
 			},
-			Error: context.DeadlineExceeded,
+			Error:      context.DeadlineExceeded,
+			ErrorKind:  ErrorKindTimeout,
+			Retryable:  true,
+			DurationMs: elapsed,
 		}
 	}
+}
+
+// truncateUTF8 trunca uma string até maxBytes sem cortar runes no meio.
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	// Recua até achar um limite de rune válido
+	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	return s[:maxBytes]
 }
 
 // Config retorna a configuração atual do executor.

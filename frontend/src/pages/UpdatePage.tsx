@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { EventsOn } from '@wailsjs/runtime/runtime';
-import { StartUpdate } from '@wailsjs/go/main/App';
+import { StartUpdate } from '@wailsjs/go/app/App';
 import { useUIStore } from '../store/uiStore';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './UpdatePage.css';
@@ -28,7 +28,7 @@ type UpdatePhase = 'idle' | 'downloading' | 'verifying' | 'installing' | 'comple
 export default function UpdatePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   useContentPageLandmarks({ pageClass: 'update-page' });
 
   const getErrorMessage = (error: unknown) =>

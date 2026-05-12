@@ -12,13 +12,13 @@ import (
 func TestClient_ApplyAuth_WithCredential(t *testing.T) {
 	// Criar um manager vazio
 	mgr := credentials.NewManager(nil)
-	
+
 	// Registrar uma credencial
 	auth := &credentials.AuthConfig{
 		Type:  "bearer",
 		Token: "secret-token-123",
 	}
-	mgr.RegisterPattern("api-token", auth)
+	_ = mgr.RegisterPattern("api-token", auth)
 
 	client := New(&Config{
 		CredentialManager: mgr,
@@ -27,7 +27,7 @@ func TestClient_ApplyAuth_WithCredential(t *testing.T) {
 	})
 
 	req, _ := http.NewRequest("GET", "http://api.example.com/v1/test", nil)
-	client.applyAuth(req)
+	client.applyAuth(context.Background(), req)
 
 	headerAuth := req.Header.Get("Authorization")
 	if headerAuth != "Bearer secret-token-123" {
@@ -45,7 +45,7 @@ func TestClient_ApplyAuth_NoCredential(t *testing.T) {
 	})
 
 	req, _ := http.NewRequest("GET", "http://api.example.com/v1/test", nil)
-	client.applyAuth(req)
+	client.applyAuth(context.Background(), req)
 
 	headerAuth := req.Header.Get("Authorization")
 	if headerAuth != "" {
@@ -61,7 +61,7 @@ func TestClient_ApplyAuth_NoDomainPattern(t *testing.T) {
 	}, map[string]string{})
 
 	req, _ := http.NewRequest("GET", "http://unknown.example.com/v1/test", nil)
-	client.applyAuth(req)
+	client.applyAuth(context.Background(), req)
 
 	headerAuth := req.Header.Get("Authorization")
 	if headerAuth != "" {
@@ -71,12 +71,12 @@ func TestClient_ApplyAuth_NoDomainPattern(t *testing.T) {
 
 func TestClient_ApplyAuth_WildcardPattern(t *testing.T) {
 	mgr := credentials.NewManager(nil)
-	
+
 	auth := &credentials.AuthConfig{
 		Type:  "bearer",
 		Token: "wildcard-token",
 	}
-	mgr.RegisterPattern("default-auth", auth)
+	_ = mgr.RegisterPattern("default-auth", auth)
 
 	client := New(&Config{
 		CredentialManager: mgr,
@@ -85,7 +85,7 @@ func TestClient_ApplyAuth_WildcardPattern(t *testing.T) {
 	})
 
 	req, _ := http.NewRequest("GET", "http://any-domain.example.com/v1/test", nil)
-	client.applyAuth(req)
+	client.applyAuth(context.Background(), req)
 
 	headerAuth := req.Header.Get("Authorization")
 	if headerAuth != "Bearer wildcard-token" {
@@ -106,12 +106,12 @@ func TestClient_Do_WithServer(t *testing.T) {
 	defer server.Close()
 
 	mgr := credentials.NewManager(nil)
-	
+
 	auth := &credentials.AuthConfig{
 		Type:  "bearer",
 		Token: "test-token",
 	}
-	mgr.RegisterPattern("test-cred", auth)
+	_ = mgr.RegisterPattern("test-cred", auth)
 
 	client := New(&Config{
 		CredentialManager: mgr,
@@ -138,7 +138,7 @@ func TestClient_ApplyAuth_FallbackResolveForURL(t *testing.T) {
 		Type:  "bearer",
 		Token: "github-token-from-keyring",
 	}
-	mgr.RegisterPattern("api.github.com", auth)
+	_ = mgr.RegisterPattern("api.github.com", auth)
 
 	// Empty domainPatterns simulates how http_request tool creates the client
 	client := New(&Config{
@@ -146,7 +146,7 @@ func TestClient_ApplyAuth_FallbackResolveForURL(t *testing.T) {
 	}, map[string]string{})
 
 	req, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
-	client.applyAuth(req)
+	client.applyAuth(context.Background(), req)
 
 	headerAuth := req.Header.Get("Authorization")
 	if headerAuth != "Bearer github-token-from-keyring" {
@@ -161,14 +161,14 @@ func TestClient_ApplyAuth_FallbackWildcard(t *testing.T) {
 		Type:  "bearer",
 		Token: "wildcard-github-token",
 	}
-	mgr.RegisterPattern("*.github.com", auth)
+	_ = mgr.RegisterPattern("*.github.com", auth)
 
 	client := New(&Config{
 		CredentialManager: mgr,
 	}, map[string]string{})
 
 	req, _ := http.NewRequest("GET", "https://api.github.com/repos", nil)
-	client.applyAuth(req)
+	client.applyAuth(context.Background(), req)
 
 	headerAuth := req.Header.Get("Authorization")
 	if headerAuth != "Bearer wildcard-github-token" {
@@ -183,7 +183,7 @@ func TestClient_ApplyAuth_ExistingAuthNotOverwritten(t *testing.T) {
 		Type:  "bearer",
 		Token: "from-credential-manager",
 	}
-	mgr.RegisterPattern("api.github.com", auth)
+	_ = mgr.RegisterPattern("api.github.com", auth)
 
 	client := New(&Config{
 		CredentialManager: mgr,
@@ -191,7 +191,7 @@ func TestClient_ApplyAuth_ExistingAuthNotOverwritten(t *testing.T) {
 
 	req, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
 	req.Header.Set("Authorization", "Bearer explicit-user-token")
-	client.applyAuth(req)
+	client.applyAuth(context.Background(), req)
 
 	headerAuth := req.Header.Get("Authorization")
 	if headerAuth != "Bearer explicit-user-token" {
@@ -201,7 +201,7 @@ func TestClient_ApplyAuth_ExistingAuthNotOverwritten(t *testing.T) {
 
 func TestClient_AddDomainPattern(t *testing.T) {
 	mgr := credentials.NewManager(nil)
-	
+
 	client := New(&Config{
 		CredentialManager: mgr,
 	}, map[string]string{})

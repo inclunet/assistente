@@ -51,7 +51,7 @@ Isso são **decisões de negócio** vivendo no frontend: quando recarregar mensa
 O frontend registra listeners, dispara a chamada Wails, recebe eventos, decide quando fazer reload, decide quando fazer cleanup. O backend é "burro" — emite eventos e espera que alguém esteja ouvindo. Se o frontend perder um evento (race condition, tab switch, erro JS), o estado fica inconsistente.
 
 ### 6. Criação implícita de conversa no envio
-O frontend cria conversa automaticamente se `activeConversationId === 0`. Isso acopla criação de conversa ao envio de mensagem — duas responsabilidades distintas no mesmo fluxo. Mensagens devem ser enviadas **apenas** para conversas que já existem. Se a conversa não existe, é erro.
+O frontend cria conversa automaticamente se `activeConversationId === 0`. Isso acopla criação de conversa ao envio de mensagem — duas responsabilidades distintas no mesmo fluxo. Mensagens devem ser enviadas **apenas** para conversas que já existem. Se a conversa não existe, a superfície do workspace deve garantir e persistir o `conversationId` antes do envio.
 
 ---
 
@@ -60,12 +60,15 @@ O frontend cria conversa automaticamente se `activeConversationId === 0`. Isso a
 1. **Backend é a fonte de verdade** — o frontend nunca cria mensagens locais; só renderiza o que o backend manda.
 2. **Sem IDs temporários** — mensagens só aparecem na UI quando o backend confirma com ID real.
 3. **Eventos tipados com conversationId** — todo evento carrega identificação da conversa.
-4. **Frontend é reativo** — escuta eventos e atualiza estado; não orquestra fluxo.
+4. **Frontend é reativo por superfície** — cada superfície interessada escuta eventos do seu `conversationId` e atualiza o próprio estado visual, sem orquestrar o ciclo de vida de mensagens.
 5. **Testável** — cada fase tem critérios de aceitação verificáveis com testes automatizados.
 6. **Conversa é pré-requisito** — mensagens só podem ser enviadas para conversas que já existem. `SendMessage` para `conversationId=0` ou inexistente retorna erro. A criação de conversa é responsabilidade separada.
 7. **Conversas são independentes** — conversas existem no banco sem vínculo forte com abas, workspace ou qualquer conceito de UI. Abas carregam conversas para exibição, mas conversas sobrevivem sem aba. Canais (Telegram, Signal) criam e mantêm conversas independentemente de haver aba aberta.
-8. **Uma única forma de enviar mensagens** — existe UM método `SendMessage` no backend e UM `sendMessage` no frontend. Criar métodos duplicados ou wrappers alternativos é proibido (ver seção "Regras permanentes").
-9. **Eventos contidos e acionáveis** — eventos não são apenas notificações passivas; o backend os usa para tomar decisões de orquestração (quando sintetizar TTS, quando renomear conversa, quando notificar canal externo). O protocolo de eventos é o contrato central do sistema.
+8. **Um único contrato para mensagem nova, com retry explícito** — existe UM método `SendMessage` para novas mensagens no backend. O único endpoint adicional permitido é `RetryMessage`, usado exclusivamente para reenviar uma mensagem de usuário já persistida, sem criar nova mensagem `user`. No frontend, todas as superfícies reutilizam o mesmo cliente/pipeline compartilhado para esses contratos explícitos por `conversationId`, sem duplicar lógica divergente de envio.
+9. **Controllers por conversa/aba são permitidos** — o frontend pode instanciar controllers autocontidos por `conversationId` ou por aba. Esses controllers podem manter estado próprio de UI, streaming, scroll, histórico carregado e tool calls, desde que filtrem eventos pelo `conversationId` e deleguem envio/retry ao contrato compartilhado.
+10. **Contexto de superfície é estruturado** — contexto da aba ativa não deve ser injetado artificialmente no texto do usuário. Ele deve viajar em parâmetros estruturados (`tabType`, `surfaceState`, `surfaceContext`, `surfaceSessionKey`, `surfaceId`, `surfaceType`, `surfaceTabId`) para que profiles, skills, tools e eventos consumam isso de forma consistente.
+11. **Eventos contidos e acionáveis** — eventos não são apenas notificações passivas; o backend os usa para tomar decisões de orquestração (quando sintetizar TTS, quando renomear conversa, quando notificar canal externo). O protocolo de eventos é o contrato central do sistema.
+12. **Serviços globais são arbitrados, não donos das abas** — recursos globais como anúncios para leitor de tela, TTS e STT não devem ser duplicados por aba. Controllers por aba solicitam esses recursos por uma política central que respeita aba ativa, perfil efetivo e exclusividade de fala/escuta.
 
 ---
 
@@ -249,13 +252,12 @@ type ChatDoneEvent struct {
 
 Quando houve tool calls, o backend inclui a árvore de mensagens atualizada no próprio evento `chat:done`. **O frontend não precisa fazer `GetMessages()` manualmente.**
 
-#### 2.5 Mudanças no frontend `sendMessage`
+#### 2.5 Mudanças no frontend no contrato compartilhado de envio
 
-A função encolhe para ~20 linhas. **Não existe mais `sendMessageWithParams`** — há uma única função `sendMessage`:
+A camada compartilhada de envio encolhe para ~20 linhas. **Não existe mais `sendMessageWithParams`** e superfícies diferentes não duplicam lógica de envio; todas delegam para o mesmo cliente por `conversationId`. Controllers por aba podem manter seu próprio estado de loading/streaming, mas não reimplementam validação, serialização de mídia ou chamada ao backend:
 
 ```typescript
-sendMessage: async (content, mediaFiles, paramsOverride) => {
-  const conversationId = get().activeConversationId;
+sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride, options) => {
   if (!conversationId) {
     // Conversa DEVE existir antes de enviar mensagem.
     // Se não existe, é erro. Criação de conversa é responsabilidade separada.
@@ -263,16 +265,19 @@ sendMessage: async (content, mediaFiles, paramsOverride) => {
     return;
   }
 
-  set({ isLoading: true });
-  
   const mediaJson = mediaFiles ? await serializeMedia(mediaFiles) : '';
-  const params = buildParams(paramsOverride, get().contextProfileSlug);
+  const params = buildParams({
+    ...paramsOverride,
+    surfaceSessionKey: options?.origin?.sessionKey,
+    surfaceId: options?.origin?.surfaceId,
+    surfaceType: options?.origin?.surfaceType,
+    surfaceTabId: options?.origin?.tabId,
+  });
 
   try {
     await SendMessage(conversationId, content, mediaJson, params);
   } catch (error) {
-    set({ isLoading: false });
-    announce(getErrorMessage(error));
+    reportSurfaceError(options?.origin?.sessionKey, getErrorMessage(error));
   }
   // Não faz mais NADA aqui. O backend emite eventos e o frontend reage.
 }
@@ -280,42 +285,42 @@ sendMessage: async (content, mediaFiles, paramsOverride) => {
 
 **Removido**: criação implícita de conversa (`if (conversationId === 0) { createConversation() }`). O caller é responsável por garantir que a conversa existe.
 
-#### 2.6 Event listener centralizado (não por chamada)
+#### 2.6 Event listeners por controller de conversa (não por chamada)
 
-Os listeners são registrados UMA VEZ no mount da app (ou no hook `useChatEvents`), não dentro de `sendMessage`:
+Os listeners não são registrados dentro de cada envio. Cada controller de conversa/aba registra seus listeners enquanto estiver vivo, filtra eventos pelo seu `conversationId` e atualiza apenas o próprio estado visual:
 
 ```typescript
-// frontend/src/hooks/useChatEvents.ts
-export function useChatEvents() {
-  const activeConversationId = useChatStore(s => s.activeConversationId);
+// frontend/src/hooks/useChatController.ts
+export function useChatController(conversationId: string) {
+  const controller = useMemo(() => createChatController(conversationId), [conversationId]);
   
   useEffect(() => {
     const unsubs = [
       EventsOn('chat:user_message_created', (e: UserMessageCreatedEvent) => {
-        if (e.conversationId !== activeConversationId) return;
-        useChatStore.getState().insertBackendMessage(e.message);
+        if (e.conversationId !== conversationId) return;
+        controller.insertBackendMessage(e.message);
         playSendSound();
       }),
       EventsOn('chat:assistant_message_started', (e: AssistantMessageStartedEvent) => {
-        if (e.conversationId !== activeConversationId) return;
-        useChatStore.getState().insertBackendMessage(e.message);
-        set({ streamingMessageId: e.message.id });
+        if (e.conversationId !== conversationId) return;
+        controller.insertBackendMessage(e.message);
+        controller.setStreamingMessageId(e.message.id);
       }),
       EventsOn('chat:stream', (e: StreamChunkEvent) => {
-        if (e.conversationId !== activeConversationId) return;
-        useChatStore.getState().updateMessage(e.messageId, e.content);
+        if (e.conversationId !== conversationId) return;
+        controller.updateMessage(e.messageId, e.content);
       }),
       EventsOn('chat:done', (e: ChatDoneEvent) => {
-        if (e.conversationId !== activeConversationId) return;
+        if (e.conversationId !== conversationId) return;
         if (e.updatedMessages) {
-          useChatStore.getState().replaceMessages(e.updatedMessages);
+          controller.replaceMessages(e.updatedMessages);
         }
-        set({ isLoading: false, streamingMessageId: null });
+        controller.finishStreaming();
       }),
       // ... thinking, tool_start, tool_end, segment_done
     ];
     return () => unsubs.forEach(fn => fn());
-  }, [activeConversationId]);
+  }, [conversationId, controller]);
 }
 ```
 
@@ -326,8 +331,8 @@ export function useChatEvents() {
 - [ ] Unit test Go: `chat:assistant_message_started` emitido com ID real
 - [ ] Unit test Go: `chat:done` inclui `updatedMessages` quando `hadToolCalls=true`
 - [ ] Unit test Frontend: `insertBackendMessage` adiciona mensagem ao estado
-- [ ] Unit test Frontend: `sendMessage` NÃO cria mensagens locais
-- [ ] Unit test Frontend: `sendMessage` sem `activeConversationId` mostra erro, não cria conversa
+- [ ] Unit test Frontend: o pipeline de envio NÃO cria mensagens locais
+- [ ] Unit test Frontend: enviar sem `conversationId` mostra erro, não cria conversa
 - [ ] Unit test Frontend: listeners ignoram eventos de outra conversa
 - [ ] Integration test: mensagem enviada → UI mostra mensagem com ID do banco, sem temp ID
 
@@ -335,9 +340,9 @@ export function useChatEvents() {
 - `generateId()` removido do chatStore
 - `addMessage()` removido do fluxo de envio (mantido apenas para uso interno se necessário)
 - Zero mensagens na UI sem correspondência no banco
-- Frontend `sendMessage` tem < 30 linhas
-- `sendMessageWithParams` não existe mais — apenas `sendMessage`
-- Enviar mensagem sem conversa ativa gera erro claro, sem criação implícita
+- O pipeline de envio do frontend tem < 30 linhas
+- `sendMessageWithParams` não existe mais
+- Enviar mensagem sem `conversationId` gera erro claro, sem criação implícita
 
 ---
 
@@ -448,7 +453,7 @@ Remover código morto e simplificar.
 - [x] ~~Remover `unsubscribe*` manuais~~ — mantido: essencial para cleanup de event listeners
 - [x] ~~Remover `activeListeners` Map~~ — mantido: previne memory leaks de listeners
 - [x] Remover `DEFAULT_TITLE_PATTERNS` e lógica de rename do frontend (feito na Fase 2)
-- [x] Unificar `sendMessage` e `sendMessageWithParams` em uma só função (feito entre Fase 2-3)
+- [x] Unificar o pipeline de envio do frontend e remover `sendMessageWithParams` (feito entre Fase 2-3)
 - [x] Remover criação implícita de conversa do fluxo de envio
 - [x] ~~Atualizar tipos `id` para `number`~~ — mantido como `string`: streaming placeholder usa string determinística
 - [x] ~~Remover `debouncedUpdateMessage` e `flushPendingUpdate`~~ — mantido: crítico para performance (60fps throttle)
@@ -481,7 +486,7 @@ Tudo em um único PR. Cada commit deve deixar os testes passando.
 
 | Métrica | Antes | Depois |
 |---------|-------|--------|
-| Linhas de `sendMessageWithParams` | ~200 | ~30 |
+| Linhas da camada principal de envio | ~200 | ~30 |
 | Event listeners registrados por chamada | 7 | 0 (globais) |
 | IDs temporários na UI | 2 por mensagem | 0 |
 | Mensagens fantasma (sem banco) | Possível | Impossível |
@@ -511,14 +516,21 @@ Estas regras são permanentes e devem ser respeitadas por qualquer mudança futu
 - **Mensagens só podem ser enviadas para conversas que existem.** `SendMessage` com `conversationID=0` ou ID inexistente retorna erro. A criação de conversa é responsabilidade separada e explícita.
 
 ### Envio de mensagens
-- **Existe UMA única função `SendMessage` no backend** (`app_chat.go` → `ChatController` → `SendMessageUseCase`). Toda mensagem — vinda do frontend, de canais, de deep links — passa por essa função. É proibido criar funções alternativas de envio.
-- **Existe UMA única função `sendMessage` no frontend** (chatStore). Nenhum componente, hook ou store pode criar uma forma alternativa de enviar mensagens. Se precisar customizar, use parâmetros — não crie um novo método.
+- **Existe UMA única função `SendMessage` para mensagens novas no backend** (`app_chat.go` → `ChatController` → `SendMessageUseCase`). Toda mensagem nova — vinda do frontend, de canais, de deep links — passa por essa função.
+- **`RetryMessage` é a única exceção permitida ao contrato acima.** Ele existe apenas para reexecutar a resposta a partir de uma mensagem de usuário já persistida, sem inserir nova linha `user` no banco. É proibido criar qualquer outro endpoint público de envio.
+- **Existe UM único contrato compartilhado de envio no frontend.** Componentes e controllers podem ser instanciados por aba/conversa, mas todos delegam mensagem nova para `SendMessage` e retry explícito para `RetryMessage`. Nenhum componente, hook ou store pode duplicar a lógica de validação, serialização, parâmetros ou chamada ao backend em um fluxo alternativo.
 - **O backend é a fonte de verdade.** O frontend não cria mensagens locais, não gera IDs temporários, não decide quando recarregar mensagens. Renderiza o que o backend emite via eventos.
 
 ### Eventos
 - **Todo evento de chat carrega `conversationId`.** Sem exceções.
 - **Eventos são tipados com structs/interfaces.** Nada de `map[string]interface{}` ou objetos genéricos.
 - **O protocolo de eventos é o contrato central.** O backend usa eventos para orquestrar TTS, rename, notificação de canais. Alterar o schema de um evento exige atualização de todos os consumidores.
+- **Controllers filtram eventos por conversa.** Um controller de aba/conversa só processa eventos do seu `conversationId`; isso permite respostas simultâneas em abas diferentes sem uma conversa bloquear a outra.
+
+### Serviços globais da interface
+- **Announcer é global e único.** Não há múltiplas live regions por aba. Controllers solicitam anúncios a uma política central, que anuncia progresso normal apenas para a aba ativa e eventos relevantes de abas inativas com contexto de aba/conversa.
+- **TTS é globalmente exclusivo.** Duas abas podem responder em paralelo, mas não podem falar ao mesmo tempo. A arbitragem usa a configuração/perfil efetivo da aba que originou a fala, ou da aba ativa quando a ação for iniciada manualmente.
+- **STT local só funciona na aba ativa.** Abas inativas em keep-alive não podem ouvir microfone, transcrever nem enviar mensagens por captura local. Entradas de canais externos, como Telegram, Slack ou Signal, seguem o fluxo backend-driven de canais e independem da aba ativa da interface.
 
 ---
 

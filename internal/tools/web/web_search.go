@@ -132,13 +132,13 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 
 	// Formata resultados
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Busca: '%s' (%d resultados via %s)\n\n", a.Query, len(results), t.provider.Name()))
+	_, _ = fmt.Fprintf(&sb, "Busca: '%s' (%d resultados via %s)\n\n", a.Query, len(results), t.provider.Name())
 
 	for i, r := range results {
-		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, r.Title))
-		sb.WriteString(fmt.Sprintf("   %s\n", r.URL))
+		_, _ = fmt.Fprintf(&sb, "%d. %s\n", i+1, r.Title)
+		_, _ = fmt.Fprintf(&sb, "   %s\n", r.URL)
 		if r.Snippet != "" {
-			sb.WriteString(fmt.Sprintf("   %s\n", r.Snippet))
+			_, _ = fmt.Fprintf(&sb, "   %s\n", r.Snippet)
 		}
 		sb.WriteString("\n")
 	}
@@ -177,7 +177,7 @@ func (p *duckDuckGoProvider) Search(ctx context.Context, client *httpclient.Clie
 	if err != nil {
 		return nil, fmt.Errorf("erro na requisição: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)

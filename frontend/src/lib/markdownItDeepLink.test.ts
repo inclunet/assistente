@@ -14,22 +14,22 @@ function render(markdown: string): string {
 
 describe('markdownItDeepLink plugin', () => {
   it('adiciona classe deep-link em links assistente://', () => {
-    const html = render('[Abrir conversa](assistente://conversation/42)');
+    const html = render('[Abrir conversa](assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a)');
     expect(html).toContain('class="deep-link deep-link--conversation"');
   });
 
   it('adiciona data-deep-link com a URI original', () => {
-    const html = render('[Abrir](assistente://conversation/42)');
-    expect(html).toContain('data-deep-link="assistente://conversation/42"');
+    const html = render('[Abrir](assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a)');
+    expect(html).toContain('data-deep-link="assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a"');
   });
 
   it('adiciona role="link"', () => {
-    const html = render('[Abrir](assistente://conversation/42)');
+    const html = render('[Abrir](assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a)');
     expect(html).toContain('role="link"');
   });
 
   it('adiciona aria-label descritivo', () => {
-    const html = render('[Abrir](assistente://conversation/42)');
+    const html = render('[Abrir](assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a)');
     expect(html).toContain('aria-label="');
   });
 
@@ -46,7 +46,7 @@ describe('markdownItDeepLink plugin', () => {
   });
 
   it('aplica classe correta para conversation:send', () => {
-    const html = render('[Enviar](assistente://conversation/5/send?message=teste)');
+    const html = render('[Enviar](assistente://conversation/01926b90-7a5a-7c4e-8d3f-000000000005/send?message=teste)');
     expect(html).toContain('deep-link--send');
   });
 
@@ -56,25 +56,25 @@ describe('markdownItDeepLink plugin', () => {
   });
 
   it('preserva o texto do link', () => {
-    const html = render('[Meu texto personalizado](assistente://conversation/42)');
+    const html = render('[Meu texto personalizado](assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a)');
     expect(html).toContain('Meu texto personalizado');
   });
 
   it('funciona com múltiplos links na mesma mensagem', () => {
     const md = [
-      'Veja a [conversa 1](assistente://conversation/1) e',
-      'a [conversa 2](assistente://conversation/2) ou',
+      'Veja a [conversa 1](assistente://conversation/01926b90-7a5a-7c4e-8d3f-000000000001) e',
+      'a [conversa 2](assistente://conversation/01926b90-7a5a-7c4e-8d3f-000000000002) ou',
       'vá para o [histórico](assistente://navigate/history).',
     ].join(' ');
     const html = render(md);
 
-    expect(html).toContain('data-deep-link="assistente://conversation/1"');
-    expect(html).toContain('data-deep-link="assistente://conversation/2"');
+    expect(html).toContain('data-deep-link="assistente://conversation/01926b90-7a5a-7c4e-8d3f-000000000001"');
+    expect(html).toContain('data-deep-link="assistente://conversation/01926b90-7a5a-7c4e-8d3f-000000000002"');
     expect(html).toContain('data-deep-link="assistente://navigate/history"');
   });
 
   it('funciona com mix de links normais e deep links', () => {
-    const md = 'Veja o [site](https://example.com) e a [conversa](assistente://conversation/1).';
+    const md = 'Veja o [site](https://example.com) e a [conversa](assistente://conversation/01926b90-7a5a-7c4e-8d3f-000000000001).';
     const html = render(md);
 
     expect(html).toContain('href="https://example.com"');
@@ -88,5 +88,11 @@ describe('markdownItDeepLink plugin', () => {
     const html = render('[Broken](assistente://invalid/resource)');
     expect(html).toContain('class="deep-link"');
     expect(html).toContain('data-deep-link="assistente://invalid/resource"');
+  });
+
+  it('conversation com ID numérico (legado) não recebe typeClass', () => {
+    const html = render('[Legado](assistente://conversation/42)');
+    expect(html).toContain('class="deep-link"');
+    expect(html).not.toContain('deep-link--conversation');
   });
 });

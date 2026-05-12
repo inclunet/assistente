@@ -9,8 +9,8 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
-  GetConversationTokenStats: (id: number) => getStatsSpy(id),
+vi.mock('@wailsjs/go/app/App', () => ({
+  GetConversationTokenStats: (id: string) => getStatsSpy(id),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -30,7 +30,7 @@ beforeEach(() => {
 describe('TokenStatsButton', () => {
   it('renderiza stats e abre modal', async () => {
     getStatsSpy.mockResolvedValueOnce({
-      conversationId: 1,
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
@@ -43,7 +43,7 @@ describe('TokenStatsButton', () => {
     });
 
     const onOpenModal = vi.fn();
-    render(<TokenStatsButton conversationId={1} onOpenModal={onOpenModal} />);
+    render(<TokenStatsButton conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"} onOpenModal={onOpenModal} />);
 
     const button = await waitFor(() => {
       const el = screen.getByRole('button');
@@ -65,7 +65,7 @@ describe('TokenStatsButton', () => {
 
   it('renderiza badge de contexto com porcentagem', async () => {
     getStatsSpy.mockResolvedValueOnce({
-      conversationId: 1,
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
@@ -78,7 +78,7 @@ describe('TokenStatsButton', () => {
     });
 
     const onOpenModal = vi.fn();
-    render(<TokenStatsButton conversationId={1} onOpenModal={onOpenModal} />);
+    render(<TokenStatsButton conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"} onOpenModal={onOpenModal} />);
 
     await waitFor(() => {
       expect(screen.getByText('45.5%')).toBeInTheDocument();
@@ -87,7 +87,7 @@ describe('TokenStatsButton', () => {
 
   it('atualiza badge em tempo real via evento', async () => {
     getStatsSpy.mockResolvedValueOnce({
-      conversationId: 1,
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
@@ -100,7 +100,7 @@ describe('TokenStatsButton', () => {
     });
 
     const onOpenModal = vi.fn();
-    render(<TokenStatsButton conversationId={1} onOpenModal={onOpenModal} />);
+    render(<TokenStatsButton conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"} onOpenModal={onOpenModal} />);
 
     await waitFor(() => {
       expect(screen.getByText('30.0%')).toBeInTheDocument();
@@ -109,7 +109,7 @@ describe('TokenStatsButton', () => {
     // Simula evento de atualização de tokens
     if (mockEventsOnCallback) {
       mockEventsOnCallback({
-        conversationId: 1,
+        conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
         contextUsage: 75.3,
         contextLimit: 200000,
         isNearLimit: true,
@@ -129,7 +129,7 @@ describe('TokenStatsButton', () => {
 
   it('aplica classe de aviso quando contextUsage >= 80%', async () => {
     getStatsSpy.mockResolvedValueOnce({
-      conversationId: 1,
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
@@ -143,7 +143,7 @@ describe('TokenStatsButton', () => {
 
     const onOpenModal = vi.fn();
     const { container } = render(
-      <TokenStatsButton conversationId={1} onOpenModal={onOpenModal} />
+      <TokenStatsButton conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"} onOpenModal={onOpenModal} />
     );
 
     await waitFor(() => {
@@ -156,7 +156,7 @@ describe('TokenStatsButton', () => {
 
   it('aplica classe crítica quando contextUsage >= 95%', async () => {
     getStatsSpy.mockResolvedValueOnce({
-      conversationId: 1,
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
@@ -170,7 +170,7 @@ describe('TokenStatsButton', () => {
 
     const onOpenModal = vi.fn();
     const { container } = render(
-      <TokenStatsButton conversationId={1} onOpenModal={onOpenModal} />
+      <TokenStatsButton conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"} onOpenModal={onOpenModal} />
     );
 
     await waitFor(() => {
@@ -183,7 +183,7 @@ describe('TokenStatsButton', () => {
 
   it('nao renderiza badge quando contextLimit é 0', async () => {
     getStatsSpy.mockResolvedValueOnce({
-      conversationId: 1,
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
@@ -196,7 +196,7 @@ describe('TokenStatsButton', () => {
     });
 
     const onOpenModal = vi.fn();
-    render(<TokenStatsButton conversationId={1} onOpenModal={onOpenModal} />);
+    render(<TokenStatsButton conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"} onOpenModal={onOpenModal} />);
 
     await waitFor(() => {
       expect(screen.getByRole('button')).toBeInTheDocument();
@@ -208,7 +208,7 @@ describe('TokenStatsButton', () => {
 
   it('ignora eventos de outras conversas', async () => {
     getStatsSpy.mockResolvedValueOnce({
-      conversationId: 1,
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
@@ -221,7 +221,7 @@ describe('TokenStatsButton', () => {
     });
 
     const onOpenModal = vi.fn();
-    render(<TokenStatsButton conversationId={1} onOpenModal={onOpenModal} />);
+    render(<TokenStatsButton conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"} onOpenModal={onOpenModal} />);
 
     await waitFor(() => {
       expect(screen.getByText('30.0%')).toBeInTheDocument();
@@ -230,7 +230,7 @@ describe('TokenStatsButton', () => {
     // Simula evento de conversa diferente (conversationId 999)
     if (mockEventsOnCallback) {
       mockEventsOnCallback({
-        conversationId: 999,
+        conversationId: "01926b90-7a5a-7c4e-8d3f-000000000999",
         contextUsage: 99,
         contextLimit: 200000,
         isNearLimit: true,

@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useAnnouncerState } from '../../hooks/useAnnouncer';
 import './ScreenReaderAnnouncer.css';
 
@@ -6,11 +7,14 @@ import './ScreenReaderAnnouncer.css';
  * Fornece duas regiões aria-live ocultas visualmente:
  * - Uma polite (não interrompe o leitor)
  * - Uma assertive (interrompe o leitor imediatamente)
+ *
+ * Renderizado via portal em document.body (fora de #root) para que modais que
+ * aplicam aria-hidden/inert ao root não silenciem os anúncios.
  */
 export function ScreenReaderAnnouncer() {
   const { politeMessage, assertiveMessage } = useAnnouncerState();
 
-  return (
+  const tree = (
     <div className="sr-announcer">
       {/* Região polite - não interrompe a leitura atual */}
       <div
@@ -33,4 +37,6 @@ export function ScreenReaderAnnouncer() {
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(tree, document.body) : null;
 }

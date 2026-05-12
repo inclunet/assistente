@@ -75,8 +75,10 @@ async function openProfileEditorAudioTab(
   // Navega para a página de perfis
   await page.goto('/#/profiles');
 
-  // Aguarda o grid ter pelo menos uma linha
-  const firstCell = page.locator('[role="gridcell"]').first();
+  await expect(page.locator('.profiles-page')).toBeVisible({ timeout: 10_000 });
+
+  // Aguarda o grid carregar a linha do perfil padrão
+  const firstCell = page.locator('[role="gridcell"]').filter({ hasText: 'Padrão' }).first();
   await expect(firstCell).toBeVisible({ timeout: 10_000 });
 
   // Aguarda overlay de empty state desaparecer

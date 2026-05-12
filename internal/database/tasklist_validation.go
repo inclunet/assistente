@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -33,9 +34,9 @@ func ParseTaskListValidationPolicyJSON(raw string) (*TaskListValidationPolicy, e
 	return &p, nil
 }
 
-func loadTaskListValidationPolicy(taskListID uint) (*TaskListValidationPolicy, error) {
+func loadTaskListValidationPolicyWithContext(ctx context.Context, taskListID string) (*TaskListValidationPolicy, error) {
 	var tl TaskList
-	if err := db.Select("validation_policy").First(&tl, taskListID).Error; err != nil {
+	if err := ScopeByUser(ctx, db.WithContext(ctx).Select("validation_policy"), "user_id").First(&tl, "id = ?", taskListID).Error; err != nil {
 		return nil, err
 	}
 	return ParseTaskListValidationPolicyJSON(tl.ValidationPolicy)
@@ -61,9 +62,10 @@ func ValidateTaskCodeAgainstPolicy(code string, p *TaskListValidationPolicy) err
 	return nil
 }
 
-// ValidateTaskCodeForTaskList aplica task_code_regex quando configurado. Code vazio não é validado.
-func ValidateTaskCodeForTaskList(taskListID uint, code string) error {
-	p, err := loadTaskListValidationPolicy(taskListID)
+// ValidateTaskCodeForTaskListWithContext aplica task_code_regex da tasklist do
+// usuário do contexto quando configurado. Code vazio não é validado.
+func ValidateTaskCodeForTaskListWithContext(ctx context.Context, taskListID string, code string) error {
+	p, err := loadTaskListValidationPolicyWithContext(ctx, taskListID)
 	if err != nil {
 		return err
 	}
@@ -116,22 +118,24 @@ func ValidateExternalNoteAgainstPolicy(source, externalID, externalParentID stri
 	return nil
 }
 
-// ValidateExternalNoteForTaskList aplica allowed_note_sources e regexes de nota quando configurados.
-func ValidateExternalNoteForTaskList(taskListID uint, source, externalID, externalParentID string) error {
-	p, err := loadTaskListValidationPolicy(taskListID)
+// ValidateExternalNoteForTaskListWithContext aplica allowed_note_sources e
+// regexes de nota da tasklist do usuário do contexto quando configurados.
+func ValidateExternalNoteForTaskListWithContext(ctx context.Context, taskListID string, source, externalID, externalParentID string) error {
+	p, err := loadTaskListValidationPolicyWithContext(ctx, taskListID)
 	if err != nil {
 		return err
 	}
 	return ValidateExternalNoteAgainstPolicy(source, externalID, externalParentID, p)
 }
 
-// SetTaskListValidationPolicy persiste o JSON da política (string vazia = sem regras).
-func SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
+// SetTaskListValidationPolicyWithContext persiste o JSON da política da
+// tasklist do usuário do contexto (string vazia = sem regras).
+func SetTaskListValidationPolicyWithContext(ctx context.Context, taskListID string, policyJSON string) error {
 	s := strings.TrimSpace(policyJSON)
 	if s != "" {
 		if _, err := ParseTaskListValidationPolicyJSON(s); err != nil {
 			return err
 		}
 	}
-	return db.Model(&TaskList{}).Where("id = ?", taskListID).Update("validation_policy", s).Error
+	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Where("id = ?", taskListID).Update("validation_policy", s).Error
 }

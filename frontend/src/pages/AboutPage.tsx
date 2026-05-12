@@ -9,7 +9,7 @@ import {
   LinkOutlined,
   RobotOutlined,
 } from '@ant-design/icons';
-import { GetAppVersion, CheckForUpdates, StartUpdate } from '@wailsjs/go/main/App';
+import { GetAppVersion, CheckForUpdates, StartUpdate } from '@wailsjs/go/app/App';
 import { useUIStore } from '../store/uiStore';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './AboutPage.css';
@@ -26,7 +26,7 @@ interface UpdateInfo {
 export default function AboutPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   useContentPageLandmarks({ pageClass: 'about-page' });
   const getErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : String(error ?? '');

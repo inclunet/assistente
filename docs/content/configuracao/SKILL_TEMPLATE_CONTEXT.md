@@ -16,6 +16,16 @@ No template, o objeto raiz (`.`) expõe:
 - `.EnabledToolCount` (int): número de ferramentas habilitadas.
 - `.EnabledTools` ([]string): nomes das ferramentas habilitadas.
 - `.Profile` (*profiles.Profile): struct completa do perfil ativo (campos do JSON).
+- `.Surface` (*chat.SurfaceInfo): superfície que originou o envio, quando disponível.
+
+## Surface
+
+Quando `.Surface` existir, ela expõe:
+
+- `.Surface.Type` (string): tipo da aba/superfície (`editor`, `terminal`, `tasklist`, `chat`)
+- `.Surface.Title` (string): título visível da aba
+- `.Surface.State` (`map[string]any`): espelho de `WorkspaceTab.state`
+- `.Surface.Context` (`map[string]any`): contexto transitório do envio atual
 
 ## Funções auxiliares
 

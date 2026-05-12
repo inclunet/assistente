@@ -43,7 +43,7 @@ func main() {
 	fmt.Println("Goodbye, World!")
 }
 `
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte(content), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte(content), 0644)
 
 	tool := NewGrepSearch(dir)
 	args := `{"pattern": "Hello"}`
@@ -73,7 +73,7 @@ func Validate(input string) bool {
 	return len(input) > 0
 }
 `
-	os.WriteFile(filepath.Join(dir, "util.go"), []byte(content), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "util.go"), []byte(content), 0644)
 
 	tool := NewGrepSearch(dir)
 	args := `{"pattern": "func \\w+\\("}`
@@ -100,7 +100,7 @@ func TestGrepSearch_CaseInsensitive(t *testing.T) {
 hello world
 HELLO WORLD
 `
-	os.WriteFile(filepath.Join(dir, "test.txt"), []byte(content), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "test.txt"), []byte(content), 0644)
 
 	tool := NewGrepSearch(dir)
 	args := `{"pattern": "hello", "case_sensitive": false}`
@@ -124,9 +124,9 @@ func TestGrepSearch_IncludeFilter(t *testing.T) {
 	dir := t.TempDir()
 
 	// Cria arquivos de tipos diferentes
-	os.WriteFile(filepath.Join(dir, "code.go"), []byte("func main() {}"), 0644)
-	os.WriteFile(filepath.Join(dir, "code.py"), []byte("def main(): pass"), 0644)
-	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("main note"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "code.go"), []byte("func main() {}"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "code.py"), []byte("def main(): pass"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("main note"), 0644)
 
 	tool := NewGrepSearch(dir)
 	args := `{"pattern": "main", "include": "*.go"}`
@@ -151,7 +151,7 @@ func TestGrepSearch_IncludeFilter(t *testing.T) {
 
 func TestGrepSearch_NoMatch(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "test.txt"), []byte("hello world"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "test.txt"), []byte("hello world"), 0644)
 
 	tool := NewGrepSearch(dir)
 	args := `{"pattern": "xyz_not_found"}`
@@ -170,7 +170,7 @@ func TestGrepSearch_NoMatch(t *testing.T) {
 func TestGrepSearch_SingleFile(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "single.txt")
-	os.WriteFile(filePath, []byte("line1\nfind_me\nline3"), 0644)
+	_ = os.WriteFile(filePath, []byte("line1\nfind_me\nline3"), 0644)
 
 	tool := NewGrepSearch(dir)
 	args := `{"pattern": "find_me", "path": "single.txt"}`
@@ -200,8 +200,8 @@ func TestGrepSearch_MissingPattern(t *testing.T) {
 
 func TestGrepSearch_SkipsBinaryFiles(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "image.png"), []byte("fake png with searchterm"), 0644)
-	os.WriteFile(filepath.Join(dir, "code.go"), []byte("searchterm in code"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "image.png"), []byte("fake png with searchterm"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "code.go"), []byte("searchterm in code"), 0644)
 
 	tool := NewGrepSearch(dir)
 	args := `{"pattern": "searchterm"}`

@@ -53,7 +53,7 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
   }, [language, attrs, editor, getPos]);
 
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
 
   const requestEdit = (extension.options as { onRequestEditMermaid?: MermaidRequestEditHandler })?.onRequestEditMermaid as
     | MermaidRequestEditHandler

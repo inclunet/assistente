@@ -81,6 +81,7 @@ export function DataGrid<T = unknown>({
   const instructionsId = useId().replace(/[^a-zA-Z0-9_-]/g, '') + '-instructions';
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const announceTimerRef = useRef<NodeJS.Timeout>();
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitializedRef = useRef(false);
   // Indica que o grid já recebeu foco pelo menos uma vez
   const hasReceivedFocusRef = useRef(false);
@@ -112,6 +113,14 @@ export function DataGrid<T = unknown>({
       onGridReady(focusFirstCell);
     }
   }, [focusFirstCell, onGridReady]);
+
+  useEffect(() => {
+    return () => {
+      if (focusTimerRef.current) {
+        clearTimeout(focusTimerRef.current);
+      }
+    };
+  }, []);
 
   const announce = (message: string) => {
     // Limpa o timer anterior se existir
@@ -190,6 +199,21 @@ export function DataGrid<T = unknown>({
     }
   }, [rowCount, columnCount]);
 
+  const clearScheduledCellFocus = useCallback(() => {
+    if (focusTimerRef.current) {
+      clearTimeout(focusTimerRef.current);
+      focusTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleFocusCell = useCallback((row: number, col: number) => {
+    clearScheduledCellFocus();
+    focusTimerRef.current = setTimeout(() => {
+      focusTimerRef.current = null;
+      focusCell(row, col);
+    }, 0);
+  }, [clearScheduledCellFocus, focusCell]);
+
   const focusCurrentCell = useCallback(() => {
     focusCell(focusedRowRef.current, focusedColRef.current);
   }, [focusCell]);
@@ -202,14 +226,8 @@ export function DataGrid<T = unknown>({
     setFocusedCol(col);
     focusedRowRef.current = row;
     focusedColRef.current = col;
-    setTimeout(() => {
-      const cellKey = `${row}-${col}`;
-      const cellElement = cellRefs.current.get(cellKey);
-      if (cellElement) {
-        cellElement.focus();
-      }
-    }, 0);
-  }, []);
+    scheduleFocusCell(row, col);
+  }, [scheduleFocusCell]);
 
   // Rastreia qual item está focado por ID e notifica o pai.
   // Só notifica quando o ID do item focado realmente mudou, para evitar
@@ -241,9 +259,9 @@ export function DataGrid<T = unknown>({
     const newIndex = items.findIndex(item => getItemId(item) === focusedItemIdRef.current);
     if (newIndex >= 0 && newIndex !== row) {
       setFocusedRow(newIndex);
-      setTimeout(() => focusCell(newIndex, focusedColRef.current), 0);
+      scheduleFocusCell(newIndex, focusedColRef.current);
     }
-  }, [items, getItemId, focusCell]);
+  }, [items, getItemId, scheduleFocusCell]);
 
   // Foca no input ao editar
   useEffect(() => {
@@ -325,7 +343,8 @@ export function DataGrid<T = unknown>({
   const startEditing = (rowIndex: number, colIndex: number) => {
     const col = columns[colIndex];
     if (col.action || !col.editable) return;
-    
+
+    clearScheduledCellFocus();
     const item = items[rowIndex];
     const value = item[col.key as keyof T];
     setEditingRow(rowIndex);
@@ -505,7 +524,7 @@ export function DataGrid<T = unknown>({
             onMoveItem(focusedRow, focusedRow - 1);
             const movedRow = focusedRow - 1;
             setFocusedRow(movedRow);
-            setTimeout(() => focusCell(movedRow, focusedCol), 0);
+            scheduleFocusCell(movedRow, focusedCol);
             announce('Movido para cima');
           } else {
             playBumpSound();
@@ -527,7 +546,7 @@ export function DataGrid<T = unknown>({
             onMoveItem(focusedRow, focusedRow + 1);
             const movedRow = focusedRow + 1;
             setFocusedRow(movedRow);
-            setTimeout(() => focusCell(movedRow, focusedCol), 0);
+            scheduleFocusCell(movedRow, focusedCol);
             announce('Movido para baixo');
           } else {
             playBumpSound();
@@ -655,9 +674,9 @@ export function DataGrid<T = unknown>({
       const oldRow = focusedRow;
       setFocusedRow(newRow);
       setFocusedCol(newCol);
-      
+
       // Foca a nova célula após atualizar o estado
-      setTimeout(() => focusCell(newRow, newCol), 0);
+      scheduleFocusCell(newRow, newCol);
 
       // Seleção durante navegação — apenas no modo list
       if (!isCheckboxMode && isMultiSelect && newRow !== oldRow) {
@@ -686,7 +705,7 @@ export function DataGrid<T = unknown>({
       hasReceivedFocusRef.current = true;
       setFocusedRow(rowIndex);
       setFocusedCol(colIndex);
-      setTimeout(() => focusCell(rowIndex, colIndex), 0);
+      scheduleFocusCell(rowIndex, colIndex);
       return;
     }
     const col = columns[colIndex];
@@ -702,12 +721,12 @@ export function DataGrid<T = unknown>({
       event.stopPropagation();
       onCellAction?.(items[rowIndex], col, rowIndex, colIndex);
       // Foca a célula clicada após a ação
-      setTimeout(() => focusCell(rowIndex, colIndex), 0);
+      scheduleFocusCell(rowIndex, colIndex);
       return;
     }
-    
+
     // Foca a célula clicada
-    setTimeout(() => focusCell(rowIndex, colIndex), 0);
+    scheduleFocusCell(rowIndex, colIndex);
 
     if (isCheckboxMode) {
       toggleSelection(rowIndex);

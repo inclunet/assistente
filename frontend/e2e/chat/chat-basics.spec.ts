@@ -33,9 +33,9 @@ test.describe('Chat — envio de mensagem', () => {
   test('digitar e enviar mensagem chama SendMessage no backend', async ({ page, wails }) => {
     // Configura mock para retornar uma mensagem do assistente
     const now = new Date().toISOString();
-    await wails.setResponse('SendMessage', 42);
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000042');
     await wails.setResponse('EnsureConversation', {
-      id: 1,
+      id: '01926b90-0000-7000-8000-000000000001',
       title: 'Nova conversa',
       created_at: now,
       updated_at: now,
@@ -46,16 +46,18 @@ test.describe('Chat — envio de mensagem', () => {
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Olá, assistente!');
-    await expect(textarea).toHaveValue('Olá, assistente!');
+    await expect.poll(async () => textarea.inputValue(), { timeout: 5_000 }).toBe('Olá, assistente!');
 
     // Envia com Enter
     await textarea.press('Enter');
 
     // Backend-driven: emite chat:messages_ready como o backend real faria
     await wails.emit('chat:messages_ready', {
-      conversationId: 1,
-      userMessageId: 100,
+      conversationId: '01926b90-0000-7000-8000-000000000001',
+      userMessageId: '01926b90-0000-7000-8000-100000000100',
       userContent: 'Olá, assistente!',
     });
 
@@ -68,18 +70,20 @@ test.describe('Chat — envio de mensagem', () => {
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Linha 1');
+    await expect.poll(async () => textarea.inputValue()).toBe('Linha 1');
+    await textarea.press('End');
     await textarea.press('Shift+Enter');
     await textarea.type('Linha 2');
 
     // O campo deve conter as duas linhas (sem ter enviado)
-    const value = await textarea.inputValue();
-    expect(value).toContain('Linha 1');
-    expect(value).toContain('Linha 2');
+    await expect.poll(async () => (await textarea.inputValue()).replace(/\r\n/g, '\n')).toBe('Linha 1\nLinha 2');
   });
 
   test('textarea limpa após envio', async ({ page, wails }) => {
-    await wails.setResponse('SendMessage', 42);
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000042');
     await wails.waitForApp();
 
     const textarea = page.locator('.chat-input__textarea');
@@ -99,8 +103,8 @@ test.describe('Chat — streaming de resposta', () => {
     await wails.setResponse('GetMessages', [
       {
         message: {
-          id: 1,
-          conversationId: 1,
+          id: '01926b90-0000-7000-8000-000000000010',
+          conversationId: '01926b90-0000-7000-8000-000000000001',
           role: 'user',
           content: 'Olá!',
           createdAt: now,
@@ -108,9 +112,9 @@ test.describe('Chat — streaming de resposta', () => {
         children: [],
       },
     ]);
-    await wails.setResponse('SendMessage', 2);
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000002');
     await wails.setResponse('EnsureConversation', {
-      id: 1,
+      id: '01926b90-0000-7000-8000-000000000001',
       title: 'Test',
       created_at: now,
       updated_at: now,
@@ -125,15 +129,15 @@ test.describe('Chat — streaming de resposta', () => {
 
     // Simula stream do backend: envia conteúdo
     await wails.emit('chat:stream', {
-      conversationId: 1,
-      messageId: 2,
+      conversationId: '01926b90-0000-7000-8000-000000000001',
+      messageId: '01926b90-0000-7000-8000-100000000002',
       content: 'Olá! Como posso ajudar?',
       done: false,
     });
 
     await wails.emit('chat:stream', {
-      conversationId: 1,
-      messageId: 2,
+      conversationId: '01926b90-0000-7000-8000-000000000001',
+      messageId: '01926b90-0000-7000-8000-100000000002',
       content: 'Olá! Como posso ajudar?',
       done: true,
     });
@@ -168,8 +172,8 @@ test.describe('Chat — acessibilidade', () => {
     await wails.setResponse('GetMessages', [
       {
         message: {
-          id: 1,
-          conversationId: 1,
+          id: '01926b90-0000-7000-8000-000000000010',
+          conversationId: '01926b90-0000-7000-8000-000000000001',
           role: 'user',
           content: 'Teste',
           createdAt: now,
@@ -190,9 +194,13 @@ test.describe('Chat — acessibilidade', () => {
 
     // O botão de enviar só aparece quando há texto (voice button ocupa quando vazio)
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Olá');
+    await expect.poll(async () => textarea.inputValue(), { timeout: 5_000 }).toBe('Olá');
 
     const sendBtn = page.locator('.chat-input__button');
+    await expect(sendBtn).toBeVisible({ timeout: 5_000 });
     const label = await sendBtn.getAttribute('aria-label');
     expect(label).toBeTruthy();
   });

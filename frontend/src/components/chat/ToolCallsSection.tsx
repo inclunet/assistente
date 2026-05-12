@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, LoadingOutlined, SettingOutlined, ToolOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import type { ToolCallStatus } from '../../types/chat';
+import { formatDuration } from '../../utils/format';
 import './ToolCallsSection.css';
 
 /**
  * Representa uma tool call individual parseada do JSON.
  * O campo `result` é adicionado pela consolidação no MessageList.
+ * Campos de metadata (AEP-0039 Fase 5) são opcionais para retrocompatibilidade.
  */
 export interface ParsedToolCall {
   id: string;
@@ -16,17 +19,14 @@ export interface ParsedToolCall {
   };
   /** Resultado retornado pela ferramenta (adicionado pela consolidação) */
   result?: string;
-}
-
-/**
- * Status de uma tool call em execução (durante streaming)
- */
-export interface ToolCallStatus {
-  name: string;
-  callId: string;
-  args?: string;
-  status: 'running' | 'done' | 'error';
-  summary?: string;
+  /** Origem da ferramenta: builtin, mcp_bridge ou mcp_native (AEP-0039) */
+  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  /** Label do servidor MCP (AEP-0039) */
+  server_label?: string;
+  /** Iteração do agentic loop (0-based) (AEP-0039) */
+  iteration?: number;
+  /** Duração da execução em milissegundos (AEP-0039) */
+  duration_ms?: number;
 }
 
 interface ToolCallsSectionProps {
@@ -38,6 +38,43 @@ interface ToolCallsSectionProps {
 
 /** Limite de caracteres para exibir resultado truncado */
 const RESULT_PREVIEW_LENGTH = 300;
+const LARGE_TOOL_CALLS_JSON_LENGTH = 8_000;
+
+function countTopLevelArrayItems(raw: string): number {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return 0;
+  let depth = 0;
+  let count = 0;
+  let inString = false;
+  let escaped = false;
+  for (const char of trimmed) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') {
+      if (depth === 1) count += 1;
+      depth += 1;
+      continue;
+    }
+    if (char === '}' && depth > 0) {
+      depth -= 1;
+      continue;
+    }
+    if (char === '[') depth += 1;
+    if (char === ']' && depth > 0) depth -= 1;
+  }
+  return depth === 0 && !inString && !escaped ? count : 0;
+}
 
 /**
  * ToolCallsSection renderiza indicadores de ferramentas chamadas pelo assistente.
@@ -53,10 +90,14 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
+  const shouldDeferSavedParsing = !!toolCallsJson && toolCallsJson.length > LARGE_TOOL_CALLS_JSON_LENGTH && !isExpanded;
+  const deferredToolCount = shouldDeferSavedParsing && toolCallsJson
+    ? countTopLevelArrayItems(toolCallsJson)
+    : 0;
 
   // Parseia tool calls do JSON (modo histórico)
   let parsedCalls: ParsedToolCall[] = [];
-  if (toolCallsJson) {
+  if (toolCallsJson && !shouldDeferSavedParsing) {
     try {
       parsedCalls = JSON.parse(toolCallsJson);
     } catch {
@@ -66,11 +107,11 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
 
   // Determina quais calls mostrar
   const hasActiveCalls = activeToolCalls && activeToolCalls.length > 0;
-  const hasSavedCalls = parsedCalls.length > 0;
+  const hasSavedCalls = parsedCalls.length > 0 || deferredToolCount > 0;
 
   if (!hasActiveCalls && !hasSavedCalls) return null;
 
-  const toolCount = hasActiveCalls ? activeToolCalls!.length : parsedCalls.length;
+  const toolCount = hasActiveCalls ? activeToolCalls!.length : Math.max(parsedCalls.length, deferredToolCount);
   const isRunning = hasActiveCalls && activeToolCalls!.some(tc => tc.status === 'running');
 
   const handleToggle = () => setIsExpanded(!isExpanded);
@@ -97,7 +138,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
   // Nomes das tools para exibição rápida
   const toolNames = hasActiveCalls
     ? activeToolCalls!.map(tc => tc.name)
-    : parsedCalls.map(tc => tc.function.name);
+    : shouldDeferSavedParsing ? [t('chat.toolDetails')] : parsedCalls.map(tc => tc.function.name);
 
   const uniqueNames = [...new Set(toolNames)];
   const summaryText = isRunning
@@ -171,6 +212,19 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                     <div className="tool-calls-section__item-header">
                       <span className="tool-calls-section__status-icon" aria-hidden="true"><CheckCircleOutlined /></span>
                       <span className="tool-calls-section__name">{tc.function.name}</span>
+                      {tc.origin && (
+                        <span className={`tool-calls-section__origin-badge tool-calls-section__origin-badge--${tc.origin}`}>
+                          {tc.origin === 'mcp_native' ? t('chat.toolOriginMcpNative')
+                            : tc.origin === 'mcp_bridge' ? t('chat.toolOriginMcpBridge')
+                            : t('chat.toolOriginBuiltin')}
+                        </span>
+                      )}
+                      {tc.server_label && (
+                        <span className="tool-calls-section__server-label">{tc.server_label}</span>
+                      )}
+                      {tc.duration_ms != null && tc.duration_ms > 0 && (
+                        <span className="tool-calls-section__duration">{formatDuration(tc.duration_ms)}</span>
+                      )}
                     </div>
 
                     {/* Parâmetros da chamada */}

@@ -146,7 +146,7 @@ func (m *Manager) UnregisterAll() {
 			hk.cancel()
 		}
 		if hk.hotkey != nil {
-			hk.hotkey.Unregister()
+			_ = hk.hotkey.Unregister()
 		}
 		log.Printf("Hotkey removido: ID=%d", id)
 	}
@@ -349,6 +349,6 @@ func (m *Manager) UnregisterAllProfileHotkeys() {
 	profileHotkeysMu.Unlock()
 
 	for _, pid := range allProfiles {
-		m.UnregisterProfileHotkeys(pid)
+		_ = m.UnregisterProfileHotkeys(pid)
 	}
 }

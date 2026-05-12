@@ -20,7 +20,8 @@ export function buildInsertMenuItemsForContextMenu(args: { ctx: InsertMenuContex
     if (!activeTab) return;
     await applyInsertRequest({
       id: `ui-editor-insert-${Date.now()}`,
-      target: 'current',
+      target: 'document',
+      targetDocumentId: activeTab.id,
       format: 'markdown',
       content,
       focus: true,

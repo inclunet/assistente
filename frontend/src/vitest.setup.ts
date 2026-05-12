@@ -28,6 +28,10 @@ if (typeof HTMLElement !== 'undefined' && !HTMLElement.prototype.scrollIntoView)
 }
 
 vi.mock('monaco-editor', () => ({}));
+
+// @ant-design/icons is stubbed via the antDesignIconsStub plugin in vitest.config.ts
+// (resolve-level interception, much faster than vi.mock which still triggers transform).
+
 vi.mock('monaco-editor/esm/vs/editor/editor.api', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/editor.main', () => ({}));

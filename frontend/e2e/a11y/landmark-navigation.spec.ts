@@ -14,16 +14,20 @@ function messagesFixture() {
   const now = new Date().toISOString();
   return [
     {
-      message: { id: '1', conversationId: 1, role: 'user', content: 'Olá', createdAt: now },
+      message: { id: '01926b90-0000-7000-8000-100000000001', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: 'Olá', createdAt: now },
       children: [],
       childCount: 0,
     },
     {
-      message: { id: '2', conversationId: 1, role: 'assistant', content: 'Oi!', createdAt: now },
+      message: { id: '01926b90-0000-7000-8000-100000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'assistant', content: 'Oi!', createdAt: now },
       children: [],
       childCount: 0,
     },
   ];
+}
+
+function activeChatTextarea(page: import('@playwright/test').Page) {
+  return page.locator('.ws-content__panel[data-active="true"] .chat-input__textarea');
 }
 
 test.describe('Landmark navigation — F6 / Shift+F6', () => {
@@ -31,7 +35,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
     await wails.waitForApp();
 
     // contentArea é a landmark padrão → foca no textarea do chat
-    const textarea = page.locator('.chat-input__textarea');
+    const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
   });
 
@@ -40,7 +44,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
     await wails.waitForApp();
 
     // Garante que o foco inicial é no textarea (contentArea)
-    const textarea = page.locator('.chat-input__textarea');
+    const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
 
     // Coleta quais landmarks recebem foco ao pressionar F6 repetidamente.
@@ -78,7 +82,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
   test('Shift+F6 navega na direção reversa', async ({ page, wails }) => {
     await wails.waitForApp();
 
-    const textarea = page.locator('.chat-input__textarea');
+    const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
 
     // Shift+F6 deve ir para a landmark anterior (contentToolbar ou workspaceTabs)
@@ -98,7 +102,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
   test('Escape retorna à área padrão (textarea do chat)', async ({ page, wails }) => {
     await wails.waitForApp();
 
-    const textarea = page.locator('.chat-input__textarea');
+    const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
 
     // Navega para outra landmark
@@ -121,15 +125,15 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
       tabs: {
         active: 'tab-1',
         items: [
-          { id: 'tab-1', type: 'chat', conversation_id: 1, title: 'Aba 1', position: 0 },
-          { id: 'tab-2', type: 'chat', conversation_id: 2, title: 'Aba 2', position: 1 },
+          { id: 'tab-1', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1', position: 0 },
+          { id: 'tab-2', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2', position: 1 },
         ],
       },
     };
     await wails.setResponse('GetActiveWorkspace', ws);
     await wails.setResponse('SetActiveWorkspaceTab', undefined);
     await wails.setResponse('EnsureConversation', {
-      id: 2, title: 'Aba 2', created_at: now, updated_at: now, messages: [], message_count: 0,
+      id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2', created_at: now, updated_at: now, messages: [], message_count: 0,
     });
     await wails.waitForApp();
 
@@ -141,7 +145,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
     await tab2.click();
 
     // O foco deve ir à área padrão (textarea)
-    const textarea = page.locator('.chat-input__textarea');
+    const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
   });
 });

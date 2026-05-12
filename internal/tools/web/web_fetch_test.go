@@ -44,7 +44,7 @@ func TestWebFetch_HTMLToText(t *testing.T) {
 	// Servidor de teste com HTML
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html>
+		_, _ = fmt.Fprint(w, `<html>
 		<head><title>Test Page</title><script>var x = 1;</script></head>
 		<body>
 			<h1>Hello World</h1>
@@ -84,7 +84,7 @@ func TestWebFetch_HTMLToText(t *testing.T) {
 func TestWebFetch_PlainText(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, "Simple plain text response")
+		_, _ = fmt.Fprint(w, "Simple plain text response")
 	}))
 	defer server.Close()
 
@@ -105,7 +105,7 @@ func TestWebFetch_PlainText(t *testing.T) {
 func TestWebFetch_MarkdownMode(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 			<h1>Title</h1>
 			<p>A paragraph with <strong>bold</strong> and <em>italic</em>.</p>
 			<ul><li>Item 1</li><li>Item 2</li></ul>
@@ -138,7 +138,7 @@ func TestWebFetch_Truncation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		// Conteúdo grande
-		fmt.Fprint(w, strings.Repeat("a", 10000))
+		_, _ = fmt.Fprint(w, strings.Repeat("a", 10000))
 	}))
 	defer server.Close()
 

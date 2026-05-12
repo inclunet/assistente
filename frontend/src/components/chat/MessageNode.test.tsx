@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageNode } from './MessageNode';
 import { main } from '../../../wailsjs/go/models';
 
@@ -13,36 +13,39 @@ vi.mock('./ChatMessage', () => ({
 }));
 
 type ChatStoreState = {
-  toggleThreadExpanded: () => void;
-  editingMessageId: string | null;
-  setEditingMessageId: (id: string | null) => void;
-  readingMessageId: string | null;
-  setReadingMessageId: (id: string | null) => void;
-  streamingMessageId: string | null;
-  streamingReasoning: string;
-  isThinking: boolean;
-  toggleReasoningExpanded: () => void;
-  activeToolCalls: Array<unknown>;
-  completedSegments: Array<unknown>;
-  expandedThreads: Set<string>;
-  expandedReasonings: Set<string>;
+  sessionsByConversationId: Record<string, unknown>;
+  toggleConversationThreadExpanded: () => void;
+  setConversationEditingMessageId: (conversationId: string, id: string | null) => void;
+  setConversationReadingMessageId: (conversationId: string, id: string | null) => void;
+  toggleConversationReasoningExpanded: () => void;
 };
 
 vi.mock('../../store/chatStore', () => ({
   useChatStore: (selector: (state: ChatStoreState) => unknown) => selector({
-    toggleThreadExpanded: vi.fn(),
+    sessionsByConversationId: {},
+    toggleConversationThreadExpanded: vi.fn(),
+    setConversationEditingMessageId: vi.fn(),
+    setConversationReadingMessageId: vi.fn(),
+    toggleConversationReasoningExpanded: vi.fn(),
+  }),
+}));
+
+vi.mock('./ChatSessionContext', () => ({
+  useChatNodeSessionState: () => ({
+    conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
     editingMessageId: null,
-    setEditingMessageId: vi.fn(),
     readingMessageId: null,
-    setReadingMessageId: vi.fn(),
     streamingMessageId: null,
-    streamingReasoning: '',
+    streamingReasoning: null,
     isThinking: false,
-    toggleReasoningExpanded: vi.fn(),
     activeToolCalls: [],
     completedSegments: [],
-    expandedThreads: new Set<string>(),
-    expandedReasonings: new Set<string>(),
+    isExpanded: false,
+    reasoningExpanded: false,
+    setConversationEditingMessageId: vi.fn(),
+    setConversationReadingMessageId: vi.fn(),
+    toggleConversationThreadExpanded: vi.fn(),
+    toggleConversationReasoningExpanded: vi.fn(),
   }),
 }));
 
@@ -58,7 +61,7 @@ vi.mock('../../services/messageAudio', () => ({
   messageAudioService: { stopCurrentAudio: vi.fn() },
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   UpdateMessage: vi.fn(),
 }));
 
@@ -74,7 +77,7 @@ describe('MessageNode', () => {
         node={main.MessageNode.createFrom({
           message: new main.EnrichedMessage({
             id: '1',
-            conversationId: 1,
+            conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
             role: 'user',
             content: 'Oi',
             createdAt: new Date().toISOString(),
@@ -92,5 +95,34 @@ describe('MessageNode', () => {
     expect(screen.getByRole('listitem')).toHaveAttribute('data-message-id', '1');
     expect(screen.getByTestId('chat-message')).toBeInTheDocument();
     expect(chatMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ hasThreadIndicator: true }));
+  });
+
+  it('não dispara delete por teclado para placeholder de turno só com tool', () => {
+    const onDelete = vi.fn();
+    render(
+      <MessageNode
+        onDelete={onDelete}
+        node={main.MessageNode.createFrom({
+          message: new main.EnrichedMessage({
+            id: 'tool-message-1',
+            conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+            role: 'assistant',
+            content: '',
+            source: 'tool_only_turn_placeholder',
+            createdAt: new Date().toISOString(),
+            timestamp: Date.now(),
+            isStreaming: false,
+            internal: false,
+          }),
+          childCount: 0,
+          level: 0,
+          children: [],
+        })}
+      />
+    );
+
+    fireEvent.keyDown(screen.getByRole('listitem'), { key: 'Delete' });
+
+    expect(onDelete).not.toHaveBeenCalled();
   });
 });

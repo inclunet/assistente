@@ -310,3 +310,22 @@ func TestProcessTemplate_ExecWithData(t *testing.T) {
 		t.Errorf("expected template to render using data, got: %q", result)
 	}
 }
+
+func TestProcessTemplate_SurfaceStateAndContext(t *testing.T) {
+	content := `tipo={{ .Surface.Type }}; arquivo={{ index .Surface.State "filePath" }}; seleção={{ index .Surface.Context "selectedText" }}`
+	data := struct {
+		Surface struct {
+			Type    string
+			State   map[string]any
+			Context map[string]any
+		}
+	}{}
+	data.Surface.Type = "editor"
+	data.Surface.State = map[string]any{"filePath": "/tmp/readme.md"}
+	data.Surface.Context = map[string]any{"selectedText": "hello"}
+
+	result := ProcessTemplate(content, data)
+	if strings.TrimSpace(result) != "tipo=editor; arquivo=/tmp/readme.md; seleção=hello" {
+		t.Errorf("expected surface data rendered, got: %q", result)
+	}
+}

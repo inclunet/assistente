@@ -23,6 +23,61 @@ O sistema funciona parcialmente mas e fragil: editar perfil nao reinicializa spe
 
 Redesenhar `VoiceConfig` como struct hierarquica com 3 sub-configs independentes (assistant, user, system), extrair STT para `InputConfig` e canais para `ChannelsConfig`. Sem campos legacy, sem fallback.
 
+### Atualizacao 2026-05-05: contrato definitivo de modelo e voz TTS
+
+A implementacao inicial separou os campos `model` e `voice_id`, mas a UI e parte do backend continuaram tratando alguns modelos TTS dinamicos como se fossem vozes. Isso criou um contrato ambiguo:
+
+- OpenAI oficial usava IDs compostos de picker (`voiceId::model`), misturando modelo e voz em uma unica selecao.
+- Piper/LocalAI expunha modelos `voice-*` como `TTSVoiceInfo`, porque cada modelo Piper costuma representar uma voz.
+- Qwen/Kokoro/OpenAI-compatible eram empurrados para o mesmo caminho dinamico, embora normalmente tenham modelo TTS e nome de voz separados.
+- Backend aceitava `model` vazio e preenchia com `voice_id`, mascarando configuracao invalida.
+
+Essa ambiguidade fica removida. A partir desta AEP, TTS HTTP tem contrato explicito:
+
+```
+voice.<role>:
+  provider: "openai"        # familia HTTP OpenAI-compatible
+  llm_provider_id: string   # provider registrado para credenciais/base URL
+  model: string             # obrigatorio para TTS HTTP
+  voice_id: string          # obrigatorio somente quando o provider/modelo exige voz separada
+  selection_mode: string    # "model_and_voice" ou "model_only"
+```
+
+Nomenclatura:
+
+- `provider` e a familia de TTS no perfil. Para APIs HTTP OpenAI-compatible, o valor e `openai`, mesmo quando o backend real e Kokoro, Qwen, LocalAI ou outro endpoint compativel.
+- `llm_provider_id` e o ID do provider registrado que carrega credenciais, base URL e formato da API.
+- Parametros `providerID` nas APIs abaixo recebem esse mesmo ID registrado (`llm_provider_id`), nao a familia `provider`.
+
+Regras:
+
+- `model` nunca e inferido a partir de `voice_id`.
+- `voice_id` nunca carrega modelo embutido.
+- Providers/modelos como OpenAI, Kokoro e Qwen usam `selection_mode = "model_and_voice"`: o usuario escolhe modelo e voz separadamente.
+- Providers/modelos como Piper usam `selection_mode = "model_only"`: o usuario escolhe apenas o modelo; `voice_id` permanece vazio.
+- IDs compostos (`voiceId::model`) ficam proibidos.
+- Listagem de `/v1/models` alimenta seletor de modelos, nao seletor de vozes.
+- Listagem de vozes recebe `providerID` e `modelID` como entrada.
+- Sem migracao automatica, fallback, heuristica de compatibilidade ou degradacao silenciosa para perfis antigos.
+
+APIs obrigatorias:
+
+```
+GetTTSModels(providerID) []TTSModelInfo
+GetTTSVoices(providerID, modelID) []TTSVoiceInfo
+SpeakPreview(providerID, modelID, voiceID, rate, volume, text, sessionID)
+SpeakMessage(messageID, providerID, modelID, voiceID, rate)
+```
+
+Em `selection_mode = "model_only"`, o cliente chama `SpeakPreview` e `SpeakMessage` com `voiceID = ""`; a requisicao HTTP envia apenas o modelo.
+
+Validacao obrigatoria:
+
+- Para qualquer TTS HTTP OpenAI-compatible representado no perfil por `provider = "openai"`, `model` vazio e erro de configuracao.
+- Para `selection_mode = "model_and_voice"`, `voice_id` vazio e erro de configuracao.
+- Para `selection_mode = "model_only"`, `voice_id` deve ficar vazio e a sintese envia apenas o modelo.
+- Nenhum caminho pode tentar outro provider automaticamente.
+
 ### Antes (modelo atual)
 
 ```

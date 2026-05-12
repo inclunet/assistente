@@ -1,7 +1,18 @@
-import { describe, expect, it, vi } from 'vitest';
-import { downloadJSON, generateFilename, openFileDialog } from './exportImport';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { downloadJSON, generateFilename, openFileDialog, openImportFileDialog, ImportFileError, IMPORT_FILE_ERROR_CODES } from './exportImport';
+
+const originalFileReader = globalThis.FileReader;
 
 describe('exportImport', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Object.defineProperty(globalThis, 'FileReader', {
+      value: originalFileReader,
+      configurable: true,
+      writable: true,
+    });
+  });
+
   it('gera filename com prefixo', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-01T12:00:00.000Z'));
@@ -95,6 +106,73 @@ describe('exportImport', () => {
 
     await expect(promise).resolves.toBe('abc');
     expect(readSpy).toHaveBeenCalled();
+
+    (document.createElement as { mockRestore?: () => void }).mockRestore?.();
+  });
+
+  it('abre dialogo de importacao e retorna nome e conteudo', async () => {
+    const input = document.createElement('input');
+    const file = new File(['{"a":1}'], 'backup.json', { type: 'application/json' });
+
+    class MockFileReader {
+      public result: string | ArrayBuffer | null = null;
+      public onload: (() => void) | null = null;
+      public onerror: (() => void) | null = null;
+
+      readAsText() {
+        this.result = '{"a":1}';
+        this.onload?.();
+      }
+    }
+
+    const originalCreateElement = document.createElement.bind(document);
+    vi
+      .spyOn(document, 'createElement')
+      .mockImplementation((...args: Parameters<Document['createElement']>) => {
+        const [tagName, options] = args;
+        if (tagName === 'input') return input;
+        return originalCreateElement(tagName, options);
+      });
+
+    Object.defineProperty(globalThis, 'FileReader', {
+      value: MockFileReader as unknown as typeof FileReader,
+      configurable: true,
+    });
+
+    const promise = openImportFileDialog('.json');
+    Object.defineProperty(input, 'files', { value: [file] });
+    type InputChangeEvent = Event & { target: HTMLInputElement };
+    input.onchange?.({ target: input } as InputChangeEvent);
+
+    await expect(promise).resolves.toEqual({
+      name: 'backup.json',
+      content: '{"a":1}',
+    });
+
+    (document.createElement as { mockRestore?: () => void }).mockRestore?.();
+  });
+
+  it('retorna erro tipado quando nenhum arquivo e selecionado', async () => {
+    const input = document.createElement('input');
+
+    const originalCreateElement = document.createElement.bind(document);
+    vi
+      .spyOn(document, 'createElement')
+      .mockImplementation((...args: Parameters<Document['createElement']>) => {
+        const [tagName, options] = args;
+        if (tagName === 'input') return input;
+        return originalCreateElement(tagName, options);
+      });
+
+    const promise = openImportFileDialog('.json');
+    Object.defineProperty(input, 'files', { value: [] });
+    type InputChangeEvent = Event & { target: HTMLInputElement };
+    input.onchange?.({ target: input } as InputChangeEvent);
+
+    await expect(promise).rejects.toEqual(expect.objectContaining<Partial<ImportFileError>>({
+      name: 'ImportFileError',
+      code: IMPORT_FILE_ERROR_CODES.NO_FILE_SELECTED,
+    }));
 
     (document.createElement as { mockRestore?: () => void }).mockRestore?.();
   });

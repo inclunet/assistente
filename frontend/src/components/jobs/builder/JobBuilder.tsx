@@ -15,7 +15,7 @@ import { OutputExplorer } from './OutputExplorer';
 import { TemplateEditor } from './TemplateEditor';
 import { YAMLPreview } from './YAMLPreview';
 import { useJobStore } from '../../../store/jobStore';
-import { ListKnownEvents, InferEventSchema } from '@wailsjs/go/main/App';
+import { ListKnownEvents, InferEventSchema } from '@wailsjs/go/app/App';
 import { jobs } from '@wailsjs/go/models';
 import './JobBuilder.css';
 

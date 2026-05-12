@@ -6,6 +6,8 @@ import { ttsService } from '../services/tts';
 import { VoiceRole } from '../services/tts/index';
 import { messageAudioService } from '../services/messageAudio';
 import { stripMarkdown } from '../lib/stripMarkdown';
+import { isBackendId } from '../lib/idUtils';
+import i18next from 'i18next';
 
 export interface UseContextMenuResult {
   menuVisible: boolean;
@@ -21,6 +23,7 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   // Guarda referência ao elemento que abriu o menu para restaurar foco
   const triggerElementRef = useRef<HTMLElement | null>(null);
+  const triggerConversationIdRef = useRef<string | null>(null);
 
   const showMenu = useCallback(
     (event: React.MouseEvent, message: Message, isUser: boolean) => {
@@ -28,6 +31,7 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
       
       // Guarda o elemento que abriu o menu (ou o target do evento)
       triggerElementRef.current = (event.currentTarget as HTMLElement) || (event.target as HTMLElement);
+      triggerConversationIdRef.current = String(message.conversationId || '') || null;
       
       // Verifica estado de expansão do reasoning no momento de mostrar o menu
       const reasoningExpanded = options.isReasoningExpanded 
@@ -56,9 +60,13 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
     // Restaura foco ao elemento que abriu o menu (exceto se edição foi iniciada)
     setTimeout(() => {
       // Verifica se deve pular a restauração de foco (ex: edição iniciada)
-      const shouldSkip = useChatStore.getState().consumeSkipFocusRestore();
+      const conversationId = triggerConversationIdRef.current;
+      const shouldSkip = conversationId && options.sessionKey
+        ? useChatStore.getState().consumeSkipFocusRestore(conversationId, options.sessionKey)
+        : false;
       if (shouldSkip) {
         triggerElementRef.current = null;
+        triggerConversationIdRef.current = null;
         return;
       }
       
@@ -66,8 +74,9 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
         triggerElementRef.current.focus();
         triggerElementRef.current = null;
       }
+      triggerConversationIdRef.current = null;
     }, 10);
-  }, []);
+  }, [options.sessionKey]);
 
   // Fecha o menu quando clicar fora (já tratado no ContextMenu, mas como fallback)
   useEffect(() => {
@@ -113,31 +122,39 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       if (!message.content || !message.id) return;
 
       const role: VoiceRole = message.role === 'user' ? 'user' : 'assistant';
+      const plain = stripMarkdown(message.content);
+      const prefix =
+        message.role === 'user'
+          ? i18next.t('chat.you')
+          : message.role === 'system'
+            ? i18next.t('chat.system')
+            : i18next.t('chat.assistant');
 
       const voiceCtx = ttsService.getVoiceContext(role);
-      if (!voiceCtx) return;
+      if (!voiceCtx) {
+        onAnnounce?.(`${prefix}: ${plain}`);
+        return;
+      }
 
       messageAudioService.stopCurrentAudio();
       ttsService.stop();
 
-      // Somente IDs numéricos puros são do backend (ex: "42").
-      // IDs locais contêm hífen/letras (ex: "1712345678901-abc3d5e9f").
-      const isBackendId = typeof message.id === 'string'
-        ? /^\d+$/.test(message.id)
-        : typeof message.id === 'number';
-      const numericId = isBackendId ? Number(message.id) : 0;
+      const backendId = isBackendId(message.id) ? message.id : '';
 
-      if (numericId > 0) {
+      if (backendId) {
         const volume = ttsService.getVolume();
-        const played = await messageAudioService.speakMessage(numericId, volume, voiceCtx);
+        const played = await messageAudioService.speakMessage(backendId, volume, voiceCtx);
         if (played) return;
       }
 
       // Fallback: speakAsRole (WebSpeech/SAPI5/SpeakPreview)
-      const text = stripMarkdown(message.content);
-      await ttsService.speakAsRole(text, role);
+      try {
+        await ttsService.speakAsRole(plain, role);
+      } catch {
+        onAnnounce?.(`${prefix}: ${plain}`);
+      }
     },
-    []
+    [onAnnounce]
   );
 
   return {

@@ -2,6 +2,7 @@ package usecases_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -135,9 +136,11 @@ func TestSendMessageUseCase_ReturnsErrorWhenNoLLMProviders(t *testing.T) {
 	uc := newTestUseCase(t, mgr)
 
 	// ConversationID pode ser qualquer valor pois Count==0 falha antes do check de conv.
+	// Ctx precisa carregar userID por causa do fail-closed em Execute (B14 / AEP-0052).
+	ctx := database.WithUserID(context.Background(), "test-user")
 	_, err := uc.Execute(usecases.SendMessageRequest{
-		Ctx:            context.Background(),
-		ConversationID: 1,
+		Ctx:            ctx,
+		ConversationID: "1",
 		UserContent:    "hello",
 		Source:         "test",
 	})
@@ -150,14 +153,37 @@ func TestSendMessageUseCase_ReturnsErrorWhenNoLLMProviders(t *testing.T) {
 	}
 }
 
+// TestSendMessageUseCase_RejectsUnauthenticatedContext garante o fail-closed
+// de B14: ctx sem userID retorna ErrUserScopeRequired antes de qualquer
+// query no banco/registry.
+func TestSendMessageUseCase_RejectsUnauthenticatedContext(t *testing.T) {
+	setupTestDB(t)
+	mgr := setupProfileDir(t)
+	uc := newTestUseCase(t, mgr)
+
+	_, err := uc.Execute(usecases.SendMessageRequest{
+		Ctx:            context.Background(),
+		ConversationID: "1",
+		UserContent:    "hello",
+		Source:         "test",
+	})
+	if err == nil {
+		t.Fatal("ctx sem userID deveria falhar")
+	}
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Errorf("esperava ErrUserScopeRequired, recebeu: %v", err)
+	}
+}
+
 // TestSendMessageUseCase_ReturnsErrorWhenProviderNotFound verifica que o UC retorna
 // erro quando o provedor referenciado no perfil não existe no registry.
 func TestSendMessageUseCase_ReturnsErrorWhenProviderNotFound(t *testing.T) {
 	setupTestDB(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
 
 	// Insere um provider no DB para que Count() > 0 e PrepareContext passe o check inicial.
 	store := providers.NewDBStore()
-	if err := store.Save([]*llm.ProviderConfig{{
+	if err := store.Save(ctx, []*llm.ProviderConfig{{
 		ID:      "dummy",
 		Name:    "Dummy",
 		Type:    "openai",
@@ -170,14 +196,14 @@ func TestSendMessageUseCase_ReturnsErrorWhenProviderNotFound(t *testing.T) {
 	// Perfil aponta para "nonexistent" — diferente do "dummy" no BD.
 	setupProfileWith(t, mgr, minValidProfile("Test Provider", "nonexistent"))
 
-	conv, err := database.CreateConversation("test-conv", "")
+	conv, err := database.CreateConversationWithContext(ctx, "test-conv", "")
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 
 	uc := newTestUseCase(t, mgr)
 	_, err = uc.Execute(usecases.SendMessageRequest{
-		Ctx:            context.Background(),
+		Ctx:            ctx,
 		ConversationID: conv.ID,
 		UserContent:    "hello",
 		Source:         "test",
@@ -189,5 +215,57 @@ func TestSendMessageUseCase_ReturnsErrorWhenProviderNotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "nonexistent") {
 		t.Errorf("expected error to mention provider ID, got: %q", err.Error())
+	}
+}
+
+func TestSendMessageUseCase_RetryExistingUserMessageDoesNotDuplicateUserRow(t *testing.T) {
+	setupTestDB(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+
+	store := providers.NewDBStore()
+	if err := store.Save(ctx, []*llm.ProviderConfig{{
+		ID:      "dummy",
+		Name:    "Dummy",
+		Type:    "openai",
+		BaseURL: "http://localhost",
+	}}); err != nil {
+		t.Fatalf("save dummy provider: %v", err)
+	}
+
+	mgr := setupProfileDir(t)
+	setupProfileWith(t, mgr, minValidProfile("Retry Existing Message", "nonexistent"))
+
+	conv, err := database.CreateConversationWithContext(ctx, "retry-conv", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	userMsg, err := database.CreateMessageWithContext(ctx, database.MessageOptions{
+		ConversationID: conv.ID,
+		Role:           "user",
+		Content:        "mensagem original",
+		Source:         "wails",
+	})
+	if err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+
+	uc := newTestUseCase(t, mgr)
+	_, err = uc.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conv.ID,
+		RetryMessageID: userMsg.ID,
+		Source:         "wails",
+		Params:         llm.ChatParams{Model: "gpt-4o"},
+	})
+	if err == nil {
+		t.Fatal("expected error when provider not found during retry, got nil")
+	}
+
+	var count int64
+	if err := database.DB().Model(&database.ChatMessage{}).Where("conversation_id = ?", conv.ID).Count(&count).Error; err != nil {
+		t.Fatalf("count messages: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("retry should not duplicate user messages, got %d rows", count)
 	}
 }
