@@ -50,7 +50,7 @@ type ServerConfig struct {
 	Command               string            `json:"command,omitempty" yaml:"command,omitempty"` // apenas stdio
 	Args                  []string          `json:"args,omitempty" yaml:"args,omitempty"`       // apenas stdio
 	Env                   map[string]string `json:"env,omitempty" yaml:"env,omitempty"`         // variáveis de ambiente
-	URL                   string            `json:"url,omitempty" yaml:"url,omitempty"`         // apenas sse
+	URL                   string            `json:"url,omitempty" yaml:"url,omitempty"`         // sse/streamable
 	AuthType              AuthType          `json:"auth_type,omitempty" yaml:"auth_type,omitempty"`
 	OAuth2ClientID        string            `json:"oauth2_client_id,omitempty" yaml:"oauth2_client_id,omitempty"`
 	OAuth2AuthURL         string            `json:"oauth2_auth_url,omitempty" yaml:"oauth2_auth_url,omitempty"`
