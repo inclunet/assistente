@@ -239,6 +239,22 @@ func TestImportDataExternalMCPServersImportsBearerCredential(t *testing.T) {
 	}
 }
 
+func TestImportMCPServerRejectsIncompleteTransportConfig(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	_, err := ImportMCPServerWithContext(ctx, MCPServerExport{
+		Slug: "broken",
+		Name: "Broken",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), `transport inválido ou ausente`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestImportLegacyMCPServersIsReusableAndIdempotent(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()

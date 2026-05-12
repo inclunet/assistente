@@ -46,6 +46,16 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if req.OutputFormat == portability.FormatMCPJSON {
+		if err := validateMCPJSONExportRequest(req); err != nil {
+			return "", err
+		}
+		mcpServerSlugs, err := resolveMCPServerSlugs(ctx, req)
+		if err != nil {
+			return "", err
+		}
+		return portability.ExportMCPServersExternalJSONWithContext(ctx, mcpServerSlugs)
+	}
 	conversationIDs, err := resolveConversationIDs(ctx, req)
 	if err != nil {
 		return "", err
@@ -66,11 +76,6 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 	switch req.OutputFormat {
 	case portability.FormatJSON:
 		return portability.ExportPortableDataWithContext(ctx, conversationIDs, providerIDs, taskListIDs, a.credMgr, req, AppVersion)
-	case portability.FormatMCPJSON:
-		if len(conversationIDs) > 0 || len(providerIDs) > 0 || len(taskListIDs) > 0 || req.IncludeCredentials {
-			return "", fmt.Errorf("formato mcp-json suporta apenas servidores MCP")
-		}
-		return portability.ExportMCPServersExternalJSONWithContext(ctx, mcpServerSlugs)
 	case portability.FormatHTML:
 		if len(taskListIDs) > 0 || len(providerIDs) > 0 || len(mcpServerSlugs) > 0 {
 			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
@@ -93,6 +98,16 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 	default:
 		return "", fmt.Errorf("formato de exportação ainda não suportado: %s", req.OutputFormat)
 	}
+}
+
+func validateMCPJSONExportRequest(req ExportRequest) error {
+	if req.IncludeCredentials || strings.TrimSpace(req.CredentialExportPassword) != "" {
+		return fmt.Errorf("formato mcp-json não suporta exportação de credenciais; selecione apenas servidores MCP")
+	}
+	if len(req.ConversationIDs) > 0 || len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0 {
+		return fmt.Errorf("formato mcp-json suporta apenas servidores MCP; use mcpServerSlugs ou All para exportar MCP servers")
+	}
+	return nil
 }
 
 // ==================== Import Functions ====================

@@ -22,6 +22,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
+	"gorm.io/gorm"
 )
 
 const (
@@ -732,7 +733,14 @@ func (m *Manager) GetConfig(slug string) (*ServerConfig, error) {
 	m.mu.RUnlock()
 
 	if repo := m.repository(); repo != nil {
-		return repo.GetServer(m.credentialContext(), slug)
+		cfg, err := repo.GetServer(m.credentialContext(), slug)
+		if err == nil {
+			return cfg, nil
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("servidor MCP '%s' não encontrado: %w", slug, err)
+		}
+		return nil, err
 	}
 	return nil, fmt.Errorf("servidor MCP '%s' não encontrado", slug)
 }
@@ -751,6 +759,7 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 	if err := repo.SaveServer(ctx, &cfg); err != nil {
 		return fmt.Errorf("erro ao salvar config: %w", err)
 	}
+	roots := m.GetWorkspaceRoots()
 	m.mu.Lock()
 	if existing, ok := m.servers[slug]; ok {
 		existing.ID = cfg.ID
@@ -762,6 +771,7 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 			Config: cfg,
 			Status: StatusDisconnected,
 			Tools:  []MCPToolInfo{},
+			Roots:  roots,
 		}
 	}
 	m.mu.Unlock()
@@ -784,7 +794,7 @@ func (m *Manager) DuplicateConfig(slug string) (string, error) {
 	if newCfg.Name == "" {
 		newCfg.Name = slug
 	}
-	newCfg.Name = fmt.Sprintf("%s (Copia)", newCfg.Name)
+	newCfg.Name = fmt.Sprintf("%s (Cópia)", newCfg.Name)
 
 	if err := m.SaveConfig(newSlug, newCfg); err != nil {
 		return "", err

@@ -179,7 +179,7 @@ func (r *DBRepository) DuplicateServer(ctx context.Context, slug, newSlug string
 	if cfg.Name == "" {
 		cfg.Name = slug
 	}
-	cfg.Name = fmt.Sprintf("%s (Copia)", cfg.Name)
+	cfg.Name = fmt.Sprintf("%s (Cópia)", cfg.Name)
 	if err := r.SaveServer(ctx, cfg); err != nil {
 		return nil, err
 	}

@@ -131,3 +131,26 @@ func TestValidateDBOnlyExportRequestAllowsSupportedDBOnlyResources(t *testing.T)
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidateMCPJSONExportRequestAllowsAllMCPServers(t *testing.T) {
+	err := validateMCPJSONExportRequest(ExportRequest{
+		OutputFormat: portability.FormatMCPJSON,
+		All:          true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateMCPJSONExportRequestRejectsOtherResources(t *testing.T) {
+	err := validateMCPJSONExportRequest(ExportRequest{
+		OutputFormat:    portability.FormatMCPJSON,
+		ConversationIDs: []string{"01926b90-7a5a-7c4e-8d3f-000000000001"},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "mcp-json suporta apenas servidores MCP") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

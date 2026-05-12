@@ -121,6 +121,9 @@ func ImportMCPServerWithContext(ctx context.Context, server MCPServerExport) (bo
 	case err != nil && !errorsIsRecordNotFound(err):
 		return false, err
 	}
+	if err := validateMCPServerExport(server); err != nil {
+		return false, err
+	}
 
 	row, err := mcpServerExportToModel(userID, server)
 	if err != nil {
@@ -162,6 +165,27 @@ func normalizeMCPServerExport(server MCPServerExport) MCPServerExport {
 		server.AuthType = inferMCPAuthType(server)
 	}
 	return server
+}
+
+func validateMCPServerExport(server MCPServerExport) error {
+	switch server.Transport {
+	case "stdio":
+		if strings.TrimSpace(server.Command) == "" {
+			return fmt.Errorf("servidor MCP %s usa transport stdio mas command é obrigatório", server.Slug)
+		}
+	case "sse", "streamable":
+		rawURL := strings.TrimSpace(server.URL)
+		if rawURL == "" {
+			return fmt.Errorf("servidor MCP %s usa transport %s mas url é obrigatória", server.Slug, server.Transport)
+		}
+		parsed, err := url.Parse(rawURL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("servidor MCP %s usa url inválida: %q", server.Slug, server.URL)
+		}
+	default:
+		return fmt.Errorf("servidor MCP %s tem transport inválido ou ausente: %q", server.Slug, server.Transport)
+	}
+	return nil
 }
 
 func mcpServerExportToModel(userID string, server MCPServerExport) (database.MCPServer, error) {
@@ -501,6 +525,8 @@ func hasJSONKey(raw map[string]json.RawMessage, key string) bool {
 	return ok
 }
 
+// Mirrors internal/mcp.ServerConfig.inferAuthType. Keep these branches aligned
+// while portability cannot import internal/mcp without creating a package cycle.
 func inferMCPAuthType(server MCPServerExport) string {
 	hasOAuthEndpoints := server.OAuth2AuthURL != "" || server.OAuth2TokenURL != ""
 	hasClientID := server.OAuth2ClientID != ""
