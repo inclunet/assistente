@@ -282,6 +282,43 @@ func TestConvertMessages_AssistantWithToolCalls(t *testing.T) {
 	}
 }
 
+func TestRemoveTrailingAssistantPrefill_RemovesOnlyTrailingAssistants(t *testing.T) {
+	msgs := []Message{
+		{Role: "system", Content: "You are a helper"},
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi"},
+		{Role: "user", Content: "Continue"},
+		{Role: "assistant", Content: "prefill"},
+	}
+
+	got := removeTrailingAssistantPrefill(msgs)
+	if len(got) != 4 {
+		t.Fatalf("len = %d, want 4", len(got))
+	}
+	if got[len(got)-1].Role != "user" {
+		t.Fatalf("last role = %q, want user", got[len(got)-1].Role)
+	}
+	if msgs[len(msgs)-1].Role != "assistant" {
+		t.Fatal("original slice should remain unchanged")
+	}
+}
+
+func TestRemoveTrailingAssistantPrefill_KeepsAssistantHistoryFollowedByUser(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi"},
+		{Role: "user", Content: "Next"},
+	}
+
+	got := removeTrailingAssistantPrefill(msgs)
+	if len(got) != len(msgs) {
+		t.Fatalf("len = %d, want %d", len(got), len(msgs))
+	}
+	if got[len(got)-1].Role != "user" {
+		t.Fatalf("last role = %q, want user", got[len(got)-1].Role)
+	}
+}
+
 func TestConvertTools(t *testing.T) {
 	tools := []ToolDefinition{
 		{
