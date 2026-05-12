@@ -112,6 +112,9 @@ func Init() error {
 		&TaskList{},
 		&Task{},
 		&TaskNote{},
+		&MCPServer{},
+		&MCPServerLog{},
+		&ToolCatalog{},
 	); err != nil {
 		return err
 	}
@@ -157,7 +160,7 @@ func Init() error {
 }
 
 // AdoptLegacyData vincula registros single-user existentes (user_id IS NULL
-// ou user_id='') ao usuário ativo. A operação é idempotente.
+// ou user_id vazio) ao usuário ativo. A operação é idempotente.
 //
 // PONTOS DE CHAMADA (P0-4 do re-review da Fatia 1):
 //   - Login (`app_auth.go` em `adoptLegacyDataForUser`): roda em TODO
@@ -171,7 +174,7 @@ func Init() error {
 // nos call sites acima.)
 //
 // SECURITY: instance-wide — varre TODAS as tabelas que carregam
-// `user_id`. O WHERE é restrito a `user_id IS NULL OR user_id = ''`,
+// `user_id`. O WHERE é restrito a registros sem dono,
 // portanto registros legitimamente atribuídos a outro usuário NÃO são
 // re-atribuídos. Concretamente: User B logando depois de User A NÃO
 // herda dados de A — o A já adotou tudo no primeiro login dele e o
@@ -2251,7 +2254,7 @@ func ensureChatMessageWindowIndex() {
 //
 // Roda **antes** do AutoMigrate porque o GORM cria o índice unique a
 // partir da tag `uniqueIndex` no model, e bases pré-AEP-0052 podiam ter
-// `pattern` repetido entre `user_id=''` legacy — sem dedup prévio o
+// `pattern` repetido entre registros legacy sem dono — sem dedup prévio o
 // AutoMigrate falha e o app não sobe (review do AEP-0052, Bloco 6, B31).
 func dedupCredentialEntriesBeforeMigrate() {
 	if db == nil {
@@ -2290,7 +2293,7 @@ func dedupCredentialEntriesBeforeMigrate() {
 // `CredentialEntry` model durante o AutoMigrate.
 //
 // Limitação aceita (review do AEP-0052, M42): o índice é full, não filtra
-// `pattern=''`. Patterns vazios também disputam unicidade. Isso é exigência
+// pattern vazio. Patterns vazios também disputam unicidade. Isso é exigência
 // do SQLite para que o UPSERT (`clause.OnConflict`) usado em
 // `credentials/db_store.go` funcione — SQLite só aceita ON CONFLICT contra
 // índices unique sem `WHERE`. Em prática o app sempre grava patterns

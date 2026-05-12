@@ -21,9 +21,9 @@ const (
 type AuthType string
 
 const (
-	AuthNone                   AuthType = "none"
-	AuthBearer                 AuthType = "bearer"
-	AuthBasic                  AuthType = "basic"
+	AuthNone                    AuthType = "none"
+	AuthBearer                  AuthType = "bearer"
+	AuthBasic                   AuthType = "basic"
 	AuthOAuth2ClientCredentials AuthType = "oauth2_client_credentials"
 	AuthOAuth2PKCE              AuthType = "oauth2_pkce"
 )
@@ -38,29 +38,32 @@ const (
 	StatusError        ConnectionStatus = "error"
 )
 
-// ServerConfig é a configuração de um servidor MCP, armazenada em YAML.
-// Cada arquivo em .assistente/mcp/ representa um servidor.
+// ServerConfig é a configuração de um servidor MCP.
+// A fonte persistida é o banco; JSON permanece como formato de import/export legado.
 type ServerConfig struct {
-	Name        string            `json:"name" yaml:"name"`
-	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
-	Transport   TransportType     `json:"transport" yaml:"transport"`
-	Command     string            `json:"command,omitempty" yaml:"command,omitempty"`     // apenas stdio
-	Args        []string          `json:"args,omitempty" yaml:"args,omitempty"`           // apenas stdio
-	Env         map[string]string `json:"env,omitempty" yaml:"env,omitempty"`             // variáveis de ambiente
-	URL         string            `json:"url,omitempty" yaml:"url,omitempty"`             // apenas sse
-	AuthType    AuthType          `json:"auth_type,omitempty" yaml:"auth_type,omitempty"`
-	OAuth2ClientID        string   `json:"oauth2_client_id,omitempty" yaml:"oauth2_client_id,omitempty"`
-	OAuth2AuthURL         string   `json:"oauth2_auth_url,omitempty" yaml:"oauth2_auth_url,omitempty"`
-	OAuth2TokenURL        string   `json:"oauth2_token_url,omitempty" yaml:"oauth2_token_url,omitempty"`
-	OAuth2Scopes          []string `json:"oauth2_scopes,omitempty" yaml:"oauth2_scopes,omitempty"`
-	OAuth2CallbackPort    int      `json:"oauth2_callback_port,omitempty" yaml:"oauth2_callback_port,omitempty"`
-	OAuth2CallbackHost    string   `json:"oauth2_callback_host,omitempty" yaml:"oauth2_callback_host,omitempty"`
-	OAuth2RegistrationURL string   `json:"oauth2_registration_url,omitempty" yaml:"oauth2_registration_url,omitempty"`
-	OAuth2DeviceAuthURL   string   `json:"oauth2_device_auth_url,omitempty" yaml:"oauth2_device_auth_url,omitempty"`
-	DisableSSE  bool              `json:"disable_sse,omitempty" yaml:"disable_sse,omitempty"`
-	PreferBridge bool             `json:"prefer_bridge,omitempty" yaml:"prefer_bridge,omitempty"`
-	Enabled     bool              `json:"enabled" yaml:"enabled"`
-	AutoConnect bool              `json:"auto_connect" yaml:"auto_connect"`
+	ID                    string            `json:"id,omitempty" yaml:"id,omitempty"`
+	UserID                string            `json:"user_id,omitempty" yaml:"user_id,omitempty"`
+	Slug                  string            `json:"slug,omitempty" yaml:"slug,omitempty"`
+	Name                  string            `json:"name" yaml:"name"`
+	Description           string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Transport             TransportType     `json:"transport" yaml:"transport"`
+	Command               string            `json:"command,omitempty" yaml:"command,omitempty"` // apenas stdio
+	Args                  []string          `json:"args,omitempty" yaml:"args,omitempty"`       // apenas stdio
+	Env                   map[string]string `json:"env,omitempty" yaml:"env,omitempty"`         // variáveis de ambiente
+	URL                   string            `json:"url,omitempty" yaml:"url,omitempty"`         // apenas sse
+	AuthType              AuthType          `json:"auth_type,omitempty" yaml:"auth_type,omitempty"`
+	OAuth2ClientID        string            `json:"oauth2_client_id,omitempty" yaml:"oauth2_client_id,omitempty"`
+	OAuth2AuthURL         string            `json:"oauth2_auth_url,omitempty" yaml:"oauth2_auth_url,omitempty"`
+	OAuth2TokenURL        string            `json:"oauth2_token_url,omitempty" yaml:"oauth2_token_url,omitempty"`
+	OAuth2Scopes          []string          `json:"oauth2_scopes,omitempty" yaml:"oauth2_scopes,omitempty"`
+	OAuth2CallbackPort    int               `json:"oauth2_callback_port,omitempty" yaml:"oauth2_callback_port,omitempty"`
+	OAuth2CallbackHost    string            `json:"oauth2_callback_host,omitempty" yaml:"oauth2_callback_host,omitempty"`
+	OAuth2RegistrationURL string            `json:"oauth2_registration_url,omitempty" yaml:"oauth2_registration_url,omitempty"`
+	OAuth2DeviceAuthURL   string            `json:"oauth2_device_auth_url,omitempty" yaml:"oauth2_device_auth_url,omitempty"`
+	DisableSSE            bool              `json:"disable_sse,omitempty" yaml:"disable_sse,omitempty"`
+	PreferBridge          bool              `json:"prefer_bridge,omitempty" yaml:"prefer_bridge,omitempty"`
+	Enabled               bool              `json:"enabled" yaml:"enabled"`
+	AutoConnect           bool              `json:"auto_connect" yaml:"auto_connect"`
 }
 
 // ParseServerConfig unmarshals JSON data into a ServerConfig, applying smart
@@ -131,17 +134,18 @@ func formatSlugAsName(slug string) string {
 
 // ServerStatus é o estado runtime de um servidor MCP (não persistido).
 type ServerStatus struct {
-	Slug        string            `json:"slug"`
-	Config      ServerConfig      `json:"config"`
-	Status      ConnectionStatus  `json:"status"`
-	Error       string            `json:"error,omitempty"`
-	Tools       []MCPToolInfo     `json:"tools"`
-	Resources   []MCPResourceInfo `json:"resources"`
-	Prompts     []MCPPromptInfo   `json:"prompts"`
-	ConnectedAt *time.Time        `json:"connectedAt,omitempty"`
-	LastPing    *time.Time        `json:"lastPing,omitempty"`
-	RetryCount  int               `json:"retryCount,omitempty"`
-	Roots       []Root            `json:"roots,omitempty"`
+	ID           string             `json:"id,omitempty"`
+	Slug         string             `json:"slug"`
+	Config       ServerConfig       `json:"config"`
+	Status       ConnectionStatus   `json:"status"`
+	Error        string             `json:"error,omitempty"`
+	Tools        []MCPToolInfo      `json:"tools"`
+	Resources    []MCPResourceInfo  `json:"resources"`
+	Prompts      []MCPPromptInfo    `json:"prompts"`
+	ConnectedAt  *time.Time         `json:"connectedAt,omitempty"`
+	LastPing     *time.Time         `json:"lastPing,omitempty"`
+	RetryCount   int                `json:"retryCount,omitempty"`
+	Roots        []Root             `json:"roots,omitempty"`
 	Capabilities ServerCapabilities `json:"capabilities"`
 
 	Reconnecting              bool `json:"-"`
@@ -150,6 +154,7 @@ type ServerStatus struct {
 
 // ServerInfo é a versão exportada para o frontend (sem campos sensíveis como env).
 type ServerInfo struct {
+	ID            string            `json:"id,omitempty"`
 	Slug          string            `json:"slug"`
 	Name          string            `json:"name"`
 	Description   string            `json:"description,omitempty"`
@@ -174,11 +179,23 @@ type ServerInfo struct {
 
 // MCPToolInfo contém informações sobre uma tool exposta por um servidor MCP.
 type MCPToolInfo struct {
-	Name        string          `json:"name"`        // nome original da tool no servidor MCP
-	FullName    string          `json:"fullName"`     // nome registrado no registry (namespaced)
+	Name        string          `json:"name"`     // nome original da tool no servidor MCP
+	FullName    string          `json:"fullName"` // nome registrado no registry (namespaced)
 	Description string          `json:"description"`
-	Schema      json.RawMessage `json:"schema"`       // JSON Schema dos parâmetros
+	Schema      json.RawMessage `json:"schema"` // JSON Schema dos parâmetros
 	ServerSlug  string          `json:"serverSlug"`
+}
+
+// MCPServerLog representa um evento persistido do lifecycle de servidor MCP.
+type MCPServerLog struct {
+	ID        string          `json:"id,omitempty"`
+	ServerID  string          `json:"serverId,omitempty"`
+	Slug      string          `json:"slug,omitempty"`
+	Timestamp time.Time       `json:"timestamp"`
+	Type      string          `json:"type"`
+	Message   string          `json:"message,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+	CreatedAt time.Time       `json:"createdAt,omitempty"`
 }
 
 // MCPResourceInfo contém informações sobre um resource exposto por um servidor MCP.
@@ -192,10 +209,10 @@ type MCPResourceInfo struct {
 
 // MCPPromptInfo contém informações sobre um prompt exposto por um servidor MCP.
 type MCPPromptInfo struct {
-	Name        string                `json:"name"`        // nome do prompt
-	Description string                `json:"description"` // descrição do prompt
-	Arguments   []MCPPromptArgument   `json:"arguments"`   // argumentos do prompt
-	ServerSlug  string                `json:"serverSlug"`
+	Name        string              `json:"name"`        // nome do prompt
+	Description string              `json:"description"` // descrição do prompt
+	Arguments   []MCPPromptArgument `json:"arguments"`   // argumentos do prompt
+	ServerSlug  string              `json:"serverSlug"`
 }
 
 // MCPPromptArgument representa um argumento de um prompt MCP.
@@ -208,6 +225,7 @@ type MCPPromptArgument struct {
 // toServerInfo converte ServerStatus para ServerInfo (versão frontend-safe).
 func (s *ServerStatus) toServerInfo() ServerInfo {
 	info := ServerInfo{
+		ID:            s.ID,
 		Slug:          s.Slug,
 		Name:          s.Config.Name,
 		Description:   s.Config.Description,
@@ -246,22 +264,22 @@ func (s *ServerStatus) toServerInfo() ServerInfo {
 
 // SamplingRequest representa uma requisição de sampling do servidor MCP.
 type SamplingRequest struct {
-	Messages          []mcpsdk.SamplingMessage `json:"messages"`
-	ModelPreferences  *ModelPreferences        `json:"modelPreferences,omitempty"`
-	SystemPrompt      string                   `json:"systemPrompt,omitempty"`
-	IncludeContext    string                   `json:"includeContext,omitempty"`
-	Temperature       *float64                 `json:"temperature,omitempty"`
-	MaxTokens         int                      `json:"maxTokens"`
-	StopSequences     []string                 `json:"stopSequences,omitempty"`
-	Metadata          map[string]any           `json:"metadata,omitempty"`
+	Messages         []mcpsdk.SamplingMessage `json:"messages"`
+	ModelPreferences *ModelPreferences        `json:"modelPreferences,omitempty"`
+	SystemPrompt     string                   `json:"systemPrompt,omitempty"`
+	IncludeContext   string                   `json:"includeContext,omitempty"`
+	Temperature      *float64                 `json:"temperature,omitempty"`
+	MaxTokens        int                      `json:"maxTokens"`
+	StopSequences    []string                 `json:"stopSequences,omitempty"`
+	Metadata         map[string]any           `json:"metadata,omitempty"`
 }
 
 // ModelPreferences define preferências de modelo para sampling.
 type ModelPreferences struct {
-	Hints         []ModelHint    `json:"hints,omitempty"`
-	CostPriority  *float64       `json:"costPriority,omitempty"`
-	SpeedPriority *float64       `json:"speedPriority,omitempty"`
-	IntelligencePriority *float64 `json:"intelligencePriority,omitempty"`
+	Hints                []ModelHint `json:"hints,omitempty"`
+	CostPriority         *float64    `json:"costPriority,omitempty"`
+	SpeedPriority        *float64    `json:"speedPriority,omitempty"`
+	IntelligencePriority *float64    `json:"intelligencePriority,omitempty"`
 }
 
 // ModelHint sugere um modelo específico para sampling.
@@ -285,11 +303,11 @@ const (
 
 // LogEntry representa uma entrada de log do servidor MCP.
 type LogEntry struct {
-	Level     LogLevel       `json:"level"`
-	Logger    string         `json:"logger,omitempty"`
-	Data      any            `json:"data"`
-	Timestamp time.Time      `json:"timestamp"`
-	ServerSlug string        `json:"serverSlug"`
+	Level      LogLevel  `json:"level"`
+	Logger     string    `json:"logger,omitempty"`
+	Data       any       `json:"data"`
+	Timestamp  time.Time `json:"timestamp"`
+	ServerSlug string    `json:"serverSlug"`
 }
 
 // Root representa um diretório raiz do workspace.
@@ -306,7 +324,7 @@ type ProgressToken struct {
 // ProgressNotification representa uma notificação de progresso.
 type ProgressNotification struct {
 	ProgressToken ProgressToken `json:"progressToken"`
-	Progress      float64       `json:"progress"`      // 0-100
+	Progress      float64       `json:"progress"`        // 0-100
 	Total         *float64      `json:"total,omitempty"` // opcional
 }
 
@@ -317,11 +335,11 @@ type ResourceUpdated struct {
 
 // ServerCapabilities descreve as capabilities que o servidor suporta.
 type ServerCapabilities struct {
-	Logging           *LoggingCapability           `json:"logging,omitempty"`
-	Prompts           *PromptsCapability           `json:"prompts,omitempty"`
-	Resources         *ResourcesCapability         `json:"resources,omitempty"`
-	Tools             *ToolsCapability             `json:"tools,omitempty"`
-	Sampling          *SamplingCapability          `json:"sampling,omitempty"`
+	Logging   *LoggingCapability   `json:"logging,omitempty"`
+	Prompts   *PromptsCapability   `json:"prompts,omitempty"`
+	Resources *ResourcesCapability `json:"resources,omitempty"`
+	Tools     *ToolsCapability     `json:"tools,omitempty"`
+	Sampling  *SamplingCapability  `json:"sampling,omitempty"`
 }
 
 // LoggingCapability indica se o servidor suporta logging.
