@@ -261,6 +261,22 @@ func TestParseExternalMCPServersRejectsUnrelatedFlatObject(t *testing.T) {
 	}
 }
 
+func TestImportMCPServersJSONRejectsUnrelatedJSON(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	result, err := ImportMCPServersJSONWithContext(ctx, []byte(`{"foo":{"bar":"baz"}}`), nil)
+	if err == nil {
+		t.Fatal("expected unrelated JSON to fail")
+	}
+	if !strings.Contains(err.Error(), "servidores MCP") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Failed != 1 || len(result.Errors) != 1 {
+		t.Fatalf("result = %#v, want one failure", result)
+	}
+}
+
 func TestImportDataExternalMCPServersImportsBearerCredential(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()

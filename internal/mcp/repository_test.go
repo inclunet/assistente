@@ -113,6 +113,39 @@ func TestDBRepositorySaveServerPersistsZeroValueUpdates(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryDuplicateServerRejectsExistingSlug(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	source := &ServerConfig{
+		Slug:      "github",
+		Name:      "GitHub",
+		Transport: TransportStreamable,
+		URL:       "https://github.example/mcp",
+	}
+	if err := repo.SaveServer(userA, source); err != nil {
+		t.Fatalf("save source: %v", err)
+	}
+	existing := &ServerConfig{
+		Slug:      "github-copy",
+		Name:      "Existing Copy",
+		Transport: TransportStreamable,
+		URL:       "https://existing.example/mcp",
+	}
+	if err := repo.SaveServer(userA, existing); err != nil {
+		t.Fatalf("save existing target: %v", err)
+	}
+
+	if _, err := repo.DuplicateServer(userA, "github", "github-copy"); err == nil {
+		t.Fatal("expected duplicate into existing slug to fail")
+	}
+	got, err := repo.GetServer(userA, "github-copy")
+	if err != nil {
+		t.Fatalf("get existing target: %v", err)
+	}
+	if got.Name != "Existing Copy" || got.URL != "https://existing.example/mcp" {
+		t.Fatalf("existing server was overwritten: %#v", got)
+	}
+}
+
 func TestDBRepositoryToolCatalogBuiltinAndMCPVisibility(t *testing.T) {
 	repo, userA, userB := setupRepositoryTest(t)
 

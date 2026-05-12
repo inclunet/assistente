@@ -176,6 +176,11 @@ func (r *DBRepository) DuplicateServer(ctx context.Context, slug, newSlug string
 	if cfg.Slug == "" {
 		return nil, fmt.Errorf("novo slug é obrigatório")
 	}
+	if _, err := r.GetServer(ctx, cfg.Slug); err == nil {
+		return nil, fmt.Errorf("servidor MCP '%s' já existe", cfg.Slug)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
 	if cfg.Name == "" {
 		cfg.Name = slug
 	}

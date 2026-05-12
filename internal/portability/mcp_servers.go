@@ -381,6 +381,9 @@ func ImportMCPServersJSONWithContext(ctx context.Context, data []byte, credMgr *
 		Warnings:     make([]string, 0),
 		Errors:       make([]string, 0),
 	}
+	if strings.TrimSpace(string(data)) == "" {
+		return result, nil
+	}
 	servers, ok, err := parseExternalMCPServers(data)
 	if err != nil {
 		result.Failed++
@@ -388,7 +391,10 @@ func ImportMCPServersJSONWithContext(ctx context.Context, data []byte, credMgr *
 		return result, err
 	}
 	if !ok {
-		return result, nil
+		err := fmt.Errorf("JSON não parece um arquivo de servidores MCP")
+		result.Failed++
+		result.Errors = append(result.Errors, err.Error())
+		return result, err
 	}
 	for _, server := range servers {
 		imported, err := importMCPServerWithCredentials(ctx, credMgr, server)

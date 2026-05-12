@@ -1026,8 +1026,8 @@ func TestImportFromMCPJSON_EmptyInput(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
 
 	count, err := m.ImportFromMCPJSON([]byte(`{}`))
-	if err != nil {
-		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	if err == nil {
+		t.Fatal("expected empty object to be rejected as non-MCP JSON")
 	}
 	if count != 0 {
 		t.Errorf("expected 0 imported for empty input, got %d", count)
