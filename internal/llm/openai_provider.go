@@ -127,9 +127,7 @@ func (p *OpenAIProvider) SendChat(ctx context.Context, messages []Message, param
 }
 
 func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, messages []Message, params ChatParams) (string, error) {
-	if reasoningEnabled(params) {
-		messages = removeTrailingAssistantPrefill(messages)
-	}
+	messages = removeTrailingAssistantPrefill(messages)
 	sdkParams := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(model),
 		Messages: convertMessages(messages),
@@ -154,9 +152,7 @@ func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, 
 }
 
 func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, messages []Message, params ChatParams) (string, error) {
-	if reasoningEnabled(params) {
-		messages = removeTrailingAssistantPrefill(messages)
-	}
+	messages = removeTrailingAssistantPrefill(messages)
 	respParams := responses.ResponseNewParams{
 		Model: shared.ResponsesModel(model),
 		Input: responses.ResponseNewParamsInputUnion{
@@ -308,9 +304,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, par
 	}
 
 	// Chat Completions path (OpenAI-compatible legado)
-	if reasoningEnabled(params) {
-		messages = removeTrailingAssistantPrefill(messages)
-	}
+	messages = removeTrailingAssistantPrefill(messages)
 	sdkParams := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(model),
 		Messages: convertMessages(messages),
@@ -682,9 +676,7 @@ func (p *OpenAIProvider) buildResponsesParams(
 	mcpServers []MCPServerConfig,
 	tools ...ToolDefinition,
 ) responses.ResponseNewParams {
-	if reasoningEnabled(params) {
-		messages = removeTrailingAssistantPrefill(messages)
-	}
+	messages = removeTrailingAssistantPrefill(messages)
 	respParams := responses.ResponseNewParams{
 		Model: shared.ResponsesModel(model),
 		Input: responses.ResponseNewParamsInputUnion{
@@ -1020,15 +1012,6 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	handler.OnDone(fullResponse.String(), lastUsage, lastModel)
 	return mcpStreamAttemptResult{done: true}
-}
-
-func reasoningEnabled(params ChatParams) bool {
-	switch params.ReasoningEffort {
-	case "low", "medium", "high":
-		return true
-	default:
-		return false
-	}
 }
 
 func removeTrailingAssistantPrefill(messages []Message) []Message {
