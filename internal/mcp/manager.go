@@ -747,6 +747,10 @@ func (m *Manager) GetConfig(slug string) (*ServerConfig, error) {
 
 // SaveConfig salva (cria ou atualiza) a configuração de um servidor MCP.
 func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return fmt.Errorf("slug do servidor MCP é obrigatório")
+	}
 	repo := m.repository()
 	if repo == nil {
 		return fmt.Errorf("repository MCP não configurado")
@@ -832,6 +836,10 @@ func (m *Manager) slugExists(slug string) bool {
 // DeleteConfig remove a configuração de um servidor MCP.
 // Desconecta automaticamente se estiver conectado.
 func (m *Manager) DeleteConfig(slug string) error {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return fmt.Errorf("slug do servidor MCP é obrigatório")
+	}
 	repo := m.repository()
 	if repo == nil {
 		return fmt.Errorf("repository MCP não configurado")

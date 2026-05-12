@@ -217,6 +217,19 @@ func TestImportDataAcceptsExternalMCPServersJSON(t *testing.T) {
 	}
 }
 
+func TestImportDataAcceptsEmptyExternalMCPServersJSON(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	result, err := ImportConversationsWithContext(ctx, `{"mcpServers":{}}`, nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext: %v", err)
+	}
+	if !result.Success || result.Imported != 0 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestImportDataExternalMCPServersImportsBearerCredential(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()

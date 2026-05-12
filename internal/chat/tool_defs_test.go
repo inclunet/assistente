@@ -369,6 +369,26 @@ func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 	}
 }
 
+func TestApplyNativeMCP_NilEnabledToolsKeepsDynamicCatalogSeparateFromWhitelist(t *testing.T) {
+	p := &mockChatProvider{supportsNative: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+	}}
+	defs := makeToolDefs(tools.ToolCatalogName)
+
+	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false)
+	result, ok := outP.(*mockChatProvider)
+	if !ok {
+		t.Fatal("esperava *mockChatProvider de retorno")
+	}
+	if len(result.calledWith) != 1 || len(result.calledWith[0].AllowedTools) != 0 {
+		t.Fatalf("MCP nativo deveria ser configurado sem whitelist explícita, got %+v", result.calledWith)
+	}
+	if len(outDefs) != 1 || outDefs[0].Function.Name != tools.ToolCatalogName {
+		t.Fatalf("tool_catalog deveria permanecer como tool inicial, got %#v", outDefs)
+	}
+}
+
 func TestApplyNativeMCP_EnabledSetFiltersServer(t *testing.T) {
 	p := &mockChatProvider{supportsNative: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{

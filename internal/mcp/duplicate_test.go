@@ -82,6 +82,63 @@ func TestSaveConfigInitializesWorkspaceRoots(t *testing.T) {
 	}
 }
 
+func TestSaveConfigNormalizesSlugForRuntimeState(t *testing.T) {
+	mgr := NewManager(tools.NewRegistry(), credentials.NewManager(nil), func(string, any) {})
+	repo, _, _ := setupRepositoryTest(t)
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr.SetRepository(repo)
+	mgr.SetAuthContextProvider(func() context.Context { return ctx })
+
+	if err := mgr.SaveConfig(" server ", ServerConfig{
+		Name:        "Servidor MCP",
+		Transport:   TransportStdio,
+		Command:     "node",
+		Enabled:     true,
+		AutoConnect: false,
+	}); err != nil {
+		t.Fatalf("SaveConfig falhou: %v", err)
+	}
+
+	mgr.mu.RLock()
+	_, hasTrimmed := mgr.servers["server"]
+	_, hasRaw := mgr.servers[" server "]
+	mgr.mu.RUnlock()
+	if !hasTrimmed || hasRaw {
+		t.Fatalf("estado runtime não normalizou slug: trimmed=%v raw=%v", hasTrimmed, hasRaw)
+	}
+	if _, err := repo.GetServer(ctx, "server"); err != nil {
+		t.Fatalf("repo não encontrou slug normalizado: %v", err)
+	}
+}
+
+func TestDeleteConfigNormalizesSlugForRuntimeState(t *testing.T) {
+	mgr := NewManager(tools.NewRegistry(), credentials.NewManager(nil), func(string, any) {})
+	repo, _, _ := setupRepositoryTest(t)
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr.SetRepository(repo)
+	mgr.SetAuthContextProvider(func() context.Context { return ctx })
+	if err := mgr.SaveConfig("server", ServerConfig{
+		Name:        "Servidor MCP",
+		Transport:   TransportStdio,
+		Command:     "node",
+		Enabled:     true,
+		AutoConnect: false,
+	}); err != nil {
+		t.Fatalf("SaveConfig falhou: %v", err)
+	}
+
+	if err := mgr.DeleteConfig(" server "); err != nil {
+		t.Fatalf("DeleteConfig falhou: %v", err)
+	}
+
+	mgr.mu.RLock()
+	_, exists := mgr.servers["server"]
+	mgr.mu.RUnlock()
+	if exists {
+		t.Fatal("DeleteConfig não removeu estado runtime com slug normalizado")
+	}
+}
+
 func TestGetConfigMissingReturnsDomainError(t *testing.T) {
 	mgr := NewManager(tools.NewRegistry(), credentials.NewManager(nil), func(string, any) {})
 	repo, _, _ := setupRepositoryTest(t)

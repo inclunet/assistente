@@ -217,12 +217,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 
 	// Constrói tool definitions para o LLM.
 	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
-	var enabledTools []string
+	var profileEnabledTools []string
 	if activeProfile != nil {
-		enabledTools = activeProfile.Chat.EnabledTools
+		profileEnabledTools = activeProfile.Chat.EnabledTools
 	}
-	enabledTools = chat.ResolveInitialEnabledTools(uc.toolRegistry, enabledTools, disableTools)
-	llmToolDefs := chat.BuildLLMToolDefs(uc.toolRegistry, enabledTools, disableTools)
+	initialEnabledTools := chat.ResolveInitialEnabledTools(uc.toolRegistry, profileEnabledTools, disableTools)
+	llmToolDefs := chat.BuildLLMToolDefs(uc.toolRegistry, initialEnabledTools, disableTools)
 
 	// Resolve o ChatProvider para o provedor do perfil ativo.
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
@@ -241,7 +241,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
 	// MCP nativo: configura servidores MCP HTTP no provider e remove suas tools da lista padrão.
-	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, enabledTools, disableTools)
+	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, profileEnabledTools, disableTools)
 
 	// Cria contexto cancelável por conversa — permite barge-in cancelar o LLM em andamento.
 	convCtx, convCancel := context.WithCancel(ctx)

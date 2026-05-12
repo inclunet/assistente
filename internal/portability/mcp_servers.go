@@ -325,14 +325,16 @@ func parseExternalMCPServers(data []byte) ([]MCPServerExport, bool, error) {
 	if err := json.Unmarshal(data, &wrapped); err != nil {
 		return nil, false, err
 	}
-	servers := wrapped.MCPServers
-	if len(servers) == 0 {
+	var servers map[string]externalMCPServer
+	if wrapped.MCPServers != nil {
+		servers = wrapped.MCPServers
+	} else {
 		if err := json.Unmarshal(data, &servers); err != nil {
 			return nil, false, err
 		}
 	}
 	if len(servers) == 0 {
-		return nil, false, nil
+		return nil, wrapped.MCPServers != nil, nil
 	}
 	result := make([]MCPServerExport, 0, len(servers))
 	for name, entry := range servers {
