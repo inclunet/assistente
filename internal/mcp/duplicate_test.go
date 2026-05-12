@@ -1,20 +1,20 @@
 package mcp
 
 import (
+	"context"
 	"testing"
 
-	"assistente/internal/configdir"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/tools"
 )
 
 func TestDuplicateConfig(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("HOME", tempDir)
-	t.Setenv("USERPROFILE", tempDir)
-	configdir.ResetForTests()
-
 	mgr := NewManager(tools.NewRegistry(), credentials.NewManager(nil), func(string, any) {})
+	repo, _, _ := setupRepositoryTest(t)
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr.SetRepository(repo)
+	mgr.SetAuthContextProvider(func() context.Context { return ctx })
 
 	original := ServerConfig{
 		Name:        "Servidor MCP",

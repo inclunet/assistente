@@ -105,11 +105,5 @@ func (a *App) initMCP() {
 		log.Printf("[MCP] Erro ao carregar configurações: %v", err)
 	}
 
-	// Com DB como fonte de verdade não há watcher de JSON. Mantém watcher
-	// apenas no caminho legado/testes sem repository configurado.
-	if !a.mcpMgr.UsesRepository() {
-		go a.mcpMgr.WatchConfigs()
-	}
-
 	log.Printf("[MCP] Manager inicializado")
 }

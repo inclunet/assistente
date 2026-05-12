@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -14,8 +13,9 @@ func (m *Manager) migrateFilesystemConfigsToRepository(ctx context.Context, repo
 	if err != nil {
 		return err
 	}
-	if len(existing) > 0 {
-		return nil
+	existingBySlug := make(map[string]struct{}, len(existing))
+	for _, cfg := range existing {
+		existingBySlug[cfg.Slug] = struct{}{}
 	}
 
 	files, err := m.resolver.List()
@@ -34,12 +34,17 @@ func (m *Manager) migrateFilesystemConfigsToRepository(ctx context.Context, repo
 	}
 
 	imported := 0
+	skipped := 0
 	for _, filename := range jsonFiles {
+		slug := strings.TrimSuffix(filename, filepath.Ext(filename))
+		if _, exists := existingBySlug[slug]; exists {
+			skipped++
+			continue
+		}
 		data, _, err := m.resolver.Read(filename)
 		if err != nil {
 			return fmt.Errorf("erro ao ler config MCP legado %s: %w", filename, err)
 		}
-		slug := strings.TrimSuffix(filename, filepath.Ext(filename))
 		cfg, err := ParseServerConfig(data, slug)
 		if err != nil {
 			return fmt.Errorf("erro ao parsear config MCP legado %s: %w", filename, err)
@@ -49,40 +54,12 @@ func (m *Manager) migrateFilesystemConfigsToRepository(ctx context.Context, repo
 		if err := repo.SaveServer(ctx, &cfg); err != nil {
 			return fmt.Errorf("erro ao migrar config MCP legado %s: %w", filename, err)
 		}
+		existingBySlug[slug] = struct{}{}
 		imported++
 	}
 
-	if imported == 0 {
-		return nil
+	if imported > 0 || skipped > 0 {
+		log.Printf("[MCP] Importação de configs MCP legadas concluída: %d importados, %d já existentes", imported, skipped)
 	}
-	if err := m.backupMigratedConfigDir(); err != nil {
-		return err
-	}
-	log.Printf("[MCP] Migração filesystem → DB concluída: %d servidores importados", imported)
-	return nil
-}
-
-func (m *Manager) backupMigratedConfigDir() error {
-	homeDir := m.resolver.GetHomeDir()
-	if strings.TrimSpace(homeDir) == "" {
-		return nil
-	}
-	if _, err := os.Stat(homeDir); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("erro ao verificar diretório MCP legado: %w", err)
-	}
-	backupDir := homeDir + ".migrated"
-	if _, err := os.Stat(backupDir); err == nil {
-		log.Printf("[MCP] Backup de configs legado já existe: %s", backupDir)
-		return nil
-	} else if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("erro ao verificar backup MCP legado: %w", err)
-	}
-	if err := os.Rename(homeDir, backupDir); err != nil {
-		return fmt.Errorf("erro ao renomear diretório MCP legado para backup: %w", err)
-	}
-	log.Printf("[MCP] Diretório MCP legado renomeado para backup: %s", backupDir)
 	return nil
 }

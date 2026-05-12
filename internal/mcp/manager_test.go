@@ -313,6 +313,9 @@ func newTestManagerWithTempDir(t *testing.T) *Manager {
 	t.Helper()
 	m := newTestManager()
 	m.resolver = configdir.NewResolverWithBase(t.TempDir())
+	repo, userA, _ := setupRepositoryTest(t)
+	m.SetRepository(repo)
+	m.SetAuthContextProvider(func() context.Context { return userA })
 	return m
 }
 
@@ -955,10 +958,17 @@ func TestImportFromMCPJSONImportsRequestInitBearerAuth(t *testing.T) {
 
 func TestImportFromMCPJSON_SkipsExisting(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
-	m.servers["existing-server"] = &ServerStatus{
-		Slug:   "existing-server",
-		Config: ServerConfig{Name: "Existing"},
-		Status: StatusDisconnected,
+	existing := &ServerConfig{
+		Slug:        "existing-server",
+		Name:        "Existing",
+		Transport:   TransportStdio,
+		Command:     "node",
+		Args:        []string{"existing.js"},
+		Enabled:     true,
+		AutoConnect: true,
+	}
+	if err := m.repository().SaveServer(m.credentialContext(), existing); err != nil {
+		t.Fatalf("SaveServer existing: %v", err)
 	}
 
 	mcpJSON := []byte(`{

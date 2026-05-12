@@ -78,9 +78,9 @@ Cada servidor MCP é **um arquivo JSON** com nome = slug:
 
 ## Decisões
 
-### D1 — Migração total para banco (sem dual JSON+banco)
+### D1 — Banco como fonte runtime, JSON legado como importação
 
-Os arquivos JSON no disco são completamente substituídos pelo banco SQLite. Não há modo dual. O file watcher (`WatchConfigs`) é removido.
+O banco SQLite é a fonte de verdade runtime para servidores MCP. Arquivos JSON antigos no disco (`~/.assistente/mcp/*.json`) deixam de ser backing store e passam a ser apenas entrada de importação idempotente no startup. Não há modo dual de escrita/leitura runtime por JSON. O file watcher (`WatchConfigs`) é removido.
 
 ### D2 — Slug obrigatório e único
 
@@ -135,15 +135,17 @@ Isso permite diagnóstico sem depender de logs do sistema operacional. Retençã
 
 As APIs Wails existentes (`ListMCPServers`, `SaveMCPServer`, `ConnectMCPServer`, etc.) mantêm as mesmas assinaturas e tipos de retorno. O frontend não percebe a mudança de backing store. Novas APIs podem ser adicionadas para logs, catálogo e dry run, desde que não quebrem os contratos já publicados.
 
-### D7 — Migração one-time de filesystem para banco
+### D7 — Importação idempotente de filesystem para banco
 
-Na primeira execução após a atualização, o Manager detecta se existem arquivos JSON em `~/.assistente/mcp/` E a tabela `mcp_servers` está vazia. Se sim:
+Em todo startup pós-login, o Manager pode detectar arquivos JSON em `~/.assistente/mcp/` e importá-los para o banco. Essa importação é segura para repetir:
 
 1. Carrega todos os `.json` dos 3 diretórios (com resolução de prioridade)
-2. Insere como registros no banco (slug = nome do arquivo sem extensão)
-3. Renomeia diretório principal para `~/.assistente/mcp.migrated/` (backup)
+2. Para cada slug, consulta o banco no escopo do usuário logado
+3. Se o servidor já existe no banco, não sobrescreve nem altera nada
+4. Se não existe, insere como novo registro (slug = nome do arquivo sem extensão)
+5. Mantém os arquivos originais intocados
 
-A migração é idempotente: se `mcp.migrated/` já existe, pula. Credenciais não são tocadas — já estão no `credentials.Manager`.
+Credenciais não são tocadas — já estão no `credentials.Manager`. Isso preserva compatibilidade mínima com instalações antigas sem manter o runtime filesystem anterior.
 
 ### D8 — Repository pattern
 
@@ -186,7 +188,7 @@ Isso é aceitável porque:
 
 ### D11 — Multi-diretório eliminado
 
-O sistema de resolução em 3 diretórios (exe → home → cwd) é eliminado. O banco é a única fonte de verdade. Configs que estavam em diretórios de menor prioridade são mescladas na migração one-time com precedência correta.
+O sistema de resolução em 3 diretórios (exe → home → cwd) é eliminado do runtime. O banco é a única fonte de verdade. A importação dos arquivos legados ainda usa a resolução de prioridade existente para ler formatos antigos e popular apenas registros ausentes.
 
 ### D12 — MCP servers são sempre user-scoped
 
@@ -196,7 +198,7 @@ Consequências:
 
 - A API Wails continua recebendo `slug`, mas o backend resolve `slug` no escopo do usuário logado.
 - Eventos podem continuar carregando `slug`, mas o runtime interno deve manter também `server_id` quando persistir logs/catalog.
-- Migração filesystem → banco atribui os servidores importados ao usuário logado no momento da migração ou ao owner definido pelo fluxo de startup.
+- Importação filesystem → banco atribui os servidores importados ao usuário logado no momento do startup/importação ou ao owner definido pelo fluxo de startup.
 - Credenciais MCP existentes continuam usando patterns por slug, mas a resolução deve ser feita no contexto do usuário logado para evitar colisão entre usuários.
 
 ### D13 — Catálogo persistido de tools
@@ -410,14 +412,15 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 16. Expor via API Wails: `GetMCPServerLogs(slug, limit)`
 17. Goroutine de limpeza: 30 dias (reutilizar pattern da AEP-0048)
 
-### Fase 5 — Migração one-time filesystem → banco
+### Fase 5 — Importação filesystem → banco
 
 18. Criar `internal/mcp/migration.go`:
-    - Detectar JSON files nos 3 diretórios E tabela vazia
+    - Detectar JSON files nos 3 diretórios
     - Carregar com resolução de prioridade (cwd > home > exe)
     - Inserir no banco com `user_id` do usuário logado/owner da migração
-    - Renomear `~/.assistente/mcp/` → `~/.assistente/mcp.migrated/`
-19. Chamar no `Manager.Start()` / `initMCP()` antes de carregar do DB
+    - Não sobrescrever registros já existentes no banco
+    - Não renomear, apagar ou editar arquivos originais
+19. Chamar no `Manager.Start()` / `initMCP()` antes de carregar do DB; deve ser seguro executar em todo startup
 
 ### Fase 6 — Catálogo de tools
 
@@ -453,7 +456,7 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 
 38. Testes Repository: CRUD servers por usuário, logs, catálogo, limpeza por idade, roundtrip JSON de fields complexos
 39. Testes Manager: LoadConfigs, SaveConfig, DeleteConfig, DuplicateConfig com DB e isolamento por usuário
-40. Testes migração: JSON files → DB, resolução de prioridade multi-dir, idempotência e backup
+40. Testes importação: JSON files → DB, resolução de prioridade multi-dir, idempotência e arquivos originais intocados
 41. Testes catálogo: builtin global, MCP vinculada ao servidor, unavailable/reavailable, schema hash
 42. Testes chat: `nil` vs `[]enabled_tools`, seleção via catálogo, MCP STDIO, MCP nativo com `AllowedTools`
 43. Atualizar testes existentes do Manager
@@ -467,8 +470,8 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 | `internal/database/models_mcp.go` | Models GORM: `MCPServerModel`, `MCPServerLogModel`, `ToolCatalogModel` |
 | `internal/mcp/repository.go` | Interface `MCPRepository` + `DBMCPRepository` |
 | `internal/mcp/repository_test.go` | Testes do repository |
-| `internal/mcp/migration.go` | Migração one-time filesystem → DB |
-| `internal/mcp/migration_test.go` | Testes da migração |
+| `internal/mcp/migration.go` | Importação idempotente filesystem → DB |
+| `internal/mcp/migration_test.go` | Testes da importação |
 | `internal/tools/catalog.go` | Tipos e sincronização do catálogo de tools |
 | `internal/tools/catalog_test.go` | Testes do catálogo |
 | `internal/tools/catalog_tool.go` | Tool pequena `tool_catalog`/`select_tools` |
@@ -498,7 +501,7 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 
 | # | Risco | Probabilidade | Impacto | Mitigação |
 |---|---|---|---|---|
-| R1 | Perda de configs na migração | Baixa | Alto | Backup em `mcp.migrated/`; migração idempotente; credenciais intocadas |
+| R1 | Perda de configs na importação | Baixa | Alto | Arquivos originais intocados; importação idempotente; credenciais intocadas |
 | R2 | Multi-dir configs com conflitos | Média | Médio | Resolução de prioridade preservada na migração (cwd > home > exe) |
 | R3 | `env` com API keys fica no banco sem criptografia | Baixa | Médio | Banco é local; `env` precisa estar acessível sem master password para iniciar processos |
 | R4 | OAuth flows quebram após migração | Baixa | Alto | Credenciais ficam no `credentials.Manager` (intocadas); apenas config de endpoints muda de local |
@@ -515,9 +518,9 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 2. **Conexão preservada**: conectar, desconectar, reconectar funcionam identicamente ao comportamento atual
 3. **OAuth funcional**: fluxo PKCE, client credentials e auto-discovery continuam funcionando
 4. **Logs de conexão**: eventos de lifecycle são registrados em `mcp_server_logs`
-5. **Migração filesystem**: configs JSON existentes são importadas para o banco na primeira execução
+5. **Importação filesystem**: configs JSON existentes são importadas para o banco de forma idempotente em startups pós-login
 6. **Multi-dir resolvido**: configs de diferentes diretórios são mescladas com prioridade correta
-7. **Backup**: diretório original renomeado para `mcp.migrated/` após migração
+7. **Arquivos legados intocados**: diretório e arquivos JSON originais não são renomeados, apagados ou alterados
 8. **Frontend inalterado**: mesma API Wails, sem mudanças em stores/componentes
 9. **Credenciais intocadas**: `credentials.Manager` não é afetado; tokens OAuth persistem entre migrações
 10. **Retenção de logs**: registros mais velhos que 30 dias são removidos automaticamente
@@ -530,5 +533,5 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 17. **Seleção por catálogo**: chat inicia com poucas tools e usa `tool_catalog`/`select_tools` para ativar pacotes no mesmo turno do usuário via agentic loop
 18. **MCP nativo allowlist**: seleção alimenta `AllowedTools` para providers com MCP nativo
 19. **Dry run de tools**: builtin e MCP tools podem ser testadas com resultado persistido/resumido
-20. **Testes contra perda de dados**: migração idempotente, backup, credenciais intocadas e isolamento por usuário cobertos
-21. **Testes**: repository, manager, migração, catálogo, seleção e dry run cobertos por testes Go
+20. **Testes contra perda de dados**: importação idempotente, arquivos originais intocados, credenciais intocadas e isolamento por usuário cobertos
+21. **Testes**: repository, manager, importação, catálogo, seleção e dry run cobertos por testes Go

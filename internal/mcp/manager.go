@@ -21,6 +21,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
+	"gorm.io/gorm"
 )
 
 const (
@@ -93,7 +94,6 @@ type Manager struct {
 	cancel         context.CancelFunc
 	authContext    func() context.Context
 	roots          []Root // workspace roots globais
-	lastSelfWrite  time.Time
 }
 
 // NewManager cria um novo gerenciador de servidores MCP.
@@ -113,7 +113,8 @@ func NewManager(registry *tools.Registry, credMgr *credentials.Manager, emitEven
 }
 
 // SetRepository configura o backing store persistido do Manager.
-// Sem repository, o Manager mantém o caminho legado em arquivos JSON.
+// O DB é a fonte de verdade runtime; arquivos JSON antigos são apenas entrada
+// de importação idempotente no startup.
 func (m *Manager) SetRepository(repo Repository) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -124,10 +125,6 @@ func (m *Manager) repository() Repository {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.repo
-}
-
-func (m *Manager) UsesRepository() bool {
-	return m.repository() != nil
 }
 
 func (m *Manager) RecordToolTest(ctx context.Context, toolName string, success bool, errorMessage string) error {
@@ -265,77 +262,39 @@ func (m *Manager) GetWorkspaceRoots() []Root {
 // servidores OAuth perdiam a credencial em memória, caíam no fallback
 // "sem token", abriam o navegador para reauth — N janelas em paralelo.
 func (m *Manager) LoadConfigs() error {
-	if repo := m.repository(); repo != nil {
-		ctx := m.credentialContext()
-		if _, err := database.RequireUserID(ctx); err != nil {
-			log.Printf("[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
-			return nil
-		}
-		if err := m.migrateFilesystemConfigsToRepository(ctx, repo); err != nil {
-			return err
-		}
-		configs, err := repo.ListServers(ctx)
-		if err != nil {
-			return err
-		}
-		next := make(map[string]*ServerStatus, len(configs))
-		for _, cfg := range configs {
-			cfg.applyDefaults(cfg.Slug)
-			next[cfg.Slug] = &ServerStatus{
-				ID:     cfg.ID,
-				Slug:   cfg.Slug,
-				Config: cfg,
-				Status: StatusDisconnected,
-				Tools:  []MCPToolInfo{},
-				Roots:  m.GetWorkspaceRoots(),
-			}
-			log.Printf("[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
-				cfg.Slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
-		}
-		m.mu.Lock()
-		m.servers = next
-		m.mu.Unlock()
+	repo := m.repository()
+	if repo == nil {
+		return fmt.Errorf("repository MCP não configurado")
+	}
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		log.Printf("[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
 		return nil
 	}
-
-	files, err := m.resolver.List()
+	if err := m.migrateFilesystemConfigsToRepository(ctx, repo); err != nil {
+		return err
+	}
+	configs, err := repo.ListServers(ctx)
 	if err != nil {
-		log.Printf("[MCP] Nenhuma configuração encontrada: %v", err)
-		return nil
+		return err
 	}
-
-	for _, f := range files {
-		if f.Filename[len(f.Filename)-5:] != configExt {
-			continue
-		}
-
-		data, _, err := m.resolver.Read(f.Filename)
-		if err != nil {
-			log.Printf("[MCP] Erro ao ler %s: %v", f.Filename, err)
-			continue
-		}
-
-		slug := f.Name
-		cfg, err := ParseServerConfig(data, slug)
-		if err != nil {
-			log.Printf("[MCP] Erro ao parsear %s: %v", f.Filename, err)
-			continue
-		}
-		m.applyInlineAuthFromConfig(slug, &cfg, data)
-		m.mu.Lock()
-		m.servers[slug] = &ServerStatus{
+	next := make(map[string]*ServerStatus, len(configs))
+	for _, cfg := range configs {
+		cfg.applyDefaults(cfg.Slug)
+		next[cfg.Slug] = &ServerStatus{
 			ID:     cfg.ID,
-			Slug:   slug,
+			Slug:   cfg.Slug,
 			Config: cfg,
 			Status: StatusDisconnected,
 			Tools:  []MCPToolInfo{},
+			Roots:  m.GetWorkspaceRoots(),
 		}
-		m.mu.Unlock()
-
-		log.Printf("[MCP] Servidor carregado: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
-			slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
+		log.Printf("[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
+			cfg.Slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
 	}
-
+	m.mu.Lock()
+	m.servers = next
+	m.mu.Unlock()
 	return nil
 }
 
@@ -786,59 +745,21 @@ func (m *Manager) GetConfig(slug string) (*ServerConfig, error) {
 
 // SaveConfig salva (cria ou atualiza) a configuração de um servidor MCP.
 func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
-	if repo := m.repository(); repo != nil {
-		ctx := m.credentialContext()
-		if _, err := database.RequireUserID(ctx); err != nil {
-			return err
-		}
-		cfg.Slug = slug
-		if err := repo.SaveServer(ctx, &cfg); err != nil {
-			return fmt.Errorf("erro ao salvar config: %w", err)
-		}
-		m.mu.Lock()
-		if existing, ok := m.servers[slug]; ok {
-			existing.ID = cfg.ID
-			existing.Config = cfg
-		} else {
-			m.servers[slug] = &ServerStatus{
-				ID:     cfg.ID,
-				Slug:   slug,
-				Config: cfg,
-				Status: StatusDisconnected,
-				Tools:  []MCPToolInfo{},
-			}
-		}
-		m.mu.Unlock()
-		log.Printf("[MCP] Configuração salva no DB: %s", slug)
-		m.emit("mcp:config_changed", map[string]string{"slug": slug})
-		return nil
+	repo := m.repository()
+	if repo == nil {
+		return fmt.Errorf("repository MCP não configurado")
 	}
-
-	m.mu.Lock()
-	m.lastSelfWrite = time.Now()
-	m.mu.Unlock()
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("erro ao serializar config: %w", err)
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
 	}
-
-	filename := slug + configExt
-
-	// Tenta escrever (atualiza se existe, cria se não)
-	if m.resolver.Exists(filename) {
-		if err := m.resolver.Write(filename, data); err != nil {
-			return fmt.Errorf("erro ao salvar config: %w", err)
-		}
-	} else {
-		if err := m.resolver.Create(filename, data); err != nil {
-			return fmt.Errorf("erro ao criar config: %w", err)
-		}
+	cfg.Slug = slug
+	if err := repo.SaveServer(ctx, &cfg); err != nil {
+		return fmt.Errorf("erro ao salvar config: %w", err)
 	}
-
-	// Atualiza estado em memória
 	m.mu.Lock()
 	if existing, ok := m.servers[slug]; ok {
+		existing.ID = cfg.ID
 		existing.Config = cfg
 	} else {
 		m.servers[slug] = &ServerStatus{
@@ -850,10 +771,8 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 		}
 	}
 	m.mu.Unlock()
-
-	log.Printf("[MCP] Configuração salva: %s", slug)
+	log.Printf("[MCP] Configuração salva no DB: %s", slug)
 	m.emit("mcp:config_changed", map[string]string{"slug": slug})
-
 	return nil
 }
 
@@ -898,54 +817,34 @@ func (m *Manager) nextCopySlug(baseSlug string) string {
 }
 
 func (m *Manager) slugExists(slug string) bool {
-	if repo := m.repository(); repo != nil {
-		_, err := repo.GetServer(m.credentialContext(), slug)
-		return err == nil
+	repo := m.repository()
+	if repo == nil {
+		return false
 	}
-	return m.resolver.Exists(slug + configExt)
+	_, err := repo.GetServer(m.credentialContext(), slug)
+	return err == nil
 }
 
 // DeleteConfig remove a configuração de um servidor MCP.
 // Desconecta automaticamente se estiver conectado.
 func (m *Manager) DeleteConfig(slug string) error {
-	if repo := m.repository(); repo != nil {
-		ctx := m.credentialContext()
-		if _, err := database.RequireUserID(ctx); err != nil {
-			return err
-		}
-		_ = m.Disconnect(slug)
-		if err := repo.DeleteServer(ctx, slug); err != nil {
-			return fmt.Errorf("erro ao deletar config: %w", err)
-		}
-		m.mu.Lock()
-		delete(m.servers, slug)
-		m.mu.Unlock()
-		log.Printf("[MCP] Configuração removida do DB: %s", slug)
-		m.emit("mcp:config_changed", map[string]string{"slug": slug})
-		return nil
+	repo := m.repository()
+	if repo == nil {
+		return fmt.Errorf("repository MCP não configurado")
 	}
-
-	m.mu.Lock()
-	m.lastSelfWrite = time.Now()
-	m.mu.Unlock()
-
-	// Desconecta primeiro
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
 	_ = m.Disconnect(slug)
-
-	filename := slug + configExt
-	if m.resolver.Exists(filename) {
-		if err := m.resolver.Delete(filename); err != nil {
-			return fmt.Errorf("erro ao deletar config: %w", err)
-		}
+	if err := repo.DeleteServer(ctx, slug); err != nil {
+		return fmt.Errorf("erro ao deletar config: %w", err)
 	}
-
 	m.mu.Lock()
 	delete(m.servers, slug)
 	m.mu.Unlock()
-
-	log.Printf("[MCP] Configuração removida: %s", slug)
+	log.Printf("[MCP] Configuração removida do DB: %s", slug)
 	m.emit("mcp:config_changed", map[string]string{"slug": slug})
-
 	return nil
 }
 
@@ -1852,6 +1751,15 @@ func (m *Manager) HandleSamplingRequest(ctx context.Context, slug string, reques
 // Expects {"mcpServers": {...}} (Cursor) or entries keyed directly.
 // Skips servers that already exist (won't overwrite).
 func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
+	repo := m.repository()
+	if repo == nil {
+		return 0, fmt.Errorf("repository MCP não configurado")
+	}
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return 0, err
+	}
+
 	type mcpEntry struct {
 		Command     string            `json:"command"`
 		Args        []string          `json:"args"`
@@ -1887,13 +1795,11 @@ func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 	for name, entry := range servers {
 		slug := sanitizeSlug(name)
 
-		// Skip if already exists
-		m.mu.RLock()
-		_, exists := m.servers[slug]
-		m.mu.RUnlock()
-		if exists {
+		if _, err := repo.GetServer(ctx, slug); err == nil {
 			log.Printf("[MCP:import] Servidor '%s' já existe — ignorando", slug)
 			continue
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return imported, err
 		}
 
 		cfg := ServerConfig{
@@ -1913,24 +1819,25 @@ func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 			m.importBearerCredential(slug, cfg.URL, token)
 		}
 
-		cfgData, err := json.MarshalIndent(cfg, "", "  ")
-		if err != nil {
-			log.Printf("[MCP:import] Erro ao serializar config para '%s': %v", slug, err)
+		cfg.Slug = slug
+		if err := repo.SaveServer(ctx, &cfg); err != nil {
+			log.Printf("[MCP:import] Erro ao salvar config '%s' no DB: %v", slug, err)
 			continue
 		}
-
-		filename := slug + configExt
-		if err := m.resolver.Write(filename, cfgData); err != nil {
-			log.Printf("[MCP:import] Erro ao gravar config '%s': %v", filename, err)
-			continue
+		roots := m.GetWorkspaceRoots()
+		m.mu.Lock()
+		m.servers[slug] = &ServerStatus{
+			ID:     cfg.ID,
+			Slug:   slug,
+			Config: cfg,
+			Status: StatusDisconnected,
+			Tools:  []MCPToolInfo{},
+			Roots:  roots,
 		}
+		m.mu.Unlock()
 
 		log.Printf("[MCP:import] Servidor importado: %s (transport=%s)", slug, cfg.Transport)
 		imported++
-	}
-
-	if imported > 0 {
-		m.syncConfigsFromDisk()
 	}
 
 	return imported, nil
