@@ -147,7 +147,7 @@ Em todo startup pós-login, o Manager pode detectar arquivos JSON em `~/.assiste
 
 Credenciais não são tocadas — já estão no `credentials.Manager`. Isso preserva compatibilidade mínima com instalações antigas sem manter o runtime filesystem anterior.
 
-O caminho de persistência da importação usa o mesmo serviço de portabilidade usado por import/export geral. O Manager pode continuar lendo arquivos legados no startup, mas não possui uma regra paralela para salvar servidores no banco.
+O caminho de persistência e a orquestração da importação usam o mesmo serviço de portabilidade usado por import/export geral. O Manager apenas dispara o importador no startup e fornece uma fonte read-only para os arquivos legados; descoberta, parsing para formato portátil, idempotência, importação e contadores ficam em `internal/portability`. Esse contrato deve ser reaproveitado por futuros recursos migrados de arquivos para banco.
 
 ### D8 — Repository pattern
 

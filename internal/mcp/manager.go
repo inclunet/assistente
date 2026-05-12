@@ -22,7 +22,6 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
-	"gorm.io/gorm"
 )
 
 const (
@@ -272,7 +271,7 @@ func (m *Manager) LoadConfigs() error {
 		log.Printf("[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
 		return nil
 	}
-	if err := m.migrateFilesystemConfigsToRepository(ctx, repo); err != nil {
+	if err := m.importLegacyFilesystemConfigs(ctx); err != nil {
 		return err
 	}
 	configs, err := repo.ListServers(ctx)
@@ -1747,149 +1746,25 @@ func (m *Manager) HandleSamplingRequest(ctx context.Context, slug string, reques
 	return response, nil
 }
 
-// ImportFromMCPJSON parses Cursor/Claude MCP config formats and creates
-// individual config files. Returns the number of servers imported.
+// ImportFromMCPJSON parses Cursor/Claude MCP config formats and imports them
+// through the shared portability pipeline. Returns the number of servers imported.
 // Expects {"mcpServers": {...}} (Cursor) or entries keyed directly.
 // Skips servers that already exist (won't overwrite).
 func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
-	repo := m.repository()
-	if repo == nil {
-		return 0, fmt.Errorf("repository MCP não configurado")
-	}
 	ctx := m.credentialContext()
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return 0, err
 	}
-
-	type mcpEntry struct {
-		Command     string            `json:"command"`
-		Args        []string          `json:"args"`
-		Env         map[string]string `json:"env"`
-		URL         string            `json:"url"`
-		Headers     map[string]string `json:"headers"`
-		RequestInit struct {
-			Headers map[string]string `json:"headers"`
-		} `json:"requestInit"`
+	result, err := portability.ImportMCPServersJSONWithContext(ctx, data, m.credMgr)
+	if err != nil {
+		return result.Imported, err
 	}
-
-	// Try Cursor/Claude format: {"mcpServers": {...}}
-	var wrapper struct {
-		MCPServers map[string]mcpEntry `json:"mcpServers"`
-	}
-	if err := json.Unmarshal(data, &wrapper); err != nil {
-		return 0, fmt.Errorf("failed to parse MCP JSON: %w", err)
-	}
-
-	servers := wrapper.MCPServers
-	if len(servers) == 0 {
-		// Try flat format: {"name": {...}, ...}
-		if err := json.Unmarshal(data, &servers); err != nil {
-			return 0, fmt.Errorf("failed to parse MCP JSON (flat format): %w", err)
+	if result.Imported > 0 {
+		if loadErr := m.LoadConfigs(); loadErr != nil {
+			return result.Imported, loadErr
 		}
 	}
-
-	if len(servers) == 0 {
-		return 0, nil
-	}
-
-	imported := 0
-	for name, entry := range servers {
-		slug := sanitizeSlug(name)
-
-		if _, err := repo.GetServer(ctx, slug); err == nil {
-			log.Printf("[MCP:import] Servidor '%s' já existe — ignorando", slug)
-			continue
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return imported, err
-		}
-
-		cfg := ServerConfig{
-			Command:     entry.Command,
-			Args:        entry.Args,
-			Env:         entry.Env,
-			URL:         entry.URL,
-			Enabled:     true,
-			AutoConnect: true,
-		}
-		cfg.applyDefaults(slug)
-		if token := extractBearerTokenFromHeaders(entry.RequestInit.Headers); token != "" {
-			cfg.AuthType = AuthBearer
-			m.importBearerCredential(slug, cfg.URL, token)
-		} else if token := extractBearerTokenFromHeaders(entry.Headers); token != "" {
-			cfg.AuthType = AuthBearer
-			m.importBearerCredential(slug, cfg.URL, token)
-		}
-
-		cfg.Slug = slug
-		inserted, err := portability.ImportMCPServerWithContext(ctx, mcpServerExportFromConfig(cfg))
-		if err != nil {
-			log.Printf("[MCP:import] Erro ao salvar config '%s' no DB: %v", slug, err)
-			continue
-		}
-		if !inserted {
-			log.Printf("[MCP:import] Servidor '%s' já existe — ignorando", slug)
-			continue
-		}
-		if saved, err := repo.GetServer(ctx, slug); err == nil && saved != nil {
-			cfg.ID = saved.ID
-		}
-		roots := m.GetWorkspaceRoots()
-		m.mu.Lock()
-		m.servers[slug] = &ServerStatus{
-			ID:     cfg.ID,
-			Slug:   slug,
-			Config: cfg,
-			Status: StatusDisconnected,
-			Tools:  []MCPToolInfo{},
-			Roots:  roots,
-		}
-		m.mu.Unlock()
-
-		log.Printf("[MCP:import] Servidor importado: %s (transport=%s)", slug, cfg.Transport)
-		imported++
-	}
-
-	return imported, nil
-}
-
-func mcpServerExportFromConfig(cfg ServerConfig) portability.MCPServerExport {
-	return portability.MCPServerExport{
-		ID:                    cfg.ID,
-		Slug:                  cfg.Slug,
-		Name:                  cfg.Name,
-		Description:           cfg.Description,
-		Transport:             string(cfg.Transport),
-		Command:               cfg.Command,
-		Args:                  cfg.Args,
-		Env:                   cfg.Env,
-		URL:                   cfg.URL,
-		AuthType:              string(cfg.AuthType),
-		OAuth2ClientID:        cfg.OAuth2ClientID,
-		OAuth2AuthURL:         cfg.OAuth2AuthURL,
-		OAuth2TokenURL:        cfg.OAuth2TokenURL,
-		OAuth2Scopes:          cfg.OAuth2Scopes,
-		OAuth2CallbackPort:    cfg.OAuth2CallbackPort,
-		OAuth2CallbackHost:    cfg.OAuth2CallbackHost,
-		OAuth2RegistrationURL: cfg.OAuth2RegistrationURL,
-		OAuth2DeviceAuthURL:   cfg.OAuth2DeviceAuthURL,
-		DisableSSE:            cfg.DisableSSE,
-		PreferBridge:          cfg.PreferBridge,
-		Enabled:               cfg.Enabled,
-		AutoConnect:           cfg.AutoConnect,
-	}
-}
-
-func sanitizeSlug(name string) string {
-	slug := strings.ToLower(name)
-	slug = strings.ReplaceAll(slug, " ", "-")
-	slug = strings.ReplaceAll(slug, "_", "-")
-	var clean []byte
-	for _, c := range []byte(slug) {
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' {
-			clean = append(clean, c)
-		}
-	}
-	return string(clean)
+	return result.Imported, nil
 }
 
 // NativeMCPServer descreve um servidor MCP HTTP elegível para passthrough nativo.

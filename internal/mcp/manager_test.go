@@ -1194,23 +1194,3 @@ func TestGetEligibleNativeMCPServers_URLFiltering(t *testing.T) {
 		t.Error("HTTP remote should NOT be eligible")
 	}
 }
-
-func TestSanitizeSlug(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"My Server", "my-server"},
-		{"my_server", "my-server"},
-		{"server-123", "server-123"},
-		{"Server With Spaces", "server-with-spaces"},
-		{"UPPERCASE", "uppercase"},
-		{"special!@#chars", "specialchars"},
-	}
-	for _, tc := range tests {
-		got := sanitizeSlug(tc.input)
-		if got != tc.want {
-			t.Errorf("sanitizeSlug(%q): got %q, want %q", tc.input, got, tc.want)
-		}
-	}
-}

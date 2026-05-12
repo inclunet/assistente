@@ -261,7 +261,7 @@ func ImportConversationsWithResolutions(
 	}
 
 	for _, server := range file.Resources.MCPServers {
-		imported, err := ImportMCPServerWithContext(ctx, server)
+		imported, err := importMCPServerWithCredentials(ctx, credMgr, server)
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
 			result.Failed++
@@ -269,10 +269,6 @@ func ImportConversationsWithResolutions(
 		}
 		if imported {
 			result.Imported++
-			if err := importMCPServerInlineCredential(ctx, credMgr, server); err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("erro ao importar credencial do servidor MCP %s: %v", server.Slug, err))
-				result.Failed++
-			}
 		} else {
 			result.Skipped++
 			result.SkippedMCPServerConflict++

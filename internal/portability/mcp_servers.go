@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strings"
 
 	"assistente/internal/credentials"
@@ -131,6 +132,17 @@ func ImportMCPServerWithContext(ctx context.Context, server MCPServerExport) (bo
 	return true, nil
 }
 
+func importMCPServerWithCredentials(ctx context.Context, credMgr *credentials.Manager, server MCPServerExport) (bool, error) {
+	imported, err := ImportMCPServerWithContext(ctx, server)
+	if err != nil || !imported {
+		return imported, err
+	}
+	if err := importMCPServerInlineCredential(ctx, credMgr, server); err != nil {
+		return true, fmt.Errorf("erro ao importar credencial do servidor MCP %s: %w", server.Slug, err)
+	}
+	return true, nil
+}
+
 func normalizeMCPServerExport(server MCPServerExport) MCPServerExport {
 	server.Slug = strings.TrimSpace(server.Slug)
 	server.Name = strings.TrimSpace(server.Name)
@@ -147,7 +159,7 @@ func normalizeMCPServerExport(server MCPServerExport) MCPServerExport {
 	}
 	server.AuthType = strings.TrimSpace(server.AuthType)
 	if server.AuthType == "" {
-		server.AuthType = "none"
+		server.AuthType = inferMCPAuthType(server)
 	}
 	return server
 }
@@ -322,6 +334,185 @@ func parseExternalMCPServers(data []byte) ([]MCPServerExport, bool, error) {
 		result = append(result, server)
 	}
 	return result, true, nil
+}
+
+func ImportMCPServersJSONWithContext(ctx context.Context, data []byte, credMgr *credentials.Manager) (LegacyImportResult, error) {
+	result := LegacyImportResult{
+		ResourceType: "servidor MCP",
+		Warnings:     make([]string, 0),
+		Errors:       make([]string, 0),
+	}
+	servers, ok, err := parseExternalMCPServers(data)
+	if err != nil {
+		result.Failed++
+		result.Errors = append(result.Errors, err.Error())
+		return result, err
+	}
+	if !ok {
+		return result, nil
+	}
+	for _, server := range servers {
+		imported, err := importMCPServerWithCredentials(ctx, credMgr, server)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, err.Error())
+			return result, err
+		}
+		if imported {
+			result.Imported++
+		} else {
+			result.Skipped++
+		}
+	}
+	return result, nil
+}
+
+// ImportLegacyMCPServersWithContext imports read-only legacy JSON config files
+// into the canonical portability model. Existing DB slugs are skipped by
+// ImportMCPServerWithContext, keeping repeated startup imports idempotent.
+func ImportLegacyMCPServersWithContext(ctx context.Context, source LegacyImportSource, credMgr *credentials.Manager) (LegacyImportResult, error) {
+	return ImportLegacyResourcesWithContext(ctx, LegacyImportRequest[MCPServerExport]{
+		ResourceType: "servidor MCP",
+		Source:       source,
+		FileSuffix:   ".json",
+		Parse:        parseLegacyMCPServerFile,
+		Import: func(ctx context.Context, server MCPServerExport) (bool, error) {
+			return importMCPServerWithCredentials(ctx, credMgr, server)
+		},
+	})
+}
+
+func parseLegacyMCPServerFile(file LegacyImportFile, data []byte) (MCPServerExport, error) {
+	slug := strings.TrimSpace(file.Name)
+	if slug == "" {
+		slug = strings.TrimSuffix(file.Filename, filepath.Ext(file.Filename))
+	}
+
+	var cfg legacyMCPServerFile
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return MCPServerExport{}, err
+	}
+	server := MCPServerExport{
+		ID:                    cfg.ID,
+		Slug:                  firstNonEmpty(cfg.Slug, slug),
+		Name:                  cfg.Name,
+		Description:           cfg.Description,
+		Transport:             firstNonEmpty(cfg.Transport, cfg.TransportCamel),
+		Command:               cfg.Command,
+		Args:                  cfg.Args,
+		Env:                   cfg.Env,
+		URL:                   cfg.URL,
+		AuthType:              firstNonEmpty(cfg.AuthType, cfg.AuthTypeCamel),
+		OAuth2ClientID:        firstNonEmpty(cfg.OAuth2ClientID, cfg.OAuth2ClientIDCamel),
+		OAuth2AuthURL:         firstNonEmpty(cfg.OAuth2AuthURL, cfg.OAuth2AuthURLCamel),
+		OAuth2TokenURL:        firstNonEmpty(cfg.OAuth2TokenURL, cfg.OAuth2TokenURLCamel),
+		OAuth2Scopes:          cfg.OAuth2Scopes,
+		OAuth2CallbackPort:    firstNonZero(cfg.OAuth2CallbackPort, cfg.OAuth2CallbackPortCamel),
+		OAuth2CallbackHost:    firstNonEmpty(cfg.OAuth2CallbackHost, cfg.OAuth2CallbackHostCamel),
+		OAuth2RegistrationURL: firstNonEmpty(cfg.OAuth2RegistrationURL, cfg.OAuth2RegistrationURLCamel),
+		OAuth2DeviceAuthURL:   firstNonEmpty(cfg.OAuth2DeviceAuthURL, cfg.OAuth2DeviceAuthURLCamel),
+		DisableSSE:            cfg.DisableSSE || cfg.DisableSSECamel,
+		PreferBridge:          cfg.PreferBridge || cfg.PreferBridgeCamel,
+		Enabled:               true,
+		AutoConnect:           true,
+	}
+	var raw map[string]json.RawMessage
+	_ = json.Unmarshal(data, &raw)
+	if hasJSONKey(raw, "enabled") {
+		server.Enabled = cfg.Enabled
+	}
+	if hasJSONKey(raw, "auto_connect") {
+		server.AutoConnect = cfg.AutoConnect
+	} else if hasJSONKey(raw, "autoConnect") {
+		server.AutoConnect = cfg.AutoConnectCamel
+	}
+	if token := extractExternalBearerToken(cfg.RequestInit.Headers); token != "" {
+		server.AuthType = "bearer"
+		server.BearerToken = token
+	} else if token := extractExternalBearerToken(cfg.Headers); token != "" {
+		server.AuthType = "bearer"
+		server.BearerToken = token
+	}
+	return normalizeMCPServerExport(server), nil
+}
+
+type legacyMCPServerFile struct {
+	ID            string            `json:"id"`
+	Slug          string            `json:"slug"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	Transport     string            `json:"transport"`
+	Command       string            `json:"command"`
+	Args          []string          `json:"args"`
+	Env           map[string]string `json:"env"`
+	URL           string            `json:"url"`
+	AuthType      string            `json:"auth_type"`
+	AuthTypeCamel string            `json:"authType"`
+
+	OAuth2ClientID             string            `json:"oauth2_client_id"`
+	OAuth2ClientIDCamel        string            `json:"oauth2ClientId"`
+	OAuth2AuthURL              string            `json:"oauth2_auth_url"`
+	OAuth2AuthURLCamel         string            `json:"oauth2AuthUrl"`
+	OAuth2TokenURL             string            `json:"oauth2_token_url"`
+	OAuth2TokenURLCamel        string            `json:"oauth2TokenUrl"`
+	OAuth2Scopes               []string          `json:"oauth2_scopes"`
+	OAuth2CallbackPort         int               `json:"oauth2_callback_port"`
+	OAuth2CallbackPortCamel    int               `json:"oauth2CallbackPort"`
+	OAuth2CallbackHost         string            `json:"oauth2_callback_host"`
+	OAuth2CallbackHostCamel    string            `json:"oauth2CallbackHost"`
+	OAuth2RegistrationURL      string            `json:"oauth2_registration_url"`
+	OAuth2RegistrationURLCamel string            `json:"oauth2RegistrationUrl"`
+	OAuth2DeviceAuthURL        string            `json:"oauth2_device_auth_url"`
+	OAuth2DeviceAuthURLCamel   string            `json:"oauth2DeviceAuthUrl"`
+	DisableSSE                 bool              `json:"disable_sse"`
+	DisableSSECamel            bool              `json:"disableSse"`
+	PreferBridge               bool              `json:"prefer_bridge"`
+	PreferBridgeCamel          bool              `json:"preferBridge"`
+	Enabled                    bool              `json:"enabled"`
+	AutoConnect                bool              `json:"auto_connect"`
+	AutoConnectCamel           bool              `json:"autoConnect"`
+	Headers                    map[string]string `json:"headers"`
+	RequestInit                struct {
+		Headers map[string]string `json:"headers"`
+	} `json:"requestInit"`
+	TransportCamel string `json:"transportType"`
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstNonZero(values ...int) int {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func hasJSONKey(raw map[string]json.RawMessage, key string) bool {
+	_, ok := raw[key]
+	return ok
+}
+
+func inferMCPAuthType(server MCPServerExport) string {
+	hasOAuthEndpoints := server.OAuth2AuthURL != "" || server.OAuth2TokenURL != ""
+	hasClientID := server.OAuth2ClientID != ""
+	hasRegistrationURL := server.OAuth2RegistrationURL != ""
+	hasDeviceAuthURL := server.OAuth2DeviceAuthURL != ""
+	if hasOAuthEndpoints || hasClientID || hasRegistrationURL || hasDeviceAuthURL {
+		return "oauth2_pkce"
+	}
+	if server.URL != "" && server.Command == "" {
+		return "oauth2_pkce"
+	}
+	return "none"
 }
 
 func importMCPServerInlineCredential(ctx context.Context, credMgr *credentials.Manager, server MCPServerExport) error {

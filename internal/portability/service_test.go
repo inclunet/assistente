@@ -239,6 +239,59 @@ func TestImportDataExternalMCPServersImportsBearerCredential(t *testing.T) {
 	}
 }
 
+func TestImportLegacyMCPServersIsReusableAndIdempotent(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	source := &memoryLegacyImportSource{
+		files: []LegacyImportFile{{Name: "github", Filename: "github.json", Path: "/legacy/github.json", Source: "home"}},
+		data: map[string][]byte{
+			"github.json": []byte(`{"name":"GitHub","transport":"streamable","url":"https://github.example/mcp","enabled":true,"auto_connect":true}`),
+		},
+	}
+	original := string(source.data["github.json"])
+
+	result, err := ImportLegacyMCPServersWithContext(ctx, source, nil)
+	if err != nil {
+		t.Fatalf("ImportLegacyMCPServersWithContext first: %v", err)
+	}
+	if result.Imported != 1 || result.Skipped != 0 {
+		t.Fatalf("first result = %#v", result)
+	}
+	if string(source.data["github.json"]) != original {
+		t.Fatal("legacy source should remain untouched")
+	}
+
+	source.data["github.json"] = []byte(`{"name":"Changed","transport":"streamable","url":"https://changed.example/mcp","enabled":true,"auto_connect":true}`)
+	result, err = ImportLegacyMCPServersWithContext(ctx, source, nil)
+	if err != nil {
+		t.Fatalf("ImportLegacyMCPServersWithContext second: %v", err)
+	}
+	if result.Imported != 0 || result.Skipped != 1 {
+		t.Fatalf("second result = %#v", result)
+	}
+
+	var row database.MCPServer
+	if err := database.DB().Where("user_id = ? AND slug = ?", portabilityTestUserID, "github").First(&row).Error; err != nil {
+		t.Fatalf("load mcp server: %v", err)
+	}
+	if row.Name != "GitHub" || row.URL != "https://github.example/mcp" {
+		t.Fatalf("legacy import overwrote existing server: %#v", row)
+	}
+}
+
+type memoryLegacyImportSource struct {
+	files []LegacyImportFile
+	data  map[string][]byte
+}
+
+func (s *memoryLegacyImportSource) ListLegacyImportFiles(context.Context) ([]LegacyImportFile, error) {
+	return append([]LegacyImportFile(nil), s.files...), nil
+}
+
+func (s *memoryLegacyImportSource) ReadLegacyImportFile(_ context.Context, filename string) ([]byte, error) {
+	return append([]byte(nil), s.data[filename]...), nil
+}
+
 func TestBuildExportFileLoadsConversationsInBatchPreservingRequestedOrder(t *testing.T) {
 	setupPortabilityTestDB(t)
 
