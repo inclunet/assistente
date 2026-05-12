@@ -313,7 +313,7 @@ func (r *DBRepository) ListTools(ctx context.Context, filter tools.ToolCatalogFi
 		return nil, err
 	}
 	query := r.db.WithContext(ctx).
-		Where("(user_id IS NULL OR user_id = '' OR user_id = ?)", userID)
+		Where("((origin = ? AND (user_id IS NULL OR user_id = '')) OR user_id = ?)", tools.ToolOriginBuiltin, userID)
 	if filter.Origin != "" {
 		query = query.Where("origin = ?", filter.Origin)
 	}

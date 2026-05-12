@@ -149,13 +149,26 @@ func TestDBRepositoryToolCatalogBuiltinAndMCPVisibility(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("upsert mcp tool: %v", err)
 	}
+	if err := repo.db.Create(&database.ToolCatalog{
+		Name:               "mcp_leaked__tool",
+		DisplayName:        "leaked",
+		Origin:             tools.ToolOriginMCPBridge,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}).Error; err != nil {
+		t.Fatalf("create corrupt unscoped mcp tool: %v", err)
+	}
 
 	toolsA, err := repo.ListTools(userA, tools.ToolCatalogFilter{})
 	if err != nil {
 		t.Fatalf("list tools user A: %v", err)
 	}
 	if len(toolsA) != 2 {
-		t.Fatalf("user A tools = %d, want 2", len(toolsA))
+		t.Fatalf("user A tools = %d, want 2: %#v", len(toolsA), toolsA)
+	}
+	for _, entry := range toolsA {
+		if entry.Name == "mcp_leaked__tool" {
+			t.Fatalf("unscoped MCP tool should not be visible: %#v", toolsA)
+		}
 	}
 
 	toolsB, err := repo.ListTools(userB, tools.ToolCatalogFilter{})
