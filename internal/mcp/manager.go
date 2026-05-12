@@ -130,6 +130,26 @@ func (m *Manager) UsesRepository() bool {
 	return m.repository() != nil
 }
 
+func (m *Manager) RecordToolTest(ctx context.Context, toolName string, success bool, errorMessage string) error {
+	repo := m.repository()
+	if repo == nil {
+		return nil
+	}
+	status := tools.ToolTestStatusOK
+	if !success {
+		status = tools.ToolTestStatusError
+	}
+	return repo.RecordToolTest(ctx, toolName, status, errorMessage)
+}
+
+func (m *Manager) ListToolCatalog(ctx context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
+	repo := m.repository()
+	if repo == nil {
+		return []tools.ToolCatalogEntry{}, nil
+	}
+	return repo.ListTools(ctx, filter)
+}
+
 // SetAuthContextProvider configura o contexto usado para resolver credenciais
 // user-scoped de servidores MCP.
 func (m *Manager) SetAuthContextProvider(provider func() context.Context) {

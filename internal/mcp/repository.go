@@ -29,6 +29,7 @@ type Repository interface {
 	UpsertTool(ctx context.Context, entry *tools.ToolCatalogEntry) error
 	ListTools(ctx context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error)
 	MarkServerToolsUnavailable(ctx context.Context, serverID string, seenNames []string, reason string) (int, error)
+	RecordToolTest(ctx context.Context, toolName, status, errorMessage string) error
 }
 
 // DBRepository implementa Repository usando GORM.
@@ -368,6 +369,40 @@ func (r *DBRepository) MarkServerToolsUnavailable(ctx context.Context, serverID 
 		"last_unavailable_at": &now,
 	})
 	return int(tx.RowsAffected), tx.Error
+}
+
+func (r *DBRepository) RecordToolTest(ctx context.Context, toolName, status, errorMessage string) error {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return fmt.Errorf("toolName é obrigatório")
+	}
+	status = strings.TrimSpace(status)
+	if status == "" {
+		status = tools.ToolTestStatusOK
+	}
+	now := r.now()
+	query := r.db.WithContext(ctx).Model(&database.ToolCatalog{}).Where("name = ?", toolName)
+	if _, _, ok := ParseToolName(toolName); ok {
+		userID, err := database.RequireUserID(ctx)
+		if err != nil {
+			return err
+		}
+		query = query.Where("user_id = ?", userID)
+	} else {
+		query = query.Where("(user_id IS NULL OR user_id = '')")
+	}
+	tx := query.Updates(map[string]any{
+		"last_tested_at":   &now,
+		"last_test_status": status,
+		"last_test_error":  errorMessage,
+	})
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if tx.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *DBRepository) normalizeToolEntry(ctx context.Context, entry tools.ToolCatalogEntry) (tools.ToolCatalogEntry, error) {

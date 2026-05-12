@@ -179,3 +179,79 @@ func TestDBRepositoryMarksMissingServerToolsUnavailable(t *testing.T) {
 		t.Fatalf("search_issue deveria ficar unavailable, got %q", statusByName["mcp_jira__search_issue"])
 	}
 }
+
+func TestDBRepositoryRecordsToolTestResults(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	if err := repo.UpsertTool(context.Background(), &tools.ToolCatalogEntry{
+		Name:               "read_file",
+		DisplayName:        "read_file",
+		Origin:             tools.ToolOriginBuiltin,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		Schema:             json.RawMessage(`{"type":"object"}`),
+	}); err != nil {
+		t.Fatalf("upsert builtin: %v", err)
+	}
+	if err := repo.RecordToolTest(context.Background(), "read_file", tools.ToolTestStatusOK, ""); err != nil {
+		t.Fatalf("record builtin test: %v", err)
+	}
+	entries, err := repo.ListTools(userA, tools.ToolCatalogFilter{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	if entries[0].LastTestStatus != tools.ToolTestStatusOK || entries[0].LastTestedAt == nil {
+		t.Fatalf("unexpected builtin test metadata: %#v", entries[0])
+	}
+
+	server := &ServerConfig{Slug: "jira", Name: "Jira", Transport: TransportStreamable, URL: "https://jira.example/mcp", Enabled: true, AutoConnect: true}
+	if err := repo.SaveServer(userA, server); err != nil {
+		t.Fatalf("save server: %v", err)
+	}
+	if err := repo.UpsertTool(userA, &tools.ToolCatalogEntry{
+		Name:               "mcp_jira__create_issue",
+		DisplayName:        "create_issue",
+		Origin:             tools.ToolOriginMCPBridge,
+		MCPServerID:        server.ID,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		Schema:             json.RawMessage(`{"type":"object"}`),
+	}); err != nil {
+		t.Fatalf("upsert mcp: %v", err)
+	}
+	if err := repo.RecordToolTest(userA, "mcp_jira__create_issue", tools.ToolTestStatusError, "boom"); err != nil {
+		t.Fatalf("record mcp test: %v", err)
+	}
+	entries, err = repo.ListTools(userA, tools.ToolCatalogFilter{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	var found tools.ToolCatalogEntry
+	for _, entry := range entries {
+		if entry.Name == "mcp_jira__create_issue" {
+			found = entry
+		}
+	}
+	if found.LastTestStatus != tools.ToolTestStatusError || found.LastTestError != "boom" {
+		t.Fatalf("unexpected mcp test metadata: %#v", found)
+	}
+}
+
+func TestDBRepositoryRequiresUserForMCPToolTestResults(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	server := &ServerConfig{Slug: "jira", Name: "Jira", Transport: TransportStreamable, URL: "https://jira.example/mcp", Enabled: true, AutoConnect: true}
+	if err := repo.SaveServer(userA, server); err != nil {
+		t.Fatalf("save server: %v", err)
+	}
+	if err := repo.UpsertTool(userA, &tools.ToolCatalogEntry{
+		Name:               "mcp_jira__create_issue",
+		DisplayName:        "create_issue",
+		Origin:             tools.ToolOriginMCPBridge,
+		MCPServerID:        server.ID,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		Schema:             json.RawMessage(`{"type":"object"}`),
+	}); err != nil {
+		t.Fatalf("upsert mcp: %v", err)
+	}
+	err := repo.RecordToolTest(context.Background(), "mcp_jira__create_issue", tools.ToolTestStatusOK, "")
+	if err != database.ErrUserScopeRequired {
+		t.Fatalf("record without user = %v, want ErrUserScopeRequired", err)
+	}
+}
