@@ -9,6 +9,7 @@ import (
 
 	"assistente/internal/app"
 	"assistente/internal/llm"
+	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/portability"
 
 	"github.com/spf13/cobra"
@@ -22,6 +23,7 @@ type dataBackend interface {
 	GetConversations() ([]app.Conversation, error)
 	GetLLMProviders() []*llm.ProviderConfig
 	GetAllTaskLists() ([]app.TaskList, error)
+	ListMCPServers() []mcpmgr.ServerInfo
 }
 
 var dataCmd = &cobra.Command{
@@ -36,12 +38,14 @@ var (
 	dataExportAll                bool
 	dataExportConversationIDs    []string
 	dataExportProviderIDs        []string
+	dataExportMCPServerSlugs     []string
 	dataExportTaskListIDs        []string
 	dataExportIncludeCredentials bool
 	dataExportCredentialPassword string
 	dataExportIncludeAudio       bool
 	dataExportConversations      bool
 	dataExportProviders          bool
+	dataExportMCPServers         bool
 	dataExportTaskLists          bool
 	dataExportCredentialsOnly    bool
 
@@ -69,6 +73,7 @@ Exemplos:
 			All:                      dataExportAll,
 			ConversationIDs:          append([]string(nil), dataExportConversationIDs...),
 			ProviderIDs:              append([]string(nil), dataExportProviderIDs...),
+			MCPServerSlugs:           append([]string(nil), dataExportMCPServerSlugs...),
 			TaskListIDs:              append([]string(nil), dataExportTaskListIDs...),
 			IncludeCredentials:       dataExportIncludeCredentials,
 			CredentialExportPassword: dataExportCredentialPassword,
@@ -77,6 +82,7 @@ Exemplos:
 		req, err := prepareDataExportRequest(rootApp, req, dataExportSelection{
 			Conversations:   dataExportConversations,
 			Providers:       dataExportProviders,
+			MCPServers:      dataExportMCPServers,
 			TaskLists:       dataExportTaskLists,
 			CredentialsOnly: dataExportCredentialsOnly,
 		})
@@ -90,6 +96,7 @@ Exemplos:
 type dataExportSelection struct {
 	Conversations   bool
 	Providers       bool
+	MCPServers      bool
 	TaskLists       bool
 	CredentialsOnly bool
 }
@@ -141,8 +148,8 @@ func runDataExport(svc dataBackend, out io.Writer, req app.ExportRequest, outPat
 }
 
 func prepareDataExportRequest(svc dataBackend, req app.ExportRequest, selection dataExportSelection) (app.ExportRequest, error) {
-	hasSpecificIDs := len(req.ConversationIDs) > 0 || len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0
-	hasTypeSelection := selection.Conversations || selection.Providers || selection.TaskLists
+	hasSpecificIDs := len(req.ConversationIDs) > 0 || len(req.ProviderIDs) > 0 || len(req.MCPServerSlugs) > 0 || len(req.TaskListIDs) > 0
+	hasTypeSelection := selection.Conversations || selection.Providers || selection.MCPServers || selection.TaskLists
 
 	if req.All && (hasSpecificIDs || hasTypeSelection || selection.CredentialsOnly) {
 		return req, fmt.Errorf("--all não pode ser combinado com seleções específicas")
@@ -189,6 +196,15 @@ func prepareDataExportRequest(svc dataBackend, req app.ExportRequest, selection 
 			ids = append(ids, id)
 		}
 		req.ProviderIDs = mergeUniqueStrings(req.ProviderIDs, ids)
+	}
+
+	if selection.MCPServers {
+		servers := svc.ListMCPServers()
+		slugs := make([]string, 0, len(servers))
+		for _, server := range servers {
+			slugs = append(slugs, strings.TrimSpace(server.Slug))
+		}
+		req.MCPServerSlugs = mergeUniqueStrings(req.MCPServerSlugs, slugs)
 	}
 
 	if selection.TaskLists {
@@ -365,15 +381,17 @@ func mergeUniqueStrings(existing []string, incoming []string) []string {
 }
 
 func init() {
-	dataExportCmd.Flags().StringVar(&dataExportFormat, "format", portability.FormatJSON, "Formato de saída: json, html ou pdf")
+	dataExportCmd.Flags().StringVar(&dataExportFormat, "format", portability.FormatJSON, "Formato de saída: json, html, pdf ou mcp-json")
 	dataExportCmd.Flags().StringVarP(&dataExportOut, "out", "o", "", "Arquivo de saída (obrigatório para PDF)")
-	dataExportCmd.Flags().BoolVar(&dataExportAll, "all", false, "Exporta todas as conversas, providers e task lists persistidos")
+	dataExportCmd.Flags().BoolVar(&dataExportAll, "all", false, "Exporta todas as conversas, providers, servidores MCP e task lists persistidos")
 	dataExportCmd.Flags().BoolVar(&dataExportConversations, "conversations", false, "Exporta todas as conversas")
 	dataExportCmd.Flags().BoolVar(&dataExportProviders, "providers", false, "Exporta todos os providers persistidos")
+	dataExportCmd.Flags().BoolVar(&dataExportMCPServers, "mcp-servers", false, "Exporta todos os servidores MCP")
 	dataExportCmd.Flags().BoolVar(&dataExportTaskLists, "tasklists", false, "Exporta todas as task lists persistidas")
 	dataExportCmd.Flags().BoolVar(&dataExportCredentialsOnly, "only-credentials", false, "Exporta apenas o bloco portátil de credenciais")
 	dataExportCmd.Flags().StringSliceVar(&dataExportConversationIDs, "conversation-id", nil, "ID de conversa para exportar (repetível)")
 	dataExportCmd.Flags().StringSliceVar(&dataExportProviderIDs, "provider-id", nil, "ID de provider para exportar (repetível)")
+	dataExportCmd.Flags().StringSliceVar(&dataExportMCPServerSlugs, "mcp-server", nil, "Slug de servidor MCP para exportar (repetível)")
 	dataExportCmd.Flags().StringSliceVar(&dataExportTaskListIDs, "tasklist-id", nil, "ID de task list para exportar (repetível)")
 	dataExportCmd.Flags().BoolVar(&dataExportIncludeCredentials, "include-credentials", false, "Inclui credenciais exportáveis")
 	dataExportCmd.Flags().StringVar(&dataExportCredentialPassword, "credential-password", "", "Senha para exportar/descriptografar credenciais")

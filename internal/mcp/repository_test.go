@@ -21,6 +21,11 @@ func setupRepositoryTest(t *testing.T) (*DBRepository, context.Context, context.
 	if err := db.AutoMigrate(&database.User{}, &database.MCPServer{}, &database.MCPServerLog{}, &database.ToolCatalog{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
+	previous := database.DB()
+	database.SetDB(db)
+	t.Cleanup(func() {
+		database.SetDB(previous)
+	})
 	return NewDBRepository(db), database.WithUserID(context.Background(), "user-a"), database.WithUserID(context.Background(), "user-b")
 }
 

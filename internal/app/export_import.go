@@ -54,6 +54,11 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	mcpServerSlugs, err := resolveMCPServerSlugs(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	req.MCPServerSlugs = mcpServerSlugs
 	taskListIDs, err := resolveTaskListIDs(ctx, req)
 	if err != nil {
 		return "", err
@@ -61,8 +66,13 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 	switch req.OutputFormat {
 	case portability.FormatJSON:
 		return portability.ExportPortableDataWithContext(ctx, conversationIDs, providerIDs, taskListIDs, a.credMgr, req, AppVersion)
+	case portability.FormatMCPJSON:
+		if len(conversationIDs) > 0 || len(providerIDs) > 0 || len(taskListIDs) > 0 || req.IncludeCredentials {
+			return "", fmt.Errorf("formato mcp-json suporta apenas servidores MCP")
+		}
+		return portability.ExportMCPServersExternalJSONWithContext(ctx, mcpServerSlugs)
 	case portability.FormatHTML:
-		if len(taskListIDs) > 0 || len(providerIDs) > 0 {
+		if len(taskListIDs) > 0 || len(providerIDs) > 0 || len(mcpServerSlugs) > 0 {
 			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
 		}
 		req, err = normalizeRichConversationExportRequest(req)
@@ -183,7 +193,7 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 	}
 
 	switch req.OutputFormat {
-	case portability.FormatJSON:
+	case portability.FormatJSON, portability.FormatMCPJSON:
 		rendered, err := a.ExportData(req)
 		if err != nil {
 			return "", err
@@ -205,11 +215,15 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		mcpServerSlugs, err := resolveMCPServerSlugs(ctx, req)
+		if err != nil {
+			return "", err
+		}
 		taskListIDs, err := resolveTaskListIDs(ctx, req)
 		if err != nil {
 			return "", err
 		}
-		if len(taskListIDs) > 0 || len(providerIDs) > 0 {
+		if len(taskListIDs) > 0 || len(providerIDs) > 0 || len(mcpServerSlugs) > 0 {
 			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
 		}
 		req, err = normalizeRichConversationExportRequest(req)
@@ -257,9 +271,6 @@ func validateDBOnlyExportRequest(req ExportRequest) error {
 	if len(req.AllowlistSlugs) > 0 {
 		unsupported = append(unsupported, "allowlists")
 	}
-	if len(req.MCPServerSlugs) > 0 {
-		unsupported = append(unsupported, "mcpServers")
-	}
 	if len(req.JobIDs) > 0 {
 		unsupported = append(unsupported, "jobs")
 	}
@@ -298,7 +309,7 @@ func resolveConversationIDs(ctx context.Context, req ExportRequest) ([]string, e
 		if req.ExplicitSelection {
 			return nil, nil
 		}
-		if len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0 {
+		if len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0 || len(req.MCPServerSlugs) > 0 {
 			return nil, nil
 		}
 		conversations, err := database.GetConversationsWithContext(ctx)
@@ -349,6 +360,34 @@ func resolveProviderIDs(ctx context.Context, req ExportRequest) ([]string, error
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+func resolveMCPServerSlugs(ctx context.Context, req ExportRequest) ([]string, error) {
+	if req.All {
+		var rows []database.MCPServer
+		if err := database.ScopeByUser(ctx, database.DB().WithContext(ctx), "user_id").Order("slug ASC").Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		slugs := make([]string, 0, len(rows))
+		for _, row := range rows {
+			slugs = append(slugs, row.Slug)
+		}
+		return slugs, nil
+	}
+
+	if len(req.MCPServerSlugs) == 0 {
+		return nil, nil
+	}
+
+	slugs := make([]string, 0, len(req.MCPServerSlugs))
+	for _, raw := range req.MCPServerSlugs {
+		slug := strings.TrimSpace(raw)
+		if slug == "" {
+			return nil, fmt.Errorf("mcpServerSlug inválido: %q", raw)
+		}
+		slugs = append(slugs, slug)
+	}
+	return slugs, nil
 }
 
 func resolveTaskListIDs(ctx context.Context, req ExportRequest) ([]string, error) {

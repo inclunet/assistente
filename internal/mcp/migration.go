@@ -6,6 +6,8 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+
+	"assistente/internal/portability"
 )
 
 func (m *Manager) migrateFilesystemConfigsToRepository(ctx context.Context, repo Repository) error {
@@ -51,7 +53,7 @@ func (m *Manager) migrateFilesystemConfigsToRepository(ctx context.Context, repo
 		}
 		cfg.Slug = slug
 		m.applyInlineAuthFromConfig(slug, &cfg, data)
-		if err := repo.SaveServer(ctx, &cfg); err != nil {
+		if _, err := portability.ImportMCPServerWithContext(ctx, mcpServerExportFromConfig(cfg)); err != nil {
 			return fmt.Errorf("erro ao migrar config MCP legado %s: %w", filename, err)
 		}
 		existingBySlug[slug] = struct{}{}

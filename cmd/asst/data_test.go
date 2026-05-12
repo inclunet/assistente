@@ -9,6 +9,7 @@ import (
 	"assistente/internal/app"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/portability"
 )
 
@@ -70,6 +71,10 @@ func (m *mockDataBackend) GetLLMProviders() []*llm.ProviderConfig {
 
 func (m *mockDataBackend) GetAllTaskLists() ([]app.TaskList, error) {
 	return m.taskLists, m.taskListsErr
+}
+
+func (m *mockDataBackend) ListMCPServers() []mcpmgr.ServerInfo {
+	return []mcpmgr.ServerInfo{{Slug: "github"}, {Slug: "filesystem"}}
 }
 
 func TestRunDataExport_Stdout(t *testing.T) {

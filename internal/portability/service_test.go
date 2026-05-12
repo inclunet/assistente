@@ -119,6 +119,126 @@ func TestExportConversationOmitsAudioByDefault(t *testing.T) {
 	}
 }
 
+func TestExportPortableDataIncludesMCPServers(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	server := database.MCPServer{
+		UserID:      portabilityTestUserID,
+		Slug:        "github",
+		Name:        "GitHub",
+		Transport:   "streamable",
+		URL:         "https://github.example/mcp",
+		Args:        `["--verbose"]`,
+		Env:         `{"TOKEN":"x"}`,
+		Enabled:     true,
+		AutoConnect: true,
+	}
+	if err := database.DB().Create(&server).Error; err != nil {
+		t.Fatalf("create mcp server: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, nil, nil, nil, nil, ExportRequest{
+		ExplicitSelection: true,
+		MCPServerSlugs:    []string{"github"},
+	}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	if len(file.Resources.MCPServers) != 1 {
+		t.Fatalf("MCPServers len = %d, want 1", len(file.Resources.MCPServers))
+	}
+	got := file.Resources.MCPServers[0]
+	if got.Slug != "github" || got.URL != "https://github.example/mcp" || got.Env["TOKEN"] != "x" {
+		t.Fatalf("unexpected mcp export: %#v", got)
+	}
+}
+
+func TestImportPortableMCPServerIsIdempotent(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	server := MCPServerExport{
+		Slug:        "github",
+		Name:        "GitHub",
+		Transport:   "streamable",
+		URL:         "https://github.example/mcp",
+		Enabled:     true,
+		AutoConnect: true,
+	}
+
+	imported, err := ImportMCPServerWithContext(ctx, server)
+	if err != nil {
+		t.Fatalf("ImportMCPServerWithContext first: %v", err)
+	}
+	if !imported {
+		t.Fatal("first import should insert")
+	}
+	imported, err = ImportMCPServerWithContext(ctx, MCPServerExport{
+		Slug:        "github",
+		Name:        "Changed",
+		Transport:   "streamable",
+		URL:         "https://changed.example/mcp",
+		Enabled:     true,
+		AutoConnect: true,
+	})
+	if err != nil {
+		t.Fatalf("ImportMCPServerWithContext second: %v", err)
+	}
+	if imported {
+		t.Fatal("second import should skip existing slug")
+	}
+
+	var row database.MCPServer
+	if err := database.DB().Where("user_id = ? AND slug = ?", portabilityTestUserID, "github").First(&row).Error; err != nil {
+		t.Fatalf("load mcp server: %v", err)
+	}
+	if row.Name != "GitHub" || row.URL != "https://github.example/mcp" {
+		t.Fatalf("existing server was overwritten: %#v", row)
+	}
+}
+
+func TestImportDataAcceptsExternalMCPServersJSON(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	payload := `{"mcpServers":{"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem"],"env":{"ROOT":"/tmp"}}}}`
+
+	result, err := ImportConversationsWithContext(ctx, payload, nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext: %v", err)
+	}
+	if !result.Success || result.Imported != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	var row database.MCPServer
+	if err := database.DB().Where("user_id = ? AND slug = ?", portabilityTestUserID, "filesystem").First(&row).Error; err != nil {
+		t.Fatalf("load mcp server: %v", err)
+	}
+	if row.Transport != "stdio" || row.Command != "npx" {
+		t.Fatalf("unexpected imported server: %#v", row)
+	}
+}
+
+func TestImportDataExternalMCPServersImportsBearerCredential(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	credMgr := credentials.NewManagerWithStore([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
+	payload := `{"mcpServers":{"github":{"url":"https://api.githubcopilot.com/mcp/","requestInit":{"headers":{"Authorization":"Bearer ghp_imported"}}}}}`
+
+	result, err := ImportConversationsWithContext(ctx, payload, credMgr, "")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext: %v", err)
+	}
+	if !result.Success || result.Imported != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	auth, err := credMgr.GetByPatternWithContext(ctx, "api.githubcopilot.com")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext: %v", err)
+	}
+	if auth == nil || auth.Token != "ghp_imported" {
+		t.Fatalf("imported auth = %#v", auth)
+	}
+}
+
 func TestBuildExportFileLoadsConversationsInBatchPreservingRequestedOrder(t *testing.T) {
 	setupPortabilityTestDB(t)
 
@@ -215,6 +335,7 @@ func setupPortabilityTestDB(t *testing.T) {
 		&database.Task{},
 		&database.TaskNote{},
 		&database.CredentialEntry{},
+		&database.MCPServer{},
 	); err != nil {
 		t.Fatalf("falha ao migrar tabelas: %v", err)
 	}

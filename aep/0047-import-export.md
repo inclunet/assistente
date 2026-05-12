@@ -8,7 +8,7 @@
 
 ## Resumo
 
-Sistema de importação e exportação em formato JSON portável com **IDs UUID estáveis**. O desenho desta AEP cobre a evolução do mecanismo para diferentes tipos de recurso, mas **a implementação desta etapa continua restrita ao que já está persistido no banco hoje**, com foco em conversas, mensagens, providers, tasklists e no bloco portátil de credenciais. O export passa a carregar os IDs persistidos como contrato canônico, permitindo importação idempotente, deduplicação determinística e sobrescrita direta por `id`. O JSON é o formato canônico para importação; HTML e PDF são formatos derivados apenas para exportação rica. Credenciais sensíveis continuam excluídas por padrão, mas podem ser incluídas opcionalmente em um bloco criptografado com senha de exportação.
+Sistema de importação e exportação em formato JSON portável com **IDs UUID estáveis**. O desenho desta AEP cobre a evolução do mecanismo para diferentes tipos de recurso, mas **a implementação desta etapa continua restrita ao que já está persistido no banco hoje**, com foco em conversas, mensagens, providers, servidores MCP, tasklists e no bloco portátil de credenciais. O export passa a carregar os IDs persistidos como contrato canônico, permitindo importação idempotente, deduplicação determinística e sobrescrita direta por `id` quando aplicável. O JSON é o formato canônico para importação; HTML e PDF são formatos derivados apenas para exportação rica de conversas. Servidores MCP também podem ser exportados no formato `mcpServers` compatível com Cursor/Claude. Credenciais sensíveis continuam excluídas por padrão, mas podem ser incluídas opcionalmente em um bloco criptografado com senha de exportação.
 
 Recursos que ainda dependem de migração para o banco ou de ajustes estruturais adicionais permanecem fora do escopo imediato e serão tratados após as migrações propostas nas AEP-0052, AEP-0048, AEP-0050 e AEP-0051.
 
@@ -35,11 +35,12 @@ Escopo implementado nesta fase:
 - conversas
 - mensagens
 - providers persistidos
+- servidores MCP persistidos
 - tasklists persistidas
 - bloco portátil de credenciais criptografadas
 - exportação derivada em HTML/PDF para conversas
 
-Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arquivo, os que dependem de migração para o banco e os que exigem reestruturações previstas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.
+Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arquivo, os que dependem de migração para o banco e os que exigem reestruturações previstas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052. Servidores MCP entram no escopo quando migrados para banco pela AEP-0049.
 
 ### D1 — Formato: JSON versionado com IDs estáveis
 

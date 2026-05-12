@@ -9,7 +9,7 @@
 
 Migrar a configuração de servidores MCP de arquivos JSON individuais no disco (`~/.assistente/mcp/{slug}.json`) para SQLite via GORM, sempre vinculando cada servidor MCP ao usuário logado. Uma tabela `mcp_servers` armazena a configuração persistente, uma tabela `mcp_server_logs` registra eventos de conexão, erros e health checks, e uma tabela `tool_catalog` registra tools builtin e tools MCP descobertas.
 
-Credenciais OAuth/bearer/basic continuam no `credentials.Manager` existente (nunca no banco de configs). O file watcher é removido. O banco passa a ser a fonte persistida para servidores MCP, catálogo de tools e metadados de seleção; o registry em memória passa a ser uma projeção runtime usada para execução.
+Credenciais OAuth/bearer/basic continuam no `credentials.Manager` existente (nunca no banco de configs). O file watcher é removido. O banco passa a ser a fonte persistida para servidores MCP, catálogo de tools e metadados de seleção; o registry em memória passa a ser uma projeção runtime usada para execução. Importação e exportação de MCP servers são integradas ao sistema `internal/portability` da AEP-0047, incluindo export canônico em `resources.mcpServers` e export compatível `mcpServers` para outros clientes MCP.
 
 ## Motivação
 
@@ -146,6 +146,8 @@ Em todo startup pós-login, o Manager pode detectar arquivos JSON em `~/.assiste
 5. Mantém os arquivos originais intocados
 
 Credenciais não são tocadas — já estão no `credentials.Manager`. Isso preserva compatibilidade mínima com instalações antigas sem manter o runtime filesystem anterior.
+
+O caminho de persistência da importação usa o mesmo serviço de portabilidade usado por import/export geral. O Manager pode continuar lendo arquivos legados no startup, mas não possui uma regra paralela para salvar servidores no banco.
 
 ### D8 — Repository pattern
 

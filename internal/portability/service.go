@@ -18,6 +18,7 @@ import (
 var supportedPortableResourceTypes = map[string]struct{}{
 	"conversations": {},
 	"providers":     {},
+	"mcpServers":    {},
 	"taskLists":     {},
 	"credentials":   {},
 }
@@ -74,6 +75,11 @@ func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, p
 		providers = append(providers, exportProvider(provider))
 	}
 
+	mcpServers, err := buildMCPServerExports(ctx, req.MCPServerSlugs)
+	if err != nil {
+		return nil, err
+	}
+
 	taskLists := make([]TaskListExport, 0, len(taskListIDs))
 	for _, id := range taskListIDs {
 		taskList, err := exportTaskListWithContext(ctx, id)
@@ -94,6 +100,7 @@ func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, p
 		Resources: ExportResources{
 			Conversations: conversations,
 			Providers:     providers,
+			MCPServers:    mcpServers,
 			TaskLists:     taskLists,
 		},
 	}
@@ -253,6 +260,25 @@ func ImportConversationsWithResolutions(
 		}
 	}
 
+	for _, server := range file.Resources.MCPServers {
+		imported, err := ImportMCPServerWithContext(ctx, server)
+		if err != nil {
+			result.Errors = append(result.Errors, err.Error())
+			result.Failed++
+			continue
+		}
+		if imported {
+			result.Imported++
+			if err := importMCPServerInlineCredential(ctx, credMgr, server); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("erro ao importar credencial do servidor MCP %s: %v", server.Slug, err))
+				result.Failed++
+			}
+		} else {
+			result.Skipped++
+			result.SkippedMCPServerConflict++
+		}
+	}
+
 	for _, taskList := range file.Resources.TaskLists {
 		imported, err := importTaskList(ctx, taskList)
 		if err != nil {
@@ -288,6 +314,7 @@ func ImportConversationsWithResolutions(
 			result.SkippedEmptyConversations-
 			result.SkippedConversationConflict-
 			result.SkippedProviderConflict-
+			result.SkippedMCPServerConflict-
 			result.SkippedTaskListConflict-
 			result.SkippedCredentialConflict,
 		0,
@@ -699,10 +726,12 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 		AppVersion:            file.AppVersion,
 		ConversationCount:     len(file.Resources.Conversations),
 		ProviderCount:         len(file.Resources.Providers),
+		MCPServerCount:        len(file.Resources.MCPServers),
 		TaskListCount:         len(file.Resources.TaskLists),
 		IncludesCredentials:   file.Options.IncludeCredentials && file.Resources.Credentials != nil,
 		ConversationConflicts: make([]ImportConflict, 0),
 		ProviderConflicts:     make([]ImportConflict, 0),
+		MCPServerConflicts:    make([]ImportConflict, 0),
 		TaskListConflicts:     make([]ImportConflict, 0),
 		CredentialConflicts:   make([]ImportConflict, 0),
 		Warnings:              make([]string, 0),
@@ -758,7 +787,7 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 		}
 	}
 
-	analysis.ConflictCount = len(analysis.ConversationConflicts) + len(analysis.ProviderConflicts) + len(analysis.TaskListConflicts) + len(analysis.CredentialConflicts)
+	analysis.ConflictCount = len(analysis.ConversationConflicts) + len(analysis.ProviderConflicts) + len(analysis.MCPServerConflicts) + len(analysis.TaskListConflicts) + len(analysis.CredentialConflicts)
 	if emptyCount := countEmptyConversations(file.Resources.Conversations); emptyCount > 0 {
 		analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("%d conversa(s) vazia(s) serão descartadas na importação.", emptyCount))
 	}
@@ -804,15 +833,29 @@ func credentialConflictIdentifier(cred CredentialExport) string {
 }
 
 func parseExportFile(jsonData string) (*ExportFile, []string, error) {
+	rawData := []byte(jsonData)
 	var envelope struct {
 		Resources map[string]json.RawMessage `json:"resources"`
+		Version   int                        `json:"version"`
 	}
-	if err := json.Unmarshal([]byte(jsonData), &envelope); err != nil {
+	if err := json.Unmarshal(rawData, &envelope); err != nil {
 		return nil, nil, fmt.Errorf("erro ao parsear JSON: %w", err)
+	}
+	if envelope.Version == 0 && len(envelope.Resources) == 0 {
+		if servers, ok, err := parseExternalMCPServers(rawData); err != nil {
+			return nil, nil, fmt.Errorf("erro ao parsear MCP JSON: %w", err)
+		} else if ok {
+			return &ExportFile{
+				Version:    ExportVersion,
+				ExportedAt: time.Now().UTC(),
+				Options:    ExportOptions{},
+				Resources:  ExportResources{MCPServers: servers},
+			}, nil, nil
+		}
 	}
 
 	var file ExportFile
-	if err := json.Unmarshal([]byte(jsonData), &file); err != nil {
+	if err := json.Unmarshal(rawData, &file); err != nil {
 		return nil, nil, fmt.Errorf("erro ao parsear JSON: %w", err)
 	}
 

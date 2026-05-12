@@ -17,6 +17,7 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/portability"
 	"assistente/internal/tools"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -1820,9 +1821,17 @@ func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 		}
 
 		cfg.Slug = slug
-		if err := repo.SaveServer(ctx, &cfg); err != nil {
+		inserted, err := portability.ImportMCPServerWithContext(ctx, mcpServerExportFromConfig(cfg))
+		if err != nil {
 			log.Printf("[MCP:import] Erro ao salvar config '%s' no DB: %v", slug, err)
 			continue
+		}
+		if !inserted {
+			log.Printf("[MCP:import] Servidor '%s' já existe — ignorando", slug)
+			continue
+		}
+		if saved, err := repo.GetServer(ctx, slug); err == nil && saved != nil {
+			cfg.ID = saved.ID
 		}
 		roots := m.GetWorkspaceRoots()
 		m.mu.Lock()
@@ -1841,6 +1850,33 @@ func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 	}
 
 	return imported, nil
+}
+
+func mcpServerExportFromConfig(cfg ServerConfig) portability.MCPServerExport {
+	return portability.MCPServerExport{
+		ID:                    cfg.ID,
+		Slug:                  cfg.Slug,
+		Name:                  cfg.Name,
+		Description:           cfg.Description,
+		Transport:             string(cfg.Transport),
+		Command:               cfg.Command,
+		Args:                  cfg.Args,
+		Env:                   cfg.Env,
+		URL:                   cfg.URL,
+		AuthType:              string(cfg.AuthType),
+		OAuth2ClientID:        cfg.OAuth2ClientID,
+		OAuth2AuthURL:         cfg.OAuth2AuthURL,
+		OAuth2TokenURL:        cfg.OAuth2TokenURL,
+		OAuth2Scopes:          cfg.OAuth2Scopes,
+		OAuth2CallbackPort:    cfg.OAuth2CallbackPort,
+		OAuth2CallbackHost:    cfg.OAuth2CallbackHost,
+		OAuth2RegistrationURL: cfg.OAuth2RegistrationURL,
+		OAuth2DeviceAuthURL:   cfg.OAuth2DeviceAuthURL,
+		DisableSSE:            cfg.DisableSSE,
+		PreferBridge:          cfg.PreferBridge,
+		Enabled:               cfg.Enabled,
+		AutoConnect:           cfg.AutoConnect,
+	}
 }
 
 func sanitizeSlug(name string) string {
