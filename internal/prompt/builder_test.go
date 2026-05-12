@@ -413,6 +413,39 @@ func TestBuildTemplateData_DoesNotReuseActiveTabStateWhenSurfaceTypeDiffers(t *t
 	}
 }
 
+func TestBuild_TaskListSkillTemplateRendersEmptyWithoutTaskLists(t *testing.T) {
+	taskListSkill := makeSkill("tasklist-manager", "Task List Manager", "", `{{- if .HasTaskLists }}
+Task lists:
+{{- range .TaskLists }}
+- {{ .Title }}
+{{- end }}
+{{- if .ToolCallingEnabled }}
+Tools available.
+{{- end }}
+{{- end }}`, true, true)
+	profile := &profiles.Profile{}
+	profile.Chat.DisableTools = true
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{autoSkills: []skills.Skill{taskListSkill}},
+		Tools:  tools.NewRegistry(),
+	}
+	tplData := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, nil, false, tplData, "", "")
+	if len(result) == 0 {
+		t.Fatal("expected messages")
+	}
+	sys, ok := result[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected system content string, got %T", result[0].Content)
+	}
+	if strings.Contains(sys, "{{") || strings.Contains(sys, ".HasTaskLists") {
+		t.Fatalf("template was not rendered: %q", sys)
+	}
+	if strings.Contains(sys, "Tools available.") {
+		t.Fatalf("tool guidance should not render when task lists are absent: %q", sys)
+	}
+}
+
 func TestComputeEnabledToolNames_DisableTools_ReturnsNil(t *testing.T) {
 	reg := tools.NewRegistry()
 	_ = reg.Register(&fakeTool{name: "read_file"})
