@@ -101,11 +101,45 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 }
 
 func validateMCPJSONExportRequest(req ExportRequest) error {
-	if req.IncludeCredentials || strings.TrimSpace(req.CredentialExportPassword) != "" {
-		return fmt.Errorf("formato mcp-json não suporta exportação de credenciais; selecione apenas servidores MCP")
+	unsupported := make([]string, 0)
+	if len(req.ConversationIDs) > 0 {
+		unsupported = append(unsupported, "conversations")
 	}
-	if len(req.ConversationIDs) > 0 || len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0 {
-		return fmt.Errorf("formato mcp-json suporta apenas servidores MCP; use mcpServerSlugs ou All para exportar MCP servers")
+	if len(req.ProviderIDs) > 0 {
+		unsupported = append(unsupported, "providers")
+	}
+	if len(req.ProfileSlugs) > 0 {
+		unsupported = append(unsupported, "profiles")
+	}
+	if len(req.SkillSlugs) > 0 {
+		unsupported = append(unsupported, "skills")
+	}
+	if len(req.AllowlistSlugs) > 0 {
+		unsupported = append(unsupported, "allowlists")
+	}
+	if len(req.JobIDs) > 0 {
+		unsupported = append(unsupported, "jobs")
+	}
+	if len(req.TaskListIDs) > 0 {
+		unsupported = append(unsupported, "taskLists")
+	}
+	if len(req.ChannelNames) > 0 {
+		unsupported = append(unsupported, "channels")
+	}
+	if req.IncludeContacts {
+		unsupported = append(unsupported, "contacts")
+	}
+	if req.IncludeWorkspace {
+		unsupported = append(unsupported, "workspace")
+	}
+	if req.IncludeAudio {
+		unsupported = append(unsupported, "audio")
+	}
+	if req.IncludeCredentials || strings.TrimSpace(req.CredentialExportPassword) != "" {
+		unsupported = append(unsupported, "credentials")
+	}
+	if len(unsupported) > 0 {
+		return fmt.Errorf("formato mcp-json suporta apenas servidores MCP; remova seleções/opções incompatíveis: %s", strings.Join(unsupported, ", "))
 	}
 	return nil
 }

@@ -145,6 +145,30 @@ func (m *Manager) ListToolCatalog(ctx context.Context, filter tools.ToolCatalogF
 	return repo.ListTools(ctx, filter)
 }
 
+func (m *Manager) markServerToolsUnavailable(slug, reason string) {
+	repo := m.repository()
+	if repo == nil {
+		return
+	}
+	m.mu.RLock()
+	status := m.servers[slug]
+	m.mu.RUnlock()
+	if status == nil || strings.TrimSpace(status.ID) == "" {
+		return
+	}
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		if status.Config.UserID == "" {
+			log.Printf("[MCP:%s] não foi possível marcar tools indisponíveis sem usuário autenticado: %v", slug, err)
+			return
+		}
+		ctx = database.WithUserID(context.Background(), status.Config.UserID)
+	}
+	if _, err := repo.MarkServerToolsUnavailable(ctx, status.ID, nil, reason); err != nil {
+		log.Printf("[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
+	}
+}
+
 func (m *Manager) StartLogRetention(interval, maxAge time.Duration) {
 	repo := m.repository()
 	if repo == nil || interval <= 0 || maxAge <= 0 {
@@ -638,6 +662,7 @@ func (m *Manager) Disconnect(slug string) error {
 				s.Error = ""
 			}
 			m.mu.Unlock()
+			m.markServerToolsUnavailable(slug, "server disconnected")
 			log.Printf("[MCP] Conexão em andamento de '%s' cancelada pelo usuário", slug)
 			m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
 			m.logEvent(slug, "disconnected", "Conexão MCP cancelada pelo usuário", nil)
@@ -680,6 +705,7 @@ func (m *Manager) Disconnect(slug string) error {
 		}
 	}
 
+	m.markServerToolsUnavailable(slug, "server disconnected")
 	log.Printf("[MCP] Servidor '%s' desconectado", slug)
 
 	m.emit("mcp:server_disconnected", map[string]string{"slug": slug})

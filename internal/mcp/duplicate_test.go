@@ -139,6 +139,54 @@ func TestDeleteConfigNormalizesSlugForRuntimeState(t *testing.T) {
 	}
 }
 
+func TestDisconnectMarksCatalogToolsUnavailable(t *testing.T) {
+	mgr := NewManager(tools.NewRegistry(), credentials.NewManager(nil), func(string, any) {})
+	repo, _, _ := setupRepositoryTest(t)
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr.SetRepository(repo)
+	mgr.SetAuthContextProvider(func() context.Context { return ctx })
+	if err := mgr.SaveConfig("server", ServerConfig{
+		Name:        "Servidor MCP",
+		Transport:   TransportStreamable,
+		URL:         "https://mcp.example/mcp",
+		Enabled:     true,
+		AutoConnect: false,
+	}); err != nil {
+		t.Fatalf("SaveConfig falhou: %v", err)
+	}
+	cfg, err := mgr.GetConfig("server")
+	if err != nil {
+		t.Fatalf("GetConfig falhou: %v", err)
+	}
+	if err := repo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+		Name:               "mcp_server__do",
+		DisplayName:        "do",
+		Origin:             tools.ToolOriginMCPBridge,
+		MCPServerID:        cfg.ID,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}); err != nil {
+		t.Fatalf("UpsertTool falhou: %v", err)
+	}
+	mgr.mu.Lock()
+	mgr.connections["server"] = &serverConnection{}
+	if status := mgr.servers["server"]; status != nil {
+		status.Status = StatusConnected
+	}
+	mgr.mu.Unlock()
+
+	if err := mgr.Disconnect("server"); err != nil {
+		t.Fatalf("Disconnect falhou: %v", err)
+	}
+
+	entries, err := repo.ListTools(ctx, tools.ToolCatalogFilter{IncludeUnavailable: true})
+	if err != nil {
+		t.Fatalf("ListTools falhou: %v", err)
+	}
+	if len(entries) != 1 || entries[0].AvailabilityStatus != tools.ToolAvailabilityUnavailable {
+		t.Fatalf("tool deveria ficar unavailable após disconnect: %#v", entries)
+	}
+}
+
 func TestGetConfigMissingReturnsDomainError(t *testing.T) {
 	mgr := NewManager(tools.NewRegistry(), credentials.NewManager(nil), func(string, any) {})
 	repo, _, _ := setupRepositoryTest(t)
