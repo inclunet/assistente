@@ -240,6 +240,37 @@ func TestBuildLLMToolDefsByNames_DisabledOrEmpty(t *testing.T) {
 	}
 }
 
+func TestFilterToolNamesForNativeMCPRemovesNativeBridgeNames(t *testing.T) {
+	p := &mockChatProvider{supportsNative: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do", "mcp_srv__list"}},
+	}}
+
+	got := FilterToolNamesForNativeMCP(p, mgr, []string{"read_file", "mcp_srv__do", "mcp_other__do", "mcp_srv__list"}, false)
+	want := []string{"read_file", "mcp_other__do"}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestFilterToolNamesForNativeMCPPreservesNamesWhenProviderIsNotNative(t *testing.T) {
+	p := &mockChatProvider{supportsNative: false}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+	}}
+	names := []string{"mcp_srv__do"}
+
+	got := FilterToolNamesForNativeMCP(p, mgr, names, false)
+	if len(got) != 1 || got[0] != "mcp_srv__do" {
+		t.Fatalf("got %#v, want %#v", got, names)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ApplyNativeMCP
 // ---------------------------------------------------------------------------

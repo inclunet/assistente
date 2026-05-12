@@ -50,3 +50,23 @@ func TestCatalogToolReturnsSelectedTools(t *testing.T) {
 		t.Fatalf("unexpected response: %#v", payload)
 	}
 }
+
+func TestCatalogToolClampsLimitToMaximum(t *testing.T) {
+	store := &fakeCatalogToolStore{
+		entries: []ToolCatalogEntry{
+			{Name: "read_file", DisplayName: "read_file", Origin: ToolOriginBuiltin, AvailabilityStatus: ToolAvailabilityAvailable},
+		},
+	}
+	tool := NewCatalogTool(store)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"limit":51}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", result.Content)
+	}
+	if store.filter.Limit != 50 {
+		t.Fatalf("filter limit = %d, want 50", store.filter.Limit)
+	}
+}

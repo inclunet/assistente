@@ -83,8 +83,10 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 		}
 	}
 	limit := req.Limit
-	if limit <= 0 || limit > 50 {
+	if limit <= 0 {
 		limit = 20
+	} else if limit > 50 {
+		limit = 50
 	}
 	filter := ToolCatalogFilter{
 		Origin:             strings.TrimSpace(req.Origin),
