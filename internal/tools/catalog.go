@@ -61,6 +61,7 @@ type ToolCatalogFilter struct {
 	Risk               string `json:"risk,omitempty"`
 	AvailabilityStatus string `json:"availability_status,omitempty"`
 	IncludeUnavailable bool   `json:"include_unavailable,omitempty"`
+	Limit              int    `json:"limit,omitempty"`
 }
 
 func CatalogEntryFromTool(tool Tool) ToolCatalogEntry {

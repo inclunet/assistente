@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"assistente/internal/database"
@@ -166,6 +167,29 @@ func TestDBRepositoryToolCatalogBuiltinAndMCPVisibility(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryListToolsAppliesLimit(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	for _, name := range []string{"alpha", "beta"} {
+		if err := repo.UpsertTool(userA, &tools.ToolCatalogEntry{
+			Name:               name,
+			DisplayName:        name,
+			Origin:             tools.ToolOriginBuiltin,
+			AvailabilityStatus: tools.ToolAvailabilityAvailable,
+			Schema:             json.RawMessage(`{"type":"object"}`),
+		}); err != nil {
+			t.Fatalf("upsert %s: %v", name, err)
+		}
+	}
+
+	entries, err := repo.ListTools(userA, tools.ToolCatalogFilter{Limit: 1})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+	}
+}
+
 func TestDBRepositoryMarksMissingServerToolsUnavailable(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
 
@@ -214,6 +238,56 @@ func TestDBRepositoryMarksMissingServerToolsUnavailable(t *testing.T) {
 	}
 	if statusByName["mcp_jira__search_issue"] != tools.ToolAvailabilityUnavailable {
 		t.Fatalf("search_issue deveria ficar unavailable, got %q", statusByName["mcp_jira__search_issue"])
+	}
+}
+
+func TestDBRepositoryMarksMissingServerToolsUnavailableWithLargeSeenSet(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	server := &ServerConfig{Slug: "jira", Name: "Jira", Transport: TransportStreamable, URL: "https://jira.example/mcp", Enabled: true, AutoConnect: true}
+	if err := repo.SaveServer(userA, server); err != nil {
+		t.Fatalf("save server: %v", err)
+	}
+	userID := "user-a"
+	serverID := server.ID
+	rows := make([]database.ToolCatalog, 0, 1006)
+	seen := make([]string, 0, 1005)
+	for i := 0; i < 1005; i++ {
+		name := fmt.Sprintf("mcp_jira__tool_%04d", i)
+		seen = append(seen, name)
+		rows = append(rows, database.ToolCatalog{
+			UserID:             &userID,
+			MCPServerID:        &serverID,
+			Name:               name,
+			DisplayName:        name,
+			Origin:             tools.ToolOriginMCPBridge,
+			AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		})
+	}
+	rows = append(rows, database.ToolCatalog{
+		UserID:             &userID,
+		MCPServerID:        &serverID,
+		Name:               "mcp_jira__stale",
+		DisplayName:        "stale",
+		Origin:             tools.ToolOriginMCPBridge,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	})
+	if err := repo.db.CreateInBatches(rows, 200).Error; err != nil {
+		t.Fatalf("create catalog rows: %v", err)
+	}
+
+	changed, err := repo.MarkServerToolsUnavailable(userA, server.ID, seen, "not discovered")
+	if err != nil {
+		t.Fatalf("mark unavailable with large seen set: %v", err)
+	}
+	if changed != 1 {
+		t.Fatalf("changed = %d, want 1", changed)
+	}
+	var stale database.ToolCatalog
+	if err := repo.db.Where("name = ?", "mcp_jira__stale").First(&stale).Error; err != nil {
+		t.Fatalf("load stale row: %v", err)
+	}
+	if stale.AvailabilityStatus != tools.ToolAvailabilityUnavailable {
+		t.Fatalf("stale status = %q", stale.AvailabilityStatus)
 	}
 }
 

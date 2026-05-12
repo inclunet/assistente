@@ -326,6 +326,7 @@ func parseExternalMCPServers(data []byte) ([]MCPServerExport, bool, error) {
 		return nil, false, err
 	}
 	var servers map[string]externalMCPServer
+	wrappedFormat := wrapped.MCPServers != nil
 	if wrapped.MCPServers != nil {
 		servers = wrapped.MCPServers
 	} else {
@@ -334,7 +335,10 @@ func parseExternalMCPServers(data []byte) ([]MCPServerExport, bool, error) {
 		}
 	}
 	if len(servers) == 0 {
-		return nil, wrapped.MCPServers != nil, nil
+		return nil, wrappedFormat, nil
+	}
+	if !wrappedFormat && !hasExternalMCPServerConfig(servers) {
+		return nil, false, nil
 	}
 	result := make([]MCPServerExport, 0, len(servers))
 	for name, entry := range servers {
@@ -360,6 +364,15 @@ func parseExternalMCPServers(data []byte) ([]MCPServerExport, bool, error) {
 		result = append(result, server)
 	}
 	return result, true, nil
+}
+
+func hasExternalMCPServerConfig(servers map[string]externalMCPServer) bool {
+	for _, entry := range servers {
+		if strings.TrimSpace(entry.Command) != "" || strings.TrimSpace(entry.URL) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func ImportMCPServersJSONWithContext(ctx context.Context, data []byte, credMgr *credentials.Manager) (LegacyImportResult, error) {

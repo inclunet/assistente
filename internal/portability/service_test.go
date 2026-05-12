@@ -230,6 +230,16 @@ func TestImportDataAcceptsEmptyExternalMCPServersJSON(t *testing.T) {
 	}
 }
 
+func TestParseExternalMCPServersRejectsUnrelatedFlatObject(t *testing.T) {
+	servers, ok, err := parseExternalMCPServers([]byte(`{"foo":{"bar":"baz"}}`))
+	if err != nil {
+		t.Fatalf("parseExternalMCPServers: %v", err)
+	}
+	if ok || len(servers) != 0 {
+		t.Fatalf("unrelated flat object should not be MCP JSON, ok=%v servers=%#v", ok, servers)
+	}
+}
+
 func TestImportDataExternalMCPServersImportsBearerCredential(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()

@@ -337,6 +337,9 @@ func (r *DBRepository) ListTools(ctx context.Context, filter tools.ToolCatalogFi
 	} else if !filter.IncludeUnavailable {
 		query = query.Where("availability_status = ?", tools.ToolAvailabilityAvailable)
 	}
+	if filter.Limit > 0 {
+		query = query.Limit(filter.Limit)
+	}
 	var rows []database.ToolCatalog
 	if err := query.Order("origin ASC, name ASC").Find(&rows).Error; err != nil {
 		return nil, err
@@ -365,18 +368,53 @@ func (r *DBRepository) MarkServerToolsUnavailable(ctx context.Context, serverID 
 		return 0, err
 	}
 	now := r.now()
-	query := r.db.WithContext(ctx).
+	base := r.db.WithContext(ctx).
 		Model(&database.ToolCatalog{}).
 		Where("user_id = ? AND mcp_server_id = ?", userID, serverID)
-	if len(seenNames) > 0 {
-		query = query.Where("name NOT IN ?", seenNames)
-	}
-	tx := query.Updates(map[string]any{
+	updates := map[string]any{
 		"availability_status": tools.ToolAvailabilityUnavailable,
 		"availability_reason": reason,
 		"last_unavailable_at": &now,
-	})
-	return int(tx.RowsAffected), tx.Error
+	}
+	if len(seenNames) == 0 {
+		tx := base.Updates(updates)
+		return int(tx.RowsAffected), tx.Error
+	}
+
+	var rows []database.ToolCatalog
+	if err := r.db.WithContext(ctx).
+		Select("name").
+		Where("user_id = ? AND mcp_server_id = ?", userID, serverID).
+		Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	seen := make(map[string]struct{}, len(seenNames))
+	for _, name := range seenNames {
+		seen[name] = struct{}{}
+	}
+	unseen := make([]string, 0)
+	for _, row := range rows {
+		if _, ok := seen[row.Name]; !ok {
+			unseen = append(unseen, row.Name)
+		}
+	}
+	affected := int64(0)
+	for start := 0; start < len(unseen); start += 500 {
+		end := start + 500
+		if end > len(unseen) {
+			end = len(unseen)
+		}
+		tx := r.db.WithContext(ctx).
+			Model(&database.ToolCatalog{}).
+			Where("user_id = ? AND mcp_server_id = ?", userID, serverID).
+			Where("name IN ?", unseen[start:end]).
+			Updates(updates)
+		if tx.Error != nil {
+			return int(affected), tx.Error
+		}
+		affected += tx.RowsAffected
+	}
+	return int(affected), nil
 }
 
 func (r *DBRepository) RecordToolTest(ctx context.Context, toolName, status, errorMessage string) error {

@@ -82,6 +82,10 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 			return ToolResult{Content: fmt.Sprintf("invalid tool_catalog arguments: %v", err), IsError: true}, nil
 		}
 	}
+	limit := req.Limit
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
 	filter := ToolCatalogFilter{
 		Origin:             strings.TrimSpace(req.Origin),
 		Category:           strings.TrimSpace(req.Category),
@@ -90,14 +94,11 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 		Risk:               strings.TrimSpace(req.Risk),
 		AvailabilityStatus: strings.TrimSpace(req.AvailabilityStatus),
 		IncludeUnavailable: req.IncludeUnavailable,
+		Limit:              limit,
 	}
 	entries, err := t.store.ListTools(ctx, filter)
 	if err != nil {
 		return ToolResult{Content: fmt.Sprintf("error querying tool catalog: %v", err), IsError: true}, nil
-	}
-	limit := req.Limit
-	if limit <= 0 || limit > 50 {
-		limit = 20
 	}
 	if len(entries) > limit {
 		entries = entries[:limit]

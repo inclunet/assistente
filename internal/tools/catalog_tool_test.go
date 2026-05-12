@@ -35,6 +35,9 @@ func TestCatalogToolReturnsSelectedTools(t *testing.T) {
 	if store.filter.Package != "coding_readonly" {
 		t.Fatalf("filter package = %q", store.filter.Package)
 	}
+	if store.filter.Limit != 1 {
+		t.Fatalf("filter limit = %d, want 1", store.filter.Limit)
+	}
 
 	var payload struct {
 		SelectedTools []string `json:"selected_tools"`
