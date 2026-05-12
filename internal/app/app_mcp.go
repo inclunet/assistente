@@ -81,6 +81,9 @@ func (a *App) initMCP() {
 	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, a.credMgr, emitEvent)
 	if database.DB() != nil {
 		a.mcpMgr.SetRepository(mcpmgr.NewDBRepository(database.DB()))
+		if err := a.mcpMgr.SyncBuiltinTools(database.WithBootstrap(a.internalBootstrapCtx())); err != nil {
+			log.Printf("[MCP] Erro ao sincronizar catálogo de builtin tools: %v", err)
+		}
 	}
 	// MCP Manager precisa funcionar tanto pré quanto pós-login (descobre
 	// servidores no startup); internalBootstrapCtx aqui propaga o userID

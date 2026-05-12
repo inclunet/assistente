@@ -607,6 +607,7 @@ func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, s
 	if changed {
 		m.emit("mcp:tools_changed", nil)
 	}
+	m.syncMCPToolsBestEffort(m.credentialContext(), slug, toolInfos)
 
 	log.Printf("[MCP] Servidor '%s' offerings atualizados: %d tools, %d resources, %d prompts",
 		slug, len(toolInfos), len(resourceInfos), len(promptInfos))
