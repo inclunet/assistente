@@ -2,24 +2,16 @@ package mcp
 
 import (
 	"context"
-	"log"
 
 	"assistente/internal/configdir"
 	"assistente/internal/portability"
 )
 
-func (m *Manager) importLegacyFilesystemConfigs(ctx context.Context) error {
-	result, err := portability.ImportLegacyMCPServersWithContext(ctx, legacyConfigSource{resolver: m.resolver}, m.credMgr)
-	if err != nil {
-		return err
-	}
-	for _, warning := range result.Warnings {
-		log.Printf("[MCP] Importação legada: %s", warning)
-	}
-	if result.Imported > 0 || result.Skipped > 0 {
-		log.Printf("[MCP] Importação de configs MCP legadas concluída: %d importados, %d já existentes", result.Imported, result.Skipped)
-	}
-	return nil
+// LegacyConfigSource returns a read-only source for legacy MCP JSON files.
+// The import orchestration lives in internal/portability; the manager only
+// adapts its historical resolver to the shared source interface.
+func (m *Manager) LegacyConfigSource() portability.LegacyImportSource {
+	return legacyConfigSource{resolver: m.resolver}
 }
 
 type legacyConfigSource struct {

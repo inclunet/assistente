@@ -13,6 +13,7 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/portability"
 	"assistente/internal/tools"
 )
 
@@ -877,7 +878,7 @@ func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
 	}
 }
 
-func TestLoadConfigsImportsRequestInitBearerAuth(t *testing.T) {
+func TestLegacyImportImportsRequestInitBearerAuth(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
 	ctx := database.WithUserID(context.Background(), "test-user")
 	m.SetAuthContextProvider(func() context.Context { return ctx })
@@ -892,6 +893,10 @@ func TestLoadConfigsImportsRequestInitBearerAuth(t *testing.T) {
 	}`)
 	if err := m.resolver.Write("github.json", data); err != nil {
 		t.Fatalf("failed to write config: %v", err)
+	}
+
+	if _, err := portability.ImportLegacyMCPServersWithContext(ctx, m.LegacyConfigSource(), m.credMgr); err != nil {
+		t.Fatalf("ImportLegacyMCPServersWithContext failed: %v", err)
 	}
 
 	if err := m.LoadConfigs(); err != nil {

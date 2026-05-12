@@ -268,9 +268,6 @@ func (m *Manager) LoadConfigs() error {
 		log.Printf("[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
 		return nil
 	}
-	if err := m.importLegacyFilesystemConfigs(ctx); err != nil {
-		return err
-	}
 	configs, err := repo.ListServers(ctx)
 	if err != nil {
 		return err

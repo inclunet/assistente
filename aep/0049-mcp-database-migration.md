@@ -80,7 +80,7 @@ Cada servidor MCP é **um arquivo JSON** com nome = slug:
 
 ### D1 — Banco como fonte runtime, JSON legado como importação
 
-O banco SQLite é a fonte de verdade runtime para servidores MCP. Arquivos JSON antigos no disco (`~/.assistente/mcp/*.json`) deixam de ser backing store e passam a ser apenas entrada de importação idempotente no startup. Não há modo dual de escrita/leitura runtime por JSON. O file watcher (`WatchConfigs`) é removido.
+O banco SQLite é a fonte de verdade runtime para servidores MCP. Arquivos JSON antigos no disco (`~/.assistente/mcp/*.json`) deixam de ser backing store e passam a ser apenas entrada de importação idempotente no startup pós-login. Não há modo dual de escrita/leitura runtime por JSON. O file watcher (`WatchConfigs`) é removido.
 
 ### D2 — Slug obrigatório e único
 
@@ -137,7 +137,7 @@ As APIs Wails existentes (`ListMCPServers`, `SaveMCPServer`, `ConnectMCPServer`,
 
 ### D7 — Importação idempotente de filesystem para banco
 
-Em todo startup pós-login, o Manager pode detectar arquivos JSON em `~/.assistente/mcp/` e importá-los para o banco. Essa importação é segura para repetir:
+Em todo startup pós-login, o app executa uma etapa global de importações legadas antes de qualquer manager carregar seu runtime do banco. Para MCP, essa etapa detecta arquivos JSON em `~/.assistente/mcp/` e os importa para o banco. Essa importação é segura para repetir:
 
 1. Carrega todos os `.json` dos 3 diretórios (com resolução de prioridade)
 2. Para cada slug, consulta o banco no escopo do usuário logado
@@ -147,7 +147,7 @@ Em todo startup pós-login, o Manager pode detectar arquivos JSON em `~/.assiste
 
 Credenciais não são tocadas — já estão no `credentials.Manager`. Isso preserva compatibilidade mínima com instalações antigas sem manter o runtime filesystem anterior.
 
-O caminho de persistência e a orquestração da importação usam o mesmo serviço de portabilidade usado por import/export geral. O Manager apenas dispara o importador no startup e fornece uma fonte read-only para os arquivos legados; descoberta, parsing para formato portátil, idempotência, importação e contadores ficam em `internal/portability`. Esse contrato deve ser reaproveitado por futuros recursos migrados de arquivos para banco.
+O caminho de persistência e a orquestração da importação usam o mesmo serviço de portabilidade usado por import/export geral. O app dispara essa fase pós-login de forma centralizada; o Manager fornece apenas uma fonte read-only para os arquivos legados e, depois disso, `LoadConfigs()` carrega somente o banco. Descoberta, parsing para formato portátil, idempotência, importação e contadores ficam em `internal/portability`. Esse contrato deve ser reaproveitado por futuros recursos migrados de arquivos para banco.
 
 ### D8 — Repository pattern
 
@@ -416,13 +416,13 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 
 ### Fase 5 — Importação filesystem → banco
 
-18. Criar `internal/mcp/migration.go`:
-    - Detectar JSON files nos 3 diretórios
+18. Criar suporte MCP em `internal/portability`:
+    - Detectar JSON files nos 3 diretórios por uma fonte read-only fornecida pelo MCP
     - Carregar com resolução de prioridade (cwd > home > exe)
     - Inserir no banco com `user_id` do usuário logado/owner da migração
     - Não sobrescrever registros já existentes no banco
     - Não renomear, apagar ou editar arquivos originais
-19. Chamar no `Manager.Start()` / `initMCP()` antes de carregar do DB; deve ser seguro executar em todo startup
+19. Chamar a partir de uma etapa global pós-login em `internal/app`, antes de `mcp.Manager.LoadConfigs()` e dos demais managers que dependam de dados migrados; deve ser seguro executar em todo startup pós-login
 
 ### Fase 6 — Catálogo de tools
 
@@ -472,8 +472,11 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 | `internal/database/models_mcp.go` | Models GORM: `MCPServerModel`, `MCPServerLogModel`, `ToolCatalogModel` |
 | `internal/mcp/repository.go` | Interface `MCPRepository` + `DBMCPRepository` |
 | `internal/mcp/repository_test.go` | Testes do repository |
-| `internal/mcp/migration.go` | Importação idempotente filesystem → DB |
-| `internal/mcp/migration_test.go` | Testes da importação |
+| `internal/portability/legacy_import.go` | Orquestração reutilizável de importações legadas filesystem → DB |
+| `internal/portability/mcp_servers.go` | Import/export portátil e importação idempotente de MCP servers |
+| `internal/app/app_legacy_imports.go` | Gatilho pós-login centralizado para importações legadas |
+| `internal/mcp/migration.go` | Adapter read-only da fonte legada MCP |
+| `internal/mcp/migration_test.go` | Testes de carregamento DB-only do Manager |
 | `internal/tools/catalog.go` | Tipos e sincronização do catálogo de tools |
 | `internal/tools/catalog_test.go` | Testes do catálogo |
 | `internal/tools/catalog_tool.go` | Tool pequena `tool_catalog`/`select_tools` |

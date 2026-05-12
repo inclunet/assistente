@@ -42,7 +42,7 @@ Escopo implementado nesta fase:
 
 Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arquivo, os que dependem de migração para o banco e os que exigem reestruturações previstas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052. Servidores MCP entram no escopo quando migrados para banco pela AEP-0049.
 
-O pacote `internal/portability` também é responsável por orquestrar importações legadas de arquivos quando um recurso passa a ser persistido no banco. Cada recurso fornece apenas source/parser/importer específicos; o loop de descoberta, leitura read-only, idempotência e relatório de resultado permanece compartilhado para ser reaproveitado por recursos futuros, como skills.
+O pacote `internal/portability` também é responsável por orquestrar importações legadas de arquivos quando um recurso passa a ser persistido no banco. Cada recurso fornece apenas source/parser/importer específicos; o loop de descoberta, leitura read-only, idempotência e relatório de resultado permanece compartilhado para ser reaproveitado por recursos futuros, como skills. O gatilho dessas importações fica em uma fase global pós-login no app, antes dos managers carregarem seus runtimes do banco.
 
 ### D1 — Formato: JSON versionado com IDs estáveis
 
