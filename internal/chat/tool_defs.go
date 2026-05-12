@@ -139,7 +139,10 @@ func FilterToolNamesByEnabledTools(names []string, enabledTools []string, disabl
 }
 
 func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool) []string {
-	if disableTools || len(names) == 0 || NativeMCPManagerIsNil(mcpMgr) || ChatProviderIsNil(streamer) {
+	if disableTools {
+		return nil
+	}
+	if len(names) == 0 || NativeMCPManagerIsNil(mcpMgr) || ChatProviderIsNil(streamer) {
 		return names
 	}
 	if !streamer.SupportsNativeMCP() {

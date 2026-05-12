@@ -312,6 +312,17 @@ func TestFilterToolNamesForNativeMCPRemovesNativeBridgeNames(t *testing.T) {
 	}
 }
 
+func TestFilterToolNamesForNativeMCPDisabledReturnsNil(t *testing.T) {
+	p := &mockChatProvider{supportsNative: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+	}}
+
+	if got := FilterToolNamesForNativeMCP(p, mgr, []string{"read_file", "mcp_srv__do"}, true); got != nil {
+		t.Fatalf("got %#v, want nil", got)
+	}
+}
+
 func TestFilterToolNamesForNativeMCPPreservesNamesWhenProviderIsNotNative(t *testing.T) {
 	p := &mockChatProvider{supportsNative: false}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{

@@ -148,8 +148,46 @@ func TestExportPortableDataIncludesMCPServers(t *testing.T) {
 		t.Fatalf("MCPServers len = %d, want 1", len(file.Resources.MCPServers))
 	}
 	got := file.Resources.MCPServers[0]
-	if got.Slug != "github" || got.URL != "https://github.example/mcp" || got.Env["TOKEN"] != "x" {
+	if got.Slug != "github" || got.URL != "https://github.example/mcp" {
 		t.Fatalf("unexpected mcp export: %#v", got)
+	}
+	if len(got.Env) != 0 {
+		t.Fatalf("env should be omitted from portable export, got %#v", got.Env)
+	}
+}
+
+func TestExportExternalMCPServersOmitsEnv(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	server := database.MCPServer{
+		UserID:      portabilityTestUserID,
+		Slug:        "filesystem",
+		Name:        "Filesystem",
+		Transport:   "stdio",
+		Command:     "npx",
+		Args:        `["-y","@modelcontextprotocol/server-filesystem"]`,
+		Env:         `{"TOKEN":"x"}`,
+		Enabled:     true,
+		AutoConnect: true,
+	}
+	if err := database.DB().Create(&server).Error; err != nil {
+		t.Fatalf("create mcp server: %v", err)
+	}
+
+	raw, err := ExportMCPServersExternalJSONWithContext(ctx, []string{"filesystem"})
+	if err != nil {
+		t.Fatalf("ExportMCPServersExternalJSONWithContext: %v", err)
+	}
+	var decoded externalMCPExportFile
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatalf("unmarshal external export: %v", err)
+	}
+	got := decoded.MCPServers["filesystem"]
+	if got.Command != "npx" || len(got.Args) != 2 {
+		t.Fatalf("unexpected external mcp export: %#v", got)
+	}
+	if len(got.Env) != 0 {
+		t.Fatalf("env should be omitted from external export, got %#v", got.Env)
 	}
 }
 

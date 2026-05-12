@@ -64,10 +64,6 @@ func exportMCPServer(row database.MCPServer) (MCPServerExport, error) {
 	if err != nil {
 		return MCPServerExport{}, fmt.Errorf("erro ao decodificar args do servidor MCP %s: %w", row.Slug, err)
 	}
-	env, err := decodeStringMap(row.Env)
-	if err != nil {
-		return MCPServerExport{}, fmt.Errorf("erro ao decodificar env do servidor MCP %s: %w", row.Slug, err)
-	}
 	scopes, err := decodeStringSlice(row.OAuth2Scopes)
 	if err != nil {
 		return MCPServerExport{}, fmt.Errorf("erro ao decodificar oauth scopes do servidor MCP %s: %w", row.Slug, err)
@@ -80,7 +76,6 @@ func exportMCPServer(row database.MCPServer) (MCPServerExport, error) {
 		Transport:             row.Transport,
 		Command:               row.Command,
 		Args:                  args,
-		Env:                   env,
 		URL:                   row.URL,
 		AuthType:              row.AuthType,
 		OAuth2ClientID:        row.OAuth2ClientID,
