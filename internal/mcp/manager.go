@@ -28,9 +28,6 @@ const (
 	// configSubdir é o subdiretório de .assistente/ para configs MCP
 	configSubdir = "mcp"
 
-	// configExt é a extensão dos arquivos de configuração
-	configExt = ".json"
-
 	// connectTimeout é o timeout para conexão com um servidor MCP
 	connectTimeout = 30 * time.Second
 
