@@ -216,6 +216,30 @@ func TestResolveInitialEnabledTools_FallsBackToAllWithoutCatalog(t *testing.T) {
 	}
 }
 
+func TestBuildLLMToolDefsByNames(t *testing.T) {
+	r := registryWith("alpha", "beta", "gamma")
+	got := BuildLLMToolDefsByNames(r, []string{"gamma", "missing", "alpha"}, false)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 defs, got %#v", got)
+	}
+	if got[0].Function.Name != "gamma" || got[1].Function.Name != "alpha" {
+		t.Fatalf("expected registry defs in requested order, got %#v", got)
+	}
+}
+
+func TestBuildLLMToolDefsByNames_DisabledOrEmpty(t *testing.T) {
+	r := registryWith("alpha")
+	if got := BuildLLMToolDefsByNames(r, []string{"alpha"}, true); got != nil {
+		t.Fatalf("expected nil when disabled, got %#v", got)
+	}
+	if got := BuildLLMToolDefsByNames(r, nil, false); got != nil {
+		t.Fatalf("expected nil for nil names, got %#v", got)
+	}
+	if got := BuildLLMToolDefsByNames(nil, []string{"alpha"}, false); got != nil {
+		t.Fatalf("expected nil registry to return nil, got %#v", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ApplyNativeMCP
 // ---------------------------------------------------------------------------

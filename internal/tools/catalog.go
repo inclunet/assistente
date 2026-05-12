@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -70,15 +69,16 @@ func CatalogEntryFromTool(tool Tool) ToolCatalogEntry {
 	}
 	name := tool.Name()
 	schema := tool.Parameters()
+	metadata := builtinToolCatalogMetadata(name)
 	return ToolCatalogEntry{
 		Name:               name,
 		DisplayName:        name,
 		Description:        tool.Description(),
 		Origin:             ToolOriginBuiltin,
-		Category:           inferBuiltinCategory(name),
-		Class:              inferBuiltinClass(name),
-		Package:            inferBuiltinPackage(name),
-		Risk:               inferBuiltinRisk(name),
+		Category:           metadata.Category,
+		Class:              metadata.Class,
+		Package:            metadata.Package,
+		Risk:               metadata.Risk,
 		Schema:             schema,
 		SchemaHash:         SchemaHash(schema),
 		SchemaBytes:        len(schema),
@@ -94,68 +94,39 @@ func SchemaHash(schema json.RawMessage) string {
 	return fmt.Sprintf("%x", sum[:])
 }
 
-func inferBuiltinCategory(name string) string {
-	switch {
-	case strings.Contains(name, "file"), strings.Contains(name, "directory"), strings.Contains(name, "grep"), strings.Contains(name, "search"):
-		return "filesystem"
-	case strings.Contains(name, "web"):
-		return "web"
-	case strings.Contains(name, "http"):
-		return "http"
-	case strings.Contains(name, "command"):
-		return "shell"
-	case strings.Contains(name, "task"):
-		return "tasklist"
-	default:
-		return "app"
-	}
+type builtinToolMetadata struct {
+	Category string
+	Class    string
+	Package  string
+	Risk     string
 }
 
-func inferBuiltinClass(name string) string {
-	switch name {
-	case "read_file", "list_directory", "search_files", "grep_search", "search_conversations":
-		return "read_context"
-	case "write_file", "edit_file", "move_file", "copy_file", "delete_file", "make_directory":
-		return "edit_files"
-	case "run_command":
-		return "run_commands"
-	case "web_search", "web_fetch":
-		return "web_lookup"
-	case "http_request":
-		return "http_api"
-	case "task", "task_list", "task_note":
-		return "task_management"
-	default:
-		return "app_tool"
-	}
+var builtinToolMetadataByName = map[string]builtinToolMetadata{
+	"read_file":            {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
+	"list_directory":       {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
+	"search_files":         {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
+	"grep_search":          {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
+	"write_file":           {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
+	"edit_file":            {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
+	"move_file":            {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
+	"copy_file":            {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
+	"delete_file":          {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "destructive"},
+	"make_directory":       {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
+	"run_command":          {Category: "shell", Class: "run_commands", Package: "coding_edit", Risk: "shell"},
+	"web_search":           {Category: "web", Class: "web_lookup", Package: "web", Risk: "network"},
+	"web_fetch":            {Category: "web", Class: "web_lookup", Package: "web", Risk: "network"},
+	"http_request":         {Category: "http", Class: "http_api", Package: "web", Risk: "network"},
+	"search_conversations": {Category: "history", Class: "read_context", Package: "history", Risk: "read"},
+	"collect_responses":    {Category: "questionnaire", Class: "app_tool", Package: "basic", Risk: "read"},
+	"task_list":            {Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"},
+	"task":                 {Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"},
+	"task_note":            {Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"},
+	"open_deep_link":       {Category: "app", Class: "app_tool", Package: "basic", Risk: "read"},
 }
 
-func inferBuiltinPackage(name string) string {
-	switch inferBuiltinClass(name) {
-	case "read_context":
-		return "coding_readonly"
-	case "edit_files", "run_commands":
-		return "coding_edit"
-	case "web_lookup", "http_api":
-		return "web"
-	case "task_management":
-		return "tasks"
-	default:
-		return "basic"
+func builtinToolCatalogMetadata(name string) builtinToolMetadata {
+	if metadata, ok := builtinToolMetadataByName[name]; ok {
+		return metadata
 	}
-}
-
-func inferBuiltinRisk(name string) string {
-	switch name {
-	case "write_file", "edit_file", "move_file", "copy_file", "make_directory", "task", "task_list", "task_note":
-		return "write"
-	case "delete_file":
-		return "destructive"
-	case "run_command":
-		return "shell"
-	case "http_request", "web_fetch", "web_search":
-		return "network"
-	default:
-		return "read"
-	}
+	return builtinToolMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "read"}
 }

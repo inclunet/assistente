@@ -686,7 +686,7 @@ func (m *Manager) Disconnect(slug string) error {
 			m.mu.Unlock()
 			log.Printf("[MCP] Conexão em andamento de '%s' cancelada pelo usuário", slug)
 			m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
-			m.logEvent(slug, "disconnect", "Conexão MCP cancelada pelo usuário", nil)
+			m.logEvent(slug, "disconnected", "Conexão MCP cancelada pelo usuário", nil)
 			return nil
 		}
 		m.mu.Unlock()
@@ -730,7 +730,7 @@ func (m *Manager) Disconnect(slug string) error {
 
 	m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
 	m.emit("mcp:tools_changed", nil)
-	m.logEvent(slug, "disconnect", "Servidor MCP desconectado", nil)
+	m.logEvent(slug, "disconnected", "Servidor MCP desconectado", nil)
 
 	return nil
 }
@@ -1514,7 +1514,7 @@ func (m *Manager) performHealthCheck(slug string) {
 			"slug":  slug,
 			"error": err.Error(),
 		})
-		m.logEvent(slug, "health_check_failed", "Health check MCP falhou", map[string]any{"error": err.Error()})
+		m.logEvent(slug, "health_fail", "Health check MCP falhou", map[string]any{"error": err.Error()})
 	}
 }
 
@@ -1539,7 +1539,7 @@ func (m *Manager) handleToolCallError(slug string, err error) {
 		"slug":  slug,
 		"error": err.Error(),
 	})
-	m.logEvent(slug, "transport_error", "Erro de sessão/transporte durante tool call", map[string]any{"error": err.Error()})
+	m.logEvent(slug, "error", "Erro de sessão/transporte durante tool call", map[string]any{"error": err.Error()})
 
 	go m.reconnectWithRetry(slug)
 }

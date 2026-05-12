@@ -203,6 +203,10 @@ func (r *DBRepository) LogEvent(ctx context.Context, entry *MCPServerLog) error 
 			return err
 		}
 		serverID = cfg.ID
+	} else {
+		if _, err := r.GetServerByID(ctx, serverID); err != nil {
+			return err
+		}
 	}
 	when := entry.Timestamp
 	if when.IsZero() {

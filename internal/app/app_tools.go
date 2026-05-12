@@ -2,7 +2,6 @@ package app
 
 import (
 	"assistente/controllers"
-	"assistente/internal/database"
 	"assistente/internal/tools"
 )
 
@@ -22,5 +21,9 @@ func (a *App) GetRuntimeToolCatalog(filter tools.ToolCatalogFilter) ([]tools.Too
 	if a.mcpMgr == nil {
 		return []tools.ToolCatalogEntry{}, nil
 	}
-	return a.mcpMgr.ListToolCatalog(database.WithBootstrap(a.internalBootstrapCtx()), filter)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.mcpMgr.ListToolCatalog(ctx, filter)
 }

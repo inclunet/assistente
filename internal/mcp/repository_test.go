@@ -363,3 +363,19 @@ func TestDBRepositoryRequiresUserForMCPToolTestResults(t *testing.T) {
 		t.Fatalf("record without user = %v, want ErrUserScopeRequired", err)
 	}
 }
+
+func TestDBRepositoryLogEventValidatesServerOwnership(t *testing.T) {
+	repo, userA, userB := setupRepositoryTest(t)
+	server := &ServerConfig{Slug: "jira", Name: "Jira", Transport: TransportStreamable, URL: "https://jira.example/mcp", Enabled: true, AutoConnect: true}
+	if err := repo.SaveServer(userA, server); err != nil {
+		t.Fatalf("save server: %v", err)
+	}
+	err := repo.LogEvent(userB, &MCPServerLog{
+		ServerID: server.ID,
+		Type:     "connected",
+		Message:  "cross-user write",
+	})
+	if err == nil {
+		t.Fatal("expected cross-user log write to fail")
+	}
+}
