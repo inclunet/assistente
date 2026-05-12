@@ -878,6 +878,30 @@ func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
 	}
 }
 
+func TestImportFromMCPJSONRequiresRepositoryBeforeImport(t *testing.T) {
+	_, userA, _ := setupRepositoryTest(t)
+	m := NewManager(nil, nil, nil)
+	m.SetAuthContextProvider(func() context.Context { return userA })
+
+	count, err := m.ImportFromMCPJSON([]byte(`{"mcpServers":{"github":{"url":"https://github.example/mcp"}}}`))
+	if err == nil {
+		t.Fatal("expected repository error")
+	}
+	if !strings.Contains(err.Error(), "repository MCP não configurado") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
+	}
+	var rows int64
+	if err := database.DB().Model(&database.MCPServer{}).Count(&rows).Error; err != nil {
+		t.Fatalf("count mcp servers: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("ImportFromMCPJSON should not write without repository, rows=%d", rows)
+	}
+}
+
 func TestLegacyImportImportsRequestInitBearerAuth(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
 	ctx := database.WithUserID(context.Background(), "test-user")

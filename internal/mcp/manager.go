@@ -1818,6 +1818,9 @@ func (m *Manager) HandleSamplingRequest(ctx context.Context, slug string, reques
 // Expects {"mcpServers": {...}} (Cursor) or entries keyed directly.
 // Skips servers that already exist (won't overwrite).
 func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
+	if m.repository() == nil {
+		return 0, fmt.Errorf("repository MCP não configurado")
+	}
 	ctx := m.credentialContext()
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return 0, err

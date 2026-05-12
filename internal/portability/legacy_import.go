@@ -47,13 +47,13 @@ func ImportLegacyResourcesWithContext[T any](ctx context.Context, req LegacyImpo
 		Errors:       make([]string, 0),
 	}
 	if req.Source == nil {
-		return result, fmt.Errorf("legacy import source is required")
+		return result, fmt.Errorf("fonte de importação legada é obrigatória")
 	}
 	if req.Parse == nil {
-		return result, fmt.Errorf("legacy import parser is required")
+		return result, fmt.Errorf("parser de importação legada é obrigatório")
 	}
 	if req.Import == nil {
-		return result, fmt.Errorf("legacy import handler is required")
+		return result, fmt.Errorf("handler de importação legada é obrigatório")
 	}
 
 	files, err := req.Source.ListLegacyImportFiles(ctx)
