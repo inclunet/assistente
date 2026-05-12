@@ -650,6 +650,9 @@ func (a *App) reloadUserScopedRuntime() {
 		a.initLLMClient()
 	}
 	if a.mcpMgr != nil {
+		if err := a.mcpMgr.LoadConfigs(); err != nil {
+			log.Printf("[reloadUserScopedRuntime] erro ao carregar MCP servers do usuário: %v", err)
+		}
 		// Auto-connect MCP só agora: depois de adoptLegacyDataForUser →
 		// LoadUserCredentials, as credenciais user-scoped (incluindo os
 		// tokens OAuth `mcp-tokens:*` / `mcp-client:*`) estão em memória.

@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"assistente/controllers"
+	"assistente/internal/database"
 	mcpmgr "assistente/internal/mcp"
 )
 
@@ -78,6 +79,9 @@ func (a *App) initMCP() {
 	}
 
 	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, a.credMgr, emitEvent)
+	if database.DB() != nil {
+		a.mcpMgr.SetRepository(mcpmgr.NewDBRepository(database.DB()))
+	}
 	// MCP Manager precisa funcionar tanto pré quanto pós-login (descobre
 	// servidores no startup); internalBootstrapCtx aqui propaga o userID
 	// quando existe e devolve ctx puro durante o boot. Os escritores reais
@@ -91,8 +95,11 @@ func (a *App) initMCP() {
 		log.Printf("[MCP] Erro ao carregar configurações: %v", err)
 	}
 
-	// Observa mudanças externas nos arquivos de config
-	go a.mcpMgr.WatchConfigs()
+	// Com DB como fonte de verdade não há watcher de JSON. Mantém watcher
+	// apenas no caminho legado/testes sem repository configurado.
+	if !a.mcpMgr.UsesRepository() {
+		go a.mcpMgr.WatchConfigs()
+	}
 
 	log.Printf("[MCP] Manager inicializado")
 }

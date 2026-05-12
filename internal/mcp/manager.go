@@ -16,6 +16,7 @@ import (
 
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/tools"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -80,6 +81,7 @@ type serverConnection struct {
 type Manager struct {
 	mu             sync.RWMutex
 	resolver       *configdir.Resolver
+	repo           Repository
 	credMgr        *credentials.Manager
 	registry       *tools.Registry
 	emitEvent      emitFunc
@@ -108,6 +110,24 @@ func NewManager(registry *tools.Registry, credMgr *credentials.Manager, emitEven
 		ctx:            ctx,
 		cancel:         cancel,
 	}
+}
+
+// SetRepository configura o backing store persistido do Manager.
+// Sem repository, o Manager mantém o caminho legado em arquivos JSON.
+func (m *Manager) SetRepository(repo Repository) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.repo = repo
+}
+
+func (m *Manager) repository() Repository {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.repo
+}
+
+func (m *Manager) UsesRepository() bool {
+	return m.repository() != nil
 }
 
 // SetAuthContextProvider configura o contexto usado para resolver credenciais
@@ -184,9 +204,8 @@ func (m *Manager) GetWorkspaceRoots() []Root {
 	return m.roots
 }
 
-// LoadConfigs carrega todas as configurações de servidores MCP e conecta os que têm auto_connect.
-// LoadConfigs lê os configs de servidores MCP do disco e popula o
-// estado em memória do Manager. NÃO conecta aos servidores — para isso
+// LoadConfigs carrega configs persistidas e popula o estado runtime do Manager.
+// NÃO conecta aos servidores — para isso
 // chame AutoConnectAll depois (tipicamente do reloadUserScopedRuntime
 // pós-Login, quando as credenciais user-scoped já estão em memória).
 //
@@ -196,6 +215,39 @@ func (m *Manager) GetWorkspaceRoots() []Root {
 // servidores OAuth perdiam a credencial em memória, caíam no fallback
 // "sem token", abriam o navegador para reauth — N janelas em paralelo.
 func (m *Manager) LoadConfigs() error {
+	if repo := m.repository(); repo != nil {
+		ctx := m.credentialContext()
+		if _, err := database.RequireUserID(ctx); err != nil {
+			log.Printf("[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
+			return nil
+		}
+		if err := m.migrateFilesystemConfigsToRepository(ctx, repo); err != nil {
+			return err
+		}
+		configs, err := repo.ListServers(ctx)
+		if err != nil {
+			return err
+		}
+		next := make(map[string]*ServerStatus, len(configs))
+		for _, cfg := range configs {
+			cfg.applyDefaults(cfg.Slug)
+			next[cfg.Slug] = &ServerStatus{
+				ID:     cfg.ID,
+				Slug:   cfg.Slug,
+				Config: cfg,
+				Status: StatusDisconnected,
+				Tools:  []MCPToolInfo{},
+				Roots:  m.GetWorkspaceRoots(),
+			}
+			log.Printf("[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
+				cfg.Slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
+		}
+		m.mu.Lock()
+		m.servers = next
+		m.mu.Unlock()
+		return nil
+	}
+
 	files, err := m.resolver.List()
 	if err != nil {
 		log.Printf("[MCP] Nenhuma configuração encontrada: %v", err)
@@ -222,6 +274,7 @@ func (m *Manager) LoadConfigs() error {
 		m.applyInlineAuthFromConfig(slug, &cfg, data)
 		m.mu.Lock()
 		m.servers[slug] = &ServerStatus{
+			ID:     cfg.ID,
 			Slug:   slug,
 			Config: cfg,
 			Status: StatusDisconnected,
@@ -661,17 +714,49 @@ func (m *Manager) GetTools(slug string) []MCPToolInfo {
 // GetConfig retorna a configuração de um servidor.
 func (m *Manager) GetConfig(slug string) (*ServerConfig, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	if s, ok := m.servers[slug]; ok {
 		cfg := s.Config // cópia
+		m.mu.RUnlock()
 		return &cfg, nil
+	}
+	m.mu.RUnlock()
+
+	if repo := m.repository(); repo != nil {
+		return repo.GetServer(m.credentialContext(), slug)
 	}
 	return nil, fmt.Errorf("servidor MCP '%s' não encontrado", slug)
 }
 
 // SaveConfig salva (cria ou atualiza) a configuração de um servidor MCP.
 func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
+	if repo := m.repository(); repo != nil {
+		ctx := m.credentialContext()
+		if _, err := database.RequireUserID(ctx); err != nil {
+			return err
+		}
+		cfg.Slug = slug
+		if err := repo.SaveServer(ctx, &cfg); err != nil {
+			return fmt.Errorf("erro ao salvar config: %w", err)
+		}
+		m.mu.Lock()
+		if existing, ok := m.servers[slug]; ok {
+			existing.ID = cfg.ID
+			existing.Config = cfg
+		} else {
+			m.servers[slug] = &ServerStatus{
+				ID:     cfg.ID,
+				Slug:   slug,
+				Config: cfg,
+				Status: StatusDisconnected,
+				Tools:  []MCPToolInfo{},
+			}
+		}
+		m.mu.Unlock()
+		log.Printf("[MCP] Configuração salva no DB: %s", slug)
+		m.emit("mcp:config_changed", map[string]string{"slug": slug})
+		return nil
+	}
+
 	m.mu.Lock()
 	m.lastSelfWrite = time.Now()
 	m.mu.Unlock()
@@ -700,6 +785,7 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 		existing.Config = cfg
 	} else {
 		m.servers[slug] = &ServerStatus{
+			ID:     cfg.ID,
 			Slug:   slug,
 			Config: cfg,
 			Status: StatusDisconnected,
@@ -723,6 +809,8 @@ func (m *Manager) DuplicateConfig(slug string) (string, error) {
 
 	newSlug := m.nextCopySlug(slug)
 	newCfg := *cfg
+	newCfg.ID = ""
+	newCfg.Slug = newSlug
 	if newCfg.Name == "" {
 		newCfg.Name = slug
 	}
@@ -753,12 +841,33 @@ func (m *Manager) nextCopySlug(baseSlug string) string {
 }
 
 func (m *Manager) slugExists(slug string) bool {
+	if repo := m.repository(); repo != nil {
+		_, err := repo.GetServer(m.credentialContext(), slug)
+		return err == nil
+	}
 	return m.resolver.Exists(slug + configExt)
 }
 
 // DeleteConfig remove a configuração de um servidor MCP.
 // Desconecta automaticamente se estiver conectado.
 func (m *Manager) DeleteConfig(slug string) error {
+	if repo := m.repository(); repo != nil {
+		ctx := m.credentialContext()
+		if _, err := database.RequireUserID(ctx); err != nil {
+			return err
+		}
+		_ = m.Disconnect(slug)
+		if err := repo.DeleteServer(ctx, slug); err != nil {
+			return fmt.Errorf("erro ao deletar config: %w", err)
+		}
+		m.mu.Lock()
+		delete(m.servers, slug)
+		m.mu.Unlock()
+		log.Printf("[MCP] Configuração removida do DB: %s", slug)
+		m.emit("mcp:config_changed", map[string]string{"slug": slug})
+		return nil
+	}
+
 	m.mu.Lock()
 	m.lastSelfWrite = time.Now()
 	m.mu.Unlock()
