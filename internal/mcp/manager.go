@@ -152,19 +152,25 @@ func (m *Manager) markServerToolsUnavailable(slug, reason string) {
 	}
 	m.mu.RLock()
 	status := m.servers[slug]
+	serverID := ""
+	ownerUserID := ""
+	if status != nil {
+		serverID = strings.TrimSpace(status.ID)
+		ownerUserID = status.Config.UserID
+	}
 	m.mu.RUnlock()
-	if status == nil || strings.TrimSpace(status.ID) == "" {
+	if serverID == "" {
 		return
 	}
 	ctx := m.credentialContext()
 	if _, err := database.RequireUserID(ctx); err != nil {
-		if status.Config.UserID == "" {
+		if ownerUserID == "" {
 			log.Printf("[MCP:%s] não foi possível marcar tools indisponíveis sem usuário autenticado: %v", slug, err)
 			return
 		}
-		ctx = database.WithUserID(context.Background(), status.Config.UserID)
+		ctx = database.WithUserID(context.Background(), ownerUserID)
 	}
-	if _, err := repo.MarkServerToolsUnavailable(ctx, status.ID, nil, reason); err != nil {
+	if _, err := repo.MarkServerToolsUnavailable(ctx, serverID, nil, reason); err != nil {
 		log.Printf("[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
 	}
 }

@@ -40,16 +40,22 @@ func (m *Manager) syncMCPTools(ctx context.Context, slug string, toolInfos []MCP
 	}
 	m.mu.RLock()
 	status := m.servers[slug]
+	serverID := ""
+	ownerUserID := ""
+	if status != nil {
+		serverID = strings.TrimSpace(status.ID)
+		ownerUserID = status.Config.UserID
+	}
 	m.mu.RUnlock()
-	if status == nil || strings.TrimSpace(status.ID) == "" {
+	if serverID == "" {
 		return nil
 	}
 	seen := make([]string, 0, len(toolInfos))
 	for _, info := range toolInfos {
 		seen = append(seen, info.FullName)
 		entry := tools.ToolCatalogEntry{
-			UserID:             status.Config.UserID,
-			MCPServerID:        status.ID,
+			UserID:             ownerUserID,
+			MCPServerID:        serverID,
 			Name:               info.FullName,
 			DisplayName:        info.Name,
 			Description:        info.Description,
@@ -67,7 +73,7 @@ func (m *Manager) syncMCPTools(ctx context.Context, slug string, toolInfos []MCP
 			return err
 		}
 	}
-	if _, err := repo.MarkServerToolsUnavailable(ctx, status.ID, seen, "not discovered"); err != nil {
+	if _, err := repo.MarkServerToolsUnavailable(ctx, serverID, seen, "not discovered"); err != nil {
 		return err
 	}
 	return nil
