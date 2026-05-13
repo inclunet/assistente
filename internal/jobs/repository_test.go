@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"testing"
+	"time"
 
 	"assistente/internal/database"
 
@@ -102,6 +103,94 @@ func TestDBRepositoryRequiresUser(t *testing.T) {
 	err := repo.SaveJob(context.Background(), testRepositoryJob("x", "X"))
 	if err != database.ErrUserScopeRequired {
 		t.Fatalf("SaveJob sem usuário: got %v, want ErrUserScopeRequired", err)
+	}
+}
+
+func TestDBRepositoryListEventsReturnsJobSlugAndFiltersByJob(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	jobA := testRepositoryJob("job-a", "Job A")
+	jobB := testRepositoryJob("job-b", "Job B")
+	if err := repo.SaveJob(userA, jobA); err != nil {
+		t.Fatalf("save job A: %v", err)
+	}
+	if err := repo.SaveJob(userA, jobB); err != nil {
+		t.Fatalf("save job B: %v", err)
+	}
+	now := time.Now()
+	if err := repo.LogEvent(userA, &EventEntry{JobID: "job-a", Timestamp: now, Type: "emitted", Event: "done", Message: "A"}); err != nil {
+		t.Fatalf("log event A: %v", err)
+	}
+	if err := repo.LogEvent(userA, &EventEntry{JobID: "job-b", Timestamp: now.Add(time.Second), Type: "emitted", Event: "done", Message: "B"}); err != nil {
+		t.Fatalf("log event B: %v", err)
+	}
+
+	got, err := repo.ListEvents(userA, EventFilter{JobID: "job-a"})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("events count: got %d, want 1", len(got))
+	}
+	if got[0].JobID != "job-a" || got[0].Message != "A" {
+		t.Fatalf("unexpected event: %#v", got[0])
+	}
+}
+
+func TestDBRepositoryListEventsFiltersByDateRange(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("job-a", "Job A")
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	day := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)
+	if err := repo.LogEvent(userA, &EventEntry{JobID: "job-a", Timestamp: day.Add(-time.Hour), Type: "emitted", Message: "old"}); err != nil {
+		t.Fatalf("log old event: %v", err)
+	}
+	if err := repo.LogEvent(userA, &EventEntry{JobID: "job-a", Timestamp: day.Add(time.Hour), Type: "emitted", Message: "inside"}); err != nil {
+		t.Fatalf("log inside event: %v", err)
+	}
+	if err := repo.LogEvent(userA, &EventEntry{JobID: "job-a", Timestamp: day.Add(25 * time.Hour), Type: "emitted", Message: "new"}); err != nil {
+		t.Fatalf("log new event: %v", err)
+	}
+
+	got, err := repo.ListEvents(userA, EventFilter{StartAt: day, EndAt: day.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(got) != 1 || got[0].Message != "inside" {
+		t.Fatalf("unexpected events: %#v", got)
+	}
+}
+
+func TestDBRepositoryGetLastRunsBatch(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, testRepositoryJob("job-a", "Job A")); err != nil {
+		t.Fatalf("save job A: %v", err)
+	}
+	if err := repo.SaveJob(userA, testRepositoryJob("job-b", "Job B")); err != nil {
+		t.Fatalf("save job B: %v", err)
+	}
+	start := time.Now()
+	runs := []RunLog{
+		{RunID: "run-a-old", JobID: "job-a", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: start},
+		{RunID: "run-a-new", JobID: "job-a", Status: "failed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: start.Add(time.Hour)},
+		{RunID: "run-b", JobID: "job-b", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: start.Add(2 * time.Hour)},
+	}
+	for i := range runs {
+		if err := repo.LogRun(userA, &runs[i]); err != nil {
+			t.Fatalf("log run %s: %v", runs[i].RunID, err)
+		}
+	}
+
+	got, err := repo.GetLastRuns(userA, []string{"job-a", "job-b"})
+	if err != nil {
+		t.Fatalf("get last runs: %v", err)
+	}
+	if got["job-a"] == nil || got["job-a"].RunID != "run-a-new" {
+		t.Fatalf("job-a last run: %#v", got["job-a"])
+	}
+	if got["job-b"] == nil || got["job-b"].RunID != "run-b" {
+		t.Fatalf("job-b last run: %#v", got["job-b"])
 	}
 }
 

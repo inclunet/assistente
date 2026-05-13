@@ -134,9 +134,9 @@ func (m *Manager) Stop() {
 func (m *Manager) GetJobs() []JobInfo {
 	jobs := m.registry.GetAll()
 	infos := make([]JobInfo, 0, len(jobs))
+	lastRuns := m.lastRuns(jobs)
 
 	for _, job := range jobs {
-		lastRun, _ := m.lastRun(job.ID)
 		info := JobInfo{
 			ID:          job.ID,
 			Name:        job.Name,
@@ -147,7 +147,7 @@ func (m *Manager) GetJobs() []JobInfo {
 			Tool:        job.Tool,
 			Status:      job.Status,
 			Triggers:    job.Triggers,
-			LastRun:     lastRun,
+			LastRun:     lastRuns[job.ID],
 		}
 		infos = append(infos, info)
 	}
@@ -239,17 +239,17 @@ func (m *Manager) GetJobRuns(id string, limit int) ([]RunLog, error) {
 
 // GetJobEvents retorna a timeline de eventos de uma data (formato "2006-01-02").
 func (m *Manager) GetJobEvents(date string) ([]EventEntry, error) {
-	events, err := m.cfg.Repository.ListEvents(m.context(), EventFilter{Limit: 500})
-	if err != nil || date == "" {
-		return events, err
-	}
-	filtered := make([]EventEntry, 0, len(events))
-	for _, event := range events {
-		if event.Timestamp.Format("2006-01-02") == date {
-			filtered = append(filtered, event)
+	filter := EventFilter{Limit: 500}
+	if date != "" {
+		start, err := time.ParseInLocation("2006-01-02", date, time.Local)
+		if err != nil {
+			return nil, fmt.Errorf("invalid date %q: %w", date, err)
 		}
+		filter.StartAt = start
+		filter.EndAt = start.Add(24 * time.Hour)
+		filter.Limit = 0
 	}
-	return filtered, nil
+	return m.cfg.Repository.ListEvents(m.context(), filter)
 }
 
 // GetPipelines retorna os pipelines com seus jobs.
@@ -259,8 +259,8 @@ func (m *Manager) GetPipelines() []PipelineInfo {
 
 	for name, jobs := range grouped {
 		infos := make([]JobInfo, 0, len(jobs))
+		lastRuns := m.lastRuns(jobs)
 		for _, job := range jobs {
-			lastRun, _ := m.lastRun(job.ID)
 			infos = append(infos, JobInfo{
 				ID:       job.ID,
 				Name:     job.Name,
@@ -268,7 +268,7 @@ func (m *Manager) GetPipelines() []PipelineInfo {
 				Tool:     job.Tool,
 				Status:   job.Status,
 				Triggers: job.Triggers,
-				LastRun:  lastRun,
+				LastRun:  lastRuns[job.ID],
 			})
 		}
 		pipelines = append(pipelines, PipelineInfo{
@@ -764,4 +764,23 @@ func (m *Manager) lastRun(jobID string) (*RunLog, error) {
 		return nil, err
 	}
 	return &runs[0], nil
+}
+
+func (m *Manager) lastRuns(jobs []*Job) map[string]*RunLog {
+	out := make(map[string]*RunLog, len(jobs))
+	if m.cfg.Repository == nil || len(jobs) == 0 {
+		return out
+	}
+	ids := make([]string, 0, len(jobs))
+	for _, job := range jobs {
+		if job != nil {
+			ids = append(ids, job.ID)
+		}
+	}
+	runs, err := m.cfg.Repository.GetLastRuns(m.context(), ids)
+	if err != nil {
+		log.Printf("[Jobs] Error loading last runs: %v", err)
+		return out
+	}
+	return runs
 }

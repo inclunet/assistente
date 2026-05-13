@@ -215,10 +215,12 @@ type JobFilter struct {
 
 // EventFilter define filtros de listagem para eventos de domínio de jobs.
 type EventFilter struct {
-	JobID string
-	Type  string
-	Event string
-	Limit int
+	JobID   string
+	Type    string
+	Event   string
+	StartAt time.Time
+	EndAt   time.Time
+	Limit   int
 }
 
 // --- Tipos para API/UI ---

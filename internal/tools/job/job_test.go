@@ -169,7 +169,7 @@ func TestPipelineToolCreatesUpdatesAndDeletes(t *testing.T) {
 		t.Fatal("expected ops-jobs pipeline to be saved")
 	}
 
-	result, err = tool.Execute(context.Background(), json.RawMessage(`{"slug":"ops-jobs","enabled":false}`))
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"slug":"Ops Jobs","enabled":false}`))
 	if err != nil {
 		t.Fatalf("Execute update error = %v", err)
 	}
@@ -180,7 +180,7 @@ func TestPipelineToolCreatesUpdatesAndDeletes(t *testing.T) {
 		t.Fatal("expected pipeline to be disabled")
 	}
 
-	result, err = tool.Execute(context.Background(), json.RawMessage(`{"slug":"ops-jobs","delete":true}`))
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"slug":"Ops Jobs","delete":true}`))
 	if err != nil {
 		t.Fatalf("Execute delete error = %v", err)
 	}

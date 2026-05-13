@@ -65,7 +65,7 @@ func (t *PipelineTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if mgr == nil {
 		return tools.ToolResult{Content: "job manager not configured", IsError: true}, nil
 	}
-	slug := strings.TrimSpace(params.Slug)
+	slug := slugFromName(params.Slug)
 	if params.Delete {
 		if slug == "" {
 			return tools.ToolResult{Content: "slug is required to delete a pipeline", IsError: true}, nil
@@ -127,7 +127,7 @@ func (t *PipelineTool) createPipeline(mgr Manager, params pipelineArgs) (tools.T
 	if strings.TrimSpace(params.Name) == "" {
 		return tools.ToolResult{Content: "name is required to create a pipeline", IsError: true}, nil
 	}
-	slug := strings.TrimSpace(params.Slug)
+	slug := slugFromName(params.Slug)
 	if slug == "" {
 		slug = slugFromName(params.Name)
 	}
