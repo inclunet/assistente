@@ -9,6 +9,8 @@
 
 Sistema de automação event-driven integrado ao Assistente. Cada **Job** é uma unidade atômica que executa **1 tool call** e emite **1 evento**. Jobs se encadeiam por eventos, formando pipelines reativas sem acoplamento direto.
 
+**Atualização 2026-05**: a persistência e o runtime desta proposta foram redesenhados pelas AEP-0048 e AEP-0063. Jobs, pipelines, triggers, runs e eventos passam a viver no banco; execução concreta de tools passa por `tool_invocations`. As decisões abaixo permanecem como visão funcional, mas detalhes de filesystem/YAML são históricos.
+
 ## Motivação
 
 O Assistente já possui infraestrutura robusta de MCP (Jira, Confluence, Slack, Gmail, GitHub, etc.) e tool calling. Falta uma camada de **orquestração temporal e reativa** que permita:
@@ -38,9 +40,9 @@ Ruby agent types →  Qualquer tool MCP registrada = novo "type" automático
 | Modelo | 1 Job = 1 tool call (atômica) |
 | Encadeamento | Eventos custom definidos pelo usuário |
 | LLM no loop | Não na v1, futuro como tool type |
-| Persistência | 1 arquivo YAML por job |
-| Gerenciamento | Filesystem — sem tools especiais, usa read/write/edit/delete_file |
-| Hot reload | File watcher na pasta de jobs + validação YAML |
+| Persistência | Banco SQLite via AEP-0048 (`jobs`, `job_pipelines`, `job_triggers`, runs e eventos) |
+| Gerenciamento | Tools nativas de jobs/pipelines, não edição direta de arquivos |
+| Hot reload | Scheduler/subscriptions carregados do banco após login |
 | Criação | Chat (skill job-builder) + UI (Job Builder visual) |
 | Error policy | Configurável por job |
 | Notificação | Chat do Assistente + Telegram/Signal |

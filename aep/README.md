@@ -46,11 +46,18 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0045](0045-cli-interface.md) | Interface CLI como alternativa ao Wails | ✅ Done |
 | [0046](0046-uuid-migration.md) | Migração de IDs Sequenciais para UUIDv7 | ✅ Done |
 | [0047](0047-import-export.md) | Importação e Exportação de Conteúdo | ✅ Done |
+| [0048](0048-jobs-database-migration.md) | Migração de Jobs para Banco de Dados | 🚧 In Progress |
+| [0049](0049-mcp-database-migration.md) | Migração de MCP Servers para Banco de Dados | ✅ Done |
 | [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário | 🚧 In Progress |
 | [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 📝 Draft |
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | 📝 Draft |
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat | 📝 Draft |
 | [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | 📝 Draft |
+| [0059](0059-long-conversation-performance.md) | Performance de Conversas Longas | 📝 Draft |
+| [0060](0060-command-policy-parser.md) | Parser de Política de Comandos | 📝 Draft |
+| [0061](0061-credential-loss-incident-and-defenses.md) | Incidente de Perda de Credenciais e Defesas | 📝 Draft |
+| [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil e Auth de Provider Local | 📝 Draft |
+| [0063](0063-tool-invocations-and-common-executor.md) | Tool Invocations e Executor Comum | 📝 Draft |
 
 ## Status Legend
 
