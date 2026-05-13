@@ -643,6 +643,25 @@ func (a *App) reloadUserScopedRuntime() {
 	}
 	ctx, cancel := context.WithTimeout(authedCtx, reloadUserScopedRuntimeTimeout)
 	defer cancel()
+	userID, _ := database.UserIDFromContext(authedCtx)
+	startJobsForCurrentUser := func() {
+		if a.jobMgr == nil {
+			return
+		}
+		currentCtx, err := a.requireAuthenticatedContext()
+		if err != nil {
+			log.Printf("[reloadUserScopedRuntime] jobs não iniciados sem sessão autenticada: %v", err)
+			return
+		}
+		currentUserID, _ := database.UserIDFromContext(currentCtx)
+		if currentUserID != userID {
+			log.Printf("[reloadUserScopedRuntime] jobs não iniciados: sessão mudou durante reload")
+			return
+		}
+		if err := a.jobMgr.Start(); err != nil {
+			log.Printf("[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
+		}
+	}
 
 	if a.jobMgr != nil {
 		a.jobMgr.Stop()
@@ -650,11 +669,6 @@ func (a *App) reloadUserScopedRuntime() {
 	a.registerEnvCredentials(ctx, a.credMgr)
 	a.migrateLegacyConfig(ctx)
 	a.runPostLoginLegacyImports(ctx)
-	if a.jobMgr != nil {
-		if err := a.jobMgr.Start(); err != nil {
-			log.Printf("[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
-		}
-	}
 	if a.providerSvc != nil {
 		a.initLLMProviders(ctx)
 	}
@@ -675,8 +689,12 @@ func (a *App) reloadUserScopedRuntime() {
 		// inteiro); o AutoConnectAll é serial e demora N×handshake, e
 		// cada Connect tem seu próprio timeout interno. Herda só o
 		// userID do contexto autenticado vigente.
-		userID, _ := database.UserIDFromContext(authedCtx)
-		go a.mcpMgr.AutoConnectAll(database.WithUserID(context.Background(), userID))
+		go func() {
+			a.mcpMgr.AutoConnectAll(database.WithUserID(context.Background(), userID))
+			startJobsForCurrentUser()
+		}()
+	} else {
+		startJobsForCurrentUser()
 	}
 	if err := ctx.Err(); err != nil {
 		log.Printf("[reloadUserScopedRuntime] timeout/cancel atingido (%s): %v — runtime pode estar parcialmente inicializado", reloadUserScopedRuntimeTimeout, err)

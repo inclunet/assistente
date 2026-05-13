@@ -365,6 +365,9 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 	if err != nil {
 		return err
 	}
+	if job == nil {
+		return fmt.Errorf("job is required")
+	}
 	if err := Validate(job); err != nil {
 		return err
 	}
@@ -397,9 +400,7 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 		default:
 			row.ID = existing.ID
 			row.CreatedAt = existing.CreatedAt
-			if strings.TrimSpace(row.CreatedBy) == "" {
-				row.CreatedBy = existing.CreatedBy
-			}
+			row.CreatedBy = existing.CreatedBy
 			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(row).Error; err != nil {
 				return err
 			}
@@ -1332,7 +1333,7 @@ func marshalJSON(v any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if string(b) == "null" || string(b) == "{}" || string(b) == "[]" {
+	if string(b) == "null" {
 		return "", nil
 	}
 	return string(b), nil

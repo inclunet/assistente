@@ -58,6 +58,20 @@ func (r *Registry) Clear() {
 	r.jobs = make(map[string]*Job)
 }
 
+// Replace troca o conjunto inteiro de jobs sob o lock do registry.
+func (r *Registry) Replace(jobs []*Job) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	next := make(map[string]*Job, len(jobs))
+	for _, job := range jobs {
+		if job == nil {
+			continue
+		}
+		next[job.ID] = job
+	}
+	r.jobs = next
+}
+
 // Get retorna um job pelo ID ou nil se nao existir.
 func (r *Registry) Get(id string) *Job {
 	r.mu.RLock()

@@ -2,7 +2,11 @@ package jobs
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
+
+	"assistente/internal/database"
 )
 
 func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *testing.T) {
@@ -74,6 +78,8 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 func TestManagerGetJobContextReturnsCopy(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	job := testRepositoryJob("sync-jira", "Sync Jira")
+	job.Inputs = map[string]any{"query": "original"}
+	job.Tags = []string{"ops"}
 	if err := repo.SaveJob(userA, job); err != nil {
 		t.Fatalf("save job: %v", err)
 	}
@@ -92,6 +98,9 @@ func TestManagerGetJobContextReturnsCopy(t *testing.T) {
 		t.Fatalf("get job: %v", err)
 	}
 	got.Tool = "missing_tool"
+	got.Inputs["query"] = "mutated"
+	got.Tags[0] = "mutated"
+	got.Triggers[0].Type = TriggerCron
 
 	again, err := mgr.GetJobContext(userA, "sync-jira")
 	if err != nil {
@@ -99,6 +108,15 @@ func TestManagerGetJobContextReturnsCopy(t *testing.T) {
 	}
 	if again.Tool != "test_tool" {
 		t.Fatalf("registry job was mutated through returned pointer: got %q", again.Tool)
+	}
+	if again.Inputs["query"] == "mutated" {
+		t.Fatalf("registry inputs map was mutated through returned pointer: %#v", again.Inputs)
+	}
+	if again.Tags[0] == "mutated" {
+		t.Fatalf("registry tags slice was mutated through returned pointer: %#v", again.Tags)
+	}
+	if again.Triggers[0].Type == TriggerCron {
+		t.Fatalf("registry triggers slice was mutated through returned pointer: %#v", again.Triggers)
 	}
 }
 
@@ -117,5 +135,51 @@ func TestManagerStopResetsCircuitBreakerState(t *testing.T) {
 	mgr.Stop()
 	if err := mgr.circuitBreaker.CheckRateLimit("shared-job-id", 0); err != nil {
 		t.Fatalf("rate limit state leaked after stop: %v", err)
+	}
+}
+
+func TestManagerContextFromPreservesParentUserScope(t *testing.T) {
+	repo, userA, userB := setupJobsRepositoryTest(t)
+	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
+		ContextProvider: func() context.Context { return userA },
+	})
+
+	scoped := mgr.contextFrom(userB)
+	got, ok := database.UserIDFromContext(scoped)
+	if !ok {
+		t.Fatal("expected scoped context to keep a user")
+	}
+	want, _ := database.UserIDFromContext(userB)
+	if got != want {
+		t.Fatalf("contextFrom overwrote parent user: got %q, want %q", got, want)
+	}
+}
+
+func TestManagerGetJobEventsReturnsFullDay(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
+		ContextProvider: func() context.Context { return userA },
+	})
+	day := time.Date(2026, 5, 13, 12, 0, 0, 0, time.Local)
+	for i := 0; i < 505; i++ {
+		entry := &EventEntry{
+			ID:        fmt.Sprintf("event-%03d", i),
+			Timestamp: day.Add(time.Duration(i) * time.Second),
+			Type:      "info",
+			Message:   "event",
+		}
+		if err := repo.LogEvent(userA, entry); err != nil {
+			t.Fatalf("log event %d: %v", i, err)
+		}
+	}
+
+	events, err := mgr.GetJobEvents("2026-05-13")
+	if err != nil {
+		t.Fatalf("get events: %v", err)
+	}
+	if len(events) != 505 {
+		t.Fatalf("GetJobEvents truncated full day: got %d, want 505", len(events))
 	}
 }

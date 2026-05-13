@@ -104,10 +104,15 @@ func (m *Manager) Start() error {
 	if err != nil {
 		return fmt.Errorf("load jobs from database: %w", err)
 	}
-	m.registry = NewRegistry()
+	loaded := make([]*Job, 0, len(jobs))
 	for _, job := range jobs {
 		jobCopy := job
-		m.registerJob(&jobCopy)
+		loaded = append(loaded, &jobCopy)
+	}
+	m.registry.Replace(loaded)
+	for _, job := range loaded {
+		m.registerTriggers(job)
+		log.Printf("[Jobs] Registered: %s (enabled=%v pipeline_enabled=%v)", job.ID, job.Enabled, job.PipelineEnabled)
 	}
 
 	log.Printf("[Jobs] Loaded %d jobs from database", len(jobs))
@@ -208,9 +213,12 @@ func (m *Manager) GetJob(id string) (*Job, error) {
 	if job == nil {
 		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
-	copy := *job
+	copy, err := cloneJob(job)
+	if err != nil {
+		return nil, err
+	}
 	copy.LastRun, _ = m.lastRun(id)
-	return &copy, nil
+	return copy, nil
 }
 
 func (m *Manager) GetJobContext(ctx context.Context, id string) (*Job, error) {
@@ -222,9 +230,12 @@ func (m *Manager) GetJobContext(ctx context.Context, id string) (*Job, error) {
 	if job == nil {
 		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
-	copy := *job
+	copy, err := cloneJob(job)
+	if err != nil {
+		return nil, err
+	}
 	copy.LastRun, _ = m.lastRunWithContext(ctx, id)
-	return &copy, nil
+	return copy, nil
 }
 
 // ToggleJob ativa ou desativa um job e persiste no YAML.
@@ -369,7 +380,16 @@ func (m *Manager) GetJobRunsContext(ctx context.Context, id string, limit int) (
 
 // GetJobEvents retorna a timeline de eventos de uma data (formato "2006-01-02").
 func (m *Manager) GetJobEvents(date string) ([]EventEntry, error) {
-	return m.GetJobEventsPage(date, 500, 0)
+	filter := EventFilter{}
+	if date != "" {
+		start, err := time.ParseInLocation("2006-01-02", date, time.Local)
+		if err != nil {
+			return nil, fmt.Errorf("invalid date %q: %w", date, err)
+		}
+		filter.StartAt = start
+		filter.EndAt = start.Add(24 * time.Hour)
+	}
+	return m.cfg.Repository.ListEvents(m.context(), filter)
 }
 
 func (m *Manager) GetJobEventsPage(date string, limit, offset int) ([]EventEntry, error) {
@@ -765,9 +785,10 @@ func (m *Manager) TestTool(toolName string, inputs map[string]any, eventData map
 	}, nil
 }
 
-// RegenerateCatalog forca regeneracao do catalogo.
+// RegenerateCatalog é mantido para compatibilidade com a UI antiga.
+// O catálogo de jobs é derivado ao vivo do registry de tools, então não há
+// artefato persistente a regenerar.
 func (m *Manager) RegenerateCatalog() error {
-	// O catálogo de jobs agora é derivado do registry em tempo real.
 	return nil
 }
 
@@ -1086,6 +1107,22 @@ func (m *Manager) emitEvent(event string, data any) {
 	}
 }
 
+func cloneJob(job *Job) (*Job, error) {
+	if job == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(job)
+	if err != nil {
+		return nil, fmt.Errorf("clone job %s: %w", job.ID, err)
+	}
+	var copy Job
+	if err := json.Unmarshal(raw, &copy); err != nil {
+		return nil, fmt.Errorf("clone job %s: %w", job.ID, err)
+	}
+	copy.PipelineEnabled = job.PipelineEnabled
+	return &copy, nil
+}
+
 func (m *Manager) context() context.Context {
 	if m.cfg.ContextProvider != nil {
 		if ctx := m.cfg.ContextProvider(); ctx != nil {
@@ -1096,10 +1133,13 @@ func (m *Manager) context() context.Context {
 }
 
 func (m *Manager) contextFrom(parent context.Context) context.Context {
-	base := m.context()
 	if parent == nil {
 		parent = context.Background()
 	}
+	if _, ok := database.UserIDFromContext(parent); ok {
+		return parent
+	}
+	base := m.context()
 	userID, ok := database.UserIDFromContext(base)
 	if !ok {
 		return parent

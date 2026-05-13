@@ -177,6 +177,7 @@ func TestDBRepositorySaveJobPreservesCreatedByOnUpdate(t *testing.T) {
 	}
 
 	update := testRepositoryJob("sync-jira", "Sync Jira Updated")
+	update.Metadata.CreatedBy = "malicious-update"
 	if err := repo.SaveJob(userA, update); err != nil {
 		t.Fatalf("save update: %v", err)
 	}
@@ -186,6 +187,13 @@ func TestDBRepositorySaveJobPreservesCreatedByOnUpdate(t *testing.T) {
 	}
 	if got.Metadata.CreatedBy != "seed-import" {
 		t.Fatalf("created_by: got %q, want seed-import", got.Metadata.CreatedBy)
+	}
+}
+
+func TestDBRepositorySaveJobRejectsNilJob(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, nil); err == nil {
+		t.Fatal("expected nil job to return an error")
 	}
 }
 
@@ -215,6 +223,41 @@ func TestDBRepositoryLogRunMatchesEventTriggerByExpression(t *testing.T) {
 	}
 	if row.Trigger == nil || row.Trigger.Expression != "deploy" {
 		t.Fatalf("trigger expression: %#v", row.Trigger)
+	}
+}
+
+func TestDBRepositoryLogRunPreservesEmptyRuntimeJSONValues(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("empty-runtime-json", "Empty Runtime JSON")
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	rl := &RunLog{
+		RunID:          "run-empty-json",
+		JobID:          "empty-runtime-json",
+		Status:         "completed",
+		Trigger:        TriggerInfo{Type: TriggerManual},
+		StartedAt:      time.Now(),
+		ResolvedInputs: map[string]any{},
+		Output:         map[string]any{},
+		EventsEmitted:  []string{},
+	}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log run: %v", err)
+	}
+
+	got, err := repo.GetRun(userA, "empty-runtime-json", "run-empty-json")
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.ResolvedInputs == nil || len(got.ResolvedInputs) != 0 {
+		t.Fatalf("resolved inputs not preserved as empty object: %#v", got.ResolvedInputs)
+	}
+	if got.Output == nil || len(got.Output) != 0 {
+		t.Fatalf("output not preserved as empty object: %#v", got.Output)
+	}
+	if got.EventsEmitted == nil || len(got.EventsEmitted) != 0 {
+		t.Fatalf("events emitted not preserved as empty array: %#v", got.EventsEmitted)
 	}
 }
 
