@@ -89,12 +89,12 @@ type JobTrigger struct {
 // JobRun registra a execução operacional de um job.
 type JobRun struct {
 	UUIDModel
-	UserID    string `json:"userId" gorm:"not null;index"`
-	JobID     string `json:"jobId" gorm:"not null;index"`
+	UserID    string `json:"userId" gorm:"not null;index;index:idx_job_runs_user_job_started_at,priority:1;index:idx_job_runs_user_started_at,priority:1"`
+	JobID     string `json:"jobId" gorm:"not null;index;index:idx_job_runs_user_job_started_at,priority:2"`
 	TriggerID string `json:"triggerId" gorm:"not null;index"`
 
 	Status        string     `json:"status" gorm:"not null;index"`
-	StartedAt     time.Time  `json:"startedAt" gorm:"not null;index"`
+	StartedAt     time.Time  `json:"startedAt" gorm:"not null;index;index:idx_job_runs_user_job_started_at,priority:3;index:idx_job_runs_user_started_at,priority:2"`
 	CompletedAt   *time.Time `json:"completedAt,omitempty"`
 	DurationMs    int64      `json:"durationMs,omitempty"`
 	Error         string     `json:"error,omitempty" gorm:"type:text"`
@@ -115,10 +115,10 @@ type JobRun struct {
 // JobEvent registra eventos globais do sistema de jobs.
 type JobEvent struct {
 	UUIDModel
-	UserID     string    `json:"userId" gorm:"not null;index"`
+	UserID     string    `json:"userId" gorm:"not null;index;index:idx_job_events_user_occurred_at,priority:1"`
 	JobID      *string   `json:"jobId,omitempty" gorm:"index"`
 	JobRunID   *string   `json:"jobRunId,omitempty" gorm:"index"`
-	OccurredAt time.Time `json:"occurredAt" gorm:"not null;index"`
+	OccurredAt time.Time `json:"occurredAt" gorm:"not null;index;index:idx_job_events_user_occurred_at,priority:2"`
 	Type       string    `json:"type" gorm:"not null;index"`
 	Event      string    `json:"event,omitempty" gorm:"index"`
 	Message    string    `json:"message,omitempty" gorm:"type:text"`
@@ -132,10 +132,10 @@ type JobEvent struct {
 // JobRunEvent registra a timeline técnica de uma execução.
 type JobRunEvent struct {
 	UUIDModel
-	UserID     string    `json:"userId" gorm:"not null;index"`
+	UserID     string    `json:"userId" gorm:"not null;index;index:idx_job_run_events_user_occurred_at,priority:1"`
 	JobRunID   string    `json:"jobRunId" gorm:"not null;index;uniqueIndex:ux_job_run_events_run_sequence"`
 	Sequence   int       `json:"sequence" gorm:"not null;uniqueIndex:ux_job_run_events_run_sequence"`
-	OccurredAt time.Time `json:"occurredAt" gorm:"not null;index"`
+	OccurredAt time.Time `json:"occurredAt" gorm:"not null;index;index:idx_job_run_events_user_occurred_at,priority:2"`
 	Type       string    `json:"type" gorm:"not null;index"`
 	Message    string    `json:"message,omitempty" gorm:"type:text"`
 	Data       string    `json:"data,omitempty" gorm:"type:text"`
