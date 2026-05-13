@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -111,6 +112,9 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	}
 
 	hasWrite := params.hasWriteFields()
+	if id == "" && params.Enabled != nil && !hasWrite {
+		return tools.ToolResult{Content: "job_id is required to toggle enabled", IsError: true}, nil
+	}
 	if id == "" && !hasWrite {
 		return t.listJobs(mgr)
 	}
@@ -204,6 +208,9 @@ func (t *Tool) createJob(ctx context.Context, mgr Manager, explicitID string, pa
 func (t *Tool) updateJob(ctx context.Context, mgr Manager, id string, params jobArgs) (tools.ToolResult, error) {
 	job, err := getJob(ctx, mgr, id)
 	if err != nil {
+		if !errors.Is(err, jobs.ErrJobNotFound) {
+			return tools.ToolResult{Content: fmt.Sprintf("Error reading job: %v", err), IsError: true}, nil
+		}
 		return t.createJob(ctx, mgr, id, params)
 	}
 	if strings.TrimSpace(params.Name) != "" {

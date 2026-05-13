@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 type fakeManager struct {
 	jobs      map[string]*jobs.Job
 	pipelines map[string]jobs.Pipeline
+	getErr    error
 }
 
 func newFakeManager() *fakeManager {
@@ -30,6 +32,9 @@ func (m *fakeManager) GetJobs() []jobs.JobInfo {
 }
 
 func (m *fakeManager) GetJob(id string) (*jobs.Job, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
 	job, ok := m.jobs[id]
 	if !ok {
 		return nil, errNotFound(id)
@@ -108,6 +113,10 @@ func (e *notFoundError) Error() string {
 	return "not found: " + e.id
 }
 
+func (e *notFoundError) Is(target error) bool {
+	return errors.Is(target, jobs.ErrJobNotFound)
+}
+
 func TestJobToolCreatesUpdatesAndLists(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewJob(mgr)
@@ -154,6 +163,22 @@ func TestJobToolCreatesUpdatesAndLists(t *testing.T) {
 	}
 }
 
+func TestJobToolRejectsEnabledWithoutJobID(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"enabled":false}`))
+	if err != nil {
+		t.Fatalf("Execute enabled-only error = %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected enabled-only without job_id to be an error, got %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "job_id is required") {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+}
+
 func TestJobToolCreatesWithExplicitJobID(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewJob(mgr)
@@ -172,6 +197,28 @@ func TestJobToolCreatesWithExplicitJobID(t *testing.T) {
 	}
 	if _, ok := mgr.jobs["explicit-job"]; !ok {
 		t.Fatalf("expected explicit-job to be saved, got %#v", mgr.jobs)
+	}
+}
+
+func TestJobToolDoesNotCreateOnReadError(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.getErr = errors.New("database unavailable")
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{
+		"job_id":"new-job",
+		"name":"New Job",
+		"tool":"web_fetch",
+		"triggers":[{"type":"manual"}]
+	}`))
+	if err != nil {
+		t.Fatalf("Execute update read error = %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected read error result, got %s", result.Content)
+	}
+	if _, ok := mgr.jobs["new-job"]; ok {
+		t.Fatalf("job was created after non-not-found read error")
 	}
 }
 

@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -14,6 +15,8 @@ import (
 	"assistente/internal/messaging"
 	"assistente/internal/tools"
 )
+
+var ErrJobNotFound = errors.New("job not found")
 
 // SecretStore abstrai acesso a secrets para o job engine.
 type SecretStore interface {
@@ -163,7 +166,7 @@ func (m *Manager) GetJobs() []JobInfo {
 func (m *Manager) GetJob(id string) (*Job, error) {
 	job := m.registry.Get(id)
 	if job == nil {
-		return nil, fmt.Errorf("job not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 	job.LastRun, _ = m.lastRun(id)
 	return job, nil
@@ -172,7 +175,7 @@ func (m *Manager) GetJob(id string) (*Job, error) {
 func (m *Manager) GetJobContext(ctx context.Context, id string) (*Job, error) {
 	job := m.registry.Get(id)
 	if job == nil {
-		return nil, fmt.Errorf("job not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 	job.LastRun, _ = m.lastRunWithContext(m.contextFrom(ctx), id)
 	return job, nil
@@ -182,7 +185,7 @@ func (m *Manager) GetJobContext(ctx context.Context, id string) (*Job, error) {
 func (m *Manager) ToggleJob(id string, enabled bool) error {
 	job := m.registry.Get(id)
 	if job == nil {
-		return fmt.Errorf("job not found: %s", id)
+		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 
 	job.Enabled = enabled
@@ -209,7 +212,7 @@ func (m *Manager) ToggleJob(id string, enabled bool) error {
 func (m *Manager) ToggleJobContext(ctx context.Context, id string, enabled bool) error {
 	job := m.registry.Get(id)
 	if job == nil {
-		return fmt.Errorf("job not found: %s", id)
+		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 	job.Enabled = enabled
 	if err := m.cfg.Repository.SaveJob(m.contextFrom(ctx), job); err != nil {
@@ -228,7 +231,7 @@ func (m *Manager) ToggleJobContext(ctx context.Context, id string, enabled bool)
 func (m *Manager) RunJob(id string) (*RunLog, error) {
 	job := m.registry.Get(id)
 	if job == nil {
-		return nil, fmt.Errorf("job not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 
 	ctx := m.context()
@@ -244,7 +247,7 @@ func (m *Manager) RunJob(id string) (*RunLog, error) {
 func (m *Manager) RunJobContext(ctx context.Context, id string) (*RunLog, error) {
 	job := m.registry.Get(id)
 	if job == nil {
-		return nil, fmt.Errorf("job not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 	trigCtx := &TriggerContext{
 		Type:         TriggerManual,
@@ -258,7 +261,7 @@ func (m *Manager) RunJobContext(ctx context.Context, id string) (*RunLog, error)
 func (m *Manager) DryRunJob(id string) (*DryRunResult, error) {
 	job := m.registry.Get(id)
 	if job == nil {
-		return nil, fmt.Errorf("job not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 
 	ctx := m.context()
@@ -274,7 +277,7 @@ func (m *Manager) DryRunJob(id string) (*DryRunResult, error) {
 func (m *Manager) DryRunJobContext(ctx context.Context, id string) (*DryRunResult, error) {
 	job := m.registry.Get(id)
 	if job == nil {
-		return nil, fmt.Errorf("job not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 	trigCtx := &TriggerContext{
 		Type:         TriggerManual,
@@ -509,7 +512,7 @@ func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
 func (m *Manager) DeleteJob(id string) error {
 	job := m.registry.Get(id)
 	if job == nil {
-		return fmt.Errorf("job not found: %s", id)
+		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 
 	if err := m.cfg.Repository.DeleteJob(m.context(), id); err != nil {
@@ -528,7 +531,7 @@ func (m *Manager) DeleteJob(id string) error {
 func (m *Manager) DeleteJobContext(ctx context.Context, id string) error {
 	job := m.registry.Get(id)
 	if job == nil {
-		return fmt.Errorf("job not found: %s", id)
+		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 
 	if err := m.cfg.Repository.DeleteJob(m.contextFrom(ctx), id); err != nil {
@@ -775,14 +778,13 @@ func (m *Manager) unregisterAllHotkeys() {
 }
 
 func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerContext) {
-	_ = ctx // Scheduler/event callbacks podem fornecer ctx sem user_id; o Manager usa o provider autenticado.
 	// Busca a versao mais atual do registry (pode ter sido atualizada via hot reload)
 	current := m.registry.Get(job.ID)
 	if current == nil || !current.Enabled {
 		return
 	}
 
-	m.executor.Execute(m.context(), current, trigCtx)
+	m.executor.Execute(m.contextFrom(ctx), current, trigCtx)
 }
 
 func (m *Manager) resolveSecret(key string) (string, error) {
