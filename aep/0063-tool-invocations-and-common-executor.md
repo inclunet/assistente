@@ -122,11 +122,13 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 
 Jobs passam a registrar execução operacional em `job_runs` e execução técnica de tools em `tool_invocations`.
 
-- `job_runs`: status do job, trigger, retry, outputs resumidos, eventos emitidos.
+- `job_runs`: status operacional do job, trigger usado, retry, duração e erro operacional.
 - `job_run_events`: timeline do run.
 - `tool_invocations`: chamada concreta da tool executada pelo run.
 
 Um `job_run` pode ter uma ou mais invocações. O caso inicial é uma invocação por run, mas o modelo suporta jobs compostos no futuro.
+
+`job_runs` não duplica `tool_name`, `trigger_type`, inputs resolvidos ou output bruto em texto. A tool vem do relacionamento com `tool_invocations.tool_catalog_id`; o trigger vem de `job_runs.trigger_id`; os dados técnicos da chamada ficam em `tool_invocations`. Eventos técnicos como início/fim de tool também ficam em `tool_invocations`, não em `job_run_events`.
 
 ## Integração com chat
 
@@ -167,7 +169,7 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 
 9. Migrar execução de jobs para usar `ToolInvocationService`.
 10. Conectar dry-run de jobs ao mesmo executor.
-11. Criar teste manual de tools no `tool_catalog` usando `dry_run = true`.
+11. Criar teste manual de tools no `tool_catalog` usando `dry_run = true`, preferencialmente exposto pela tool composta `job_catalog` em vez de multiplicar tools de teste.
 
 ### Fase 4 — Chat
 
