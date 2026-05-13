@@ -165,13 +165,14 @@ func (r *DBRepository) SetResourceTags(ctx context.Context, resourceType, resour
 }
 
 func (r *DBRepository) GetResourceTags(ctx context.Context, resourceType, resourceID string) ([]Tag, error) {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return nil, err
 	}
 	var rows []database.Tag
-	err := r.db.WithContext(ctx).
+	err = r.db.WithContext(ctx).
 		Joins("JOIN tag_assignments ON tag_assignments.tag_id = tags.id").
-		Where("tag_assignments.resource_type = ? AND tag_assignments.resource_id = ?", resourceType, resourceID).
+		Where("tag_assignments.user_id = ? AND tag_assignments.resource_type = ? AND tag_assignments.resource_id = ?", userID, resourceType, resourceID).
 		Scopes(func(tx *gorm.DB) *gorm.DB { return database.ScopeByUser(ctx, tx, "tags.user_id") }).
 		Order("tags.slug ASC").
 		Find(&rows).Error
@@ -296,6 +297,7 @@ func (r *DBRepository) ListJobs(ctx context.Context, filter JobFilter) ([]Job, e
 	if filter.Tag != "" {
 		query = query.Joins("JOIN tag_assignments ON tag_assignments.resource_id = jobs.id AND tag_assignments.resource_type = ?", tagResourceJob).
 			Joins("JOIN tags ON tags.id = tag_assignments.tag_id").
+			Where("tag_assignments.user_id = jobs.user_id AND tags.user_id = jobs.user_id").
 			Where("tags.slug = ?", normalizeSlug(filter.Tag))
 	}
 	var rows []database.Job
@@ -798,7 +800,8 @@ func (r *DBRepository) setResourceTagsTx(ctx context.Context, tx *gorm.DB, userI
 }
 
 func (r *DBRepository) tagSlugsByResourceIDs(ctx context.Context, resourceType string, resourceIDs []string) (map[string][]string, error) {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return nil, err
 	}
 	out := make(map[string][]string, len(resourceIDs))
@@ -814,6 +817,7 @@ func (r *DBRepository) tagSlugsByResourceIDs(ctx context.Context, resourceType s
 		Select("tag_assignments.resource_id, tags.slug").
 		Joins("JOIN tags ON tags.id = tag_assignments.tag_id").
 		Where("tag_assignments.resource_type = ? AND tag_assignments.resource_id IN ?", resourceType, resourceIDs).
+		Where("tags.user_id = ?", userID).
 		Order("tags.slug ASC").
 		Scan(&rows).Error; err != nil {
 		return nil, err

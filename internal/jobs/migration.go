@@ -2,11 +2,14 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"assistente/internal/portability"
+
+	"gorm.io/gorm"
 )
 
 // LegacyDefinitionSource retorna uma fonte read-only para definições YAML
@@ -27,6 +30,8 @@ func (m *Manager) ImportLegacyDefinitions(ctx context.Context) (portability.Lega
 		Import: func(ctx context.Context, job *Job) (bool, error) {
 			if _, err := m.cfg.Repository.GetJob(ctx, job.ID); err == nil {
 				return false, nil
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return false, err
 			}
 			if err := m.cfg.Repository.SaveJob(ctx, job); err != nil {
 				return false, err
