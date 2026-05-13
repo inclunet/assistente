@@ -3,10 +3,15 @@
 ## Dependências
 
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Deve ser implementada primeiro. Fornece o `UUIDModel` com hook `BeforeCreate` que gera UUIDv7 automaticamente. Todas as PKs das tabelas desta AEP usam esse modelo.
+- **AEP-0052** (Multi-user accounts): Jobs, pipelines, runs e eventos nascem sempre com `user_id`.
+- **AEP-0047** (Importação e Exportação): O mecanismo compartilhado de importações legadas é reaproveitado para migrar jobs do filesystem para o banco.
+- **AEP-0063** (Tool Invocations): Depende desta AEP. Jobs precisam estar no banco antes de referenciar `tool_invocations` como execução técnica das tools.
 
 ## Resumo
 
-Migrar o sistema de jobs de filesystem (YAML + JSON + JSONL) para SQLite via GORM, com 3 tabelas (`jobs`, `job_runs`, `job_events`), UUIDv7 como PK, slug como identificador humano legível, configurações complexas serializadas em JSON, LLM tools dedicadas substituindo edição de YAML pelo LLM, e retenção automática de 30 dias para logs de execução.
+Migrar o sistema de jobs de filesystem (YAML + JSON + JSONL) para SQLite via GORM, com tabelas normalizadas para pipelines, jobs, triggers, eventos, runs e timeline de runs. O runtime passa a ser DB-only: criação, edição, deleção, scheduler, subscriptions, runs e eventos deixam de depender de arquivos. A migração dos arquivos legados usa o serviço compartilhado de importações pós-login, idempotente e observável, reaproveitando o padrão introduzido em AEP-0047/AEP-0049.
+
+Esta AEP também substitui o gerenciamento via `write_file`/`edit_file` por tools nativas opt-in de jobs e pipelines. A AEP-0063 usa esta base para unificar chamadas de tools em `tool_invocations`.
 
 ## Motivação
 
@@ -46,11 +51,14 @@ O armazenamento YAML no disco é completamente substituído pelo banco SQLite. N
 
 O file watcher (`internal/jobs/watcher.go`) é removido. O catálogo de tools (`catalog.yaml`) permanece em disco por ser dado derivado (gerado automaticamente, nunca editado pelo usuário).
 
-### D2 — Triggers como JSON na tabela jobs
+### D2 — Pipelines e triggers normalizados
 
-Triggers ficam serializados como JSON array dentro da coluna `triggers` da tabela `jobs`. Não há tabela separada `job_triggers`.
+Pipelines e triggers passam a ter tabelas próprias:
 
-**Motivo**: triggers são sempre carregados junto com o job (não há query "todos os jobs com trigger cron" no app). Se no futuro for necessário, SQLite suporta `json_extract()` para queries em campos JSON.
+- `job_pipelines`: agrupa jobs, permite listar pipelines, contar jobs por pipeline e filtrar execuções por pipeline sem depender de strings soltas.
+- `job_triggers`: registra cada trigger de forma individual, com tipo, condição, payload e status. Isso evita carregar todos os jobs para saber quais inscrições precisam ser ativadas no scheduler/event bus.
+
+Jobs continuam apontando para uma pipeline opcional via `pipeline_id`. Um job sem pipeline representa uma automação avulsa.
 
 ### D3 — Retenção de 30 dias para runs e eventos
 
@@ -70,7 +78,7 @@ O slug é o identificador usado em:
 - Eventos inter-job (`on_success`/`on_failure` referenciam por slug)
 - Logs de execução (legibilidade humana)
 
-### D6 — Configs complexas em JSON
+### D6 — Configs complexas em JSON, sem duplicar entidades consultáveis
 
 Campos estruturados são serializados como JSON TEXT no SQLite:
 
@@ -78,7 +86,6 @@ Campos estruturados são serializados como JSON TEXT no SQLite:
 |---|---|
 | `tags` | `[]string` |
 | `inputs` | `map[string]any` |
-| `triggers` | `[]Trigger` |
 | `output_config` | `OutputConfig` |
 | `events_config` | `EventsConfig` |
 | `error_policy` | `ErrorPolicy` |
@@ -86,12 +93,19 @@ Campos estruturados são serializados como JSON TEXT no SQLite:
 
 Leitura e escrita usam `json.Marshal` / `json.Unmarshal` nas funções de conversão Model ↔ Domain.
 
-### D7 — LLM Tools dedicadas (opt-in)
+Triggers, pipelines, runs e eventos não ficam embutidos no JSON do job porque precisam ser listados, filtrados ou limpos independentemente.
 
-8 tools são criadas para o LLM gerenciar jobs diretamente:
+### D7 — Tools nativas dedicadas (opt-in)
+
+Tools nativas são criadas para o LLM gerenciar jobs e pipelines diretamente, sem editar arquivos:
 
 | Tool | Descrição |
 |---|---|
+| `list_job_pipelines` | Lista pipelines com contagem de jobs |
+| `get_job_pipeline` | Detalhes de uma pipeline por slug |
+| `create_job_pipeline` | Cria pipeline |
+| `update_job_pipeline` | Atualiza pipeline |
+| `delete_job_pipeline` | Remove pipeline se não houver jobs vinculados |
 | `list_jobs` | Lista jobs com filtros (pipeline, tag, enabled) |
 | `get_job` | Detalhes completos por slug |
 | `create_job` | Cria novo job (validação completa antes de persistir) |
@@ -100,19 +114,22 @@ Leitura e escrita usam `json.Marshal` / `json.Unmarshal` nas funções de conver
 | `toggle_job` | Ativa/desativa |
 | `run_job` | Execução manual |
 | `get_job_runs` | Histórico de execuções por slug |
+| `get_job_run_events` | Timeline de uma execução |
 
 As tools são registradas como **opt-in** via `RegisterOptIn()` — só aparecem quando o perfil de interação as habilita explicitamente. Isso evita poluir o contexto do LLM em perfis que não usam jobs.
 
-### D8 — Migração one-time de filesystem para banco
+### D8 — Importação legada pós-login, idempotente e observável
 
-Na primeira execução após a atualização, o Manager detecta se existem arquivos YAML em `~/.assistente/jobs/` E a tabela `jobs` está vazia. Se sim:
+Na primeira sessão autenticada após a atualização, o serviço compartilhado de importações legadas detecta se existem arquivos em `~/.assistente/jobs/` e se o usuário ainda não recebeu a importação de jobs. Se sim:
 
-1. Carrega todos os YAML → insere como jobs no banco (slug = antigo id)
-2. Carrega todos os run logs JSON → insere em `job_runs`
-3. Carrega todos os event logs JSONL → insere em `job_events`
-4. Renomeia `~/.assistente/jobs/` → `~/.assistente/jobs.migrated/` (backup)
+1. Carrega pipelines implícitas a partir dos campos existentes e cria `job_pipelines` quando necessário.
+2. Carrega todos os YAML e insere como `jobs` (slug = antigo id).
+3. Extrai triggers do YAML e insere em `job_triggers`.
+4. Carrega run logs JSON e insere em `job_runs`.
+5. Carrega event logs JSONL e insere em `job_events` ou `job_run_events`, conforme houver `run_id`.
+6. Registra resultado, erros e contadores em uma tabela/estrutura de importação observável compartilhada com MCP e outras migrações legadas.
 
-A migração é idempotente: se `jobs.migrated/` já existe, pula.
+A migração é idempotente por usuário e por recurso. Se parte da importação já existe, a execução seguinte não duplica dados. Não há fallback runtime para filesystem depois da migração: se arquivos antigos não forem importados, eles não continuam alimentando o sistema de jobs.
 
 ### D9 — Repository pattern
 
@@ -120,15 +137,23 @@ A persistência é abstraída por uma interface `Repository`:
 
 ```go
 type Repository interface {
-    ListJobs() ([]Job, error)
+    ListPipelines() ([]Pipeline, error)
+    GetPipeline(slug string) (*Pipeline, error)
+    SavePipeline(pipeline *Pipeline) error
+    DeletePipeline(slug string) error
+    ListJobs(filter JobFilter) ([]Job, error)
     GetJob(slug string) (*Job, error)
     GetJobByID(id string) (*Job, error)
     SaveJob(job *Job) error
     DeleteJob(slug string) error
+    ListTriggers(jobID string) ([]Trigger, error)
+    SaveTriggers(jobID string, triggers []Trigger) error
     LogRun(rl *RunLog) error
     GetRuns(jobID string, limit int) ([]RunLog, error)
     GetRun(jobID, runID string) (*RunLog, error)
     LogEvent(entry *EventEntry) error
+    LogRunEvent(entry *RunEvent) error
+    GetRunEvents(runID string) ([]RunEvent, error)
     GetEvents(date string) ([]EventEntry, error)
     CleanOldRuns(maxAge time.Duration) (int, error)
     CleanOldEvents(maxAge time.Duration) (int, error)
@@ -153,20 +178,36 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 
 ## Tabelas
 
+### job_pipelines
+
+| Coluna | Tipo | Constraints | Notas |
+|---|---|---|---|
+| `id` | TEXT | PK | UUIDv7 via `UUIDModel.BeforeCreate` |
+| `user_id` | TEXT | FK→users.id, NOT NULL, INDEX | Dono da pipeline |
+| `slug` | TEXT | NOT NULL | Único por usuário |
+| `name` | TEXT | NOT NULL | Nome legível |
+| `description` | TEXT | | Opcional |
+| `enabled` | BOOL | NOT NULL, DEFAULT true | Desativa os jobs da pipeline sem apagar configuração |
+| `metadata` | TEXT | | JSON leve para dados de UI/futuro |
+| `created_at` | DATETIME | | |
+| `updated_at` | DATETIME | | |
+
+Índice único: `(user_id, slug)`.
+
 ### jobs
 
 | Coluna | Tipo | Constraints | Notas |
 |---|---|---|---|
 | `id` | TEXT | PK | UUIDv7 via `UUIDModel.BeforeCreate` |
-| `slug` | TEXT | UNIQUE NOT NULL, INDEX | Ex: `fetch-jira-tickets`. Substitui o antigo `id` |
+| `user_id` | TEXT | FK→users.id, NOT NULL, INDEX | Dono do job |
+| `pipeline_id` | TEXT | FK→job_pipelines.id, INDEX | Opcional |
+| `slug` | TEXT | NOT NULL | Ex: `fetch-jira-tickets`. Único por usuário |
 | `name` | TEXT | NOT NULL | Nome legível para exibição |
 | `description` | TEXT | | Opcional |
 | `enabled` | BOOL | NOT NULL, DEFAULT true | |
-| `pipeline` | TEXT | | Agrupamento lógico (ex: `jira-sync`) |
 | `tags` | TEXT | | JSON array: `["tag1","tag2"]` |
-| `tool` | TEXT | NOT NULL | Nome da tool a executar |
+| `tool_catalog_id` | TEXT | FK→tool_catalog.id, INDEX | Fonte canônica da tool a executar |
 | `inputs` | TEXT | | JSON object: inputs fixos ou templates |
-| `triggers` | TEXT | | JSON array: `[]Trigger` serializado |
 | `output_config` | TEXT | | JSON: `OutputConfig` (schema + map) |
 | `events_config` | TEXT | | JSON: `EventsConfig` (on_success, on_failure, etc.) |
 | `error_policy` | TEXT | | JSON: `ErrorPolicy` (retry, backoff, notify) |
@@ -176,13 +217,32 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 | `created_at` | DATETIME | | |
 | `updated_at` | DATETIME | | |
 
+Índice único: `(user_id, slug)`.
+
+### job_triggers
+
+| Coluna | Tipo | Constraints | Notas |
+|---|---|---|---|
+| `id` | TEXT | PK | UUIDv7 |
+| `user_id` | TEXT | FK→users.id, NOT NULL, INDEX | Dono do trigger |
+| `job_id` | TEXT | FK→jobs.id, NOT NULL, INDEX | Job disparado |
+| `type` | TEXT | NOT NULL, INDEX | `cron`/`interval`/`event`/`hotkey`/`webhook`/`manual` |
+| `enabled` | BOOL | NOT NULL, DEFAULT true | Permite desativar um trigger sem desativar o job |
+| `expression` | TEXT | | Cron, intervalo, nome de evento ou hotkey, conforme `type` |
+| `config` | TEXT | | JSON com campos específicos do tipo |
+| `last_triggered_at` | DATETIME | | Ajuda scheduler e UI |
+| `created_at` | DATETIME | | |
+| `updated_at` | DATETIME | | |
+
 ### job_runs
 
 | Coluna | Tipo | Constraints | Notas |
 |---|---|---|---|
 | `id` | TEXT | PK | UUIDv7 (substitui `run_<unix_nano>`) |
+| `user_id` | TEXT | FK→users.id, NOT NULL, INDEX | Dono da execução |
 | `job_id` | TEXT | FK→jobs.id, NOT NULL, INDEX | |
-| `tool_name` | TEXT | | Nome da tool executada |
+| `trigger_id` | TEXT | FK→job_triggers.id, INDEX | Pode ser nulo em execução manual |
+| `tool_catalog_id` | TEXT | FK→tool_catalog.id, INDEX | Fonte canônica da tool executada |
 | `trigger_type` | TEXT | | `cron`/`interval`/`event`/`hotkey`/`manual`/`webhook` |
 | `trigger_at` | DATETIME | | Quando o trigger disparou |
 | `trigger_event` | TEXT | | Nome do evento (se trigger=event) |
@@ -205,12 +265,27 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 | Coluna | Tipo | Constraints | Notas |
 |---|---|---|---|
 | `id` | TEXT | PK | UUIDv7 |
+| `user_id` | TEXT | FK→users.id, NOT NULL, INDEX | Dono do evento |
 | `job_id` | TEXT | FK→jobs.id, INDEX | |
 | `timestamp` | DATETIME | NOT NULL, INDEX | Momento do evento |
 | `type` | TEXT | NOT NULL, INDEX | `triggered`/`completed`/`failed`/`event_emitted`/`event_received` |
 | `event` | TEXT | INDEX | Nome do evento (se aplicável) |
 | `message` | TEXT | | Descrição legível |
 | `data` | TEXT | | JSON: dados contextuais |
+| `created_at` | DATETIME | | |
+
+### job_run_events
+
+| Coluna | Tipo | Constraints | Notas |
+|---|---|---|---|
+| `id` | TEXT | PK | UUIDv7 |
+| `user_id` | TEXT | FK→users.id, NOT NULL, INDEX | Dono do evento |
+| `job_run_id` | TEXT | FK→job_runs.id, NOT NULL, INDEX | Execução relacionada |
+| `sequence` | INT | NOT NULL | Ordem estável dentro do run |
+| `timestamp` | DATETIME | NOT NULL, INDEX | Momento do evento |
+| `type` | TEXT | NOT NULL, INDEX | `queued`/`started`/`tool_started`/`tool_finished`/`completed`/`failed` |
+| `message` | TEXT | | Descrição legível |
+| `data` | TEXT | | JSON: dados técnicos do passo |
 | `created_at` | DATETIME | | |
 
 ## Mapeamento de dados: filesystem → banco
@@ -223,10 +298,10 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 | `name` | `name` | Direto |
 | `description` | `description` | Direto |
 | `enabled` | `enabled` | Direto |
-| `pipeline` | `pipeline` | Direto |
+| `pipeline` | `pipeline_id` | Criar/buscar `job_pipelines` por slug e vincular |
 | `tags` | `tags` | `[]string` → JSON array |
-| `triggers` | `triggers` | `[]Trigger` → JSON array |
-| `tool` | `tool` | Direto |
+| `triggers` | `job_triggers` | Cada trigger vira uma linha em `job_triggers` |
+| `tool` | `tool_catalog_id` | Resolver nome/slug no `tool_catalog` |
 | `inputs` | `inputs` | `map[string]any` → JSON object |
 | `output` | `output_config` | `OutputConfig` → JSON |
 | `events` | `events_config` | `EventsConfig` → JSON |
@@ -243,7 +318,7 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 |---|---|---|
 | `run_id` | `id` | Descartado — novo UUIDv7 gerado |
 | `job_id` | `job_id` | Slug → resolvido para UUID do job correspondente |
-| `tool_name` | `tool_name` | Direto |
+| `tool_name` | `tool_catalog_id` | Resolver nome/slug no `tool_catalog` |
 | `trigger.type` | `trigger_type` | Flatten de struct aninhada |
 | `trigger.at` | `trigger_at` | Flatten |
 | `trigger.event` | `trigger_event` | Flatten |
@@ -272,22 +347,21 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 | `message` | `message` | Direto |
 | `data` | `data` | `map` → JSON |
 
+Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram entradas em `job_run_events`, preservando a timeline da execução. Eventos globais ou sem run permanecem em `job_events`.
+
 ## Fases
 
 ### Fase 1 — Models GORM + AutoMigrate
 
-1. Criar `internal/database/models_jobs.go` com 3 models GORM:
-   - `JobModel` com `UUIDModel` embeddado + todos os campos da tabela `jobs`
-   - `JobRunModel` com `UUIDModel` embeddado + campos de `job_runs`
-   - `JobEventModel` com `UUIDModel` embeddado + campos de `job_events`
-2. Funções de conversão: `JobModel ↔ jobs.Job`, `JobRunModel ↔ jobs.RunLog`, `JobEventModel ↔ jobs.EventEntry`
-3. Adicionar os 3 models ao `AutoMigrate` em `internal/database/database.go`
+1. Criar `internal/database/models_jobs.go` com models GORM para `job_pipelines`, `jobs`, `job_triggers`, `job_runs`, `job_events` e `job_run_events`.
+2. Funções de conversão entre models e domínio (`Pipeline`, `Job`, `Trigger`, `RunLog`, `EventEntry`, `RunEvent`).
+3. Adicionar todos os models ao `AutoMigrate` em `internal/database/database.go`.
 
 ### Fase 2 — Repository layer
 
 4. Criar `internal/jobs/repository.go` com interface `Repository` (D9)
 5. Implementar `DBRepository` que recebe `*gorm.DB`
-6. Testes: CRUD de jobs, runs, events, limpeza por idade
+6. Testes: CRUD de pipelines, jobs, triggers, runs, events e run events, limpeza por idade
 
 ### Fase 3 — Migrar Manager para usar Repository
 
@@ -305,17 +379,17 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 12. Goroutine no Manager: a cada 24h, `Repository.CleanOldRuns(30 dias)` e `Repository.CleanOldEvents(30 dias)`
 13. Executar limpeza também no `Start()` (ao iniciar o app)
 
-### Fase 6 — LLM Tools
+### Fase 6 — Tools nativas
 
-14. Criar 8 tools em `internal/tools/`: `list_jobs`, `get_job`, `create_job`, `update_job`, `delete_job`, `toggle_job`, `run_job`, `get_job_runs`
+14. Criar tools nativas em `internal/tools/` para pipelines e jobs: `list_job_pipelines`, `get_job_pipeline`, `create_job_pipeline`, `update_job_pipeline`, `delete_job_pipeline`, `list_jobs`, `get_job`, `create_job`, `update_job`, `delete_job`, `toggle_job`, `run_job`, `get_job_runs`, `get_job_run_events`.
 15. Registrar como opt-in em `initToolRegistry()`
 
-### Fase 7 — Migração one-time filesystem → banco
+### Fase 7 — Importação legada filesystem → banco
 
-16. Criar `internal/jobs/migration.go` com lógica de detecção e migração (D8)
+16. Criar `internal/jobs/migration.go` com lógica de importação legada idempotente (D8), integrada ao serviço compartilhado de importações.
 17. Resolver slugs → UUIDs: ao importar runs/events, buscar job por slug para obter UUID
-18. Renomear diretório original para `.migrated` (backup não-destrutivo)
-19. Chamar migração no `Start()` antes de carregar do DB
+18. Registrar contadores/erros da importação para UI/logs e não depender de renomear diretórios como fonte de verdade.
+19. Chamar importação pós-login, antes de iniciar scheduler/subscriptions do usuário.
 
 ### Fase 8 — Remoção de código filesystem
 
@@ -327,10 +401,10 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 
 ### Fase 9 — Testes
 
-25. Testes Repository: CRUD jobs, runs, events, limpeza por idade, roundtrip JSON
+25. Testes Repository: CRUD pipelines, jobs, triggers, runs, events, run events, limpeza por idade, roundtrip JSON
 26. Testes Manager: Start, Save, Delete, Toggle com DB
-27. Testes migração: YAML→DB, JSON runs→DB, JSONL events→DB
-28. Testes LLM tools: create/update/delete/list/run
+27. Testes migração: YAML→DB, triggers→DB, JSON runs→DB, JSONL events→DB, idempotência pós-login
+28. Testes tools nativas: create/update/delete/list/run para pipelines e jobs
 29. Atualizar testes existentes (`logger_test.go` → `repository_test.go`)
 
 ## Arquivos afetados
@@ -339,12 +413,12 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 
 | Arquivo | Descrição |
 |---|---|
-| `internal/database/models_jobs.go` | Models GORM: `JobModel`, `JobRunModel`, `JobEventModel` |
+| `internal/database/models_jobs.go` | Models GORM de pipelines, jobs, triggers, runs e eventos |
 | `internal/jobs/repository.go` | Interface `Repository` + `DBRepository` |
 | `internal/jobs/repository_test.go` | Testes do repository |
-| `internal/jobs/migration.go` | Migração one-time filesystem → DB |
+| `internal/jobs/migration.go` | Importação legada filesystem → DB |
 | `internal/jobs/migration_test.go` | Testes da migração |
-| `internal/tools/job_tools.go` | 8 LLM tools para jobs |
+| `internal/tools/job_tools.go` | Tools nativas para jobs e pipelines |
 
 ### Modificados
 
@@ -353,7 +427,7 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 | `internal/jobs/manager.go` | Refatorar para usar Repository em vez de filesystem |
 | `internal/jobs/executor.go` | Logging via Repository em vez de file logger |
 | `internal/jobs/types.go` | `RunID` → `ID`, `Duration string` → `DurationMs int64`, adicionar `Slug` |
-| `internal/database/database.go` | Adicionar 3 models ao `AutoMigrate` |
+| `internal/database/database.go` | Adicionar models de jobs ao `AutoMigrate` |
 | `internal/app/app_tool_registry.go` | Registrar LLM tools de jobs como opt-in |
 | `controllers/jobs_controller.go` | Ajustes mínimos de inicialização |
 
@@ -372,22 +446,22 @@ O antigo `RunID` (formato `run_<unix_nano>`) é substituído pelo PK `id` da tab
 
 | # | Risco | Probabilidade | Impacto | Mitigação |
 |---|---|---|---|---|
-| R1 | Perda de dados na migração filesystem → DB | Baixa | Alto | Backup automático em `jobs.migrated/`; migração idempotente |
+| R1 | Perda de dados na migração filesystem → DB | Baixa | Alto | Importação transacional, idempotente e observável; arquivos legados não são runtime fallback |
 | R2 | Performance de queries com muitos runs | Baixa | Médio | Índices em `job_id` + `started_at` + `status`; retenção 30 dias limita volume (~86k rows máx com 10 jobs a cada 5 min) |
 | R3 | Catálogo de tools fica órfão sem watcher | Baixa | Baixo | Catálogo é regenerado no `Start()` e sob demanda; sem mudança funcional |
-| R4 | LLM tools de jobs conflitam com tools de arquivo | Média | Baixo | Tools são opt-in; perfil escolhe quais habilitar |
+| R4 | Tools nativas de jobs poluem contexto | Média | Baixo | Tools são opt-in; perfil escolhe quais habilitar |
 | R5 | Serialização JSON de configs complexas perde tipo | Média | Médio | Testes de roundtrip (save → load → compare) para cada tipo |
 | R6 | Migração falha parcialmente (parte importada, parte não) | Baixa | Médio | Migração em transação; rollback se qualquer etapa falhar |
 
 ## Critérios de aceitação
 
-1. **CRUD completo**: criar, listar, buscar, atualizar, deletar e toggle de jobs funciona via banco
+1. **CRUD completo**: criar, listar, buscar, atualizar, deletar e toggle de pipelines e jobs funciona via banco
 2. **Run logs no banco**: execução de job persiste `RunLog` na tabela `job_runs` com todos os campos
-3. **Event logs no banco**: eventos são persistidos na tabela `job_events` em vez de JSONL
+3. **Event logs no banco**: eventos são persistidos em `job_events`/`job_run_events` em vez de JSONL
 4. **Retenção**: runs e events mais velhos que 30 dias são removidos automaticamente
-5. **Migração filesystem**: jobs YAML existentes são importados para o banco na primeira execução
-6. **Backup**: diretório original renomeado para `jobs.migrated/` após migração bem-sucedida
-7. **LLM Tools**: 8 tools opt-in disponíveis para o LLM gerenciar jobs
+5. **Migração filesystem**: jobs YAML existentes são importados para o banco após login, sem duplicação em reexecuções
+6. **Sem fallback filesystem**: runtime de jobs lê e escreve somente no banco após esta AEP
+7. **Tools nativas**: tools opt-in disponíveis para o LLM gerenciar pipelines e jobs
 8. **Frontend inalterado**: mesma API Wails, sem mudanças em stores/componentes
 9. **Roundtrip JSON**: configs complexas (triggers, error_policy, etc.) sobrevivem save→load sem perda
 10. **Testes**: repository, manager, migração e LLM tools cobertos por testes Go

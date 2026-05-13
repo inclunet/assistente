@@ -27,6 +27,10 @@ A AEP-0040 ja foi implementada e estabeleceu a fundacao do protocolo de eventos:
 
 **Esta AEP estende a 0040 — nao a substitui.** As mudancas sao aditivas (novos campos opcionais nos structs existentes) exceto a migracao `native→origin` na Fase 1, que requer deprecacao suave. Nenhuma estrutura da 0040 sera removida ou renomeada.
 
+### Relacao com AEP-0063 (Tool Invocations e Executor Comum)
+
+A AEP-0063 consolida a parte de execucao e persistencia que esta AEP havia distribuido entre chat, bridge, MCP nativo e jobs. A partir dela, toda chamada nova de tool deve passar por `ToolInvocationService` e gravar `tool_invocations`, usando `tool_catalog_id` como referencia canonica. Esta AEP continua valida para eventos de frontend/CLI e UX de progresso, mas o storage tecnico de tool results deixa de ficar em mensagens ou logs especificos de cada fluxo.
+
 ### Compatibilidade GUI + CLI
 
 O projeto possui dois adapters de saida: Wails (GUI/frontend React) e CLI (`adapters/cli/`). Ambos implementam a mesma interface `ports.Emitter` e recebem os mesmos event structs de `internal/core/ports/chat_events.go`.

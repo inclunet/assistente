@@ -44,6 +44,8 @@ Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arqu
 
 O pacote `internal/portability` também é responsável por orquestrar importações legadas de arquivos quando um recurso passa a ser persistido no banco. Cada recurso fornece apenas source/parser/importer específicos; o loop de descoberta, leitura read-only, idempotência e relatório de resultado permanece compartilhado para ser reaproveitado por recursos futuros, como skills. O gatilho dessas importações fica em uma fase global pós-login no app, antes dos managers carregarem seus runtimes do banco.
 
+A AEP-0048 usa esse mecanismo para importar jobs, pipelines implícitas, triggers, runs e eventos do filesystem para o banco. A AEP-0063 não exporta `tool_invocations` como histórico permanente por padrão: são logs técnicos efêmeros, sujeitos a retenção.
+
 ### D1 — Formato: JSON versionado com IDs estáveis
 
 O arquivo de export é um único JSON com estrutura definida:

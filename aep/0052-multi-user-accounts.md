@@ -8,7 +8,7 @@ em [Limitações conhecidas](#limitacoes-conhecidas) e nas seções de
 TODOs pós-merge.  
 **Criado em**: 2026-04-21  
 **Depende de**: AEP-0046 (UUIDv7 Migration), AEP-0047 (Import/Export)  
-**Precede**: AEP-0048 (Jobs DB), AEP-0049 (MCP DB), AEP-0050 (Profiles DB), AEP-0051 (Skills DB), AEP-0054/AEP-0055 (split/clientes)  
+**Precede**: AEP-0048 (Jobs DB), AEP-0049 (MCP DB), AEP-0050 (Profiles DB), AEP-0051 (Skills DB), AEP-0054/AEP-0055 (split/clientes), AEP-0063 (Tool Invocations)
 **Relacionado**: AEP-0014 (Credential Persistence), AEP-0022 (Welcome Wizard), AEP-0026 (Credential Fixes)
 
 ---
@@ -83,6 +83,8 @@ O sistema de credenciais já usa uma DEK (Data Encryption Key) global. Nesta AEP
 ### 4. Base para próximas migrações DB
 
 AEP-0046 e AEP-0047 já estabelecem IDs UUIDv7 e o contrato portátil DB-only. A AEP-0052 adiciona ownership (`user_id`) aos recursos persistidos atuais e define o contrato que as próximas migrações DB (0048-0051) devem seguir desde o início, evitando adicionar isolamento de usuário depois que novos recursos forem movidos para o banco.
+
+Esse contrato também se aplica à AEP-0063: `tool_invocations` nasce com `user_id`, origem explícita e referências ao `tool_catalog` do usuário, sem logs globais compartilhados entre contas.
 
 ---
 

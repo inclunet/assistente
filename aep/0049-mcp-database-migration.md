@@ -11,6 +11,8 @@ Migrar a configuração de servidores MCP de arquivos JSON individuais no disco 
 
 Credenciais OAuth/bearer/basic continuam no `credentials.Manager` existente (nunca no banco de configs). O file watcher é removido. O banco passa a ser a fonte persistida para servidores MCP, catálogo de tools e metadados de seleção; o registry em memória passa a ser uma projeção runtime usada para execução. Importação e exportação de MCP servers são integradas ao sistema `internal/portability` da AEP-0047, incluindo export canônico em `resources.mcpServers` e export compatível `mcpServers` para outros clientes MCP.
 
+A AEP-0063 passa a consumir `tool_catalog` como fonte canônica para registrar execuções em `tool_invocations`. O catálogo não deve duplicar histórico de execução; ele identifica a tool, enquanto `tool_invocations` registra chamadas efêmeras feitas por chat, jobs, dry-run ou sistema.
+
 ## Motivação
 
 1. **Consistência**: Após AEP-0048 (jobs) migrar para banco, MCP configs seriam o único recurso complexo ainda em filesystem. Unificar tudo no SQLite simplifica backup, restore e o futuro import/export (AEP-0047).
