@@ -50,7 +50,7 @@ type ChatConfig struct {
 	TopP                  float64  `json:"top_p"`                              // 0.0 a 1.0
 	ResponseTimeout       int      `json:"response_timeout"`                   // Timeout em segundos
 	ReasoningEffort       string   `json:"reasoning_effort,omitempty"`         // off, low, medium, high (vazio = off)
-	EnabledTools          []string `json:"enabled_tools"`                      // Ferramentas habilitadas (nil = todas)
+	EnabledTools          []string `json:"enabled_tools"`                      // Ferramentas habilitadas (nil = seleção dinâmica/catalogo quando disponível)
 	EnabledSkills         []string `json:"enabled_skills"`                     // Skills autoload ordenados (nil = usa auto_load do skill, [] = nenhum autoload)
 	DisableTools          bool     `json:"disable_tools,omitempty"`            // Desabilita completamente tool calling
 	DisableSkills         bool     `json:"disable_skills,omitempty"`           // Desabilita injeção de skills no prompt

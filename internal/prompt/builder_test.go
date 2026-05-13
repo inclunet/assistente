@@ -266,6 +266,33 @@ func TestBuildSkillsSection_DisableOnDemand_NoAvailableSection(t *testing.T) {
 	}
 }
 
+func TestBuildSkillsSection_ToolCallingDisabledSkipsToolDependentSkills(t *testing.T) {
+	toolSkill := makeSkill("tool-skill", "Tool Skill", "Uses tools", "Tool skill content.", true, false)
+	toolSkill.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}}
+	filesystemSkill := makeSkill("filesystem-skill", "Filesystem Skill", "Uses filesystem", "Filesystem skill content.", true, false)
+	filesystemSkill.Filesystem = &skills.FilesystemPermissions{Read: []string{"~/.assistente/**"}}
+	contextOnlySkill := makeSkill("context-skill", "Context Skill", "No tools", "Context skill content.", true, false)
+	available := makeSkill("available", "Available", "Available desc", "Available content.", false, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		autoSkills:      []skills.Skill{toolSkill, filesystemSkill, contextOnlySkill},
+		availableSkills: []skills.Skill{available},
+	}}
+
+	result := b.BuildSkillsSection(nil, false, chat.TemplateData{ToolCallingEnabled: false})
+	if strings.Contains(result, "Tool skill content.") {
+		t.Fatalf("tool-dependent skill should be omitted when tool calling is disabled: %q", result)
+	}
+	if strings.Contains(result, "Filesystem skill content.") {
+		t.Fatalf("filesystem-dependent skill should be omitted when tool calling is disabled: %q", result)
+	}
+	if strings.Contains(result, "<available_skills>") {
+		t.Fatalf("available skills should be omitted when tool calling is disabled: %q", result)
+	}
+	if !strings.Contains(result, "Context skill content.") {
+		t.Fatalf("context-only skill should remain available, got: %q", result)
+	}
+}
+
 func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	s := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, false)
 	b := &prompt.Builder{Skills: &mockSkillReader{
@@ -413,6 +440,39 @@ func TestBuildTemplateData_DoesNotReuseActiveTabStateWhenSurfaceTypeDiffers(t *t
 	}
 }
 
+func TestBuild_TaskListSkillTemplateRendersEmptyWithoutTaskLists(t *testing.T) {
+	taskListSkill := makeSkill("tasklist-manager", "Task List Manager", "", `{{- if .HasTaskLists }}
+Task lists:
+{{- range .TaskLists }}
+- {{ .Title }}
+{{- end }}
+{{- if .ToolCallingEnabled }}
+Tools available.
+{{- end }}
+{{- end }}`, true, true)
+	profile := &profiles.Profile{}
+	profile.Chat.DisableTools = true
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{autoSkills: []skills.Skill{taskListSkill}},
+		Tools:  tools.NewRegistry(),
+	}
+	tplData := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, nil, false, tplData, "", "")
+	if len(result) == 0 {
+		t.Fatal("expected messages")
+	}
+	sys, ok := result[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected system content string, got %T", result[0].Content)
+	}
+	if strings.Contains(sys, "{{") || strings.Contains(sys, ".HasTaskLists") {
+		t.Fatalf("template was not rendered: %q", sys)
+	}
+	if strings.Contains(sys, "Tools available.") {
+		t.Fatalf("tool guidance should not render when task lists are absent: %q", sys)
+	}
+}
+
 func TestComputeEnabledToolNames_DisableTools_ReturnsNil(t *testing.T) {
 	reg := tools.NewRegistry()
 	_ = reg.Register(&fakeTool{name: "read_file"})
@@ -439,6 +499,38 @@ func TestComputeEnabledToolNames_AllTools_WhenNoFilter(t *testing.T) {
 	names := b.ComputeEnabledToolNames(nil)
 	if len(names) != 2 {
 		t.Errorf("Expected 2 tools, got %v", names)
+	}
+}
+
+func TestComputeEnabledToolNames_ProfileNilToolsUsesCatalogFirst(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	_ = reg.Register(&fakeTool{name: "write_file"})
+	profile := &profiles.Profile{}
+	b := &prompt.Builder{Tools: reg}
+
+	names := b.ComputeEnabledToolNames(profile)
+	if len(names) != 1 || names[0] != tools.ToolCatalogName {
+		t.Fatalf("Expected only tool catalog for dynamic selection, got %v", names)
+	}
+
+	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	if !data.ToolCallingEnabled || data.EnabledToolCount != 1 || data.EnabledTools[0] != tools.ToolCatalogName {
+		t.Fatalf("TemplateData tools not aligned with initial definitions: %+v", data)
+	}
+}
+
+func TestComputeEnabledToolNames_ProfileNilToolsFallsBackWhenCatalogMissing(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	_ = reg.Register(&fakeTool{name: "write_file"})
+	profile := &profiles.Profile{}
+	b := &prompt.Builder{Tools: reg}
+
+	names := b.ComputeEnabledToolNames(profile)
+	if len(names) != 2 {
+		t.Fatalf("Expected all tools without catalog, got %v", names)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"reflect"
+	"strings"
 
 	"assistente/internal/llm"
 	mcplib "assistente/internal/mcp"
@@ -72,6 +73,102 @@ func BuildLLMToolDefs(registry *tools.Registry, enabledTools []string, disableTo
 		}
 	}
 	return result
+}
+
+func ResolveInitialEnabledTools(registry *tools.Registry, enabledTools []string, disableTools bool) []string {
+	if disableTools || enabledTools != nil || registry == nil {
+		return enabledTools
+	}
+	if registry.Has(tools.ToolCatalogName) {
+		return []string{tools.ToolCatalogName}
+	}
+	return nil
+}
+
+func BuildLLMToolDefsByNames(registry *tools.Registry, names []string, disableTools bool) []llm.ToolDefinition {
+	if disableTools || registry == nil || len(names) == 0 {
+		return nil
+	}
+	toolDefs := registry.FilterByNames(names)
+	result := make([]llm.ToolDefinition, len(toolDefs))
+	for i, td := range toolDefs {
+		result[i] = llm.ToolDefinition{
+			Type: td.Type,
+			Function: llm.FunctionDefinition{
+				Name:        td.Function.Name,
+				Description: td.Function.Description,
+				Parameters:  td.Function.Parameters,
+			},
+		}
+	}
+	return result
+}
+
+func FilterToolNamesByEnabledTools(names []string, enabledTools []string, disableTools bool) []string {
+	if disableTools || len(names) == 0 {
+		return nil
+	}
+	if enabledTools == nil {
+		filtered := make([]string, 0, len(names))
+		for _, name := range names {
+			if name = strings.TrimSpace(name); name != "" {
+				filtered = append(filtered, name)
+			}
+		}
+		return filtered
+	}
+	enabledSet := make(map[string]struct{}, len(enabledTools))
+	for _, name := range enabledTools {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		enabledSet[name] = struct{}{}
+	}
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := enabledSet[name]; ok {
+			filtered = append(filtered, name)
+		}
+	}
+	return filtered
+}
+
+func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool) []string {
+	if disableTools {
+		return nil
+	}
+	if len(names) == 0 || NativeMCPManagerIsNil(mcpMgr) || ChatProviderIsNil(streamer) {
+		return names
+	}
+	if !streamer.SupportsNativeMCP() {
+		return names
+	}
+	nativeServers := mcpMgr.GetEligibleNativeMCPServers()
+	if len(nativeServers) == 0 {
+		return names
+	}
+	nativeToolNames := make(map[string]struct{})
+	for _, srv := range nativeServers {
+		for _, name := range srv.ToolNames {
+			nativeToolNames[name] = struct{}{}
+		}
+	}
+	if len(nativeToolNames) == 0 {
+		return names
+	}
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		if _, native := nativeToolNames[name]; native {
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
 }
 
 // ApplyNativeMCP configura servidores MCP HTTP nativos no ChatProvider e remove

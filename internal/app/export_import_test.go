@@ -93,7 +93,6 @@ func TestValidateDBOnlyExportRequestRejectsUnsupportedResources(t *testing.T) {
 		ProfileSlugs:     []string{"default"},
 		SkillSlugs:       []string{"writer"},
 		AllowlistSlugs:   []string{"safe"},
-		MCPServerSlugs:   []string{"github"},
 		JobIDs:           []string{"job-1"},
 		ChannelNames:     []string{"telegram"},
 		IncludeContacts:  true,
@@ -106,7 +105,6 @@ func TestValidateDBOnlyExportRequestRejectsUnsupportedResources(t *testing.T) {
 		"profiles",
 		"skills",
 		"allowlists",
-		"mcpServers",
 		"jobs",
 		"channels",
 		"contacts",
@@ -123,6 +121,7 @@ func TestValidateDBOnlyExportRequestAllowsSupportedDBOnlyResources(t *testing.T)
 		ExplicitSelection:        true,
 		ConversationIDs:          []string{"01926b90-7a5a-7c4e-8d3f-000000000001"},
 		ProviderIDs:              []string{"01926b90-7a5a-7c4e-8d3f-000000000002"},
+		MCPServerSlugs:           []string{"github"},
 		TaskListIDs:              []string{"01926b90-7a5a-7c4e-8d3f-000000000003"},
 		IncludeCredentials:       true,
 		CredentialExportPassword: "segredo",
@@ -130,5 +129,43 @@ func TestValidateDBOnlyExportRequestAllowsSupportedDBOnlyResources(t *testing.T)
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateMCPJSONExportRequestAllowsAllMCPServers(t *testing.T) {
+	err := validateMCPJSONExportRequest(ExportRequest{
+		OutputFormat: portability.FormatMCPJSON,
+		All:          true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateMCPJSONExportRequestRejectsOtherResources(t *testing.T) {
+	err := validateMCPJSONExportRequest(ExportRequest{
+		OutputFormat:             portability.FormatMCPJSON,
+		ConversationIDs:          []string{"01926b90-7a5a-7c4e-8d3f-000000000001"},
+		ProfileSlugs:             []string{"default"},
+		SkillSlugs:               []string{"writer"},
+		AllowlistSlugs:           []string{"safe"},
+		JobIDs:                   []string{"job-1"},
+		ChannelNames:             []string{"telegram"},
+		IncludeContacts:          true,
+		IncludeWorkspace:         true,
+		IncludeAudio:             true,
+		IncludeCredentials:       true,
+		CredentialExportPassword: "secret",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "mcp-json suporta apenas servidores MCP") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"conversations", "profiles", "skills", "allowlists", "jobs", "channels", "contacts", "workspace", "audio", "credentials"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
 	}
 }

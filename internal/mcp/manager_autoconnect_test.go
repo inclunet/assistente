@@ -49,16 +49,15 @@ func setupMCPCredsTestDB(t *testing.T) {
 // `AutoConnectAll`, chamado por `reloadUserScopedRuntime` pós-login.
 func TestLoadConfigs_DoesNotAutoConnect(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
-
-	cfg := []byte(`{
-		"name": "Test Server",
-		"transport": "streamable_http",
-		"url": "http://127.0.0.1:0/mcp",
-		"enabled": true,
-		"auto_connect": true
-	}`)
-	if err := m.resolver.Create("test-server.json", cfg); err != nil {
-		t.Fatalf("write config: %v", err)
+	if err := m.repository().SaveServer(m.credentialContext(), &ServerConfig{
+		Slug:        "test-server",
+		Name:        "Test Server",
+		Transport:   TransportStreamable,
+		URL:         "http://127.0.0.1:0/mcp",
+		Enabled:     true,
+		AutoConnect: true,
+	}); err != nil {
+		t.Fatalf("SaveServer: %v", err)
 	}
 
 	if err := m.LoadConfigs(); err != nil {

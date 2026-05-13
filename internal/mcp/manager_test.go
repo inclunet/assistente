@@ -13,6 +13,7 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/portability"
 	"assistente/internal/tools"
 )
 
@@ -313,6 +314,9 @@ func newTestManagerWithTempDir(t *testing.T) *Manager {
 	t.Helper()
 	m := newTestManager()
 	m.resolver = configdir.NewResolverWithBase(t.TempDir())
+	repo, userA, _ := setupRepositoryTest(t)
+	m.SetRepository(repo)
+	m.SetAuthContextProvider(func() context.Context { return userA })
 	return m
 }
 
@@ -874,7 +878,31 @@ func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
 	}
 }
 
-func TestLoadConfigsImportsRequestInitBearerAuth(t *testing.T) {
+func TestImportFromMCPJSONRequiresRepositoryBeforeImport(t *testing.T) {
+	_, userA, _ := setupRepositoryTest(t)
+	m := NewManager(nil, nil, nil)
+	m.SetAuthContextProvider(func() context.Context { return userA })
+
+	count, err := m.ImportFromMCPJSON([]byte(`{"mcpServers":{"github":{"url":"https://github.example/mcp"}}}`))
+	if err == nil {
+		t.Fatal("expected repository error")
+	}
+	if !strings.Contains(err.Error(), "repository MCP não configurado") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
+	}
+	var rows int64
+	if err := database.DB().Model(&database.MCPServer{}).Count(&rows).Error; err != nil {
+		t.Fatalf("count mcp servers: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("ImportFromMCPJSON should not write without repository, rows=%d", rows)
+	}
+}
+
+func TestLegacyImportImportsRequestInitBearerAuth(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
 	ctx := database.WithUserID(context.Background(), "test-user")
 	m.SetAuthContextProvider(func() context.Context { return ctx })
@@ -889,6 +917,10 @@ func TestLoadConfigsImportsRequestInitBearerAuth(t *testing.T) {
 	}`)
 	if err := m.resolver.Write("github.json", data); err != nil {
 		t.Fatalf("failed to write config: %v", err)
+	}
+
+	if _, err := portability.ImportLegacyMCPServersWithContext(ctx, m.LegacyConfigSource(), m.credMgr); err != nil {
+		t.Fatalf("ImportLegacyMCPServersWithContext failed: %v", err)
 	}
 
 	if err := m.LoadConfigs(); err != nil {
@@ -955,10 +987,17 @@ func TestImportFromMCPJSONImportsRequestInitBearerAuth(t *testing.T) {
 
 func TestImportFromMCPJSON_SkipsExisting(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
-	m.servers["existing-server"] = &ServerStatus{
-		Slug:   "existing-server",
-		Config: ServerConfig{Name: "Existing"},
-		Status: StatusDisconnected,
+	existing := &ServerConfig{
+		Slug:        "existing-server",
+		Name:        "Existing",
+		Transport:   TransportStdio,
+		Command:     "node",
+		Args:        []string{"existing.js"},
+		Enabled:     true,
+		AutoConnect: true,
+	}
+	if err := m.repository().SaveServer(m.credentialContext(), existing); err != nil {
+		t.Fatalf("SaveServer existing: %v", err)
 	}
 
 	mcpJSON := []byte(`{
@@ -987,8 +1026,8 @@ func TestImportFromMCPJSON_EmptyInput(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
 
 	count, err := m.ImportFromMCPJSON([]byte(`{}`))
-	if err != nil {
-		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	if err == nil {
+		t.Fatal("expected empty object to be rejected as non-MCP JSON")
 	}
 	if count != 0 {
 		t.Errorf("expected 0 imported for empty input, got %d", count)
@@ -1182,25 +1221,5 @@ func TestGetEligibleNativeMCPServers_URLFiltering(t *testing.T) {
 	}
 	if slugs["http-remote"] {
 		t.Error("HTTP remote should NOT be eligible")
-	}
-}
-
-func TestSanitizeSlug(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"My Server", "my-server"},
-		{"my_server", "my-server"},
-		{"server-123", "server-123"},
-		{"Server With Spaces", "server-with-spaces"},
-		{"UPPERCASE", "uppercase"},
-		{"special!@#chars", "specialchars"},
-	}
-	for _, tc := range tests {
-		got := sanitizeSlug(tc.input)
-		if got != tc.want {
-			t.Errorf("sanitizeSlug(%q): got %q, want %q", tc.input, got, tc.want)
-		}
 	}
 }

@@ -90,6 +90,7 @@ func (s *Service) RunAgenticLoop(
 	streamer llm.Streamer,
 	surfaceOrigin *ports.ChatSurfaceOrigin,
 	newHandler func(conversationID string, iteration int) IterationHandler,
+	resolveToolDefs func([]string) []llm.ToolDefinition,
 ) {
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
@@ -367,6 +368,7 @@ func (s *Service) RunAgenticLoop(
 			totalToolCallCount++
 			toolsUsedSet[logicalName] = struct{}{}
 		}
+		toolDefs = expandToolDefsFromCatalogResults(toolDefs, execResults, resolveToolDefs)
 
 		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário.
 		// Usa cópia para truncamento; o conteúdo original é preservado para persistência no DB.
@@ -796,6 +798,67 @@ func convertToolCalls(llmCalls []llm.ToolCall) []tools.ToolCall {
 		}
 	}
 	return result
+}
+
+func selectedToolsFromCatalog(results []tools.ToolExecutionResult) []string {
+	var selected []string
+	seen := map[string]struct{}{}
+	for _, result := range results {
+		if result.ToolName != tools.ToolCatalogName || result.Result.IsError {
+			continue
+		}
+		var payload struct {
+			SelectedTools []string `json:"selected_tools"`
+		}
+		if err := json.Unmarshal([]byte(result.Result.Content), &payload); err != nil {
+			log.Printf("[Agent] resposta inválida de %s: %v", tools.ToolCatalogName, err)
+			continue
+		}
+		for _, name := range payload.SelectedTools {
+			name = strings.TrimSpace(name)
+			if name == "" || name == tools.ToolCatalogName {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			selected = append(selected, name)
+		}
+	}
+	return selected
+}
+
+func appendUniqueToolDefs(existing []llm.ToolDefinition, additions ...llm.ToolDefinition) []llm.ToolDefinition {
+	if len(additions) == 0 {
+		return existing
+	}
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	for _, def := range existing {
+		seen[def.Function.Name] = struct{}{}
+	}
+	for _, def := range additions {
+		if def.Function.Name == "" {
+			continue
+		}
+		if _, ok := seen[def.Function.Name]; ok {
+			continue
+		}
+		existing = append(existing, def)
+		seen[def.Function.Name] = struct{}{}
+	}
+	return existing
+}
+
+func expandToolDefsFromCatalogResults(
+	existing []llm.ToolDefinition,
+	results []tools.ToolExecutionResult,
+	resolveToolDefs func([]string) []llm.ToolDefinition,
+) []llm.ToolDefinition {
+	if resolveToolDefs == nil {
+		return existing
+	}
+	return appendUniqueToolDefs(existing, resolveToolDefs(selectedToolsFromCatalog(results))...)
 }
 
 func truncateString(s string, maxLen int) string {

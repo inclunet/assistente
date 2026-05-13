@@ -217,11 +217,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 
 	// Constrói tool definitions para o LLM.
 	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
-	var enabledTools []string
+	var profileEnabledTools []string
 	if activeProfile != nil {
-		enabledTools = activeProfile.Chat.EnabledTools
+		profileEnabledTools = activeProfile.Chat.EnabledTools
 	}
-	llmToolDefs := chat.BuildLLMToolDefs(uc.toolRegistry, enabledTools, disableTools)
+	initialEnabledTools := chat.ResolveInitialEnabledTools(uc.toolRegistry, profileEnabledTools, disableTools)
+	llmToolDefs := chat.BuildLLMToolDefs(uc.toolRegistry, initialEnabledTools, disableTools)
 
 	// Resolve o ChatProvider para o provedor do perfil ativo.
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
@@ -240,7 +241,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
 	// MCP nativo: configura servidores MCP HTTP no provider e remove suas tools da lista padrão.
-	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, enabledTools, disableTools)
+	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, profileEnabledTools, disableTools)
 
 	// Cria contexto cancelável por conversa — permite barge-in cancelar o LLM em andamento.
 	convCtx, convCancel := context.WithCancel(ctx)
@@ -270,6 +271,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			uc.agentSvc.RunAgenticLoop(agentCtx, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer, surfaceOrigin,
 				func(convID string, iter int) agent.IterationHandler {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin, userMsg.ID)
+				},
+				func(names []string) []llm.ToolDefinition {
+					names = chat.FilterToolNamesByEnabledTools(names, profileEnabledTools, disableTools)
+					names = chat.FilterToolNamesForNativeMCP(requestStreamer, uc.mcpMgr, names, disableTools)
+					return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
 				},
 			)
 		}()

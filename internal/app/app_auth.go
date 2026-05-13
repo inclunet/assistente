@@ -623,7 +623,7 @@ func (a *App) requireAdminContext() (context.Context, error) {
 
 // reloadUserScopedRuntimeTimeout é o teto agregado para o
 // reload do runtime (registerEnvCredentials + migrateLegacyConfig +
-// initLLMProviders + initLLMClient). 10s é generoso para DB local
+// runPostLoginLegacyImports + initLLMProviders + initLLMClient). 10s é generoso para DB local
 // + provider init em ambiente saudável; acima disso o caminho
 // crítico do Login fica preso em UX-critical e o usuário força quit
 // deixando estado parcial. P1-2 do re-review do PR #94.
@@ -643,6 +643,7 @@ func (a *App) reloadUserScopedRuntime() {
 
 	a.registerEnvCredentials(ctx, a.credMgr)
 	a.migrateLegacyConfig(ctx)
+	a.runPostLoginLegacyImports(ctx)
 	if a.providerSvc != nil {
 		a.initLLMProviders(ctx)
 	}
@@ -650,6 +651,9 @@ func (a *App) reloadUserScopedRuntime() {
 		a.initLLMClient()
 	}
 	if a.mcpMgr != nil {
+		if err := a.mcpMgr.LoadConfigs(); err != nil {
+			log.Printf("[reloadUserScopedRuntime] erro ao carregar MCP servers do usuário: %v", err)
+		}
 		// Auto-connect MCP só agora: depois de adoptLegacyDataForUser →
 		// LoadUserCredentials, as credenciais user-scoped (incluindo os
 		// tokens OAuth `mcp-tokens:*` / `mcp-client:*`) estão em memória.

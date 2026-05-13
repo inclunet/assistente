@@ -18,6 +18,7 @@ import (
 var supportedPortableResourceTypes = map[string]struct{}{
 	"conversations": {},
 	"providers":     {},
+	"mcpServers":    {},
 	"taskLists":     {},
 	"credentials":   {},
 }
@@ -74,6 +75,11 @@ func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, p
 		providers = append(providers, exportProvider(provider))
 	}
 
+	mcpServers, err := buildMCPServerExports(ctx, req.MCPServerSlugs)
+	if err != nil {
+		return nil, err
+	}
+
 	taskLists := make([]TaskListExport, 0, len(taskListIDs))
 	for _, id := range taskListIDs {
 		taskList, err := exportTaskListWithContext(ctx, id)
@@ -94,6 +100,7 @@ func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, p
 		Resources: ExportResources{
 			Conversations: conversations,
 			Providers:     providers,
+			MCPServers:    mcpServers,
 			TaskLists:     taskLists,
 		},
 	}
@@ -253,6 +260,21 @@ func ImportConversationsWithResolutions(
 		}
 	}
 
+	for _, server := range file.Resources.MCPServers {
+		imported, err := importMCPServerWithCredentials(ctx, credMgr, server)
+		if err != nil {
+			result.Errors = append(result.Errors, err.Error())
+			result.Failed++
+			continue
+		}
+		if imported {
+			result.Imported++
+		} else {
+			result.Skipped++
+			result.SkippedMCPServerConflict++
+		}
+	}
+
 	for _, taskList := range file.Resources.TaskLists {
 		imported, err := importTaskList(ctx, taskList)
 		if err != nil {
@@ -288,6 +310,7 @@ func ImportConversationsWithResolutions(
 			result.SkippedEmptyConversations-
 			result.SkippedConversationConflict-
 			result.SkippedProviderConflict-
+			result.SkippedMCPServerConflict-
 			result.SkippedTaskListConflict-
 			result.SkippedCredentialConflict,
 		0,
@@ -699,10 +722,12 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 		AppVersion:            file.AppVersion,
 		ConversationCount:     len(file.Resources.Conversations),
 		ProviderCount:         len(file.Resources.Providers),
+		MCPServerCount:        len(file.Resources.MCPServers),
 		TaskListCount:         len(file.Resources.TaskLists),
 		IncludesCredentials:   file.Options.IncludeCredentials && file.Resources.Credentials != nil,
 		ConversationConflicts: make([]ImportConflict, 0),
 		ProviderConflicts:     make([]ImportConflict, 0),
+		MCPServerConflicts:    make([]ImportConflict, 0),
 		TaskListConflicts:     make([]ImportConflict, 0),
 		CredentialConflicts:   make([]ImportConflict, 0),
 		Warnings:              make([]string, 0),
@@ -712,6 +737,28 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 		analysis.MessageCount += len(conv.Messages)
 	}
 	analysis.TaskCount, analysis.TaskNoteCount = countExportedTasks(file.Resources.TaskLists)
+	if len(file.Resources.MCPServers) > 0 {
+		existingMCPSlugs, err := loadExistingMCPServerSlugs(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao analisar servidores MCP existentes: %w", err)
+		}
+		for _, server := range file.Resources.MCPServers {
+			normalized := normalizeMCPServerExport(server)
+			slug := strings.TrimSpace(normalized.Slug)
+			if slug == "" {
+				continue
+			}
+			if _, exists := existingMCPSlugs[slug]; !exists {
+				continue
+			}
+			analysis.MCPServerConflicts = append(analysis.MCPServerConflicts, ImportConflict{
+				ResourceType:        "mcpServer",
+				Identifier:          slug,
+				Reason:              "Já existe um servidor MCP registrado com o mesmo slug.",
+				SupportedStrategies: []ConflictResolutionStrategy{ConflictResolutionSkip},
+			})
+		}
+	}
 
 	if analysis.IncludesCredentials {
 		analysis.RequiresCredentialPassword = true
@@ -758,11 +805,27 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 		}
 	}
 
-	analysis.ConflictCount = len(analysis.ConversationConflicts) + len(analysis.ProviderConflicts) + len(analysis.TaskListConflicts) + len(analysis.CredentialConflicts)
+	analysis.ConflictCount = len(analysis.ConversationConflicts) + len(analysis.ProviderConflicts) + len(analysis.MCPServerConflicts) + len(analysis.TaskListConflicts) + len(analysis.CredentialConflicts)
 	if emptyCount := countEmptyConversations(file.Resources.Conversations); emptyCount > 0 {
 		analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("%d conversa(s) vazia(s) serão descartadas na importação.", emptyCount))
 	}
 	return analysis, nil
+}
+
+func loadExistingMCPServerSlugs(ctx context.Context) (map[string]struct{}, error) {
+	var rows []database.MCPServer
+	if err := database.ScopeByUser(ctx, database.DB().WithContext(ctx), "user_id").
+		Select("slug").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		if slug := strings.TrimSpace(row.Slug); slug != "" {
+			result[slug] = struct{}{}
+		}
+	}
+	return result, nil
 }
 
 func decodeCredentialExports(blob *CredentialCipher, credentialPassword string) ([]CredentialExport, error) {
@@ -804,15 +867,29 @@ func credentialConflictIdentifier(cred CredentialExport) string {
 }
 
 func parseExportFile(jsonData string) (*ExportFile, []string, error) {
+	rawData := []byte(jsonData)
 	var envelope struct {
 		Resources map[string]json.RawMessage `json:"resources"`
+		Version   int                        `json:"version"`
 	}
-	if err := json.Unmarshal([]byte(jsonData), &envelope); err != nil {
+	if err := json.Unmarshal(rawData, &envelope); err != nil {
 		return nil, nil, fmt.Errorf("erro ao parsear JSON: %w", err)
+	}
+	if envelope.Version == 0 && len(envelope.Resources) == 0 {
+		if servers, ok, err := parseExternalMCPServers(rawData); err != nil {
+			return nil, nil, fmt.Errorf("erro ao parsear MCP JSON: %w", err)
+		} else if ok {
+			return &ExportFile{
+				Version:    ExportVersion,
+				ExportedAt: time.Now().UTC(),
+				Options:    ExportOptions{},
+				Resources:  ExportResources{MCPServers: servers},
+			}, nil, nil
+		}
 	}
 
 	var file ExportFile
-	if err := json.Unmarshal([]byte(jsonData), &file); err != nil {
+	if err := json.Unmarshal(rawData, &file); err != nil {
 		return nil, nil, fmt.Errorf("erro ao parsear JSON: %w", err)
 	}
 

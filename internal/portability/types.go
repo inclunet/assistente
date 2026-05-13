@@ -3,9 +3,10 @@ package portability
 import "time"
 
 const (
-	FormatJSON = "json"
-	FormatHTML = "html"
-	FormatPDF  = "pdf"
+	FormatJSON    = "json"
+	FormatHTML    = "html"
+	FormatPDF     = "pdf"
+	FormatMCPJSON = "mcp-json"
 	ExportVersion = 2
 )
 
@@ -69,6 +70,33 @@ type ProviderExport struct {
 	CreatedAt         time.Time `json:"createdAt"`
 }
 
+type MCPServerExport struct {
+	ID                    string            `json:"id,omitempty"`
+	Slug                  string            `json:"slug"`
+	Name                  string            `json:"name"`
+	Description           string            `json:"description,omitempty"`
+	Transport             string            `json:"transport"`
+	Command               string            `json:"command,omitempty"`
+	Args                  []string          `json:"args,omitempty"`
+	Env                   map[string]string `json:"env,omitempty"`
+	URL                   string            `json:"url,omitempty"`
+	AuthType              string            `json:"authType,omitempty"`
+	OAuth2ClientID        string            `json:"oauth2ClientId,omitempty"`
+	OAuth2AuthURL         string            `json:"oauth2AuthUrl,omitempty"`
+	OAuth2TokenURL        string            `json:"oauth2TokenUrl,omitempty"`
+	OAuth2Scopes          []string          `json:"oauth2Scopes,omitempty"`
+	OAuth2CallbackPort    int               `json:"oauth2CallbackPort,omitempty"`
+	OAuth2CallbackHost    string            `json:"oauth2CallbackHost,omitempty"`
+	OAuth2RegistrationURL string            `json:"oauth2RegistrationUrl,omitempty"`
+	OAuth2DeviceAuthURL   string            `json:"oauth2DeviceAuthUrl,omitempty"`
+	DisableSSE            bool              `json:"disableSse,omitempty"`
+	PreferBridge          bool              `json:"preferBridge,omitempty"`
+	Enabled               bool              `json:"enabled"`
+	AutoConnect           bool              `json:"autoConnect"`
+	CreatedAt             time.Time         `json:"createdAt,omitempty"`
+	BearerToken           string            `json:"-"`
+}
+
 type TaskListWorkflowStatusExport struct {
 	ID    int    `json:"id"`
 	Order int    `json:"order"`
@@ -78,8 +106,8 @@ type TaskListWorkflowStatusExport struct {
 }
 
 type TaskListWorkflowExport struct {
-	ID                 string                           `json:"id,omitempty"`
-	TaskListID         string                           `json:"taskListId,omitempty"`
+	ID                 string                         `json:"id,omitempty"`
+	TaskListID         string                         `json:"taskListId,omitempty"`
 	Statuses           []TaskListWorkflowStatusExport `json:"statuses"`
 	AllowedTransitions map[int][]int                  `json:"allowedTransitions"`
 	InitialStatusID    int                            `json:"initialStatusId"`
@@ -149,6 +177,7 @@ type CredentialExport struct {
 type ExportResources struct {
 	Conversations []ConversationExport `json:"conversations,omitempty"`
 	Providers     []ProviderExport     `json:"providers,omitempty"`
+	MCPServers    []MCPServerExport    `json:"mcpServers,omitempty"`
 	TaskLists     []TaskListExport     `json:"taskLists,omitempty"`
 	Credentials   *CredentialCipher    `json:"credentials,omitempty"`
 }
@@ -210,6 +239,7 @@ type ImportResult struct {
 	SkippedEmptyConversations   int      `json:"skippedEmptyConversations"`
 	SkippedConversationConflict int      `json:"skippedConversationConflict"`
 	SkippedProviderConflict     int      `json:"skippedProviderConflict"`
+	SkippedMCPServerConflict    int      `json:"skippedMcpServerConflict"`
 	SkippedTaskListConflict     int      `json:"skippedTaskListConflict"`
 	SkippedCredentialConflict   int      `json:"skippedCredentialConflict"`
 	SkippedOther                int      `json:"skippedOther"`
@@ -232,6 +262,7 @@ type ImportAnalysis struct {
 	ConversationCount          int              `json:"conversationCount"`
 	MessageCount               int              `json:"messageCount"`
 	ProviderCount              int              `json:"providerCount"`
+	MCPServerCount             int              `json:"mcpServerCount"`
 	TaskListCount              int              `json:"taskListCount"`
 	TaskCount                  int              `json:"taskCount"`
 	TaskNoteCount              int              `json:"taskNoteCount"`
@@ -241,6 +272,7 @@ type ImportAnalysis struct {
 	ConflictCount              int              `json:"conflictCount"`
 	ConversationConflicts      []ImportConflict `json:"conversationConflicts,omitempty"`
 	ProviderConflicts          []ImportConflict `json:"providerConflicts,omitempty"`
+	MCPServerConflicts         []ImportConflict `json:"mcpServerConflicts,omitempty"`
 	TaskListConflicts          []ImportConflict `json:"taskListConflicts,omitempty"`
 	CredentialConflicts        []ImportConflict `json:"credentialConflicts,omitempty"`
 	UnsupportedResourceTypes   []string         `json:"unsupportedResourceTypes,omitempty"`

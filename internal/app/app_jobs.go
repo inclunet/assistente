@@ -75,7 +75,19 @@ func (a *App) RegenerateJobCatalog() error                  { return a.jobsCtrl.
 func (a *App) SaveJob(jobJSON string) error                 { return a.jobsCtrl.SaveJob(jobJSON) }
 
 func (a *App) TestTool(toolName, inputsJSON, eventJSON string) (*jobs.TestToolResult, error) {
-	return a.jobsCtrl.TestTool(toolName, inputsJSON, eventJSON)
+	ctx, authErr := a.requireAuthenticatedContext()
+	if authErr != nil {
+		return nil, authErr
+	}
+	result, err := a.jobsCtrl.TestTool(toolName, inputsJSON, eventJSON)
+	if err != nil || result == nil || a.mcpMgr == nil {
+		return result, err
+	}
+	testErr := result.Error
+	if recordErr := a.mcpMgr.RecordToolTest(ctx, toolName, result.Success, testErr); recordErr != nil {
+		log.Printf("[Tools] erro ao registrar resultado de teste para %s: %v", toolName, recordErr)
+	}
+	return result, nil
 }
 
 func (a *App) InferEventSchema(eventName string) map[string]any {

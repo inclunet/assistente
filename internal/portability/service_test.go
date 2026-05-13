@@ -119,6 +119,342 @@ func TestExportConversationOmitsAudioByDefault(t *testing.T) {
 	}
 }
 
+func TestExportPortableDataIncludesMCPServers(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	server := database.MCPServer{
+		UserID:      portabilityTestUserID,
+		Slug:        "github",
+		Name:        "GitHub",
+		Transport:   "streamable",
+		URL:         "https://github.example/mcp",
+		Args:        `["--verbose"]`,
+		Env:         `{"TOKEN":"x"}`,
+		Enabled:     true,
+		AutoConnect: true,
+	}
+	if err := database.DB().Create(&server).Error; err != nil {
+		t.Fatalf("create mcp server: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, nil, nil, nil, nil, ExportRequest{
+		ExplicitSelection: true,
+		MCPServerSlugs:    []string{"github"},
+	}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	if len(file.Resources.MCPServers) != 1 {
+		t.Fatalf("MCPServers len = %d, want 1", len(file.Resources.MCPServers))
+	}
+	got := file.Resources.MCPServers[0]
+	if got.Slug != "github" || got.URL != "https://github.example/mcp" {
+		t.Fatalf("unexpected mcp export: %#v", got)
+	}
+	if len(got.Env) != 0 {
+		t.Fatalf("env should be omitted from portable export, got %#v", got.Env)
+	}
+}
+
+func TestExportExternalMCPServersOmitsEnv(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	server := database.MCPServer{
+		UserID:      portabilityTestUserID,
+		Slug:        "filesystem",
+		Name:        "Filesystem",
+		Transport:   "stdio",
+		Command:     "npx",
+		Args:        `["-y","@modelcontextprotocol/server-filesystem"]`,
+		Env:         `{"TOKEN":"x"}`,
+		Enabled:     true,
+		AutoConnect: true,
+	}
+	if err := database.DB().Create(&server).Error; err != nil {
+		t.Fatalf("create mcp server: %v", err)
+	}
+
+	raw, err := ExportMCPServersExternalJSONWithContext(ctx, []string{"filesystem"})
+	if err != nil {
+		t.Fatalf("ExportMCPServersExternalJSONWithContext: %v", err)
+	}
+	var decoded externalMCPExportFile
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatalf("unmarshal external export: %v", err)
+	}
+	got := decoded.MCPServers["filesystem"]
+	if got.Command != "npx" || len(got.Args) != 2 {
+		t.Fatalf("unexpected external mcp export: %#v", got)
+	}
+	if len(got.Env) != 0 {
+		t.Fatalf("env should be omitted from external export, got %#v", got.Env)
+	}
+}
+
+func TestImportPortableMCPServerIsIdempotent(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	server := MCPServerExport{
+		Slug:        "github",
+		Name:        "GitHub",
+		Transport:   "streamable",
+		URL:         "https://github.example/mcp",
+		Enabled:     true,
+		AutoConnect: true,
+	}
+
+	imported, err := ImportMCPServerWithContext(ctx, server)
+	if err != nil {
+		t.Fatalf("ImportMCPServerWithContext first: %v", err)
+	}
+	if !imported {
+		t.Fatal("first import should insert")
+	}
+	imported, err = ImportMCPServerWithContext(ctx, MCPServerExport{
+		Slug:        "github",
+		Name:        "Changed",
+		Transport:   "streamable",
+		URL:         "https://changed.example/mcp",
+		Enabled:     true,
+		AutoConnect: true,
+	})
+	if err != nil {
+		t.Fatalf("ImportMCPServerWithContext second: %v", err)
+	}
+	if imported {
+		t.Fatal("second import should skip existing slug")
+	}
+
+	var row database.MCPServer
+	if err := database.DB().Where("user_id = ? AND slug = ?", portabilityTestUserID, "github").First(&row).Error; err != nil {
+		t.Fatalf("load mcp server: %v", err)
+	}
+	if row.Name != "GitHub" || row.URL != "https://github.example/mcp" {
+		t.Fatalf("existing server was overwritten: %#v", row)
+	}
+}
+
+func TestImportDataAcceptsExternalMCPServersJSON(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	payload := `{"mcpServers":{"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem"],"env":{"ROOT":"/tmp"}}}}`
+
+	result, err := ImportConversationsWithContext(ctx, payload, nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext: %v", err)
+	}
+	if !result.Success || result.Imported != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	var row database.MCPServer
+	if err := database.DB().Where("user_id = ? AND slug = ?", portabilityTestUserID, "filesystem").First(&row).Error; err != nil {
+		t.Fatalf("load mcp server: %v", err)
+	}
+	if row.Transport != "stdio" || row.Command != "npx" {
+		t.Fatalf("unexpected imported server: %#v", row)
+	}
+}
+
+func TestImportMCPServersJSONContinuesAfterInvalidServer(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	payload := []byte(`{"mcpServers":{"good":{"url":"https://good.example/mcp"},"broken":{"name":"Broken"}}}`)
+
+	result, err := ImportMCPServersJSONWithContext(ctx, payload, nil)
+	if err != nil {
+		t.Fatalf("ImportMCPServersJSONWithContext: %v", err)
+	}
+	if result.Imported != 1 || result.Failed != 1 || len(result.Errors) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	var row database.MCPServer
+	if err := database.DB().Where("user_id = ? AND slug = ?", portabilityTestUserID, "good").First(&row).Error; err != nil {
+		t.Fatalf("load imported mcp server: %v", err)
+	}
+	if row.URL != "https://good.example/mcp" {
+		t.Fatalf("unexpected imported server: %#v", row)
+	}
+}
+
+func TestImportDataAcceptsEmptyExternalMCPServersJSON(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	result, err := ImportConversationsWithContext(ctx, `{"mcpServers":{}}`, nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext: %v", err)
+	}
+	if !result.Success || result.Imported != 0 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestParseExternalMCPServersRejectsUnrelatedFlatObject(t *testing.T) {
+	servers, ok, err := parseExternalMCPServers([]byte(`{"foo":{"bar":"baz"}}`))
+	if err != nil {
+		t.Fatalf("parseExternalMCPServers: %v", err)
+	}
+	if ok || len(servers) != 0 {
+		t.Fatalf("unrelated flat object should not be MCP JSON, ok=%v servers=%#v", ok, servers)
+	}
+}
+
+func TestParseExternalMCPServersRejectsMixedFlatObject(t *testing.T) {
+	payload := []byte(`{"api":{"url":"https://api.example.com"},"metadata":{"name":"not an mcp server"}}`)
+	servers, ok, err := parseExternalMCPServers(payload)
+	if err != nil {
+		t.Fatalf("parseExternalMCPServers: %v", err)
+	}
+	if ok || len(servers) != 0 {
+		t.Fatalf("mixed flat object should not be MCP JSON, ok=%v servers=%#v", ok, servers)
+	}
+}
+
+func TestParseExternalMCPServersAcceptsFlatObjectWhenAllEntriesAreServers(t *testing.T) {
+	payload := []byte(`{"filesystem":{"command":"npx"},"github":{"url":"https://api.githubcopilot.com/mcp/"}}`)
+	servers, ok, err := parseExternalMCPServers(payload)
+	if err != nil {
+		t.Fatalf("parseExternalMCPServers: %v", err)
+	}
+	if !ok || len(servers) != 2 {
+		t.Fatalf("flat MCP object should be accepted, ok=%v servers=%#v", ok, servers)
+	}
+}
+
+func TestImportMCPServersJSONRejectsUnrelatedJSON(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	result, err := ImportMCPServersJSONWithContext(ctx, []byte(`{"foo":{"bar":"baz"}}`), nil)
+	if err == nil {
+		t.Fatal("expected unrelated JSON to fail")
+	}
+	if !strings.Contains(err.Error(), "servidores MCP") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Failed != 1 || len(result.Errors) != 1 {
+		t.Fatalf("result = %#v, want one failure", result)
+	}
+}
+
+func TestImportDataExternalMCPServersImportsBearerCredential(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	credMgr := credentials.NewManagerWithStore([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
+	payload := `{"mcpServers":{"github":{"url":"https://api.githubcopilot.com/mcp/","requestInit":{"headers":{"Authorization":"Bearer ghp_imported"}}}}}`
+
+	result, err := ImportConversationsWithContext(ctx, payload, credMgr, "")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext: %v", err)
+	}
+	if !result.Success || result.Imported != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	auth, err := credMgr.GetByPatternWithContext(ctx, "api.githubcopilot.com")
+	if err != nil {
+		t.Fatalf("GetByPatternWithContext: %v", err)
+	}
+	if auth == nil || auth.Token != "ghp_imported" {
+		t.Fatalf("imported auth = %#v", auth)
+	}
+}
+
+func TestImportMCPServerRejectsIncompleteTransportConfig(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	_, err := ImportMCPServerWithContext(ctx, MCPServerExport{
+		Slug: "broken",
+		Name: "Broken",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), `transport inválido ou ausente`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestImportLegacyMCPServersIsReusableAndIdempotent(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	source := &memoryLegacyImportSource{
+		files: []LegacyImportFile{{Name: "github", Filename: "github.json", Path: "/legacy/github.json", Source: "home"}},
+		data: map[string][]byte{
+			"github.json": []byte(`{"name":"GitHub","transport":"streamable","url":"https://github.example/mcp","enabled":true,"auto_connect":true}`),
+		},
+	}
+	original := string(source.data["github.json"])
+
+	result, err := ImportLegacyMCPServersWithContext(ctx, source, nil)
+	if err != nil {
+		t.Fatalf("ImportLegacyMCPServersWithContext first: %v", err)
+	}
+	if result.Imported != 1 || result.Skipped != 0 {
+		t.Fatalf("first result = %#v", result)
+	}
+	if string(source.data["github.json"]) != original {
+		t.Fatal("legacy source should remain untouched")
+	}
+
+	source.data["github.json"] = []byte(`{"name":"Changed","transport":"streamable","url":"https://changed.example/mcp","enabled":true,"auto_connect":true}`)
+	result, err = ImportLegacyMCPServersWithContext(ctx, source, nil)
+	if err != nil {
+		t.Fatalf("ImportLegacyMCPServersWithContext second: %v", err)
+	}
+	if result.Imported != 0 || result.Skipped != 1 {
+		t.Fatalf("second result = %#v", result)
+	}
+
+	var row database.MCPServer
+	if err := database.DB().Where("user_id = ? AND slug = ?", portabilityTestUserID, "github").First(&row).Error; err != nil {
+		t.Fatalf("load mcp server: %v", err)
+	}
+	if row.Name != "GitHub" || row.URL != "https://github.example/mcp" {
+		t.Fatalf("legacy import overwrote existing server: %#v", row)
+	}
+}
+
+func TestImportLegacyMCPServersContinuesAfterInvalidFile(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	source := &memoryLegacyImportSource{
+		files: []LegacyImportFile{
+			{Name: "broken", Filename: "broken.json", Path: "/legacy/broken.json", Source: "home"},
+			{Name: "github", Filename: "github.json", Path: "/legacy/github.json", Source: "home"},
+		},
+		data: map[string][]byte{
+			"broken.json": []byte(`{"name":`),
+			"github.json": []byte(`{"name":"GitHub","transport":"streamable","url":"https://github.example/mcp","enabled":true,"auto_connect":true}`),
+		},
+	}
+
+	result, err := ImportLegacyMCPServersWithContext(ctx, source, nil)
+	if err != nil {
+		t.Fatalf("ImportLegacyMCPServersWithContext: %v", err)
+	}
+	if result.Imported != 1 || result.Failed != 1 || len(result.Errors) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	var row database.MCPServer
+	if err := database.DB().Where("user_id = ? AND slug = ?", portabilityTestUserID, "github").First(&row).Error; err != nil {
+		t.Fatalf("load mcp server: %v", err)
+	}
+}
+
+type memoryLegacyImportSource struct {
+	files []LegacyImportFile
+	data  map[string][]byte
+}
+
+func (s *memoryLegacyImportSource) ListLegacyImportFiles(context.Context) ([]LegacyImportFile, error) {
+	return append([]LegacyImportFile(nil), s.files...), nil
+}
+
+func (s *memoryLegacyImportSource) ReadLegacyImportFile(_ context.Context, filename string) ([]byte, error) {
+	return append([]byte(nil), s.data[filename]...), nil
+}
+
 func TestBuildExportFileLoadsConversationsInBatchPreservingRequestedOrder(t *testing.T) {
 	setupPortabilityTestDB(t)
 
@@ -215,6 +551,7 @@ func setupPortabilityTestDB(t *testing.T) {
 		&database.Task{},
 		&database.TaskNote{},
 		&database.CredentialEntry{},
+		&database.MCPServer{},
 	); err != nil {
 		t.Fatalf("falha ao migrar tabelas: %v", err)
 	}
@@ -671,6 +1008,49 @@ func TestAnalyzeImportDataDetectsProviderConflicts(t *testing.T) {
 	}
 	if len(analysis.ProviderConflicts) != 0 {
 		t.Fatalf("len(ProviderConflicts) = %d, want 0 for idempotent upsert by id", len(analysis.ProviderConflicts))
+	}
+}
+
+func TestAnalyzeImportDataDetectsMCPServerConflicts(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	if err := database.DB().Create(&database.MCPServer{
+		UserID:      portabilityTestUserID,
+		Slug:        "github",
+		Name:        "GitHub",
+		Transport:   "streamable",
+		URL:         "https://github.example/mcp",
+		Enabled:     true,
+		AutoConnect: true,
+	}).Error; err != nil {
+		t.Fatalf("create mcp server: %v", err)
+	}
+	file := &ExportFile{
+		Version: ExportVersion,
+		Resources: ExportResources{
+			MCPServers: []MCPServerExport{{
+				Slug:      "github",
+				Name:      "GitHub Import",
+				Transport: "streamable",
+				URL:       "https://import.example/mcp",
+			}},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	analysis, err := AnalyzeImportDataWithContext(ctx, string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("AnalyzeImportData() error = %v", err)
+	}
+	if analysis.ConflictCount != 1 || len(analysis.MCPServerConflicts) != 1 {
+		t.Fatalf("MCP conflicts not detected: %+v", analysis)
+	}
+	conflict := analysis.MCPServerConflicts[0]
+	if conflict.Identifier != "github" || conflict.ResourceType != "mcpServer" {
+		t.Fatalf("unexpected conflict: %+v", conflict)
 	}
 }
 
