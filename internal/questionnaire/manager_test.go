@@ -56,7 +56,7 @@ func TestRequestQuestionnaire_Cancelled(t *testing.T) {
 		go func() {
 			time.Sleep(10 * time.Millisecond)
 			dataMap := data.(map[string]any)
-			mgr.Respond(dataMap["id"].(string), map[string]any{}, true)
+			_ = mgr.Respond(dataMap["id"].(string), map[string]any{}, true)
 		}()
 	})
 
@@ -118,7 +118,7 @@ func TestRequestQuestionnaire_ZeroTimeoutUsesDefault(t *testing.T) {
 	mgr = NewManager(func(_ string, data any) {
 		go func() {
 			dataMap := data.(map[string]any)
-			mgr.Respond(dataMap["id"].(string), map[string]any{"q1": "ok"}, false)
+			_ = mgr.Respond(dataMap["id"].(string), map[string]any{"q1": "ok"}, false)
 		}()
 	})
 

@@ -14,7 +14,11 @@
  */
 
 import { useEffect, useRef } from 'react';
+import i18next from 'i18next';
 import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
+import { useShallow } from 'zustand/shallow';
+import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import { isModalOpen } from '../components/ui/Modal';
 import { useAnnouncer } from './useAnnouncer';
 import { restoreDefaultFocus } from './useDefaultFocus';
 
@@ -28,7 +32,9 @@ const CHORD_MAP: Record<string, { type: TabType; title: string }> = {
 };
 
 export function useWorkspaceKeyboardShortcuts() {
-  const { workspace, addTab, removeTab, setActiveTab, createWorkspace } = useWorkspaceStore();
+  const { workspace, addTab, removeTab, setActiveTab, createWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, addTab: s.addTab, removeTab: s.removeTab, setActiveTab: s.setActiveTab, createWorkspace: s.createWorkspace }))
+  );
   const { announce } = useAnnouncer();
 
   const tabs = workspace?.tabs || [];
@@ -46,6 +52,19 @@ export function useWorkspaceKeyboardShortcuts() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
+      // Ctrl+Shift+I: chat modal do painel (adaptador registado pela aba ativa)
+      if (
+        event.ctrlKey &&
+        event.shiftKey &&
+        (event.code === 'KeyI' || event.key === 'i' || event.key === 'I') &&
+        !event.altKey
+      ) {
+        if (!activeTabId) return;
+        event.preventDefault();
+        void useWorkspaceChatModalStore.getState().requestOpen(activeTabId);
+        return;
+      }
+
       const isDataGrid = target.closest('.datagrid-container') !== null;
       if (isDataGrid) return;
 
@@ -152,6 +171,10 @@ export function useWorkspaceKeyboardShortcuts() {
         const num = parseInt(event.key, 10);
         if (num >= 1 && num <= 9) {
           event.preventDefault();
+          if (isModalOpen()) {
+            announce(i18next.t('workspace.closeDialogBeforeChangingTabs'));
+            return;
+          }
           const targetTab = tabs[num - 1];
           if (targetTab) {
             setActiveTab(targetTab.id);
@@ -163,6 +186,10 @@ export function useWorkspaceKeyboardShortcuts() {
 
     function navigateTab(direction: 1 | -1) {
       if (tabs.length <= 1) return;
+      if (isModalOpen()) {
+        announce(i18next.t('workspace.closeDialogBeforeChangingTabs'));
+        return;
+      }
       const currentIndex = tabs.findIndex(t => t.id === activeTabId);
       if (currentIndex === -1) return;
 

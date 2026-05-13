@@ -147,6 +147,29 @@ func BuiltinTemplate(providerType string) (*llm.ProviderConfig, error) {
 			DefaultModel:      "llama2",
 			Timeout:           300,
 			CredentialPattern: "",
+			AuthMode:          llm.AuthModeNone,
+		}, nil
+	case "localai":
+		return &llm.ProviderConfig{
+			ID:                "localai-local",
+			Name:              "LocalAI",
+			Type:              llm.ProviderLocalAI,
+			APIFormat:         llm.APIFormatOpenAICompatible,
+			BaseURL:           "http://localhost:8080/v1",
+			Timeout:           180,
+			CredentialPattern: "",
+			AuthMode:          llm.AuthModeOptional,
+		}, nil
+	case "llamacpp":
+		return &llm.ProviderConfig{
+			ID:                "llamacpp-local",
+			Name:              "llama.cpp (server)",
+			Type:              llm.ProviderLlamaCPP,
+			APIFormat:         llm.APIFormatOpenAICompatible,
+			BaseURL:           "http://localhost:8080/v1",
+			Timeout:           300,
+			CredentialPattern: "",
+			AuthMode:          llm.AuthModeNone,
 		}, nil
 	default:
 		return nil, fmt.Errorf("tipo de provedor inválido: %s", providerType)
@@ -175,7 +198,7 @@ func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey s
 		}
 	}
 
-	if err := s.Save(); err != nil {
+	if err := s.Save(ctx); err != nil {
 		return fmt.Errorf("erro ao salvar provedor: %w", err)
 	}
 

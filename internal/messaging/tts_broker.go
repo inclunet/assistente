@@ -26,18 +26,18 @@ type AudioPayload struct {
 // Se TTS não aplicável: Cancel desbloqueia Wait imediatamente.
 type TTSBroker struct {
 	mu    sync.Mutex
-	slots map[uint]chan AudioPayload // messageID → canal de entrega
+	slots map[string]chan AudioPayload // messageID → canal de entrega
 }
 
 // NewTTSBroker cria um novo broker de áudio TTS.
 func NewTTSBroker() *TTSBroker {
-	return &TTSBroker{slots: make(map[uint]chan AudioPayload)}
+	return &TTSBroker{slots: make(map[string]chan AudioPayload)}
 }
 
 // Prepare registra que áudio TTS será gerado para esta mensagem.
 // Deve ser chamado ANTES do Notify para garantir que Wait encontre o canal.
-func (b *TTSBroker) Prepare(messageID uint) {
-	if messageID == 0 {
+func (b *TTSBroker) Prepare(messageID string) {
+	if messageID == "" {
 		return
 	}
 	b.mu.Lock()
@@ -47,7 +47,7 @@ func (b *TTSBroker) Prepare(messageID uint) {
 
 // Wait espera o áudio TTS ficar pronto (com timeout).
 // Retorna (payload, true) se recebeu áudio, (zero, false) se timeout ou cancelado.
-func (b *TTSBroker) Wait(messageID uint, timeout time.Duration) (AudioPayload, bool) {
+func (b *TTSBroker) Wait(messageID string, timeout time.Duration) (AudioPayload, bool) {
 	b.mu.Lock()
 	ch, ok := b.slots[messageID]
 	b.mu.Unlock()
@@ -69,7 +69,7 @@ func (b *TTSBroker) Wait(messageID uint, timeout time.Duration) (AudioPayload, b
 		b.mu.Lock()
 		delete(b.slots, messageID)
 		b.mu.Unlock()
-		log.Printf("[TTSBroker] timeout (%v) aguardando áudio para msg %d", timeout, messageID)
+		log.Printf("[TTSBroker] timeout (%v) aguardando áudio para msg %s", timeout, messageID)
 		return AudioPayload{}, false
 	}
 }
@@ -77,8 +77,8 @@ func (b *TTSBroker) Wait(messageID uint, timeout time.Duration) (AudioPayload, b
 // Publish envia áudio gerado para quem está esperando (Wait).
 // Se ninguém estiver esperando, o áudio vai para o buffer do canal
 // e será descartado quando o slot for sobrescrito pelo próximo Prepare.
-func (b *TTSBroker) Publish(messageID uint, data []byte, mimeType string) {
-	if messageID == 0 {
+func (b *TTSBroker) Publish(messageID string, data []byte, mimeType string) {
+	if messageID == "" {
 		return
 	}
 	b.mu.Lock()
@@ -88,7 +88,7 @@ func (b *TTSBroker) Publish(messageID uint, data []byte, mimeType string) {
 	if ok {
 		select {
 		case ch <- AudioPayload{Data: data, MIMEType: mimeType}:
-			log.Printf("[TTSBroker] áudio publicado para msg %d (%d bytes)", messageID, len(data))
+			log.Printf("[TTSBroker] áudio publicado para msg %s (%d bytes)", messageID, len(data))
 		default:
 			// Canal cheio (já publicou ou ninguém esperando) — não bloqueia
 		}
@@ -98,8 +98,8 @@ func (b *TTSBroker) Publish(messageID uint, data []byte, mimeType string) {
 // Cancel remove a expectativa pendente sem enviar áudio.
 // Desbloqueia qualquer Wait em andamento enviando payload vazio.
 // Usa envio não-bloqueante para evitar race com close(ch) vs send(ch).
-func (b *TTSBroker) Cancel(messageID uint) {
-	if messageID == 0 {
+func (b *TTSBroker) Cancel(messageID string) {
+	if messageID == "" {
 		return
 	}
 	b.mu.Lock()

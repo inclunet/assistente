@@ -50,7 +50,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   ListCredentials: () => mockList(),
   UpsertCredential: (payload: unknown) => mockUpsert(payload),
   DeleteCredential: (pattern: string) => mockDelete(pattern),
@@ -69,9 +69,10 @@ vi.mock('../hooks/useAnnouncer', () => ({
 }));
 
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: vi.fn(),
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: vi.fn() };
+    return selector ? selector(s) : s;
+  },
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildEditorPatchPrompt, extractEditorPatch } from './editorPatch';
+import { extractEditorPatch } from './editorPatch';
 
 describe('extractEditorPatch', () => {
   it('retorna erro quando não há bloco fenced', () => {
@@ -182,54 +182,3 @@ describe('extractEditorPatch', () => {
   });
 });
 
-describe('buildEditorPatchPrompt', () => {
-  it('inclui trecho selecionado com fence correto (markdown)', () => {
-    const prompt = buildEditorPatchPrompt({
-      instruction: 'troque',
-      selectedText: 'hello',
-      format: 'markdown',
-    });
-
-    expect(prompt).toContain('Trecho selecionado:');
-    expect(prompt).toContain('```markdown');
-    expect(prompt).toContain('hello');
-  });
-
-  it('no formato plain usa fence ```text e faz trim da instruction', () => {
-    const prompt = buildEditorPatchPrompt({
-      instruction: '  troque  ',
-      selectedText: 'abc\n',
-      format: 'plain',
-    });
-
-    expect(prompt.split('\n')[0]).toBe('troque');
-    expect(prompt).toContain('```text');
-    expect(prompt).toContain('abc\n```');
-  });
-
-  it('quando selectionIsEmpty, inclui contexto do cursor e aviso', () => {
-    const prompt = buildEditorPatchPrompt({
-      instruction: 'insira',
-      selectedText: '',
-      selectionIsEmpty: true,
-      cursorContext: 'a\n⟂\nb',
-    });
-
-    expect(prompt).toContain('IMPORTANTE: você NÃO recebeu um trecho selecionado.');
-    expect(prompt).toContain('Contexto ao redor do cursor');
-    expect(prompt).toContain('```markdown');
-    expect(prompt).toContain('⟂');
-  });
-
-  it('quando selectionIsEmpty, faz trimEnd do cursorContext', () => {
-    const prompt = buildEditorPatchPrompt({
-      instruction: 'insira',
-      selectedText: '',
-      selectionIsEmpty: true,
-      cursorContext: 'a\n⟂\nb\n',
-    });
-
-    expect(prompt).toContain('b\n```');
-    expect(prompt).not.toContain('b\n\n```');
-  });
-});

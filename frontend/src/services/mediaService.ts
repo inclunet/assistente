@@ -293,6 +293,15 @@ export async function processMediaFile(file: File): Promise<MediaFile> {
   };
 }
 
+export async function createTextMediaFile(
+  fileName: string,
+  content: string,
+  mimeType = 'text/plain',
+): Promise<MediaFile> {
+  const file = new File([content], fileName, { type: mimeType });
+  return processMediaFile(file);
+}
+
 export async function processMediaFiles(files: File[]): Promise<MediaFile[]> {
   return Promise.all(files.map(file => processMediaFile(file)));
 }

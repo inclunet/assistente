@@ -4,28 +4,30 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
+	"assistente/internal/portability"
 	"assistente/internal/tools"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
+	"gorm.io/gorm"
 )
 
 const (
 	// configSubdir é o subdiretório de .assistente/ para configs MCP
 	configSubdir = "mcp"
-
-	// configExt é a extensão dos arquivos de configuração
-	configExt = ".json"
 
 	// connectTimeout é o timeout para conexão com um servidor MCP
 	connectTimeout = 30 * time.Second
@@ -65,46 +67,164 @@ type emitFunc func(event string, data any)
 type serverConnection struct {
 	client             *mcpsdk.Client
 	session            *mcpsdk.ClientSession
-	bridges            []*MCPToolBridge       // tools registradas no registry
-	cancelHealth       context.CancelFunc     // cancela health check goroutine
-	cancelTokenRefresh context.CancelFunc     // cancela token refresh goroutine (OAuth2)
-	logHandler         func(LogEntry)         // handler para logs do servidor
+	bridges            []*MCPToolBridge           // tools registradas no registry
+	cancelHealth       context.CancelFunc         // cancela health check goroutine
+	cancelTokenRefresh context.CancelFunc         // cancela token refresh goroutine (OAuth2)
+	logHandler         func(LogEntry)             // handler para logs do servidor
 	progressHandler    func(ProgressNotification) // handler para progresso
-	resourceSubHandler func(ResourceUpdated)  // handler para resource updates
+	resourceSubHandler func(ResourceUpdated)      // handler para resource updates
 }
 
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
 // Thread-safe para uso concorrente.
 type Manager struct {
-	mu          sync.RWMutex
-	resolver    *configdir.Resolver
-	credMgr     *credentials.Manager
-	registry    *tools.Registry
-	emitEvent   emitFunc
-	llmHandler  func(context.Context, SamplingRequest) (string, error) // handler para sampling requests
-	servers        map[string]*ServerStatus     // slug -> status
-	connections    map[string]*serverConnection // slug -> connection ativa
-	connectCancels map[string]context.CancelFunc // slug -> cancel for in-flight Connect()
+	mu             sync.RWMutex
+	resolver       *configdir.Resolver
+	repo           Repository
+	credMgr        *credentials.Manager
+	registry       *tools.Registry
+	emitEvent      emitFunc
+	llmHandler     func(context.Context, SamplingRequest) (string, error) // handler para sampling requests
+	servers        map[string]*ServerStatus                               // slug -> status
+	connections    map[string]*serverConnection                           // slug -> connection ativa
+	connectCancels map[string]context.CancelFunc                          // slug -> cancel for in-flight Connect()
 	ctx            context.Context
 	cancel         context.CancelFunc
-	roots       []Root // workspace roots globais
-	lastSelfWrite time.Time
+	authContext    func() context.Context
+	roots          []Root // workspace roots globais
 }
 
 // NewManager cria um novo gerenciador de servidores MCP.
 func NewManager(registry *tools.Registry, credMgr *credentials.Manager, emitEvent emitFunc) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		resolver:    configdir.NewResolver(configSubdir),
-		credMgr:     credMgr,
-		registry:    registry,
-		emitEvent:   emitEvent,
+		resolver:       configdir.NewResolver(configSubdir),
+		credMgr:        credMgr,
+		registry:       registry,
+		emitEvent:      emitEvent,
 		servers:        make(map[string]*ServerStatus),
 		connections:    make(map[string]*serverConnection),
 		connectCancels: make(map[string]context.CancelFunc),
 		ctx:            ctx,
 		cancel:         cancel,
 	}
+}
+
+// SetRepository configura o backing store persistido do Manager.
+// O DB é a fonte de verdade runtime; arquivos JSON antigos são apenas entrada
+// de importação idempotente no startup.
+func (m *Manager) SetRepository(repo Repository) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.repo = repo
+}
+
+func (m *Manager) repository() Repository {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.repo
+}
+
+func (m *Manager) RecordToolTest(ctx context.Context, toolName string, success bool, errorMessage string) error {
+	repo := m.repository()
+	if repo == nil {
+		return nil
+	}
+	status := tools.ToolTestStatusOK
+	if !success {
+		status = tools.ToolTestStatusError
+	}
+	return repo.RecordToolTest(ctx, toolName, status, errorMessage)
+}
+
+func (m *Manager) ListToolCatalog(ctx context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
+	repo := m.repository()
+	if repo == nil {
+		return []tools.ToolCatalogEntry{}, nil
+	}
+	return repo.ListTools(ctx, filter)
+}
+
+func (m *Manager) markServerToolsUnavailable(slug, reason string) {
+	repo := m.repository()
+	if repo == nil {
+		return
+	}
+	m.mu.RLock()
+	status := m.servers[slug]
+	serverID := ""
+	ownerUserID := ""
+	if status != nil {
+		serverID = strings.TrimSpace(status.ID)
+		ownerUserID = status.Config.UserID
+	}
+	m.mu.RUnlock()
+	if serverID == "" {
+		return
+	}
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		if ownerUserID == "" {
+			log.Printf("[MCP:%s] não foi possível marcar tools indisponíveis sem usuário autenticado: %v", slug, err)
+			return
+		}
+		ctx = database.WithUserID(context.Background(), ownerUserID)
+	}
+	if _, err := repo.MarkServerToolsUnavailable(ctx, serverID, nil, reason); err != nil {
+		log.Printf("[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
+	}
+}
+
+func (m *Manager) StartLogRetention(interval, maxAge time.Duration) {
+	repo := m.repository()
+	if repo == nil || interval <= 0 || maxAge <= 0 {
+		return
+	}
+	go func() {
+		clean := func() {
+			deleted, err := repo.CleanOldLogs(maxAge)
+			if err != nil {
+				log.Printf("[MCP] erro ao limpar logs antigos: %v", err)
+				return
+			}
+			if deleted > 0 {
+				log.Printf("[MCP] logs antigos removidos: %d", deleted)
+			}
+		}
+		clean()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-ticker.C:
+				clean()
+			}
+		}
+	}()
+}
+
+// SetAuthContextProvider configura o contexto usado para resolver credenciais
+// user-scoped de servidores MCP.
+func (m *Manager) SetAuthContextProvider(provider func() context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.authContext = provider
+}
+
+func (m *Manager) credentialContext() context.Context {
+	m.mu.RLock()
+	provider := m.authContext
+	m.mu.RUnlock()
+	if provider == nil {
+		return context.Background()
+	}
+	ctx := provider()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 // SetSamplingHandler configura o handler para requisições de sampling dos servidores.
@@ -119,7 +239,7 @@ func (m *Manager) SetSamplingHandler(handler func(context.Context, SamplingReque
 func (m *Manager) SetWorkspaceRoots(roots []Root) error {
 	m.mu.Lock()
 	m.roots = roots
-	
+
 	// Notifica todos os servidores conectados
 	for slug, conn := range m.connections {
 		if conn.session != nil {
@@ -133,22 +253,22 @@ func (m *Manager) SetWorkspaceRoots(roots []Root) error {
 						Name: root.Name,
 					}
 				}
-				
+
 				// TODO: Quando SDK suportar, usar session.NotifyRootsListChanged(ctx)
 				log.Printf("[MCP] Roots disponíveis para '%s': %v", s, sdkRoots)
 			}(slug, conn.session, roots)
 		}
-		
+
 		// Atualiza status
 		if status, ok := m.servers[slug]; ok {
 			status.Roots = roots
 		}
 	}
 	m.mu.Unlock()
-	
+
 	log.Printf("[MCP] Workspace roots atualizados: %d roots", len(roots))
 	m.emit("mcp:roots_changed", map[string]any{"rootCount": len(roots)})
-	
+
 	return nil
 }
 
@@ -159,58 +279,120 @@ func (m *Manager) GetWorkspaceRoots() []Root {
 	return m.roots
 }
 
-// LoadConfigs carrega todas as configurações de servidores MCP e conecta os que têm auto_connect.
+// LoadConfigs carrega configs persistidas e popula o estado runtime do Manager.
+// NÃO conecta aos servidores — para isso
+// chame AutoConnectAll depois (tipicamente do reloadUserScopedRuntime
+// pós-Login, quando as credenciais user-scoped já estão em memória).
+//
+// A separação é o fix do AEP-0061: a versão antiga disparava
+// `go m.Connect(slug)` para cada server enabled+autoconnect dentro
+// daqui, e como LoadConfigs roda no startup pré-login, todos os
+// servidores OAuth perdiam a credencial em memória, caíam no fallback
+// "sem token", abriam o navegador para reauth — N janelas em paralelo.
 func (m *Manager) LoadConfigs() error {
-	files, err := m.resolver.List()
-	if err != nil {
-		log.Printf("[MCP] Nenhuma configuração encontrada: %v", err)
+	repo := m.repository()
+	if repo == nil {
+		return fmt.Errorf("repository MCP não configurado")
+	}
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		log.Printf("[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
 		return nil
 	}
+	configs, err := repo.ListServers(ctx)
+	if err != nil {
+		return err
+	}
+	roots := m.GetWorkspaceRoots()
+	configBySlug := make(map[string]ServerConfig, len(configs))
+	for _, cfg := range configs {
+		cfg.applyDefaults(cfg.Slug)
+		configBySlug[cfg.Slug] = cfg
+		log.Printf("[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
+			cfg.Slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
+	}
 
-	for _, f := range files {
-		if f.Filename[len(f.Filename)-5:] != configExt {
+	m.mu.RLock()
+	removed := make([]string, 0)
+	for slug := range m.servers {
+		if _, ok := configBySlug[slug]; !ok {
+			removed = append(removed, slug)
+		}
+	}
+	m.mu.RUnlock()
+	for _, slug := range removed {
+		if err := m.Disconnect(slug); err != nil {
+			log.Printf("[MCP] erro ao desconectar servidor removido '%s' durante LoadConfigs: %v", slug, err)
+		}
+	}
+
+	next := make(map[string]*ServerStatus, len(configBySlug))
+	m.mu.Lock()
+	for slug, cfg := range configBySlug {
+		if existing, ok := m.servers[slug]; ok {
+			existing.ID = cfg.ID
+			existing.Slug = slug
+			existing.Config = cfg
+			existing.Roots = roots
+			next[slug] = existing
 			continue
 		}
-
-		data, _, err := m.resolver.Read(f.Filename)
-		if err != nil {
-			log.Printf("[MCP] Erro ao ler %s: %v", f.Filename, err)
-			continue
-		}
-
-		slug := f.Name
-		cfg, err := ParseServerConfig(data, slug)
-		if err != nil {
-			log.Printf("[MCP] Erro ao parsear %s: %v", f.Filename, err)
-			continue
-		}
-		m.mu.Lock()
-		m.servers[slug] = &ServerStatus{
+		next[slug] = &ServerStatus{
+			ID:     cfg.ID,
 			Slug:   slug,
 			Config: cfg,
 			Status: StatusDisconnected,
 			Tools:  []MCPToolInfo{},
-		}
-		m.mu.Unlock()
-
-		log.Printf("[MCP] Servidor carregado: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
-			slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
-
-		// Auto-connect se habilitado
-		if cfg.Enabled && cfg.AutoConnect {
-			go func(s string) {
-				if err := m.Connect(s); err != nil {
-					log.Printf("[MCP] Erro ao conectar '%s': %v", s, err)
-				}
-			}(slug)
+			Roots:  roots,
 		}
 	}
-
+	m.servers = next
+	m.mu.Unlock()
 	return nil
+}
+
+// AutoConnectAll conecta sequencialmente a todos os servidores
+// `Enabled && AutoConnect`. É o caminho legítimo pós-login: o caller
+// (reloadUserScopedRuntime) já garantiu que as credenciais user-scoped
+// estão em memória, então cada Connect resolve o token sem cair no
+// flow OAuth interativo.
+//
+// Ordem é determinística (slug ordenado), serializada (um Connect por
+// vez) e cancela imediatamente se `ctx` for cancelado. Se algum
+// servidor precisar de OAuth interativo (refresh expirado de
+// verdade), o `oauthFlowArbiter` global mantém o serial — outras
+// conexões não-OAuth seguem.
+func (m *Manager) AutoConnectAll(ctx context.Context) {
+	m.mu.RLock()
+	slugs := make([]string, 0, len(m.servers))
+	for slug, s := range m.servers {
+		if s.Config.Enabled && s.Config.AutoConnect {
+			slugs = append(slugs, slug)
+		}
+	}
+	m.mu.RUnlock()
+
+	sort.Strings(slugs)
+
+	for _, slug := range slugs {
+		select {
+		case <-ctx.Done():
+			log.Printf("[MCP] AutoConnectAll cancelado: %v", ctx.Err())
+			return
+		default:
+		}
+		if err := m.connectWithContext(ctx, slug); err != nil {
+			log.Printf("[MCP] AutoConnectAll: erro ao conectar '%s': %v", slug, err)
+		}
+	}
 }
 
 // Connect conecta a um servidor MCP pelo slug.
 func (m *Manager) Connect(slug string) error {
+	return m.connectWithContext(m.ctx, slug)
+}
+
+func (m *Manager) connectWithContext(parentCtx context.Context, slug string) error {
 	m.mu.Lock()
 	status, ok := m.servers[slug]
 	if !ok {
@@ -231,7 +413,7 @@ func (m *Manager) Connect(slug string) error {
 	// Se já conectado, desconecta primeiro
 	if _, connected := m.connections[slug]; connected {
 		m.mu.Unlock()
-		m.Disconnect(slug)
+		_ = m.Disconnect(slug)
 		m.mu.Lock()
 	}
 
@@ -269,7 +451,7 @@ func (m *Manager) Connect(slug string) error {
 	}
 
 	// Conecta ao servidor com timeout; registra cancel para permitir abortar via Disconnect
-	connectCtx, connectCancel := context.WithTimeout(m.ctx, connectTimeout)
+	connectCtx, connectCancel := context.WithTimeout(parentCtx, connectTimeout)
 	m.mu.Lock()
 	m.connectCancels[slug] = connectCancel
 	m.mu.Unlock()
@@ -297,7 +479,7 @@ func (m *Manager) Connect(slug string) error {
 			client = mcpsdk.NewClient(&mcpsdk.Implementation{Name: "assistente", Version: "1.0.0"}, nil)
 			transport2, err2 := m.createTransport(slug, cfg)
 			if err2 == nil {
-				retryCtx, retryCancel := context.WithTimeout(m.ctx, connectTimeout)
+				retryCtx, retryCancel := context.WithTimeout(parentCtx, connectTimeout)
 				defer retryCancel()
 				session, err = client.Connect(retryCtx, transport2, nil)
 			}
@@ -317,7 +499,7 @@ func (m *Manager) Connect(slug string) error {
 	// - session.SetLogHandler(logHandler)
 	// - session.SetProgressHandler(progressHandler)
 	// - session.SetResourceUpdatedHandler(resourceSubHandler)
-	
+
 	logHandler := m.createLogHandler(slug)
 	progressHandler := m.createProgressHandler(slug)
 	resourceSubHandler := m.createResourceUpdateHandler(slug)
@@ -326,7 +508,7 @@ func (m *Manager) Connect(slug string) error {
 	m.mu.RLock()
 	currentRoots := m.roots
 	m.mu.RUnlock()
-	
+
 	if len(currentRoots) > 0 {
 		log.Printf("[MCP] Roots disponíveis para '%s': %d roots", slug, len(currentRoots))
 		// TODO: Quando SDK suportar, enviar via session.NotifyRootsListChanged
@@ -369,14 +551,18 @@ func (m *Manager) Connect(slug string) error {
 	m.mu.Unlock()
 
 	// Descobre tools, resources e prompts do servidor
-	if err := m.refreshServerOfferings(slug); err != nil {
-		m.Disconnect(slug)
+	if err := m.refreshServerOfferingsWithContext(parentCtx, slug); err != nil {
+		_ = m.Disconnect(slug)
 		m.setError(slug, fmt.Sprintf("erro ao descobrir offerings: %v", err))
 		return fmt.Errorf("falha ao descobrir offerings do servidor MCP '%s': %w", slug, err)
 	}
 
 	m.emit("mcp:server_connected", map[string]any{
 		"slug": slug,
+	})
+	m.logEvent(slug, "connected", "Servidor MCP conectado", map[string]any{
+		"tool_count": len(m.GetTools(slug)),
+		"transport":  cfg.Transport,
 	})
 
 	return nil
@@ -386,6 +572,10 @@ func (m *Manager) Connect(slug string) error {
 // já conectado, atualizando o registry e o ServerStatus.
 // Usado pelo Connect inicial e pelo health check periódico.
 func (m *Manager) refreshServerOfferings(slug string) error {
+	return m.refreshServerOfferingsWithContext(m.ctx, slug)
+}
+
+func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, slug string) error {
 	m.mu.RLock()
 	conn, ok := m.connections[slug]
 	if !ok {
@@ -395,7 +585,7 @@ func (m *Manager) refreshServerOfferings(slug string) error {
 	session := conn.session
 	m.mu.RUnlock()
 
-	ctx, cancel := context.WithTimeout(m.ctx, listToolsTimeout)
+	ctx, cancel := context.WithTimeout(parentCtx, listToolsTimeout)
 	defer cancel()
 
 	// Descobre tools
@@ -483,6 +673,7 @@ func (m *Manager) refreshServerOfferings(slug string) error {
 	if changed {
 		m.emit("mcp:tools_changed", nil)
 	}
+	m.syncMCPToolsBestEffort(m.credentialContext(), slug, toolInfos)
 
 	log.Printf("[MCP] Servidor '%s' offerings atualizados: %d tools, %d resources, %d prompts",
 		slug, len(toolInfos), len(resourceInfos), len(promptInfos))
@@ -505,8 +696,10 @@ func (m *Manager) Disconnect(slug string) error {
 				s.Error = ""
 			}
 			m.mu.Unlock()
+			m.markServerToolsUnavailable(slug, "server disconnected")
 			log.Printf("[MCP] Conexão em andamento de '%s' cancelada pelo usuário", slug)
 			m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
+			m.logEvent(slug, "disconnected", "Conexão MCP cancelada pelo usuário", nil)
 			return nil
 		}
 		m.mu.Unlock()
@@ -546,18 +739,24 @@ func (m *Manager) Disconnect(slug string) error {
 		}
 	}
 
+	m.markServerToolsUnavailable(slug, "server disconnected")
 	log.Printf("[MCP] Servidor '%s' desconectado", slug)
 
 	m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
 	m.emit("mcp:tools_changed", nil)
+	m.logEvent(slug, "disconnected", "Servidor MCP desconectado", nil)
 
 	return nil
 }
 
 // Reconnect desconecta e reconecta a um servidor.
 func (m *Manager) Reconnect(slug string) error {
-	m.Disconnect(slug)
-	return m.Connect(slug)
+	return m.reconnectWithContext(m.ctx, slug)
+}
+
+func (m *Manager) reconnectWithContext(ctx context.Context, slug string) error {
+	_ = m.Disconnect(slug)
+	return m.connectWithContext(ctx, slug)
 }
 
 // List retorna informações de todos os servidores (formato frontend-safe).
@@ -586,56 +785,63 @@ func (m *Manager) GetTools(slug string) []MCPToolInfo {
 // GetConfig retorna a configuração de um servidor.
 func (m *Manager) GetConfig(slug string) (*ServerConfig, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	if s, ok := m.servers[slug]; ok {
 		cfg := s.Config // cópia
+		m.mu.RUnlock()
 		return &cfg, nil
+	}
+	m.mu.RUnlock()
+
+	if repo := m.repository(); repo != nil {
+		cfg, err := repo.GetServer(m.credentialContext(), slug)
+		if err == nil {
+			return cfg, nil
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("servidor MCP '%s' não encontrado: %w", slug, err)
+		}
+		return nil, err
 	}
 	return nil, fmt.Errorf("servidor MCP '%s' não encontrado", slug)
 }
 
 // SaveConfig salva (cria ou atualiza) a configuração de um servidor MCP.
 func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
-	m.mu.Lock()
-	m.lastSelfWrite = time.Now()
-	m.mu.Unlock()
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("erro ao serializar config: %w", err)
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return fmt.Errorf("slug do servidor MCP é obrigatório")
 	}
-
-	filename := slug + configExt
-
-	// Tenta escrever (atualiza se existe, cria se não)
-	if m.resolver.Exists(filename) {
-		if err := m.resolver.Write(filename, data); err != nil {
-			return fmt.Errorf("erro ao salvar config: %w", err)
-		}
-	} else {
-		if err := m.resolver.Create(filename, data); err != nil {
-			return fmt.Errorf("erro ao criar config: %w", err)
-		}
+	repo := m.repository()
+	if repo == nil {
+		return fmt.Errorf("repository MCP não configurado")
 	}
-
-	// Atualiza estado em memória
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	cfg.Slug = slug
+	if err := repo.SaveServer(ctx, &cfg); err != nil {
+		return fmt.Errorf("erro ao salvar config: %w", err)
+	}
+	roots := m.GetWorkspaceRoots()
 	m.mu.Lock()
 	if existing, ok := m.servers[slug]; ok {
+		existing.ID = cfg.ID
 		existing.Config = cfg
+		existing.Roots = roots
 	} else {
 		m.servers[slug] = &ServerStatus{
+			ID:     cfg.ID,
 			Slug:   slug,
 			Config: cfg,
 			Status: StatusDisconnected,
 			Tools:  []MCPToolInfo{},
+			Roots:  roots,
 		}
 	}
 	m.mu.Unlock()
-
-	log.Printf("[MCP] Configuração salva: %s", slug)
+	log.Printf("[MCP] Configuração salva no DB: %s", slug)
 	m.emit("mcp:config_changed", map[string]string{"slug": slug})
-
 	return nil
 }
 
@@ -648,10 +854,12 @@ func (m *Manager) DuplicateConfig(slug string) (string, error) {
 
 	newSlug := m.nextCopySlug(slug)
 	newCfg := *cfg
+	newCfg.ID = ""
+	newCfg.Slug = newSlug
 	if newCfg.Name == "" {
 		newCfg.Name = slug
 	}
-	newCfg.Name = fmt.Sprintf("%s (Copia)", newCfg.Name)
+	newCfg.Name = fmt.Sprintf("%s (Cópia)", newCfg.Name)
 
 	if err := m.SaveConfig(newSlug, newCfg); err != nil {
 		return "", err
@@ -678,40 +886,61 @@ func (m *Manager) nextCopySlug(baseSlug string) string {
 }
 
 func (m *Manager) slugExists(slug string) bool {
-	return m.resolver.Exists(slug + configExt)
+	repo := m.repository()
+	if repo == nil {
+		return false
+	}
+	_, err := repo.GetServer(m.credentialContext(), slug)
+	return err == nil
 }
 
 // DeleteConfig remove a configuração de um servidor MCP.
 // Desconecta automaticamente se estiver conectado.
 func (m *Manager) DeleteConfig(slug string) error {
-	m.mu.Lock()
-	m.lastSelfWrite = time.Now()
-	m.mu.Unlock()
-
-	// Desconecta primeiro
-	m.Disconnect(slug)
-
-	filename := slug + configExt
-	if m.resolver.Exists(filename) {
-		if err := m.resolver.Delete(filename); err != nil {
-			return fmt.Errorf("erro ao deletar config: %w", err)
-		}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return fmt.Errorf("slug do servidor MCP é obrigatório")
 	}
-
+	repo := m.repository()
+	if repo == nil {
+		return fmt.Errorf("repository MCP não configurado")
+	}
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	_ = m.Disconnect(slug)
+	if err := repo.DeleteServer(ctx, slug); err != nil {
+		return fmt.Errorf("erro ao deletar config: %w", err)
+	}
 	m.mu.Lock()
 	delete(m.servers, slug)
 	m.mu.Unlock()
-
-	log.Printf("[MCP] Configuração removida: %s", slug)
+	log.Printf("[MCP] Configuração removida do DB: %s", slug)
 	m.emit("mcp:config_changed", map[string]string{"slug": slug})
-
 	return nil
 }
 
-// CloseAll desconecta todos os servidores e cancela operações pendentes.
+// CloseAll desconecta todos os servidores e cancela operações
+// pendentes. É shutdown DEFINITIVO do Manager — depois desta chamada
+// o Manager não conecta mais (`m.cancel()` invalida o ctx base).
+// Use no Stop do app. Para logout/troca de user use DisconnectAll.
 func (m *Manager) CloseAll() {
 	m.cancel()
+	m.disconnectAllConnections("shutdown")
+	log.Printf("[MCP] Todos os servidores MCP desconectados")
+}
 
+// DisconnectAll fecha todas as conexões abertas SEM derrubar o
+// Manager. É o caminho do logout/troca de user: as conexões do user
+// anterior precisam soltar (porque os tokens user-scoped vão sair de
+// memória), mas o Manager continua vivo para conectar de novo
+// quando o próximo user fizer login.
+func (m *Manager) DisconnectAll() {
+	m.disconnectAllConnections("logout")
+}
+
+func (m *Manager) disconnectAllConnections(reason string) {
 	m.mu.RLock()
 	slugs := make([]string, 0, len(m.connections))
 	for slug := range m.connections {
@@ -721,11 +950,9 @@ func (m *Manager) CloseAll() {
 
 	for _, slug := range slugs {
 		if err := m.Disconnect(slug); err != nil {
-			log.Printf("[MCP] Erro ao desconectar '%s' no shutdown: %v", slug, err)
+			log.Printf("[MCP] Erro ao desconectar '%s' (%s): %v", slug, reason, err)
 		}
 	}
-
-	log.Printf("[MCP] Todos os servidores MCP desconectados")
 }
 
 // createTransport cria o transport apropriado para o tipo de servidor,
@@ -792,12 +1019,12 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 				log.Printf("[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
 			}
 		}
-		client := buildPKCEHTTPClient(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate)
+		client := buildPKCEHTTPClient(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext)
 		log.Printf("[MCP:%s] HTTP client configurado com OAuth2 PKCE", slug)
 		return client
 
 	case AuthOAuth2ClientCredentials:
-		_, clientSecret := loadClientCreds(m.credMgr, slug)
+		_, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
 		if clientSecret != "" {
 			client := buildClientCredentialsHTTPClient(cfg, clientSecret)
 			log.Printf("[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
@@ -808,13 +1035,13 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 
 	case AuthBearer:
 		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Token != "" {
-			client := &http.Client{
-				Transport: &bearerRoundTripper{
-					base:  newMCPTransport(),
-					token: auth.Token,
-				},
-			}
+			if auth, err := m.credMgr.ResolveForURLWithContext(m.credentialContext(), cfg.URL); err == nil && auth != nil && auth.Token != "" {
+				client := &http.Client{
+					Transport: &bearerRoundTripper{
+						base:  newMCPTransport(),
+						token: auth.Token,
+					},
+				}
 				log.Printf("[MCP:%s] HTTP client configurado com Bearer token", slug)
 				return client
 			}
@@ -824,14 +1051,14 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 
 	case AuthBasic:
 		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Username != "" {
-			client := &http.Client{
-				Transport: &basicAuthRoundTripper{
-					base:     newMCPTransport(),
-					username: auth.Username,
-					password: auth.Password,
-				},
-			}
+			if auth, err := m.credMgr.ResolveForURLWithContext(m.credentialContext(), cfg.URL); err == nil && auth != nil && auth.Username != "" {
+				client := &http.Client{
+					Transport: &basicAuthRoundTripper{
+						base:     newMCPTransport(),
+						username: auth.Username,
+						password: auth.Password,
+					},
+				}
 				log.Printf("[MCP:%s] HTTP client configurado com Basic auth", slug)
 				return client
 			}
@@ -913,7 +1140,7 @@ func probeSSESupport(mcpURL string, authClient *http.Client) (bool, string) {
 		}
 		return false, fmt.Sprintf("erro: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	ct := resp.Header.Get("Content-Type")
 	switch {
@@ -939,7 +1166,7 @@ type bearerRoundTripper struct {
 
 func (rt *bearerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned := req.Clone(req.Context())
-	cloned.Header.Set("Authorization", "Bearer "+rt.token)
+	cloned.Header.Set("Authorization", bearerAuthorizationHeader(rt.token))
 	return rt.base.RoundTrip(cloned)
 }
 
@@ -966,6 +1193,7 @@ func (m *Manager) setError(slug, errMsg string) {
 	m.mu.Unlock()
 
 	log.Printf("[MCP] Erro no servidor '%s': %s", slug, errMsg)
+	m.logEvent(slug, "error", errMsg, nil)
 	m.emit("mcp:server_error", map[string]string{
 		"slug":  slug,
 		"error": errMsg,
@@ -976,6 +1204,31 @@ func (m *Manager) setError(slug, errMsg string) {
 func (m *Manager) emit(event string, data any) {
 	if m.emitEvent != nil {
 		m.emitEvent(event, data)
+	}
+}
+
+func (m *Manager) logEvent(slug, eventType, message string, data map[string]any) {
+	repo := m.repository()
+	if repo == nil {
+		return
+	}
+	var payload json.RawMessage
+	if len(data) > 0 {
+		b, err := json.Marshal(data)
+		if err != nil {
+			log.Printf("[MCP:%s] erro ao serializar log %s: %v", slug, eventType, err)
+			return
+		}
+		payload = b
+	}
+	if err := repo.LogEvent(m.credentialContext(), &MCPServerLog{
+		Slug:      slug,
+		Type:      eventType,
+		Message:   message,
+		Data:      payload,
+		Timestamp: time.Now(),
+	}); err != nil {
+		log.Printf("[MCP:%s] erro ao persistir log %s: %v", slug, eventType, err)
 	}
 }
 
@@ -998,42 +1251,69 @@ func (m *Manager) tokenRefreshLoop(ctx context.Context, slug string) {
 // checkAndRefreshToken verifica se o token OAuth2 está próximo de expirar
 // e força um refresh proativo usando o refresh_token.
 func (m *Manager) checkAndRefreshToken(slug string) {
+	refreshed, err := m.refreshOAuthTokenBestEffort(m.ctx, slug, false)
+	if err != nil {
+		log.Printf("[MCP:%s] Refresh proativo falhou: %v", slug, err)
+		return
+	}
+	if refreshed {
+		log.Printf("[MCP:%s] Token renovado proativamente", slug)
+	}
+}
+
+func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, force bool) (bool, error) {
+	if m.credMgr == nil {
+		return false, nil
+	}
+
 	m.mu.RLock()
 	status, ok := m.servers[slug]
 	if !ok || status.Reconnecting {
 		m.mu.RUnlock()
-		return
+		return false, nil
 	}
 	cfg := status.Config
 	m.mu.RUnlock()
 
 	if cfg.AuthType != AuthOAuth2PKCE {
-		return
+		return false, nil
 	}
 
-	auth, err := m.credMgr.GetByPattern(userTokensPattern(slug))
-	if err != nil || auth == nil || auth.ExpiresAt == 0 {
-		return
+	authCtx := m.credentialContext()
+	auth, err := m.credMgr.GetByPatternWithContext(authCtx, userTokensPattern(slug))
+	if err != nil || auth == nil {
+		return false, nil
 	}
 
-	expiresAt := time.Unix(auth.ExpiresAt, 0)
-	timeUntilExpiry := time.Until(expiresAt)
-
-	if timeUntilExpiry > tokenRefreshThreshold {
-		return
+	timeUntilExpiry := time.Duration(0)
+	if auth.ExpiresAt != 0 {
+		expiresAt := time.Unix(auth.ExpiresAt, 0)
+		timeUntilExpiry = time.Until(expiresAt)
+	}
+	if !force {
+		if auth.ExpiresAt == 0 {
+			return false, nil
+		}
+		if timeUntilExpiry > tokenRefreshThreshold {
+			return false, nil
+		}
 	}
 
-	log.Printf("[MCP:%s] Token expira em %v — forçando refresh proativo", slug, timeUntilExpiry.Round(time.Second))
+	if force {
+		log.Printf("[MCP:%s] Executando refresh OAuth best-effort (expiry em %v)", slug, timeUntilExpiry.Round(time.Second))
+	} else {
+		log.Printf("[MCP:%s] Token expira em %v — forçando refresh proativo", slug, timeUntilExpiry.Round(time.Second))
+	}
 
-	clientID, clientSecret := loadClientCreds(m.credMgr, slug)
+	clientID, clientSecret := loadClientCreds(authCtx, m.credMgr, slug)
 	if clientID == "" {
 		clientID = cfg.OAuth2ClientID
 	}
 
-	token := loadUserTokens(m.credMgr, slug)
+	token := loadUserTokens(authCtx, m.credMgr, slug)
 	if token == nil || token.RefreshToken == "" {
-		log.Printf("[MCP:%s] Sem refresh_token disponível para refresh proativo", slug)
-		return
+		log.Printf("[MCP:%s] Sem refresh_token disponível para refresh", slug)
+		return false, nil
 	}
 
 	oauthCfg := &oauth2.Config{
@@ -1046,22 +1326,19 @@ func (m *Manager) checkAndRefreshToken(slug string) {
 		Scopes: cfg.OAuth2Scopes,
 	}
 
-	// Cria token sintético expirado para forçar refresh
 	expiredToken := &oauth2.Token{
 		RefreshToken: token.RefreshToken,
 		Expiry:       time.Now().Add(-1 * time.Hour),
 	}
 
-	refreshCtx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
+	refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	newToken, err := oauthCfg.TokenSource(refreshCtx, expiredToken).Token()
 	if err != nil {
-		log.Printf("[MCP:%s] Refresh proativo falhou: %v", slug, err)
-		return
+		return false, err
 	}
 
-	// Persiste o novo token
 	newAuth := &credentials.AuthConfig{
 		Type:       "oauth2",
 		Token:      newToken.AccessToken,
@@ -1070,12 +1347,69 @@ func (m *Manager) checkAndRefreshToken(slug string) {
 	if newToken.Expiry.After(time.Now()) {
 		newAuth.ExpiresAt = newToken.Expiry.Unix()
 	}
-	if err := m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern(slug), newAuth); err != nil {
-		log.Printf("[MCP:%s] Erro ao persistir token renovado proativamente: %v", slug, err)
-		return
+	if err := m.credMgr.RegisterPatternWithContext(refreshCtx, userTokensPattern(slug), newAuth); err != nil {
+		return false, err
 	}
 
-	log.Printf("[MCP:%s] Token renovado proativamente (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
+	log.Printf("[MCP:%s] Token renovado (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
+	return true, nil
+}
+
+// RecoverServerBestEffort tenta restaurar um servidor MCP para chamadas futuras do chat.
+// A operação é best-effort: falhas são retornadas, mas não devem interromper a resposta atual.
+func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) RecoveryResult {
+	result := RecoveryResult{}
+
+	select {
+	case <-ctx.Done():
+		result.Err = ctx.Err()
+		return result
+	default:
+	}
+
+	m.mu.RLock()
+	status, ok := m.servers[slug]
+	if !ok {
+		m.mu.RUnlock()
+		result.Err = fmt.Errorf("servidor MCP '%s' não encontrado", slug)
+		return result
+	}
+	if !status.Config.Enabled {
+		m.mu.RUnlock()
+		result.Err = fmt.Errorf("servidor MCP '%s' está desabilitado", slug)
+		return result
+	}
+	currentStatus := status.Status
+	m.mu.RUnlock()
+
+	result.Attempted = true
+
+	refreshed, refreshErr := m.refreshOAuthTokenBestEffort(ctx, slug, true)
+	if refreshed {
+		result.Refreshed = true
+	}
+
+	if currentStatus == StatusConnected {
+		if err := m.refreshServerOfferingsWithContext(ctx, slug); err == nil {
+			return result
+		} else if refreshErr == nil {
+			refreshErr = err
+		} else {
+			refreshErr = errors.Join(refreshErr, err)
+		}
+	}
+
+	if err := m.reconnectWithContext(ctx, slug); err == nil {
+		result.Reconnected = true
+		return result
+	} else if refreshErr == nil {
+		refreshErr = err
+	} else {
+		refreshErr = errors.Join(refreshErr, err)
+	}
+
+	result.Err = refreshErr
+	return result
 }
 
 // healthCheckLoop executa pings periódicos para verificar a saúde do servidor.
@@ -1152,6 +1486,7 @@ func (m *Manager) performHealthCheck(slug string) {
 			"slug":  slug,
 			"error": err.Error(),
 		})
+		m.logEvent(slug, "health_fail", "Health check MCP falhou", map[string]any{"error": err.Error()})
 	}
 }
 
@@ -1176,6 +1511,7 @@ func (m *Manager) handleToolCallError(slug string, err error) {
 		"slug":  slug,
 		"error": err.Error(),
 	})
+	m.logEvent(slug, "error", "Erro de sessão/transporte durante tool call", map[string]any{"error": err.Error()})
 
 	go m.reconnectWithRetry(slug)
 }
@@ -1260,7 +1596,7 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		}
 		m.mu.RUnlock()
 
-		m.Disconnect(slug)
+		_ = m.Disconnect(slug)
 
 		if err := m.Connect(slug); err != nil {
 			log.Printf("[MCP] Falha ao reconectar '%s': %v", slug, err)
@@ -1347,10 +1683,10 @@ func (m *Manager) createLogHandler(slug string) func(LogEntry) {
 	return func(entry LogEntry) {
 		entry.ServerSlug = slug
 		entry.Timestamp = time.Now()
-		
+
 		// Log local
 		log.Printf("[MCP:%s] [%s] %v", slug, entry.Level, entry.Data)
-		
+
 		// Emite para frontend
 		m.emit("mcp:log", entry)
 	}
@@ -1360,7 +1696,7 @@ func (m *Manager) createLogHandler(slug string) func(LogEntry) {
 func (m *Manager) createProgressHandler(slug string) func(ProgressNotification) {
 	return func(progress ProgressNotification) {
 		log.Printf("[MCP:%s] Progress: %.1f%%", slug, progress.Progress)
-		
+
 		// Emite para frontend
 		m.emit("mcp:progress", map[string]any{
 			"slug":     slug,
@@ -1375,32 +1711,32 @@ func (m *Manager) createProgressHandler(slug string) func(ProgressNotification) 
 func (m *Manager) createResourceUpdateHandler(slug string) func(ResourceUpdated) {
 	return func(update ResourceUpdated) {
 		log.Printf("[MCP:%s] Resource updated: %s", slug, update.URI)
-		
+
 		// Emite para frontend
 		m.emit("mcp:resource_updated", map[string]any{
 			"slug": slug,
 			"uri":  update.URI,
 		})
-		
+
 		// Re-lista resources para atualizar cache
 		go func() {
 			m.mu.RLock()
 			conn, ok := m.connections[slug]
 			m.mu.RUnlock()
-			
+
 			if !ok {
 				return
 			}
-			
+
 			ctx, cancel := context.WithTimeout(m.ctx, listToolsTimeout)
 			defer cancel()
-			
+
 			resourcesResult, err := conn.session.ListResources(ctx, nil)
 			if err != nil {
 				log.Printf("[MCP:%s] Erro ao re-listar resources: %v", slug, err)
 				return
 			}
-			
+
 			var resourceInfos []MCPResourceInfo
 			for _, res := range resourcesResult.Resources {
 				resourceInfos = append(resourceInfos, MCPResourceInfo{
@@ -1411,13 +1747,13 @@ func (m *Manager) createResourceUpdateHandler(slug string) func(ResourceUpdated)
 					ServerSlug:  slug,
 				})
 			}
-			
+
 			m.mu.Lock()
 			if s, ok := m.servers[slug]; ok {
 				s.Resources = resourceInfos
 			}
 			m.mu.Unlock()
-			
+
 			log.Printf("[MCP:%s] Resources atualizados: %d total", slug, len(resourceInfos))
 		}()
 	}
@@ -1432,7 +1768,7 @@ func (m *Manager) SubscribeToResource(slug, uri string) error {
 		m.mu.RUnlock()
 		return fmt.Errorf("servidor MCP '%s' não está conectado", slug)
 	}
-	
+
 	status, ok := m.servers[slug]
 	if !ok || status.Capabilities.Resources == nil || !status.Capabilities.Resources.Subscribe {
 		m.mu.RUnlock()
@@ -1467,111 +1803,44 @@ func (m *Manager) HandleSamplingRequest(ctx context.Context, slug string, reques
 	m.mu.RLock()
 	handler := m.llmHandler
 	m.mu.RUnlock()
-	
+
 	if handler == nil {
 		return "", fmt.Errorf("nenhum handler LLM configurado para sampling")
 	}
-	
+
 	log.Printf("[MCP:%s] Processando sampling request com %d mensagens", slug, len(request.Messages))
-	
+
 	response, err := handler(ctx, request)
 	if err != nil {
 		return "", fmt.Errorf("erro no handler LLM: %w", err)
 	}
-	
+
 	log.Printf("[MCP:%s] Sampling completado, resposta: %d chars", slug, len(response))
 	return response, nil
 }
 
-// ImportFromMCPJSON parses Cursor/Claude MCP config formats and creates
-// individual config files. Returns the number of servers imported.
+// ImportFromMCPJSON parses Cursor/Claude MCP config formats and imports them
+// through the shared portability pipeline. Returns the number of servers imported.
 // Expects {"mcpServers": {...}} (Cursor) or entries keyed directly.
 // Skips servers that already exist (won't overwrite).
 func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
-	type mcpEntry struct {
-		Command string            `json:"command"`
-		Args    []string          `json:"args"`
-		Env     map[string]string `json:"env"`
-		URL     string            `json:"url"`
+	if m.repository() == nil {
+		return 0, fmt.Errorf("repository MCP não configurado")
 	}
-
-	// Try Cursor/Claude format: {"mcpServers": {...}}
-	var wrapper struct {
-		MCPServers map[string]mcpEntry `json:"mcpServers"`
+	ctx := m.credentialContext()
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return 0, err
 	}
-	if err := json.Unmarshal(data, &wrapper); err != nil {
-		return 0, fmt.Errorf("failed to parse MCP JSON: %w", err)
+	result, err := portability.ImportMCPServersJSONWithContext(ctx, data, m.credMgr)
+	if err != nil {
+		return result.Imported, err
 	}
-
-	servers := wrapper.MCPServers
-	if len(servers) == 0 {
-		// Try flat format: {"name": {...}, ...}
-		if err := json.Unmarshal(data, &servers); err != nil {
-			return 0, fmt.Errorf("failed to parse MCP JSON (flat format): %w", err)
+	if result.Imported > 0 {
+		if loadErr := m.LoadConfigs(); loadErr != nil {
+			return result.Imported, loadErr
 		}
 	}
-
-	if len(servers) == 0 {
-		return 0, nil
-	}
-
-	imported := 0
-	for name, entry := range servers {
-		slug := sanitizeSlug(name)
-
-		// Skip if already exists
-		m.mu.RLock()
-		_, exists := m.servers[slug]
-		m.mu.RUnlock()
-		if exists {
-			log.Printf("[MCP:import] Servidor '%s' já existe — ignorando", slug)
-			continue
-		}
-
-		cfg := ServerConfig{
-			Command: entry.Command,
-			Args:    entry.Args,
-			Env:     entry.Env,
-			URL:     entry.URL,
-			Enabled: true,
-			AutoConnect: true,
-		}
-		cfg.applyDefaults(slug)
-
-		cfgData, err := json.MarshalIndent(cfg, "", "  ")
-		if err != nil {
-			log.Printf("[MCP:import] Erro ao serializar config para '%s': %v", slug, err)
-			continue
-		}
-
-		filename := slug + configExt
-		if err := m.resolver.Write(filename, cfgData); err != nil {
-			log.Printf("[MCP:import] Erro ao gravar config '%s': %v", filename, err)
-			continue
-		}
-
-		log.Printf("[MCP:import] Servidor importado: %s (transport=%s)", slug, cfg.Transport)
-		imported++
-	}
-
-	if imported > 0 {
-		m.syncConfigsFromDisk()
-	}
-
-	return imported, nil
-}
-
-func sanitizeSlug(name string) string {
-	slug := strings.ToLower(name)
-	slug = strings.ReplaceAll(slug, " ", "-")
-	slug = strings.ReplaceAll(slug, "_", "-")
-	var clean []byte
-	for _, c := range []byte(slug) {
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' {
-			clean = append(clean, c)
-		}
-	}
-	return string(clean)
+	return result.Imported, nil
 }
 
 // NativeMCPServer descreve um servidor MCP HTTP elegível para passthrough nativo.
@@ -1582,6 +1851,15 @@ type NativeMCPServer struct {
 	URL       string
 	AuthToken string
 	ToolNames []string // nomes das tools registradas (namespaced, para filtragem)
+}
+
+// RecoveryResult descreve o resultado de uma tentativa best-effort de recuperação
+// de um servidor MCP para chamadas futuras do chat.
+type RecoveryResult struct {
+	Attempted   bool
+	Refreshed   bool
+	Reconnected bool
+	Err         error
 }
 
 // isNativeMCPEligibleURL verifica se a URL é segura para MCP nativo.
@@ -1643,17 +1921,16 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 			srv.ToolNames = append(srv.ToolNames, t.FullName)
 		}
 
-		// Resolve auth token se disponível
+		// Resolve auth token se disponível (escopado pelo user vigente)
 		if m.credMgr != nil {
-			// Tenta OAuth tokens primeiro (mcp-tokens:{slug})
-			if auth, err := m.credMgr.GetByPattern(userTokensPattern(slug)); err == nil && auth != nil && auth.Token != "" {
+			authCtx := m.credentialContext()
+			if auth, err := m.credMgr.GetByPatternWithContext(authCtx, userTokensPattern(slug)); err == nil && auth != nil && auth.Token != "" {
 				srv.AuthToken = auth.Token
 				log.Printf("[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
 					slug, userTokensPattern(slug), len(auth.Token), auth.ExpiresAt)
 			} else {
-				// Fallback: tenta por hostname
 				if hostname := hostnameFromURL(status.Config.URL); hostname != "" {
-					if auth, err := m.credMgr.GetByPattern(hostname); err == nil && auth != nil && auth.Token != "" {
+					if auth, err := m.credMgr.GetByPatternWithContext(authCtx, hostname); err == nil && auth != nil && auth.Token != "" {
 						srv.AuthToken = auth.Token
 						log.Printf("[MCP] servidor %q: token resolvido por hostname (pattern=%s)", slug, hostname)
 					} else {
@@ -1671,4 +1948,3 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 	}
 	return result
 }
-

@@ -7,7 +7,7 @@ import {
   ClearAllProfiles,
   ClearAllSkills,
   ClearAllChannels,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
 import { Button } from '../components';
@@ -20,8 +20,8 @@ import './RestoreDefaultsPage.css';
 export default function RestoreDefaultsPage() {
   const { t } = useTranslation();
   const requestConfirm = useConfirm();
-  const { addToast } = useUIStore();
-  const { handleDatabaseReset } = useChatStore();
+  const addToast = useUIStore((s) => s.addToast);
+  const handleDatabaseReset = useChatStore((s) => s.handleDatabaseReset);
   const { announce } = useAnnouncer();
   useContentPageLandmarks({ pageClass: 'restore-defaults-page' });
 

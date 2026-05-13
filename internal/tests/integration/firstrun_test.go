@@ -2,7 +2,6 @@ package integration
 
 import (
 	"testing"
-	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/llm"
@@ -21,15 +20,13 @@ func TestIntegration_FirstUserMessage(t *testing.T) {
 	conv := &database.Conversation{
 		Title:     "Nova Conversa",
 		Channel:   "", // Local (Wails)
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
 		t.Fatalf("falha ao criar conversa: %v", err)
 	}
 
-	if conv.ID == 0 {
+	if conv.ID == "" {
 		t.Fatal("conversa não recebeu ID")
 	}
 
@@ -39,14 +36,13 @@ func TestIntegration_FirstUserMessage(t *testing.T) {
 		Role:           "user",
 		Content:        "Qual é a capital da França?",
 		Source:         "wails", // Origem: aplicação local
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(firstMsg).Error; err != nil {
 		t.Fatalf("falha ao criar primeira mensagem: %v", err)
 	}
 
-	if firstMsg.ID == 0 {
+	if firstMsg.ID == "" {
 		t.Fatal("mensagem não recebeu ID")
 	}
 
@@ -57,7 +53,7 @@ func TestIntegration_FirstUserMessage(t *testing.T) {
 	}
 
 	if retrieved.ConversationID != conv.ID {
-		t.Errorf("conversationID incorreto: esperado %d, obteve %d", conv.ID, retrieved.ConversationID)
+		t.Errorf("conversationID incorreto: esperado %s, obteve %s", conv.ID, retrieved.ConversationID)
 	}
 
 	if retrieved.Role != "user" {
@@ -86,8 +82,6 @@ func TestIntegration_FirstAssistantResponse(t *testing.T) {
 	// 1. Setup: criar conversa e primeira mensagem
 	conv := &database.Conversation{
 		Title:     "Teste Resposta",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -99,7 +93,6 @@ func TestIntegration_FirstAssistantResponse(t *testing.T) {
 		Role:           "user",
 		Content:        "Qual é a capital da França?",
 		TurnID:         nil, // Será preenchido quando criado
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -116,7 +109,6 @@ func TestIntegration_FirstAssistantResponse(t *testing.T) {
 		CompletionTokens: 12,          // Tokens de saída
 		TotalTokens:      57,          // Total
 		TurnID:           &userMsg.ID, // Agrupa com a mensagem do usuário
-		CreatedAt:        time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -159,8 +151,6 @@ func TestIntegration_FirstMessageAutoRenameConversation(t *testing.T) {
 	// 1. Criar conversa com título genérico
 	conv := &database.Conversation{
 		Title:     "Nova Conversa",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -175,7 +165,6 @@ func TestIntegration_FirstMessageAutoRenameConversation(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        msgContent,
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -225,8 +214,6 @@ func TestIntegration_FirstMessageConversationHistory(t *testing.T) {
 	// 1. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Histórico",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -248,7 +235,6 @@ func TestIntegration_FirstMessageConversationHistory(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Qual é a cor do meu chapéu?",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(msg1).Error; err != nil {
@@ -261,7 +247,6 @@ func TestIntegration_FirstMessageConversationHistory(t *testing.T) {
 		Role:           "assistant",
 		Content:        "Não tenho informação sobre a cor do seu chapéu.",
 		TurnID:         &msg1.ID,
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(msg2).Error; err != nil {
@@ -311,8 +296,6 @@ func TestIntegration_FirstMessageWithAudio(t *testing.T) {
 	// 1. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Mensagem com Áudio",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -329,7 +312,6 @@ func TestIntegration_FirstMessageWithAudio(t *testing.T) {
 		Audio:          audioBase64,
 		AudioMimeType:  "audio/mpeg",
 		Source:         "wails",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(msg).Error; err != nil {
@@ -368,8 +350,6 @@ func TestIntegration_FirstMessageProviderMetadata(t *testing.T) {
 	// 1. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Provider Metadata",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -396,7 +376,6 @@ func TestIntegration_FirstMessageProviderMetadata(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Qual é a população do Brasil?",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -413,7 +392,6 @@ func TestIntegration_FirstMessageProviderMetadata(t *testing.T) {
 		CompletionTokens: 18,       // Tokens gerados (resposta)
 		TotalTokens:      53,       // Total para billing/tracking
 		TurnID:           &userMsg.ID,
-		CreatedAt:        time.Now().Add(500 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -457,8 +435,6 @@ func TestIntegration_FirstMessageWithTurnTracking(t *testing.T) {
 	// 1. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Turn Tracking",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -470,7 +446,6 @@ func TestIntegration_FirstMessageWithTurnTracking(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Qual é a capital de Itália?",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -483,7 +458,6 @@ func TestIntegration_FirstMessageWithTurnTracking(t *testing.T) {
 		Role:           "assistant",
 		Content:        "A capital da Itália é Roma.",
 		TurnID:         &userMsg.ID, // Agrupa com a mensagem inicadora
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -497,11 +471,11 @@ func TestIntegration_FirstMessageWithTurnTracking(t *testing.T) {
 	}
 
 	if len(turnMessages) != 1 {
-		t.Errorf("esperado 1 mensagem com TurnID=%d, obteve %d", userMsg.ID, len(turnMessages))
+		t.Errorf("esperado 1 mensagem com TurnID=%s, obteve %d", userMsg.ID, len(turnMessages))
 	}
 
 	if turnMessages[0].ID != assistantMsg.ID {
-		t.Errorf("mensagem do turno incorreta: esperado %d, obteve %d", assistantMsg.ID, turnMessages[0].ID)
+		t.Errorf("mensagem do turno incorreta: esperado %s, obteve %s", assistantMsg.ID, turnMessages[0].ID)
 	}
 
 	// 5. Validar estrutura de turno

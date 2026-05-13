@@ -4,19 +4,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { dispatchChatSpeech, handleChatSpeak } from './index';
 
 const dispatchSpeechMock = vi.fn();
-const announceMock = vi.fn();
+const announceWithOriginMock = vi.fn();
 const stopCurrentAudioMock = vi.fn();
 const speakMessageMock = vi.fn();
 const stopTTSMock = vi.fn();
 const getVolumeMock = vi.fn().mockReturnValue(0.7);
 const speakWithOverrideMock = vi.fn();
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   DispatchSpeech: (...args: unknown[]) => dispatchSpeechMock(...args),
 }));
 
-vi.mock('../../hooks/useAnnouncer', () => ({
-  announce: (...args: unknown[]) => announceMock(...args),
+vi.mock('../voiceAccessibility/announcerBroker', () => ({
+  announceWithOrigin: (...args: unknown[]) => announceWithOriginMock(...args),
+  isVoiceAccessibilityOriginCurrentlyActive: () => true,
 }));
 
 vi.mock('../messageAudio', () => ({
@@ -37,7 +38,7 @@ vi.mock('../tts', () => ({
 describe('chatSpeak service', () => {
   beforeEach(() => {
     dispatchSpeechMock.mockReset();
-    announceMock.mockReset();
+    announceWithOriginMock.mockReset();
     stopCurrentAudioMock.mockReset();
     speakMessageMock.mockReset();
     stopTTSMock.mockReset();
@@ -49,14 +50,14 @@ describe('chatSpeak service', () => {
     dispatchSpeechMock.mockResolvedValue(undefined);
 
     await dispatchChatSpeech({
-      conversationId: 42,
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000042",
       role: 'user',
       text: 'Olá mundo',
       origin: 'user_message',
     });
 
     expect(dispatchSpeechMock).toHaveBeenCalledWith({
-      conversationId: 42,
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000042",
       role: 'user',
       text: 'Olá mundo',
       origin: 'user_message',
@@ -71,7 +72,11 @@ describe('chatSpeak service', () => {
       autoRead: false,
     });
 
-    expect(announceMock).toHaveBeenCalledWith('chat.system: Processando');
+    expect(announceWithOriginMock).toHaveBeenCalledWith({
+      message: 'chat.system: Processando',
+      origin: undefined,
+      eventType: 'system',
+    });
     expect(speakWithOverrideMock).not.toHaveBeenCalled();
     expect(speakMessageMock).not.toHaveBeenCalled();
   });
@@ -92,7 +97,7 @@ describe('chatSpeak service', () => {
 
     expect(stopCurrentAudioMock).toHaveBeenCalled();
     expect(stopTTSMock).toHaveBeenCalled();
-    expect(announceMock).not.toHaveBeenCalled();
+    expect(announceWithOriginMock).not.toHaveBeenCalled();
     expect(speakWithOverrideMock).toHaveBeenCalledWith('Resposta', {
       providerId: 'webspeech',
       voiceName: 'pt-BR',
@@ -107,7 +112,7 @@ describe('chatSpeak service', () => {
     speakMessageMock.mockResolvedValue(true);
 
     await handleChatSpeak({
-      messageId: 99,
+      messageId: "01926b90-7a5a-7c4e-8d3f-000000000099",
       role: 'assistant',
       text: 'Resposta backend',
       strategy: 'backend_audio',
@@ -119,8 +124,8 @@ describe('chatSpeak service', () => {
       volume: 0.5,
     });
 
-    expect(announceMock).not.toHaveBeenCalled();
-    expect(speakMessageMock).toHaveBeenCalledWith(99, 0.5, {
+    expect(announceWithOriginMock).not.toHaveBeenCalled();
+    expect(speakMessageMock).toHaveBeenCalledWith("01926b90-7a5a-7c4e-8d3f-000000000099", 0.5, {
       providerId: 'openai-default',
       voiceId: 'nova',
       model: 'tts-1',
@@ -132,7 +137,7 @@ describe('chatSpeak service', () => {
     speakMessageMock.mockResolvedValue(false);
 
     await handleChatSpeak({
-      messageId: 100,
+      messageId: "01926b90-7a5a-7c4e-8d3f-000000000100",
       role: 'assistant',
       text: 'Fallback',
       strategy: 'backend_audio',
@@ -140,7 +145,11 @@ describe('chatSpeak service', () => {
       autoRead: true,
     });
 
-    expect(announceMock).toHaveBeenCalledWith('chat.assistant: Fallback');
+    expect(announceWithOriginMock).toHaveBeenCalledWith({
+      message: 'chat.assistant: Fallback',
+      origin: undefined,
+      eventType: 'system',
+    });
   });
 
   it('backend_audio sem messageId faz fallback para segmentos', async () => {
@@ -154,7 +163,11 @@ describe('chatSpeak service', () => {
     });
 
     expect(speakMessageMock).not.toHaveBeenCalled();
-    expect(announceMock).toHaveBeenCalledWith('chat.assistant: Segmento parcial');
+    expect(announceWithOriginMock).toHaveBeenCalledWith({
+      message: 'chat.assistant: Segmento parcial',
+      origin: undefined,
+      eventType: 'progress',
+    });
   });
 
   it('backend_audio sem messageId ignora origins não verbalizáveis', async () => {
@@ -168,7 +181,7 @@ describe('chatSpeak service', () => {
     });
 
     expect(speakMessageMock).not.toHaveBeenCalled();
-    expect(announceMock).not.toHaveBeenCalled();
+    expect(announceWithOriginMock).not.toHaveBeenCalled();
   });
 
   it('interrupt=false preserva o áudio atual', async () => {

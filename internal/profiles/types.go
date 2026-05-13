@@ -2,6 +2,7 @@ package profiles
 
 import (
 	"fmt"
+	"strings"
 )
 
 // DefaultProviderSentinel é o valor sentinela usado em profiles para indicar
@@ -49,7 +50,7 @@ type ChatConfig struct {
 	TopP                  float64  `json:"top_p"`                              // 0.0 a 1.0
 	ResponseTimeout       int      `json:"response_timeout"`                   // Timeout em segundos
 	ReasoningEffort       string   `json:"reasoning_effort,omitempty"`         // off, low, medium, high (vazio = off)
-	EnabledTools          []string `json:"enabled_tools"`                      // Ferramentas habilitadas (nil = todas)
+	EnabledTools          []string `json:"enabled_tools"`                      // Ferramentas habilitadas (nil = seleção dinâmica/catalogo quando disponível)
 	EnabledSkills         []string `json:"enabled_skills"`                     // Skills autoload ordenados (nil = usa auto_load do skill, [] = nenhum autoload)
 	DisableTools          bool     `json:"disable_tools,omitempty"`            // Desabilita completamente tool calling
 	DisableSkills         bool     `json:"disable_skills,omitempty"`           // Desabilita injeção de skills no prompt
@@ -66,14 +67,15 @@ type ChatConfig struct {
 
 // VoiceRoleConfig configura TTS para uma role específica (assistant, user ou system).
 type VoiceRoleConfig struct {
-	Enabled       bool    `json:"enabled"`                           // Habilita TTS para esta role
-	Provider      string  `json:"provider"`                          // "disabled", "webspeech", "sapi5", "openai"
-	LLMProviderID string  `json:"llm_provider_id,omitempty"`         // ID do provedor LLM (para credenciais da API)
-	VoiceID       string  `json:"voice_id,omitempty"`                // ID da voz (ex: "nova", "alloy", "echo")
-	Model         string  `json:"model,omitempty"`                   // Modelo TTS (ex: "tts-1", "tts-1-hd")
-	Rate          float64 `json:"rate"`                              // Velocidade (0.5–2.0)
-	Pitch         float64 `json:"pitch"`                             // Tom (0.5–2.0)
-	Volume        float64 `json:"volume"`                            // Volume (0.0–1.0)
+	Enabled       bool    `json:"enabled"`                   // Habilita TTS para esta role
+	Provider      string  `json:"provider"`                  // "disabled", "webspeech", "sapi5", "openai"
+	LLMProviderID string  `json:"llm_provider_id,omitempty"` // ID do provedor LLM (para credenciais da API)
+	VoiceID       string  `json:"voice_id,omitempty"`        // ID da voz (ex: "nova", "alloy", "echo")
+	Model         string  `json:"model,omitempty"`           // Modelo TTS (ex: "tts-1", "tts-1-hd")
+	SelectionMode string  `json:"selection_mode,omitempty"`  // "model_and_voice" ou "model_only"
+	Rate          float64 `json:"rate"`                      // Velocidade (0.5–2.0)
+	Pitch         float64 `json:"pitch"`                     // Tom (0.5–2.0)
+	Volume        float64 `json:"volume"`                    // Volume (0.0–1.0)
 }
 
 // VoiceConfig configura TTS — uma sub-config independente por role.
@@ -89,13 +91,13 @@ type VoiceConfig struct {
 // InputConfig configura STT e triggers de interação por voz.
 // Substitui a antiga InteractionConfig.
 type InputConfig struct {
-	Enabled        bool            `json:"enabled"`                           // Habilita input por voz
-	STTProvider    string          `json:"stt_provider"`                      // "webspeech", "whisper_api"
-	LLMProviderID  string          `json:"llm_provider_id,omitempty"`         // ID do provedor LLM para Whisper API
-	STTModel       string          `json:"stt_model,omitempty"`               // Modelo STT (ex: "whisper-1", "whisper-large-v3")
-	Language       string          `json:"language"`                          // Idioma (ex: "pt-BR")
-	FeedbackSounds bool            `json:"feedback_sounds"`                   // Sons de início/fim de gravação
-	Triggers       []TriggerConfig `json:"triggers,omitempty"`                // Lista de triggers de ativação
+	Enabled        bool            `json:"enabled"`                   // Habilita input por voz
+	STTProvider    string          `json:"stt_provider"`              // "webspeech", "whisper_api"
+	LLMProviderID  string          `json:"llm_provider_id,omitempty"` // ID do provedor LLM para Whisper API
+	STTModel       string          `json:"stt_model,omitempty"`       // Modelo STT (ex: "whisper-1", "whisper-large-v3")
+	Language       string          `json:"language"`                  // Idioma (ex: "pt-BR")
+	FeedbackSounds bool            `json:"feedback_sounds"`           // Sons de início/fim de gravação
+	Triggers       []TriggerConfig `json:"triggers,omitempty"`        // Lista de triggers de ativação
 }
 
 // ChannelsConfig configura comportamento para canais externos (Telegram, Signal, etc.).
@@ -256,6 +258,33 @@ func (p *Profile) Validate() error {
 	for name, role := range voiceRoles {
 		if !containsStr(validVoiceProviders, role.Provider) {
 			return fmt.Errorf("%s.provider must be one of: disabled, webspeech, sapi5, openai", name)
+		}
+		if !containsStr([]string{"", "model_and_voice", "model_only"}, role.SelectionMode) {
+			return fmt.Errorf("%s.selection_mode must be one of: model_and_voice, model_only", name)
+		}
+		if role.Enabled && role.Provider == "openai" {
+			if role.LLMProviderID == "" {
+				return fmt.Errorf("%s.llm_provider_id is required for HTTP TTS", name)
+			}
+			if role.Model == "" {
+				return fmt.Errorf("%s.model is required for HTTP TTS", name)
+			}
+			if role.SelectionMode == "" {
+				return fmt.Errorf("%s.selection_mode is required for HTTP TTS", name)
+			}
+			expectedSelectionMode := "model_and_voice"
+			if strings.HasPrefix(strings.ToLower(role.Model), "voice-") {
+				expectedSelectionMode = "model_only"
+			}
+			if role.SelectionMode != expectedSelectionMode {
+				return fmt.Errorf("%s.selection_mode must be %s for model %q", name, expectedSelectionMode, role.Model)
+			}
+			if role.SelectionMode == "model_and_voice" && role.VoiceID == "" {
+				return fmt.Errorf("%s.voice_id is required when selection_mode is model_and_voice", name)
+			}
+			if role.SelectionMode == "model_only" && role.VoiceID != "" {
+				return fmt.Errorf("%s.voice_id must be empty when selection_mode is model_only", name)
+			}
 		}
 	}
 

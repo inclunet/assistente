@@ -19,7 +19,8 @@ export interface VoicePickerProps {
   value: string;
   onChange: (voice: string) => void;
   providerId?: string; // NOVO: Filtra por provedor
-  profileId?: string;  // NOVO: Usado para buscar vozes do provedor
+  modelId?: string;    // Modelo TTS usado para listar vozes HTTP
+  profileId?: string;
   variant?: 'toolbar' | 'form';
   label?: string;
   helpText?: string;
@@ -42,7 +43,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       value,
       onChange,
       providerId,
-      profileId,
+      modelId,
       variant = 'form',
       label,
       helpText,
@@ -64,6 +65,8 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
     const reloadCancelRef = useRef<(() => void) | null>(null);
 
     const loadVoices = async (cancelled?: () => boolean) => {
+      const voiceModelId = modelId ?? '';
+
       // Vozes pré-definidas (ex: OpenAI com variantes HD): pula backend
       if (voiceOverrides && voiceOverrides.length > 0) {
         setVoices(voiceOverrides);
@@ -94,12 +97,9 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       try {
         let allVoices: TTSVoice[] = [];
         
-        if (providerId && profileId) {
-          // Busca específica para este provedor
-          allVoices = await ttsService.getVoicesForProvider(providerId, profileId);
-        } else if (providerId) {
-          // Tem provedor mas não tem profileId — tenta com string vazia
-          allVoices = await ttsService.getVoicesForProvider(providerId, '');
+        if (providerId) {
+          // Busca específica para este provedor/modelo.
+          allVoices = await ttsService.getVoicesForProvider(providerId, voiceModelId);
         } else {
           // Fallback legada: busca todas as vozes (usado na Home/Toolbar se não houver perfil)
           allVoices = await ttsService.getVoices();
@@ -122,7 +122,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       let isCancelled = false;
       loadVoices(() => isCancelled);
       return () => { isCancelled = true; };
-    }, [providerId, profileId, voiceOverrides]);
+    }, [providerId, modelId, voiceOverrides]);
 
     /** Inicia fetch com cancellation (cancela qualquer fetch manual anterior) */
     const reloadWithCancel = () => {

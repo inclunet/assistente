@@ -38,7 +38,7 @@ func TestResolveEnvRef_Success(t *testing.T) {
 }
 
 func TestResolveEnvRef_Missing(t *testing.T) {
-	os.Unsetenv("NONEXISTENT_VAR_XYZ")
+	_ = os.Unsetenv("NONEXISTENT_VAR_XYZ")
 	_, err := ResolveExternalRef("env://NONEXISTENT_VAR_XYZ")
 	if err == nil {
 		t.Error("esperava erro para var não definida")

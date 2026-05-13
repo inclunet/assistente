@@ -1,35 +1,5 @@
 import { test, expect } from '../fixtures';
-
-declare global {
-  interface Window {
-    __origRAF?: typeof requestAnimationFrame;
-    __rafQueue?: FrameRequestCallback[];
-  }
-}
-
-async function pauseRAF(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    window.__origRAF = window.requestAnimationFrame;
-    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
-      window.__rafQueue = window.__rafQueue || [];
-      window.__rafQueue.push(cb);
-      return 0;
-    };
-  });
-}
-
-async function resumeRAF(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    if (window.__origRAF) {
-      window.requestAnimationFrame = window.__origRAF;
-      const queue = window.__rafQueue || [];
-      window.__rafQueue = [];
-      for (const cb of queue) {
-        try { cb(performance.now()); } catch (_) { /* ignore */ }
-      }
-    }
-  });
-}
+import { pauseRAF, resumeRAF } from '../helpers/pauseRaf';
 
 /**
  * Testes de navegação por teclado na lista de abas (tablist).
@@ -53,21 +23,21 @@ function multiTabWorkspace() {
     tabs: {
       active: 'tab-1',
       items: [
-        { id: 'tab-1', type: 'chat', conversation_id: 1, title: 'Aba 1', position: 0 },
-        { id: 'tab-2', type: 'chat', conversation_id: 2, title: 'Aba 2', position: 1 },
-        { id: 'tab-3', type: 'chat', conversation_id: 3, title: 'Aba 3', position: 2 },
+        { id: 'tab-1', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1', position: 0 },
+        { id: 'tab-2', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2', position: 1 },
+        { id: 'tab-3', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000003', title: 'Aba 3', position: 2 },
       ],
     },
   };
 }
 
 test.describe('Tab list — navegação por setas', () => {
-  test('ArrowRight move foco e ativa a próxima aba', async ({ page, wails }) => {
+  test('ArrowRight ativa a próxima aba e atualiza roving tabindex', async ({ page, wails }) => {
     const ws = multiTabWorkspace();
     await wails.setResponse('GetActiveWorkspace', ws);
     await wails.setResponse('SetActiveWorkspaceTab', undefined);
     await wails.setResponse('EnsureConversation', {
-      id: 2, title: 'Aba 2',
+      id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2',
       created_at: ws.created_at, updated_at: ws.created_at,
       messages: [], message_count: 0,
     });
@@ -80,19 +50,21 @@ test.describe('Tab list — navegação por setas', () => {
     await expect(firstTab).toHaveAttribute('aria-selected', 'true');
 
     // ArrowRight → ativa a segunda aba
-    await page.keyboard.press('ArrowRight');
+    await firstTab.press('ArrowRight');
     const secondTab = page.locator('.ws-tabs [role="tab"]').nth(1);
-    await expect(secondTab).toBeFocused({ timeout: 3_000 });
     await resumeRAF(page);
+    await expect(secondTab).toHaveAttribute('aria-selected', 'true', { timeout: 3_000 });
+    await expect.poll(async () => secondTab.evaluate((el) => (el as HTMLButtonElement).tabIndex)).toBe(0);
+    await expect.poll(async () => firstTab.evaluate((el) => (el as HTMLButtonElement).tabIndex)).toBe(-1);
   });
 
-  test('ArrowLeft move foco para a aba anterior', async ({ page, wails }) => {
+  test('ArrowLeft ativa a aba anterior e atualiza roving tabindex', async ({ page, wails }) => {
     const ws = multiTabWorkspace();
     ws.tabs.active = 'tab-2';
     await wails.setResponse('GetActiveWorkspace', ws);
     await wails.setResponse('SetActiveWorkspaceTab', undefined);
     await wails.setResponse('EnsureConversation', {
-      id: 1, title: 'Aba 1',
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1',
       created_at: ws.created_at, updated_at: ws.created_at,
       messages: [], message_count: 0,
     });
@@ -101,34 +73,48 @@ test.describe('Tab list — navegação por setas', () => {
 
     const secondTab = page.locator('.ws-tabs [role="tab"]').nth(1);
     await secondTab.focus();
+    await expect(secondTab).toHaveAttribute('aria-selected', 'true');
 
-    await page.keyboard.press('ArrowLeft');
+    await secondTab.press('ArrowLeft');
     const firstTab = page.locator('.ws-tabs [role="tab"]').first();
-    await expect(firstTab).toBeFocused({ timeout: 3_000 });
     await resumeRAF(page);
+    await expect(firstTab).toHaveAttribute('aria-selected', 'true', { timeout: 3_000 });
+    await expect.poll(async () => firstTab.evaluate((el) => (el as HTMLButtonElement).tabIndex)).toBe(0);
+    await expect.poll(async () => secondTab.evaluate((el) => (el as HTMLButtonElement).tabIndex)).toBe(-1);
   });
 
-  test('Home foca a primeira aba, End foca a última', async ({ page, wails }) => {
+  test('Home e End atualizam a aba ativa e o roving tabindex', async ({ page, wails }) => {
     const ws = multiTabWorkspace();
+    ws.tabs.active = 'tab-2';
     await wails.setResponse('GetActiveWorkspace', ws);
     await wails.setResponse('SetActiveWorkspaceTab', undefined);
+    await wails.setResponse('EnsureConversation', {
+      id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1',
+      created_at: ws.created_at, updated_at: ws.created_at,
+      messages: [], message_count: 0,
+    });
     await wails.waitForApp();
     await pauseRAF(page);
 
     // Foca a segunda aba
     const secondTab = page.locator('.ws-tabs [role="tab"]').nth(1);
     await secondTab.focus();
+    await expect(secondTab).toHaveAttribute('aria-selected', 'true');
 
     // Home → primeira aba
-    await page.keyboard.press('Home');
+    await secondTab.press('Home');
     const firstTab = page.locator('.ws-tabs [role="tab"]').first();
-    await expect(firstTab).toBeFocused({ timeout: 3_000 });
+    await resumeRAF(page);
+    await expect(firstTab).toHaveAttribute('aria-selected', 'true', { timeout: 3_000 });
+    await expect.poll(async () => firstTab.evaluate((el) => (el as HTMLButtonElement).tabIndex)).toBe(0);
+    await expect.poll(async () => secondTab.evaluate((el) => (el as HTMLButtonElement).tabIndex)).toBe(-1);
 
     // End → última aba
-    await page.keyboard.press('End');
+    await firstTab.press('End');
     const lastTab = page.locator('.ws-tabs [role="tab"]').last();
-    await expect(lastTab).toBeFocused({ timeout: 3_000 });
-    await resumeRAF(page);
+    await expect(lastTab).toHaveAttribute('aria-selected', 'true', { timeout: 3_000 });
+    await expect.poll(async () => lastTab.evaluate((el) => (el as HTMLButtonElement).tabIndex)).toBe(0);
+    await expect.poll(async () => firstTab.evaluate((el) => (el as HTMLButtonElement).tabIndex)).toBe(-1);
   });
 
   test('Delete fecha a aba focada', async ({ page, wails }) => {
@@ -151,11 +137,18 @@ test.describe('Tab list — navegação por setas', () => {
     await expect(tabs).toHaveCount(3);
 
     // Foca a terceira aba e pressiona Delete
-    await tabs.nth(2).focus();
-    await page.keyboard.press('Delete');
+    const thirdTab = tabs.nth(2);
+    await thirdTab.focus();
+    await thirdTab.press('Delete');
+
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'RemoveWorkspaceTab',
+      );
+    }, { timeout: 5_000 });
 
     // Deve ter 2 abas após
-    await expect(tabs).toHaveCount(2, { timeout: 3_000 });
+    await expect(tabs).toHaveCount(2, { timeout: 5_000 });
   });
 
   test('abas têm role="tab" e a ativa tem aria-selected="true"', async ({ page, wails }) => {

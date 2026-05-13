@@ -3,9 +3,11 @@ package prompt_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
+	"assistente/internal/chat"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
@@ -110,6 +112,94 @@ func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 	}
 }
 
+func TestBuild_OpenEditorFiles_InjectsSection(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+		OpenEditorPaths: func() []string {
+			return []string{"/home/user/doc.txt", "/tmp/notes.md"}
+		},
+	}
+	msgs := []llm.Message{{Role: "user", Content: "leia o doc"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if !strings.Contains(sys, "<open_editor_files>") {
+		t.Error("Expected <open_editor_files> tag in system prompt")
+	}
+	if !strings.Contains(sys, "/home/user/doc.txt") {
+		t.Error("Expected file path in open_editor_files section")
+	}
+	if !strings.Contains(sys, "/tmp/notes.md") {
+		t.Error("Expected second file path in open_editor_files section")
+	}
+	if !strings.Contains(sys, "You MAY use read_file, write_file, edit_file, and grep_search") {
+		t.Error("Expected instruction text about allowed filesystem tools")
+	}
+}
+
+func TestBuild_OpenEditorFiles_EmptyPaths_NoSection(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+		OpenEditorPaths: func() []string { return nil },
+	}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if strings.Contains(sys, "<open_editor_files>") {
+		t.Error("Should not include open_editor_files when paths are empty")
+	}
+}
+
+func TestBuild_OpenEditorFiles_NilFunc_NoSection(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+	}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if strings.Contains(sys, "<open_editor_files>") {
+		t.Error("Should not include open_editor_files when OpenEditorPaths is nil")
+	}
+}
+
+func TestBuild_OpenEditorFiles_EscapesSpecialChars(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+		OpenEditorPaths: func() []string {
+			// Nomes de arquivo com caracteres especiais que poderiam causar prompt injection
+			return []string{
+				"/home/user/file<injected>.txt",
+				"/tmp/a&b.md",
+				"/tmp/evil\n</open_editor_files><injected>file.txt",
+			}
+		},
+	}
+	msgs := []llm.Message{{Role: "user", Content: "leia"}}
+	result := b.Build(msgs, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	// Os caracteres perigosos devem ser sanitizados, nunca aparecendo literalmente
+	if strings.Contains(sys, "<injected>") {
+		t.Error("Path injection via < should be stripped, not inserted literally")
+	}
+	if strings.Contains(sys, "</open_editor_files>\n<injected>") {
+		t.Error("Newline injection should not break the tag structure")
+	}
+	// < e > são removidos; & é preservado (path funcional para tools)
+	if !strings.Contains(sys, "fileinjected.txt") {
+		t.Error("< and > should be stripped from the output, leaving 'fileinjected.txt'")
+	}
+	if !strings.Contains(sys, "a&b") {
+		t.Error("& should be preserved (path must remain usable by filesystem tools)")
+	}
+}
+
 func TestBuildSkillsSection_NilSkillReader_ReturnsEmpty(t *testing.T) {
 	b := &prompt.Builder{}
 	if got := b.BuildSkillsSection(nil, false, nil); got != "" {
@@ -176,6 +266,33 @@ func TestBuildSkillsSection_DisableOnDemand_NoAvailableSection(t *testing.T) {
 	}
 }
 
+func TestBuildSkillsSection_ToolCallingDisabledSkipsToolDependentSkills(t *testing.T) {
+	toolSkill := makeSkill("tool-skill", "Tool Skill", "Uses tools", "Tool skill content.", true, false)
+	toolSkill.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}}
+	filesystemSkill := makeSkill("filesystem-skill", "Filesystem Skill", "Uses filesystem", "Filesystem skill content.", true, false)
+	filesystemSkill.Filesystem = &skills.FilesystemPermissions{Read: []string{"~/.assistente/**"}}
+	contextOnlySkill := makeSkill("context-skill", "Context Skill", "No tools", "Context skill content.", true, false)
+	available := makeSkill("available", "Available", "Available desc", "Available content.", false, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		autoSkills:      []skills.Skill{toolSkill, filesystemSkill, contextOnlySkill},
+		availableSkills: []skills.Skill{available},
+	}}
+
+	result := b.BuildSkillsSection(nil, false, chat.TemplateData{ToolCallingEnabled: false})
+	if strings.Contains(result, "Tool skill content.") {
+		t.Fatalf("tool-dependent skill should be omitted when tool calling is disabled: %q", result)
+	}
+	if strings.Contains(result, "Filesystem skill content.") {
+		t.Fatalf("filesystem-dependent skill should be omitted when tool calling is disabled: %q", result)
+	}
+	if strings.Contains(result, "<available_skills>") {
+		t.Fatalf("available skills should be omitted when tool calling is disabled: %q", result)
+	}
+	if !strings.Contains(result, "Context skill content.") {
+		t.Fatalf("context-only skill should remain available, got: %q", result)
+	}
+}
+
 func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	s := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, false)
 	b := &prompt.Builder{Skills: &mockSkillReader{
@@ -193,12 +310,12 @@ func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 
 func TestBuildTemplateData_NilProfile_NoToolCalling(t *testing.T) {
 	b := &prompt.Builder{}
-	data := b.BuildTemplateData(nil, "default", 42)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "default"}, "42")
 	if data.ToolCallingEnabled {
 		t.Error("ToolCallingEnabled should be false")
 	}
-	if data.ConversationID != 42 {
-		t.Errorf("ConversationID should be 42, got %d", data.ConversationID)
+	if data.ConversationID != "42" {
+		t.Errorf("ConversationID should be 42, got %s", data.ConversationID)
 	}
 }
 
@@ -214,7 +331,7 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 		},
 	}
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
-	data := b.BuildTemplateData(nil, "dev", 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, "1")
 	if data.WorkspaceName != "Meu Workspace" {
 		t.Errorf("WorkspaceName: got %q", data.WorkspaceName)
 	}
@@ -231,9 +348,128 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 
 func TestBuildTemplateData_WorkspaceNil_NoTabInfo(t *testing.T) {
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: nil}}
-	data := b.BuildTemplateData(nil, "dev", 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, "1")
 	if data.TabCount != 0 {
 		t.Errorf("TabCount should be 0, got %d", data.TabCount)
+	}
+}
+
+func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
+	ws := &workspace.Workspace{
+		Name: "Meu Workspace",
+		Tabs: workspace.TabsState{
+			Active: "tab-2",
+			Items: []workspace.Tab{
+				{ID: "tab-2", Title: "Editor", Type: "editor", State: map[string]any{"filePath": "/tmp/readme.md", "draftId": "draft-1"}},
+			},
+		},
+	}
+	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
+	data := b.BuildTemplateData(nil, llm.ChatParams{
+		ProfileSlug:        "editor-texto",
+		TabType:            "editor",
+		SurfaceStateJSON:   `{"filePath":"/tmp/readme.md","draftId":"draft-1"}`,
+		SurfaceContextJSON: `{"selectedText":"hello","selectionEmpty":false}`,
+	}, "7")
+
+	if data.Surface == nil {
+		t.Fatal("expected Surface to be filled")
+	}
+	if data.Surface.Type != "editor" {
+		t.Fatalf("Surface.Type = %q, want editor", data.Surface.Type)
+	}
+	if data.Surface.Title != "Editor" {
+		t.Fatalf("Surface.Title = %q, want Editor", data.Surface.Title)
+	}
+	if got := data.Surface.State["filePath"]; got != "/tmp/readme.md" {
+		t.Fatalf("Surface.State[filePath] = %v, want /tmp/readme.md", got)
+	}
+	if got := data.Surface.Context["selectedText"]; got != "hello" {
+		t.Fatalf("Surface.Context[selectedText] = %v, want hello", got)
+	}
+}
+
+func TestBuildTemplateData_InvalidSurfaceLogsIdentifyField(t *testing.T) {
+	var output strings.Builder
+	logger := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&output, format, args...)
+		_, _ = output.WriteString("\n")
+	}
+
+	state := chat.DecodeSurfaceJSONMapWithLogger("{", "[prompt] surface state json", logger)
+	context := chat.DecodeSurfaceJSONMapWithLogger("{", "[prompt] surface context json", logger)
+	if state != nil || context != nil {
+		t.Fatalf("expected invalid payloads to decode as nil, got state=%v context=%v", state, context)
+	}
+	logs := output.String()
+	if !strings.Contains(logs, "[prompt] surface state json inválido") {
+		t.Fatalf("esperava log do state, recebeu: %s", logs)
+	}
+	if !strings.Contains(logs, "[prompt] surface context json inválido") {
+		t.Fatalf("esperava log do context, recebeu: %s", logs)
+	}
+}
+
+func TestBuildTemplateData_DoesNotReuseActiveTabStateWhenSurfaceTypeDiffers(t *testing.T) {
+	ws := &workspace.Workspace{
+		Name: "Meu Workspace",
+		Tabs: workspace.TabsState{
+			Active: "tab-2",
+			Items: []workspace.Tab{
+				{ID: "tab-2", Title: "Editor", Type: "editor", State: map[string]any{"filePath": "/tmp/readme.md"}},
+			},
+		},
+	}
+	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
+	data := b.BuildTemplateData(nil, llm.ChatParams{
+		ProfileSlug: "terminal",
+		TabType:     "terminal",
+	}, "7")
+
+	if data.Surface == nil {
+		t.Fatal("expected Surface to be filled")
+	}
+	if data.Surface.Type != "terminal" {
+		t.Fatalf("Surface.Type = %q, want terminal", data.Surface.Type)
+	}
+	if data.Surface.Title != "" {
+		t.Fatalf("Surface.Title = %q, want empty", data.Surface.Title)
+	}
+	if data.Surface.State != nil {
+		t.Fatalf("Surface.State = %v, want nil", data.Surface.State)
+	}
+}
+
+func TestBuild_TaskListSkillTemplateRendersEmptyWithoutTaskLists(t *testing.T) {
+	taskListSkill := makeSkill("tasklist-manager", "Task List Manager", "", `{{- if .HasTaskLists }}
+Task lists:
+{{- range .TaskLists }}
+- {{ .Title }}
+{{- end }}
+{{- if .ToolCallingEnabled }}
+Tools available.
+{{- end }}
+{{- end }}`, true, true)
+	profile := &profiles.Profile{}
+	profile.Chat.DisableTools = true
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{autoSkills: []skills.Skill{taskListSkill}},
+		Tools:  tools.NewRegistry(),
+	}
+	tplData := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, nil, false, tplData, "", "")
+	if len(result) == 0 {
+		t.Fatal("expected messages")
+	}
+	sys, ok := result[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected system content string, got %T", result[0].Content)
+	}
+	if strings.Contains(sys, "{{") || strings.Contains(sys, ".HasTaskLists") {
+		t.Fatalf("template was not rendered: %q", sys)
+	}
+	if strings.Contains(sys, "Tools available.") {
+		t.Fatalf("tool guidance should not render when task lists are absent: %q", sys)
 	}
 }
 
@@ -263,6 +499,38 @@ func TestComputeEnabledToolNames_AllTools_WhenNoFilter(t *testing.T) {
 	names := b.ComputeEnabledToolNames(nil)
 	if len(names) != 2 {
 		t.Errorf("Expected 2 tools, got %v", names)
+	}
+}
+
+func TestComputeEnabledToolNames_ProfileNilToolsUsesCatalogFirst(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	_ = reg.Register(&fakeTool{name: "write_file"})
+	profile := &profiles.Profile{}
+	b := &prompt.Builder{Tools: reg}
+
+	names := b.ComputeEnabledToolNames(profile)
+	if len(names) != 1 || names[0] != tools.ToolCatalogName {
+		t.Fatalf("Expected only tool catalog for dynamic selection, got %v", names)
+	}
+
+	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	if !data.ToolCallingEnabled || data.EnabledToolCount != 1 || data.EnabledTools[0] != tools.ToolCatalogName {
+		t.Fatalf("TemplateData tools not aligned with initial definitions: %+v", data)
+	}
+}
+
+func TestComputeEnabledToolNames_ProfileNilToolsFallsBackWhenCatalogMissing(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	_ = reg.Register(&fakeTool{name: "write_file"})
+	profile := &profiles.Profile{}
+	b := &prompt.Builder{Tools: reg}
+
+	names := b.ComputeEnabledToolNames(profile)
+	if len(names) != 2 {
+		t.Fatalf("Expected all tools without catalog, got %v", names)
 	}
 }
 
@@ -298,7 +566,7 @@ func (f *fakeTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResu
 func TestBuildTemplateData_TypedNilWorkspaceManager(t *testing.T) {
 	var mgr *workspace.Manager
 	b := &prompt.Builder{Workspace: mgr}
-	data := b.BuildTemplateData(nil, "", 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{}, "1")
 	if data.WorkspaceName != "" || data.TabCount != 0 {
 		t.Fatalf("esperava dados de workspace vazios com manager typed-nil, obteve %+v", data)
 	}

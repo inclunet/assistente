@@ -4,21 +4,21 @@ const now = new Date().toISOString();
 
 const sampleConversations = [
   {
-    id: 1,
+    id: '01926b90-0000-7000-8000-000000000001',
     title: 'Conversa sobre IA',
     created_at: now,
     updated_at: now,
     message_count: 5,
   },
   {
-    id: 2,
+    id: '01926b90-0000-7000-8000-000000000002',
     title: 'Receita de bolo de chocolate',
     created_at: now,
     updated_at: now,
     message_count: 3,
   },
   {
-    id: 3,
+    id: '01926b90-0000-7000-8000-000000000003',
     title: 'Debugging React hooks',
     created_at: now,
     updated_at: now,
@@ -31,7 +31,7 @@ test.describe('Histórico — busca e filtro', () => {
     await wails.setResponse('GetConversations', sampleConversations);
     // Resultado da busca: retorna apenas a conversa que match
     await wails.setResponse('SearchConversationHistory', [
-      { conversation_id: 2, snippet: '>>>bolo<<< de chocolate' },
+      { conversation_id: '01926b90-0000-7000-8000-000000000002', snippet: '>>>bolo<<< de chocolate' },
     ]);
 
     await wails.waitForApp();
@@ -77,7 +77,7 @@ test.describe('Histórico — busca e filtro', () => {
   test('limpar busca restaura todas as conversas', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
     await wails.setResponse('SearchConversationHistory', [
-      { conversation_id: 1, snippet: '>>>IA<<<' },
+      { conversation_id: '01926b90-0000-7000-8000-000000000001', snippet: '>>>IA<<<' },
     ]);
 
     await wails.waitForApp();
@@ -104,7 +104,7 @@ test.describe('Histórico — abrir conversa', () => {
   test('Enter em linha focada navega para o chat', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
     await wails.setResponse('EnsureConversation', {
-      id: 1,
+      id: '01926b90-0000-7000-8000-000000000001',
       title: 'Conversa sobre IA',
       created_at: now,
       updated_at: now,
@@ -131,7 +131,7 @@ test.describe('Histórico — abrir conversa', () => {
   test('botão Abrir na toolbar navega para conversa', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
     await wails.setResponse('EnsureConversation', {
-      id: 1,
+      id: '01926b90-0000-7000-8000-000000000001',
       title: 'Conversa sobre IA',
       created_at: now,
       updated_at: now,
@@ -270,27 +270,28 @@ test.describe('Histórico — edição inline de título', () => {
     // F2 para editar (inline editing no DataGrid)
     await page.keyboard.press('F2');
 
-    // Verifica se um input de edição apareceu
-    const editInput = page.locator('[role="grid"] input[type="text"]');
-    const hasEditInput = await editInput.isVisible({ timeout: 3_000 }).catch(() => false);
+    const editInput = page.locator('.cell-edit-input');
+    await expect(editInput).toBeVisible({ timeout: 3_000 });
+    await editInput.evaluate((element: HTMLInputElement, nextValue: string) => {
+      element.focus();
+      element.value = nextValue;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+    }, 'Título Editado');
 
-    if (hasEditInput) {
-      await editInput.fill('Título Editado');
+    // Confirma a edição clicando fora (blur → saveEdit)
+    // Não usamos press('Enter') pois fill() pode triggar blur antes
+    await grid.click({ position: { x: 5, y: 5 }, force: true });
 
-      // Confirma a edição clicando fora (blur → saveEdit)
-      // Não usamos press('Enter') pois fill() pode triggar blur antes
-      await grid.click({ position: { x: 5, y: 5 }, force: true });
+    // Aguarda o processamento
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'UpdateConversation'
+      );
+    }, { timeout: 5_000 });
 
-      // Aguarda o processamento
-      await page.waitForFunction(() => {
-        return window.__wailsMock.getCallLog().some(
-          (c: { fn: string }) => c.fn === 'UpdateConversation'
-        );
-      }, { timeout: 5_000 });
-
-      const log = await wails.getCallLog();
-      const updateCalls = log.filter(c => c.fn === 'UpdateConversation');
-      expect(updateCalls.length).toBeGreaterThanOrEqual(1);
-    }
+    const log = await wails.getCallLog();
+    const updateCalls = log.filter(c => c.fn === 'UpdateConversation');
+    expect(updateCalls.length).toBeGreaterThanOrEqual(1);
   });
 });

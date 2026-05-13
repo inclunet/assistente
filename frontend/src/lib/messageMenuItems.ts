@@ -8,8 +8,17 @@ import type { Code, Link, Table } from 'mdast';
 import { messageAudioService } from '../services/messageAudio';
 import { ttsService } from '../services/tts';
 import { stripMarkdown } from './stripMarkdown';
+import { isBackendId } from './idUtils';
+import i18next from 'i18next';
+import {
+  buildEditorDestinationSubmenu,
+  type EditorSendFormatOption,
+  type EditorSendTargetOption,
+  type SendToEditorPayload,
+} from './editorSendMenu';
 
 export interface MenuItemsOptions {
+  sessionKey?: string;
   onCopy?: (message: Message, asMarkdown: boolean) => void;
   onReadMessage?: (message: Message) => void;
   onSpeak?: (message: Message) => void;
@@ -18,14 +27,11 @@ export interface MenuItemsOptions {
   onDelete?: (message: Message) => void;
   onPin?: (message: Message) => void;
   onAnnounce?: (text: string) => void;
-  onSendToEditor?: (payload: {
-    target: 'current' | 'new_document';
-    format: 'markdown' | 'html' | 'plain';
-    title?: string;
-    content: string;
+  onSendToEditor?: (payload: SendToEditorPayload & {
     kind: 'message' | 'code' | 'table' | 'link';
     index?: number;
   }) => void;
+  editorTargets?: EditorSendTargetOption[];
   onToggleReasoning?: (message: Message) => void; // Mostrar/ocultar reasoning
   isTTSDisabled?: boolean;
   isUser?: boolean;
@@ -258,6 +264,7 @@ export function getMessageMenuItems(
     onPin,
     onAnnounce,
     onSendToEditor,
+    editorTargets = [],
     onToggleReasoning,
     isTTSDisabled = true,
     isUser = false,
@@ -271,6 +278,55 @@ export function getMessageMenuItems(
   const codeBlocks = extractCodeBlocks(content);
   const links = extractLinks(content);
   const tables = extractTables(content);
+  const sendToEditorTexts = onSendToEditor
+    ? {
+        newDocumentLabel: i18next.t('editor.fallback.newDoc'),
+        fallbackDocumentTitle: i18next.t('editor.fallback.title'),
+        sendToEditorActionLabel: i18next.t('editor.sendToEditor.action'),
+        markdownFormatLabel: i18next.t('editor.sendToEditor.format.markdown'),
+        plainTextFormatLabel: i18next.t('editor.sendToEditor.format.plainText'),
+        htmlFormatLabel: i18next.t('editor.sendToEditor.format.html'),
+        markdownMessageTitle: i18next.t('editor.sendToEditor.title.markdownMessage'),
+        plainTextMessageTitle: i18next.t('editor.sendToEditor.title.plainTextMessage'),
+        codeTitle: (language: string) => i18next.t('editor.sendToEditor.title.code', { language }),
+        markdownTableTitle: (index?: number) =>
+          typeof index === 'number'
+            ? i18next.t('editor.sendToEditor.title.markdownTableIndexed', { index })
+            : i18next.t('editor.sendToEditor.title.markdownTable'),
+        htmlTableTitle: (index?: number) =>
+          typeof index === 'number'
+            ? i18next.t('editor.sendToEditor.title.htmlTableIndexed', { index })
+            : i18next.t('editor.sendToEditor.title.htmlTable'),
+        linkTitle: i18next.t('editor.sendToEditor.title.link'),
+        codeSingleLabel: (language: string) => i18next.t('editor.sendToEditor.blocks.codeSingle', { language }),
+        codeIndexedLabel: (language: string, index: number) =>
+          i18next.t('editor.sendToEditor.blocks.codeIndexed', { language, index }),
+        codeGroupSingleLabel: i18next.t('editor.sendToEditor.blocks.codeGroupSingle'),
+        codeGroupMultipleLabel: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.codeGroupMultiple', { count }),
+        codeGroupAriaSingle: i18next.t('editor.sendToEditor.blocks.codeGroupAriaSingle'),
+        codeGroupAriaMultiple: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.codeGroupAriaMultiple', { count }),
+        codeAriaLabel: (language: string) => i18next.t('editor.sendToEditor.blocks.codeAria', { language }),
+        tableSingleLabel: i18next.t('editor.sendToEditor.blocks.tableSingle'),
+        tableIndexedLabel: (index: number) => i18next.t('editor.sendToEditor.blocks.tableIndexed', { index }),
+        tableGroupSingleLabel: i18next.t('editor.sendToEditor.blocks.tableGroupSingle'),
+        tableGroupMultipleLabel: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.tableGroupMultiple', { count }),
+        tableGroupAriaSingle: i18next.t('editor.sendToEditor.blocks.tableGroupAriaSingle'),
+        tableGroupAriaMultiple: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.tableGroupAriaMultiple', { count }),
+        tableAriaLabel: (index: number) => i18next.t('editor.sendToEditor.blocks.tableAria', { index }),
+        linkGroupSingleLabel: i18next.t('editor.sendToEditor.blocks.linkGroupSingle'),
+        linkGroupMultipleLabel: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.linkGroupMultiple', { count }),
+        linkGroupAriaSingle: i18next.t('editor.sendToEditor.blocks.linkGroupAriaSingle'),
+        linkGroupAriaMultiple: (count: number) =>
+          i18next.t('editor.sendToEditor.blocks.linkGroupAriaMultiple', { count }),
+        linkAriaLabel: (linkText: string) => i18next.t('editor.sendToEditor.blocks.linkAria', { linkText }),
+        sendBlocksLabel: i18next.t('editor.sendToEditor.blocks.sendBlocks'),
+      }
+    : null;
 
   // 1. AÇÃO PRIMÁRIA: Modo de leitura (virtual modal)
   items.push({
@@ -311,42 +367,40 @@ export function getMessageMenuItems(
     // 2.1 Baixar audio desta mensagem (usa DB se disponivel)
     items.push({
       id: 'download-audio',
-      label: 'Baixar audio desta mensagem',
+      label: i18next.t('chat.message.downloadAudio'),
       icon: '💾',
-      ariaLabel: 'Baixar audio desta mensagem',
+      ariaLabel: i18next.t('chat.message.downloadAudio'),
       action: async () => {
         if (!message.content || !message.id) {
-          onAnnounce?.('Mensagem sem conteudo');
+          onAnnounce?.(i18next.t('chat.message.announce.noContent'));
           return;
         }
 
         try {
-          const isBackendId = typeof message.id === 'string'
-            ? /^\d+$/.test(message.id)
-            : typeof message.id === 'number';
-          const numericId = isBackendId ? Number(message.id) : 0;
-          if (numericId <= 0) {
-            onAnnounce?.('Nao foi possivel identificar a mensagem');
+          const backendId = isBackendId(message.id) ? message.id : '';
+          if (!backendId) {
+            onAnnounce?.(i18next.t('chat.message.announce.cannotIdentifyMessage'));
             return;
           }
 
-          onAnnounce?.('Gerando audio...');
+          onAnnounce?.(i18next.t('chat.message.announce.generatingAudio'));
           const role = message.role === 'user' ? 'user' : 'assistant';
           const voiceCtx = ttsService.getVoiceContext(role);
-          const audioBlob = await messageAudioService.getMessageAudioBlob(numericId, voiceCtx);
+          const audioBlob = await messageAudioService.getMessageAudioBlob(backendId, voiceCtx);
 
           if (!audioBlob) {
-            onAnnounce?.('Nao foi possivel gerar audio. Verifique a configuracao de voz no perfil ativo.');
+            onAnnounce?.(i18next.t('chat.message.announce.cannotGenerateAudio'));
             return;
           }
 
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-          const filename = `mensagem-${timestamp}.mp3`;
+          const prefix = i18next.t('chat.message.downloadAudioPrefix', 'message');
+          const filename = `${prefix}-${timestamp}.mp3`;
           messageAudioService.downloadAudioBlob(audioBlob, filename);
-          onAnnounce?.('Audio baixado com sucesso');
+          onAnnounce?.(i18next.t('chat.message.announce.audioDownloaded'));
         } catch (error) {
           console.error('Erro ao baixar audio:', error);
-          onAnnounce?.('Erro ao gerar audio');
+          onAnnounce?.(i18next.t('chat.message.announce.audioError'));
         }
       },
     });
@@ -373,73 +427,44 @@ export function getMessageMenuItems(
   });
 
   // 4b. Enviar para o editor (mensagem inteira)
-  if (onSendToEditor) {
+  if (onSendToEditor && sendToEditorTexts) {
     const contentMd = String(message.content || '');
     const contentPlain = stripMarkdown(contentMd);
+    const messageFormats: Array<EditorSendFormatOption<{ kind: 'message' }>> = [
+      {
+        id: 'markdown',
+        label: sendToEditorTexts.markdownFormatLabel,
+        payload: {
+          format: 'markdown',
+          title: sendToEditorTexts.markdownMessageTitle,
+          content: contentMd,
+          kind: 'message',
+        },
+      },
+      {
+        id: 'plain',
+        label: sendToEditorTexts.plainTextFormatLabel,
+        payload: {
+          format: 'plain',
+          title: sendToEditorTexts.plainTextMessageTitle,
+          content: contentPlain,
+          kind: 'message',
+        },
+      },
+    ];
     items.push({
       id: 'send-editor',
-      label: 'Enviar ao editor',
+      label: sendToEditorTexts.sendToEditorActionLabel,
       icon: '📝',
-      ariaLabel: 'Enviar ao editor',
-      submenu: [
-        {
-          id: 'send-editor-insert-md',
-          label: 'Inserir no cursor (Markdown)',
-          icon: '🧷',
-          ariaLabel: 'Inserir no cursor do editor (Markdown)',
-          action: () =>
-            onSendToEditor({
-              target: 'current',
-              format: 'markdown',
-              title: 'Mensagem (Markdown)',
-              content: contentMd,
-              kind: 'message',
-            }),
-        },
-        {
-          id: 'send-editor-new-md',
-          label: 'Novo documento (Markdown)',
-          icon: '📄',
-          ariaLabel: 'Criar novo documento no editor (Markdown)',
-          action: () =>
-            onSendToEditor({
-              target: 'new_document',
-              format: 'markdown',
-              title: 'Mensagem (Markdown)',
-              content: contentMd,
-              kind: 'message',
-            }),
-        },
-        { id: 'send-editor-sep-plain', separator: true },
-        {
-          id: 'send-editor-insert-plain',
-          label: 'Inserir no cursor (texto)',
-          icon: '🧷',
-          ariaLabel: 'Inserir no cursor do editor (texto)',
-          action: () =>
-            onSendToEditor({
-              target: 'current',
-              format: 'plain',
-              title: 'Mensagem (texto)',
-              content: contentPlain,
-              kind: 'message',
-            }),
-        },
-        {
-          id: 'send-editor-new-plain',
-          label: 'Novo documento (texto)',
-          icon: '📄',
-          ariaLabel: 'Criar novo documento no editor (texto)',
-          action: () =>
-            onSendToEditor({
-              target: 'new_document',
-              format: 'plain',
-              title: 'Mensagem (texto)',
-              content: contentPlain,
-              kind: 'message',
-            }),
-        },
-      ],
+      ariaLabel: sendToEditorTexts.sendToEditorActionLabel,
+      submenu: buildEditorDestinationSubmenu({
+        baseId: 'send-editor',
+        editorTargets,
+        formats: messageFormats,
+        onSendToEditor,
+        newDocumentLabel: sendToEditorTexts.newDocumentLabel,
+        fallbackDocumentTitle: sendToEditorTexts.fallbackDocumentTitle,
+      }),
     });
   }
 
@@ -464,7 +489,7 @@ export function getMessageMenuItems(
   }
 
   // Enviar blocos para o editor (acessibilidade: disponível no menu também)
-  if (onSendToEditor && (codeBlocks.length > 0 || links.length > 0 || tables.length > 0)) {
+  if (onSendToEditor && sendToEditorTexts && (codeBlocks.length > 0 || links.length > 0 || tables.length > 0)) {
     const submenu: MenuItem[] = [];
 
     if (codeBlocks.length > 0) {
@@ -473,49 +498,35 @@ export function getMessageMenuItems(
         const md = fenceCodeBlock({ code: block.code, language });
         return {
           id: `send-code-${i}`,
-          label: codeBlocks.length === 1 ? `Código ${language}` : `${language} (${i + 1})`,
+          label: codeBlocks.length === 1 ? sendToEditorTexts.codeSingleLabel(language) : sendToEditorTexts.codeIndexedLabel(language, i + 1),
           icon: '💻',
-          ariaLabel: `Enviar código ${language} ao editor`,
-          submenu: [
-            {
-              id: `send-code-${i}-insert`,
-              label: 'Inserir no cursor',
-              icon: '🧷',
-              ariaLabel: 'Inserir código no cursor do editor',
-              action: () =>
-                onSendToEditor({
-                  target: 'current',
-                  format: 'markdown',
-                  title: `Código ${language}`,
-                  content: md,
-                  kind: 'code',
-                  index: i,
-                }),
-            },
-            {
-              id: `send-code-${i}-new`,
-              label: 'Novo documento',
-              icon: '📄',
-              ariaLabel: 'Criar novo documento com este código',
-              action: () =>
-                onSendToEditor({
-                  target: 'new_document',
-                  format: 'markdown',
-                  title: `Código ${language}`,
-                  content: md,
-                  kind: 'code',
-                  index: i,
-                }),
-            },
-          ],
+          ariaLabel: sendToEditorTexts.codeAriaLabel(language),
+          submenu: buildEditorDestinationSubmenu({
+            baseId: `send-code-${i}`,
+            editorTargets,
+            formats: [{
+              id: 'markdown',
+              label: sendToEditorTexts.markdownFormatLabel,
+              payload: {
+                format: 'markdown',
+                title: sendToEditorTexts.codeTitle(language),
+                content: md,
+                kind: 'code',
+                index: i,
+              },
+            }],
+            onSendToEditor,
+            newDocumentLabel: sendToEditorTexts.newDocumentLabel,
+            fallbackDocumentTitle: sendToEditorTexts.fallbackDocumentTitle,
+          }),
         };
       });
 
       submenu.push({
         id: 'send-code',
-        label: codeBlocks.length === 1 ? 'Código' : `Códigos (${codeBlocks.length})`,
+        label: codeBlocks.length === 1 ? sendToEditorTexts.codeGroupSingleLabel : sendToEditorTexts.codeGroupMultipleLabel(codeBlocks.length),
         icon: '💻',
-        ariaLabel: codeBlocks.length === 1 ? 'Enviar código ao editor' : `Enviar ${codeBlocks.length} códigos ao editor`,
+        ariaLabel: codeBlocks.length === 1 ? sendToEditorTexts.codeGroupAriaSingle : sendToEditorTexts.codeGroupAriaMultiple(codeBlocks.length),
         submenu: codeMenu,
       });
     }
@@ -526,80 +537,48 @@ export function getMessageMenuItems(
         const html = tableToHTML(table);
         return {
           id: `send-table-${i}`,
-          label: tables.length === 1 ? 'Tabela' : `Tabela ${i + 1}`,
+          label: tables.length === 1 ? sendToEditorTexts.tableSingleLabel : sendToEditorTexts.tableIndexedLabel(i + 1),
           icon: '📊',
-          ariaLabel: `Enviar tabela ${i + 1} ao editor`,
-          submenu: [
-            {
-              id: `send-table-${i}-md`,
-              label: 'Inserir Markdown no cursor',
-              icon: '🧷',
-              ariaLabel: 'Inserir tabela (Markdown) no cursor do editor',
-              action: () =>
-                onSendToEditor({
-                  target: 'current',
+          ariaLabel: sendToEditorTexts.tableAriaLabel(i + 1),
+          submenu: buildEditorDestinationSubmenu({
+            baseId: `send-table-${i}`,
+            editorTargets,
+            formats: [
+              {
+                id: 'markdown',
+                label: sendToEditorTexts.markdownFormatLabel,
+                payload: {
                   format: 'markdown',
-                  title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
+                  title: tables.length > 1 ? sendToEditorTexts.markdownTableTitle(i + 1) : sendToEditorTexts.markdownTableTitle(),
                   content: md,
                   kind: 'table',
                   index: i,
-                }),
-            },
-            {
-              id: `send-table-${i}-md-new`,
-              label: 'Novo documento (Markdown)',
-              icon: '📄',
-              ariaLabel: 'Criar novo documento com a tabela (Markdown)',
-              action: () =>
-                onSendToEditor({
-                  target: 'new_document',
-                  format: 'markdown',
-                  title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
-                  content: md,
-                  kind: 'table',
-                  index: i,
-                }),
-            },
-            { id: `send-table-${i}-sep`, separator: true },
-            {
-              id: `send-table-${i}-html`,
-              label: 'Inserir HTML no cursor',
-              icon: '🧷',
-              ariaLabel: 'Inserir tabela (HTML) no cursor do editor',
-              action: () =>
-                onSendToEditor({
-                  target: 'current',
+                },
+              },
+              {
+                id: 'html',
+                label: sendToEditorTexts.htmlFormatLabel,
+                payload: {
                   format: 'html',
-                  title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
+                  title: tables.length > 1 ? sendToEditorTexts.htmlTableTitle(i + 1) : sendToEditorTexts.htmlTableTitle(),
                   content: html,
                   kind: 'table',
                   index: i,
-                }),
-            },
-            {
-              id: `send-table-${i}-html-new`,
-              label: 'Novo documento (HTML)',
-              icon: '📄',
-              ariaLabel: 'Criar novo documento com a tabela (HTML)',
-              action: () =>
-                onSendToEditor({
-                  target: 'new_document',
-                  format: 'html',
-                  title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
-                  content: html,
-                  kind: 'table',
-                  index: i,
-                }),
-            },
-          ],
+                },
+              },
+            ],
+            onSendToEditor,
+            newDocumentLabel: sendToEditorTexts.newDocumentLabel,
+            fallbackDocumentTitle: sendToEditorTexts.fallbackDocumentTitle,
+          }),
         };
       });
 
       submenu.push({
         id: 'send-tables',
-        label: tables.length === 1 ? 'Tabela' : `Tabelas (${tables.length})`,
+        label: tables.length === 1 ? sendToEditorTexts.tableGroupSingleLabel : sendToEditorTexts.tableGroupMultipleLabel(tables.length),
         icon: '📊',
-        ariaLabel: tables.length === 1 ? 'Enviar tabela ao editor' : `Enviar ${tables.length} tabelas ao editor`,
+        ariaLabel: tables.length === 1 ? sendToEditorTexts.tableGroupAriaSingle : sendToEditorTexts.tableGroupAriaMultiple(tables.length),
         submenu: tablesMenu,
       });
     }
@@ -612,56 +591,42 @@ export function getMessageMenuItems(
           id: `send-link-${i}`,
           label,
           icon: '🔗',
-          ariaLabel: `Enviar link ao editor: ${link.text}`,
-          submenu: [
-            {
-              id: `send-link-${i}-insert`,
-              label: 'Inserir no cursor',
-              icon: '🧷',
-              ariaLabel: 'Inserir link no cursor do editor',
-              action: () =>
-                onSendToEditor({
-                  target: 'current',
-                  format: 'markdown',
-                  title: 'Link',
-                  content: md,
-                  kind: 'link',
-                  index: i,
-                }),
-            },
-            {
-              id: `send-link-${i}-new`,
-              label: 'Novo documento',
-              icon: '📄',
-              ariaLabel: 'Criar novo documento com este link',
-              action: () =>
-                onSendToEditor({
-                  target: 'new_document',
-                  format: 'markdown',
-                  title: 'Link',
-                  content: md,
-                  kind: 'link',
-                  index: i,
-                }),
-            },
-          ],
+          ariaLabel: sendToEditorTexts.linkAriaLabel(link.text),
+          submenu: buildEditorDestinationSubmenu({
+            baseId: `send-link-${i}`,
+            editorTargets,
+            formats: [{
+              id: 'markdown',
+              label: sendToEditorTexts.markdownFormatLabel,
+              payload: {
+                format: 'markdown',
+                title: sendToEditorTexts.linkTitle,
+                content: md,
+                kind: 'link',
+                index: i,
+              },
+            }],
+            onSendToEditor,
+            newDocumentLabel: sendToEditorTexts.newDocumentLabel,
+            fallbackDocumentTitle: sendToEditorTexts.fallbackDocumentTitle,
+          }),
         };
       });
 
       submenu.push({
         id: 'send-links',
-        label: links.length === 1 ? 'Link' : `Links (${links.length})`,
+        label: links.length === 1 ? sendToEditorTexts.linkGroupSingleLabel : sendToEditorTexts.linkGroupMultipleLabel(links.length),
         icon: '🔗',
-        ariaLabel: links.length === 1 ? 'Enviar link ao editor' : `Enviar ${links.length} links ao editor`,
+        ariaLabel: links.length === 1 ? sendToEditorTexts.linkGroupAriaSingle : sendToEditorTexts.linkGroupAriaMultiple(links.length),
         submenu: linksMenu,
       });
     }
 
     items.push({
       id: 'send-blocks-editor',
-      label: 'Enviar blocos ao editor',
+      label: sendToEditorTexts.sendBlocksLabel,
       icon: '🧩',
-      ariaLabel: 'Enviar blocos ao editor',
+      ariaLabel: sendToEditorTexts.sendBlocksLabel,
       submenu,
     });
   }

@@ -15,12 +15,21 @@
 }
 
 /**
- * Container do announcer
+ * Container do announcer (evitar left:-10000px: alguns leitores ignoram regiões live
+ * demasiado afastadas do viewport).
  */
 .sr-announcer {
-  position: absolute;
-  left: -10000px;
+  position: fixed;
+  bottom: 0;
+  right: 0;
   width: 1px;
   height: 1px;
+  padding: 0;
+  margin: 0;
   overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  pointer-events: none;
+  z-index: 1;
 }

@@ -11,7 +11,12 @@ type TemplateData struct {
 	ToolCallingEnabled bool
 	EnabledTools       []string
 	EnabledToolCount   int
-	ConversationID     uint
+	ConversationID     string
+
+	// Task list context used by auto-loaded tasklist skills. When no task list is
+	// linked to the conversation, HasTaskLists remains false and templates render empty.
+	HasTaskLists bool
+	TaskLists    []TemplateTaskList
 
 	// Workspace context
 	WorkspaceName    string
@@ -20,6 +25,23 @@ type TemplateData struct {
 	ActiveTabType    string
 	Tabs             []TabInfo
 	TabCount         int
+
+	// Surface contém o contrato derivado da superfície que originou o envio.
+	Surface *SurfaceInfo
+}
+
+type TemplateTaskList struct {
+	ID          string
+	Title       string
+	Description string
+	Tasks       []TemplateTask
+}
+
+type TemplateTask struct {
+	ID         string
+	Title      string
+	Status     string
+	StatusIcon string
 }
 
 // TabInfo é uma visão simplificada de uma aba do workspace para templates de skills.
@@ -28,4 +50,12 @@ type TabInfo struct {
 	Type      string
 	ContentID string
 	IsActive  bool
+}
+
+// SurfaceInfo contém o contexto estruturado da superfície ativa para skills/templates.
+type SurfaceInfo struct {
+	Type    string
+	Title   string
+	State   map[string]any
+	Context map[string]any
 }

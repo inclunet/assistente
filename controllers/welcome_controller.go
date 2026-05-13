@@ -149,7 +149,7 @@ func NewWelcomeController(cfg WelcomeControllerConfig) *WelcomeController {
 
 // NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas.
 // Retorna true se não houver chave mestra ou provedor configurado.
-func (c *WelcomeController) NeedsWelcomeWizard() bool {
+func (c *WelcomeController) NeedsWelcomeWizard(ctx context.Context) bool {
 	store := credentials.NewDBStore()
 	hasMasterKey, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster)
 	if err != nil {
@@ -158,7 +158,7 @@ func (c *WelcomeController) NeedsWelcomeWizard() bool {
 
 	hasProviders := false
 	if c.providerSvc != nil {
-		count, _ := c.providerSvc.Count()
+		count, _ := c.providerSvc.Count(ctx)
 		hasProviders = count > 0
 	}
 
@@ -230,7 +230,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 				continue
 			}
 
-			setupResult, err := credentials.SetupMasterKey(store, masterPassword)
+			setupResult, err := credentials.SetupMasterKeyAdoptingKeychain(store, masterPassword)
 			if err != nil {
 				return false, err
 			}
@@ -639,7 +639,7 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 		}
 	}
 
-	if err := c.providerSvc.SetDefault(info.ID); err != nil {
+	if err := c.providerSvc.SetDefault(ctx, info.ID); err != nil {
 		log.Printf("[Wizard] Aviso: erro ao marcar provedor como default: %v", err)
 	}
 

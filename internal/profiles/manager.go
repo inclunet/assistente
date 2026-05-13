@@ -4,9 +4,12 @@ import (
 	"assistente/internal/configdir"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"golang.org/x/text/unicode/norm"
@@ -67,7 +70,15 @@ func (m *Manager) List() ([]ProfileInfo, error) {
 	return infos, nil
 }
 
-// Get carrega um perfil pelo slug (nome do arquivo sem extensão)
+// Get carrega um perfil pelo slug (nome do arquivo sem extensão).
+//
+// Aplica a normalização de routing fields (`normalizeRoutingFields`)
+// imediatamente após o decode: profiles legacy com
+// `Chat.LLMProvider`/`Chat.Model`/`Voice.Assistant.LLMProviderID`/
+// `Input.LLMProviderID` vazios passam a expor `$default` para o resto
+// do app. Isso elimina a ambiguidade "vazio quer dizer o quê?" no
+// callsite — para `providers.Service.ResolveProfileDefaults` o
+// significado de `$default` já é explícito e auditável.
 func (m *Manager) Get(slug string) (*Profile, error) {
 	filename := slug + ".json"
 
@@ -81,7 +92,31 @@ func (m *Manager) Get(slug string) (*Profile, error) {
 		return nil, fmt.Errorf("failed to parse profile %s: %w", slug, err)
 	}
 
+	normalizeRoutingFields(&profile)
 	return &profile, nil
+}
+
+// normalizeRoutingFields garante que campos de routing nunca sejam
+// vazios em profiles em memória. A semântica é simples: "campo vazio
+// num profile salvo é o equivalente legacy de `$default`". Profiles
+// novos (criados via wizard) já vêm com `$default` explicitamente
+// (ver DefaultProfile em types.go).
+func normalizeRoutingFields(p *Profile) {
+	if p == nil {
+		return
+	}
+	if strings.TrimSpace(p.Chat.LLMProvider) == "" {
+		p.Chat.LLMProvider = DefaultProviderSentinel
+	}
+	if strings.TrimSpace(p.Chat.Model) == "" {
+		p.Chat.Model = DefaultProviderSentinel
+	}
+	if strings.TrimSpace(p.Voice.Assistant.LLMProviderID) == "" {
+		p.Voice.Assistant.LLMProviderID = DefaultProviderSentinel
+	}
+	if strings.TrimSpace(p.Input.LLMProviderID) == "" {
+		p.Input.LLMProviderID = DefaultProviderSentinel
+	}
 }
 
 // Create cria um novo perfil no diretório home (~/.assistente/profiles/)
@@ -125,7 +160,19 @@ func (m *Manager) Duplicate(slug string) (string, error) {
 	return m.Create(&newProfile)
 }
 
-// Update atualiza o perfil no arquivo válido (maior prioridade)
+// Update atualiza o perfil no arquivo válido (maior prioridade).
+//
+// Invariante de unicidade do Active: apenas UM perfil pode ter `active: true`
+// no disco. Se o caller passar `profile.Active = true`, este método grava o
+// arquivo destino e em seguida desativa explicitamente todos os outros
+// perfis. Ou seja, `Update(slug, p)` com p.Active=true é equivalente a
+// `Update + SetActive(slug)` num único call.
+//
+// Sem essa garantia, qualquer caller (UI de edição, importação, migração)
+// que acidentalmente envie active=true introduz um segundo "ativo" no disco
+// e o `GetActive` passa a depender da ordem alfabética do filesystem para
+// escolher entre eles — comportamento não-determinístico já observado em
+// produção (perfis embedded com active=true gravados duas vezes).
 func (m *Manager) Update(slug string, profile *Profile) error {
 	if err := profile.Validate(); err != nil {
 		return err
@@ -138,7 +185,50 @@ func (m *Manager) Update(slug string, profile *Profile) error {
 		return err
 	}
 
-	return m.resolver.Write(filename, data)
+	if err := m.resolver.Write(filename, data); err != nil {
+		return err
+	}
+
+	if profile.Active {
+		if err := m.deactivateOthers(slug); err != nil {
+			log.Printf("[Profiles] Update(%q) marcou Active=true mas falhou ao desativar outros: %v", slug, err)
+		}
+	}
+
+	return nil
+}
+
+// deactivateOthers desativa todos os perfis exceto `keepSlug`.
+// Idempotente: perfis já inativos não são reescritos.
+func (m *Manager) deactivateOthers(keepSlug string) error {
+	files, err := m.resolver.List()
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Filename, ".json") {
+			continue
+		}
+		otherSlug := strings.TrimSuffix(f.Filename, ".json")
+		if otherSlug == keepSlug {
+			continue
+		}
+		other, err := m.Get(otherSlug)
+		if err != nil || !other.Active {
+			continue
+		}
+		other.Active = false
+		filename := otherSlug + ".json"
+		data, mErr := json.MarshalIndent(other, "", "  ")
+		if mErr != nil {
+			log.Printf("[Profiles] erro ao serializar %q durante deactivate: %v", otherSlug, mErr)
+			continue
+		}
+		if wErr := m.resolver.Write(filename, data); wErr != nil {
+			log.Printf("[Profiles] erro ao gravar %q desativado: %v", otherSlug, wErr)
+		}
+	}
+	return nil
 }
 
 // Delete remove o perfil válido (maior prioridade)
@@ -147,9 +237,19 @@ func (m *Manager) Delete(slug string) error {
 	return m.resolver.Delete(filename)
 }
 
-// GetActive retorna o perfil marcado como Active: true em seu JSON
-// NOTA: Migrado para usar Profile.Active em vez de config.json
-// Se nenhum estiver marcado, retorna o primeiro disponível (fallback)
+// GetActive retorna o perfil marcado como Active: true em seu JSON.
+//
+// Auto-cura: se mais de um perfil tiver Active=true, escolhe o mais
+// recentemente modificado (mtime do arquivo) e desativa os demais
+// gravando-os no disco. Sem essa auto-cura o "perfil ativo" passa a
+// depender da ordem alfabética do filesystem (já vimos `padrao` ser
+// silenciosamente escolhido sobre `programacao` porque vinha antes na
+// listagem). Aceitar a primeira ocorrência seria estável mas
+// invisivelmente errada para o user — que viu o picker mostrar `X`
+// mas o app continuar usando `Y`.
+//
+// Fallback (nenhum Active=true): prefere "padrao" sobre o primeiro perfil
+// arbitrário (a ordem de iteração de filesystem não é determinística).
 func (m *Manager) GetActive() (*Profile, error) {
 	files, err := m.resolver.List()
 	if err != nil {
@@ -158,6 +258,7 @@ func (m *Manager) GetActive() (*Profile, error) {
 
 	var firstProfile *Profile
 	var padraoProfile *Profile
+	var actives []activeCandidate
 
 	for _, f := range files {
 		if !strings.HasSuffix(f.Filename, ".json") {
@@ -175,7 +276,7 @@ func (m *Manager) GetActive() (*Profile, error) {
 		}
 
 		if profile.Active {
-			return profile, nil
+			actives = append(actives, activeCandidate{slug: slug, profile: profile, path: f.Path})
 		}
 
 		if slug == "padrao" {
@@ -183,7 +284,30 @@ func (m *Manager) GetActive() (*Profile, error) {
 		}
 	}
 
-	// Fallback: prefer "padrao" over arbitrary first profile (map iteration is non-deterministic)
+	if len(actives) == 1 {
+		return actives[0].profile, nil
+	}
+	if len(actives) > 1 {
+		winner := pickMostRecentActive(actives)
+		log.Printf("[Profiles] %d perfis com active=true detectados; mantendo %q (mais recente) e desativando demais", len(actives), winner.slug)
+		for _, c := range actives {
+			if c.slug == winner.slug {
+				continue
+			}
+			c.profile.Active = false
+			filename := c.slug + ".json"
+			data, err := json.MarshalIndent(c.profile, "", "  ")
+			if err != nil {
+				log.Printf("[Profiles] auto-cura: erro ao serializar %q: %v", c.slug, err)
+				continue
+			}
+			if err := m.resolver.Write(filename, data); err != nil {
+				log.Printf("[Profiles] auto-cura: erro ao desativar %q: %v", c.slug, err)
+			}
+		}
+		return winner.profile, nil
+	}
+
 	if padraoProfile != nil {
 		return padraoProfile, nil
 	}
@@ -192,6 +316,44 @@ func (m *Manager) GetActive() (*Profile, error) {
 	}
 
 	return DefaultProfile(), nil
+}
+
+// activeCandidate descreve um perfil candidato a "ativo" durante a
+// auto-cura de múltiplos active=true.
+type activeCandidate struct {
+	slug    string
+	profile *Profile
+	path    string
+}
+
+// pickMostRecentActive escolhe o candidato com mtime mais recente.
+// Em empate (ou erro de Stat), desempata pelo slug em ordem alfabética
+// para ser determinístico entre execuções.
+func pickMostRecentActive(actives []activeCandidate) activeCandidate {
+	if len(actives) == 0 {
+		return activeCandidate{}
+	}
+	best := actives[0]
+	bestTime, _ := statMTime(best.path)
+	for _, c := range actives[1:] {
+		t, _ := statMTime(c.path)
+		if t.After(bestTime) || (t.Equal(bestTime) && c.slug < best.slug) {
+			best = c
+			bestTime = t
+		}
+	}
+	return best
+}
+
+func statMTime(path string) (time.Time, error) {
+	if path == "" {
+		return time.Time{}, fmt.Errorf("empty path")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime(), nil
 }
 
 // SetActive marca um perfil como Active: true e desativa os outros
@@ -231,7 +393,9 @@ func (m *Manager) SetActive(slug string) error {
 
 		if other.Active {
 			other.Active = false
-			m.Update(otherSlug, other)
+			if updateErr := m.Update(otherSlug, other); updateErr != nil {
+				return fmt.Errorf("failed to deactivate profile %s: %w", otherSlug, updateErr)
+			}
 		}
 	}
 

@@ -3,7 +3,7 @@ package chat
 // TokenStats representa estatísticas de tokens de uma conversa ou turno — usada como
 // resposta da API Wails para o frontend.
 type TokenStats struct {
-	ConversationID   uint    `json:"conversationId"`
+	ConversationID string    `json:"conversationId"`
 	PromptTokens     int     `json:"promptTokens"`
 	CompletionTokens int     `json:"completionTokens"`
 	TotalTokens      int     `json:"totalTokens"`

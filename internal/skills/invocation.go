@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"fmt"
 	"log"
 	"strings"
 )
@@ -47,7 +46,7 @@ func ParseSlashCommand(content string) (slug string, args string, ok bool) {
 
 	// Valida que o slug parece um nome de skill (letras minúsculas, números, hifens)
 	for _, ch := range slug {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
 			return "", "", false
 		}
 	}
@@ -67,7 +66,7 @@ func ParseSlashCommand(content string) (slug string, args string, ok bool) {
 //
 // Retorna (resultado, encontrado, erro).
 // found=false significa que o conteúdo não é um slash command ou o skill não existe.
-func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID uint) (*InvocationResult, bool, error) {
+func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID string) (*InvocationResult, bool, error) {
 	slug, args, ok := ParseSlashCommand(userContent)
 	if !ok || mgr == nil {
 		return nil, false, nil
@@ -87,7 +86,7 @@ func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID uint)
 
 	// Substitui $ARGUMENTS, $N e variáveis de sessão no conteúdo
 	sessionVars := map[string]string{
-		"CLAUDE_SESSION_ID": fmt.Sprintf("%d", sessionID),
+		"CLAUDE_SESSION_ID": sessionID,
 	}
 	processedContent := SubstituteArguments(skill.Content, args, sessionVars)
 	processedContent = ProcessTemplate(processedContent, tplData)

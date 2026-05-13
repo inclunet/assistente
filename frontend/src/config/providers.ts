@@ -2,38 +2,30 @@
  * Metadados de provedores LLM: configuração de conexão e capacidades TTS.
  *
  * Centraliza informações que antes estavam espalhadas em heurísticas
- * (isTTSModel, isOpenAILike, standardModelPrefixes, FetchVoices fallback, etc.)
+ * (isTTSModel, isOpenAILike, standardModelPrefixes, etc.)
  *
  * Cada preset declara explicitamente:
  * - Configuração de conexão (URL, API key, API format)
- * - Capacidades de TTS (suporte, vozes estáticas, modelos, listagem dinâmica)
+ * - Capacidades de TTS (suporte, modelos, vozes, listagem dinâmica)
  */
 
-/** Separador usado em IDs compostos "voiceId::model" */
-export const COMPOSITE_VOICE_SEPARATOR = '::';
+import type { TTSSelectionMode } from '../services/tts/types';
 
-/** Cria um ID composto "voiceId::model" para o picker */
-export function makeCompositeVoiceId(voiceId: string, model: string): string {
-  return `${voiceId}${COMPOSITE_VOICE_SEPARATOR}${model}`;
+/** Modelo TTS estático conhecido. */
+export interface StaticTTSModel {
+  id: string;
+  name: string;
+  provider: string;
+  selectionMode: TTSSelectionMode;
+  description?: string;
 }
 
-/** Faz parse de um ID composto. Retorna null se não for composto. */
-export function parseCompositeVoiceId(compositeId: string): { voiceId: string; model: string } | null {
-  if (!compositeId.includes(COMPOSITE_VOICE_SEPARATOR)) return null;
-  const [voiceId, model] = compositeId.split(COMPOSITE_VOICE_SEPARATOR);
-  return { voiceId, model };
-}
-
-/** Voz estática com modelo TTS associado (ex: "Alloy HD" = voice alloy + model tts-1-hd) */
+/** Voz estática associada a modelos que usam voz separada. */
 export interface StaticVoice {
-  /** ID composto para o picker (ex: "alloy::tts-1-hd") */
+  /** ID da voz para a API (ex: "alloy") */
   id: string;
   /** Nome exibido no picker (ex: "Alloy HD") */
   name: string;
-  /** ID da voz para a API (ex: "alloy") */
-  voiceId: string;
-  /** Modelo TTS associado (ex: "tts-1", "tts-1-hd") */
-  model: string;
   /** Provedor TTS (ex: "openai") */
   provider: string;
   /** Idioma da voz (ex: "multilingual") */
@@ -44,9 +36,11 @@ export interface StaticVoice {
 export interface TTSCapabilities {
   /** Provedor suporta TTS via /audio/speech */
   supportsTTS: boolean;
-  /** Vozes estáticas com modelo embutido (ex: OpenAI alloy + tts-1-hd) */
+  /** Modelos estáticos conhecidos para provedores sem listagem dinâmica no backend. */
+  staticModels: StaticTTSModel[];
+  /** Vozes estáticas para modelos que exigem voz separada. */
   staticVoices: StaticVoice[];
-  /** Backend suporta listagem dinâmica de vozes/modelos via /v1/models */
+  /** Backend suporta listagem dinâmica de modelos via /v1/models */
   supportsDynamicVoiceListing: boolean;
 }
 
@@ -78,22 +72,31 @@ const OPENAI_VOICE_NAMES = [
   { id: 'verse', name: 'Verse' },
 ];
 
-/** Vozes OpenAI: cada voz gera uma entrada Standard (tts-1) e uma HD (tts-1-hd) */
-const OPENAI_VOICES: StaticVoice[] = OPENAI_VOICE_NAMES.flatMap(v => [
-  { id: makeCompositeVoiceId(v.id, 'tts-1'), voiceId: v.id, name: v.name, model: 'tts-1', provider: 'openai', language: 'multilingual' },
-  { id: makeCompositeVoiceId(v.id, 'tts-1-hd'), voiceId: v.id, name: `${v.name} HD`, model: 'tts-1-hd', provider: 'openai', language: 'multilingual' },
-]);
+const OPENAI_MODELS: StaticTTSModel[] = [
+  { id: 'tts-1', name: 'tts-1', provider: 'openai', selectionMode: 'model_and_voice' },
+  { id: 'tts-1-hd', name: 'tts-1-hd', provider: 'openai', selectionMode: 'model_and_voice' },
+  { id: 'gpt-4o-mini-tts', name: 'gpt-4o-mini-tts', provider: 'openai', selectionMode: 'model_and_voice' },
+];
+
+const OPENAI_VOICES: StaticVoice[] = OPENAI_VOICE_NAMES.map(v => ({
+  id: v.id,
+  name: v.name,
+  provider: 'openai',
+  language: 'multilingual',
+}));
 
 /** Capacidades TTS: sem suporte */
 const NO_TTS: TTSCapabilities = {
   supportsTTS: false,
+  staticModels: [],
   staticVoices: [],
   supportsDynamicVoiceListing: false,
 };
 
-/** Capacidades TTS: OpenAI real (vozes+modelos combinados no picker) */
+/** Capacidades TTS: OpenAI real (modelo e voz separados) */
 const OPENAI_TTS: TTSCapabilities = {
   supportsTTS: true,
+  staticModels: OPENAI_MODELS,
   staticVoices: OPENAI_VOICES,
   supportsDynamicVoiceListing: false,
 };
@@ -101,6 +104,7 @@ const OPENAI_TTS: TTSCapabilities = {
 /** Capacidades TTS: provedor local com listagem dinâmica (LocalAI, etc.) */
 const DYNAMIC_TTS: TTSCapabilities = {
   supportsTTS: true,
+  staticModels: [],
   staticVoices: [],
   supportsDynamicVoiceListing: true,
 };
@@ -258,6 +262,16 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     helpText: 'Running locally. Configure URL and optional API key if needed',
     apiFormat: 'openai',
     tts: DYNAMIC_TTS,
+  },
+  llamacpp: {
+    label: 'llama.cpp (server)',
+    defaultUrl: 'http://localhost:8080',
+    urlEditable: true,
+    apiKeyRequired: false,
+    testRequiresApiKey: false,
+    helpText: 'llama.cpp server (--api-server). API key is not required by default.',
+    apiFormat: 'openai',
+    tts: NO_TTS,
   },
 
   // --- Proxy ---

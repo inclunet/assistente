@@ -29,10 +29,10 @@ const now = new Date().toISOString();
 
 function conversationsFixture() {
   return [
-    { id: 1, title: 'Conversa sobre IA', created_at: now, updated_at: now, message_count: 5 },
-    { id: 2, title: 'Receita de bolo', created_at: now, updated_at: now, message_count: 3 },
-    { id: 3, title: 'Planejamento semanal', created_at: now, updated_at: now, message_count: 8 },
-    { id: 4, title: 'Revisão de código', created_at: now, updated_at: now, message_count: 12 },
+    { id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa sobre IA', created_at: now, updated_at: now, message_count: 5 },
+    { id: '01926b90-0000-7000-8000-000000000002', title: 'Receita de bolo', created_at: now, updated_at: now, message_count: 3 },
+    { id: '01926b90-0000-7000-8000-000000000003', title: 'Planejamento semanal', created_at: now, updated_at: now, message_count: 8 },
+    { id: '01926b90-0000-7000-8000-000000000004', title: 'Revisão de código', created_at: now, updated_at: now, message_count: 12 },
   ];
 }
 

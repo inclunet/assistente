@@ -49,7 +49,7 @@ func (m *Manager) List() ([]AllowlistInfo, error) {
 			Slug:        f.Name,
 			Name:        al.Name,
 			Description: al.Description,
-			RuleCount:   len(al.AutoApprove) + len(al.AlwaysDeny),
+			RuleCount:   len(al.AutoApprove) + len(al.AlwaysDeny) + len(al.CommandRules),
 		})
 	}
 
@@ -111,7 +111,16 @@ func (m *Manager) Delete(slug string) error {
 	return nil
 }
 
-// EnsureDefaults cria a allowlist padrão se nenhuma existir.
+// EnsureDefaults garante a allowlist padrao no boot.
+//
+// Comportamento:
+//   - Se o diretorio de allowlists esta vazio, cria padrao.json a partir de
+//     DefaultAllowlist().
+//   - Se ja ha allowlists no disco, nao sobrescreve nada — apenas executa o
+//     migrador idempotente para mesclar novas CommandRules em padrao.json
+//     quando o usuario ainda nao tem regras estruturadas para um determinado
+//     programa (ex.: usuarios pre-AEP-0060 nao perdem o beneficio das regras
+//     default de kubectl ao atualizar).
 func (m *Manager) EnsureDefaults() error {
 	files, err := m.resolver.List()
 	if err != nil {
@@ -126,7 +135,7 @@ func (m *Manager) EnsureDefaults() error {
 	}
 
 	if len(files) > 0 {
-		return nil // já existem allowlists
+		return m.migrateDefaultRules()
 	}
 
 	al := DefaultAllowlist()
@@ -135,6 +144,76 @@ func (m *Manager) EnsureDefaults() error {
 	}
 
 	log.Printf("[Allowlist] Allowlist padrão criada: %s", defaultSlug)
+	return nil
+}
+
+// migrateDefaultRules mescla CommandRules de DefaultAllowlist() em padrao.json
+// para programas que o usuario ainda nao customizou.
+//
+// E idempotente: se padrao.json ja contem qualquer regra para "kubectl", nao
+// tocamos em nenhuma regra de "kubectl" — respeitamos a customizacao mesmo
+// que ela cubra so um subcomando. So adicionamos regras de programas
+// totalmente ausentes em al.CommandRules.
+//
+// Custo: a funcao sempre executa Exists + loadFromFile (leitura + unmarshal)
+// para descobrir se ha programas ausentes; o que evitamos quando nada precisa
+// ser feito e a escrita no disco (e a re-validacao via save). Em outras
+// palavras, runs subsequentes sao "no-write" mas nao "no-I/O".
+//
+// Falhas aqui sao logadas mas nao bloqueiam o boot do app: a feature nova fica
+// indisponivel para o usuario (igual a hoje), mas o sistema sobe normal.
+func (m *Manager) migrateDefaultRules() error {
+	filename := defaultSlug + ".json"
+	if !m.resolver.Exists(filename) {
+		return nil
+	}
+
+	al, err := m.loadFromFile(filename)
+	if err != nil {
+		log.Printf("[Allowlist] Migracao pulada: erro ao ler %s: %v", filename, err)
+		return nil
+	}
+
+	existingPrograms := make(map[string]struct{}, len(al.CommandRules))
+	for _, rule := range al.CommandRules {
+		key := strings.ToLower(strings.TrimSpace(rule.Program))
+		if key == "" {
+			continue
+		}
+		existingPrograms[key] = struct{}{}
+	}
+
+	defaults := DefaultAllowlist().CommandRules
+	var added []CommandRule
+	addedPrograms := make(map[string]struct{})
+	for _, rule := range defaults {
+		key := strings.ToLower(strings.TrimSpace(rule.Program))
+		if key == "" {
+			continue
+		}
+		if _, ok := existingPrograms[key]; ok {
+			continue
+		}
+		added = append(added, rule)
+		addedPrograms[key] = struct{}{}
+	}
+
+	if len(added) == 0 {
+		return nil
+	}
+
+	al.CommandRules = append(al.CommandRules, added...)
+	if err := m.save(defaultSlug, al); err != nil {
+		// Nao falhamos o boot: logamos e seguimos como antes.
+		log.Printf("[Allowlist] Migracao falhou ao salvar %s: %v", filename, err)
+		return nil
+	}
+
+	programs := make([]string, 0, len(addedPrograms))
+	for p := range addedPrograms {
+		programs = append(programs, p)
+	}
+	log.Printf("[Allowlist] Migracao mesclou %d regra(s) estruturada(s) para programa(s): %s", len(added), strings.Join(programs, ", "))
 	return nil
 }
 
@@ -159,7 +238,18 @@ func (m *Manager) loadFromFile(filename string) (*Allowlist, error) {
 }
 
 // save serializa e salva uma allowlist.
+//
+// Antes de serializar, valida a allowlist com Allowlist.Validate(). Isso
+// rejeita decisoes desconhecidas, regras sem programa e wildcards "*" fora
+// da ultima posicao em Subcommands/Args. O fail-fast aqui complementa o
+// fail-closed em runtime (parseRuleDecision/matchSequence) — o problema
+// e detectado na origem (UI ou edicao manual) ao inves de virar uma
+// confirmacao silenciosa que engana o autor da regra.
 func (m *Manager) save(slug string, al *Allowlist) error {
+	if err := al.Validate(); err != nil {
+		return err
+	}
+
 	data, err := json.MarshalIndent(al, "", "  ")
 	if err != nil {
 		return fmt.Errorf("erro ao serializar allowlist: %w", err)
@@ -190,6 +280,10 @@ func DefaultAllowlist() *Allowlist {
 			// Git (somente leitura)
 			"git status", "git diff", "git log", "git branch", "git remote",
 			"git show", "git blame", "git stash list", "git tag",
+			"git rev-parse", "git remote get-url", "git --no-pager diff",
+			"git --no-pager log", "git --no-pager show",
+			// GitHub CLI (review de PR / leitura)
+			"gh pr view", "gh pr list", "gh api",
 			// Informações do sistema
 			"echo", "env", "printenv", "whoami", "hostname", "uname",
 			// Linguagens (versões e info)
@@ -213,6 +307,43 @@ func DefaultAllowlist() *Allowlist {
 			"sudo rm *",
 			"sudo shutdown",
 			"sudo reboot",
+		},
+		CommandRules: []CommandRule{
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"get"},
+				Args:        []string{"*"},
+				Decision:    "approve",
+				Description: "Leitura de recursos Kubernetes",
+			},
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"describe"},
+				Args:        []string{"*"},
+				Decision:    "approve",
+				Description: "Inspecao de recursos Kubernetes",
+			},
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"logs"},
+				Args:        []string{"*"},
+				Decision:    "approve",
+				Description: "Leitura de logs Kubernetes",
+			},
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"delete"},
+				Args:        []string{"*"},
+				Decision:    "confirm",
+				Description: "Exclusao de recursos Kubernetes exige confirmacao",
+			},
+			{
+				Program:     "kubectl",
+				Subcommands: []string{"patch"},
+				Args:        []string{"*"},
+				Decision:    "confirm",
+				Description: "Alteracao parcial de recursos Kubernetes exige confirmacao",
+			},
 		},
 		DefaultAction: "confirm",
 	}

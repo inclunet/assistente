@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useRef, useState } from 'react';
+import React, { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MessageOutlined,
@@ -7,6 +7,7 @@ import {
   CheckSquareOutlined,
 } from '@ant-design/icons';
 import { useWorkspaceStore, type WorkspaceTab, type TabType } from '../../store/workspaceStore';
+import { useShallow } from 'zustand/shallow';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { playBumpSound } from '../../services/audioFeedback';
@@ -22,9 +23,11 @@ const TAB_TYPE_ICONS: Record<TabType, ReactNode> = {
   tasklist: <CheckSquareOutlined />,
 };
 
-export function WorkspaceTabList() {
+export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
   const { t } = useTranslation();
-  const { workspace, workspaces, setActiveTab, removeTab, updateTab, reorderTabs, moveTabToWorkspace, renameTabContent } = useWorkspaceStore();
+  const { workspace, workspaces, setActiveTab, removeTab, updateTab, reorderTabs, moveTabToWorkspace, renameTabContent } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, setActiveTab: s.setActiveTab, removeTab: s.removeTab, updateTab: s.updateTab, reorderTabs: s.reorderTabs, moveTabToWorkspace: s.moveTabToWorkspace, renameTabContent: s.renameTabContent }))
+  );
   const { announce } = useAnnouncer();
   const tabListRef = useRef<HTMLDivElement>(null);
 
@@ -34,6 +37,8 @@ export function WorkspaceTabList() {
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const contextTargetRef = useRef<string | null>(null);
+  const lastEditIntentRef = useRef<'enter' | 'escape' | 'blur' | null>(null);
+  const pendingFocusTabIdRef = useRef<string | null>(null);
   const { menu: ctxMenu, openAtPoint: openCtx, closeMenu: closeCtx, onSelectItem: onCtxSelect } = useAnchoredContextMenu();
 
   const tabs = workspace?.tabs || [];
@@ -41,8 +46,21 @@ export function WorkspaceTabList() {
 
   const handleSelect = useCallback((tabId: string) => {
     if (!tabId) return;
+    const activeElement = document.activeElement as HTMLElement | null;
+    if (activeElement?.closest?.('button[role="tab"]')) {
+      pendingFocusTabIdRef.current = tabId;
+    }
     void setActiveTab(tabId);
   }, [setActiveTab]);
+
+  useLayoutEffect(() => {
+    if (!activeTabId || pendingFocusTabIdRef.current !== activeTabId) return;
+    const nextTab = tabListRef.current?.querySelector(
+      `button[role="tab"][data-tab-value="${activeTabId}"]`
+    ) as HTMLButtonElement | null;
+    nextTab?.focus();
+    pendingFocusTabIdRef.current = null;
+  }, [activeTabId]);
 
   const handleDelete = useCallback((tabId: string) => {
     if (tabs.length <= 1) return;
@@ -50,23 +68,43 @@ export function WorkspaceTabList() {
   }, [removeTab, tabs.length]);
 
   const startEditing = useCallback((tabId: string, currentTitle: string) => {
+    lastEditIntentRef.current = null;
     setEditingTabId(tabId);
     setEditingTitle(currentTitle);
-    setTimeout(() => {
-      editInputRef.current?.focus();
-      editInputRef.current?.select();
-    }, 10);
   }, []);
 
-  const confirmEditing = useCallback(() => {
+  useLayoutEffect(() => {
+    if (!editingTabId) return;
+    const input = editInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+    const rafId = requestAnimationFrame(() => {
+      const current = editInputRef.current;
+      if (!current || document.activeElement === current) return;
+      current.focus();
+      current.select();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [editingTabId]);
+
+  const confirmEditing = useCallback((source: 'enter' | 'blur') => {
+    lastEditIntentRef.current = source;
     const tabIdToFocus = editingTabId;
-    if (editingTabId && editingTitle.trim()) {
-      const trimmed = editingTitle.trim();
-      void updateTab(editingTabId, { title: trimmed });
-      renameTabContent(editingTabId, trimmed);
-    }
+    const tabIdToRename = editingTabId;
+    const trimmedTitle = editingTitle.trim();
+
     setEditingTabId(null);
     setEditingTitle('');
+
+    if (tabIdToRename && trimmedTitle) {
+      void updateTab(tabIdToRename, { title: trimmedTitle });
+      try {
+        renameTabContent(tabIdToRename, trimmedTitle);
+      } catch (error) {
+        console.error('[WorkspaceTabList] Rename tab content error:', error);
+      }
+    }
 
     if (tabIdToFocus) {
       setTimeout(() => {
@@ -79,6 +117,22 @@ export function WorkspaceTabList() {
       }, 10);
     }
   }, [editingTabId, editingTitle, updateTab, renameTabContent]);
+
+  useLayoutEffect(() => {
+    if (!editingTabId) return;
+
+    const handlePointerDownOutside = (event: PointerEvent) => {
+      const input = editInputRef.current;
+      const target = event.target as Node | null;
+      if (!input || !target) return;
+      if (input.contains(target)) return;
+      if (lastEditIntentRef.current) return;
+      confirmEditing('blur');
+    };
+
+    document.addEventListener('pointerdown', handlePointerDownOutside, true);
+    return () => document.removeEventListener('pointerdown', handlePointerDownOutside, true);
+  }, [confirmEditing, editingTabId]);
 
   const cancelEditing = useCallback(() => {
     setEditingTabId(null);
@@ -94,13 +148,23 @@ export function WorkspaceTabList() {
     if (e.key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
-      confirmEditing();
+      lastEditIntentRef.current = 'enter';
+      confirmEditing('enter');
     } else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
+      lastEditIntentRef.current = 'escape';
       cancelEditing();
     }
   }, [confirmEditing, cancelEditing]);
+
+  const handleEditBlur = useCallback(() => {
+    if (lastEditIntentRef.current) {
+      lastEditIntentRef.current = null;
+      return;
+    }
+    confirmEditing('blur');
+  }, [confirmEditing, editingTabId, editingTitle]);
 
   const handleListKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (editingTabId) return;
@@ -157,6 +221,7 @@ export function WorkspaceTabList() {
 
   const handleTabContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
     e.preventDefault();
+    e.stopPropagation();
     contextTargetRef.current = tabId;
     const tab = tabs.find(t => t.id === tabId);
     if (!tab) return;
@@ -275,13 +340,13 @@ export function WorkspaceTabList() {
         onDragOver={(e) => handleDragOver(e, tab.id)}
         onDragLeave={() => setDropTargetId(null)}
         onDrop={(e) => handleDrop(e, tab.id)}
+        onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
         onMouseDown={(e) => {
           if (e.button === 1 && tabs.length > 1) {
             e.preventDefault();
             void removeTab(tab.id);
           }
         }}
-        onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
       >
         <Tab
           value={tab.id}
@@ -298,10 +363,12 @@ export function WorkspaceTabList() {
             ref={editInputRef}
             type="text"
             className="ws-tabs__tab-edit"
+            autoFocus
             value={editingTitle}
             onChange={(e) => setEditingTitle(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
             onKeyDown={handleEditKeyDown}
-            onBlur={confirmEditing}
+            onBlur={handleEditBlur}
             onClick={(e) => e.stopPropagation()}
             aria-label={t('workspace.editTabTitle')}
           />
@@ -357,4 +424,4 @@ export function WorkspaceTabList() {
       />
     </>
   );
-}
+});

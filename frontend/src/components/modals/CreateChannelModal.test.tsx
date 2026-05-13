@@ -13,7 +13,7 @@ vi.mock('react-i18next', async (importOriginal) => {
   };
 });
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetChannelTemplates: () => getTemplatesSpy(),
   CreateChannelFromTemplate: (...args: unknown[]) => createFromTemplateSpy(...args),
 }));

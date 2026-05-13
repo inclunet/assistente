@@ -16,8 +16,8 @@ const activeWorkspace = {
   tabs: {
     active: 'tab-1',
     items: [
-      { id: 'tab-1', type: 'chat', conversation_id: 1, title: 'Conversa 1', position: 0 },
-      { id: 'tab-2', type: 'chat', conversation_id: 2, title: 'Conversa 2', position: 1 },
+      { id: 'tab-1', type: 'chat', conversation_id: '01970a9e-0001-7000-8000-000000000001', title: 'Conversa 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversation_id: '01970a9e-0002-7000-8000-000000000002', title: 'Conversa 2', position: 1 },
     ],
   },
 };
@@ -29,16 +29,20 @@ test.describe('Abas — context menu avançado', () => {
 
     await wails.waitForApp();
 
+    await expect(page.locator('button[role="tab"]')).toHaveCount(2);
     const firstTab = page.locator('button[role="tab"]').first();
+    await expect(firstTab).toBeVisible();
     await firstTab.click({ button: 'right' });
 
     // Usa .first() pois pode haver submenu também
     const menu = page.locator('[role="menu"]').first();
+    if (!(await menu.isVisible().catch(() => false))) {
+      await firstTab.dispatchEvent('mousedown', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+      await firstTab.dispatchEvent('contextmenu', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+    }
     await expect(menu).toBeVisible({ timeout: 3_000 });
-
-    const menuItems = menu.locator('[role="menuitem"]');
-    const count = await menuItems.count();
-    expect(count).toBeGreaterThanOrEqual(2);
+    await expect(page.locator('#close')).toBeVisible({ timeout: 3_000 });
+    await expect(page.locator('#close-others')).toBeVisible({ timeout: 3_000 });
   });
 
   test('Move To submenu aparece com outros workspaces', async ({ page, wails }) => {
@@ -48,21 +52,25 @@ test.describe('Abas — context menu avançado', () => {
 
     await wails.waitForApp();
 
+    await expect(page.locator('button[role="tab"]')).toHaveCount(2);
     const firstTab = page.locator('button[role="tab"]').first();
-    await firstTab.click({ button: 'right' });
+    await expect(firstTab).toBeVisible();
+    await firstTab.dispatchEvent('mousedown', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+    await firstTab.dispatchEvent('contextmenu', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
 
     const menu = page.locator('[role="menu"]').first();
+    if (!(await menu.isVisible().catch(() => false))) {
+      await firstTab.click({ button: 'right' });
+    }
     await expect(menu).toBeVisible({ timeout: 3_000 });
 
-    // Procura o item "Mover para..." ou "Move to..."
-    const moveToItem = menu.locator('[role="menuitem"]', { hasText: /mover|move/i });
-    if (await moveToItem.count() > 0) {
-      await moveToItem.first().hover();
+    const moveToItem = page.locator('#move-to');
+    await expect(moveToItem).toBeVisible({ timeout: 3_000 });
+    await moveToItem.evaluate((element: HTMLButtonElement) => element.click());
 
-      // O submenu deve mostrar outros workspaces
-      const submenuItem = page.locator('[role="menuitem"]', { hasText: 'Secundário' });
-      await expect(submenuItem).toBeVisible({ timeout: 3_000 });
-    }
+    // O submenu deve mostrar outros workspaces
+    const submenuItem = page.locator('#move-ws-2');
+    await expect(submenuItem).toBeVisible({ timeout: 3_000 });
   });
 
   test('selecionar workspace no submenu chama MoveWorkspaceTabTo', async ({ page, wails }) => {
@@ -72,50 +80,57 @@ test.describe('Abas — context menu avançado', () => {
 
     await wails.waitForApp();
 
+    await expect(page.locator('button[role="tab"]')).toHaveCount(2);
     const firstTab = page.locator('button[role="tab"]').first();
+    await expect(firstTab).toBeVisible();
     await firstTab.click({ button: 'right' });
 
     const menu = page.locator('[role="menu"]').first();
+    if (!(await menu.isVisible().catch(() => false))) {
+      await firstTab.dispatchEvent('mousedown', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+      await firstTab.dispatchEvent('contextmenu', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+    }
     await expect(menu).toBeVisible({ timeout: 3_000 });
 
-    const moveToItem = menu.locator('[role="menuitem"]', { hasText: /mover|move/i });
-    if (await moveToItem.count() > 0) {
-      await moveToItem.first().hover();
+    await menu.locator('#move-to').evaluate((element: HTMLButtonElement) => element.click());
 
-      const submenuItem = page.locator('[role="menuitem"]', { hasText: 'Secundário' });
-      const isVisible = await submenuItem.isVisible({ timeout: 3_000 }).catch(() => false);
+    const submenuItem = page.locator('#move-ws-2');
+    await expect(submenuItem).toBeVisible({ timeout: 3_000 });
+    await submenuItem.evaluate((element: HTMLButtonElement) => element.click());
 
-      if (isVisible) {
-        await submenuItem.click();
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'MoveWorkspaceTabTo'
+      );
+    }, { timeout: 5_000 });
 
-        await page.waitForFunction(() => {
-          return window.__wailsMock.getCallLog().some(
-            (c: { fn: string }) => c.fn === 'MoveWorkspaceTabTo'
-          );
-        }, { timeout: 5_000 });
-
-        const log = await wails.getCallLog();
-        const moveCalls = log.filter(c => c.fn === 'MoveWorkspaceTabTo');
-        expect(moveCalls.length).toBe(1);
-      }
-    }
+    const log = await wails.getCallLog();
+    const moveCalls = log.filter(c => c.fn === 'MoveWorkspaceTabTo');
+    expect(moveCalls.length).toBe(1);
   });
 
   test('Close Others via context menu chama RemoveWorkspaceTab', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', activeWorkspace);
+    await wails.setResponse('ListWorkspaces', twoWorkspaces);
     await wails.setResponse('RemoveWorkspaceTab', activeWorkspace);
 
     await wails.waitForApp();
 
+    await expect(page.locator('button[role="tab"]')).toHaveCount(2);
     const firstTab = page.locator('button[role="tab"]').first();
+    await expect(firstTab).toBeVisible();
     await firstTab.click({ button: 'right' });
 
     const menu = page.locator('[role="menu"]').first();
+    if (!(await menu.isVisible().catch(() => false))) {
+      await firstTab.dispatchEvent('mousedown', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+      await firstTab.dispatchEvent('contextmenu', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+    }
     await expect(menu).toBeVisible({ timeout: 3_000 });
 
-    const closeOthers = menu.locator('[role="menuitem"]', { hasText: /fechar outr|close other/i });
+    const closeOthers = page.locator('#close-others');
     if (await closeOthers.count() > 0) {
-      await closeOthers.first().click();
+      await menu.locator('#close-others').evaluate((element: HTMLButtonElement) => element.click());
 
       await page.waitForFunction(() => {
         return window.__wailsMock.getCallLog().some(

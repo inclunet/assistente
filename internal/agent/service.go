@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
+	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -41,11 +44,11 @@ type ServiceConfig struct {
 	MsgRepo          chat.MessageRepository
 	ToolExecutor     *tools.Executor
 	ResponseNotifier *messaging.ResponseNotifier
-	GetTokenStats    func(uint) (*chat.TokenStats, error)
-	TriggerSummarize func(uint)
+	GetTokenStats    func(string) (*chat.TokenStats, error)
+	TriggerSummarize func(context.Context, string)
 	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
 	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
-	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
+	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // Service encapsula a lógica do agentic loop sem dependências do Wails.
@@ -54,9 +57,9 @@ type Service struct {
 	msgRepo          chat.MessageRepository
 	toolExecutor     *tools.Executor
 	responseNotifier *messaging.ResponseNotifier
-	getTokenStats    func(uint) (*chat.TokenStats, error)
-	triggerSummarize func(uint)
-	onSpeechRequest  func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
+	getTokenStats    func(string) (*chat.TokenStats, error)
+	triggerSummarize func(context.Context, string)
+	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // NewService cria um novo Service com as dependências injetadas.
@@ -81,20 +84,23 @@ func (s *Service) RunAgenticLoop(
 	ctx context.Context,
 	messages []llm.Message,
 	params llm.ChatParams,
-	conversationID uint,
-	turnID uint,
+	conversationID string,
+	turnID string,
 	toolDefs []llm.ToolDefinition,
 	streamer llm.Streamer,
-	newHandler func(conversationID uint, iteration int) IterationHandler,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+	newHandler func(conversationID string, iteration int) IterationHandler,
+	resolveToolDefs func([]string) []llm.ToolDefinition,
 ) {
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
-		log.Printf("🔴 [AGENT] streamer nil na conversa %d", conversationID)
-		s.emitter.Emit("chat:stream", events.StreamEvent{
-			Content:        "",
-			Done:           true,
-			Error:          errMsg,
-			ConversationId: conversationID,
+		log.Printf("🔴 [AGENT] streamer nil na conversa %s", conversationID)
+		s.emitter.Emit("chat:done", ports.DoneEvent{
+			ConversationID: conversationID,
+			TurnID:         turnID,
+			SurfaceOrigin:  surfaceOrigin,
+			Reason:         "error",
+			ErrorMessage:   errMsg,
 		})
 		return
 	}
@@ -106,22 +112,43 @@ func (s *Service) RunAgenticLoop(
 	}
 
 	// Propaga contexto de invocação (tab type + arquivo ativo) para as tools
-	if params.TabType != "" {
+	if params.TabType != "" || params.ActiveFilePath != "" || params.SurfaceStateJSON != "" || params.SurfaceContextJSON != "" {
 		ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
 			TabType:        params.TabType,
 			ActiveFilePath: params.ActiveFilePath,
+			SurfaceState:   chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[agent] surface state payload"),
+			SurfaceContext: chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[agent] surface context payload"),
 		})
 	}
+
+	// AEP-0039 Fase 2: acumula estatísticas de tool calling ao longo do loop
+	var (
+		totalToolCallCount int
+		toolsUsedSet       = map[string]struct{}{}
+		lastUsage          llm.Usage
+	)
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Verifica cancelamento
 		if ctx.Err() != nil {
 			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
-			s.emitter.Emit("chat:stream", events.StreamEvent{
-				Content:        "",
-				Done:           true,
-				Error:          "Operação cancelada",
-				ConversationId: conversationID,
+			cancelToolsUsed := make([]string, 0, len(toolsUsedSet))
+			for name := range toolsUsedSet {
+				cancelToolsUsed = append(cancelToolsUsed, name)
+			}
+			sort.Strings(cancelToolsUsed)
+			s.emitter.Emit("chat:done", ports.DoneEvent{
+				ConversationID:   conversationID,
+				TurnID:           turnID,
+				SurfaceOrigin:    surfaceOrigin,
+				HadToolCalls:     totalToolCallCount > 0,
+				Reason:           "error",
+				ErrorMessage:     "Operação cancelada",
+				IterationCount:   iteration,
+				ToolCallCount:    totalToolCallCount,
+				ToolsUsed:        cancelToolsUsed,
+				PromptTokens:     lastUsage.PromptTokens,
+				CompletionTokens: lastUsage.CompletionTokens,
 			})
 			return
 		}
@@ -132,50 +159,247 @@ func (s *Service) RunAgenticLoop(
 
 		result := handler.Result()
 
+		// Acumula usage da última iteração (AEP-0039)
+		if result.Usage.PromptTokens > 0 || result.Usage.CompletionTokens > 0 {
+			lastUsage = result.Usage
+		}
+
 		// 2. Erro?
 		if result.Error != "" {
 			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
-			s.emitter.Emit("chat:stream", events.StreamEvent{
-				Content:        result.FullResponse,
-				Done:           true,
-				Error:          result.Error,
-				ConversationId: conversationID,
+			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
+			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
+			errToolsUsed := make([]string, 0, len(toolsUsedSet))
+			for name := range toolsUsedSet {
+				errToolsUsed = append(errToolsUsed, name)
+			}
+			sort.Strings(errToolsUsed)
+			s.emitter.Emit("chat:done", ports.DoneEvent{
+				ConversationID:   conversationID,
+				TurnID:           turnID,
+				SurfaceOrigin:    surfaceOrigin,
+				HadToolCalls:     totalToolCallCount > 0,
+				Reason:           "error",
+				ErrorMessage:     result.Error,
+				IterationCount:   iteration + 1,
+				ToolCallCount:    totalToolCallCount,
+				ToolsUsed:        errToolsUsed,
+				PromptTokens:     lastUsage.PromptTokens,
+				CompletionTokens: lastUsage.CompletionTokens,
 			})
 			return
 		}
 
 		// 3. Emite segment_done para verbalização e acumulação de segmentos no frontend
-		if result.FullResponse != "" || !result.IsDone {
-			s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
-				ConversationID: conversationID,
-				Content:        result.FullResponse,
-				Iteration:      iteration,
-				HasMore:        !result.IsDone,
-			})
-
-			// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior).
-			// Apenas para iterações intermediárias (!IsDone); na última iteração,
-			// SaveAndFinish emite chat:speak com origin=assistant_message e messageId real.
-			if s.onSpeechRequest != nil && result.FullResponse != "" && !result.IsDone {
-				s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
-			}
-		}
-
-		// 4. finish_reason="stop" → resposta final
+		//    Para iterações finais (IsDone), emite imediatamente.
+		//    Para iterações com tool calls, emite após execução com ToolsInIteration (AEP-0039).
 		if result.IsDone {
-			s.SaveAndFinish(conversationID, turnID, result, params.ProfileSlug)
+			if result.FullResponse != "" {
+				s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
+					ConversationID: conversationID,
+					TurnID:         turnID,
+					Content:        result.FullResponse,
+					Iteration:      iteration,
+					HasMore:        false,
+					SurfaceOrigin:  surfaceOrigin,
+				})
+			}
+
+			// 4. finish_reason="stop" → resposta final
+			s.SaveAndFinish(ctx, conversationID, turnID, result, params.ProfileSlug, &LoopStats{
+				IterationCount: iteration + 1,
+				ToolCallCount:  totalToolCallCount,
+				ToolsUsed:      toolsUsedSet,
+				LastUsage:      lastUsage,
+			}, surfaceOrigin)
 			return
 		}
 
-		// 5. finish_reason="tool_calls" → executar ferramentas
-		// 5a. Persiste MCP calls nativas desta iteração antes das bridge calls
-		if len(result.NativeMCPEvents) > 0 {
-			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
+		// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior).
+		if s.onSpeechRequest != nil && result.FullResponse != "" {
+			s.onSpeechRequest(conversationID, "", "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
 		}
 
-		// 5b. Salva mensagem do assistant com bridge tool_calls no banco
-		toolCallsJSON, _ := json.Marshal(result.ToolCalls)
+		// 5. finish_reason="tool_calls" → executar ferramentas
+		var iterationNativeTools []ports.ToolSummary
+
+		// 5a. Persiste MCP calls nativas desta iteração antes das bridge calls
+		if len(result.NativeMCPEvents) > 0 {
+			s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, iteration)
+			// AEP-0039: contabiliza MCP native tools
+			for _, ev := range result.NativeMCPEvents {
+				if ev.IsCompleted {
+					status := "ok"
+					if ev.Error != "" {
+						status = "error"
+					}
+					iterationNativeTools = append(iterationNativeTools, ports.ToolSummary{
+						Name:        ev.Name,
+						Status:      status,
+						Origin:      OriginMCPNative,
+						ServerLabel: ev.ServerLabel,
+					})
+					totalToolCallCount++
+					toolsUsedSet[ev.Name] = struct{}{}
+				}
+			}
+		}
+
+		// 5b. Adiciona mensagem do assistant ao histórico para próxima iteração
+		// (Persistência no DB movida para após execução — AEP-0039 Fase 5)
+		messages = append(messages, llm.Message{
+			Role:      "assistant",
+			Content:   result.FullResponse,
+			ToolCalls: result.ToolCalls,
+		})
+
+		// 5d. Executa ferramentas em paralelo
+		toolCalls := convertToolCalls(result.ToolCalls)
+		s.emitToolStarts(conversationID, turnID, result.ToolCalls, surfaceOrigin)
+		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
+
+		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
+		retriedCallIDs := make(map[string]struct{})
+		for i, execResult := range execResults {
+			if execResult.Result.IsError && execResult.Retryable && iteration < maxIterations-1 {
+				retriedCallIDs[execResult.CallID] = struct{}{}
+				retryOrigin, retryServerLabel := detectToolOrigin(execResult.ToolName)
+				retryName := extractLogicalToolName(execResult.ToolName)
+				// Emite tool_end para a tentativa que falhou (attempt=0)
+				EmitToolEnd(s.emitter, ports.ToolEndEvent{
+					ConversationID: conversationID,
+					TurnID:         turnID,
+					Name:           retryName,
+					CallID:         execResult.CallID,
+					Status:         "error",
+					Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
+					Origin:         retryOrigin,
+					ServerLabel:    retryServerLabel,
+					DurationMs:     execResult.DurationMs,
+					Attempt:        0,
+					SurfaceOrigin:  surfaceOrigin,
+				})
+				// Emite tool_failure com willRetry=true
+				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
+					ConversationID: conversationID,
+					TurnID:         turnID,
+					Name:           retryName,
+					CallID:         execResult.CallID,
+					ErrorKind:      string(execResult.ErrorKind),
+					Retryable:      true,
+					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
+					DurationMs:     execResult.DurationMs,
+					Origin:         retryOrigin,
+					WillRetry:      true,
+					Attempt:        0,
+					SurfaceOrigin:  surfaceOrigin,
+				})
+				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", retryName, execResult.ErrorKind)
+				// Emite tool_start para a nova tentativa (attempt=1)
+				EmitToolStart(s.emitter, ports.ToolStartEvent{
+					ConversationID: conversationID,
+					TurnID:         turnID,
+					Name:           retryName,
+					CallID:         execResult.CallID,
+					Args:           toolCalls[i].Function.Arguments,
+					Origin:         retryOrigin,
+					ServerLabel:    retryServerLabel,
+					Attempt:        1,
+					SurfaceOrigin:  surfaceOrigin,
+				})
+				retried := s.toolExecutor.ExecuteOne(ctx, toolCalls[i])
+				execResults[i] = retried
+			}
+		}
+
+		// 5f. Emit tool_end/failure events e acumula stats
+		var iterationTools []ports.ToolSummary
+		for _, execResult := range execResults {
+			origin, serverLabel := detectToolOrigin(execResult.ToolName)
+			logicalName := extractLogicalToolName(execResult.ToolName)
+			status := "ok"
+			if execResult.Result.IsError {
+				status = "error"
+			}
+			attempt := 0
+			if _, wasRetried := retriedCallIDs[execResult.CallID]; wasRetried {
+				attempt = 1
+			}
+			EmitToolEnd(s.emitter, ports.ToolEndEvent{
+				ConversationID: conversationID,
+				TurnID:         turnID,
+				Name:           logicalName,
+				CallID:         execResult.CallID,
+				Status:         status,
+				Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
+				Origin:         origin,
+				ServerLabel:    serverLabel,
+				DurationMs:     execResult.DurationMs,
+				Attempt:        attempt,
+				SurfaceOrigin:  surfaceOrigin,
+			})
+
+			// AEP-0039 Fase 3: emite tool_failure para erros classificados (sem retry)
+			if execResult.Result.IsError && execResult.ErrorKind != "" {
+				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
+					ConversationID: conversationID,
+					TurnID:         turnID,
+					Name:           logicalName,
+					CallID:         execResult.CallID,
+					ErrorKind:      string(execResult.ErrorKind),
+					Retryable:      execResult.Retryable,
+					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
+					DurationMs:     execResult.DurationMs,
+					Origin:         origin,
+					Attempt:        attempt,
+					SurfaceOrigin:  surfaceOrigin,
+				})
+			}
+
+			// AEP-0039: acumula stats
+			iterationTools = append(iterationTools, ports.ToolSummary{
+				Name:        logicalName,
+				Status:      status,
+				ErrorKind:   string(execResult.ErrorKind),
+				DurationMs:  execResult.DurationMs,
+				Origin:      origin,
+				ServerLabel: serverLabel,
+			})
+			totalToolCallCount++
+			toolsUsedSet[logicalName] = struct{}{}
+		}
+		toolDefs = expandToolDefsFromCatalogResults(toolDefs, execResults, resolveToolDefs)
+
+		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário.
+		// Usa cópia para truncamento; o conteúdo original é preservado para persistência no DB.
+		toolContents := make([]string, len(execResults))
+		for i, r := range execResults {
+			toolContents[i] = r.Result.Content
+		}
+		preCheck := PreCheckContextWindow(params.ContextWindow, params.MaxTokens, messages, toolContents)
+
+		// 5f-iii. AEP-0039 Fase 5: persiste assistant tool_calls com metadata enriquecida
+		enrichedCalls := make([]llm.EnrichedToolCall, len(result.ToolCalls))
+		for i, tc := range result.ToolCalls {
+			tcOrigin, tcServerLabel := detectToolOrigin(tc.Function.Name)
+			enrichedCalls[i] = llm.EnrichedToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: llm.FunctionCall{
+					Name:      extractLogicalToolName(tc.Function.Name),
+					Arguments: tc.Function.Arguments,
+				},
+				Origin:      tcOrigin,
+				ServerLabel: tcServerLabel,
+				Iteration:   iteration,
+			}
+			if i < len(execResults) {
+				enrichedCalls[i].DurationMs = execResults[i].DurationMs
+			}
+		}
+		toolCallsJSON, _ := json.Marshal(enrichedCalls)
 		_, err := s.msgRepo.AddAssistantToolMessage(
+			ctx,
 			conversationID,
 			turnID,
 			result.FullResponse,
@@ -185,39 +409,19 @@ func (s *Service) RunAgenticLoop(
 		)
 		if err != nil {
 			if errors.Is(err, chat.ErrConversationDeleted) {
-				log.Printf("[Agent] conversa %d deletada — abortando", conversationID)
+				log.Printf("[Agent] conversa %s deletada — abortando", conversationID)
 				return
 			}
 			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
 		}
 
-		// 5c. Adiciona mensagem do assistant ao histórico para próxima iteração
-		messages = append(messages, llm.Message{
-			Role:      "assistant",
-			Content:   result.FullResponse,
-			ToolCalls: result.ToolCalls,
-		})
-
-		// 5d. Executa ferramentas em paralelo
-		toolCalls := convertToolCalls(result.ToolCalls)
-		s.emitToolStarts(conversationID, result.ToolCalls)
-		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
-
-		// 5e. Salva resultados e adiciona ao histórico
-		for _, execResult := range execResults {
-			status := "ok"
-			if execResult.Result.IsError {
-				status = "error"
-			}
-			s.emitter.Emit("chat:tool_end", ports.ToolEndEvent{
-				ConversationID: conversationID,
-				Name:           execResult.ToolName,
-				CallID:         execResult.CallID,
-				Status:         status,
-				Summary:        truncateString(execResult.Result.Content, 200),
-			})
-
+		// 5f-iv. Persiste resultados originais no DB e adiciona conteúdo (possivelmente
+		// truncado) ao histórico de mensagens enviado ao LLM.
+		for i, execResult := range execResults {
+			// Persiste conteúdo original (antes do pre-check de context window, mas
+			// possivelmente já truncado por MaxResultSize do Executor) no banco
 			_, err := s.msgRepo.AddToolResultMessage(
+				ctx,
 				conversationID,
 				turnID,
 				execResult.Result.Content,
@@ -225,20 +429,25 @@ func (s *Service) RunAgenticLoop(
 			)
 			if err != nil {
 				if errors.Is(err, chat.ErrConversationDeleted) {
-					log.Printf("[Agent] conversa %d deletada — abortando", conversationID)
+					log.Printf("[Agent] conversa %s deletada — abortando", conversationID)
 					return
 				}
 				log.Printf("[Agent] erro ao salvar resultado de tool %s: %v", execResult.ToolName, err)
 			}
 
+			// Para o histórico LLM, usa versão truncada se pre-check aplicou truncamento
+			content := execResult.Result.Content
+			if preCheck.Truncated {
+				content = toolContents[i]
+			}
 			messages = append(messages, llm.Message{
 				Role:       "tool",
-				Content:    execResult.Result.Content,
+				Content:    content,
 				ToolCallID: execResult.CallID,
 			})
 		}
 
-		// 5f. Emite token stats atualizadas em tempo real
+		// 5g. Emite token stats atualizadas em tempo real
 		if s.getTokenStats != nil {
 			if stats, err := s.getTokenStats(conversationID); err == nil && stats != nil {
 				s.emitter.Emit("chat:token_stats_update", ports.TokenStatsUpdateEvent{
@@ -260,34 +469,82 @@ func (s *Service) RunAgenticLoop(
 				})
 			}
 		}
+
+		// 5g. Emite segment_done com resumo de tools da iteração (AEP-0039)
+		allIterTools := append(iterationNativeTools, iterationTools...)
+		s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
+			ConversationID:   conversationID,
+			TurnID:           turnID,
+			Content:          result.FullResponse,
+			Iteration:        iteration,
+			HasMore:          true,
+			ToolsInIteration: allIterTools,
+			SurfaceOrigin:    surfaceOrigin,
+		})
 	}
 
 	// Atingiu limite de iterações
-	log.Printf("[Agent] limite de %d iterações atingido para conversa %d", maxIterations, conversationID)
+	log.Printf("[Agent] limite de %d iterações atingido para conversa %s", maxIterations, conversationID)
 	s.emitter.Emit("chat:stream", events.StreamEvent{
 		Content:        "Limite de iterações do agente atingido. A resposta pode estar incompleta.",
 		Done:           true,
 		ConversationId: conversationID,
+		TurnID:         turnID,
+		SurfaceOrigin:  surfaceOrigin,
 	})
+	toolsUsedList := make([]string, 0, len(toolsUsedSet))
+	for name := range toolsUsedSet {
+		toolsUsedList = append(toolsUsedList, name)
+	}
+	sort.Strings(toolsUsedList)
 	s.emitter.Emit("chat:done", ports.DoneEvent{
-		ConversationID: conversationID,
+		ConversationID:   conversationID,
+		TurnID:           turnID,
+		HadToolCalls:     totalToolCallCount > 0,
+		Reason:           "limit_reached",
+		IterationCount:   maxIterations,
+		ToolCallCount:    totalToolCallCount,
+		ToolsUsed:        toolsUsedList,
+		PromptTokens:     lastUsage.PromptTokens,
+		CompletionTokens: lastUsage.CompletionTokens,
+		SurfaceOrigin:    surfaceOrigin,
 	})
 
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(conversationID)
+			s.triggerSummarize(ctx, conversationID)
 		}()
 	}
 }
 
+// LoopStats acumula estatísticas do agentic loop para inclusão no chat:done (AEP-0039 Fase 2).
+type LoopStats struct {
+	IterationCount int
+	ToolCallCount  int
+	ToolsUsed      map[string]struct{}
+	LastUsage      llm.Usage
+}
+
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
 // Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
-func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResult, profileSlug string) {
-	var savedMsgID uint
-	if conversationID > 0 && result.FullResponse != "" {
-		if len(result.NativeMCPEvents) > 0 && turnID > 0 {
-			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
+// loopStats é opcional — se nil, apenas os campos enriquecidos derivados das estatísticas do loop ficam vazios.
+func (s *Service) SaveAndFinish(
+	ctx context.Context,
+	conversationID, turnID string,
+	result AgenticResult,
+	profileSlug string,
+	loopStats *LoopStats,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+) {
+	var savedMsgID string
+	if conversationID != "" && result.FullResponse != "" {
+		if len(result.NativeMCPEvents) > 0 && turnID != "" {
+			finalIteration := 0
+			if loopStats != nil && loopStats.IterationCount > 0 {
+				finalIteration = loopStats.IterationCount - 1
+			}
+			s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, finalIteration)
 		}
 
 		opts := chat.MessageOptions{
@@ -300,12 +557,12 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 			TotalTokens:      result.Usage.TotalTokens,
 			Model:            result.Model,
 		}
-		if turnID > 0 {
+		if turnID != "" {
 			opts.TurnID = &turnID
 		}
 
 		var err error
-		savedMsgID, err = chat.SaveAssistantMessage(s.msgRepo, opts)
+		savedMsgID, err = chat.SaveAssistantMessage(ctx, s.msgRepo, opts)
 		if errors.Is(err, chat.ErrConversationGone) {
 			return
 		}
@@ -323,7 +580,9 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		Content:        result.FullResponse,
 		Done:           true,
 		ConversationId: conversationID,
+		TurnID:         turnID,
 		FullResponse:   result.FullResponse,
+		SurfaceOrigin:  surfaceOrigin,
 	})
 
 	// TTS proativo: dispara ANTES de chat:done pois chat:done causa cleanup dos listeners no frontend
@@ -331,16 +590,48 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
 	}
 
-	s.emitter.Emit("chat:done", ports.DoneEvent{
+	hadTools := false
+	if loopStats != nil {
+		hadTools = loopStats.ToolCallCount > 0 || len(result.NativeMCPEvents) > 0
+	}
+	doneEvent := ports.DoneEvent{
 		ConversationID:     conversationID,
+		TurnID:             turnID,
 		AssistantMessageID: savedMsgID,
-		HadToolCalls:       turnID > 0,
-	})
+		HadToolCalls:       hadTools,
+		Reason:             "completed",
+		SurfaceOrigin:      surfaceOrigin,
+	}
+	if loopStats != nil {
+		doneEvent.IterationCount = loopStats.IterationCount
+		doneEvent.ToolCallCount = loopStats.ToolCallCount
+		if len(loopStats.ToolsUsed) > 0 {
+			list := make([]string, 0, len(loopStats.ToolsUsed))
+			for name := range loopStats.ToolsUsed {
+				list = append(list, name)
+			}
+			sort.Strings(list)
+			doneEvent.ToolsUsed = list
+		}
+		if loopStats.LastUsage.PromptTokens > 0 {
+			doneEvent.PromptTokens = loopStats.LastUsage.PromptTokens
+		}
+		if loopStats.LastUsage.CompletionTokens > 0 {
+			doneEvent.CompletionTokens = loopStats.LastUsage.CompletionTokens
+		}
+	}
+	if doneEvent.PromptTokens == 0 && result.Usage.PromptTokens > 0 {
+		doneEvent.PromptTokens = result.Usage.PromptTokens
+	}
+	if doneEvent.CompletionTokens == 0 && result.Usage.CompletionTokens > 0 {
+		doneEvent.CompletionTokens = result.Usage.CompletionTokens
+	}
+	s.emitter.Emit("chat:done", doneEvent)
 
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(conversationID)
+			s.triggerSummarize(ctx, conversationID)
 		}()
 	}
 
@@ -349,8 +640,8 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 
 // emitTokenStats queries token usage for a conversation and emits chat:token_stats
 // plus a chat:context_warning if the context window is near or at capacity.
-func (s *Service) emitTokenStats(conversationID uint) {
-	if conversationID == 0 || s.getTokenStats == nil {
+func (s *Service) emitTokenStats(conversationID string) {
+	if conversationID == "" || s.getTokenStats == nil {
 		return
 	}
 	stats, err := s.getTokenStats(conversationID)
@@ -369,7 +660,7 @@ func (s *Service) emitTokenStats(conversationID uint) {
 		MessageCount:     stats.MessageCount,
 	})
 	if stats.IsCritical {
-		log.Printf("[Context] conversa %d em CRÍTICO: %0.1f%% (%d/%d tokens)",
+		log.Printf("[Context] conversa %s em CRÍTICO: %0.1f%% (%d/%d tokens)",
 			conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 		s.emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
 			ConversationID: conversationID,
@@ -381,7 +672,7 @@ func (s *Service) emitTokenStats(conversationID uint) {
 			ContextLimit: stats.ContextLimit,
 		})
 	} else if stats.IsNearLimit {
-		log.Printf("[Context] conversa %d próxima do limite: %0.1f%% (%d/%d tokens)",
+		log.Printf("[Context] conversa %s próxima do limite: %0.1f%% (%d/%d tokens)",
 			conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 		s.emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
 			ConversationID: conversationID,
@@ -395,36 +686,65 @@ func (s *Service) emitTokenStats(conversationID uint) {
 	}
 }
 
-func (s *Service) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
+func (s *Service) emitToolStarts(conversationID string, turnID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	for _, call := range calls {
-		s.emitter.Emit("chat:tool_start", ports.ToolStartEvent{
+		origin, serverLabel := detectToolOrigin(call.Function.Name)
+		name := extractLogicalToolName(call.Function.Name)
+		EmitToolStart(s.emitter, ports.ToolStartEvent{
 			ConversationID: conversationID,
-			Name:           call.Function.Name,
+			TurnID:         turnID,
+			Name:           name,
 			CallID:         call.ID,
 			Args:           call.Function.Arguments,
+			Origin:         origin,
+			ServerLabel:    serverLabel,
+			SurfaceOrigin:  surfaceOrigin,
 		})
 	}
 }
 
+// detectToolOrigin determina origin e serverLabel a partir do nome da tool.
+// Tools MCP bridge seguem o formato "mcp_{serverSlug}__{toolName}".
+func detectToolOrigin(toolName string) (origin, serverLabel string) {
+	if strings.HasPrefix(toolName, "mcp_") {
+		if idx := strings.Index(toolName, "__"); idx > 4 {
+			return OriginMCPBridge, toolName[4:idx]
+		}
+	}
+	return OriginBuiltin, ""
+}
+
+// extractLogicalToolName retorna o nome lógico da tool, sem prefixo MCP bridge.
+// Para "mcp_github__search_code" retorna "search_code".
+// Para tools builtin/native retorna o nome inalterado.
+func extractLogicalToolName(toolName string) string {
+	if strings.HasPrefix(toolName, "mcp_") {
+		if idx := strings.Index(toolName, "__"); idx > 4 {
+			return toolName[idx+2:]
+		}
+	}
+	return toolName
+}
+
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
 // uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
-func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents []llm.MCPToolEvent) {
-	var toolCalls []llm.ToolCall
+// AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
+func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
+	var toolCalls []llm.EnrichedToolCall
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
 			continue
 		}
-		name := ev.Name
-		if ev.ServerLabel != "" {
-			name = ev.ServerLabel + "/" + ev.Name
-		}
-		toolCalls = append(toolCalls, llm.ToolCall{
+		toolCalls = append(toolCalls, llm.EnrichedToolCall{
 			ID:   ev.ID,
 			Type: "function",
 			Function: llm.FunctionCall{
-				Name:      name,
+				Name:      ev.Name,
 				Arguments: ev.Arguments,
 			},
+			Origin:      OriginMCPNative,
+			ServerLabel: ev.ServerLabel,
+			Iteration:   iteration,
 		})
 	}
 	if len(toolCalls) == 0 {
@@ -437,7 +757,7 @@ func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents [
 		return
 	}
 
-	_, err = s.msgRepo.AddAssistantToolMessage(conversationID, turnID, "", string(toolCallsJSON), "", "")
+	_, err = s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", "")
 	if err != nil {
 		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
 		return
@@ -451,7 +771,7 @@ func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents [
 		if ev.Error != "" {
 			content = "ERROR: " + ev.Error
 		}
-		_, err := s.msgRepo.AddToolResultMessage(conversationID, turnID, content, ev.ID)
+		_, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID)
 		if err != nil {
 			log.Printf("[MCP Native] Erro ao salvar tool result (id=%s): %v", ev.ID, err)
 		}
@@ -460,7 +780,7 @@ func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents [
 
 // recoverFromPanic captura panic e delega o tratamento para events.HandlePanic.
 // recover() deve ser chamado diretamente no corpo da função adiada — não pode ser delegado.
-func (s *Service) recoverFromPanic(conversationID uint, source string) {
+func (s *Service) recoverFromPanic(conversationID string, source string) {
 	r := recover()
 	events.HandlePanic(s.emitter, conversationID, source, r)
 }
@@ -480,9 +800,84 @@ func convertToolCalls(llmCalls []llm.ToolCall) []tools.ToolCall {
 	return result
 }
 
+func selectedToolsFromCatalog(results []tools.ToolExecutionResult) []string {
+	var selected []string
+	seen := map[string]struct{}{}
+	for _, result := range results {
+		if result.ToolName != tools.ToolCatalogName || result.Result.IsError {
+			continue
+		}
+		var payload struct {
+			SelectedTools []string `json:"selected_tools"`
+		}
+		if err := json.Unmarshal([]byte(result.Result.Content), &payload); err != nil {
+			log.Printf("[Agent] resposta inválida de %s: %v", tools.ToolCatalogName, err)
+			continue
+		}
+		for _, name := range payload.SelectedTools {
+			name = strings.TrimSpace(name)
+			if name == "" || name == tools.ToolCatalogName {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			selected = append(selected, name)
+		}
+	}
+	return selected
+}
+
+func appendUniqueToolDefs(existing []llm.ToolDefinition, additions ...llm.ToolDefinition) []llm.ToolDefinition {
+	if len(additions) == 0 {
+		return existing
+	}
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	for _, def := range existing {
+		seen[def.Function.Name] = struct{}{}
+	}
+	for _, def := range additions {
+		if def.Function.Name == "" {
+			continue
+		}
+		if _, ok := seen[def.Function.Name]; ok {
+			continue
+		}
+		existing = append(existing, def)
+		seen[def.Function.Name] = struct{}{}
+	}
+	return existing
+}
+
+func expandToolDefsFromCatalogResults(
+	existing []llm.ToolDefinition,
+	results []tools.ToolExecutionResult,
+	resolveToolDefs func([]string) []llm.ToolDefinition,
+) []llm.ToolDefinition {
+	if resolveToolDefs == nil {
+		return existing
+	}
+	return appendUniqueToolDefs(existing, resolveToolDefs(selectedToolsFromCatalog(results))...)
+}
+
 func truncateString(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+
+	const suffix = "..."
+	if maxLen <= len(suffix) {
+		return suffix[:maxLen]
+	}
+
+	cutoff := maxLen - len(suffix)
+	// UTF-8 safe: recua até achar limite de rune válido
+	for cutoff > 0 && !utf8.RuneStart(s[cutoff]) {
+		cutoff--
+	}
+	return s[:cutoff] + suffix
 }

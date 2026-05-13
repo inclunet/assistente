@@ -22,7 +22,7 @@ import {
   ListCredentials,
   UpsertCredential,
   DeleteCredential,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import { channels } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -90,7 +90,7 @@ type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying'
 
 export default function ChannelsPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady: channelsHandleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'channels-page' });

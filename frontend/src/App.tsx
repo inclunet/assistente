@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { GetConfig, RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/main/App";
+import { GetConfig, RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/app/App";
 import { EventsOn } from "@wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
+import { useAuthStore } from './store/authStore';
 import { useUIStore } from './store/uiStore';
 import { useChatStore } from './store/chatStore';
 import { parseDeepLink, executeDeepLink } from './lib/deepLinks';
@@ -15,6 +16,8 @@ import { useTheme } from './hooks/useTheme';
 import { ConfigProvider } from 'antd';
 import type { Locale } from 'antd/es/locale';
 import { getAntdTheme } from './theme/antdTheme';
+import { waitForWailsBridge } from './lib/waitForWailsBridge';
+import { AuthGate } from './components/auth/AuthGate';
 
 function useAntdLocale(lang: string): Locale | undefined {
     const [locale, setLocale] = useState<Locale | undefined>(undefined);
@@ -38,8 +41,14 @@ function App() {
     const navigate = useNavigate();
     const antLocale = useAntdLocale(i18n.language);
     const { setConfig, setLoading, setError } = useSettingsStore();
-    const { addToast } = useUIStore();
-    const { handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleExternalIncoming } = useChatStore();
+    const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+    const authUser = useAuthStore((s) => s.user);
+    const addToast = useUIStore((s) => s.addToast);
+    const handleConversationDeleted = useChatStore((s) => s.handleConversationDeleted);
+    const handleConversationCleared = useChatStore((s) => s.handleConversationCleared);
+    const handleConversationRenamed = useChatStore((s) => s.handleConversationRenamed);
+    const handleDatabaseReset = useChatStore((s) => s.handleDatabaseReset);
+    const handleExternalIncoming = useChatStore((s) => s.handleExternalIncoming);
     const wasQuestionnaireOpenRef = useRef(false);
     const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 
@@ -53,12 +62,13 @@ function App() {
     const uiCancel = useQuestionnaireUIStore((s) => s.cancel);
 
     useEffect(() => {
-        // Aguardar Wails estar pronto antes de carregar configuração
+        const controller = new AbortController();
+
         const loadConfig = async () => {
-            // Verificar se Wails está disponível
-            const wailsWindow = window as Window & { go?: unknown };
-            if (typeof window === 'undefined' || !wailsWindow.go) {
-                setTimeout(loadConfig, 100);
+            await waitForWailsBridge({ signal: controller.signal });
+            if (controller.signal.aborted) return;
+            if (!isAuthenticated || !authUser) {
+                setLoading(false);
                 return;
             }
 
@@ -108,35 +118,43 @@ function App() {
                 setError(t('app.config.loadError'));
                 addToast(t('app.config.loadError'), 'error');
             } finally {
-                setLoading(false);
+                if (!controller.signal.aborted) {
+                    setLoading(false);
+                }
             }
         };
 
-        loadConfig();
-    }, [setConfig, setLoading, setError, addToast]);
+        void loadConfig().catch((error) => {
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                return;
+            }
+            console.error('Erro ao carregar configuração:', error);
+        });
+        return () => controller.abort();
+    }, [setConfig, setLoading, setError, addToast, isAuthenticated, authUser]);
 
     // Escuta eventos de conversa deletada/limpa
     useEffect(() => {
         const unsubs: Array<() => void> = [];
 
         unsubs.push(EventsOn('conversation:deleted', (data: unknown) => {
-            const eventData = data as { conversation_id?: number };
+            const eventData = data as { conversation_id?: string };
             if (eventData.conversation_id) {
                 handleConversationDeleted(eventData.conversation_id);
             }
         }));
 
         unsubs.push(EventsOn('conversation:cleared', (data: unknown) => {
-            const eventData = data as { conversation_id?: number };
+            const eventData = data as { conversation_id?: string };
             if (eventData.conversation_id) {
                 handleConversationCleared(eventData.conversation_id);
             }
         }));
 
         unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
-            const eventData = data as { conversation_id?: number; new_title?: string };
-            if (eventData.conversation_id && eventData.new_title) {
-                handleConversationRenamed(eventData.conversation_id, eventData.new_title);
+            const eventData = data as { conversationId?: string; newTitle?: string };
+            if (eventData.conversationId && eventData.newTitle) {
+                handleConversationRenamed(eventData.conversationId, eventData.newTitle);
             }
         }));
 
@@ -187,7 +205,7 @@ function App() {
                 from?: string;
                 fromId?: string;
                 text?: string;
-                conversationId?: number;
+                conversationId?: string;
                 newConversation?: boolean;
             };
             handleExternalIncoming({
@@ -195,7 +213,7 @@ function App() {
                 from: eventData.from || '',
                 fromId: eventData.fromId || '',
                 text: eventData.text || '',
-                conversationId: eventData.conversationId || 0,
+                conversationId: eventData.conversationId || '',
                 newConversation: eventData.newConversation || false,
             });
         });
@@ -261,13 +279,13 @@ function App() {
         if (questionnaireOpen && questionnaireData) {
             try {
                 await RespondQuestionnaire(questionnaireData.id, answers, false);
+                setQuestionnaireOpen(false);
+                setQuestionnaireData(null);
+                restoreFocus();
             } catch (err) {
                 console.error('[App] Erro ao enviar questionário:', err);
                 addToast(t('app.questionnaire.submitError'), 'error');
             }
-            setQuestionnaireOpen(false);
-            setQuestionnaireData(null);
-            restoreFocus();
             return;
         }
 
@@ -280,12 +298,13 @@ function App() {
         if (questionnaireOpen && questionnaireData) {
             try {
                 await RespondQuestionnaire(questionnaireData.id, {}, true);
+                setQuestionnaireOpen(false);
+                setQuestionnaireData(null);
+                restoreFocus();
             } catch (err) {
                 console.error('[App] Erro ao cancelar questionário:', err);
+                addToast(t('app.questionnaire.submitError'), 'error');
             }
-            setQuestionnaireOpen(false);
-            setQuestionnaireData(null);
-            restoreFocus();
             return;
         }
 
@@ -297,16 +316,16 @@ function App() {
     return (
         <ConfigProvider theme={getAntdTheme(theme)} locale={antLocale}>
             <ScreenReaderAnnouncer />
-            <Outlet />
-
-            <ConfirmHost />
-
-            <QuestionnaireDialog
-                isOpen={effectiveQuestionnaireOpen}
-                data={effectiveQuestionnaireData}
-                onSubmit={handleQuestionnaireSubmit}
-                onCancel={handleQuestionnaireCancel}
-            />
+            <AuthGate>
+                <Outlet />
+                <ConfirmHost />
+                <QuestionnaireDialog
+                    isOpen={effectiveQuestionnaireOpen}
+                    data={effectiveQuestionnaireData}
+                    onSubmit={handleQuestionnaireSubmit}
+                    onCancel={handleQuestionnaireCancel}
+                />
+            </AuthGate>
         </ConfigProvider>
     )
 }

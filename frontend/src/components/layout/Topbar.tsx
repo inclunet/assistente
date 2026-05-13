@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useShallow } from 'zustand/shallow';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
 import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
@@ -54,7 +55,9 @@ export function Topbar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { announce } = useAnnouncer();
-  const { workspace, workspaces, switchWorkspace, createWorkspace, renameWorkspace } = useWorkspaceStore();
+  const { workspace, workspaces, switchWorkspace, createWorkspace, renameWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, switchWorkspace: s.switchWorkspace, createWorkspace: s.createWorkspace, renameWorkspace: s.renameWorkspace }))
+  );
   const isWorkspaceRoute = pathname === '/' || pathname === '';
   const toolbarRef = useToolbarKeyboardNav();
   const menuButtonRef = useRef<MenuButtonRef>(null);

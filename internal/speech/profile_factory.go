@@ -1,6 +1,8 @@
 package speech
 
 import (
+	"context"
+
 	"assistente/internal/credentials"
 	"assistente/internal/profiles"
 	"log"
@@ -12,7 +14,7 @@ import (
 // providers.Service.ResolveProfileDefaults antes de chamar esta função).
 //
 // Retorna nil se p for nil.
-func NewSpeechManagerFromProfile(p *profiles.Profile, registry ProviderRegistry, credMgr *credentials.Manager) *SpeechManager {
+func NewSpeechManagerFromProfile(ctx context.Context, p *profiles.Profile, registry ProviderRegistry, credMgr *credentials.Manager) *SpeechManager {
 	if p == nil {
 		return nil
 	}
@@ -39,7 +41,7 @@ func NewSpeechManagerFromProfile(p *profiles.Profile, registry ProviderRegistry,
 		baseURL = cfg.BaseURL
 		credPattern = cfg.CredentialPattern
 		if cfg.CredentialPattern != "" {
-			if auth, err := credMgr.GetByPattern(cfg.CredentialPattern); err == nil && auth != nil {
+			if auth, err := credMgr.GetByPatternWithContext(ctx, cfg.CredentialPattern); err == nil && auth != nil {
 				apiKey = auth.Token
 			} else if err != nil {
 				log.Printf("[Speech] ERRO ao resolver credencial para pattern '%s' (provider=%s): %v",
@@ -64,6 +66,7 @@ func NewSpeechManagerFromProfile(p *profiles.Profile, registry ProviderRegistry,
 			CredentialPattern: credPattern,
 			Voice:             role.VoiceID,
 			Model:             role.Model,
+			SelectionMode:     role.SelectionMode,
 			Rate:              role.Rate,
 			Pitch:             role.Pitch,
 			Volume:            role.Volume,

@@ -115,21 +115,19 @@ test.describe('Perfis — edição', () => {
     const grid = page.locator('[role="grid"]');
     await grid.focus();
     await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
 
     // F2 para editar inline
     await page.keyboard.press('F2');
 
-    const editInput = page.locator('[role="grid"] input[type="text"]');
-    const isEditing = await editInput.isVisible().catch(() => false);
+    const editInput = page.locator('.cell-edit-input');
+    await expect(editInput).toBeVisible({ timeout: 5_000 });
+    await editInput.fill('Nome Editado');
+    await editInput.press('Enter');
 
-    if (isEditing) {
-      await editInput.fill('Nome Editado');
-      await editInput.press('Enter');
-
-      const log = await wails.getCallLog();
-      const updateCalls = log.filter(c => c.fn === 'UpdateProfile');
-      expect(updateCalls.length).toBeGreaterThanOrEqual(1);
-    }
+    const log = await wails.getCallLog();
+    const updateCalls = log.filter(c => c.fn === 'UpdateProfile');
+    expect(updateCalls.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -146,35 +144,33 @@ test.describe('Perfis — exclusão', () => {
     // Aguarda o perfil custom aparecer no grid
     await page.waitForSelector('[role="gridcell"]', { timeout: 5_000 });
 
-    // Seleciona o perfil custom via click programático (contorna overlay .profiles-empty)
-    await page.evaluate(() => {
-      const cells = document.querySelectorAll('[role="gridcell"]');
-      for (const cell of cells) {
-        if (cell.textContent?.includes('Programador')) {
-          (cell as HTMLElement).click();
-          break;
-        }
-      }
-    });
+    // Navega via teclado no grid, respeitando o foco lazy e o roving tabindex.
+    const grid = page.locator('[role="grid"]');
+    await grid.focus();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForFunction(() => {
+      const currentGrid = document.querySelector('[role="grid"]');
+      return currentGrid?.contains(document.activeElement) ?? false;
+    }, { timeout: 5_000 });
+    await page.keyboard.press('ArrowDown');
 
     // Aguarda o botão Delete ficar habilitado (seleção ativa perfil inativo)
-    const deleteBtn = page.locator('.toolbar button', { hasText: /excluir|delete/i });
-    const isEnabled = await deleteBtn.last().isEnabled({ timeout: 3_000 }).catch(() => false);
-
-    if (!isEnabled) {
-      // Tenta via teclado como fallback
-      const grid = page.locator('[role="grid"]');
-      await grid.click({ force: true });
-      await page.keyboard.press('ArrowDown');
-      await page.keyboard.press('ArrowDown');
-    }
+    await page.waitForFunction(() => {
+      const button = document.querySelector('button[aria-label="Delete"]') as HTMLButtonElement | null;
+      return !!button && !button.disabled;
+    }, { timeout: 5_000 });
 
     // Monta handler de diálogo nativo (window.confirm)
     page.on('dialog', dialog => dialog.accept());
 
     // Clica no botão Delete
-    await expect(deleteBtn.last()).toBeEnabled({ timeout: 3_000 });
-    await deleteBtn.last().click();
+    await page.evaluate(() => {
+      const button = document.querySelector('button[aria-label="Delete"]') as HTMLButtonElement | null;
+      if (!button || button.disabled) {
+        throw new Error('Delete button is not enabled');
+      }
+      button.click();
+    });
 
     // Aguarda o processamento
     await page.waitForFunction(() => {

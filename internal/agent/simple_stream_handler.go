@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"log"
 
+	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 )
@@ -13,19 +15,26 @@ import (
 type SimpleStreamHandler struct {
 	BaseStreamHandler
 	svc           *Service
-	userMessageID uint   // ID of the user message (root of this response thread)
+	ctx           context.Context
+	userMessageID string // ID of the user message (root of this response thread)
 	profileSlug   string // Profile slug for TTS resolution
 }
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
 // It is created by the owning Service so it can close over its dependencies.
-func (s *Service) NewSimpleStreamHandler(conversationID, userMessageID uint, profileSlug string) *SimpleStreamHandler {
+func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, userMessageID string, profileSlug string, surfaceOrigin *ports.ChatSurfaceOrigin) *SimpleStreamHandler {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &SimpleStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        s.emitter,
 			ConversationID: conversationID,
+			TurnID:         userMessageID,
+			SurfaceOrigin:  surfaceOrigin,
 		},
 		svc:           s,
+		ctx:           ctx,
 		userMessageID: userMessageID,
 		profileSlug:   profileSlug,
 	}
@@ -38,6 +47,8 @@ func (h *SimpleStreamHandler) OnError(err string) {
 		Done:           true,
 		Error:          err,
 		ConversationId: h.ConversationID,
+		TurnID:         h.TurnID,
+		SurfaceOrigin:  h.SurfaceOrigin,
 	})
 }
 
@@ -67,12 +78,12 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 	}
 
 	// Delegate save, notify, and event emission to the Service (same as agentic path).
-	// turnID=0 → the assistant message is a root-level message (no parent thread node).
-	h.svc.SaveAndFinish(h.ConversationID, 0, AgenticResult{
+	// The user message remains a standalone item; the assistant response carries the turn id.
+	h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, AgenticResult{
 		FullResponse: finalContent,
 		Reasoning:    accumulatedReasoning,
 		Usage:        usage,
 		Model:        model,
 		IsDone:       true,
-	}, h.profileSlug)
+	}, h.profileSlug, nil, h.SurfaceOrigin)
 }

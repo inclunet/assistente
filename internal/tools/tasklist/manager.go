@@ -1,35 +1,39 @@
 package tasklist
 
-import "assistente/internal/database"
+import (
+	"context"
+
+	"assistente/internal/database"
+)
 
 // TaskListManager abstrai as operações de gerenciamento de task lists,
 // permitindo que as tools interajam sem acoplamento direto ao App.
 type TaskListManager interface {
-	CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error)
-	GetTaskList(id uint) (*database.TaskList, error)
-	GetAllTaskLists() ([]database.TaskList, error)
-	GetTaskListStats(taskListID uint) (map[string]interface{}, error)
-	UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error
-	ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error)
-	SetTaskListValidationPolicy(taskListID uint, policyJSON string) error
-	UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error
-	GetTaskCountsByStatus(taskListID uint) (map[int]int64, error)
-	CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error)
-	CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*database.Task, error)
-	GetTask(id uint) (*database.Task, error)
-	FindTaskByCode(taskListID uint, code string) (*database.Task, error)
-	ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error)
-	ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error)
-	UpdateTask(id uint, title, description, code, link string) error
-	UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error
-	UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error
-	UpdateTaskStatus(id uint, newStatusID int) error
-	MoveTaskToList(taskID uint, targetTaskListID uint) (*database.Task, error)
-	DeleteTask(id uint) error
-	GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error)
-	CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error)
-	UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error)
-	UpdateTaskNote(noteID uint, content string) error
-	GetTaskNotes(taskID uint) ([]database.TaskNote, error)
-	GetTaskNote(noteID uint) (*database.TaskNote, error)
+	CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error)
+	GetTaskList(ctx context.Context, id string) (*database.TaskList, error)
+	GetAllTaskLists(ctx context.Context) ([]database.TaskList, error)
+	GetTaskListStats(ctx context.Context, taskListID string) (map[string]interface{}, error)
+	UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error
+	ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error)
+	SetTaskListValidationPolicy(ctx context.Context, taskListID string, policyJSON string) error
+	UpdateWorkflowFull(ctx context.Context, taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error
+	GetTaskCountsByStatus(ctx context.Context, taskListID string) (map[int]int64, error)
+	CreateTask(ctx context.Context, taskListID string, title, description, code, link string, parentID *string) (*database.Task, error)
+	CreateTaskFull(ctx context.Context, taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*database.Task, error)
+	GetTask(ctx context.Context, id string) (*database.Task, error)
+	FindTaskByCode(ctx context.Context, taskListID string, code string) (*database.Task, error)
+	ResolveTaskRef(ctx context.Context, taskListID *string, taskListSlug string, taskID *string, code string) (string, error)
+	ResolveTaskIDByTaskCode(ctx context.Context, taskListID *string, taskCode string) (string, error)
+	UpdateTask(ctx context.Context, id string, title, description, code, link string) error
+	UpdateTaskFull(ctx context.Context, id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error
+	UpdateTaskAssignee(ctx context.Context, id string, assigneeName, assigneeID string) error
+	UpdateTaskStatus(ctx context.Context, id string, newStatusID int) error
+	MoveTaskToList(ctx context.Context, taskID string, targetTaskListID string) (*database.Task, error)
+	DeleteTask(ctx context.Context, id string) error
+	GetWorkflow(ctx context.Context, taskListID string) (*database.TaskListWorkflow, error)
+	CreateTaskNote(ctx context.Context, taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error)
+	UpsertTaskNoteByExternal(ctx context.Context, p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error)
+	UpdateTaskNote(ctx context.Context, noteID string, content string) error
+	GetTaskNotes(ctx context.Context, taskID string) ([]database.TaskNote, error)
+	GetTaskNote(ctx context.Context, noteID string) (*database.TaskNote, error)
 }

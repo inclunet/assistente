@@ -61,9 +61,9 @@ func MoveFileWithPolicy(oldPath string, newPath string, overwrite bool, policy P
 		// Fallback: copiar + remover (ex: cross-device)
 		in, openErr := os.Open(src)
 		if openErr != nil {
-			return fmt.Errorf("falha ao mover arquivo: %w", err)
+			return fmt.Errorf("falha ao mover arquivo: %w", openErr)
 		}
-		defer in.Close()
+		defer func() { _ = in.Close() }()
 
 		flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 		if !overwrite {
@@ -71,13 +71,13 @@ func MoveFileWithPolicy(oldPath string, newPath string, overwrite bool, policy P
 		}
 		out, createErr := os.OpenFile(dst, flags, info.Mode())
 		if createErr != nil {
-			return fmt.Errorf("falha ao mover arquivo: %w", err)
+			return fmt.Errorf("falha ao mover arquivo: %w", createErr)
 		}
 		_, copyErr := io.Copy(out, in)
 		closeErr := out.Close()
 		if copyErr != nil {
 			_ = os.Remove(dst)
-			return fmt.Errorf("falha ao mover arquivo: %w", err)
+			return fmt.Errorf("falha ao mover arquivo: %w", copyErr)
 		}
 		if closeErr != nil {
 			_ = os.Remove(dst)

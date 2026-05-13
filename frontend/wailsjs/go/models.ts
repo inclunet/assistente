@@ -1,10 +1,31 @@
 export namespace allowlist {
 	
+	export class CommandRule {
+	    program: string;
+	    subcommands?: string[];
+	    args?: string[];
+	    decision: string;
+	    description?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandRule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.program = source["program"];
+	        this.subcommands = source["subcommands"];
+	        this.args = source["args"];
+	        this.decision = source["decision"];
+	        this.description = source["description"];
+	    }
+	}
 	export class Allowlist {
 	    name: string;
 	    description?: string;
 	    auto_approve: string[];
 	    always_deny: string[];
+	    command_rules?: CommandRule[];
 	    default_action: string;
 	
 	    static createFrom(source: any = {}) {
@@ -17,6 +38,7 @@ export namespace allowlist {
 	        this.description = source["description"];
 	        this.auto_approve = source["auto_approve"];
 	        this.always_deny = source["always_deny"];
+	        this.command_rules = source["command_rules"];
 	        this.default_action = source["default_action"];
 	    }
 	}
@@ -56,7 +78,7 @@ export namespace channels {
 	    profile?: string;
 	    max_history?: number;
 	    max_contacts?: number;
-	    conversations?: Record<string, number>;
+	    conversations?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChannelConfig(source);
@@ -254,10 +276,10 @@ export namespace contacts {
 export namespace database {
 	
 	export class ChatMessage {
-	    id: number;
-	    conversationId: number;
-	    parentId?: number;
-	    turnId?: number;
+	    id: string;
+	    conversationId: string;
+	    parentId?: string;
+	    turnId?: string;
 	    role: string;
 	    content: string;
 	    reasoning?: string;
@@ -319,18 +341,18 @@ export namespace database {
 		}
 	}
 	export class Conversation {
-	    id: number;
+	    id: string;
 	    title: string;
 	    channel?: string;
 	    contact_id?: string;
 	    // Go type: time
-	    created_at: any;
+	    createdAt: any;
 	    // Go type: time
-	    updated_at: any;
+	    updatedAt: any;
 	    messages?: ChatMessage[];
 	    message_count: number;
 	    summary?: string;
-	    summary_up_to_message_id?: number;
+	    summary_up_to_message_id?: string;
 	    summarizing_in_progress?: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -343,8 +365,8 @@ export namespace database {
 	        this.title = source["title"];
 	        this.channel = source["channel"];
 	        this.contact_id = source["contact_id"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
 	        this.message_count = source["message_count"];
 	        this.summary = source["summary"];
@@ -371,9 +393,9 @@ export namespace database {
 		}
 	}
 	export class MessageSearchResult {
-	    conversation_id: number;
+	    conversation_id: string;
 	    conversation_title: string;
-	    message_id: number;
+	    message_id: string;
 	    role: string;
 	    snippet: string;
 	    rank: number;
@@ -414,8 +436,8 @@ export namespace database {
 		}
 	}
 	export class TaskNote {
-	    id: number;
-	    task_id: number;
+	    id: string;
+	    task_id: string;
 	    type: number;
 	    content: string;
 	    author_name?: string;
@@ -426,9 +448,9 @@ export namespace database {
 	    // Go type: time
 	    external_updated_at?: any;
 	    // Go type: time
-	    created_at: any;
+	    createdAt: any;
 	    // Go type: time
-	    updated_at: any;
+	    updatedAt: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskNote(source);
@@ -446,8 +468,8 @@ export namespace database {
 	        this.external_id = source["external_id"];
 	        this.external_parent_id = source["external_parent_id"];
 	        this.external_updated_at = this.convertValues(source["external_updated_at"], null);
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -469,15 +491,15 @@ export namespace database {
 		}
 	}
 	export class TaskListWorkflow {
-	    id: number;
-	    task_list_id: number;
+	    id: string;
+	    task_list_id: string;
 	    statuses: string;
 	    allowed_transitions: string;
 	    initial_status_id: number;
 	    // Go type: time
-	    created_at: any;
+	    createdAt: any;
 	    // Go type: time
-	    updated_at: any;
+	    updatedAt: any;
 	    task_list?: TaskList;
 	
 	    static createFrom(source: any = {}) {
@@ -491,8 +513,8 @@ export namespace database {
 	        this.statuses = source["statuses"];
 	        this.allowed_transitions = source["allowed_transitions"];
 	        this.initial_status_id = source["initial_status_id"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	        this.task_list = this.convertValues(source["task_list"], TaskList);
 	    }
 	
@@ -515,16 +537,16 @@ export namespace database {
 		}
 	}
 	export class TaskList {
-	    id: number;
+	    id: string;
 	    title: string;
 	    slug?: string;
 	    description: string;
 	    preferred_view_mode: string;
 	    validation_policy?: string;
 	    // Go type: time
-	    created_at: any;
+	    createdAt: any;
 	    // Go type: time
-	    updated_at: any;
+	    updatedAt: any;
 	    workflow?: TaskListWorkflow;
 	    tasks?: Task[];
 
@@ -540,8 +562,8 @@ export namespace database {
 	        this.description = source["description"];
 	        this.preferred_view_mode = source["preferred_view_mode"];
 	        this.validation_policy = source["validation_policy"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	        this.workflow = this.convertValues(source["workflow"], TaskListWorkflow);
 	        this.tasks = this.convertValues(source["tasks"], Task);
 	    }
@@ -565,14 +587,14 @@ export namespace database {
 		}
 	}
 	export class Task {
-	    id: number;
-	    task_list_id: number;
+	    id: string;
+	    task_list_id: string;
 	    title: string;
 	    description: string;
 	    code?: string;
 	    link?: string;
 	    status_id: number;
-	    parent_id?: number;
+	    parent_id?: string;
 	    order: number;
 	    assignee_name?: string;
 	    assignee_id?: string;
@@ -581,9 +603,9 @@ export namespace database {
 	    // Go type: time
 	    due_date?: any;
 	    // Go type: time
-	    created_at: any;
+	    createdAt: any;
 	    // Go type: time
-	    updated_at: any;
+	    updatedAt: any;
 	    // Go type: time
 	    completed_at?: any;
 	    task_list?: TaskList;
@@ -611,8 +633,8 @@ export namespace database {
 	        this.creator_name = source["creator_name"];
 	        this.creator_id = source["creator_id"];
 	        this.due_date = this.convertValues(source["due_date"], null);
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	        this.completed_at = this.convertValues(source["completed_at"], null);
 	        this.task_list = this.convertValues(source["task_list"], TaskList);
 	        this.parent = this.convertValues(source["parent"], Task);
@@ -1185,6 +1207,12 @@ export namespace llm {
 	    responseTimeout?: number;
 	    tabType?: string;
 	    activeFilePath?: string;
+	    surfaceStateJson?: string;
+	    surfaceContextJson?: string;
+	    surfaceSessionKey?: string;
+	    surfaceId?: string;
+	    surfaceType?: string;
+	    surfaceTabId?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatParams(source);
@@ -1203,6 +1231,12 @@ export namespace llm {
 	        this.responseTimeout = source["responseTimeout"];
 	        this.tabType = source["tabType"];
 	        this.activeFilePath = source["activeFilePath"];
+	        this.surfaceStateJson = source["surfaceStateJson"];
+	        this.surfaceContextJson = source["surfaceContextJson"];
+	        this.surfaceSessionKey = source["surfaceSessionKey"];
+	        this.surfaceId = source["surfaceId"];
+	        this.surfaceType = source["surfaceType"];
+	        this.surfaceTabId = source["surfaceTabId"];
 	    }
 	}
 	export class FunctionCall {
@@ -1399,8 +1433,8 @@ export namespace llm {
 export namespace main {
 	
 	export class ChatSpeakRequest {
-	    conversationId: number;
-	    messageId?: number;
+	    conversationId: string;
+	    messageId?: string;
 	    profileSlug?: string;
 	    role: string;
 	    text: string;
@@ -1474,7 +1508,7 @@ export namespace main {
 	}
 	export class ConversationSummaryInfo {
 	    summary: string;
-	    summary_up_to_message_id: number;
+	    summary_up_to_message_id: string;
 	    summarizing_in_progress: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -1490,9 +1524,9 @@ export namespace main {
 	}
 	export class EnrichedMessage {
 	    id: string;
-	    conversationId: number;
+	    conversationId: string;
 	    parentId?: string;
-	    turnId?: number;
+	    turnId?: string;
 	    role: string;
 	    content: string;
 	    reasoning?: string;
@@ -1560,6 +1594,7 @@ export namespace main {
 	    children?: MessageNode[];
 	    level: number;
 	    childCount: number;
+	    originalIndex?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageNode(source);
@@ -1571,6 +1606,77 @@ export namespace main {
 	        this.children = this.convertValues(source["children"], MessageNode);
 	        this.level = source["level"];
 	        this.childCount = source["childCount"];
+	        this.originalIndex = source["originalIndex"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MessageWindowRequest {
+	    scope: string;
+	    conversationId: string;
+	    threadParentId?: string;
+	    anchor?: string;
+	    anchorMessageId?: string;
+	    direction: string;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessageWindowRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.conversationId = source["conversationId"];
+	        this.threadParentId = source["threadParentId"];
+	        this.anchor = source["anchor"];
+	        this.anchorMessageId = source["anchorMessageId"];
+	        this.direction = source["direction"];
+	        this.limit = source["limit"];
+	    }
+	}
+	export class MessageWindow {
+	    scope: string;
+	    conversationId: string;
+	    threadParentId?: string;
+	    nodes: MessageNode[];
+	    totalCount: number;
+	    startIndex: number;
+	    endIndex: number;
+	    hasBefore: boolean;
+	    hasAfter: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessageWindow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.conversationId = source["conversationId"];
+	        this.threadParentId = source["threadParentId"];
+	        this.nodes = this.convertValues(source["nodes"], MessageNode);
+	        this.totalCount = source["totalCount"];
+	        this.startIndex = source["startIndex"];
+	        this.endIndex = source["endIndex"];
+	        this.hasBefore = source["hasBefore"];
+	        this.hasAfter = source["hasAfter"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1592,7 +1698,7 @@ export namespace main {
 		}
 	}
 	export class ConversationWithThreads {
-	    id: number;
+	    id: string;
 	    title: string;
 	    threads: MessageNode[];
 	
@@ -1792,10 +1898,155 @@ export namespace main {
 	        this.label = source["label"];
 	    }
 	}
+	export class ImportConflict {
+	    resourceType: string;
+	    identifier: string;
+	    reason: string;
+	    supportedStrategies?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportConflict(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.resourceType = source["resourceType"];
+	        this.identifier = source["identifier"];
+	        this.reason = source["reason"];
+	        this.supportedStrategies = source["supportedStrategies"];
+	    }
+	}
+	export class ImportAnalysis {
+	    version: number;
+	    appVersion?: string;
+	    conversationCount: number;
+	    messageCount: number;
+	    taskListCount: number;
+	    taskCount: number;
+	    taskNoteCount: number;
+	    providerCount: number;
+	    includesCredentials: boolean;
+	    requiresCredentialPassword: boolean;
+	    credentialCount: number;
+	    conflictCount: number;
+	    conversationConflicts?: ImportConflict[];
+	    taskListConflicts?: ImportConflict[];
+	    providerConflicts?: ImportConflict[];
+	    credentialConflicts?: ImportConflict[];
+	    unsupportedResourceTypes?: string[];
+	    warnings?: string[];
+	    credentialAnalysisError?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportAnalysis(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.appVersion = source["appVersion"];
+	        this.conversationCount = source["conversationCount"];
+	        this.messageCount = source["messageCount"];
+	        this.taskListCount = source["taskListCount"];
+	        this.taskCount = source["taskCount"];
+	        this.taskNoteCount = source["taskNoteCount"];
+	        this.providerCount = source["providerCount"];
+	        this.includesCredentials = source["includesCredentials"];
+	        this.requiresCredentialPassword = source["requiresCredentialPassword"];
+	        this.credentialCount = source["credentialCount"];
+	        this.conflictCount = source["conflictCount"];
+	        this.conversationConflicts = this.convertValues(source["conversationConflicts"], ImportConflict);
+	        this.taskListConflicts = this.convertValues(source["taskListConflicts"], ImportConflict);
+	        this.providerConflicts = this.convertValues(source["providerConflicts"], ImportConflict);
+	        this.credentialConflicts = this.convertValues(source["credentialConflicts"], ImportConflict);
+	        this.unsupportedResourceTypes = source["unsupportedResourceTypes"];
+	        this.warnings = source["warnings"];
+	        this.credentialAnalysisError = source["credentialAnalysisError"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ImportResolution {
+	    resourceType: string;
+	    identifier: string;
+	    strategy: string;
+	    renameValue?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportResolution(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.resourceType = source["resourceType"];
+	        this.identifier = source["identifier"];
+	        this.strategy = source["strategy"];
+	        this.renameValue = source["renameValue"];
+	    }
+	}
+	export class ImportRequest {
+	    jsonData: string;
+	    credentialExportPassword?: string;
+	    resolutions?: ImportResolution[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jsonData = source["jsonData"];
+	        this.credentialExportPassword = source["credentialExportPassword"];
+	        this.resolutions = this.convertValues(source["resolutions"], ImportResolution);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ImportResult {
 	    success: boolean;
 	    imported: number;
 	    skipped: number;
+	    failed: number;
+	    skippedEmptyConversations: number;
+	    skippedConversationConflict: number;
+	    skippedProviderConflict: number;
+	    skippedTaskListConflict: number;
+	    skippedCredentialConflict: number;
+	    skippedOther: number;
+	    unsupportedResourceTypes?: string[];
+	    warnings?: string[];
 	    errors?: string[];
 	    message: string;
 	
@@ -1808,6 +2059,15 @@ export namespace main {
 	        this.success = source["success"];
 	        this.imported = source["imported"];
 	        this.skipped = source["skipped"];
+	        this.failed = source["failed"];
+	        this.skippedEmptyConversations = source["skippedEmptyConversations"];
+	        this.skippedConversationConflict = source["skippedConversationConflict"];
+	        this.skippedProviderConflict = source["skippedProviderConflict"];
+	        this.skippedTaskListConflict = source["skippedTaskListConflict"];
+	        this.skippedCredentialConflict = source["skippedCredentialConflict"];
+	        this.skippedOther = source["skippedOther"];
+	        this.unsupportedResourceTypes = source["unsupportedResourceTypes"];
+	        this.warnings = source["warnings"];
 	        this.errors = source["errors"];
 	        this.message = source["message"];
 	    }
@@ -2015,7 +2275,7 @@ export namespace main {
 	    }
 	}
 	export class TokenStatsResult {
-	    conversationId: number;
+	    conversationId: string;
 	    promptTokens: number;
 	    completionTokens: number;
 	    totalTokens: number;
@@ -2563,6 +2823,7 @@ export namespace profiles {
 	    llm_provider_id?: string;
 	    voice_id?: string;
 	    model?: string;
+	    selection_mode?: string;
 	    rate: number;
 	    pitch: number;
 	    volume: number;
@@ -2578,6 +2839,7 @@ export namespace profiles {
 	        this.llm_provider_id = source["llm_provider_id"];
 	        this.voice_id = source["voice_id"];
 	        this.model = source["model"];
+	        this.selection_mode = source["selection_mode"];
 	        this.rate = source["rate"];
 	        this.pitch = source["pitch"];
 	        this.volume = source["volume"];
@@ -3349,6 +3611,7 @@ export namespace speech {
 	    description: string;
 	    gender: string;
 	    provider: string;
+	    model_id?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new TTSVoiceInfo(source);
@@ -3361,6 +3624,27 @@ export namespace speech {
 	        this.description = source["description"];
 	        this.gender = source["gender"];
 	        this.provider = source["provider"];
+	        this.model_id = source["model_id"];
+	    }
+	}
+	export class TTSModelInfo {
+	    id: string;
+	    name: string;
+	    description?: string;
+	    provider: string;
+	    selection_mode: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TTSModelInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.provider = source["provider"];
+	        this.selection_mode = source["selection_mode"];
 	    }
 	}
 
@@ -3489,7 +3773,7 @@ export namespace workspace {
 	export class Tab {
 	    id: string;
 	    type: string;
-	    conversation_id?: number;
+	    conversation_id?: string;
 	    title: string;
 	    position: number;
 	    profile_override?: Record<string, any>;

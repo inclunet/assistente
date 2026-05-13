@@ -1,4 +1,4 @@
-import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback } from 'react';
+import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PaperClipOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
@@ -7,7 +7,7 @@ import { VoiceButton } from './VoiceButton';
 import { SlashCommandMenu, countFilteredSkills } from './SlashCommandMenu';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { DIMENSIONS } from '../../constants/chat';
-import { GetUserInvocableSkills } from '@wailsjs/go/main/App';
+import { GetUserInvocableSkills } from '@wailsjs/go/app/App';
 import type { skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
@@ -19,15 +19,30 @@ export interface ChatInputProps {
   onArrowUp?: () => void;
   /** Se o controle de voz está habilitado */
   voiceEnabled?: boolean;
+  message?: string;
+  mediaFiles?: MediaFile[];
+  onMessageChange?: (message: string) => void;
+  onMediaFilesChange?: (mediaFiles: MediaFile[]) => void;
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
-  { onSend, disabled = false, placeholder, maxFiles = 5, onArrowUp, voiceEnabled = false },
+  {
+    onSend,
+    disabled = false,
+    placeholder,
+    maxFiles = 5,
+    onArrowUp,
+    voiceEnabled = false,
+    message: controlledMessage,
+    mediaFiles: controlledMediaFiles,
+    onMessageChange,
+    onMediaFilesChange,
+  },
   ref
 ) => {
   const { t } = useTranslation();
-  const [message, setMessage] = useState('');
-  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  const [localMessage, setLocalMessage] = useState('');
+  const [localMediaFiles, setLocalMediaFiles] = useState<MediaFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -39,8 +54,35 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const [invocableSkills, setInvocableSkills] = useState<skills.SkillInfo[]>([]);
   
-  // Use external ref if provided, otherwise use internal ref
-  const textareaRef = (ref as React.RefObject<HTMLTextAreaElement>) || internalTextareaRef;
+  const textareaRef = internalTextareaRef;
+  useImperativeHandle(ref, () => internalTextareaRef.current as HTMLTextAreaElement, []);
+  const isMessageControlled = controlledMessage !== undefined && !!onMessageChange;
+  const isMediaFilesControlled = controlledMediaFiles !== undefined && !!onMediaFilesChange;
+  const handleMessageChange = isMessageControlled ? onMessageChange : undefined;
+  const handleMediaFilesChange = isMediaFilesControlled ? onMediaFilesChange : undefined;
+  const message = isMessageControlled ? controlledMessage : localMessage;
+  const mediaFiles = isMediaFilesControlled ? controlledMediaFiles : localMediaFiles;
+  const mediaFilesRef = useRef<MediaFile[]>(mediaFiles);
+
+  useEffect(() => {
+    mediaFilesRef.current = mediaFiles;
+  }, [mediaFiles]);
+
+  const setMessage = useCallback((nextMessage: string) => {
+    if (handleMessageChange) {
+      handleMessageChange(nextMessage);
+      return;
+    }
+    setLocalMessage(nextMessage);
+  }, [handleMessageChange]);
+  const setMediaFiles = useCallback((nextMediaFiles: MediaFile[]) => {
+    mediaFilesRef.current = nextMediaFiles;
+    if (handleMediaFilesChange) {
+      handleMediaFilesChange(nextMediaFiles);
+      return;
+    }
+    setLocalMediaFiles(nextMediaFiles);
+  }, [handleMediaFilesChange]);
 
   // Carrega skills invocáveis quando o componente monta
   useEffect(() => {
@@ -124,14 +166,18 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   };
 
   const handleFileSelect = async (files: File[]) => {
-    if (files.length === 0 || mediaFiles.length >= maxFiles) return;
+    const currentMediaFiles = mediaFilesRef.current;
+    if (files.length === 0 || currentMediaFiles.length >= maxFiles) return;
     
     setIsProcessing(true);
     try {
-      const remainingSlots = maxFiles - mediaFiles.length;
+      const remainingSlots = maxFiles - currentMediaFiles.length;
       const filesToProcess = files.slice(0, remainingSlots);
       const processed = await processMediaFiles(filesToProcess);
-      setMediaFiles(prev => [...prev, ...processed]);
+      const latestMediaFiles = mediaFilesRef.current;
+      const latestRemainingSlots = maxFiles - latestMediaFiles.length;
+      if (latestRemainingSlots <= 0) return;
+      setMediaFiles([...latestMediaFiles, ...processed.slice(0, latestRemainingSlots)]);
     } catch (error) {
       console.error('Erro ao processar arquivos:', error);
     } finally {
@@ -140,7 +186,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   };
 
   const handleRemoveMedia = (id: string) => {
-    setMediaFiles(prev => prev.filter(m => m.id !== id));
+    setMediaFiles(mediaFilesRef.current.filter(m => m.id !== id));
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {

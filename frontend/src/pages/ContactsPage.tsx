@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
-import { GetAuthorizedContacts, RemoveAuthorizedContact } from '@wailsjs/go/main/App';
+import { GetAuthorizedContacts, RemoveAuthorizedContact } from '@wailsjs/go/app/App';
 import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
@@ -30,7 +30,7 @@ type AuthorizedContactsResponse = Record<string, AuthorizedContact[]>;
 
 export default function ContactsPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'contacts-page' });

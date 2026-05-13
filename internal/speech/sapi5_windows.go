@@ -100,7 +100,7 @@ func (m *SAPI5Manager) loadVoices() error {
 	voicesCollection := voicesResult.ToIDispatch()
 	// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
 	voicesCollection.AddRef()
-	voicesResult.Clear()
+	_ = voicesResult.Clear()
 	defer voicesCollection.Release()
 
 	// Obtém o número de vozes
@@ -109,7 +109,7 @@ func (m *SAPI5Manager) loadVoices() error {
 		return fmt.Errorf("failed to get voice count: %w", err)
 	}
 	count := int(countResult.Val)
-	countResult.Clear()
+	_ = countResult.Clear()
 
 	m.voices = make([]Voice, 0, count)
 
@@ -122,7 +122,7 @@ func (m *SAPI5Manager) loadVoices() error {
 		voiceToken := itemResult.ToIDispatch()
 		// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
 		voiceToken.AddRef()
-		itemResult.Clear()
+		_ = itemResult.Clear()
 
 		voice := m.extractVoiceInfo(voiceToken)
 		if voice.Name != "" {
@@ -142,34 +142,34 @@ func (m *SAPI5Manager) extractVoiceInfo(voiceToken *ole.IDispatch) Voice {
 	// Obtém o ID
 	if idResult, err := oleutil.GetProperty(voiceToken, "Id"); err == nil {
 		voice.ID = idResult.ToString()
-		idResult.Clear()
+		_ = idResult.Clear()
 	}
 
 	// Obtém os atributos
 	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Name"); err == nil {
 		voice.Name = attrsResult.ToString()
-		attrsResult.Clear()
+		_ = attrsResult.Clear()
 	}
 
 	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Language"); err == nil {
 		langCode := attrsResult.ToString()
 		voice.Language = lcidToLanguage(langCode)
-		attrsResult.Clear()
+		_ = attrsResult.Clear()
 	}
 
 	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Gender"); err == nil {
 		voice.Gender = attrsResult.ToString()
-		attrsResult.Clear()
+		_ = attrsResult.Clear()
 	}
 
 	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Age"); err == nil {
 		voice.Age = attrsResult.ToString()
-		attrsResult.Clear()
+		_ = attrsResult.Clear()
 	}
 
 	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Vendor"); err == nil {
 		voice.Vendor = attrsResult.ToString()
-		attrsResult.Clear()
+		_ = attrsResult.Clear()
 	}
 
 	// Monta descrição
@@ -275,7 +275,7 @@ func (m *SAPI5Manager) Speak(text string, voiceName string) error {
 	if v, err := oleutil.CallMethod(m.spVoice, "Speak", text, SVSFlagsAsync|SVSFPurgeBeforeSpeak); err != nil {
 		return fmt.Errorf("Speak failed: %w", err)
 	} else if v != nil {
-		v.Clear()
+		_ = v.Clear()
 	}
 
 	return nil
@@ -305,14 +305,14 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 		if v, err := oleutil.PutProperty(m.spVoice, "Rate", rate); err != nil {
 			log.Printf("[SAPI5] Warning: failed to set Rate: %v", err)
 		} else if v != nil {
-			v.Clear()
+			_ = v.Clear()
 		}
 	}
 	if volume >= 0 && volume <= 100 {
 		if v, err := oleutil.PutProperty(m.spVoice, "Volume", volume); err != nil {
 			log.Printf("[SAPI5] Warning: failed to set Volume: %v", err)
 		} else if v != nil {
-			v.Clear()
+			_ = v.Clear()
 		}
 	}
 
@@ -321,15 +321,15 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp file: %w", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Converte path para absoluto (COM precisa de path completo)
 	absPath, err := filepath.Abs(tmpFile.Name())
 	if err != nil {
-		os.Remove(tmpFile.Name())
+		_ = os.Remove(tmpFile.Name())
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
-	defer os.Remove(absPath)
+	defer func() { _ = os.Remove(absPath) }()
 
 	// Salva referência ao output padrão antes de redirecionar
 	defaultOutputResult, err := oleutil.GetProperty(m.spVoice, "AudioOutputStream")
@@ -342,7 +342,7 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 		// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
 		defaultOutput.AddRef()
 	}
-	defaultOutputResult.Clear()
+	_ = defaultOutputResult.Clear()
 
 	// Garante Release() do defaultOutput e restauração do AudioOutputStream
 	// em todos os caminhos de retorno (inclusive erros antes do Speak).
@@ -353,7 +353,7 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 				if v, err := oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", defaultOutput); err != nil {
 					log.Printf("[SAPI5] Warning: failed to restore AudioOutputStream: %v", err)
 				} else if v != nil {
-					v.Clear()
+					_ = v.Clear()
 				}
 			} else {
 				m.restoreDefaultOutput()
@@ -381,29 +381,29 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	if v, err := oleutil.CallMethod(fileStream, "Open", absPath, SSFMCreateForWrite, false); err != nil {
 		return nil, fmt.Errorf("SpFileStream.Open failed: %w", err)
 	} else if v != nil {
-		v.Clear()
+		_ = v.Clear()
 	}
 
 	// Redireciona SpVoice para escrever no arquivo
 	if v, err := oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", fileStream); err != nil {
 		if cv, _ := oleutil.CallMethod(fileStream, "Close"); cv != nil {
-			cv.Clear()
+			_ = cv.Clear()
 		}
 		return nil, fmt.Errorf("failed to redirect AudioOutputStream: %w", err)
 	} else if v != nil {
-		v.Clear()
+		_ = v.Clear()
 	}
 	redirected = true
 
 	// Fala síncrona — escreve WAV no arquivo
 	speakResult, speakErr := oleutil.CallMethod(m.spVoice, "Speak", text, 0) // 0 = síncrono
 	if speakResult != nil {
-		speakResult.Clear()
+		_ = speakResult.Clear()
 	}
 
 	// Fecha o stream de arquivo
 	if v, _ := oleutil.CallMethod(fileStream, "Close"); v != nil {
-		v.Clear()
+		_ = v.Clear()
 	}
 
 	// Nota: restauração do output e Release do defaultOutput são
@@ -432,7 +432,7 @@ func (m *SAPI5Manager) restoreDefaultOutput() {
 	if v, err := oleutil.PutProperty(m.spVoice, "AudioOutputStream", nil); err != nil {
 		log.Printf("[SAPI5] Warning: failed to restore default output: %v", err)
 	} else if v != nil {
-		v.Clear()
+		_ = v.Clear()
 	}
 }
 
@@ -446,7 +446,7 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 	voicesCollection := voicesResult.ToIDispatch()
 	// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
 	voicesCollection.AddRef()
-	voicesResult.Clear()
+	_ = voicesResult.Clear()
 	defer voicesCollection.Release()
 
 	// Obtém o número de vozes
@@ -455,7 +455,7 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 		return err
 	}
 	count := int(countResult.Val)
-	countResult.Clear()
+	_ = countResult.Clear()
 
 	// Procura a voz pelo nome ou ID
 	for i := 0; i < count; i++ {
@@ -466,16 +466,16 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 		voiceToken := itemResult.ToIDispatch()
 		// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
 		voiceToken.AddRef()
-		itemResult.Clear()
+		_ = itemResult.Clear()
 
 		// Tenta match por Name
 		if nameResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Name"); err == nil {
 			name := nameResult.ToString()
-			nameResult.Clear()
+			_ = nameResult.Clear()
 			if name == voiceName {
 				v, putErr := oleutil.PutPropertyRef(m.spVoice, "Voice", voiceToken)
 				if v != nil {
-					v.Clear()
+					_ = v.Clear()
 				}
 				voiceToken.Release()
 				return putErr
@@ -485,11 +485,11 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 		// Fallback: tenta match por ID (registry path)
 		if idResult, err := oleutil.GetProperty(voiceToken, "Id"); err == nil {
 			id := idResult.ToString()
-			idResult.Clear()
+			_ = idResult.Clear()
 			if id == voiceName {
 				v, putErr := oleutil.PutPropertyRef(m.spVoice, "Voice", voiceToken)
 				if v != nil {
-					v.Clear()
+					_ = v.Clear()
 				}
 				voiceToken.Release()
 				return putErr
@@ -515,7 +515,7 @@ func (m *SAPI5Manager) Stop() error {
 	if v, err := oleutil.CallMethod(m.spVoice, "Speak", "", 2); err != nil {
 		return err
 	} else if v != nil {
-		v.Clear()
+		_ = v.Clear()
 	}
 	return nil
 }
@@ -539,7 +539,7 @@ func (m *SAPI5Manager) SetVolume(volume int) error {
 	if v, err := oleutil.PutProperty(m.spVoice, "Volume", volume); err != nil {
 		return err
 	} else if v != nil {
-		v.Clear()
+		_ = v.Clear()
 	}
 	return nil
 }
@@ -563,7 +563,7 @@ func (m *SAPI5Manager) SetRate(rate int) error {
 	if v, err := oleutil.PutProperty(m.spVoice, "Rate", rate); err != nil {
 		return err
 	} else if v != nil {
-		v.Clear()
+		_ = v.Clear()
 	}
 	return nil
 }
@@ -585,7 +585,7 @@ func (m *SAPI5Manager) IsSpeaking() bool {
 	status := statusResult.ToIDispatch()
 	// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
 	status.AddRef()
-	statusResult.Clear()
+	_ = statusResult.Clear()
 	defer status.Release()
 
 	runningResult, err := oleutil.GetProperty(status, "RunningState")
@@ -593,7 +593,7 @@ func (m *SAPI5Manager) IsSpeaking() bool {
 		return false
 	}
 	val := runningResult.Val
-	runningResult.Clear()
+	_ = runningResult.Clear()
 
 	return val == 2 // SRSEIsSpeaking
 }
@@ -612,7 +612,7 @@ func (m *SAPI5Manager) WaitUntilDone(timeoutMs int) bool {
 		return true
 	}
 	val := result.Val
-	result.Clear()
+	_ = result.Clear()
 
 	return val != 0 // true se terminou, false se timeout
 }
@@ -635,5 +635,5 @@ func (m *SAPI5Manager) Cleanup() {
 
 // StopSpeaking para a síntese atual (função global para compatibilidade)
 func StopSpeaking() {
-	GetSAPI5Manager().Stop()
+	_ = GetSAPI5Manager().Stop()
 }

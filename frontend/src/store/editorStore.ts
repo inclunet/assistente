@@ -4,16 +4,26 @@ export type EditorMode = 'markdown' | 'rich' | 'view';
 
 export type EditorInsertFormat = 'markdown' | 'html' | 'plain';
 
-export type EditorInsertTarget = 'current' | 'new_document';
+export type EditorInsertTarget = 'document' | 'new_document';
 
-export interface EditorInsertRequest {
-  id: string;
-  target: EditorInsertTarget;
+interface EditorInsertRequestBase {
   format: EditorInsertFormat;
   content: string;
   title?: string;
   focus?: boolean;
 }
+
+export type EditorInsertRequest =
+  | ({
+      id: string;
+      target: 'document';
+      targetDocumentId: string;
+    } & EditorInsertRequestBase)
+  | ({
+      id: string;
+      target: 'new_document';
+      targetDocumentId?: never;
+    } & EditorInsertRequestBase);
 
 export interface EditorDocument {
   id: string;
@@ -29,11 +39,9 @@ export interface EditorDocument {
 
 interface EditorState {
   documents: Record<string, EditorDocument>;
-  activeDocumentId: string | null;
 
   createDocument: (initial?: Partial<Pick<EditorDocument, 'id' | 'title' | 'markdown' | 'mode' | 'filePath' | 'draftId'>>) => string;
   removeDocument: (docId: string) => void;
-  setActiveDocument: (docId: string) => void;
   renameDocument: (docId: string, title: string) => void;
   setDocMarkdown: (docId: string, markdown: string) => void;
   setDocMode: (docId: string, mode: EditorMode) => void;
@@ -44,13 +52,12 @@ interface EditorState {
   setDocDirty: (docId: string, isDirty: boolean) => void;
 
   getDocument: (docId: string) => EditorDocument | undefined;
-  getActiveDocument: () => EditorDocument | null;
 
   pendingInsert: EditorInsertRequest | null;
-  requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string;
+  requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string | null;
   consumePendingInsert: () => EditorInsertRequest | null;
 
-  hydrate: (payload: { documents: Record<string, EditorDocument>; activeDocumentId: string | null }) => void;
+  hydrate: (payload: { documents: Record<string, EditorDocument> }) => void;
 }
 
 function newId(): string {
@@ -71,7 +78,6 @@ function updateDoc(documents: Record<string, EditorDocument>, docId: string, pat
 
 export const useEditorStore = create<EditorState>((set, get) => ({
   documents: {},
-  activeDocumentId: null,
 
   pendingInsert: null,
 
@@ -91,24 +97,42 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     set((state) => ({
       documents: { ...state.documents, [id]: doc },
-      activeDocumentId: id,
     }));
 
     return id;
   },
 
   requestInsert: (req) => {
-    const id = newId();
-    const normalized: EditorInsertRequest = {
-      id,
-      target: req.target,
+    const base = {
+      id: newId(),
       format: req.format,
       content: String(req.content ?? ''),
       title: req.title,
       focus: req.focus,
-    };
+    } satisfies EditorInsertRequestBase & { id: string };
+
+    const normalized: EditorInsertRequest | null =
+      req.target === 'document'
+        ? (() => {
+            const targetDocumentId = String(req.targetDocumentId ?? '').trim();
+            if (!targetDocumentId) {
+              console.error('[EditorStore] requestInsert rejected: document target requires targetDocumentId');
+              return null;
+            }
+            return {
+              ...base,
+              target: 'document',
+              targetDocumentId,
+            };
+          })()
+        : {
+            ...base,
+            target: 'new_document',
+          };
+
+    if (!normalized) return null;
     set({ pendingInsert: normalized });
-    return id;
+    return normalized.id;
   },
 
   consumePendingInsert: () => {
@@ -122,13 +146,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => {
       const next = { ...state.documents };
       delete next[docId];
-      const nextActive = state.activeDocumentId === docId ? null : state.activeDocumentId;
-      return { documents: next, activeDocumentId: nextActive };
+      return { documents: next };
     });
-  },
-
-  setActiveDocument: (docId) => {
-    set({ activeDocumentId: docId });
   },
 
   renameDocument: (docId, title) => {
@@ -166,15 +185,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   getDocument: (docId) => get().documents[docId],
-  getActiveDocument: () => {
-    const { documents, activeDocumentId } = get();
-    return activeDocumentId ? documents[activeDocumentId] ?? null : null;
-  },
 
   hydrate: (payload) => {
     set({
       documents: payload.documents,
-      activeDocumentId: payload.activeDocumentId,
     });
   },
 }));

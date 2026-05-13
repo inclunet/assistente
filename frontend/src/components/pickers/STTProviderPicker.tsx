@@ -1,7 +1,7 @@
 import { useState, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { AudioOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { GetSpeechProviders } from '@wailsjs/go/main/App';
+import { GetSpeechProviders } from '@wailsjs/go/app/App';
 import { llm } from '@wailsjs/go/models';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';

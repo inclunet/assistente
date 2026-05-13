@@ -17,8 +17,8 @@ const toolCallsJson = JSON.stringify([
 const messagesWithToolCalls = [
   {
     message: {
-      id: 1,
-      conversationId: 1,
+      id: '01926b90-0000-7000-8000-000000000010',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       role: 'user',
       content: 'Como está o clima?',
       createdAt: now,
@@ -27,8 +27,8 @@ const messagesWithToolCalls = [
   },
   {
     message: {
-      id: 2,
-      conversationId: 1,
+      id: '01926b90-0000-7000-8000-000000000011',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       role: 'assistant',
       content: 'O clima hoje está ensolarado, 25°C.',
       createdAt: now,
@@ -123,8 +123,8 @@ test.describe('Chat — tool calls (streaming)', () => {
     await wails.setResponse('GetMessages', [
       {
         message: {
-          id: 1,
-          conversationId: 1,
+          id: '01926b90-0000-7000-8000-000000000010',
+          conversationId: '01926b90-0000-7000-8000-000000000001',
           role: 'user',
           content: 'Pesquise algo',
           createdAt: now,
@@ -132,34 +132,51 @@ test.describe('Chat — tool calls (streaming)', () => {
         children: [],
       },
     ]);
-    await wails.setResponse('SendMessage', 2);
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000002');
 
     await wails.waitForApp();
     await page.waitForSelector('.chat-message', { timeout: 5_000 });
 
     // Envia mensagem para iniciar o fluxo
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Pesquise o clima');
+    await expect.poll(async () => textarea.inputValue()).toBe('Pesquise o clima');
     await textarea.press('Enter');
+
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'SendMessage',
+      );
+    }, { timeout: 5_000 });
 
     // Backend confirma a mensagem do usuário
     await wails.emit('chat:messages_ready', {
-      conversationId: 1,
-      userMessageId: 100,
+      conversationId: '01926b90-0000-7000-8000-000000000001',
+      userMessageId: '01926b90-0000-7000-8000-100000000100',
       userContent: 'Pesquise o clima',
     });
 
+    await page.waitForFunction(() => {
+      return document.querySelectorAll('.message-node').length >= 2;
+    }, { timeout: 5_000 });
+
     // Simula início de streaming
     await wails.emit('chat:stream', {
-      conversationId: 1,
-      messageId: 2,
-      content: '',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
+      messageId: '01926b90-0000-7000-8000-100000000002',
+      content: 'Buscando...',
       done: false,
     });
 
+    await page.waitForFunction(() => {
+      return document.querySelectorAll('.message-node').length >= 3;
+    }, { timeout: 5_000 });
+
     // Simula início de tool call
     await wails.emit('chat:tool_start', {
-      conversationId: 1,
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       name: 'search_web',
       callId: 'tc-live-1',
       args: '{"query":"clima"}',
@@ -174,8 +191,8 @@ test.describe('Chat — tool calls (streaming)', () => {
     await wails.setResponse('GetMessages', [
       {
         message: {
-          id: 1,
-          conversationId: 1,
+          id: '01926b90-0000-7000-8000-000000000010',
+          conversationId: '01926b90-0000-7000-8000-000000000001',
           role: 'user',
           content: 'Pesquise algo',
           createdAt: now,
@@ -183,31 +200,48 @@ test.describe('Chat — tool calls (streaming)', () => {
         children: [],
       },
     ]);
-    await wails.setResponse('SendMessage', 2);
+    await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000002');
 
     await wails.waitForApp();
     await page.waitForSelector('.chat-message', { timeout: 5_000 });
 
     const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable({ timeout: 5_000 });
+    await textarea.click();
     await textarea.fill('Pesquise o clima');
+    await expect.poll(async () => textarea.inputValue()).toBe('Pesquise o clima');
     await textarea.press('Enter');
+
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'SendMessage',
+      );
+    }, { timeout: 5_000 });
 
     // Backend confirma a mensagem do usuário
     await wails.emit('chat:messages_ready', {
-      conversationId: 1,
-      userMessageId: 100,
+      conversationId: '01926b90-0000-7000-8000-000000000001',
+      userMessageId: '01926b90-0000-7000-8000-100000000100',
       userContent: 'Pesquise o clima',
     });
 
+    await page.waitForFunction(() => {
+      return document.querySelectorAll('.message-node').length >= 2;
+    }, { timeout: 5_000 });
+
     await wails.emit('chat:stream', {
-      conversationId: 1,
-      messageId: 2,
-      content: '',
+      conversationId: '01926b90-0000-7000-8000-000000000001',
+      messageId: '01926b90-0000-7000-8000-100000000002',
+      content: 'Buscando...',
       done: false,
     });
 
+    await page.waitForFunction(() => {
+      return document.querySelectorAll('.message-node').length >= 3;
+    }, { timeout: 5_000 });
+
     await wails.emit('chat:tool_start', {
-      conversationId: 1,
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       name: 'search_web',
       callId: 'tc-live-2',
       args: '{"query":"clima"}',
@@ -221,7 +255,7 @@ test.describe('Chat — tool calls (streaming)', () => {
 
     // Finaliza o tool call (muda de running para done)
     await wails.emit('chat:tool_end', {
-      conversationId: 1,
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       callId: 'tc-live-2',
       name: 'search_web',
       status: 'success',

@@ -110,10 +110,7 @@ func TestSummarizeHTTPError_NonCloudflareHTML(t *testing.T) {
 	if !strings.Contains(result, "500") {
 		t.Errorf("esperado status 500, got: %s", result)
 	}
-	// Não deve mencionar Cloudflare
-	if strings.Contains(result, "Cloudflare") && strings.Contains(result, "Internal Server Error") {
-		// OK, pode ser ambíguo se o corpo mencionou Cloudflare
-	}
+	// Se o corpo contiver ambos, também é válido — não verificamos Cloudflare aqui.
 }
 
 // TestParseCloudflareRayID_Valid testa parsing do Ray ID

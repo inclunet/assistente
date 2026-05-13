@@ -1,9 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CompassOutlined, EditOutlined, FileOutlined, MessageOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
+import { CompassOutlined, FileOutlined, MessageOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
-import { ProfilePicker } from '../components/pickers/ProfilePicker';
 import { CodeEditor } from '../components/ui/CodeEditor';
 import { MarkdownRenderer } from '../components/ui/MarkdownRenderer';
 import { Menu, type MenuItem } from '../components/menu';
@@ -12,21 +11,28 @@ import { MermaidEditorModal } from '../components/editor/MermaidEditorModal';
 import { RichTextEditor } from '../components/editor/RichTextEditor';
 import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
 import { useRichEditorFlushEvents } from './useRichEditorFlushEvents';
-import { EditorInlineChatModal } from '@/components/editor/EditorInlineChatModal';
+import { useRegisterWorkspaceChatAdapter } from '../hooks/useRegisterWorkspaceChatAdapter';
+import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import type {
+  WorkspaceChatModalAdapter,
+  WorkspaceChatModalPrepareResult,
+  WorkspaceChatSendPlan,
+  WorkspaceChatModalSession,
+} from '../store/workspaceChatModalStore';
 import { useEditorStore, DEFAULT_MD, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
 import { createTwoFilesPatch } from 'diff';
-import { buildEditorPatchPrompt } from '../lib/editorPatch';
 import { applyTextReplacementByOffset } from '../lib/editorPatchApply';
 import { normalizeEditorInsertContent } from '../lib/editorInsertNormalize';
 import { applyRichTextInsert, applyRichTextInsertAtEnd } from '../lib/richTextPatchApply';
 import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
+import { buildChatSurfaceParams } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
@@ -55,19 +61,24 @@ import {
   EditorWatchFile,
   EditorWriteDraft,
   EditorWriteFile,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import './EditorPage.css';
 
-export default function EditorPage() {
+interface EditorPageProps {
+  documentId?: string;
+  workspaceTab?: WorkspaceTab;
+  isPanelActive?: boolean;
+}
+
+export default function EditorPage({ documentId, workspaceTab, isPanelActive = true }: EditorPageProps = {}) {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
-  const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId } = useEditorInlineChatPatch();
+  const { waitForChatDone, waitForEditorPatch, getMaxMessageId } = useEditorInlineChatPatch();
 
 
   const documents = useEditorStore((s) => s.documents);
-  const activeDocumentId = useEditorStore((s) => s.activeDocumentId);
   const createDocument = useEditorStore((s) => s.createDocument);
   const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
   const renameDocument = useEditorStore((s) => s.renameDocument);
@@ -77,17 +88,16 @@ export default function EditorPage() {
   const hydrate = useEditorStore((s) => s.hydrate);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
   const setActiveWsTab = useWorkspaceStore((s) => s.setActiveTab);
-  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
   const wsTabs = useWorkspaceStore((s) => s.workspace?.tabs);
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
 
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 
-  const tabProfileSlug = wsActiveTab?.profileOverride?.slug as string | undefined;
+  const tabProfileSlug = workspaceTab?.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || 'editor-texto';
 
-  const activeTab = useMemo(() => activeDocumentId ? documents[activeDocumentId] ?? null : null, [documents, activeDocumentId]);
+  const currentDocumentId = documentId ?? workspaceTab?.id ?? null;
+  const activeTab = currentDocumentId ? documents[currentDocumentId] ?? null : null;
 
 
   const pageRootRef = useRef<HTMLDivElement>(null);
@@ -130,7 +140,7 @@ export default function EditorPage() {
         selectionIsEmpty?: boolean;
         /** Contexto ao redor do cursor para orientar inserção */
         cursorContext?: string;
-        /** Texto a exibir no painel "Contexto" do mini-chat */
+        /** Texto a exibir no painel "Contexto" do chat modal */
         displayText?: string;
         startOffset: number;
         endOffset: number;
@@ -163,11 +173,9 @@ export default function EditorPage() {
     return '';
   };
 
-  const [inlineChatOpen, setInlineChatOpen] = useState(false);
-  const [inlineChatSelection, setInlineChatSelection] = useState<InlineChatSelection | null>(null);
-  const [inlineChatError, setInlineChatError] = useState<string | null>(null);
   const inlineChatRunIdRef = useRef(0);
-  const [inlineChatFocusNonce, setInlineChatFocusNonce] = useState(0);
+  const chatModalOpen = useWorkspaceChatModalStore((s) => s.isOpen);
+  const prevChatModalOpenRef = useRef(false);
 
   const [sessionLoaded, setSessionLoaded] = useState(false);
 
@@ -531,6 +539,8 @@ export default function EditorPage() {
         setDocDraftId(tabId, null);
         setDocDirty(tabId, false);
 
+        // filePath+title são sincronizados pelo controller do painel de editor.
+
         const { documents: afterDocs } = useEditorStore.getState();
         const afterTab = afterDocs[tabId] || tab;
         void refreshDiskInfoForTab(afterTab);
@@ -564,7 +574,7 @@ export default function EditorPage() {
     const tab = currentDocs[tabId] || null;
     if (!tab) return;
 
-    if (tab.mode === 'rich' && useEditorStore.getState().activeDocumentId === tabId) {
+    if (tab.mode === 'rich' && currentDocumentId === tabId) {
       flushActiveRichMarkdownNow();
     }
 
@@ -673,7 +683,6 @@ export default function EditorPage() {
       try {
         const wsState = useWorkspaceStore.getState();
         const wsEditorTabs = (wsState.workspace?.tabs || []).filter((t) => t.type === 'editor');
-        const wsActiveTabId = wsState.workspace?.activeTabId || null;
 
         const editorState = await EditorLoadState();
         if (cancelled) return;
@@ -763,14 +772,8 @@ export default function EditorPage() {
           loadedDocs[t.id] = t;
         }
 
-        // Aba ativa: preferir a aba ativa do workspace se for editor, senão a primeira
-        const activeEditorId = loadedDocs[wsActiveTabId || '']
-          ? wsActiveTabId!
-          : (loadedTabs[0]?.id ?? null);
-
         hydrate({
           documents: loadedDocs,
-          activeDocumentId: activeEditorId,
         });
 
         // Restaura merge sessions em refs antes de liberar autosave.
@@ -830,7 +833,7 @@ export default function EditorPage() {
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [sessionLoaded, allDocs, activeDocumentId]);
+  }, [sessionLoaded, allDocs, currentDocumentId]);
 
   // Flush imediato ao fechar/minimizar para reduzir chance de perder o estado
   useEffect(() => {
@@ -838,9 +841,8 @@ export default function EditorPage() {
 
     const persistNow = () => {
       try {
-        const { activeDocumentId: currentActive } = useEditorStore.getState();
-        if (currentActive) {
-          void persistTabContentNow(currentActive);
+        if (currentDocumentId) {
+          void persistTabContentNow(currentDocumentId);
         }
       } catch {
         // best-effort
@@ -851,8 +853,8 @@ export default function EditorPage() {
     const onBeforeUnload = () => persistNow();
     const onPageHide = () => persistNow();
     const checkActiveFileExternalChange = async () => {
-      const { documents: currentDocs, activeDocumentId: currentActiveDocId } = useEditorStore.getState();
-      const tab = currentActiveDocId ? (currentDocs[currentActiveDocId] || null) : null;
+      const { documents: currentDocs } = useEditorStore.getState();
+      const tab = currentDocumentId ? (currentDocs[currentDocumentId] || null) : null;
       if (!tab?.filePath) return;
       if (isExternalConflictLocked(tab.id)) return;
 
@@ -893,7 +895,7 @@ export default function EditorPage() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', onFocus);
     };
-  }, [sessionLoaded, allDocs, activeDocumentId]);
+  }, [sessionLoaded, allDocs, currentDocumentId]);
 
   // Watcher de mudanças externas (backend emite editor:fileChanged)
   const watchedFilesRef = useRef<Record<string, { path: string; count: number }>>({});
@@ -974,56 +976,56 @@ export default function EditorPage() {
 
       const diskHash = !diskReadError ? hashStringFNV1a32(diskContent) : 0;
 
-      for (const t of affected) {
-        if (!t.filePath) continue;
-        if (isExternalConflictLocked(t.id)) continue;
+      for (const tab of affected) {
+        if (!tab.filePath) continue;
+        if (isExternalConflictLocked(tab.id)) continue;
 
         // Se conseguimos ler o disco, podemos decidir se há conflito real.
         if (!diskReadError) {
-          const localContent = getCachedMarkdownForTab(t);
+          const localContent = getCachedMarkdownForTab(tab);
           const localHash = hashStringFNV1a32(localContent);
-          const lastDiskHash = Number(diskContentHashByTabRef.current[String(t.id)] || 0);
+          const lastDiskHash = Number(diskContentHashByTabRef.current[String(tab.id)] || 0);
 
           // Caso comum: ferramenta externa salvou sem mudar o conteúdo (touch/reformat idêntico)
           if (lastDiskHash && lastDiskHash === diskHash) {
-            void refreshDiskInfoForTab(t);
+            void refreshDiskInfoForTab(tab);
             continue;
           }
 
           // Caso comum: o arquivo no disco já está igual ao que temos localmente
           if (diskHash === localHash) {
-            setDiskBaselineForTab(t.id, localContent);
-            setDocDirty(t.id, false);
-            void refreshDiskInfoForTab(t);
+            setDiskBaselineForTab(tab.id, localContent);
+            setDocDirty(tab.id, false);
+            void refreshDiskInfoForTab(tab);
             // Não abre prompt.
             continue;
           }
 
           // Aba limpa: recarrega automaticamente, mas só se realmente mudou
-          if (!t.isDirty) {
+          if (!tab.isDirty) {
             try {
-              setDocMarkdown(t.id, diskContent);
-              updateLatestMarkdownForTab(t.id, diskContent);
-              setDiskBaselineForTab(t.id, diskContent);
-              setDocDirty(t.id, false);
-              void refreshDiskInfoForTab(t);
-              if (t.id === activeDocumentId) addToast('Arquivo recarregado do disco (mudança externa)', 'info');
+              setDocMarkdown(tab.id, diskContent);
+              updateLatestMarkdownForTab(tab.id, diskContent);
+              setDiskBaselineForTab(tab.id, diskContent);
+              setDocDirty(tab.id, false);
+              void refreshDiskInfoForTab(tab);
+              if (tab.id === currentDocumentId) addToast(t('editor.toast.externalReloaded'), 'info');
             } catch {
               // Se não der pra aplicar automaticamente, cai pro fluxo existente
-              setExternalConflictLocked(t.id, true);
-              setDocDirty(t.id, true);
-              if (!isExternalPromptInFlight(t.id)) {
-                void promptResolveExternalChangeForTab(t.id, String(t.filePath), { diskContent, diskReadError });
+              setExternalConflictLocked(tab.id, true);
+              setDocDirty(tab.id, true);
+              if (!isExternalPromptInFlight(tab.id)) {
+                void promptResolveExternalChangeForTab(tab.id, String(tab.filePath), { diskContent, diskReadError });
               }
             }
             continue;
           }
         }
         // Aba dirty (ou falha ao ler o disco): pede decisão explícita
-        setExternalConflictLocked(t.id, true);
-        setDocDirty(t.id, true);
-        if (!isExternalPromptInFlight(t.id)) {
-          void promptResolveExternalChangeForTab(t.id, String(t.filePath), { diskContent, diskReadError });
+        setExternalConflictLocked(tab.id, true);
+        setDocDirty(tab.id, true);
+        if (!isExternalPromptInFlight(tab.id)) {
+          void promptResolveExternalChangeForTab(tab.id, String(tab.filePath), { diskContent, diskReadError });
         }
       }
     });
@@ -1035,7 +1037,7 @@ export default function EditorPage() {
         // ignore
       }
     };
-  }, [sessionLoaded, activeDocumentId]);
+  }, [sessionLoaded, currentDocumentId]);
 
   // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.
   // Não rouba foco de modais nem de campos de digitação.
@@ -1043,7 +1045,7 @@ export default function EditorPage() {
   useEffect(() => {
     if (!sessionLoaded) return;
     if (!activeTab) return;
-    if (inlineChatOpen) return;
+    if (chatModalOpen) return;
     if (isModalOpen()) return;
 
     const el = document.activeElement as HTMLElement | null;
@@ -1072,7 +1074,7 @@ export default function EditorPage() {
     if (!isTypingTarget && (isDocumentBody || isEditorZone)) {
       focusEditorSoon();
     }
-  }, [sessionLoaded, activeTab?.id, activeTab?.mode, inlineChatOpen]);
+  }, [sessionLoaded, activeTab?.id, activeTab?.mode, chatModalOpen]);
 
 
   const prevDocsRef = useRef<Record<string, EditorDocument>>({});
@@ -1246,16 +1248,25 @@ export default function EditorPage() {
     }, 20);
   }
 
+  useEffect(() => {
+    if (prevChatModalOpenRef.current && !chatModalOpen) {
+      inlineChatRunIdRef.current += 1;
+      setIsAsking(false);
+      focusEditorSoon();
+    }
+    prevChatModalOpenRef.current = chatModalOpen;
+  }, [chatModalOpen, activeTab]);
+
   const flushActiveRichMarkdownNow = useCallback(() => {
     try {
       const st = useEditorStore.getState();
-      const tab = st.activeDocumentId ? st.documents[st.activeDocumentId] ?? null : null;
+      const tab = currentDocumentId ? st.documents[currentDocumentId] ?? null : null;
       if (!tab || tab.mode !== 'rich') return;
       richEditorHandleRef.current?.flushMarkdown?.();
     } catch {
       // best-effort
     }
-  }, []);
+  }, [currentDocumentId]);
 
   useRichEditorFlushEvents({ flushNow: flushActiveRichMarkdownNow });
 
@@ -1264,10 +1275,23 @@ export default function EditorPage() {
     const rawContent = String(r?.content ?? '');
     if (!rawContent) return true;
 
-    let targetTab = activeTab;
+    const requestedDocumentId = String(r.targetDocumentId || '').trim();
+    if (r.target === 'document' && !requestedDocumentId) {
+      console.error('[EditorPage] applyInsertRequest rejected: document target requires targetDocumentId');
+      return false;
+    }
+    const currentEditorState = useEditorStore.getState();
+    let targetTab = requestedDocumentId
+      ? currentEditorState.documents[requestedDocumentId] ?? null
+      : activeTab;
+
+    if (requestedDocumentId && currentDocumentId !== requestedDocumentId) {
+      return false;
+    }
 
     if (r.target === 'new_document' || !targetTab) {
-      const title = String(r.title || 'Do chat');
+      if (requestedDocumentId) return false;
+      const title = String(r.title || t('editor.fallback.fromChat'));
       const draftId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `editor-${Date.now()}`;
       const draftPath = String(await EditorGetDraftPath(draftId) ?? '');
       const tabId = await addWorkspaceTab('editor', title, { filePath: draftPath, draftId });
@@ -1406,19 +1430,22 @@ export default function EditorPage() {
 
     let cancelled = false;
     (async () => {
-      // Tenta algumas vezes para cobrir o tempo de navegação/mount.
-      for (let i = 0; i < 10; i += 1) {
+      // Inserções direcionadas podem precisar esperar a aba/documento terminar de sincronizar.
+      const targetedInsert = !!String(pendingInsert.targetDocumentId || '').trim();
+      const maxAttempts = targetedInsert ? 40 : 10;
+      const delayMs = targetedInsert ? 100 : 60;
+      for (let i = 0; i < maxAttempts; i += 1) {
         if (cancelled) return;
         const ok = await applyInsertRequest(pendingInsert);
         if (ok) {
           setPendingInsert(null);
           return;
         }
-        await new Promise((r) => setTimeout(r, 60));
+        await new Promise((r) => setTimeout(r, delayMs));
       }
 
       // Se falhar, mantém pendente mas avisa.
-      addToast('Não foi possível inserir no editor (tentativa esgotada). Abra o Editor e tente novamente.', 'error');
+      addToast(t('editor.chatModal.insertExhausted'), 'error');
       setPendingInsert(null);
     })();
 
@@ -1427,138 +1454,59 @@ export default function EditorPage() {
     };
   }, [pendingInsert, editorReadyNonce]);
 
-  const closeInlineChatModal = () => {
-    inlineChatRunIdRef.current += 1;
-    setInlineChatOpen(false);
-    setInlineChatSelection(null);
-    setInlineChatError(null);
-    setIsAsking(false);
-    focusEditorSoon();
-  };
-
-  const askInlineChat = async () => {
-    if (!activeTab) return;
-
-    // Se não há conversa ativa no chatStore, cria uma
-    if (!useChatStore.getState().activeConversationId) {
-      try {
-        await useChatStore.getState().createConversation();
-      } catch {
-        addToast('Não foi possível criar uma conversa para o chat inline.', 'error');
-        return;
-      }
-    }
-
-    const selectionRaw =
-      activeTab.mode === 'markdown'
-        ? getSelectionSnapshot()
-        : activeTab.mode === 'rich'
-          ? getRichSelectionSnapshot()
-          : null;
-
-    if (!selectionRaw) {
-      addToast('Não foi possível capturar a seleção do editor.', 'error');
-      return;
-    }
-
-    if (selectionRaw.selectedText.length > 20000) {
-      addToast('Seleção muito grande para enviar ao chat (limite: 20.000 caracteres).', 'error');
-      return;
-    }
-
-    const snapshot =
-      activeTab.mode === 'markdown'
-        ? (editorRef.current?.getModel?.()?.getValue?.() ?? activeTab.markdown)
-        : (selectionRaw as any)?.snapshot ?? activeTab.markdown;
-    const selection: InlineChatSelection =
-      activeTab.mode === 'markdown'
-        ? {
-            mode: 'markdown',
-            tabId: activeTab.id,
-            selectedText: selectionRaw.selectedText,
-            selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
-            cursorContext: (selectionRaw as any).cursorContext,
-            displayText: (selectionRaw as any).displayText,
-            startOffset: (selectionRaw as any).startOffset,
-            endOffset: (selectionRaw as any).endOffset,
-            snapshot,
-          }
-        : {
-            mode: 'rich',
-            tabId: activeTab.id,
-            selectedText: selectionRaw.selectedText,
-            selectedMarkdown: (selectionRaw as any)?.selectedMarkdown,
-            selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
-            cursorContext: (selectionRaw as any).cursorContext,
-            displayText: (selectionRaw as any).displayText,
-            displayMarkdown: (selectionRaw as any)?.displayMarkdown,
-            from: (selectionRaw as any).from,
-            to: (selectionRaw as any).to,
-            snapshot,
-          };
-
-    setInlineChatError(null);
-    setInlineChatSelection(selection);
-    setInlineChatOpen(true);
-    setInlineChatFocusNonce((n) => n + 1);
-  };
-
-  const askInlineChatRef = useRef(askInlineChat);
-  useEffect(() => {
-    askInlineChatRef.current = askInlineChat;
-  }, [askInlineChat]);
-
   type EditorPatch = {
     replacement?: string;
     format?: string;
     notes?: string;
   };
 
-  const sendInlineChatInstruction = async (instruction: string, mediaFiles?: MediaFile[]) => {
-    if (!activeTab) return;
-    if (!inlineChatSelection) {
-      addToast('Seleção do editor não está disponível.', 'error');
-      return;
-    }
+  const sendEditorChatModalMessage = async (
+    instruction: string,
+    mediaFiles: MediaFile[] | undefined,
+    inlineChatSelection: InlineChatSelection,
+    session?: WorkspaceChatModalSession,
+  ): Promise<WorkspaceChatSendPlan> => {
+    if (!activeTab) return null;
 
-    const chatState = useChatStore.getState();
-    if (chatState.isLoading) {
-      addToast('O chat já está respondendo. Aguarde terminar.', 'info');
-      return;
-    }
+    const expectedConversationId = session?.conversationId || workspaceTab?.conversationId || undefined;
+    if (!expectedConversationId) return null;
 
-    // Se não há conversa ativa no chatStore, cria uma
-    if (!chatState.activeConversationId) {
-      try {
-        await chatState.createConversation();
-      } catch {
-        addToast('Não foi possível criar uma conversa para o chat inline.', 'error');
-        return;
-      }
-    }
-
-    const expectedConversationId = useChatStore.getState().activeConversationId ?? undefined;
-
-    const beforeMessages = useChatStore.getState().getMessages();
-    const afterMessageId = getMaxNumericMessageId(beforeMessages as Message[]);
+    const beforeMessages = useChatStore.getState().getConversationMessages(expectedConversationId);
+    const afterMessageId = getMaxMessageId(beforeMessages as Message[]);
 
     const trimmed = String(instruction || '').trim();
-    if (!trimmed) return;
+    if (!trimmed) return null;
 
-    const prompt = buildEditorPatchPrompt({
-      instruction: trimmed,
-      selectedText:
-        inlineChatSelection.mode === 'rich'
-          ? String(inlineChatSelection.selectedMarkdown || inlineChatSelection.selectedText || '')
-          : inlineChatSelection.selectedText,
-      format: 'markdown',
-      selectionIsEmpty: !!inlineChatSelection.selectionIsEmpty,
-      cursorContext: inlineChatSelection.cursorContext,
-      filePath: activeTab?.filePath ?? undefined,
-    });
+    const prompt = trimmed;
+    const editorSurfaceTab = workspaceTab ?? {
+      type: 'editor',
+      title: activeTab.title,
+      state: {
+        filePath: activeTab.filePath ?? undefined,
+        draftId: activeTab.draftId ?? undefined,
+      },
+    };
+    const surfaceContext = inlineChatSelection.mode === 'rich'
+      ? {
+          mode: 'rich',
+          selectedText: inlineChatSelection.selectedText,
+          selectedMarkdown: inlineChatSelection.selectedMarkdown,
+          selectionIsEmpty: inlineChatSelection.selectionIsEmpty,
+          cursorContext: inlineChatSelection.cursorContext,
+          from: inlineChatSelection.from,
+          to: inlineChatSelection.to,
+        }
+      : {
+          mode: 'markdown',
+          selectedText: inlineChatSelection.selectedText,
+          selectionIsEmpty: inlineChatSelection.selectionIsEmpty,
+          cursorContext: inlineChatSelection.cursorContext,
+          startOffset: inlineChatSelection.startOffset,
+          endOffset: inlineChatSelection.endOffset,
+        };
 
     const runId = (inlineChatRunIdRef.current += 1);
-    setInlineChatError(null);
+    useWorkspaceChatModalStore.getState().setAdapterError(null);
 
     const isToolCallingEnabledForProfileSlug = async (slug: string): Promise<boolean> => {
       const s = String(slug || '').trim();
@@ -1601,10 +1549,10 @@ export default function EditorPage() {
 
     const applyInlinePatchNow = (selection: InlineChatSelection, patch: EditorPatch) => {
       const replacement = normalizeReplacementForEditor(String(patch?.replacement || ''), patch?.format, selection?.selectedText);
-      const { documents: currentDocs, activeDocumentId: currentActiveDocId } = useEditorStore.getState();
+      const { documents: currentDocs } = useEditorStore.getState();
       const tab = currentDocs[selection.tabId] || null;
       if (!tab) {
-        addToast('Aba do editor não encontrada para aplicar a alteração.', 'error');
+        addToast(t('editor.chatModal.editorTabNotFound'), 'error');
         setIsAsking(false);
         focusEditorSoon();
         return;
@@ -1613,8 +1561,8 @@ export default function EditorPage() {
       if (selection.mode === 'markdown') {
         const s = selection;
 
-        if (currentActiveDocId !== s.tabId) {
-          addToast('Abra a aba original do editor para aplicar esta alteração.', 'info');
+        if (currentDocumentId !== s.tabId) {
+          addToast(t('editor.chatModal.openOriginalTabToApply'), 'info');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1633,7 +1581,7 @@ export default function EditorPage() {
 
         // Se o conteúdo mudou desde o snapshot, evita aplicar offsets errados.
         if (!applied.ok) {
-          addToast('O texto selecionado mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
+          addToast(t('editor.chatModal.selectionChangedRetry'), 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1643,14 +1591,14 @@ export default function EditorPage() {
         setDocMarkdown(s.tabId, nextMarkdown);
         updateLatestMarkdownForTab(s.tabId, nextMarkdown);
         schedulePersistForTab(s.tabId);
-        addToast('Alteração aplicada', 'success');
+        addToast(t('editor.chatModal.patchApplied'), 'success');
 
         requestAnimationFrame(() => {
           try {
             const editor = editorRef.current;
             const m = editor?.getModel?.();
             if (!editor || !m) return;
-            if (currentActiveDocId !== s.tabId) return;
+            if (currentDocumentId !== s.tabId) return;
             const startPos = m.getPositionAt(s.startOffset);
             const endPos = m.getPositionAt(s.startOffset + replacement.length);
             editor.setSelection({
@@ -1666,21 +1614,21 @@ export default function EditorPage() {
         });
       } else {
         const s = selection;
-        if (currentActiveDocId !== s.tabId) {
-          addToast('Abra a aba original do editor para aplicar esta alteração.', 'info');
+        if (currentDocumentId !== s.tabId) {
+          addToast(t('editor.chatModal.openOriginalTabToApply'), 'info');
           setIsAsking(false);
           focusEditorSoon();
           return;
         }
         const rich = richEditorRef.current;
         if (!rich) {
-          addToast('Editor rico não está pronto.', 'error');
+          addToast(t('editor.chatModal.richEditorNotReady'), 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
         }
 
-        // Evita aplicar em um range errado caso a seleção tenha mudado enquanto o mini-chat estava aberto.
+        // Evita aplicar em um range errado caso a seleção tenha mudado enquanto o chat estava aberto.
         try {
           const currentSel = rich.state?.selection;
           const expectedEmpty = !!s.selectionIsEmpty;
@@ -1703,20 +1651,20 @@ export default function EditorPage() {
 
           if (!validation.ok) {
             if (validation.reason === 'no_selection') {
-              addToast('Não foi possível ler a seleção atual do editor rico. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.richSelectionReadFailed'), 'error');
             } else if (validation.reason === 'selected_text_mismatch') {
-              addToast('O texto selecionado mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.selectionChangedRetry'), 'error');
             } else if (validation.reason === 'cannot_read_selected_text') {
-              addToast('Não foi possível validar a seleção do editor rico. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.richSelectionValidateFailed'), 'error');
             } else {
-              addToast('A seleção mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
+              addToast(t('editor.chatModal.selectionSnapshotChanged'), 'error');
             }
             setIsAsking(false);
             focusEditorSoon();
             return;
           }
         } catch {
-          addToast('Não foi possível validar a seleção do editor rico. Refazer a seleção e tentar novamente.', 'error');
+          addToast(t('editor.chatModal.richSelectionValidateFailed'), 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1725,13 +1673,12 @@ export default function EditorPage() {
         const isMarkdown = patch?.format === 'markdown';
         const contentToInsert = !isMarkdown ? replacement : markdownToHtml(replacement);
         applyRichTextInsert({ rich, from: s.from, to: s.to, contentToInsert });
-        addToast('Alteração aplicada', 'success');
+        addToast(t('editor.chatModal.patchApplied'), 'success');
         flushActiveRichMarkdownNow();
       }
 
-      setInlineChatError(null);
-      setInlineChatSelection(null);
-      setInlineChatOpen(false);
+      useWorkspaceChatModalStore.getState().setAdapterError(null);
+      useWorkspaceChatModalStore.getState().close();
       setIsAsking(false);
       focusEditorSoon();
     };
@@ -1774,77 +1721,167 @@ export default function EditorPage() {
         return;
       }
 
-      addToast('Alteração rejeitada', 'info');
+      addToast(t('editor.chatModal.patchRejected'), 'info');
       setIsAsking(false);
-      // Mantém o mini-chat aberto para você criticar/explicar detalhes.
-      // Apenas devolve o foco para o input do mini-chat.
-      setInlineChatFocusNonce((n) => n + 1);
+      // Mantém o chat modal aberto para você criticar/explicar detalhes.
+      // Apenas devolve o foco para o input do chat.
+      useWorkspaceChatModalStore.getState().bumpFocus();
     };
 
     try {
       setIsAsking(true);
 
       // Regra importante:
-      // - tools ON  => edit_file com confirmação contextual (Go-side); frontend fecha o mini-chat
+      // - tools ON  => edit_file com confirmação contextual (Go-side); frontend fecha o chat modal
       // - tools OFF => body-only (extrai ```editor_patch``` do texto e confirma aqui)
       const toolCallingEnabled = await isToolCallingEnabledForProfileSlug(effectiveProfileSlug);
 
-      // Com tools ativas, edit_file precisa do caminho do arquivo. Drafts sem filePath não são suportados.
-      if (toolCallingEnabled && !activeTab?.filePath) {
-        addToast('Salve o arquivo antes de usar o assistente inline', 'warning');
-        setIsAsking(false);
-        return;
-      }
+      // Drafts sem filePath não conseguem usar edit_file; nesse caso, cai para o
+      // mesmo fluxo principal com fallback body-only e aplicação local do patch.
+      const canUseToolCalling = toolCallingEnabled && !!activeTab?.filePath;
+      const surfaceParams = buildChatSurfaceParams(editorSurfaceTab, {
+        profileSlug: effectiveProfileSlug,
+        context: surfaceContext,
+      });
 
       const donePromise = waitForChatDone(expectedConversationId);
+      return {
+        content: prompt,
+        mediaFiles,
+        paramsOverride: surfaceParams,
+        afterSend: async () => {
+          try {
+            const completedConversationId = await donePromise;
 
-      if (toolCallingEnabled) {
-        await useChatStore.getState().sendMessage(prompt, mediaFiles, {
-          profileSlug: effectiveProfileSlug,
-          tabType: 'editor',
-          activeFilePath: activeTab?.filePath ?? undefined,
-        });
-      } else {
-        await useChatStore.getState().sendMessage(prompt, mediaFiles, { profileSlug: effectiveProfileSlug });
-      }
+            if (runId !== inlineChatRunIdRef.current) return;
 
-      await donePromise;
+            // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
+            // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
+            if (canUseToolCalling) {
+              useWorkspaceChatModalStore.getState().setAdapterError(null);
+              useWorkspaceChatModalStore.getState().close();
+              setIsAsking(false);
+              focusEditorSoon();
+              return;
+            }
 
-      if (runId !== inlineChatRunIdRef.current) return;
+            // Fallback (sem tool calling): extrai patch do corpo da resposta e confirma.
+            const extracted = await waitForEditorPatch({
+              conversationId: completedConversationId,
+              afterMessageId,
+              timeoutMs: 8000,
+            });
+            if (!extracted.ok) {
+              const errText = String(extracted.error || '').trim();
+              if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
+                addToast(t('editor.chatModal.patchNotApplicable'), 'error');
+              }
+              useWorkspaceChatModalStore.getState().setAdapterError(errText || t('editor.chatModal.patchExtractDefault'));
+              setIsAsking(false);
+              return;
+            }
 
-      // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
-      // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
-      if (toolCallingEnabled) {
-        setInlineChatError(null);
-        setInlineChatSelection(null);
-        setInlineChatOpen(false);
-        setIsAsking(false);
-        focusEditorSoon();
-        return;
-      }
-
-      // Fallback (sem tool calling): extrai patch do corpo da resposta e confirma.
-      const extracted = await waitForEditorPatch({
-        afterMessageId,
-        timeoutMs: 8000,
-      });
-      if (!extracted.ok) {
-        const errText = String(extracted.error || '').trim();
-        if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
-          addToast('Resposta não contém patch aplicável', 'error');
-        }
-        setInlineChatError(errText || 'Nenhum patch encontrado');
-        setIsAsking(false);
-        return;
-      }
-
-      await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
+            await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
+          } catch (e: unknown) {
+            console.error('[EditorPage] inline chat error:', e);
+            useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
+            setIsAsking(false);
+          }
+        },
+        onSendError: (e: unknown) => {
+          console.error('[EditorPage] inline chat error:', e);
+          useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
+          setIsAsking(false);
+        },
+      };
     } catch (e: unknown) {
       console.error('[EditorPage] inline chat error:', e);
-      setInlineChatError(getErrorMessage(e) || 'Erro ao pedir alteração ao chat');
+      useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
       setIsAsking(false);
+      return null;
     }
   };
+
+  const sendEditorChatModalRef = useRef(sendEditorChatModalMessage);
+  sendEditorChatModalRef.current = sendEditorChatModalMessage;
+
+  const editorChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
+    if (!workspaceTab || workspaceTab.type !== 'editor') return null;
+
+    return {
+      prepare: async (): Promise<WorkspaceChatModalPrepareResult> => {
+        if (!activeTab) return { ok: false, message: t('workspace.chatModal.panelLoading') };
+        if (activeTab.mode === 'view') {
+          addToast(t('editor.chatModal.prepareNeedCodeOrRich'), 'info');
+          return { ok: false };
+        }
+        if (isAsking) {
+          return { ok: false, message: t('workspace.chatModal.panelLoading') };
+        }
+
+        const selectionRaw =
+          activeTab.mode === 'markdown'
+            ? getSelectionSnapshot()
+            : activeTab.mode === 'rich'
+              ? getRichSelectionSnapshot()
+              : null;
+
+        if (!selectionRaw) {
+          addToast(t('editor.chatModal.prepareSelectionFailed'), 'error');
+          return { ok: false };
+        }
+
+        if (selectionRaw.selectedText.length > 20000) {
+          addToast(t('editor.chatModal.prepareSelectionTooLarge', { max: 20000 }), 'error');
+          return { ok: false };
+        }
+
+        const snapshot =
+          activeTab.mode === 'markdown'
+            ? (editorRef.current?.getModel?.()?.getValue?.() ?? activeTab.markdown)
+            : (selectionRaw as any)?.snapshot ?? activeTab.markdown;
+        const selection: InlineChatSelection =
+          activeTab.mode === 'markdown'
+            ? {
+                mode: 'markdown',
+                tabId: activeTab.id,
+                selectedText: selectionRaw.selectedText,
+                selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
+                cursorContext: (selectionRaw as any).cursorContext,
+                displayText: (selectionRaw as any).displayText,
+                startOffset: (selectionRaw as any).startOffset,
+                endOffset: (selectionRaw as any).endOffset,
+                snapshot,
+              }
+            : {
+                mode: 'rich',
+                tabId: activeTab.id,
+                selectedText: selectionRaw.selectedText,
+                selectedMarkdown: (selectionRaw as any)?.selectedMarkdown,
+                selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
+                cursorContext: (selectionRaw as any).cursorContext,
+                displayText: (selectionRaw as any).displayText,
+                displayMarkdown: (selectionRaw as any)?.displayMarkdown,
+                from: (selectionRaw as any).from,
+                to: (selectionRaw as any).to,
+                snapshot,
+              };
+
+        const contextDisplay =
+          selection.displayText ||
+          (selection.mode === 'rich' ? selection.selectedMarkdown : '') ||
+          selection.selectedText ||
+          '';
+
+        useWorkspaceChatModalStore.getState().setAdapterError(null);
+        return { ok: true, contextDisplay, meta: selection };
+      },
+      send: (instruction, media, meta, session) =>
+        sendEditorChatModalRef.current(instruction, media, meta as InlineChatSelection, session),
+    };
+  }, [workspaceTab, activeTab, isAsking, addToast, editorReadyNonce, t]);
+
+  useRegisterWorkspaceChatAdapter(workspaceTab?.id, editorChatModalAdapter);
 
   const openFile = async () => {
     try {
@@ -1884,9 +1921,7 @@ export default function EditorPage() {
         renameDocument(id, title);
         setDocMarkdown(id, content);
         useEditorStore.getState().setDocMode(id, preferredMode);
-        if (wsActiveTab) {
-          void updateWsTab(wsActiveTab.id, { title });
-        }
+        // filePath+title são sincronizados pelo controller do painel de editor.
       } else {
         const tabId = await addWorkspaceTab('editor', title, { filePath: path });
         id = tabId;
@@ -2028,6 +2063,8 @@ export default function EditorPage() {
       renameDocument(activeTab.id, title);
       setDocDirty(activeTab.id, false);
 
+      // filePath+title são sincronizados pelo controller do painel de editor.
+
       void refreshDiskInfoForTab({ ...activeTab, filePath: path });
 
       const draftId = activeTab.draftId || activeTab.id;
@@ -2065,7 +2102,7 @@ export default function EditorPage() {
     if (!activeTab) return;
     const fence = findMermaidFenceByIndex(activeTab.markdown, index);
     if (!fence) {
-      addToast('Não foi possível localizar o bloco Mermaid no Markdown.', 'error');
+      addToast(t('editor.chatModal.mermaidBlockNotFound'), 'error');
       return;
     }
     setActiveMermaidIndex(index);
@@ -2144,25 +2181,6 @@ export default function EditorPage() {
       autosaveTimersByTabRef.current = {};
     };
   }, []);
-
-  // Ctrl+Shift+I: pedir alteração ao chat
-  useEffect(() => {
-    const onKeyDown = async (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && (e.code === 'KeyI' || e.key === 'i' || e.key === 'I') && !e.altKey) {
-        e.preventDefault();
-        if (isAsking) return;
-        if (activeTab?.mode === 'view') {
-          addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
-          return;
-        }
-        if (isModalOpen()) return;
-        await askInlineChatRef.current();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [isAsking, activeTab?.mode, addToast]);
 
   const fileMenuItems = useMemo(() => {
     const canSave = !!activeTab && (!activeTab.filePath || isExternalConflictLocked(activeTab.id));
@@ -2297,20 +2315,22 @@ export default function EditorPage() {
         onClick: async () => {
           if (isAsking) return;
           if (activeTab?.mode === 'view') {
-            addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
+            addToast(t('editor.chatModal.prepareNeedCodeOrRich'), 'info');
             return;
           }
-          await askInlineChat();
+          if (!workspaceTab?.id) return;
+          await useWorkspaceChatModalStore.getState().requestOpen(workspaceTab.id);
         },
         disabled: !activeTab || isAsking,
       },
     ];
-  }, [activeTab, askInlineChat, isAsking, addToast]);
+  }, [activeTab, isAsking, addToast, t, workspaceTab?.id]);
 
   // Atalhos de arquivos
   useEffect(() => {
+    if (!isPanelActive || !activeTab?.id) return;
+
     const onKeyDown = async (e: KeyboardEvent) => {
-      if (!activeTab) return;
       if (isModalOpen()) return;
 
       if (e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S') && !e.altKey) {
@@ -2334,7 +2354,7 @@ export default function EditorPage() {
 
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeTab]);
+  }, [activeTab?.id, isPanelActive]);
 
   return (
     <div className="editor-page" ref={pageRootRef}>
@@ -2377,21 +2397,6 @@ export default function EditorPage() {
           </div>
         }
         actions={actions}
-        rightEnd={
-          <ProfilePicker
-            value={effectiveProfileSlug}
-            onChange={(slug) => {
-              if (wsActiveTab) {
-                void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
-              }
-            }}
-            variant="toolbar"
-            label={t('workspace.tabProfileLabel', 'Perfil')}
-            description={t('workspace.tabProfileDescription')}
-            icon={<EditOutlined />}
-            maxWidth="180px"
-          />
-        }
         ariaLabel={t('editor.aria.toolbar')}
       />
 
@@ -2537,21 +2542,6 @@ export default function EditorPage() {
           </div>
         )}
       </div>
-
-      <EditorInlineChatModal
-        isOpen={inlineChatOpen}
-        title="Perguntar ao chat"
-        selectedText={
-          inlineChatSelection?.displayText ||
-          (inlineChatSelection?.mode === 'rich' ? inlineChatSelection.selectedMarkdown : '') ||
-          inlineChatSelection?.selectedText ||
-          ''
-        }
-        error={inlineChatError}
-        focusNonce={inlineChatFocusNonce}
-        onClose={closeInlineChatModal}
-        onSend={sendInlineChatInstruction}
-      />
 
       <MermaidEditorModal
         isOpen={activeMermaidIndex !== null || richMermaidSession !== null}

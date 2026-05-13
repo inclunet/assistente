@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
+	"assistente/internal/portability"
 	"assistente/internal/tools"
 )
 
@@ -122,7 +125,7 @@ func TestGetWorkspaceRoots(t *testing.T) {
 
 	// Depois de configurar
 	newRoots := []Root{{URI: "file:///test", Name: "test"}}
-	manager.SetWorkspaceRoots(newRoots)
+	_ = manager.SetWorkspaceRoots(newRoots)
 
 	roots = manager.GetWorkspaceRoots()
 	if len(roots) != 1 {
@@ -141,7 +144,7 @@ func TestManagerConcurrency(t *testing.T) {
 
 	// Goroutine 1: Set roots
 	go func() {
-		manager.SetWorkspaceRoots([]Root{
+		_ = manager.SetWorkspaceRoots([]Root{
 			{URI: "file:///test1", Name: "test1"},
 		})
 		done <- true
@@ -182,7 +185,10 @@ func TestEmitEvent(t *testing.T) {
 	registry := tools.NewRegistry()
 	credMgr := credentials.NewManager(nil)
 
-	eventChan := make(chan struct { name string; data any }, 10)
+	eventChan := make(chan struct {
+		name string
+		data any
+	}, 10)
 	emitFunc := func(event string, data any) {
 		eventChan <- struct {
 			name string
@@ -193,7 +199,7 @@ func TestEmitEvent(t *testing.T) {
 	manager := NewManager(registry, credMgr, emitFunc)
 
 	// SetWorkspaceRoots deve emitir evento
-	manager.SetWorkspaceRoots([]Root{
+	_ = manager.SetWorkspaceRoots([]Root{
 		{URI: "file:///test", Name: "test"},
 	})
 
@@ -242,7 +248,7 @@ func TestManagerStateConsistency(t *testing.T) {
 
 	// Configura roots
 	roots1 := []Root{{URI: "file:///test1", Name: "test1"}}
-	manager.SetWorkspaceRoots(roots1)
+	_ = manager.SetWorkspaceRoots(roots1)
 
 	// Obtém valores
 	retrieved1 := manager.GetWorkspaceRoots()
@@ -255,7 +261,7 @@ func TestManagerStateConsistency(t *testing.T) {
 		{URI: "file:///test2", Name: "test2"},
 		{URI: "file:///test3", Name: "test3"},
 	}
-	manager.SetWorkspaceRoots(roots2)
+	_ = manager.SetWorkspaceRoots(roots2)
 
 	// Obtém valores novamente
 	retrieved2 := manager.GetWorkspaceRoots()
@@ -308,6 +314,9 @@ func newTestManagerWithTempDir(t *testing.T) *Manager {
 	t.Helper()
 	m := newTestManager()
 	m.resolver = configdir.NewResolverWithBase(t.TempDir())
+	repo, userA, _ := setupRepositoryTest(t)
+	m.SetRepository(repo)
+	m.SetAuthContextProvider(func() context.Context { return userA })
 	return m
 }
 
@@ -337,6 +346,16 @@ func TestCheckAndRefreshToken_SkipsNonOAuth2Server(t *testing.T) {
 
 func TestCheckAndRefreshToken_SkipsWhenNoTokenStored(t *testing.T) {
 	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug:   "test",
+		Config: ServerConfig{AuthType: AuthOAuth2PKCE},
+	}
+	m.checkAndRefreshToken("test")
+}
+
+func TestCheckAndRefreshToken_SkipsWhenCredManagerIsNil(t *testing.T) {
+	registry := tools.NewRegistry()
+	m := NewManager(registry, nil, func(string, any) {})
 	m.servers["test"] = &ServerStatus{
 		Slug:   "test",
 		Config: ServerConfig{AuthType: AuthOAuth2PKCE},
@@ -392,7 +411,7 @@ func TestCheckAndRefreshToken_SkipsWhenNoRefreshToken(t *testing.T) {
 func TestCheckAndRefreshToken_RefreshesExpiringToken(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "new-access-token",
 			"refresh_token": "new-refresh-token",
 			"token_type":    "Bearer",
@@ -437,7 +456,7 @@ func TestCheckAndRefreshToken_RefreshesExpiringToken(t *testing.T) {
 func TestCheckAndRefreshToken_HandlesRefreshFailure(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, `{"error":"invalid_grant"}`)
+		_, _ = fmt.Fprint(w, `{"error":"invalid_grant"}`)
 	}))
 	defer tokenServer.Close()
 
@@ -473,7 +492,7 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "refreshed",
 			"refresh_token": "new-refresh",
 			"token_type":    "Bearer",
@@ -494,7 +513,7 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 	}
 
 	rt := &pkceRoundTripper{credMgr: m.credMgr, serverSlug: "test"}
-	rt.persistClientCreds("stored-client-id", "stored-secret")
+	rt.persistClientCreds(context.Background(), "stored-client-id", "stored-secret")
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
 	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
@@ -513,6 +532,162 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 	auth, _ := m.credMgr.GetByPattern(userTokensPattern("test"))
 	if auth.Token != "refreshed" {
 		t.Errorf("expected refreshed token, got %q", auth.Token)
+	}
+}
+
+func TestRecoverServerBestEffort_RefreshesOAuthToken(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "recover-access-token",
+			"refresh_token": "recover-refresh-token",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+		})
+	}))
+	defer tokenServer.Close()
+
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug: "test",
+		Config: ServerConfig{
+			Enabled:        true,
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "test-client",
+			OAuth2TokenURL: tokenServer.URL,
+			OAuth2AuthURL:  "http://unused/auth",
+		},
+		Status: StatusDisconnected,
+	}
+
+	soonExpiry := time.Now().Add(30 * time.Second).Unix()
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      "old-access-token",
+		RefreshURL: "old-refresh-token",
+		ExpiresAt:  soonExpiry,
+	})
+
+	result := m.RecoverServerBestEffort(context.Background(), "test")
+	if !result.Attempted {
+		t.Fatal("recovery deveria marcar Attempted=true")
+	}
+	if !result.Refreshed {
+		t.Fatal("recovery deveria renovar o token")
+	}
+
+	auth, err := m.credMgr.GetByPattern(userTokensPattern("test"))
+	if err != nil {
+		t.Fatalf("erro ao ler token: %v", err)
+	}
+	if auth.Token != "recover-access-token" {
+		t.Fatalf("token = %q, want %q", auth.Token, "recover-access-token")
+	}
+}
+
+func TestRecoverServerBestEffort_RefreshesOAuthTokenWithoutExpiryWhenForced(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "recover-access-token",
+			"refresh_token": "recover-refresh-token",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+		})
+	}))
+	defer tokenServer.Close()
+
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug: "test",
+		Config: ServerConfig{
+			Enabled:        true,
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "test-client",
+			OAuth2TokenURL: tokenServer.URL,
+			OAuth2AuthURL:  "http://unused/auth",
+		},
+		Status: StatusDisconnected,
+	}
+
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      "old-access-token",
+		RefreshURL: "old-refresh-token",
+	})
+
+	result := m.RecoverServerBestEffort(context.Background(), "test")
+	if !result.Attempted {
+		t.Fatal("recovery deveria marcar Attempted=true")
+	}
+	if !result.Refreshed {
+		t.Fatal("recovery deveria renovar o token mesmo sem expiry persistido")
+	}
+
+	auth, err := m.credMgr.GetByPattern(userTokensPattern("test"))
+	if err != nil {
+		t.Fatalf("erro ao ler token: %v", err)
+	}
+	if auth.Token != "recover-access-token" {
+		t.Fatalf("token = %q, want %q", auth.Token, "recover-access-token")
+	}
+}
+
+func TestRecoverServerBestEffort_RejectsDisabledServer(t *testing.T) {
+	m := newTestManager()
+	m.servers["disabled"] = &ServerStatus{
+		Slug: "disabled",
+		Config: ServerConfig{
+			Enabled: false,
+		},
+	}
+
+	result := m.RecoverServerBestEffort(context.Background(), "disabled")
+	if result.Attempted {
+		t.Fatal("servidor desabilitado não deveria marcar Attempted=true")
+	}
+	if result.Err == nil {
+		t.Fatal("esperava erro para servidor desabilitado")
+	}
+}
+
+func TestRecoverServerBestEffort_JoinsRefreshAndReconnectErrors(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadGateway)
+	}))
+	defer tokenServer.Close()
+
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug: "test",
+		Config: ServerConfig{
+			Enabled:        true,
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "test-client",
+			OAuth2TokenURL: tokenServer.URL,
+			OAuth2AuthURL:  "http://unused/auth",
+		},
+		Status: StatusDisconnected,
+	}
+
+	soonExpiry := time.Now().Add(30 * time.Second).Unix()
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      "old-access-token",
+		RefreshURL: "old-refresh-token",
+		ExpiresAt:  soonExpiry,
+	})
+
+	result := m.RecoverServerBestEffort(context.Background(), "test")
+	if result.Err == nil {
+		t.Fatal("esperava erro agregado de refresh + reconnect")
+	}
+	errText := result.Err.Error()
+	if !strings.Contains(errText, "oauth2:") {
+		t.Fatalf("erro deveria incluir falha de refresh, got %q", errText)
+	}
+	if !strings.Contains(errText, "transport desconhecido") {
+		t.Fatalf("erro deveria incluir falha de reconnect, got %q", errText)
 	}
 }
 
@@ -703,12 +878,126 @@ func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
 	}
 }
 
+func TestImportFromMCPJSONRequiresRepositoryBeforeImport(t *testing.T) {
+	_, userA, _ := setupRepositoryTest(t)
+	m := NewManager(nil, nil, nil)
+	m.SetAuthContextProvider(func() context.Context { return userA })
+
+	count, err := m.ImportFromMCPJSON([]byte(`{"mcpServers":{"github":{"url":"https://github.example/mcp"}}}`))
+	if err == nil {
+		t.Fatal("expected repository error")
+	}
+	if !strings.Contains(err.Error(), "repository MCP não configurado") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
+	}
+	var rows int64
+	if err := database.DB().Model(&database.MCPServer{}).Count(&rows).Error; err != nil {
+		t.Fatalf("count mcp servers: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("ImportFromMCPJSON should not write without repository, rows=%d", rows)
+	}
+}
+
+func TestLegacyImportImportsRequestInitBearerAuth(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	m.SetAuthContextProvider(func() context.Context { return ctx })
+
+	data := []byte(`{
+		"url": "https://api.githubcopilot.com/mcp/",
+		"requestInit": {
+			"headers": {
+				"Authorization": "Bearer ghp_test_token"
+			}
+		}
+	}`)
+	if err := m.resolver.Write("github.json", data); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	if _, err := portability.ImportLegacyMCPServersWithContext(ctx, m.LegacyConfigSource(), m.credMgr); err != nil {
+		t.Fatalf("ImportLegacyMCPServersWithContext failed: %v", err)
+	}
+
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatalf("LoadConfigs failed: %v", err)
+	}
+
+	m.mu.RLock()
+	cfg := m.servers["github"].Config
+	m.mu.RUnlock()
+	if cfg.AuthType != AuthBearer {
+		t.Fatalf("auth type: got %q, want %q", cfg.AuthType, AuthBearer)
+	}
+
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, "api.githubcopilot.com")
+	if err != nil {
+		t.Fatalf("GetByPattern failed: %v", err)
+	}
+	if auth == nil || auth.Token != "ghp_test_token" {
+		t.Fatalf("imported token: got %#v, want ghp_test_token", auth)
+	}
+}
+
+func TestImportFromMCPJSONImportsRequestInitBearerAuth(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	m.SetAuthContextProvider(func() context.Context { return ctx })
+
+	mcpJSON := []byte(`{
+		"mcpServers": {
+			"github": {
+				"url": "https://api.githubcopilot.com/mcp/",
+				"requestInit": {
+					"headers": {
+						"Authorization": "Bearer ghp_imported"
+					}
+				}
+			}
+		}
+	}`)
+
+	count, err := m.ImportFromMCPJSON(mcpJSON)
+	if err != nil {
+		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("import count: got %d, want 1", count)
+	}
+
+	m.mu.RLock()
+	cfg := m.servers["github"].Config
+	m.mu.RUnlock()
+	if cfg.AuthType != AuthBearer {
+		t.Fatalf("auth type: got %q, want %q", cfg.AuthType, AuthBearer)
+	}
+
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, "api.githubcopilot.com")
+	if err != nil {
+		t.Fatalf("GetByPattern failed: %v", err)
+	}
+	if auth == nil || auth.Token != "ghp_imported" {
+		t.Fatalf("imported token: got %#v, want ghp_imported", auth)
+	}
+}
+
 func TestImportFromMCPJSON_SkipsExisting(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
-	m.servers["existing-server"] = &ServerStatus{
-		Slug:   "existing-server",
-		Config: ServerConfig{Name: "Existing"},
-		Status: StatusDisconnected,
+	existing := &ServerConfig{
+		Slug:        "existing-server",
+		Name:        "Existing",
+		Transport:   TransportStdio,
+		Command:     "node",
+		Args:        []string{"existing.js"},
+		Enabled:     true,
+		AutoConnect: true,
+	}
+	if err := m.repository().SaveServer(m.credentialContext(), existing); err != nil {
+		t.Fatalf("SaveServer existing: %v", err)
 	}
 
 	mcpJSON := []byte(`{
@@ -737,8 +1026,8 @@ func TestImportFromMCPJSON_EmptyInput(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
 
 	count, err := m.ImportFromMCPJSON([]byte(`{}`))
-	if err != nil {
-		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	if err == nil {
+		t.Fatal("expected empty object to be rejected as non-MCP JSON")
 	}
 	if count != 0 {
 		t.Errorf("expected 0 imported for empty input, got %d", count)
@@ -752,6 +1041,122 @@ func TestImportFromMCPJSON_InvalidJSON(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}
+}
+
+func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
+	var gotAuth string
+	rt := &bearerRoundTripper{
+		base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotAuth = req.Header.Get("Authorization")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       http.NoBody,
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}),
+		token: "Bearer already-prefixed",
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if gotAuth != "Bearer already-prefixed" {
+		t.Fatalf("Authorization header: got %q, want %q", gotAuth, "Bearer already-prefixed")
+	}
+}
+
+// TestBuildAuthHTTPClient_LogoutMidFlightDegrades cobre o vetor descrito no
+// Major H do re-review do AEP-0052: o AuthContextProvider devolve ctx
+// avaliado em runtime (não na hora do startup); se o usuário fizer logout
+// enquanto um servidor MCP está ativo, a próxima resolução de credencial
+// chega com ctx sem userID. O comportamento esperado é degradação limpa
+// (cliente sem auth, sem panic, sem corrupção de estado), nunca
+// reaproveitamento de credencial de outro usuário.
+func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newTestManager()
+	userCtx := database.WithUserID(context.Background(), "user-1")
+	loggedInOut := userCtx
+	m.SetAuthContextProvider(func() context.Context { return loggedInOut })
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "user-token",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext failed: %v", err)
+	}
+
+	clientLoggedIn := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if clientLoggedIn == nil {
+		t.Fatal("expected authenticated client while logged in")
+	}
+
+	loggedInOut = context.Background()
+
+	clientLoggedOut := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if clientLoggedOut != nil {
+		t.Fatalf("logout-mid-flight should not return an authenticated client (got %T)", clientLoggedOut)
+	}
+}
+
+func TestBuildAuthHTTPClientResolvesUserScopedBearer(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newTestManager()
+	userCtx := database.WithUserID(context.Background(), "user-1")
+	m.SetAuthContextProvider(func() context.Context { return userCtx })
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "user-token",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext failed: %v", err)
+	}
+
+	client := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if client == nil {
+		t.Fatal("expected authenticated HTTP client")
+	}
+
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if gotAuth != "Bearer user-token" {
+		t.Fatalf("Authorization header: got %q, want %q", gotAuth, "Bearer user-token")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
 func TestIsNativeMCPEligibleURL(t *testing.T) {
@@ -816,25 +1221,5 @@ func TestGetEligibleNativeMCPServers_URLFiltering(t *testing.T) {
 	}
 	if slugs["http-remote"] {
 		t.Error("HTTP remote should NOT be eligible")
-	}
-}
-
-func TestSanitizeSlug(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"My Server", "my-server"},
-		{"my_server", "my-server"},
-		{"server-123", "server-123"},
-		{"Server With Spaces", "server-with-spaces"},
-		{"UPPERCASE", "uppercase"},
-		{"special!@#chars", "specialchars"},
-	}
-	for _, tc := range tests {
-		got := sanitizeSlug(tc.input)
-		if got != tc.want {
-			t.Errorf("sanitizeSlug(%q): got %q, want %q", tc.input, got, tc.want)
-		}
 	}
 }

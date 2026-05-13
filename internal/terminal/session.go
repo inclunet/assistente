@@ -545,8 +545,8 @@ func (s *Session) Close() error {
 
 	// Encerra a sessão PTY
 	if s.ptySession != nil {
-		s.ptySession.Kill()
-		s.ptySession.Close()
+		_ = s.ptySession.Kill()
+		_ = s.ptySession.Close()
 	}
 
 	log.Printf("[Terminal] Sessão encerrada: id=%s name=%s", s.id, s.name)

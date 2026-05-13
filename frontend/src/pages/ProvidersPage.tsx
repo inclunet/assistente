@@ -12,7 +12,7 @@ import {
   CreateLLMProvider,
   DeleteLLMProvider,
   SetDefaultProvider,
-} from '@wailsjs/go/main/App';
+} from '@wailsjs/go/app/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
@@ -46,7 +46,7 @@ interface ProviderRow extends Provider {
 export default function ProvidersPage() {
   const { t } = useTranslation();
   const confirm = useConfirm();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'providers-page' });

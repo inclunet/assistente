@@ -2,7 +2,6 @@ package integration
 
 import (
 	"testing"
-	"time"
 
 	"assistente/internal/database"
 )
@@ -19,15 +18,13 @@ func TestIntegration_ConversationStorage(t *testing.T) {
 	// 1. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Conversa de Teste",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
 		t.Fatalf("falha ao criar conversa: %v", err)
 	}
 
-	if conv.ID == 0 {
+	if conv.ID == "" {
 		t.Error("conversa sem ID após criação")
 	}
 
@@ -38,7 +35,7 @@ func TestIntegration_ConversationStorage(t *testing.T) {
 	}
 
 	if retrieved.ID != conv.ID {
-		t.Errorf("ID incorreto: esperado %d, obteve %d", conv.ID, retrieved.ID)
+		t.Errorf("ID incorreto: esperado %s, obteve %s", conv.ID, retrieved.ID)
 	}
 
 	if retrieved.Title != "Conversa de Teste" {
@@ -60,8 +57,6 @@ func TestIntegration_MessagePersistence(t *testing.T) {
 	// 1. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Conversa com Mensagens",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -74,13 +69,11 @@ func TestIntegration_MessagePersistence(t *testing.T) {
 			ConversationID: conv.ID,
 			Role:           "user",
 			Content:        "Olá!",
-			CreatedAt:      time.Now(),
 		},
 		{
 			ConversationID: conv.ID,
 			Role:           "assistant",
 			Content:        "Oi! Como vai?",
-			CreatedAt:      time.Now().Add(100 * time.Millisecond),
 		},
 	}
 
@@ -125,9 +118,7 @@ func TestIntegration_MultipleConversations(t *testing.T) {
 	conversas := make([]*database.Conversation, 3)
 	for i := 0; i < 3; i++ {
 		conv := &database.Conversation{
-			Title:     "Conversa " + string(rune('1'+i)),
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			Title: "Conversa " + string(rune('1'+i)),
 		}
 		if err := db.Create(conv).Error; err != nil {
 			t.Fatalf("falha ao criar conversa: %v", err)
@@ -142,7 +133,6 @@ func TestIntegration_MultipleConversations(t *testing.T) {
 				ConversationID: conv.ID,
 				Role:           "user",
 				Content:        "Mensagem " + string(rune('a'+msgIdx)) + " da conversa " + string(rune('1'+convIdx)),
-				CreatedAt:      time.Now().Add(time.Duration(msgIdx) * time.Second),
 			}
 			if err := db.Create(msg).Error; err != nil {
 				t.Fatalf("falha ao criar mensagem: %v", err)
@@ -177,7 +167,7 @@ func TestIntegration_MultipleConversations(t *testing.T) {
 		}
 
 		if count != 2 {
-			t.Errorf("conversa %d: esperado 2 mensagens, obteve %d", conv.ID, count)
+			t.Errorf("conversa %s: esperado 2 mensagens, obteve %d", conv.ID, count)
 		}
 	}
 

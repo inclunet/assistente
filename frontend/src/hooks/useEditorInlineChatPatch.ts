@@ -3,6 +3,7 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 
 import { useChatStore } from '../store/chatStore';
 import { extractEditorPatch } from '../lib/editorPatch';
+import { isBackendId } from '../lib/idUtils';
 
 type EditorPatch = {
   v: 1;
@@ -17,7 +18,8 @@ type FindPatchResult =
   | { ok: false; error: string };
 
 type FindLatestEditorPatchOptions = {
-  afterMessageId?: number;
+  conversationId: string;
+  afterMessageId?: string;
   timeoutMs?: number;
 };
 
@@ -27,26 +29,36 @@ type MessageLike = {
   content?: string;
 };
 
-function getMaxNumericMessageId(messages: MessageLike[]): number {
-  let maxId = 0;
-  for (const m of messages) {
-    const n = typeof m?.id === 'number' ? m.id : parseInt(String(m?.id || ''), 10);
-    if (!isNaN(n) && n > maxId) maxId = n;
+/**
+ * Returns the last backend message ID from a list.
+ * Iterates from the end to find the most recent persisted message,
+ * avoiding lexicographic comparison of UUIDs.
+ */
+function getMaxMessageId(messages: MessageLike[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const id = String(messages[i]?.id || '');
+    if (isBackendId(id)) return id;
   }
-  return maxId;
+  return '';
 }
 
-function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId'>): FindPatchResult {
+function findBodyPatch(opts: Pick<FindLatestEditorPatchOptions, 'conversationId' | 'afterMessageId'>): FindPatchResult {
   const afterState = useChatStore.getState();
-  const allMessages = afterState.getMessages() as MessageLike[];
+  const allMessages = afterState.getConversationMessages(opts.conversationId) as MessageLike[];
 
-  const afterMessageId = opts?.afterMessageId || 0;
-  const messages = afterMessageId > 0
-    ? allMessages.filter((m) => {
-        const n = typeof m?.id === 'number' ? m.id : parseInt(String(m?.id || ''), 10);
-        return !isNaN(n) && n > afterMessageId;
-      })
-    : allMessages;
+  const afterMessageId = opts?.afterMessageId || '';
+  let messages = allMessages;
+  if (afterMessageId) {
+    const idx = allMessages.findIndex((m) => String(m?.id || '') === afterMessageId);
+    if (idx >= 0) {
+      messages = allMessages.slice(idx + 1);
+    } else {
+      // ID not found (list reloaded/compacted) — scan all messages as fallback.
+      // We intentionally avoid lexicographic ID comparison because UUIDv7
+      // ordering within the same millisecond is not guaranteed.
+      messages = allMessages;
+    }
+  }
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -59,7 +71,7 @@ function findBodyPatch(opts?: Pick<FindLatestEditorPatchOptions, 'afterMessageId
   return { ok: false, error: 'Nenhum patch encontrado' };
 }
 
-async function waitForEditorPatch(opts?: FindLatestEditorPatchOptions): Promise<FindPatchResult> {
+async function waitForEditorPatch(opts: FindLatestEditorPatchOptions): Promise<FindPatchResult> {
   const timeoutMs = typeof opts?.timeoutMs === 'number' ? opts.timeoutMs : 5000;
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -70,14 +82,14 @@ async function waitForEditorPatch(opts?: FindLatestEditorPatchOptions): Promise<
   return findBodyPatch(opts);
 }
 
-function waitForChatDone(expectedConversationId?: number, timeoutMs = 5 * 60 * 1000): Promise<number> {
-  return new Promise<number>((resolve, reject) => {
+function waitForChatDone(expectedConversationId?: string, timeoutMs = 5 * 60 * 1000): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     let timer: number;
     const unsub = EventsOn('chat:done', (data: unknown) => {
-      const eventData = data as { conversationId?: number };
+      const eventData = data as { conversationId?: string };
       const convId = eventData?.conversationId;
-      if (typeof convId !== 'number') return;
-      if (expectedConversationId && expectedConversationId > 0 && convId !== expectedConversationId) return;
+      if (typeof convId !== 'string') return;
+      if (expectedConversationId && convId !== expectedConversationId) return;
       window.clearTimeout(timer);
       unsub();
       resolve(convId);
@@ -95,7 +107,7 @@ export function useEditorInlineChatPatch() {
     return {
       waitForChatDone,
       waitForEditorPatch,
-      getMaxNumericMessageId,
+      getMaxMessageId,
     };
   }, []);
 }

@@ -19,6 +19,14 @@ jobs:
         with:
           go-version: '1.24'
 
+      - name: Go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.4
+
       - name: Go tests
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &

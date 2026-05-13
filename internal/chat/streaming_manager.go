@@ -13,7 +13,7 @@ import (
 // that is currently streaming.
 type StreamingManager struct {
 	mu       sync.Mutex
-	contexts map[uint]context.CancelFunc
+	contexts map[string]context.CancelFunc
 
 	// Optional: notifier to cancel pending gateway callbacks on barge-in.
 	responseNotifier *messaging.ResponseNotifier
@@ -23,14 +23,14 @@ type StreamingManager struct {
 // responseNotifier may be nil when messaging is not configured.
 func NewStreamingManager(notifier *messaging.ResponseNotifier) *StreamingManager {
 	return &StreamingManager{
-		contexts:         make(map[uint]context.CancelFunc),
+		contexts:         make(map[string]context.CancelFunc),
 		responseNotifier: notifier,
 	}
 }
 
 // Register stores a cancellable context for the given conversation.
 // If a previous context exists it is cancelled first (new message overrides in-flight response).
-func (m *StreamingManager) Register(conversationID uint, cancel context.CancelFunc) {
+func (m *StreamingManager) Register(conversationID string, cancel context.CancelFunc) {
 	m.mu.Lock()
 	if prev, ok := m.contexts[conversationID]; ok {
 		prev()
@@ -40,7 +40,7 @@ func (m *StreamingManager) Register(conversationID uint, cancel context.CancelFu
 }
 
 // Unregister removes the streaming context once a response completes normally.
-func (m *StreamingManager) Unregister(conversationID uint) {
+func (m *StreamingManager) Unregister(conversationID string) {
 	m.mu.Lock()
 	delete(m.contexts, conversationID)
 	m.mu.Unlock()
@@ -48,7 +48,7 @@ func (m *StreamingManager) Unregister(conversationID uint) {
 
 // Cancel cancels the in-flight LLM response for the given conversation (barge-in).
 // It is a no-op when there is no streaming in progress for that conversation.
-func (m *StreamingManager) Cancel(conversationID uint) {
+func (m *StreamingManager) Cancel(conversationID string) {
 	m.mu.Lock()
 	cancel, ok := m.contexts[conversationID]
 	if ok {
@@ -61,13 +61,13 @@ func (m *StreamingManager) Cancel(conversationID uint) {
 		if m.responseNotifier != nil {
 			m.responseNotifier.Cancel(conversationID)
 		}
-		log.Printf("[LLM] Streaming cancelado para conversa %d (barge-in)", conversationID)
+		log.Printf("[LLM] Streaming cancelado para conversa %s (barge-in)", conversationID)
 	}
 }
 
 // Mu acquires the internal mutex, calls fn with the raw contexts map, then releases it.
 // Intended for tests that need white-box inspection; avoid in production code.
-func (m *StreamingManager) Mu(fn func(map[uint]context.CancelFunc)) {
+func (m *StreamingManager) Mu(fn func(map[string]context.CancelFunc)) {
 	m.mu.Lock()
 	fn(m.contexts)
 	m.mu.Unlock()

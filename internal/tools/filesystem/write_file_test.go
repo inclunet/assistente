@@ -46,7 +46,7 @@ func TestWriteFile_CreateNew(t *testing.T) {
 func TestWriteFile_Overwrite(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "existing.txt")
-	os.WriteFile(filePath, []byte("old content"), 0644)
+	_ = os.WriteFile(filePath, []byte("old content"), 0644)
 
 	tool := NewWriteFile(dir)
 	args := `{"path": "existing.txt", "content": "new content"}`
@@ -141,7 +141,7 @@ func TestWriteFile_ContentTooLarge(t *testing.T) {
 
 func TestWriteFile_CannotOverwriteDir(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "subdir"), 0755)
+	_ = os.MkdirAll(filepath.Join(dir, "subdir"), 0755)
 
 	tool := NewWriteFile(dir)
 	args := `{"path": "subdir", "content": "test"}`

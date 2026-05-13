@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 )
@@ -12,10 +13,22 @@ type mockEmitter struct{ events []string }
 
 func (m *mockEmitter) Emit(event string, _ any) { m.events = append(m.events, event) }
 
-type mockCredCleaner struct{ called bool }
+type mockCredCleaner struct {
+	visible []VisibleCredential
+	deleted []string
+	listErr error
+	delErr  error
+}
 
-func (m *mockCredCleaner) DeletePattern(_ context.Context, _ string) error {
-	m.called = true
+func (m *mockCredCleaner) ListVisible(_ context.Context) ([]VisibleCredential, error) {
+	return m.visible, m.listErr
+}
+
+func (m *mockCredCleaner) DeletePattern(_ context.Context, pattern string) error {
+	if m.delErr != nil {
+		return m.delErr
+	}
+	m.deleted = append(m.deleted, pattern)
 	return nil
 }
 
@@ -141,7 +154,10 @@ func TestSettingsService_ResetConfig(t *testing.T) {
 
 func TestSettingsService_ClearAllCredentials(t *testing.T) {
 	em := &mockEmitter{}
-	cred := &mockCredCleaner{}
+	cred := &mockCredCleaner{visible: []VisibleCredential{
+		{Pattern: "api.openai.com"},
+		{Pattern: "api.anthropic.com"},
+	}}
 	svc := NewSettingsService(SettingsServiceConfig{
 		Emitter:     em,
 		CredCleaner: cred,
@@ -151,8 +167,14 @@ func TestSettingsService_ClearAllCredentials(t *testing.T) {
 		t.Fatalf("ClearAllCredentials: %v", err)
 	}
 
-	if !cred.called {
-		t.Error("esperava que DeletePattern fosse chamado")
+	if len(cred.deleted) != 2 {
+		t.Fatalf("esperava 2 deletes, obteve %d (%v)", len(cred.deleted), cred.deleted)
+	}
+	want := map[string]bool{"api.openai.com": true, "api.anthropic.com": true}
+	for _, p := range cred.deleted {
+		if !want[p] {
+			t.Errorf("pattern inesperado deletado: %q", p)
+		}
 	}
 	if len(em.events) == 0 || em.events[0] != "credentials:cleared" {
 		t.Errorf("evento emitido = %v, want [credentials:cleared]", em.events)
@@ -165,6 +187,47 @@ func TestSettingsService_ClearAllCredentials_NilCleaner(t *testing.T) {
 	err := svc.ClearAllCredentials(context.Background())
 	if err == nil {
 		t.Error("esperava erro quando credCleaner é nil")
+	}
+}
+
+// TestSettingsService_ClearAllCredentials_NeverPassesEmptyPattern
+// documenta o contrato: o cleaner JAMAIS recebe `pattern=""`, mesmo
+// quando a lista visível inclui uma entrada degenerada.
+func TestSettingsService_ClearAllCredentials_NeverPassesEmptyPattern(t *testing.T) {
+	em := &mockEmitter{}
+	cred := &mockCredCleaner{visible: []VisibleCredential{
+		{Pattern: ""}, // entrada degenerada — service tem que ignorar.
+		{Pattern: "api.openai.com"},
+	}}
+	svc := NewSettingsService(SettingsServiceConfig{Emitter: em, CredCleaner: cred})
+
+	if err := svc.ClearAllCredentials(context.Background()); err != nil {
+		t.Fatalf("ClearAllCredentials: %v", err)
+	}
+
+	for _, p := range cred.deleted {
+		if p == "" {
+			t.Fatalf("ClearAllCredentials passou pattern vazio para o cleaner")
+		}
+	}
+	if len(cred.deleted) != 1 || cred.deleted[0] != "api.openai.com" {
+		t.Fatalf("esperava apenas api.openai.com deletado, obteve %v", cred.deleted)
+	}
+}
+
+// TestSettingsService_ClearAllCredentials_StopsOnDeleteErr garante que
+// um erro no meio do mass-delete não é engolido — o caller precisa saber
+// que a operação não terminou. Isso evita o cenário "log de sucesso,
+// metade das credenciais sobreviveu" que mascarou o incident original.
+func TestSettingsService_ClearAllCredentials_StopsOnDeleteErr(t *testing.T) {
+	cred := &mockCredCleaner{
+		visible: []VisibleCredential{{Pattern: "a"}, {Pattern: "b"}},
+		delErr:  errors.New("boom"),
+	}
+	svc := NewSettingsService(SettingsServiceConfig{Emitter: &mockEmitter{}, CredCleaner: cred})
+
+	if err := svc.ClearAllCredentials(context.Background()); err == nil {
+		t.Fatal("esperava erro propagado quando DeletePattern falha")
 	}
 }
 
@@ -211,9 +274,9 @@ func TestSettingsService_ClearAllSkills(t *testing.T) {
 func TestMain(m *testing.M) {
 	// Usa diretório temporário para config durante testes
 	tmpDir, _ := os.MkdirTemp("", "config-test-*")
-	os.Setenv("ASSISTENTE_HOME", tmpDir)
-	defer os.RemoveAll(tmpDir)
-	defer os.Unsetenv("ASSISTENTE_HOME")
+	_ = os.Setenv("ASSISTENTE_HOME", tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	defer func() { _ = os.Unsetenv("ASSISTENTE_HOME") }()
 
 	os.Exit(m.Run())
 }

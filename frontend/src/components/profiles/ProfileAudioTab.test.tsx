@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ProfileAudioTab } from './ProfileAudioTab';
-import { COMPOSITE_VOICE_SEPARATOR } from '../../config/providers';
 
 /* ── Mocks ─────────────────────────────────────────────── */
 
@@ -11,7 +10,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/main/App', () => ({
+vi.mock('@wailsjs/go/app/App', () => ({
   GetLLMProviders: () => Promise.resolve([]),
   GetSpeechProviders: () => Promise.resolve([]),
   GetSTTModels: () => Promise.resolve([]),
@@ -30,7 +29,9 @@ vi.mock('./ProfileVoiceSection', () => ({
   ProfileVoiceSection: ({ onChange, providerId }: { onChange: (f: string, v: unknown) => void; providerId?: string }) => (
     <div data-testid="voice-section" data-provider={providerId}>
       <button onClick={() => onChange('rate', 1.5)}>change-rate</button>
-      <button onClick={() => onChange('voice', `nova${COMPOSITE_VOICE_SEPARATOR}tts-1-hd`)}>change-voice-hd</button>
+      <button onClick={() => onChange('model', 'tts-1-hd')}>change-model-hd</button>
+      <button onClick={() => onChange('selectionMode', 'model_and_voice')}>change-selection-mode</button>
+      <button onClick={() => onChange('voice', 'nova')}>change-voice</button>
     </div>
   ),
 }));
@@ -291,7 +292,7 @@ describe('ProfileAudioTab', () => {
   });
 
   describe('modelo TTS por role', () => {
-    it('atualiza voice_id e model atomicamente ao receber ID composto (voice::model)', () => {
+    it('atualiza model e voice_id como campos separados', () => {
       const updateField = vi.fn();
       const updateFields = vi.fn();
       const profile = makeProfile({
@@ -303,17 +304,13 @@ describe('ProfileAudioTab', () => {
       });
       render(<ProfileAudioTab editingProfile={profile} updateField={updateField} updateFields={updateFields} profileId="test" />);
 
-      // Clica no botão que emite onChange('voice', 'nova' + COMPOSITE_VOICE_SEPARATOR + 'tts-1-hd')
-      const hdButtons = screen.getAllByText('change-voice-hd');
-      fireEvent.click(hdButtons[0]);
+      fireEvent.click(screen.getAllByText('change-model-hd')[0]);
+      fireEvent.click(screen.getAllByText('change-selection-mode')[0]);
+      fireEvent.click(screen.getAllByText('change-voice')[0]);
 
-      // Deve chamar updateFields com ambos os campos de uma vez
-      expect(updateFields).toHaveBeenCalledWith({
-        'voice.assistant.voice_id': 'nova',
-        'voice.assistant.model': 'tts-1-hd',
-      });
-      // NÃO deve chamar updateField individualmente para voice_id
-      expect(updateField).not.toHaveBeenCalledWith('voice.assistant.voice_id', expect.anything());
+      expect(updateField).toHaveBeenCalledWith('voice.assistant.model', 'tts-1-hd');
+      expect(updateField).toHaveBeenCalledWith('voice.assistant.selection_mode', 'model_and_voice');
+      expect(updateField).toHaveBeenCalledWith('voice.assistant.voice_id', 'nova');
     });
   });
 });

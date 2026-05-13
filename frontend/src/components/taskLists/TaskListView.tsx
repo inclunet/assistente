@@ -1,15 +1,19 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
-import { AppstoreOutlined, CheckOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
+import type { WorkspaceChatModalAdapter } from '../../store/workspaceChatModalStore';
+import { useRegisterWorkspaceChatAdapter } from '../../hooks/useRegisterWorkspaceChatAdapter';
+import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
-import { ProfilePicker } from '../pickers/ProfilePicker';
+import { buildChatSurfaceParams } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
 import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../../types/tasklist';
@@ -17,7 +21,7 @@ import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../.
 const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
 
 interface TaskListViewProps {
-  taskListId: number;
+  taskListId: string;
 }
 
 /**
@@ -26,15 +30,14 @@ interface TaskListViewProps {
  */
 export default function TaskListView({ taskListId }: TaskListViewProps) {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const requestConfirm = useConfirm();
 
-  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const { tab: panelTab, isActive } = useWorkspacePanel();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
-  const tabProfileSlug = wsActiveTab?.type === 'tasklist'
-    ? (wsActiveTab.profileOverride?.slug as string | undefined)
+  const tabProfileSlug = panelTab?.type === 'tasklist'
+    ? (panelTab.profileOverride?.slug as string | undefined)
     : undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
@@ -68,9 +71,10 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }, []);
 
   useEffect(() => {
+    if (!isActive) return;
     registerDefaultFocus(focusContentArea);
     return () => unregisterDefaultFocus(focusContentArea);
-  }, [focusContentArea]);
+  }, [focusContentArea, isActive]);
 
   const tasks = useMemo(() => taskList?.tasks || [], [taskList?.tasks]);
   const currentViewMode: ViewMode = taskList?.preferredViewMode || 'list';
@@ -155,6 +159,8 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }, [taskList?.title, taskListId, requestConfirm, clearTaskList, addToast, announce, t]);
 
   useEffect(() => {
+    if (!isActive) return;
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (isModalOpen()) return;
 
@@ -182,7 +188,47 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleOpenCreateTask, handleClear, handleClone]);
+  }, [handleOpenCreateTask, handleClear, handleClone, isActive]);
+
+  const tasklistChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
+    if (!panelTab || panelTab.type !== 'tasklist' || !taskList) return null;
+
+    return {
+      prepare: async () => {
+        const taskLabel = t('tasklist.chatModalContext.taskCount', { count: tasks.length });
+        const header = `${taskList.title}\n${taskLabel}\n`;
+        const body = tasks
+          .slice(0, 40)
+          .map((x) => `- ${String(x.title || '').trim()}`)
+          .join('\n');
+        const contextDisplay = `${header}${body || t('tasklist.chatModalContext.noTasks')}`;
+        return { ok: true, contextDisplay, meta: null };
+      },
+      send: async (instruction, media) => {
+        const taskLabel = t('tasklist.chatModalContext.taskCount', { count: tasks.length });
+        const header = `${taskList.title}\n${taskLabel}\n`;
+        const body = tasks
+          .slice(0, 40)
+          .map((x) => `- ${String(x.title || '').trim()}`)
+          .join('\n');
+        return {
+          content: instruction,
+          mediaFiles: media,
+          paramsOverride: buildChatSurfaceParams(panelTab, {
+            profileSlug: effectiveProfileSlug || undefined,
+            context: {
+              taskListId,
+              taskListTitle: taskList.title,
+              taskCount: tasks.length,
+              tasksPreview: `${header}${body || t('tasklist.chatModalContext.noTasks')}`,
+            },
+          }),
+        };
+      },
+    };
+  }, [panelTab, taskList, tasks, effectiveProfileSlug, t]);
+
+  useRegisterWorkspaceChatAdapter(panelTab?.id, tasklistChatModalAdapter);
 
   const handleDelete = useCallback(async () => {
     const confirmed = await requestConfirm({
@@ -215,22 +261,14 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           left={
             <h1 className="page-toolbar__title">{taskList.title}</h1>
           }
-          rightEnd={
-            <ProfilePicker
-              value={effectiveProfileSlug}
-              onChange={(slug) => {
-                if (wsActiveTab) {
-                  void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
-                }
-              }}
-              variant="toolbar"
-              label={t('workspace.tabProfileLabel', 'Perfil')}
-              description={t('workspace.tabProfileDescription')}
-              icon={<CheckOutlined />}
-              maxWidth="180px"
-            />
-          }
           actions={[
+            {
+              key: 'chat-modal',
+              label: t('editor.chatModal.title'),
+              icon: <MessageOutlined />,
+              shortcut: 'Ctrl+Shift+I',
+              onClick: () => void useWorkspaceChatModalStore.getState().requestOpen(panelTab.id),
+            },
             {
               key: 'new-task',
               label: t('tasklist.createTask', 'Nova Tarefa'),

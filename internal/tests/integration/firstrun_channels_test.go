@@ -3,7 +3,6 @@ package integration
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"assistente/internal/database"
 )
@@ -24,7 +23,6 @@ func TestIntegration_FirstMessageViaTelegram(t *testing.T) {
 		Role:      "user",
 		Content:   "Olá! Qual é a capital da França?",
 		Source:    channel,
-		CreatedAt: time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -46,7 +44,6 @@ func TestIntegration_FirstMessageViaTelegram(t *testing.T) {
 		Role:      "assistant",
 		Content:   "A capital da França é Paris.",
 		Source:    channel,
-		CreatedAt: time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -82,7 +79,6 @@ func TestIntegration_FirstMessageViaSignal(t *testing.T) {
 		Role:      "user",
 		Content:   "Qual é a receita de brigadeiro?",
 		Source:    channel,
-		CreatedAt: time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -117,7 +113,6 @@ func TestIntegration_FirstMessageViaSignal(t *testing.T) {
 		Role:      "assistant",
 		Content:   recipeMD,
 		Source:    channel,
-		CreatedAt: time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -165,7 +160,6 @@ func TestIntegration_FirstMessageMultipleChannels(t *testing.T) {
 			Role:      "user",
 			Content:   ch.content,
 			Source:    ch.name,
-			CreatedAt: time.Now(),
 		}
 
 		if err := db.Create(userMsg).Error; err != nil {
@@ -209,8 +203,6 @@ func TestIntegration_FirstMessageChannelInConversation(t *testing.T) {
 	// 1. Setup: duas conversas em canais diferentes
 	conv1 := &database.Conversation{
 		Title:     "Chat Telegram",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv1).Error; err != nil {
@@ -219,8 +211,6 @@ func TestIntegration_FirstMessageChannelInConversation(t *testing.T) {
 
 	conv2 := &database.Conversation{
 		Title:     "Chat Signal",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv2).Error; err != nil {
@@ -233,7 +223,6 @@ func TestIntegration_FirstMessageChannelInConversation(t *testing.T) {
 		Role:           "user",
 		Content:        "Mensagem do Telegram",
 		Source:         "telegram",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(msg1).Error; err != nil {
@@ -246,7 +235,6 @@ func TestIntegration_FirstMessageChannelInConversation(t *testing.T) {
 		Role:           "user",
 		Content:        "Mensagem do Signal",
 		Source:         "signal",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(msg2).Error; err != nil {
@@ -295,8 +283,6 @@ func TestIntegration_FirstMessageChannelResponseRoute(t *testing.T) {
 
 	conv := &database.Conversation{
 		Title:     "Test from Telegram",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -309,7 +295,6 @@ func TestIntegration_FirstMessageChannelResponseRoute(t *testing.T) {
 		Role:           "user",
 		Content:        "Mensagem do usuário",
 		Source:         channel,
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -323,7 +308,6 @@ func TestIntegration_FirstMessageChannelResponseRoute(t *testing.T) {
 		Role:           "assistant",
 		Content:        "Resposta do assistente",
 		Source:         channel, // ← MESMO CHANNEL
-		CreatedAt:      time.Now().Add(100 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -356,8 +340,6 @@ func TestIntegration_FirstMessageChannelAudioHandling(t *testing.T) {
 
 	conv := &database.Conversation{
 		Title:     "Audio from Telegram",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -374,7 +356,6 @@ func TestIntegration_FirstMessageChannelAudioHandling(t *testing.T) {
 		Source:         channel,
 		Audio:          audioBase64,
 		AudioMimeType:  "audio/mpeg",
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -415,8 +396,6 @@ func TestIntegration_FirstMessageChannelMediaHandling(t *testing.T) {
 
 	conv := &database.Conversation{
 		Title:     "Media from Slack",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -432,7 +411,6 @@ func TestIntegration_FirstMessageChannelMediaHandling(t *testing.T) {
 		Content:        "Veja esta imagem",
 		Source:         channel,
 		Media:          mediaJSON,
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {

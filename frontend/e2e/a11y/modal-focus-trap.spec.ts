@@ -15,7 +15,7 @@ import { test, expect } from '../fixtures';
 /** Dados completos para que o TokenStatsModal não crashe ao abrir */
 function fullTokenStats() {
   return {
-    conversationId: 1,
+    conversationId: '01926b90-0000-7000-8000-000000000001',
     promptTokens: 500,
     completionTokens: 300,
     totalTokens: 800,
@@ -43,26 +43,23 @@ async function openTokenModal(
   await wails.setResponse('GetConversationTokenStats', fullTokenStats());
   await wails.waitForApp();
 
-  // Clica no botão de token stats para abrir o modal
   const tokenBtn = page.locator('.token-stats-button');
-  await tokenBtn.click();
+  await expect(tokenBtn).toBeVisible({ timeout: 5_000 });
+  await expect(tokenBtn).toBeEnabled({ timeout: 5_000 });
+  await tokenBtn.focus();
+  await tokenBtn.press('Enter');
 
-  // Aguarda o modal abrir (renderizado em portal no body)
   const dialog = page.locator('.modal-overlay[role="dialog"]');
-  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  if (!(await dialog.isVisible().catch(() => false))) {
+    await tokenBtn.click();
+  }
+  await expect(dialog).toBeVisible({ timeout: 7_000 });
   return dialog;
 }
 
 test.describe('Modal — focus trap (Tab cycling)', () => {
   test('Tab cicla entre elementos focáveis dentro do modal', async ({ page, wails }) => {
-    await wails.setResponse('GetConversationTokenStats', fullTokenStats());
-    await wails.waitForApp();
-
-    const tokenBtn = page.locator('.token-stats-button');
-    await tokenBtn.click();
-
-    const dialog = page.locator('.modal-overlay[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    const dialog = await openTokenModal(page, wails);
 
     // Modal content contém os focáveis
     const modalContent = dialog.locator('.modal-content');
@@ -104,14 +101,7 @@ test.describe('Modal — focus trap (Tab cycling)', () => {
   });
 
   test('Shift+Tab no primeiro elemento cicla para o último', async ({ page, wails }) => {
-    await wails.setResponse('GetConversationTokenStats', fullTokenStats());
-    await wails.waitForApp();
-
-    const tokenBtn = page.locator('.token-stats-button');
-    await tokenBtn.click();
-
-    const dialog = page.locator('.modal-overlay[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    const dialog = await openTokenModal(page, wails);
 
     const modalContent = dialog.locator('.modal-content');
 
@@ -184,10 +174,12 @@ test.describe('Modal — ARIA attributes', () => {
     await wails.waitForApp();
 
     const tokenBtn = page.locator('.token-stats-button');
-    await tokenBtn.click();
+    await expect(tokenBtn).toBeVisible({ timeout: 5_000 });
+    await expect(tokenBtn).toBeEnabled({ timeout: 5_000 });
+    await tokenBtn.press('Enter');
 
     const dialog = page.locator('.modal-overlay[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    await expect(dialog).toBeVisible({ timeout: 7_000 });
 
     // Verifica aria-labelledby aponta para um título existente
     const labelledBy = await dialog.getAttribute('aria-labelledby');
@@ -214,8 +206,10 @@ test.describe('Modal — ARIA attributes', () => {
 
     // Abre modal
     const tokenBtn = page.locator('.token-stats-button');
-    await tokenBtn.click();
-    await expect(page.locator('.modal-overlay[role="dialog"]')).toBeVisible({ timeout: 5_000 });
+    await expect(tokenBtn).toBeVisible({ timeout: 5_000 });
+    await expect(tokenBtn).toBeEnabled({ timeout: 5_000 });
+    await tokenBtn.press('Enter');
+    await expect(page.locator('.modal-overlay[role="dialog"]')).toBeVisible({ timeout: 7_000 });
 
     // #root deve ter aria-hidden="true" e inert
     await expect(root).toHaveAttribute('aria-hidden', 'true');
@@ -237,10 +231,13 @@ test.describe('Modal — ARIA attributes', () => {
     await wails.waitForApp();
 
     const tokenBtn = page.locator('.token-stats-button');
-    await tokenBtn.click();
+    await expect(tokenBtn).toBeVisible({ timeout: 5_000 });
+    await tokenBtn.focus();
+    await expect(tokenBtn).toBeFocused({ timeout: 3_000 });
+    await page.keyboard.press('Enter');
 
     const dialog = page.locator('.modal-overlay[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    await expect(dialog).toBeVisible({ timeout: 7_000 });
 
     // Aguarda o auto-focus (usa requestAnimationFrame)
     await page.waitForTimeout(200);

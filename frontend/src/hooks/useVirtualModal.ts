@@ -63,17 +63,9 @@ export function useVirtualModal({
       el.setAttribute('aria-label', 'Leitura de mensagem. Pressione Escape para sair.');
       el.setAttribute('tabindex', '-1');
 
-      // Esconde o resto da página para leitores de tela
-      const appRoot = document.getElementById('root');
-      if (appRoot) {
-        appRoot.setAttribute('aria-hidden', 'true');
-      }
-
-      // O elemento em si precisa estar visível para o leitor de tela,
-      // então o movemos para fora do root (via portal) ou garantimos
-      // que ele não está dentro de algo aria-hidden.
-      // Como o chat já está dentro de #root, precisamos usar uma técnica:
-      // marcar todos os irmãos do ancestral mais próximo como inert.
+      // Virtual modal vive dentro de #root, então não podemos marcar #root como
+      // aria-hidden sem esconder também o próprio elemento focado. Em vez disso,
+      // isolamos a interação usando inert nos irmãos ao longo da árvore.
       applyInert(el);
 
       // Foca no conteúdo da mensagem
@@ -95,12 +87,6 @@ export function useVirtualModal({
       restoreAttribute(el, 'aria-label', previousAriaAttrs.current.ariaLabel);
       restoreAttribute(el, 'tabindex', previousAriaAttrs.current.tabIndex);
 
-      // Remove aria-hidden do root
-      const appRoot = document.getElementById('root');
-      if (appRoot) {
-        appRoot.removeAttribute('aria-hidden');
-      }
-
       // Remove inert dos irmãos
       removeInert();
 
@@ -112,10 +98,6 @@ export function useVirtualModal({
     return () => {
       // Cleanup: se desmontar enquanto ativo
       if (isActive) {
-        const appRoot = document.getElementById('root');
-        if (appRoot) {
-          appRoot.removeAttribute('aria-hidden');
-        }
         removeInert();
       }
     };

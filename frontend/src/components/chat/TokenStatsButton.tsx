@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { BarChartOutlined, LoadingOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { GetConversationTokenStats } from '@wailsjs/go/main/App';
+import { GetConversationTokenStats } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import './TokenStatsButton.css';
 
 interface TokenStats {
-  conversationId: number;
+  conversationId: string;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -19,7 +19,7 @@ interface TokenStats {
 }
 
 interface TokenStatsButtonProps {
-  conversationId?: number;
+  conversationId?: string;
   onOpenModal: () => void;
 }
 
@@ -82,7 +82,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
 
     // Escuta quando mensagens do usuário são adicionadas (antes do streaming)
     const unsubscribeMessages = EventsOn('chat:messages_ready', (data: unknown) => {
-      const eventData = data as { conversationId?: number };
+      const eventData = data as { conversationId?: string };
       if (eventData.conversationId === conversationId) {
         loadStats();
       }
@@ -90,7 +90,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
 
     // Escuta quando o streaming termina (garantia extra de atualização)
     const unsubscribeDone = EventsOn('chat:done', (data: unknown) => {
-      const eventData = data as { conversationId?: number };
+      const eventData = data as { conversationId?: string };
       if (eventData.conversationId === conversationId) {
         loadStats();
       }

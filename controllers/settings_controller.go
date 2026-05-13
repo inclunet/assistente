@@ -77,7 +77,7 @@ func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm
 	}
 	activeProfile, _ := c.profileMgr.GetActive()
 	if c.providerSvc != nil {
-		activeProfile = c.providerSvc.ResolveProfileDefaults(activeProfile)
+		activeProfile = c.providerSvc.ResolveProfileDefaults(ctx, activeProfile)
 	}
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
 		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
@@ -85,7 +85,7 @@ func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm
 	if c.providerSvc == nil {
 		return "", fmt.Errorf("provider service not initialized")
 	}
-	cp, err := c.providerSvc.GetChatProvider(activeProfile.Chat.LLMProvider)
+	cp, err := c.providerSvc.GetChatProvider(ctx, activeProfile.Chat.LLMProvider)
 	if err != nil {
 		return "", err
 	}
@@ -182,14 +182,32 @@ func (c *SettingsController) ResetConfig() error {
 	return nil
 }
 
-func (c *SettingsController) ClearAllCredentials() error {
+// ClearAllCredentials apaga todas as credenciais visíveis ao usuário
+// do contexto, iterando pattern por pattern (ListVisible já filtra
+// instance secrets e cross-user). Exige `userID` no `ctx`.
+func (c *SettingsController) ClearAllCredentials(ctx context.Context) error {
 	if c.credMgr == nil {
 		return fmt.Errorf("gerenciador de credenciais não disponível")
 	}
-	if err := c.credMgr.DeletePattern(context.Background(), ""); err != nil {
-		return fmt.Errorf("erro ao limpar credenciais: %v", err)
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return fmt.Errorf("ClearAllCredentials requer usuário autenticado: %w", err)
 	}
-	log.Println("[ClearAllCredentials] Credenciais apagadas")
+
+	creds, err := c.credMgr.ListVisibleCredentialsWithContext(ctx)
+	if err != nil {
+		return fmt.Errorf("erro ao listar credenciais: %w", err)
+	}
+	deleted := 0
+	for _, cred := range creds {
+		if cred.Pattern == "" {
+			continue
+		}
+		if err := c.credMgr.DeletePattern(ctx, cred.Pattern); err != nil {
+			return fmt.Errorf("erro ao apagar credencial %q: %w", cred.Pattern, err)
+		}
+		deleted++
+	}
+	log.Printf("[ClearAllCredentials] %d credenciais apagadas (escopo do usuário autenticado)", deleted)
 	c.emitter.Emit("credentials:cleared", nil)
 	return nil
 }
@@ -257,8 +275,8 @@ func (c *SettingsController) ResetDatabase() error {
 		if err := os.Remove(dbPath); err != nil {
 			return fmt.Errorf("erro ao remover banco de dados: %v", err)
 		}
-		os.Remove(dbPath + "-wal")
-		os.Remove(dbPath + "-shm")
+		_ = os.Remove(dbPath + "-wal")
+		_ = os.Remove(dbPath + "-shm")
 	}
 
 	if err := database.Init(); err != nil {
@@ -269,9 +287,12 @@ func (c *SettingsController) ResetDatabase() error {
 	return nil
 }
 
-// ClearMessages apaga todas as mensagens e conversas, mantendo a estrutura do banco.
-func (c *SettingsController) ClearMessages() error {
-	if err := database.ClearAllConversations(); err != nil {
+// ClearMessages apaga as mensagens e conversas pertencentes ao usuário do
+// contexto. Usa ClearAllConversationsWithContext, que respeita o escopo do
+// usuário; o caller (Wails binding) é responsável por validar autenticação
+// antes de chamar.
+func (c *SettingsController) ClearMessages(ctx context.Context) error {
+	if err := database.ClearAllConversationsWithContext(ctx); err != nil {
 		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
 	}
 	log.Println("[ClearMessages] Mensagens e conversas apagadas")

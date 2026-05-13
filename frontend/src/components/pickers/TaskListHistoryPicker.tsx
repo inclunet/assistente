@@ -3,13 +3,13 @@ import { UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
-import { GetAllTaskLists } from '@wailsjs/go/main/App';
+import { GetAllTaskLists } from '@wailsjs/go/app/App';
 import { database } from '../../../wailsjs/go/models';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 
 export interface TaskListHistoryPickerProps {
-  value?: number;
-  onChange: (taskListId: number, taskList: database.TaskList) => void;
+  value?: string;
+  onChange: (taskListId: string, taskList: database.TaskList) => void;
   label?: string;
   disabled?: boolean;
   maxWidth?: string;
@@ -37,8 +37,8 @@ export const TaskListHistoryPicker = forwardRef<TaskListHistoryPickerRef, TaskLi
       setIsLoading(true);
       const result = await GetAllTaskLists();
       const sorted = (result || []).sort((a, b) => {
-        const dateA = new Date(a.updated_at as string | number | Date).getTime();
-        const dateB = new Date(b.updated_at as string | number | Date).getTime();
+        const dateA = new Date(a.updatedAt as string | number | Date).getTime();
+        const dateB = new Date(b.updatedAt as string | number | Date).getTime();
         return dateB - dateA;
       });
       setTaskLists(sorted);
@@ -93,16 +93,15 @@ export const TaskListHistoryPicker = forwardRef<TaskListHistoryPickerRef, TaskLi
   const items: ComboboxItem[] = taskLists.map(tl => ({
     value: tl.id.toString(),
     label: tl.title || t('tasklist.noTitle', 'Sem título'),
-    sublabel: `${tl.tasks?.length || 0} ${t('tasklist.totalTasks', 'tarefas')} • ${formatDate(tl.updated_at)}`,
+    sublabel: `${tl.tasks?.length || 0} ${t('tasklist.totalTasks', 'tarefas')} • ${formatDate(tl.updatedAt)}`,
   }));
 
   const selectedValue = value ? value.toString() : '';
 
   const handleSelect = (selectedValue: string) => {
-    const id = parseInt(selectedValue, 10);
-    const taskList = taskLists.find(tl => tl.id === id);
+    const taskList = taskLists.find(tl => String(tl.id) === selectedValue);
     if (taskList) {
-      onChange(id, taskList);
+      onChange(selectedValue, taskList);
     }
   };
 
