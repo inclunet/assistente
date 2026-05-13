@@ -3,6 +3,7 @@
 ## Dependências
 
 - **AEP-0039** (Tool Calling Revamp): base conceitual para tool calling, eventos e execução estruturada.
+- **AEP-0046** (Migração de IDs sequenciais para UUIDv7): fornece o padrão de IDs UUIDv7 usado por `tool_invocations.id`.
 - **AEP-0048** (Jobs Database Migration): jobs precisam estar no banco para referenciar execuções de tools sem depender de arquivos.
 - **AEP-0049** (MCP Database Migration): `tool_catalog` é a fonte canônica de tools nativas e MCP.
 - **AEP-0052** (Multi-user accounts): invocações são sempre associadas a `user_id`.
@@ -58,7 +59,7 @@ Cada invocação informa de onde veio:
 |---|---|
 | `chat` | `chat_messages.id` ou execução do agentic loop |
 | `job_run` | `job_runs.id` |
-| `dry_run` | teste manual do catálogo ou job |
+| `tool_catalog` | teste manual do catálogo |
 | `system` | automação interna |
 
 `origin_id` é string para não acoplar a tabela a uma única FK. Quando houver origem conhecida e estável, o código valida a existência antes de executar.
@@ -75,7 +76,9 @@ Retenção inicial:
 
 ### D6 — Dry-run é uma invocação real em modo teste
 
-Dry-run usa o mesmo executor e grava `dry_run = true`. A diferença está no adapter: ele pode usar mock output, validação de schema, modo seguro da tool ou execução real marcada como teste, conforme a capacidade declarada no catálogo.
+Dry-run usa o mesmo executor e grava `dry_run = true`. O booleano `dry_run` é modo de execução, não origem: a origem continua sendo `chat`, `job_run`, `tool_catalog` ou `system`.
+
+A diferença está no adapter: ele pode usar mock output, validação de schema, modo seguro da tool ou execução real marcada como teste, conforme a capacidade declarada no catálogo.
 
 Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalog`.
 
@@ -86,7 +89,7 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 | `id` | TEXT | PK | UUIDv7 |
 | `user_id` | TEXT | FK→users.id, NOT NULL, INDEX | Dono da invocação |
 | `tool_catalog_id` | TEXT | FK→tool_catalog.id, NOT NULL, INDEX | Fonte canônica da tool |
-| `origin_type` | TEXT | NOT NULL, INDEX | `chat`/`job_run`/`dry_run`/`system` |
+| `origin_type` | TEXT | NOT NULL, INDEX | `chat`/`job_run`/`tool_catalog`/`system` |
 | `origin_id` | TEXT | INDEX | ID da origem, quando houver |
 | `status` | TEXT | NOT NULL, INDEX | `queued`/`running`/`succeeded`/`failed`/`cancelled`/`timed_out` |
 | `dry_run` | BOOL | NOT NULL, DEFAULT false | Execução de teste |

@@ -84,7 +84,7 @@ O sistema de credenciais já usa uma DEK (Data Encryption Key) global. Nesta AEP
 
 AEP-0046 e AEP-0047 já estabelecem IDs UUIDv7 e o contrato portátil DB-only. A AEP-0052 adiciona ownership (`user_id`) aos recursos persistidos atuais e define o contrato que as próximas migrações DB (0048-0051) devem seguir desde o início, evitando adicionar isolamento de usuário depois que novos recursos forem movidos para o banco.
 
-Esse contrato também se aplica à AEP-0063: `tool_invocations` nasce com `user_id`, origem explícita e referências ao `tool_catalog` do usuário, sem logs globais compartilhados entre contas.
+Esse contrato também se aplica à AEP-0063: `tool_invocations` nasce com `user_id`, origem explícita e referências ao `tool_catalog` acessível ao usuário, incluindo tools builtin globais (`user_id` nulo) e tools MCP/user-scoped quando aplicável. As invocações em si nunca são logs globais compartilhados entre contas.
 
 ---
 

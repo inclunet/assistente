@@ -24,7 +24,7 @@ Esta AEP também substitui o gerenciamento via `write_file`/`edit_file` por tool
 
 3. **Atomicidade**: Operações de CRUD no filesystem não são atômicas. Um crash entre "atualizar YAML" e "registrar triggers" pode deixar o sistema em estado inconsistente. Com GORM + SQLite WAL, as operações são transacionais.
 
-4. **LLM Tools**: Hoje o LLM gerencia jobs editando arquivos YAML via tools de filesystem (`write_file`, `edit_file`). Isso é frágil — erros de formatação YAML, paths incorretos, falta de validação. Com o banco, LLM tools dedicadas (`create_job`, `update_job`) fazem validação completa antes de persistir.
+4. **LLM Tools**: Hoje o LLM gerencia jobs editando arquivos YAML via tools de filesystem (`write_file`, `edit_file`). Isso é frágil — erros de formatação YAML, paths incorretos, falta de validação. Com o banco, tools nativas compostas para jobs e pipelines fazem validação completa antes de persistir, sem multiplicar o catálogo com uma tool por verbo CRUD.
 
 5. **Retenção**: Run logs acumulam indefinidamente no disco sem política de limpeza automática. No banco, uma goroutine periódica remove registros mais velhos que 30 dias.
 
@@ -67,6 +67,8 @@ Jobs continuam apontando para uma pipeline opcional via `pipeline_id`. Um job se
 
 Uma goroutine no Manager executa limpeza a cada 24 horas, removendo registros de `job_runs`, `job_events` e `job_run_events` com `started_at` / `occurred_at` anterior a 30 dias. A limpeza também roda no `Start()` do Manager (ao iniciar o app).
 
+A interface de persistência expõe limpeza separada para runs, eventos de domínio e timeline operacional (`CleanOldRuns`, `CleanOldEvents`, `CleanOldRunEvents`) para deixar explícito que as três tabelas participam da retenção.
+
 ### D4 — Separação entre eventos de domínio e timeline operacional
 
 O event log diário (JSONL) é dividido conforme a responsabilidade:
@@ -82,7 +84,7 @@ O antigo campo `id` dos jobs (slug humano legível como `fetch-jira-tickets`) vi
 
 O slug é o identificador usado em:
 - API Wails (frontend referencia jobs por slug)
-- LLM tools (`create_job`, `get_job`, etc. usam slug)
+- LLM tools compostas (`job`, `job_run`, etc. usam slug)
 - Eventos inter-job (`on_success`/`on_failure` referenciam por slug)
 - Logs de execução (legibilidade humana)
 
