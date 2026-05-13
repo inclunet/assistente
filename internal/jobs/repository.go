@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/tools"
 
 	"gorm.io/gorm"
 )
@@ -724,6 +725,9 @@ func (r *DBRepository) ListEvents(ctx context.Context, filter EventFilter) ([]Ev
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit)
 	}
+	if filter.Offset > 0 {
+		query = query.Offset(filter.Offset)
+	}
 	var rows []eventRow
 	if err := query.Order("job_events.occurred_at DESC").Find(&rows).Error; err != nil {
 		return nil, err
@@ -926,9 +930,53 @@ func (r *DBRepository) toolCatalogIDForNameTx(ctx context.Context, tx *gorm.DB, 
 		Order("tool_catalog.user_id IS NULL ASC").
 		First(&row).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return r.createUnresolvedMCPToolTx(ctx, tx, userID, name)
+		}
 		return "", err
 	}
 	return row.ID, nil
+}
+
+func (r *DBRepository) createUnresolvedMCPToolTx(ctx context.Context, tx *gorm.DB, userID, name string) (string, error) {
+	serverSlug, ok := mcpServerSlugFromToolName(name)
+	if !ok {
+		return "", gorm.ErrRecordNotFound
+	}
+	var server database.MCPServer
+	if err := tx.WithContext(ctx).Where("user_id = ? AND slug = ?", userID, serverSlug).First(&server).Error; err != nil {
+		return "", err
+	}
+	now := r.now()
+	row := database.ToolCatalog{
+		UserID:             &userID,
+		MCPServerID:        &server.ID,
+		Name:               name,
+		DisplayName:        name,
+		Origin:             tools.ToolOriginMCPBridge,
+		Category:           "mcp:" + serverSlug,
+		Class:              "mcp_tool",
+		Package:            "mcp:" + serverSlug,
+		Risk:               "network",
+		AvailabilityStatus: tools.ToolAvailabilityUnavailable,
+		AvailabilityReason: "not discovered yet",
+		LastUnavailableAt:  &now,
+	}
+	if err := tx.WithContext(ctx).Create(&row).Error; err != nil {
+		return "", err
+	}
+	return row.ID, nil
+}
+
+func mcpServerSlugFromToolName(name string) (string, bool) {
+	name = strings.TrimSpace(name)
+	if !strings.HasPrefix(name, "mcp_") {
+		return "", false
+	}
+	rest := strings.TrimPrefix(name, "mcp_")
+	serverSlug, _, ok := strings.Cut(rest, "__")
+	serverSlug = normalizeSlug(serverSlug)
+	return serverSlug, ok && serverSlug != ""
 }
 
 func (r *DBRepository) saveTriggersTx(ctx context.Context, tx *gorm.DB, userID, jobID string, triggers []Trigger) error {

@@ -361,7 +361,20 @@ func (m *Manager) GetJobRunsContext(ctx context.Context, id string, limit int) (
 
 // GetJobEvents retorna a timeline de eventos de uma data (formato "2006-01-02").
 func (m *Manager) GetJobEvents(date string) ([]EventEntry, error) {
-	filter := EventFilter{Limit: 500}
+	return m.GetJobEventsPage(date, 500, 0)
+}
+
+func (m *Manager) GetJobEventsPage(date string, limit, offset int) ([]EventEntry, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	filter := EventFilter{Limit: limit, Offset: offset}
 	if date != "" {
 		start, err := time.ParseInLocation("2006-01-02", date, time.Local)
 		if err != nil {
@@ -415,7 +428,11 @@ func (m *Manager) ListPipelinesContext(ctx context.Context) ([]Pipeline, error) 
 }
 
 func (m *Manager) SavePipeline(pipeline *Pipeline) error {
-	return m.cfg.Repository.SavePipeline(m.context(), pipeline)
+	if err := m.cfg.Repository.SavePipeline(m.context(), pipeline); err != nil {
+		return err
+	}
+	m.applyPipelineState(pipeline.Slug, pipeline.Enabled)
+	return nil
 }
 
 func (m *Manager) SavePipelineContext(ctx context.Context, pipeline *Pipeline) error {
@@ -423,7 +440,11 @@ func (m *Manager) SavePipelineContext(ctx context.Context, pipeline *Pipeline) e
 	if err != nil {
 		return err
 	}
-	return m.cfg.Repository.SavePipeline(ctx, pipeline)
+	if err := m.cfg.Repository.SavePipeline(ctx, pipeline); err != nil {
+		return err
+	}
+	m.applyPipelineState(pipeline.Slug, pipeline.Enabled)
+	return nil
 }
 
 func (m *Manager) DeletePipeline(slug string) error {
@@ -886,6 +907,23 @@ func (m *Manager) clearPipelineFromRegistry(slug string) {
 		updated := *job
 		updated.Pipeline = ""
 		m.registry.Set(&updated)
+	}
+}
+
+func (m *Manager) applyPipelineState(slug string, enabled bool) {
+	slug = normalizeSlug(slug)
+	if slug == "" {
+		return
+	}
+	for _, job := range m.registry.GetAll() {
+		if normalizeSlug(job.Pipeline) != slug {
+			continue
+		}
+		if enabled && job.Enabled {
+			m.registerTriggers(job)
+			continue
+		}
+		m.unregisterTriggers(job)
 	}
 }
 

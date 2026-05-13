@@ -113,6 +113,13 @@ func (a *App) GetJobEvents(date string) ([]jobs.EventEntry, error) {
 	return a.jobsCtrl.GetJobEvents(date)
 }
 
+func (a *App) GetJobEventsPage(date string, limit, offset int) ([]jobs.EventEntry, error) {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil, err
+	}
+	return a.jobsCtrl.GetJobEventsPage(date, limit, offset)
+}
+
 func (a *App) GetJobPipelines() []jobs.PipelineInfo {
 	if _, err := a.requireAuthenticatedContext(); err != nil {
 		return nil

@@ -658,6 +658,46 @@ func TestExecute_CapturesToolNameAndResolvedInputs(t *testing.T) {
 	}
 }
 
+func TestExecutePersistsRunThroughRepository(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name:     "test_tool",
+		params:   json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`),
+		response: `{"greeting":"hello world"}`,
+	}
+	registry.MustRegister(ft)
+	job := testRepositoryJob("persist-job", "Persist Job")
+	job.Tool = "test_tool"
+	job.Inputs = map[string]any{"name": "Alice"}
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		Repository:     repo,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	rl := executor.Execute(userA, job, &TriggerContext{Type: TriggerManual})
+	if rl.Status != "completed" {
+		t.Fatalf("expected completed, got %s (error: %s)", rl.Status, rl.Error)
+	}
+	got, err := repo.GetRun(userA, "persist-job", rl.RunID)
+	if err != nil {
+		t.Fatalf("get persisted run: %v", err)
+	}
+	if got.ToolName != "test_tool" {
+		t.Fatalf("ToolName = %q, want test_tool", got.ToolName)
+	}
+	if got.ResolvedInputs["name"] != "Alice" {
+		t.Fatalf("ResolvedInputs[name] = %v, want Alice", got.ResolvedInputs["name"])
+	}
+	if got.Output["greeting"] != "hello world" {
+		t.Fatalf("Output[greeting] = %v, want hello world", got.Output["greeting"])
+	}
+}
+
 func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	registry := tools.NewRegistry()
 	ft := &fakeTool{

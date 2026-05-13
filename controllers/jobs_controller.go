@@ -90,6 +90,13 @@ func (c *JobsController) GetJobEvents(date string) ([]jobs.EventEntry, error) {
 	return c.jobMgr.GetJobEvents(date)
 }
 
+func (c *JobsController) GetJobEventsPage(date string, limit, offset int) ([]jobs.EventEntry, error) {
+	if c.jobMgr == nil {
+		return nil, nil
+	}
+	return c.jobMgr.GetJobEventsPage(date, limit, offset)
+}
+
 func (c *JobsController) GetJobPipelines() []jobs.PipelineInfo {
 	if c.jobMgr == nil {
 		return nil

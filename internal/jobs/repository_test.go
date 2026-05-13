@@ -19,6 +19,7 @@ func setupJobsRepositoryTest(t *testing.T) (*DBRepository, context.Context, cont
 	}
 	if err := db.AutoMigrate(
 		&database.User{},
+		&database.MCPServer{},
 		&database.ToolCatalog{},
 		&database.Tag{},
 		&database.TagAssignment{},
@@ -116,6 +117,30 @@ func TestDBRepositoryRequiresUser(t *testing.T) {
 	err := repo.SaveJob(context.Background(), testRepositoryJob("x", "X"))
 	if err != database.ErrUserScopeRequired {
 		t.Fatalf("SaveJob sem usuário: got %v, want ErrUserScopeRequired", err)
+	}
+}
+
+func TestDBRepositorySaveJobCreatesUnresolvedMCPToolForImportedServer(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	userID := "user-a"
+	if err := repo.db.Create(&database.MCPServer{
+		UserID: userID,
+		Slug:   "jira",
+		Name:   "Jira",
+	}).Error; err != nil {
+		t.Fatalf("seed mcp server: %v", err)
+	}
+	job := testRepositoryJob("sync-jira", "Sync Jira")
+	job.Tool = "mcp_jira__create_issue"
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job with unresolved mcp tool: %v", err)
+	}
+	var row database.ToolCatalog
+	if err := repo.db.Where("name = ?", "mcp_jira__create_issue").First(&row).Error; err != nil {
+		t.Fatalf("expected placeholder tool catalog row: %v", err)
+	}
+	if row.AvailabilityStatus != "unavailable" || row.MCPServerID == nil {
+		t.Fatalf("unexpected placeholder row: %#v", row)
 	}
 }
 

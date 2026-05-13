@@ -224,6 +224,7 @@ type EventFilter struct {
 	StartAt time.Time
 	EndAt   time.Time
 	Limit   int
+	Offset  int
 }
 
 // --- Tipos para API/UI ---

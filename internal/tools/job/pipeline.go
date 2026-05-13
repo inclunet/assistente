@@ -35,7 +35,7 @@ func NewPipelineWithProvider(provider ManagerProvider) *PipelineTool {
 func (t *PipelineTool) Name() string { return "job_pipeline" }
 
 func (t *PipelineTool) Description() string {
-	return "Composite DB-backed job pipeline manager. No params lists persisted pipelines. slug reads a pipeline. With slug plus fields updates. Without slug plus name creates. delete removes a pipeline."
+	return "Composite DB-backed job pipeline manager. No params lists persisted pipelines. slug reads a pipeline. With slug plus fields updates. enabled toggles scheduling for jobs in the pipeline. Without slug plus name creates. delete removes a pipeline."
 }
 
 func (t *PipelineTool) Parameters() json.RawMessage {
@@ -44,6 +44,7 @@ func (t *PipelineTool) Parameters() json.RawMessage {
   "properties": {
     "slug": {"type": "string", "description": "Pipeline slug. Required for read, update and delete. Omit to list all pipelines or create a new one."},
     "delete": {"type": "boolean", "description": "Delete the referenced pipeline. Requires slug."},
+    "enabled": {"type": "boolean", "description": "Enable or disable scheduling for jobs in this pipeline."},
     "name": {"type": "string", "description": "Pipeline display name. Required when creating."},
     "description": {"type": "string"},
     "metadata": {"type": "object", "additionalProperties": true}
@@ -65,9 +66,6 @@ func (t *PipelineTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if mgr == nil {
 		return tools.ToolResult{Content: "job manager not configured", IsError: true}, nil
 	}
-	if params.Enabled != nil {
-		return tools.ToolResult{Content: "pipeline enabled/disabled is not supported by the runtime yet", IsError: true}, nil
-	}
 	slug := slugFromName(params.Slug)
 	if params.Delete {
 		if slug == "" {
@@ -82,6 +80,7 @@ func (t *PipelineTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	}
 
 	hasWrite := params.has("name") ||
+		params.Enabled != nil ||
 		params.has("description") ||
 		params.has("metadata")
 
@@ -175,6 +174,9 @@ func (t *PipelineTool) updatePipeline(ctx context.Context, mgr Manager, slug str
 	}
 	if params.has("description") {
 		pipeline.Description = params.Description
+	}
+	if params.Enabled != nil {
+		pipeline.Enabled = *params.Enabled
 	}
 	if params.Metadata != nil {
 		pipeline.Metadata = params.Metadata

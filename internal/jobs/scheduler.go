@@ -24,12 +24,16 @@ type Scheduler struct {
 // NewScheduler cria um scheduler com a funcao de execucao fornecida.
 func NewScheduler(execFunc func(ctx context.Context, job *Job, trigCtx *TriggerContext)) *Scheduler {
 	return &Scheduler{
-		cron:     cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
+		cron:     newJobCron(),
 		entries:  make(map[string][]cron.EntryID),
 		timers:   make(map[string]*time.Ticker),
 		cancelFn: make(map[string]context.CancelFunc),
 		execFunc: execFunc,
 	}
+}
+
+func newJobCron() *cron.Cron {
+	return cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)))
 }
 
 // Schedule registra os triggers temporais de um job.
@@ -102,6 +106,8 @@ func (s *Scheduler) Stop() {
 		ticker.Stop()
 		delete(s.timers, id)
 	}
+	s.cron = newJobCron()
+	s.entries = make(map[string][]cron.EntryID)
 
 	s.started = false
 	log.Printf("[Jobs] Scheduler stopped")
