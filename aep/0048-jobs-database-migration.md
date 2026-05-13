@@ -139,16 +139,17 @@ Regras de design:
 
 ### D9 — Importação legada pós-login, idempotente e observável
 
-Na primeira sessão autenticada após a atualização, o serviço compartilhado de importações legadas detecta se existem arquivos em `~/.assistente/jobs/` e se o usuário ainda não recebeu a importação de jobs. Se sim:
+Na primeira sessão autenticada após a atualização, o serviço compartilhado de importações legadas detecta se existem definições de jobs em `~/.assistente/jobs/` e se o usuário ainda não recebeu a importação de jobs. Se sim:
 
 1. Carrega tags e pipelines implícitas a partir dos campos existentes e cria `tags`, `tag_assignments` e `job_pipelines` quando necessário.
 2. Carrega todos os YAML e insere como `jobs` (slug = antigo id).
 3. Extrai triggers do YAML e insere em `job_triggers`, garantindo um trigger `manual` por job para execuções manuais.
-4. Carrega run logs JSON e insere em `job_runs`, resolvendo `trigger_id`.
-5. Carrega event logs JSONL e insere eventos de domínio em `job_events` e timeline operacional em `job_run_events`, conforme o tipo e a presença de `run_id`.
-6. Registra resultado, erros e contadores em uma tabela/estrutura de importação observável compartilhada com MCP e outras migrações legadas.
+4. Ignora logs legados de runs (`runs/**/*.json`) e eventos (`events/*.jsonl`).
+5. Registra resultado, erros e contadores em uma tabela/estrutura de importação observável compartilhada com MCP e outras migrações legadas.
 
 A migração é idempotente por usuário e por recurso. Se parte da importação já existe, a execução seguinte não duplica dados. Não há fallback runtime para filesystem depois da migração: se arquivos antigos não forem importados, eles não continuam alimentando o sistema de jobs.
+
+Logs legados de execução e eventos são dados descartáveis e não fazem parte da migração. `job_runs`, `job_events` e `job_run_events` começam a registrar apenas execuções/eventos novos depois que o runtime DB-only estiver ativo.
 
 ### D10 — Repository pattern
 
@@ -186,6 +187,7 @@ type Repository interface {
 
     CleanOldRuns(ctx context.Context, maxAge time.Duration) (int, error)
     CleanOldEvents(ctx context.Context, maxAge time.Duration) (int, error)
+    CleanOldRunEvents(ctx context.Context, maxAge time.Duration) (int, error)
 }
 ```
 
@@ -376,36 +378,16 @@ Eventos técnicos de execução de tool ficam fora desta tabela e serão registr
 | `metadata.created_by` | `created_by` | Direto |
 | `metadata.updated_at` | `updated_at` | String ISO → `time.Time` |
 
-### RunLog (JSON → tabela `job_runs`)
+### Logs legados não importados
 
-| Campo JSON | Coluna DB | Transformação |
-|---|---|---|
-| `run_id` | `id` | Descartado — novo UUIDv7 gerado |
-| `job_id` | `job_id` | Slug → resolvido para UUID do job correspondente |
-| `trigger` | `trigger_id` | Resolver para `job_triggers.id`; execução manual usa trigger `manual` |
-| `status` | `status` | Direto |
-| `started_at` | `started_at` | Direto |
-| `completed_at` | `completed_at` | Direto |
-| `duration` | `duration_ms` | Parsear string (`"1.5s"`) → int ms (1500) |
-| `error` | `error` | Direto |
-| `retry_count` | `retry_count` | Direto |
-| `is_dry_run` | `is_dry_run` | Direto |
+Arquivos antigos em `runs/**/*.json` e `events/*.jsonl` não são importados. Eles eram logs operacionais derivados, descartáveis e pouco úteis após a mudança de modelo. A migração lê apenas definições de jobs e suas configurações associadas.
 
-Campos técnicos legados como `tool_name`, `resolved_inputs`, `output`, `output_size` e `events_emitted` não entram em `job_runs`. Eles serão tratados pela AEP-0063 em `tool_invocations` ou por eventos normalizados.
+Consequências:
 
-### EventEntry (JSONL → tabelas `job_events` / `job_run_events`)
-
-| Campo JSONL | Coluna DB | Transformação |
-|---|---|---|
-| — | `id` | Novo UUIDv7 gerado |
-| `job_id` | `job_id` | Slug → resolvido para UUID do job correspondente |
-| `timestamp` | `occurred_at` | Direto; preserva o horário original do JSONL |
-| `type` | `type` | `event_emitted`/`event_received` ficam em `job_events`; estados operacionais ficam em `job_run_events` |
-| `event` | `event` | Direto |
-| `message` | `message` | Direto |
-| `data` | `data` | `map` → JSON |
-
-Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram entradas em `job_run_events`, preservando a timeline da execução. Eventos de domínio permanecem em `job_events`; estados como `triggered`, `completed` e `failed` não são duplicados em `job_events`.
+- `job_runs` começa vazio e recebe apenas execuções novas.
+- `job_events` começa vazio e recebe apenas eventos de domínio novos.
+- `job_run_events` começa vazio e recebe apenas timeline operacional nova.
+- Dados técnicos de chamadas de tools antigas não são preservados; chamadas novas serão tratadas pela AEP-0063 em `tool_invocations`.
 
 ## Fases
 
@@ -417,7 +399,7 @@ Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram
 
 ### Fase 2 — Repository layer
 
-4. Criar `internal/jobs/repository.go` com interface `Repository` (D9)
+4. Criar `internal/jobs/repository.go` com interface `Repository` (D10)
 5. Implementar `DBRepository` que recebe `*gorm.DB`
 6. Testes: CRUD de tags, associações, pipelines, jobs, triggers, runs, events e run events, limpeza por idade
 
@@ -434,7 +416,7 @@ Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram
 
 ### Fase 5 — Retenção automática
 
-12. Goroutine no Manager: a cada 24h, `Repository.CleanOldRuns(30 dias)` e `Repository.CleanOldEvents(30 dias)`
+12. Goroutine no Manager: a cada 24h, `Repository.CleanOldRuns(30 dias)`, `Repository.CleanOldEvents(30 dias)` e `Repository.CleanOldRunEvents(30 dias)`
 13. Executar limpeza também no `Start()` (ao iniciar o app)
 
 ### Fase 6 — Tools nativas
@@ -444,8 +426,8 @@ Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram
 
 ### Fase 7 — Importação legada filesystem → banco
 
-16. Criar `internal/jobs/migration.go` com lógica de importação legada idempotente (D8), integrada ao serviço compartilhado de importações.
-17. Resolver slugs → UUIDs: ao importar runs/events, buscar job por slug para obter UUID
+16. Criar `internal/jobs/migration.go` com lógica de importação legada idempotente (D9), integrada ao serviço compartilhado de importações.
+17. Resolver slugs → UUIDs ao importar definições, tags, pipelines e triggers; não importar runs/events legados
 18. Registrar contadores/erros da importação para UI/logs e não depender de renomear diretórios como fonte de verdade.
 19. Chamar importação pós-login, antes de iniciar scheduler/subscriptions do usuário.
 
@@ -461,7 +443,7 @@ Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram
 
 25. Testes Repository: CRUD tags, associações, pipelines, jobs, triggers, runs, events, run events, limpeza por idade, roundtrip JSON
 26. Testes Manager: Start, Save, Delete, Toggle com DB
-27. Testes migração: YAML→DB, tags→DB, triggers→DB, JSON runs→DB, JSONL events→DB, idempotência pós-login
+27. Testes migração: YAML→DB, tags→DB, triggers→DB, descarte explícito de runs/events legados, idempotência pós-login
 28. Testes tools nativas compostas: list/read/create/update/delete/duplicate/toggle/run/dry-run para pipelines e jobs, cobrindo validações de flags incompatíveis
 29. Atualizar testes existentes (`logger_test.go` → `repository_test.go`)
 
@@ -474,7 +456,7 @@ Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram
 | `internal/database/models_jobs.go` | Models GORM de tags, pipelines, jobs, triggers, runs e eventos |
 | `internal/jobs/repository.go` | Interface `Repository` + `DBRepository` |
 | `internal/jobs/repository_test.go` | Testes do repository |
-| `internal/jobs/migration.go` | Importação legada filesystem → DB |
+| `internal/jobs/migration.go` | Importação legada das definições filesystem → DB |
 | `internal/jobs/migration_test.go` | Testes da migração |
 | `internal/tools/job_tools.go` | Tools nativas compostas para jobs, pipelines, runs e catálogo |
 
@@ -504,7 +486,7 @@ Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram
 
 | # | Risco | Probabilidade | Impacto | Mitigação |
 |---|---|---|---|---|
-| R1 | Perda de dados na migração filesystem → DB | Baixa | Alto | Importação transacional, idempotente e observável; arquivos legados não são runtime fallback |
+| R1 | Perda de definições na migração filesystem → DB | Baixa | Alto | Importação transacional, idempotente e observável; arquivos legados não são runtime fallback |
 | R2 | Performance de queries com muitos runs | Baixa | Médio | Índices em `job_id` + `started_at` + `status`; retenção 30 dias limita volume (~86k rows máx com 10 jobs a cada 5 min) |
 | R3 | Catálogo de tools fica órfão sem watcher | Baixa | Baixo | Catálogo é regenerado no `Start()` e sob demanda; sem mudança funcional |
 | R4 | Tools nativas de jobs poluem contexto | Média | Baixo | Tools são opt-in; perfil escolhe quais habilitar |
@@ -517,7 +499,7 @@ Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram
 2. **Run logs no banco**: execução de job persiste `RunLog` na tabela `job_runs` com todos os campos
 3. **Event logs no banco**: eventos são persistidos em `job_events`/`job_run_events` em vez de JSONL
 4. **Retenção**: runs e events mais velhos que 30 dias são removidos automaticamente
-5. **Migração filesystem**: jobs YAML existentes são importados para o banco após login, sem duplicação em reexecuções
+5. **Migração filesystem**: definições de jobs YAML existentes são importadas para o banco após login, sem duplicação em reexecuções
 6. **Sem fallback filesystem**: runtime de jobs lê e escreve somente no banco após esta AEP
 7. **Tools nativas**: tools opt-in disponíveis para o LLM gerenciar pipelines e jobs
 8. **Frontend alinhado**: bindings Wails e stores/componentes ajustados aos DTOs novos sem redesenhar a UX
@@ -525,3 +507,4 @@ Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram
 10. **Testes**: repository, manager, migração e LLM tools cobertos por testes Go
 11. **File watcher removido**: `internal/jobs/watcher.go` e `internal/jobs/logger.go` eliminados
 12. **Catálogo preservado**: `catalog.yaml` continua sendo gerado em disco como dado derivado
+13. **Logs legados descartados**: runs JSON e eventos JSONL antigos não são importados
