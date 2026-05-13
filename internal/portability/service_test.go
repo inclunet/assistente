@@ -299,6 +299,28 @@ func TestParseExternalMCPServersRejectsUnrelatedFlatObject(t *testing.T) {
 	}
 }
 
+func TestParseExternalMCPServersRejectsMixedFlatObject(t *testing.T) {
+	payload := []byte(`{"api":{"url":"https://api.example.com"},"metadata":{"name":"not an mcp server"}}`)
+	servers, ok, err := parseExternalMCPServers(payload)
+	if err != nil {
+		t.Fatalf("parseExternalMCPServers: %v", err)
+	}
+	if ok || len(servers) != 0 {
+		t.Fatalf("mixed flat object should not be MCP JSON, ok=%v servers=%#v", ok, servers)
+	}
+}
+
+func TestParseExternalMCPServersAcceptsFlatObjectWhenAllEntriesAreServers(t *testing.T) {
+	payload := []byte(`{"filesystem":{"command":"npx"},"github":{"url":"https://api.githubcopilot.com/mcp/"}}`)
+	servers, ok, err := parseExternalMCPServers(payload)
+	if err != nil {
+		t.Fatalf("parseExternalMCPServers: %v", err)
+	}
+	if !ok || len(servers) != 2 {
+		t.Fatalf("flat MCP object should be accepted, ok=%v servers=%#v", ok, servers)
+	}
+}
+
 func TestImportMCPServersJSONRejectsUnrelatedJSON(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
