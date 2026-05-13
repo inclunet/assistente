@@ -9,6 +9,7 @@ TODOs pós-merge.
 **Criado em**: 2026-04-21  
 **Depende de**: AEP-0046 (UUIDv7 Migration), AEP-0047 (Import/Export)  
 **Precede**: AEP-0048 (Jobs DB), AEP-0049 (MCP DB), AEP-0050 (Profiles DB), AEP-0051 (Skills DB), AEP-0054/AEP-0055 (split/clientes), AEP-0063 (Tool Invocations)
+
 **Relacionado**: AEP-0014 (Credential Persistence), AEP-0022 (Welcome Wizard), AEP-0026 (Credential Fixes)
 
 ---
