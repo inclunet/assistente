@@ -5,7 +5,10 @@
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Deve ser implementada primeiro. Fornece o `UUIDModel` com hook `BeforeCreate` que gera UUIDv7 automaticamente. Todas as PKs das tabelas desta AEP usam esse modelo.
 - **AEP-0052** (Multi-user accounts): Jobs, pipelines, runs e eventos nascem sempre com `user_id`.
 - **AEP-0047** (Importação e Exportação): O mecanismo compartilhado de importações legadas é reaproveitado para migrar jobs do filesystem para o banco.
-- **AEP-0063** (Tool Invocations): Depende desta AEP. Jobs precisam estar no banco antes de referenciar `tool_invocations` como execução técnica das tools.
+
+## Relacionadas
+
+- **AEP-0063** (Tool Invocations): é precedida por esta AEP. Jobs precisam estar no banco antes de referenciar `tool_invocations` como execução técnica das tools.
 
 ## Resumo
 
@@ -188,9 +191,9 @@ type Repository interface {
 
 Todos os métodos recebem `context.Context` e falham fechado sem usuário autenticado (`database.RequireUserID`), seguindo o padrão de MCP e tasklists. Implementação concreta: `DBRepository` que recebe `*gorm.DB`. O Manager recebe a interface (testável com mocks).
 
-### D11 — Frontend inalterado
+### D11 — Superfície Wails estável, DTOs atualizados
 
-A API Wails exposta ao frontend (`GetJobs`, `SaveJob`, `RunJob`, `GetJobRuns`, etc.) mantém as mesmas assinaturas e tipos de retorno. O frontend não percebe a mudança de backing store.
+A API Wails exposta ao frontend (`GetJobs`, `SaveJob`, `RunJob`, `GetJobRuns`, etc.) mantém os mesmos métodos e fluxo de uso. Os DTOs de runs mudam para refletir o novo modelo (`ID`/`DurationMs`), e os bindings Wails/frontend precisam ser regenerados e ajustados junto com a implementação. A promessa aqui é não redesenhar a UX nem criar uma API paralela, não manter tipos antigos por compatibilidade.
 
 ### D12 — Duration muda de string para inteiro
 
@@ -493,9 +496,9 @@ Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram
 | `internal/jobs/watcher.go` | File watcher obsoleto |
 | `internal/jobs/logger.go` | File-based logging substituído por Repository |
 
-### Sem alteração
+### Ajustes de frontend
 
-- **Frontend**: mesma API Wails, mesmos tipos. Store, componentes e páginas inalterados (D10).
+- **Frontend**: mantém a mesma UX e os mesmos métodos Wails principais, mas precisa regenerar bindings e ajustar os campos de run (`ID`, `DurationMs`) conforme D11-D13.
 
 ## Riscos
 
@@ -517,7 +520,7 @@ Eventos JSONL que tiverem associação inequívoca com um `run_id` também geram
 5. **Migração filesystem**: jobs YAML existentes são importados para o banco após login, sem duplicação em reexecuções
 6. **Sem fallback filesystem**: runtime de jobs lê e escreve somente no banco após esta AEP
 7. **Tools nativas**: tools opt-in disponíveis para o LLM gerenciar pipelines e jobs
-8. **Frontend inalterado**: mesma API Wails, sem mudanças em stores/componentes
+8. **Frontend alinhado**: bindings Wails e stores/componentes ajustados aos DTOs novos sem redesenhar a UX
 9. **Roundtrip JSON**: configs complexas (triggers, error_policy, etc.) sobrevivem save→load sem perda
 10. **Testes**: repository, manager, migração e LLM tools cobertos por testes Go
 11. **File watcher removido**: `internal/jobs/watcher.go` e `internal/jobs/logger.go` eliminados

@@ -53,6 +53,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | 📝 Draft |
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat | 📝 Draft |
 | [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | 📝 Draft |
+| [0059](0059-long-conversation-performance.md) | Performance de Conversas Longas | 📝 Draft |
 | [0060](0060-command-policy-parser.md) | Parser de Política de Comandos | 📝 Draft |
 | [0061](0061-credential-loss-incident-and-defenses.md) | Incidente de Perda de Credenciais e Defesas | 📝 Draft |
 | [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil e Auth de Provider Local | 📝 Draft |

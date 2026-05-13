@@ -94,9 +94,9 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 | `output` | TEXT | | JSON/texto normalizado retornado |
 | `error` | TEXT | | Erro legível |
 | `error_code` | TEXT | | Código opcional para UI/retry |
-| `started_at` | DATETIME | NOT NULL, INDEX | Início |
+| `started_at` | DATETIME | INDEX | Início real da execução; nulo enquanto `queued` |
 | `completed_at` | DATETIME | | Fim |
-| `duration_ms` | INT | | Duração |
+| `duration_ms` | INT | | Duração entre `started_at` e `completed_at`, quando ambos existem |
 | `metadata` | TEXT | | JSON pequeno para adapter, versão, policy |
 | `created_at` | DATETIME | | |
 | `updated_at` | DATETIME | | |
@@ -105,15 +105,15 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 
 - `(user_id, origin_type, origin_id)`
 - `(user_id, tool_catalog_id, started_at)`
-- `(user_id, status, started_at)`
-- `(user_id, dry_run, started_at)`
+- `(user_id, status, created_at)`
+- `(user_id, dry_run, created_at)`
 
 ## Fluxo sem diagrama
 
 1. Um fluxo pede uma execução: chat, job, dry-run ou sistema.
 2. O chamador resolve ou informa o `tool_catalog_id`.
-3. `ToolInvocationService` cria a invocação como `queued`.
-4. O serviço muda para `running`, aplica timeout/política e chama o adapter correto.
+3. `ToolInvocationService` cria a invocação como `queued`; `created_at` representa o momento de enfileiramento.
+4. O serviço muda para `running`, preenche `started_at`, aplica timeout/política e chama o adapter correto.
 5. O adapter executa tool nativa ou MCP.
 6. O serviço grava `succeeded`, `failed`, `timed_out` ou `cancelled`, com duração, output e erro.
 7. O chamador recebe um resultado normalizado e decide como continuar o fluxo.
@@ -195,6 +195,16 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 | `internal/chat/interactor.go` | Registra tool calls como invocações |
 | `internal/mcp/*` | Adapter MCP usa o executor comum |
 | `controllers/*` | Endpoints de dry-run/diagnóstico, se necessário |
+
+## Riscos
+
+| # | Risco | Probabilidade | Impacto | Mitigação |
+|---|---|---|---|---|
+| R1 | Crescimento excessivo de `tool_invocations` | Alta | Médio | Retenção por idade/origem e limpeza associada a `job_runs` removidos |
+| R2 | Reconstrução de contexto perde informação útil ao parar de gravar tool results como mensagens | Média | Alto | Representação compacta para contexto e links por `tool_invocation_id` quando necessário |
+| R3 | Divergência entre adapters nativos e MCP no executor comum | Média | Médio | Contrato único de `ToolInvocationResult` e testes compartilhados de sucesso/falha/timeout |
+| R4 | Dry-run executa efeitos colaterais por engano | Baixa | Alto | Capacidade de dry-run declarada no catálogo e adapters explícitos para mock/validação/modo seguro |
+| R5 | `started_at` nulo em invocações enfileiradas quebra consultas antigas | Baixa | Baixo | Consultas de fila usam `created_at`; duração só é calculada após transição para `running` |
 
 ## Critérios de aceitação
 
