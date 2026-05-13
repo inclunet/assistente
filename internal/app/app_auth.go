@@ -644,6 +644,12 @@ func (a *App) reloadUserScopedRuntime() {
 	a.registerEnvCredentials(ctx, a.credMgr)
 	a.migrateLegacyConfig(ctx)
 	a.runPostLoginLegacyImports(ctx)
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+		if err := a.jobMgr.Start(); err != nil {
+			log.Printf("[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
+		}
+	}
 	if a.providerSvc != nil {
 		a.initLLMProviders(ctx)
 	}

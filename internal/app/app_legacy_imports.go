@@ -25,6 +25,14 @@ func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 			},
 		})
 	}
+	if a.jobMgr != nil {
+		importers = append(importers, legacyImporter{
+			name: "Jobs",
+			run: func(ctx context.Context) (portability.LegacyImportResult, error) {
+				return a.jobMgr.ImportLegacyDefinitions(ctx)
+			},
+		})
+	}
 	for _, importer := range importers {
 		result, err := importer.run(ctx)
 		if err != nil {

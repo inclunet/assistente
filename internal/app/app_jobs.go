@@ -2,6 +2,7 @@ package app
 
 import (
 	"assistente/internal/configdir"
+	"assistente/internal/database"
 	"assistente/internal/jobs"
 	"log"
 	"path/filepath"
@@ -36,19 +37,17 @@ func (a *App) initJobs() {
 	baseDir := filepath.Join(configdir.GetHomeDir(), "jobs")
 
 	a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
-		BaseDir:       baseDir,
-		ToolRegistry:  a.toolRegistry,
-		HotkeyManager: a.hotkeyCtrl.Manager(),
-		MsgGateway:    a.msgGateway,
-		SecretStore:   &credentialSecretStore{app: a},
+		BaseDir:         baseDir,
+		Repository:      jobs.NewDBRepository(database.DB()),
+		ContextProvider: a.internalBootstrapCtx,
+		ToolRegistry:    a.toolRegistry,
+		HotkeyManager:   a.hotkeyCtrl.Manager(),
+		MsgGateway:      a.msgGateway,
+		SecretStore:     &credentialSecretStore{app: a},
 		EmitEvent: func(event string, data any) {
 			a.emitter.Emit(event, data)
 		},
 	})
-
-	if err := a.jobMgr.Start(); err != nil {
-		log.Printf("[Jobs] Error starting manager: %v", err)
-	}
 }
 
 // --- Métodos Wails-bound para o frontend ---

@@ -52,7 +52,7 @@ O sistema de jobs é 100% baseado em filesystem:
 
 O armazenamento YAML no disco é completamente substituído pelo banco SQLite. Não há modo dual (YAML + banco sincronizados) — a complexidade de manter dois sistemas em sincronia não justifica o benefício.
 
-O file watcher (`internal/jobs/watcher.go`) é removido. O catálogo de tools (`catalog.yaml`) permanece em disco por ser dado derivado (gerado automaticamente, nunca editado pelo usuário).
+O file watcher (`internal/jobs/watcher.go`) é removido. O catálogo de tools deixa de ser materializado em `catalog.yaml`: a UI e os jobs consultam o registry/catálogo persistente em tempo real, evitando qualquer escrita nova no diretório legado.
 
 ### D2 — Pipelines e triggers normalizados
 
@@ -407,7 +407,7 @@ Consequências:
 
 ### Fase 3 — Migrar Manager para usar Repository
 
-7. Alterar `ManagerConfig`: adicionar campo `Repository` (manter `BaseDir` apenas para catálogo)
+7. Alterar `ManagerConfig`: adicionar campo `Repository` (`BaseDir` fica apenas como fonte da importação legada inicial)
 8. Reescrever `Start()`: carregar jobs do DB, remover inicialização do Watcher
 9. Reescrever `SaveJob()`, `DeleteJob()`, `ToggleJob()`: usar Repository
 10. Reescrever `GetJobRuns()`, `GetJobEvents()`, `ReplayRun()`: usar Repository

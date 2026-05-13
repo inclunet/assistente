@@ -75,9 +75,9 @@ func TestResolveForEachItems_ContentArray(t *testing.T) {
 
 // collectEvents subscribes to an event and collects payloads in a thread-safe way.
 type eventCollector struct {
-	mu       sync.Mutex
-	events   []map[string]any
-	wg       sync.WaitGroup
+	mu     sync.Mutex
+	events []map[string]any
+	wg     sync.WaitGroup
 }
 
 func newEventCollector(eb *EventBus, eventName string, expectedCount int) *eventCollector {
@@ -117,11 +117,9 @@ func (c *eventCollector) wait(t *testing.T, timeout time.Duration) []map[string]
 
 func TestEmitSuccess_FanOut_MapItems_FlattenedPayload(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -187,11 +185,9 @@ func TestEmitSuccess_FanOut_MapItems_FlattenedPayload(t *testing.T) {
 
 func TestEmitSuccess_FanOut_ScalarItems_WrappedInContent(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -239,11 +235,9 @@ func TestEmitSuccess_FanOut_ScalarItems_WrappedInContent(t *testing.T) {
 
 func TestEmitSuccess_NoFanOut_SingleEvent(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -279,11 +273,9 @@ func TestEmitSuccess_NoFanOut_SingleEvent(t *testing.T) {
 
 func TestEmitSuccess_FanOut_ForEachMissing_FallsBackToSingle(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -317,10 +309,8 @@ func TestEmitSuccess_FanOut_ForEachMissing_FallsBackToSingle(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_ConditionMet_Emits(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -352,10 +342,8 @@ func TestEmitSuccess_EmitWhen_ConditionMet_Emits(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_ConditionNotMet_Skips(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -391,10 +379,8 @@ func TestEmitSuccess_EmitWhen_ConditionNotMet_Skips(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_AccessesEventPayload(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -428,10 +414,8 @@ func TestEmitSuccess_EmitWhen_AccessesEventPayload(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_EventMismatch_Skips(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -471,10 +455,8 @@ func TestEmitSuccess_EmitWhen_EventMismatch_Skips(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_FanOut_FiltersItems(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -521,10 +503,8 @@ func TestEmitSuccess_EmitWhen_FanOut_FiltersItems(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_FanOut_AllFiltered(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -620,16 +600,16 @@ func TestFanOut_DownstreamTemplateResolution(t *testing.T) {
 // --- fakeTool for Execute tests ---
 
 type fakeTool struct {
-	name       string
-	params     json.RawMessage
-	response   string
-	callCount  int
-	lastArgs   json.RawMessage
+	name      string
+	params    json.RawMessage
+	response  string
+	callCount int
+	lastArgs  json.RawMessage
 }
 
-func (f *fakeTool) Name() string                 { return f.name }
-func (f *fakeTool) Description() string           { return "fake tool for testing" }
-func (f *fakeTool) Parameters() json.RawMessage   { return f.params }
+func (f *fakeTool) Name() string                { return f.name }
+func (f *fakeTool) Description() string         { return "fake tool for testing" }
+func (f *fakeTool) Parameters() json.RawMessage { return f.params }
 func (f *fakeTool) Execute(_ context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	f.callCount++
 	f.lastArgs = args
@@ -647,11 +627,9 @@ func TestExecute_CapturesToolNameAndResolvedInputs(t *testing.T) {
 	}
 	registry.MustRegister(ft)
 
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -689,11 +667,9 @@ func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	}
 	registry.MustRegister(ft)
 
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -732,11 +708,9 @@ func TestExecute_CapturesInputsEvenOnFailure(t *testing.T) {
 	ft.response = "" // force empty response to test error handling
 	registry.MustRegister(ft)
 
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -773,57 +747,13 @@ type fakeErrorTool struct {
 	name string
 }
 
-func (f *fakeErrorTool) Name() string               { return f.name }
-func (f *fakeErrorTool) Description() string         { return "always fails" }
-func (f *fakeErrorTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`) }
+func (f *fakeErrorTool) Name() string        { return f.name }
+func (f *fakeErrorTool) Description() string { return "always fails" }
+func (f *fakeErrorTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`)
+}
 func (f *fakeErrorTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: "something went wrong", IsError: true}, nil
 }
 
-// --- Execute persists RunLog to disk ---
-
-func TestExecute_RunLogPersistedWithInputs(t *testing.T) {
-	registry := tools.NewRegistry()
-	ft := &fakeTool{
-		name:     "test_persist",
-		params:   json.RawMessage(`{"type":"object","properties":{"x":{"type":"string"}}}`),
-		response: `{"ok":true}`,
-	}
-	registry.MustRegister(ft)
-
-	logger := NewLogger(t.TempDir())
-	executor := NewJobExecutor(ExecutorConfig{
-		ToolRegistry:   registry,
-		EventBus:       NewEventBus(),
-		Logger:         logger,
-		CircuitBreaker: NewCircuitBreaker(),
-	})
-
-	job := &Job{
-		ID:   "persist-job",
-		Tool: "test_persist",
-		Inputs: map[string]any{
-			"x": "hello",
-		},
-	}
-
-	rl := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
-	if rl.Status != "completed" {
-		t.Fatalf("expected completed, got %s", rl.Status)
-	}
-
-	// Recover from disk via GetRun
-	recovered, err := logger.GetRun("persist-job", rl.RunID)
-	if err != nil {
-		t.Fatalf("GetRun error: %v", err)
-	}
-	if recovered.ToolName != "test_persist" {
-		t.Errorf("recovered ToolName: got %q, want %q", recovered.ToolName, "test_persist")
-	}
-	if recovered.ResolvedInputs["x"] != "hello" {
-		t.Errorf("recovered ResolvedInputs[x]: got %v, want 'hello'", recovered.ResolvedInputs["x"])
-	}
-	if recovered.Output["ok"] != true {
-		t.Errorf("recovered Output[ok]: got %v, want true", recovered.Output["ok"])
-	}
-}
+// --- Execute no longer persists RunLog to disk without Repository ---

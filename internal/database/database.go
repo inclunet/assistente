@@ -115,6 +115,14 @@ func Init() error {
 		&MCPServer{},
 		&MCPServerLog{},
 		&ToolCatalog{},
+		&Tag{},
+		&TagAssignment{},
+		&JobPipeline{},
+		&Job{},
+		&JobTrigger{},
+		&JobRun{},
+		&JobEvent{},
+		&JobRunEvent{},
 	); err != nil {
 		return err
 	}

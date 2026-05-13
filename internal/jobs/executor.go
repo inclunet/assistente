@@ -15,7 +15,7 @@ import (
 type JobExecutor struct {
 	toolRegistry   *tools.Registry
 	eventBus       *EventBus
-	logger         *Logger
+	repository     Repository
 	circuitBreaker *CircuitBreaker
 	secretResolver SecretResolver
 	notifyFunc     NotifyFunc
@@ -32,7 +32,7 @@ type NotifyFunc func(channels []string, message string)
 type ExecutorConfig struct {
 	ToolRegistry   *tools.Registry
 	EventBus       *EventBus
-	Logger         *Logger
+	Repository     Repository
 	CircuitBreaker *CircuitBreaker
 	SecretResolver SecretResolver
 	NotifyFunc     NotifyFunc
@@ -45,7 +45,7 @@ func NewJobExecutor(cfg ExecutorConfig) *JobExecutor {
 	return &JobExecutor{
 		toolRegistry:   cfg.ToolRegistry,
 		eventBus:       cfg.EventBus,
-		logger:         cfg.Logger,
+		repository:     cfg.Repository,
 		circuitBreaker: cfg.CircuitBreaker,
 		secretResolver: cfg.SecretResolver,
 		notifyFunc:     cfg.NotifyFunc,
@@ -69,8 +69,8 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	runID := fmt.Sprintf("run_%d", time.Now().UnixNano())
 
 	rl := &RunLog{
-		RunID:   runID,
-		JobID:   job.ID,
+		RunID: runID,
+		JobID: job.ID,
 		Trigger: TriggerInfo{
 			Type:  trigCtx.Type,
 			At:    time.Now(),
@@ -87,8 +87,12 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		rl.CompletedAt = time.Now()
 		rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
 
-		if err := e.logger.LogRun(rl); err != nil {
-			log.Printf("[Jobs] Error logging run: %v", err)
+		if e.repository != nil {
+			if err := e.repository.LogRun(ctx, rl); err != nil {
+				log.Printf("[Jobs] Error logging run: %v", err)
+			}
+		} else {
+			log.Printf("[Jobs] Error logging run: repository not configured")
 		}
 
 		if e.onRunEnd != nil {
@@ -97,7 +101,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	}()
 
 	// Log evento: triggered
-	e.logEvent("triggered", job.ID, "", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
+	e.logEvent(ctx, "triggered", job.ID, "", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
 
 	// Circuit breaker: rate limit
 	if err := e.circuitBreaker.CheckRateLimit(job.ID, job.MaxRunsPerHour); err != nil {
@@ -278,7 +282,9 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		} else {
 			log.Printf("[Jobs] Output parsed as object with keys: %v", func() []string {
 				keys := make([]string, 0, len(output))
-				for k := range output { keys = append(keys, k) }
+				for k := range output {
+					keys = append(keys, k)
+				}
 				return keys
 			}())
 		}
@@ -349,7 +355,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 			}
 
 			if emitted > 0 {
-				e.logEvent("event_emitted", job.ID, job.Events.OnSuccess,
+				e.logEvent(ctx, "event_emitted", job.ID, job.Events.OnSuccess,
 					fmt.Sprintf("[%s] -> emitted %q x%d/%d (fan-out on %q)", job.ID, job.Events.OnSuccess, emitted, len(items), job.Events.ForEach), nil)
 				rl.EventsEmitted = append(rl.EventsEmitted, fmt.Sprintf("%s x%d", job.Events.OnSuccess, emitted))
 			} else {
@@ -369,7 +375,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	output := e.applyPayloadTemplate(job, rl.Output, trigCtx)
 	payload := e.buildEventPayload(job, output)
 
-	e.logEvent("event_emitted", job.ID, job.Events.OnSuccess,
+	e.logEvent(ctx, "event_emitted", job.ID, job.Events.OnSuccess,
 		fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnSuccess), nil)
 
 	rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnSuccess)
@@ -428,7 +434,7 @@ func splitDotPath(path string) []string {
 }
 
 func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, trigCtx *TriggerContext) {
-	e.logEvent("failed", job.ID, "", fmt.Sprintf("[%s] FAILED: %s", job.ID, rl.Error), nil)
+	e.logEvent(ctx, "failed", job.ID, "", fmt.Sprintf("[%s] FAILED: %s", job.ID, rl.Error), nil)
 
 	if job.Events.OnFailure == "" {
 		return
@@ -442,7 +448,7 @@ func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, tri
 
 	rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnFailure)
 
-	e.logEvent("event_emitted", job.ID, job.Events.OnFailure,
+	e.logEvent(ctx, "event_emitted", job.ID, job.Events.OnFailure,
 		fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnFailure), nil)
 
 	e.eventBus.Publish(ctx, job.Events.OnFailure, payload)
@@ -529,7 +535,7 @@ func (e *JobExecutor) buildEventPayload(job *Job, output map[string]any) map[str
 	return output
 }
 
-func (e *JobExecutor) logEvent(eventType, jobID, eventName, message string, data map[string]any) {
+func (e *JobExecutor) logEvent(ctx context.Context, eventType, jobID, eventName, message string, data map[string]any) {
 	entry := &EventEntry{
 		Timestamp: time.Now(),
 		Type:      eventType,
@@ -539,7 +545,11 @@ func (e *JobExecutor) logEvent(eventType, jobID, eventName, message string, data
 		Data:      data,
 	}
 
-	if err := e.logger.LogEvent(entry); err != nil {
+	if e.repository == nil {
+		log.Printf("[Jobs] Error logging event: repository not configured")
+		return
+	}
+	if err := e.repository.LogEvent(ctx, entry); err != nil {
 		log.Printf("[Jobs] Error logging event: %v", err)
 	}
 }

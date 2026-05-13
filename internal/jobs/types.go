@@ -54,26 +54,49 @@ const (
 
 // Job representa uma unidade atomica de automacao: 1 job = 1 tool call.
 type Job struct {
-	ID          string         `yaml:"id" json:"id"`
-	Name        string         `yaml:"name" json:"name"`
-	Description string         `yaml:"description" json:"description"`
-	Enabled     bool           `yaml:"enabled" json:"enabled"`
-	Pipeline    string         `yaml:"pipeline,omitempty" json:"pipeline,omitempty"`
-	Tags        []string       `yaml:"tags,omitempty" json:"tags,omitempty"`
-	Triggers    []Trigger      `yaml:"triggers" json:"triggers"`
-	Tool        string         `yaml:"tool" json:"tool"`
-	Inputs      map[string]any `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	Output      OutputConfig   `yaml:"output,omitempty" json:"output,omitempty"`
-	Events      EventsConfig   `yaml:"events,omitempty" json:"events,omitempty"`
-	ErrorPolicy    ErrorPolicy `yaml:"error_policy,omitempty" json:"error_policy,omitempty"`
-	MaxRunsPerHour int        `yaml:"max_runs_per_hour,omitempty" json:"max_runs_per_hour,omitempty"`
-	DryRun      DryRunConfig   `yaml:"dry_run,omitempty" json:"dry_run,omitempty"`
-	Metadata    Metadata       `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	ID             string         `yaml:"id" json:"id"`
+	Name           string         `yaml:"name" json:"name"`
+	Description    string         `yaml:"description" json:"description"`
+	Enabled        bool           `yaml:"enabled" json:"enabled"`
+	Pipeline       string         `yaml:"pipeline,omitempty" json:"pipeline,omitempty"`
+	Tags           []string       `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Triggers       []Trigger      `yaml:"triggers" json:"triggers"`
+	Tool           string         `yaml:"tool" json:"tool"`
+	Inputs         map[string]any `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Output         OutputConfig   `yaml:"output,omitempty" json:"output,omitempty"`
+	Events         EventsConfig   `yaml:"events,omitempty" json:"events,omitempty"`
+	ErrorPolicy    ErrorPolicy    `yaml:"error_policy,omitempty" json:"error_policy,omitempty"`
+	MaxRunsPerHour int            `yaml:"max_runs_per_hour,omitempty" json:"max_runs_per_hour,omitempty"`
+	DryRun         DryRunConfig   `yaml:"dry_run,omitempty" json:"dry_run,omitempty"`
+	Metadata       Metadata       `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 
 	// Campos runtime (nao persistem no YAML)
 	FilePath string    `yaml:"-" json:"file_path,omitempty"`
 	LastRun  *RunLog   `yaml:"-" json:"last_run,omitempty"`
 	Status   JobStatus `yaml:"-" json:"status"`
+}
+
+// Pipeline representa um agrupamento persistente de jobs.
+type Pipeline struct {
+	ID          string         `json:"id"`
+	Slug        string         `json:"slug"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Enabled     bool           `json:"enabled"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	CreatedAt   time.Time      `json:"created_at,omitempty"`
+	UpdatedAt   time.Time      `json:"updated_at,omitempty"`
+}
+
+// Tag representa uma tag global atribuível a jobs e outros recursos.
+type Tag struct {
+	ID          string    `json:"id"`
+	Slug        string    `json:"slug"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Color       string    `json:"color,omitempty"`
+	CreatedAt   time.Time `json:"created_at,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at,omitempty"`
 }
 
 // Trigger define quando um job deve ser executado.
@@ -89,7 +112,7 @@ type Trigger struct {
 
 // OutputConfig define schema e mapeamento do output da tool call.
 type OutputConfig struct {
-	Schema json.RawMessage `yaml:"schema,omitempty" json:"schema,omitempty"`
+	Schema json.RawMessage   `yaml:"schema,omitempty" json:"schema,omitempty"`
 	Map    map[string]string `yaml:"map,omitempty" json:"map,omitempty"`
 }
 
@@ -163,12 +186,39 @@ type RunLog struct {
 
 // EventEntry representa uma entrada no event log (JSONL).
 type EventEntry struct {
+	ID        string         `json:"id,omitempty"`
 	Timestamp time.Time      `json:"timestamp"`
-	Type      string         `json:"type"`  // triggered, completed, failed, event_emitted, event_received
+	Type      string         `json:"type"` // triggered, completed, failed, event_emitted, event_received
 	JobID     string         `json:"job_id"`
 	Event     string         `json:"event,omitempty"`
 	Message   string         `json:"message,omitempty"`
 	Data      map[string]any `json:"data,omitempty"`
+}
+
+// RunEvent representa uma entrada ordenada na timeline de uma execução.
+type RunEvent struct {
+	ID        string         `json:"id,omitempty"`
+	RunID     string         `json:"run_id"`
+	Sequence  int            `json:"sequence"`
+	Timestamp time.Time      `json:"timestamp"`
+	Type      string         `json:"type"`
+	Message   string         `json:"message,omitempty"`
+	Data      map[string]any `json:"data,omitempty"`
+}
+
+// JobFilter define filtros de listagem do repository.
+type JobFilter struct {
+	Pipeline string
+	Tag      string
+	Enabled  *bool
+}
+
+// EventFilter define filtros de listagem para eventos de domínio de jobs.
+type EventFilter struct {
+	JobID string
+	Type  string
+	Event string
+	Limit int
 }
 
 // --- Tipos para API/UI ---

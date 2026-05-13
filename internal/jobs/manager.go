@@ -5,17 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"assistente/internal/hotkey"
 	"assistente/internal/messaging"
 	"assistente/internal/tools"
-
-	"gopkg.in/yaml.v3"
 )
 
 // SecretStore abstrai acesso a secrets para o job engine.
@@ -25,15 +22,14 @@ type SecretStore interface {
 
 // ManagerConfig contem as dependencias externas do Manager.
 type ManagerConfig struct {
-	BaseDir        string // ~/.assistente/jobs/
-	ToolRegistry   *tools.Registry
-	HotkeyManager  *hotkey.Manager
-	MsgGateway     *messaging.Gateway
-	SecretStore    SecretStore
-	EmitEvent      func(event string, data any) // Wails EventsEmit
-
-	// Se true, nao inicia watcher (util para testes)
-	DisableWatcher bool
+	BaseDir         string // Diretório legado usado apenas como fonte da importação inicial.
+	Repository      Repository
+	ContextProvider func() context.Context
+	ToolRegistry    *tools.Registry
+	HotkeyManager   *hotkey.Manager
+	MsgGateway      *messaging.Gateway
+	SecretStore     SecretStore
+	EmitEvent       func(event string, data any) // Wails EventsEmit
 }
 
 // Manager orquestra todos os componentes do sistema de jobs.
@@ -43,9 +39,7 @@ type Manager struct {
 	eventBus       *EventBus
 	scheduler      *Scheduler
 	executor       *JobExecutor
-	logger         *Logger
 	circuitBreaker *CircuitBreaker
-	watcher        *Watcher
 	hotkeyIDs      map[string][]int // jobID -> hotkey IDs registrados
 	mu             sync.Mutex
 	started        bool
@@ -55,14 +49,12 @@ type Manager struct {
 func NewManager(cfg ManagerConfig) *Manager {
 	registry := NewRegistry()
 	eventBus := NewEventBus()
-	logger := NewLogger(cfg.BaseDir)
 	circuitBreaker := NewCircuitBreaker()
 
 	m := &Manager{
 		cfg:            cfg,
 		registry:       registry,
 		eventBus:       eventBus,
-		logger:         logger,
 		circuitBreaker: circuitBreaker,
 		hotkeyIDs:      make(map[string][]int),
 	}
@@ -71,7 +63,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 	m.executor = NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   cfg.ToolRegistry,
 		EventBus:       eventBus,
-		Logger:         logger,
+		Repository:     cfg.Repository,
 		CircuitBreaker: circuitBreaker,
 		SecretResolver: m.resolveSecret,
 		NotifyFunc:     m.notifyChannels,
@@ -85,7 +77,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 	return m
 }
 
-// Start carrega jobs do disco, registra triggers e inicia o scheduler e watcher.
+// Start carrega jobs do banco, registra triggers e inicia o scheduler.
 func (m *Manager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -94,50 +86,25 @@ func (m *Manager) Start() error {
 		return nil
 	}
 
-	// Garante que o diretorio existe
-	if err := os.MkdirAll(m.cfg.BaseDir, 0755); err != nil {
-		return fmt.Errorf("create jobs dir: %w", err)
+	if m.cfg.Repository == nil {
+		return fmt.Errorf("jobs repository not configured")
 	}
 
-	// Carrega todos os jobs do disco
-	jobs, errs := LoadAllFromDir(m.cfg.BaseDir)
-	for _, err := range errs {
-		log.Printf("[Jobs] Load error: %v", err)
+	ctx := m.context()
+	jobs, err := m.cfg.Repository.ListJobs(ctx, JobFilter{})
+	if err != nil {
+		return fmt.Errorf("load jobs from database: %w", err)
 	}
-
+	m.registry = NewRegistry()
 	for _, job := range jobs {
-		m.registerJob(job)
+		jobCopy := job
+		m.registerJob(&jobCopy)
 	}
 
-	log.Printf("[Jobs] Loaded %d jobs (%d errors)", len(jobs), len(errs))
+	log.Printf("[Jobs] Loaded %d jobs from database", len(jobs))
 
 	// Inicia o scheduler
 	m.scheduler.Start()
-
-	// Gera catalogo inicial
-	go func() {
-		if err := GenerateCatalog(m.cfg.ToolRegistry, m.cfg.BaseDir); err != nil {
-			log.Printf("[Jobs] Catalog generation error: %v", err)
-		}
-	}()
-
-	// Inicia o watcher (em goroutine, pois Start() bloqueia)
-	if !m.cfg.DisableWatcher {
-		watcher, err := NewWatcher(m.cfg.BaseDir, WatcherCallback{
-			OnUpdate: m.onFileChanged,
-			OnRemove: m.onFileRemoved,
-		})
-		if err != nil {
-			log.Printf("[Jobs] Watcher init error: %v", err)
-		} else {
-			m.watcher = watcher
-			go func() {
-				if err := m.watcher.Start(); err != nil {
-					log.Printf("[Jobs] Watcher error: %v", err)
-				}
-			}()
-		}
-	}
 
 	m.started = true
 	log.Printf("[Jobs] Manager started")
@@ -151,10 +118,6 @@ func (m *Manager) Stop() {
 
 	if !m.started {
 		return
-	}
-
-	if m.watcher != nil {
-		m.watcher.Stop()
 	}
 
 	m.scheduler.Stop()
@@ -173,6 +136,7 @@ func (m *Manager) GetJobs() []JobInfo {
 	infos := make([]JobInfo, 0, len(jobs))
 
 	for _, job := range jobs {
+		lastRun, _ := m.lastRun(job.ID)
 		info := JobInfo{
 			ID:          job.ID,
 			Name:        job.Name,
@@ -183,7 +147,7 @@ func (m *Manager) GetJobs() []JobInfo {
 			Tool:        job.Tool,
 			Status:      job.Status,
 			Triggers:    job.Triggers,
-			LastRun:     m.logger.GetLastRun(job.ID),
+			LastRun:     lastRun,
 		}
 		infos = append(infos, info)
 	}
@@ -197,7 +161,7 @@ func (m *Manager) GetJob(id string) (*Job, error) {
 	if job == nil {
 		return nil, fmt.Errorf("job not found: %s", id)
 	}
-	job.LastRun = m.logger.GetLastRun(id)
+	job.LastRun, _ = m.lastRun(id)
 	return job, nil
 }
 
@@ -210,8 +174,7 @@ func (m *Manager) ToggleJob(id string, enabled bool) error {
 
 	job.Enabled = enabled
 
-	// Persiste a mudanca no arquivo YAML
-	if err := m.persistJob(job); err != nil {
+	if err := m.cfg.Repository.SaveJob(m.context(), job); err != nil {
 		return fmt.Errorf("persist toggle: %w", err)
 	}
 
@@ -237,7 +200,7 @@ func (m *Manager) RunJob(id string) (*RunLog, error) {
 		return nil, fmt.Errorf("job not found: %s", id)
 	}
 
-	ctx := context.Background()
+	ctx := m.context()
 	trigCtx := &TriggerContext{
 		Type:         TriggerManual,
 		EventPayload: make(map[string]any),
@@ -254,7 +217,7 @@ func (m *Manager) DryRunJob(id string) (*DryRunResult, error) {
 		return nil, fmt.Errorf("job not found: %s", id)
 	}
 
-	ctx := context.Background()
+	ctx := m.context()
 	trigCtx := &TriggerContext{
 		Type:         TriggerManual,
 		EventPayload: make(map[string]any),
@@ -266,17 +229,27 @@ func (m *Manager) DryRunJob(id string) (*DryRunResult, error) {
 
 // GetJobRun retorna um run log especifico pelo jobID e runID.
 func (m *Manager) GetJobRun(jobID, runID string) (*RunLog, error) {
-	return m.logger.GetRun(jobID, runID)
+	return m.cfg.Repository.GetRun(m.context(), jobID, runID)
 }
 
 // GetJobRuns retorna o historico de execucoes de um job.
 func (m *Manager) GetJobRuns(id string, limit int) ([]RunLog, error) {
-	return m.logger.GetRuns(id, limit)
+	return m.cfg.Repository.GetRuns(m.context(), id, limit)
 }
 
 // GetJobEvents retorna a timeline de eventos de uma data (formato "2006-01-02").
 func (m *Manager) GetJobEvents(date string) ([]EventEntry, error) {
-	return m.logger.GetEvents(date)
+	events, err := m.cfg.Repository.ListEvents(m.context(), EventFilter{Limit: 500})
+	if err != nil || date == "" {
+		return events, err
+	}
+	filtered := make([]EventEntry, 0, len(events))
+	for _, event := range events {
+		if event.Timestamp.Format("2006-01-02") == date {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered, nil
 }
 
 // GetPipelines retorna os pipelines com seus jobs.
@@ -287,6 +260,7 @@ func (m *Manager) GetPipelines() []PipelineInfo {
 	for name, jobs := range grouped {
 		infos := make([]JobInfo, 0, len(jobs))
 		for _, job := range jobs {
+			lastRun, _ := m.lastRun(job.ID)
 			infos = append(infos, JobInfo{
 				ID:       job.ID,
 				Name:     job.Name,
@@ -294,7 +268,7 @@ func (m *Manager) GetPipelines() []PipelineInfo {
 				Tool:     job.Tool,
 				Status:   job.Status,
 				Triggers: job.Triggers,
-				LastRun:  m.logger.GetLastRun(job.ID),
+				LastRun:  lastRun,
 			})
 		}
 		pipelines = append(pipelines, PipelineInfo{
@@ -306,15 +280,40 @@ func (m *Manager) GetPipelines() []PipelineInfo {
 	return pipelines
 }
 
+func (m *Manager) ListPipelines() ([]Pipeline, error) {
+	return m.cfg.Repository.ListPipelines(m.context())
+}
+
+func (m *Manager) SavePipeline(pipeline *Pipeline) error {
+	return m.cfg.Repository.SavePipeline(m.context(), pipeline)
+}
+
+func (m *Manager) DeletePipeline(slug string) error {
+	return m.cfg.Repository.DeletePipeline(m.context(), slug)
+}
+
 // GetToolCatalog retorna o catalogo de tools.
 func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
-	entries, err := GetCatalogEntries(m.cfg.BaseDir)
-	if err != nil {
-		// Catalogo nao existe ou esta corrompido -- regenera ao vivo
-		if genErr := GenerateCatalog(m.cfg.ToolRegistry, m.cfg.BaseDir); genErr != nil {
-			return nil, fmt.Errorf("generate catalog: %w", genErr)
+	if m.cfg.ToolRegistry == nil {
+		return nil, fmt.Errorf("tool registry not configured")
+	}
+	names := m.cfg.ToolRegistry.Names()
+	entries := make([]CatalogEntry, 0, len(names))
+	for _, name := range names {
+		tool, ok := m.cfg.ToolRegistry.Get(name)
+		if !ok {
+			continue
 		}
-		return GetCatalogEntries(m.cfg.BaseDir)
+		source := "internal"
+		if strings.HasPrefix(tool.Name(), "mcp_") {
+			source = "mcp"
+		}
+		entries = append(entries, CatalogEntry{
+			Name:        tool.Name(),
+			Description: tool.Description(),
+			Schema:      tool.Parameters(),
+			Source:      source,
+		})
 	}
 	return entries, nil
 }
@@ -340,13 +339,7 @@ func (m *Manager) InferEventSchema(eventName string) map[string]any {
 			return job.LastRun.Output
 		}
 
-		// 2. Disk-based last run (de sessões anteriores)
-		if diskRun := m.logger.GetLastRun(job.ID); diskRun != nil && len(diskRun.Output) > 0 {
-			log.Printf("[Jobs] InferEventSchema(%q): found disk output from job %s", eventName, job.ID)
-			return diskRun.Output
-		}
-
-		// 3. Output.Schema persistido (salvo a partir de test output no builder)
+		// 2. Output.Schema persistido (salvo a partir de test output no builder)
 		if len(job.Output.Schema) > 0 {
 			var schema map[string]any
 			if err := json.Unmarshal(job.Output.Schema, &schema); err == nil {
@@ -387,7 +380,7 @@ func (m *Manager) ListKnownEvents() []string {
 }
 
 // SaveJob cria ou atualiza um job a partir de dados do frontend.
-// Valida, persiste no disco e registra no runtime.
+// Valida, persiste no banco e registra no runtime.
 func (m *Manager) SaveJob(job *Job) error {
 	if err := Validate(job); err != nil {
 		return err
@@ -401,9 +394,7 @@ func (m *Manager) SaveJob(job *Job) error {
 		job.Metadata.UpdatedAt = time.Now().Format(time.RFC3339)
 	}
 
-	job.FilePath = filepath.Join(m.cfg.BaseDir, job.ID+".yaml")
-
-	if err := m.persistJob(job); err != nil {
+	if err := m.cfg.Repository.SaveJob(m.context(), job); err != nil {
 		return fmt.Errorf("save job: %w", err)
 	}
 
@@ -422,18 +413,15 @@ func (m *Manager) SaveJob(job *Job) error {
 	return nil
 }
 
-// DeleteJob remove um job do disco e do runtime.
+// DeleteJob remove um job do banco e do runtime.
 func (m *Manager) DeleteJob(id string) error {
 	job := m.registry.Get(id)
 	if job == nil {
 		return fmt.Errorf("job not found: %s", id)
 	}
 
-	// Remove do disco
-	if job.FilePath != "" {
-		if err := os.Remove(job.FilePath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("delete job file: %w", err)
-		}
+	if err := m.cfg.Repository.DeleteJob(m.context(), id); err != nil {
+		return fmt.Errorf("delete job: %w", err)
 	}
 
 	m.unregisterJob(id)
@@ -455,9 +443,13 @@ func (m *Manager) TestTool(toolName string, inputs map[string]any, eventData map
 
 	log.Printf("[Jobs] TestTool(%q): inputs=%v, eventData keys=%v, eventData nil=%v",
 		toolName, inputs, func() []string {
-			if eventData == nil { return nil }
+			if eventData == nil {
+				return nil
+			}
 			keys := make([]string, 0, len(eventData))
-			for k := range eventData { keys = append(keys, k) }
+			for k := range eventData {
+				keys = append(keys, k)
+			}
 			return keys
 		}(), eventData == nil)
 
@@ -533,7 +525,8 @@ func (m *Manager) TestTool(toolName string, inputs map[string]any, eventData map
 
 // RegenerateCatalog forca regeneracao do catalogo.
 func (m *Manager) RegenerateCatalog() error {
-	return GenerateCatalog(m.cfg.ToolRegistry, m.cfg.BaseDir)
+	// O catálogo de jobs agora é derivado do registry em tempo real.
+	return nil
 }
 
 // --- Metodos internos ---
@@ -635,7 +628,7 @@ func (m *Manager) registerJobHotkey(job *Job, keys string) {
 
 	jobCopy := *job
 	id, err := m.cfg.HotkeyManager.Register(modifiers, key, func() {
-		ctx := context.Background()
+		ctx := m.context()
 		trigCtx := &TriggerContext{
 			Type:         TriggerHotkey,
 			EventPayload: make(map[string]any),
@@ -675,26 +668,14 @@ func (m *Manager) unregisterAllHotkeys() {
 }
 
 func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerContext) {
+	_ = ctx // Scheduler/event callbacks podem fornecer ctx sem user_id; o Manager usa o provider autenticado.
 	// Busca a versao mais atual do registry (pode ter sido atualizada via hot reload)
 	current := m.registry.Get(job.ID)
 	if current == nil || !current.Enabled {
 		return
 	}
 
-	m.executor.Execute(ctx, current, trigCtx)
-}
-
-func (m *Manager) persistJob(job *Job) error {
-	if job.FilePath == "" {
-		job.FilePath = filepath.Join(m.cfg.BaseDir, job.ID+".yaml")
-	}
-
-	data, err := marshalJobYAML(job)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(job.FilePath, data, 0644)
+	m.executor.Execute(m.context(), current, trigCtx)
 }
 
 func (m *Manager) resolveSecret(key string) (string, error) {
@@ -752,32 +733,10 @@ func (m *Manager) onRunEnd(jobID string, runLog *RunLog) {
 	}
 
 	m.emitEvent("jobs:run_end", map[string]any{
-		"job_id":  jobID,
-		"run_id":  runLog.RunID,
-		"status":  runLog.Status,
-		"error":   runLog.Error,
-	})
-}
-
-func (m *Manager) onFileChanged(path string, job *Job) {
-	existing := m.registry.Get(job.ID)
-	if existing != nil {
-		m.unregisterTriggers(existing)
-	}
-
-	m.registerJob(job)
-
-	m.emitEvent("jobs:updated", map[string]any{
-		"id":   job.ID,
-		"name": job.Name,
-	})
-}
-
-func (m *Manager) onFileRemoved(path string, jobID string) {
-	m.unregisterJob(jobID)
-
-	m.emitEvent("jobs:removed", map[string]any{
-		"id": jobID,
+		"job_id": jobID,
+		"run_id": runLog.RunID,
+		"status": runLog.Status,
+		"error":  runLog.Error,
 	})
 }
 
@@ -787,39 +746,22 @@ func (m *Manager) emitEvent(event string, data any) {
 	}
 }
 
-// marshalJobYAML serializa um job para YAML, excluindo campos runtime.
-func marshalJobYAML(job *Job) ([]byte, error) {
-	persistable := struct {
-		ID          string         `yaml:"id"`
-		Name        string         `yaml:"name"`
-		Description string         `yaml:"description,omitempty"`
-		Enabled     bool           `yaml:"enabled"`
-		Pipeline    string         `yaml:"pipeline,omitempty"`
-		Tags        []string       `yaml:"tags,omitempty"`
-		Triggers    []Trigger      `yaml:"triggers"`
-		Tool        string         `yaml:"tool"`
-		Inputs      map[string]any `yaml:"inputs,omitempty"`
-		Output      OutputConfig   `yaml:"output,omitempty"`
-		Events      EventsConfig   `yaml:"events,omitempty"`
-		ErrorPolicy ErrorPolicy    `yaml:"error_policy,omitempty"`
-		DryRun      DryRunConfig   `yaml:"dry_run,omitempty"`
-		Metadata    Metadata       `yaml:"metadata,omitempty"`
-	}{
-		ID:          job.ID,
-		Name:        job.Name,
-		Description: job.Description,
-		Enabled:     job.Enabled,
-		Pipeline:    job.Pipeline,
-		Tags:        job.Tags,
-		Triggers:    job.Triggers,
-		Tool:        job.Tool,
-		Inputs:      job.Inputs,
-		Output:      job.Output,
-		Events:      job.Events,
-		ErrorPolicy: job.ErrorPolicy,
-		DryRun:      job.DryRun,
-		Metadata:    job.Metadata,
+func (m *Manager) context() context.Context {
+	if m.cfg.ContextProvider != nil {
+		if ctx := m.cfg.ContextProvider(); ctx != nil {
+			return ctx
+		}
 	}
+	return context.Background()
+}
 
-	return yaml.Marshal(persistable)
+func (m *Manager) lastRun(jobID string) (*RunLog, error) {
+	if m.cfg.Repository == nil {
+		return nil, nil
+	}
+	runs, err := m.cfg.Repository.GetRuns(m.context(), jobID, 1)
+	if err != nil || len(runs) == 0 {
+		return nil, err
+	}
+	return &runs[0], nil
 }
