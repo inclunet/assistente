@@ -41,6 +41,7 @@ func (a *App) initJobs() {
 		Repository:      jobs.NewDBRepository(database.DB()),
 		ContextProvider: a.internalBootstrapCtx,
 		ToolRegistry:    a.toolRegistry,
+		ToolInvocations: a.toolInvocationSvc,
 		HotkeyManager:   a.hotkeyCtrl.Manager(),
 		MsgGateway:      a.msgGateway,
 		SecretStore:     &credentialSecretStore{app: a},

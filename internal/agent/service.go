@@ -15,6 +15,7 @@ import (
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/messaging"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
@@ -43,6 +44,7 @@ type ServiceConfig struct {
 	Emitter          events.Emitter
 	MsgRepo          chat.MessageRepository
 	ToolExecutor     *tools.Executor
+	ToolInvocations  *toolinvocations.Service
 	ResponseNotifier *messaging.ResponseNotifier
 	GetTokenStats    func(string) (*chat.TokenStats, error)
 	TriggerSummarize func(context.Context, string)
@@ -56,6 +58,7 @@ type Service struct {
 	emitter          events.Emitter
 	msgRepo          chat.MessageRepository
 	toolExecutor     *tools.Executor
+	toolInvocations  *toolinvocations.Service
 	responseNotifier *messaging.ResponseNotifier
 	getTokenStats    func(string) (*chat.TokenStats, error)
 	triggerSummarize func(context.Context, string)
@@ -68,6 +71,7 @@ func NewService(cfg ServiceConfig) *Service {
 		emitter:          cfg.Emitter,
 		msgRepo:          cfg.MsgRepo,
 		toolExecutor:     cfg.ToolExecutor,
+		toolInvocations:  cfg.ToolInvocations,
 		responseNotifier: cfg.ResponseNotifier,
 		getTokenStats:    cfg.GetTokenStats,
 		triggerSummarize: cfg.TriggerSummarize,
@@ -256,7 +260,7 @@ func (s *Service) RunAgenticLoop(
 		// 5d. Executa ferramentas em paralelo
 		toolCalls := convertToolCalls(result.ToolCalls)
 		s.emitToolStarts(conversationID, turnID, result.ToolCalls, surfaceOrigin)
-		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
+		execResults := s.executeToolCalls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
 
 		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
 		retriedCallIDs := make(map[string]struct{})
@@ -307,7 +311,7 @@ func (s *Service) RunAgenticLoop(
 					Attempt:        1,
 					SurfaceOrigin:  surfaceOrigin,
 				})
-				retried := s.toolExecutor.ExecuteOne(ctx, toolCalls[i])
+				retried := s.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
 				execResults[i] = retried
 			}
 		}
@@ -415,26 +419,9 @@ func (s *Service) RunAgenticLoop(
 			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
 		}
 
-		// 5f-iv. Persiste resultados originais no DB e adiciona conteúdo (possivelmente
-		// truncado) ao histórico de mensagens enviado ao LLM.
+		// 5f-iv. Persiste resultados técnicos em tool_invocations e adiciona
+		// conteúdo (possivelmente truncado) apenas ao histórico enviado ao LLM.
 		for i, execResult := range execResults {
-			// Persiste conteúdo original (antes do pre-check de context window, mas
-			// possivelmente já truncado por MaxResultSize do Executor) no banco
-			_, err := s.msgRepo.AddToolResultMessage(
-				ctx,
-				conversationID,
-				turnID,
-				execResult.Result.Content,
-				execResult.CallID,
-			)
-			if err != nil {
-				if errors.Is(err, chat.ErrConversationDeleted) {
-					log.Printf("[Agent] conversa %s deletada — abortando", conversationID)
-					return
-				}
-				log.Printf("[Agent] erro ao salvar resultado de tool %s: %v", execResult.ToolName, err)
-			}
-
 			// Para o histórico LLM, usa versão truncada se pre-check aplicou truncamento
 			content := execResult.Result.Content
 			if preCheck.Truncated {
@@ -859,6 +846,25 @@ func expandToolDefsFromCatalogResults(
 		return existing
 	}
 	return appendUniqueToolDefs(existing, resolveToolDefs(selectedToolsFromCatalog(results))...)
+}
+
+func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin) []tools.ToolExecutionResult {
+	if s.toolInvocations == nil {
+		return s.toolExecutor.ExecuteAll(ctx, calls)
+	}
+	results := s.toolInvocations.ExecuteAll(ctx, calls, origin)
+	out := make([]tools.ToolExecutionResult, len(results))
+	for i, result := range results {
+		out[i] = result.Execution
+	}
+	return out
+}
+
+func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, origin toolinvocations.Origin) tools.ToolExecutionResult {
+	if s.toolInvocations == nil {
+		return s.toolExecutor.ExecuteOne(ctx, call)
+	}
+	return s.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{Call: call, Origin: origin}).Execution
 }
 
 func truncateString(s string, maxLen int) string {

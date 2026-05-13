@@ -123,6 +123,7 @@ func Init() error {
 		&JobRun{},
 		&JobEvent{},
 		&JobRunEvent{},
+		&ToolInvocation{},
 	); err != nil {
 		return err
 	}

@@ -12,6 +12,7 @@ import (
 
 	"assistente/internal/hotkey"
 	"assistente/internal/messaging"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 )
 
@@ -26,6 +27,7 @@ type ManagerConfig struct {
 	Repository      Repository
 	ContextProvider func() context.Context
 	ToolRegistry    *tools.Registry
+	ToolInvocations *toolinvocations.Service
 	HotkeyManager   *hotkey.Manager
 	MsgGateway      *messaging.Gateway
 	SecretStore     SecretStore
@@ -61,14 +63,15 @@ func NewManager(cfg ManagerConfig) *Manager {
 
 	// Cria o executor com as dependencias
 	m.executor = NewJobExecutor(ExecutorConfig{
-		ToolRegistry:   cfg.ToolRegistry,
-		EventBus:       eventBus,
-		Repository:     cfg.Repository,
-		CircuitBreaker: circuitBreaker,
-		SecretResolver: m.resolveSecret,
-		NotifyFunc:     m.notifyChannels,
-		OnRunStart:     m.onRunStart,
-		OnRunEnd:       m.onRunEnd,
+		ToolRegistry:    cfg.ToolRegistry,
+		ToolInvocations: cfg.ToolInvocations,
+		EventBus:        eventBus,
+		Repository:      cfg.Repository,
+		CircuitBreaker:  circuitBreaker,
+		SecretResolver:  m.resolveSecret,
+		NotifyFunc:      m.notifyChannels,
+		OnRunStart:      m.onRunStart,
+		OnRunEnd:        m.onRunEnd,
 	})
 
 	// Cria o scheduler com a funcao de execucao
@@ -476,17 +479,36 @@ func (m *Manager) TestTool(toolName string, inputs map[string]any, eventData map
 		return nil, fmt.Errorf("marshal inputs: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(m.context(), 30*time.Second)
 	defer cancel()
 
 	start := time.Now()
-	result, err := tool.Execute(ctx, argsJSON)
+	var result tools.ToolResult
+	var execErr error
+	if m.cfg.ToolInvocations != nil {
+		exec := m.cfg.ToolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
+			Call: tools.ToolCall{
+				ID:   fmt.Sprintf("tool_catalog_%d", time.Now().UnixNano()),
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      toolName,
+					Arguments: string(argsJSON),
+				},
+			},
+			Origin: toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
+			DryRun: true,
+		}).Execution
+		result = exec.Result
+		execErr = exec.Error
+	} else {
+		result, execErr = tool.Execute(ctx, argsJSON)
+	}
 	duration := time.Since(start)
 
-	if err != nil {
+	if execErr != nil {
 		return &TestToolResult{
 			Success:  false,
-			Error:    err.Error(),
+			Error:    execErr.Error(),
 			Duration: duration.String(),
 		}, nil
 	}
