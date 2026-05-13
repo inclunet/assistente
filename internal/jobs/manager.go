@@ -129,6 +129,7 @@ func (m *Manager) Stop() {
 
 	if !m.started {
 		m.registry.Clear()
+		m.circuitBreaker.Reset()
 		return
 	}
 
@@ -140,6 +141,7 @@ func (m *Manager) Stop() {
 	m.eventBus.Close()
 	m.unregisterAllHotkeys()
 	m.registry.Clear()
+	m.circuitBreaker.Reset()
 
 	m.started = false
 	log.Printf("[Jobs] Manager stopped")
@@ -206,8 +208,9 @@ func (m *Manager) GetJob(id string) (*Job, error) {
 	if job == nil {
 		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
-	job.LastRun, _ = m.lastRun(id)
-	return job, nil
+	copy := *job
+	copy.LastRun, _ = m.lastRun(id)
+	return &copy, nil
 }
 
 func (m *Manager) GetJobContext(ctx context.Context, id string) (*Job, error) {
@@ -219,8 +222,9 @@ func (m *Manager) GetJobContext(ctx context.Context, id string) (*Job, error) {
 	if job == nil {
 		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
-	job.LastRun, _ = m.lastRunWithContext(ctx, id)
-	return job, nil
+	copy := *job
+	copy.LastRun, _ = m.lastRunWithContext(ctx, id)
+	return &copy, nil
 }
 
 // ToggleJob ativa ou desativa um job e persiste no YAML.
@@ -230,17 +234,18 @@ func (m *Manager) ToggleJob(id string, enabled bool) error {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 
-	job.Enabled = enabled
-
-	if err := m.cfg.Repository.SaveJob(m.context(), job); err != nil {
+	updated := *job
+	updated.Enabled = enabled
+	if err := m.cfg.Repository.SaveJob(m.context(), &updated); err != nil {
 		return fmt.Errorf("persist toggle: %w", err)
 	}
 
-	// Re-registra triggers
-	if enabled {
-		m.registerTriggers(job)
+	m.unregisterTriggers(job)
+	m.registry.Set(&updated)
+	if m.effectiveJobEnabled(&updated) {
+		m.registerTriggers(&updated)
 	} else {
-		m.unregisterTriggers(job)
+		m.unregisterTriggers(&updated)
 	}
 
 	m.emitEvent("jobs:toggled", map[string]any{
@@ -260,14 +265,17 @@ func (m *Manager) ToggleJobContext(ctx context.Context, id string, enabled bool)
 	if job == nil {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
-	job.Enabled = enabled
-	if err := m.cfg.Repository.SaveJob(ctx, job); err != nil {
+	updated := *job
+	updated.Enabled = enabled
+	if err := m.cfg.Repository.SaveJob(ctx, &updated); err != nil {
 		return fmt.Errorf("persist toggle: %w", err)
 	}
-	if enabled {
-		m.registerTriggers(job)
+	m.unregisterTriggers(job)
+	m.registry.Set(&updated)
+	if m.effectiveJobEnabled(&updated) {
+		m.registerTriggers(&updated)
 	} else {
-		m.unregisterTriggers(job)
+		m.unregisterTriggers(&updated)
 	}
 	m.emitEvent("jobs:toggled", map[string]any{"id": id, "enabled": enabled})
 	return nil
@@ -575,13 +583,17 @@ func (m *Manager) SaveJob(job *Job) error {
 	if err := m.cfg.Repository.SaveJob(m.context(), job); err != nil {
 		return fmt.Errorf("save job: %w", err)
 	}
+	saved, err := m.cfg.Repository.GetJob(m.context(), job.ID)
+	if err != nil {
+		return fmt.Errorf("reload saved job: %w", err)
+	}
 
 	// Desregistra versao anterior se existia
 	if existing := m.registry.Get(job.ID); existing != nil {
 		m.unregisterTriggers(existing)
 	}
 
-	m.registerJob(job)
+	m.registerJob(saved)
 
 	m.emitEvent("jobs:updated", map[string]any{
 		"id":   job.ID,
@@ -610,12 +622,16 @@ func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
 	if err := m.cfg.Repository.SaveJob(ctx, job); err != nil {
 		return fmt.Errorf("save job: %w", err)
 	}
+	saved, err := m.cfg.Repository.GetJob(ctx, job.ID)
+	if err != nil {
+		return fmt.Errorf("reload saved job: %w", err)
+	}
 
 	if existing := m.registry.Get(job.ID); existing != nil {
 		m.unregisterTriggers(existing)
 	}
 
-	m.registerJob(job)
+	m.registerJob(saved)
 	m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
 	return nil
 }
@@ -760,7 +776,7 @@ func (m *Manager) RegenerateCatalog() error {
 func (m *Manager) registerJob(job *Job) {
 	m.registry.Set(job)
 	m.registerTriggers(job)
-	log.Printf("[Jobs] Registered: %s (enabled=%v)", job.ID, job.Enabled)
+	log.Printf("[Jobs] Registered: %s (enabled=%v pipeline_enabled=%v)", job.ID, job.Enabled, job.PipelineEnabled)
 }
 
 func (m *Manager) unregisterJob(jobID string) {
@@ -773,7 +789,7 @@ func (m *Manager) unregisterJob(jobID string) {
 }
 
 func (m *Manager) registerTriggers(job *Job) {
-	if !job.Enabled {
+	if !m.effectiveJobEnabled(job) {
 		return
 	}
 
@@ -895,6 +911,13 @@ func (m *Manager) unregisterAllHotkeys() {
 	}
 }
 
+func (m *Manager) effectiveJobEnabled(job *Job) bool {
+	if job == nil || !job.Enabled {
+		return false
+	}
+	return normalizeSlug(job.Pipeline) == "" || job.PipelineEnabled
+}
+
 func (m *Manager) clearPipelineFromRegistry(slug string) {
 	slug = normalizeSlug(slug)
 	if slug == "" {
@@ -906,7 +929,12 @@ func (m *Manager) clearPipelineFromRegistry(slug string) {
 		}
 		updated := *job
 		updated.Pipeline = ""
+		updated.PipelineEnabled = true
+		m.unregisterTriggers(job)
 		m.registry.Set(&updated)
+		if m.effectiveJobEnabled(&updated) {
+			m.registerTriggers(&updated)
+		}
 	}
 }
 
@@ -919,18 +947,20 @@ func (m *Manager) applyPipelineState(slug string, enabled bool) {
 		if normalizeSlug(job.Pipeline) != slug {
 			continue
 		}
-		if enabled && job.Enabled {
-			m.registerTriggers(job)
-			continue
-		}
 		m.unregisterTriggers(job)
+		updated := *job
+		updated.PipelineEnabled = enabled
+		m.registry.Set(&updated)
+		if m.effectiveJobEnabled(&updated) {
+			m.registerTriggers(&updated)
+		}
 	}
 }
 
 func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerContext) {
 	// Busca a versao mais atual do registry (pode ter sido atualizada via hot reload)
 	current := m.registry.Get(job.ID)
-	if current == nil || !current.Enabled {
+	if current == nil || !m.effectiveJobEnabled(current) {
 		return
 	}
 

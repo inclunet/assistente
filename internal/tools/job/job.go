@@ -299,6 +299,9 @@ func (t *Tool) listRuns(ctx context.Context, mgr Manager, id string, limit int) 
 	if limit <= 0 {
 		limit = 20
 	}
+	if limit > 100 {
+		limit = 100
+	}
 	runs, err := mgr.GetJobRunsContext(ctx, id, limit)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error listing runs: %v", err), IsError: true}, nil

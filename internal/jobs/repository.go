@@ -410,8 +410,17 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 		if err := r.setResourceTagsTx(ctx, tx, userID, tagResourceJob, row.ID, job.Tags); err != nil {
 			return err
 		}
+		pipelineEnabled := pipelineID == nil
+		if pipelineID != nil {
+			var err error
+			pipelineEnabled, err = r.pipelineEnabledByIDTx(ctx, tx, userID, *pipelineID)
+			if err != nil {
+				return err
+			}
+		}
 		job.ID = slug
 		job.Pipeline = normalizeSlug(job.Pipeline)
+		job.PipelineEnabled = pipelineEnabled
 		job.Tags = uniqueSlugs(job.Tags)
 		return nil
 	})
@@ -918,6 +927,14 @@ func (r *DBRepository) pipelineIDForSlugTx(ctx context.Context, tx *gorm.DB, use
 	return &row.ID, nil
 }
 
+func (r *DBRepository) pipelineEnabledByIDTx(ctx context.Context, tx *gorm.DB, userID, id string) (bool, error) {
+	var row database.JobPipeline
+	if err := tx.WithContext(ctx).Where("user_id = ? AND id = ?", userID, id).First(&row).Error; err != nil {
+		return false, err
+	}
+	return row.Enabled, nil
+}
+
 func (r *DBRepository) toolCatalogIDForNameTx(ctx context.Context, tx *gorm.DB, userID, name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -1110,10 +1127,10 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 		triggers = append(triggers, trig)
 	}
 	pipelineSlug := ""
-	enabled := row.Enabled
+	pipelineEnabled := true
 	if row.Pipeline != nil {
 		pipelineSlug = row.Pipeline.Slug
-		enabled = enabled && row.Pipeline.Enabled
+		pipelineEnabled = row.Pipeline.Enabled
 	}
 	toolName := row.ToolCatalogID
 	if row.ToolCatalog != nil && row.ToolCatalog.Name != "" {
@@ -1123,7 +1140,7 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 		ID:             row.Slug,
 		Name:           row.Name,
 		Description:    row.Description,
-		Enabled:        enabled,
+		Enabled:        row.Enabled,
 		Pipeline:       pipelineSlug,
 		Tags:           tagSlugs,
 		Triggers:       triggers,
@@ -1139,6 +1156,7 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 			CreatedBy: row.CreatedBy,
 			UpdatedAt: row.UpdatedAt.Format(time.RFC3339),
 		},
+		PipelineEnabled: pipelineEnabled,
 	}, nil
 }
 

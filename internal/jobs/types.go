@@ -74,6 +74,8 @@ type Job struct {
 	FilePath string    `yaml:"-" json:"file_path,omitempty"`
 	LastRun  *RunLog   `yaml:"-" json:"last_run,omitempty"`
 	Status   JobStatus `yaml:"-" json:"status"`
+
+	PipelineEnabled bool `yaml:"-" json:"-"`
 }
 
 // Pipeline representa um agrupamento persistente de jobs.

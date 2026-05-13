@@ -644,11 +644,13 @@ func (a *App) reloadUserScopedRuntime() {
 	ctx, cancel := context.WithTimeout(authedCtx, reloadUserScopedRuntimeTimeout)
 	defer cancel()
 
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+	}
 	a.registerEnvCredentials(ctx, a.credMgr)
 	a.migrateLegacyConfig(ctx)
 	a.runPostLoginLegacyImports(ctx)
 	if a.jobMgr != nil {
-		a.jobMgr.Stop()
 		if err := a.jobMgr.Start(); err != nil {
 			log.Printf("[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
 		}

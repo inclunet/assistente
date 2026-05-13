@@ -151,6 +151,9 @@ func (t *PipelineTool) createPipeline(ctx context.Context, mgr Manager, params p
 		Enabled:     true,
 		Metadata:    params.Metadata,
 	}
+	if params.Enabled != nil {
+		pipeline.Enabled = *params.Enabled
+	}
 	if err := mgr.SavePipelineContext(ctx, pipeline); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating pipeline: %v", err), IsError: true}, nil
 	}

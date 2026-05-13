@@ -11,9 +11,10 @@ import (
 )
 
 type fakeManager struct {
-	jobs      map[string]*jobs.Job
-	pipelines map[string]jobs.Pipeline
-	getErr    error
+	jobs         map[string]*jobs.Job
+	pipelines    map[string]jobs.Pipeline
+	getErr       error
+	lastRunLimit int
 }
 
 func newFakeManager() *fakeManager {
@@ -100,6 +101,7 @@ func (m *fakeManager) DryRunJobContext(ctx context.Context, id string) (*jobs.Dr
 }
 
 func (m *fakeManager) GetJobRuns(id string, limit int) ([]jobs.RunLog, error) {
+	m.lastRunLimit = limit
 	return []jobs.RunLog{{RunID: "run-1", JobID: id, Status: "completed"}}, nil
 }
 
@@ -266,11 +268,28 @@ func TestJobToolDoesNotCreateOnReadError(t *testing.T) {
 	}
 }
 
+func TestJobToolCapsListRunsLimit(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["daily-report"] = &jobs.Job{ID: "daily-report", Name: "Daily Report", Enabled: true}
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"job_id":"daily-report","list_runs":true,"limit":100000}`))
+	if err != nil {
+		t.Fatalf("Execute list_runs error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute list_runs returned error result: %s", result.Content)
+	}
+	if mgr.lastRunLimit != 100 {
+		t.Fatalf("limit not capped: got %d, want 100", mgr.lastRunLimit)
+	}
+}
+
 func TestPipelineToolCreatesUpdatesAndDeletes(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewPipeline(mgr)
 
-	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"Ops Jobs","description":"Operations"}`))
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"Ops Jobs","description":"Operations","enabled":false}`))
 	if err != nil {
 		t.Fatalf("Execute create error = %v", err)
 	}
@@ -279,6 +298,9 @@ func TestPipelineToolCreatesUpdatesAndDeletes(t *testing.T) {
 	}
 	if _, ok := mgr.pipelines["ops-jobs"]; !ok {
 		t.Fatal("expected ops-jobs pipeline to be saved")
+	}
+	if mgr.pipelines["ops-jobs"].Enabled {
+		t.Fatal("expected pipeline to be created disabled")
 	}
 	result, err = tool.Execute(context.Background(), nil)
 	if err != nil {

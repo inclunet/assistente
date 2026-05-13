@@ -112,6 +112,30 @@ func TestDBRepositorySaveJobNormalizesPipelineTriggersAndTags(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryKeepsJobEnabledSeparateFromPipelineState(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.SavePipeline(userA, &Pipeline{Slug: "ops", Name: "Ops", Enabled: false}); err != nil {
+		t.Fatalf("save pipeline: %v", err)
+	}
+	job := testRepositoryJob("sync-jira", "Sync Jira")
+	job.Pipeline = "ops"
+	job.Enabled = true
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+
+	got, err := repo.GetJob(userA, "sync-jira")
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if !got.Enabled {
+		t.Fatal("job-level enabled flag was folded into disabled pipeline state")
+	}
+	if got.PipelineEnabled {
+		t.Fatal("expected disabled pipeline runtime state to be preserved separately")
+	}
+}
+
 func TestDBRepositoryRequiresUser(t *testing.T) {
 	repo, _, _ := setupJobsRepositoryTest(t)
 	err := repo.SaveJob(context.Background(), testRepositoryJob("x", "X"))
