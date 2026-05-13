@@ -502,6 +502,38 @@ func TestComputeEnabledToolNames_AllTools_WhenNoFilter(t *testing.T) {
 	}
 }
 
+func TestComputeEnabledToolNames_ProfileNilToolsUsesCatalogFirst(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	_ = reg.Register(&fakeTool{name: "write_file"})
+	profile := &profiles.Profile{}
+	b := &prompt.Builder{Tools: reg}
+
+	names := b.ComputeEnabledToolNames(profile)
+	if len(names) != 1 || names[0] != tools.ToolCatalogName {
+		t.Fatalf("Expected only tool catalog for dynamic selection, got %v", names)
+	}
+
+	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	if !data.ToolCallingEnabled || data.EnabledToolCount != 1 || data.EnabledTools[0] != tools.ToolCatalogName {
+		t.Fatalf("TemplateData tools not aligned with initial definitions: %+v", data)
+	}
+}
+
+func TestComputeEnabledToolNames_ProfileNilToolsFallsBackWhenCatalogMissing(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	_ = reg.Register(&fakeTool{name: "write_file"})
+	profile := &profiles.Profile{}
+	b := &prompt.Builder{Tools: reg}
+
+	names := b.ComputeEnabledToolNames(profile)
+	if len(names) != 2 {
+		t.Fatalf("Expected all tools without catalog, got %v", names)
+	}
+}
+
 func TestComputeEnabledToolNames_ProfileFilter_OnlySelected(t *testing.T) {
 	reg := tools.NewRegistry()
 	_ = reg.Register(&fakeTool{name: "read_file"})
