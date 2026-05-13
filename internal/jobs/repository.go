@@ -271,11 +271,21 @@ func (r *DBRepository) SavePipeline(ctx context.Context, pipeline *Pipeline) err
 }
 
 func (r *DBRepository) DeletePipeline(ctx context.Context, slug string) error {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return err
 	}
-	return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("slug = ?", normalizeSlug(slug)).Delete(&database.JobPipeline{}).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row database.JobPipeline
+		if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&database.Job{}).Where("user_id = ? AND pipeline_id = ?", userID, row.ID).
+			Update("pipeline_id", gorm.Expr("NULL")).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&row).Error
+	})
 }
 
 func (r *DBRepository) ListJobs(ctx context.Context, filter JobFilter) ([]Job, error) {

@@ -79,7 +79,6 @@ func (t *Tool) Parameters() json.RawMessage {
 }
 
 func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
-	_ = ctx
 	if strings.TrimSpace(string(args)) == "" {
 		args = json.RawMessage(`{}`)
 	}
@@ -102,13 +101,13 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 
 	switch {
 	case params.Delete:
-		return t.deleteJob(mgr, id)
+		return t.deleteJob(ctx, mgr, id)
 	case params.Run:
-		return t.runJob(mgr, id)
+		return t.runJob(ctx, mgr, id)
 	case params.DryRun:
-		return t.dryRunJob(mgr, id)
+		return t.dryRunJob(ctx, mgr, id)
 	case params.ListRuns:
-		return t.listRuns(mgr, id, params.Limit)
+		return t.listRuns(ctx, mgr, id, params.Limit)
 	}
 
 	hasWrite := params.hasWriteFields()
@@ -117,14 +116,14 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	}
 	if id != "" && !hasWrite {
 		if params.Enabled != nil {
-			return t.toggleJob(mgr, id, *params.Enabled)
+			return t.toggleJob(ctx, mgr, id, *params.Enabled)
 		}
-		return t.getJob(mgr, id)
+		return t.getJob(ctx, mgr, id)
 	}
 	if id == "" {
-		return t.createJob(mgr, "", params)
+		return t.createJob(ctx, mgr, "", params)
 	}
-	return t.updateJob(mgr, id, params)
+	return t.updateJob(ctx, mgr, id, params)
 }
 
 func (p jobArgs) hasWriteFields() bool {
@@ -158,8 +157,8 @@ func (t *Tool) listJobs(mgr Manager) (tools.ToolResult, error) {
 	}, nil
 }
 
-func (t *Tool) getJob(mgr Manager, id string) (tools.ToolResult, error) {
-	job, err := mgr.GetJob(id)
+func (t *Tool) getJob(ctx context.Context, mgr Manager, id string) (tools.ToolResult, error) {
+	job, err := getJob(ctx, mgr, id)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
@@ -167,7 +166,7 @@ func (t *Tool) getJob(mgr Manager, id string) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id}}, nil
 }
 
-func (t *Tool) createJob(mgr Manager, explicitID string, params jobArgs) (tools.ToolResult, error) {
+func (t *Tool) createJob(ctx context.Context, mgr Manager, explicitID string, params jobArgs) (tools.ToolResult, error) {
 	if strings.TrimSpace(params.Name) == "" {
 		return tools.ToolResult{Content: "name is required to create a job", IsError: true}, nil
 	}
@@ -196,16 +195,16 @@ func (t *Tool) createJob(mgr Manager, explicitID string, params jobArgs) (tools.
 		job.Enabled = *params.Enabled
 	}
 	applyOptionalJobFields(job, params)
-	if err := mgr.SaveJob(job); err != nil {
+	if err := saveJob(ctx, mgr, job); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating job: %v", err), IsError: true}, nil
 	}
 	return t.actionResult("created", job.ID)
 }
 
-func (t *Tool) updateJob(mgr Manager, id string, params jobArgs) (tools.ToolResult, error) {
-	job, err := mgr.GetJob(id)
+func (t *Tool) updateJob(ctx context.Context, mgr Manager, id string, params jobArgs) (tools.ToolResult, error) {
+	job, err := getJob(ctx, mgr, id)
 	if err != nil {
-		return t.createJob(mgr, id, params)
+		return t.createJob(ctx, mgr, id, params)
 	}
 	if strings.TrimSpace(params.Name) != "" {
 		job.Name = params.Name
@@ -232,28 +231,28 @@ func (t *Tool) updateJob(mgr Manager, id string, params jobArgs) (tools.ToolResu
 		job.Enabled = *params.Enabled
 	}
 	applyOptionalJobFields(job, params)
-	if err := mgr.SaveJob(job); err != nil {
+	if err := saveJob(ctx, mgr, job); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error updating job: %v", err), IsError: true}, nil
 	}
 	return t.actionResult("updated", id)
 }
 
-func (t *Tool) deleteJob(mgr Manager, id string) (tools.ToolResult, error) {
-	if err := mgr.DeleteJob(id); err != nil {
+func (t *Tool) deleteJob(ctx context.Context, mgr Manager, id string) (tools.ToolResult, error) {
+	if err := deleteJob(ctx, mgr, id); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error deleting job: %v", err), IsError: true}, nil
 	}
 	return t.actionResult("deleted", id)
 }
 
-func (t *Tool) toggleJob(mgr Manager, id string, enabled bool) (tools.ToolResult, error) {
-	if err := mgr.ToggleJob(id, enabled); err != nil {
+func (t *Tool) toggleJob(ctx context.Context, mgr Manager, id string, enabled bool) (tools.ToolResult, error) {
+	if err := toggleJob(ctx, mgr, id, enabled); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error toggling job: %v", err), IsError: true}, nil
 	}
 	return t.actionResult("toggled", id)
 }
 
-func (t *Tool) runJob(mgr Manager, id string) (tools.ToolResult, error) {
-	run, err := mgr.RunJob(id)
+func (t *Tool) runJob(ctx context.Context, mgr Manager, id string) (tools.ToolResult, error) {
+	run, err := runJob(ctx, mgr, id)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error running job: %v", err), IsError: true}, nil
 	}
@@ -261,8 +260,8 @@ func (t *Tool) runJob(mgr Manager, id string) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id, "action": "run"}}, nil
 }
 
-func (t *Tool) dryRunJob(mgr Manager, id string) (tools.ToolResult, error) {
-	result, err := mgr.DryRunJob(id)
+func (t *Tool) dryRunJob(ctx context.Context, mgr Manager, id string) (tools.ToolResult, error) {
+	result, err := dryRunJob(ctx, mgr, id)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error dry-running job: %v", err), IsError: true}, nil
 	}
@@ -270,11 +269,11 @@ func (t *Tool) dryRunJob(mgr Manager, id string) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id, "action": "dry_run"}}, nil
 }
 
-func (t *Tool) listRuns(mgr Manager, id string, limit int) (tools.ToolResult, error) {
+func (t *Tool) listRuns(ctx context.Context, mgr Manager, id string, limit int) (tools.ToolResult, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	runs, err := mgr.GetJobRuns(id, limit)
+	runs, err := getJobRuns(ctx, mgr, id, limit)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error listing runs: %v", err), IsError: true}, nil
 	}

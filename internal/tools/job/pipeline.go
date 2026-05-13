@@ -53,7 +53,6 @@ func (t *PipelineTool) Parameters() json.RawMessage {
 }
 
 func (t *PipelineTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
-	_ = ctx
 	if strings.TrimSpace(string(args)) == "" {
 		args = json.RawMessage(`{}`)
 	}
@@ -70,7 +69,7 @@ func (t *PipelineTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		if slug == "" {
 			return tools.ToolResult{Content: "slug is required to delete a pipeline", IsError: true}, nil
 		}
-		if err := mgr.DeletePipeline(slug); err != nil {
+		if err := deletePipeline(ctx, mgr, slug); err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("Error deleting pipeline: %v", err), IsError: true}, nil
 		}
 		payload := map[string]any{"action": "deleted", "slug": slug}
@@ -84,15 +83,15 @@ func (t *PipelineTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		params.Metadata != nil
 
 	if slug == "" && !hasWrite {
-		return t.listPipelines(mgr)
+		return t.listPipelines(ctx, mgr)
 	}
 	if slug != "" && !hasWrite {
-		return t.getPipeline(mgr, slug)
+		return t.getPipeline(ctx, mgr, slug)
 	}
 	if slug == "" {
-		return t.createPipeline(mgr, params)
+		return t.createPipeline(ctx, mgr, params)
 	}
-	return t.updatePipeline(mgr, slug, params)
+	return t.updatePipeline(ctx, mgr, slug, params)
 }
 
 func (t *PipelineTool) manager() Manager {
@@ -102,8 +101,8 @@ func (t *PipelineTool) manager() Manager {
 	return t.mgr()
 }
 
-func (t *PipelineTool) listPipelines(mgr Manager) (tools.ToolResult, error) {
-	pipelines, err := mgr.ListPipelines()
+func (t *PipelineTool) listPipelines(ctx context.Context, mgr Manager) (tools.ToolResult, error) {
+	pipelines, err := listPipelines(ctx, mgr)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error listing pipelines: %v", err), IsError: true}, nil
 	}
@@ -114,8 +113,10 @@ func (t *PipelineTool) listPipelines(mgr Manager) (tools.ToolResult, error) {
 	}, nil
 }
 
-func (t *PipelineTool) getPipeline(mgr Manager, slug string) (tools.ToolResult, error) {
-	pipeline, ok, err := findPipeline(mgr.ListPipelines, slug)
+func (t *PipelineTool) getPipeline(ctx context.Context, mgr Manager, slug string) (tools.ToolResult, error) {
+	pipeline, ok, err := findPipeline(func() ([]jobs.Pipeline, error) {
+		return listPipelines(ctx, mgr)
+	}, slug)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error reading pipelines: %v", err), IsError: true}, nil
 	}
@@ -126,7 +127,7 @@ func (t *PipelineTool) getPipeline(mgr Manager, slug string) (tools.ToolResult, 
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"slug": slug}}, nil
 }
 
-func (t *PipelineTool) createPipeline(mgr Manager, params pipelineArgs) (tools.ToolResult, error) {
+func (t *PipelineTool) createPipeline(ctx context.Context, mgr Manager, params pipelineArgs) (tools.ToolResult, error) {
 	if strings.TrimSpace(params.Name) == "" {
 		return tools.ToolResult{Content: "name is required to create a pipeline", IsError: true}, nil
 	}
@@ -144,7 +145,7 @@ func (t *PipelineTool) createPipeline(mgr Manager, params pipelineArgs) (tools.T
 	if params.Enabled != nil {
 		pipeline.Enabled = *params.Enabled
 	}
-	if err := mgr.SavePipeline(pipeline); err != nil {
+	if err := savePipeline(ctx, mgr, pipeline); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating pipeline: %v", err), IsError: true}, nil
 	}
 	payload := map[string]any{"action": "created", "slug": slug}
@@ -152,8 +153,10 @@ func (t *PipelineTool) createPipeline(mgr Manager, params pipelineArgs) (tools.T
 	return tools.ToolResult{Content: string(data), Metadata: payload}, nil
 }
 
-func (t *PipelineTool) updatePipeline(mgr Manager, slug string, params pipelineArgs) (tools.ToolResult, error) {
-	pipeline, ok, err := findPipeline(mgr.ListPipelines, slug)
+func (t *PipelineTool) updatePipeline(ctx context.Context, mgr Manager, slug string, params pipelineArgs) (tools.ToolResult, error) {
+	pipeline, ok, err := findPipeline(func() ([]jobs.Pipeline, error) {
+		return listPipelines(ctx, mgr)
+	}, slug)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error reading pipelines: %v", err), IsError: true}, nil
 	}
@@ -172,7 +175,7 @@ func (t *PipelineTool) updatePipeline(mgr Manager, slug string, params pipelineA
 	if params.Metadata != nil {
 		pipeline.Metadata = params.Metadata
 	}
-	if err := mgr.SavePipeline(&pipeline); err != nil {
+	if err := savePipeline(ctx, mgr, &pipeline); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error updating pipeline: %v", err), IsError: true}, nil
 	}
 	payload := map[string]any{"action": "updated", "slug": slug}
