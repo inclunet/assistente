@@ -154,6 +154,27 @@ func TestJobToolCreatesUpdatesAndLists(t *testing.T) {
 	}
 }
 
+func TestJobToolCreatesWithExplicitJobID(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{
+		"job_id":"Explicit Job",
+		"name":"Explicit Name",
+		"tool":"web_fetch",
+		"triggers":[{"type":"manual"}]
+	}`))
+	if err != nil {
+		t.Fatalf("Execute create explicit id error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute create explicit id returned error result: %s", result.Content)
+	}
+	if _, ok := mgr.jobs["explicit-job"]; !ok {
+		t.Fatalf("expected explicit-job to be saved, got %#v", mgr.jobs)
+	}
+}
+
 func TestPipelineToolCreatesUpdatesAndDeletes(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewPipeline(mgr)

@@ -83,6 +83,12 @@ func TestDBRepositorySaveJobNormalizesPipelineTriggersAndTags(t *testing.T) {
 	if err := repo.SaveJob(userA, job); err != nil {
 		t.Fatalf("save job: %v", err)
 	}
+	if job.Pipeline != "ops" {
+		t.Fatalf("pipeline normalizada no objeto salvo: got %q, want ops", job.Pipeline)
+	}
+	if len(job.Tags) != 2 || job.Tags[0] != "ops" || job.Tags[1] != "jira" {
+		t.Fatalf("tags normalizadas no objeto salvo: %#v", job.Tags)
+	}
 	got, err := repo.GetJob(userA, "sync-jira")
 	if err != nil {
 		t.Fatalf("get job: %v", err)

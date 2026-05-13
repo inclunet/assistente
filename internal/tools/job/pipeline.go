@@ -34,7 +34,7 @@ func NewPipelineWithProvider(provider ManagerProvider) *PipelineTool {
 func (t *PipelineTool) Name() string { return "job_pipeline" }
 
 func (t *PipelineTool) Description() string {
-	return "Composite DB-backed job pipeline manager. No params lists pipelines with job counts. slug reads a pipeline. With slug plus fields updates. Without slug plus name creates. delete removes a pipeline."
+	return "Composite DB-backed job pipeline manager. No params lists persisted pipelines. slug reads a pipeline. With slug plus fields updates. Without slug plus name creates. delete removes a pipeline."
 }
 
 func (t *PipelineTool) Parameters() json.RawMessage {

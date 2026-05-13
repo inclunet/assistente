@@ -122,7 +122,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return t.getJob(mgr, id)
 	}
 	if id == "" {
-		return t.createJob(mgr, params)
+		return t.createJob(mgr, "", params)
 	}
 	return t.updateJob(mgr, id, params)
 }
@@ -167,7 +167,7 @@ func (t *Tool) getJob(mgr Manager, id string) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id}}, nil
 }
 
-func (t *Tool) createJob(mgr Manager, params jobArgs) (tools.ToolResult, error) {
+func (t *Tool) createJob(mgr Manager, explicitID string, params jobArgs) (tools.ToolResult, error) {
 	if strings.TrimSpace(params.Name) == "" {
 		return tools.ToolResult{Content: "name is required to create a job", IsError: true}, nil
 	}
@@ -177,8 +177,12 @@ func (t *Tool) createJob(mgr Manager, params jobArgs) (tools.ToolResult, error) 
 	if len(params.Triggers) == 0 {
 		return tools.ToolResult{Content: "triggers is required to create a job", IsError: true}, nil
 	}
+	id := slugFromName(explicitID)
+	if id == "" {
+		id = slugFromName(params.Name)
+	}
 	job := &jobs.Job{
-		ID:          slugFromName(params.Name),
+		ID:          id,
 		Name:        params.Name,
 		Description: params.Description,
 		Enabled:     true,
@@ -201,7 +205,7 @@ func (t *Tool) createJob(mgr Manager, params jobArgs) (tools.ToolResult, error) 
 func (t *Tool) updateJob(mgr Manager, id string, params jobArgs) (tools.ToolResult, error) {
 	job, err := mgr.GetJob(id)
 	if err != nil {
-		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+		return t.createJob(mgr, id, params)
 	}
 	if strings.TrimSpace(params.Name) != "" {
 		job.Name = params.Name

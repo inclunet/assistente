@@ -400,6 +400,8 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			return err
 		}
 		job.ID = slug
+		job.Pipeline = normalizeSlug(job.Pipeline)
+		job.Tags = uniqueSlugs(job.Tags)
 		return nil
 	})
 }

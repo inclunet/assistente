@@ -247,7 +247,6 @@ func (m *Manager) GetJobEvents(date string) ([]EventEntry, error) {
 		}
 		filter.StartAt = start
 		filter.EndAt = start.Add(24 * time.Hour)
-		filter.Limit = 0
 	}
 	return m.cfg.Repository.ListEvents(m.context(), filter)
 }
@@ -598,7 +597,7 @@ func (m *Manager) registerTriggers(job *Job) {
 					ChainHistory: chainHistory,
 				}
 
-				m.executor.Execute(ctx, &jobCopy, trigCtx)
+				m.executeJob(ctx, &jobCopy, trigCtx)
 			})
 		}
 
@@ -633,7 +632,7 @@ func (m *Manager) registerJobHotkey(job *Job, keys string) {
 			Type:         TriggerHotkey,
 			EventPayload: make(map[string]any),
 		}
-		m.executor.Execute(ctx, &jobCopy, trigCtx)
+		m.executeJob(ctx, &jobCopy, trigCtx)
 	})
 	if err != nil {
 		log.Printf("[Jobs] Hotkey register error for %s (%s): %v", job.ID, keys, err)
