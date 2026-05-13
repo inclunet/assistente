@@ -417,7 +417,8 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 }
 
 func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return err
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -425,10 +426,28 @@ func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {
 		if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("job_id = ?", row.ID).Delete(&database.JobTrigger{}).Error; err != nil {
+		var runIDs []string
+		if err := tx.Model(&database.JobRun{}).Where("user_id = ? AND job_id = ?", userID, row.ID).Pluck("id", &runIDs).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("resource_type = ? AND resource_id = ?", tagResourceJob, row.ID).Delete(&database.TagAssignment{}).Error; err != nil {
+		if len(runIDs) > 0 {
+			if err := tx.Where("user_id = ? AND job_run_id IN ?", userID, runIDs).Delete(&database.JobRunEvent{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("user_id = ? AND job_run_id IN ?", userID, runIDs).Delete(&database.JobEvent{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("user_id = ? AND job_id = ?", userID, row.ID).Delete(&database.JobRun{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ? AND job_id = ?", userID, row.ID).Delete(&database.JobEvent{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ? AND job_id = ?", userID, row.ID).Delete(&database.JobTrigger{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ? AND resource_type = ? AND resource_id = ?", userID, tagResourceJob, row.ID).Delete(&database.TagAssignment{}).Error; err != nil {
 			return err
 		}
 		return tx.Delete(&row).Error
@@ -513,18 +532,39 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 		return err
 	}
 	completedAt := nullableTime(rl.CompletedAt)
+	triggerData, err := marshalJSON(rl.Trigger)
+	if err != nil {
+		return err
+	}
+	inputs, err := marshalJSON(rl.ResolvedInputs)
+	if err != nil {
+		return err
+	}
+	output, err := marshalJSON(rl.Output)
+	if err != nil {
+		return err
+	}
+	events, err := marshalJSON(rl.EventsEmitted)
+	if err != nil {
+		return err
+	}
 	row := database.JobRun{
-		UUIDModel:   database.UUIDModel{ID: strings.TrimSpace(rl.RunID)},
-		UserID:      userID,
-		JobID:       jobRow.ID,
-		TriggerID:   triggerID,
-		Status:      rl.Status,
-		StartedAt:   rl.StartedAt,
-		CompletedAt: completedAt,
-		DurationMs:  durationMillis(rl.StartedAt, rl.CompletedAt),
-		Error:       rl.Error,
-		RetryCount:  rl.RetryCount,
-		IsDryRun:    rl.IsDryRun,
+		UUIDModel:     database.UUIDModel{ID: strings.TrimSpace(rl.RunID)},
+		UserID:        userID,
+		JobID:         jobRow.ID,
+		TriggerID:     triggerID,
+		Status:        rl.Status,
+		StartedAt:     rl.StartedAt,
+		CompletedAt:   completedAt,
+		DurationMs:    durationMillis(rl.StartedAt, rl.CompletedAt),
+		Error:         rl.Error,
+		RetryCount:    rl.RetryCount,
+		IsDryRun:      rl.IsDryRun,
+		ToolName:      rl.ToolName,
+		TriggerData:   triggerData,
+		Inputs:        inputs,
+		Output:        output,
+		EventsEmitted: events,
 	}
 	if row.StartedAt.IsZero() {
 		row.StartedAt = r.now()
@@ -745,6 +785,21 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 		return 0, err
 	}
 	cutoff := r.now().Add(-maxAge)
+	var runIDs []string
+	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobRun{}), "user_id").
+		Where("started_at < ?", cutoff).Pluck("id", &runIDs).Error; err != nil {
+		return 0, err
+	}
+	if len(runIDs) > 0 {
+		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("job_run_id IN ?", runIDs).Delete(&database.JobRunEvent{}).Error; err != nil {
+			return 0, err
+		}
+		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("job_run_id IN ?", runIDs).Delete(&database.JobEvent{}).Error; err != nil {
+			return 0, err
+		}
+	}
 	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
 		Where("started_at < ?", cutoff).Delete(&database.JobRun{})
 	return int(res.RowsAffected), res.Error
@@ -925,8 +980,15 @@ func (r *DBRepository) triggerIDForRun(ctx context.Context, userID, jobID string
 	}
 	var row database.JobTrigger
 	query := r.db.WithContext(ctx).Where("user_id = ? AND job_id = ? AND type = ?", userID, jobID, triggerType)
-	if info.Event != "" {
+	switch {
+	case info.Event != "":
 		query = query.Where("expression = ?", info.Event)
+	case info.Expression != "":
+		query = query.Where("expression = ?", info.Expression)
+	case info.Every != "":
+		query = query.Where("expression = ?", info.Every)
+	case info.Keys != "":
+		query = query.Where("expression = ?", info.Keys)
 	}
 	err := query.First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) && triggerType == string(TriggerManual) {
@@ -981,8 +1043,10 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 		triggers = append(triggers, trig)
 	}
 	pipelineSlug := ""
+	enabled := row.Enabled
 	if row.Pipeline != nil {
 		pipelineSlug = row.Pipeline.Slug
+		enabled = enabled && row.Pipeline.Enabled
 	}
 	toolName := row.ToolCatalogID
 	if row.ToolCatalog != nil && row.ToolCatalog.Name != "" {
@@ -992,7 +1056,7 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 		ID:             row.Slug,
 		Name:           row.Name,
 		Description:    row.Description,
-		Enabled:        row.Enabled,
+		Enabled:        enabled,
 		Pipeline:       pipelineSlug,
 		Tags:           tagSlugs,
 		Triggers:       triggers,
@@ -1116,16 +1180,30 @@ func tagModelToDomain(row database.Tag) Tag {
 }
 
 func runModelToDomain(row database.JobRun, jobSlug string) RunLog {
+	var trigger TriggerInfo
+	_ = unmarshalJSON(row.TriggerData, &trigger)
+	var inputs map[string]any
+	_ = unmarshalJSON(row.Inputs, &inputs)
+	var output map[string]any
+	_ = unmarshalJSON(row.Output, &output)
+	var events []string
+	_ = unmarshalJSON(row.EventsEmitted, &events)
 	rl := RunLog{
-		RunID:       row.ID,
-		JobID:       jobSlug,
-		Status:      row.Status,
-		StartedAt:   row.StartedAt,
-		Error:       row.Error,
-		RetryCount:  row.RetryCount,
-		IsDryRun:    row.IsDryRun,
-		Duration:    time.Duration(row.DurationMs * int64(time.Millisecond)).String(),
-		CompletedAt: time.Time{},
+		RunID:          row.ID,
+		JobID:          jobSlug,
+		ToolName:       row.ToolName,
+		Trigger:        trigger,
+		Status:         row.Status,
+		StartedAt:      row.StartedAt,
+		ResolvedInputs: inputs,
+		Output:         output,
+		OutputSize:     len(row.Output),
+		Error:          row.Error,
+		RetryCount:     row.RetryCount,
+		EventsEmitted:  events,
+		IsDryRun:       row.IsDryRun,
+		Duration:       time.Duration(row.DurationMs * int64(time.Millisecond)).String(),
+		CompletedAt:    time.Time{},
 	}
 	if row.CompletedAt != nil {
 		rl.CompletedAt = *row.CompletedAt

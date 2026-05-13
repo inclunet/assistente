@@ -58,6 +58,9 @@ func NewJobExecutor(cfg ExecutorConfig) *JobExecutor {
 type TriggerContext struct {
 	Type         TriggerType
 	EventName    string
+	Expression   string
+	Every        string
+	Keys         string
 	EventPayload map[string]any
 	ChainID      string   // ID da cadeia (para circuit breaker)
 	ChainHistory []string // jobs ja executados nesta cadeia
@@ -72,9 +75,12 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		RunID: runID,
 		JobID: job.ID,
 		Trigger: TriggerInfo{
-			Type:  trigCtx.Type,
-			At:    time.Now(),
-			Event: trigCtx.EventName,
+			Type:       trigCtx.Type,
+			At:         time.Now(),
+			Event:      trigCtx.EventName,
+			Expression: trigCtx.Expression,
+			Every:      trigCtx.Every,
+			Keys:       trigCtx.Keys,
 		},
 		StartedAt: time.Now(),
 	}

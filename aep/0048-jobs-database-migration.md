@@ -508,5 +508,5 @@ Consequências:
 9. **Roundtrip JSON**: configs complexas (triggers, error_policy, etc.) sobrevivem save→load sem perda
 10. **Testes**: repository, manager, migração e LLM tools cobertos por testes Go
 11. **File watcher removido**: `internal/jobs/watcher.go` e `internal/jobs/logger.go` eliminados
-12. **Catálogo preservado**: `catalog.yaml` continua sendo gerado em disco como dado derivado
+12. **Catálogo derivado em runtime**: `catalog.yaml` deixa de ser gerado; UI e jobs consultam o registry/catálogo persistente em tempo real
 13. **Logs legados descartados**: runs JSON e eventos JSONL antigos não são importados

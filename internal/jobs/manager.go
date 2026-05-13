@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/database"
 	"assistente/internal/hotkey"
 	"assistente/internal/messaging"
 	"assistente/internal/tools"
@@ -44,6 +45,7 @@ type Manager struct {
 	executor       *JobExecutor
 	circuitBreaker *CircuitBreaker
 	hotkeyIDs      map[string][]int // jobID -> hotkey IDs registrados
+	retentionStop  chan struct{}
 	mu             sync.Mutex
 	started        bool
 }
@@ -112,6 +114,8 @@ func (m *Manager) Start() error {
 
 	// Inicia o scheduler
 	m.scheduler.Start()
+	m.runRetention(ctx)
+	m.startRetentionLoop(ctx)
 
 	m.started = true
 	log.Printf("[Jobs] Manager started")
@@ -124,12 +128,18 @@ func (m *Manager) Stop() {
 	defer m.mu.Unlock()
 
 	if !m.started {
+		m.registry.Clear()
 		return
 	}
 
+	if m.retentionStop != nil {
+		close(m.retentionStop)
+		m.retentionStop = nil
+	}
 	m.scheduler.Stop()
 	m.eventBus.Close()
 	m.unregisterAllHotkeys()
+	m.registry.Clear()
 
 	m.started = false
 	log.Printf("[Jobs] Manager stopped")
@@ -162,6 +172,34 @@ func (m *Manager) GetJobs() []JobInfo {
 	return infos
 }
 
+func (m *Manager) GetJobsContext(ctx context.Context) ([]JobInfo, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	jobs := m.registry.GetAll()
+	infos := make([]JobInfo, 0, len(jobs))
+	lastRuns := m.lastRunsWithContext(ctx, jobs)
+
+	for _, job := range jobs {
+		info := JobInfo{
+			ID:          job.ID,
+			Name:        job.Name,
+			Description: job.Description,
+			Enabled:     job.Enabled,
+			Pipeline:    job.Pipeline,
+			Tags:        job.Tags,
+			Tool:        job.Tool,
+			Status:      job.Status,
+			Triggers:    job.Triggers,
+			LastRun:     lastRuns[job.ID],
+		}
+		infos = append(infos, info)
+	}
+
+	return infos, nil
+}
+
 // GetJob retorna detalhes completos de um job.
 func (m *Manager) GetJob(id string) (*Job, error) {
 	job := m.registry.Get(id)
@@ -173,11 +211,15 @@ func (m *Manager) GetJob(id string) (*Job, error) {
 }
 
 func (m *Manager) GetJobContext(ctx context.Context, id string) (*Job, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	job := m.registry.Get(id)
 	if job == nil {
 		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
-	job.LastRun, _ = m.lastRunWithContext(m.contextFrom(ctx), id)
+	job.LastRun, _ = m.lastRunWithContext(ctx, id)
 	return job, nil
 }
 
@@ -210,12 +252,16 @@ func (m *Manager) ToggleJob(id string, enabled bool) error {
 }
 
 func (m *Manager) ToggleJobContext(ctx context.Context, id string, enabled bool) error {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return err
+	}
 	job := m.registry.Get(id)
 	if job == nil {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 	job.Enabled = enabled
-	if err := m.cfg.Repository.SaveJob(m.contextFrom(ctx), job); err != nil {
+	if err := m.cfg.Repository.SaveJob(ctx, job); err != nil {
 		return fmt.Errorf("persist toggle: %w", err)
 	}
 	if enabled {
@@ -245,6 +291,10 @@ func (m *Manager) RunJob(id string) (*RunLog, error) {
 }
 
 func (m *Manager) RunJobContext(ctx context.Context, id string) (*RunLog, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	job := m.registry.Get(id)
 	if job == nil {
 		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
@@ -253,7 +303,7 @@ func (m *Manager) RunJobContext(ctx context.Context, id string) (*RunLog, error)
 		Type:         TriggerManual,
 		EventPayload: make(map[string]any),
 	}
-	rl := m.executor.Execute(m.contextFrom(ctx), job, trigCtx)
+	rl := m.executor.Execute(ctx, job, trigCtx)
 	return rl, nil
 }
 
@@ -275,6 +325,10 @@ func (m *Manager) DryRunJob(id string) (*DryRunResult, error) {
 }
 
 func (m *Manager) DryRunJobContext(ctx context.Context, id string) (*DryRunResult, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	job := m.registry.Get(id)
 	if job == nil {
 		return nil, fmt.Errorf("%w: %s", ErrJobNotFound, id)
@@ -283,7 +337,7 @@ func (m *Manager) DryRunJobContext(ctx context.Context, id string) (*DryRunResul
 		Type:         TriggerManual,
 		EventPayload: make(map[string]any),
 	}
-	result := m.executor.ExecuteDryRun(m.contextFrom(ctx), job, trigCtx)
+	result := m.executor.ExecuteDryRun(ctx, job, trigCtx)
 	return result, nil
 }
 
@@ -298,7 +352,11 @@ func (m *Manager) GetJobRuns(id string, limit int) ([]RunLog, error) {
 }
 
 func (m *Manager) GetJobRunsContext(ctx context.Context, id string, limit int) ([]RunLog, error) {
-	return m.cfg.Repository.GetRuns(m.contextFrom(ctx), id, limit)
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return m.cfg.Repository.GetRuns(ctx, id, limit)
 }
 
 // GetJobEvents retorna a timeline de eventos de uma data (formato "2006-01-02").
@@ -318,11 +376,12 @@ func (m *Manager) GetJobEvents(date string) ([]EventEntry, error) {
 // GetPipelines retorna os pipelines com seus jobs.
 func (m *Manager) GetPipelines() []PipelineInfo {
 	grouped := m.registry.GetByPipeline()
+	allJobs := m.registry.GetAll()
+	lastRuns := m.lastRuns(allJobs)
 	var pipelines []PipelineInfo
 
 	for name, jobs := range grouped {
 		infos := make([]JobInfo, 0, len(jobs))
-		lastRuns := m.lastRuns(jobs)
 		for _, job := range jobs {
 			infos = append(infos, JobInfo{
 				ID:       job.ID,
@@ -348,7 +407,11 @@ func (m *Manager) ListPipelines() ([]Pipeline, error) {
 }
 
 func (m *Manager) ListPipelinesContext(ctx context.Context) ([]Pipeline, error) {
-	return m.cfg.Repository.ListPipelines(m.contextFrom(ctx))
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return m.cfg.Repository.ListPipelines(ctx)
 }
 
 func (m *Manager) SavePipeline(pipeline *Pipeline) error {
@@ -356,15 +419,33 @@ func (m *Manager) SavePipeline(pipeline *Pipeline) error {
 }
 
 func (m *Manager) SavePipelineContext(ctx context.Context, pipeline *Pipeline) error {
-	return m.cfg.Repository.SavePipeline(m.contextFrom(ctx), pipeline)
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return err
+	}
+	return m.cfg.Repository.SavePipeline(ctx, pipeline)
 }
 
 func (m *Manager) DeletePipeline(slug string) error {
-	return m.cfg.Repository.DeletePipeline(m.context(), slug)
+	slug = normalizeSlug(slug)
+	if err := m.cfg.Repository.DeletePipeline(m.context(), slug); err != nil {
+		return err
+	}
+	m.clearPipelineFromRegistry(slug)
+	return nil
 }
 
 func (m *Manager) DeletePipelineContext(ctx context.Context, slug string) error {
-	return m.cfg.Repository.DeletePipeline(m.contextFrom(ctx), slug)
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return err
+	}
+	slug = normalizeSlug(slug)
+	if err := m.cfg.Repository.DeletePipeline(ctx, slug); err != nil {
+		return err
+	}
+	m.clearPipelineFromRegistry(slug)
+	return nil
 }
 
 // GetToolCatalog retorna o catalogo de tools.
@@ -484,6 +565,10 @@ func (m *Manager) SaveJob(job *Job) error {
 }
 
 func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return err
+	}
 	if err := Validate(job); err != nil {
 		return err
 	}
@@ -495,7 +580,7 @@ func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
 		job.Metadata.UpdatedAt = time.Now().Format(time.RFC3339)
 	}
 
-	if err := m.cfg.Repository.SaveJob(m.contextFrom(ctx), job); err != nil {
+	if err := m.cfg.Repository.SaveJob(ctx, job); err != nil {
 		return fmt.Errorf("save job: %w", err)
 	}
 
@@ -529,12 +614,16 @@ func (m *Manager) DeleteJob(id string) error {
 }
 
 func (m *Manager) DeleteJobContext(ctx context.Context, id string) error {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return err
+	}
 	job := m.registry.Get(id)
 	if job == nil {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 
-	if err := m.cfg.Repository.DeleteJob(m.contextFrom(ctx), id); err != nil {
+	if err := m.cfg.Repository.DeleteJob(ctx, id); err != nil {
 		return fmt.Errorf("delete job: %w", err)
 	}
 
@@ -703,6 +792,7 @@ func (m *Manager) registerTriggers(job *Job) {
 				trigCtx := &TriggerContext{
 					Type:         TriggerEvent,
 					EventName:    eventName,
+					Expression:   eventName,
 					EventPayload: cleanPayload,
 					ChainID:      chainID,
 					ChainHistory: chainHistory,
@@ -741,6 +831,7 @@ func (m *Manager) registerJobHotkey(job *Job, keys string) {
 		ctx := m.context()
 		trigCtx := &TriggerContext{
 			Type:         TriggerHotkey,
+			Keys:         keys,
 			EventPayload: make(map[string]any),
 		}
 		m.executeJob(ctx, &jobCopy, trigCtx)
@@ -777,6 +868,21 @@ func (m *Manager) unregisterAllHotkeys() {
 	}
 }
 
+func (m *Manager) clearPipelineFromRegistry(slug string) {
+	slug = normalizeSlug(slug)
+	if slug == "" {
+		return
+	}
+	for _, job := range m.registry.GetAll() {
+		if normalizeSlug(job.Pipeline) != slug {
+			continue
+		}
+		updated := *job
+		updated.Pipeline = ""
+		m.registry.Set(&updated)
+	}
+}
+
 func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerContext) {
 	// Busca a versao mais atual do registry (pode ter sido atualizada via hot reload)
 	current := m.registry.Get(job.ID)
@@ -784,7 +890,58 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 		return
 	}
 
-	m.executor.Execute(m.contextFrom(ctx), current, trigCtx)
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		log.Printf("[Jobs] %s: authenticated context required: %v", current.ID, err)
+		return
+	}
+	m.executor.Execute(ctx, current, trigCtx)
+}
+
+const (
+	jobRetentionAge      = 30 * 24 * time.Hour
+	jobRetentionInterval = 24 * time.Hour
+)
+
+func (m *Manager) runRetention(ctx context.Context) {
+	if m.cfg.Repository == nil {
+		return
+	}
+	if deleted, err := m.cfg.Repository.CleanOldRunEvents(ctx, jobRetentionAge); err != nil {
+		log.Printf("[Jobs] retention run events failed: %v", err)
+	} else if deleted > 0 {
+		log.Printf("[Jobs] retention removed %d run event(s)", deleted)
+	}
+	if deleted, err := m.cfg.Repository.CleanOldEvents(ctx, jobRetentionAge); err != nil {
+		log.Printf("[Jobs] retention events failed: %v", err)
+	} else if deleted > 0 {
+		log.Printf("[Jobs] retention removed %d event(s)", deleted)
+	}
+	if deleted, err := m.cfg.Repository.CleanOldRuns(ctx, jobRetentionAge); err != nil {
+		log.Printf("[Jobs] retention runs failed: %v", err)
+	} else if deleted > 0 {
+		log.Printf("[Jobs] retention removed %d run(s)", deleted)
+	}
+}
+
+func (m *Manager) startRetentionLoop(ctx context.Context) {
+	if m.retentionStop != nil {
+		return
+	}
+	stop := make(chan struct{})
+	m.retentionStop = stop
+	go func() {
+		ticker := time.NewTicker(jobRetentionInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				m.runRetention(ctx)
+			case <-stop:
+				return
+			}
+		}
+	}()
 }
 
 func (m *Manager) resolveSecret(key string) (string, error) {
@@ -866,26 +1023,22 @@ func (m *Manager) context() context.Context {
 
 func (m *Manager) contextFrom(parent context.Context) context.Context {
 	base := m.context()
-	if parent == nil || parent == context.Background() {
-		return base
+	if parent == nil {
+		parent = context.Background()
 	}
-	var (
-		ctx    context.Context
-		cancel context.CancelFunc
-	)
-	if deadline, ok := parent.Deadline(); ok {
-		ctx, cancel = context.WithDeadline(base, deadline)
-	} else {
-		ctx, cancel = context.WithCancel(base)
+	userID, ok := database.UserIDFromContext(base)
+	if !ok {
+		return parent
 	}
-	go func() {
-		select {
-		case <-parent.Done():
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-	return ctx
+	return database.WithUserID(parent, userID)
+}
+
+func (m *Manager) scopedContext(parent context.Context) (context.Context, error) {
+	ctx := m.contextFrom(parent)
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return ctx, nil
 }
 
 func (m *Manager) lastRun(jobID string) (*RunLog, error) {
@@ -907,6 +1060,10 @@ func (m *Manager) lastRunWithContext(ctx context.Context, jobID string) (*RunLog
 }
 
 func (m *Manager) lastRuns(jobs []*Job) map[string]*RunLog {
+	return m.lastRunsWithContext(m.context(), jobs)
+}
+
+func (m *Manager) lastRunsWithContext(ctx context.Context, jobs []*Job) map[string]*RunLog {
 	out := make(map[string]*RunLog, len(jobs))
 	if m.cfg.Repository == nil || len(jobs) == 0 {
 		return out
@@ -917,7 +1074,7 @@ func (m *Manager) lastRuns(jobs []*Job) map[string]*RunLog {
 			ids = append(ids, job.ID)
 		}
 	}
-	runs, err := m.cfg.Repository.GetLastRuns(m.context(), ids)
+	runs, err := m.cfg.Repository.GetLastRuns(ctx, ids)
 	if err != nil {
 		log.Printf("[Jobs] Error loading last runs: %v", err)
 		return out

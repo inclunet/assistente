@@ -14,8 +14,8 @@ import (
 type Scheduler struct {
 	mu       sync.Mutex
 	cron     *cron.Cron
-	entries  map[string][]cron.EntryID // jobID -> lista de entry IDs
-	timers   map[string]*time.Ticker   // jobID -> ticker para interval
+	entries  map[string][]cron.EntryID     // jobID -> lista de entry IDs
+	timers   map[string]*time.Ticker       // jobID -> ticker para interval
 	cancelFn map[string]context.CancelFunc // jobID -> cancel para goroutines de interval
 	execFunc func(ctx context.Context, job *Job, trigCtx *TriggerContext)
 	started  bool
@@ -118,7 +118,8 @@ func (s *Scheduler) scheduleCron(job *Job, t Trigger) error {
 		if s.execFunc != nil {
 			ctx := context.Background()
 			s.safeExec(ctx, &jobCopy, &TriggerContext{
-				Type: TriggerCron,
+				Type:       TriggerCron,
+				Expression: t.Expression,
 			})
 		}
 	})
@@ -152,7 +153,8 @@ func (s *Scheduler) scheduleInterval(job *Job, t Trigger) error {
 			case <-ticker.C:
 				if s.execFunc != nil {
 					s.safeExec(ctx, &jobCopy, &TriggerContext{
-						Type: TriggerInterval,
+						Type:  TriggerInterval,
+						Every: t.Every,
 					})
 				}
 			}

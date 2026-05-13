@@ -31,6 +31,10 @@ func (m *fakeManager) GetJobs() []jobs.JobInfo {
 	return out
 }
 
+func (m *fakeManager) GetJobsContext(ctx context.Context) ([]jobs.JobInfo, error) {
+	return m.GetJobs(), nil
+}
+
 func (m *fakeManager) GetJob(id string) (*jobs.Job, error) {
 	if m.getErr != nil {
 		return nil, m.getErr
@@ -43,15 +47,27 @@ func (m *fakeManager) GetJob(id string) (*jobs.Job, error) {
 	return &copy, nil
 }
 
+func (m *fakeManager) GetJobContext(ctx context.Context, id string) (*jobs.Job, error) {
+	return m.GetJob(id)
+}
+
 func (m *fakeManager) SaveJob(job *jobs.Job) error {
 	copy := *job
 	m.jobs[job.ID] = &copy
 	return nil
 }
 
+func (m *fakeManager) SaveJobContext(ctx context.Context, job *jobs.Job) error {
+	return m.SaveJob(job)
+}
+
 func (m *fakeManager) DeleteJob(id string) error {
 	delete(m.jobs, id)
 	return nil
+}
+
+func (m *fakeManager) DeleteJobContext(ctx context.Context, id string) error {
+	return m.DeleteJob(id)
 }
 
 func (m *fakeManager) ToggleJob(id string, enabled bool) error {
@@ -63,16 +79,32 @@ func (m *fakeManager) ToggleJob(id string, enabled bool) error {
 	return nil
 }
 
+func (m *fakeManager) ToggleJobContext(ctx context.Context, id string, enabled bool) error {
+	return m.ToggleJob(id, enabled)
+}
+
 func (m *fakeManager) RunJob(id string) (*jobs.RunLog, error) {
 	return &jobs.RunLog{RunID: "run-1", JobID: id, Status: "completed"}, nil
+}
+
+func (m *fakeManager) RunJobContext(ctx context.Context, id string) (*jobs.RunLog, error) {
+	return m.RunJob(id)
 }
 
 func (m *fakeManager) DryRunJob(id string) (*jobs.DryRunResult, error) {
 	return &jobs.DryRunResult{Success: true, RunLog: &jobs.RunLog{RunID: "dry-1", JobID: id}}, nil
 }
 
+func (m *fakeManager) DryRunJobContext(ctx context.Context, id string) (*jobs.DryRunResult, error) {
+	return m.DryRunJob(id)
+}
+
 func (m *fakeManager) GetJobRuns(id string, limit int) ([]jobs.RunLog, error) {
 	return []jobs.RunLog{{RunID: "run-1", JobID: id, Status: "completed"}}, nil
+}
+
+func (m *fakeManager) GetJobRunsContext(ctx context.Context, id string, limit int) ([]jobs.RunLog, error) {
+	return m.GetJobRuns(id, limit)
 }
 
 func (m *fakeManager) GetPipelines() []jobs.PipelineInfo {
@@ -91,14 +123,26 @@ func (m *fakeManager) ListPipelines() ([]jobs.Pipeline, error) {
 	return out, nil
 }
 
+func (m *fakeManager) ListPipelinesContext(ctx context.Context) ([]jobs.Pipeline, error) {
+	return m.ListPipelines()
+}
+
 func (m *fakeManager) SavePipeline(pipeline *jobs.Pipeline) error {
 	m.pipelines[pipeline.Slug] = *pipeline
 	return nil
 }
 
+func (m *fakeManager) SavePipelineContext(ctx context.Context, pipeline *jobs.Pipeline) error {
+	return m.SavePipeline(pipeline)
+}
+
 func (m *fakeManager) DeletePipeline(slug string) error {
 	delete(m.pipelines, slug)
 	return nil
+}
+
+func (m *fakeManager) DeletePipelineContext(ctx context.Context, slug string) error {
+	return m.DeletePipeline(slug)
 }
 
 func errNotFound(id string) error {
@@ -247,15 +291,15 @@ func TestPipelineToolCreatesUpdatesAndDeletes(t *testing.T) {
 		t.Fatalf("list output does not include standalone pipeline: %s", result.Content)
 	}
 
-	result, err = tool.Execute(context.Background(), json.RawMessage(`{"slug":"Ops Jobs","enabled":false}`))
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"slug":"Ops Jobs","description":""}`))
 	if err != nil {
 		t.Fatalf("Execute update error = %v", err)
 	}
 	if result.IsError {
 		t.Fatalf("Execute update returned error result: %s", result.Content)
 	}
-	if mgr.pipelines["ops-jobs"].Enabled {
-		t.Fatal("expected pipeline to be disabled")
+	if mgr.pipelines["ops-jobs"].Description != "" {
+		t.Fatalf("expected pipeline description to be cleared, got %q", mgr.pipelines["ops-jobs"].Description)
 	}
 
 	result, err = tool.Execute(context.Background(), json.RawMessage(`{"slug":"Ops Jobs","delete":true}`))

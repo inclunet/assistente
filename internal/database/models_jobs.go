@@ -19,10 +19,10 @@ type Tag struct {
 // TagAssignment vincula uma tag a qualquer recurso persistente do app.
 type TagAssignment struct {
 	UUIDModel
-	UserID       string `json:"userId" gorm:"not null;index;uniqueIndex:ux_tag_assignments_resource_tag"`
+	UserID       string `json:"userId" gorm:"not null;index;index:idx_tag_assignments_resource_lookup;uniqueIndex:ux_tag_assignments_resource_tag"`
 	TagID        string `json:"tagId" gorm:"not null;index;uniqueIndex:ux_tag_assignments_resource_tag"`
-	ResourceType string `json:"resourceType" gorm:"not null;index;uniqueIndex:ux_tag_assignments_resource_tag"`
-	ResourceID   string `json:"resourceId" gorm:"not null;index;uniqueIndex:ux_tag_assignments_resource_tag"`
+	ResourceType string `json:"resourceType" gorm:"not null;index;index:idx_tag_assignments_resource_lookup;uniqueIndex:ux_tag_assignments_resource_tag"`
+	ResourceID   string `json:"resourceId" gorm:"not null;index;index:idx_tag_assignments_resource_lookup;uniqueIndex:ux_tag_assignments_resource_tag"`
 
 	User *User `json:"-" gorm:"foreignKey:UserID"`
 	Tag  *Tag  `json:"-" gorm:"foreignKey:TagID"`
@@ -93,13 +93,18 @@ type JobRun struct {
 	JobID     string `json:"jobId" gorm:"not null;index"`
 	TriggerID string `json:"triggerId" gorm:"not null;index"`
 
-	Status      string     `json:"status" gorm:"not null;index"`
-	StartedAt   time.Time  `json:"startedAt" gorm:"not null;index"`
-	CompletedAt *time.Time `json:"completedAt,omitempty"`
-	DurationMs  int64      `json:"durationMs,omitempty"`
-	Error       string     `json:"error,omitempty" gorm:"type:text"`
-	RetryCount  int        `json:"retryCount,omitempty"`
-	IsDryRun    bool       `json:"isDryRun,omitempty" gorm:"index"`
+	Status        string     `json:"status" gorm:"not null;index"`
+	StartedAt     time.Time  `json:"startedAt" gorm:"not null;index"`
+	CompletedAt   *time.Time `json:"completedAt,omitempty"`
+	DurationMs    int64      `json:"durationMs,omitempty"`
+	Error         string     `json:"error,omitempty" gorm:"type:text"`
+	RetryCount    int        `json:"retryCount,omitempty"`
+	IsDryRun      bool       `json:"isDryRun,omitempty" gorm:"index"`
+	ToolName      string     `json:"toolName,omitempty" gorm:"index"`
+	TriggerData   string     `json:"triggerData,omitempty" gorm:"type:text"`
+	Inputs        string     `json:"inputs,omitempty" gorm:"type:text"`
+	Output        string     `json:"output,omitempty" gorm:"type:text"`
+	EventsEmitted string     `json:"eventsEmitted,omitempty" gorm:"type:text"`
 
 	User    *User         `json:"-" gorm:"foreignKey:UserID"`
 	Job     *Job          `json:"-" gorm:"foreignKey:JobID"`

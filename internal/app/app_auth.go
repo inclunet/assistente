@@ -388,6 +388,9 @@ func (a *App) Logout(req LogoutRequest) error {
 			a.logLogoutError(err)
 		}
 	}
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+	}
 	_ = a.clearAuthRefreshToken()
 	a.setCurrentUserID("")
 	a.setCurrentAuthUser(nil)

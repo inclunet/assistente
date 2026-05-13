@@ -51,6 +51,13 @@ func (r *Registry) Remove(id string) bool {
 	return exists
 }
 
+// Clear remove todos os jobs do registry.
+func (r *Registry) Clear() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.jobs = make(map[string]*Job)
+}
+
 // Get retorna um job pelo ID ou nil se nao existir.
 func (r *Registry) Get(id string) *Job {
 	r.mu.RLock()

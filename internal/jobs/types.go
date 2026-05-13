@@ -159,10 +159,13 @@ type Metadata struct {
 
 // TriggerInfo descreve o trigger que disparou uma execucao.
 type TriggerInfo struct {
-	Type  TriggerType    `json:"type"`
-	At    time.Time      `json:"at"`
-	Event string         `json:"event,omitempty"`
-	Data  map[string]any `json:"data,omitempty"`
+	Type       TriggerType    `json:"type"`
+	At         time.Time      `json:"at"`
+	Event      string         `json:"event,omitempty"`
+	Expression string         `json:"expression,omitempty"`
+	Every      string         `json:"every,omitempty"`
+	Keys       string         `json:"keys,omitempty"`
+	Data       map[string]any `json:"data,omitempty"`
 }
 
 // RunLog registra uma execucao individual de um job.
