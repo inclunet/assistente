@@ -540,32 +540,38 @@ func (r *DBRepository) GetLastRuns(ctx context.Context, jobIDs []string) (map[st
 	if len(slugs) == 0 {
 		return out, nil
 	}
-	var rows []database.JobRun
-	err = r.db.WithContext(ctx).
-		Model(&database.JobRun{}).
-		Preload("Job").
-		Joins("JOIN jobs ON jobs.id = job_runs.job_id").
-		Where("job_runs.user_id = ? AND jobs.user_id = ? AND jobs.slug IN ?", userID, userID, slugs).
-		Where(`job_runs.started_at = (
-			SELECT MAX(jr2.started_at)
-			FROM job_runs jr2
-			WHERE jr2.user_id = ? AND jr2.job_id = job_runs.job_id
-		)`, userID).
-		Order("job_runs.started_at DESC, job_runs.created_at DESC").
-		Find(&rows).Error
-	if err != nil {
+	type lastRunRow struct {
+		database.JobRun
+		JobSlug string `gorm:"column:job_slug"`
+	}
+	var rows []lastRunRow
+	if err := r.db.WithContext(ctx).
+		Raw(`
+			SELECT *
+			FROM (
+				SELECT
+					job_runs.*,
+					jobs.slug AS job_slug,
+					ROW_NUMBER() OVER (
+						PARTITION BY job_runs.job_id
+						ORDER BY job_runs.started_at DESC, job_runs.created_at DESC, job_runs.id DESC
+					) AS rn
+				FROM job_runs
+				JOIN jobs ON jobs.id = job_runs.job_id
+				WHERE job_runs.user_id = ? AND jobs.user_id = ? AND jobs.slug IN ?
+			)
+			WHERE rn = 1
+			ORDER BY started_at DESC, created_at DESC
+		`, userID, userID, slugs).
+		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
-		if row.Job == nil || row.Job.Slug == "" {
+		if row.JobSlug == "" {
 			continue
 		}
-		slug := row.Job.Slug
-		if _, exists := out[slug]; exists {
-			continue
-		}
-		rl := runModelToDomain(row, slug)
-		out[slug] = &rl
+		rl := runModelToDomain(row.JobRun, row.JobSlug)
+		out[row.JobSlug] = &rl
 	}
 	return out, nil
 }
@@ -628,8 +634,12 @@ func (r *DBRepository) ListEvents(ctx context.Context, filter EventFilter) ([]Ev
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}
+	type eventRow struct {
+		database.JobEvent
+		JobSlug string `gorm:"column:job_slug"`
+	}
 	query := database.ScopeByUser(ctx, r.db.WithContext(ctx), "job_events.user_id").Model(&database.JobEvent{}).
-		Preload("Job").
+		Select("job_events.*, jobs.slug AS job_slug").
 		Joins("LEFT JOIN jobs ON jobs.id = job_events.job_id")
 	if filter.JobID != "" {
 		query = query.Where("jobs.slug = ?", normalizeSlug(filter.JobID))
@@ -649,17 +659,13 @@ func (r *DBRepository) ListEvents(ctx context.Context, filter EventFilter) ([]Ev
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit)
 	}
-	var rows []database.JobEvent
+	var rows []eventRow
 	if err := query.Order("job_events.occurred_at DESC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]EventEntry, 0, len(rows))
 	for _, row := range rows {
-		jobSlug := ""
-		if row.Job != nil {
-			jobSlug = row.Job.Slug
-		}
-		out = append(out, eventModelToDomain(row, jobSlug))
+		out = append(out, eventModelToDomain(row.JobEvent, row.JobSlug))
 	}
 	return out, nil
 }
