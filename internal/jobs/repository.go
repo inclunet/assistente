@@ -580,7 +580,39 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 	if row.StartedAt.IsZero() {
 		row.StartedAt = r.now()
 	}
-	return r.db.WithContext(ctx).Save(&row).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		rl.RunID = row.ID
+		for i, event := range rl.RunEvents {
+			event.RunID = row.ID
+			if event.Sequence <= 0 {
+				event.Sequence = i + 1
+			}
+			if event.Timestamp.IsZero() {
+				event.Timestamp = r.now()
+			}
+			data, err := marshalJSON(event.Data)
+			if err != nil {
+				return err
+			}
+			eventRow := database.JobRunEvent{
+				UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(event.ID)},
+				UserID:     userID,
+				JobRunID:   row.ID,
+				Sequence:   event.Sequence,
+				OccurredAt: event.Timestamp,
+				Type:       event.Type,
+				Message:    event.Message,
+				Data:       data,
+			}
+			if err := tx.Create(&eventRow).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *DBRepository) GetRuns(ctx context.Context, jobID string, limit int) ([]RunLog, error) {
@@ -591,7 +623,8 @@ func (r *DBRepository) GetRuns(ctx context.Context, jobID string, limit int) ([]
 	if err != nil {
 		return nil, err
 	}
-	query := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("job_id = ?", jobRow.ID).Order("started_at DESC")
+	query := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("job_id = ?", jobRow.ID).
+		Order("started_at DESC, created_at DESC, id DESC")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
@@ -739,7 +772,7 @@ func (r *DBRepository) ListEvents(ctx context.Context, filter EventFilter) ([]Ev
 		query = query.Offset(filter.Offset)
 	}
 	var rows []eventRow
-	if err := query.Order("job_events.occurred_at DESC").Find(&rows).Error; err != nil {
+	if err := query.Order("job_events.occurred_at DESC, job_events.created_at DESC, job_events.id DESC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]EventEntry, 0, len(rows))
@@ -959,11 +992,11 @@ func (r *DBRepository) toolCatalogIDForNameTx(ctx context.Context, tx *gorm.DB, 
 func (r *DBRepository) createUnresolvedMCPToolTx(ctx context.Context, tx *gorm.DB, userID, name string) (string, error) {
 	serverSlug, ok := mcpServerSlugFromToolName(name)
 	if !ok {
-		return "", gorm.ErrRecordNotFound
+		return "", fmt.Errorf("tool %q not found", name)
 	}
 	var server database.MCPServer
 	if err := tx.WithContext(ctx).Where("user_id = ? AND slug = ?", userID, serverSlug).First(&server).Error; err != nil {
-		return "", err
+		return "", fmt.Errorf("tool %q references unknown MCP server %q: %w", name, serverSlug, err)
 	}
 	now := r.now()
 	row := database.ToolCatalog{
@@ -1023,7 +1056,7 @@ func (r *DBRepository) upsertTriggerTx(ctx context.Context, tx *gorm.DB, userID,
 	}
 	var existing database.JobTrigger
 	err = tx.WithContext(ctx).
-		Where("user_id = ? AND job_id = ? AND type = ? AND expression = ?", userID, jobID, row.Type, row.Expression).
+		Where("user_id = ? AND job_id = ? AND type = ? AND expression = ? AND config = ?", userID, jobID, row.Type, row.Expression, row.Config).
 		First(&existing).Error
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):

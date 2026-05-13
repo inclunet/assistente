@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -226,6 +227,59 @@ func TestDBRepositoryLogRunMatchesEventTriggerByExpression(t *testing.T) {
 	}
 }
 
+func TestDBRepositorySaveJobKeepsDistinctTriggersWithSameExpression(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("deploy-listeners", "Deploy Listeners")
+	job.Triggers = []Trigger{
+		{Type: TriggerEvent, Listen: "deploy", When: `{{ eq .event.env "prod" }}`},
+		{Type: TriggerEvent, Listen: "deploy", When: `{{ eq .event.env "staging" }}`},
+	}
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+
+	triggers, err := repo.ListTriggers(userA, "deploy-listeners")
+	if err != nil {
+		t.Fatalf("list triggers: %v", err)
+	}
+	eventTriggers := 0
+	seen := map[string]bool{}
+	for _, trigger := range triggers {
+		if trigger.Type != TriggerEvent {
+			continue
+		}
+		eventTriggers++
+		seen[trigger.When] = true
+	}
+	if eventTriggers != 2 || !seen[`{{ eq .event.env "prod" }}`] || !seen[`{{ eq .event.env "staging" }}`] {
+		t.Fatalf("distinct event triggers were not preserved: %#v", triggers)
+	}
+}
+
+func TestDBRepositoryLogRunRejectsDuplicateRunID(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("duplicate-run", "Duplicate Run")
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	rl := &RunLog{RunID: "run-duplicate", JobID: "duplicate-run", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: time.Now()}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log initial run: %v", err)
+	}
+	duplicate := *rl
+	duplicate.Status = "failed"
+	if err := repo.LogRun(userA, &duplicate); err == nil {
+		t.Fatal("expected duplicate run id to fail instead of overwriting")
+	}
+	got, err := repo.GetRun(userA, "duplicate-run", "run-duplicate")
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.Status != "completed" {
+		t.Fatalf("duplicate run overwrote original status: got %q", got.Status)
+	}
+}
+
 func TestDBRepositoryLogRunPreservesEmptyRuntimeJSONValues(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	job := testRepositoryJob("empty-runtime-json", "Empty Runtime JSON")
@@ -258,6 +312,45 @@ func TestDBRepositoryLogRunPreservesEmptyRuntimeJSONValues(t *testing.T) {
 	}
 	if got.EventsEmitted == nil || len(got.EventsEmitted) != 0 {
 		t.Fatalf("events emitted not preserved as empty array: %#v", got.EventsEmitted)
+	}
+}
+
+func TestDBRepositoryLogRunPersistsRunEvents(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("run-events", "Run Events")
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	rl := &RunLog{
+		RunID:     "run-with-events",
+		JobID:     "run-events",
+		Status:    "failed",
+		Trigger:   TriggerInfo{Type: TriggerManual},
+		StartedAt: time.Now(),
+		RunEvents: []RunEvent{
+			{Type: "triggered", Message: "started"},
+			{Type: "failed", Message: "failed"},
+		},
+	}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log run: %v", err)
+	}
+	events, err := repo.GetRunEvents(userA, "run-with-events")
+	if err != nil {
+		t.Fatalf("get run events: %v", err)
+	}
+	if len(events) != 2 || events[0].Type != "triggered" || events[1].Type != "failed" {
+		t.Fatalf("unexpected run events: %#v", events)
+	}
+}
+
+func TestDBRepositorySaveJobNamesUnknownTool(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("unknown-tool", "Unknown Tool")
+	job.Tool = "not_a_real_tool"
+	err := repo.SaveJob(userA, job)
+	if err == nil || !strings.Contains(err.Error(), "not_a_real_tool") {
+		t.Fatalf("expected missing tool error to include tool name, got %v", err)
 	}
 }
 

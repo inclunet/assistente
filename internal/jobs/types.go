@@ -187,6 +187,7 @@ type RunLog struct {
 	RetryCount     int            `json:"retry_count,omitempty"`
 	EventsEmitted  []string       `json:"events_emitted,omitempty"`
 	IsDryRun       bool           `json:"is_dry_run,omitempty"`
+	RunEvents      []RunEvent     `json:"-"`
 }
 
 // EventEntry representa uma entrada no event log (JSONL).

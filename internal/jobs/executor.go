@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"assistente/internal/tools"
+
+	"github.com/google/uuid"
 )
 
 // JobExecutor executa jobs chamando tools do registry.
@@ -69,7 +71,11 @@ type TriggerContext struct {
 // Execute executa um job: resolve inputs, chama a tool, processa output, emite eventos.
 // Respeita error_policy com retry/backoff.
 func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerContext) *RunLog {
-	runID := fmt.Sprintf("run_%d", time.Now().UnixNano())
+	runUUID, err := uuid.NewV7()
+	if err != nil {
+		runUUID = uuid.New()
+	}
+	runID := "run_" + runUUID.String()
 
 	rl := &RunLog{
 		RunID: runID,
@@ -106,8 +112,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		}
 	}()
 
-	// Log evento: triggered
-	e.logEvent(ctx, "triggered", job.ID, "", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
+	rl.addRunEvent("triggered", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
 
 	// Circuit breaker: rate limit
 	if err := e.circuitBreaker.CheckRateLimit(job.ID, job.MaxRunsPerHour); err != nil {
@@ -440,7 +445,7 @@ func splitDotPath(path string) []string {
 }
 
 func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, trigCtx *TriggerContext) {
-	e.logEvent(ctx, "failed", job.ID, "", fmt.Sprintf("[%s] FAILED: %s", job.ID, rl.Error), nil)
+	rl.addRunEvent("failed", fmt.Sprintf("[%s] FAILED: %s", job.ID, rl.Error), nil)
 
 	if job.Events.OnFailure == "" {
 		return
@@ -558,6 +563,20 @@ func (e *JobExecutor) logEvent(ctx context.Context, eventType, jobID, eventName,
 	if err := e.repository.LogEvent(ctx, entry); err != nil {
 		log.Printf("[Jobs] Error logging event: %v", err)
 	}
+}
+
+func (rl *RunLog) addRunEvent(eventType, message string, data map[string]any) {
+	if rl == nil {
+		return
+	}
+	rl.RunEvents = append(rl.RunEvents, RunEvent{
+		RunID:     rl.RunID,
+		Sequence:  len(rl.RunEvents) + 1,
+		Timestamp: time.Now(),
+		Type:      eventType,
+		Message:   message,
+		Data:      data,
+	})
 }
 
 func (e *JobExecutor) calculateRetryDelay(job *Job, attempt int) time.Duration {

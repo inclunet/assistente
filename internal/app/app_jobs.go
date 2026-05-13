@@ -55,10 +55,16 @@ func (a *App) initJobs() {
 // --- Métodos Wails-bound para o frontend ---
 
 func (a *App) GetJobs() []jobs.JobInfo {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil
 	}
-	return a.jobsCtrl.GetJobs()
+	result, err := a.jobsCtrl.GetJobsContext(ctx)
+	if err != nil {
+		log.Printf("[Jobs] erro ao listar jobs: %v", err)
+		return nil
+	}
+	return result
 }
 
 func (a *App) jobsAuthenticatedContext() context.Context {
@@ -70,54 +76,62 @@ func (a *App) jobsAuthenticatedContext() context.Context {
 }
 
 func (a *App) GetJob(id string) (*jobs.Job, error) {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil, err
 	}
-	return a.jobsCtrl.GetJob(id)
+	return a.jobsCtrl.GetJobContext(ctx, id)
 }
 func (a *App) ToggleJob(id string, enabled bool) error {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return err
 	}
-	return a.jobsCtrl.ToggleJob(id, enabled)
+	return a.jobsCtrl.ToggleJobContext(ctx, id, enabled)
 }
 func (a *App) RunJob(id string) (*jobs.RunLog, error) {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil, err
 	}
-	return a.jobsCtrl.RunJob(id)
+	return a.jobsCtrl.RunJobContext(ctx, id)
 }
 func (a *App) DryRunJob(id string) (*jobs.DryRunResult, error) {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil, err
 	}
-	return a.jobsCtrl.DryRunJob(id)
+	return a.jobsCtrl.DryRunJobContext(ctx, id)
 }
 
 func (a *App) GetJobRuns(id string, limit int) ([]jobs.RunLog, error) {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil, err
 	}
-	return a.jobsCtrl.GetJobRuns(id, limit)
+	return a.jobsCtrl.GetJobRunsContext(ctx, id, limit)
 }
 func (a *App) ReplayRun(jobID, runID string) (*jobs.TestToolResult, error) {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil, err
 	}
-	return a.jobsCtrl.ReplayRun(jobID, runID)
+	return a.jobsCtrl.ReplayRunContext(ctx, jobID, runID)
 }
 func (a *App) GetJobEvents(date string) ([]jobs.EventEntry, error) {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil, err
 	}
-	return a.jobsCtrl.GetJobEvents(date)
+	return a.jobsCtrl.GetJobEventsContext(ctx, date)
 }
 
 func (a *App) GetJobEventsPage(date string, limit, offset int) ([]jobs.EventEntry, error) {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil, err
 	}
-	return a.jobsCtrl.GetJobEventsPage(date, limit, offset)
+	return a.jobsCtrl.GetJobEventsPageContext(ctx, date, limit, offset)
 }
 
 func (a *App) GetJobPipelines() []jobs.PipelineInfo {
@@ -139,10 +153,11 @@ func (a *App) RegenerateJobCatalog() error {
 	return a.jobsCtrl.RegenerateJobCatalog()
 }
 func (a *App) SaveJob(jobJSON string) error {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return err
 	}
-	return a.jobsCtrl.SaveJob(jobJSON)
+	return a.jobsCtrl.SaveJobContext(ctx, jobJSON)
 }
 
 func (a *App) TestTool(toolName, inputsJSON, eventJSON string) (*jobs.TestToolResult, error) {
@@ -174,8 +189,9 @@ func (a *App) ListKnownEvents() []string {
 	return a.jobsCtrl.ListKnownEvents()
 }
 func (a *App) DeleteJob(id string) error {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return err
 	}
-	return a.jobsCtrl.DeleteJob(id)
+	return a.jobsCtrl.DeleteJobContext(ctx, id)
 }

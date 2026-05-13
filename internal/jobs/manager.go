@@ -365,6 +365,14 @@ func (m *Manager) GetJobRun(jobID, runID string) (*RunLog, error) {
 	return m.cfg.Repository.GetRun(m.context(), jobID, runID)
 }
 
+func (m *Manager) GetJobRunContext(ctx context.Context, jobID, runID string) (*RunLog, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return m.cfg.Repository.GetRun(ctx, jobID, runID)
+}
+
 // GetJobRuns retorna o historico de execucoes de um job.
 func (m *Manager) GetJobRuns(id string, limit int) ([]RunLog, error) {
 	return m.cfg.Repository.GetRuns(m.context(), id, limit)
@@ -380,6 +388,14 @@ func (m *Manager) GetJobRunsContext(ctx context.Context, id string, limit int) (
 
 // GetJobEvents retorna a timeline de eventos de uma data (formato "2006-01-02").
 func (m *Manager) GetJobEvents(date string) ([]EventEntry, error) {
+	return m.GetJobEventsContext(m.context(), date)
+}
+
+func (m *Manager) GetJobEventsContext(ctx context.Context, date string) ([]EventEntry, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	filter := EventFilter{}
 	if date != "" {
 		start, err := time.ParseInLocation("2006-01-02", date, time.Local)
@@ -389,10 +405,18 @@ func (m *Manager) GetJobEvents(date string) ([]EventEntry, error) {
 		filter.StartAt = start
 		filter.EndAt = start.Add(24 * time.Hour)
 	}
-	return m.cfg.Repository.ListEvents(m.context(), filter)
+	return m.cfg.Repository.ListEvents(ctx, filter)
 }
 
 func (m *Manager) GetJobEventsPage(date string, limit, offset int) ([]EventEntry, error) {
+	return m.GetJobEventsPageContext(m.context(), date, limit, offset)
+}
+
+func (m *Manager) GetJobEventsPageContext(ctx context.Context, date string, limit, offset int) ([]EventEntry, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if limit <= 0 {
 		limit = 500
 	}
@@ -411,7 +435,7 @@ func (m *Manager) GetJobEventsPage(date string, limit, offset int) ([]EventEntry
 		filter.StartAt = start
 		filter.EndAt = start.Add(24 * time.Hour)
 	}
-	return m.cfg.Repository.ListEvents(m.context(), filter)
+	return m.cfg.Repository.ListEvents(ctx, filter)
 }
 
 // GetPipelines retorna os pipelines com seus jobs.
