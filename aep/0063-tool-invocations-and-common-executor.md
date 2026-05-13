@@ -94,6 +94,7 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 | `output` | TEXT | | JSON/texto normalizado retornado |
 | `error` | TEXT | | Erro legível |
 | `error_code` | TEXT | | Código opcional para UI/retry |
+| `queued_at` | DATETIME | NOT NULL, INDEX | Momento em que a invocação entrou na fila |
 | `started_at` | DATETIME | INDEX | Início real da execução; nulo enquanto `queued` |
 | `completed_at` | DATETIME | | Fim |
 | `duration_ms` | INT | | Duração entre `started_at` e `completed_at`, quando ambos existem |
@@ -105,14 +106,14 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 
 - `(user_id, origin_type, origin_id)`
 - `(user_id, tool_catalog_id, started_at)`
-- `(user_id, status, created_at)`
-- `(user_id, dry_run, created_at)`
+- `(user_id, status, queued_at)`
+- `(user_id, dry_run, queued_at)`
 
 ## Fluxo sem diagrama
 
 1. Um fluxo pede uma execução: chat, job, dry-run ou sistema.
 2. O chamador resolve ou informa o `tool_catalog_id`.
-3. `ToolInvocationService` cria a invocação como `queued`; `created_at` representa o momento de enfileiramento.
+3. `ToolInvocationService` cria a invocação como `queued` e preenche `queued_at`.
 4. O serviço muda para `running`, preenche `started_at`, aplica timeout/política e chama o adapter correto.
 5. O adapter executa tool nativa ou MCP.
 6. O serviço grava `succeeded`, `failed`, `timed_out` ou `cancelled`, com duração, output e erro.
@@ -204,7 +205,7 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 | R2 | Reconstrução de contexto perde informação útil ao parar de gravar tool results como mensagens | Média | Alto | Representação compacta para contexto e links por `tool_invocation_id` quando necessário |
 | R3 | Divergência entre adapters nativos e MCP no executor comum | Média | Médio | Contrato único de `ToolInvocationResult` e testes compartilhados de sucesso/falha/timeout |
 | R4 | Dry-run executa efeitos colaterais por engano | Baixa | Alto | Capacidade de dry-run declarada no catálogo e adapters explícitos para mock/validação/modo seguro |
-| R5 | `started_at` nulo em invocações enfileiradas quebra consultas antigas | Baixa | Baixo | Consultas de fila usam `created_at`; duração só é calculada após transição para `running` |
+| R5 | `started_at` nulo em invocações enfileiradas quebra consultas antigas | Baixa | Baixo | Consultas de fila usam `queued_at`; duração só é calculada após transição para `running` |
 
 ## Critérios de aceitação
 
