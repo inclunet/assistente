@@ -168,6 +168,16 @@ func TestPipelineToolCreatesUpdatesAndDeletes(t *testing.T) {
 	if _, ok := mgr.pipelines["ops-jobs"]; !ok {
 		t.Fatal("expected ops-jobs pipeline to be saved")
 	}
+	result, err = tool.Execute(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Execute list error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute list returned error result: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Ops Jobs") {
+		t.Fatalf("list output does not include standalone pipeline: %s", result.Content)
+	}
 
 	result, err = tool.Execute(context.Background(), json.RawMessage(`{"slug":"Ops Jobs","enabled":false}`))
 	if err != nil {

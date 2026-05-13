@@ -96,6 +96,13 @@ func TestDBRepositorySaveJobNormalizesPipelineTriggersAndTags(t *testing.T) {
 	if len(got.Tags) != 2 || got.Tags[0] != "jira" || got.Tags[1] != "ops" {
 		t.Fatalf("tags normalizadas: %#v", got.Tags)
 	}
+	listed, err := repo.ListJobs(userA, JobFilter{})
+	if err != nil {
+		t.Fatalf("list jobs: %v", err)
+	}
+	if len(listed) != 1 || len(listed[0].Tags) != 2 || listed[0].Tags[0] != "jira" || listed[0].Tags[1] != "ops" {
+		t.Fatalf("tags normalizadas na listagem: %#v", listed)
+	}
 }
 
 func TestDBRepositoryRequiresUser(t *testing.T) {
@@ -103,6 +110,56 @@ func TestDBRepositoryRequiresUser(t *testing.T) {
 	err := repo.SaveJob(context.Background(), testRepositoryJob("x", "X"))
 	if err != database.ErrUserScopeRequired {
 		t.Fatalf("SaveJob sem usuário: got %v, want ErrUserScopeRequired", err)
+	}
+}
+
+func TestDBRepositorySaveJobPreservesCreatedByOnUpdate(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("sync-jira", "Sync Jira")
+	job.Metadata.CreatedBy = "seed-import"
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save initial: %v", err)
+	}
+
+	update := testRepositoryJob("sync-jira", "Sync Jira Updated")
+	if err := repo.SaveJob(userA, update); err != nil {
+		t.Fatalf("save update: %v", err)
+	}
+	got, err := repo.GetJob(userA, "sync-jira")
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if got.Metadata.CreatedBy != "seed-import" {
+		t.Fatalf("created_by: got %q, want seed-import", got.Metadata.CreatedBy)
+	}
+}
+
+func TestDBRepositoryLogRunMatchesEventTriggerByExpression(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("event-job", "Event Job")
+	job.Triggers = []Trigger{
+		{Type: TriggerEvent, Listen: "deploy"},
+		{Type: TriggerEvent, Listen: "deploy-extra"},
+	}
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	rl := &RunLog{
+		RunID:     "run-event",
+		JobID:     "event-job",
+		Status:    "completed",
+		Trigger:   TriggerInfo{Type: TriggerEvent, Event: "deploy"},
+		StartedAt: time.Now(),
+	}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log run: %v", err)
+	}
+	var row database.JobRun
+	if err := repo.db.Preload("Trigger").First(&row, "id = ?", "run-event").Error; err != nil {
+		t.Fatalf("load run row: %v", err)
+	}
+	if row.Trigger == nil || row.Trigger.Expression != "deploy" {
+		t.Fatalf("trigger expression: %#v", row.Trigger)
 	}
 }
 

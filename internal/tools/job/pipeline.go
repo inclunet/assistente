@@ -103,7 +103,10 @@ func (t *PipelineTool) manager() Manager {
 }
 
 func (t *PipelineTool) listPipelines(mgr Manager) (tools.ToolResult, error) {
-	pipelines := mgr.GetPipelines()
+	pipelines, err := mgr.ListPipelines()
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error listing pipelines: %v", err), IsError: true}, nil
+	}
 	data, _ := json.Marshal(pipelines)
 	return tools.ToolResult{
 		Content:  fmt.Sprintf("Found %d pipeline(s):\n%s", len(pipelines), string(data)),

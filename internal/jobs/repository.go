@@ -302,9 +302,17 @@ func (r *DBRepository) ListJobs(ctx context.Context, filter JobFilter) ([]Job, e
 	if err := query.Order("jobs.slug ASC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	jobIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		jobIDs = append(jobIDs, row.ID)
+	}
+	tagsByJobID, err := r.tagSlugsByResourceIDs(ctx, tagResourceJob, jobIDs)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]Job, 0, len(rows))
 	for _, row := range rows {
-		job, err := r.jobModelToDomain(ctx, row)
+		job, err := jobModelToDomainWithTags(row, tagsByJobID[row.ID])
 		if err != nil {
 			return nil, err
 		}
@@ -376,6 +384,9 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 		default:
 			row.ID = existing.ID
 			row.CreatedAt = existing.CreatedAt
+			if strings.TrimSpace(row.CreatedBy) == "" {
+				row.CreatedBy = existing.CreatedBy
+			}
 			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(row).Error; err != nil {
 				return err
 			}
@@ -786,6 +797,33 @@ func (r *DBRepository) setResourceTagsTx(ctx context.Context, tx *gorm.DB, userI
 	return nil
 }
 
+func (r *DBRepository) tagSlugsByResourceIDs(ctx context.Context, resourceType string, resourceIDs []string) (map[string][]string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	out := make(map[string][]string, len(resourceIDs))
+	if len(resourceIDs) == 0 {
+		return out, nil
+	}
+	type row struct {
+		ResourceID string `gorm:"column:resource_id"`
+		Slug       string `gorm:"column:slug"`
+	}
+	var rows []row
+	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.TagAssignment{}), "tag_assignments.user_id").
+		Select("tag_assignments.resource_id, tags.slug").
+		Joins("JOIN tags ON tags.id = tag_assignments.tag_id").
+		Where("tag_assignments.resource_type = ? AND tag_assignments.resource_id IN ?", resourceType, resourceIDs).
+		Order("tags.slug ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.ResourceID] = append(out[row.ResourceID], row.Slug)
+	}
+	return out, nil
+}
+
 func (r *DBRepository) pipelineIDForSlugTx(ctx context.Context, tx *gorm.DB, userID, slug string) (*string, error) {
 	slug = normalizeSlug(slug)
 	if slug == "" {
@@ -872,7 +910,7 @@ func (r *DBRepository) triggerIDForRun(ctx context.Context, userID, jobID string
 	var row database.JobTrigger
 	query := r.db.WithContext(ctx).Where("user_id = ? AND job_id = ? AND type = ?", userID, jobID, triggerType)
 	if info.Event != "" {
-		query = query.Where("config LIKE ?", "%"+info.Event+"%")
+		query = query.Where("expression = ?", info.Event)
 	}
 	err := query.First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) && triggerType == string(TriggerManual) {
@@ -886,6 +924,18 @@ func (r *DBRepository) triggerIDForRun(ctx context.Context, userID, jobID string
 }
 
 func (r *DBRepository) jobModelToDomain(ctx context.Context, row database.Job) (*Job, error) {
+	tags, err := r.GetResourceTags(ctx, tagResourceJob, row.ID)
+	if err != nil {
+		return nil, err
+	}
+	tagSlugs := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tagSlugs = append(tagSlugs, tag.Slug)
+	}
+	return jobModelToDomainWithTags(row, tagSlugs)
+}
+
+func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error) {
 	var inputs map[string]any
 	if err := unmarshalJSON(row.Inputs, &inputs); err != nil {
 		return nil, err
@@ -913,14 +963,6 @@ func (r *DBRepository) jobModelToDomain(ctx context.Context, row database.Job) (
 			return nil, err
 		}
 		triggers = append(triggers, trig)
-	}
-	tags, err := r.GetResourceTags(ctx, tagResourceJob, row.ID)
-	if err != nil {
-		return nil, err
-	}
-	tagSlugs := make([]string, 0, len(tags))
-	for _, tag := range tags {
-		tagSlugs = append(tagSlugs, tag.Slug)
 	}
 	pipelineSlug := ""
 	if row.Pipeline != nil {
