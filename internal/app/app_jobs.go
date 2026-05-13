@@ -1,11 +1,13 @@
 package app
 
 import (
+	"context"
+	"log"
+	"path/filepath"
+
 	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/jobs"
-	"log"
-	"path/filepath"
 )
 
 // credentialSecretStore adapta credentials.Manager para a interface jobs.SecretStore.
@@ -39,7 +41,7 @@ func (a *App) initJobs() {
 	a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
 		BaseDir:         baseDir,
 		Repository:      jobs.NewDBRepository(database.DB()),
-		ContextProvider: a.internalBootstrapCtx,
+		ContextProvider: a.jobsAuthenticatedContext,
 		ToolRegistry:    a.toolRegistry,
 		HotkeyManager:   a.hotkeyCtrl.Manager(),
 		MsgGateway:      a.msgGateway,
@@ -52,26 +54,89 @@ func (a *App) initJobs() {
 
 // --- Métodos Wails-bound para o frontend ---
 
-func (a *App) GetJobs() []jobs.JobInfo                         { return a.jobsCtrl.GetJobs() }
-func (a *App) GetJob(id string) (*jobs.Job, error)             { return a.jobsCtrl.GetJob(id) }
-func (a *App) ToggleJob(id string, enabled bool) error         { return a.jobsCtrl.ToggleJob(id, enabled) }
-func (a *App) RunJob(id string) (*jobs.RunLog, error)          { return a.jobsCtrl.RunJob(id) }
-func (a *App) DryRunJob(id string) (*jobs.DryRunResult, error) { return a.jobsCtrl.DryRunJob(id) }
+func (a *App) GetJobs() []jobs.JobInfo {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil
+	}
+	return a.jobsCtrl.GetJobs()
+}
+
+func (a *App) jobsAuthenticatedContext() context.Context {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil
+	}
+	return ctx
+}
+
+func (a *App) GetJob(id string) (*jobs.Job, error) {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil, err
+	}
+	return a.jobsCtrl.GetJob(id)
+}
+func (a *App) ToggleJob(id string, enabled bool) error {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return err
+	}
+	return a.jobsCtrl.ToggleJob(id, enabled)
+}
+func (a *App) RunJob(id string) (*jobs.RunLog, error) {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil, err
+	}
+	return a.jobsCtrl.RunJob(id)
+}
+func (a *App) DryRunJob(id string) (*jobs.DryRunResult, error) {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil, err
+	}
+	return a.jobsCtrl.DryRunJob(id)
+}
 
 func (a *App) GetJobRuns(id string, limit int) ([]jobs.RunLog, error) {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil, err
+	}
 	return a.jobsCtrl.GetJobRuns(id, limit)
 }
 func (a *App) ReplayRun(jobID, runID string) (*jobs.TestToolResult, error) {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil, err
+	}
 	return a.jobsCtrl.ReplayRun(jobID, runID)
 }
 func (a *App) GetJobEvents(date string) ([]jobs.EventEntry, error) {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil, err
+	}
 	return a.jobsCtrl.GetJobEvents(date)
 }
 
-func (a *App) GetJobPipelines() []jobs.PipelineInfo         { return a.jobsCtrl.GetJobPipelines() }
-func (a *App) GetToolCatalog() ([]jobs.CatalogEntry, error) { return a.jobsCtrl.GetToolCatalog() }
-func (a *App) RegenerateJobCatalog() error                  { return a.jobsCtrl.RegenerateJobCatalog() }
-func (a *App) SaveJob(jobJSON string) error                 { return a.jobsCtrl.SaveJob(jobJSON) }
+func (a *App) GetJobPipelines() []jobs.PipelineInfo {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil
+	}
+	return a.jobsCtrl.GetJobPipelines()
+}
+func (a *App) GetToolCatalog() ([]jobs.CatalogEntry, error) {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil, err
+	}
+	return a.jobsCtrl.GetToolCatalog()
+}
+func (a *App) RegenerateJobCatalog() error {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return err
+	}
+	return a.jobsCtrl.RegenerateJobCatalog()
+}
+func (a *App) SaveJob(jobJSON string) error {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return err
+	}
+	return a.jobsCtrl.SaveJob(jobJSON)
+}
 
 func (a *App) TestTool(toolName, inputsJSON, eventJSON string) (*jobs.TestToolResult, error) {
 	ctx, authErr := a.requireAuthenticatedContext()
@@ -90,7 +155,20 @@ func (a *App) TestTool(toolName, inputsJSON, eventJSON string) (*jobs.TestToolRe
 }
 
 func (a *App) InferEventSchema(eventName string) map[string]any {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil
+	}
 	return a.jobsCtrl.InferEventSchema(eventName)
 }
-func (a *App) ListKnownEvents() []string { return a.jobsCtrl.ListKnownEvents() }
-func (a *App) DeleteJob(id string) error { return a.jobsCtrl.DeleteJob(id) }
+func (a *App) ListKnownEvents() []string {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return nil
+	}
+	return a.jobsCtrl.ListKnownEvents()
+}
+func (a *App) DeleteJob(id string) error {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return err
+	}
+	return a.jobsCtrl.DeleteJob(id)
+}

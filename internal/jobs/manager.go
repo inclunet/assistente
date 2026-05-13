@@ -473,7 +473,8 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 // InferEventSchema tenta inferir o schema de um evento a partir dos jobs existentes.
 // Procura jobs que emitem o evento e retorna dados na ordem:
 // 1. LastRun em memória (sessão atual)
-// 2. Output.Schema persistido (salvo via builder)
+// 2. Último run persistido no banco
+// 3. Output.Schema persistido (salvo via builder)
 func (m *Manager) InferEventSchema(eventName string) map[string]any {
 	if eventName == "" {
 		return nil
@@ -490,7 +491,12 @@ func (m *Manager) InferEventSchema(eventName string) map[string]any {
 			return job.LastRun.Output
 		}
 
-		// 2. Output.Schema persistido (salvo a partir de test output no builder)
+		if lastRun, err := m.lastRun(job.ID); err == nil && lastRun != nil && len(lastRun.Output) > 0 {
+			log.Printf("[Jobs] InferEventSchema(%q): found persisted output from job %s", eventName, job.ID)
+			return lastRun.Output
+		}
+
+		// 3. Output.Schema persistido (salvo a partir de test output no builder)
 		if len(job.Output.Schema) > 0 {
 			var schema map[string]any
 			if err := json.Unmarshal(job.Output.Schema, &schema); err == nil {

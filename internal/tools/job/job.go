@@ -246,8 +246,12 @@ func (t *Tool) updateJob(ctx context.Context, mgr Manager, id string, params job
 	if params.Inputs != nil {
 		job.Inputs = params.Inputs
 	}
-	if len(params.Triggers) > 0 {
-		job.Triggers = params.Triggers
+	if params.has("triggers") {
+		if len(params.Triggers) == 0 {
+			job.Triggers = []jobs.Trigger{{Type: jobs.TriggerManual}}
+		} else {
+			job.Triggers = params.Triggers
+		}
 	}
 	if params.Enabled != nil {
 		job.Enabled = *params.Enabled

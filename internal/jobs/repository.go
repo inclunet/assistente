@@ -295,7 +295,7 @@ func (r *DBRepository) ListJobs(ctx context.Context, filter JobFilter) ([]Job, e
 	query := database.ScopeByUser(ctx, r.db.WithContext(ctx), "jobs.user_id").
 		Model(&database.Job{}).
 		Preload("Pipeline").
-		Preload("Triggers").
+		Preload("Triggers", "enabled = ?", true).
 		Preload("ToolCatalog").
 		Joins("LEFT JOIN job_pipelines ON job_pipelines.id = jobs.pipeline_id")
 	if filter.Pipeline != "" {
@@ -339,7 +339,7 @@ func (r *DBRepository) GetJob(ctx context.Context, slug string) (*Job, error) {
 	}
 	var row database.Job
 	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "jobs.user_id").
-		Preload("Pipeline").Preload("Triggers").Preload("ToolCatalog").
+		Preload("Pipeline").Preload("Triggers", "enabled = ?", true).Preload("ToolCatalog").
 		Where("jobs.slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
 		return nil, err
 	}
@@ -352,7 +352,7 @@ func (r *DBRepository) GetJobByID(ctx context.Context, id string) (*Job, error) 
 	}
 	var row database.Job
 	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "jobs.user_id").
-		Preload("Pipeline").Preload("Triggers").Preload("ToolCatalog").
+		Preload("Pipeline").Preload("Triggers", "enabled = ?", true).Preload("ToolCatalog").
 		Where("jobs.id = ?", strings.TrimSpace(id)).First(&row).Error; err != nil {
 		return nil, err
 	}
@@ -463,7 +463,7 @@ func (r *DBRepository) ListTriggers(ctx context.Context, jobID string) ([]Trigge
 		return nil, err
 	}
 	var rows []database.JobTrigger
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("job_id = ?", dbID).Order("created_at ASC").Find(&rows).Error; err != nil {
+	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("job_id = ? AND enabled = ?", dbID, true).Order("created_at ASC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]Trigger, 0, len(rows))
@@ -932,7 +932,7 @@ func (r *DBRepository) toolCatalogIDForNameTx(ctx context.Context, tx *gorm.DB, 
 }
 
 func (r *DBRepository) saveTriggersTx(ctx context.Context, tx *gorm.DB, userID, jobID string, triggers []Trigger) error {
-	if err := tx.WithContext(ctx).Where("job_id = ?", jobID).Delete(&database.JobTrigger{}).Error; err != nil {
+	if err := tx.WithContext(ctx).Model(&database.JobTrigger{}).Where("user_id = ? AND job_id = ?", userID, jobID).Update("enabled", false).Error; err != nil {
 		return err
 	}
 	hasManual := false
@@ -940,18 +940,37 @@ func (r *DBRepository) saveTriggersTx(ctx context.Context, tx *gorm.DB, userID, 
 		if trigger.Type == TriggerManual {
 			hasManual = true
 		}
-		row, err := triggerDomainToModel(userID, jobID, trigger)
-		if err != nil {
-			return err
-		}
-		if err := tx.WithContext(ctx).Create(row).Error; err != nil {
+		if err := r.upsertTriggerTx(ctx, tx, userID, jobID, trigger); err != nil {
 			return err
 		}
 	}
 	if !hasManual {
-		return tx.WithContext(ctx).Create(&database.JobTrigger{UserID: userID, JobID: jobID, Type: string(TriggerManual), Enabled: true}).Error
+		return r.upsertTriggerTx(ctx, tx, userID, jobID, Trigger{Type: TriggerManual})
 	}
 	return nil
+}
+
+func (r *DBRepository) upsertTriggerTx(ctx context.Context, tx *gorm.DB, userID, jobID string, trigger Trigger) error {
+	row, err := triggerDomainToModel(userID, jobID, trigger)
+	if err != nil {
+		return err
+	}
+	var existing database.JobTrigger
+	err = tx.WithContext(ctx).
+		Where("user_id = ? AND job_id = ? AND type = ? AND expression = ?", userID, jobID, row.Type, row.Expression).
+		First(&existing).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return tx.WithContext(ctx).Create(row).Error
+	case err != nil:
+		return err
+	default:
+		return tx.WithContext(ctx).Model(&existing).Updates(map[string]any{
+			"enabled":    true,
+			"config":     row.Config,
+			"updated_at": r.now(),
+		}).Error
+	}
 }
 
 func (r *DBRepository) resolveJobDBID(ctx context.Context, ref string) (string, error) {

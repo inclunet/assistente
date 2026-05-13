@@ -37,7 +37,7 @@ type JobPipeline struct {
 	Slug        string `json:"slug" gorm:"not null;index;uniqueIndex:ux_job_pipelines_user_slug"`
 	Name        string `json:"name" gorm:"not null"`
 	Description string `json:"description,omitempty" gorm:"type:text"`
-	Enabled     bool   `json:"enabled" gorm:"not null;default:true;index"`
+	Enabled     bool   `json:"enabled" gorm:"not null;index"`
 	Metadata    string `json:"metadata,omitempty" gorm:"type:text"`
 
 	User *User `json:"-" gorm:"foreignKey:UserID"`
@@ -53,7 +53,7 @@ type Job struct {
 
 	Name           string `json:"name" gorm:"not null"`
 	Description    string `json:"description,omitempty" gorm:"type:text"`
-	Enabled        bool   `json:"enabled" gorm:"not null;default:true;index"`
+	Enabled        bool   `json:"enabled" gorm:"not null;index"`
 	ToolCatalogID  string `json:"toolCatalogId" gorm:"not null;index"`
 	Inputs         string `json:"inputs,omitempty" gorm:"type:text"` // JSON object
 	OutputConfig   string `json:"outputConfig,omitempty" gorm:"type:text"`
@@ -77,7 +77,7 @@ type JobTrigger struct {
 	JobID  string `json:"jobId" gorm:"not null;index"`
 
 	Type            string     `json:"type" gorm:"not null;index"`
-	Enabled         bool       `json:"enabled" gorm:"not null;default:true;index"`
+	Enabled         bool       `json:"enabled" gorm:"not null;index"`
 	Expression      string     `json:"expression,omitempty" gorm:"type:text"`
 	Config          string     `json:"config,omitempty" gorm:"type:text"`
 	LastTriggeredAt *time.Time `json:"lastTriggeredAt,omitempty"`
