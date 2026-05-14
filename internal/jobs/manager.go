@@ -400,15 +400,16 @@ func (m *Manager) GetJobEventsContext(ctx context.Context, date string) ([]Event
 	if err != nil {
 		return nil, err
 	}
-	filter := EventFilter{}
-	if date != "" {
-		start, err := time.ParseInLocation("2006-01-02", date, time.Local)
-		if err != nil {
-			return nil, fmt.Errorf("invalid date %q: %w", date, err)
-		}
-		filter.StartAt = start
-		filter.EndAt = start.Add(24 * time.Hour)
+	if strings.TrimSpace(date) == "" {
+		date = time.Now().In(time.Local).Format("2006-01-02")
 	}
+	filter := EventFilter{}
+	start, err := time.ParseInLocation("2006-01-02", date, time.Local)
+	if err != nil {
+		return nil, fmt.Errorf("invalid date %q: %w", date, err)
+	}
+	filter.StartAt = start
+	filter.EndAt = start.Add(24 * time.Hour)
 	return m.cfg.Repository.ListEvents(ctx, filter)
 }
 

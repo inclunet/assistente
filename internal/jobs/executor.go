@@ -104,7 +104,8 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		rl.addTerminalRunEvent(job.ID)
 
 		if e.repository != nil {
-			if err := e.repository.LogRun(ctx, rl); err != nil {
+			persistCtx := context.WithoutCancel(ctx)
+			if err := e.repository.LogRun(persistCtx, rl); err != nil {
 				log.Printf("[Jobs] Error logging run: %v", err)
 			}
 		} else {

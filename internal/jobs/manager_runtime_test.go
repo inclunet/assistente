@@ -190,3 +190,29 @@ func TestManagerGetJobEventsReturnsFullDay(t *testing.T) {
 		t.Fatalf("GetJobEvents truncated full day: got %d, want 505", len(events))
 	}
 }
+
+func TestManagerGetJobEventsEmptyDateDefaultsToToday(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
+		ContextProvider: func() context.Context { return userA },
+	})
+	today := time.Now().In(time.Local)
+	entries := []*EventEntry{
+		{ID: "today-event", Timestamp: today, Type: "info", Message: "today"},
+		{ID: "old-event", Timestamp: today.AddDate(0, 0, -1), Type: "info", Message: "old"},
+	}
+	for _, entry := range entries {
+		if err := repo.LogEvent(userA, entry); err != nil {
+			t.Fatalf("log event %s: %v", entry.ID, err)
+		}
+	}
+
+	events, err := mgr.GetJobEvents("")
+	if err != nil {
+		t.Fatalf("get events: %v", err)
+	}
+	if len(events) != 1 || events[0].ID != "today-event" {
+		t.Fatalf("empty date should return only today's events, got %#v", events)
+	}
+}

@@ -720,6 +720,33 @@ func TestExecutePersistsRunThroughRepository(t *testing.T) {
 	}
 }
 
+func TestExecutePersistsRunWithCanceledExecutionContext(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("cancelled-context-job", "Cancelled Context Job")
+	job.Tool = "test_tool"
+	job.DryRun.Enabled = true
+	job.DryRun.MockOutput = map[string]any{"ok": true}
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	ctx, cancel := context.WithCancel(userA)
+	cancel()
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   tools.NewRegistry(),
+		EventBus:       NewEventBus(),
+		Repository:     repo,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	rl := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	if rl.Status != "completed" {
+		t.Fatalf("status = %q, want completed: %s", rl.Status, rl.Error)
+	}
+	if _, err := repo.GetRun(userA, "cancelled-context-job", rl.RunID); err != nil {
+		t.Fatalf("run was not persisted with uncanceled scoped context: %v", err)
+	}
+}
+
 func TestExecuteRecordsSkippedTerminalRunEvent(t *testing.T) {
 	executor := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   tools.NewRegistry(),

@@ -77,7 +77,7 @@ export const ToolPicker = forwardRef<ToolPickerRef, ToolPickerProps>(
     const buildItems = (): ComboboxItem[] => {
       return tools.map((tool) => {
         const unavailable = tool.availability_status === 'unavailable';
-        const status = unavailable ? ` ${tool.availability_reason || 'Unavailable'}` : '';
+        const status = unavailable ? ` ${tool.availability_reason || t('jobs.builder.toolUnavailable')}` : '';
         return {
           value: tool.name,
           label: tool.name,

@@ -258,7 +258,7 @@ export default function JobsPage() {
             title={jobToggleTitle(item as jobs.JobInfo, {
               enable: t('jobs.enable'),
               disable: t('jobs.disable'),
-              pipelineDisabled: t('jobs.pipelineDisabled', 'Pipeline disabled'),
+              pipelineDisabled: t('jobs.pipelineDisabled'),
             })}
           >
             {isJobEffectivelyEnabled(item as jobs.JobInfo) ? '●' : '○'}
