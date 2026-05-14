@@ -812,7 +812,7 @@ func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
 	registry := tools.NewRegistry()
 	ft := &fakeTool{
 		name:     "test_secret",
-		params:   json.RawMessage(`{"type":"object","properties":{"api_key":{"type":"string"},"query":{"type":"string"},"nested":{"type":"object"}}}`),
+		params:   json.RawMessage(`{"type":"object","properties":{"api_key":{"type":"string"},"apiKey":{"type":"string"},"accessKey":{"type":"string"},"query":{"type":"string"},"nested":{"type":"object"}}}`),
 		response: `{"ok":true}`,
 	}
 	registry.MustRegister(ft)
@@ -833,10 +833,12 @@ func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
 		ID:   "secret-job",
 		Tool: "test_secret",
 		Inputs: map[string]any{
-			"api_key": "{{ secret \"jobs/api\" }}",
-			"query":   "public",
+			"api_key":   "{{ secret \"jobs/api\" }}",
+			"apiKey":    "manual-api-key",
+			"accessKey": "manual-access-key",
+			"query":     "public",
 			"nested": map[string]any{
-				"password": "manually-entered",
+				"privateKey": "manually-entered",
 			},
 		},
 	}
@@ -856,12 +858,15 @@ func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
 	if rl.ResolvedInputs["api_key"] != redactedValue {
 		t.Fatalf("api_key not redacted in run log: %#v", rl.ResolvedInputs)
 	}
+	if rl.ResolvedInputs["apiKey"] != redactedValue || rl.ResolvedInputs["accessKey"] != redactedValue {
+		t.Fatalf("camelCase sensitive keys not redacted in run log: %#v", rl.ResolvedInputs)
+	}
 	if rl.ResolvedInputs["query"] != "public" {
 		t.Fatalf("public input should remain visible: %#v", rl.ResolvedInputs)
 	}
 	nested, ok := rl.ResolvedInputs["nested"].(map[string]any)
-	if !ok || nested["password"] != redactedValue {
-		t.Fatalf("nested password not redacted: %#v", rl.ResolvedInputs)
+	if !ok || nested["privateKey"] != redactedValue {
+		t.Fatalf("nested privateKey not redacted: %#v", rl.ResolvedInputs)
 	}
 }
 

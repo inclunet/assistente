@@ -477,8 +477,11 @@ func TestDBRepositoryLogRunRedactsSensitiveInputs(t *testing.T) {
 		Trigger:   TriggerInfo{Type: TriggerManual},
 		StartedAt: time.Now(),
 		ResolvedInputs: map[string]any{
-			"api_key": "secret-value",
-			"query":   "public",
+			"api_key":    "secret-value",
+			"apiKey":     "camel-secret",
+			"privateKey": "private-secret",
+			"accessKey":  "access-secret",
+			"query":      "public",
 		},
 		Output:        map[string]any{},
 		EventsEmitted: []string{},
@@ -493,6 +496,11 @@ func TestDBRepositoryLogRunRedactsSensitiveInputs(t *testing.T) {
 	}
 	if got.ResolvedInputs["api_key"] != redactedValue {
 		t.Fatalf("api_key not redacted: %#v", got.ResolvedInputs)
+	}
+	if got.ResolvedInputs["apiKey"] != redactedValue ||
+		got.ResolvedInputs["privateKey"] != redactedValue ||
+		got.ResolvedInputs["accessKey"] != redactedValue {
+		t.Fatalf("camelCase sensitive keys not redacted: %#v", got.ResolvedInputs)
 	}
 	if got.ResolvedInputs["query"] != "public" {
 		t.Fatalf("public input was changed: %#v", got.ResolvedInputs)

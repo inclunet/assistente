@@ -71,7 +71,6 @@ type Job struct {
 	Metadata       Metadata       `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 
 	// Campos carregados do runtime/DB e omitidos de imports YAML legados.
-	FilePath        string    `yaml:"-" json:"file_path,omitempty"`
 	LastRun         *RunLog   `yaml:"-" json:"last_run,omitempty"`
 	Status          JobStatus `yaml:"-" json:"status"`
 	PipelineEnabled bool      `yaml:"-" json:"pipeline_enabled"`

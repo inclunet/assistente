@@ -533,7 +533,7 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 	if m.cfg.ToolRegistry == nil {
 		return nil, fmt.Errorf("tool registry not configured")
 	}
-	registryTools := m.cfg.ToolRegistry.All()
+	registryTools := m.cfg.ToolRegistry.Discoverable()
 	entriesByName := make(map[string]CatalogEntry, len(registryTools))
 	for _, tool := range registryTools {
 		source := "internal"
@@ -1045,9 +1045,14 @@ func (m *Manager) applyPipelineState(slug string, enabled bool) []Job {
 }
 
 func (m *Manager) emitJobUpdates(jobs []Job) {
-	for _, job := range jobs {
-		m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
+	if len(jobs) == 0 {
+		return
 	}
+	ids := make([]string, 0, len(jobs))
+	for _, job := range jobs {
+		ids = append(ids, job.ID)
+	}
+	m.emitEvent("jobs:updated", map[string]any{"ids": ids})
 }
 
 func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerContext) {

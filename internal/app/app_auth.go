@@ -266,6 +266,9 @@ func (a *App) rollbackLoginState(refreshToken string) {
 	if err := a.clearAuthRefreshToken(); err != nil {
 		log.Printf("[Auth] rollback: erro ao apagar refresh token local: %v", err)
 	}
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+	}
 	a.setCurrentUserID("")
 	a.setCurrentAuthUser(nil)
 	if a.llmRegistry != nil {
@@ -684,7 +687,6 @@ func (a *App) reloadUserScopedRuntime() {
 		if err := a.mcpMgr.LoadConfigs(); err != nil {
 			log.Printf("[reloadUserScopedRuntime] erro ao carregar MCP servers do usuário: %v", err)
 		}
-		startJobsForCurrentUser()
 		// Auto-connect MCP só agora: depois de adoptLegacyDataForUser →
 		// LoadUserCredentials, as credenciais user-scoped (incluindo os
 		// tokens OAuth `mcp-tokens:*` / `mcp-client:*`) estão em memória.
@@ -697,6 +699,7 @@ func (a *App) reloadUserScopedRuntime() {
 		// userID do contexto autenticado vigente.
 		go func() {
 			a.mcpMgr.AutoConnectAll(database.WithUserID(context.Background(), userID))
+			startJobsForCurrentUser()
 		}()
 	} else {
 		startJobsForCurrentUser()

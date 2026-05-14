@@ -68,8 +68,10 @@ func containsSecretTemplate(value any) bool {
 
 func isSensitiveInputKey(key string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
+	compact := strings.NewReplacer("-", "", "_", "", " ", "", ".", "").Replace(normalized)
 	for _, token := range []string{
 		"api_key",
+		"access_key",
 		"authorization",
 		"client_secret",
 		"credential",
@@ -79,7 +81,8 @@ func isSensitiveInputKey(key string) bool {
 		"secret",
 		"token",
 	} {
-		if strings.Contains(normalized, token) {
+		tokenCompact := strings.ReplaceAll(token, "_", "")
+		if strings.Contains(normalized, token) || strings.Contains(compact, tokenCompact) {
 			return true
 		}
 	}

@@ -2,11 +2,13 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/tools"
 )
 
 func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *testing.T) {
@@ -19,6 +21,12 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	job.Triggers = []Trigger{{Type: TriggerInterval, Every: "1h"}}
 	if err := repo.SaveJob(userA, job); err != nil {
 		t.Fatalf("save job: %v", err)
+	}
+	job2 := testRepositoryJob("sync-github", "Sync GitHub")
+	job2.Pipeline = "ops"
+	job2.Triggers = []Trigger{{Type: TriggerInterval, Every: "1h"}}
+	if err := repo.SaveJob(userA, job2); err != nil {
+		t.Fatalf("save second job: %v", err)
 	}
 	var emitted []map[string]any
 
@@ -40,8 +48,8 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 		t.Fatalf("start manager: %v", err)
 	}
 	t.Cleanup(mgr.Stop)
-	if got := mgr.scheduler.ScheduledJobs(); len(got) != 1 || got[0] != "sync-jira" {
-		t.Fatalf("scheduled jobs after start: got %#v, want [sync-jira]", got)
+	if got := mgr.scheduler.ScheduledJobs(); len(got) != 2 {
+		t.Fatalf("scheduled jobs after start: got %#v, want 2 jobs", got)
 	}
 
 	if err := mgr.SavePipelineContext(userA, &Pipeline{Slug: "ops", Name: "Ops", Enabled: false}); err != nil {
@@ -64,21 +72,30 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	if err != nil {
 		t.Fatalf("get job infos: %v", err)
 	}
-	if len(infos) != 1 || infos[0].EffectiveEnabled || infos[0].PipelineEnabled {
-		t.Fatalf("job info did not expose effective disabled pipeline state: %#v", infos)
+	if len(infos) != 2 {
+		t.Fatalf("get job infos: got %#v, want 2 jobs", infos)
 	}
-	if len(emitted) != 1 || emitted[0]["id"] != "sync-jira" {
-		t.Fatalf("pipeline disable did not emit affected job update: %#v", emitted)
+	for _, info := range infos {
+		if info.EffectiveEnabled || info.PipelineEnabled {
+			t.Fatalf("job info did not expose effective disabled pipeline state: %#v", infos)
+		}
+	}
+	if len(emitted) != 1 {
+		t.Fatalf("pipeline disable emitted redundant updates: %#v", emitted)
+	}
+	ids, ok := emitted[0]["ids"].([]string)
+	if !ok || len(ids) != 2 {
+		t.Fatalf("pipeline disable did not emit affected job ids: %#v", emitted)
 	}
 
 	if err := mgr.SavePipelineContext(userA, &Pipeline{Slug: "ops", Name: "Ops", Enabled: true}); err != nil {
 		t.Fatalf("enable pipeline: %v", err)
 	}
-	if got := mgr.scheduler.ScheduledJobs(); len(got) != 1 || got[0] != "sync-jira" {
-		t.Fatalf("scheduled jobs after enabling pipeline: got %#v, want [sync-jira]", got)
+	if got := mgr.scheduler.ScheduledJobs(); len(got) != 2 {
+		t.Fatalf("scheduled jobs after enabling pipeline: got %#v, want 2 jobs", got)
 	}
-	if len(emitted) != 2 || emitted[1]["id"] != "sync-jira" {
-		t.Fatalf("pipeline enable did not emit affected job update: %#v", emitted)
+	if len(emitted) != 2 {
+		t.Fatalf("pipeline enable emitted redundant updates: %#v", emitted)
 	}
 
 	if err := mgr.SavePipelineContext(userA, &Pipeline{Slug: "ops", Name: "Ops", Enabled: false}); err != nil {
@@ -87,8 +104,8 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	if err := mgr.DeletePipelineContext(userA, "ops"); err != nil {
 		t.Fatalf("delete pipeline: %v", err)
 	}
-	if got := mgr.scheduler.ScheduledJobs(); len(got) != 1 || got[0] != "sync-jira" {
-		t.Fatalf("scheduled jobs after deleting disabled pipeline: got %#v, want [sync-jira]", got)
+	if got := mgr.scheduler.ScheduledJobs(); len(got) != 2 {
+		t.Fatalf("scheduled jobs after deleting disabled pipeline: got %#v, want 2 jobs", got)
 	}
 	gotJob, err = mgr.GetJobContext(userA, "sync-jira")
 	if err != nil {
@@ -97,8 +114,42 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	if gotJob.Pipeline != "" || !gotJob.PipelineEnabled {
 		t.Fatalf("pipeline state after delete: pipeline=%q pipelineEnabled=%v", gotJob.Pipeline, gotJob.PipelineEnabled)
 	}
-	if len(emitted) != 4 || emitted[3]["id"] != "sync-jira" {
-		t.Fatalf("pipeline delete did not emit affected job update: %#v", emitted)
+	if len(emitted) != 4 {
+		t.Fatalf("pipeline delete emitted unexpected updates: %#v", emitted)
+	}
+}
+
+func TestManagerGetToolCatalogIncludesDiscoverableOptIn(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.MustRegisterOptIn(&fakeTool{
+		name:   "hidden_context_tool",
+		params: json.RawMessage(`{"type":"object"}`),
+	})
+	registry.MustRegisterDiscoverableOptIn(&fakeTool{
+		name:   "job",
+		params: json.RawMessage(`{"type":"object"}`),
+	})
+
+	mgr := NewManager(ManagerConfig{ToolRegistry: registry})
+	catalog, err := mgr.GetToolCatalog()
+	if err != nil {
+		t.Fatalf("get catalog: %v", err)
+	}
+
+	var foundJob, foundHidden bool
+	for _, entry := range catalog {
+		switch entry.Name {
+		case "job":
+			foundJob = true
+		case "hidden_context_tool":
+			foundHidden = true
+		}
+	}
+	if !foundJob {
+		t.Fatalf("discoverable opt-in tool missing from catalog: %#v", catalog)
+	}
+	if foundHidden {
+		t.Fatalf("non-discoverable opt-in tool leaked into catalog: %#v", catalog)
 	}
 }
 

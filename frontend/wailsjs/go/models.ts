@@ -1056,7 +1056,6 @@ export namespace jobs {
 	    max_runs_per_hour?: number;
 	    dry_run?: DryRunConfig;
 	    metadata?: Metadata;
-	    file_path?: string;
 	    last_run?: RunLog;
 	    status: string;
 	
@@ -1082,7 +1081,6 @@ export namespace jobs {
 	        this.max_runs_per_hour = source["max_runs_per_hour"];
 	        this.dry_run = this.convertValues(source["dry_run"], DryRunConfig);
 	        this.metadata = this.convertValues(source["metadata"], Metadata);
-	        this.file_path = source["file_path"];
 	        this.last_run = this.convertValues(source["last_run"], RunLog);
 	        this.status = source["status"];
 	    }
