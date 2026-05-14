@@ -1480,21 +1480,6 @@ func runModelToDomain(row database.JobRun, jobSlug string) RunLog {
 	return rl
 }
 
-func eventModelToDomain(row database.JobEvent, jobSlug string) EventEntry {
-	var data map[string]any
-	_ = unmarshalJSON(row.Data, &data)
-	return EventEntry{
-		ID:        row.ID,
-		JobID:     jobSlug,
-		RunID:     stringValue(row.JobRunID),
-		Timestamp: row.OccurredAt,
-		Type:      row.Type,
-		Event:     row.Event,
-		Message:   row.Message,
-		Data:      data,
-	}
-}
-
 func runEventModelToDomain(row database.JobRunEvent) RunEvent {
 	var data map[string]any
 	_ = unmarshalJSON(row.Data, &data)
@@ -1502,24 +1487,6 @@ func runEventModelToDomain(row database.JobRunEvent) RunEvent {
 		ID:        row.ID,
 		RunID:     row.JobRunID,
 		Sequence:  row.Sequence,
-		Timestamp: row.OccurredAt,
-		Type:      row.Type,
-		Message:   row.Message,
-		Data:      data,
-	}
-}
-
-func runEventModelToEventEntry(row database.JobRunEvent, jobSlug string) EventEntry {
-	var data map[string]any
-	_ = unmarshalJSON(row.Data, &data)
-	if data == nil {
-		data = make(map[string]any)
-	}
-	data["run_id"] = row.JobRunID
-	return EventEntry{
-		ID:        row.ID,
-		JobID:     jobSlug,
-		RunID:     row.JobRunID,
 		Timestamp: row.OccurredAt,
 		Type:      row.Type,
 		Message:   row.Message,
@@ -1546,13 +1513,6 @@ func unmarshalJSON(raw string, dst any) error {
 		return nil
 	}
 	return json.Unmarshal([]byte(raw), dst)
-}
-
-func stringValue(v *string) string {
-	if v == nil {
-		return ""
-	}
-	return *v
 }
 
 func normalizeSlug(s string) string {
