@@ -40,8 +40,17 @@ jobs:
           echo "Requesting Copilot review for ${REPO}#${PR_NUMBER}"
 
           for attempt in 1 2 3; do
-            if gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-reviewer @copilot; then
+            if output=$(gh api \
+              --method POST \
+              "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+              -f "reviewers[]=copilot-pull-request-reviewer[bot]" 2>&1); then
               echo "Copilot review requested."
+              exit 0
+            fi
+
+            echo "${output}"
+            if [[ "${output}" == *"already"* || "${output}" == *"requested"* ]]; then
+              echo "Copilot review is already requested."
               exit 0
             fi
 
