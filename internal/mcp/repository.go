@@ -161,7 +161,7 @@ func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {
 			Where("mcp_server_id = ?", row.ID).
 			Updates(map[string]any{
 				"mcp_server_id":       nil,
-				"availability_status": "unavailable",
+				"availability_status": tools.ToolAvailabilityUnavailable,
 				"availability_reason": fmt.Sprintf("MCP server %q was deleted", row.Slug),
 				"last_unavailable_at": now,
 			}).Error; err != nil {

@@ -74,13 +74,13 @@ type Job struct {
 // JobTrigger registra um gatilho individual de um job.
 type JobTrigger struct {
 	UUIDModel
-	UserID string `json:"userId" gorm:"not null;index"`
-	JobID  string `json:"jobId" gorm:"not null;index"`
+	UserID string `json:"userId" gorm:"not null;index;uniqueIndex:ux_job_triggers_identity,priority:1"`
+	JobID  string `json:"jobId" gorm:"not null;index;uniqueIndex:ux_job_triggers_identity,priority:2"`
 
-	Type            string     `json:"type" gorm:"not null;index"`
+	Type            string     `json:"type" gorm:"not null;index;uniqueIndex:ux_job_triggers_identity,priority:3"`
 	Enabled         bool       `json:"enabled" gorm:"not null;index"`
-	Expression      string     `json:"expression,omitempty" gorm:"type:text"`
-	Config          string     `json:"config,omitempty" gorm:"type:text"`
+	Expression      string     `json:"expression,omitempty" gorm:"type:text;uniqueIndex:ux_job_triggers_identity,priority:4"`
+	Config          string     `json:"config,omitempty" gorm:"type:text;uniqueIndex:ux_job_triggers_identity,priority:5"`
 	LastTriggeredAt *time.Time `json:"lastTriggeredAt,omitempty"`
 
 	User *User `json:"-" gorm:"foreignKey:UserID"`

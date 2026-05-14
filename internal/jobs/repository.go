@@ -555,10 +555,12 @@ func (r *DBRepository) ListToolCatalog(ctx context.Context) ([]CatalogEntry, err
 			description = row.AvailabilityReason
 		}
 		entries = append(entries, CatalogEntry{
-			Name:        row.Name,
-			Description: description,
-			Schema:      schema,
-			Source:      source,
+			Name:               row.Name,
+			Description:        description,
+			Schema:             schema,
+			Source:             source,
+			AvailabilityStatus: row.AvailabilityStatus,
+			AvailabilityReason: row.AvailabilityReason,
 		})
 	}
 	return entries, nil
@@ -1396,11 +1398,12 @@ func jobDomainToModel(userID, slug string, pipelineID *string, toolCatalogID str
 }
 
 func triggerDomainToModel(userID, jobID string, trigger Trigger) (*database.JobTrigger, error) {
-	config, err := marshalJSON(trigger)
+	normalized := normalizeTriggerForStorage(trigger)
+	config, err := marshalJSON(normalized)
 	if err != nil {
 		return nil, err
 	}
-	expression := triggerExpression(trigger)
+	expression := triggerExpression(normalized)
 	return &database.JobTrigger{
 		UserID:     userID,
 		JobID:      jobID,
@@ -1409,6 +1412,26 @@ func triggerDomainToModel(userID, jobID string, trigger Trigger) (*database.JobT
 		Expression: expression,
 		Config:     config,
 	}, nil
+}
+
+func normalizeTriggerForStorage(trigger Trigger) Trigger {
+	normalized := Trigger{Type: trigger.Type, When: strings.TrimSpace(trigger.When)}
+	switch trigger.Type {
+	case TriggerCron:
+		normalized.Expression = strings.TrimSpace(trigger.Expression)
+	case TriggerInterval:
+		normalized.Every = strings.TrimSpace(trigger.Every)
+	case TriggerEvent:
+		normalized.Listen = strings.TrimSpace(trigger.Listen)
+	case TriggerHotkey:
+		normalized.Keys = strings.TrimSpace(trigger.Keys)
+	case TriggerWebhook:
+		normalized.Path = strings.TrimSpace(trigger.Path)
+	case TriggerManual:
+	default:
+		normalized.Expression = strings.TrimSpace(trigger.Expression)
+	}
+	return normalized
 }
 
 func triggerExpression(trigger Trigger) string {

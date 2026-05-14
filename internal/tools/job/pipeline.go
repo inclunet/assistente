@@ -176,6 +176,10 @@ func (t *PipelineTool) updatePipeline(ctx context.Context, mgr Manager, slug str
 		return tools.ToolResult{Content: fmt.Sprintf("Error reading pipelines: %v", err), IsError: true}, nil
 	}
 	if !ok {
+		if params.has("name") {
+			params.Slug = slug
+			return t.createPipeline(ctx, mgr, params)
+		}
 		return tools.ToolResult{Content: fmt.Sprintf("pipeline not found: %s", slug), IsError: true}, nil
 	}
 	if strings.TrimSpace(params.Name) != "" {

@@ -692,6 +692,8 @@ export namespace jobs {
 	    description: string;
 	    schema: number[];
 	    source: string;
+	    availability_status?: string;
+	    availability_reason?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CatalogEntry(source);
@@ -703,6 +705,8 @@ export namespace jobs {
 	        this.description = source["description"];
 	        this.schema = source["schema"];
 	        this.source = source["source"];
+	        this.availability_status = source["availability_status"];
+	        this.availability_reason = source["availability_reason"];
 	    }
 	}
 	export class DryRunConfig {

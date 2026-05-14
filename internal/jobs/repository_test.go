@@ -181,6 +181,9 @@ func TestDBRepositorySaveJobCreatesUnresolvedMCPToolForImportedServer(t *testing
 	found := false
 	for _, entry := range catalog {
 		if entry.Name == "mcp_jira__create_issue" && entry.Source == "mcp" {
+			if entry.AvailabilityStatus != "unavailable" {
+				t.Fatalf("placeholder availability = %q, want unavailable", entry.AvailabilityStatus)
+			}
 			found = true
 		}
 	}
@@ -311,6 +314,9 @@ func TestDBRepositoryTriggerExpressionFollowsTriggerType(t *testing.T) {
 	if row.Expression != "deploy" {
 		t.Fatalf("expression = %q, want deploy", row.Expression)
 	}
+	if strings.Contains(row.Config, "wrong-cron") {
+		t.Fatalf("trigger config kept stale expression field: %s", row.Config)
+	}
 	rl := &RunLog{
 		RunID:     "run-event-extra-expression",
 		JobID:     "event-job",
@@ -379,6 +385,23 @@ func TestDBRepositorySaveJobKeepsDistinctTriggersWithSameExpression(t *testing.T
 	}
 	if eventTriggers != 2 || !seen[`{{ eq .event.env "prod" }}`] || !seen[`{{ eq .event.env "staging" }}`] {
 		t.Fatalf("distinct event triggers were not preserved: %#v", triggers)
+	}
+}
+
+func TestDBRepositoryJobTriggerIdentityIsUniqueInDatabase(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("unique-trigger-job", "Unique Trigger Job")
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	var existing database.JobTrigger
+	if err := repo.db.Where("type = ?", string(TriggerManual)).First(&existing).Error; err != nil {
+		t.Fatalf("load trigger: %v", err)
+	}
+	duplicate := existing
+	duplicate.ID = ""
+	if err := repo.db.Create(&duplicate).Error; err == nil {
+		t.Fatal("expected duplicate trigger identity to violate unique index")
 	}
 }
 

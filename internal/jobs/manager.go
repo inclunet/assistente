@@ -540,10 +540,11 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 			source = "mcp"
 		}
 		entriesByName[tool.Name()] = CatalogEntry{
-			Name:        tool.Name(),
-			Description: tool.Description(),
-			Schema:      tool.Parameters(),
-			Source:      source,
+			Name:               tool.Name(),
+			Description:        tool.Description(),
+			Schema:             tool.Parameters(),
+			Source:             source,
+			AvailabilityStatus: tools.ToolAvailabilityAvailable,
 		}
 	}
 	if m.cfg.Repository != nil {

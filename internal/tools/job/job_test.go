@@ -382,3 +382,19 @@ func TestPipelineToolRejectsDeleteWithWriteFields(t *testing.T) {
 		t.Fatal("delete+write should not delete the pipeline")
 	}
 }
+
+func TestPipelineToolCreatesWithExplicitSlug(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewPipeline(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"slug":"ops","name":"Operations"}`))
+	if err != nil {
+		t.Fatalf("Execute explicit slug create error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute explicit slug create returned error result: %s", result.Content)
+	}
+	if pipeline, ok := mgr.pipelines["ops"]; !ok || pipeline.Name != "Operations" {
+		t.Fatalf("expected explicit slug pipeline to be created, got %#v", mgr.pipelines)
+	}
+}

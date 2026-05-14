@@ -42,6 +42,17 @@ function statusBadge(status: string, t: (key: string) => string): { label: strin
   }
 }
 
+function isJobEffectivelyEnabled(job: jobs.JobInfo): boolean {
+  return job.effective_enabled ?? (job.enabled && job.pipeline_enabled !== false);
+}
+
+function jobToggleTitle(job: jobs.JobInfo, labels: { enable: string; disable: string; pipelineDisabled: string }): string {
+  if (job.enabled && !isJobEffectivelyEnabled(job)) {
+    return labels.pipelineDisabled;
+  }
+  return job.enabled ? labels.disable : labels.enable;
+}
+
 export default function JobsPage() {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
@@ -202,7 +213,7 @@ export default function JobsPage() {
       {
         id: 'toggle',
         label: job.enabled ? t('jobs.disable') : t('jobs.enable'),
-        icon: job.enabled ? '⏸' : '⏵',
+        icon: isJobEffectivelyEnabled(job) ? '⏸' : '⏵',
         onClick: () => handleToggle(job),
       },
       {
@@ -241,12 +252,16 @@ export default function JobsPage() {
         width: '36px',
         format: (_value, item) => (
           <button
-            className={`job-toggle ${(item as jobs.JobInfo).enabled ? 'job-toggle--on' : 'job-toggle--off'}`}
+            className={`job-toggle ${isJobEffectivelyEnabled(item as jobs.JobInfo) ? 'job-toggle--on' : 'job-toggle--off'}`}
             onClick={(e) => { e.stopPropagation(); handleToggle(item as jobs.JobInfo); }}
             aria-label={(item as jobs.JobInfo).enabled ? t('jobs.disable') : t('jobs.enable')}
-            title={(item as jobs.JobInfo).enabled ? t('jobs.disable') : t('jobs.enable')}
+            title={jobToggleTitle(item as jobs.JobInfo, {
+              enable: t('jobs.enable'),
+              disable: t('jobs.disable'),
+              pipelineDisabled: t('jobs.pipelineDisabled', 'Pipeline disabled'),
+            })}
           >
-            {(item as jobs.JobInfo).enabled ? '●' : '○'}
+            {isJobEffectivelyEnabled(item as jobs.JobInfo) ? '●' : '○'}
           </button>
         ),
       },

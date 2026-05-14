@@ -259,10 +259,12 @@ type PipelineInfo struct {
 
 // CatalogEntry descreve uma tool disponivel para uso em jobs.
 type CatalogEntry struct {
-	Name        string          `json:"name" yaml:"name"`
-	Description string          `json:"description" yaml:"description"`
-	Schema      json.RawMessage `json:"schema" yaml:"schema"`
-	Source      string          `json:"source" yaml:"source"` // "internal", "mcp"
+	Name               string          `json:"name" yaml:"name"`
+	Description        string          `json:"description" yaml:"description"`
+	Schema             json.RawMessage `json:"schema" yaml:"schema"`
+	Source             string          `json:"source" yaml:"source"` // "internal", "mcp"
+	AvailabilityStatus string          `json:"availability_status,omitempty" yaml:"availability_status,omitempty"`
+	AvailabilityReason string          `json:"availability_reason,omitempty" yaml:"availability_reason,omitempty"`
 }
 
 // DryRunResult contem o resultado de um dry run.

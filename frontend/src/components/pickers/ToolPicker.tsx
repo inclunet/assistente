@@ -75,17 +75,25 @@ export const ToolPicker = forwardRef<ToolPickerRef, ToolPickerProps>(
     }));
 
     const buildItems = (): ComboboxItem[] => {
-      return tools.map((tool) => ({
-        value: tool.name,
-        label: tool.name,
-        sublabel: tool.description
-          ? `[${tool.source}] ${tool.description}`
-          : `[${tool.source}]`,
-      }));
+      return tools.map((tool) => {
+        const unavailable = tool.availability_status === 'unavailable';
+        const status = unavailable ? ` ${tool.availability_reason || 'Unavailable'}` : '';
+        return {
+          value: tool.name,
+          label: tool.name,
+          sublabel: tool.description
+            ? `[${tool.source}]${status} ${tool.description}`
+            : `[${tool.source}]${status}`,
+          disabled: unavailable,
+        };
+      });
     };
 
     const handleSelect = (toolName: string) => {
       const entry = tools.find((t) => t.name === toolName) ?? null;
+      if (entry?.availability_status === 'unavailable') {
+        return;
+      }
       onAnnounce?.(t('jobs.builder.selectedTool') + ': ' + toolName);
       onChange?.(toolName, entry);
     };
