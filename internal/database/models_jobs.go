@@ -55,6 +55,7 @@ type Job struct {
 	Description    string `json:"description,omitempty" gorm:"type:text"`
 	Enabled        bool   `json:"enabled" gorm:"not null;index"`
 	ToolCatalogID  string `json:"toolCatalogId" gorm:"not null;index"`
+	ToolName       string `json:"toolName" gorm:"not null;index"`
 	Inputs         string `json:"inputs,omitempty" gorm:"type:text"` // JSON object
 	OutputConfig   string `json:"outputConfig,omitempty" gorm:"type:text"`
 	EventsConfig   string `json:"eventsConfig,omitempty" gorm:"type:text"`

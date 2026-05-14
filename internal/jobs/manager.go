@@ -162,16 +162,18 @@ func (m *Manager) GetJobs() []JobInfo {
 
 	for _, job := range jobs {
 		info := JobInfo{
-			ID:          job.ID,
-			Name:        job.Name,
-			Description: job.Description,
-			Enabled:     job.Enabled,
-			Pipeline:    job.Pipeline,
-			Tags:        job.Tags,
-			Tool:        job.Tool,
-			Status:      job.Status,
-			Triggers:    job.Triggers,
-			LastRun:     lastRuns[job.ID],
+			ID:               job.ID,
+			Name:             job.Name,
+			Description:      job.Description,
+			Enabled:          job.Enabled,
+			EffectiveEnabled: m.effectiveJobEnabled(job),
+			PipelineEnabled:  job.PipelineEnabled,
+			Pipeline:         job.Pipeline,
+			Tags:             job.Tags,
+			Tool:             job.Tool,
+			Status:           job.Status,
+			Triggers:         job.Triggers,
+			LastRun:          lastRuns[job.ID],
 		}
 		infos = append(infos, info)
 	}
@@ -190,16 +192,18 @@ func (m *Manager) GetJobsContext(ctx context.Context) ([]JobInfo, error) {
 
 	for _, job := range jobs {
 		info := JobInfo{
-			ID:          job.ID,
-			Name:        job.Name,
-			Description: job.Description,
-			Enabled:     job.Enabled,
-			Pipeline:    job.Pipeline,
-			Tags:        job.Tags,
-			Tool:        job.Tool,
-			Status:      job.Status,
-			Triggers:    job.Triggers,
-			LastRun:     lastRuns[job.ID],
+			ID:               job.ID,
+			Name:             job.Name,
+			Description:      job.Description,
+			Enabled:          job.Enabled,
+			EffectiveEnabled: m.effectiveJobEnabled(job),
+			PipelineEnabled:  job.PipelineEnabled,
+			Pipeline:         job.Pipeline,
+			Tags:             job.Tags,
+			Tool:             job.Tool,
+			Status:           job.Status,
+			Triggers:         job.Triggers,
+			LastRun:          lastRuns[job.ID],
 		}
 		infos = append(infos, info)
 	}
@@ -449,13 +453,15 @@ func (m *Manager) GetPipelines() []PipelineInfo {
 		infos := make([]JobInfo, 0, len(jobs))
 		for _, job := range jobs {
 			infos = append(infos, JobInfo{
-				ID:       job.ID,
-				Name:     job.Name,
-				Enabled:  job.Enabled,
-				Tool:     job.Tool,
-				Status:   job.Status,
-				Triggers: job.Triggers,
-				LastRun:  lastRuns[job.ID],
+				ID:               job.ID,
+				Name:             job.Name,
+				Enabled:          job.Enabled,
+				EffectiveEnabled: m.effectiveJobEnabled(job),
+				PipelineEnabled:  job.PipelineEnabled,
+				Tool:             job.Tool,
+				Status:           job.Status,
+				Triggers:         job.Triggers,
+				LastRun:          lastRuns[job.ID],
 			})
 		}
 		pipelines = append(pipelines, PipelineInfo{
@@ -527,19 +533,41 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 		return nil, fmt.Errorf("tool registry not configured")
 	}
 	registryTools := m.cfg.ToolRegistry.All()
-	entries := make([]CatalogEntry, 0, len(registryTools))
+	entriesByName := make(map[string]CatalogEntry, len(registryTools))
 	for _, tool := range registryTools {
 		source := "internal"
 		if strings.HasPrefix(tool.Name(), "mcp_") {
 			source = "mcp"
 		}
-		entries = append(entries, CatalogEntry{
+		entriesByName[tool.Name()] = CatalogEntry{
 			Name:        tool.Name(),
 			Description: tool.Description(),
 			Schema:      tool.Parameters(),
 			Source:      source,
-		})
+		}
 	}
+	if m.cfg.Repository != nil {
+		ctx, err := m.scopedContext(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		persisted, err := m.cfg.Repository.ListToolCatalog(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range persisted {
+			if _, exists := entriesByName[entry.Name]; !exists {
+				entriesByName[entry.Name] = entry
+			}
+		}
+	}
+	entries := make([]CatalogEntry, 0, len(entriesByName))
+	for _, entry := range entriesByName {
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name < entries[j].Name
+	})
 	return entries, nil
 }
 

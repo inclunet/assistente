@@ -670,6 +670,7 @@ func TestExecutePersistsRunThroughRepository(t *testing.T) {
 	job := testRepositoryJob("persist-job", "Persist Job")
 	job.Tool = "test_tool"
 	job.Inputs = map[string]any{"name": "Alice"}
+	job.Events.OnSuccess = "persist-job.done"
 	if err := repo.SaveJob(userA, job); err != nil {
 		t.Fatalf("save job: %v", err)
 	}
@@ -695,6 +696,48 @@ func TestExecutePersistsRunThroughRepository(t *testing.T) {
 	}
 	if got.Output["greeting"] != "hello world" {
 		t.Fatalf("Output[greeting] = %v, want hello world", got.Output["greeting"])
+	}
+	events, err := repo.ListEvents(userA, EventFilter{JobID: "persist-job", Limit: 10})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	var sawCompleted, sawEmitted bool
+	for _, event := range events {
+		if event.RunID != rl.RunID {
+			t.Fatalf("event %s missing run correlation: got %q, want %q", event.Type, event.RunID, rl.RunID)
+		}
+		switch event.Type {
+		case "completed":
+			sawCompleted = true
+		case "event_emitted":
+			if event.Event == "persist-job.done" {
+				sawEmitted = true
+			}
+		}
+	}
+	if !sawCompleted || !sawEmitted {
+		t.Fatalf("expected completed and emitted events, got %#v", events)
+	}
+}
+
+func TestExecuteRecordsSkippedTerminalRunEvent(t *testing.T) {
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   tools.NewRegistry(),
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:          "skip-job",
+		Tool:        "missing_tool",
+		ErrorPolicy: ErrorPolicy{Strategy: ErrorSkip},
+	}
+
+	rl := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+	if rl.Status != "skipped" {
+		t.Fatalf("status = %q, want skipped", rl.Status)
+	}
+	if len(rl.RunEvents) == 0 || rl.RunEvents[len(rl.RunEvents)-1].Type != "skipped" {
+		t.Fatalf("terminal event = %#v, want skipped", rl.RunEvents)
 	}
 }
 

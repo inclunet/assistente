@@ -81,6 +81,59 @@ func TestDBRepositoryRequiresUserForServers(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryDeleteServerPreservesToolCatalogRowsForJobs(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	if err := repo.db.AutoMigrate(&database.Job{}); err != nil {
+		t.Fatalf("migrate jobs: %v", err)
+	}
+	if err := repo.SaveServer(userA, &ServerConfig{Slug: "jira", Name: "Jira", Transport: TransportStdio}); err != nil {
+		t.Fatalf("save server: %v", err)
+	}
+	server, err := repo.GetServer(userA, "jira")
+	if err != nil {
+		t.Fatalf("get server: %v", err)
+	}
+	tool := database.ToolCatalog{
+		UserID:             &server.UserID,
+		MCPServerID:        &server.ID,
+		Name:               "mcp_jira__create_issue",
+		DisplayName:        "Create Issue",
+		Origin:             tools.ToolOriginMCPBridge,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}
+	if err := repo.db.Create(&tool).Error; err != nil {
+		t.Fatalf("seed tool: %v", err)
+	}
+	if err := repo.db.Create(&database.Job{
+		UserID:        server.UserID,
+		Slug:          "sync-jira",
+		Name:          "Sync Jira",
+		Enabled:       true,
+		ToolCatalogID: tool.ID,
+		ToolName:      tool.Name,
+	}).Error; err != nil {
+		t.Fatalf("seed job: %v", err)
+	}
+
+	if err := repo.DeleteServer(userA, "jira"); err != nil {
+		t.Fatalf("delete server: %v", err)
+	}
+	var got database.ToolCatalog
+	if err := repo.db.First(&got, "id = ?", tool.ID).Error; err != nil {
+		t.Fatalf("tool catalog row should remain: %v", err)
+	}
+	if got.MCPServerID != nil || got.AvailabilityStatus != tools.ToolAvailabilityUnavailable {
+		t.Fatalf("tool catalog row not detached/unavailable: %#v", got)
+	}
+	var job database.Job
+	if err := repo.db.First(&job, "slug = ?", "sync-jira").Error; err != nil {
+		t.Fatalf("job should keep catalog reference: %v", err)
+	}
+	if job.ToolCatalogID != tool.ID || job.ToolName != tool.Name {
+		t.Fatalf("job lost tool identity: %#v", job)
+	}
+}
+
 func TestDBRepositorySaveServerPersistsZeroValueUpdates(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
 	cfg := &ServerConfig{

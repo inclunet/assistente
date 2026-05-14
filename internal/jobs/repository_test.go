@@ -167,6 +167,26 @@ func TestDBRepositorySaveJobCreatesUnresolvedMCPToolForImportedServer(t *testing
 	if row.AvailabilityStatus != "unavailable" || row.MCPServerID == nil {
 		t.Fatalf("unexpected placeholder row: %#v", row)
 	}
+	var jobRow database.Job
+	if err := repo.db.Where("slug = ?", "sync-jira").First(&jobRow).Error; err != nil {
+		t.Fatalf("load job row: %v", err)
+	}
+	if jobRow.ToolName != "mcp_jira__create_issue" {
+		t.Fatalf("job tool_name = %q, want mcp_jira__create_issue", jobRow.ToolName)
+	}
+	catalog, err := repo.ListToolCatalog(userA)
+	if err != nil {
+		t.Fatalf("list tool catalog: %v", err)
+	}
+	found := false
+	for _, entry := range catalog {
+		if entry.Name == "mcp_jira__create_issue" && entry.Source == "mcp" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("persistent MCP placeholder hidden from job catalog: %#v", catalog)
+	}
 }
 
 func TestDBRepositorySaveJobPreservesCreatedByOnUpdate(t *testing.T) {
@@ -224,6 +244,33 @@ func TestDBRepositoryLogRunMatchesEventTriggerByExpression(t *testing.T) {
 	}
 	if row.Trigger == nil || row.Trigger.Expression != "deploy" {
 		t.Fatalf("trigger expression: %#v", row.Trigger)
+	}
+}
+
+func TestDBRepositoryTriggerExpressionFollowsTriggerType(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("event-job", "Event Job")
+	job.Triggers = []Trigger{{Type: TriggerEvent, Expression: "wrong-cron", Listen: "deploy"}}
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+
+	var row database.JobTrigger
+	if err := repo.db.Where("type = ?", string(TriggerEvent)).First(&row).Error; err != nil {
+		t.Fatalf("load trigger: %v", err)
+	}
+	if row.Expression != "deploy" {
+		t.Fatalf("expression = %q, want deploy", row.Expression)
+	}
+	rl := &RunLog{
+		RunID:     "run-event-extra-expression",
+		JobID:     "event-job",
+		Status:    "completed",
+		Trigger:   TriggerInfo{Type: TriggerEvent, Event: "deploy"},
+		StartedAt: time.Now(),
+	}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log run: %v", err)
 	}
 }
 

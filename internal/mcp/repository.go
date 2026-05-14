@@ -156,7 +156,15 @@ func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {
 		if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", strings.TrimSpace(slug)).First(&row).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("mcp_server_id = ?", row.ID).Delete(&database.ToolCatalog{}).Error; err != nil {
+		now := r.now()
+		if err := tx.Model(&database.ToolCatalog{}).
+			Where("mcp_server_id = ?", row.ID).
+			Updates(map[string]any{
+				"mcp_server_id":       nil,
+				"availability_status": "unavailable",
+				"availability_reason": fmt.Sprintf("MCP server %q was deleted", row.Slug),
+				"last_unavailable_at": now,
+			}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("server_id = ?", row.ID).Delete(&database.MCPServerLog{}).Error; err != nil {

@@ -49,6 +49,13 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	if gotJob.PipelineEnabled {
 		t.Fatal("expected runtime pipeline state to be disabled")
 	}
+	infos, err := mgr.GetJobsContext(userA)
+	if err != nil {
+		t.Fatalf("get job infos: %v", err)
+	}
+	if len(infos) != 1 || infos[0].EffectiveEnabled || infos[0].PipelineEnabled {
+		t.Fatalf("job info did not expose effective disabled pipeline state: %#v", infos)
+	}
 
 	if err := mgr.SavePipelineContext(userA, &Pipeline{Slug: "ops", Name: "Ops", Enabled: true}); err != nil {
 		t.Fatalf("enable pipeline: %v", err)

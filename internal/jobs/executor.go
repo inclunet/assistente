@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strings"
 	"time"
 
 	"assistente/internal/tools"
@@ -100,6 +101,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	defer func() {
 		rl.CompletedAt = time.Now()
 		rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
+		rl.addTerminalRunEvent(job.ID)
 
 		if e.repository != nil {
 			if err := e.repository.LogRun(ctx, rl); err != nil {
@@ -368,7 +370,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 			}
 
 			if emitted > 0 {
-				e.logEvent(ctx, "event_emitted", job.ID, job.Events.OnSuccess,
+				rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
 					fmt.Sprintf("[%s] -> emitted %q x%d/%d (fan-out on %q)", job.ID, job.Events.OnSuccess, emitted, len(items), job.Events.ForEach), nil)
 				rl.EventsEmitted = append(rl.EventsEmitted, fmt.Sprintf("%s x%d", job.Events.OnSuccess, emitted))
 			} else {
@@ -388,7 +390,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	output := e.applyPayloadTemplate(job, rl.Output, trigCtx)
 	payload := e.buildEventPayload(job, output)
 
-	e.logEvent(ctx, "event_emitted", job.ID, job.Events.OnSuccess,
+	rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
 		fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnSuccess), nil)
 
 	rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnSuccess)
@@ -447,7 +449,11 @@ func splitDotPath(path string) []string {
 }
 
 func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, trigCtx *TriggerContext) {
-	rl.addRunEvent("failed", fmt.Sprintf("[%s] FAILED: %s", job.ID, rl.Error), nil)
+	eventType := rl.Status
+	if eventType == "" {
+		eventType = "failed"
+	}
+	rl.addRunEvent(eventType, fmt.Sprintf("[%s] %s: %s", job.ID, strings.ToUpper(eventType), rl.Error), nil)
 
 	if job.Events.OnFailure == "" {
 		return
@@ -461,7 +467,7 @@ func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, tri
 
 	rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnFailure)
 
-	e.logEvent(ctx, "event_emitted", job.ID, job.Events.OnFailure,
+	rl.addDomainEvent("event_emitted", job.ID, job.Events.OnFailure,
 		fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnFailure), nil)
 
 	e.eventBus.Publish(ctx, job.Events.OnFailure, payload)
@@ -548,23 +554,19 @@ func (e *JobExecutor) buildEventPayload(job *Job, output map[string]any) map[str
 	return output
 }
 
-func (e *JobExecutor) logEvent(ctx context.Context, eventType, jobID, eventName, message string, data map[string]any) {
-	entry := &EventEntry{
+func (rl *RunLog) addDomainEvent(eventType, jobID, eventName, message string, data map[string]any) {
+	if rl == nil {
+		return
+	}
+	rl.DomainEvents = append(rl.DomainEvents, EventEntry{
 		Timestamp: time.Now(),
 		Type:      eventType,
 		JobID:     jobID,
+		RunID:     rl.RunID,
 		Event:     eventName,
 		Message:   message,
 		Data:      data,
-	}
-
-	if e.repository == nil {
-		log.Printf("[Jobs] Error logging event: repository not configured")
-		return
-	}
-	if err := e.repository.LogEvent(ctx, entry); err != nil {
-		log.Printf("[Jobs] Error logging event: %v", err)
-	}
+	})
 }
 
 func (rl *RunLog) addRunEvent(eventType, message string, data map[string]any) {
@@ -579,6 +581,23 @@ func (rl *RunLog) addRunEvent(eventType, message string, data map[string]any) {
 		Message:   message,
 		Data:      data,
 	})
+}
+
+func (rl *RunLog) addTerminalRunEvent(jobID string) {
+	if rl == nil || rl.Status == "" {
+		return
+	}
+	for _, event := range rl.RunEvents {
+		if event.Type == "completed" || event.Type == "failed" || event.Type == "skipped" {
+			return
+		}
+	}
+	status := rl.Status
+	message := fmt.Sprintf("[%s] %s", jobID, strings.ToUpper(status))
+	if rl.Error != "" {
+		message += ": " + rl.Error
+	}
+	rl.addRunEvent(status, message, nil)
 }
 
 func (e *JobExecutor) calculateRetryDelay(job *Job, attempt int) time.Duration {

@@ -888,6 +888,7 @@ export namespace jobs {
 	    timestamp: any;
 	    type: string;
 	    job_id: string;
+	    run_id?: string;
 	    event?: string;
 	    message?: string;
 	    data?: Record<string, any>;
@@ -902,6 +903,7 @@ export namespace jobs {
 	        this.timestamp = this.convertValues(source["timestamp"], null);
 	        this.type = source["type"];
 	        this.job_id = source["job_id"];
+	        this.run_id = source["run_id"];
 	        this.event = source["event"];
 	        this.message = source["message"];
 	        this.data = source["data"];
@@ -1038,6 +1040,7 @@ export namespace jobs {
 	    name: string;
 	    description: string;
 	    enabled: boolean;
+	    pipeline_enabled: boolean;
 	    pipeline?: string;
 	    tags?: string[];
 	    triggers: Trigger[];
@@ -1063,6 +1066,7 @@ export namespace jobs {
 	        this.name = source["name"];
 	        this.description = source["description"];
 	        this.enabled = source["enabled"];
+	        this.pipeline_enabled = source["pipeline_enabled"];
 	        this.pipeline = source["pipeline"];
 	        this.tags = source["tags"];
 	        this.triggers = this.convertValues(source["triggers"], Trigger);
@@ -1102,6 +1106,8 @@ export namespace jobs {
 	    name: string;
 	    description: string;
 	    enabled: boolean;
+	    effective_enabled: boolean;
+	    pipeline_enabled: boolean;
 	    pipeline?: string;
 	    tags?: string[];
 	    tool: string;
@@ -1119,6 +1125,8 @@ export namespace jobs {
 	        this.name = source["name"];
 	        this.description = source["description"];
 	        this.enabled = source["enabled"];
+	        this.effective_enabled = source["effective_enabled"];
+	        this.pipeline_enabled = source["pipeline_enabled"];
 	        this.pipeline = source["pipeline"];
 	        this.tags = source["tags"];
 	        this.tool = source["tool"];

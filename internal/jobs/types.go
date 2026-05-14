@@ -75,7 +75,7 @@ type Job struct {
 	LastRun  *RunLog   `yaml:"-" json:"last_run,omitempty"`
 	Status   JobStatus `yaml:"-" json:"status"`
 
-	PipelineEnabled bool `yaml:"-" json:"-"`
+	PipelineEnabled bool `yaml:"-" json:"pipeline_enabled"`
 }
 
 // Pipeline representa um agrupamento persistente de jobs.
@@ -189,6 +189,7 @@ type RunLog struct {
 	EventsEmitted  []string       `json:"events_emitted,omitempty"`
 	IsDryRun       bool           `json:"is_dry_run,omitempty"`
 	RunEvents      []RunEvent     `json:"-"`
+	DomainEvents   []EventEntry   `json:"-"`
 }
 
 // EventEntry representa uma entrada no event log (JSONL).
@@ -197,6 +198,7 @@ type EventEntry struct {
 	Timestamp time.Time      `json:"timestamp"`
 	Type      string         `json:"type"` // triggered, completed, failed, event_emitted, event_received
 	JobID     string         `json:"job_id"`
+	RunID     string         `json:"run_id,omitempty"`
 	Event     string         `json:"event,omitempty"`
 	Message   string         `json:"message,omitempty"`
 	Data      map[string]any `json:"data,omitempty"`
@@ -235,16 +237,18 @@ type EventFilter struct {
 
 // JobInfo e uma visao resumida de um job para listagem.
 type JobInfo struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Enabled     bool      `json:"enabled"`
-	Pipeline    string    `json:"pipeline,omitempty"`
-	Tags        []string  `json:"tags,omitempty"`
-	Tool        string    `json:"tool"`
-	Status      JobStatus `json:"status"`
-	Triggers    []Trigger `json:"triggers"`
-	LastRun     *RunLog   `json:"last_run,omitempty"`
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description"`
+	Enabled          bool      `json:"enabled"`
+	EffectiveEnabled bool      `json:"effective_enabled"`
+	PipelineEnabled  bool      `json:"pipeline_enabled"`
+	Pipeline         string    `json:"pipeline,omitempty"`
+	Tags             []string  `json:"tags,omitempty"`
+	Tool             string    `json:"tool"`
+	Status           JobStatus `json:"status"`
+	Triggers         []Trigger `json:"triggers"`
+	LastRun          *RunLog   `json:"last_run,omitempty"`
 }
 
 // PipelineInfo agrupa jobs que compartilham o mesmo pipeline.
