@@ -140,7 +140,7 @@ func (c *JobsController) ReplayRunContext(ctx context.Context, jobID, runID stri
 	if rl.ResolvedInputs == nil {
 		return nil, fmt.Errorf("run %s has no resolved_inputs recorded (old format)", runID)
 	}
-	return c.jobMgr.TestTool(rl.ToolName, rl.ResolvedInputs, nil)
+	return c.jobMgr.TestToolContext(ctx, rl.ToolName, rl.ResolvedInputs, nil)
 }
 
 func (c *JobsController) GetJobEvents(date string) ([]jobs.EventEntry, error) {

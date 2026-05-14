@@ -883,6 +883,7 @@ export namespace jobs {
 	    }
 	}
 	export class EventEntry {
+	    id?: string;
 	    // Go type: time
 	    timestamp: any;
 	    type: string;
@@ -897,6 +898,7 @@ export namespace jobs {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
 	        this.timestamp = this.convertValues(source["timestamp"], null);
 	        this.type = source["type"];
 	        this.job_id = source["job_id"];

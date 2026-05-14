@@ -722,6 +722,11 @@ func (m *Manager) DeleteJobContext(ctx context.Context, id string) error {
 // TestTool executa uma tool diretamente com inputs fornecidos, sem precisar de um job salvo.
 // Util para testar no builder antes de salvar.
 func (m *Manager) TestTool(toolName string, inputs map[string]any, eventData map[string]any) (*TestToolResult, error) {
+	return m.TestToolContext(m.context(), toolName, inputs, eventData)
+}
+
+func (m *Manager) TestToolContext(parent context.Context, toolName string, inputs map[string]any, eventData map[string]any) (*TestToolResult, error) {
+	execCtx := m.contextFrom(parent)
 	tool, ok := m.cfg.ToolRegistry.Get(toolName)
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", toolName)
@@ -762,7 +767,7 @@ func (m *Manager) TestTool(toolName string, inputs map[string]any, eventData map
 		return nil, fmt.Errorf("marshal inputs: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(execCtx, 30*time.Second)
 	defer cancel()
 
 	start := time.Now()

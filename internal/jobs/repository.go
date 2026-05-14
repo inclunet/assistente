@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -765,12 +766,6 @@ func (r *DBRepository) ListEvents(ctx context.Context, filter EventFilter) ([]Ev
 	if !filter.EndAt.IsZero() {
 		query = query.Where("job_events.occurred_at < ?", filter.EndAt)
 	}
-	if filter.Limit > 0 {
-		query = query.Limit(filter.Limit)
-	}
-	if filter.Offset > 0 {
-		query = query.Offset(filter.Offset)
-	}
 	var rows []eventRow
 	if err := query.Order("job_events.occurred_at DESC, job_events.created_at DESC, job_events.id DESC").Find(&rows).Error; err != nil {
 		return nil, err
@@ -778,6 +773,50 @@ func (r *DBRepository) ListEvents(ctx context.Context, filter EventFilter) ([]Ev
 	out := make([]EventEntry, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, eventModelToDomain(row.JobEvent, row.JobSlug))
+	}
+	if filter.Event == "" {
+		type runEventRow struct {
+			database.JobRunEvent
+			JobSlug string `gorm:"column:job_slug"`
+		}
+		runQuery := database.ScopeByUser(ctx, r.db.WithContext(ctx), "job_run_events.user_id").Model(&database.JobRunEvent{}).
+			Select("job_run_events.*, jobs.slug AS job_slug").
+			Joins("JOIN job_runs ON job_runs.id = job_run_events.job_run_id AND job_runs.user_id = job_run_events.user_id").
+			Joins("JOIN jobs ON jobs.id = job_runs.job_id")
+		if filter.JobID != "" {
+			runQuery = runQuery.Where("jobs.slug = ?", normalizeSlug(filter.JobID))
+		}
+		if filter.Type != "" {
+			runQuery = runQuery.Where("job_run_events.type = ?", filter.Type)
+		}
+		if !filter.StartAt.IsZero() {
+			runQuery = runQuery.Where("job_run_events.occurred_at >= ?", filter.StartAt)
+		}
+		if !filter.EndAt.IsZero() {
+			runQuery = runQuery.Where("job_run_events.occurred_at < ?", filter.EndAt)
+		}
+		var runRows []runEventRow
+		if err := runQuery.Order("job_run_events.occurred_at DESC, job_run_events.created_at DESC, job_run_events.id DESC").Find(&runRows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range runRows {
+			out = append(out, runEventModelToEventEntry(row.JobRunEvent, row.JobSlug))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Timestamp.Equal(out[j].Timestamp) {
+			return out[i].Timestamp.After(out[j].Timestamp)
+		}
+		return out[i].ID > out[j].ID
+	})
+	if filter.Offset > 0 {
+		if filter.Offset >= len(out) {
+			return []EventEntry{}, nil
+		}
+		out = out[filter.Offset:]
+	}
+	if filter.Limit > 0 && filter.Limit < len(out) {
+		out = out[:filter.Limit]
 	}
 	return out, nil
 }
@@ -790,6 +829,11 @@ func (r *DBRepository) LogRunEvent(ctx context.Context, entry *RunEvent) error {
 	if entry == nil {
 		return fmt.Errorf("run event nil")
 	}
+	var run database.JobRun
+	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+		Where("id = ?", strings.TrimSpace(entry.RunID)).First(&run).Error; err != nil {
+		return err
+	}
 	data, err := marshalJSON(entry.Data)
 	if err != nil {
 		return err
@@ -801,7 +845,7 @@ func (r *DBRepository) LogRunEvent(ctx context.Context, entry *RunEvent) error {
 	row := database.JobRunEvent{
 		UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(entry.ID)},
 		UserID:     userID,
-		JobRunID:   strings.TrimSpace(entry.RunID),
+		JobRunID:   run.ID,
 		Sequence:   entry.Sequence,
 		OccurredAt: occurredAt,
 		Type:       entry.Type,
@@ -1362,6 +1406,23 @@ func runEventModelToDomain(row database.JobRunEvent) RunEvent {
 		ID:        row.ID,
 		RunID:     row.JobRunID,
 		Sequence:  row.Sequence,
+		Timestamp: row.OccurredAt,
+		Type:      row.Type,
+		Message:   row.Message,
+		Data:      data,
+	}
+}
+
+func runEventModelToEventEntry(row database.JobRunEvent, jobSlug string) EventEntry {
+	var data map[string]any
+	_ = unmarshalJSON(row.Data, &data)
+	if data == nil {
+		data = make(map[string]any)
+	}
+	data["run_id"] = row.JobRunID
+	return EventEntry{
+		ID:        row.ID,
+		JobID:     jobSlug,
 		Timestamp: row.OccurredAt,
 		Type:      row.Type,
 		Message:   row.Message,

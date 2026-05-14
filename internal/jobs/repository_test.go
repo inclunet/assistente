@@ -372,6 +372,35 @@ func TestDBRepositoryLogRunPersistsRunEvents(t *testing.T) {
 	if len(events) != 2 || events[0].Type != "triggered" || events[1].Type != "failed" {
 		t.Fatalf("unexpected run events: %#v", events)
 	}
+	timeline, err := repo.ListEvents(userA, EventFilter{})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(timeline) != 2 || timeline[0].JobID != "run-events" || timeline[1].JobID != "run-events" {
+		t.Fatalf("run events not exposed in public timeline: %#v", timeline)
+	}
+}
+
+func TestDBRepositoryLogRunEventRequiresScopedRun(t *testing.T) {
+	repo, userA, userB := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, testRepositoryJob("user-a-job", "User A Job")); err != nil {
+		t.Fatalf("save user A job: %v", err)
+	}
+	rl := &RunLog{RunID: "run-user-a", JobID: "user-a-job", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: time.Now()}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log run: %v", err)
+	}
+	err := repo.LogRunEvent(userB, &RunEvent{RunID: "run-user-a", Type: "triggered", Message: "cross user"})
+	if err == nil {
+		t.Fatal("expected cross-user run event insertion to fail")
+	}
+	events, err := repo.GetRunEvents(userA, "run-user-a")
+	if err != nil {
+		t.Fatalf("get run events: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("cross-user run event was inserted: %#v", events)
+	}
 }
 
 func TestDBRepositorySaveJobNamesUnknownTool(t *testing.T) {
