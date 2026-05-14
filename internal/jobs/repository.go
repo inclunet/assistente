@@ -1101,6 +1101,17 @@ func (r *DBRepository) triggerIDForRun(ctx context.Context, userID, jobID string
 	switch {
 	case info.Event != "":
 		query = query.Where("expression = ?", info.Event)
+		if info.When != "" {
+			triggerRow, err := triggerDomainToModel(userID, jobID, Trigger{
+				Type:   TriggerEvent,
+				Listen: info.Event,
+				When:   info.When,
+			})
+			if err != nil {
+				return "", err
+			}
+			query = query.Where("config = ?", triggerRow.Config)
+		}
 	case info.Expression != "":
 		query = query.Where("expression = ?", info.Expression)
 	case info.Every != "":

@@ -227,6 +227,36 @@ func TestDBRepositoryLogRunMatchesEventTriggerByExpression(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryLogRunDisambiguatesEventTriggerByWhen(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("deploy-listeners", "Deploy Listeners")
+	job.Triggers = []Trigger{
+		{Type: TriggerEvent, Listen: "deploy", When: `{{ eq .event.env "prod" }}`},
+		{Type: TriggerEvent, Listen: "deploy", When: `{{ eq .event.env "staging" }}`},
+	}
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	rl := &RunLog{
+		RunID:     "run-staging",
+		JobID:     "deploy-listeners",
+		Status:    "completed",
+		Trigger:   TriggerInfo{Type: TriggerEvent, Event: "deploy", When: `{{ eq .event.env "staging" }}`},
+		StartedAt: time.Now(),
+	}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log run: %v", err)
+	}
+
+	var row database.JobRun
+	if err := repo.db.Preload("Trigger").First(&row, "id = ?", "run-staging").Error; err != nil {
+		t.Fatalf("load run row: %v", err)
+	}
+	if row.Trigger == nil || !strings.Contains(row.Trigger.Config, "staging") {
+		t.Fatalf("run was linked to wrong trigger: %#v", row.Trigger)
+	}
+}
+
 func TestDBRepositorySaveJobKeepsDistinctTriggersWithSameExpression(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	job := testRepositoryJob("deploy-listeners", "Deploy Listeners")

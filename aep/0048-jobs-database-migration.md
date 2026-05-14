@@ -439,7 +439,7 @@ Consequências:
 21. Remover `internal/jobs/logger.go` (file-based logging)
 22. Remover `marshalJobYAML()`, `LoadAllFromDir()`, campo `FilePath` do struct `Job`
 23. Simplificar `parser.go` — manter validação, remover I/O de disco
-24. Manter `catalog.go` (catálogo continua em disco — dado derivado)
+24. Remover geração/materialização de catálogo em disco; o catálogo passa a ser derivado em runtime do registry/catálogo persistente
 
 ### Fase 9 — Testes
 

@@ -63,6 +63,7 @@ type TriggerContext struct {
 	Expression   string
 	Every        string
 	Keys         string
+	When         string
 	EventPayload map[string]any
 	ChainID      string   // ID da cadeia (para circuit breaker)
 	ChainHistory []string // jobs ja executados nesta cadeia
@@ -87,6 +88,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 			Expression: trigCtx.Expression,
 			Every:      trigCtx.Every,
 			Keys:       trigCtx.Keys,
+			When:       trigCtx.When,
 		},
 		StartedAt: time.Now(),
 	}

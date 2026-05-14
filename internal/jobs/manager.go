@@ -881,6 +881,7 @@ func (m *Manager) registerTriggers(job *Job) {
 					Type:         TriggerEvent,
 					EventName:    eventName,
 					Expression:   eventName,
+					When:         triggerWhen,
 					EventPayload: cleanPayload,
 					ChainID:      chainID,
 					ChainHistory: chainHistory,

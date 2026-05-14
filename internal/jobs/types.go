@@ -167,6 +167,7 @@ type TriggerInfo struct {
 	Expression string         `json:"expression,omitempty"`
 	Every      string         `json:"every,omitempty"`
 	Keys       string         `json:"keys,omitempty"`
+	When       string         `json:"when,omitempty"`
 	Data       map[string]any `json:"data,omitempty"`
 }
 

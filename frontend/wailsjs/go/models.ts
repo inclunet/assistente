@@ -724,6 +724,10 @@ export namespace jobs {
 	    // Go type: time
 	    at: any;
 	    event?: string;
+	    expression?: string;
+	    every?: string;
+	    keys?: string;
+	    when?: string;
 	    data?: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
@@ -735,6 +739,10 @@ export namespace jobs {
 	        this.type = source["type"];
 	        this.at = this.convertValues(source["at"], null);
 	        this.event = source["event"];
+	        this.expression = source["expression"];
+	        this.every = source["every"];
+	        this.keys = source["keys"];
+	        this.when = source["when"];
 	        this.data = source["data"];
 	    }
 	
