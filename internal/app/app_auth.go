@@ -713,6 +713,9 @@ func (a *App) stopUserScopedRuntime() {
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
+	if a.mcpMgr != nil {
+		a.mcpMgr.DisconnectAll()
+	}
 }
 
 func (a *App) ensureAuthCoreServices() error {

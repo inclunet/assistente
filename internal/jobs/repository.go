@@ -587,7 +587,7 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 	if err != nil {
 		return err
 	}
-	inputs, err := marshalJSON(rl.ResolvedInputs)
+	inputs, err := marshalJSON(RedactResolvedInputs(nil, rl.ResolvedInputs))
 	if err != nil {
 		return err
 	}

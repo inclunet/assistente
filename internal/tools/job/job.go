@@ -49,14 +49,14 @@ func NewJobWithProvider(provider ManagerProvider) *Tool {
 func (t *Tool) Name() string { return "job" }
 
 func (t *Tool) Description() string {
-	return "Composite DB-backed job manager. No params lists jobs. job_id reads a job. With job_id plus fields updates. Without job_id plus name/tool/triggers creates. delete, run, dry_run and list_runs are mutually exclusive actions."
+	return "Composite DB-backed job manager. No params lists jobs. job_id reads a job. With job_id plus fields updates, or creates that stable job_id when not found and required create fields are present. Without job_id plus name/tool/triggers creates using a generated id. delete, run, dry_run and list_runs are mutually exclusive actions."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "job_id": {"type": "string", "description": "Stable job slug/id. Required for read, update, delete, toggle, run, dry_run and list_runs. Omit to list all jobs or create a new job."},
+    "job_id": {"type": "string", "description": "Stable job slug/id. Required for read, update, delete, toggle, run, dry_run and list_runs. When combined with required create fields and the job does not exist, creates a job with this id. Omit to list all jobs or create with a generated id."},
     "delete": {"type": "boolean", "description": "Delete the referenced job. Requires job_id."},
     "run": {"type": "boolean", "description": "Run the referenced job now. Requires job_id."},
     "dry_run": {"type": "boolean", "description": "Dry-run the referenced job. Requires job_id."},
@@ -195,7 +195,7 @@ func (t *Tool) createJob(ctx context.Context, mgr Manager, explicitID string, pa
 		return tools.ToolResult{Content: "tool is required to create a job", IsError: true}, nil
 	}
 	if len(params.Triggers) == 0 {
-		return tools.ToolResult{Content: "triggers is required to create a job", IsError: true}, nil
+		return tools.ToolResult{Content: "triggers are required to create a job", IsError: true}, nil
 	}
 	id := slugFromName(explicitID)
 	if id == "" {

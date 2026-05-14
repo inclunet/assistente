@@ -464,6 +464,41 @@ func TestDBRepositoryLogRunPreservesEmptyRuntimeJSONValues(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryLogRunRedactsSensitiveInputs(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("redact-run", "Redact Run")
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	rl := &RunLog{
+		RunID:     "run-redact",
+		JobID:     "redact-run",
+		Status:    "completed",
+		Trigger:   TriggerInfo{Type: TriggerManual},
+		StartedAt: time.Now(),
+		ResolvedInputs: map[string]any{
+			"api_key": "secret-value",
+			"query":   "public",
+		},
+		Output:        map[string]any{},
+		EventsEmitted: []string{},
+	}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log run: %v", err)
+	}
+
+	got, err := repo.GetRun(userA, "redact-run", "run-redact")
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.ResolvedInputs["api_key"] != redactedValue {
+		t.Fatalf("api_key not redacted: %#v", got.ResolvedInputs)
+	}
+	if got.ResolvedInputs["query"] != "public" {
+		t.Fatalf("public input was changed: %#v", got.ResolvedInputs)
+	}
+}
+
 func TestDBRepositoryLogRunPersistsRunEvents(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	job := testRepositoryJob("run-events", "Run Events")

@@ -762,8 +762,8 @@ func (m *Manager) TestToolContext(parent context.Context, toolName string, input
 		return nil, fmt.Errorf("tool not found: %s", toolName)
 	}
 
-	log.Printf("[Jobs] TestTool(%q): inputs=%v, eventData keys=%v, eventData nil=%v",
-		toolName, inputs, func() []string {
+	log.Printf("[Jobs] TestTool(%q): input keys=%v, eventData keys=%v, eventData nil=%v",
+		toolName, mapKeys(inputs), func() []string {
 			if eventData == nil {
 				return nil
 			}
@@ -786,7 +786,7 @@ func (m *Manager) TestToolContext(parent context.Context, toolName string, input
 		if err != nil {
 			return nil, fmt.Errorf("resolve templates: %w", err)
 		}
-		log.Printf("[Jobs] TestTool: resolved inputs=%v", resolved)
+		log.Printf("[Jobs] TestTool: resolved input keys=%v", mapKeys(resolved))
 		inputs = resolved
 	}
 

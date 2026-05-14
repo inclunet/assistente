@@ -35,14 +35,14 @@ func NewPipelineWithProvider(provider ManagerProvider) *PipelineTool {
 func (t *PipelineTool) Name() string { return "job_pipeline" }
 
 func (t *PipelineTool) Description() string {
-	return "Composite DB-backed job pipeline manager. No params lists persisted pipelines. slug reads a pipeline. With slug plus fields updates. enabled toggles scheduling for jobs in the pipeline. Without slug plus name creates. delete removes a pipeline."
+	return "Composite DB-backed job pipeline manager. No params lists persisted pipelines. slug reads a pipeline. With slug plus fields updates, or creates that explicit slug when not found and name is present. Without slug plus name creates with a generated slug. enabled toggles scheduling for jobs in the pipeline. delete removes a pipeline."
 }
 
 func (t *PipelineTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "slug": {"type": "string", "description": "Pipeline slug. Required for read, update and delete. Omit to list all pipelines or create a new one."},
+    "slug": {"type": "string", "description": "Pipeline slug. Required for read, update and delete. When combined with name and the pipeline does not exist, creates a pipeline with this slug. Omit to list all pipelines or create with a generated slug."},
     "delete": {"type": "boolean", "description": "Delete the referenced pipeline. Requires slug."},
     "enabled": {"type": "boolean", "description": "Enable or disable scheduling for jobs in this pipeline."},
     "name": {"type": "string", "description": "Pipeline display name. Required when creating."},

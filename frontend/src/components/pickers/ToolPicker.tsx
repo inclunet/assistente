@@ -34,7 +34,7 @@ function localizedUnavailableReason(
   if (normalized === 'server disconnected') {
     return t('jobs.builder.toolUnavailableServerDisconnected');
   }
-  if (normalized === 'not discovered') {
+  if (normalized === 'not discovered' || normalized === 'not discovered yet') {
     return t('jobs.builder.toolUnavailableNotDiscovered');
   }
   return t('jobs.builder.toolUnavailable');

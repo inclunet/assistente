@@ -263,7 +263,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 
 	if rl != nil {
 		rl.ToolName = job.Tool
-		rl.ResolvedInputs = resolvedInputs
+		rl.ResolvedInputs = RedactResolvedInputs(job.Inputs, resolvedInputs)
 	}
 
 	// Serializa inputs para JSON (formato esperado por tool.Execute)

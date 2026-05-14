@@ -808,6 +808,63 @@ func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	}
 }
 
+func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name:     "test_secret",
+		params:   json.RawMessage(`{"type":"object","properties":{"api_key":{"type":"string"},"query":{"type":"string"},"nested":{"type":"object"}}}`),
+		response: `{"ok":true}`,
+	}
+	registry.MustRegister(ft)
+
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+		SecretResolver: func(key string) (string, error) {
+			if key != "jobs/api" {
+				t.Fatalf("unexpected secret key %q", key)
+			}
+			return "super-secret", nil
+		},
+	})
+
+	job := &Job{
+		ID:   "secret-job",
+		Tool: "test_secret",
+		Inputs: map[string]any{
+			"api_key": "{{ secret \"jobs/api\" }}",
+			"query":   "public",
+			"nested": map[string]any{
+				"password": "manually-entered",
+			},
+		},
+	}
+
+	rl := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+
+	if rl.Status != "completed" {
+		t.Fatalf("expected completed, got %s (error: %s)", rl.Status, rl.Error)
+	}
+	var toolArgs map[string]any
+	if err := json.Unmarshal(ft.lastArgs, &toolArgs); err != nil {
+		t.Fatalf("decode tool args: %v", err)
+	}
+	if toolArgs["api_key"] != "super-secret" {
+		t.Fatalf("tool did not receive resolved secret: %#v", toolArgs)
+	}
+	if rl.ResolvedInputs["api_key"] != redactedValue {
+		t.Fatalf("api_key not redacted in run log: %#v", rl.ResolvedInputs)
+	}
+	if rl.ResolvedInputs["query"] != "public" {
+		t.Fatalf("public input should remain visible: %#v", rl.ResolvedInputs)
+	}
+	nested, ok := rl.ResolvedInputs["nested"].(map[string]any)
+	if !ok || nested["password"] != redactedValue {
+		t.Fatalf("nested password not redacted: %#v", rl.ResolvedInputs)
+	}
+}
+
 func TestExecute_CapturesInputsEvenOnFailure(t *testing.T) {
 	registry := tools.NewRegistry()
 	ft := &fakeTool{

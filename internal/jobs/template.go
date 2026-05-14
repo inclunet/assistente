@@ -174,7 +174,11 @@ func resolveTemplate(tmplStr string, ctx *TemplateContext) (any, error) {
 	}
 
 	result := strings.TrimSpace(buf.String())
-	log.Printf("[Jobs] Template resolved: %q -> %q", original, result)
+	if containsSecretTemplate(original) {
+		log.Printf("[Jobs] Template resolved: %q -> %q", original, redactedValue)
+	} else {
+		log.Printf("[Jobs] Template resolved: %q -> %q", original, result)
+	}
 	return result, nil
 }
 
