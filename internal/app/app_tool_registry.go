@@ -259,15 +259,16 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(tasklisttool.NewTask(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskNote(tlMgr))
 
-	// Jobs são tools compostas e opt-in para não inflar o payload padrão.
+	// Jobs são opt-in para não inflar o payload padrão, mas descobríveis
+	// na UI/catálogo para enabled_tools explícito.
 	jobMgr := func() jobtool.Manager {
 		if a.jobMgr == nil {
 			return nil
 		}
 		return a.jobMgr
 	}
-	a.toolRegistry.MustRegisterOptIn(jobtool.NewJobWithProvider(jobMgr))
-	a.toolRegistry.MustRegisterOptIn(jobtool.NewPipelineWithProvider(jobMgr))
+	a.toolRegistry.MustRegisterDiscoverableOptIn(jobtool.NewJobWithProvider(jobMgr))
+	a.toolRegistry.MustRegisterDiscoverableOptIn(jobtool.NewPipelineWithProvider(jobMgr))
 
 	// Registra ferramenta de deep links
 	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{emitter: a.emitter}))

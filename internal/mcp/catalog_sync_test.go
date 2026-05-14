@@ -29,6 +29,7 @@ func TestSyncBuiltinToolsCatalogsGlobalToolsOnly(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(catalogTestTool{name: "read_file"})
 	registry.MustRegisterOptIn(catalogTestTool{name: "job"})
+	registry.MustRegisterDiscoverableOptIn(catalogTestTool{name: "job_pipeline"})
 	registry.MustRegister(catalogTestTool{name: "mcp_jira__create_issue"})
 
 	m := NewManager(registry, nil, nil)
@@ -42,11 +43,18 @@ func TestSyncBuiltinToolsCatalogsGlobalToolsOnly(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListTools: %v", err)
 		}
-		if len(entries) != 1 {
-			t.Fatalf("entries = %d, want 1: %#v", len(entries), entries)
+		if len(entries) != 2 {
+			t.Fatalf("entries = %d, want 2: %#v", len(entries), entries)
 		}
-		if entries[0].Name != "read_file" || entries[0].Origin != tools.ToolOriginBuiltin {
-			t.Fatalf("unexpected builtin entry: %#v", entries[0])
+		got := map[string]string{}
+		for _, entry := range entries {
+			got[entry.Name] = entry.Origin
+		}
+		if got["job_pipeline"] != tools.ToolOriginBuiltin || got["read_file"] != tools.ToolOriginBuiltin {
+			t.Fatalf("unexpected builtin entries: %#v", entries)
+		}
+		if _, ok := got["job"]; ok {
+			t.Fatalf("hidden opt-in tool should not be cataloged: %#v", entries)
 		}
 	}
 }

@@ -22,6 +22,24 @@ export interface ToolPickerRef {
   reload: () => Promise<void>;
 }
 
+function localizedUnavailableReason(
+  reason: string | undefined,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  const normalized = reason?.trim() ?? '';
+  const deletedServer = normalized.match(/^MCP server "([^"]+)" was deleted$/);
+  if (deletedServer) {
+    return t('jobs.builder.toolUnavailableServerDeleted', { server: deletedServer[1] });
+  }
+  if (normalized === 'server disconnected') {
+    return t('jobs.builder.toolUnavailableServerDisconnected');
+  }
+  if (normalized === 'not discovered') {
+    return t('jobs.builder.toolUnavailableNotDiscovered');
+  }
+  return t('jobs.builder.toolUnavailable');
+}
+
 export const ToolPicker = forwardRef<ToolPickerRef, ToolPickerProps>(
   (
     {
@@ -77,12 +95,13 @@ export const ToolPicker = forwardRef<ToolPickerRef, ToolPickerProps>(
     const buildItems = (): ComboboxItem[] => {
       return tools.map((tool) => {
         const unavailable = tool.availability_status === 'unavailable';
-        const status = unavailable ? ` ${tool.availability_reason || t('jobs.builder.toolUnavailable')}` : '';
+        const status = unavailable ? ` ${localizedUnavailableReason(tool.availability_reason, t)}` : '';
+        const description = unavailable && tool.description === tool.availability_reason ? '' : tool.description;
         return {
           value: tool.name,
           label: tool.name,
-          sublabel: tool.description
-            ? `[${tool.source}]${status} ${tool.description}`
+          sublabel: description
+            ? `[${tool.source}]${status} ${description}`
             : `[${tool.source}]${status}`,
           disabled: unavailable,
         };

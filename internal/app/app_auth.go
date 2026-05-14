@@ -271,6 +271,9 @@ func (a *App) rollbackLoginState(refreshToken string) {
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
+	if a.mcpMgr != nil {
+		a.mcpMgr.DisconnectAll()
+	}
 }
 
 func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {

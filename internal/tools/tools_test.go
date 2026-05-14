@@ -34,6 +34,14 @@ func newRegistryMockTool(name string) *registryMockTool {
 	}
 }
 
+func toolNamesForTest(tools []Tool) []string {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		names = append(names, tool.Name())
+	}
+	return names
+}
+
 // ==================== Registry Tests ====================
 
 func TestRegistryRegister(t *testing.T) {
@@ -217,6 +225,27 @@ func TestRegistryOptIn_FilterOutOptInNames(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %#v, want %#v", got, want)
 		}
+	}
+}
+
+func TestRegistryDiscoverableOptIn_AppearsOnlyInDiscovery(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newRegistryMockTool("read_file"))
+	r.MustRegisterOptIn(newRegistryMockTool("text_edit"))
+	r.MustRegisterDiscoverableOptIn(newRegistryMockTool("job"))
+
+	all := r.All()
+	if len(all) != 1 || all[0].Name() != "read_file" {
+		t.Fatalf("All should exclude opt-in tools, got %#v", toolNamesForTest(all))
+	}
+	discoverable := r.Discoverable()
+	want := []string{"job", "read_file"}
+	if got := toolNamesForTest(discoverable); len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("Discoverable got %#v, want %#v", got, want)
+	}
+	filtered := r.FilterOutOptInNames([]string{"job", "read_file"})
+	if len(filtered) != 1 || filtered[0] != "read_file" {
+		t.Fatalf("discoverable opt-in should still be filtered from dynamic expansion: %#v", filtered)
 	}
 }
 

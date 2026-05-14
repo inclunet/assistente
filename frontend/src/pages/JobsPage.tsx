@@ -46,11 +46,15 @@ function isJobEffectivelyEnabled(job: jobs.JobInfo): boolean {
   return job.effective_enabled ?? (job.enabled && job.pipeline_enabled !== false);
 }
 
-function jobToggleLabel(job: jobs.JobInfo, labels: { enable: string; disable: string; pipelineDisabled: string }): string {
-  if (job.enabled && !isJobEffectivelyEnabled(job)) {
-    return labels.pipelineDisabled;
-  }
+function jobToggleActionLabel(job: jobs.JobInfo, labels: { enable: string; disable: string }): string {
   return job.enabled ? labels.disable : labels.enable;
+}
+
+function jobToggleTitle(job: jobs.JobInfo, labels: { enable: string; disable: string; pipelineDisabled: string }): string {
+  if (job.enabled && !isJobEffectivelyEnabled(job)) {
+    return `${labels.pipelineDisabled}. ${labels.disable}`;
+  }
+  return jobToggleActionLabel(job, labels);
 }
 
 export default function JobsPage() {
@@ -204,10 +208,9 @@ export default function JobsPage() {
 
   const getJobRowActions = useCallback(
     (job: jobs.JobInfo) => {
-      const toggleLabel = jobToggleLabel(job, {
+      const toggleLabel = jobToggleActionLabel(job, {
         enable: t('jobs.enable'),
         disable: t('jobs.disable'),
-        pipelineDisabled: t('jobs.pipelineDisabled'),
       });
       return [
         {
@@ -259,7 +262,11 @@ export default function JobsPage() {
         width: '36px',
         format: (_value, item) => {
           const job = item as jobs.JobInfo;
-          const label = jobToggleLabel(job, {
+          const label = jobToggleActionLabel(job, {
+            enable: t('jobs.enable'),
+            disable: t('jobs.disable'),
+          });
+          const title = jobToggleTitle(job, {
             enable: t('jobs.enable'),
             disable: t('jobs.disable'),
             pipelineDisabled: t('jobs.pipelineDisabled'),
@@ -269,7 +276,7 @@ export default function JobsPage() {
               className={`job-toggle ${isJobEffectivelyEnabled(job) ? 'job-toggle--on' : 'job-toggle--off'}`}
               onClick={(e) => { e.stopPropagation(); handleToggle(job); }}
               aria-label={label}
-              title={label}
+              title={title}
             >
               {isJobEffectivelyEnabled(job) ? '●' : '○'}
             </button>
