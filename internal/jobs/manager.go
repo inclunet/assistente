@@ -490,7 +490,7 @@ func (m *Manager) SavePipeline(pipeline *Pipeline) error {
 	if err := m.cfg.Repository.SavePipeline(m.context(), pipeline); err != nil {
 		return err
 	}
-	m.applyPipelineState(pipeline.Slug, pipeline.Enabled)
+	m.emitJobUpdates(m.applyPipelineState(pipeline.Slug, pipeline.Enabled))
 	return nil
 }
 
@@ -502,7 +502,7 @@ func (m *Manager) SavePipelineContext(ctx context.Context, pipeline *Pipeline) e
 	if err := m.cfg.Repository.SavePipeline(ctx, pipeline); err != nil {
 		return err
 	}
-	m.applyPipelineState(pipeline.Slug, pipeline.Enabled)
+	m.emitJobUpdates(m.applyPipelineState(pipeline.Slug, pipeline.Enabled))
 	return nil
 }
 
@@ -511,7 +511,7 @@ func (m *Manager) DeletePipeline(slug string) error {
 	if err := m.cfg.Repository.DeletePipeline(m.context(), slug); err != nil {
 		return err
 	}
-	m.clearPipelineFromRegistry(slug)
+	m.emitJobUpdates(m.clearPipelineFromRegistry(slug))
 	return nil
 }
 
@@ -524,7 +524,7 @@ func (m *Manager) DeletePipelineContext(ctx context.Context, slug string) error 
 	if err := m.cfg.Repository.DeletePipeline(ctx, slug); err != nil {
 		return err
 	}
-	m.clearPipelineFromRegistry(slug)
+	m.emitJobUpdates(m.clearPipelineFromRegistry(slug))
 	return nil
 }
 
@@ -999,11 +999,12 @@ func (m *Manager) effectiveJobEnabled(job *Job) bool {
 	return normalizeSlug(job.Pipeline) == "" || job.PipelineEnabled
 }
 
-func (m *Manager) clearPipelineFromRegistry(slug string) {
+func (m *Manager) clearPipelineFromRegistry(slug string) []Job {
 	slug = normalizeSlug(slug)
 	if slug == "" {
-		return
+		return nil
 	}
+	affected := make([]Job, 0)
 	for _, job := range m.registry.GetAll() {
 		if normalizeSlug(job.Pipeline) != slug {
 			continue
@@ -1016,14 +1017,17 @@ func (m *Manager) clearPipelineFromRegistry(slug string) {
 		if m.effectiveJobEnabled(&updated) {
 			m.registerTriggers(&updated)
 		}
+		affected = append(affected, updated)
 	}
+	return affected
 }
 
-func (m *Manager) applyPipelineState(slug string, enabled bool) {
+func (m *Manager) applyPipelineState(slug string, enabled bool) []Job {
 	slug = normalizeSlug(slug)
 	if slug == "" {
-		return
+		return nil
 	}
+	affected := make([]Job, 0)
 	for _, job := range m.registry.GetAll() {
 		if normalizeSlug(job.Pipeline) != slug {
 			continue
@@ -1035,6 +1039,14 @@ func (m *Manager) applyPipelineState(slug string, enabled bool) {
 		if m.effectiveJobEnabled(&updated) {
 			m.registerTriggers(&updated)
 		}
+		affected = append(affected, updated)
+	}
+	return affected
+}
+
+func (m *Manager) emitJobUpdates(jobs []Job) {
+	for _, job := range jobs {
+		m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
 	}
 }
 

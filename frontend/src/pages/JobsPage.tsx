@@ -46,7 +46,7 @@ function isJobEffectivelyEnabled(job: jobs.JobInfo): boolean {
   return job.effective_enabled ?? (job.enabled && job.pipeline_enabled !== false);
 }
 
-function jobToggleTitle(job: jobs.JobInfo, labels: { enable: string; disable: string; pipelineDisabled: string }): string {
+function jobToggleLabel(job: jobs.JobInfo, labels: { enable: string; disable: string; pipelineDisabled: string }): string {
   if (job.enabled && !isJobEffectivelyEnabled(job)) {
     return labels.pipelineDisabled;
   }
@@ -203,44 +203,51 @@ export default function JobsPage() {
   }, [deleteJob, addToast, announce, t]);
 
   const getJobRowActions = useCallback(
-    (job: jobs.JobInfo) => [
-      {
-        id: 'run',
-        label: runningJobId === job.id ? t('jobs.running') : t('jobs.run'),
-        icon: '▶',
-        onClick: () => handleRun(job),
-      },
-      {
-        id: 'toggle',
-        label: job.enabled ? t('jobs.disable') : t('jobs.enable'),
-        icon: isJobEffectivelyEnabled(job) ? '⏸' : '⏵',
-        onClick: () => handleToggle(job),
-      },
-      {
-        id: 'logs',
-        label: t('jobs.viewLogs'),
-        icon: '📋',
-        onClick: () => handleViewLogs(job.id),
-      },
-      {
-        id: 'edit',
-        label: t('common.edit'),
-        icon: '✏️',
-        onClick: () => handleEditJob(job.id),
-      },
-      {
-        id: 'events',
-        label: t('jobs.viewEvents'),
-        icon: '📡',
-        onClick: () => handleViewEvents(),
-      },
-      {
-        id: 'delete',
-        label: t('common.delete'),
-        icon: '🗑',
-        onClick: () => handleDeleteJob(job),
-      },
-    ],
+    (job: jobs.JobInfo) => {
+      const toggleLabel = jobToggleLabel(job, {
+        enable: t('jobs.enable'),
+        disable: t('jobs.disable'),
+        pipelineDisabled: t('jobs.pipelineDisabled'),
+      });
+      return [
+        {
+          id: 'run',
+          label: runningJobId === job.id ? t('jobs.running') : t('jobs.run'),
+          icon: '▶',
+          onClick: () => handleRun(job),
+        },
+        {
+          id: 'toggle',
+          label: toggleLabel,
+          icon: isJobEffectivelyEnabled(job) ? '⏸' : '⏵',
+          onClick: () => handleToggle(job),
+        },
+        {
+          id: 'logs',
+          label: t('jobs.viewLogs'),
+          icon: '📋',
+          onClick: () => handleViewLogs(job.id),
+        },
+        {
+          id: 'edit',
+          label: t('common.edit'),
+          icon: '✏️',
+          onClick: () => handleEditJob(job.id),
+        },
+        {
+          id: 'events',
+          label: t('jobs.viewEvents'),
+          icon: '📡',
+          onClick: () => handleViewEvents(),
+        },
+        {
+          id: 'delete',
+          label: t('common.delete'),
+          icon: '🗑',
+          onClick: () => handleDeleteJob(job),
+        },
+      ];
+    },
     [t, handleRun, handleToggle, handleViewLogs, handleEditJob, handleViewEvents, handleDeleteJob, runningJobId]
   );
 
@@ -250,20 +257,24 @@ export default function JobsPage() {
         key: 'enabled' as keyof jobs.JobInfo,
         label: '',
         width: '36px',
-        format: (_value, item) => (
-          <button
-            className={`job-toggle ${isJobEffectivelyEnabled(item as jobs.JobInfo) ? 'job-toggle--on' : 'job-toggle--off'}`}
-            onClick={(e) => { e.stopPropagation(); handleToggle(item as jobs.JobInfo); }}
-            aria-label={(item as jobs.JobInfo).enabled ? t('jobs.disable') : t('jobs.enable')}
-            title={jobToggleTitle(item as jobs.JobInfo, {
-              enable: t('jobs.enable'),
-              disable: t('jobs.disable'),
-              pipelineDisabled: t('jobs.pipelineDisabled'),
-            })}
-          >
-            {isJobEffectivelyEnabled(item as jobs.JobInfo) ? '●' : '○'}
-          </button>
-        ),
+        format: (_value, item) => {
+          const job = item as jobs.JobInfo;
+          const label = jobToggleLabel(job, {
+            enable: t('jobs.enable'),
+            disable: t('jobs.disable'),
+            pipelineDisabled: t('jobs.pipelineDisabled'),
+          });
+          return (
+            <button
+              className={`job-toggle ${isJobEffectivelyEnabled(job) ? 'job-toggle--on' : 'job-toggle--off'}`}
+              onClick={(e) => { e.stopPropagation(); handleToggle(job); }}
+              aria-label={label}
+              title={label}
+            >
+              {isJobEffectivelyEnabled(job) ? '●' : '○'}
+            </button>
+          );
+        },
       },
       {
         key: 'name' as keyof jobs.JobInfo,

@@ -70,12 +70,11 @@ type Job struct {
 	DryRun         DryRunConfig   `yaml:"dry_run,omitempty" json:"dry_run,omitempty"`
 	Metadata       Metadata       `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 
-	// Campos runtime (nao persistem no YAML)
-	FilePath string    `yaml:"-" json:"file_path,omitempty"`
-	LastRun  *RunLog   `yaml:"-" json:"last_run,omitempty"`
-	Status   JobStatus `yaml:"-" json:"status"`
-
-	PipelineEnabled bool `yaml:"-" json:"pipeline_enabled"`
+	// Campos carregados do runtime/DB e omitidos de imports YAML legados.
+	FilePath        string    `yaml:"-" json:"file_path,omitempty"`
+	LastRun         *RunLog   `yaml:"-" json:"last_run,omitempty"`
+	Status          JobStatus `yaml:"-" json:"status"`
+	PipelineEnabled bool      `yaml:"-" json:"pipeline_enabled"`
 }
 
 // Pipeline representa um agrupamento persistente de jobs.

@@ -20,10 +20,21 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	if err := repo.SaveJob(userA, job); err != nil {
 		t.Fatalf("save job: %v", err)
 	}
+	var emitted []map[string]any
 
 	mgr := NewManager(ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
+		EmitEvent: func(event string, data any) {
+			if event != "jobs:updated" {
+				return
+			}
+			payload, ok := data.(map[string]any)
+			if !ok {
+				t.Fatalf("unexpected event payload: %#v", data)
+			}
+			emitted = append(emitted, payload)
+		},
 	})
 	if err := mgr.Start(); err != nil {
 		t.Fatalf("start manager: %v", err)
@@ -56,12 +67,18 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	if len(infos) != 1 || infos[0].EffectiveEnabled || infos[0].PipelineEnabled {
 		t.Fatalf("job info did not expose effective disabled pipeline state: %#v", infos)
 	}
+	if len(emitted) != 1 || emitted[0]["id"] != "sync-jira" {
+		t.Fatalf("pipeline disable did not emit affected job update: %#v", emitted)
+	}
 
 	if err := mgr.SavePipelineContext(userA, &Pipeline{Slug: "ops", Name: "Ops", Enabled: true}); err != nil {
 		t.Fatalf("enable pipeline: %v", err)
 	}
 	if got := mgr.scheduler.ScheduledJobs(); len(got) != 1 || got[0] != "sync-jira" {
 		t.Fatalf("scheduled jobs after enabling pipeline: got %#v, want [sync-jira]", got)
+	}
+	if len(emitted) != 2 || emitted[1]["id"] != "sync-jira" {
+		t.Fatalf("pipeline enable did not emit affected job update: %#v", emitted)
 	}
 
 	if err := mgr.SavePipelineContext(userA, &Pipeline{Slug: "ops", Name: "Ops", Enabled: false}); err != nil {
@@ -79,6 +96,9 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	}
 	if gotJob.Pipeline != "" || !gotJob.PipelineEnabled {
 		t.Fatalf("pipeline state after delete: pipeline=%q pipelineEnabled=%v", gotJob.Pipeline, gotJob.PipelineEnabled)
+	}
+	if len(emitted) != 4 || emitted[3]["id"] != "sync-jira" {
+		t.Fatalf("pipeline delete did not emit affected job update: %#v", emitted)
 	}
 }
 
