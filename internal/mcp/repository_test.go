@@ -132,6 +132,35 @@ func TestDBRepositoryDeleteServerPreservesToolCatalogRowsForJobs(t *testing.T) {
 	if job.ToolCatalogID != tool.ID || job.ToolName != tool.Name {
 		t.Fatalf("job lost tool identity: %#v", job)
 	}
+
+	if err := repo.SaveServer(userA, &ServerConfig{Slug: "jira", Name: "Jira Recreated", Transport: TransportStdio}); err != nil {
+		t.Fatalf("recreate server: %v", err)
+	}
+	recreated, err := repo.GetServer(userA, "jira")
+	if err != nil {
+		t.Fatalf("get recreated server: %v", err)
+	}
+	reattached := tools.ToolCatalogEntry{
+		UserID:             recreated.UserID,
+		MCPServerID:        recreated.ID,
+		Name:               tool.Name,
+		DisplayName:        "Create Issue",
+		Origin:             tools.ToolOriginMCPBridge,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		Schema:             json.RawMessage(`{"type":"object"}`),
+	}
+	if err := repo.UpsertTool(userA, &reattached); err != nil {
+		t.Fatalf("upsert reattached tool: %v", err)
+	}
+	if reattached.ID != tool.ID {
+		t.Fatalf("recreated MCP tool should reattach detached row: got %s, want %s", reattached.ID, tool.ID)
+	}
+	if err := repo.db.First(&got, "id = ?", tool.ID).Error; err != nil {
+		t.Fatalf("reload reattached tool: %v", err)
+	}
+	if got.MCPServerID == nil || *got.MCPServerID != recreated.ID || got.AvailabilityStatus != tools.ToolAvailabilityAvailable {
+		t.Fatalf("tool catalog row was not reattached to recreated server: %#v", got)
+	}
 }
 
 func TestDBRepositorySaveServerPersistsZeroValueUpdates(t *testing.T) {

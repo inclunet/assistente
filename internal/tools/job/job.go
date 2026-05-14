@@ -98,6 +98,10 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if actionCount > 1 {
 		return tools.ToolResult{Content: "delete, run, dry_run and list_runs are mutually exclusive", IsError: true}, nil
 	}
+	hasWrite := params.hasWriteFields()
+	if actionCount == 1 && (hasWrite || params.Enabled != nil) {
+		return tools.ToolResult{Content: "delete, run, dry_run and list_runs cannot be combined with write fields", IsError: true}, nil
+	}
 	if actionCount == 1 && id == "" {
 		return tools.ToolResult{Content: "job_id is required for delete/run/dry_run/list_runs", IsError: true}, nil
 	}
@@ -113,7 +117,6 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return t.listRuns(ctx, mgr, id, params.Limit)
 	}
 
-	hasWrite := params.hasWriteFields()
 	if id == "" && params.Enabled != nil && !hasWrite {
 		return tools.ToolResult{Content: "job_id is required to toggle enabled", IsError: true}, nil
 	}
@@ -156,7 +159,11 @@ func (t *Tool) manager() Manager {
 	if t.mgr == nil {
 		return nil
 	}
-	return t.mgr()
+	mgr := t.mgr()
+	if managerIsNil(mgr) {
+		return nil
+	}
+	return mgr
 }
 
 func (t *Tool) listJobs(ctx context.Context, mgr Manager) (tools.ToolResult, error) {

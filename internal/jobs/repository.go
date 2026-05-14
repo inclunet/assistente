@@ -925,17 +925,35 @@ func (r *DBRepository) LogRunEvent(ctx context.Context, entry *RunEvent) error {
 	if occurredAt.IsZero() {
 		occurredAt = r.now()
 	}
-	row := database.JobRunEvent{
-		UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(entry.ID)},
-		UserID:     userID,
-		JobRunID:   run.ID,
-		Sequence:   entry.Sequence,
-		OccurredAt: occurredAt,
-		Type:       entry.Type,
-		Message:    entry.Message,
-		Data:       data,
-	}
-	return r.db.WithContext(ctx).Create(&row).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		sequence := entry.Sequence
+		if sequence <= 0 {
+			var maxSequence int
+			if err := tx.Model(&database.JobRunEvent{}).
+				Where("user_id = ? AND job_run_id = ?", userID, run.ID).
+				Select("COALESCE(MAX(sequence), 0)").
+				Scan(&maxSequence).Error; err != nil {
+				return err
+			}
+			sequence = maxSequence + 1
+		}
+		row := database.JobRunEvent{
+			UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(entry.ID)},
+			UserID:     userID,
+			JobRunID:   run.ID,
+			Sequence:   sequence,
+			OccurredAt: occurredAt,
+			Type:       entry.Type,
+			Message:    entry.Message,
+			Data:       data,
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		entry.ID = row.ID
+		entry.Sequence = sequence
+		return nil
+	})
 }
 
 func (r *DBRepository) GetRunEvents(ctx context.Context, runID string) ([]RunEvent, error) {
@@ -1105,6 +1123,8 @@ func (r *DBRepository) toolCatalogIDForNameTx(ctx context.Context, tx *gorm.DB, 
 	err := tx.WithContext(ctx).
 		Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
 		Where("tool_catalog.name = ? AND (tool_catalog.user_id IS NULL OR tool_catalog.user_id = ? OR mcp_servers.user_id = ?)", name, userID, userID).
+		Order("tool_catalog.mcp_server_id IS NULL ASC").
+		Order("tool_catalog.availability_status = 'available' DESC").
 		Order("tool_catalog.user_id IS NULL ASC").
 		First(&row).Error
 	if err != nil {

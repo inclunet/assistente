@@ -209,6 +209,19 @@ func TestJobToolCreatesUpdatesAndLists(t *testing.T) {
 	}
 }
 
+func TestJobToolHandlesTypedNilManagerProvider(t *testing.T) {
+	var mgr *fakeManager
+	tool := NewJobWithProvider(func() Manager { return mgr })
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute typed nil provider error = %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "job manager not configured") {
+		t.Fatalf("expected configured error for typed nil manager, got %#v", result)
+	}
+}
+
 func TestJobToolRejectsEnabledWithoutJobID(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewJob(mgr)
@@ -222,6 +235,23 @@ func TestJobToolRejectsEnabledWithoutJobID(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "job_id is required") {
 		t.Fatalf("unexpected error: %s", result.Content)
+	}
+}
+
+func TestJobToolRejectsActionWithWriteFields(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["daily-report"] = &jobs.Job{ID: "daily-report", Name: "Daily Report", Enabled: true}
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"job_id":"daily-report","run":true,"enabled":false}`))
+	if err != nil {
+		t.Fatalf("Execute action+write error = %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected action+write to be rejected, got %s", result.Content)
+	}
+	if !mgr.jobs["daily-report"].Enabled {
+		t.Fatal("action+write should not mutate the job")
 	}
 }
 
@@ -333,5 +363,22 @@ func TestPipelineToolCreatesUpdatesAndDeletes(t *testing.T) {
 	}
 	if _, ok := mgr.pipelines["ops-jobs"]; ok {
 		t.Fatal("expected pipeline to be deleted")
+	}
+}
+
+func TestPipelineToolRejectsDeleteWithWriteFields(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.pipelines["ops"] = jobs.Pipeline{Slug: "ops", Name: "Ops", Enabled: true}
+	tool := NewPipeline(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"slug":"ops","delete":true,"description":"new"}`))
+	if err != nil {
+		t.Fatalf("Execute delete+write error = %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected delete+write to be rejected, got %s", result.Content)
+	}
+	if _, ok := mgr.pipelines["ops"]; !ok {
+		t.Fatal("delete+write should not delete the pipeline")
 	}
 }

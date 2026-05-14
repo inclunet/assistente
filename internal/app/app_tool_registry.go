@@ -260,7 +260,12 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskNote(tlMgr))
 
 	// Jobs são tools compostas e opt-in para não inflar o payload padrão.
-	jobMgr := func() jobtool.Manager { return a.jobMgr }
+	jobMgr := func() jobtool.Manager {
+		if a.jobMgr == nil {
+			return nil
+		}
+		return a.jobMgr
+	}
 	a.toolRegistry.MustRegisterOptIn(jobtool.NewJobWithProvider(jobMgr))
 	a.toolRegistry.MustRegisterOptIn(jobtool.NewPipelineWithProvider(jobMgr))
 

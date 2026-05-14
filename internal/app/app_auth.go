@@ -211,6 +211,7 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 		_ = a.clearAuthRefreshToken()
 		return nil, err
 	}
+	a.stopUserScopedRuntime()
 	a.setCurrentUserID(claims.Subject)
 	a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
 	if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
@@ -314,6 +315,7 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 		a.rollbackLoginState(pair.RefreshToken)
 		return nil, err
 	}
+	a.stopUserScopedRuntime()
 	a.setCurrentUserID(claims.Subject)
 	a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
 	if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
@@ -698,6 +700,15 @@ func (a *App) reloadUserScopedRuntime() {
 	}
 	if err := ctx.Err(); err != nil {
 		log.Printf("[reloadUserScopedRuntime] timeout/cancel atingido (%s): %v — runtime pode estar parcialmente inicializado", reloadUserScopedRuntimeTimeout, err)
+	}
+}
+
+func (a *App) stopUserScopedRuntime() {
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+	}
+	if a.llmRegistry != nil {
+		a.llmRegistry.Clear()
 	}
 }
 

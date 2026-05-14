@@ -301,6 +301,25 @@ func (r *DBRepository) UpsertTool(ctx context.Context, entry *tools.ToolCatalogE
 		err := query.First(&existing).Error
 		switch {
 		case errors.Is(err, gorm.ErrRecordNotFound):
+			if normalized.Origin != tools.ToolOriginBuiltin {
+				var detached database.ToolCatalog
+				reattachErr := tx.
+					Where("user_id = ? AND origin = ? AND name = ? AND mcp_server_id IS NULL", normalized.UserID, normalized.Origin, normalized.Name).
+					Order("updated_at DESC, id DESC").
+					First(&detached).Error
+				switch {
+				case reattachErr == nil:
+					row.ID = detached.ID
+					row.CreatedAt = detached.CreatedAt
+					if err := tx.Model(&detached).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
+						return err
+					}
+					entry.ID = detached.ID
+					return nil
+				case !errors.Is(reattachErr, gorm.ErrRecordNotFound):
+					return reattachErr
+				}
+			}
 			if err := tx.Create(&row).Error; err != nil {
 				return err
 			}

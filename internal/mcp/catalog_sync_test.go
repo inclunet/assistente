@@ -28,6 +28,7 @@ func TestSyncBuiltinToolsCatalogsGlobalToolsOnly(t *testing.T) {
 	repo, userA, userB := setupRepositoryTest(t)
 	registry := tools.NewRegistry()
 	registry.MustRegister(catalogTestTool{name: "read_file"})
+	registry.MustRegisterOptIn(catalogTestTool{name: "job"})
 	registry.MustRegister(catalogTestTool{name: "mcp_jira__create_issue"})
 
 	m := NewManager(registry, nil, nil)

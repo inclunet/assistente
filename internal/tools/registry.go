@@ -117,6 +117,22 @@ func (r *Registry) Names() []string {
 	return names
 }
 
+// FilterOutOptInNames remove tools opt-in de uma lista descoberta dinamicamente.
+// Perfis com enabled_tools explícito continuam podendo selecioná-las via FilterByNames.
+func (r *Registry) FilterOutOptInNames(names []string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		if r.optIn[name] {
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
+}
+
 // Count retorna o número de ferramentas registradas.
 func (r *Registry) Count() int {
 	r.mu.RLock()

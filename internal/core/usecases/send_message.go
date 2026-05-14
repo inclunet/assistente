@@ -274,6 +274,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				},
 				func(names []string) []llm.ToolDefinition {
 					names = chat.FilterToolNamesByEnabledTools(names, profileEnabledTools, disableTools)
+					if profileEnabledTools == nil && uc.toolRegistry != nil {
+						names = uc.toolRegistry.FilterOutOptInNames(names)
+					}
 					names = chat.FilterToolNamesForNativeMCP(requestStreamer, uc.mcpMgr, names, disableTools)
 					return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
 				},

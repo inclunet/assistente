@@ -189,6 +189,55 @@ func TestDBRepositorySaveJobCreatesUnresolvedMCPToolForImportedServer(t *testing
 	}
 }
 
+func TestDBRepositorySaveJobPrefersAttachedAvailableMCPTool(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	userID := "user-a"
+	if err := repo.db.Create(&database.MCPServer{
+		UserID: userID,
+		Slug:   "jira",
+		Name:   "Jira",
+	}).Error; err != nil {
+		t.Fatalf("seed mcp server: %v", err)
+	}
+	var server database.MCPServer
+	if err := repo.db.Where("user_id = ? AND slug = ?", userID, "jira").First(&server).Error; err != nil {
+		t.Fatalf("load server: %v", err)
+	}
+	detached := database.ToolCatalog{
+		UserID:             &userID,
+		Name:               "mcp_jira__create_issue",
+		DisplayName:        "old",
+		Origin:             "mcp_bridge",
+		AvailabilityStatus: "unavailable",
+	}
+	if err := repo.db.Create(&detached).Error; err != nil {
+		t.Fatalf("seed detached tool: %v", err)
+	}
+	attached := database.ToolCatalog{
+		UserID:             &userID,
+		MCPServerID:        &server.ID,
+		Name:               "mcp_jira__create_issue",
+		DisplayName:        "new",
+		Origin:             "mcp_bridge",
+		AvailabilityStatus: "available",
+	}
+	if err := repo.db.Create(&attached).Error; err != nil {
+		t.Fatalf("seed attached tool: %v", err)
+	}
+	job := testRepositoryJob("sync-jira", "Sync Jira")
+	job.Tool = "mcp_jira__create_issue"
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	var row database.Job
+	if err := repo.db.Where("slug = ?", "sync-jira").First(&row).Error; err != nil {
+		t.Fatalf("load job: %v", err)
+	}
+	if row.ToolCatalogID != attached.ID {
+		t.Fatalf("job picked stale tool catalog id %s, want attached %s", row.ToolCatalogID, attached.ID)
+	}
+}
+
 func TestDBRepositorySaveJobPreservesCreatedByOnUpdate(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	job := testRepositoryJob("sync-jira", "Sync Jira")
@@ -425,6 +474,35 @@ func TestDBRepositoryLogRunPersistsRunEvents(t *testing.T) {
 	}
 	if len(timeline) != 2 || timeline[0].JobID != "run-events" || timeline[1].JobID != "run-events" {
 		t.Fatalf("run events not exposed in public timeline: %#v", timeline)
+	}
+}
+
+func TestDBRepositoryLogRunEventAssignsMissingSequence(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, testRepositoryJob("sequenced-events", "Sequenced Events")); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	rl := &RunLog{RunID: "run-sequenced", JobID: "sequenced-events", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: time.Now()}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log run: %v", err)
+	}
+	first := &RunEvent{RunID: "run-sequenced", Type: "note", Message: "first"}
+	second := &RunEvent{RunID: "run-sequenced", Type: "note", Message: "second"}
+	if err := repo.LogRunEvent(userA, first); err != nil {
+		t.Fatalf("log first run event: %v", err)
+	}
+	if err := repo.LogRunEvent(userA, second); err != nil {
+		t.Fatalf("log second run event: %v", err)
+	}
+	events, err := repo.GetRunEvents(userA, "run-sequenced")
+	if err != nil {
+		t.Fatalf("get run events: %v", err)
+	}
+	if len(events) != 2 || events[0].Sequence != 1 || events[1].Sequence != 2 {
+		t.Fatalf("sequences not assigned monotonically: %#v", events)
+	}
+	if first.Sequence != 1 || second.Sequence != 2 {
+		t.Fatalf("entry sequences not reflected back: first=%d second=%d", first.Sequence, second.Sequence)
 	}
 }
 

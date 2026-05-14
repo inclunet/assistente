@@ -67,9 +67,16 @@ func (t *PipelineTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		return tools.ToolResult{Content: "job manager not configured", IsError: true}, nil
 	}
 	slug := slugFromName(params.Slug)
+	hasWrite := params.has("name") ||
+		params.Enabled != nil ||
+		params.has("description") ||
+		params.has("metadata")
 	if params.Delete {
 		if slug == "" {
 			return tools.ToolResult{Content: "slug is required to delete a pipeline", IsError: true}, nil
+		}
+		if hasWrite {
+			return tools.ToolResult{Content: "delete cannot be combined with pipeline write fields", IsError: true}, nil
 		}
 		if err := mgr.DeletePipelineContext(ctx, slug); err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("Error deleting pipeline: %v", err), IsError: true}, nil
@@ -78,11 +85,6 @@ func (t *PipelineTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		data, _ := json.Marshal(payload)
 		return tools.ToolResult{Content: string(data), Metadata: payload}, nil
 	}
-
-	hasWrite := params.has("name") ||
-		params.Enabled != nil ||
-		params.has("description") ||
-		params.has("metadata")
 
 	if slug == "" && !hasWrite {
 		return t.listPipelines(ctx, mgr)
@@ -100,7 +102,11 @@ func (t *PipelineTool) manager() Manager {
 	if t.mgr == nil {
 		return nil
 	}
-	return t.mgr()
+	mgr := t.mgr()
+	if managerIsNil(mgr) {
+		return nil
+	}
+	return mgr
 }
 
 func (t *PipelineTool) listPipelines(ctx context.Context, mgr Manager) (tools.ToolResult, error) {

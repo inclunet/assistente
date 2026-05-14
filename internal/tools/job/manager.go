@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"reflect"
 
 	"assistente/internal/jobs"
 )
@@ -23,3 +24,16 @@ type Manager interface {
 }
 
 type ManagerProvider func() Manager
+
+func managerIsNil(mgr Manager) bool {
+	if mgr == nil {
+		return true
+	}
+	v := reflect.ValueOf(mgr)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
