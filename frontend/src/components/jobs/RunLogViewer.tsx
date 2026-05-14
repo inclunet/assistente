@@ -79,7 +79,7 @@ function RunDetail({
     }
   }, [onReplay, run]);
 
-  const canReplay = Boolean(run.tool_name && run.resolved_inputs && onReplay);
+  const canReplay = Boolean(run.replayable && run.tool_name && run.resolved_inputs && onReplay);
 
   return (
     <section className="run-detail" aria-label={t('jobs.runDetailLabel', 'Detalhes da execução')}>

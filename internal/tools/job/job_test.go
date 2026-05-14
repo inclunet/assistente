@@ -27,7 +27,7 @@ func newFakeManager() *fakeManager {
 func (m *fakeManager) GetJobs() []jobs.JobInfo {
 	out := make([]jobs.JobInfo, 0, len(m.jobs))
 	for _, job := range m.jobs {
-		out = append(out, jobs.JobInfo{ID: job.ID, Name: job.Name, Enabled: job.Enabled, Pipeline: job.Pipeline, Tool: job.Tool})
+		out = append(out, jobs.JobInfo{ID: job.ID, Name: job.Name, Enabled: job.Enabled, Pipeline: job.Pipeline, Tool: job.Tool, LastRun: job.LastRun})
 	}
 	return out
 }
@@ -199,6 +199,11 @@ func TestJobToolCreatesUpdatesAndLists(t *testing.T) {
 	if got := mgr.jobs["daily-report"].Tags; len(got) != 1 || got[0] != "ops" {
 		t.Fatalf("unexpected tags: %#v", got)
 	}
+	mgr.jobs["daily-report"].LastRun = &jobs.RunLog{
+		RunID:          "run-secret",
+		JobID:          "daily-report",
+		ResolvedInputs: map[string]any{"token": "secret"},
+	}
 
 	result, err = tool.Execute(context.Background(), nil)
 	if err != nil {
@@ -206,6 +211,45 @@ func TestJobToolCreatesUpdatesAndLists(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "Daily Report") {
 		t.Fatalf("list output does not include job: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "last_run") {
+		t.Fatalf("list output should not include last run payload: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "run-secret") || strings.Contains(result.Content, "secret") {
+		t.Fatalf("list output leaked last run payload: %s", result.Content)
+	}
+}
+
+func TestJobToolGetRedactsSensitiveInputs(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["secret-job"] = &jobs.Job{
+		ID:      "secret-job",
+		Name:    "Secret Job",
+		Enabled: true,
+		Tool:    "web_fetch",
+		Inputs: map[string]any{
+			"apiKey": "secret-value",
+			"query":  "public",
+			"nested": map[string]any{
+				"token": "nested-secret",
+			},
+		},
+		Triggers: []jobs.Trigger{{Type: jobs.TriggerManual}},
+	}
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"job_id":"secret-job"}`))
+	if err != nil {
+		t.Fatalf("Execute get error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute get returned error result: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "secret-value") || strings.Contains(result.Content, "nested-secret") {
+		t.Fatalf("get output leaked sensitive input: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, `"apiKey":"[redacted]"`) || !strings.Contains(result.Content, `"query":"public"`) {
+		t.Fatalf("get output did not redact expected fields: %s", result.Content)
 	}
 }
 

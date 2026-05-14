@@ -786,6 +786,7 @@ export namespace jobs {
 	    retry_count?: number;
 	    events_emitted?: string[];
 	    is_dry_run?: boolean;
+	    replayable: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RunLog(source);
@@ -808,6 +809,7 @@ export namespace jobs {
 	        this.retry_count = source["retry_count"];
 	        this.events_emitted = source["events_emitted"];
 	        this.is_dry_run = source["is_dry_run"];
+	        this.replayable = source["replayable"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

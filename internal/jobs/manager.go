@@ -15,6 +15,8 @@ import (
 	"assistente/internal/hotkey"
 	"assistente/internal/messaging"
 	"assistente/internal/tools"
+
+	"github.com/google/uuid"
 )
 
 var ErrJobNotFound = errors.New("job not found")
@@ -242,7 +244,7 @@ func (m *Manager) GetJobContext(ctx context.Context, id string) (*Job, error) {
 	return copy, nil
 }
 
-// ToggleJob ativa ou desativa um job e persiste no YAML.
+// ToggleJob ativa ou desativa um job e persiste no repositório DB-backed.
 func (m *Manager) ToggleJob(id string, enabled bool) error {
 	job := m.registry.Get(id)
 	if job == nil {
@@ -1063,23 +1065,59 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 	if current == nil || !m.effectiveJobEnabled(current) {
 		return
 	}
-	if trigCtx != nil && trigCtx.Type != TriggerManual && strings.HasPrefix(current.Tool, "mcp_") {
-		if m.cfg.ToolRegistry == nil {
-			log.Printf("[Jobs] %s: skipping automatic run; tool registry is not available", current.ID)
-			return
-		}
-		if _, ok := m.cfg.ToolRegistry.Get(current.Tool); !ok {
-			log.Printf("[Jobs] %s: skipping automatic run; MCP tool %q is not available yet", current.ID, current.Tool)
-			return
-		}
-	}
-
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		log.Printf("[Jobs] %s: authenticated context required: %v", current.ID, err)
 		return
 	}
+	if trigCtx != nil && trigCtx.Type != TriggerManual && strings.HasPrefix(current.Tool, "mcp_") {
+		if m.cfg.ToolRegistry == nil {
+			m.logSkippedUnavailableTool(ctx, current, trigCtx, "tool registry is not available")
+			return
+		}
+		if _, ok := m.cfg.ToolRegistry.Get(current.Tool); !ok {
+			m.logSkippedUnavailableTool(ctx, current, trigCtx, fmt.Sprintf("MCP tool %q is not available yet", current.Tool))
+			return
+		}
+	}
 	m.executor.Execute(ctx, current, trigCtx)
+}
+
+func (m *Manager) logSkippedUnavailableTool(ctx context.Context, job *Job, trigCtx *TriggerContext, reason string) {
+	log.Printf("[Jobs] %s: skipping automatic run; %s", job.ID, reason)
+	if m.cfg.Repository == nil {
+		return
+	}
+	runUUID, err := uuid.NewV7()
+	if err != nil {
+		runUUID = uuid.New()
+	}
+	now := time.Now()
+	rl := &RunLog{
+		RunID:    "run_" + runUUID.String(),
+		JobID:    job.ID,
+		ToolName: job.Tool,
+		Trigger: TriggerInfo{
+			Type:       trigCtx.Type,
+			At:         now,
+			Event:      trigCtx.EventName,
+			Expression: trigCtx.Expression,
+			Every:      trigCtx.Every,
+			Keys:       trigCtx.Keys,
+			When:       trigCtx.When,
+		},
+		Status:      "skipped",
+		StartedAt:   now,
+		CompletedAt: now,
+		Error:       reason,
+		Replayable:  false,
+	}
+	rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
+	rl.addRunEvent("triggered", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
+	rl.addRunEvent("skipped", fmt.Sprintf("[%s] SKIPPED: %s", job.ID, reason), nil)
+	if err := m.cfg.Repository.LogRun(context.WithoutCancel(ctx), rl); err != nil {
+		log.Printf("[Jobs] %s: error logging skipped run: %v", job.ID, err)
+	}
 }
 
 const (

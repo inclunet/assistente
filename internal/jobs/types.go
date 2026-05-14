@@ -186,6 +186,7 @@ type RunLog struct {
 	RetryCount     int            `json:"retry_count,omitempty"`
 	EventsEmitted  []string       `json:"events_emitted,omitempty"`
 	IsDryRun       bool           `json:"is_dry_run,omitempty"`
+	Replayable     bool           `json:"replayable"`
 	RunEvents      []RunEvent     `json:"-"`
 	DomainEvents   []EventEntry   `json:"-"`
 }

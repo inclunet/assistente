@@ -1517,6 +1517,7 @@ func runModelToDomain(row database.JobRun, jobSlug string) RunLog {
 		Duration:       time.Duration(row.DurationMs * int64(time.Millisecond)).String(),
 		CompletedAt:    time.Time{},
 	}
+	rl.Replayable = rl.Status != "skipped" && rl.ToolName != "" && rl.ResolvedInputs != nil && !ContainsRedactedValue(rl.ResolvedInputs)
 	if row.CompletedAt != nil {
 		rl.CompletedAt = *row.CompletedAt
 	}

@@ -171,7 +171,23 @@ func (t *Tool) listJobs(ctx context.Context, mgr Manager) (tools.ToolResult, err
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error listing jobs: %v", err), IsError: true}, nil
 	}
-	data, _ := json.Marshal(jobsList)
+	summaries := make([]jobSummary, 0, len(jobsList))
+	for _, job := range jobsList {
+		summaries = append(summaries, jobSummary{
+			ID:               job.ID,
+			Name:             job.Name,
+			Description:      job.Description,
+			Enabled:          job.Enabled,
+			EffectiveEnabled: job.EffectiveEnabled,
+			PipelineEnabled:  job.PipelineEnabled,
+			Pipeline:         job.Pipeline,
+			Tags:             job.Tags,
+			Tool:             job.Tool,
+			Status:           job.Status,
+			Triggers:         job.Triggers,
+		})
+	}
+	data, _ := json.Marshal(summaries)
 	return tools.ToolResult{
 		Content:  fmt.Sprintf("Found %d job(s):\n%s", len(jobsList), string(data)),
 		Metadata: map[string]any{"count": len(jobsList)},
@@ -183,8 +199,23 @@ func (t *Tool) getJob(ctx context.Context, mgr Manager, id string) (tools.ToolRe
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
+	job.Inputs = jobs.RedactResolvedInputs(nil, job.Inputs)
 	data, _ := json.Marshal(job)
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id}}, nil
+}
+
+type jobSummary struct {
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	Description      string         `json:"description,omitempty"`
+	Enabled          bool           `json:"enabled"`
+	EffectiveEnabled bool           `json:"effective_enabled"`
+	PipelineEnabled  bool           `json:"pipeline_enabled"`
+	Pipeline         string         `json:"pipeline,omitempty"`
+	Tags             []string       `json:"tags,omitempty"`
+	Tool             string         `json:"tool"`
+	Status           jobs.JobStatus `json:"status"`
+	Triggers         []jobs.Trigger `json:"triggers,omitempty"`
 }
 
 func (t *Tool) createJob(ctx context.Context, mgr Manager, explicitID string, params jobArgs) (tools.ToolResult, error) {

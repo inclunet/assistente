@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -173,16 +174,34 @@ func TestManagerSaveJobBeforeStartDoesNotScheduleInterval(t *testing.T) {
 }
 
 func TestManagerExecuteJobSkipsAutomaticMCPRunWhenToolUnavailable(t *testing.T) {
-	_, userA, _ := setupJobsRepositoryTest(t)
+	repo, userA, _ := setupJobsRepositoryTest(t)
 	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
 		ToolRegistry:    tools.NewRegistry(),
 		ContextProvider: func() context.Context { return userA },
 	})
 	job := testRepositoryJob("mcp-job", "MCP Job")
+	job.Triggers = []Trigger{{Type: TriggerInterval, Every: "1m"}}
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
 	job.Tool = "mcp_jira__create_issue"
 	mgr.registry.Set(job)
 
 	mgr.executeJob(context.Background(), job, &TriggerContext{Type: TriggerInterval, Every: "1m"})
+	runs, err := repo.GetRuns(userA, "mcp-job", 1)
+	if err != nil {
+		t.Fatalf("get runs: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected skipped run to be persisted, got %#v", runs)
+	}
+	if runs[0].Status != "skipped" || runs[0].Replayable {
+		t.Fatalf("unexpected skipped run: %#v", runs[0])
+	}
+	if !strings.Contains(runs[0].Error, "not available") {
+		t.Fatalf("skipped run did not record reason: %#v", runs[0])
+	}
 }
 
 func TestManagerGetJobContextReturnsCopy(t *testing.T) {

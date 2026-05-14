@@ -102,6 +102,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		rl.CompletedAt = time.Now()
 		rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
 		rl.addTerminalRunEvent(job.ID)
+		rl.Replayable = rl.Status != "skipped" && rl.ToolName != "" && rl.ResolvedInputs != nil && !ContainsRedactedValue(rl.ResolvedInputs)
 
 		if e.repository != nil {
 			persistCtx := context.WithoutCancel(ctx)

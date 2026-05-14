@@ -505,6 +505,9 @@ func TestDBRepositoryLogRunRedactsSensitiveInputs(t *testing.T) {
 	if got.ResolvedInputs["query"] != "public" {
 		t.Fatalf("public input was changed: %#v", got.ResolvedInputs)
 	}
+	if got.Replayable {
+		t.Fatalf("run with redacted inputs should not be replayable: %#v", got)
+	}
 }
 
 func TestDBRepositoryLogRunPersistsRunEvents(t *testing.T) {
