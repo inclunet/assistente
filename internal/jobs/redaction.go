@@ -17,6 +17,26 @@ func RedactResolvedInputs(original, resolved map[string]any) map[string]any {
 	return redacted
 }
 
+func ContainsRedactedValue(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return v == redactedValue
+	case map[string]any:
+		for _, child := range v {
+			if ContainsRedactedValue(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if ContainsRedactedValue(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func redactValue(key string, original, resolved any) any {
 	if isSensitiveInputKey(key) || containsSecretTemplate(original) {
 		return redactedValue

@@ -687,6 +687,7 @@ func (a *App) reloadUserScopedRuntime() {
 		if err := a.mcpMgr.LoadConfigs(); err != nil {
 			log.Printf("[reloadUserScopedRuntime] erro ao carregar MCP servers do usuário: %v", err)
 		}
+		startJobsForCurrentUser()
 		// Auto-connect MCP só agora: depois de adoptLegacyDataForUser →
 		// LoadUserCredentials, as credenciais user-scoped (incluindo os
 		// tokens OAuth `mcp-tokens:*` / `mcp-client:*`) estão em memória.
@@ -699,7 +700,6 @@ func (a *App) reloadUserScopedRuntime() {
 		// userID do contexto autenticado vigente.
 		go func() {
 			a.mcpMgr.AutoConnectAll(database.WithUserID(context.Background(), userID))
-			startJobsForCurrentUser()
 		}()
 	} else {
 		startJobsForCurrentUser()

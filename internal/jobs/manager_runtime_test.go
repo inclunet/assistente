@@ -153,6 +153,38 @@ func TestManagerGetToolCatalogIncludesDiscoverableOptIn(t *testing.T) {
 	}
 }
 
+func TestManagerSaveJobBeforeStartDoesNotScheduleInterval(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
+		ContextProvider: func() context.Context { return userA },
+	})
+
+	job := testRepositoryJob("prestart", "Prestart")
+	job.Triggers = []Trigger{{Type: TriggerInterval, Every: "1h"}}
+	if err := mgr.SaveJobContext(userA, job); err != nil {
+		t.Fatalf("save job before start: %v", err)
+	}
+
+	if got := mgr.scheduler.ScheduledJobs(); len(got) != 0 {
+		t.Fatalf("job saved before manager start scheduled triggers: %#v", got)
+	}
+	mgr.Stop()
+}
+
+func TestManagerExecuteJobSkipsAutomaticMCPRunWhenToolUnavailable(t *testing.T) {
+	_, userA, _ := setupJobsRepositoryTest(t)
+	mgr := NewManager(ManagerConfig{
+		ToolRegistry:    tools.NewRegistry(),
+		ContextProvider: func() context.Context { return userA },
+	})
+	job := testRepositoryJob("mcp-job", "MCP Job")
+	job.Tool = "mcp_jira__create_issue"
+	mgr.registry.Set(job)
+
+	mgr.executeJob(context.Background(), job, &TriggerContext{Type: TriggerInterval, Every: "1m"})
+}
+
 func TestManagerGetJobContextReturnsCopy(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	job := testRepositoryJob("sync-jira", "Sync Jira")

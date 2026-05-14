@@ -123,6 +123,9 @@ func (c *JobsController) ReplayRun(jobID, runID string) (*jobs.TestToolResult, e
 	if rl.ResolvedInputs == nil {
 		return nil, fmt.Errorf("run %s has no resolved_inputs recorded (old format)", runID)
 	}
+	if jobs.ContainsRedactedValue(rl.ResolvedInputs) {
+		return nil, fmt.Errorf("run %s contains redacted inputs and cannot be replayed safely", runID)
+	}
 	return c.jobMgr.TestTool(rl.ToolName, rl.ResolvedInputs, nil)
 }
 
@@ -139,6 +142,9 @@ func (c *JobsController) ReplayRunContext(ctx context.Context, jobID, runID stri
 	}
 	if rl.ResolvedInputs == nil {
 		return nil, fmt.Errorf("run %s has no resolved_inputs recorded (old format)", runID)
+	}
+	if jobs.ContainsRedactedValue(rl.ResolvedInputs) {
+		return nil, fmt.Errorf("run %s contains redacted inputs and cannot be replayed safely", runID)
 	}
 	return c.jobMgr.TestToolContext(ctx, rl.ToolName, rl.ResolvedInputs, nil)
 }

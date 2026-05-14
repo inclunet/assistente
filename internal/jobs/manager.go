@@ -855,7 +855,9 @@ func (m *Manager) RegenerateCatalog() error {
 
 func (m *Manager) registerJob(job *Job) {
 	m.registry.Set(job)
-	m.registerTriggers(job)
+	if m.started {
+		m.registerTriggers(job)
+	}
 	log.Printf("[Jobs] Registered: %s (enabled=%v pipeline_enabled=%v)", job.ID, job.Enabled, job.PipelineEnabled)
 }
 
@@ -1060,6 +1062,16 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 	current := m.registry.Get(job.ID)
 	if current == nil || !m.effectiveJobEnabled(current) {
 		return
+	}
+	if trigCtx != nil && trigCtx.Type != TriggerManual && strings.HasPrefix(current.Tool, "mcp_") {
+		if m.cfg.ToolRegistry == nil {
+			log.Printf("[Jobs] %s: skipping automatic run; tool registry is not available", current.ID)
+			return
+		}
+		if _, ok := m.cfg.ToolRegistry.Get(current.Tool); !ok {
+			log.Printf("[Jobs] %s: skipping automatic run; MCP tool %q is not available yet", current.ID, current.Tool)
+			return
+		}
 	}
 
 	ctx, err := m.scopedContext(ctx)
