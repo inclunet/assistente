@@ -1,0 +1,53 @@
+name: Request Copilot Review
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to review
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: copilot-review-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  request:
+    name: Request Copilot review
+    runs-on: ubuntu-latest
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (!github.event.pull_request.draft &&
+          github.event.pull_request.user.type != 'Bot')
+      }}
+    steps:
+      - name: Request review from Copilot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          echo "Requesting Copilot review for ${REPO}#${PR_NUMBER}"
+
+          for attempt in 1 2 3; do
+            if gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-reviewer @copilot; then
+              echo "Copilot review requested."
+              exit 0
+            fi
+
+            echo "Attempt ${attempt} failed; retrying shortly..."
+            sleep 15
+          done
+
+          echo "Failed to request Copilot review after 3 attempts."
+          exit 1
