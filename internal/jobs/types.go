@@ -191,7 +191,8 @@ type RunLog struct {
 	DomainEvents   []EventEntry   `json:"-"`
 }
 
-// EventEntry representa uma entrada no event log (JSONL).
+// EventEntry representa um evento de domínio persistido (DB-backed)
+// relacionado a execuções de jobs, com correlação opcional por run.
 type EventEntry struct {
 	ID        string         `json:"id,omitempty"`
 	Timestamp time.Time      `json:"timestamp"`

@@ -403,23 +403,10 @@ func (a *App) Logout(req LogoutRequest) error {
 			a.logLogoutError(err)
 		}
 	}
-	if a.jobMgr != nil {
-		a.jobMgr.Stop()
-	}
+	a.stopUserScopedRuntime()
 	_ = a.clearAuthRefreshToken()
 	a.setCurrentUserID("")
 	a.setCurrentAuthUser(nil)
-	if a.llmRegistry != nil {
-		a.llmRegistry.Clear()
-	}
-	if a.mcpMgr != nil {
-		// Solta as conexões MCP do user que está saindo. As credenciais
-		// `mcp-tokens:*` desse user não estão mais válidas neste
-		// processo (o vault vai ser locked logo abaixo); deixar as
-		// conexões abertas é (a) leak de file descriptors, (b) risco
-		// de que requests pendentes vazem para o user seguinte.
-		a.mcpMgr.DisconnectAll()
-	}
 	if a.vaultSvc != nil {
 		a.vaultSvc.Lock()
 	}

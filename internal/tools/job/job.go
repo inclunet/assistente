@@ -94,7 +94,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if mgr == nil {
 		return tools.ToolResult{Content: "job manager not configured", IsError: true}, nil
 	}
-	id := slugFromName(params.JobID)
+	id := normalizeRepoSlug(params.JobID)
 	actionCount := boolCount(params.Delete, params.Run, params.DryRun, params.ListRuns)
 	if actionCount > 1 {
 		return tools.ToolResult{Content: "delete, run, dry_run and list_runs are mutually exclusive", IsError: true}, nil
@@ -386,6 +386,18 @@ func boolCount(values ...bool) int {
 		}
 	}
 	return count
+}
+
+// normalizeRepoSlug replica a normalização usada pelo repository de jobs:
+// lower + trim + replace espaços por '-'.
+//
+// Importante: isso NÃO é um "slugify" agressivo (não remove '.', '_' etc.).
+func normalizeRepoSlug(value string) string {
+	slug := strings.ToLower(strings.TrimSpace(value))
+	if slug == "" {
+		return ""
+	}
+	return strings.ReplaceAll(slug, " ", "-")
 }
 
 func slugFromName(name string) string {
