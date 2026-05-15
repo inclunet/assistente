@@ -164,14 +164,6 @@ func resolveTemplate(tmplStr string, ctx *TemplateContext) (any, error) {
 	return result, nil
 }
 
-func mapKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
 // --- Funcoes de template ---
 
 // pluck extrai um campo de cada item de uma slice de maps.
