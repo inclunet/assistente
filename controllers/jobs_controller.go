@@ -250,6 +250,30 @@ func (c *JobsController) TestTool(toolName, inputsJSON, eventJSON string) (*jobs
 	return c.jobMgr.TestTool(toolName, inputs, eventData)
 }
 
+func (c *JobsController) TestToolContext(ctx context.Context, toolName, inputsJSON, eventJSON string) (*jobs.TestToolResult, error) {
+	if c.jobMgr == nil {
+		return nil, fmt.Errorf("job manager not initialized")
+	}
+
+	var inputs map[string]any
+	if inputsJSON != "" && inputsJSON != "{}" {
+		if err := json.Unmarshal([]byte(inputsJSON), &inputs); err != nil {
+			return nil, fmt.Errorf("invalid inputs: %w", err)
+		}
+	}
+	if inputs == nil {
+		inputs = make(map[string]any)
+	}
+
+	var eventData map[string]any
+	if eventJSON != "" && eventJSON != "{}" {
+		if err := json.Unmarshal([]byte(eventJSON), &eventData); err != nil {
+			return nil, fmt.Errorf("invalid event data: %w", err)
+		}
+	}
+	return c.jobMgr.TestToolContext(ctx, toolName, inputs, eventData)
+}
+
 func (c *JobsController) InferEventSchema(eventName string) map[string]any {
 	if c.jobMgr == nil {
 		return nil

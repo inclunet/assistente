@@ -29,7 +29,7 @@ var (
 
 // SecretStore abstrai acesso a secrets para o job engine.
 type SecretStore interface {
-	GetSecret(key string) (string, error)
+	GetSecret(ctx context.Context, key string) (string, error)
 }
 
 // ManagerConfig contem as dependencias externas do Manager.
@@ -78,7 +78,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 		EventBus:       eventBus,
 		Repository:     cfg.Repository,
 		CircuitBreaker: circuitBreaker,
-		SecretResolver: m.resolveSecret,
+		SecretStore:    cfg.SecretStore,
 		NotifyFunc:     m.notifyChannels,
 		OnRunStart:     m.onRunStart,
 		OnRunEnd:       m.onRunEnd,
@@ -618,6 +618,11 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 		}
 		for _, entry := range persisted {
 			if _, exists := entriesByName[entry.Name]; !exists {
+				// Evita ressuscitar tools "internal" antigas deixadas no DB.
+				// O catálogo live (registry) é a fonte de verdade para builtins.
+				if entry.Source != "mcp" {
+					continue
+				}
 				entriesByName[entry.Name] = entry
 			}
 		}
@@ -869,21 +874,24 @@ func (m *Manager) TestToolContext(parent context.Context, toolName string, input
 			return keys
 		}(), eventData == nil)
 
+	tmplCtx := &TemplateContext{
+		Event: eventData,
+		Secrets: func(key string) (string, error) {
+			return m.resolveSecret(execCtx, key)
+		},
+		Now: time.Now(),
+	}
 	if eventData != nil {
 		if c, ok := eventData["content"]; ok {
 			log.Printf("[Jobs] TestTool: eventData.content type=%T", c)
 		}
-		ctx := &TemplateContext{
-			Event: eventData,
-			Now:   time.Now(),
-		}
-		resolved, err := ResolveInputs(inputs, ctx)
-		if err != nil {
-			return nil, fmt.Errorf("resolve templates: %w", err)
-		}
-		log.Printf("[Jobs] TestTool: resolved input keys=%v", mapKeys(resolved))
-		inputs = resolved
 	}
+	resolved, err := ResolveInputs(inputs, tmplCtx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve templates: %w", err)
+	}
+	log.Printf("[Jobs] TestTool: resolved input keys=%v", mapKeys(resolved))
+	inputs = resolved
 
 	inputs = CoerceInputs(inputs, tool.Parameters())
 
@@ -1260,11 +1268,11 @@ func (m *Manager) startRetentionLoop(ctx context.Context) {
 	}()
 }
 
-func (m *Manager) resolveSecret(key string) (string, error) {
+func (m *Manager) resolveSecret(ctx context.Context, key string) (string, error) {
 	if m.cfg.SecretStore == nil {
 		return "", fmt.Errorf("no secret store configured")
 	}
-	return m.cfg.SecretStore.GetSecret(key)
+	return m.cfg.SecretStore.GetSecret(ctx, key)
 }
 
 func (m *Manager) notifyChannels(channels []string, message string) {
