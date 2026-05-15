@@ -266,6 +266,13 @@ func (a *App) rollbackLoginState(refreshToken string) {
 	if err := a.clearAuthRefreshToken(); err != nil {
 		log.Printf("[Auth] rollback: erro ao apagar refresh token local: %v", err)
 	}
+	a.userRuntimeMu.Lock()
+	if a.userRuntimeCancel != nil {
+		a.userRuntimeCancel()
+		a.userRuntimeCancel = nil
+		a.userRuntimeCtx = nil
+	}
+	a.userRuntimeMu.Unlock()
 	if a.jobMgr != nil {
 		a.jobMgr.Stop()
 	}

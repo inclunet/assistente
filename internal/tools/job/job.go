@@ -200,7 +200,7 @@ func (t *Tool) getJob(ctx context.Context, mgr Manager, id string) (tools.ToolRe
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
-	job.Inputs = jobs.RedactResolvedInputs(nil, job.Inputs)
+	job.Inputs = jobs.RedactResolvedInputs(job.Inputs, job.Inputs)
 	// Evita vazar detalhes de execuções anteriores (outputs/inputs resolvidos) em um "read" de configuração.
 	job.LastRun = nil
 	data, _ := json.Marshal(job)
