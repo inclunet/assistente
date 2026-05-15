@@ -14,12 +14,8 @@ func (m *Manager) SyncBuiltinTools(ctx context.Context) error {
 	if repo == nil || m.registry == nil {
 		return nil
 	}
-	for _, name := range m.registry.Names() {
-		if _, _, ok := ParseToolName(name); ok {
-			continue
-		}
-		tool, ok := m.registry.Get(name)
-		if !ok {
+	for _, tool := range m.registry.Discoverable() {
+		if _, _, ok := ParseToolName(tool.Name()); ok {
 			continue
 		}
 		entry := tools.CatalogEntryFromTool(tool)

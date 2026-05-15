@@ -6,18 +6,21 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strings"
 	"time"
 
 	"assistente/internal/tools"
+
+	"github.com/google/uuid"
 )
 
 // JobExecutor executa jobs chamando tools do registry.
 type JobExecutor struct {
 	toolRegistry   *tools.Registry
 	eventBus       *EventBus
-	logger         *Logger
+	repository     Repository
 	circuitBreaker *CircuitBreaker
-	secretResolver SecretResolver
+	secretStore    SecretStore
 	notifyFunc     NotifyFunc
 
 	// Callback emitido no inicio/fim de cada run (para atualizar UI)
@@ -32,9 +35,9 @@ type NotifyFunc func(channels []string, message string)
 type ExecutorConfig struct {
 	ToolRegistry   *tools.Registry
 	EventBus       *EventBus
-	Logger         *Logger
+	Repository     Repository
 	CircuitBreaker *CircuitBreaker
-	SecretResolver SecretResolver
+	SecretStore    SecretStore
 	NotifyFunc     NotifyFunc
 	OnRunStart     func(jobID string, runID string)
 	OnRunEnd       func(jobID string, runLog *RunLog)
@@ -45,9 +48,9 @@ func NewJobExecutor(cfg ExecutorConfig) *JobExecutor {
 	return &JobExecutor{
 		toolRegistry:   cfg.ToolRegistry,
 		eventBus:       cfg.EventBus,
-		logger:         cfg.Logger,
+		repository:     cfg.Repository,
 		circuitBreaker: cfg.CircuitBreaker,
-		secretResolver: cfg.SecretResolver,
+		secretStore:    cfg.SecretStore,
 		notifyFunc:     cfg.NotifyFunc,
 		onRunStart:     cfg.OnRunStart,
 		onRunEnd:       cfg.OnRunEnd,
@@ -58,6 +61,10 @@ func NewJobExecutor(cfg ExecutorConfig) *JobExecutor {
 type TriggerContext struct {
 	Type         TriggerType
 	EventName    string
+	Expression   string
+	Every        string
+	Keys         string
+	When         string
 	EventPayload map[string]any
 	ChainID      string   // ID da cadeia (para circuit breaker)
 	ChainHistory []string // jobs ja executados nesta cadeia
@@ -66,15 +73,27 @@ type TriggerContext struct {
 // Execute executa um job: resolve inputs, chama a tool, processa output, emite eventos.
 // Respeita error_policy com retry/backoff.
 func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerContext) *RunLog {
-	runID := fmt.Sprintf("run_%d", time.Now().UnixNano())
+	if trigCtx == nil {
+		trigCtx = &TriggerContext{Type: TriggerManual}
+	}
+
+	runUUID, err := uuid.NewV7()
+	if err != nil {
+		runUUID = uuid.New()
+	}
+	runID := "run_" + runUUID.String()
 
 	rl := &RunLog{
-		RunID:   runID,
-		JobID:   job.ID,
+		RunID: runID,
+		JobID: job.ID,
 		Trigger: TriggerInfo{
-			Type:  trigCtx.Type,
-			At:    time.Now(),
-			Event: trigCtx.EventName,
+			Type:       trigCtx.Type,
+			At:         time.Now(),
+			Event:      trigCtx.EventName,
+			Expression: trigCtx.Expression,
+			Every:      trigCtx.Every,
+			Keys:       trigCtx.Keys,
+			When:       trigCtx.When,
 		},
 		StartedAt: time.Now(),
 	}
@@ -86,9 +105,16 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	defer func() {
 		rl.CompletedAt = time.Now()
 		rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
+		rl.addTerminalRunEvent(job.ID)
+		rl.Replayable = rl.Status != "skipped" && rl.ToolName != "" && rl.ResolvedInputs != nil && !ContainsRedactedValue(rl.ResolvedInputs)
 
-		if err := e.logger.LogRun(rl); err != nil {
-			log.Printf("[Jobs] Error logging run: %v", err)
+		if e.repository != nil {
+			persistCtx := context.WithoutCancel(ctx)
+			if err := e.repository.LogRun(persistCtx, rl); err != nil {
+				log.Printf("[Jobs] Error logging run: %v", err)
+			}
+		} else {
+			log.Printf("[Jobs] Error logging run: repository not configured")
 		}
 
 		if e.onRunEnd != nil {
@@ -96,8 +122,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		}
 	}()
 
-	// Log evento: triggered
-	e.logEvent("triggered", job.ID, "", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
+	rl.addRunEvent("triggered", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
 
 	// Circuit breaker: rate limit
 	if err := e.circuitBreaker.CheckRateLimit(job.ID, job.MaxRunsPerHour); err != nil {
@@ -229,7 +254,12 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	// Monta contexto de template
 	tmplCtx := &TemplateContext{
 		Event:   trigCtx.EventPayload,
-		Secrets: e.secretResolver,
+		Secrets: func(key string) (string, error) {
+			if e.secretStore == nil {
+				return "", fmt.Errorf("no secret store configured")
+			}
+			return e.secretStore.GetSecret(ctx, key)
+		},
 		Now:     time.Now(),
 	}
 
@@ -243,7 +273,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 
 	if rl != nil {
 		rl.ToolName = job.Tool
-		rl.ResolvedInputs = resolvedInputs
+		rl.ResolvedInputs = RedactResolvedInputs(job.Inputs, resolvedInputs)
 	}
 
 	// Serializa inputs para JSON (formato esperado por tool.Execute)
@@ -278,7 +308,9 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		} else {
 			log.Printf("[Jobs] Output parsed as object with keys: %v", func() []string {
 				keys := make([]string, 0, len(output))
-				for k := range output { keys = append(keys, k) }
+				for k := range output {
+					keys = append(keys, k)
+				}
 				return keys
 			}())
 		}
@@ -349,7 +381,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 			}
 
 			if emitted > 0 {
-				e.logEvent("event_emitted", job.ID, job.Events.OnSuccess,
+				rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
 					fmt.Sprintf("[%s] -> emitted %q x%d/%d (fan-out on %q)", job.ID, job.Events.OnSuccess, emitted, len(items), job.Events.ForEach), nil)
 				rl.EventsEmitted = append(rl.EventsEmitted, fmt.Sprintf("%s x%d", job.Events.OnSuccess, emitted))
 			} else {
@@ -369,7 +401,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	output := e.applyPayloadTemplate(job, rl.Output, trigCtx)
 	payload := e.buildEventPayload(job, output)
 
-	e.logEvent("event_emitted", job.ID, job.Events.OnSuccess,
+	rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
 		fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnSuccess), nil)
 
 	rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnSuccess)
@@ -428,7 +460,11 @@ func splitDotPath(path string) []string {
 }
 
 func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, trigCtx *TriggerContext) {
-	e.logEvent("failed", job.ID, "", fmt.Sprintf("[%s] FAILED: %s", job.ID, rl.Error), nil)
+	eventType := rl.Status
+	if eventType == "" {
+		eventType = "failed"
+	}
+	rl.addRunEvent(eventType, fmt.Sprintf("[%s] %s: %s", job.ID, strings.ToUpper(eventType), rl.Error), nil)
 
 	if job.Events.OnFailure == "" {
 		return
@@ -442,7 +478,7 @@ func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, tri
 
 	rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnFailure)
 
-	e.logEvent("event_emitted", job.ID, job.Events.OnFailure,
+	rl.addDomainEvent("event_emitted", job.ID, job.Events.OnFailure,
 		fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnFailure), nil)
 
 	e.eventBus.Publish(ctx, job.Events.OnFailure, payload)
@@ -529,19 +565,50 @@ func (e *JobExecutor) buildEventPayload(job *Job, output map[string]any) map[str
 	return output
 }
 
-func (e *JobExecutor) logEvent(eventType, jobID, eventName, message string, data map[string]any) {
-	entry := &EventEntry{
+func (rl *RunLog) addDomainEvent(eventType, jobID, eventName, message string, data map[string]any) {
+	if rl == nil {
+		return
+	}
+	rl.DomainEvents = append(rl.DomainEvents, EventEntry{
 		Timestamp: time.Now(),
 		Type:      eventType,
 		JobID:     jobID,
+		RunID:     rl.RunID,
 		Event:     eventName,
 		Message:   message,
 		Data:      data,
-	}
+	})
+}
 
-	if err := e.logger.LogEvent(entry); err != nil {
-		log.Printf("[Jobs] Error logging event: %v", err)
+func (rl *RunLog) addRunEvent(eventType, message string, data map[string]any) {
+	if rl == nil {
+		return
 	}
+	rl.RunEvents = append(rl.RunEvents, RunEvent{
+		RunID:     rl.RunID,
+		Sequence:  len(rl.RunEvents) + 1,
+		Timestamp: time.Now(),
+		Type:      eventType,
+		Message:   message,
+		Data:      data,
+	})
+}
+
+func (rl *RunLog) addTerminalRunEvent(jobID string) {
+	if rl == nil || rl.Status == "" {
+		return
+	}
+	for _, event := range rl.RunEvents {
+		if event.Type == "completed" || event.Type == "failed" || event.Type == "skipped" {
+			return
+		}
+	}
+	status := rl.Status
+	message := fmt.Sprintf("[%s] %s", jobID, strings.ToUpper(status))
+	if rl.Error != "" {
+		message += ": " + rl.Error
+	}
+	rl.addRunEvent(status, message, nil)
 }
 
 func (e *JobExecutor) calculateRetryDelay(job *Job, attempt int) time.Duration {

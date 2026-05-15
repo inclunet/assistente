@@ -52,7 +52,7 @@ O sistema de jobs é 100% baseado em filesystem:
 
 O armazenamento YAML no disco é completamente substituído pelo banco SQLite. Não há modo dual (YAML + banco sincronizados) — a complexidade de manter dois sistemas em sincronia não justifica o benefício.
 
-O file watcher (`internal/jobs/watcher.go`) é removido. O catálogo de tools (`catalog.yaml`) permanece em disco por ser dado derivado (gerado automaticamente, nunca editado pelo usuário).
+O file watcher (`internal/jobs/watcher.go`) é removido. O catálogo de tools deixa de ser materializado em `catalog.yaml`: a UI e os jobs consultam o registry/catálogo persistente em tempo real, evitando qualquer escrita nova no diretório legado.
 
 ### D2 — Pipelines e triggers normalizados
 
@@ -407,7 +407,7 @@ Consequências:
 
 ### Fase 3 — Migrar Manager para usar Repository
 
-7. Alterar `ManagerConfig`: adicionar campo `Repository` (manter `BaseDir` apenas para catálogo)
+7. Alterar `ManagerConfig`: adicionar campo `Repository` (`BaseDir` fica apenas como fonte da importação legada inicial)
 8. Reescrever `Start()`: carregar jobs do DB, remover inicialização do Watcher
 9. Reescrever `SaveJob()`, `DeleteJob()`, `ToggleJob()`: usar Repository
 10. Reescrever `GetJobRuns()`, `GetJobEvents()`, `ReplayRun()`: usar Repository
@@ -439,7 +439,7 @@ Consequências:
 21. Remover `internal/jobs/logger.go` (file-based logging)
 22. Remover `marshalJobYAML()`, `LoadAllFromDir()`, campo `FilePath` do struct `Job`
 23. Simplificar `parser.go` — manter validação, remover I/O de disco
-24. Manter `catalog.go` (catálogo continua em disco — dado derivado)
+24. Remover geração/materialização de catálogo em disco; o catálogo passa a ser derivado em runtime do registry/catálogo persistente
 
 ### Fase 9 — Testes
 
@@ -508,5 +508,5 @@ Consequências:
 9. **Roundtrip JSON**: configs complexas (triggers, error_policy, etc.) sobrevivem save→load sem perda
 10. **Testes**: repository, manager, migração e LLM tools cobertos por testes Go
 11. **File watcher removido**: `internal/jobs/watcher.go` e `internal/jobs/logger.go` eliminados
-12. **Catálogo preservado**: `catalog.yaml` continua sendo gerado em disco como dado derivado
+12. **Catálogo derivado em runtime**: `catalog.yaml` deixa de ser gerado; UI e jobs consultam o registry/catálogo persistente em tempo real
 13. **Logs legados descartados**: runs JSON e eventos JSONL antigos não são importados

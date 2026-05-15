@@ -211,6 +211,7 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 		_ = a.clearAuthRefreshToken()
 		return nil, err
 	}
+	a.stopUserScopedRuntime()
 	a.setCurrentUserID(claims.Subject)
 	a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
 	if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
@@ -265,10 +266,23 @@ func (a *App) rollbackLoginState(refreshToken string) {
 	if err := a.clearAuthRefreshToken(); err != nil {
 		log.Printf("[Auth] rollback: erro ao apagar refresh token local: %v", err)
 	}
+	a.userRuntimeMu.Lock()
+	if a.userRuntimeCancel != nil {
+		a.userRuntimeCancel()
+		a.userRuntimeCancel = nil
+		a.userRuntimeCtx = nil
+	}
+	a.userRuntimeMu.Unlock()
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+	}
 	a.setCurrentUserID("")
 	a.setCurrentAuthUser(nil)
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
+	}
+	if a.mcpMgr != nil {
+		a.mcpMgr.DisconnectAll()
 	}
 }
 
@@ -314,6 +328,7 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 		a.rollbackLoginState(pair.RefreshToken)
 		return nil, err
 	}
+	a.stopUserScopedRuntime()
 	a.setCurrentUserID(claims.Subject)
 	a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
 	if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
@@ -388,20 +403,10 @@ func (a *App) Logout(req LogoutRequest) error {
 			a.logLogoutError(err)
 		}
 	}
+	a.stopUserScopedRuntime()
 	_ = a.clearAuthRefreshToken()
 	a.setCurrentUserID("")
 	a.setCurrentAuthUser(nil)
-	if a.llmRegistry != nil {
-		a.llmRegistry.Clear()
-	}
-	if a.mcpMgr != nil {
-		// Solta as conexões MCP do user que está saindo. As credenciais
-		// `mcp-tokens:*` desse user não estão mais válidas neste
-		// processo (o vault vai ser locked logo abaixo); deixar as
-		// conexões abertas é (a) leak de file descriptors, (b) risco
-		// de que requests pendentes vazem para o user seguinte.
-		a.mcpMgr.DisconnectAll()
-	}
 	if a.vaultSvc != nil {
 		a.vaultSvc.Lock()
 	}
@@ -640,7 +645,29 @@ func (a *App) reloadUserScopedRuntime() {
 	}
 	ctx, cancel := context.WithTimeout(authedCtx, reloadUserScopedRuntimeTimeout)
 	defer cancel()
+	userID, _ := database.UserIDFromContext(authedCtx)
+	startJobsForCurrentUser := func() {
+		if a.jobMgr == nil {
+			return
+		}
+		currentCtx, err := a.requireAuthenticatedContext()
+		if err != nil {
+			log.Printf("[reloadUserScopedRuntime] jobs não iniciados sem sessão autenticada: %v", err)
+			return
+		}
+		currentUserID, _ := database.UserIDFromContext(currentCtx)
+		if currentUserID != userID {
+			log.Printf("[reloadUserScopedRuntime] jobs não iniciados: sessão mudou durante reload")
+			return
+		}
+		if err := a.jobMgr.Start(); err != nil {
+			log.Printf("[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
+		}
+	}
 
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+	}
 	a.registerEnvCredentials(ctx, a.credMgr)
 	a.migrateLegacyConfig(ctx)
 	a.runPostLoginLegacyImports(ctx)
@@ -654,6 +681,7 @@ func (a *App) reloadUserScopedRuntime() {
 		if err := a.mcpMgr.LoadConfigs(); err != nil {
 			log.Printf("[reloadUserScopedRuntime] erro ao carregar MCP servers do usuário: %v", err)
 		}
+		startJobsForCurrentUser()
 		// Auto-connect MCP só agora: depois de adoptLegacyDataForUser →
 		// LoadUserCredentials, as credenciais user-scoped (incluindo os
 		// tokens OAuth `mcp-tokens:*` / `mcp-client:*`) estão em memória.
@@ -664,11 +692,45 @@ func (a *App) reloadUserScopedRuntime() {
 		// inteiro); o AutoConnectAll é serial e demora N×handshake, e
 		// cada Connect tem seu próprio timeout interno. Herda só o
 		// userID do contexto autenticado vigente.
-		userID, _ := database.UserIDFromContext(authedCtx)
-		go a.mcpMgr.AutoConnectAll(database.WithUserID(context.Background(), userID))
+		a.userRuntimeMu.Lock()
+		if a.userRuntimeCancel != nil {
+			a.userRuntimeCancel()
+			a.userRuntimeCancel = nil
+			a.userRuntimeCtx = nil
+		}
+		runtimeCtx, runtimeCancel := context.WithCancel(database.WithUserID(context.Background(), userID))
+		a.userRuntimeCtx = runtimeCtx
+		a.userRuntimeCancel = runtimeCancel
+		a.userRuntimeMu.Unlock()
+
+		go func(ctx context.Context) {
+			a.mcpMgr.AutoConnectAll(ctx)
+		}(runtimeCtx)
+	} else {
+		startJobsForCurrentUser()
 	}
 	if err := ctx.Err(); err != nil {
 		log.Printf("[reloadUserScopedRuntime] timeout/cancel atingido (%s): %v — runtime pode estar parcialmente inicializado", reloadUserScopedRuntimeTimeout, err)
+	}
+}
+
+func (a *App) stopUserScopedRuntime() {
+	a.userRuntimeMu.Lock()
+	if a.userRuntimeCancel != nil {
+		a.userRuntimeCancel()
+		a.userRuntimeCancel = nil
+		a.userRuntimeCtx = nil
+	}
+	a.userRuntimeMu.Unlock()
+
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+	}
+	if a.llmRegistry != nil {
+		a.llmRegistry.Clear()
+	}
+	if a.mcpMgr != nil {
+		a.mcpMgr.DisconnectAll()
 	}
 }
 

@@ -237,6 +237,8 @@ export function GetJob(arg1:string):Promise<jobs.Job>;
 
 export function GetJobEvents(arg1:string):Promise<Array<jobs.EventEntry>>;
 
+export function GetJobEventsPage(arg1:string,arg2:number,arg3:number):Promise<Array<jobs.EventEntry>>;
+
 export function GetJobPipelines():Promise<Array<jobs.PipelineInfo>>;
 
 export function GetJobRuns(arg1:string,arg2:number):Promise<Array<jobs.RunLog>>;

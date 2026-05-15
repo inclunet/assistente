@@ -15,6 +15,7 @@ import (
 	deeplinktool "assistente/internal/tools/deeplink"
 	"assistente/internal/tools/filesystem"
 	"assistente/internal/tools/history"
+	jobtool "assistente/internal/tools/job"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
 	tasklisttool "assistente/internal/tools/tasklist"
@@ -257,6 +258,17 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskList(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTask(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskNote(tlMgr))
+
+	// Jobs são opt-in para não inflar o payload padrão, mas descobríveis
+	// na UI/catálogo para enabled_tools explícito.
+	jobMgr := func() jobtool.Manager {
+		if a.jobMgr == nil {
+			return nil
+		}
+		return a.jobMgr
+	}
+	a.toolRegistry.MustRegisterDiscoverableOptIn(jobtool.NewJobWithProvider(jobMgr))
+	a.toolRegistry.MustRegisterDiscoverableOptIn(jobtool.NewPipelineWithProvider(jobMgr))
 
 	// Registra ferramenta de deep links
 	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{emitter: a.emitter}))

@@ -10,6 +10,12 @@ import (
 	"assistente/internal/tools"
 )
 
+type secretStoreFunc func(ctx context.Context, key string) (string, error)
+
+func (f secretStoreFunc) GetSecret(ctx context.Context, key string) (string, error) {
+	return f(ctx, key)
+}
+
 // --- resolveForEachItems ---
 
 func TestResolveForEachItems_SimpleKey(t *testing.T) {
@@ -75,9 +81,9 @@ func TestResolveForEachItems_ContentArray(t *testing.T) {
 
 // collectEvents subscribes to an event and collects payloads in a thread-safe way.
 type eventCollector struct {
-	mu       sync.Mutex
-	events   []map[string]any
-	wg       sync.WaitGroup
+	mu     sync.Mutex
+	events []map[string]any
+	wg     sync.WaitGroup
 }
 
 func newEventCollector(eb *EventBus, eventName string, expectedCount int) *eventCollector {
@@ -117,11 +123,9 @@ func (c *eventCollector) wait(t *testing.T, timeout time.Duration) []map[string]
 
 func TestEmitSuccess_FanOut_MapItems_FlattenedPayload(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -187,11 +191,9 @@ func TestEmitSuccess_FanOut_MapItems_FlattenedPayload(t *testing.T) {
 
 func TestEmitSuccess_FanOut_ScalarItems_WrappedInContent(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -239,11 +241,9 @@ func TestEmitSuccess_FanOut_ScalarItems_WrappedInContent(t *testing.T) {
 
 func TestEmitSuccess_NoFanOut_SingleEvent(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -279,11 +279,9 @@ func TestEmitSuccess_NoFanOut_SingleEvent(t *testing.T) {
 
 func TestEmitSuccess_FanOut_ForEachMissing_FallsBackToSingle(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -317,10 +315,8 @@ func TestEmitSuccess_FanOut_ForEachMissing_FallsBackToSingle(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_ConditionMet_Emits(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -352,10 +348,8 @@ func TestEmitSuccess_EmitWhen_ConditionMet_Emits(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_ConditionNotMet_Skips(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -391,10 +385,8 @@ func TestEmitSuccess_EmitWhen_ConditionNotMet_Skips(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_AccessesEventPayload(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -428,10 +420,8 @@ func TestEmitSuccess_EmitWhen_AccessesEventPayload(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_EventMismatch_Skips(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -471,10 +461,8 @@ func TestEmitSuccess_EmitWhen_EventMismatch_Skips(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_FanOut_FiltersItems(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -521,10 +509,8 @@ func TestEmitSuccess_EmitWhen_FanOut_FiltersItems(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_FanOut_AllFiltered(t *testing.T) {
 	eb := NewEventBus()
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		EventBus:       eb,
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -620,16 +606,16 @@ func TestFanOut_DownstreamTemplateResolution(t *testing.T) {
 // --- fakeTool for Execute tests ---
 
 type fakeTool struct {
-	name       string
-	params     json.RawMessage
-	response   string
-	callCount  int
-	lastArgs   json.RawMessage
+	name      string
+	params    json.RawMessage
+	response  string
+	callCount int
+	lastArgs  json.RawMessage
 }
 
-func (f *fakeTool) Name() string                 { return f.name }
-func (f *fakeTool) Description() string           { return "fake tool for testing" }
-func (f *fakeTool) Parameters() json.RawMessage   { return f.params }
+func (f *fakeTool) Name() string                { return f.name }
+func (f *fakeTool) Description() string         { return "fake tool for testing" }
+func (f *fakeTool) Parameters() json.RawMessage { return f.params }
 func (f *fakeTool) Execute(_ context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	f.callCount++
 	f.lastArgs = args
@@ -647,11 +633,9 @@ func TestExecute_CapturesToolNameAndResolvedInputs(t *testing.T) {
 	}
 	registry.MustRegister(ft)
 
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -680,6 +664,116 @@ func TestExecute_CapturesToolNameAndResolvedInputs(t *testing.T) {
 	}
 }
 
+func TestExecutePersistsRunThroughRepository(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name:     "test_tool",
+		params:   json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`),
+		response: `{"greeting":"hello world"}`,
+	}
+	registry.MustRegister(ft)
+	job := testRepositoryJob("persist-job", "Persist Job")
+	job.Tool = "test_tool"
+	job.Inputs = map[string]any{"name": "Alice"}
+	job.Events.OnSuccess = "persist-job.done"
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		Repository:     repo,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	rl := executor.Execute(userA, job, &TriggerContext{Type: TriggerManual})
+	if rl.Status != "completed" {
+		t.Fatalf("expected completed, got %s (error: %s)", rl.Status, rl.Error)
+	}
+	got, err := repo.GetRun(userA, "persist-job", rl.RunID)
+	if err != nil {
+		t.Fatalf("get persisted run: %v", err)
+	}
+	if got.ToolName != "test_tool" {
+		t.Fatalf("ToolName = %q, want test_tool", got.ToolName)
+	}
+	if got.ResolvedInputs["name"] != "Alice" {
+		t.Fatalf("ResolvedInputs[name] = %v, want Alice", got.ResolvedInputs["name"])
+	}
+	if got.Output["greeting"] != "hello world" {
+		t.Fatalf("Output[greeting] = %v, want hello world", got.Output["greeting"])
+	}
+	events, err := repo.ListEvents(userA, EventFilter{JobID: "persist-job", Limit: 10})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	var sawCompleted, sawEmitted bool
+	for _, event := range events {
+		if event.RunID != rl.RunID {
+			t.Fatalf("event %s missing run correlation: got %q, want %q", event.Type, event.RunID, rl.RunID)
+		}
+		switch event.Type {
+		case "completed":
+			sawCompleted = true
+		case "event_emitted":
+			if event.Event == "persist-job.done" {
+				sawEmitted = true
+			}
+		}
+	}
+	if !sawCompleted || !sawEmitted {
+		t.Fatalf("expected completed and emitted events, got %#v", events)
+	}
+}
+
+func TestExecutePersistsRunWithCanceledExecutionContext(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("cancelled-context-job", "Cancelled Context Job")
+	job.Tool = "test_tool"
+	job.DryRun.Enabled = true
+	job.DryRun.MockOutput = map[string]any{"ok": true}
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	ctx, cancel := context.WithCancel(userA)
+	cancel()
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   tools.NewRegistry(),
+		EventBus:       NewEventBus(),
+		Repository:     repo,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	rl := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	if rl.Status != "completed" {
+		t.Fatalf("status = %q, want completed: %s", rl.Status, rl.Error)
+	}
+	if _, err := repo.GetRun(userA, "cancelled-context-job", rl.RunID); err != nil {
+		t.Fatalf("run was not persisted with uncanceled scoped context: %v", err)
+	}
+}
+
+func TestExecuteRecordsSkippedTerminalRunEvent(t *testing.T) {
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   tools.NewRegistry(),
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:          "skip-job",
+		Tool:        "missing_tool",
+		ErrorPolicy: ErrorPolicy{Strategy: ErrorSkip},
+	}
+
+	rl := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+	if rl.Status != "skipped" {
+		t.Fatalf("status = %q, want skipped", rl.Status)
+	}
+	if len(rl.RunEvents) == 0 || rl.RunEvents[len(rl.RunEvents)-1].Type != "skipped" {
+		t.Fatalf("terminal event = %#v, want skipped", rl.RunEvents)
+	}
+}
+
 func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	registry := tools.NewRegistry()
 	ft := &fakeTool{
@@ -689,11 +783,9 @@ func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	}
 	registry.MustRegister(ft)
 
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -722,6 +814,68 @@ func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	}
 }
 
+func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name:     "test_secret",
+		params:   json.RawMessage(`{"type":"object","properties":{"api_key":{"type":"string"},"apiKey":{"type":"string"},"accessKey":{"type":"string"},"query":{"type":"string"},"nested":{"type":"object"}}}`),
+		response: `{"ok":true}`,
+	}
+	registry.MustRegister(ft)
+
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+		SecretStore: secretStoreFunc(func(ctx context.Context, key string) (string, error) {
+			if key != "jobs/api" {
+				t.Fatalf("unexpected secret key %q", key)
+			}
+			return "super-secret", nil
+		}),
+	})
+
+	job := &Job{
+		ID:   "secret-job",
+		Tool: "test_secret",
+		Inputs: map[string]any{
+			"api_key":   "{{ secret \"jobs/api\" }}",
+			"apiKey":    "manual-api-key",
+			"accessKey": "manual-access-key",
+			"query":     "public",
+			"nested": map[string]any{
+				"privateKey": "manually-entered",
+			},
+		},
+	}
+
+	rl := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+
+	if rl.Status != "completed" {
+		t.Fatalf("expected completed, got %s (error: %s)", rl.Status, rl.Error)
+	}
+	var toolArgs map[string]any
+	if err := json.Unmarshal(ft.lastArgs, &toolArgs); err != nil {
+		t.Fatalf("decode tool args: %v", err)
+	}
+	if toolArgs["api_key"] != "super-secret" {
+		t.Fatalf("tool did not receive resolved secret: %#v", toolArgs)
+	}
+	if rl.ResolvedInputs["api_key"] != redactedValue {
+		t.Fatalf("api_key not redacted in run log: %#v", rl.ResolvedInputs)
+	}
+	if rl.ResolvedInputs["apiKey"] != redactedValue || rl.ResolvedInputs["accessKey"] != redactedValue {
+		t.Fatalf("camelCase sensitive keys not redacted in run log: %#v", rl.ResolvedInputs)
+	}
+	if rl.ResolvedInputs["query"] != "public" {
+		t.Fatalf("public input should remain visible: %#v", rl.ResolvedInputs)
+	}
+	nested, ok := rl.ResolvedInputs["nested"].(map[string]any)
+	if !ok || nested["privateKey"] != redactedValue {
+		t.Fatalf("nested privateKey not redacted: %#v", rl.ResolvedInputs)
+	}
+}
+
 func TestExecute_CapturesInputsEvenOnFailure(t *testing.T) {
 	registry := tools.NewRegistry()
 	ft := &fakeTool{
@@ -732,11 +886,9 @@ func TestExecute_CapturesInputsEvenOnFailure(t *testing.T) {
 	ft.response = "" // force empty response to test error handling
 	registry.MustRegister(ft)
 
-	logger := NewLogger(t.TempDir())
 	executor := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
-		Logger:         logger,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
 
@@ -773,57 +925,13 @@ type fakeErrorTool struct {
 	name string
 }
 
-func (f *fakeErrorTool) Name() string               { return f.name }
-func (f *fakeErrorTool) Description() string         { return "always fails" }
-func (f *fakeErrorTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`) }
+func (f *fakeErrorTool) Name() string        { return f.name }
+func (f *fakeErrorTool) Description() string { return "always fails" }
+func (f *fakeErrorTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`)
+}
 func (f *fakeErrorTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: "something went wrong", IsError: true}, nil
 }
 
-// --- Execute persists RunLog to disk ---
-
-func TestExecute_RunLogPersistedWithInputs(t *testing.T) {
-	registry := tools.NewRegistry()
-	ft := &fakeTool{
-		name:     "test_persist",
-		params:   json.RawMessage(`{"type":"object","properties":{"x":{"type":"string"}}}`),
-		response: `{"ok":true}`,
-	}
-	registry.MustRegister(ft)
-
-	logger := NewLogger(t.TempDir())
-	executor := NewJobExecutor(ExecutorConfig{
-		ToolRegistry:   registry,
-		EventBus:       NewEventBus(),
-		Logger:         logger,
-		CircuitBreaker: NewCircuitBreaker(),
-	})
-
-	job := &Job{
-		ID:   "persist-job",
-		Tool: "test_persist",
-		Inputs: map[string]any{
-			"x": "hello",
-		},
-	}
-
-	rl := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
-	if rl.Status != "completed" {
-		t.Fatalf("expected completed, got %s", rl.Status)
-	}
-
-	// Recover from disk via GetRun
-	recovered, err := logger.GetRun("persist-job", rl.RunID)
-	if err != nil {
-		t.Fatalf("GetRun error: %v", err)
-	}
-	if recovered.ToolName != "test_persist" {
-		t.Errorf("recovered ToolName: got %q, want %q", recovered.ToolName, "test_persist")
-	}
-	if recovered.ResolvedInputs["x"] != "hello" {
-		t.Errorf("recovered ResolvedInputs[x]: got %v, want 'hello'", recovered.ResolvedInputs["x"])
-	}
-	if recovered.Output["ok"] != true {
-		t.Errorf("recovered Output[ok]: got %v, want true", recovered.Output["ok"])
-	}
-}
+// --- Execute no longer persists RunLog to disk without Repository ---

@@ -156,7 +156,18 @@ func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {
 		if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", strings.TrimSpace(slug)).First(&row).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("mcp_server_id = ?", row.ID).Delete(&database.ToolCatalog{}).Error; err != nil {
+		now := r.now()
+		if err := tx.Model(&database.ToolCatalog{}).
+			Where("mcp_server_id = ?", row.ID).
+			Updates(map[string]any{
+				// Mantém ownership explícito ao desanexar do server, evitando rows "unowned"
+				// (user_id NULL) que podem vazar entre usuários.
+				"user_id":            row.UserID,
+				"mcp_server_id":       nil,
+				"availability_status": tools.ToolAvailabilityUnavailable,
+				"availability_reason": fmt.Sprintf("MCP server %q was deleted", row.Slug),
+				"last_unavailable_at": now,
+			}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("server_id = ?", row.ID).Delete(&database.MCPServerLog{}).Error; err != nil {
@@ -293,6 +304,25 @@ func (r *DBRepository) UpsertTool(ctx context.Context, entry *tools.ToolCatalogE
 		err := query.First(&existing).Error
 		switch {
 		case errors.Is(err, gorm.ErrRecordNotFound):
+			if normalized.Origin != tools.ToolOriginBuiltin {
+				var detached database.ToolCatalog
+				reattachErr := tx.
+					Where("user_id = ? AND origin = ? AND name = ? AND mcp_server_id IS NULL", normalized.UserID, normalized.Origin, normalized.Name).
+					Order("updated_at DESC, id DESC").
+					First(&detached).Error
+				switch {
+				case reattachErr == nil:
+					row.ID = detached.ID
+					row.CreatedAt = detached.CreatedAt
+					if err := tx.Model(&detached).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
+						return err
+					}
+					entry.ID = detached.ID
+					return nil
+				case !errors.Is(reattachErr, gorm.ErrRecordNotFound):
+					return reattachErr
+				}
+			}
 			if err := tx.Create(&row).Error; err != nil {
 				return err
 			}

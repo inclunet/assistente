@@ -9,16 +9,18 @@ import (
 // Registry é o registro central de ferramentas disponíveis.
 // Thread-safe para registro e consulta simultâneos.
 type Registry struct {
-	mu    sync.RWMutex
-	tools map[string]Tool
-	optIn map[string]bool // tools que só aparecem quando explicitamente listadas em enabled_tools
+	mu                sync.RWMutex
+	tools             map[string]Tool
+	optIn             map[string]bool // tools que só entram no payload quando explicitamente listadas em enabled_tools
+	discoverableOptIn map[string]bool // opt-in que aparece em UI/catalogo para seleção explícita
 }
 
 // NewRegistry cria um novo registro de ferramentas vazio.
 func NewRegistry() *Registry {
 	return &Registry{
-		tools: make(map[string]Tool),
-		optIn: make(map[string]bool),
+		tools:             make(map[string]Tool),
+		optIn:             make(map[string]bool),
+		discoverableOptIn: make(map[string]bool),
 	}
 }
 
@@ -59,9 +61,29 @@ func (r *Registry) RegisterOptIn(tool Tool) error {
 	return nil
 }
 
+// RegisterDiscoverableOptIn registra uma ferramenta opt-in que deve aparecer
+// em catálogos/listas de seleção para enabled_tools explícito, mas continua
+// fora do payload padrão quando enabled_tools é nil.
+func (r *Registry) RegisterDiscoverableOptIn(tool Tool) error {
+	if err := r.RegisterOptIn(tool); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.discoverableOptIn[tool.Name()] = true
+	r.mu.Unlock()
+	return nil
+}
+
 // MustRegisterOptIn é como RegisterOptIn mas faz panic em caso de erro.
 func (r *Registry) MustRegisterOptIn(tool Tool) {
 	if err := r.RegisterOptIn(tool); err != nil {
+		panic(err)
+	}
+}
+
+// MustRegisterDiscoverableOptIn é como RegisterDiscoverableOptIn mas faz panic em caso de erro.
+func (r *Registry) MustRegisterDiscoverableOptIn(tool Tool) {
+	if err := r.RegisterDiscoverableOptIn(tool); err != nil {
 		panic(err)
 	}
 }
@@ -103,6 +125,27 @@ func (r *Registry) All() []Tool {
 	return tools
 }
 
+// Discoverable retorna tools não opt-in e opt-in marcadas como descobríveis,
+// ordenadas por nome. Use para UI/catálogo de seleção explícita.
+func (r *Registry) Discoverable() []Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	tools := make([]Tool, 0, len(r.tools))
+	for name, tool := range r.tools {
+		if r.optIn[name] && !r.discoverableOptIn[name] {
+			continue
+		}
+		tools = append(tools, tool)
+	}
+
+	sort.Slice(tools, func(i, j int) bool {
+		return tools[i].Name() < tools[j].Name()
+	})
+
+	return tools
+}
+
 // Names retorna os nomes de todas as ferramentas registradas, ordenados.
 func (r *Registry) Names() []string {
 	r.mu.RLock()
@@ -115,6 +158,22 @@ func (r *Registry) Names() []string {
 
 	sort.Strings(names)
 	return names
+}
+
+// FilterOutOptInNames remove tools opt-in de uma lista descoberta dinamicamente.
+// Perfis com enabled_tools explícito continuam podendo selecioná-las via FilterByNames.
+func (r *Registry) FilterOutOptInNames(names []string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		if r.optIn[name] {
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
 }
 
 // Count retorna o número de ferramentas registradas.
@@ -136,6 +195,7 @@ func (r *Registry) Unregister(name string) bool {
 	}
 	delete(r.tools, name)
 	delete(r.optIn, name)
+	delete(r.discoverableOptIn, name)
 	return true
 }
 

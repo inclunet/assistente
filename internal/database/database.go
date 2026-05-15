@@ -98,8 +98,8 @@ func Init() error {
 	// credential_entries; dedup antes do AutoMigrate criar o índice unique.
 	dedupCredentialEntriesBeforeMigrate()
 
-	// Auto migrate - apenas tabelas de conversas, mensagens e abas
-	// Perfis agora são gerenciados via arquivos JSON em .assistente/profiles/
+	// Auto migrate das tabelas persistidas no SQLite; perfis continuam
+	// gerenciados via arquivos JSON em .assistente/profiles/.
 	if err := db.AutoMigrate(
 		&User{},
 		&Session{},
@@ -115,6 +115,14 @@ func Init() error {
 		&MCPServer{},
 		&MCPServerLog{},
 		&ToolCatalog{},
+		&Tag{},
+		&TagAssignment{},
+		&JobPipeline{},
+		&Job{},
+		&JobTrigger{},
+		&JobRun{},
+		&JobEvent{},
+		&JobRunEvent{},
 	); err != nil {
 		return err
 	}

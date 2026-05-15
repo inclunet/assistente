@@ -442,6 +442,10 @@ export function GetJobEvents(arg1) {
   return window['go']['app']['App']['GetJobEvents'](arg1);
 }
 
+export function GetJobEventsPage(arg1, arg2, arg3) {
+  return window['go']['app']['App']['GetJobEventsPage'](arg1, arg2, arg3);
+}
+
 export function GetJobPipelines() {
   return window['go']['app']['App']['GetJobPipelines']();
 }

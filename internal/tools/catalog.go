@@ -122,6 +122,8 @@ var builtinToolMetadataByName = map[string]builtinToolMetadata{
 	"task_list":            {Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"},
 	"task":                 {Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"},
 	"task_note":            {Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"},
+	"job":                  {Category: "jobs", Class: "automation_management", Package: "jobs", Risk: "write"},
+	"job_pipeline":         {Category: "jobs", Class: "automation_management", Package: "jobs", Risk: "write"},
 	"open_deep_link":       {Category: "app", Class: "app_tool", Package: "basic", Risk: "read"},
 }
 

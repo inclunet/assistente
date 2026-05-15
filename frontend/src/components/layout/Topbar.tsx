@@ -105,7 +105,7 @@ export function Topbar() {
       a.download = `workspace-${workspace?.name?.replace(/\s+/g, '-').toLowerCase() || 'export'}.yaml`;
       a.click();
       URL.revokeObjectURL(url);
-      announce(t('workspace.exported', 'Workspace exportado'));
+      announce(t('workspace.exported'));
     } catch (error) {
       console.error('[Topbar] Export error:', error);
     }
@@ -139,7 +139,7 @@ export function Topbar() {
       id: `ws-${ws.id}`,
       label: ws.name,
       icon: ws.is_active ? <CheckOutlined /> : undefined,
-      shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular', 'aba') : t('workspace.tabPlural', 'abas')}`,
+      shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular') : t('workspace.tabPlural')}`,
       checked: ws.is_active,
       action: () => { if (!ws.is_active) void switchWorkspace(ws.id); },
     }));
@@ -159,7 +159,7 @@ export function Topbar() {
     },
     {
       id: 'rename-workspace',
-      label: t('workspace.rename', 'Renomear workspace'),
+      label: t('workspace.rename'),
       icon: <EditOutlined />,
       shortcut: 'F2',
       action: startRename,
@@ -167,13 +167,13 @@ export function Topbar() {
     { id: 'sep-1', separator: true },
     {
       id: 'export-workspace',
-      label: t('workspace.export', 'Exportar workspace'),
+      label: t('workspace.export'),
       icon: <ExportOutlined />,
       action: handleExportWorkspace,
     },
     {
       id: 'import-workspace',
-      label: t('workspace.import', 'Importar workspace'),
+      label: t('workspace.import'),
       icon: <ImportOutlined />,
       action: handleImportWorkspace,
     },
@@ -188,7 +188,7 @@ export function Topbar() {
 
   const handlePickerContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    openCtx(e.clientX, e.clientY, t('workspace.workspaceOptions', 'Opções do workspace'), ctxMenuItems);
+    openCtx(e.clientX, e.clientY, t('workspace.workspaceOptions'), ctxMenuItems);
   }, [openCtx, t, ctxMenuItems]);
 
   const handlePickerKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -210,7 +210,7 @@ export function Topbar() {
     const trimmed = renameValue.trim();
     if (trimmed && trimmed !== workspace?.name) {
       await renameWorkspace(trimmed);
-      announce(`${t('workspace.renamed', 'Workspace renomeado')}: ${trimmed}`);
+      announce(`${t('workspace.renamed')}: ${trimmed}`);
     }
     setIsRenaming(false);
   }, [renameValue, workspace?.name, renameWorkspace, announce, t]);
@@ -264,7 +264,7 @@ export function Topbar() {
         <div
           className="topbar__toolbar"
           role="toolbar"
-          aria-label={t('landmarks.topbar', 'Barra de navegação')}
+          aria-label={t('landmarks.topbar')}
           ref={toolbarRef as React.RefObject<HTMLDivElement>}
         >
         <div className="topbar__left">
@@ -331,7 +331,7 @@ export function Topbar() {
         visible={pickerMenu.visible}
         ariaLabel={pickerMenu.ariaLabel || t('workspace.workspaceList')}
         searchable
-        searchPlaceholder={t('workspace.searchWorkspaces', 'Buscar workspace...')}
+        searchPlaceholder={t('workspace.searchWorkspaces')}
         onClose={closePicker}
         onSelect={onPickerSelect}
       />
@@ -341,7 +341,7 @@ export function Topbar() {
         x={ctxMenu.x}
         y={ctxMenu.y}
         visible={ctxMenu.visible}
-        ariaLabel={ctxMenu.ariaLabel || t('workspace.workspaceOptions', 'Opções do workspace')}
+        ariaLabel={ctxMenu.ariaLabel || t('workspace.workspaceOptions')}
         onClose={closeCtx}
         onSelect={onCtxSelect}
       />
