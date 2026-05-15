@@ -245,3 +245,77 @@ func TestServicePersistsStatusesAndRetryable(t *testing.T) {
 		t.Fatalf("expected timed_out retryable")
 	}
 }
+
+func TestRecordTreatsNonNoneErrorKindAsFailed(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	registry := tools.NewRegistry()
+	registry.MustRegister(echoTool{})
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+
+	inv, err := svc.Record(userA, RecordRequest{
+		Call: tools.ToolCall{
+			ID:   "call-rec",
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      "echo",
+				Arguments: `{"value":"ok"}`,
+			},
+		},
+		Origin:       Origin{Type: OriginChat, ID: "turn-rec"},
+		Result:       tools.ToolResult{Content: ""},
+		ErrorKind:    tools.ErrorKindNotFound,
+		ErrorMessage: "",
+		Retryable:    false,
+		DurationMs:   1,
+	})
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if inv.Status != StatusFailed {
+		t.Fatalf("expected status failed, got=%s", inv.Status)
+	}
+}
+
+func TestServiceTruncatesPersistedInputWhenTooLarge(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	registry := tools.NewRegistry()
+	registry.MustRegister(echoTool{})
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+
+	// Cria um argumento grande o suficiente para estourar o limite padrão (100KB).
+	big := strings.Repeat("a", tools.DefaultMaxResultSize*2)
+	args := `{"value":"` + big + `"}`
+
+	result := svc.Execute(userA, ExecuteRequest{
+		Call: tools.ToolCall{
+			ID:   "call-big-input",
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      "echo",
+				Arguments: args,
+			},
+		},
+		Origin: Origin{Type: OriginChat, ID: "turn-big"},
+	})
+	if result.Invocation.ID == "" {
+		t.Fatal("expected invocation id")
+	}
+	inv, err := repo.Get(userA, result.Invocation.ID)
+	if err != nil {
+		t.Fatalf("get invocation: %v", err)
+	}
+	if len(inv.Input) == 0 {
+		t.Fatal("expected input persisted")
+	}
+	if len(inv.Input) > tools.DefaultMaxResultSize {
+		t.Fatalf("expected input capped, got=%d bytes", len(inv.Input))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(inv.Input, &payload); err != nil {
+		t.Fatalf("unmarshal input payload: %v", err)
+	}
+	trunc, _ := payload["_input_truncated"].(bool)
+	if !trunc {
+		t.Fatalf("expected _input_truncated=true, got=%v", payload["_input_truncated"])
+	}
+}

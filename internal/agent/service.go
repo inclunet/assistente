@@ -718,6 +718,8 @@ func extractLogicalToolName(toolName string) string {
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
 // uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
 // AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
+// Persistência: salva tool calls no assistant message (sem criar mensagens role=tool)
+// e registra os resultados técnicos em tool_invocations.
 func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
 	if len(mcpEvents) == 0 {
 		return
@@ -779,20 +781,18 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 	if s.toolInvocations == nil {
 		return
 	}
-	serverSlug, ok := resolveMCPServerSlug(ctx, strings.TrimSpace(mcpEvents[0].ServerLabel))
-	if !ok {
-		// Pode haver múltiplos servidores em uma iteração; resolve por evento.
-		serverSlug = ""
-	}
+	slugCache := map[string]string{}
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
 			continue
 		}
-		slug := serverSlug
-		if strings.TrimSpace(slug) == "" {
-			resolved, ok := resolveMCPServerSlug(ctx, strings.TrimSpace(ev.ServerLabel))
+		label := strings.TrimSpace(ev.ServerLabel)
+		slug := strings.TrimSpace(slugCache[label])
+		if slug == "" {
+			resolved, ok := resolveMCPServerSlug(ctx, label)
 			if ok {
 				slug = resolved
+				slugCache[label] = resolved
 			}
 		}
 		if strings.TrimSpace(slug) == "" {

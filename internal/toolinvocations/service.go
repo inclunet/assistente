@@ -25,6 +25,10 @@ type Service struct {
 	// persistMaxErrorSize limita error_message, que pode vir de ToolResult.Content
 	// (especialmente quando IsError=true sem error Go) e pode ser muito grande.
 	persistMaxErrorSize int
+
+	// persistMaxInputSize limita o input persistido (tool_invocations.input).
+	// Sem isso, argumentos muito grandes podem crescer a tabela sem limite.
+	persistMaxInputSize int
 }
 
 func NewService(repo Repository, executor *tools.Executor) *Service {
@@ -35,6 +39,7 @@ func NewService(repo Repository, executor *tools.Executor) *Service {
 		persistMaxResultSize: tools.DefaultMaxResultSize,
 		// Mantém o mesmo limite de persistência do Output para consistência.
 		persistMaxErrorSize: tools.DefaultMaxResultSize,
+		persistMaxInputSize: tools.DefaultMaxResultSize,
 	}
 }
 
@@ -72,7 +77,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		toolCatalogID = id
 	}
 
-	input := buildInvocationInput(req.Call)
+	input := s.buildInvocationInput(req.Call)
 	inv := Invocation{
 		ToolCatalogID:      toolCatalogID,
 		OriginType:         req.Origin.Type,
@@ -236,6 +241,76 @@ func buildInvocationInput(call tools.ToolCall) json.RawMessage {
 	return data
 }
 
+func (s *Service) buildInvocationInput(call tools.ToolCall) json.RawMessage {
+	// Base: reaproveita a redaction existente.
+	input := buildInvocationInput(call)
+	max := s.persistMaxInputSize
+	if max <= 0 || len(input) <= max {
+		return input
+	}
+
+	// Tenta reduzir truncando apenas o campo tool_call.function.arguments.
+	redacted := call
+	if strings.TrimSpace(call.Function.Arguments) != "" {
+		redacted.Function.Arguments = redactArgumentsJSON(call.Function.Arguments)
+	}
+	origSize := len(input)
+	suffix := fmt.Sprintf("\n\n[TRUNCADO: argumentos originais tinham %d bytes, limite de input é %d bytes]", len(redacted.Function.Arguments), max)
+
+	// Mede overhead sem argumentos.
+	base := redacted
+	base.Function.Arguments = ""
+	basePayload := map[string]any{
+		"tool_call":                  base,
+		"_input_truncated":           true,
+		"_input_original_size_bytes": origSize,
+	}
+	baseBytes, _ := json.Marshal(basePayload)
+	if len(baseBytes) >= max {
+		minimal := map[string]any{
+			"_input_truncated":           true,
+			"_input_original_size_bytes": origSize,
+			"tool":                       map[string]any{"name": redacted.Function.Name, "id": redacted.ID},
+		}
+		minBytes, _ := json.Marshal(minimal)
+		return minBytes
+	}
+
+	budget := max - len(baseBytes)
+	if budget < 1 {
+		return baseBytes
+	}
+
+	args := redacted.Function.Arguments
+	// Ajusta budget considerando o suffix e alguma folga para escaping.
+	budget -= len(suffix) + 16
+	if budget < 1 {
+		budget = 1
+	}
+
+	for attempt := 0; attempt < 3; attempt++ {
+		truncatedArgs := truncateUTF8Safe(args, budget)
+		redacted.Function.Arguments = truncatedArgs + suffix
+		payload := map[string]any{
+			"tool_call":                  redacted,
+			"_input_truncated":           true,
+			"_input_original_size_bytes": origSize,
+		}
+		out, _ := json.Marshal(payload)
+		if len(out) <= max {
+			return out
+		}
+		over := len(out) - max
+		budget -= over + 64
+		if budget < 1 {
+			break
+		}
+	}
+
+	// Fallback: persiste sem argumentos, mas com metadados de truncamento.
+	return baseBytes
+}
+
 func redactArgumentsJSON(args string) string {
 	raw := []byte(args)
 	if !json.Valid(raw) {
@@ -377,7 +452,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		ToolCallID:         req.Call.ID,
 		Status:             StatusQueued,
 		DryRun:             req.DryRun,
-		Input:              buildInvocationInput(req.Call),
+		Input:              s.buildInvocationInput(req.Call),
 		QueuedAt:           queuedAt,
 	}
 	if inv.OriginType == "" {
@@ -414,6 +489,16 @@ func statusForRecord(req RecordRequest) (string, string) {
 	}
 	if req.ErrorKind == tools.ErrorKindTimeout {
 		return StatusTimedOut, req.ErrorMessage
+	}
+	if req.ErrorKind != tools.ErrorKindNone && strings.TrimSpace(string(req.ErrorKind)) != "" {
+		msg := strings.TrimSpace(req.ErrorMessage)
+		if msg == "" {
+			msg = strings.TrimSpace(req.Result.Content)
+		}
+		if msg == "" {
+			msg = string(req.ErrorKind)
+		}
+		return StatusFailed, msg
 	}
 	if req.Result.IsError {
 		if strings.TrimSpace(req.ErrorMessage) != "" {

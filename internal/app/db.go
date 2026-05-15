@@ -79,7 +79,7 @@ func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.Messa
 		return nil, err
 	}
 
-	return buildMessageNodes(ctx, messages, parentID), nil
+	return buildMessageNodesWithInvocationFallback(ctx, messages, parentID), nil
 }
 
 func buildMessageNodes(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
@@ -92,6 +92,52 @@ func buildMessageNodes(ctx context.Context, messages []database.ChatMessage, par
 		childCounts = make(map[string]int)
 	}
 	return chat.BuildMessageNodes(messages, childCounts, parentID)
+}
+
+func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	grouped := make(map[string][]database.ChatMessage)
+	order := make([]string, 0, len(messages))
+	seenKey := map[string]struct{}{}
+	turnIDs := make([]string, 0)
+	seenTurn := map[string]struct{}{}
+	for _, msg := range messages {
+		key := messageTimelineItemKey(msg)
+		grouped[key] = append(grouped[key], msg)
+		if _, ok := seenKey[key]; !ok {
+			seenKey[key] = struct{}{}
+			order = append(order, key)
+		}
+		if msg.Role != "user" && msg.TurnID != nil {
+			turnID := strings.TrimSpace(*msg.TurnID)
+			if turnID != "" {
+				if _, ok := seenTurn[turnID]; !ok {
+					seenTurn[turnID] = struct{}{}
+					turnIDs = append(turnIDs, turnID)
+				}
+			}
+		}
+	}
+
+	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, turnIDs)
+	representatives := make([]database.ChatMessage, 0, len(order))
+	for _, key := range order {
+		itemMessages := grouped[key]
+		if len(itemMessages) == 0 {
+			continue
+		}
+		representative := itemMessages[0]
+		if strings.HasPrefix(key, "turn:") && representative.TurnID != nil {
+			turnID := strings.TrimSpace(*representative.TurnID)
+			turnResults := invocationToolResults[turnID]
+			representative = consolidateTimelineTurnMessages(itemMessages, turnResults)
+		}
+		representatives = append(representatives, representative)
+	}
+	return buildMessageNodes(ctx, representatives, parentID)
 }
 
 func assignMessageNodeOriginalIndexes(nodes []chat.MessageNode, indexesByID map[string]int) []chat.MessageNode {
@@ -321,6 +367,21 @@ func loadChatToolInvocationResults(ctx context.Context, items []database.Message
 	if len(turnIDs) == 0 {
 		return map[string]map[string]string{}
 	}
+	return loadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
+}
+
+func loadChatToolInvocationResultsForTurnIDs(ctx context.Context, turnIDs []string) map[string]map[string]string {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return map[string]map[string]string{}
+	}
+	return loadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
+}
+
+func loadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID string, turnIDs []string) map[string]map[string]string {
+	if len(turnIDs) == 0 {
+		return map[string]map[string]string{}
+	}
 
 	// LIMIT defensivo: o window é limitado (AEP-0059), mas sem LIMIT a query
 	// ainda pode escanear muitas linhas se houver volume alto de invocações
@@ -331,7 +392,7 @@ func loadChatToolInvocationResults(ctx context.Context, items []database.Message
 	}
 
 	var rows []database.ToolInvocation
-	err = database.DB().WithContext(ctx).
+	err := database.DB().WithContext(ctx).
 		Where(
 			"user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> '' AND (completed_at IS NOT NULL OR status IN (?, ?, ?, ?))",
 			userID,
@@ -395,7 +456,7 @@ func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.Messag
 	if err != nil {
 		return nil, err
 	}
-	return buildMessageNodes(ctx, messages, nil), nil
+	return buildMessageNodesWithInvocationFallback(ctx, messages, nil), nil
 }
 
 // GetMessagesBefore retorna mensagens raiz anteriores ao cursor informado.
@@ -411,7 +472,7 @@ func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit in
 	if err != nil {
 		return nil, err
 	}
-	return buildMessageNodes(ctx, messages, nil), nil
+	return buildMessageNodesWithInvocationFallback(ctx, messages, nil), nil
 }
 
 // GetConversationMessageWindow é a API canônica de carregamento incremental de mensagens.

@@ -187,8 +187,8 @@ func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string
 	err = r.db.WithContext(ctx).
 		Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
 		Where(
-			"tool_catalog.name = ? AND (tool_catalog.user_id = ? OR (tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
-			name, userID, userID,
+			"tool_catalog.name = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
+			name, userID, tools.ToolOriginBuiltin, userID,
 		).
 		Order("tool_catalog.mcp_server_id IS NULL ASC").
 		Order("tool_catalog.user_id IS NULL ASC").
