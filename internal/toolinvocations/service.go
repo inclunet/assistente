@@ -33,7 +33,8 @@ func NewService(repo Repository, executor *tools.Executor) *Service {
 		executor:             executor,
 		now:                  time.Now,
 		persistMaxResultSize: tools.DefaultMaxResultSize,
-		persistMaxErrorSize:  16 * 1024,
+		// Mantém o mesmo limite de persistência do Output para consistência.
+		persistMaxErrorSize: tools.DefaultMaxResultSize,
 	}
 }
 

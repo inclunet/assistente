@@ -719,6 +719,10 @@ func extractLogicalToolName(toolName string) string {
 // uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
 // AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
 func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
+	if len(mcpEvents) == 0 {
+		return
+	}
+
 	argsByID := map[string]string{}
 	for _, ev := range mcpEvents {
 		if strings.TrimSpace(ev.ID) == "" {
@@ -843,8 +847,26 @@ func resolveMCPServerSlug(ctx context.Context, serverLabel string) (string, bool
 	}
 	normalized := strings.ToLower(label)
 	var server database.MCPServer
+
+	// Caminho rápido: slug é único e indexado.
 	err = database.DB().WithContext(ctx).
-		Where("user_id = ? AND (slug = ? OR LOWER(name) = ?)", userID, normalized, normalized).
+		Where("user_id = ? AND slug = ?", userID, normalized).
+		First(&server).Error
+	if err == nil {
+		return server.Slug, true
+	}
+
+	// Segundo caminho: match exato por name (normalmente igual ao label emitido).
+	err = database.DB().WithContext(ctx).
+		Where("user_id = ? AND name = ?", userID, label).
+		First(&server).Error
+	if err == nil {
+		return server.Slug, true
+	}
+
+	// Fallback: busca case-insensitive por name.
+	err = database.DB().WithContext(ctx).
+		Where("user_id = ? AND LOWER(name) = ?", userID, normalized).
 		First(&server).Error
 	if err != nil {
 		return "", false
