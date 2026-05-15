@@ -30,13 +30,6 @@ const TAB_TYPE_OPTIONS: { type: TabType; icon: ReactNode; labelKey: string; chor
   { type: 'tasklist', icon: <CheckSquareOutlined />, labelKey: 'workspace.newTasklist', chordKey: 'T' },
 ];
 
-const TAB_TYPE_DEFAULTS: Record<TabType, string> = {
-  chat: 'Nova conversa',
-  editor: 'Novo documento',
-  terminal: 'Terminal',
-  tasklist: 'Tarefas',
-};
-
 export function WorkspaceToolbar() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
@@ -196,7 +189,7 @@ export function WorkspaceToolbar() {
       icon,
       shortcut: chordKey,
       action: () => {
-        void addTab(type, TAB_TYPE_DEFAULTS[type]);
+        void addTab(type, t(labelKey));
         announce(`${t('workspace.tabCreated')}: ${t(labelKey)}`);
       },
     })),

@@ -698,9 +698,20 @@ func (a *App) reloadUserScopedRuntime() {
 		// inteiro); o AutoConnectAll é serial e demora N×handshake, e
 		// cada Connect tem seu próprio timeout interno. Herda só o
 		// userID do contexto autenticado vigente.
-		go func() {
-			a.mcpMgr.AutoConnectAll(database.WithUserID(context.Background(), userID))
-		}()
+		a.userRuntimeMu.Lock()
+		if a.userRuntimeCancel != nil {
+			a.userRuntimeCancel()
+			a.userRuntimeCancel = nil
+			a.userRuntimeCtx = nil
+		}
+		runtimeCtx, runtimeCancel := context.WithCancel(database.WithUserID(context.Background(), userID))
+		a.userRuntimeCtx = runtimeCtx
+		a.userRuntimeCancel = runtimeCancel
+		a.userRuntimeMu.Unlock()
+
+		go func(ctx context.Context) {
+			a.mcpMgr.AutoConnectAll(ctx)
+		}(runtimeCtx)
 	} else {
 		startJobsForCurrentUser()
 	}
@@ -710,6 +721,14 @@ func (a *App) reloadUserScopedRuntime() {
 }
 
 func (a *App) stopUserScopedRuntime() {
+	a.userRuntimeMu.Lock()
+	if a.userRuntimeCancel != nil {
+		a.userRuntimeCancel()
+		a.userRuntimeCancel = nil
+		a.userRuntimeCtx = nil
+	}
+	a.userRuntimeMu.Unlock()
+
 	if a.jobMgr != nil {
 		a.jobMgr.Stop()
 	}

@@ -86,6 +86,11 @@ type App struct {
 	// Jobs manager (event-driven automation)
 	jobMgr *jobs.Manager
 
+	// Contexto cancelável do runtime user-scoped (ex.: loops de auto-connect).
+	userRuntimeMu     sync.Mutex
+	userRuntimeCtx    context.Context
+	userRuntimeCancel context.CancelFunc
+
 	// Provider service (business logic para provedores LLM)
 	providerSvc *providers.Service
 

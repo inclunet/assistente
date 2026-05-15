@@ -73,6 +73,10 @@ type TriggerContext struct {
 // Execute executa um job: resolve inputs, chama a tool, processa output, emite eventos.
 // Respeita error_policy com retry/backoff.
 func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerContext) *RunLog {
+	if trigCtx == nil {
+		trigCtx = &TriggerContext{Type: TriggerManual}
+	}
+
 	runUUID, err := uuid.NewV7()
 	if err != nil {
 		runUUID = uuid.New()

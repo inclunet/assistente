@@ -604,6 +604,7 @@ const es = {
         options: 'Opciones',
         enabled: 'Habilitado',
         autoConnect: 'Conectar automáticamente al iniciar',
+        preferBridge: 'Preferir bridge local (recomendado)',
         tokenExample: 'sk-xxx o ghp_xxx',
         inputUsernamePlaceholder: 'usuario',
         inputPasswordPlaceholder: 'contraseña',

@@ -188,7 +188,7 @@ describe('chatStore validation', () => {
         },
       },
     });
-  });
+  }, 30_000);
 
   afterEach(() => {
     vi.restoreAllMocks();

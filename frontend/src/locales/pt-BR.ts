@@ -605,6 +605,7 @@ const ptBR = {
         options: 'Opções',
         enabled: 'Habilitado',
         autoConnect: 'Conectar automaticamente no início',
+        preferBridge: 'Preferir bridge local (recomendado)',
         tokenExample: 'sk-xxx ou ghp_xxx',
         inputUsernamePlaceholder: 'username',
         inputPasswordPlaceholder: 'password',
