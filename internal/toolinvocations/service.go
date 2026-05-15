@@ -506,6 +506,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	inv.Metadata = metadata
 	if err := s.repo.Complete(persistCtx, inv.ID, &inv); err != nil {
 		log.Printf("[toolinvocations] failed to complete recorded invocation (id=%s): %v", inv.ID, err)
+		return inv, err
 	}
 	return inv, nil
 }

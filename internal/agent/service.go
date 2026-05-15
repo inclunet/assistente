@@ -791,11 +791,26 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		return
 	}
 
-	// Resultados técnicos: persistir em tool_invocations quando disponível.
-	// Não criar novas mensagens role=tool.
+	// Fallback: se tool_invocations não estiver configurado, persiste resultados como
+	// mensagens role=tool para manter histórico/export/import consistentes.
 	if s.toolInvocations == nil || !s.toolInvocations.CanPersist() {
+		for _, ev := range mcpEvents {
+			if !ev.IsCompleted {
+				continue
+			}
+			content := ev.Output
+			if ev.Error != "" {
+				content = ev.Error
+			}
+			if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID); err != nil {
+				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
+			}
+		}
 		return
 	}
+
+	// Resultados técnicos: persistir em tool_invocations quando disponível.
+	// Não criar novas mensagens role=tool em caso de sucesso (export/import lê tool_calls enriquecido).
 	slugCache := map[string]string{}
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
@@ -811,7 +826,14 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 			}
 		}
 		if strings.TrimSpace(slug) == "" {
-			log.Printf("[MCP Native] não foi possível resolver server slug para %q; pulando persistência (id=%s)", ev.ServerLabel, ev.ID)
+			log.Printf("[MCP Native] não foi possível resolver server slug para %q; usando fallback role=tool (id=%s)", ev.ServerLabel, ev.ID)
+			content := ev.Output
+			if ev.Error != "" {
+				content = ev.Error
+			}
+			if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID); err != nil {
+				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
+			}
 			continue
 		}
 		fullName := mcp.BuildToolName(slug, ev.Name)

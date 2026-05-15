@@ -166,6 +166,9 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 		Find(&messages).Error; err != nil {
 		return nil, fmt.Errorf("erro ao buscar mensagens das conversas para exportação: %w", err)
 	}
+	if err := hydrateToolCallResultsForExport(ctx, messages); err != nil {
+		return nil, err
+	}
 
 	for _, msg := range messages {
 		if conv := conversationsByID[msg.ConversationID]; conv != nil {
@@ -179,6 +182,179 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 		exports = append(exports, exportConversation(conversationsByID[id], includeAudio))
 	}
 	return exports, nil
+}
+
+func hydrateToolCallResultsForExport(ctx context.Context, messages []database.ChatMessage) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	if !database.DB().Migrator().HasTable(&database.ToolInvocation{}) {
+		return nil
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+
+	turnIDs := make([]string, 0)
+	seenTurnIDs := map[string]struct{}{}
+	for _, msg := range messages {
+		if strings.TrimSpace(msg.ToolCalls) == "" {
+			continue
+		}
+		if msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		if _, ok := seenTurnIDs[turnID]; ok {
+			continue
+		}
+		seenTurnIDs[turnID] = struct{}{}
+		turnIDs = append(turnIDs, turnID)
+	}
+	if len(turnIDs) == 0 {
+		return nil
+	}
+
+	resultsByTurn, err := loadChatToolInvocationResultsForTurnIDs(ctx, userID, turnIDs)
+	if err != nil {
+		return err
+	}
+	if len(resultsByTurn) == 0 {
+		return nil
+	}
+
+	for i := range messages {
+		msg := &messages[i]
+		if strings.TrimSpace(msg.ToolCalls) == "" || msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		turnResults := resultsByTurn[turnID]
+		if len(turnResults) == 0 {
+			continue
+		}
+		calls := parseToolCalls(msg.ToolCalls)
+		if len(calls) == 0 {
+			continue
+		}
+		changed := false
+		for _, call := range calls {
+			callID, _ := call["id"].(string)
+			callID = strings.TrimSpace(callID)
+			if callID == "" {
+				continue
+			}
+			if existing, ok := call["result"]; ok {
+				if s, ok := existing.(string); ok && strings.TrimSpace(s) != "" {
+					continue
+				}
+			}
+			if result, ok := turnResults[callID]; ok {
+				call["result"] = result
+				changed = true
+			}
+		}
+		if changed {
+			if encoded, err := json.Marshal(calls); err == nil {
+				msg.ToolCalls = string(encoded)
+			}
+		}
+	}
+	return nil
+}
+
+func parseToolCalls(raw string) []map[string]interface{} {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var calls []map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &calls); err == nil {
+		return calls
+	}
+	var call map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &call); err == nil {
+		return []map[string]interface{}{call}
+	}
+	return nil
+}
+
+func loadChatToolInvocationResultsForTurnIDs(ctx context.Context, userID string, turnIDs []string) (map[string]map[string]string, error) {
+	// SQLite tem limite de variáveis (tipicamente 999).
+	const maxTurnIDsPerBatch = 400
+	results := make(map[string]map[string]string, len(turnIDs))
+	for start := 0; start < len(turnIDs); start += maxTurnIDsPerBatch {
+		end := start + maxTurnIDsPerBatch
+		if end > len(turnIDs) {
+			end = len(turnIDs)
+		}
+		batch := turnIDs[start:end]
+
+		// LIMIT defensivo: export pode varrer muito histórico, mas por turno o número de tool calls
+		// tende a ser baixo. Mantém determinismo por queued_at DESC.
+		limit := len(batch) * 50
+		if limit < 500 {
+			limit = 500
+		}
+		if limit > 50000 {
+			limit = 50000
+		}
+
+		var rows []database.ToolInvocation
+		err := database.DB().WithContext(ctx).
+			Where(
+				"user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> '' AND (completed_at IS NOT NULL OR status IN (?, ?, ?, ?))",
+				userID,
+				"chat",
+				batch,
+				"succeeded",
+				"failed",
+				"cancelled",
+				"timed_out",
+			).
+			Order("queued_at DESC").
+			Limit(limit).
+			Find(&rows).Error
+		if err != nil {
+			return nil, fmt.Errorf("erro ao buscar tool invocations para exportação: %w", err)
+		}
+
+		for _, row := range rows {
+			turnID := strings.TrimSpace(row.OriginID)
+			callID := strings.TrimSpace(row.ToolCallID)
+			if turnID == "" || callID == "" {
+				continue
+			}
+			byCall := results[turnID]
+			if byCall == nil {
+				byCall = make(map[string]string)
+				results[turnID] = byCall
+			}
+			if _, ok := byCall[callID]; ok {
+				continue
+			}
+			byCall[callID] = extractToolInvocationContent(row.Output)
+		}
+	}
+	return results, nil
+}
+
+func extractToolInvocationContent(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	var payload struct {
+		Content string `json:"content"`
+	}
+	if json.Unmarshal([]byte(raw), &payload) == nil {
+		return payload.Content
+	}
+	return raw
 }
 
 func ImportConversations(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportResult, error) {

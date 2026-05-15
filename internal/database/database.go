@@ -478,7 +478,9 @@ func DeleteConversationWithContext(ctx context.Context, id string) error {
 	if _, err := GetConversationInfoWithContext(ctx, id); err != nil {
 		return err
 	}
-	_ = deleteChatToolInvocationsForConversation(ctx, id)
+	if err := deleteChatToolInvocationsForConversation(ctx, id); err != nil {
+		return err
+	}
 	if err := db.WithContext(ctx).Where("conversation_id = ?", id).Delete(&ChatMessage{}).Error; err != nil {
 		return err
 	}
