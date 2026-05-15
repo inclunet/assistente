@@ -1543,6 +1543,7 @@ const es = {
       toolbarLabel: 'Workspace',
       switchWorkspace: 'Cambiar workspace',
       workspaceList: 'Lista de workspaces',
+      searchWorkspaces: 'Buscar workspace...',
       newWorkspace: 'Nuevo workspace',
       created: 'Workspace creado',
       renamePlaceholder: 'Nombre del workspace',

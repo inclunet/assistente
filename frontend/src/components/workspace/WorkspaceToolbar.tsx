@@ -85,7 +85,7 @@ export function WorkspaceToolbar() {
       a.download = `workspace-${workspace?.name?.replace(/\s+/g, '-').toLowerCase() || 'export'}.yaml`;
       a.click();
       URL.revokeObjectURL(url);
-      announce(t('workspace.exported', 'Workspace exportado'));
+      announce(t('workspace.exported'));
     } catch (error) {
       console.error('[WorkspaceToolbar] Export error:', error);
     }
@@ -118,7 +118,7 @@ export function WorkspaceToolbar() {
     const trimmed = renameValue.trim();
     if (trimmed && trimmed !== workspace?.name) {
       await renameWorkspace(trimmed);
-      announce(`${t('workspace.renamed', 'Workspace renomeado')}: ${trimmed}`);
+      announce(`${t('workspace.renamed')}: ${trimmed}`);
     }
     setIsRenaming(false);
   }, [renameValue, workspace?.name, renameWorkspace, announce, t]);
@@ -155,7 +155,7 @@ export function WorkspaceToolbar() {
     },
     {
       id: 'rename-workspace',
-      label: t('workspace.rename', 'Renomear workspace'),
+      label: t('workspace.rename'),
       icon: <EditOutlined />,
       shortcut: 'F2',
       action: startRename,
@@ -163,20 +163,20 @@ export function WorkspaceToolbar() {
     { id: 'sep-1', separator: true },
     {
       id: 'export-workspace',
-      label: t('workspace.export', 'Exportar workspace'),
+      label: t('workspace.export'),
       icon: <ExportOutlined />,
       action: handleExportWorkspace,
     },
     {
       id: 'import-workspace',
-      label: t('workspace.import', 'Importar workspace'),
+      label: t('workspace.import'),
       icon: <ImportOutlined />,
       action: handleImportWorkspace,
     },
     { id: 'sep-2', separator: true },
     {
       id: 'set-workdir',
-      label: t('workspace.setWorkDir', 'Diretório de trabalho...'),
+      label: t('workspace.setWorkDir'),
       icon: <FolderOutlined />,
       disabled: true,
     },
@@ -185,7 +185,7 @@ export function WorkspaceToolbar() {
   const handleOpenWsMenu = useCallback(() => {
     if (wsMenu.visible) { closeWsMenu(); return; }
     if (wsMenuButtonRef.current) {
-      openWsMenu(wsMenuButtonRef.current, t('workspace.workspaceOptions', 'Opções do workspace'), wsMenuItems);
+      openWsMenu(wsMenuButtonRef.current, t('workspace.workspaceOptions'), wsMenuItems);
     }
   }, [wsMenu.visible, closeWsMenu, openWsMenu, wsMenuItems, t]);
 
@@ -197,7 +197,7 @@ export function WorkspaceToolbar() {
       shortcut: chordKey,
       action: () => {
         void addTab(type, TAB_TYPE_DEFAULTS[type]);
-        announce(`${t('workspace.tabCreated', 'Aba criada')}: ${t(labelKey)}`);
+        announce(`${t('workspace.tabCreated')}: ${t(labelKey)}`);
       },
     })),
   [addTab, announce, t]);
@@ -227,11 +227,11 @@ export function WorkspaceToolbar() {
   const handleProfileChange = useCallback(async (slug: string) => {
     try {
       await setProfile(slug);
-      announce(`${t('workspace.profileChanged', 'Perfil alterado')}: ${slug}`);
+      announce(`${t('workspace.profileChanged')}: ${slug}`);
     } catch (error) {
       console.error('[WorkspaceToolbar] Erro ao trocar perfil do workspace:', error);
       addToast(
-        t('chat.profileChangeError', 'Não foi possível alterar o perfil. Tente novamente.'),
+        t('chat.profileChangeError'),
         'error'
       );
     }
@@ -281,7 +281,7 @@ export function WorkspaceToolbar() {
             ) : (
               <ToolbarButton
                 ref={wsMenuButtonRef}
-                label={t('workspace.workspaceOptions', 'Opções do workspace')}
+                label={t('workspace.workspaceOptions')}
                 icon={<SettingOutlined />}
                 onClick={handleOpenWsMenu}
                 aria-expanded={wsMenu.visible}
@@ -294,7 +294,7 @@ export function WorkspaceToolbar() {
             <ProfilePicker
               value={workspace?.profile || ''}
               variant="toolbar"
-              label={t('workspace.profileLabel', 'Perfil')}
+              label={t('workspace.profileLabel')}
               description={t('workspace.profileDescription')}
               icon=""
               onChange={handleProfileChange}
@@ -320,7 +320,7 @@ export function WorkspaceToolbar() {
         x={wsMenu.x}
         y={wsMenu.y}
         visible={wsMenu.visible}
-        ariaLabel={wsMenu.ariaLabel || t('workspace.workspaceOptions', 'Opções do workspace')}
+        ariaLabel={wsMenu.ariaLabel || t('workspace.workspaceOptions')}
         onClose={closeWsMenu}
         onSelect={onWsMenuSelect}
       />

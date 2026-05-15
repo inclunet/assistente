@@ -1518,6 +1518,7 @@ const ptBR = {
       toolbarLabel: 'Workspace',
       switchWorkspace: 'Alternar workspace',
       workspaceList: 'Lista de workspaces',
+      searchWorkspaces: 'Buscar workspace...',
       newWorkspace: 'Novo workspace',
       created: 'Workspace criado',
       renamePlaceholder: 'Nome do workspace',

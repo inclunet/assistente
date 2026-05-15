@@ -198,7 +198,7 @@ export function RunLogViewer({ logs, isLoading, onReplay, onRerun }: RunLogViewe
   }, []);
 
   if (isLoading) {
-    return <div className="run-log-viewer run-log-viewer--loading" role="status">{t('common.loading', 'Loading...')}</div>;
+    return <div className="run-log-viewer run-log-viewer--loading" role="status">{t('common.loading')}</div>;
   }
 
   if (!logs || logs.length === 0) {

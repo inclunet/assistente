@@ -1544,6 +1544,7 @@ const en = {
       toolbarLabel: 'Workspace',
       switchWorkspace: 'Switch workspace',
       workspaceList: 'Workspace list',
+      searchWorkspaces: 'Search workspace...',
       newWorkspace: 'New workspace',
       created: 'Workspace created',
       renamePlaceholder: 'Workspace name',
