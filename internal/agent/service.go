@@ -437,6 +437,10 @@ func (s *Service) RunAgenticLoop(
 			if !persisted {
 				persistedContent := execResult.Result.Content
 				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, persistedContent, execResult.CallID); err != nil {
+					if errors.Is(err, chat.ErrConversationDeleted) {
+						log.Printf("[Agent] conversa %s deletada durante tool execution — abortando", conversationID)
+						return
+					}
 					log.Printf("[Agent] erro ao salvar tool result message (fallback): %v", err)
 				}
 			}
@@ -843,6 +847,15 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		})
 		if recErr != nil {
 			log.Printf("[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
+			// Fallback: garante que exista ao menos um resultado persistido
+			// para o tool_call_id no histórico da conversa.
+			content := ev.Output
+			if ev.Error != "" {
+				content = ev.Error
+			}
+			if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID); err != nil {
+				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
+			}
 		}
 	}
 }
