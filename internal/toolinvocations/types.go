@@ -10,8 +10,10 @@ import (
 const (
 	StatusQueued    = "queued"
 	StatusRunning   = "running"
-	StatusCompleted = "completed"
+	StatusSucceeded = "succeeded"
 	StatusFailed    = "failed"
+	StatusCancelled = "cancelled"
+	StatusTimedOut  = "timed_out"
 
 	OriginChat        = "chat"
 	OriginJobRun      = "job_run"
@@ -53,11 +55,34 @@ type ExecuteRequest struct {
 	ParentInvocationID string
 	ToolCatalogID      string
 	DryRun             bool
+
+	// ExecutionMaxResultSize permite que um chamador (ex.: jobs) execute com
+	// um limite maior de resultado para processamento interno, sem precisar
+	// desativar truncamento global do executor.
+	//
+	// Observação: a persistência em tool_invocations pode aplicar um limite
+	// separado para evitar crescimento excessivo da tabela.
+	ExecutionMaxResultSize int
 }
 
 type ExecuteResult struct {
 	Invocation Invocation
 	Execution  tools.ToolExecutionResult
+}
+
+// RecordRequest registra uma invocação já executada fora do executor comum
+// (ex.: MCP nativo), persistindo input/output/status no mesmo formato.
+type RecordRequest struct {
+	Call          tools.ToolCall
+	Origin        Origin
+	ToolCatalogID string
+	DryRun        bool
+
+	Result       tools.ToolResult
+	ErrorKind    tools.ErrorKind
+	ErrorMessage string
+	Retryable    bool
+	DurationMs   int64
 }
 
 type Filter struct {

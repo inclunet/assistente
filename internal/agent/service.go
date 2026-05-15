@@ -750,17 +750,43 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		return
 	}
 
+	// Resultados técnicos: persistir em tool_invocations quando disponível.
+	// Não criar novas mensagens role=tool.
+	if s.toolInvocations == nil {
+		return
+	}
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
 			continue
 		}
-		content := ev.Output
+		result := tools.ToolResult{Content: ev.Output}
+		errKind := tools.ErrorKindNone
+		errMsg := ""
 		if ev.Error != "" {
-			content = "ERROR: " + ev.Error
+			result = tools.ToolResult{Content: ev.Error, IsError: true}
+			errKind = tools.ErrorKindUnknown
+			errMsg = ev.Error
 		}
-		_, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID)
-		if err != nil {
-			log.Printf("[MCP Native] Erro ao salvar tool result (id=%s): %v", ev.ID, err)
+		_, recErr := s.toolInvocations.Record(ctx, toolinvocations.RecordRequest{
+			Call: tools.ToolCall{
+				ID:   ev.ID,
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      ev.Name,
+					Arguments: ev.Arguments,
+				},
+			},
+			Origin: toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID},
+			DryRun: false,
+			Result: result,
+			// Sem sinalização de timeout/cancel no contrato do MCP event hoje.
+			ErrorKind:    errKind,
+			ErrorMessage: errMsg,
+			Retryable:    false,
+			DurationMs:   0,
+		})
+		if recErr != nil {
+			log.Printf("[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
 		}
 	}
 }

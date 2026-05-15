@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/tools"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -22,10 +23,38 @@ func setupMessageWindowAppTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
+	if err := db.AutoMigrate(
+		&database.User{},
+		&database.Conversation{},
+		&database.ChatMessage{},
+		&database.ToolCatalog{},
+		&database.ToolInvocation{},
+	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	database.SetDB(db)
+	// Seed do usuário do teste (ToolInvocation tem FK para users).
+	if err := db.Create(&database.User{
+		UUIDModel:    database.UUIDModel{ID: messageWindowTestUserID},
+		Username:     "message-window",
+		DisplayName:  "Message Window",
+		PasswordHash: "x",
+		Role:         database.UserRoleUser,
+		IsActive:     true,
+		LastLoginAt:  nil,
+		Sessions:     nil,
+	}).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	// Seed de uma tool builtin usada pelos testes.
+	if err := db.Create(&database.ToolCatalog{
+		Name:               "search",
+		DisplayName:        "search",
+		Origin:             tools.ToolOriginBuiltin,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}).Error; err != nil {
+		t.Fatalf("seed tool catalog: %v", err)
+	}
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {
@@ -67,7 +96,7 @@ func TestConsolidateTimelineTurnMessages_ToolOnlyPlaceholderOrdersToolCalls(t *t
 			TurnID:     &turnID,
 			ToolCallID: "tool-a",
 		},
-	})
+	}, nil)
 
 	var calls []struct {
 		ID string `json:"id"`
@@ -102,7 +131,7 @@ func TestConsolidateTimelineTurnMessages_OrdersMessagesBeforeChoosingRepresentat
 			Content:   "primeira resposta",
 			TurnID:    &turnID,
 		},
-	})
+	}, nil)
 
 	if consolidated.ID != "assistant-final" {
 		t.Fatalf("expected latest assistant as representative, got %s", consolidated.ID)
@@ -135,7 +164,7 @@ func TestConsolidateTimelineTurnMessages_DeduplicatesToolCallsByID(t *testing.T)
 			TurnID:     &turnID,
 			ToolCallID: "tool-1",
 		},
-	})
+	}, nil)
 
 	var calls []struct {
 		ID       string `json:"id"`
@@ -319,8 +348,24 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 	if err != nil {
 		t.Fatalf("create assistant tool call: %v", err)
 	}
-	if _, err := database.AddToolResultMessageWithContext(ctx, conv.ID, user.ID, "resultado", "tool-1"); err != nil {
-		t.Fatalf("create tool result: %v", err)
+	// Resultado técnico agora vem de tool_invocations (não role=tool messages).
+	var catalog database.ToolCatalog
+	if err := database.DB().WithContext(ctx).First(&catalog, "name = ?", "search").Error; err != nil {
+		t.Fatalf("load tool catalog: %v", err)
+	}
+	if err := database.DB().WithContext(ctx).Create(&database.ToolInvocation{
+		UUIDModel:     database.UUIDModel{ID: "inv-1"},
+		UserID:        messageWindowTestUserID,
+		ToolCatalogID: catalog.ID,
+		OriginType:    "chat",
+		OriginID:      user.ID,
+		ToolCallID:    "tool-1",
+		Status:        "succeeded",
+		DryRun:        false,
+		Output:        `{"content":"resultado","is_error":false}`,
+		QueuedAt:      time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("create tool invocation: %v", err)
 	}
 	finalAssistant, err := database.AddMessageWithTokensWithContext(ctx, conv.ID, "assistant", "resposta final", 0, 0, 0, "")
 	if err != nil {
@@ -388,8 +433,23 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 	if err != nil {
 		t.Fatalf("create assistant tool call: %v", err)
 	}
-	if _, err := database.AddToolResultMessageWithContext(ctx, conv.ID, user.ID, "resultado", "tool-1"); err != nil {
-		t.Fatalf("create tool result: %v", err)
+	var catalog database.ToolCatalog
+	if err := database.DB().WithContext(ctx).First(&catalog, "name = ?", "search").Error; err != nil {
+		t.Fatalf("load tool catalog: %v", err)
+	}
+	if err := database.DB().WithContext(ctx).Create(&database.ToolInvocation{
+		UUIDModel:     database.UUIDModel{ID: "inv-2"},
+		UserID:        messageWindowTestUserID,
+		ToolCatalogID: catalog.ID,
+		OriginType:    "chat",
+		OriginID:      user.ID,
+		ToolCallID:    "tool-1",
+		Status:        "succeeded",
+		DryRun:        false,
+		Output:        `{"content":"resultado","is_error":false}`,
+		QueuedAt:      time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("create tool invocation: %v", err)
 	}
 	nextUser, err := database.AddMessageWithContext(ctx, conv.ID, "user", "pergunta seguinte")
 	if err != nil {
@@ -421,9 +481,29 @@ func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceh
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	tool, err := database.AddToolResultMessageWithContext(ctx, conv.ID, user.ID, "resultado preservado", "tool-1")
+	// Turno só com resultado de tool (legado): mantemos ChatMessage como âncora
+	// para paginação, mas o enriquecimento vem de tool_invocations.
+	tool, err := database.AddToolResultMessageWithContext(ctx, conv.ID, user.ID, "", "tool-1")
 	if err != nil {
-		t.Fatalf("create tool-only turn: %v", err)
+		t.Fatalf("create tool-only turn anchor: %v", err)
+	}
+	var catalog database.ToolCatalog
+	if err := database.DB().WithContext(ctx).First(&catalog, "name = ?", "search").Error; err != nil {
+		t.Fatalf("load tool catalog: %v", err)
+	}
+	if err := database.DB().WithContext(ctx).Create(&database.ToolInvocation{
+		UUIDModel:     database.UUIDModel{ID: "inv-3"},
+		UserID:        messageWindowTestUserID,
+		ToolCatalogID: catalog.ID,
+		OriginType:    "chat",
+		OriginID:      user.ID,
+		ToolCallID:    "tool-1",
+		Status:        "succeeded",
+		DryRun:        false,
+		Output:        `{"content":"resultado preservado","is_error":false}`,
+		QueuedAt:      time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("create tool invocation: %v", err)
 	}
 
 	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{

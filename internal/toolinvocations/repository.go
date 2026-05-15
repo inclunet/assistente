@@ -92,7 +92,7 @@ func (r *DBRepository) Complete(ctx context.Context, id string, inv *Invocation)
 	}
 	status := inv.Status
 	if status == "" {
-		status = StatusCompleted
+		status = StatusSucceeded
 	}
 	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
 		Where("id = ?", strings.TrimSpace(id)).
@@ -185,8 +185,13 @@ func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string
 	}
 	var row database.ToolCatalog
 	err = r.db.WithContext(ctx).
-		Where("name = ? AND (user_id IS NULL OR user_id = ?)", name, userID).
-		Order("user_id IS NULL ASC").
+		Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
+		Where(
+			"tool_catalog.name = ? AND (tool_catalog.user_id = ? OR (tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
+			name, userID, userID,
+		).
+		Order("tool_catalog.mcp_server_id IS NULL ASC").
+		Order("tool_catalog.user_id IS NULL ASC").
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", fmt.Errorf("tool catalog entry not found: %s", name)

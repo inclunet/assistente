@@ -48,7 +48,7 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get invocation: %v", err)
 	}
-	if got.Status != StatusCompleted || got.ToolCallID != "call-1" || got.OriginID != "turn-1" {
+	if got.Status != StatusSucceeded || got.ToolCallID != "call-1" || got.OriginID != "turn-1" {
 		t.Fatalf("unexpected invocation: %#v", got)
 	}
 	if len(got.Output) == 0 {

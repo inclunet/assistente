@@ -168,7 +168,7 @@ func parseToolCalls(messageID string, raw string) []map[string]interface{} {
 	return nil
 }
 
-func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.ChatMessage {
+func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocationToolResults map[string]string) database.ChatMessage {
 	if len(messages) == 0 {
 		return database.ChatMessage{}
 	}
@@ -184,6 +184,17 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 		if message.Role == "tool" && message.ToolCallID != "" {
 			toolResults[message.ToolCallID] = message.Content
 		}
+	}
+	// tool_invocations é o caminho canônico novo; usa como fallback quando
+	// não existe mais mensagem role=tool persistida.
+	for callID, result := range invocationToolResults {
+		if callID == "" {
+			continue
+		}
+		if existing, ok := toolResults[callID]; ok && existing != "" {
+			continue
+		}
+		toolResults[callID] = result
 	}
 
 	consolidated := messages[0]
@@ -262,6 +273,7 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 }
 
 func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+	invocationToolResults := loadChatToolInvocationResults(ctx, items)
 	messagesByItemKey := make(map[string][]database.ChatMessage)
 	for _, message := range messages {
 		key := messageTimelineItemKey(message)
@@ -276,12 +288,73 @@ func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWind
 		}
 		representative := itemMessages[0]
 		if item.Kind == database.MessageWindowItemKindTurn {
-			representative = consolidateTimelineTurnMessages(itemMessages)
+			representative = consolidateTimelineTurnMessages(itemMessages, invocationToolResults)
 		}
 		representatives = append(representatives, representative)
 		originalIndexesByMessageID[representative.ID] = item.OriginalIndex
 	}
 	return assignMessageNodeOriginalIndexes(buildMessageNodes(ctx, representatives, parentID), originalIndexesByMessageID)
+}
+
+func loadChatToolInvocationResults(ctx context.Context, items []database.MessageWindowItem) map[string]string {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return map[string]string{}
+	}
+	turnIDs := make([]string, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		if item.Kind != database.MessageWindowItemKindTurn {
+			continue
+		}
+		id := strings.TrimSpace(item.TurnID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		turnIDs = append(turnIDs, id)
+	}
+	if len(turnIDs) == 0 {
+		return map[string]string{}
+	}
+
+	var rows []database.ToolInvocation
+	err = database.DB().WithContext(ctx).
+		Where("user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> ''", userID, "chat", turnIDs).
+		Order("queued_at DESC").
+		Find(&rows).Error
+	if err != nil {
+		log.Printf("[Chat] load tool_invocations results failed: %v", err)
+		return map[string]string{}
+	}
+
+	results := make(map[string]string, len(rows))
+	for _, row := range rows {
+		callID := strings.TrimSpace(row.ToolCallID)
+		if callID == "" {
+			continue
+		}
+		// Mantém o primeiro (mais recente pela Order).
+		if _, ok := results[callID]; ok {
+			continue
+		}
+		content := ""
+		if strings.TrimSpace(row.Output) != "" {
+			var payload struct {
+				Content string `json:"content"`
+			}
+			if json.Unmarshal([]byte(row.Output), &payload) == nil {
+				content = payload.Content
+			} else {
+				content = row.Output
+			}
+		}
+		results[callID] = content
+	}
+	return results
 }
 
 // GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.

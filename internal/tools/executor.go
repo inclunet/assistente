@@ -273,3 +273,10 @@ func truncateUTF8(s string, maxBytes int) string {
 func (e *Executor) Config() ExecutorConfig {
 	return e.config
 }
+
+// Registry expõe o registry associado ao executor.
+// Útil para criar um executor derivado com configuração diferente, mantendo
+// o mesmo conjunto de tools registradas.
+func (e *Executor) Registry() *Registry {
+	return e.registry
+}

@@ -93,7 +93,7 @@ func TestRepositoryCompleteInvocation(t *testing.T) {
 		t.Fatalf("mark running: %v", err)
 	}
 	completedAt := startedAt.Add(10 * time.Millisecond)
-	inv.Status = StatusCompleted
+	inv.Status = StatusSucceeded
 	inv.Output = json.RawMessage(`{"content":"ok"}`)
 	inv.CompletedAt = &completedAt
 	inv.DurationMs = 10
@@ -104,7 +104,7 @@ func TestRepositoryCompleteInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Status != StatusCompleted || got.DurationMs != 10 || string(got.Output) != `{"content":"ok"}` {
+	if got.Status != StatusSucceeded || got.DurationMs != 10 || string(got.Output) != `{"content":"ok"}` {
 		t.Fatalf("unexpected completed invocation: %#v", got)
 	}
 }
