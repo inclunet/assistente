@@ -46,6 +46,9 @@ type legacyDefinitionSource struct {
 }
 
 func (s legacyDefinitionSource) ListLegacyImportFiles(context.Context) ([]portability.LegacyImportFile, error) {
+	if strings.TrimSpace(s.baseDir) == "" {
+		return nil, nil
+	}
 	entries, err := os.ReadDir(s.baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -77,6 +80,9 @@ func (s legacyDefinitionSource) ListLegacyImportFiles(context.Context) ([]portab
 }
 
 func (s legacyDefinitionSource) ReadLegacyImportFile(_ context.Context, filename string) ([]byte, error) {
+	if strings.TrimSpace(s.baseDir) == "" {
+		return nil, os.ErrNotExist
+	}
 	clean := filepath.Base(filename)
 	return os.ReadFile(filepath.Join(s.baseDir, clean))
 }

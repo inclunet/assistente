@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"assistente/internal/jobs"
 )
@@ -184,6 +183,13 @@ func (c *JobsController) GetJobPipelines() []jobs.PipelineInfo {
 	return c.jobMgr.GetPipelines()
 }
 
+func (c *JobsController) GetJobPipelinesContext(ctx context.Context) ([]jobs.PipelineInfo, error) {
+	if c.jobMgr == nil {
+		return nil, nil
+	}
+	return c.jobMgr.GetPipelinesContext(ctx)
+}
+
 func (c *JobsController) GetToolCatalog() ([]jobs.CatalogEntry, error) {
 	if c.jobMgr == nil {
 		return nil, nil
@@ -241,8 +247,6 @@ func (c *JobsController) TestTool(toolName, inputsJSON, eventJSON string) (*jobs
 			return nil, fmt.Errorf("invalid event data: %w", err)
 		}
 	}
-
-	log.Printf("[Jobs] JobsController.TestTool: eventJSON len=%d, eventData nil=%v", len(eventJSON), eventData == nil)
 	return c.jobMgr.TestTool(toolName, inputs, eventData)
 }
 

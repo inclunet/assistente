@@ -126,6 +126,7 @@ func (s *Scheduler) scheduleCron(job *Job, t Trigger) error {
 			s.safeExec(ctx, &jobCopy, &TriggerContext{
 				Type:       TriggerCron,
 				Expression: t.Expression,
+				When:       t.When,
 			})
 		}
 	})
@@ -161,6 +162,7 @@ func (s *Scheduler) scheduleInterval(job *Job, t Trigger) error {
 					s.safeExec(ctx, &jobCopy, &TriggerContext{
 						Type:  TriggerInterval,
 						Every: t.Every,
+						When:  t.When,
 					})
 				}
 			}

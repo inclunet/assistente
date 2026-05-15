@@ -200,6 +200,8 @@ func (t *Tool) getJob(ctx context.Context, mgr Manager, id string) (tools.ToolRe
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 	job.Inputs = jobs.RedactResolvedInputs(nil, job.Inputs)
+	// Evita vazar detalhes de execuções anteriores (outputs/inputs resolvidos) em um "read" de configuração.
+	job.LastRun = nil
 	data, _ := json.Marshal(job)
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id}}, nil
 }
@@ -252,7 +254,10 @@ func (t *Tool) createJob(ctx context.Context, mgr Manager, explicitID string, pa
 		job.Enabled = *params.Enabled
 	}
 	applyOptionalJobFields(job, params)
-	if err := mgr.SaveJobContext(ctx, job); err != nil {
+	if err := mgr.CreateJobContext(ctx, job); err != nil {
+		if errors.Is(err, jobs.ErrJobAlreadyExists) {
+			return tools.ToolResult{Content: fmt.Sprintf("job already exists: %s", job.ID), IsError: true}, nil
+		}
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating job: %v", err), IsError: true}, nil
 	}
 	return t.actionResult("created", job.ID)

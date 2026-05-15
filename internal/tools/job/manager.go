@@ -11,6 +11,7 @@ import (
 type Manager interface {
 	GetJobsContext(ctx context.Context) ([]jobs.JobInfo, error)
 	GetJobContext(ctx context.Context, id string) (*jobs.Job, error)
+	CreateJobContext(ctx context.Context, job *jobs.Job) error
 	SaveJobContext(ctx context.Context, job *jobs.Job) error
 	DeleteJobContext(ctx context.Context, id string) error
 	ToggleJobContext(ctx context.Context, id string, enabled bool) error
@@ -19,6 +20,7 @@ type Manager interface {
 	GetJobRunsContext(ctx context.Context, id string, limit int) ([]jobs.RunLog, error)
 
 	ListPipelinesContext(ctx context.Context) ([]jobs.Pipeline, error)
+	CreatePipelineContext(ctx context.Context, pipeline *jobs.Pipeline) error
 	SavePipelineContext(ctx context.Context, pipeline *jobs.Pipeline) error
 	DeletePipelineContext(ctx context.Context, slug string) error
 }

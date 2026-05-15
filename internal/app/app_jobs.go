@@ -135,10 +135,16 @@ func (a *App) GetJobEventsPage(date string, limit, offset int) ([]jobs.EventEntr
 }
 
 func (a *App) GetJobPipelines() []jobs.PipelineInfo {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil
 	}
-	return a.jobsCtrl.GetJobPipelines()
+	result, err := a.jobsCtrl.GetJobPipelinesContext(ctx)
+	if err != nil {
+		log.Printf("[Jobs] erro ao listar pipelines: %v", err)
+		return nil
+	}
+	return result
 }
 func (a *App) GetToolCatalog() ([]jobs.CatalogEntry, error) {
 	if _, err := a.requireAuthenticatedContext(); err != nil {

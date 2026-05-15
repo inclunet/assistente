@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -50,6 +51,13 @@ func (m *fakeManager) GetJob(id string) (*jobs.Job, error) {
 
 func (m *fakeManager) GetJobContext(ctx context.Context, id string) (*jobs.Job, error) {
 	return m.GetJob(id)
+}
+
+func (m *fakeManager) CreateJobContext(ctx context.Context, job *jobs.Job) error {
+	if _, ok := m.jobs[job.ID]; ok {
+		return fmt.Errorf("%w: %s", jobs.ErrJobAlreadyExists, job.ID)
+	}
+	return m.SaveJobContext(ctx, job)
 }
 
 func (m *fakeManager) SaveJob(job *jobs.Job) error {
@@ -127,6 +135,13 @@ func (m *fakeManager) ListPipelines() ([]jobs.Pipeline, error) {
 
 func (m *fakeManager) ListPipelinesContext(ctx context.Context) ([]jobs.Pipeline, error) {
 	return m.ListPipelines()
+}
+
+func (m *fakeManager) CreatePipelineContext(ctx context.Context, pipeline *jobs.Pipeline) error {
+	if _, ok := m.pipelines[pipeline.Slug]; ok {
+		return fmt.Errorf("%w: %s", jobs.ErrPipelineAlreadyExists, pipeline.Slug)
+	}
+	return m.SavePipelineContext(ctx, pipeline)
 }
 
 func (m *fakeManager) SavePipeline(pipeline *jobs.Pipeline) error {

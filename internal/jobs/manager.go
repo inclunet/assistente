@@ -19,7 +19,13 @@ import (
 	"github.com/google/uuid"
 )
 
-var ErrJobNotFound = errors.New("job not found")
+var (
+	ErrJobNotFound = errors.New("job not found")
+
+	// Erros de domínio usados para distinguir conflitos de unicidade.
+	ErrJobAlreadyExists      = errors.New("job already exists")
+	ErrPipelineAlreadyExists = errors.New("pipeline already exists")
+)
 
 // SecretStore abstrai acesso a secrets para o job engine.
 type SecretStore interface {
@@ -433,6 +439,9 @@ func (m *Manager) GetJobEventsPageContext(ctx context.Context, date string, limi
 	if offset < 0 {
 		offset = 0
 	}
+	if strings.TrimSpace(date) == "" {
+		date = time.Now().In(time.Local).Format("2006-01-02")
+	}
 	filter := EventFilter{Limit: limit, Offset: offset}
 	if date != "" {
 		start, err := time.ParseInLocation("2006-01-02", date, time.Local)
@@ -447,14 +456,26 @@ func (m *Manager) GetJobEventsPageContext(ctx context.Context, date string, limi
 
 // GetPipelines retorna os pipelines com seus jobs.
 func (m *Manager) GetPipelines() []PipelineInfo {
+	pipelines, err := m.GetPipelinesContext(m.context())
+	if err != nil {
+		log.Printf("[Jobs] GetPipelines error: %v", err)
+		return nil
+	}
+	return pipelines
+}
+
+func (m *Manager) GetPipelinesContext(ctx context.Context) ([]PipelineInfo, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	grouped := m.registry.GetByPipeline()
 	allJobs := m.registry.GetAll()
-	lastRuns := m.lastRuns(allJobs)
-	var pipelines []PipelineInfo
+	lastRuns := m.lastRunsWithContext(ctx, allJobs)
 
-	for name, jobs := range grouped {
-		infos := make([]JobInfo, 0, len(jobs))
-		for _, job := range jobs {
+	toInfos := func(jobsSlice []*Job) []JobInfo {
+		infos := make([]JobInfo, 0, len(jobsSlice))
+		for _, job := range jobsSlice {
 			infos = append(infos, JobInfo{
 				ID:               job.ID,
 				Name:             job.Name,
@@ -467,13 +488,37 @@ func (m *Manager) GetPipelines() []PipelineInfo {
 				LastRun:          lastRuns[job.ID],
 			})
 		}
-		pipelines = append(pipelines, PipelineInfo{
-			Name: name,
-			Jobs: infos,
-		})
+		return infos
 	}
 
-	return pipelines
+	result := make([]PipelineInfo, 0)
+	seen := make(map[string]bool)
+	if m.cfg.Repository != nil {
+		persisted, err := m.cfg.Repository.ListPipelines(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, pipeline := range persisted {
+			slug := normalizeSlug(pipeline.Slug)
+			seen[slug] = true
+			result = append(result, PipelineInfo{
+				Name: slug,
+				Jobs: toInfos(grouped[slug]),
+			})
+		}
+	}
+	// Inclui pipelines que existam no runtime mas ainda não estejam persistidos (ex.: dados legados/estado transitório).
+	for name, jobsSlice := range grouped {
+		normalized := normalizeSlug(name)
+		if seen[normalized] {
+			continue
+		}
+		seen[normalized] = true
+		result = append(result, PipelineInfo{Name: name, Jobs: toInfos(jobsSlice)})
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result, nil
 }
 
 func (m *Manager) ListPipelines() ([]Pipeline, error) {
@@ -502,6 +547,18 @@ func (m *Manager) SavePipelineContext(ctx context.Context, pipeline *Pipeline) e
 		return err
 	}
 	if err := m.cfg.Repository.SavePipeline(ctx, pipeline); err != nil {
+		return err
+	}
+	m.emitJobUpdates(m.applyPipelineState(pipeline.Slug, pipeline.Enabled))
+	return nil
+}
+
+func (m *Manager) CreatePipelineContext(ctx context.Context, pipeline *Pipeline) error {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return err
+	}
+	if err := m.cfg.Repository.CreatePipeline(ctx, pipeline); err != nil {
 		return err
 	}
 	m.emitJobUpdates(m.applyPipelineState(pipeline.Slug, pipeline.Enabled))
@@ -712,11 +769,44 @@ func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
 	return nil
 }
 
+// CreateJobContext cria um job no banco e registra no runtime, falhando se já existir.
+func (m *Manager) CreateJobContext(ctx context.Context, job *Job) error {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return err
+	}
+	if err := Validate(job); err != nil {
+		return err
+	}
+	if job.Metadata.CreatedAt == "" {
+		job.Metadata.CreatedAt = time.Now().Format(time.RFC3339)
+		if job.Metadata.CreatedBy == "" {
+			job.Metadata.CreatedBy = "tool"
+		}
+	}
+	if err := m.cfg.Repository.CreateJob(ctx, job); err != nil {
+		return err
+	}
+	saved, err := m.cfg.Repository.GetJob(ctx, job.ID)
+	if err != nil {
+		return fmt.Errorf("reload created job: %w", err)
+	}
+	if existing := m.registry.Get(job.ID); existing != nil {
+		m.unregisterTriggers(existing)
+	}
+	m.registerJob(saved)
+	m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
+	return nil
+}
+
 // DeleteJob remove um job do banco e do runtime.
 func (m *Manager) DeleteJob(id string) error {
 	job := m.registry.Get(id)
 	if job == nil {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
+	}
+	if job.Status == JobStatusRunning {
+		return fmt.Errorf("cannot delete job %q while it is running", id)
 	}
 
 	if err := m.cfg.Repository.DeleteJob(m.context(), id); err != nil {
@@ -740,6 +830,9 @@ func (m *Manager) DeleteJobContext(ctx context.Context, id string) error {
 	job := m.registry.Get(id)
 	if job == nil {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
+	}
+	if job.Status == JobStatusRunning {
+		return fmt.Errorf("cannot delete job %q while it is running", id)
 	}
 
 	if err := m.cfg.Repository.DeleteJob(ctx, id); err != nil {
@@ -932,7 +1025,7 @@ func (m *Manager) registerTriggers(job *Job) {
 
 		// Register hotkeys
 		if t.Type == TriggerHotkey && t.Keys != "" {
-			m.registerJobHotkey(job, t.Keys)
+			m.registerJobHotkey(job, t.Keys, t.When)
 		}
 	}
 }
@@ -943,7 +1036,7 @@ func (m *Manager) unregisterTriggers(job *Job) {
 	m.unregisterJobHotkeys(job.ID)
 }
 
-func (m *Manager) registerJobHotkey(job *Job, keys string) {
+func (m *Manager) registerJobHotkey(job *Job, keys string, when string) {
 	if m.cfg.HotkeyManager == nil {
 		return
 	}
@@ -960,6 +1053,7 @@ func (m *Manager) registerJobHotkey(job *Job, keys string) {
 		trigCtx := &TriggerContext{
 			Type:         TriggerHotkey,
 			Keys:         keys,
+			When:         when,
 			EventPayload: make(map[string]any),
 		}
 		m.executeJob(ctx, &jobCopy, trigCtx)
@@ -1263,15 +1357,13 @@ func (m *Manager) contextFrom(parent context.Context) context.Context {
 	if parent == nil {
 		parent = context.Background()
 	}
-	if _, ok := database.UserIDFromContext(parent); ok {
-		return parent
-	}
 	base := m.context()
-	userID, ok := database.UserIDFromContext(base)
-	if !ok {
-		return parent
+	// O Manager é stateful por usuário (registry/scheduler). Sempre força o user_id do Manager
+	// para evitar que um ctx upstream com outro user_id opere no DB "errado" usando esse runtime.
+	if userID, ok := database.UserIDFromContext(base); ok {
+		return database.WithUserID(parent, userID)
 	}
-	return database.WithUserID(parent, userID)
+	return parent
 }
 
 func (m *Manager) scopedContext(parent context.Context) (context.Context, error) {

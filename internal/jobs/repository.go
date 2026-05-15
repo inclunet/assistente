@@ -27,12 +27,14 @@ type Repository interface {
 
 	ListPipelines(ctx context.Context) ([]Pipeline, error)
 	GetPipeline(ctx context.Context, slug string) (*Pipeline, error)
+	CreatePipeline(ctx context.Context, pipeline *Pipeline) error
 	SavePipeline(ctx context.Context, pipeline *Pipeline) error
 	DeletePipeline(ctx context.Context, slug string) error
 
 	ListJobs(ctx context.Context, filter JobFilter) ([]Job, error)
 	GetJob(ctx context.Context, slug string) (*Job, error)
 	GetJobByID(ctx context.Context, id string) (*Job, error)
+	CreateJob(ctx context.Context, job *Job) error
 	SaveJob(ctx context.Context, job *Job) error
 	DeleteJob(ctx context.Context, slug string) error
 
@@ -216,6 +218,51 @@ func (r *DBRepository) GetPipeline(ctx context.Context, slug string) (*Pipeline,
 	return &p, nil
 }
 
+func (r *DBRepository) CreatePipeline(ctx context.Context, pipeline *Pipeline) error {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	if pipeline == nil {
+		return fmt.Errorf("pipeline nil")
+	}
+	slug := normalizeSlug(pipeline.Slug)
+	if slug == "" {
+		slug = normalizeSlug(pipeline.Name)
+	}
+	if slug == "" {
+		return fmt.Errorf("slug da pipeline é obrigatório")
+	}
+	name := strings.TrimSpace(pipeline.Name)
+	if name == "" {
+		name = slug
+	}
+	meta, err := marshalJSON(pipeline.Metadata)
+	if err != nil {
+		return err
+	}
+	row := database.JobPipeline{
+		UserID:      userID,
+		Slug:        slug,
+		Name:        name,
+		Description: strings.TrimSpace(pipeline.Description),
+		Enabled:     pipeline.Enabled,
+		Metadata:    meta,
+	}
+	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		if isUniqueConstraintError(err) {
+			return fmt.Errorf("%w: %s", ErrPipelineAlreadyExists, slug)
+		}
+		return err
+	}
+	pipeline.ID = row.ID
+	pipeline.Slug = slug
+	pipeline.Name = name
+	pipeline.CreatedAt = row.CreatedAt
+	pipeline.UpdatedAt = row.UpdatedAt
+	return nil
+}
+
 func (r *DBRepository) SavePipeline(ctx context.Context, pipeline *Pipeline) error {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -359,6 +406,62 @@ func (r *DBRepository) GetJobByID(ctx context.Context, id string) (*Job, error) 
 		return nil, err
 	}
 	return r.jobModelToDomain(ctx, row)
+}
+
+func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	if job == nil {
+		return fmt.Errorf("job is required")
+	}
+	if err := Validate(job); err != nil {
+		return err
+	}
+	slug := normalizeSlug(job.ID)
+	if slug == "" {
+		return fmt.Errorf("slug do job é obrigatório")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		pipelineID, err := r.pipelineIDForSlugTx(ctx, tx, userID, job.Pipeline)
+		if err != nil {
+			return err
+		}
+		toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
+		if err != nil {
+			return err
+		}
+		row, err := jobDomainToModel(userID, slug, pipelineID, toolCatalogID, job)
+		if err != nil {
+			return err
+		}
+		if err := tx.Create(row).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				return fmt.Errorf("%w: %s", ErrJobAlreadyExists, slug)
+			}
+			return err
+		}
+		if err := r.saveTriggersTx(ctx, tx, userID, row.ID, job.Triggers); err != nil {
+			return err
+		}
+		if err := r.setResourceTagsTx(ctx, tx, userID, tagResourceJob, row.ID, job.Tags); err != nil {
+			return err
+		}
+		pipelineEnabled := pipelineID == nil
+		if pipelineID != nil {
+			var err error
+			pipelineEnabled, err = r.pipelineEnabledByIDTx(ctx, tx, userID, *pipelineID)
+			if err != nil {
+				return err
+			}
+		}
+		job.ID = slug
+		job.Pipeline = normalizeSlug(job.Pipeline)
+		job.PipelineEnabled = pipelineEnabled
+		job.Tags = uniqueSlugs(job.Tags)
+		return nil
+	})
 }
 
 func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
@@ -1231,6 +1334,17 @@ func (r *DBRepository) resolveJobDBID(ctx context.Context, ref string) (string, 
 	return row.ID, nil
 }
 
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "unique constraint failed") ||
+		strings.Contains(msg, "duplicate key value") ||
+		strings.Contains(msg, "sqlstate 23505")
+}
+
 func (r *DBRepository) jobRowBySlug(ctx context.Context, slug string) (*database.Job, error) {
 	var row database.Job
 	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
@@ -1263,10 +1377,31 @@ func (r *DBRepository) triggerIDForRun(ctx context.Context, userID, jobID string
 		}
 	case info.Expression != "":
 		query = query.Where("expression = ?", info.Expression)
+		if info.When != "" {
+			triggerRow, err := triggerDomainToModel(userID, jobID, Trigger{Type: TriggerCron, Expression: info.Expression, When: info.When})
+			if err != nil {
+				return "", err
+			}
+			query = query.Where("config = ?", triggerRow.Config)
+		}
 	case info.Every != "":
 		query = query.Where("expression = ?", info.Every)
+		if info.When != "" {
+			triggerRow, err := triggerDomainToModel(userID, jobID, Trigger{Type: TriggerInterval, Every: info.Every, When: info.When})
+			if err != nil {
+				return "", err
+			}
+			query = query.Where("config = ?", triggerRow.Config)
+		}
 	case info.Keys != "":
 		query = query.Where("expression = ?", info.Keys)
+		if info.When != "" {
+			triggerRow, err := triggerDomainToModel(userID, jobID, Trigger{Type: TriggerHotkey, Keys: info.Keys, When: info.When})
+			if err != nil {
+				return "", err
+			}
+			query = query.Where("config = ?", triggerRow.Config)
+		}
 	}
 	err := query.First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) && triggerType == string(TriggerManual) {
@@ -1378,7 +1513,7 @@ func jobDomainToModel(userID, slug string, pipelineID *string, toolCatalogID str
 	if err != nil {
 		return nil, err
 	}
-	return &database.Job{
+	row := &database.Job{
 		UserID:         userID,
 		PipelineID:     pipelineID,
 		Slug:           slug,
@@ -1394,7 +1529,17 @@ func jobDomainToModel(userID, slug string, pipelineID *string, toolCatalogID str
 		MaxRunsPerHour: job.MaxRunsPerHour,
 		DryRunConfig:   dryRun,
 		CreatedBy:      job.Metadata.CreatedBy,
-	}, nil
+	}
+	if ts, err := time.Parse(time.RFC3339, strings.TrimSpace(job.Metadata.CreatedAt)); err == nil && !ts.IsZero() {
+		row.CreatedAt = ts
+		if strings.TrimSpace(job.Metadata.UpdatedAt) == "" {
+			row.UpdatedAt = ts
+		}
+	}
+	if ts, err := time.Parse(time.RFC3339, strings.TrimSpace(job.Metadata.UpdatedAt)); err == nil && !ts.IsZero() {
+		row.UpdatedAt = ts
+	}
+	return row, nil
 }
 
 func triggerDomainToModel(userID, jobID string, trigger Trigger) (*database.JobTrigger, error) {

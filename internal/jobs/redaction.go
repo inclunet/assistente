@@ -94,11 +94,15 @@ func isSensitiveInputKey(key string) bool {
 		"access_key",
 		"authorization",
 		"client_secret",
+		"cookie",
 		"credential",
+		"jwt",
 		"password",
 		"private_key",
 		"refresh_token",
 		"secret",
+		"session",
+		"session_id",
 		"token",
 	} {
 		tokenCompact := strings.ReplaceAll(token, "_", "")

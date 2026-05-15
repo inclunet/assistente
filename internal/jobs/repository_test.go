@@ -481,6 +481,9 @@ func TestDBRepositoryLogRunRedactsSensitiveInputs(t *testing.T) {
 			"apiKey":     "camel-secret",
 			"privateKey": "private-secret",
 			"accessKey":  "access-secret",
+				"cookie":     "cookie-secret",
+				"session_id": "session-secret",
+				"jwt":        "jwt-secret",
 			"query":      "public",
 		},
 		Output:        map[string]any{},
@@ -499,7 +502,10 @@ func TestDBRepositoryLogRunRedactsSensitiveInputs(t *testing.T) {
 	}
 	if got.ResolvedInputs["apiKey"] != redactedValue ||
 		got.ResolvedInputs["privateKey"] != redactedValue ||
-		got.ResolvedInputs["accessKey"] != redactedValue {
+		got.ResolvedInputs["accessKey"] != redactedValue ||
+		got.ResolvedInputs["cookie"] != redactedValue ||
+		got.ResolvedInputs["session_id"] != redactedValue ||
+		got.ResolvedInputs["jwt"] != redactedValue {
 		t.Fatalf("camelCase sensitive keys not redacted: %#v", got.ResolvedInputs)
 	}
 	if got.ResolvedInputs["query"] != "public" {

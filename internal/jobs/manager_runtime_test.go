@@ -267,7 +267,7 @@ func TestManagerStopResetsCircuitBreakerState(t *testing.T) {
 	}
 }
 
-func TestManagerContextFromPreservesParentUserScope(t *testing.T) {
+func TestManagerContextFromUsesManagerUserScope(t *testing.T) {
 	repo, userA, userB := setupJobsRepositoryTest(t)
 	mgr := NewManager(ManagerConfig{
 		Repository:      repo,
@@ -279,9 +279,9 @@ func TestManagerContextFromPreservesParentUserScope(t *testing.T) {
 	if !ok {
 		t.Fatal("expected scoped context to keep a user")
 	}
-	want, _ := database.UserIDFromContext(userB)
+	want, _ := database.UserIDFromContext(userA)
 	if got != want {
-		t.Fatalf("contextFrom overwrote parent user: got %q, want %q", got, want)
+		t.Fatalf("contextFrom did not bind to manager user: got %q, want %q", got, want)
 	}
 }
 

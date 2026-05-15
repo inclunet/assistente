@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -160,7 +161,10 @@ func (t *PipelineTool) createPipeline(ctx context.Context, mgr Manager, params p
 	if params.Enabled != nil {
 		pipeline.Enabled = *params.Enabled
 	}
-	if err := mgr.SavePipelineContext(ctx, pipeline); err != nil {
+	if err := mgr.CreatePipelineContext(ctx, pipeline); err != nil {
+		if errors.Is(err, jobs.ErrPipelineAlreadyExists) {
+			return tools.ToolResult{Content: fmt.Sprintf("pipeline already exists: %s", slug), IsError: true}, nil
+		}
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating pipeline: %v", err), IsError: true}, nil
 	}
 	payload := map[string]any{"action": "created", "slug": slug}
