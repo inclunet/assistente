@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -30,6 +31,7 @@ type jobArgs struct {
 	ErrorPolicy    *jobs.ErrorPolicy  `json:"error_policy,omitempty"`
 	MaxRunsPerHour *int               `json:"max_runs_per_hour,omitempty"`
 	DryRunConfig   *jobs.DryRunConfig `json:"dry_run_config,omitempty"`
+	present        map[string]json.RawMessage
 }
 
 type Tool struct {
@@ -47,14 +49,14 @@ func NewJobWithProvider(provider ManagerProvider) *Tool {
 func (t *Tool) Name() string { return "job" }
 
 func (t *Tool) Description() string {
-	return "Composite DB-backed job manager. No params lists jobs. job_id reads a job. With job_id plus fields updates. Without job_id plus name/tool/triggers creates. delete, run, dry_run and list_runs are mutually exclusive actions."
+	return "Composite DB-backed job manager. No params lists jobs. job_id reads a job. With job_id plus fields updates, or creates that stable job_id when not found and required create fields are present. Without job_id plus name/tool/triggers creates using a generated id. delete, run, dry_run and list_runs are mutually exclusive actions."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "job_id": {"type": "string", "description": "Stable job slug/id. Required for read, update, delete, toggle, run, dry_run and list_runs. Omit to list all jobs or create a new job."},
+    "job_id": {"type": "string", "description": "Stable job slug/id. Required for read, update, delete, toggle, run, dry_run and list_runs. When combined with required create fields and the job does not exist, creates a job with this id. Omit to list all jobs or create with a generated id."},
     "delete": {"type": "boolean", "description": "Delete the referenced job. Requires job_id."},
     "run": {"type": "boolean", "description": "Run the referenced job now. Requires job_id."},
     "dry_run": {"type": "boolean", "description": "Dry-run the referenced job. Requires job_id."},
@@ -79,7 +81,6 @@ func (t *Tool) Parameters() json.RawMessage {
 }
 
 func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
-	_ = ctx
 	if strings.TrimSpace(string(args)) == "" {
 		args = json.RawMessage(`{}`)
 	}
@@ -87,14 +88,19 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if err := json.Unmarshal(args, &params); err != nil {
 		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
 	}
+	_ = json.Unmarshal(args, &params.present)
 	mgr := t.manager()
 	if mgr == nil {
 		return tools.ToolResult{Content: "job manager not configured", IsError: true}, nil
 	}
-	id := strings.TrimSpace(params.JobID)
+	id := slugFromName(params.JobID)
 	actionCount := boolCount(params.Delete, params.Run, params.DryRun, params.ListRuns)
 	if actionCount > 1 {
 		return tools.ToolResult{Content: "delete, run, dry_run and list_runs are mutually exclusive", IsError: true}, nil
+	}
+	hasWrite := params.hasWriteFields()
+	if actionCount == 1 && (hasWrite || params.Enabled != nil) {
+		return tools.ToolResult{Content: "delete, run, dry_run and list_runs cannot be combined with write fields", IsError: true}, nil
 	}
 	if actionCount == 1 && id == "" {
 		return tools.ToolResult{Content: "job_id is required for delete/run/dry_run/list_runs", IsError: true}, nil
@@ -102,72 +108,119 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 
 	switch {
 	case params.Delete:
-		return t.deleteJob(mgr, id)
+		return t.deleteJob(ctx, mgr, id)
 	case params.Run:
-		return t.runJob(mgr, id)
+		return t.runJob(ctx, mgr, id)
 	case params.DryRun:
-		return t.dryRunJob(mgr, id)
+		return t.dryRunJob(ctx, mgr, id)
 	case params.ListRuns:
-		return t.listRuns(mgr, id, params.Limit)
+		return t.listRuns(ctx, mgr, id, params.Limit)
 	}
 
-	hasWrite := params.hasWriteFields()
+	if id == "" && params.Enabled != nil && !hasWrite {
+		return tools.ToolResult{Content: "job_id is required to toggle enabled", IsError: true}, nil
+	}
 	if id == "" && !hasWrite {
-		return t.listJobs(mgr)
+		return t.listJobs(ctx, mgr)
 	}
 	if id != "" && !hasWrite {
 		if params.Enabled != nil {
-			return t.toggleJob(mgr, id, *params.Enabled)
+			return t.toggleJob(ctx, mgr, id, *params.Enabled)
 		}
-		return t.getJob(mgr, id)
+		return t.getJob(ctx, mgr, id)
 	}
 	if id == "" {
-		return t.createJob(mgr, params)
+		return t.createJob(ctx, mgr, "", params)
 	}
-	return t.updateJob(mgr, id, params)
+	return t.updateJob(ctx, mgr, id, params)
 }
 
 func (p jobArgs) hasWriteFields() bool {
-	return strings.TrimSpace(p.Name) != "" ||
-		strings.TrimSpace(p.Description) != "" ||
-		strings.TrimSpace(p.Pipeline) != "" ||
-		len(p.Tags) > 0 ||
-		strings.TrimSpace(p.Tool) != "" ||
-		p.Inputs != nil ||
-		len(p.Triggers) > 0 ||
-		p.Output != nil ||
-		p.Events != nil ||
-		p.ErrorPolicy != nil ||
-		p.MaxRunsPerHour != nil ||
-		p.DryRunConfig != nil
+	return p.has("name") ||
+		p.has("description") ||
+		p.has("pipeline") ||
+		p.has("tags") ||
+		p.has("tool") ||
+		p.has("inputs") ||
+		p.has("triggers") ||
+		p.has("output") ||
+		p.has("events") ||
+		p.has("error_policy") ||
+		p.has("max_runs_per_hour") ||
+		p.has("dry_run_config")
+}
+
+func (p jobArgs) has(field string) bool {
+	_, ok := p.present[field]
+	return ok
 }
 
 func (t *Tool) manager() Manager {
 	if t.mgr == nil {
 		return nil
 	}
-	return t.mgr()
+	mgr := t.mgr()
+	if managerIsNil(mgr) {
+		return nil
+	}
+	return mgr
 }
 
-func (t *Tool) listJobs(mgr Manager) (tools.ToolResult, error) {
-	jobsList := mgr.GetJobs()
-	data, _ := json.Marshal(jobsList)
+func (t *Tool) listJobs(ctx context.Context, mgr Manager) (tools.ToolResult, error) {
+	jobsList, err := mgr.GetJobsContext(ctx)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error listing jobs: %v", err), IsError: true}, nil
+	}
+	summaries := make([]jobSummary, 0, len(jobsList))
+	for _, job := range jobsList {
+		summaries = append(summaries, jobSummary{
+			ID:               job.ID,
+			Name:             job.Name,
+			Description:      job.Description,
+			Enabled:          job.Enabled,
+			EffectiveEnabled: job.EffectiveEnabled,
+			PipelineEnabled:  job.PipelineEnabled,
+			Pipeline:         job.Pipeline,
+			Tags:             job.Tags,
+			Tool:             job.Tool,
+			Status:           job.Status,
+			Triggers:         job.Triggers,
+		})
+	}
+	data, _ := json.Marshal(summaries)
 	return tools.ToolResult{
 		Content:  fmt.Sprintf("Found %d job(s):\n%s", len(jobsList), string(data)),
 		Metadata: map[string]any{"count": len(jobsList)},
 	}, nil
 }
 
-func (t *Tool) getJob(mgr Manager, id string) (tools.ToolResult, error) {
-	job, err := mgr.GetJob(id)
+func (t *Tool) getJob(ctx context.Context, mgr Manager, id string) (tools.ToolResult, error) {
+	job, err := mgr.GetJobContext(ctx, id)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
+	job.Inputs = jobs.RedactResolvedInputs(nil, job.Inputs)
+	// Evita vazar detalhes de execuções anteriores (outputs/inputs resolvidos) em um "read" de configuração.
+	job.LastRun = nil
 	data, _ := json.Marshal(job)
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id}}, nil
 }
 
-func (t *Tool) createJob(mgr Manager, params jobArgs) (tools.ToolResult, error) {
+type jobSummary struct {
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	Description      string         `json:"description,omitempty"`
+	Enabled          bool           `json:"enabled"`
+	EffectiveEnabled bool           `json:"effective_enabled"`
+	PipelineEnabled  bool           `json:"pipeline_enabled"`
+	Pipeline         string         `json:"pipeline,omitempty"`
+	Tags             []string       `json:"tags,omitempty"`
+	Tool             string         `json:"tool"`
+	Status           jobs.JobStatus `json:"status"`
+	Triggers         []jobs.Trigger `json:"triggers,omitempty"`
+}
+
+func (t *Tool) createJob(ctx context.Context, mgr Manager, explicitID string, params jobArgs) (tools.ToolResult, error) {
 	if strings.TrimSpace(params.Name) == "" {
 		return tools.ToolResult{Content: "name is required to create a job", IsError: true}, nil
 	}
@@ -175,10 +228,19 @@ func (t *Tool) createJob(mgr Manager, params jobArgs) (tools.ToolResult, error) 
 		return tools.ToolResult{Content: "tool is required to create a job", IsError: true}, nil
 	}
 	if len(params.Triggers) == 0 {
-		return tools.ToolResult{Content: "triggers is required to create a job", IsError: true}, nil
+		return tools.ToolResult{Content: "triggers are required to create a job", IsError: true}, nil
+	}
+	id := slugFromName(explicitID)
+	if id == "" {
+		id = slugFromName(params.Name)
+	}
+	if _, err := mgr.GetJobContext(ctx, id); err == nil {
+		return tools.ToolResult{Content: fmt.Sprintf("job already exists: %s", id), IsError: true}, nil
+	} else if !errors.Is(err, jobs.ErrJobNotFound) {
+		return tools.ToolResult{Content: fmt.Sprintf("Error checking existing job: %v", err), IsError: true}, nil
 	}
 	job := &jobs.Job{
-		ID:          slugFromName(params.Name),
+		ID:          id,
 		Name:        params.Name,
 		Description: params.Description,
 		Enabled:     true,
@@ -192,27 +254,33 @@ func (t *Tool) createJob(mgr Manager, params jobArgs) (tools.ToolResult, error) 
 		job.Enabled = *params.Enabled
 	}
 	applyOptionalJobFields(job, params)
-	if err := mgr.SaveJob(job); err != nil {
+	if err := mgr.CreateJobContext(ctx, job); err != nil {
+		if errors.Is(err, jobs.ErrJobAlreadyExists) {
+			return tools.ToolResult{Content: fmt.Sprintf("job already exists: %s", job.ID), IsError: true}, nil
+		}
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating job: %v", err), IsError: true}, nil
 	}
 	return t.actionResult("created", job.ID)
 }
 
-func (t *Tool) updateJob(mgr Manager, id string, params jobArgs) (tools.ToolResult, error) {
-	job, err := mgr.GetJob(id)
+func (t *Tool) updateJob(ctx context.Context, mgr Manager, id string, params jobArgs) (tools.ToolResult, error) {
+	job, err := mgr.GetJobContext(ctx, id)
 	if err != nil {
-		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+		if !errors.Is(err, jobs.ErrJobNotFound) {
+			return tools.ToolResult{Content: fmt.Sprintf("Error reading job: %v", err), IsError: true}, nil
+		}
+		return t.createJob(ctx, mgr, id, params)
 	}
 	if strings.TrimSpace(params.Name) != "" {
 		job.Name = params.Name
 	}
-	if strings.TrimSpace(params.Description) != "" {
+	if params.has("description") {
 		job.Description = params.Description
 	}
-	if strings.TrimSpace(params.Pipeline) != "" {
+	if params.has("pipeline") {
 		job.Pipeline = params.Pipeline
 	}
-	if len(params.Tags) > 0 {
+	if params.has("tags") {
 		job.Tags = params.Tags
 	}
 	if strings.TrimSpace(params.Tool) != "" {
@@ -221,35 +289,39 @@ func (t *Tool) updateJob(mgr Manager, id string, params jobArgs) (tools.ToolResu
 	if params.Inputs != nil {
 		job.Inputs = params.Inputs
 	}
-	if len(params.Triggers) > 0 {
-		job.Triggers = params.Triggers
+	if params.has("triggers") {
+		if len(params.Triggers) == 0 {
+			job.Triggers = []jobs.Trigger{{Type: jobs.TriggerManual}}
+		} else {
+			job.Triggers = params.Triggers
+		}
 	}
 	if params.Enabled != nil {
 		job.Enabled = *params.Enabled
 	}
 	applyOptionalJobFields(job, params)
-	if err := mgr.SaveJob(job); err != nil {
+	if err := mgr.SaveJobContext(ctx, job); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error updating job: %v", err), IsError: true}, nil
 	}
 	return t.actionResult("updated", id)
 }
 
-func (t *Tool) deleteJob(mgr Manager, id string) (tools.ToolResult, error) {
-	if err := mgr.DeleteJob(id); err != nil {
+func (t *Tool) deleteJob(ctx context.Context, mgr Manager, id string) (tools.ToolResult, error) {
+	if err := mgr.DeleteJobContext(ctx, id); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error deleting job: %v", err), IsError: true}, nil
 	}
 	return t.actionResult("deleted", id)
 }
 
-func (t *Tool) toggleJob(mgr Manager, id string, enabled bool) (tools.ToolResult, error) {
-	if err := mgr.ToggleJob(id, enabled); err != nil {
+func (t *Tool) toggleJob(ctx context.Context, mgr Manager, id string, enabled bool) (tools.ToolResult, error) {
+	if err := mgr.ToggleJobContext(ctx, id, enabled); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error toggling job: %v", err), IsError: true}, nil
 	}
 	return t.actionResult("toggled", id)
 }
 
-func (t *Tool) runJob(mgr Manager, id string) (tools.ToolResult, error) {
-	run, err := mgr.RunJob(id)
+func (t *Tool) runJob(ctx context.Context, mgr Manager, id string) (tools.ToolResult, error) {
+	run, err := mgr.RunJobContext(ctx, id)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error running job: %v", err), IsError: true}, nil
 	}
@@ -257,8 +329,8 @@ func (t *Tool) runJob(mgr Manager, id string) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id, "action": "run"}}, nil
 }
 
-func (t *Tool) dryRunJob(mgr Manager, id string) (tools.ToolResult, error) {
-	result, err := mgr.DryRunJob(id)
+func (t *Tool) dryRunJob(ctx context.Context, mgr Manager, id string) (tools.ToolResult, error) {
+	result, err := mgr.DryRunJobContext(ctx, id)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error dry-running job: %v", err), IsError: true}, nil
 	}
@@ -266,11 +338,14 @@ func (t *Tool) dryRunJob(mgr Manager, id string) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id, "action": "dry_run"}}, nil
 }
 
-func (t *Tool) listRuns(mgr Manager, id string, limit int) (tools.ToolResult, error) {
+func (t *Tool) listRuns(ctx context.Context, mgr Manager, id string, limit int) (tools.ToolResult, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	runs, err := mgr.GetJobRuns(id, limit)
+	if limit > 100 {
+		limit = 100
+	}
+	runs, err := mgr.GetJobRunsContext(ctx, id, limit)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error listing runs: %v", err), IsError: true}, nil
 	}

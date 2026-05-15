@@ -658,6 +658,116 @@ func TestExecute_CapturesToolNameAndResolvedInputs(t *testing.T) {
 	}
 }
 
+func TestExecutePersistsRunThroughRepository(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name:     "test_tool",
+		params:   json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`),
+		response: `{"greeting":"hello world"}`,
+	}
+	registry.MustRegister(ft)
+	job := testRepositoryJob("persist-job", "Persist Job")
+	job.Tool = "test_tool"
+	job.Inputs = map[string]any{"name": "Alice"}
+	job.Events.OnSuccess = "persist-job.done"
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		Repository:     repo,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	rl := executor.Execute(userA, job, &TriggerContext{Type: TriggerManual})
+	if rl.Status != "completed" {
+		t.Fatalf("expected completed, got %s (error: %s)", rl.Status, rl.Error)
+	}
+	got, err := repo.GetRun(userA, "persist-job", rl.RunID)
+	if err != nil {
+		t.Fatalf("get persisted run: %v", err)
+	}
+	if got.ToolName != "test_tool" {
+		t.Fatalf("ToolName = %q, want test_tool", got.ToolName)
+	}
+	if got.ResolvedInputs["name"] != "Alice" {
+		t.Fatalf("ResolvedInputs[name] = %v, want Alice", got.ResolvedInputs["name"])
+	}
+	if got.Output["greeting"] != "hello world" {
+		t.Fatalf("Output[greeting] = %v, want hello world", got.Output["greeting"])
+	}
+	events, err := repo.ListEvents(userA, EventFilter{JobID: "persist-job", Limit: 10})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	var sawCompleted, sawEmitted bool
+	for _, event := range events {
+		if event.RunID != rl.RunID {
+			t.Fatalf("event %s missing run correlation: got %q, want %q", event.Type, event.RunID, rl.RunID)
+		}
+		switch event.Type {
+		case "completed":
+			sawCompleted = true
+		case "event_emitted":
+			if event.Event == "persist-job.done" {
+				sawEmitted = true
+			}
+		}
+	}
+	if !sawCompleted || !sawEmitted {
+		t.Fatalf("expected completed and emitted events, got %#v", events)
+	}
+}
+
+func TestExecutePersistsRunWithCanceledExecutionContext(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("cancelled-context-job", "Cancelled Context Job")
+	job.Tool = "test_tool"
+	job.DryRun.Enabled = true
+	job.DryRun.MockOutput = map[string]any{"ok": true}
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	ctx, cancel := context.WithCancel(userA)
+	cancel()
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   tools.NewRegistry(),
+		EventBus:       NewEventBus(),
+		Repository:     repo,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	rl := executor.Execute(ctx, job, &TriggerContext{Type: TriggerManual})
+	if rl.Status != "completed" {
+		t.Fatalf("status = %q, want completed: %s", rl.Status, rl.Error)
+	}
+	if _, err := repo.GetRun(userA, "cancelled-context-job", rl.RunID); err != nil {
+		t.Fatalf("run was not persisted with uncanceled scoped context: %v", err)
+	}
+}
+
+func TestExecuteRecordsSkippedTerminalRunEvent(t *testing.T) {
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   tools.NewRegistry(),
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:          "skip-job",
+		Tool:        "missing_tool",
+		ErrorPolicy: ErrorPolicy{Strategy: ErrorSkip},
+	}
+
+	rl := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+	if rl.Status != "skipped" {
+		t.Fatalf("status = %q, want skipped", rl.Status)
+	}
+	if len(rl.RunEvents) == 0 || rl.RunEvents[len(rl.RunEvents)-1].Type != "skipped" {
+		t.Fatalf("terminal event = %#v, want skipped", rl.RunEvents)
+	}
+}
+
 func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	registry := tools.NewRegistry()
 	ft := &fakeTool{
@@ -695,6 +805,68 @@ func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	}
 	if rl.ResolvedInputs["query"] != "golang" {
 		t.Errorf("ResolvedInputs[query]: got %v, want 'golang'", rl.ResolvedInputs["query"])
+	}
+}
+
+func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name:     "test_secret",
+		params:   json.RawMessage(`{"type":"object","properties":{"api_key":{"type":"string"},"apiKey":{"type":"string"},"accessKey":{"type":"string"},"query":{"type":"string"},"nested":{"type":"object"}}}`),
+		response: `{"ok":true}`,
+	}
+	registry.MustRegister(ft)
+
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+		SecretResolver: func(key string) (string, error) {
+			if key != "jobs/api" {
+				t.Fatalf("unexpected secret key %q", key)
+			}
+			return "super-secret", nil
+		},
+	})
+
+	job := &Job{
+		ID:   "secret-job",
+		Tool: "test_secret",
+		Inputs: map[string]any{
+			"api_key":   "{{ secret \"jobs/api\" }}",
+			"apiKey":    "manual-api-key",
+			"accessKey": "manual-access-key",
+			"query":     "public",
+			"nested": map[string]any{
+				"privateKey": "manually-entered",
+			},
+		},
+	}
+
+	rl := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+
+	if rl.Status != "completed" {
+		t.Fatalf("expected completed, got %s (error: %s)", rl.Status, rl.Error)
+	}
+	var toolArgs map[string]any
+	if err := json.Unmarshal(ft.lastArgs, &toolArgs); err != nil {
+		t.Fatalf("decode tool args: %v", err)
+	}
+	if toolArgs["api_key"] != "super-secret" {
+		t.Fatalf("tool did not receive resolved secret: %#v", toolArgs)
+	}
+	if rl.ResolvedInputs["api_key"] != redactedValue {
+		t.Fatalf("api_key not redacted in run log: %#v", rl.ResolvedInputs)
+	}
+	if rl.ResolvedInputs["apiKey"] != redactedValue || rl.ResolvedInputs["accessKey"] != redactedValue {
+		t.Fatalf("camelCase sensitive keys not redacted in run log: %#v", rl.ResolvedInputs)
+	}
+	if rl.ResolvedInputs["query"] != "public" {
+		t.Fatalf("public input should remain visible: %#v", rl.ResolvedInputs)
+	}
+	nested, ok := rl.ResolvedInputs["nested"].(map[string]any)
+	if !ok || nested["privateKey"] != redactedValue {
+		t.Fatalf("nested privateKey not redacted: %#v", rl.ResolvedInputs)
 	}
 }
 

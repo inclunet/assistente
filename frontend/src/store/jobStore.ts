@@ -16,6 +16,13 @@ import {
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { jobs } from '@wailsjs/go/models';
 
+function applyEffectiveEnabled(job: jobs.JobInfo, enabled: boolean): jobs.JobInfo {
+  const updated = Object.assign(Object.create(Object.getPrototypeOf(job)), job);
+  updated.enabled = enabled;
+  updated.effective_enabled = enabled && updated.pipeline_enabled !== false;
+  return updated as jobs.JobInfo;
+}
+
 interface JobStoreState {
   jobs: jobs.JobInfo[];
   isLoading: boolean;
@@ -57,9 +64,7 @@ export const useJobStore = create<JobStoreState>((set, get) => {
       set((state) => ({
         jobs: state.jobs.map((j) => {
           if (j.id !== data.id) return j;
-          const updated = Object.assign(Object.create(Object.getPrototypeOf(j)), j);
-          updated.enabled = data.enabled;
-          return updated as jobs.JobInfo;
+          return applyEffectiveEnabled(j, data.enabled);
         }),
       }));
     });
@@ -128,9 +133,7 @@ export const useJobStore = create<JobStoreState>((set, get) => {
         set((state) => ({
           jobs: state.jobs.map((j) => {
             if (j.id !== id) return j;
-            const updated = Object.assign(Object.create(Object.getPrototypeOf(j)), j);
-            updated.enabled = enabled;
-            return updated as jobs.JobInfo;
+            return applyEffectiveEnabled(j, enabled);
           }),
         }));
       } catch (err) {

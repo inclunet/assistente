@@ -174,7 +174,7 @@ func resolveTemplate(tmplStr string, ctx *TemplateContext) (any, error) {
 	}
 
 	result := strings.TrimSpace(buf.String())
-	log.Printf("[Jobs] Template resolved: %q -> %q", original, result)
+	log.Printf("[Jobs] Template resolved: %q -> %q", original, redactedValue)
 	return result, nil
 }
 

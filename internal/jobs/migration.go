@@ -2,11 +2,14 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"assistente/internal/portability"
+
+	"gorm.io/gorm"
 )
 
 // LegacyDefinitionSource retorna uma fonte read-only para definições YAML
@@ -27,6 +30,8 @@ func (m *Manager) ImportLegacyDefinitions(ctx context.Context) (portability.Lega
 		Import: func(ctx context.Context, job *Job) (bool, error) {
 			if _, err := m.cfg.Repository.GetJob(ctx, job.ID); err == nil {
 				return false, nil
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return false, err
 			}
 			if err := m.cfg.Repository.SaveJob(ctx, job); err != nil {
 				return false, err
@@ -41,6 +46,9 @@ type legacyDefinitionSource struct {
 }
 
 func (s legacyDefinitionSource) ListLegacyImportFiles(context.Context) ([]portability.LegacyImportFile, error) {
+	if strings.TrimSpace(s.baseDir) == "" {
+		return nil, nil
+	}
 	entries, err := os.ReadDir(s.baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -72,6 +80,9 @@ func (s legacyDefinitionSource) ListLegacyImportFiles(context.Context) ([]portab
 }
 
 func (s legacyDefinitionSource) ReadLegacyImportFile(_ context.Context, filename string) ([]byte, error) {
+	if strings.TrimSpace(s.baseDir) == "" {
+		return nil, os.ErrNotExist
+	}
 	clean := filepath.Base(filename)
 	return os.ReadFile(filepath.Join(s.baseDir, clean))
 }

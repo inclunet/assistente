@@ -211,6 +211,7 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 		_ = a.clearAuthRefreshToken()
 		return nil, err
 	}
+	a.stopUserScopedRuntime()
 	a.setCurrentUserID(claims.Subject)
 	a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
 	if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
@@ -265,10 +266,16 @@ func (a *App) rollbackLoginState(refreshToken string) {
 	if err := a.clearAuthRefreshToken(); err != nil {
 		log.Printf("[Auth] rollback: erro ao apagar refresh token local: %v", err)
 	}
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+	}
 	a.setCurrentUserID("")
 	a.setCurrentAuthUser(nil)
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
+	}
+	if a.mcpMgr != nil {
+		a.mcpMgr.DisconnectAll()
 	}
 }
 
@@ -314,6 +321,7 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 		a.rollbackLoginState(pair.RefreshToken)
 		return nil, err
 	}
+	a.stopUserScopedRuntime()
 	a.setCurrentUserID(claims.Subject)
 	a.setCurrentAuthUser(&AuthUser{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role})
 	if err := a.adoptLegacyDataForUser(claims.Subject); err != nil {
@@ -387,6 +395,9 @@ func (a *App) Logout(req LogoutRequest) error {
 		if err != nil {
 			a.logLogoutError(err)
 		}
+	}
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
 	}
 	_ = a.clearAuthRefreshToken()
 	a.setCurrentUserID("")
@@ -640,7 +651,29 @@ func (a *App) reloadUserScopedRuntime() {
 	}
 	ctx, cancel := context.WithTimeout(authedCtx, reloadUserScopedRuntimeTimeout)
 	defer cancel()
+	userID, _ := database.UserIDFromContext(authedCtx)
+	startJobsForCurrentUser := func() {
+		if a.jobMgr == nil {
+			return
+		}
+		currentCtx, err := a.requireAuthenticatedContext()
+		if err != nil {
+			log.Printf("[reloadUserScopedRuntime] jobs não iniciados sem sessão autenticada: %v", err)
+			return
+		}
+		currentUserID, _ := database.UserIDFromContext(currentCtx)
+		if currentUserID != userID {
+			log.Printf("[reloadUserScopedRuntime] jobs não iniciados: sessão mudou durante reload")
+			return
+		}
+		if err := a.jobMgr.Start(); err != nil {
+			log.Printf("[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
+		}
+	}
 
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+	}
 	a.registerEnvCredentials(ctx, a.credMgr)
 	a.migrateLegacyConfig(ctx)
 	a.runPostLoginLegacyImports(ctx)
@@ -649,12 +682,6 @@ func (a *App) reloadUserScopedRuntime() {
 			log.Printf("[reloadUserScopedRuntime] erro ao limpar tool invocations antigas: %v", err)
 		} else if deleted > 0 {
 			log.Printf("[reloadUserScopedRuntime] tool invocations antigas removidas: %d", deleted)
-		}
-	}
-	if a.jobMgr != nil {
-		a.jobMgr.Stop()
-		if err := a.jobMgr.Start(); err != nil {
-			log.Printf("[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
 		}
 	}
 	if a.providerSvc != nil {
@@ -667,6 +694,7 @@ func (a *App) reloadUserScopedRuntime() {
 		if err := a.mcpMgr.LoadConfigs(); err != nil {
 			log.Printf("[reloadUserScopedRuntime] erro ao carregar MCP servers do usuário: %v", err)
 		}
+		startJobsForCurrentUser()
 		// Auto-connect MCP só agora: depois de adoptLegacyDataForUser →
 		// LoadUserCredentials, as credenciais user-scoped (incluindo os
 		// tokens OAuth `mcp-tokens:*` / `mcp-client:*`) estão em memória.
@@ -677,11 +705,26 @@ func (a *App) reloadUserScopedRuntime() {
 		// inteiro); o AutoConnectAll é serial e demora N×handshake, e
 		// cada Connect tem seu próprio timeout interno. Herda só o
 		// userID do contexto autenticado vigente.
-		userID, _ := database.UserIDFromContext(authedCtx)
-		go a.mcpMgr.AutoConnectAll(database.WithUserID(context.Background(), userID))
+		go func() {
+			a.mcpMgr.AutoConnectAll(database.WithUserID(context.Background(), userID))
+		}()
+	} else {
+		startJobsForCurrentUser()
 	}
 	if err := ctx.Err(); err != nil {
 		log.Printf("[reloadUserScopedRuntime] timeout/cancel atingido (%s): %v — runtime pode estar parcialmente inicializado", reloadUserScopedRuntimeTimeout, err)
+	}
+}
+
+func (a *App) stopUserScopedRuntime() {
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
+	}
+	if a.llmRegistry != nil {
+		a.llmRegistry.Clear()
+	}
+	if a.mcpMgr != nil {
+		a.mcpMgr.DisconnectAll()
 	}
 }
 

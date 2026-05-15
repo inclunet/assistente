@@ -273,7 +273,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin, userMsg.ID)
 				},
 				func(names []string) []llm.ToolDefinition {
-					names = chat.FilterToolNamesByEnabledTools(names, profileEnabledTools, disableTools)
+					names = filterExpandedToolNames(uc.toolRegistry, names, profileEnabledTools, disableTools)
 					names = chat.FilterToolNamesForNativeMCP(requestStreamer, uc.mcpMgr, names, disableTools)
 					return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
 				},
@@ -291,6 +291,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}()
 	}
 	return req.ConversationID, nil
+}
+
+func filterExpandedToolNames(registry *tools.Registry, names []string, profileEnabledTools []string, disableTools bool) []string {
+	names = chat.FilterToolNamesByEnabledTools(names, profileEnabledTools, disableTools)
+	if profileEnabledTools == nil && registry != nil {
+		names = registry.FilterOutOptInNames(names)
+	}
+	return names
 }
 
 // whisperTranscribeFunc cria o callback de transcrição STT para o pipeline.

@@ -14,8 +14,8 @@ import (
 type Scheduler struct {
 	mu       sync.Mutex
 	cron     *cron.Cron
-	entries  map[string][]cron.EntryID // jobID -> lista de entry IDs
-	timers   map[string]*time.Ticker   // jobID -> ticker para interval
+	entries  map[string][]cron.EntryID     // jobID -> lista de entry IDs
+	timers   map[string]*time.Ticker       // jobID -> ticker para interval
 	cancelFn map[string]context.CancelFunc // jobID -> cancel para goroutines de interval
 	execFunc func(ctx context.Context, job *Job, trigCtx *TriggerContext)
 	started  bool
@@ -24,12 +24,16 @@ type Scheduler struct {
 // NewScheduler cria um scheduler com a funcao de execucao fornecida.
 func NewScheduler(execFunc func(ctx context.Context, job *Job, trigCtx *TriggerContext)) *Scheduler {
 	return &Scheduler{
-		cron:     cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
+		cron:     newJobCron(),
 		entries:  make(map[string][]cron.EntryID),
 		timers:   make(map[string]*time.Ticker),
 		cancelFn: make(map[string]context.CancelFunc),
 		execFunc: execFunc,
 	}
+}
+
+func newJobCron() *cron.Cron {
+	return cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)))
 }
 
 // Schedule registra os triggers temporais de um job.
@@ -102,6 +106,8 @@ func (s *Scheduler) Stop() {
 		ticker.Stop()
 		delete(s.timers, id)
 	}
+	s.cron = newJobCron()
+	s.entries = make(map[string][]cron.EntryID)
 
 	s.started = false
 	log.Printf("[Jobs] Scheduler stopped")
@@ -118,7 +124,9 @@ func (s *Scheduler) scheduleCron(job *Job, t Trigger) error {
 		if s.execFunc != nil {
 			ctx := context.Background()
 			s.safeExec(ctx, &jobCopy, &TriggerContext{
-				Type: TriggerCron,
+				Type:       TriggerCron,
+				Expression: t.Expression,
+				When:       t.When,
 			})
 		}
 	})
@@ -152,7 +160,9 @@ func (s *Scheduler) scheduleInterval(job *Job, t Trigger) error {
 			case <-ticker.C:
 				if s.execFunc != nil {
 					s.safeExec(ctx, &jobCopy, &TriggerContext{
-						Type: TriggerInterval,
+						Type:  TriggerInterval,
+						Every: t.Every,
+						When:  t.When,
 					})
 				}
 			}

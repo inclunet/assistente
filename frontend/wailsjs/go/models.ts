@@ -692,6 +692,8 @@ export namespace jobs {
 	    description: string;
 	    schema: number[];
 	    source: string;
+	    availability_status?: string;
+	    availability_reason?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CatalogEntry(source);
@@ -703,6 +705,8 @@ export namespace jobs {
 	        this.description = source["description"];
 	        this.schema = source["schema"];
 	        this.source = source["source"];
+	        this.availability_status = source["availability_status"];
+	        this.availability_reason = source["availability_reason"];
 	    }
 	}
 	export class DryRunConfig {
@@ -724,6 +728,10 @@ export namespace jobs {
 	    // Go type: time
 	    at: any;
 	    event?: string;
+	    expression?: string;
+	    every?: string;
+	    keys?: string;
+	    when?: string;
 	    data?: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
@@ -735,6 +743,10 @@ export namespace jobs {
 	        this.type = source["type"];
 	        this.at = this.convertValues(source["at"], null);
 	        this.event = source["event"];
+	        this.expression = source["expression"];
+	        this.every = source["every"];
+	        this.keys = source["keys"];
+	        this.when = source["when"];
 	        this.data = source["data"];
 	    }
 	
@@ -774,6 +786,7 @@ export namespace jobs {
 	    retry_count?: number;
 	    events_emitted?: string[];
 	    is_dry_run?: boolean;
+	    replayable: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RunLog(source);
@@ -796,6 +809,7 @@ export namespace jobs {
 	        this.retry_count = source["retry_count"];
 	        this.events_emitted = source["events_emitted"];
 	        this.is_dry_run = source["is_dry_run"];
+	        this.replayable = source["replayable"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -875,10 +889,12 @@ export namespace jobs {
 	    }
 	}
 	export class EventEntry {
+	    id?: string;
 	    // Go type: time
 	    timestamp: any;
 	    type: string;
 	    job_id: string;
+	    run_id?: string;
 	    event?: string;
 	    message?: string;
 	    data?: Record<string, any>;
@@ -889,9 +905,11 @@ export namespace jobs {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
 	        this.timestamp = this.convertValues(source["timestamp"], null);
 	        this.type = source["type"];
 	        this.job_id = source["job_id"];
+	        this.run_id = source["run_id"];
 	        this.event = source["event"];
 	        this.message = source["message"];
 	        this.data = source["data"];
@@ -1028,6 +1046,7 @@ export namespace jobs {
 	    name: string;
 	    description: string;
 	    enabled: boolean;
+	    pipeline_enabled: boolean;
 	    pipeline?: string;
 	    tags?: string[];
 	    triggers: Trigger[];
@@ -1039,7 +1058,6 @@ export namespace jobs {
 	    max_runs_per_hour?: number;
 	    dry_run?: DryRunConfig;
 	    metadata?: Metadata;
-	    file_path?: string;
 	    last_run?: RunLog;
 	    status: string;
 	
@@ -1053,6 +1071,7 @@ export namespace jobs {
 	        this.name = source["name"];
 	        this.description = source["description"];
 	        this.enabled = source["enabled"];
+	        this.pipeline_enabled = source["pipeline_enabled"];
 	        this.pipeline = source["pipeline"];
 	        this.tags = source["tags"];
 	        this.triggers = this.convertValues(source["triggers"], Trigger);
@@ -1064,7 +1083,6 @@ export namespace jobs {
 	        this.max_runs_per_hour = source["max_runs_per_hour"];
 	        this.dry_run = this.convertValues(source["dry_run"], DryRunConfig);
 	        this.metadata = this.convertValues(source["metadata"], Metadata);
-	        this.file_path = source["file_path"];
 	        this.last_run = this.convertValues(source["last_run"], RunLog);
 	        this.status = source["status"];
 	    }
@@ -1092,6 +1110,8 @@ export namespace jobs {
 	    name: string;
 	    description: string;
 	    enabled: boolean;
+	    effective_enabled: boolean;
+	    pipeline_enabled: boolean;
 	    pipeline?: string;
 	    tags?: string[];
 	    tool: string;
@@ -1109,6 +1129,8 @@ export namespace jobs {
 	        this.name = source["name"];
 	        this.description = source["description"];
 	        this.enabled = source["enabled"];
+	        this.effective_enabled = source["effective_enabled"];
+	        this.pipeline_enabled = source["pipeline_enabled"];
 	        this.pipeline = source["pipeline"];
 	        this.tags = source["tags"];
 	        this.tool = source["tool"];
