@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"assistente/internal/jobs"
@@ -93,7 +94,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if mgr == nil {
 		return tools.ToolResult{Content: "job manager not configured", IsError: true}, nil
 	}
-	id := slugFromName(params.JobID)
+	id := normalizeRepoSlug(params.JobID)
 	actionCount := boolCount(params.Delete, params.Run, params.DryRun, params.ListRuns)
 	if actionCount > 1 {
 		return tools.ToolResult{Content: "delete, run, dry_run and list_runs are mutually exclusive", IsError: true}, nil
@@ -199,7 +200,7 @@ func (t *Tool) getJob(ctx context.Context, mgr Manager, id string) (tools.ToolRe
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
-	job.Inputs = jobs.RedactResolvedInputs(nil, job.Inputs)
+	job.Inputs = jobs.RedactResolvedInputs(job.Inputs, job.Inputs)
 	// Evita vazar detalhes de execuções anteriores (outputs/inputs resolvidos) em um "read" de configuração.
 	job.LastRun = nil
 	data, _ := json.Marshal(job)
@@ -387,8 +388,32 @@ func boolCount(values ...bool) int {
 	return count
 }
 
+// normalizeRepoSlug replica a normalização usada pelo repository de jobs:
+// lower + trim + replace espaços por '-'.
+//
+// Importante: isso NÃO é um "slugify" agressivo (não remove '.', '_' etc.).
+func normalizeRepoSlug(value string) string {
+	slug := strings.ToLower(strings.TrimSpace(value))
+	if slug == "" {
+		return ""
+	}
+	return strings.ReplaceAll(slug, " ", "-")
+}
+
 func slugFromName(name string) string {
 	slug := strings.ToLower(strings.TrimSpace(name))
+	if slug == "" {
+		return ""
+	}
+
+	// Evita gerar IDs inválidos (Validate() proíbe espaços e separadores de path).
+	slug = strings.ReplaceAll(slug, "\\", "-")
+	slug = strings.ReplaceAll(slug, "/", "-")
 	slug = strings.ReplaceAll(slug, " ", "-")
+
+	// Normaliza caracteres incomuns para '-', mantendo [a-z0-9_-].
+	slug = regexp.MustCompile(`[^a-z0-9_-]+`).ReplaceAllString(slug, "-")
+	slug = regexp.MustCompile(`-+`).ReplaceAllString(slug, "-")
+	slug = strings.Trim(slug, "-")
 	return slug
 }

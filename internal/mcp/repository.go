@@ -160,6 +160,9 @@ func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {
 		if err := tx.Model(&database.ToolCatalog{}).
 			Where("mcp_server_id = ?", row.ID).
 			Updates(map[string]any{
+				// Mantém ownership explícito ao desanexar do server, evitando rows "unowned"
+				// (user_id NULL) que podem vazar entre usuários.
+				"user_id":            row.UserID,
 				"mcp_server_id":       nil,
 				"availability_status": tools.ToolAvailabilityUnavailable,
 				"availability_reason": fmt.Sprintf("MCP server %q was deleted", row.Slug),

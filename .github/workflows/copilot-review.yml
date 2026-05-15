@@ -54,8 +54,12 @@ jobs:
               exit 0
             fi
 
-            echo "Attempt ${attempt} failed; retrying shortly..."
-            sleep 15
+            if [[ "${attempt}" != "3" ]]; then
+              echo "Attempt ${attempt} failed; retrying shortly..."
+              sleep 15
+            else
+              echo "Attempt ${attempt} failed."
+            fi
           done
 
           echo "Failed to request Copilot review after 3 attempts."

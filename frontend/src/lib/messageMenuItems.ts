@@ -367,40 +367,40 @@ export function getMessageMenuItems(
     // 2.1 Baixar audio desta mensagem (usa DB se disponivel)
     items.push({
       id: 'download-audio',
-      label: i18next.t('chat.message.downloadAudio'),
+      label: i18next.t('chat.downloadAudio'),
       icon: '💾',
-      ariaLabel: i18next.t('chat.message.downloadAudio'),
+      ariaLabel: i18next.t('chat.downloadAudio'),
       action: async () => {
         if (!message.content || !message.id) {
-          onAnnounce?.(i18next.t('chat.message.announce.noContent'));
+          onAnnounce?.(i18next.t('chat.announce.noContent'));
           return;
         }
 
         try {
           const backendId = isBackendId(message.id) ? message.id : '';
           if (!backendId) {
-            onAnnounce?.(i18next.t('chat.message.announce.cannotIdentifyMessage'));
+            onAnnounce?.(i18next.t('chat.announce.cannotIdentifyMessage'));
             return;
           }
 
-          onAnnounce?.(i18next.t('chat.message.announce.generatingAudio'));
+          onAnnounce?.(i18next.t('chat.announce.generatingAudio'));
           const role = message.role === 'user' ? 'user' : 'assistant';
           const voiceCtx = ttsService.getVoiceContext(role);
           const audioBlob = await messageAudioService.getMessageAudioBlob(backendId, voiceCtx);
 
           if (!audioBlob) {
-            onAnnounce?.(i18next.t('chat.message.announce.cannotGenerateAudio'));
+            onAnnounce?.(i18next.t('chat.announce.cannotGenerateAudio'));
             return;
           }
 
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-          const prefix = i18next.t('chat.message.downloadAudioPrefix', 'message');
+          const prefix = i18next.t('chat.downloadAudioPrefix');
           const filename = `${prefix}-${timestamp}.mp3`;
           messageAudioService.downloadAudioBlob(audioBlob, filename);
-          onAnnounce?.(i18next.t('chat.message.announce.audioDownloaded'));
+          onAnnounce?.(i18next.t('chat.announce.audioDownloaded'));
         } catch (error) {
           console.error('Erro ao baixar audio:', error);
-          onAnnounce?.(i18next.t('chat.message.announce.audioError'));
+          onAnnounce?.(i18next.t('chat.announce.audioError'));
         }
       },
     });

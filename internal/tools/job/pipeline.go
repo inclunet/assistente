@@ -67,7 +67,7 @@ func (t *PipelineTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if mgr == nil {
 		return tools.ToolResult{Content: "job manager not configured", IsError: true}, nil
 	}
-	slug := slugFromName(params.Slug)
+	slug := normalizeRepoSlug(params.Slug)
 	hasWrite := params.has("name") ||
 		params.Enabled != nil ||
 		params.has("description") ||
@@ -140,9 +140,9 @@ func (t *PipelineTool) createPipeline(ctx context.Context, mgr Manager, params p
 	if strings.TrimSpace(params.Name) == "" {
 		return tools.ToolResult{Content: "name is required to create a pipeline", IsError: true}, nil
 	}
-	slug := slugFromName(params.Slug)
+	slug := normalizeRepoSlug(params.Slug)
 	if slug == "" {
-		slug = slugFromName(params.Name)
+		slug = normalizeRepoSlug(params.Name)
 	}
 	if _, ok, err := findPipeline(func() ([]jobs.Pipeline, error) {
 		return mgr.ListPipelinesContext(ctx)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -140,13 +139,8 @@ func fixArrayAccess(tmpl string) string {
 }
 
 func resolveTemplate(tmplStr string, ctx *TemplateContext) (any, error) {
-	original := tmplStr
 	tmplStr = fixTemplateDots(tmplStr)
 	tmplStr = fixArrayAccess(tmplStr)
-
-	if tmplStr != original {
-		log.Printf("[Jobs] Template preprocessed: %q -> %q", original, tmplStr)
-	}
 
 	funcs := templateFuncs(ctx.Secrets)
 
@@ -161,29 +155,13 @@ func resolveTemplate(tmplStr string, ctx *TemplateContext) (any, error) {
 		"now":    ctx.Now,
 	}
 
-	if ctx.Event != nil {
-		log.Printf("[Jobs] Template context event keys: %v", mapKeys(ctx.Event))
-		if c, ok := ctx.Event["content"]; ok {
-			log.Printf("[Jobs] Template event.content type: %T", c)
-		}
-	}
-
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, data); err != nil {
 		return nil, fmt.Errorf("template exec error (template=%q): %w", tmplStr, err)
 	}
 
 	result := strings.TrimSpace(buf.String())
-	log.Printf("[Jobs] Template resolved: %q -> %q", original, redactedValue)
 	return result, nil
-}
-
-func mapKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }
 
 // --- Funcoes de template ---

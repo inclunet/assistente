@@ -266,6 +266,13 @@ func (a *App) rollbackLoginState(refreshToken string) {
 	if err := a.clearAuthRefreshToken(); err != nil {
 		log.Printf("[Auth] rollback: erro ao apagar refresh token local: %v", err)
 	}
+	a.userRuntimeMu.Lock()
+	if a.userRuntimeCancel != nil {
+		a.userRuntimeCancel()
+		a.userRuntimeCancel = nil
+		a.userRuntimeCtx = nil
+	}
+	a.userRuntimeMu.Unlock()
 	if a.jobMgr != nil {
 		a.jobMgr.Stop()
 	}
@@ -396,23 +403,10 @@ func (a *App) Logout(req LogoutRequest) error {
 			a.logLogoutError(err)
 		}
 	}
-	if a.jobMgr != nil {
-		a.jobMgr.Stop()
-	}
+	a.stopUserScopedRuntime()
 	_ = a.clearAuthRefreshToken()
 	a.setCurrentUserID("")
 	a.setCurrentAuthUser(nil)
-	if a.llmRegistry != nil {
-		a.llmRegistry.Clear()
-	}
-	if a.mcpMgr != nil {
-		// Solta as conexões MCP do user que está saindo. As credenciais
-		// `mcp-tokens:*` desse user não estão mais válidas neste
-		// processo (o vault vai ser locked logo abaixo); deixar as
-		// conexões abertas é (a) leak de file descriptors, (b) risco
-		// de que requests pendentes vazem para o user seguinte.
-		a.mcpMgr.DisconnectAll()
-	}
 	if a.vaultSvc != nil {
 		a.vaultSvc.Lock()
 	}
@@ -705,9 +699,20 @@ func (a *App) reloadUserScopedRuntime() {
 		// inteiro); o AutoConnectAll é serial e demora N×handshake, e
 		// cada Connect tem seu próprio timeout interno. Herda só o
 		// userID do contexto autenticado vigente.
-		go func() {
-			a.mcpMgr.AutoConnectAll(database.WithUserID(context.Background(), userID))
-		}()
+		a.userRuntimeMu.Lock()
+		if a.userRuntimeCancel != nil {
+			a.userRuntimeCancel()
+			a.userRuntimeCancel = nil
+			a.userRuntimeCtx = nil
+		}
+		runtimeCtx, runtimeCancel := context.WithCancel(database.WithUserID(context.Background(), userID))
+		a.userRuntimeCtx = runtimeCtx
+		a.userRuntimeCancel = runtimeCancel
+		a.userRuntimeMu.Unlock()
+
+		go func(ctx context.Context) {
+			a.mcpMgr.AutoConnectAll(ctx)
+		}(runtimeCtx)
 	} else {
 		startJobsForCurrentUser()
 	}
@@ -717,6 +722,14 @@ func (a *App) reloadUserScopedRuntime() {
 }
 
 func (a *App) stopUserScopedRuntime() {
+	a.userRuntimeMu.Lock()
+	if a.userRuntimeCancel != nil {
+		a.userRuntimeCancel()
+		a.userRuntimeCancel = nil
+		a.userRuntimeCtx = nil
+	}
+	a.userRuntimeMu.Unlock()
+
 	if a.jobMgr != nil {
 		a.jobMgr.Stop()
 	}

@@ -22,7 +22,7 @@ export function EventTimeline({ events, isLoading }: EventTimelineProps) {
   const { t } = useTranslation();
 
   if (isLoading) {
-    return <div className="event-timeline event-timeline--loading">{t('common.loading', 'Loading...')}</div>;
+    return <div className="event-timeline event-timeline--loading">{t('common.loading')}</div>;
   }
 
   if (!events || events.length === 0) {

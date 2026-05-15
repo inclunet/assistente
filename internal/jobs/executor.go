@@ -22,7 +22,7 @@ type JobExecutor struct {
 	eventBus        *EventBus
 	repository      Repository
 	circuitBreaker  *CircuitBreaker
-	secretResolver  SecretResolver
+	secretStore     SecretStore
 	notifyFunc      NotifyFunc
 
 	// Callback emitido no inicio/fim de cada run (para atualizar UI)
@@ -40,7 +40,7 @@ type ExecutorConfig struct {
 	EventBus        *EventBus
 	Repository      Repository
 	CircuitBreaker  *CircuitBreaker
-	SecretResolver  SecretResolver
+	SecretStore     SecretStore
 	NotifyFunc      NotifyFunc
 	OnRunStart      func(jobID string, runID string)
 	OnRunEnd        func(jobID string, runLog *RunLog)
@@ -54,7 +54,7 @@ func NewJobExecutor(cfg ExecutorConfig) *JobExecutor {
 		eventBus:        cfg.EventBus,
 		repository:      cfg.Repository,
 		circuitBreaker:  cfg.CircuitBreaker,
-		secretResolver:  cfg.SecretResolver,
+		secretStore:     cfg.SecretStore,
 		notifyFunc:      cfg.NotifyFunc,
 		onRunStart:      cfg.OnRunStart,
 		onRunEnd:        cfg.OnRunEnd,
@@ -77,6 +77,10 @@ type TriggerContext struct {
 // Execute executa um job: resolve inputs, chama a tool, processa output, emite eventos.
 // Respeita error_policy com retry/backoff.
 func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerContext) *RunLog {
+	if trigCtx == nil {
+		trigCtx = &TriggerContext{Type: TriggerManual}
+	}
+
 	runUUID, err := uuid.NewV7()
 	if err != nil {
 		runUUID = uuid.New()
@@ -253,9 +257,14 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 
 	// Monta contexto de template
 	tmplCtx := &TemplateContext{
-		Event:   trigCtx.EventPayload,
-		Secrets: e.secretResolver,
-		Now:     time.Now(),
+		Event: trigCtx.EventPayload,
+		Secrets: func(key string) (string, error) {
+			if e.secretStore == nil {
+				return "", fmt.Errorf("no secret store configured")
+			}
+			return e.secretStore.GetSecret(ctx, key)
+		},
+		Now: time.Now(),
 	}
 
 	// Resolve templates nos inputs

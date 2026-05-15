@@ -15,11 +15,14 @@ type credentialSecretStore struct {
 	app *App
 }
 
-func (s *credentialSecretStore) GetSecret(key string) (string, error) {
+func (s *credentialSecretStore) GetSecret(ctx context.Context, key string) (string, error) {
 	if s.app.credMgr == nil {
 		return "", nil
 	}
-	auth, err := s.app.credMgr.GetByPattern(key)
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return "", err
+	}
+	auth, err := s.app.credMgr.GetByPatternWithContext(ctx, key)
 	if err != nil {
 		return "", err
 	}
@@ -172,7 +175,7 @@ func (a *App) TestTool(toolName, inputsJSON, eventJSON string) (*jobs.TestToolRe
 	if authErr != nil {
 		return nil, authErr
 	}
-	result, err := a.jobsCtrl.TestTool(toolName, inputsJSON, eventJSON)
+	result, err := a.jobsCtrl.TestToolContext(ctx, toolName, inputsJSON, eventJSON)
 	if err != nil || result == nil || a.mcpMgr == nil {
 		return result, err
 	}

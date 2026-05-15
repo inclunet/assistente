@@ -10,6 +10,12 @@ import (
 	"assistente/internal/tools"
 )
 
+type secretStoreFunc func(ctx context.Context, key string) (string, error)
+
+func (f secretStoreFunc) GetSecret(ctx context.Context, key string) (string, error) {
+	return f(ctx, key)
+}
+
 // --- resolveForEachItems ---
 
 func TestResolveForEachItems_SimpleKey(t *testing.T) {
@@ -821,12 +827,12 @@ func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
-		SecretResolver: func(key string) (string, error) {
+		SecretStore: secretStoreFunc(func(ctx context.Context, key string) (string, error) {
 			if key != "jobs/api" {
 				t.Fatalf("unexpected secret key %q", key)
 			}
 			return "super-secret", nil
-		},
+		}),
 	})
 
 	job := &Job{

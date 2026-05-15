@@ -122,8 +122,11 @@ func (c *JobsController) ReplayRun(jobID, runID string) (*jobs.TestToolResult, e
 	if rl.ResolvedInputs == nil {
 		return nil, fmt.Errorf("run %s has no resolved_inputs recorded (old format)", runID)
 	}
-	if !rl.Replayable || jobs.ContainsRedactedValue(rl.ResolvedInputs) {
+	if jobs.ContainsRedactedValue(rl.ResolvedInputs) {
 		return nil, fmt.Errorf("run %s contains redacted inputs and cannot be replayed safely", runID)
+	}
+	if !rl.Replayable {
+		return nil, fmt.Errorf("run %s is not replayable", runID)
 	}
 	return c.jobMgr.TestTool(rl.ToolName, rl.ResolvedInputs, nil)
 }
@@ -142,8 +145,11 @@ func (c *JobsController) ReplayRunContext(ctx context.Context, jobID, runID stri
 	if rl.ResolvedInputs == nil {
 		return nil, fmt.Errorf("run %s has no resolved_inputs recorded (old format)", runID)
 	}
-	if !rl.Replayable || jobs.ContainsRedactedValue(rl.ResolvedInputs) {
+	if jobs.ContainsRedactedValue(rl.ResolvedInputs) {
 		return nil, fmt.Errorf("run %s contains redacted inputs and cannot be replayed safely", runID)
+	}
+	if !rl.Replayable {
+		return nil, fmt.Errorf("run %s is not replayable", runID)
 	}
 	return c.jobMgr.TestToolContext(ctx, rl.ToolName, rl.ResolvedInputs, nil)
 }
@@ -248,6 +254,30 @@ func (c *JobsController) TestTool(toolName, inputsJSON, eventJSON string) (*jobs
 		}
 	}
 	return c.jobMgr.TestTool(toolName, inputs, eventData)
+}
+
+func (c *JobsController) TestToolContext(ctx context.Context, toolName, inputsJSON, eventJSON string) (*jobs.TestToolResult, error) {
+	if c.jobMgr == nil {
+		return nil, fmt.Errorf("job manager not initialized")
+	}
+
+	var inputs map[string]any
+	if inputsJSON != "" && inputsJSON != "{}" {
+		if err := json.Unmarshal([]byte(inputsJSON), &inputs); err != nil {
+			return nil, fmt.Errorf("invalid inputs: %w", err)
+		}
+	}
+	if inputs == nil {
+		inputs = make(map[string]any)
+	}
+
+	var eventData map[string]any
+	if eventJSON != "" && eventJSON != "{}" {
+		if err := json.Unmarshal([]byte(eventJSON), &eventData); err != nil {
+			return nil, fmt.Errorf("invalid event data: %w", err)
+		}
+	}
+	return c.jobMgr.TestToolContext(ctx, toolName, inputs, eventData)
 }
 
 func (c *JobsController) InferEventSchema(eventName string) map[string]any {
