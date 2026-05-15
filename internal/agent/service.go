@@ -431,8 +431,9 @@ func (s *Service) RunAgenticLoop(
 			if preCheck.Truncated {
 				content = toolContents[i]
 			}
-			if s.toolInvocations == nil {
-				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, execResult.CallID); err != nil {
+			if s.toolInvocations == nil || !s.toolInvocations.CanPersist() {
+				persistedContent := execResult.Result.Content
+				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, persistedContent, execResult.CallID); err != nil {
 					log.Printf("[Agent] erro ao salvar tool result message (fallback): %v", err)
 				}
 			}
@@ -723,7 +724,7 @@ func extractLogicalToolName(toolName string) string {
 }
 
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
-// uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
+// uma mensagem assistant com tool_calls JSON e os resultados técnicos em tool_invocations.
 // AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
 // Persistência: salva tool calls no assistant message (sem criar mensagens role=tool)
 // e registra os resultados técnicos em tool_invocations.
@@ -785,7 +786,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 
 	// Resultados técnicos: persistir em tool_invocations quando disponível.
 	// Não criar novas mensagens role=tool.
-	if s.toolInvocations == nil {
+	if s.toolInvocations == nil || !s.toolInvocations.CanPersist() {
 		return
 	}
 	slugCache := map[string]string{}

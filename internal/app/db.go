@@ -83,6 +83,9 @@ func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.Messa
 }
 
 func buildMessageNodes(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+	if len(messages) == 0 {
+		return []chat.MessageNode{}
+	}
 	msgIDs := make([]string, len(messages))
 	for i, msg := range messages {
 		msgIDs[i] = msg.ID
@@ -96,7 +99,7 @@ func buildMessageNodes(ctx context.Context, messages []database.ChatMessage, par
 
 func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
 	if len(messages) == 0 {
-		return nil
+		return []chat.MessageNode{}
 	}
 
 	grouped := make(map[string][]database.ChatMessage)

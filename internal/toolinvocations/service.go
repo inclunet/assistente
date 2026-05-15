@@ -43,6 +43,10 @@ func NewService(repo Repository, executor *tools.Executor) *Service {
 	}
 }
 
+func (s *Service) CanPersist() bool {
+	return s != nil && s.repo != nil
+}
+
 func (s *Service) CleanOld(ctx context.Context, maxAge time.Duration) (int, error) {
 	if s == nil || s.repo == nil {
 		return 0, nil
