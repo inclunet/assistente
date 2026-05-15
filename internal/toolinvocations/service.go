@@ -56,12 +56,12 @@ func (s *Service) CleanOld(ctx context.Context, maxAge time.Duration) (int, erro
 
 func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult {
 	if s == nil || s.executor == nil {
-		return ExecuteResult{Execution: executionError(req.Call, "tool invocation service not configured")}
+		return ExecuteResult{Execution: executionError(req.Call, "tool invocation service not configured"), Persisted: false}
 	}
 	if s.repo == nil {
 		// Sem persistência configurada: ainda executa a tool.
 		exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
-		return ExecuteResult{Execution: exec}
+		return ExecuteResult{Execution: exec, Persisted: false}
 	}
 
 	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
@@ -86,7 +86,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 			// desatualizado/indisponível. Executa a tool sem persistir.
 			log.Printf("[toolinvocations] failed to resolve tool_catalog_id (best-effort): %v", err)
 			exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
-			return ExecuteResult{Execution: exec}
+			return ExecuteResult{Execution: exec, Persisted: false}
 		}
 		toolCatalogID = id
 	}
@@ -121,6 +121,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	}
 
 	exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
+	persisted := false
 	if s.repo != nil && inv.ID != "" {
 		status, errorMessage := statusForExecution(exec)
 		completedAt := s.now()
@@ -134,10 +135,13 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		inv.Metadata = nil
 		if err := s.repo.Complete(persistCtx, inv.ID, &inv); err != nil {
 			log.Printf("[toolinvocations] failed to complete invocation (id=%s): %v", inv.ID, err)
+			persisted = false
+		} else {
+			persisted = true
 		}
 	}
 
-	return ExecuteResult{Invocation: inv, Execution: exec}
+	return ExecuteResult{Invocation: inv, Execution: exec, Persisted: persisted}
 }
 
 func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {

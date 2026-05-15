@@ -69,6 +69,10 @@ type ExecuteRequest struct {
 type ExecuteResult struct {
 	Invocation Invocation
 	Execution  tools.ToolExecutionResult
+
+	// Persisted indica se esta execução foi registrada com sucesso em tool_invocations.
+	// Usado por chamadores para decidir fallback de persistência (ex.: role=tool).
+	Persisted bool
 }
 
 // RecordRequest registra uma invocação já executada fora do executor comum

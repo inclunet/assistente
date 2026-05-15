@@ -262,7 +262,8 @@ func (s *Service) RunAgenticLoop(
 		// 5d. Executa ferramentas em paralelo
 		toolCalls := convertToolCalls(result.ToolCalls)
 		s.emitToolStarts(conversationID, turnID, result.ToolCalls, surfaceOrigin)
-		execResults := s.executeToolCalls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
+		execBatch := s.executeToolCalls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
+		execResults := execBatch.Executions
 
 		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
 		retriedCallIDs := make(map[string]struct{})
@@ -313,8 +314,9 @@ func (s *Service) RunAgenticLoop(
 					Attempt:        1,
 					SurfaceOrigin:  surfaceOrigin,
 				})
-				retried := s.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
+				retried, retriedPersisted := s.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
 				execResults[i] = retried
+				execBatch.PersistedByCallID[retried.CallID] = retriedPersisted
 			}
 		}
 
@@ -431,7 +433,8 @@ func (s *Service) RunAgenticLoop(
 			if preCheck.Truncated {
 				content = toolContents[i]
 			}
-			if s.toolInvocations == nil || !s.toolInvocations.CanPersist() {
+			persisted := execBatch.PersistedByCallID[execResult.CallID]
+			if !persisted {
 				persistedContent := execResult.Result.Content
 				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, persistedContent, execResult.CallID); err != nil {
 					log.Printf("[Agent] erro ao salvar tool result message (fallback): %v", err)
@@ -965,23 +968,36 @@ func expandToolDefsFromCatalogResults(
 	return appendUniqueToolDefs(existing, resolveToolDefs(selectedToolsFromCatalog(results))...)
 }
 
-func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin) []tools.ToolExecutionResult {
+type toolExecutionBatch struct {
+	Executions        []tools.ToolExecutionResult
+	PersistedByCallID map[string]bool
+}
+
+func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin) toolExecutionBatch {
 	if s.toolInvocations == nil {
-		return s.toolExecutor.ExecuteAll(ctx, calls)
+		execs := s.toolExecutor.ExecuteAll(ctx, calls)
+		persisted := make(map[string]bool, len(execs))
+		for _, r := range execs {
+			persisted[r.CallID] = false
+		}
+		return toolExecutionBatch{Executions: execs, PersistedByCallID: persisted}
 	}
 	results := s.toolInvocations.ExecuteAll(ctx, calls, origin)
 	out := make([]tools.ToolExecutionResult, len(results))
+	persisted := make(map[string]bool, len(results))
 	for i, result := range results {
 		out[i] = result.Execution
+		persisted[result.Execution.CallID] = result.Persisted
 	}
-	return out
+	return toolExecutionBatch{Executions: out, PersistedByCallID: persisted}
 }
 
-func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, origin toolinvocations.Origin) tools.ToolExecutionResult {
+func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, origin toolinvocations.Origin) (tools.ToolExecutionResult, bool) {
 	if s.toolInvocations == nil {
-		return s.toolExecutor.ExecuteOne(ctx, call)
+		return s.toolExecutor.ExecuteOne(ctx, call), false
 	}
-	return s.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{Call: call, Origin: origin}).Execution
+	res := s.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{Call: call, Origin: origin})
+	return res.Execution, res.Persisted
 }
 
 func truncateString(s string, maxLen int) string {

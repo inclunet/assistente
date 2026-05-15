@@ -2,6 +2,7 @@ package agent
 
 import (
 	"log"
+	"strings"
 
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
@@ -21,6 +22,10 @@ type AgenticStreamHandler struct {
 
 	// MCP tool events acumulados durante o streaming (para persistência)
 	nativeMCPEvents []llm.MCPToolEvent
+
+	// Alguns providers (ex.: Anthropic) emitem Arguments só no start-event.
+	// Guardamos por ID para enriquecer o completed-event antes de persistir.
+	nativeMCPArgsByID map[string]string
 }
 
 // NewAgenticStreamHandler cria um handler para uma iteração do agentic loop.
@@ -32,7 +37,8 @@ func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iter
 			TurnID:         turnID,
 			SurfaceOrigin:  surfaceOrigin,
 		},
-		iteration: iteration,
+		iteration:         iteration,
+		nativeMCPArgsByID: make(map[string]string),
 	}
 }
 
@@ -69,6 +75,11 @@ func (h *AgenticStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse st
 func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 	if event.IsCompleted {
 		h.mu.Lock()
+		if strings.TrimSpace(event.Arguments) == "" {
+			if args := strings.TrimSpace(h.nativeMCPArgsByID[event.ID]); args != "" {
+				event.Arguments = args
+			}
+		}
 		h.nativeMCPEvents = append(h.nativeMCPEvents, event)
 		h.mu.Unlock()
 
@@ -112,6 +123,14 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
 			event.Name, event.ServerLabel, event.ID, len(event.Output))
 	} else {
+		// Start-event: salva argumentos para enriquecer o completed-event depois.
+		if strings.TrimSpace(event.ID) != "" && strings.TrimSpace(event.Arguments) != "" {
+			h.mu.Lock()
+			if _, ok := h.nativeMCPArgsByID[event.ID]; !ok {
+				h.nativeMCPArgsByID[event.ID] = event.Arguments
+			}
+			h.mu.Unlock()
+		}
 		EmitToolStart(h.Emitter, ports.ToolStartEvent{
 			ConversationID: h.ConversationID,
 			TurnID:         h.TurnID,

@@ -478,6 +478,39 @@ func DeleteConversationWithContext(ctx context.Context, id string) error {
 	if _, err := GetConversationInfoWithContext(ctx, id); err != nil {
 		return err
 	}
+
+	// Limpa tool invocations de chat associadas aos turnos desta conversa.
+	// Após remover persistência de role=tool messages, tool_invocations virou
+	// a cópia canônica de resultados técnicos; sem esta limpeza, deletar a
+	// conversa deixaria outputs retidos indefinidamente.
+	var turnIDs []string
+	_ = db.WithContext(ctx).
+		Model(&ChatMessage{}).
+		Where("conversation_id = ? AND turn_id IS NOT NULL AND turn_id <> ''", id).
+		Distinct().
+		Pluck("turn_id", &turnIDs).Error
+	var userMsgIDs []string
+	_ = db.WithContext(ctx).
+		Model(&ChatMessage{}).
+		Where("conversation_id = ?", id).
+		Pluck("id", &userMsgIDs).Error
+	ids := make([]string, 0, len(turnIDs)+len(userMsgIDs))
+	ids = append(ids, turnIDs...)
+	ids = append(ids, userMsgIDs...)
+	if len(ids) > 0 {
+		userID, _ := UserIDFromContext(ctx)
+		// Batch para evitar estourar limite de variáveis do SQLite.
+		const batchSize = 400
+		for start := 0; start < len(ids); start += batchSize {
+			end := start + batchSize
+			if end > len(ids) {
+				end = len(ids)
+			}
+			_ = db.WithContext(ctx).
+				Where("user_id = ? AND origin_type = ? AND origin_id IN ?", userID, "chat", ids[start:end]).
+				Delete(&ToolInvocation{}).Error
+		}
+	}
 	if err := db.WithContext(ctx).Where("conversation_id = ?", id).Delete(&ChatMessage{}).Error; err != nil {
 		return err
 	}
