@@ -51,7 +51,7 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 	if got.Status != StatusCompleted || got.ToolCallID != "call-1" || got.OriginID != "turn-1" {
 		t.Fatalf("unexpected invocation: %#v", got)
 	}
-	if got.Output == nil || len(got.Output) == 0 {
+	if len(got.Output) == 0 {
 		t.Fatal("expected persisted output")
 	}
 }
