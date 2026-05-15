@@ -321,10 +321,19 @@ func loadChatToolInvocationResults(ctx context.Context, items []database.Message
 		return map[string]string{}
 	}
 
+	// LIMIT defensivo: o window é limitado (AEP-0059), mas sem LIMIT a query
+	// ainda pode escanear muitas linhas se houver volume alto de invocações
+	// por turno. Mantém o resultado estável por queued_at DESC.
+	limit := database.MaxMessageWindowRows * 25
+	if limit < 500 {
+		limit = 500
+	}
+
 	var rows []database.ToolInvocation
 	err = database.DB().WithContext(ctx).
 		Where("user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> ''", userID, "chat", turnIDs).
 		Order("queued_at DESC").
+		Limit(limit).
 		Find(&rows).Error
 	if err != nil {
 		log.Printf("[Chat] load tool_invocations results failed: %v", err)

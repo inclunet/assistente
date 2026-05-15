@@ -99,12 +99,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		inv.Retryable = exec.Retryable
 		inv.CompletedAt = &completedAt
 		inv.DurationMs = exec.DurationMs
-		metadata, _ := json.Marshal(map[string]any{
-			"tool_name": exec.ToolName,
-			"call_id":   exec.CallID,
-			"dry_run":   req.DryRun,
-		})
-		inv.Metadata = metadata
+		inv.Metadata = nil
 		if err := s.repo.Complete(persistCtx, inv.ID, &inv); err != nil {
 			log.Printf("[toolinvocations] failed to complete invocation (id=%s): %v", inv.ID, err)
 		}
@@ -360,12 +355,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	inv.Retryable = req.Retryable
 	inv.CompletedAt = &completedAt
 	inv.DurationMs = req.DurationMs
-	metadata, _ := json.Marshal(map[string]any{
-		"tool_name": req.Call.Function.Name,
-		"call_id":   req.Call.ID,
-		"dry_run":   req.DryRun,
-		"external":  true,
-	})
+	metadata, _ := json.Marshal(map[string]any{"external": true})
 	inv.Metadata = metadata
 	if err := s.repo.Complete(persistCtx, inv.ID, &inv); err != nil {
 		log.Printf("[toolinvocations] failed to complete recorded invocation (id=%s): %v", inv.ID, err)
