@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"assistente/internal/jobs"
@@ -389,6 +390,18 @@ func boolCount(values ...bool) int {
 
 func slugFromName(name string) string {
 	slug := strings.ToLower(strings.TrimSpace(name))
+	if slug == "" {
+		return ""
+	}
+
+	// Evita gerar IDs inválidos (Validate() proíbe espaços e separadores de path).
+	slug = strings.ReplaceAll(slug, "\\", "-")
+	slug = strings.ReplaceAll(slug, "/", "-")
 	slug = strings.ReplaceAll(slug, " ", "-")
+
+	// Normaliza caracteres incomuns para '-', mantendo [a-z0-9_-].
+	slug = regexp.MustCompile(`[^a-z0-9_-]+`).ReplaceAllString(slug, "-")
+	slug = regexp.MustCompile(`-+`).ReplaceAllString(slug, "-")
+	slug = strings.Trim(slug, "-")
 	return slug
 }

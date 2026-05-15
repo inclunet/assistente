@@ -101,7 +101,7 @@ export const ToolPicker = forwardRef<ToolPickerRef, ToolPickerProps>(
       setError(null);
       try {
         const result = await fetchToolCatalog();
-        setTools(result);
+        setTools(result.map(normalizeCatalogEntry));
       } catch (err) {
         setError(err instanceof Error ? err.message : t('common.error'));
       } finally {
@@ -146,7 +146,7 @@ export const ToolPicker = forwardRef<ToolPickerRef, ToolPickerProps>(
         return;
       }
       onAnnounce?.(t('jobs.builder.selectedTool') + ': ' + toolName);
-      onChange?.(toolName, entry ? normalizeCatalogEntry(entry) : null);
+      onChange?.(toolName, entry);
     };
 
     return (
