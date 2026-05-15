@@ -350,9 +350,11 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 	}
 
 	callID := fmt.Sprintf("job_%s_%d", job.ID, time.Now().UnixNano())
+	originType := toolinvocations.OriginJob
 	originID := job.ID
 	if rl != nil {
 		callID = fmt.Sprintf("%s_tool", rl.RunID)
+		originType = toolinvocations.OriginJobRun
 		originID = rl.RunID
 	}
 	result := e.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
@@ -365,7 +367,7 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 			},
 		},
 		Origin: toolinvocations.Origin{
-			Type: toolinvocations.OriginJobRun,
+			Type: originType,
 			ID:   originID,
 		},
 		DryRun: rl == nil,

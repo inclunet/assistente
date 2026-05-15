@@ -332,7 +332,16 @@ func loadChatToolInvocationResults(ctx context.Context, items []database.Message
 
 	var rows []database.ToolInvocation
 	err = database.DB().WithContext(ctx).
-		Where("user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> ''", userID, "chat", turnIDs).
+		Where(
+			"user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> '' AND (completed_at IS NOT NULL OR status IN (?, ?, ?, ?))",
+			userID,
+			"chat",
+			turnIDs,
+			"succeeded",
+			"failed",
+			"cancelled",
+			"timed_out",
+		).
 		Order("queued_at DESC").
 		Limit(limit).
 		Find(&rows).Error

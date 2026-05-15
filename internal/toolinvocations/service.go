@@ -55,10 +55,13 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		return ExecuteResult{Execution: exec}
 	}
 
+	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
+	persistCtx := context.WithoutCancel(ctx)
+
 	queuedAt := s.now()
 	toolCatalogID := req.ToolCatalogID
 	if toolCatalogID == "" {
-		id, err := s.repo.ResolveToolCatalogID(ctx, req.Call.Function.Name)
+		id, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name)
 		if err != nil {
 			// Best-effort: não bloqueia execução quando o catálogo está
 			// desatualizado/indisponível. Executa a tool sem persistir.
@@ -88,9 +91,6 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		return ExecuteResult{Execution: executionError(req.Call, "tool_catalog_id is required")}
 	}
 
-	// Persistência best-effort: falhas aqui não devem impedir execução
-	// (chat/jobs usam este caminho no runtime).
-	persistCtx := context.WithoutCancel(ctx)
 	if err := s.repo.Create(persistCtx, &inv); err != nil {
 		log.Printf("[toolinvocations] failed to create invocation (best-effort): %v", err)
 		inv.ID = ""
@@ -356,9 +356,13 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	if s == nil || s.repo == nil {
 		return Invocation{}, fmt.Errorf("tool invocation repository not configured")
 	}
+
+	// Persistência de invocações externas também deve sobreviver a cancelamento.
+	persistCtx := context.WithoutCancel(ctx)
+
 	toolCatalogID := strings.TrimSpace(req.ToolCatalogID)
 	if toolCatalogID == "" {
-		id, err := s.repo.ResolveToolCatalogID(ctx, req.Call.Function.Name)
+		id, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name)
 		if err != nil {
 			return Invocation{}, err
 		}
@@ -380,7 +384,6 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		inv.OriginType = OriginChat
 	}
 
-	persistCtx := context.WithoutCancel(ctx)
 	if err := s.repo.Create(persistCtx, &inv); err != nil {
 		return inv, err
 	}
