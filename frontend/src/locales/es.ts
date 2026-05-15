@@ -1685,7 +1685,7 @@ const es = {
         toolUnavailableNotDiscovered: 'Herramienta no descubierta',
         selectedTool: 'Herramienta seleccionada',
         selectOption: '— Seleccionar —',
-        selectTaskList: 'Buscar task list...',
+        selectTaskList: 'Buscar lista de tareas...',
         noInputs: 'Esta herramienta no requiere entradas.',
         templateHint: 'Use {{ .event.campo }} para datos del evento trigger, o {{ .output.campo }} para salida de la tool.',
         arrayHint: 'Un elemento por línea',
