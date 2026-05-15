@@ -288,7 +288,8 @@ func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWind
 		}
 		representative := itemMessages[0]
 		if item.Kind == database.MessageWindowItemKindTurn {
-			representative = consolidateTimelineTurnMessages(itemMessages, invocationToolResults)
+			turnResults := invocationToolResults[strings.TrimSpace(item.TurnID)]
+			representative = consolidateTimelineTurnMessages(itemMessages, turnResults)
 		}
 		representatives = append(representatives, representative)
 		originalIndexesByMessageID[representative.ID] = item.OriginalIndex
@@ -296,10 +297,10 @@ func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWind
 	return assignMessageNodeOriginalIndexes(buildMessageNodes(ctx, representatives, parentID), originalIndexesByMessageID)
 }
 
-func loadChatToolInvocationResults(ctx context.Context, items []database.MessageWindowItem) map[string]string {
+func loadChatToolInvocationResults(ctx context.Context, items []database.MessageWindowItem) map[string]map[string]string {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
-		return map[string]string{}
+		return map[string]map[string]string{}
 	}
 	turnIDs := make([]string, 0, len(items))
 	seen := map[string]struct{}{}
@@ -318,7 +319,7 @@ func loadChatToolInvocationResults(ctx context.Context, items []database.Message
 		turnIDs = append(turnIDs, id)
 	}
 	if len(turnIDs) == 0 {
-		return map[string]string{}
+		return map[string]map[string]string{}
 	}
 
 	// LIMIT defensivo: o window é limitado (AEP-0059), mas sem LIMIT a query
@@ -337,17 +338,23 @@ func loadChatToolInvocationResults(ctx context.Context, items []database.Message
 		Find(&rows).Error
 	if err != nil {
 		log.Printf("[Chat] load tool_invocations results failed: %v", err)
-		return map[string]string{}
+		return map[string]map[string]string{}
 	}
 
-	results := make(map[string]string, len(rows))
+	results := make(map[string]map[string]string, len(turnIDs))
 	for _, row := range rows {
+		turnID := strings.TrimSpace(row.OriginID)
 		callID := strings.TrimSpace(row.ToolCallID)
-		if callID == "" {
+		if turnID == "" || callID == "" {
 			continue
 		}
-		// Mantém o primeiro (mais recente pela Order).
-		if _, ok := results[callID]; ok {
+		byCall := results[turnID]
+		if byCall == nil {
+			byCall = make(map[string]string)
+			results[turnID] = byCall
+		}
+		// Mantém o primeiro (mais recente pela Order) por turno.
+		if _, ok := byCall[callID]; ok {
 			continue
 		}
 		content := ""
@@ -361,7 +368,7 @@ func loadChatToolInvocationResults(ctx context.Context, items []database.Message
 				content = row.Output
 			}
 		}
-		results[callID] = content
+		byCall[callID] = content
 	}
 	return results
 }

@@ -21,10 +21,20 @@ type Service struct {
 	// persistMaxResultSize limita o output armazenado em tool_invocations,
 	// independente do limite usado para a execução (que pode ser maior).
 	persistMaxResultSize int
+
+	// persistMaxErrorSize limita error_message, que pode vir de ToolResult.Content
+	// (especialmente quando IsError=true sem error Go) e pode ser muito grande.
+	persistMaxErrorSize int
 }
 
 func NewService(repo Repository, executor *tools.Executor) *Service {
-	return &Service{repo: repo, executor: executor, now: time.Now, persistMaxResultSize: tools.DefaultMaxResultSize}
+	return &Service{
+		repo:                 repo,
+		executor:             executor,
+		now:                  time.Now,
+		persistMaxResultSize: tools.DefaultMaxResultSize,
+		persistMaxErrorSize:  16 * 1024,
+	}
 }
 
 func (s *Service) CleanOld(ctx context.Context, maxAge time.Duration) (int, error) {
@@ -49,9 +59,11 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	if toolCatalogID == "" {
 		id, err := s.repo.ResolveToolCatalogID(ctx, req.Call.Function.Name)
 		if err != nil {
-			// D1: tool_catalog_id é canônico e obrigatório. Falha de resolução
-			// deve ser propagada para não criar invocações órfãs/inconsistentes.
-			return ExecuteResult{Execution: executionError(req.Call, fmt.Sprintf("failed to resolve tool_catalog_id: %v", err))}
+			// Best-effort: não bloqueia execução quando o catálogo está
+			// desatualizado/indisponível. Executa a tool sem persistir.
+			log.Printf("[toolinvocations] failed to resolve tool_catalog_id (best-effort): %v", err)
+			exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
+			return ExecuteResult{Execution: exec}
 		}
 		toolCatalogID = id
 	}
@@ -95,7 +107,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		inv.Status = status
 		inv.Output = resultOutput(s.truncateForPersistence(exec.Result))
 		inv.ErrorKind = string(exec.ErrorKind)
-		inv.ErrorMessage = errorMessage
+		inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
 		inv.Retryable = exec.Retryable
 		inv.CompletedAt = &completedAt
 		inv.DurationMs = exec.DurationMs
@@ -133,6 +145,11 @@ func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResu
 		return result
 	}
 
+	// Evita mutar o mapa original (ToolResult.Metadata é map por referência).
+	if result.Metadata != nil {
+		result.Metadata = cloneAnyMap(result.Metadata)
+	}
+
 	// Truncamento UTF-8 safe: replica a semântica do executor.
 	origSize := len(result.Content)
 	warning := fmt.Sprintf(
@@ -151,6 +168,30 @@ func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResu
 	result.Metadata["truncated_for_persistence"] = true
 	result.Metadata["original_size_bytes"] = origSize
 	return result
+}
+
+func (s *Service) truncateErrorForPersistence(message string) string {
+	max := s.persistMaxErrorSize
+	if max <= 0 {
+		return message
+	}
+	if len(message) <= max {
+		return message
+	}
+	suffix := fmt.Sprintf("\n\n[TRUNCADO: error_message tinha %d bytes, limite é %d bytes]", len(message), max)
+	budget := max - len(suffix)
+	if budget >= 1 {
+		return truncateUTF8Safe(message, budget) + suffix
+	}
+	return truncateUTF8Safe(message, max)
+}
+
+func cloneAnyMap(src map[string]any) map[string]any {
+	out := make(map[string]any, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
 }
 
 func truncateUTF8Safe(s string, maxBytes int) string {
@@ -351,7 +392,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	inv.Status = status
 	inv.Output = resultOutput(s.truncateForPersistence(req.Result))
 	inv.ErrorKind = string(req.ErrorKind)
-	inv.ErrorMessage = errorMessage
+	inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
 	inv.Retryable = req.Retryable
 	inv.CompletedAt = &completedAt
 	inv.DurationMs = req.DurationMs

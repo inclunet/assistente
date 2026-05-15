@@ -12,8 +12,10 @@ import (
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
+	"assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -717,17 +719,35 @@ func extractLogicalToolName(toolName string) string {
 // uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
 // AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
 func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
+	argsByID := map[string]string{}
+	for _, ev := range mcpEvents {
+		if strings.TrimSpace(ev.ID) == "" {
+			continue
+		}
+		if strings.TrimSpace(ev.Arguments) == "" {
+			continue
+		}
+		if _, ok := argsByID[ev.ID]; ok {
+			continue
+		}
+		argsByID[ev.ID] = ev.Arguments
+	}
+
 	var toolCalls []llm.EnrichedToolCall
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
 			continue
+		}
+		args := ev.Arguments
+		if strings.TrimSpace(args) == "" {
+			args = argsByID[ev.ID]
 		}
 		toolCalls = append(toolCalls, llm.EnrichedToolCall{
 			ID:   ev.ID,
 			Type: "function",
 			Function: llm.FunctionCall{
 				Name:      ev.Name,
-				Arguments: ev.Arguments,
+				Arguments: args,
 			},
 			Origin:      OriginMCPNative,
 			ServerLabel: ev.ServerLabel,
@@ -755,9 +775,30 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 	if s.toolInvocations == nil {
 		return
 	}
+	serverSlug, ok := resolveMCPServerSlug(ctx, strings.TrimSpace(mcpEvents[0].ServerLabel))
+	if !ok {
+		// Pode haver múltiplos servidores em uma iteração; resolve por evento.
+		serverSlug = ""
+	}
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
 			continue
+		}
+		slug := serverSlug
+		if strings.TrimSpace(slug) == "" {
+			resolved, ok := resolveMCPServerSlug(ctx, strings.TrimSpace(ev.ServerLabel))
+			if ok {
+				slug = resolved
+			}
+		}
+		if strings.TrimSpace(slug) == "" {
+			log.Printf("[MCP Native] não foi possível resolver server slug para %q; pulando persistência (id=%s)", ev.ServerLabel, ev.ID)
+			continue
+		}
+		fullName := mcp.BuildToolName(slug, ev.Name)
+		args := ev.Arguments
+		if strings.TrimSpace(args) == "" {
+			args = argsByID[ev.ID]
 		}
 		result := tools.ToolResult{Content: ev.Output}
 		errKind := tools.ErrorKindNone
@@ -772,8 +813,8 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				ID:   ev.ID,
 				Type: "function",
 				Function: tools.FunctionCall{
-					Name:      ev.Name,
-					Arguments: ev.Arguments,
+					Name:      fullName,
+					Arguments: args,
 				},
 			},
 			Origin: toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID},
@@ -789,6 +830,26 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 			log.Printf("[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
 		}
 	}
+}
+
+func resolveMCPServerSlug(ctx context.Context, serverLabel string) (string, bool) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return "", false
+	}
+	label := strings.TrimSpace(serverLabel)
+	if label == "" {
+		return "", false
+	}
+	normalized := strings.ToLower(label)
+	var server database.MCPServer
+	err = database.DB().WithContext(ctx).
+		Where("user_id = ? AND (slug = ? OR LOWER(name) = ?)", userID, normalized, normalized).
+		First(&server).Error
+	if err != nil {
+		return "", false
+	}
+	return server.Slug, true
 }
 
 // recoverFromPanic captura panic e delega o tratamento para events.HandlePanic.
