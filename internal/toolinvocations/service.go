@@ -65,6 +65,16 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 
 	queuedAt := s.now()
 	toolCatalogID := req.ToolCatalogID
+	if strings.TrimSpace(toolCatalogID) != "" {
+		visible, err := s.repo.IsToolCatalogIDVisible(persistCtx, toolCatalogID)
+		if err != nil {
+			log.Printf("[toolinvocations] failed to validate tool_catalog_id (best-effort): %v", err)
+			toolCatalogID = ""
+		} else if !visible {
+			log.Printf("[toolinvocations] tool_catalog_id not visible to user; falling back to resolve by name (best-effort) id=%s", strings.TrimSpace(toolCatalogID))
+			toolCatalogID = ""
+		}
+	}
 	if toolCatalogID == "" {
 		id, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name)
 		if err != nil {
@@ -436,6 +446,15 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	persistCtx := context.WithoutCancel(ctx)
 
 	toolCatalogID := strings.TrimSpace(req.ToolCatalogID)
+	if toolCatalogID != "" {
+		visible, err := s.repo.IsToolCatalogIDVisible(persistCtx, toolCatalogID)
+		if err != nil {
+			return Invocation{}, err
+		}
+		if !visible {
+			toolCatalogID = ""
+		}
+	}
 	if toolCatalogID == "" {
 		id, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name)
 		if err != nil {

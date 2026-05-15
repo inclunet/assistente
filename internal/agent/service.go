@@ -423,11 +423,18 @@ func (s *Service) RunAgenticLoop(
 
 		// 5f-iv. Persiste resultados técnicos em tool_invocations e adiciona
 		// conteúdo (possivelmente truncado) apenas ao histórico enviado ao LLM.
+		// Fallback: se tool_invocations não estiver configurado, persiste como
+		// mensagens role=tool para manter o histórico completo.
 		for i, execResult := range execResults {
 			// Para o histórico LLM, usa versão truncada se pre-check aplicou truncamento
 			content := execResult.Result.Content
 			if preCheck.Truncated {
 				content = toolContents[i]
+			}
+			if s.toolInvocations == nil {
+				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, execResult.CallID); err != nil {
+					log.Printf("[Agent] erro ao salvar tool result message (fallback): %v", err)
+				}
 			}
 			messages = append(messages, llm.Message{
 				Role:       "tool",

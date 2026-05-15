@@ -22,6 +22,7 @@ type Repository interface {
 	List(ctx context.Context, filter Filter) ([]Invocation, error)
 	CleanOld(ctx context.Context, maxAge time.Duration) (int, error)
 	ResolveToolCatalogID(ctx context.Context, toolName string) (string, error)
+	IsToolCatalogIDVisible(ctx context.Context, toolCatalogID string) (bool, error)
 }
 
 type DBRepository struct {
@@ -202,6 +203,36 @@ func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string
 	return row.ID, nil
 }
 
+func (r *DBRepository) IsToolCatalogIDVisible(ctx context.Context, toolCatalogID string) (bool, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return false, err
+	}
+	id := strings.TrimSpace(toolCatalogID)
+	if id == "" {
+		return false, fmt.Errorf("tool catalog id is required")
+	}
+
+	var row database.ToolCatalog
+	err = r.db.WithContext(ctx).
+		Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
+		Where(
+			"tool_catalog.id = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
+			id,
+			userID,
+			tools.ToolOriginBuiltin,
+			userID,
+		).
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func invocationDomainToModel(inv Invocation) database.ToolInvocation {
 	var parentID *string
 	if strings.TrimSpace(inv.ParentInvocationID) != "" {
@@ -269,6 +300,20 @@ func resultOutput(result tools.ToolResult) json.RawMessage {
 	if len(result.Metadata) > 0 {
 		payload["metadata"] = result.Metadata
 	}
-	data, _ := json.Marshal(payload)
-	return data
+	data, err := json.Marshal(payload)
+	if err == nil {
+		return data
+	}
+
+	// Fallback: persiste pelo menos content/is_error mesmo se metadata tiver valores não serializáveis.
+	delete(payload, "metadata")
+	data, err2 := json.Marshal(payload)
+	if err2 == nil {
+		return data
+	}
+
+	// Último fallback: JSON mínimo válido.
+	msg := fmt.Sprintf("[toolinvocations] erro ao serializar resultado: %v", err)
+	minimal, _ := json.Marshal(map[string]any{"content": msg, "is_error": true})
+	return minimal
 }
