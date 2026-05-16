@@ -479,11 +479,38 @@ func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.Messag
 	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return nil, err
 	}
-	messages, err := database.GetRecentRootMessagesWithContext(ctx, conversationID, limit)
-	if err != nil {
-		return nil, err
+	if limit <= 0 {
+		return []chat.MessageNode{}, nil
 	}
-	return buildMessageNodesWithInvocationFallback(ctx, messages, nil), nil
+	// A API legada pagina por mensagens, mas o renderer colapsa múltiplas linhas do mesmo turno
+	// em um único representative. Faz overfetch incremental até preencher o limit.
+	rawLimit := limit
+	if rawLimit < 10 {
+		rawLimit = 10
+	}
+	var lastNodes []chat.MessageNode
+	for i := 0; i < 5; i++ {
+		messages, err := database.GetRecentRootMessagesWithContext(ctx, conversationID, rawLimit)
+		if err != nil {
+			return nil, err
+		}
+		nodes := buildMessageNodesWithInvocationFallback(ctx, messages, nil)
+		lastNodes = nodes
+		if len(nodes) >= limit || len(messages) < rawLimit {
+			if len(nodes) > limit {
+				return nodes[len(nodes)-limit:], nil
+			}
+			return nodes, nil
+		}
+		rawLimit *= 2
+		if rawLimit > 5000 {
+			break
+		}
+	}
+	if len(lastNodes) > limit {
+		return lastNodes[len(lastNodes)-limit:], nil
+	}
+	return lastNodes, nil
 }
 
 // GetMessagesBefore retorna mensagens raiz anteriores ao cursor informado.
@@ -495,11 +522,36 @@ func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit in
 	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return nil, err
 	}
-	messages, err := database.GetRootMessagesBeforeWithContext(ctx, conversationID, beforeID, limit)
-	if err != nil {
-		return nil, err
+	if limit <= 0 {
+		return []chat.MessageNode{}, nil
 	}
-	return buildMessageNodesWithInvocationFallback(ctx, messages, nil), nil
+	rawLimit := limit
+	if rawLimit < 10 {
+		rawLimit = 10
+	}
+	var lastNodes []chat.MessageNode
+	for i := 0; i < 5; i++ {
+		messages, err := database.GetRootMessagesBeforeWithContext(ctx, conversationID, beforeID, rawLimit)
+		if err != nil {
+			return nil, err
+		}
+		nodes := buildMessageNodesWithInvocationFallback(ctx, messages, nil)
+		lastNodes = nodes
+		if len(nodes) >= limit || len(messages) < rawLimit {
+			if len(nodes) > limit {
+				return nodes[len(nodes)-limit:], nil
+			}
+			return nodes, nil
+		}
+		rawLimit *= 2
+		if rawLimit > 5000 {
+			break
+		}
+	}
+	if len(lastNodes) > limit {
+		return lastNodes[len(lastNodes)-limit:], nil
+	}
+	return lastNodes, nil
 }
 
 // GetConversationMessageWindow é a API canônica de carregamento incremental de mensagens.

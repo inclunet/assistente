@@ -145,8 +145,11 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 }
 
 func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {
-	if s == nil || s.executor == nil {
-		return s.executor
+	if s == nil {
+		return nil
+	}
+	if s.executor == nil {
+		return nil
 	}
 	if req.ExecutionMaxResultSize <= 0 {
 		return s.executor

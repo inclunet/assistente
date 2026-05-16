@@ -20,6 +20,10 @@ const (
 	// MaxResultDisplaySize é o tamanho máximo de um resultado para exibição em eventos UI (bytes).
 	MaxResultDisplaySize = 200
 
+	// MaxPersistedToolCallResultSize é o tamanho máximo (bytes) do resultado compactado
+	// persistido dentro de chat_messages.tool_calls para export/histórico.
+	MaxPersistedToolCallResultSize = 8 * 1024
+
 	// minResultContextSize é o tamanho mínimo desejado para cada resultado de tool no contexto LLM (bytes).
 	// Sob pressão extrema de contexto, o truncamento efetivo ainda pode ficar abaixo disso
 	// se o orçamento total disponível não for suficiente para garantir esse piso a todos os resultados.
