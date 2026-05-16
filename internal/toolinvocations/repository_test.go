@@ -116,3 +116,64 @@ func TestRepositoryRequiresUser(t *testing.T) {
 		t.Fatalf("Create sem usuário: got %v, want ErrUserScopeRequired", err)
 	}
 }
+
+func TestRepositoryCleanOld_DeletesChatAndDryRunsOnly(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	fixedNow := time.Date(2026, 5, 16, 10, 0, 0, 0, time.UTC)
+	repo.now = func() time.Time { return fixedNow }
+
+	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
+	if err != nil {
+		t.Fatalf("resolve tool: %v", err)
+	}
+
+	old := fixedNow.Add(-48 * time.Hour)
+	recent := fixedNow.Add(-2 * time.Hour)
+
+	seed := func(id string, originType string, dryRun bool, queuedAt time.Time) {
+		t.Helper()
+		inv := &Invocation{
+			ID:           id,
+			ToolCatalogID: toolID,
+			OriginType:    originType,
+			OriginID:      "origin-" + id,
+			ToolCallID:    "call-" + id,
+			Status:        StatusQueued,
+			DryRun:        dryRun,
+			QueuedAt:      queuedAt,
+		}
+		if err := repo.Create(userA, inv); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+
+	seed("chat-old", OriginChat, false, old)
+	seed("chat-recent", OriginChat, false, recent)
+	seed("tool-catalog-old-dry", OriginToolCatalog, true, old)
+	seed("tool-catalog-old-real", OriginToolCatalog, false, old)
+	seed("job-old-dry", OriginJobRun, true, old)
+	seed("job-old-real", OriginJobRun, false, old)
+
+	deleted, err := repo.CleanOld(userA, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("CleanOld: %v", err)
+	}
+	// Espera deletar: chat-old, tool-catalog-old-dry, job-old-dry
+	if deleted != 3 {
+		t.Fatalf("deleted=%d, want 3", deleted)
+	}
+
+	remaining, err := repo.List(userA, Filter{Limit: 50})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	remainingIDs := map[string]struct{}{}
+	for _, inv := range remaining {
+		remainingIDs[inv.ID] = struct{}{}
+	}
+	for _, want := range []string{"chat-recent", "tool-catalog-old-real", "job-old-real"} {
+		if _, ok := remainingIDs[want]; !ok {
+			t.Fatalf("expected %s to remain, got %#v", want, remainingIDs)
+		}
+	}
+}

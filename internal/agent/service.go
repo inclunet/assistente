@@ -388,13 +388,6 @@ func (s *Service) RunAgenticLoop(
 
 		// 5f-iii. AEP-0039 Fase 5: persiste assistant tool_calls com metadata enriquecida
 		enrichedCalls := make([]llm.EnrichedToolCall, len(result.ToolCalls))
-		resultByCallID := make(map[string]string, len(execResults))
-		for _, r := range execResults {
-			if strings.TrimSpace(r.CallID) == "" {
-				continue
-			}
-			resultByCallID[r.CallID] = truncateString(r.Result.Content, MaxPersistedToolCallResultSize)
-		}
 		for i, tc := range result.ToolCalls {
 			tcOrigin, tcServerLabel := detectToolOrigin(tc.Function.Name)
 			enrichedCalls[i] = llm.EnrichedToolCall{
@@ -407,9 +400,6 @@ func (s *Service) RunAgenticLoop(
 				Origin:      tcOrigin,
 				ServerLabel: tcServerLabel,
 				Iteration:   iteration,
-			}
-			if res, ok := resultByCallID[tc.ID]; ok {
-				enrichedCalls[i].Result = res
 			}
 			if i < len(execResults) {
 				enrichedCalls[i].DurationMs = execResults[i].DurationMs

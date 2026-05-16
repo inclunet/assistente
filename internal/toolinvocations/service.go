@@ -79,7 +79,11 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 			toolCatalogID = ""
 		} else {
 			// Defesa: garante que o ID fornecido corresponde ao nome da tool.
-			if resolved, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name); err == nil && strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
+			resolved, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name)
+			if err != nil {
+				log.Printf("[toolinvocations] failed to verify tool_catalog_id by name (best-effort): %v", err)
+				toolCatalogID = ""
+			} else if strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
 				log.Printf("[toolinvocations] tool_catalog_id mismatch for %q; using resolved id", req.Call.Function.Name)
 				toolCatalogID = resolved
 			}
@@ -441,7 +445,7 @@ func looksSensitiveString(value string) bool {
 	if v == "" {
 		return false
 	}
-	if strings.HasPrefix(v, "Bearer ") {
+	if strings.HasPrefix(strings.ToLower(v), "bearer ") {
 		return true
 	}
 	if strings.HasPrefix(v, "sk-") {
@@ -498,7 +502,11 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		if !visible {
 			toolCatalogID = ""
 		} else {
-			if resolved, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name); err == nil && strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
+			resolved, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name)
+			if err != nil {
+				// Melhor não persistir sob um ID possivelmente incorreto.
+				toolCatalogID = ""
+			} else if strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
 				toolCatalogID = resolved
 			}
 		}

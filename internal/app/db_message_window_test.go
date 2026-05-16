@@ -582,3 +582,70 @@ func TestGetMessageChildrenRejectsOtherUsersParent(t *testing.T) {
 		t.Fatal("expected cross-user message children to be rejected")
 	}
 }
+
+func TestGetRecentMessages_OverfetchesToHonorLimitWithMultiRowTurns(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+	app := newMessageWindowTestApp()
+
+	conv := createMessageWindowTestConversation(t, "Conversa")
+	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
+	base := time.Date(2026, 5, 16, 10, 0, 0, 0, time.UTC)
+
+	setTime := func(id string, at time.Time) {
+		t.Helper()
+		if err := database.DB().WithContext(ctx).Model(&database.ChatMessage{}).Where("id = ?", id).Update("created_at", at).Error; err != nil {
+			t.Fatalf("set created_at %s: %v", id, err)
+		}
+	}
+
+	// 4 turns; cada turno gera 2 itens de timeline (user + consolidated turn).
+	for turn := 1; turn <= 4; turn++ {
+		turnBase := base.Add(time.Duration(turn) * 10 * time.Second)
+		userMsg, err := database.AddMessageWithContext(ctx, conv.ID, "user", "u"+string(rune('0'+turn)))
+		if err != nil {
+			t.Fatalf("create user %d: %v", turn, err)
+		}
+		setTime(userMsg.ID, turnBase)
+
+		turnID := userMsg.ID
+		assistant, err := database.AddAssistantToolMessageWithContext(
+			ctx,
+			conv.ID,
+			turnID,
+			"a"+string(rune('0'+turn)),
+			`[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
+			"",
+			"",
+		)
+		if err != nil {
+			t.Fatalf("create assistant %d: %v", turn, err)
+		}
+		setTime(assistant.ID, turnBase.Add(1*time.Second))
+
+		// Muitos tool rows no fim do turno (simula o problema de paginação do legado).
+		for i := 0; i < 3; i++ {
+			toolMsg, err := database.AddToolResultMessageWithContext(ctx, conv.ID, turnID, "tool", "tool-"+string(rune('a'+i)))
+			if err != nil {
+				t.Fatalf("create tool %d.%d: %v", turn, i, err)
+			}
+			setTime(toolMsg.ID, turnBase.Add(time.Duration(2+i)*time.Second))
+		}
+	}
+
+	nodes, err := app.GetRecentMessages(conv.ID, 6)
+	if err != nil {
+		t.Fatalf("GetRecentMessages: %v", err)
+	}
+	if len(nodes) != 6 {
+		t.Fatalf("expected 6 nodes, got %d", len(nodes))
+	}
+	got := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		got = append(got, n.Message.Content)
+	}
+	// Espera os últimos 3 turns (u2/a2, u3/a3, u4/a4) em ordem cronológica.
+	want := []string{"u2", "a2", "u3", "a3", "u4", "a4"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected nodes content: got=%v want=%v", got, want)
+	}
+}
