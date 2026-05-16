@@ -495,6 +495,9 @@ func deleteChatToolInvocationsForConversation(ctx context.Context, conversationI
 	if conversationID == "" {
 		return nil
 	}
+	if _, err := GetConversationInfoWithContext(ctx, conversationID); err != nil {
+		return err
+	}
 	if !db.Migrator().HasTable(&ToolInvocation{}) {
 		return nil
 	}
@@ -502,17 +505,19 @@ func deleteChatToolInvocationsForConversation(ctx context.Context, conversationI
 
 	// turn_id aponta para a user message; origin_id usa turn_id.
 	var turnIDs []string
-	_ = db.WithContext(ctx).
-		Model(&ChatMessage{}).
-		Where("conversation_id = ? AND turn_id IS NOT NULL AND turn_id <> ''", conversationID).
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id IS NOT NULL AND chat_messages.turn_id <> ''", conversationID).
 		Distinct().
-		Pluck("turn_id", &turnIDs).Error
+		Pluck("chat_messages.turn_id", &turnIDs).Error; err != nil {
+		return err
+	}
 	// Algumas mensagens podem ter origin_id igual ao próprio message id.
 	var msgIDs []string
-	_ = db.WithContext(ctx).
-		Model(&ChatMessage{}).
-		Where("conversation_id = ?", conversationID).
-		Pluck("id", &msgIDs).Error
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ?", conversationID).
+		Pluck("chat_messages.id", &msgIDs).Error; err != nil {
+		return err
+	}
 
 	ids := make([]string, 0, len(turnIDs)+len(msgIDs))
 	ids = append(ids, turnIDs...)

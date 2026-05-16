@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 )
 
 // HistoryLoader carrega e filtra o histórico de mensagens de uma conversa.
@@ -93,11 +94,15 @@ func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Mess
 	for _, m := range dbMessages {
 		if m.ToolCalls != "" {
 			var tcs []struct {
-				ID string `json:"id"`
+				ID     string  `json:"id"`
+				Result *string `json:"result,omitempty"`
 			}
 			if json.Unmarshal([]byte(m.ToolCalls), &tcs) == nil {
 				for _, tc := range tcs {
 					offeredIDs[tc.ID] = true
+					if tc.Result != nil && strings.TrimSpace(*tc.Result) != "" {
+						answeredIDs[tc.ID] = true
+					}
 				}
 			}
 		}
@@ -134,6 +139,13 @@ func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Mess
 						m.ToolCalls = string(j)
 					}
 				}
+			}
+		}
+		if m.Role == "assistant" && strings.TrimSpace(m.Content) == "" && strings.TrimSpace(m.ToolCalls) == "" {
+			// Evita manter placeholders de tool calling sem conteúdo após limpeza,
+			// que seriam enviados ao LLM como mensagens vazias.
+			if strings.TrimSpace(m.Media) == "" && strings.TrimSpace(m.Audio) == "" {
+				continue
 			}
 		}
 		cleaned = append(cleaned, m)

@@ -631,6 +631,9 @@ func overwriteConversationByExisting(ctx context.Context, conv ConversationExpor
 		if err := tx.Save(existing).Error; err != nil {
 			return fmt.Errorf("erro ao atualizar conversa '%s': %w", conv.Title, err)
 		}
+		if err := deleteChatToolInvocationsForConversationTx(ctx, tx, existing.ID); err != nil {
+			return err
+		}
 		if err := tx.Where("conversation_id = ?", existing.ID).Delete(&database.ChatMessage{}).Error; err != nil {
 			return fmt.Errorf("erro ao limpar mensagens da conversa '%s': %w", conv.Title, err)
 		}
@@ -641,6 +644,58 @@ func overwriteConversationByExisting(ctx context.Context, conv ConversationExpor
 	}
 
 	return true, nil
+}
+
+func deleteChatToolInvocationsForConversationTx(ctx context.Context, tx *gorm.DB, conversationID string) error {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	if tx == nil {
+		return nil
+	}
+	if !tx.Migrator().HasTable(&database.ToolInvocation{}) {
+		return nil
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+
+	var turnIDs []string
+	if err := tx.Model(&database.ChatMessage{}).
+		Where("conversation_id = ? AND turn_id IS NOT NULL AND turn_id <> ''", conversationID).
+		Distinct().
+		Pluck("turn_id", &turnIDs).Error; err != nil {
+		return fmt.Errorf("erro ao buscar turn_ids da conversa '%s': %w", conversationID, err)
+	}
+	var msgIDs []string
+	if err := tx.Model(&database.ChatMessage{}).
+		Where("conversation_id = ?", conversationID).
+		Pluck("id", &msgIDs).Error; err != nil {
+		return fmt.Errorf("erro ao buscar message ids da conversa '%s': %w", conversationID, err)
+	}
+
+	ids := make([]string, 0, len(turnIDs)+len(msgIDs))
+	ids = append(ids, turnIDs...)
+	ids = append(ids, msgIDs...)
+	if len(ids) == 0 {
+		return nil
+	}
+
+	const batchSize = 400
+	for start := 0; start < len(ids); start += batchSize {
+		end := start + batchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		if err := tx.
+			Where("user_id = ? AND origin_type = ? AND origin_id IN ?", userID, "chat", ids[start:end]).
+			Delete(&database.ToolInvocation{}).Error; err != nil {
+			return fmt.Errorf("erro ao limpar tool invocations da conversa '%s': %w", conversationID, err)
+		}
+	}
+	return nil
 }
 
 func createImportedConversation(ctx context.Context, tx *gorm.DB, conv ConversationExport) (*database.Conversation, error) {

@@ -535,6 +535,129 @@ func TestBuildExportFileReturnsClearErrorForMissingConversation(t *testing.T) {
 	}
 }
 
+func TestExportConversationHydratesToolCallResultsFromToolInvocations(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	turnID := "turn-1"
+	assistantID := "assistant-1"
+	callID := "call-1"
+	convID := "conv-1"
+
+	conv := &database.Conversation{UUIDModel: database.UUIDModel{ID: convID}, UserID: portabilityTestUserID, Title: "Hydrate"}
+	if err := database.DB().Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
+		t.Fatalf("create turn message: %v", err)
+	}
+	toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"x","arguments":"{}"}}]`
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", ToolCalls: toolCalls, TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant tool_calls: %v", err)
+	}
+	if err := database.DB().Create(&database.ToolInvocation{UserID: portabilityTestUserID, ToolCatalogID: "tool-1", OriginType: "chat", OriginID: turnID, ToolCallID: callID, Status: "succeeded", DryRun: false, Output: `{"content":"RESULT"}`}).Error; err != nil {
+		t.Fatalf("create tool invocation: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	if len(file.Resources.Conversations) != 1 {
+		t.Fatalf("expected 1 conversation export, got %d", len(file.Resources.Conversations))
+	}
+	msgs := file.Resources.Conversations[0].Messages
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 exported messages, got %d", len(msgs))
+	}
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
+		t.Fatalf("unmarshal exported toolCalls: %v", err)
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("expected 1 tool call, got %#v", decoded)
+	}
+	if got, _ := decoded[0]["result"].(string); got != "RESULT" {
+		t.Fatalf("hydrated result = %q, want RESULT", got)
+	}
+}
+
+func TestImportOverwriteClearsChatToolInvocationsToAvoidStaleExportHydration(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	turnID := "turn-1"
+	assistantID := "assistant-1"
+	callID := "call-1"
+	convID := "conv-1"
+
+	// Existing conversation with stale invocation.
+	conv := &database.Conversation{UUIDModel: database.UUIDModel{ID: convID}, UserID: portabilityTestUserID, Title: "Original"}
+	if err := database.DB().Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
+		t.Fatalf("create turn message: %v", err)
+	}
+	toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"x","arguments":"{}"}}]`
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", ToolCalls: toolCalls, TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant tool_calls: %v", err)
+	}
+	if err := database.DB().Create(&database.ToolInvocation{UserID: portabilityTestUserID, ToolCatalogID: "tool-1", OriginType: "chat", OriginID: turnID, ToolCallID: callID, Status: "succeeded", DryRun: false, Output: `{"content":"OLD"}`}).Error; err != nil {
+		t.Fatalf("create stale tool invocation: %v", err)
+	}
+
+	// Import overwrite with the same IDs but without creating tool_invocations.
+	importFile := ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Options:    ExportOptions{},
+		Resources: ExportResources{Conversations: []ConversationExport{{
+			ID:        convID,
+			Title:     "Replaced",
+			CreatedAt: time.Now().UTC(),
+			Messages: []MessageExport{{
+				ID:        turnID,
+				Role:      "user",
+				Content:   "hi",
+				CreatedAt: time.Now().UTC(),
+			}, {
+				ID:        assistantID,
+				Role:      "assistant",
+				Content:   "",
+				ToolCalls: toolCalls,
+				TurnID:    turnID,
+				CreatedAt: time.Now().UTC(),
+			}}}},
+		},
+	}
+	raw, err := json.Marshal(importFile)
+	if err != nil {
+		t.Fatalf("marshal import file: %v", err)
+	}
+	res, err := ImportConversationsWithContext(ctx, string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("import result = %#v", res)
+	}
+
+	// Export again; should not hydrate OLD from stale invocations.
+	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	msgs := file.Resources.Conversations[0].Messages
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
+		t.Fatalf("unmarshal exported toolCalls: %v", err)
+	}
+	if got, _ := decoded[0]["result"].(string); got == "OLD" {
+		t.Fatal("export hydrated stale tool result after overwrite")
+	}
+}
+
 func setupPortabilityTestDB(t *testing.T) {
 	t.Helper()
 
@@ -546,6 +669,7 @@ func setupPortabilityTestDB(t *testing.T) {
 		&database.LLMProvider{},
 		&database.Conversation{},
 		&database.ChatMessage{},
+		&database.ToolInvocation{},
 		&database.TaskListWorkflow{},
 		&database.TaskList{},
 		&database.Task{},
