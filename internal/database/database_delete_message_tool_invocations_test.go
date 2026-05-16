@@ -79,7 +79,18 @@ func TestDeleteMessageWithContext_DeletesChatToolInvocationsByTurnIDAndMessageID
 	if err := db.WithContext(ctx).Model(&ToolInvocation{}).Where("user_id = ? AND origin_type = ?", "user-a", "chat").Count(&count).Error; err != nil {
 		t.Fatalf("count tool invocations: %v", err)
 	}
+	// Deletar uma mensagem assistant com TurnID não deve apagar invocações do turno inteiro.
+	if count != 1 {
+		t.Fatalf("expected only message-scoped invocations removed when deleting assistant, got %d", count)
+	}
+	// Agora deletando a user message raiz, o turno inteiro deve ser limpo.
+	if err := DeleteMessageWithContext(ctx, userMsg.ID); err != nil {
+		t.Fatalf("delete user message: %v", err)
+	}
+	if err := db.WithContext(ctx).Model(&ToolInvocation{}).Where("user_id = ? AND origin_type = ?", "user-a", "chat").Count(&count).Error; err != nil {
+		t.Fatalf("count tool invocations after root delete: %v", err)
+	}
 	if count != 0 {
-		t.Fatalf("expected tool invocations removed when deleting a turn message, got %d", count)
+		t.Fatalf("expected all turn invocations removed when deleting user root, got %d", count)
 	}
 }
