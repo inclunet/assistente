@@ -894,13 +894,9 @@ func deleteChatToolInvocationOriginIDsForMessage(ctx context.Context, messageID 
 		return nil
 	}
 	ids := make([]string, 0, 2)
+	// Sempre remove invocações com origin_id = message_id.
 	ids = append(ids, msg.ID)
-	if msg.Role == "user" {
-		// Somente ao deletar a raiz do turno, limpamos também pelo origin_id do turno.
-		// Deletar uma mensagem assistant/tool com TurnID não deve apagar invocações
-		// necessárias para siblings no mesmo turno.
-		ids = append(ids, msg.ID)
-	}
+	// Somente ao deletar a raiz do turno (role=user), o message_id também é o turn_id.
 	// Alguns dados legados podem ter turn_id igual ao próprio message id.
 	if msg.TurnID != nil {
 		turn := strings.TrimSpace(*msg.TurnID)

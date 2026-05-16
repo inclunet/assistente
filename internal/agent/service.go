@@ -395,7 +395,10 @@ func (s *Service) RunAgenticLoop(
 			if strings.TrimSpace(r.CallID) == "" {
 				continue
 			}
-			resultByCallID[r.CallID] = truncateString(r.Result.Content, MaxPersistedToolCallResultSize)
+			// Evita duplicar: se tool_invocations falhar, cai no fallback role=tool.
+			if execBatch.PersistedByCallID[r.CallID] {
+				resultByCallID[r.CallID] = truncateString(r.Result.Content, MaxPersistedToolCallResultSize)
+			}
 		}
 		for i, tc := range result.ToolCalls {
 			tcOrigin, tcServerLabel := detectToolOrigin(tc.Function.Name)
@@ -915,22 +918,39 @@ func resolveMCPServerSlug(ctx context.Context, serverLabel string) (string, bool
 		return server.Slug, true
 	}
 
-	// Segundo caminho: match exato por name (normalmente igual ao label emitido).
+	// Segundo caminho: match exato por name, mas com desambiguação (name não é único).
+	var servers []database.MCPServer
 	err = database.DB().WithContext(ctx).
 		Where("user_id = ? AND name = ?", userID, label).
-		First(&server).Error
+		Limit(2).
+		Find(&servers).Error
 	if err == nil {
-		return server.Slug, true
+		if len(servers) == 1 {
+			return servers[0].Slug, true
+		}
+		if len(servers) > 1 {
+			log.Printf("[MCP Native] server label %q é ambíguo (name duplicado); não persistindo por slug", serverLabel)
+			return "", false
+		}
 	}
 
-	// Fallback: busca case-insensitive por name.
+	// Terceiro caminho: busca case-insensitive por name, também exige unicidade.
+	servers = nil
 	err = database.DB().WithContext(ctx).
 		Where("user_id = ? AND LOWER(name) = ?", userID, normalized).
-		First(&server).Error
+		Limit(2).
+		Find(&servers).Error
 	if err != nil {
 		return "", false
 	}
-	return server.Slug, true
+	if len(servers) == 1 {
+		return servers[0].Slug, true
+	}
+	if len(servers) > 1 {
+		log.Printf("[MCP Native] server label %q é ambíguo (LOWER(name) duplicado); não persistindo por slug", serverLabel)
+		return "", false
+	}
+	return "", false
 }
 
 // recoverFromPanic captura panic e delega o tratamento para events.HandlePanic.

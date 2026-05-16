@@ -136,7 +136,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		status, errorMessage := statusForExecution(exec)
 		completedAt := s.now()
 		inv.Status = status
-		inv.Output = resultOutput(s.truncateForPersistence(exec.Result))
+		inv.Output = s.outputForPersistence(exec.Result)
 		inv.ErrorKind = string(exec.ErrorKind)
 		inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
 		inv.Retryable = exec.Retryable
@@ -544,7 +544,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	status, errorMessage := statusForRecord(req)
 	completedAt := s.now()
 	inv.Status = status
-	inv.Output = resultOutput(s.truncateForPersistence(req.Result))
+	inv.Output = s.outputForPersistence(req.Result)
 	inv.ErrorKind = string(req.ErrorKind)
 	inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
 	inv.Retryable = req.Retryable
@@ -600,4 +600,54 @@ func executionError(call tools.ToolCall, message string) tools.ToolExecutionResu
 		Retryable:  false,
 		DurationMs: 0,
 	}
+}
+
+func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage {
+	max := s.persistMaxResultSize
+	trimmed := s.truncateForPersistence(result)
+	data := resultOutput(trimmed)
+	if max <= 0 || len(data) <= max {
+		return data
+	}
+
+	// Primeiro fallback: dropa metadata, que pode explodir o payload.
+	trimmed.Metadata = nil
+	data = resultOutput(trimmed)
+	if len(data) <= max {
+		return data
+	}
+
+	// Fallback final: reduz content até caber no JSON (UTF-8 safe).
+	origSize := len(data)
+	warning := fmt.Sprintf(
+		"\n\n[TRUNCADO: payload serializado tinha %d bytes, limite é %d bytes]",
+		origSize,
+		max,
+	)
+	content := trimmed.Content
+	// Começa com um budget razoável; ajusta iterativamente com base no marshal.
+	budget := max
+	for attempt := 0; attempt < 4; attempt++ {
+		candidate := truncateUTF8Safe(content, budget)
+		trimmed.Content = candidate + warning
+		data = resultOutput(trimmed)
+		if len(data) <= max {
+			return data
+		}
+		over := len(data) - max
+		budget -= over + 64
+		if budget < 1 {
+			break
+		}
+	}
+
+	// Último recurso: JSON mínimo válido.
+	minimal, _ := json.Marshal(map[string]any{
+		"content":  "[TRUNCADO: output excedeu limite de persistência]",
+		"is_error": true,
+	})
+	if len(minimal) > 0 {
+		return minimal
+	}
+	return json.RawMessage(`{"content":"[TRUNCADO]","is_error":true}`)
 }

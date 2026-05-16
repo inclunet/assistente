@@ -192,12 +192,21 @@ func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string
 		return "", fmt.Errorf("tool name is required")
 	}
 	var row database.ToolCatalog
-	err = r.db.WithContext(ctx).
-		Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
-		Where(
-			"tool_catalog.name = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
-			name, userID, tools.ToolOriginBuiltin, userID,
-		).
+	q := r.db.WithContext(ctx)
+	// Alguns testes/migrações parciais não criam mcp_servers; não pode falhar por isso.
+	if q.Migrator().HasTable("mcp_servers") {
+		q = q.Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
+			Where(
+				"tool_catalog.name = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
+				name, userID, tools.ToolOriginBuiltin, userID,
+			)
+	} else {
+		q = q.Where(
+			"tool_catalog.name = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL))",
+			name, userID, tools.ToolOriginBuiltin,
+		)
+	}
+	err = q.
 		Order("tool_catalog.mcp_server_id IS NULL ASC").
 		Order("tool_catalog.user_id IS NULL ASC").
 		First(&row).Error
@@ -221,16 +230,25 @@ func (r *DBRepository) IsToolCatalogIDVisible(ctx context.Context, toolCatalogID
 	}
 
 	var row database.ToolCatalog
-	err = r.db.WithContext(ctx).
-		Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
-		Where(
-			"tool_catalog.id = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
+	q := r.db.WithContext(ctx)
+	if q.Migrator().HasTable("mcp_servers") {
+		q = q.Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
+			Where(
+				"tool_catalog.id = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
+				id,
+				userID,
+				tools.ToolOriginBuiltin,
+				userID,
+			)
+	} else {
+		q = q.Where(
+			"tool_catalog.id = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL))",
 			id,
 			userID,
 			tools.ToolOriginBuiltin,
-			userID,
-		).
-		First(&row).Error
+		)
+	}
+	err = q.First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return false, nil
 	}

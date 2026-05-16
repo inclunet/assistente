@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -117,7 +118,7 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 		_, _ = fmt.Fprintf(&sb, "**[%s]**: ", m.Role)
 		content := m.Content
 		if len(content) > 2000 {
-			content = content[:2000] + "... [truncated]"
+			content = truncateUTF8Safe(content, 2000) + "... [truncated]"
 		}
 		sb.WriteString(content)
 		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" {
@@ -139,7 +140,7 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 					}
 					res := c.Result
 					if len(res) > 2000 {
-						res = res[:2000] + "... [truncated]"
+						res = truncateUTF8Safe(res, 2000) + "... [truncated]"
 					}
 					sb.WriteString("\n\n")
 					sb.WriteString("Tool result (")
@@ -159,6 +160,19 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 	}
 
 	return sb.String()
+}
+
+func truncateUTF8Safe(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && maxBytes < len(s) && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	if maxBytes <= 0 {
+		return ""
+	}
+	return s[:maxBytes]
 }
 
 // ServiceConfig agrupa as dependências do Service.
