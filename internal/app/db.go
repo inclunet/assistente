@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -389,14 +390,7 @@ func loadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID
 	// SQLite tem limite de variáveis (tipicamente 999). Como turnIDs pode ser grande
 	// em APIs legadas que carregam histórico completo, faz batch para evitar erro.
 	const maxTurnIDsPerBatch = 400
-
-	// LIMIT defensivo: o window é limitado (AEP-0059), mas sem LIMIT a query
-	// ainda pode escanear muitas linhas se houver volume alto de invocações
-	// por turno. Mantém o resultado estável por queued_at DESC.
-	limit := database.MaxMessageWindowRows * 25
-	if limit < 500 {
-		limit = 500
-	}
+	const pageSize = 2000
 
 	results := make(map[string]map[string]string, len(turnIDs))
 	for start := 0; start < len(turnIDs); start += maxTurnIDsPerBatch {
@@ -406,53 +400,71 @@ func loadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID
 		}
 		batch := turnIDs[start:end]
 
-		var rows []database.ToolInvocation
-		err := database.DB().WithContext(ctx).
-			Where(
-				"user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> '' AND (completed_at IS NOT NULL OR status IN (?, ?, ?, ?))",
-				userID,
-				"chat",
-				batch,
-				"succeeded",
-				"failed",
-				"cancelled",
-				"timed_out",
-			).
-			Order("queued_at DESC").
-			Limit(limit).
-			Find(&rows).Error
-		if err != nil {
-			log.Printf("[Chat] load tool_invocations results failed: %v", err)
-			continue
-		}
+		var cursorQueuedAt *time.Time
+		cursorID := ""
+		for {
+			q := database.DB().WithContext(ctx).
+				Where(
+					"user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> '' AND (completed_at IS NOT NULL OR status IN (?, ?, ?, ?))",
+					userID,
+					"chat",
+					batch,
+					"succeeded",
+					"failed",
+					"cancelled",
+					"timed_out",
+				)
+			if cursorQueuedAt != nil {
+				q = q.Where("(queued_at < ?) OR (queued_at = ? AND id < ?)", *cursorQueuedAt, *cursorQueuedAt, cursorID)
+			}
+			var rows []database.ToolInvocation
+			err := q.
+				Order("queued_at DESC, id DESC").
+				Limit(pageSize).
+				Find(&rows).Error
+			if err != nil {
+				log.Printf("[Chat] load tool_invocations results failed: %v", err)
+				break
+			}
+			if len(rows) == 0 {
+				break
+			}
 
-		for _, row := range rows {
-			turnID := strings.TrimSpace(row.OriginID)
-			callID := strings.TrimSpace(row.ToolCallID)
-			if turnID == "" || callID == "" {
-				continue
-			}
-			byCall := results[turnID]
-			if byCall == nil {
-				byCall = make(map[string]string)
-				results[turnID] = byCall
-			}
-			// Mantém o primeiro (mais recente pela Order) por turno.
-			if _, ok := byCall[callID]; ok {
-				continue
-			}
-			content := ""
-			if strings.TrimSpace(row.Output) != "" {
-				var payload struct {
-					Content string `json:"content"`
+			for _, row := range rows {
+				turnID := strings.TrimSpace(row.OriginID)
+				callID := strings.TrimSpace(row.ToolCallID)
+				if turnID == "" || callID == "" {
+					continue
 				}
-				if json.Unmarshal([]byte(row.Output), &payload) == nil {
-					content = payload.Content
-				} else {
-					content = row.Output
+				byCall := results[turnID]
+				if byCall == nil {
+					byCall = make(map[string]string)
+					results[turnID] = byCall
 				}
+				// Mantém o primeiro (mais recente pela Order) por turno.
+				if _, ok := byCall[callID]; ok {
+					continue
+				}
+				content := ""
+				if strings.TrimSpace(row.Output) != "" {
+					var payload struct {
+						Content string `json:"content"`
+					}
+					if json.Unmarshal([]byte(row.Output), &payload) == nil {
+						content = payload.Content
+					} else {
+						content = row.Output
+					}
+				}
+				byCall[callID] = content
 			}
-			byCall[callID] = content
+
+			last := rows[len(rows)-1]
+			cursorQueuedAt = &last.QueuedAt
+			cursorID = last.ID
+			if len(rows) < pageSize {
+				break
+			}
 		}
 	}
 	return results

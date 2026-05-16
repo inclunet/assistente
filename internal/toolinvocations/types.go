@@ -16,7 +16,6 @@ const (
 	StatusTimedOut  = "timed_out"
 
 	OriginChat        = "chat"
-	OriginJob         = "job"
 	OriginJobRun      = "job_run"
 	OriginToolCatalog = "tool_catalog"
 )
