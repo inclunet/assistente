@@ -170,7 +170,14 @@ func (r *DBRepository) CleanOld(ctx context.Context, maxAge time.Duration) (int,
 	}
 	cutoff := r.now().Add(-maxAge)
 	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("queued_at < ? AND origin_type = ?", cutoff, OriginChat).
+		Where(
+			"queued_at < ? AND (origin_type = ? OR (dry_run = ? AND origin_type IN (?, ?)))",
+			cutoff,
+			OriginChat,
+			true,
+			OriginToolCatalog,
+			OriginJobRun,
+		).
 		Delete(&database.ToolInvocation{})
 	return int(tx.RowsAffected), tx.Error
 }

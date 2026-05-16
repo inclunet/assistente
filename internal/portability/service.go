@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/toolinvocations"
 
 	"gorm.io/gorm"
 )
@@ -248,11 +249,6 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 			if callID == "" {
 				continue
 			}
-			if existing, ok := call["result"]; ok {
-				if s, ok := existing.(string); ok && strings.TrimSpace(s) != "" {
-					continue
-				}
-			}
 			if result, ok := turnResults[callID]; ok {
 				call["result"] = result
 				changed = true
@@ -284,86 +280,7 @@ func parseToolCalls(raw string) []map[string]interface{} {
 }
 
 func loadChatToolInvocationResultsForTurnIDs(ctx context.Context, userID string, turnIDs []string) (map[string]map[string]string, error) {
-	// SQLite tem limite de variáveis (tipicamente 999).
-	const maxTurnIDsPerBatch = 400
-	const pageSize = 2000
-	results := make(map[string]map[string]string, len(turnIDs))
-	for start := 0; start < len(turnIDs); start += maxTurnIDsPerBatch {
-		end := start + maxTurnIDsPerBatch
-		if end > len(turnIDs) {
-			end = len(turnIDs)
-		}
-		batch := turnIDs[start:end]
-
-		var cursorQueuedAt *time.Time
-		cursorID := ""
-		for {
-			q := database.DB().WithContext(ctx).
-				Where(
-					"user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> '' AND (completed_at IS NOT NULL OR status IN (?, ?, ?, ?))",
-					userID,
-					"chat",
-					batch,
-					"succeeded",
-					"failed",
-					"cancelled",
-					"timed_out",
-				)
-			if cursorQueuedAt != nil {
-				q = q.Where("(queued_at < ?) OR (queued_at = ? AND id < ?)", *cursorQueuedAt, *cursorQueuedAt, cursorID)
-			}
-			var rows []database.ToolInvocation
-			err := q.
-				Order("queued_at DESC, id DESC").
-				Limit(pageSize).
-				Find(&rows).Error
-			if err != nil {
-				return nil, fmt.Errorf("erro ao buscar tool invocations para exportação: %w", err)
-			}
-			if len(rows) == 0 {
-				break
-			}
-
-			for _, row := range rows {
-				turnID := strings.TrimSpace(row.OriginID)
-				callID := strings.TrimSpace(row.ToolCallID)
-				if turnID == "" || callID == "" {
-					continue
-				}
-				byCall := results[turnID]
-				if byCall == nil {
-					byCall = make(map[string]string)
-					results[turnID] = byCall
-				}
-				if _, ok := byCall[callID]; ok {
-					continue
-				}
-				byCall[callID] = extractToolInvocationContent(row.Output)
-			}
-
-			last := rows[len(rows)-1]
-			cursorQueuedAt = &last.QueuedAt
-			cursorID = last.ID
-			if len(rows) < pageSize {
-				break
-			}
-		}
-	}
-	return results, nil
-}
-
-func extractToolInvocationContent(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	var payload struct {
-		Content string `json:"content"`
-	}
-	if json.Unmarshal([]byte(raw), &payload) == nil {
-		return payload.Content
-	}
-	return raw
+	return toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
 }
 
 func ImportConversations(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportResult, error) {

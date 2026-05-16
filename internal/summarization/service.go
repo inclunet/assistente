@@ -2,6 +2,7 @@ package summarization
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -119,6 +120,35 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 			content = content[:2000] + "... [truncated]"
 		}
 		sb.WriteString(content)
+		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" {
+			var calls []struct {
+				ID       string `json:"id"`
+				Result   string `json:"result,omitempty"`
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			}
+			if json.Unmarshal([]byte(m.ToolCalls), &calls) == nil {
+				for _, c := range calls {
+					if strings.TrimSpace(c.Result) == "" {
+						continue
+					}
+					name := strings.TrimSpace(c.Function.Name)
+					if name == "" {
+						name = c.ID
+					}
+					res := c.Result
+					if len(res) > 2000 {
+						res = res[:2000] + "... [truncated]"
+					}
+					sb.WriteString("\n\n")
+					sb.WriteString("Tool result (")
+					sb.WriteString(name)
+					sb.WriteString("): ")
+					sb.WriteString(res)
+				}
+			}
+		}
 		sb.WriteString("\n\n")
 	}
 

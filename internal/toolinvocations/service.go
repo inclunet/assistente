@@ -77,6 +77,12 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		} else if !visible {
 			log.Printf("[toolinvocations] tool_catalog_id not visible to user; falling back to resolve by name (best-effort) id=%s", strings.TrimSpace(toolCatalogID))
 			toolCatalogID = ""
+		} else {
+			// Defesa: garante que o ID fornecido corresponde ao nome da tool.
+			if resolved, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name); err == nil && strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
+				log.Printf("[toolinvocations] tool_catalog_id mismatch for %q; using resolved id", req.Call.Function.Name)
+				toolCatalogID = resolved
+			}
 		}
 	}
 	if toolCatalogID == "" {
@@ -288,12 +294,34 @@ func (s *Service) buildInvocationInput(call tools.ToolCall) json.RawMessage {
 	}
 	baseBytes, _ := json.Marshal(basePayload)
 	if len(baseBytes) >= max {
-		minimal := map[string]any{
+		name := redacted.Function.Name
+		id := redacted.ID
+		for attempt := 0; attempt < 5; attempt++ {
+			minimal := map[string]any{
+				"_input_truncated":           true,
+				"_input_original_size_bytes": origSize,
+				"tool":                       map[string]any{"name": name, "id": id},
+			}
+			minBytes, _ := json.Marshal(minimal)
+			if len(minBytes) <= max {
+				return minBytes
+			}
+			// Reduz identificadores até caber.
+			if len(name) > 0 {
+				name = truncateUTF8Safe(name, len(name)/2)
+			}
+			if len(id) > 0 {
+				id = truncateUTF8Safe(id, len(id)/2)
+			}
+			if name == "" && id == "" {
+				break
+			}
+		}
+		fallback := map[string]any{
 			"_input_truncated":           true,
 			"_input_original_size_bytes": origSize,
-			"tool":                       map[string]any{"name": redacted.Function.Name, "id": redacted.ID},
 		}
-		minBytes, _ := json.Marshal(minimal)
+		minBytes, _ := json.Marshal(fallback)
 		return minBytes
 	}
 
@@ -333,6 +361,11 @@ func (s *Service) buildInvocationInput(call tools.ToolCall) json.RawMessage {
 }
 
 func redactArgumentsJSON(args string) string {
+	// Evita spikes de CPU/memória em payloads enormes: não tenta parsear/redigir JSON muito grande.
+	const maxRedactionBytes = 256 * 1024
+	if len(args) > maxRedactionBytes {
+		return "{\"_redacted\":true,\"_too_large\":true}"
+	}
 	raw := []byte(args)
 	if !json.Valid(raw) {
 		return "{\"_redacted\":true}"
@@ -464,6 +497,10 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		}
 		if !visible {
 			toolCatalogID = ""
+		} else {
+			if resolved, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name); err == nil && strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
+				toolCatalogID = resolved
+			}
 		}
 	}
 	if toolCatalogID == "" {

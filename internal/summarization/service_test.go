@@ -163,7 +163,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 	t.Run("without existing summary", func(t *testing.T) {
 		msgs := []database.ChatMessage{
 			{Role: "user", Content: "Hello"},
-			{Role: "assistant", Content: "Hi there!"},
+			{Role: "assistant", Content: "Hi there!", ToolCalls: `[{"id":"call_1","type":"function","function":{"name":"grep_search","arguments":"{}"},"result":"found it"}]`},
 		}
 
 		result := BuildSummarizationUserPrompt("", msgs)
@@ -179,6 +179,9 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 		}
 		if !strings.Contains(result, "**[assistant]**: Hi there!") {
 			t.Error("expected assistant message in output")
+		}
+		if !strings.Contains(result, "Tool result") || !strings.Contains(result, "found it") {
+			t.Error("expected tool result in output")
 		}
 		if !strings.Contains(result, "Please produce a concise summary of the conversation above.") {
 			t.Error("expected closing instruction for new summary")
