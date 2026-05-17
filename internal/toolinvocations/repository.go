@@ -197,12 +197,12 @@ func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string
 	if q.Migrator().HasTable("mcp_servers") {
 		q = q.Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
 			Where(
-				"tool_catalog.name = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
+				"tool_catalog.name = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND (tool_catalog.user_id IS NULL OR tool_catalog.user_id = '') AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
 				name, userID, tools.ToolOriginBuiltin, userID,
 			)
 	} else {
 		q = q.Where(
-			"tool_catalog.name = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL))",
+			"tool_catalog.name = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND (tool_catalog.user_id IS NULL OR tool_catalog.user_id = '') AND tool_catalog.mcp_server_id IS NULL))",
 			name, userID, tools.ToolOriginBuiltin,
 		)
 	}
@@ -234,7 +234,7 @@ func (r *DBRepository) IsToolCatalogIDVisible(ctx context.Context, toolCatalogID
 	if q.Migrator().HasTable("mcp_servers") {
 		q = q.Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
 			Where(
-				"tool_catalog.id = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
+				"tool_catalog.id = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND (tool_catalog.user_id IS NULL OR tool_catalog.user_id = '') AND tool_catalog.mcp_server_id IS NULL) OR mcp_servers.user_id = ?)",
 				id,
 				userID,
 				tools.ToolOriginBuiltin,
@@ -242,7 +242,7 @@ func (r *DBRepository) IsToolCatalogIDVisible(ctx context.Context, toolCatalogID
 			)
 	} else {
 		q = q.Where(
-			"tool_catalog.id = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND tool_catalog.user_id IS NULL AND tool_catalog.mcp_server_id IS NULL))",
+			"tool_catalog.id = ? AND (tool_catalog.user_id = ? OR (tool_catalog.origin = ? AND (tool_catalog.user_id IS NULL OR tool_catalog.user_id = '') AND tool_catalog.mcp_server_id IS NULL))",
 			id,
 			userID,
 			tools.ToolOriginBuiltin,
