@@ -254,7 +254,7 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 	if err != nil {
 		return err
 	}
-	if len(resultsByTurn) == 0 {
+	if len(resultsByTurn) == 0 && len(fallbackResultsByTurn) == 0 {
 		return nil
 	}
 

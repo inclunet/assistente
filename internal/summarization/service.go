@@ -123,22 +123,22 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 		sb.WriteString(content)
 		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" {
 			for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
-					if strings.TrimSpace(c.Result) == "" {
-						continue
-					}
-					name := strings.TrimSpace(c.Function.Name)
-					if name == "" {
-						name = c.ID
-					}
-					res := c.Result
-					if len(res) > 2000 {
-						res = truncateUTF8Safe(res, 2000) + "... [truncated]"
-					}
-					sb.WriteString("\n\n")
-					sb.WriteString("Tool result (")
-					sb.WriteString(name)
-					sb.WriteString("): ")
-					sb.WriteString(res)
+				if strings.TrimSpace(c.Result) == "" {
+					continue
+				}
+				name := strings.TrimSpace(c.Function.Name)
+				if name == "" {
+					name = c.ID
+				}
+				res := c.Result
+				if len(res) > 2000 {
+					res = truncateUTF8Safe(res, 2000) + "... [truncated]"
+				}
+				sb.WriteString("\n\n")
+				sb.WriteString("Tool result (")
+				sb.WriteString(name)
+				sb.WriteString("): ")
+				sb.WriteString(res)
 			}
 		}
 		sb.WriteString("\n\n")
@@ -154,8 +154,8 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 }
 
 type summarizationToolCall struct {
-	ID     string `json:"id"`
-	Result string `json:"result,omitempty"`
+	ID       string `json:"id"`
+	Result   string `json:"result,omitempty"`
 	Function struct {
 		Name string `json:"name"`
 	} `json:"function"`

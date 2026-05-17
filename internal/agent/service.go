@@ -200,6 +200,18 @@ func (s *Service) RunAgenticLoop(
 		//    Para iterações finais (IsDone), emite imediatamente.
 		//    Para iterações com tool calls, emite após execução com ToolsInIteration (AEP-0039).
 		if result.IsDone {
+			// Persistir MCP nativo mesmo quando não há bridge tool_calls.
+			if len(result.NativeMCPEvents) > 0 {
+				s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, iteration)
+				for _, ev := range result.NativeMCPEvents {
+					if !ev.IsCompleted {
+						continue
+					}
+					totalToolCallCount++
+					toolsUsedSet[ev.Name] = struct{}{}
+				}
+			}
+
 			if result.FullResponse != "" {
 				s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
 					ConversationID: conversationID,
@@ -388,18 +400,8 @@ func (s *Service) RunAgenticLoop(
 
 		// 5f-iii. AEP-0039 Fase 5: persiste assistant tool_calls com metadata enriquecida
 		enrichedCalls := make([]llm.EnrichedToolCall, len(result.ToolCalls))
-		// Para histórico/export/sumarização, persiste um resultado compacto (capado)
-		// no tool_calls. O output completo permanece efêmero em tool_invocations.
-		resultByCallID := make(map[string]string, len(execResults))
-		for _, r := range execResults {
-			if strings.TrimSpace(r.CallID) == "" {
-				continue
-			}
-			// Evita duplicar: se tool_invocations falhar, cai no fallback role=tool.
-			if execBatch.PersistedByCallID[r.CallID] {
-				resultByCallID[r.CallID] = truncateString(r.Result.Content, MaxPersistedToolCallResultSize)
-			}
-		}
+		// AEP-0063 (D2): não persistir tool results como parte das mensagens.
+		// O resultado é efêmero em tool_invocations e hidratado sob demanda.
 		for i, tc := range result.ToolCalls {
 			tcOrigin, tcServerLabel := detectToolOrigin(tc.Function.Name)
 			enrichedCalls[i] = llm.EnrichedToolCall{
@@ -412,9 +414,6 @@ func (s *Service) RunAgenticLoop(
 				Origin:      tcOrigin,
 				ServerLabel: tcServerLabel,
 				Iteration:   iteration,
-			}
-			if res, ok := resultByCallID[tc.ID]; ok {
-				enrichedCalls[i].Result = res
 			}
 			if i < len(execResults) {
 				enrichedCalls[i].DurationMs = execResults[i].DurationMs
@@ -769,8 +768,9 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		argsByID[ev.ID] = ev.Arguments
 	}
 
-	// Persistência do output: embute Result apenas quando a invocação foi registrada
-	// com sucesso em tool_invocations; caso contrário, o fallback role=tool preserva o output.
+	// Persistência do output: AEP-0063 (D2) evita armazenar tool results como mensagens.
+	// O output completo fica efêmero em tool_invocations; se a persistência estiver
+	// indisponível, o fallback role=tool é usado para manter histórico/export legível.
 	// IMPORTANTE: grava os fallbacks APÓS a mensagem assistant tool_calls para manter
 	// a ordem tool-call -> tool-result no histórico/export.
 	formatFallbackContent := func(output, errMsg string) string {
@@ -792,7 +792,6 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		ToolName string
 	}
 	persistable := s.toolInvocations != nil && s.toolInvocations.CanPersist()
-	compactResultByID := map[string]string{}
 	fallbackResults := make([]fallbackToolResult, 0)
 	if !persistable {
 		for _, ev := range mcpEvents {
@@ -866,7 +865,6 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content, Server: ev.ServerLabel, ToolName: ev.Name})
 				continue
 			}
-			compactResultByID[ev.ID] = truncateString(func() string { if ev.Error != "" { return ev.Error }; return ev.Output }(), MaxPersistedToolCallResultSize)
 		}
 	}
 
@@ -889,9 +887,6 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 			Origin:      OriginMCPNative,
 			ServerLabel: ev.ServerLabel,
 			Iteration:   iteration,
-		}
-		if res, ok := compactResultByID[ev.ID]; ok {
-			call.Result = res
 		}
 		toolCalls = append(toolCalls, call)
 	}
