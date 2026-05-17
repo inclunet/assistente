@@ -284,9 +284,13 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 			// 1) Se houver fallback role=tool, preferir SEMPRE.
 			if turnFallback != nil {
 				if fb, ok := turnFallback[callID]; ok {
-					call["result"] = fb
-					changed = true
-					continue
+					if strings.TrimSpace(fb) == "" {
+						// Fallback vazio não é autoritativo; permite hidratação por invocations.
+					} else {
+						call["result"] = fb
+						changed = true
+						continue
+					}
 				}
 			}
 

@@ -11,9 +11,11 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/toolinvocations"
 )
 
 // SummarizationRepository abstrai as operações de persistência necessárias para sumarização.
@@ -102,7 +104,7 @@ func ShouldTriggerSummarization(
 }
 
 // BuildSummarizationUserPrompt monta o user message para a chamada LLM de sumarização.
-func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Message) string {
+func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Message, invocationResults map[string]map[string]string) string {
 	var sb strings.Builder
 
 	if existingSummary != "" {
@@ -123,14 +125,23 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 		sb.WriteString(content)
 		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" {
 			for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
-				if strings.TrimSpace(c.Result) == "" {
+				res := c.Result
+				if strings.TrimSpace(res) == "" && m.TurnID != nil && invocationResults != nil {
+					turnID := strings.TrimSpace(*m.TurnID)
+					callID := strings.TrimSpace(c.ID)
+					if turnID != "" && callID != "" {
+						if byCall := invocationResults[turnID]; byCall != nil {
+							res = byCall[callID]
+						}
+					}
+				}
+				if strings.TrimSpace(res) == "" {
 					continue
 				}
 				name := strings.TrimSpace(c.Function.Name)
 				if name == "" {
 					name = c.ID
 				}
-				res := c.Result
 				if len(res) > 2000 {
 					res = truncateUTF8Safe(res, 2000) + "... [truncated]"
 				}
@@ -369,7 +380,8 @@ func (s *Service) executeSummarization(
 
 	model := profile.Chat.Model
 
-	userPrompt := BuildSummarizationUserPrompt(existingSummary, newMessages)
+	invocationResults := loadSummarizationToolInvocationResults(ctx, newMessages)
+	userPrompt := BuildSummarizationUserPrompt(existingSummary, newMessages, invocationResults)
 
 	log.Printf("[Summary] Iniciando sumarização: conversa=%s, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
 		conversationID, model, len(newMessages), len(existingSummary))
@@ -423,4 +435,53 @@ func (s *Service) executeSummarization(
 		SummaryLength:        len(summary),
 		MessageCount:         len(newMessages),
 	})
+}
+
+func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat.Message) map[string]map[string]string {
+	if len(messages) == 0 {
+		return nil
+	}
+	if !database.DB().Migrator().HasTable(&database.ToolInvocation{}) {
+		return nil
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil
+	}
+
+	seen := map[string]struct{}{}
+	turnIDs := make([]string, 0)
+	for _, msg := range messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		if strings.TrimSpace(msg.ToolCalls) == "" {
+			continue
+		}
+		if msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		if _, ok := seen[turnID]; ok {
+			continue
+		}
+		seen[turnID] = struct{}{}
+		turnIDs = append(turnIDs, turnID)
+	}
+	if len(turnIDs) == 0 {
+		return nil
+	}
+
+	results, err := toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
+	if err != nil {
+		log.Printf("[Summary] Erro ao hidratar tool invocations para sumarização: %v", err)
+		return nil
+	}
+	if len(results) == 0 {
+		return nil
+	}
+	return results
 }

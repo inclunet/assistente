@@ -73,6 +73,25 @@ func TestEstimateMessagesTokens(t *testing.T) {
 	})
 }
 
+func TestBuildSummarizationUserPrompt_HydratesToolInvocationResults(t *testing.T) {
+	turnID := "turn-1"
+	callID := "call-1"
+	toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
+
+	msgs := []database.ChatMessage{{
+		Role:      "assistant",
+		Content:   "",
+		ToolCalls: toolCalls,
+		TurnID:    &turnID,
+	}}
+
+	invResults := map[string]map[string]string{turnID: {callID: "RESULT"}}
+	prompt := BuildSummarizationUserPrompt("", msgs, invResults)
+	if !strings.Contains(prompt, "Tool result (files.read): RESULT") {
+		t.Fatalf("prompt did not include hydrated tool result, got:\n%s", prompt)
+	}
+}
+
 func TestShouldTriggerSummarization(t *testing.T) {
 	makeProfile := func(contextWindow, maxTokens int) *profiles.Profile {
 		return &profiles.Profile{
@@ -166,7 +185,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 			{Role: "assistant", Content: "Hi there!", ToolCalls: `[{"id":"call_1","type":"function","function":{"name":"grep_search","arguments":"{}"},"result":"found it"}]`},
 		}
 
-		result := BuildSummarizationUserPrompt("", msgs)
+		result := BuildSummarizationUserPrompt("", msgs, nil)
 
 		if !strings.Contains(result, "## Conversation to Summarize") {
 			t.Error("expected '## Conversation to Summarize' header")
@@ -192,7 +211,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 		msgs := []database.ChatMessage{
 			{Role: "assistant", Content: "ok", ToolCalls: `{"id":"call_1","type":"function","function":{"name":"grep_search","arguments":"{}"},"result":"achou"}`},
 		}
-		result := BuildSummarizationUserPrompt("", msgs)
+		result := BuildSummarizationUserPrompt("", msgs, nil)
 		if !strings.Contains(result, "Tool result") || !strings.Contains(result, "achou") {
 			t.Error("expected tool result from single-object tool_calls in output")
 		}
@@ -203,7 +222,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 			{Role: "user", Content: "What about feature X?"},
 		}
 
-		result := BuildSummarizationUserPrompt("Previous context about the project.", msgs)
+		result := BuildSummarizationUserPrompt("Previous context about the project.", msgs, nil)
 
 		if !strings.Contains(result, "## Previous Summary") {
 			t.Error("expected '## Previous Summary' header")
@@ -225,7 +244,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 			{Role: "user", Content: longContent},
 		}
 
-		result := BuildSummarizationUserPrompt("", msgs)
+		result := BuildSummarizationUserPrompt("", msgs, nil)
 
 		if !strings.Contains(result, "... [truncated]") {
 			t.Error("expected truncation marker for content > 2000 chars")
@@ -236,7 +255,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 	})
 
 	t.Run("empty messages produces minimal prompt", func(t *testing.T) {
-		result := BuildSummarizationUserPrompt("", nil)
+		result := BuildSummarizationUserPrompt("", nil, nil)
 
 		if !strings.Contains(result, "## Conversation to Summarize") {
 			t.Error("expected header even with no messages")

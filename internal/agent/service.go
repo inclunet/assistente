@@ -200,9 +200,9 @@ func (s *Service) RunAgenticLoop(
 		//    Para iterações finais (IsDone), emite imediatamente.
 		//    Para iterações com tool calls, emite após execução com ToolsInIteration (AEP-0039).
 		if result.IsDone {
-			// Persistir MCP nativo mesmo quando não há bridge tool_calls.
+			// MCP nativo pode aparecer em uma resposta final (finish_reason="stop").
+			// A persistência ocorre em SaveAndFinish; aqui só atualizamos stats.
 			if len(result.NativeMCPEvents) > 0 {
-				s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, iteration)
 				for _, ev := range result.NativeMCPEvents {
 					if !ev.IsCompleted {
 						continue
