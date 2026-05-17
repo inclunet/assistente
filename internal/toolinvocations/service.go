@@ -642,12 +642,16 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 	}
 
 	// Último recurso: JSON mínimo válido.
+	isErr := result.IsError
 	minimal, _ := json.Marshal(map[string]any{
 		"content":  "[TRUNCADO: output excedeu limite de persistência]",
-		"is_error": true,
+		"is_error": isErr,
 	})
 	if len(minimal) > 0 {
 		return minimal
 	}
-	return json.RawMessage(`{"content":"[TRUNCADO]","is_error":true}`)
+	if isErr {
+		return json.RawMessage(`{"content":"[TRUNCADO]","is_error":true}`)
+	}
+	return json.RawMessage(`{"content":"[TRUNCADO]","is_error":false}`)
 }

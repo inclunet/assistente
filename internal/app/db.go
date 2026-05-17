@@ -413,7 +413,7 @@ func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.Messag
 		rawLimit = 10
 	}
 	var lastNodes []chat.MessageNode
-	for i := 0; i < 5; i++ {
+	for rawLimit <= 5000 {
 		messages, err := database.GetRecentRootMessagesWithContext(ctx, conversationID, rawLimit)
 		if err != nil {
 			return nil, err
@@ -427,9 +427,6 @@ func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.Messag
 			return nodes, nil
 		}
 		rawLimit *= 2
-		if rawLimit > 5000 {
-			break
-		}
 	}
 	if len(lastNodes) > limit {
 		return lastNodes[len(lastNodes)-limit:], nil
@@ -454,7 +451,7 @@ func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit in
 		rawLimit = 10
 	}
 	var lastNodes []chat.MessageNode
-	for i := 0; i < 5; i++ {
+	for rawLimit <= 5000 {
 		messages, err := database.GetRootMessagesBeforeWithContext(ctx, conversationID, beforeID, rawLimit)
 		if err != nil {
 			return nil, err
@@ -468,9 +465,6 @@ func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit in
 			return nodes, nil
 		}
 		rawLimit *= 2
-		if rawLimit > 5000 {
-			break
-		}
 	}
 	if len(lastNodes) > limit {
 		return lastNodes[len(lastNodes)-limit:], nil

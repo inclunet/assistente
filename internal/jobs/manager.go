@@ -917,7 +917,7 @@ func (m *Manager) TestToolContext(parent context.Context, toolName string, input
 			},
 			Origin: toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
 			DryRun: true,
-			ExecutionMaxResultSize: 100 * 1024 * 1024,
+			ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
 		}).Execution
 		result = exec.Result
 		execErr = exec.Error

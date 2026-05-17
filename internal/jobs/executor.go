@@ -374,7 +374,7 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		// Jobs podem precisar processar JSON > 100KB (output maps/encadeamento).
 		// Executa com budget bem maior para evitar corromper JSON por truncamento;
 		// a persistência em tool_invocations pode truncar separadamente.
-		ExecutionMaxResultSize: 100 * 1024 * 1024,
+		ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
 	}).Execution
 	if result.Error != nil {
 		return tools.ToolResult{}, fmt.Errorf("tool execute: %w", result.Error)
