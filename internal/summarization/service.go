@@ -122,15 +122,7 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 		}
 		sb.WriteString(content)
 		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" {
-			var calls []struct {
-				ID       string `json:"id"`
-				Result   string `json:"result,omitempty"`
-				Function struct {
-					Name string `json:"name"`
-				} `json:"function"`
-			}
-			if json.Unmarshal([]byte(m.ToolCalls), &calls) == nil {
-				for _, c := range calls {
+			for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
 					if strings.TrimSpace(c.Result) == "" {
 						continue
 					}
@@ -147,7 +139,6 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 					sb.WriteString(name)
 					sb.WriteString("): ")
 					sb.WriteString(res)
-				}
 			}
 		}
 		sb.WriteString("\n\n")
@@ -160,6 +151,33 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 	}
 
 	return sb.String()
+}
+
+type summarizationToolCall struct {
+	ID     string `json:"id"`
+	Result string `json:"result,omitempty"`
+	Function struct {
+		Name string `json:"name"`
+	} `json:"function"`
+}
+
+func parseSummarizationToolCalls(raw string) []summarizationToolCall {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var calls []summarizationToolCall
+	if err := json.Unmarshal([]byte(raw), &calls); err == nil {
+		return calls
+	}
+	var single summarizationToolCall
+	if err := json.Unmarshal([]byte(raw), &single); err == nil {
+		if strings.TrimSpace(single.ID) == "" {
+			return nil
+		}
+		return []summarizationToolCall{single}
+	}
+	return nil
 }
 
 func truncateUTF8Safe(s string, maxBytes int) string {

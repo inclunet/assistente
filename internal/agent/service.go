@@ -769,47 +769,11 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		argsByID[ev.ID] = ev.Arguments
 	}
 
-	var toolCalls []llm.EnrichedToolCall
-	for _, ev := range mcpEvents {
-		if !ev.IsCompleted {
-			continue
-		}
-		args := ev.Arguments
-		if strings.TrimSpace(args) == "" {
-			args = argsByID[ev.ID]
-		}
-		toolCalls = append(toolCalls, llm.EnrichedToolCall{
-			ID:   ev.ID,
-			Type: "function",
-			Function: llm.FunctionCall{
-				Name:      ev.Name,
-				Arguments: args,
-			},
-			Result:      truncateString(func() string { if ev.Error != "" { return ev.Error }; return ev.Output }(), MaxPersistedToolCallResultSize),
-			Origin:      OriginMCPNative,
-			ServerLabel: ev.ServerLabel,
-			Iteration:   iteration,
-		})
-	}
-	if len(toolCalls) == 0 {
-		return
-	}
-
-	toolCallsJSON, err := json.Marshal(toolCalls)
-	if err != nil {
-		log.Printf("[MCP Native] Erro ao serializar tool calls: %v", err)
-		return
-	}
-
-	_, err = s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", "")
-	if err != nil {
-		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
-		return
-	}
-
-	// Fallback: se tool_invocations não estiver configurado, persiste resultados como
-	// mensagens role=tool para manter histórico/export/import consistentes.
-	if s.toolInvocations == nil || !s.toolInvocations.CanPersist() {
+	// Persistência do output: embute Result apenas quando a invocação foi registrada
+	// com sucesso em tool_invocations; caso contrário, o fallback role=tool preserva o output.
+	persistable := s.toolInvocations != nil && s.toolInvocations.CanPersist()
+	compactResultByID := map[string]string{}
+	if !persistable {
 		for _, ev := range mcpEvents {
 			if !ev.IsCompleted {
 				continue
@@ -822,79 +786,120 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
 			}
 		}
-		return
 	}
 
-	// Resultados técnicos: persistir em tool_invocations quando disponível.
-	// Não criar novas mensagens role=tool em caso de sucesso (export/import lê tool_calls enriquecido).
-	slugCache := map[string]string{}
+	if persistable {
+		// Resultados técnicos: persistir em tool_invocations quando disponível.
+		// Não criar novas mensagens role=tool em caso de sucesso (export/import lê tool_calls enriquecido).
+		slugCache := map[string]string{}
+		for _, ev := range mcpEvents {
+			if !ev.IsCompleted {
+				continue
+			}
+			label := strings.TrimSpace(ev.ServerLabel)
+			slug := strings.TrimSpace(slugCache[label])
+			if slug == "" {
+				resolved, ok := resolveMCPServerSlug(ctx, label)
+				if ok {
+					slug = resolved
+					slugCache[label] = resolved
+				}
+			}
+			if strings.TrimSpace(slug) == "" {
+				log.Printf("[MCP Native] não foi possível resolver server slug para %q; usando fallback role=tool (id=%s)", ev.ServerLabel, ev.ID)
+				content := ev.Output
+				if ev.Error != "" {
+					content = ev.Error
+				}
+				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID); err != nil {
+					log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
+				}
+				continue
+			}
+			fullName := mcp.BuildToolName(slug, ev.Name)
+			args := ev.Arguments
+			if strings.TrimSpace(args) == "" {
+				args = argsByID[ev.ID]
+			}
+			result := tools.ToolResult{Content: ev.Output}
+			errKind := tools.ErrorKindNone
+			errMsg := ""
+			if ev.Error != "" {
+				result = tools.ToolResult{Content: ev.Error, IsError: true}
+				errKind = tools.ErrorKindUnknown
+				errMsg = ev.Error
+			}
+			_, recErr := s.toolInvocations.Record(ctx, toolinvocations.RecordRequest{
+				Call: tools.ToolCall{
+					ID:   ev.ID,
+					Type: "function",
+					Function: tools.FunctionCall{
+						Name:      fullName,
+						Arguments: args,
+					},
+				},
+				Origin: toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID},
+				DryRun: false,
+				Result: result,
+				// Sem sinalização de timeout/cancel no contrato do MCP event hoje.
+				ErrorKind:    errKind,
+				ErrorMessage: errMsg,
+				Retryable:    false,
+				DurationMs:   0,
+			})
+			if recErr != nil {
+				log.Printf("[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
+				// Fallback: garante que exista ao menos um resultado persistido
+				// para o tool_call_id no histórico da conversa.
+				content := ev.Output
+				if ev.Error != "" {
+					content = ev.Error
+				}
+				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID); err != nil {
+					log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
+				}
+				continue
+			}
+			compactResultByID[ev.ID] = truncateString(func() string { if ev.Error != "" { return ev.Error }; return ev.Output }(), MaxPersistedToolCallResultSize)
+		}
+	}
+
+	var toolCalls []llm.EnrichedToolCall
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
 			continue
 		}
-		label := strings.TrimSpace(ev.ServerLabel)
-		slug := strings.TrimSpace(slugCache[label])
-		if slug == "" {
-			resolved, ok := resolveMCPServerSlug(ctx, label)
-			if ok {
-				slug = resolved
-				slugCache[label] = resolved
-			}
-		}
-		if strings.TrimSpace(slug) == "" {
-			log.Printf("[MCP Native] não foi possível resolver server slug para %q; usando fallback role=tool (id=%s)", ev.ServerLabel, ev.ID)
-			content := ev.Output
-			if ev.Error != "" {
-				content = ev.Error
-			}
-			if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID); err != nil {
-				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
-			}
-			continue
-		}
-		fullName := mcp.BuildToolName(slug, ev.Name)
 		args := ev.Arguments
 		if strings.TrimSpace(args) == "" {
 			args = argsByID[ev.ID]
 		}
-		result := tools.ToolResult{Content: ev.Output}
-		errKind := tools.ErrorKindNone
-		errMsg := ""
-		if ev.Error != "" {
-			result = tools.ToolResult{Content: ev.Error, IsError: true}
-			errKind = tools.ErrorKindUnknown
-			errMsg = ev.Error
-		}
-		_, recErr := s.toolInvocations.Record(ctx, toolinvocations.RecordRequest{
-			Call: tools.ToolCall{
-				ID:   ev.ID,
-				Type: "function",
-				Function: tools.FunctionCall{
-					Name:      fullName,
-					Arguments: args,
-				},
+		call := llm.EnrichedToolCall{
+			ID:   ev.ID,
+			Type: "function",
+			Function: llm.FunctionCall{
+				Name:      ev.Name,
+				Arguments: args,
 			},
-			Origin: toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID},
-			DryRun: false,
-			Result: result,
-			// Sem sinalização de timeout/cancel no contrato do MCP event hoje.
-			ErrorKind:    errKind,
-			ErrorMessage: errMsg,
-			Retryable:    false,
-			DurationMs:   0,
-		})
-		if recErr != nil {
-			log.Printf("[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
-			// Fallback: garante que exista ao menos um resultado persistido
-			// para o tool_call_id no histórico da conversa.
-			content := ev.Output
-			if ev.Error != "" {
-				content = ev.Error
-			}
-			if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID); err != nil {
-				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
-			}
+			Origin:      OriginMCPNative,
+			ServerLabel: ev.ServerLabel,
+			Iteration:   iteration,
 		}
+		if res, ok := compactResultByID[ev.ID]; ok {
+			call.Result = res
+		}
+		toolCalls = append(toolCalls, call)
+	}
+	if len(toolCalls) == 0 {
+		return
+	}
+	toolCallsJSON, err := json.Marshal(toolCalls)
+	if err != nil {
+		log.Printf("[MCP Native] Erro ao serializar tool calls: %v", err)
+		return
+	}
+	if _, err := s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", ""); err != nil {
+		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
+		return
 	}
 }
 

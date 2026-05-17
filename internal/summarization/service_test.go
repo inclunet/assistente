@@ -188,6 +188,16 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 		}
 	})
 
+	t.Run("tool_calls single-object is supported", func(t *testing.T) {
+		msgs := []database.ChatMessage{
+			{Role: "assistant", Content: "ok", ToolCalls: `{"id":"call_1","type":"function","function":{"name":"grep_search","arguments":"{}"},"result":"achou"}`},
+		}
+		result := BuildSummarizationUserPrompt("", msgs)
+		if !strings.Contains(result, "Tool result") || !strings.Contains(result, "achou") {
+			t.Error("expected tool result from single-object tool_calls in output")
+		}
+	})
+
 	t.Run("with existing summary", func(t *testing.T) {
 		msgs := []database.ChatMessage{
 			{Role: "user", Content: "What about feature X?"},
