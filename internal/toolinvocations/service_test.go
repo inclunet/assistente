@@ -11,6 +11,69 @@ import (
 	"assistente/internal/tools"
 )
 
+func TestOutputForPersistence_CapsLargeOutputAndDropsLargeMetadata(t *testing.T) {
+	max := 256
+	svc := &Service{persistMaxResultSize: max}
+
+	result := tools.ToolResult{
+		Content: strings.Repeat("x", 4096),
+		Metadata: map[string]any{
+			"huge": strings.Repeat("m", 4096),
+		},
+	}
+
+	out := svc.outputForPersistence(result)
+	if len(out) == 0 {
+		t.Fatal("expected non-empty output")
+	}
+	if len(out) > max {
+		t.Fatalf("persisted output size = %d, want <= %d", len(out), max)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("persisted output is not valid JSON: %v (out=%q)", err, string(out))
+	}
+	if _, ok := payload["content"].(string); !ok {
+		t.Fatalf("expected content string, got=%T", payload["content"])
+	}
+	if _, ok := payload["is_error"].(bool); !ok {
+		t.Fatalf("expected is_error bool, got=%T", payload["is_error"])
+	}
+	// Metadata deve ter sido dropada para caber no limite.
+	if _, ok := payload["metadata"]; ok {
+		t.Fatalf("expected metadata to be dropped, got=%v", payload["metadata"])
+	}
+}
+
+func TestOutputForPersistence_DropsNonSerializableMetadataAndStillCapsSize(t *testing.T) {
+	max := 256
+	svc := &Service{persistMaxResultSize: max}
+
+	result := tools.ToolResult{
+		Content:  strings.Repeat("y", 4096),
+		IsError:  true,
+		Metadata: map[string]any{"bad": func() {}},
+	}
+
+	out := svc.outputForPersistence(result)
+	if len(out) == 0 {
+		t.Fatal("expected non-empty output")
+	}
+	if len(out) > max {
+		t.Fatalf("persisted output size = %d, want <= %d", len(out), max)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("persisted output is not valid JSON: %v (out=%q)", err, string(out))
+	}
+	if payload["is_error"] != true {
+		t.Fatalf("expected is_error=true, got=%v", payload["is_error"])
+	}
+	if _, ok := payload["metadata"]; ok {
+		t.Fatalf("expected metadata to be dropped when non-serializable")
+	}
+}
+
 type echoTool struct{}
 
 func (echoTool) Name() string { return "echo" }

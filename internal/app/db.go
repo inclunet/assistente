@@ -115,7 +115,16 @@ func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []dat
 			seenKey[key] = struct{}{}
 			order = append(order, key)
 		}
-		if msg.Role != "user" && msg.TurnID != nil {
+		// Só hidrata turnos que realmente têm uso de tools: assistant com ToolCalls ou
+		// mensagens role=tool com ToolCallID (inclui tool-only turns/placeholder).
+		shouldHydrate := false
+		if msg.Role == "assistant" && strings.TrimSpace(msg.ToolCalls) != "" {
+			shouldHydrate = true
+		}
+		if msg.Role == "tool" && strings.TrimSpace(msg.ToolCallID) != "" {
+			shouldHydrate = true
+		}
+		if shouldHydrate && msg.TurnID != nil {
 			turnID := strings.TrimSpace(*msg.TurnID)
 			if turnID != "" {
 				if _, ok := seenTurn[turnID]; !ok {
@@ -323,7 +332,7 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocation
 }
 
 func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
-	invocationToolResults := loadChatToolInvocationResults(ctx, items)
+	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, collectTurnIDsWithToolCalls(messages))
 	messagesByItemKey := make(map[string][]database.ChatMessage)
 	for _, message := range messages {
 		key := messageTimelineItemKey(message)
@@ -345,6 +354,36 @@ func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWind
 		originalIndexesByMessageID[representative.ID] = item.OriginalIndex
 	}
 	return assignMessageNodeOriginalIndexes(buildMessageNodes(ctx, representatives, parentID), originalIndexesByMessageID)
+}
+
+func collectTurnIDsWithToolCalls(messages []database.ChatMessage) []string {
+	turnIDs := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, msg := range messages {
+		if msg.TurnID == nil {
+			continue
+		}
+		shouldHydrate := false
+		if msg.Role == "assistant" && strings.TrimSpace(msg.ToolCalls) != "" {
+			shouldHydrate = true
+		}
+		if msg.Role == "tool" && strings.TrimSpace(msg.ToolCallID) != "" {
+			shouldHydrate = true
+		}
+		if !shouldHydrate {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		if _, ok := seen[turnID]; ok {
+			continue
+		}
+		seen[turnID] = struct{}{}
+		turnIDs = append(turnIDs, turnID)
+	}
+	return turnIDs
 }
 
 func loadChatToolInvocationResults(ctx context.Context, items []database.MessageWindowItem) map[string]map[string]string {
