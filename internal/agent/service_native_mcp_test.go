@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"assistente/internal/chat"
@@ -24,6 +25,22 @@ func (msgRepoStub) AddAssistantToolMessage(_ context.Context, conversationID, tu
 
 func (msgRepoStub) AddToolResultMessage(context.Context, string, string, string, string) (*chat.Message, error) {
 	return nil, nil
+}
+
+type capturingMsgRepo struct {
+	chat.MessageRepository
+	lastContent  string
+	lastToolCall string
+}
+
+func (m *capturingMsgRepo) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
+	return &chat.Message{UUIDModel: database.UUIDModel{ID: "m"}, Role: "assistant", Content: content}, nil
+}
+
+func (m *capturingMsgRepo) AddToolResultMessage(_ context.Context, conversationID, turnID string, content, toolCallID string) (*chat.Message, error) {
+	m.lastContent = content
+	m.lastToolCall = toolCallID
+	return &chat.Message{UUIDModel: database.UUIDModel{ID: "t"}, Role: "tool", Content: content, ToolCallID: toolCallID}, nil
 }
 
 func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
@@ -83,5 +100,29 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 	}
 	if rows[0].ToolCatalogID == "" {
 		t.Fatalf("expected tool_catalog_id to be set")
+	}
+}
+
+func TestPersistNativeMCPCalls_FallbackToolMessageMarksError(t *testing.T) {
+	// Sem toolInvocations => persistNativeMCPCalls deve cair no fallback role=tool.
+	msgRepo := &capturingMsgRepo{}
+	svc := NewService(ServiceConfig{MsgRepo: msgRepo})
+
+	ctx := database.WithUserID(context.Background(), "user-mcp")
+	svc.persistNativeMCPCalls(ctx, "conv-1", "turn-1", []llm.MCPToolEvent{{
+		ID:          "call-1",
+		Name:        "ping",
+		ServerLabel: "Server One",
+		Arguments:   `{}`,
+		Output:      "",
+		Error:       "boom",
+		IsCompleted: true,
+	}}, 0)
+
+	if msgRepo.lastToolCall != "call-1" {
+		t.Fatalf("toolCallID = %q, want call-1", msgRepo.lastToolCall)
+	}
+	if !strings.Contains(msgRepo.lastContent, "Error:") {
+		t.Fatalf("fallback content = %q, want error marker", msgRepo.lastContent)
 	}
 }

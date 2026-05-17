@@ -773,6 +773,18 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 	// com sucesso em tool_invocations; caso contrário, o fallback role=tool preserva o output.
 	// IMPORTANTE: grava os fallbacks APÓS a mensagem assistant tool_calls para manter
 	// a ordem tool-call -> tool-result no histórico/export.
+	formatFallbackContent := func(output, errMsg string) string {
+		if strings.TrimSpace(errMsg) == "" {
+			return output
+		}
+		// Mantém um marcador explícito para consumidores de histórico/export.
+		// Evita duplicar se o backend já prefixou.
+		trimmed := strings.TrimSpace(errMsg)
+		if strings.HasPrefix(trimmed, "Error:") || strings.HasPrefix(trimmed, "ERROR:") {
+			return trimmed
+		}
+		return "Error: " + trimmed
+	}
 	type fallbackToolResult struct {
 		CallID   string
 		Content  string
@@ -787,10 +799,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 			if !ev.IsCompleted {
 				continue
 			}
-			content := ev.Output
-			if ev.Error != "" {
-				content = ev.Error
-			}
+			content := formatFallbackContent(ev.Output, ev.Error)
 			fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content, Server: ev.ServerLabel, ToolName: ev.Name})
 		}
 	}
@@ -814,10 +823,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 			}
 			if strings.TrimSpace(slug) == "" {
 				log.Printf("[MCP Native] não foi possível resolver server slug para %q; usando fallback role=tool (id=%s)", ev.ServerLabel, ev.ID)
-				content := ev.Output
-				if ev.Error != "" {
-					content = ev.Error
-				}
+				content := formatFallbackContent(ev.Output, ev.Error)
 				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content, Server: ev.ServerLabel, ToolName: ev.Name})
 				continue
 			}
@@ -856,10 +862,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				log.Printf("[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
 				// Fallback: garante que exista ao menos um resultado persistido
 				// para o tool_call_id no histórico da conversa.
-				content := ev.Output
-				if ev.Error != "" {
-					content = ev.Error
-				}
+				content := formatFallbackContent(ev.Output, ev.Error)
 				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content, Server: ev.ServerLabel, ToolName: ev.Name})
 				continue
 			}

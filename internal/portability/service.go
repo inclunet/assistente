@@ -197,6 +197,36 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 		return err
 	}
 
+	// Se houver fallback de persistência (mensagens role=tool com ToolCallID),
+	// ele é a fonte canônica do resultado para exportar/hidratar. Isso evita
+	// embutir um resultado stale de tool_invocations quando a execução mais
+	// recente caiu no fallback role=tool.
+	fallbackResultsByTurn := map[string]map[string]string{}
+	for i := range messages {
+		msg := &messages[i]
+		if msg.Role != "tool" {
+			continue
+		}
+		if msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		callID := strings.TrimSpace(msg.ToolCallID)
+		if callID == "" {
+			continue
+		}
+		inner := fallbackResultsByTurn[turnID]
+		if inner == nil {
+			inner = map[string]string{}
+			fallbackResultsByTurn[turnID] = inner
+		}
+		// Mensagens já estão ordenadas por created_at; o "último" conteúdo vence.
+		inner[callID] = msg.Content
+	}
+
 	turnIDs := make([]string, 0)
 	seenTurnIDs := map[string]struct{}{}
 	for _, msg := range messages {
@@ -235,7 +265,8 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 		}
 		turnID := strings.TrimSpace(*msg.TurnID)
 		turnResults := resultsByTurn[turnID]
-		if len(turnResults) == 0 {
+		turnFallback := fallbackResultsByTurn[turnID]
+		if len(turnResults) == 0 && len(turnFallback) == 0 {
 			continue
 		}
 		calls := parseToolCalls(msg.ToolCalls)
@@ -249,6 +280,24 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 			if callID == "" {
 				continue
 			}
+
+			// 1) Se houver fallback role=tool, preferir SEMPRE.
+			if turnFallback != nil {
+				if fb, ok := turnFallback[callID]; ok {
+					call["result"] = fb
+					changed = true
+					continue
+				}
+			}
+
+			// 2) Se já houver um result embutido no tool_calls, não sobrescrever.
+			if existing, ok := call["result"].(string); ok {
+				if strings.TrimSpace(existing) != "" {
+					continue
+				}
+			}
+
+			// 3) Caso contrário, hidratar do tool_invocations.
 			if result, ok := turnResults[callID]; ok {
 				call["result"] = result
 				changed = true

@@ -658,6 +658,50 @@ func TestImportOverwriteClearsChatToolInvocationsToAvoidStaleExportHydration(t *
 	}
 }
 
+func TestExportConversationPrefersFallbackToolMessageOverInvocationHydration(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	turnID := "turn-1"
+	assistantID := "assistant-1"
+	callID := "call-1"
+	convID := "conv-1"
+
+	conv := &database.Conversation{UUIDModel: database.UUIDModel{ID: convID}, UserID: portabilityTestUserID, Title: "Hydrate"}
+	if err := database.DB().Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
+		t.Fatalf("create turn message: %v", err)
+	}
+	toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"x","arguments":"{}"}}]`
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", ToolCalls: toolCalls, TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant tool_calls: %v", err)
+	}
+
+	// Existe um tool_invocations "stale" (ex.: falha anterior), mas o resultado real
+	// do turno atual caiu em fallback role=tool (persistência falhou) e deve vencer.
+	if err := database.DB().Create(&database.ToolInvocation{UserID: portabilityTestUserID, ToolCatalogID: "tool-1", OriginType: "chat", OriginID: turnID, ToolCallID: callID, Status: "succeeded", DryRun: false, Output: `{"content":"STALE"}`}).Error; err != nil {
+		t.Fatalf("create tool invocation: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{ConversationID: convID, Role: "tool", Content: "FALLBACK", ToolCallID: callID, TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create tool fallback message: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	msgs := file.Resources.Conversations[0].Messages
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
+		t.Fatalf("unmarshal exported toolCalls: %v", err)
+	}
+	if got, _ := decoded[0]["result"].(string); got != "FALLBACK" {
+		t.Fatalf("hydrated result = %q, want FALLBACK", got)
+	}
+}
+
 func setupPortabilityTestDB(t *testing.T) {
 	t.Helper()
 
