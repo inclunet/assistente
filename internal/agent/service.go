@@ -771,8 +771,17 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 
 	// Persistência do output: embute Result apenas quando a invocação foi registrada
 	// com sucesso em tool_invocations; caso contrário, o fallback role=tool preserva o output.
+	// IMPORTANTE: grava os fallbacks APÓS a mensagem assistant tool_calls para manter
+	// a ordem tool-call -> tool-result no histórico/export.
+	type fallbackToolResult struct {
+		CallID   string
+		Content  string
+		Server   string
+		ToolName string
+	}
 	persistable := s.toolInvocations != nil && s.toolInvocations.CanPersist()
 	compactResultByID := map[string]string{}
+	fallbackResults := make([]fallbackToolResult, 0)
 	if !persistable {
 		for _, ev := range mcpEvents {
 			if !ev.IsCompleted {
@@ -782,9 +791,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 			if ev.Error != "" {
 				content = ev.Error
 			}
-			if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID); err != nil {
-				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
-			}
+			fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content, Server: ev.ServerLabel, ToolName: ev.Name})
 		}
 	}
 
@@ -811,9 +818,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				if ev.Error != "" {
 					content = ev.Error
 				}
-				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID); err != nil {
-					log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
-				}
+				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content, Server: ev.ServerLabel, ToolName: ev.Name})
 				continue
 			}
 			fullName := mcp.BuildToolName(slug, ev.Name)
@@ -855,9 +860,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				if ev.Error != "" {
 					content = ev.Error
 				}
-				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID); err != nil {
-					log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", ev.ID, err)
-				}
+				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content, Server: ev.ServerLabel, ToolName: ev.Name})
 				continue
 			}
 			compactResultByID[ev.ID] = truncateString(func() string { if ev.Error != "" { return ev.Error }; return ev.Output }(), MaxPersistedToolCallResultSize)
@@ -899,7 +902,24 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 	}
 	if _, err := s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", ""); err != nil {
 		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
+		// Ainda assim, tenta persistir resultados fallback (melhor que perder output).
+		for _, fb := range fallbackResults {
+			if strings.TrimSpace(fb.CallID) == "" {
+				continue
+			}
+			if _, err2 := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, fb.Content, fb.CallID); err2 != nil {
+				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", fb.CallID, err2)
+			}
+		}
 		return
+	}
+	for _, fb := range fallbackResults {
+		if strings.TrimSpace(fb.CallID) == "" {
+			continue
+		}
+		if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, fb.Content, fb.CallID); err != nil {
+			log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", fb.CallID, err)
+		}
 	}
 }
 
