@@ -223,7 +223,11 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 			inner = map[string]string{}
 			fallbackResultsByTurn[turnID] = inner
 		}
-		// Mensagens já estão ordenadas por created_at; o "último" conteúdo vence.
+		// Mensagens já estão ordenadas por created_at; o "último" conteúdo vence,
+		// mas não substitui um resultado real por placeholder vazio.
+		if existing := strings.TrimSpace(inner[callID]); existing != "" && strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
 		inner[callID] = msg.Content
 	}
 

@@ -429,6 +429,7 @@ func (s *Service) RunAgenticLoop(
 			result.Reasoning,
 			result.Model,
 		)
+		assistantToolCallsSaved := err == nil
 		if err != nil {
 			if errors.Is(err, chat.ErrConversationDeleted) {
 				log.Printf("[Agent] conversa %s deletada — abortando", conversationID)
@@ -447,7 +448,10 @@ func (s *Service) RunAgenticLoop(
 			if preCheck.Truncated {
 				content = toolContents[i]
 			}
-			persisted := execBatch.PersistedByCallID[execResult.CallID]
+			// PersistedByCallID indica que a linha técnica foi escrita. Porém, a UI/export/sumarização
+			// descobrem esses resultados a partir de mensagens de chat; se a mensagem assistant tool_calls
+			// falhou, precisamos cair no fallback role=tool para não orfanar o output.
+			persisted := execBatch.PersistedByCallID[execResult.CallID] && assistantToolCallsSaved
 			if !persisted {
 				persistedContent := execResult.Result.Content
 				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, persistedContent, execResult.CallID); err != nil {
@@ -900,13 +904,23 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 	}
 	if _, err := s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", ""); err != nil {
 		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
-		// Ainda assim, tenta persistir resultados fallback (melhor que perder output).
-		for _, fb := range fallbackResults {
-			if strings.TrimSpace(fb.CallID) == "" {
+		// Ainda assim, tenta persistir resultados como role=tool (melhor que perder output).
+		// Inclui também eventos que foram registrados em tool_invocations, pois sem a mensagem assistant
+		// não há como hidratar esses resultados a partir do histórico.
+		for _, ev := range mcpEvents {
+			if !ev.IsCompleted {
 				continue
 			}
-			if _, err2 := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, fb.Content, fb.CallID); err2 != nil {
-				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", fb.CallID, err2)
+			callID := strings.TrimSpace(ev.ID)
+			if callID == "" {
+				continue
+			}
+			content := strings.TrimSpace(formatFallbackContent(ev.Output, ev.Error))
+			if content == "" {
+				continue
+			}
+			if _, err2 := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, callID); err2 != nil {
+				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", callID, err2)
 			}
 		}
 		return

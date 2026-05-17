@@ -283,6 +283,13 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocation
 					continue
 				}
 				seenToolCallIDs[callID] = struct{}{}
+				if existing, ok := call["result"].(string); ok {
+					if strings.TrimSpace(existing) != "" {
+						// Não sobrescreve resultado já embutido (ex.: import/export).
+						allToolCalls = append(allToolCalls, call)
+						continue
+					}
+				}
 				if result, ok := toolResults[callID]; ok {
 					call["result"] = result
 				}
