@@ -649,3 +649,76 @@ func TestGetRecentMessages_OverfetchesToHonorLimitWithMultiRowTurns(t *testing.T
 		t.Fatalf("unexpected nodes content: got=%v want=%v", got, want)
 	}
 }
+
+func TestGetMessagesBefore_OverfetchesAndTrimsFromEndWithMultiRowTurns(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+	app := newMessageWindowTestApp()
+
+	conv := createMessageWindowTestConversation(t, "Conversa")
+	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
+	base := time.Date(2026, 5, 16, 10, 0, 0, 0, time.UTC)
+
+	setTime := func(id string, at time.Time) {
+		t.Helper()
+		if err := database.DB().WithContext(ctx).Model(&database.ChatMessage{}).Where("id = ?", id).Update("created_at", at).Error; err != nil {
+			t.Fatalf("set created_at %s: %v", id, err)
+		}
+	}
+
+	var turn4UserID string
+	for turn := 1; turn <= 4; turn++ {
+		turnBase := base.Add(time.Duration(turn) * 10 * time.Second)
+		userMsg, err := database.AddMessageWithContext(ctx, conv.ID, "user", "u"+string(rune('0'+turn)))
+		if err != nil {
+			t.Fatalf("create user %d: %v", turn, err)
+		}
+		setTime(userMsg.ID, turnBase)
+		if turn == 4 {
+			turn4UserID = userMsg.ID
+		}
+
+		turnID := userMsg.ID
+		assistant, err := database.AddAssistantToolMessageWithContext(
+			ctx,
+			conv.ID,
+			turnID,
+			"a"+string(rune('0'+turn)),
+			`[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
+			"",
+			"",
+		)
+		if err != nil {
+			t.Fatalf("create assistant %d: %v", turn, err)
+		}
+		setTime(assistant.ID, turnBase.Add(1*time.Second))
+
+		for i := 0; i < 3; i++ {
+			toolMsg, err := database.AddToolResultMessageWithContext(ctx, conv.ID, turnID, "tool", "tool-"+string(rune('a'+i)))
+			if err != nil {
+				t.Fatalf("create tool %d.%d: %v", turn, i, err)
+			}
+			setTime(toolMsg.ID, turnBase.Add(time.Duration(2+i)*time.Second))
+		}
+	}
+	if turn4UserID == "" {
+		t.Fatal("missing turn4 user id")
+	}
+
+	// Pagina para trás a partir do início do turno 4; espera os últimos 2 turns completos antes dele.
+	nodes, err := app.GetMessagesBefore(conv.ID, turn4UserID, 4)
+	if err != nil {
+		t.Fatalf("GetMessagesBefore: %v", err)
+	}
+	if len(nodes) != 4 {
+		t.Fatalf("expected 4 nodes, got %d", len(nodes))
+	}
+	got := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		got = append(got, n.Message.Content)
+	}
+	// Espera u2/a2, u3/a3 em ordem cronológica.
+	want := []string{"u2", "a2", "u3", "a3"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected nodes content: got=%v want=%v", got, want)
+	}
+}

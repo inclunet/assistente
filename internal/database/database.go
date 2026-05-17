@@ -862,7 +862,8 @@ func DeleteMessageWithContext(ctx context.Context, messageID string) error {
 	originIDs := deleteChatToolInvocationOriginIDsForMessage(ctx, messageID)
 	if len(originIDs) > 0 {
 		if err := deleteChatToolInvocationsForOriginIDs(ctx, originIDs); err != nil {
-			return err
+			// Best-effort: tool_invocations são registros técnicos; não bloquear a deleção do usuário.
+			log.Printf("[DB] aviso: falha ao limpar tool_invocations de mensagem %s: %v", messageID, err)
 		}
 	}
 	var childIDs []string
@@ -979,7 +980,7 @@ func ClearAllConversationsWithContext(ctx context.Context) error {
 		if err := db.WithContext(ctx).
 			Where("user_id = ? AND origin_type = ?", userID, "chat").
 			Delete(&ToolInvocation{}).Error; err != nil {
-			return fmt.Errorf("erro ao limpar tool invocations: %w", err)
+			log.Printf("[DB] aviso: erro ao limpar tool invocations (best-effort): %v", err)
 		}
 	}
 	messageIDs := scopedMessageQuery(ctx, db.WithContext(ctx).Model(&ChatMessage{}).Select("chat_messages.id"))

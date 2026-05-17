@@ -560,14 +560,14 @@ func (s *Service) SaveAndFinish(
 	surfaceOrigin *ports.ChatSurfaceOrigin,
 ) {
 	var savedMsgID string
-	if conversationID != "" && result.FullResponse != "" {
-		if len(result.NativeMCPEvents) > 0 && turnID != "" {
-			finalIteration := 0
-			if loopStats != nil && loopStats.IterationCount > 0 {
-				finalIteration = loopStats.IterationCount - 1
-			}
-			s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, finalIteration)
+	if conversationID != "" && turnID != "" && len(result.NativeMCPEvents) > 0 {
+		finalIteration := 0
+		if loopStats != nil && loopStats.IterationCount > 0 {
+			finalIteration = loopStats.IterationCount - 1
 		}
+		s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, finalIteration)
+	}
+	if conversationID != "" && result.FullResponse != "" {
 
 		opts := chat.MessageOptions{
 			ConversationID:   conversationID,
@@ -790,10 +790,8 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		return "Error: " + trimmed
 	}
 	type fallbackToolResult struct {
-		CallID   string
-		Content  string
-		Server   string
-		ToolName string
+		CallID  string
+		Content string
 	}
 	persistable := s.toolInvocations != nil && s.toolInvocations.CanPersist()
 	fallbackResults := make([]fallbackToolResult, 0)
@@ -803,7 +801,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				continue
 			}
 			content := formatFallbackContent(ev.Output, ev.Error)
-			fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content, Server: ev.ServerLabel, ToolName: ev.Name})
+			fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
 		}
 	}
 
@@ -827,7 +825,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 			if strings.TrimSpace(slug) == "" {
 				log.Printf("[MCP Native] não foi possível resolver server slug para %q; usando fallback role=tool (id=%s)", ev.ServerLabel, ev.ID)
 				content := formatFallbackContent(ev.Output, ev.Error)
-				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content, Server: ev.ServerLabel, ToolName: ev.Name})
+				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
 				continue
 			}
 			fullName := mcp.BuildToolName(slug, ev.Name)
@@ -866,7 +864,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				// Fallback: garante que exista ao menos um resultado persistido
 				// para o tool_call_id no histórico da conversa.
 				content := formatFallbackContent(ev.Output, ev.Error)
-				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content, Server: ev.ServerLabel, ToolName: ev.Name})
+				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
 				continue
 			}
 		}

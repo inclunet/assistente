@@ -256,7 +256,8 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 
 	resultsByTurn, err := loadChatToolInvocationResultsForTurnIDs(ctx, userID, turnIDs)
 	if err != nil {
-		return err
+		// Best-effort: export não deve falhar por problemas na tabela tool_invocations.
+		resultsByTurn = map[string]map[string]string{}
 	}
 	if len(resultsByTurn) == 0 && len(fallbackResultsByTurn) == 0 {
 		return nil
