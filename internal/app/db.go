@@ -393,33 +393,6 @@ func collectTurnIDsWithToolCalls(messages []database.ChatMessage) []string {
 	return turnIDs
 }
 
-func loadChatToolInvocationResults(ctx context.Context, items []database.MessageWindowItem) map[string]map[string]string {
-	userID, err := database.RequireUserID(ctx)
-	if err != nil {
-		return map[string]map[string]string{}
-	}
-	turnIDs := make([]string, 0, len(items))
-	seen := map[string]struct{}{}
-	for _, item := range items {
-		if item.Kind != database.MessageWindowItemKindTurn {
-			continue
-		}
-		id := strings.TrimSpace(item.TurnID)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		turnIDs = append(turnIDs, id)
-	}
-	if len(turnIDs) == 0 {
-		return map[string]map[string]string{}
-	}
-	return loadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
-}
-
 func loadChatToolInvocationResultsForTurnIDs(ctx context.Context, turnIDs []string) map[string]map[string]string {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
