@@ -273,6 +273,19 @@ func (s *Service) RunAgenticLoop(
 
 		// 5d. Executa ferramentas em paralelo
 		toolCalls := convertToolCalls(result.ToolCalls)
+		// Defesa: se a conversa/turn foi deletado enquanto o LLM streamava,
+		// não iniciar execução/persistência de tools para evitar invocations órfãs.
+		if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
+			log.Printf("[Agent] conversa %s não existe mais antes de executar tools: %v", conversationID, err)
+			return
+		}
+		if turnMsg, err := database.GetMessageWithContext(ctx, turnID); err != nil {
+			log.Printf("[Agent] turn message %s não existe mais antes de executar tools: %v", turnID, err)
+			return
+		} else if strings.TrimSpace(turnMsg.ConversationID) != strings.TrimSpace(conversationID) {
+			log.Printf("[Agent] turn message %s pertence a outra conversa (%s); abortando execução de tools", turnID, turnMsg.ConversationID)
+			return
+		}
 		s.emitToolStarts(conversationID, turnID, result.ToolCalls, surfaceOrigin)
 		execBatch := s.executeToolCalls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
 		execResults := execBatch.Executions

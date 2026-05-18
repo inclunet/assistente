@@ -19,6 +19,15 @@ func LoadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID
 		return map[string]map[string]string{}, nil
 	}
 
+	db := database.DB()
+	if db == nil {
+		// Best-effort: em alguns cenários (ex.: testes com repos mockados) o DB pode não estar inicializado.
+		return map[string]map[string]string{}, nil
+	}
+	if !db.Migrator().HasTable(&database.ToolInvocation{}) {
+		return map[string]map[string]string{}, nil
+	}
+
 	// SQLite tem limite de variáveis (tipicamente 999).
 	const maxTurnIDsPerBatch = 400
 	const pageSize = 2000
@@ -34,7 +43,7 @@ func LoadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID
 		var cursorQueuedAt *time.Time
 		cursorID := ""
 		for {
-			q := database.DB().WithContext(ctx).
+			q := db.WithContext(ctx).
 				Where(
 					"user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> '' AND (completed_at IS NOT NULL OR status IN (?, ?, ?, ?))",
 					userID,

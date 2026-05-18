@@ -575,9 +575,6 @@ func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat
 	if len(messages) == 0 {
 		return map[string]map[string]string{}
 	}
-	if !database.DB().Migrator().HasTable(&database.ToolInvocation{}) {
-		return map[string]map[string]string{}
-	}
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return map[string]map[string]string{}
