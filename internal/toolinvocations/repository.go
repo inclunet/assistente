@@ -18,6 +18,7 @@ type Repository interface {
 	Create(ctx context.Context, inv *Invocation) error
 	MarkRunning(ctx context.Context, id string, startedAt time.Time) error
 	Complete(ctx context.Context, id string, inv *Invocation) error
+	Delete(ctx context.Context, id string) error
 	Get(ctx context.Context, id string) (*Invocation, error)
 	List(ctx context.Context, filter Filter) ([]Invocation, error)
 	CleanOld(ctx context.Context, maxAge time.Duration) (int, error)
@@ -107,6 +108,22 @@ func (r *DBRepository) Complete(ctx context.Context, id string, inv *Invocation)
 			"completed_at":  completedAt,
 			"duration_ms":   inv.DurationMs,
 		})
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if tx.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *DBRepository) Delete(ctx context.Context, id string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+		Where("id = ?", strings.TrimSpace(id)).
+		Delete(&database.ToolInvocation{})
 	if tx.Error != nil {
 		return tx.Error
 	}

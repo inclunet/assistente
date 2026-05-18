@@ -51,7 +51,7 @@ func TestDeleteMessageWithContext_DeletesChatToolInvocationsByTurnIDAndMessageID
 		t.Fatalf("create user message: %v", err)
 	}
 	turnID := userMsg.ID
-	assistantMsg, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: conv.ID, Role: "assistant", Content: "a1", TurnID: &turnID})
+	assistantMsg, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: conv.ID, Role: "assistant", Content: "a1", TurnID: &turnID, ToolCalls: `[{"id":"call-1","type":"function","function":{"name":"echo","arguments":"{}"}}]`})
 	if err != nil {
 		t.Fatalf("create assistant message: %v", err)
 	}

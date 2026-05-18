@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"assistente/internal/database"
 	"assistente/internal/tools"
 )
 
@@ -66,6 +67,19 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 
 	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
 	persistCtx := context.WithoutCancel(ctx)
+
+	// Defesa best-effort: se a origem do chat já foi deletada, não criar
+	// registros técnicos que ficarão órfãos. Alguns cenários de teste/migração
+	// não têm a tabela de chat_messages disponível.
+	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
+		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
+			if _, err := database.GetMessageWithContext(persistCtx, req.Origin.ID); err != nil {
+				log.Printf("[toolinvocations] chat origin %s missing; executing without persistence (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
+				exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
+				return ExecuteResult{Execution: exec, Persisted: false}
+			}
+		}
+	}
 
 	queuedAt := s.now()
 	toolCatalogID := req.ToolCatalogID
@@ -136,6 +150,20 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
 	persisted := false
 	if s.repo != nil && inv.ID != "" {
+		// Revalida a origem de chat antes de finalizar. Se o turno/mensagem foi
+		// deletado enquanto a tool estava rodando, apaga a invocação recém-criada
+		// para não deixar registros órfãos.
+		if strings.TrimSpace(inv.OriginType) == OriginChat && strings.TrimSpace(inv.OriginID) != "" {
+			if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
+				if _, err := database.GetMessageWithContext(persistCtx, inv.OriginID); err != nil {
+					if delErr := s.repo.Delete(persistCtx, inv.ID); delErr != nil {
+						log.Printf("[toolinvocations] failed to delete orphan invocation (id=%s): %v", inv.ID, delErr)
+					}
+					return ExecuteResult{Invocation: inv, Execution: exec, Persisted: false}
+				}
+			}
+		}
+
 		status, errorMessage := statusForExecution(exec)
 		completedAt := s.now()
 		inv.Status = status
