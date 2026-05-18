@@ -280,9 +280,14 @@ func (s *Service) RunAgenticLoop(
 			if turnMsg, err := s.msgRepo.GetMessage(ctx, turnID); err != nil {
 				log.Printf("[Agent] turn message %s não existe mais antes de executar tools: %v", turnID, err)
 				return
-			} else if strings.TrimSpace(turnMsg.ConversationID) != strings.TrimSpace(conversationID) {
-				log.Printf("[Agent] turn message %s pertence a outra conversa (%s); abortando execução de tools", turnID, turnMsg.ConversationID)
-				return
+			} else {
+				turnConv := strings.TrimSpace(turnMsg.ConversationID)
+				conv := strings.TrimSpace(conversationID)
+				// Se o repo não popula ConversationID, não temos como validar; segue o fluxo.
+				if turnConv != "" && conv != "" && turnConv != conv {
+					log.Printf("[Agent] turn message %s pertence a outra conversa (%s); abortando execução de tools", turnID, turnMsg.ConversationID)
+					return
+				}
 			}
 		}
 		s.emitToolStarts(conversationID, turnID, result.ToolCalls, surfaceOrigin)
@@ -775,9 +780,13 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		if turnMsg, err := s.msgRepo.GetMessage(ctx, turnID); err != nil {
 			log.Printf("[MCP Native] turn message %s não existe mais; ignorando persistência de MCP events: %v", turnID, err)
 			return
-		} else if strings.TrimSpace(turnMsg.ConversationID) != strings.TrimSpace(conversationID) {
-			log.Printf("[MCP Native] turn message %s pertence a outra conversa (%s); ignorando persistência de MCP events", turnID, turnMsg.ConversationID)
-			return
+		} else {
+			turnConv := strings.TrimSpace(turnMsg.ConversationID)
+			conv := strings.TrimSpace(conversationID)
+			if turnConv != "" && conv != "" && turnConv != conv {
+				log.Printf("[MCP Native] turn message %s pertence a outra conversa (%s); ignorando persistência de MCP events", turnID, turnMsg.ConversationID)
+				return
+			}
 		}
 	}
 

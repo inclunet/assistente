@@ -58,9 +58,14 @@ func (h *testIterationHandler) Result() AgenticResult { return h.res }
 
 type toolMsgRepo struct {
 	mockMsgRepo
+	conversationID     string
 	assistantErr       error
 	toolResultCount    int
 	lastToolResultCall string
+}
+
+func (m *toolMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
+	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}, ConversationID: m.conversationID}, nil
 }
 
 func (m *toolMsgRepo) AddAssistantToolMessage(ctx context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
@@ -135,7 +140,7 @@ func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *t
 	exec := tools.NewExecutor(reg, tools.DefaultExecutorConfig())
 	inv := toolinvocations.NewService(repo, exec)
 
-	msgRepo := &toolMsgRepo{}
+	msgRepo := &toolMsgRepo{conversationID: conv.ID}
 	svc := NewService(ServiceConfig{
 		Emitter:         events.NoopEmitter{},
 		MsgRepo:         msgRepo,
@@ -182,7 +187,7 @@ func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenAssistantToolCallsSaveFail
 	exec := tools.NewExecutor(reg, tools.DefaultExecutorConfig())
 	inv := toolinvocations.NewService(repo, exec)
 
-	msgRepo := &toolMsgRepo{assistantErr: errors.New("boom")}
+	msgRepo := &toolMsgRepo{conversationID: conv.ID, assistantErr: errors.New("boom")}
 	svc := NewService(ServiceConfig{
 		Emitter:         events.NoopEmitter{},
 		MsgRepo:         msgRepo,
@@ -224,7 +229,7 @@ func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenInvocationPersistenceFails
 	exec := tools.NewExecutor(reg, tools.DefaultExecutorConfig())
 	inv := toolinvocations.NewService(repo, exec)
 
-	msgRepo := &toolMsgRepo{}
+	msgRepo := &toolMsgRepo{conversationID: conv.ID}
 	svc := NewService(ServiceConfig{
 		Emitter:         events.NoopEmitter{},
 		MsgRepo:         msgRepo,

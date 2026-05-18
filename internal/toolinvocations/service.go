@@ -196,12 +196,12 @@ func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {
 		return s.executor
 	}
 	cfg := s.executor.Config()
-	// Garantia de segurança: não reduz o limite por acidente.
-	if req.ExecutionMaxResultSize > cfg.MaxResultSize {
-		cfg.MaxResultSize = req.ExecutionMaxResultSize
-		return tools.NewExecutor(s.executor.Registry(), cfg)
+	if req.ExecutionMaxResultSize == cfg.MaxResultSize {
+		return s.executor
 	}
-	return s.executor
+	// Config por request: pode aumentar OU reduzir o budget.
+	cfg.MaxResultSize = req.ExecutionMaxResultSize
+	return tools.NewExecutor(s.executor.Registry(), cfg)
 }
 
 func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResult {

@@ -15,7 +15,9 @@ import (
 var JobExecutionMaxResultSizeBytes = resolveJobExecutionMaxResultSizeBytes()
 
 func resolveJobExecutionMaxResultSizeBytes() int {
-	const defaultBytes = 100 * 1024 * 1024
+	// Default mais conservador para evitar pressão de memória em execuções concorrentes.
+	// Jobs que precisam de outputs enormes podem optar via env var.
+	const defaultBytes = 10 * 1024 * 1024
 	raw := os.Getenv("ASSISTENTE_JOB_EXECUTION_MAX_RESULT_BYTES")
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

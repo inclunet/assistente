@@ -976,14 +976,21 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, messageID st
 		if toolCallsJSON == "" {
 			return dedupCleanup(cleanup)
 		}
-		var calls []struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal([]byte(toolCallsJSON), &calls); err == nil {
-			for _, c := range calls {
-				id := strings.TrimSpace(c.ID)
-				if id != "" {
-					cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, id)
+		// Aceita tanto `[{...}]` quanto `{...}`.
+		var anyPayload any
+		if err := json.Unmarshal([]byte(toolCallsJSON), &anyPayload); err == nil {
+			switch v := anyPayload.(type) {
+			case []any:
+				for _, item := range v {
+					if obj, ok := item.(map[string]any); ok {
+						if id, _ := obj["id"].(string); strings.TrimSpace(id) != "" {
+							cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, strings.TrimSpace(id))
+						}
+					}
+				}
+			case map[string]any:
+				if id, _ := v["id"].(string); strings.TrimSpace(id) != "" {
+					cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, strings.TrimSpace(id))
 				}
 			}
 		}
