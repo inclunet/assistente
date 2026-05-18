@@ -125,8 +125,11 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		inv.ID = ""
 	}
 	if inv.ID != "" {
-		if err := s.repo.MarkRunning(persistCtx, inv.ID, s.now()); err != nil {
+		startedAt := s.now()
+		if err := s.repo.MarkRunning(persistCtx, inv.ID, startedAt); err != nil {
 			log.Printf("[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
+		} else {
+			inv.StartedAt = &startedAt
 		}
 	}
 
@@ -540,6 +543,8 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	startedAt := s.now()
 	if err := s.repo.MarkRunning(persistCtx, inv.ID, startedAt); err != nil {
 		log.Printf("[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
+	} else {
+		inv.StartedAt = &startedAt
 	}
 	status, errorMessage := statusForRecord(req)
 	completedAt := s.now()

@@ -44,6 +44,7 @@ func LoadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID
 		cursorID := ""
 		for {
 			q := db.WithContext(ctx).
+				Select("id", "origin_id", "tool_call_id", "output", "queued_at").
 				Where(
 					"user_id = ? AND origin_type = ? AND origin_id IN ? AND tool_call_id <> '' AND (completed_at IS NOT NULL OR status IN (?, ?, ?, ?))",
 					userID,
