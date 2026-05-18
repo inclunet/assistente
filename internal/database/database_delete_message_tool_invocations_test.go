@@ -62,10 +62,14 @@ func TestDeleteMessageWithContext_DeletesChatToolInvocationsByTurnIDAndMessageID
 	}
 
 	queuedAt := time.Now()
-	invByTurn := ToolInvocation{UUIDModel: UUIDModel{ID: "inv-turn"}, UserID: "user-a", ToolCatalogID: tool.ID, OriginType: "chat", OriginID: userMsg.ID, Status: "succeeded", QueuedAt: queuedAt}
+	invByTurnOther := ToolInvocation{UUIDModel: UUIDModel{ID: "inv-turn-other"}, UserID: "user-a", ToolCatalogID: tool.ID, OriginType: "chat", OriginID: userMsg.ID, ToolCallID: "call-2", Status: "succeeded", QueuedAt: queuedAt}
+	invByTurnCall := ToolInvocation{UUIDModel: UUIDModel{ID: "inv-turn-call"}, UserID: "user-a", ToolCatalogID: tool.ID, OriginType: "chat", OriginID: userMsg.ID, ToolCallID: "call-1", Status: "succeeded", QueuedAt: queuedAt}
 	invByMessage := ToolInvocation{UUIDModel: UUIDModel{ID: "inv-msg"}, UserID: "user-a", ToolCatalogID: tool.ID, OriginType: "chat", OriginID: assistantMsg.ID, Status: "succeeded", QueuedAt: queuedAt}
-	if err := db.WithContext(ctx).Create(&invByTurn).Error; err != nil {
-		t.Fatalf("seed invocation by turn: %v", err)
+	if err := db.WithContext(ctx).Create(&invByTurnOther).Error; err != nil {
+		t.Fatalf("seed invocation by turn (other): %v", err)
+	}
+	if err := db.WithContext(ctx).Create(&invByTurnCall).Error; err != nil {
+		t.Fatalf("seed invocation by turn (call): %v", err)
 	}
 	if err := db.WithContext(ctx).Create(&invByMessage).Error; err != nil {
 		t.Fatalf("seed invocation by message: %v", err)
@@ -80,8 +84,10 @@ func TestDeleteMessageWithContext_DeletesChatToolInvocationsByTurnIDAndMessageID
 		t.Fatalf("count tool invocations: %v", err)
 	}
 	// Deletar uma mensagem assistant com TurnID não deve apagar invocações do turno inteiro.
+	// Deve remover: inv-msg (origin_id=assistant) e inv-turn-call (turn origin + tool_call_id=call-1)
+	// Deve manter: inv-turn-other (turn origin + tool_call_id=call-2)
 	if count != 1 {
-		t.Fatalf("expected only message-scoped invocations removed when deleting assistant, got %d", count)
+		t.Fatalf("expected only unrelated turn invocations to remain when deleting assistant, got %d", count)
 	}
 	// Agora deletando a user message raiz, o turno inteiro deve ser limpo.
 	if err := DeleteMessageWithContext(ctx, userMsg.ID); err != nil {
