@@ -143,6 +143,24 @@ func (ctxWaitTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolRe
 	return tools.ToolResult{}, ctx.Err()
 }
 
+type ctxBlockTool struct {
+	started chan<- struct{}
+}
+
+func (t ctxBlockTool) Name() string                { return "ctx_block" }
+func (t ctxBlockTool) Description() string         { return "signals start then waits for ctx.Done" }
+func (t ctxBlockTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (t ctxBlockTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	if t.started != nil {
+		select {
+		case t.started <- struct{}{}:
+		default:
+		}
+	}
+	<-ctx.Done()
+	return tools.ToolResult{}, ctx.Err()
+}
+
 func TestBuildInvocationInputRedactsSecrets(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
 	registry := tools.NewRegistry()
@@ -233,9 +251,11 @@ func TestServicePersistsStatusesAndRetryable(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(resultErrorTool{})
 	registry.MustRegister(ctxWaitTool{})
+	started := make(chan struct{}, 1)
+	registry.MustRegister(ctxBlockTool{started: started})
 
 	// setupRepositoryTest semeia apenas "echo".
-	for _, name := range []string{"result_error", "ctx_wait"} {
+	for _, name := range []string{"result_error", "ctx_wait", "ctx_block"} {
 		if err := database.DB().Create(&database.ToolCatalog{
 			Name:               name,
 			DisplayName:        name,
@@ -274,11 +294,14 @@ func TestServicePersistsStatusesAndRetryable(t *testing.T) {
 		t.Fatalf("expected origin persisted, got type=%s id=%s", failedInv.OriginType, failedInv.OriginID)
 	}
 
-	// Cancelled
+	// Cancelled (cancela DURANTE execução)
 	cancelCtx, cancel := context.WithCancel(userA)
-	cancel()
+	go func() {
+		<-started
+		cancel()
+	}()
 	cancelled := svc.Execute(cancelCtx, ExecuteRequest{
-		Call:   tools.ToolCall{ID: "call-cancel", Type: "function", Function: tools.FunctionCall{Name: "ctx_wait", Arguments: `{}`}},
+		Call:   tools.ToolCall{ID: "call-cancel", Type: "function", Function: tools.FunctionCall{Name: "ctx_block", Arguments: `{}`}},
 		Origin: Origin{Type: OriginChat, ID: "turn-cancel"},
 	})
 	cancelInv, err := repo.Get(userA, cancelled.Invocation.ID)

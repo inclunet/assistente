@@ -857,6 +857,13 @@ func DeleteMessageWithContext(ctx context.Context, messageID string) error {
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
+
+	// Carrega metadados para suportar deleção por turno quando a raiz (user) é removida.
+	var root ChatMessage
+	_ = scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Select("chat_messages.id", "chat_messages.role", "chat_messages.turn_id", "chat_messages.conversation_id").
+		First(&root, "chat_messages.id = ?", messageID).Error
+
 	// Best-effort: ao apagar um turno/mensagem, remove também invocações técnicas
 	// associadas ao turno para não deixar tool_invocations órfãs.
 	originIDs := deleteChatToolInvocationOriginIDsForMessage(ctx, messageID)
@@ -867,9 +874,30 @@ func DeleteMessageWithContext(ctx context.Context, messageID string) error {
 		}
 	}
 	var childIDs []string
-	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.parent_id = ?", messageID).Pluck("chat_messages.id", &childIDs).Error; err != nil {
+	// Se estamos deletando a mensagem do usuário (raiz do turno), apaga também as
+	// demais mensagens do mesmo turno (assistant/tool) mesmo que não estejam
+	// conectadas via parent_id.
+	if strings.TrimSpace(root.ID) != "" && root.Role == "user" {
+		turnRootID := strings.TrimSpace(root.ID)
+		var turnMessageIDs []string
+		if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+			Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", root.ConversationID, turnRootID).
+			Pluck("chat_messages.id", &turnMessageIDs).Error; err != nil {
+			return err
+		}
+		for _, id := range turnMessageIDs {
+			id = strings.TrimSpace(id)
+			if id == "" || id == messageID {
+				continue
+			}
+			childIDs = append(childIDs, id)
+		}
+	}
+	var parentChildIDs []string
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.parent_id = ?", messageID).Pluck("chat_messages.id", &parentChildIDs).Error; err != nil {
 		return err
 	}
+	childIDs = append(childIDs, parentChildIDs...)
 	for _, childID := range childIDs {
 		if err := DeleteMessageWithContext(ctx, childID); err != nil {
 			return err
