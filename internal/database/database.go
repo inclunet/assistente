@@ -917,7 +917,7 @@ func deleteChatToolInvocationOriginIDsForMessage(ctx context.Context, messageID 
 	// scopedMessageQuery garante que não vazamos cross-user.
 	var msg ChatMessage
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
-		Select("chat_messages.id", "chat_messages.role", "chat_messages.turn_id").
+		Select("chat_messages.id", "chat_messages.role", "chat_messages.turn_id", "chat_messages.tool_calls", "chat_messages.tool_call_id").
 		First(&msg, "chat_messages.id = ?", messageID).Error
 	if err != nil {
 		return nil
@@ -929,8 +929,16 @@ func deleteChatToolInvocationOriginIDsForMessage(ctx context.Context, messageID 
 	// Alguns dados legados podem ter turn_id igual ao próprio message id.
 	if msg.TurnID != nil {
 		turn := strings.TrimSpace(*msg.TurnID)
-		if turn != "" && turn == msg.ID {
-			ids = append(ids, turn)
+		if turn != "" {
+			if msg.Role == "user" && turn == msg.ID {
+				ids = append(ids, turn)
+			}
+			if msg.Role == "assistant" && strings.TrimSpace(msg.ToolCalls) != "" {
+				ids = append(ids, turn)
+			}
+			if msg.Role == "tool" && strings.TrimSpace(msg.ToolCallID) != "" {
+				ids = append(ids, turn)
+			}
 		}
 	}
 	// Dedup.

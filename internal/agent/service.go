@@ -770,6 +770,24 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 	if len(mcpEvents) == 0 {
 		return
 	}
+	// Defesa (best-effort): se a conversa/turn foi deletado enquanto o provider
+	// streamava, não registrar tool_invocations para evitar registros órfãos.
+	// Só valida quando o DB e as tabelas necessárias existem.
+	if db := database.DB(); db != nil {
+		if db.Migrator().HasTable(&database.Conversation{}) && db.Migrator().HasTable(&database.ChatMessage{}) {
+			if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
+				log.Printf("[MCP Native] conversa %s não existe mais; ignorando persistência de MCP events: %v", conversationID, err)
+				return
+			}
+			if turnMsg, err := database.GetMessageWithContext(ctx, turnID); err != nil {
+				log.Printf("[MCP Native] turn message %s não existe mais; ignorando persistência de MCP events: %v", turnID, err)
+				return
+			} else if strings.TrimSpace(turnMsg.ConversationID) != strings.TrimSpace(conversationID) {
+				log.Printf("[MCP Native] turn message %s pertence a outra conversa (%s); ignorando persistência de MCP events", turnID, turnMsg.ConversationID)
+				return
+			}
+		}
+	}
 
 	argsByID := map[string]string{}
 	for _, ev := range mcpEvents {
