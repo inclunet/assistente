@@ -16,7 +16,39 @@ import (
 )
 
 type msgRepoStub struct {
-	chat.MessageRepository
+	conversationID string
+}
+
+func (m msgRepoStub) CreateMessage(context.Context, chat.MessageOptions) (*chat.Message, error) {
+	return &chat.Message{UUIDModel: database.UUIDModel{ID: "m"}}, nil
+}
+
+func (m msgRepoStub) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
+	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}, ConversationID: m.conversationID}, nil
+}
+
+func (m msgRepoStub) GetMessages(context.Context, string, *string) ([]chat.Message, error) {
+	return nil, nil
+}
+
+func (m msgRepoStub) GetConversationSummary(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
+
+func (m msgRepoStub) GetDetailedTokenStats(context.Context, string, string) (*chat.DetailedTokenStats, error) {
+	return nil, nil
+}
+
+func (m msgRepoStub) GetContextWindowUsage(context.Context, string, int) (float64, int, error) {
+	return 0, 0, nil
+}
+
+func (m msgRepoStub) GetRecentMessagesTokenCount(context.Context, string, int) (int, error) {
+	return 0, nil
+}
+
+func (m msgRepoStub) GetTurnTokenStats(context.Context, string, string) (*database.TokenStats, error) {
+	return nil, nil
 }
 
 func (msgRepoStub) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
@@ -27,10 +59,46 @@ func (msgRepoStub) AddToolResultMessage(context.Context, string, string, string,
 	return nil, nil
 }
 
+func (m msgRepoStub) SearchMessages(context.Context, string, int) ([]chat.MessageSearchResult, error) {
+	return nil, nil
+}
+
 type capturingMsgRepo struct {
-	chat.MessageRepository
+	conversationID string
 	lastContent  string
 	lastToolCall string
+}
+
+func (m *capturingMsgRepo) CreateMessage(context.Context, chat.MessageOptions) (*chat.Message, error) {
+	return &chat.Message{UUIDModel: database.UUIDModel{ID: "m"}}, nil
+}
+
+func (m *capturingMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
+	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}, ConversationID: m.conversationID}, nil
+}
+
+func (m *capturingMsgRepo) GetMessages(context.Context, string, *string) ([]chat.Message, error) {
+	return nil, nil
+}
+
+func (m *capturingMsgRepo) GetConversationSummary(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
+
+func (m *capturingMsgRepo) GetDetailedTokenStats(context.Context, string, string) (*chat.DetailedTokenStats, error) {
+	return nil, nil
+}
+
+func (m *capturingMsgRepo) GetContextWindowUsage(context.Context, string, int) (float64, int, error) {
+	return 0, 0, nil
+}
+
+func (m *capturingMsgRepo) GetRecentMessagesTokenCount(context.Context, string, int) (int, error) {
+	return 0, nil
+}
+
+func (m *capturingMsgRepo) GetTurnTokenStats(context.Context, string, string) (*database.TokenStats, error) {
+	return nil, nil
 }
 
 func (m *capturingMsgRepo) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
@@ -41,6 +109,10 @@ func (m *capturingMsgRepo) AddToolResultMessage(_ context.Context, conversationI
 	m.lastContent = content
 	m.lastToolCall = toolCallID
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: "t"}, Role: "tool", Content: content, ToolCallID: toolCallID}, nil
+}
+
+func (m *capturingMsgRepo) SearchMessages(context.Context, string, int) ([]chat.MessageSearchResult, error) {
+	return nil, nil
 }
 
 func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
@@ -80,7 +152,7 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 	invSvc := toolinvocations.NewService(repo, exec)
 
 	svc := NewService(ServiceConfig{
-		MsgRepo:         msgRepoStub{},
+		MsgRepo:         msgRepoStub{conversationID: "conv-1"},
 		ToolInvocations: invSvc,
 	})
 
@@ -105,7 +177,7 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 
 func TestPersistNativeMCPCalls_FallbackToolMessageMarksError(t *testing.T) {
 	// Sem toolInvocations => persistNativeMCPCalls deve cair no fallback role=tool.
-	msgRepo := &capturingMsgRepo{}
+	msgRepo := &capturingMsgRepo{conversationID: "conv-1"}
 	svc := NewService(ServiceConfig{MsgRepo: msgRepo})
 
 	ctx := database.WithUserID(context.Background(), "user-mcp")
