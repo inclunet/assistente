@@ -3,6 +3,7 @@ package toolinvocations
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -12,6 +13,8 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/tools"
+
+	"gorm.io/gorm"
 )
 
 type Service struct {
@@ -74,7 +77,13 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
 		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
 			if _, err := database.GetMessageWithContext(persistCtx, req.Origin.ID); err != nil {
-				log.Printf("[toolinvocations] chat origin %s missing; executing without persistence (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					// Se o turno/mensagem foi removido antes da execução, não execute tools com efeitos colaterais.
+					log.Printf("[toolinvocations] chat origin %s deleted before execution; aborting tool execution", strings.TrimSpace(req.Origin.ID))
+					return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
+				}
+				// Para falhas transitórias de DB, mantém best-effort e executa sem persistência.
+				log.Printf("[toolinvocations] failed to validate chat origin %s; executing without persistence (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
 				exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
 				return ExecuteResult{Execution: exec, Persisted: false}
 			}
@@ -156,10 +165,14 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		if strings.TrimSpace(inv.OriginType) == OriginChat && strings.TrimSpace(inv.OriginID) != "" {
 			if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
 				if _, err := database.GetMessageWithContext(persistCtx, inv.OriginID); err != nil {
-					if delErr := s.repo.Delete(persistCtx, inv.ID); delErr != nil {
-						log.Printf("[toolinvocations] failed to delete orphan invocation (id=%s): %v", inv.ID, delErr)
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						if delErr := s.repo.Delete(persistCtx, inv.ID); delErr != nil {
+							log.Printf("[toolinvocations] failed to delete orphan invocation (id=%s): %v", inv.ID, delErr)
+						}
+						return ExecuteResult{Invocation: inv, Execution: exec, Persisted: false}
 					}
-					return ExecuteResult{Invocation: inv, Execution: exec, Persisted: false}
+					// Se não conseguimos revalidar por erro transitório, tenta completar a invocação.
+					log.Printf("[toolinvocations] warning: failed to revalidate chat origin %s before complete; completing anyway (id=%s): %v", strings.TrimSpace(inv.OriginID), inv.ID, err)
 				}
 			}
 		}
@@ -524,6 +537,19 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	// Persistência de invocações externas também deve sobreviver a cancelamento.
 	persistCtx := context.WithoutCancel(ctx)
 
+	// Defesa best-effort: se a origem do chat já foi deletada, não criar
+	// registros técnicos que ficarão órfãos.
+	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
+		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
+			if _, err := database.GetMessageWithContext(persistCtx, req.Origin.ID); err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return Invocation{}, err
+				}
+				log.Printf("[toolinvocations] warning: failed to validate chat origin %s for Record; proceeding (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
+			}
+		}
+	}
+
 	toolCatalogID := strings.TrimSpace(req.ToolCatalogID)
 	if toolCatalogID != "" {
 		visible, err := s.repo.IsToolCatalogIDVisible(persistCtx, toolCatalogID)
@@ -585,6 +611,22 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	inv.DurationMs = req.DurationMs
 	metadata, _ := json.Marshal(map[string]any{"external": true})
 	inv.Metadata = metadata
+
+	// Revalida a origem do chat antes de finalizar. Native MCP pode correr com
+	// deleção de turno/mensagem após o pre-check do chamador.
+	if strings.TrimSpace(inv.OriginType) == OriginChat && strings.TrimSpace(inv.OriginID) != "" {
+		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
+			if _, err := database.GetMessageWithContext(persistCtx, inv.OriginID); err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					if delErr := s.repo.Delete(persistCtx, inv.ID); delErr != nil {
+						log.Printf("[toolinvocations] failed to delete orphan recorded invocation (id=%s): %v", inv.ID, delErr)
+					}
+					return inv, err
+				}
+				log.Printf("[toolinvocations] warning: failed to revalidate chat origin %s before completing Record; completing anyway (id=%s): %v", strings.TrimSpace(inv.OriginID), inv.ID, err)
+			}
+		}
+	}
 	if err := s.repo.Complete(persistCtx, inv.ID, &inv); err != nil {
 		log.Printf("[toolinvocations] failed to complete recorded invocation (id=%s): %v", inv.ID, err)
 		return inv, err
@@ -630,6 +672,23 @@ func executionError(call tools.ToolCall, message string) tools.ToolExecutionResu
 			IsError: true,
 		},
 		ErrorKind:  tools.ErrorKindUnknown,
+		Retryable:  false,
+		DurationMs: 0,
+	}
+}
+
+func executionCancelled(call tools.ToolCall, message string) tools.ToolExecutionResult {
+	if strings.TrimSpace(message) == "" {
+		message = "Execução cancelada"
+	}
+	return tools.ToolExecutionResult{
+		CallID:   call.ID,
+		ToolName: call.Function.Name,
+		Result: tools.ToolResult{
+			Content: message,
+			IsError: true,
+		},
+		ErrorKind:  tools.ErrorKindCancelled,
 		Retryable:  false,
 		DurationMs: 0,
 	}

@@ -92,6 +92,56 @@ func TestBuildSummarizationUserPrompt_HydratesToolInvocationResults(t *testing.T
 	}
 }
 
+func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
+	makeProfile := func(contextWindow, maxTokens int) *profiles.Profile {
+		return &profiles.Profile{
+			Chat: profiles.ChatConfig{
+				ContextWindow: contextWindow,
+				MaxTokens:     maxTokens,
+			},
+		}
+	}
+
+	t.Run("triggers when large tool_invocations result would be appended", func(t *testing.T) {
+		p := makeProfile(800, 200) // budget = 800 - 200 - 200 = 400 tokens
+		turnID := "turn-1"
+		callID := "call-1"
+		toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
+		msgs := []database.ChatMessage{ {
+			Role:      "assistant",
+			Content:   "ok",
+			ToolCalls: toolCalls,
+			TurnID:    &turnID,
+		}}
+		invResults := map[string]map[string]string{
+			turnID: {callID: strings.Repeat("x", 5000)}, // capped to 2000 chars in estimator => 500 tokens
+		}
+
+		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+			t.Fatal("expected summarization to trigger when hydrated tool result pushes estimate over budget")
+		}
+	})
+
+	t.Run("does not double-count when fallback role=tool result exists", func(t *testing.T) {
+		p := makeProfile(1200, 200) // budget = 1200 - 200 - 300 = 700 tokens
+		turnID := "turn-1"
+		callID := "call-1"
+		toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
+		toolContent := strings.Repeat("y", 2000) // 500 tokens (already counted via tool message)
+		msgs := []database.ChatMessage{
+			{Role: "assistant", Content: "ok", ToolCalls: toolCalls, TurnID: &turnID},
+			{Role: "tool", Content: toolContent, TurnID: &turnID, ToolCallID: callID},
+		}
+		invResults := map[string]map[string]string{
+			turnID: {callID: strings.Repeat("y", 5000)},
+		}
+
+		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+			t.Fatal("expected summarization NOT to trigger when fallback tool message already accounts for the result")
+		}
+	})
+}
+
 func TestShouldTriggerSummarization(t *testing.T) {
 	makeProfile := func(contextWindow, maxTokens int) *profiles.Profile {
 		return &profiles.Profile{
