@@ -12,9 +12,12 @@ import (
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
+	"assistente/internal/mcp"
 	"assistente/internal/messaging"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
@@ -43,6 +46,7 @@ type ServiceConfig struct {
 	Emitter          events.Emitter
 	MsgRepo          chat.MessageRepository
 	ToolExecutor     *tools.Executor
+	ToolInvocations  *toolinvocations.Service
 	ResponseNotifier *messaging.ResponseNotifier
 	GetTokenStats    func(string) (*chat.TokenStats, error)
 	TriggerSummarize func(context.Context, string)
@@ -56,6 +60,7 @@ type Service struct {
 	emitter          events.Emitter
 	msgRepo          chat.MessageRepository
 	toolExecutor     *tools.Executor
+	toolInvocations  *toolinvocations.Service
 	responseNotifier *messaging.ResponseNotifier
 	getTokenStats    func(string) (*chat.TokenStats, error)
 	triggerSummarize func(context.Context, string)
@@ -68,6 +73,7 @@ func NewService(cfg ServiceConfig) *Service {
 		emitter:          cfg.Emitter,
 		msgRepo:          cfg.MsgRepo,
 		toolExecutor:     cfg.ToolExecutor,
+		toolInvocations:  cfg.ToolInvocations,
 		responseNotifier: cfg.ResponseNotifier,
 		getTokenStats:    cfg.GetTokenStats,
 		triggerSummarize: cfg.TriggerSummarize,
@@ -194,6 +200,18 @@ func (s *Service) RunAgenticLoop(
 		//    Para iterações finais (IsDone), emite imediatamente.
 		//    Para iterações com tool calls, emite após execução com ToolsInIteration (AEP-0039).
 		if result.IsDone {
+			// MCP nativo pode aparecer em uma resposta final (finish_reason="stop").
+			// A persistência ocorre em SaveAndFinish; aqui só atualizamos stats.
+			if len(result.NativeMCPEvents) > 0 {
+				for _, ev := range result.NativeMCPEvents {
+					if !ev.IsCompleted {
+						continue
+					}
+					totalToolCallCount++
+					toolsUsedSet[ev.Name] = struct{}{}
+				}
+			}
+
 			if result.FullResponse != "" {
 				s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
 					ConversationID: conversationID,
@@ -255,8 +273,26 @@ func (s *Service) RunAgenticLoop(
 
 		// 5d. Executa ferramentas em paralelo
 		toolCalls := convertToolCalls(result.ToolCalls)
+		// Defesa (repo-driven): evita iniciar execução/persistência de tools se o
+		// turno já não existe (ou pertence a outra conversa). Não acessa o DB global
+		// diretamente para permitir repos alternativos/mocks.
+		if s.msgRepo != nil {
+			if turnMsg, err := s.msgRepo.GetMessage(ctx, turnID); err != nil {
+				log.Printf("[Agent] turn message %s não existe mais antes de executar tools: %v", turnID, err)
+				return
+			} else {
+				turnConv := strings.TrimSpace(turnMsg.ConversationID)
+				conv := strings.TrimSpace(conversationID)
+				// Se o repo não popula ConversationID, não temos como validar; segue o fluxo.
+				if turnConv != "" && conv != "" && turnConv != conv {
+					log.Printf("[Agent] turn message %s pertence a outra conversa (%s); abortando execução de tools", turnID, turnMsg.ConversationID)
+					return
+				}
+			}
+		}
 		s.emitToolStarts(conversationID, turnID, result.ToolCalls, surfaceOrigin)
-		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
+		execBatch := s.executeToolCalls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
+		execResults := execBatch.Executions
 
 		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
 		retriedCallIDs := make(map[string]struct{})
@@ -307,8 +343,9 @@ func (s *Service) RunAgenticLoop(
 					Attempt:        1,
 					SurfaceOrigin:  surfaceOrigin,
 				})
-				retried := s.toolExecutor.ExecuteOne(ctx, toolCalls[i])
+				retried, retriedPersisted := s.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
 				execResults[i] = retried
+				execBatch.PersistedByCallID[retried.CallID] = retriedPersisted
 			}
 		}
 
@@ -380,6 +417,8 @@ func (s *Service) RunAgenticLoop(
 
 		// 5f-iii. AEP-0039 Fase 5: persiste assistant tool_calls com metadata enriquecida
 		enrichedCalls := make([]llm.EnrichedToolCall, len(result.ToolCalls))
+		// AEP-0063 (D2): não persistir tool results como parte das mensagens.
+		// O resultado é efêmero em tool_invocations e hidratado sob demanda.
 		for i, tc := range result.ToolCalls {
 			tcOrigin, tcServerLabel := detectToolOrigin(tc.Function.Name)
 			enrichedCalls[i] = llm.EnrichedToolCall{
@@ -407,6 +446,7 @@ func (s *Service) RunAgenticLoop(
 			result.Reasoning,
 			result.Model,
 		)
+		assistantToolCallsSaved := err == nil
 		if err != nil {
 			if errors.Is(err, chat.ErrConversationDeleted) {
 				log.Printf("[Agent] conversa %s deletada — abortando", conversationID)
@@ -415,30 +455,29 @@ func (s *Service) RunAgenticLoop(
 			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
 		}
 
-		// 5f-iv. Persiste resultados originais no DB e adiciona conteúdo (possivelmente
-		// truncado) ao histórico de mensagens enviado ao LLM.
+		// 5f-iv. Persiste resultados técnicos em tool_invocations e adiciona
+		// conteúdo (possivelmente truncado) apenas ao histórico enviado ao LLM.
+		// Fallback: se tool_invocations não estiver configurado, persiste como
+		// mensagens role=tool para manter o histórico completo.
 		for i, execResult := range execResults {
-			// Persiste conteúdo original (antes do pre-check de context window, mas
-			// possivelmente já truncado por MaxResultSize do Executor) no banco
-			_, err := s.msgRepo.AddToolResultMessage(
-				ctx,
-				conversationID,
-				turnID,
-				execResult.Result.Content,
-				execResult.CallID,
-			)
-			if err != nil {
-				if errors.Is(err, chat.ErrConversationDeleted) {
-					log.Printf("[Agent] conversa %s deletada — abortando", conversationID)
-					return
-				}
-				log.Printf("[Agent] erro ao salvar resultado de tool %s: %v", execResult.ToolName, err)
-			}
-
 			// Para o histórico LLM, usa versão truncada se pre-check aplicou truncamento
 			content := execResult.Result.Content
 			if preCheck.Truncated {
 				content = toolContents[i]
+			}
+			// PersistedByCallID indica que a linha técnica foi escrita. Porém, a UI/export/sumarização
+			// descobrem esses resultados a partir de mensagens de chat; se a mensagem assistant tool_calls
+			// falhou, precisamos cair no fallback role=tool para não orfanar o output.
+			persisted := execBatch.PersistedByCallID[execResult.CallID] && assistantToolCallsSaved
+			if !persisted {
+				persistedContent := execResult.Result.Content
+				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, persistedContent, execResult.CallID); err != nil {
+					if errors.Is(err, chat.ErrConversationDeleted) {
+						log.Printf("[Agent] conversa %s deletada durante tool execution — abortando", conversationID)
+						return
+					}
+					log.Printf("[Agent] erro ao salvar tool result message (fallback): %v", err)
+				}
 			}
 			messages = append(messages, llm.Message{
 				Role:       "tool",
@@ -538,14 +577,14 @@ func (s *Service) SaveAndFinish(
 	surfaceOrigin *ports.ChatSurfaceOrigin,
 ) {
 	var savedMsgID string
-	if conversationID != "" && result.FullResponse != "" {
-		if len(result.NativeMCPEvents) > 0 && turnID != "" {
-			finalIteration := 0
-			if loopStats != nil && loopStats.IterationCount > 0 {
-				finalIteration = loopStats.IterationCount - 1
-			}
-			s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, finalIteration)
+	if conversationID != "" && turnID != "" && len(result.NativeMCPEvents) > 0 {
+		finalIteration := 0
+		if loopStats != nil && loopStats.IterationCount > 0 {
+			finalIteration = loopStats.IterationCount - 1
 		}
+		s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, finalIteration)
+	}
+	if conversationID != "" && result.FullResponse != "" {
 
 		opts := chat.MessageOptions{
 			ConversationID:   conversationID,
@@ -727,55 +766,258 @@ func extractLogicalToolName(toolName string) string {
 }
 
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
-// uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
+// uma mensagem assistant com tool_calls JSON e os resultados técnicos em tool_invocations.
 // AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
+// Persistência: salva tool calls no assistant message (sem criar mensagens role=tool)
+// e registra os resultados técnicos em tool_invocations.
 func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
+	if len(mcpEvents) == 0 {
+		return
+	}
+	// Defesa (repo-driven): se o turno foi deletado enquanto o provider streamava,
+	// não registrar tool_invocations para evitar registros órfãos.
+	if s.msgRepo != nil {
+		if turnMsg, err := s.msgRepo.GetMessage(ctx, turnID); err != nil {
+			log.Printf("[MCP Native] turn message %s não existe mais; ignorando persistência de MCP events: %v", turnID, err)
+			return
+		} else {
+			turnConv := strings.TrimSpace(turnMsg.ConversationID)
+			conv := strings.TrimSpace(conversationID)
+			if turnConv != "" && conv != "" && turnConv != conv {
+				log.Printf("[MCP Native] turn message %s pertence a outra conversa (%s); ignorando persistência de MCP events", turnID, turnMsg.ConversationID)
+				return
+			}
+		}
+	}
+
+	argsByID := map[string]string{}
+	for _, ev := range mcpEvents {
+		if strings.TrimSpace(ev.ID) == "" {
+			continue
+		}
+		if strings.TrimSpace(ev.Arguments) == "" {
+			continue
+		}
+		if _, ok := argsByID[ev.ID]; ok {
+			continue
+		}
+		argsByID[ev.ID] = ev.Arguments
+	}
+
+	// Persistência do output: AEP-0063 (D2) evita armazenar tool results como mensagens.
+	// O output completo fica efêmero em tool_invocations; se a persistência estiver
+	// indisponível, o fallback role=tool é usado para manter histórico/export legível.
+	// IMPORTANTE: grava os fallbacks APÓS a mensagem assistant tool_calls para manter
+	// a ordem tool-call -> tool-result no histórico/export.
+	formatFallbackContent := func(output, errMsg string) string {
+		if strings.TrimSpace(errMsg) == "" {
+			return output
+		}
+		// Mantém um marcador explícito para consumidores de histórico/export.
+		// Evita duplicar se o backend já prefixou.
+		trimmed := strings.TrimSpace(errMsg)
+		if strings.HasPrefix(trimmed, "Error:") || strings.HasPrefix(trimmed, "ERROR:") {
+			return trimmed
+		}
+		return "Error: " + trimmed
+	}
+	type fallbackToolResult struct {
+		CallID  string
+		Content string
+	}
+	persistable := s.toolInvocations != nil && s.toolInvocations.CanPersist()
+	fallbackResults := make([]fallbackToolResult, 0)
+	if !persistable {
+		for _, ev := range mcpEvents {
+			if !ev.IsCompleted {
+				continue
+			}
+			content := formatFallbackContent(ev.Output, ev.Error)
+			fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
+		}
+	}
+
+	if persistable {
+		// Resultados técnicos: persistir em tool_invocations quando disponível.
+		// Não criar novas mensagens role=tool em caso de sucesso (export/import lê tool_calls enriquecido).
+		slugCache := map[string]string{}
+		for _, ev := range mcpEvents {
+			if !ev.IsCompleted {
+				continue
+			}
+			label := strings.TrimSpace(ev.ServerLabel)
+			slug := strings.TrimSpace(slugCache[label])
+			if slug == "" {
+				resolved, ok := resolveMCPServerSlug(ctx, label)
+				if ok {
+					slug = resolved
+					slugCache[label] = resolved
+				}
+			}
+			if strings.TrimSpace(slug) == "" {
+				log.Printf("[MCP Native] não foi possível resolver server slug para %q; usando fallback role=tool (id=%s)", ev.ServerLabel, ev.ID)
+				content := formatFallbackContent(ev.Output, ev.Error)
+				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
+				continue
+			}
+			fullName := mcp.BuildToolName(slug, ev.Name)
+			args := ev.Arguments
+			if strings.TrimSpace(args) == "" {
+				args = argsByID[ev.ID]
+			}
+			result := tools.ToolResult{Content: ev.Output}
+			errKind := tools.ErrorKindNone
+			errMsg := ""
+			if ev.Error != "" {
+				result = tools.ToolResult{Content: ev.Error, IsError: true}
+				errKind = tools.ErrorKindUnknown
+				errMsg = ev.Error
+			}
+			_, recErr := s.toolInvocations.Record(ctx, toolinvocations.RecordRequest{
+				Call: tools.ToolCall{
+					ID:   ev.ID,
+					Type: "function",
+					Function: tools.FunctionCall{
+						Name:      fullName,
+						Arguments: args,
+					},
+				},
+				Origin: toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID},
+				DryRun: false,
+				Result: result,
+				// Sem sinalização de timeout/cancel no contrato do MCP event hoje.
+				ErrorKind:    errKind,
+				ErrorMessage: errMsg,
+				Retryable:    false,
+				DurationMs:   0,
+			})
+			if recErr != nil {
+				log.Printf("[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
+				// Fallback: garante que exista ao menos um resultado persistido
+				// para o tool_call_id no histórico da conversa.
+				content := formatFallbackContent(ev.Output, ev.Error)
+				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
+				continue
+			}
+		}
+	}
+
 	var toolCalls []llm.EnrichedToolCall
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
 			continue
 		}
-		toolCalls = append(toolCalls, llm.EnrichedToolCall{
+		args := ev.Arguments
+		if strings.TrimSpace(args) == "" {
+			args = argsByID[ev.ID]
+		}
+		call := llm.EnrichedToolCall{
 			ID:   ev.ID,
 			Type: "function",
 			Function: llm.FunctionCall{
 				Name:      ev.Name,
-				Arguments: ev.Arguments,
+				Arguments: args,
 			},
 			Origin:      OriginMCPNative,
 			ServerLabel: ev.ServerLabel,
 			Iteration:   iteration,
-		})
+		}
+		toolCalls = append(toolCalls, call)
 	}
 	if len(toolCalls) == 0 {
 		return
 	}
-
 	toolCallsJSON, err := json.Marshal(toolCalls)
 	if err != nil {
 		log.Printf("[MCP Native] Erro ao serializar tool calls: %v", err)
 		return
 	}
-
-	_, err = s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", "")
-	if err != nil {
+	if _, err := s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", ""); err != nil {
 		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
+		// Ainda assim, tenta persistir resultados como role=tool (melhor que perder output).
+		// Inclui também eventos que foram registrados em tool_invocations, pois sem a mensagem assistant
+		// não há como hidratar esses resultados a partir do histórico.
+		for _, ev := range mcpEvents {
+			if !ev.IsCompleted {
+				continue
+			}
+			callID := strings.TrimSpace(ev.ID)
+			if callID == "" {
+				continue
+			}
+			content := strings.TrimSpace(formatFallbackContent(ev.Output, ev.Error))
+			if content == "" {
+				continue
+			}
+			if _, err2 := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, callID); err2 != nil {
+				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", callID, err2)
+			}
+		}
 		return
 	}
-
-	for _, ev := range mcpEvents {
-		if !ev.IsCompleted {
+	for _, fb := range fallbackResults {
+		if strings.TrimSpace(fb.CallID) == "" {
 			continue
 		}
-		content := ev.Output
-		if ev.Error != "" {
-			content = "ERROR: " + ev.Error
-		}
-		_, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, ev.ID)
-		if err != nil {
-			log.Printf("[MCP Native] Erro ao salvar tool result (id=%s): %v", ev.ID, err)
+		if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, fb.Content, fb.CallID); err != nil {
+			log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", fb.CallID, err)
 		}
 	}
+}
+
+func resolveMCPServerSlug(ctx context.Context, serverLabel string) (string, bool) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return "", false
+	}
+	label := strings.TrimSpace(serverLabel)
+	if label == "" {
+		return "", false
+	}
+	normalized := strings.ToLower(label)
+	var server database.MCPServer
+
+	// Caminho rápido: slug é único e indexado.
+	err = database.DB().WithContext(ctx).
+		Where("user_id = ? AND slug = ?", userID, normalized).
+		First(&server).Error
+	if err == nil {
+		return server.Slug, true
+	}
+
+	// Segundo caminho: match exato por name, mas com desambiguação (name não é único).
+	var servers []database.MCPServer
+	err = database.DB().WithContext(ctx).
+		Where("user_id = ? AND name = ?", userID, label).
+		Limit(2).
+		Find(&servers).Error
+	if err == nil {
+		if len(servers) == 1 {
+			return servers[0].Slug, true
+		}
+		if len(servers) > 1 {
+			log.Printf("[MCP Native] server label %q é ambíguo (name duplicado); não persistindo por slug", serverLabel)
+			return "", false
+		}
+	}
+
+	// Terceiro caminho: busca case-insensitive por name, também exige unicidade.
+	servers = nil
+	err = database.DB().WithContext(ctx).
+		Where("user_id = ? AND LOWER(name) = ?", userID, normalized).
+		Limit(2).
+		Find(&servers).Error
+	if err != nil {
+		return "", false
+	}
+	if len(servers) == 1 {
+		return servers[0].Slug, true
+	}
+	if len(servers) > 1 {
+		log.Printf("[MCP Native] server label %q é ambíguo (LOWER(name) duplicado); não persistindo por slug", serverLabel)
+		return "", false
+	}
+	return "", false
 }
 
 // recoverFromPanic captura panic e delega o tratamento para events.HandlePanic.
@@ -859,6 +1101,38 @@ func expandToolDefsFromCatalogResults(
 		return existing
 	}
 	return appendUniqueToolDefs(existing, resolveToolDefs(selectedToolsFromCatalog(results))...)
+}
+
+type toolExecutionBatch struct {
+	Executions        []tools.ToolExecutionResult
+	PersistedByCallID map[string]bool
+}
+
+func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin) toolExecutionBatch {
+	if s.toolInvocations == nil {
+		execs := s.toolExecutor.ExecuteAll(ctx, calls)
+		persisted := make(map[string]bool, len(execs))
+		for _, r := range execs {
+			persisted[r.CallID] = false
+		}
+		return toolExecutionBatch{Executions: execs, PersistedByCallID: persisted}
+	}
+	results := s.toolInvocations.ExecuteAll(ctx, calls, origin)
+	out := make([]tools.ToolExecutionResult, len(results))
+	persisted := make(map[string]bool, len(results))
+	for i, result := range results {
+		out[i] = result.Execution
+		persisted[result.Execution.CallID] = result.Persisted
+	}
+	return toolExecutionBatch{Executions: out, PersistedByCallID: persisted}
+}
+
+func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, origin toolinvocations.Origin) (tools.ToolExecutionResult, bool) {
+	if s.toolInvocations == nil {
+		return s.toolExecutor.ExecuteOne(ctx, call), false
+	}
+	res := s.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{Call: call, Origin: origin})
+	return res.Execution, res.Persisted
 }
 
 func truncateString(s string, maxLen int) string {

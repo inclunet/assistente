@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/toolinvocations"
 
 	"gorm.io/gorm"
 )
@@ -166,6 +167,9 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 		Find(&messages).Error; err != nil {
 		return nil, fmt.Errorf("erro ao buscar mensagens das conversas para exportação: %w", err)
 	}
+	if err := hydrateToolCallResultsForExport(ctx, messages); err != nil {
+		return nil, err
+	}
 
 	for _, msg := range messages {
 		if conv := conversationsByID[msg.ConversationID]; conv != nil {
@@ -179,6 +183,162 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 		exports = append(exports, exportConversation(conversationsByID[id], includeAudio))
 	}
 	return exports, nil
+}
+
+func hydrateToolCallResultsForExport(ctx context.Context, messages []database.ChatMessage) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	if !database.DB().Migrator().HasTable(&database.ToolInvocation{}) {
+		return nil
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Se houver fallback de persistência (mensagens role=tool com ToolCallID),
+	// ele é a fonte canônica do resultado para exportar/hidratar. Isso evita
+	// embutir um resultado stale de tool_invocations quando a execução mais
+	// recente caiu no fallback role=tool.
+	fallbackResultsByTurn := map[string]map[string]string{}
+	for i := range messages {
+		msg := &messages[i]
+		if msg.Role != "tool" {
+			continue
+		}
+		if msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		callID := strings.TrimSpace(msg.ToolCallID)
+		if callID == "" {
+			continue
+		}
+		inner := fallbackResultsByTurn[turnID]
+		if inner == nil {
+			inner = map[string]string{}
+			fallbackResultsByTurn[turnID] = inner
+		}
+		// Mensagens já estão ordenadas por created_at; o "último" conteúdo vence,
+		// mas não substitui um resultado real por placeholder vazio.
+		if existing := strings.TrimSpace(inner[callID]); existing != "" && strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+		inner[callID] = msg.Content
+	}
+
+	turnIDs := make([]string, 0)
+	seenTurnIDs := map[string]struct{}{}
+	for _, msg := range messages {
+		if strings.TrimSpace(msg.ToolCalls) == "" {
+			continue
+		}
+		if msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		if _, ok := seenTurnIDs[turnID]; ok {
+			continue
+		}
+		seenTurnIDs[turnID] = struct{}{}
+		turnIDs = append(turnIDs, turnID)
+	}
+	if len(turnIDs) == 0 {
+		return nil
+	}
+
+	resultsByTurn, err := loadChatToolInvocationResultsForTurnIDs(ctx, userID, turnIDs)
+	if err != nil {
+		// Best-effort: export não deve falhar por problemas na tabela tool_invocations.
+		resultsByTurn = map[string]map[string]string{}
+	}
+	if len(resultsByTurn) == 0 && len(fallbackResultsByTurn) == 0 {
+		return nil
+	}
+
+	for i := range messages {
+		msg := &messages[i]
+		if strings.TrimSpace(msg.ToolCalls) == "" || msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		turnResults := resultsByTurn[turnID]
+		turnFallback := fallbackResultsByTurn[turnID]
+		if len(turnResults) == 0 && len(turnFallback) == 0 {
+			continue
+		}
+		calls := parseToolCalls(msg.ToolCalls)
+		if len(calls) == 0 {
+			continue
+		}
+		changed := false
+		for _, call := range calls {
+			callID, _ := call["id"].(string)
+			callID = strings.TrimSpace(callID)
+			if callID == "" {
+				continue
+			}
+
+			// 1) Se houver fallback role=tool, preferir SEMPRE.
+			if turnFallback != nil {
+				if fb, ok := turnFallback[callID]; ok {
+					if strings.TrimSpace(fb) == "" {
+						// Fallback vazio não é autoritativo; permite hidratação por invocations.
+					} else {
+						call["result"] = fb
+						changed = true
+						continue
+					}
+				}
+			}
+
+			// 2) Se já houver um result embutido no tool_calls, não sobrescrever.
+			if existing, ok := call["result"].(string); ok {
+				if strings.TrimSpace(existing) != "" {
+					continue
+				}
+			}
+
+			// 3) Caso contrário, hidratar do tool_invocations.
+			if result, ok := turnResults[callID]; ok {
+				call["result"] = result
+				changed = true
+			}
+		}
+		if changed {
+			if encoded, err := json.Marshal(calls); err == nil {
+				msg.ToolCalls = string(encoded)
+			}
+		}
+	}
+	return nil
+}
+
+func parseToolCalls(raw string) []map[string]interface{} {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var calls []map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &calls); err == nil {
+		return calls
+	}
+	var call map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &call); err == nil {
+		return []map[string]interface{}{call}
+	}
+	return nil
+}
+
+func loadChatToolInvocationResultsForTurnIDs(ctx context.Context, userID string, turnIDs []string) (map[string]map[string]string, error) {
+	return toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
 }
 
 func ImportConversations(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportResult, error) {
@@ -455,6 +615,9 @@ func overwriteConversationByExisting(ctx context.Context, conv ConversationExpor
 		if err := tx.Save(existing).Error; err != nil {
 			return fmt.Errorf("erro ao atualizar conversa '%s': %w", conv.Title, err)
 		}
+		if err := deleteChatToolInvocationsForConversationTx(ctx, tx, existing.ID); err != nil {
+			return err
+		}
 		if err := tx.Where("conversation_id = ?", existing.ID).Delete(&database.ChatMessage{}).Error; err != nil {
 			return fmt.Errorf("erro ao limpar mensagens da conversa '%s': %w", conv.Title, err)
 		}
@@ -465,6 +628,58 @@ func overwriteConversationByExisting(ctx context.Context, conv ConversationExpor
 	}
 
 	return true, nil
+}
+
+func deleteChatToolInvocationsForConversationTx(ctx context.Context, tx *gorm.DB, conversationID string) error {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	if tx == nil {
+		return nil
+	}
+	if !tx.Migrator().HasTable(&database.ToolInvocation{}) {
+		return nil
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+
+	var turnIDs []string
+	if err := tx.Model(&database.ChatMessage{}).
+		Where("conversation_id = ? AND turn_id IS NOT NULL AND turn_id <> ''", conversationID).
+		Distinct().
+		Pluck("turn_id", &turnIDs).Error; err != nil {
+		return fmt.Errorf("erro ao buscar turn_ids da conversa '%s': %w", conversationID, err)
+	}
+	var msgIDs []string
+	if err := tx.Model(&database.ChatMessage{}).
+		Where("conversation_id = ?", conversationID).
+		Pluck("id", &msgIDs).Error; err != nil {
+		return fmt.Errorf("erro ao buscar message ids da conversa '%s': %w", conversationID, err)
+	}
+
+	ids := make([]string, 0, len(turnIDs)+len(msgIDs))
+	ids = append(ids, turnIDs...)
+	ids = append(ids, msgIDs...)
+	if len(ids) == 0 {
+		return nil
+	}
+
+	const batchSize = 400
+	for start := 0; start < len(ids); start += batchSize {
+		end := start + batchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		if err := tx.
+			Where("user_id = ? AND origin_type = ? AND origin_id IN ?", userID, "chat", ids[start:end]).
+			Delete(&database.ToolInvocation{}).Error; err != nil {
+			return fmt.Errorf("erro ao limpar tool invocations da conversa '%s': %w", conversationID, err)
+		}
+	}
+	return nil
 }
 
 func createImportedConversation(ctx context.Context, tx *gorm.DB, conv ConversationExport) (*database.Conversation, error) {

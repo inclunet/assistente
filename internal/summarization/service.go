@@ -2,16 +2,20 @@ package summarization
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/toolinvocations"
 )
 
 // SummarizationRepository abstrai as operações de persistência necessárias para sumarização.
@@ -100,7 +104,9 @@ func ShouldTriggerSummarization(
 }
 
 // BuildSummarizationUserPrompt monta o user message para a chamada LLM de sumarização.
-func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Message) string {
+// invocationResults: resultados hidratados de tool_invocations (best-effort).
+// fallbackResults: resultados persistidos como mensagens role=tool (best-effort); quando presente e não-vazio, é autoritativo.
+func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Message, invocationResults map[string]map[string]string, fallbackResults map[string]map[string]string) string {
 	var sb strings.Builder
 
 	if existingSummary != "" {
@@ -116,9 +122,50 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 		_, _ = fmt.Fprintf(&sb, "**[%s]**: ", m.Role)
 		content := m.Content
 		if len(content) > 2000 {
-			content = content[:2000] + "... [truncated]"
+			content = truncateUTF8Safe(content, 2000) + "... [truncated]"
 		}
 		sb.WriteString(content)
+		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" {
+			for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
+				turnID := ""
+				if m.TurnID != nil {
+					turnID = strings.TrimSpace(*m.TurnID)
+				}
+				callID := strings.TrimSpace(c.ID)
+
+				// Se existe fallback role=tool não-vazio para este turn/call, ele já estará
+				// presente na lista de mensagens e não deve ser duplicado nem sobrescrito.
+				if turnID != "" && callID != "" {
+					if byCall := fallbackResults[turnID]; byCall != nil {
+						if strings.TrimSpace(byCall[callID]) != "" {
+							continue
+						}
+					}
+				}
+
+				res := strings.TrimSpace(c.Result)
+				if res == "" && turnID != "" && callID != "" {
+					if byCall := invocationResults[turnID]; byCall != nil {
+						res = strings.TrimSpace(byCall[callID])
+					}
+				}
+				if res == "" {
+					continue
+				}
+				name := strings.TrimSpace(c.Function.Name)
+				if name == "" {
+					name = c.ID
+				}
+				if len(res) > 2000 {
+					res = truncateUTF8Safe(res, 2000) + "... [truncated]"
+				}
+				sb.WriteString("\n\n")
+				sb.WriteString("Tool result (")
+				sb.WriteString(name)
+				sb.WriteString("): ")
+				sb.WriteString(res)
+			}
+		}
 		sb.WriteString("\n\n")
 	}
 
@@ -129,6 +176,46 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 	}
 
 	return sb.String()
+}
+
+type summarizationToolCall struct {
+	ID       string `json:"id"`
+	Result   string `json:"result,omitempty"`
+	Function struct {
+		Name string `json:"name"`
+	} `json:"function"`
+}
+
+func parseSummarizationToolCalls(raw string) []summarizationToolCall {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var calls []summarizationToolCall
+	if err := json.Unmarshal([]byte(raw), &calls); err == nil {
+		return calls
+	}
+	var single summarizationToolCall
+	if err := json.Unmarshal([]byte(raw), &single); err == nil {
+		if strings.TrimSpace(single.ID) == "" {
+			return nil
+		}
+		return []summarizationToolCall{single}
+	}
+	return nil
+}
+
+func truncateUTF8Safe(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && maxBytes < len(s) && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	if maxBytes <= 0 {
+		return ""
+	}
+	return s[:maxBytes]
 }
 
 // ServiceConfig agrupa as dependências do Service.
@@ -195,7 +282,9 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 		}
 	}
 
-	if ShouldTriggerSummarization(profile, contextMessages, existingSummary) {
+	fallbackResults := collectSummarizationFallbackToolResults(contextMessages)
+	invocationResults := loadSummarizationToolInvocationResults(ctx, contextMessages)
+	if shouldTriggerSummarizationWithHydratedToolResults(profile, contextMessages, existingSummary, invocationResults, fallbackResults) {
 		s.TriggerSummarizationInBackground(ctx, conversationID, profile, allRootMessages)
 	}
 }
@@ -307,7 +396,9 @@ func (s *Service) executeSummarization(
 
 	model := profile.Chat.Model
 
-	userPrompt := BuildSummarizationUserPrompt(existingSummary, newMessages)
+	fallbackResults := collectSummarizationFallbackToolResults(newMessages)
+	invocationResults := loadSummarizationToolInvocationResults(ctx, newMessages)
+	userPrompt := BuildSummarizationUserPrompt(existingSummary, newMessages, invocationResults, fallbackResults)
 
 	log.Printf("[Summary] Iniciando sumarização: conversa=%s, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
 		conversationID, model, len(newMessages), len(existingSummary))
@@ -361,4 +452,167 @@ func (s *Service) executeSummarization(
 		SummaryLength:        len(summary),
 		MessageCount:         len(newMessages),
 	})
+}
+
+func shouldTriggerSummarizationWithHydratedToolResults(
+	profile *profiles.Profile,
+	contextMessages []chat.Message,
+	existingSummary string,
+	invocationResults map[string]map[string]string,
+	fallbackResults map[string]map[string]string,
+) bool {
+	if profile == nil || profile.Chat.ContextWindow <= 0 {
+		return false
+	}
+
+	contextWindow := profile.Chat.ContextWindow
+	maxTokens := profile.Chat.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 4096
+	}
+
+	safetyMargin := int(float64(contextWindow) * contextWindowSafetyMargin)
+	budget := contextWindow - maxTokens - safetyMargin
+	if budget <= 0 {
+		return false
+	}
+
+	estimated := EstimateMessagesTokens(contextMessages)
+	if existingSummary != "" {
+		estimated += EstimateTokens(existingSummary)
+	}
+	// Soma somente resultados que serão adicionados como "Tool result (...)".
+	estimated += estimateHydratedToolResultTokens(contextMessages, invocationResults, fallbackResults)
+
+	if estimated > budget {
+		log.Printf("[Summary] Trigger: estimated %d tokens > budget %d (window=%d, maxTokens=%d, margin=%d)",
+			estimated, budget, contextWindow, maxTokens, safetyMargin)
+		return true
+	}
+	return false
+}
+
+func collectSummarizationFallbackToolResults(messages []chat.Message) map[string]map[string]string {
+	results := map[string]map[string]string{}
+	for i := range messages {
+		msg := &messages[i]
+		if msg.Role != "tool" {
+			continue
+		}
+		if msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		callID := strings.TrimSpace(msg.ToolCallID)
+		if callID == "" {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if content == "" {
+			continue
+		}
+		byCall := results[turnID]
+		if byCall == nil {
+			byCall = map[string]string{}
+			results[turnID] = byCall
+		}
+		byCall[callID] = msg.Content
+	}
+	return results
+}
+
+func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults map[string]map[string]string, fallbackResults map[string]map[string]string) int {
+	total := 0
+	for _, m := range messages {
+		if m.Role != "assistant" {
+			continue
+		}
+		if strings.TrimSpace(m.ToolCalls) == "" {
+			continue
+		}
+		if m.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*m.TurnID)
+		if turnID == "" {
+			continue
+		}
+		for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
+			callID := strings.TrimSpace(c.ID)
+			if callID == "" {
+				continue
+			}
+			// Se já há result embutido no tool_calls, já foi contado por EstimateMessagesTokens.
+			if strings.TrimSpace(c.Result) != "" {
+				continue
+			}
+			// Se há fallback role=tool não-vazio, o conteúdo já foi contado por EstimateMessagesTokens.
+			if byCall := fallbackResults[turnID]; byCall != nil {
+				if strings.TrimSpace(byCall[callID]) != "" {
+					continue
+				}
+			}
+			res := ""
+			if byCall := invocationResults[turnID]; byCall != nil {
+				res = strings.TrimSpace(byCall[callID])
+			}
+			if res == "" {
+				continue
+			}
+			if len(res) > 2000 {
+				res = truncateUTF8Safe(res, 2000)
+			}
+			total += EstimateTokens(res)
+		}
+	}
+	return total
+}
+
+func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat.Message) map[string]map[string]string {
+	if len(messages) == 0 {
+		return map[string]map[string]string{}
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return map[string]map[string]string{}
+	}
+
+	seen := map[string]struct{}{}
+	turnIDs := make([]string, 0)
+	for _, msg := range messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		if strings.TrimSpace(msg.ToolCalls) == "" {
+			continue
+		}
+		if msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		if _, ok := seen[turnID]; ok {
+			continue
+		}
+		seen[turnID] = struct{}{}
+		turnIDs = append(turnIDs, turnID)
+	}
+	if len(turnIDs) == 0 {
+		return map[string]map[string]string{}
+	}
+
+	results, err := toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
+	if err != nil {
+		log.Printf("[Summary] Erro ao hidratar tool invocations para sumarização: %v", err)
+		return map[string]map[string]string{}
+	}
+	if len(results) == 0 {
+		return map[string]map[string]string{}
+	}
+	return results
 }

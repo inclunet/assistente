@@ -671,6 +671,13 @@ func (a *App) reloadUserScopedRuntime() {
 	a.registerEnvCredentials(ctx, a.credMgr)
 	a.migrateLegacyConfig(ctx)
 	a.runPostLoginLegacyImports(ctx)
+	if a.toolInvocationSvc != nil {
+		if deleted, err := a.toolInvocationSvc.CleanOld(ctx, 30*24*time.Hour); err != nil {
+			log.Printf("[reloadUserScopedRuntime] erro ao limpar tool invocations antigas: %v", err)
+		} else if deleted > 0 {
+			log.Printf("[reloadUserScopedRuntime] tool invocations antigas removidas: %d", deleted)
+		}
+	}
 	if a.providerSvc != nil {
 		a.initLLMProviders(ctx)
 	}

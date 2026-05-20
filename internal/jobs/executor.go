@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
 	"github.com/google/uuid"
@@ -16,12 +17,13 @@ import (
 
 // JobExecutor executa jobs chamando tools do registry.
 type JobExecutor struct {
-	toolRegistry   *tools.Registry
-	eventBus       *EventBus
-	repository     Repository
-	circuitBreaker *CircuitBreaker
-	secretStore    SecretStore
-	notifyFunc     NotifyFunc
+	toolRegistry    *tools.Registry
+	toolInvocations *toolinvocations.Service
+	eventBus        *EventBus
+	repository      Repository
+	circuitBreaker  *CircuitBreaker
+	secretStore     SecretStore
+	notifyFunc      NotifyFunc
 
 	// Callback emitido no inicio/fim de cada run (para atualizar UI)
 	onRunStart func(jobID string, runID string)
@@ -33,27 +35,29 @@ type NotifyFunc func(channels []string, message string)
 
 // ExecutorConfig configura o JobExecutor.
 type ExecutorConfig struct {
-	ToolRegistry   *tools.Registry
-	EventBus       *EventBus
-	Repository     Repository
-	CircuitBreaker *CircuitBreaker
-	SecretStore    SecretStore
-	NotifyFunc     NotifyFunc
-	OnRunStart     func(jobID string, runID string)
-	OnRunEnd       func(jobID string, runLog *RunLog)
+	ToolRegistry    *tools.Registry
+	ToolInvocations *toolinvocations.Service
+	EventBus        *EventBus
+	Repository      Repository
+	CircuitBreaker  *CircuitBreaker
+	SecretStore     SecretStore
+	NotifyFunc      NotifyFunc
+	OnRunStart      func(jobID string, runID string)
+	OnRunEnd        func(jobID string, runLog *RunLog)
 }
 
 // NewJobExecutor cria um executor com as dependencias fornecidas.
 func NewJobExecutor(cfg ExecutorConfig) *JobExecutor {
 	return &JobExecutor{
-		toolRegistry:   cfg.ToolRegistry,
-		eventBus:       cfg.EventBus,
-		repository:     cfg.Repository,
-		circuitBreaker: cfg.CircuitBreaker,
-		secretStore:    cfg.SecretStore,
-		notifyFunc:     cfg.NotifyFunc,
-		onRunStart:     cfg.OnRunStart,
-		onRunEnd:       cfg.OnRunEnd,
+		toolRegistry:    cfg.ToolRegistry,
+		toolInvocations: cfg.ToolInvocations,
+		eventBus:        cfg.EventBus,
+		repository:      cfg.Repository,
+		circuitBreaker:  cfg.CircuitBreaker,
+		secretStore:     cfg.SecretStore,
+		notifyFunc:      cfg.NotifyFunc,
+		onRunStart:      cfg.OnRunStart,
+		onRunEnd:        cfg.OnRunEnd,
 	}
 }
 
@@ -253,14 +257,14 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 
 	// Monta contexto de template
 	tmplCtx := &TemplateContext{
-		Event:   trigCtx.EventPayload,
+		Event: trigCtx.EventPayload,
 		Secrets: func(key string) (string, error) {
 			if e.secretStore == nil {
 				return "", fmt.Errorf("no secret store configured")
 			}
 			return e.secretStore.GetSecret(ctx, key)
 		},
-		Now:     time.Now(),
+		Now: time.Now(),
 	}
 
 	// Resolve templates nos inputs
@@ -282,14 +286,9 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		return nil, fmt.Errorf("marshal inputs: %w", err)
 	}
 
-	// Executa a tool
-	result, err := tool.Execute(ctx, argsJSON)
+	result, err := e.executeTool(ctx, job, rl, argsJSON)
 	if err != nil {
-		return nil, fmt.Errorf("tool execute: %w", err)
-	}
-
-	if result.IsError {
-		return nil, fmt.Errorf("tool error: %s", result.Content)
+		return nil, err
 	}
 
 	// Parse o resultado para map[string]any
@@ -332,6 +331,58 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	}
 
 	return output, nil
+}
+
+func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, argsJSON json.RawMessage) (tools.ToolResult, error) {
+	if e.toolInvocations == nil {
+		tool, ok := e.toolRegistry.Get(job.Tool)
+		if !ok {
+			return tools.ToolResult{}, fmt.Errorf("tool not found: %s", job.Tool)
+		}
+		result, err := tool.Execute(ctx, argsJSON)
+		if err != nil {
+			return tools.ToolResult{}, fmt.Errorf("tool execute: %w", err)
+		}
+		if result.IsError {
+			return tools.ToolResult{}, fmt.Errorf("tool error: %s", result.Content)
+		}
+		return result, nil
+	}
+
+	callID := fmt.Sprintf("job_%s_%d", job.ID, time.Now().UnixNano())
+	originType := toolinvocations.OriginJobRun
+	originID := "dry_run:" + job.ID
+	if rl != nil {
+		callID = fmt.Sprintf("%s_tool", rl.RunID)
+		originType = toolinvocations.OriginJobRun
+		originID = rl.RunID
+	}
+	result := e.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
+		Call: tools.ToolCall{
+			ID:   callID,
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      job.Tool,
+				Arguments: string(argsJSON),
+			},
+		},
+		Origin: toolinvocations.Origin{
+			Type: originType,
+			ID:   originID,
+		},
+		DryRun: rl == nil,
+		// Jobs podem precisar processar JSON > 100KB (output maps/encadeamento).
+		// Executa com budget bem maior para evitar corromper JSON por truncamento;
+		// a persistência em tool_invocations pode truncar separadamente.
+		ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
+	}).Execution
+	if result.Error != nil {
+		return tools.ToolResult{}, fmt.Errorf("tool execute: %w", result.Error)
+	}
+	if result.Result.IsError {
+		return tools.ToolResult{}, fmt.Errorf("tool error: %s", result.Result.Content)
+	}
+	return result.Result, nil
 }
 
 func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, trigCtx *TriggerContext) {

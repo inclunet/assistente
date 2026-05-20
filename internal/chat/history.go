@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 )
 
 // HistoryLoader carrega e filtra o histórico de mensagens de uma conversa.
@@ -13,6 +14,39 @@ import (
 type HistoryLoader struct {
 	Repo    MessageRepository
 	MaxMsgs int
+}
+
+type historyToolCall struct {
+	ID     string  `json:"id"`
+	Result *string `json:"result,omitempty"`
+}
+
+func parseHistoryToolCalls(raw string) (calls []historyToolCall, raws []json.RawMessage, wasArray bool, ok bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil, false, false
+	}
+
+	// Primeiro tenta como array.
+	var arrRaw []json.RawMessage
+	var arrCalls []historyToolCall
+	if json.Unmarshal([]byte(raw), &arrRaw) == nil && json.Unmarshal([]byte(raw), &arrCalls) == nil {
+		if len(arrRaw) == len(arrCalls) && len(arrCalls) > 0 {
+			return arrCalls, arrRaw, true, true
+		}
+	}
+
+	// Fallback: objeto único.
+	var singleRaw json.RawMessage
+	var singleCall historyToolCall
+	if json.Unmarshal([]byte(raw), &singleRaw) == nil && json.Unmarshal([]byte(raw), &singleCall) == nil {
+		if strings.TrimSpace(singleCall.ID) == "" {
+			return nil, nil, false, false
+		}
+		return []historyToolCall{singleCall}, []json.RawMessage{singleRaw}, false, true
+	}
+
+	return nil, nil, false, false
 }
 
 // Load retorna as mensagens filtradas e o resumo da conversa.
@@ -92,12 +126,16 @@ func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Mess
 	answeredIDs := make(map[string]bool)
 	for _, m := range dbMessages {
 		if m.ToolCalls != "" {
-			var tcs []struct {
-				ID string `json:"id"`
-			}
-			if json.Unmarshal([]byte(m.ToolCalls), &tcs) == nil {
+			if tcs, _, _, ok := parseHistoryToolCalls(m.ToolCalls); ok {
 				for _, tc := range tcs {
-					offeredIDs[tc.ID] = true
+					id := strings.TrimSpace(tc.ID)
+					if id == "" {
+						continue
+					}
+					offeredIDs[id] = true
+					if tc.Result != nil && strings.TrimSpace(*tc.Result) != "" {
+						answeredIDs[id] = true
+					}
 				}
 			}
 		}
@@ -114,26 +152,38 @@ func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Mess
 			continue
 		}
 		if m.ToolCalls != "" {
-			var tcs []json.RawMessage
-			var tcsParsed []struct {
-				ID string `json:"id"`
-			}
-			if json.Unmarshal([]byte(m.ToolCalls), &tcs) == nil && json.Unmarshal([]byte(m.ToolCalls), &tcsParsed) == nil {
+			if tcsParsed, tcsRaw, wasArray, ok := parseHistoryToolCalls(m.ToolCalls); ok {
 				var kept []json.RawMessage
 				for i, tc := range tcsParsed {
-					if answeredIDs[tc.ID] {
-						kept = append(kept, tcs[i])
+					id := strings.TrimSpace(tc.ID)
+					if id == "" {
+						continue
+					}
+					if answeredIDs[id] {
+						kept = append(kept, tcsRaw[i])
 					} else {
-						log.Printf("[History] removendo tool_use órfão: %s (conversa %s)", tc.ID, conversationID)
+						log.Printf("[History] removendo tool_use órfão: %s (conversa %s)", id, conversationID)
 					}
 				}
 				if len(kept) == 0 {
 					m.ToolCalls = ""
-				} else if len(kept) < len(tcs) {
-					if j, err := json.Marshal(kept); err == nil {
-						m.ToolCalls = string(j)
+				} else if wasArray {
+					if len(kept) < len(tcsRaw) {
+						if j, err := json.Marshal(kept); err == nil {
+							m.ToolCalls = string(j)
+						}
 					}
+				} else {
+					// Objeto único: mantém como objeto.
+					m.ToolCalls = string(kept[0])
 				}
+			}
+		}
+		if m.Role == "assistant" && strings.TrimSpace(m.Content) == "" && strings.TrimSpace(m.ToolCalls) == "" {
+			// Evita manter placeholders de tool calling sem conteúdo após limpeza,
+			// que seriam enviados ao LLM como mensagens vazias.
+			if strings.TrimSpace(m.Media) == "" && strings.TrimSpace(m.Audio) == "" {
+				continue
 			}
 		}
 		cleaned = append(cleaned, m)

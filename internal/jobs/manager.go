@@ -14,6 +14,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
 	"assistente/internal/messaging"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
 	"github.com/google/uuid"
@@ -38,6 +39,7 @@ type ManagerConfig struct {
 	Repository      Repository
 	ContextProvider func() context.Context
 	ToolRegistry    *tools.Registry
+	ToolInvocations *toolinvocations.Service
 	HotkeyManager   *hotkey.Manager
 	MsgGateway      *messaging.Gateway
 	SecretStore     SecretStore
@@ -74,14 +76,15 @@ func NewManager(cfg ManagerConfig) *Manager {
 
 	// Cria o executor com as dependencias
 	m.executor = NewJobExecutor(ExecutorConfig{
-		ToolRegistry:   cfg.ToolRegistry,
-		EventBus:       eventBus,
-		Repository:     cfg.Repository,
-		CircuitBreaker: circuitBreaker,
-		SecretStore:    cfg.SecretStore,
-		NotifyFunc:     m.notifyChannels,
-		OnRunStart:     m.onRunStart,
-		OnRunEnd:       m.onRunEnd,
+		ToolRegistry:    cfg.ToolRegistry,
+		ToolInvocations: cfg.ToolInvocations,
+		EventBus:        eventBus,
+		Repository:      cfg.Repository,
+		CircuitBreaker:  circuitBreaker,
+		SecretStore:     cfg.SecretStore,
+		NotifyFunc:      m.notifyChannels,
+		OnRunStart:      m.onRunStart,
+		OnRunEnd:        m.onRunEnd,
 	})
 
 	// Cria o scheduler com a funcao de execucao
@@ -900,13 +903,33 @@ func (m *Manager) TestToolContext(parent context.Context, toolName string, input
 	defer cancel()
 
 	start := time.Now()
-	result, err := tool.Execute(ctx, argsJSON)
+	var result tools.ToolResult
+	var execErr error
+	if m.cfg.ToolInvocations != nil {
+		exec := m.cfg.ToolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
+			Call: tools.ToolCall{
+				ID:   fmt.Sprintf("tool_catalog_%d", time.Now().UnixNano()),
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      toolName,
+					Arguments: string(argsJSON),
+				},
+			},
+			Origin: toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
+			DryRun: true,
+			ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
+		}).Execution
+		result = exec.Result
+		execErr = exec.Error
+	} else {
+		result, execErr = tool.Execute(ctx, argsJSON)
+	}
 	duration := time.Since(start)
 
-	if err != nil {
+	if execErr != nil {
 		return &TestToolResult{
 			Success:  false,
-			Error:    err.Error(),
+			Error:    execErr.Error(),
 			Duration: duration.String(),
 		}, nil
 	}

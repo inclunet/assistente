@@ -1088,6 +1088,15 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 		return 0, err
 	}
 	if len(runIDs) > 0 {
+		// tool_invocations: remove execuções técnicas associadas aos runs purgados.
+		// Best-effort: pode não existir em migrações parciais.
+		if r.db.Migrator().HasTable(&database.ToolInvocation{}) {
+			if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+				Where("origin_type = ? AND origin_id IN ?", "job_run", runIDs).
+				Delete(&database.ToolInvocation{}).Error; err != nil {
+				return 0, err
+			}
+		}
 		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
 			Where("job_run_id IN ?", runIDs).Delete(&database.JobRunEvent{}).Error; err != nil {
 			return 0, err

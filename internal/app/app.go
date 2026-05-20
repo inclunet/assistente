@@ -15,6 +15,7 @@ import (
 	"assistente/internal/config"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
@@ -29,6 +30,7 @@ import (
 	"assistente/internal/summarization"
 	"assistente/internal/tasklist"
 	"assistente/internal/terminal"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 	"assistente/internal/updater"
 	"assistente/internal/workspace"
@@ -48,19 +50,20 @@ type ChannelInfo = controllers.ChannelInfo
 
 // App struct
 type App struct {
-	ctx              context.Context
-	llmRegistry      *llm.ProviderRegistry // Registro de provedores LLM
-	profileManager   *profiles.Manager
-	toolRegistry     *tools.Registry             // Registro de ferramentas disponíveis
-	toolExecutor     *tools.Executor             // Executor de ferramentas com paralelismo e timeout
-	terminalMgr      *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
-	questionnaireMgr *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
-	allowlistMgr     *allowlist.Manager          // Gerenciador de allowlists de comandos
-	mcpMgr           *mcpmgr.Manager             // Gerenciador de servidores MCP
-	skillMgr         *skills.Manager             // Gerenciador de skills
-	responseNotifier *messaging.ResponseNotifier // Notificador de respostas para mensageiros
-	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
-	updater          *updater.Updater            // Gerenciador de atualizações automáticas
+	ctx               context.Context
+	llmRegistry       *llm.ProviderRegistry // Registro de provedores LLM
+	profileManager    *profiles.Manager
+	toolRegistry      *tools.Registry             // Registro de ferramentas disponíveis
+	toolExecutor      *tools.Executor             // Executor de ferramentas com paralelismo e timeout
+	toolInvocationSvc *toolinvocations.Service    // Persistência e execução comum de tool calls
+	terminalMgr       *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
+	questionnaireMgr  *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
+	allowlistMgr      *allowlist.Manager          // Gerenciador de allowlists de comandos
+	mcpMgr            *mcpmgr.Manager             // Gerenciador de servidores MCP
+	skillMgr          *skills.Manager             // Gerenciador de skills
+	responseNotifier  *messaging.ResponseNotifier // Notificador de respostas para mensageiros
+	msgGateway        *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
+	updater           *updater.Updater            // Gerenciador de atualizações automáticas
 
 	credMgr           *credentials.Manager
 	credStore         credentials.Store
@@ -257,6 +260,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
+	a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(database.DB()), a.toolExecutor)
 
 	// Inicializa o gateway de mensageria (Telegram, etc.)
 	a.initMessaging()
@@ -281,6 +285,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Emitter:          a.emitter,
 		MsgRepo:          a.msgRepo,
 		ToolExecutor:     a.toolExecutor,
+		ToolInvocations:  a.toolInvocationSvc,
 		ResponseNotifier: a.responseNotifier,
 		GetTokenStats:    a.GetConversationTokenStats,
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,

@@ -123,6 +123,7 @@ func Init() error {
 		&JobRun{},
 		&JobEvent{},
 		&JobRunEvent{},
+		&ToolInvocation{},
 	); err != nil {
 		return err
 	}
@@ -477,10 +478,68 @@ func DeleteConversationWithContext(ctx context.Context, id string) error {
 	if _, err := GetConversationInfoWithContext(ctx, id); err != nil {
 		return err
 	}
+	if err := deleteChatToolInvocationsForConversation(ctx, id); err != nil {
+		return err
+	}
 	if err := db.WithContext(ctx).Where("conversation_id = ?", id).Delete(&ChatMessage{}).Error; err != nil {
 		return err
 	}
 	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Where("id = ?", id).Delete(&Conversation{}).Error
+}
+
+func deleteChatToolInvocationsForConversation(ctx context.Context, conversationID string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	if _, err := GetConversationInfoWithContext(ctx, conversationID); err != nil {
+		return err
+	}
+	if !db.Migrator().HasTable(&ToolInvocation{}) {
+		return nil
+	}
+	userID, _ := UserIDFromContext(ctx)
+
+	// turn_id aponta para a user message; origin_id usa turn_id.
+	var turnIDs []string
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id IS NOT NULL AND chat_messages.turn_id <> ''", conversationID).
+		Distinct().
+		Pluck("chat_messages.turn_id", &turnIDs).Error; err != nil {
+		return err
+	}
+	// Algumas mensagens podem ter origin_id igual ao próprio message id.
+	var msgIDs []string
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ?", conversationID).
+		Pluck("chat_messages.id", &msgIDs).Error; err != nil {
+		return err
+	}
+
+	ids := make([]string, 0, len(turnIDs)+len(msgIDs))
+	ids = append(ids, turnIDs...)
+	ids = append(ids, msgIDs...)
+	if len(ids) == 0 {
+		return nil
+	}
+
+	// Batch para evitar estourar limite de variáveis do SQLite.
+	const batchSize = 400
+	for start := 0; start < len(ids); start += batchSize {
+		end := start + batchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		if err := db.WithContext(ctx).
+			Where("user_id = ? AND origin_type = ? AND origin_id IN ?", userID, "chat", ids[start:end]).
+			Delete(&ToolInvocation{}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ==================== ChatMessage ====================
@@ -798,10 +857,59 @@ func DeleteMessageWithContext(ctx context.Context, messageID string) error {
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
+
+	// Carrega metadados para suportar deleção por turno quando a raiz (user) é removida.
+	var root ChatMessage
+	_ = scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Select("chat_messages.id", "chat_messages.role", "chat_messages.turn_id", "chat_messages.conversation_id").
+		First(&root, "chat_messages.id = ?", messageID).Error
+
+	// Best-effort: ao apagar uma mensagem, remove também invocações técnicas
+	// associadas para não deixar tool_invocations órfãs.
+	// Regra importante: não apagar invocações do turno inteiro ao deletar uma
+	// mensagem assistant/tool isolada. Quando aplicável, limpa apenas as
+	// invocações do turno que correspondem aos tool_call_id citados na mensagem.
+	cleanup := deleteChatToolInvocationCleanupForMessage(ctx, messageID)
+	if len(cleanup.OriginIDs) > 0 {
+		if err := deleteChatToolInvocationsForOriginIDs(ctx, cleanup.OriginIDs); err != nil {
+			// Best-effort: tool_invocations são registros técnicos; não bloquear a deleção do usuário.
+			log.Printf("[DB] aviso: falha ao limpar tool_invocations de mensagem %s: %v", messageID, err)
+		}
+	}
+	if cleanup.DeleteWholeTurn && strings.TrimSpace(cleanup.TurnID) != "" {
+		if err := deleteChatToolInvocationsForOriginIDs(ctx, []string{cleanup.TurnID}); err != nil {
+			log.Printf("[DB] aviso: falha ao limpar tool_invocations do turno %s: %v", cleanup.TurnID, err)
+		}
+	} else if strings.TrimSpace(cleanup.TurnID) != "" && len(cleanup.ToolCallIDs) > 0 {
+		if err := deleteChatToolInvocationsForTurnToolCallIDs(ctx, cleanup.TurnID, cleanup.ToolCallIDs); err != nil {
+			log.Printf("[DB] aviso: falha ao limpar tool_invocations por tool_call_id do turno %s: %v", cleanup.TurnID, err)
+		}
+	}
 	var childIDs []string
-	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.parent_id = ?", messageID).Pluck("chat_messages.id", &childIDs).Error; err != nil {
+	// Se estamos deletando a mensagem do usuário (raiz do turno), apaga também as
+	// demais mensagens do mesmo turno (assistant/tool) mesmo que não estejam
+	// conectadas via parent_id.
+	if strings.TrimSpace(root.ID) != "" && root.Role == "user" {
+		turnRootID := strings.TrimSpace(root.ID)
+		var turnMessageIDs []string
+		if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+			Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", root.ConversationID, turnRootID).
+			Pluck("chat_messages.id", &turnMessageIDs).Error; err != nil {
+			return err
+		}
+		for _, id := range turnMessageIDs {
+			id = strings.TrimSpace(id)
+			if id == "" || id == messageID {
+				continue
+			}
+			childIDs = append(childIDs, id)
+		}
+	}
+	var parentChildIDs []string
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.parent_id = ?", messageID).Pluck("chat_messages.id", &parentChildIDs).Error; err != nil {
 		return err
 	}
+	childIDs = append(childIDs, parentChildIDs...)
 	for _, childID := range childIDs {
 		if err := DeleteMessageWithContext(ctx, childID); err != nil {
 			return err
@@ -811,10 +919,197 @@ func DeleteMessageWithContext(ctx context.Context, messageID string) error {
 	return db.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error
 }
 
+type chatToolInvocationCleanup struct {
+	OriginIDs       []string
+	TurnID          string
+	ToolCallIDs     []string
+	DeleteWholeTurn bool
+}
+
+func deleteChatToolInvocationCleanupForMessage(ctx context.Context, messageID string) chatToolInvocationCleanup {
+	if _, err := RequireUserID(ctx); err != nil {
+		return chatToolInvocationCleanup{}
+	}
+	if strings.TrimSpace(messageID) == "" {
+		return chatToolInvocationCleanup{}
+	}
+	// scopedMessageQuery garante que não vazamos cross-user.
+	var msg ChatMessage
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Select("chat_messages.id", "chat_messages.role", "chat_messages.turn_id", "chat_messages.tool_calls", "chat_messages.tool_call_id").
+		First(&msg, "chat_messages.id = ?", messageID).Error
+	if err != nil {
+		return chatToolInvocationCleanup{}
+	}
+	cleanup := chatToolInvocationCleanup{
+		OriginIDs: []string{strings.TrimSpace(msg.ID)},
+	}
+
+	turn := ""
+	if msg.TurnID != nil {
+		turn = strings.TrimSpace(*msg.TurnID)
+	}
+	cleanup.TurnID = turn
+
+	// Deletar a raiz do turno (role=user, turn_id == id) pode limpar o turno inteiro.
+	if msg.Role == "user" && turn != "" && turn == strings.TrimSpace(msg.ID) {
+		cleanup.DeleteWholeTurn = true
+		return dedupCleanup(cleanup)
+	}
+
+	// Ao deletar mensagens assistant/tool, limpar apenas as invocações do turno
+	// que correspondem aos tool_call_id referenciados por esta mensagem.
+	if turn == "" {
+		return dedupCleanup(cleanup)
+	}
+
+	if msg.Role == "tool" {
+		callID := strings.TrimSpace(msg.ToolCallID)
+		if callID != "" {
+			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, callID)
+		}
+		return dedupCleanup(cleanup)
+	}
+
+	if msg.Role == "assistant" {
+		toolCallsJSON := strings.TrimSpace(msg.ToolCalls)
+		if toolCallsJSON == "" {
+			return dedupCleanup(cleanup)
+		}
+		// Aceita tanto `[{...}]` quanto `{...}`.
+		var anyPayload any
+		if err := json.Unmarshal([]byte(toolCallsJSON), &anyPayload); err == nil {
+			switch v := anyPayload.(type) {
+			case []any:
+				for _, item := range v {
+					if obj, ok := item.(map[string]any); ok {
+						if id, _ := obj["id"].(string); strings.TrimSpace(id) != "" {
+							cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, strings.TrimSpace(id))
+						}
+					}
+				}
+			case map[string]any:
+				if id, _ := v["id"].(string); strings.TrimSpace(id) != "" {
+					cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, strings.TrimSpace(id))
+				}
+			}
+		}
+		return dedupCleanup(cleanup)
+	}
+
+	return dedupCleanup(cleanup)
+}
+
+func dedupCleanup(in chatToolInvocationCleanup) chatToolInvocationCleanup {
+	seen := map[string]struct{}{}
+	outOrigin := make([]string, 0, len(in.OriginIDs))
+	for _, id := range in.OriginIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		outOrigin = append(outOrigin, id)
+	}
+	seen = map[string]struct{}{}
+	outCalls := make([]string, 0, len(in.ToolCallIDs))
+	for _, id := range in.ToolCallIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		outCalls = append(outCalls, id)
+	}
+	in.OriginIDs = outOrigin
+	in.ToolCallIDs = outCalls
+	in.TurnID = strings.TrimSpace(in.TurnID)
+	return in
+}
+
+func deleteChatToolInvocationsForTurnToolCallIDs(ctx context.Context, turnID string, toolCallIDs []string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	turn := strings.TrimSpace(turnID)
+	if turn == "" {
+		return nil
+	}
+	if len(toolCallIDs) == 0 {
+		return nil
+	}
+	if !db.Migrator().HasTable(&ToolInvocation{}) {
+		return nil
+	}
+	userID, _ := UserIDFromContext(ctx)
+	ids := make([]string, 0, len(toolCallIDs))
+	for _, id := range toolCallIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	// Batch para evitar estourar limite de variáveis do SQLite.
+	const batchSize = 400
+	for start := 0; start < len(ids); start += batchSize {
+		end := start + batchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		if err := db.WithContext(ctx).
+			Where("user_id = ? AND origin_type = ? AND origin_id = ? AND tool_call_id IN ?", userID, "chat", turn, ids[start:end]).
+			Delete(&ToolInvocation{}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteChatToolInvocationsForOriginIDs(ctx context.Context, originIDs []string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	if len(originIDs) == 0 {
+		return nil
+	}
+	if !db.Migrator().HasTable(&ToolInvocation{}) {
+		return nil
+	}
+	userID, _ := UserIDFromContext(ctx)
+	// Batch para evitar estourar limite de variáveis do SQLite.
+	const batchSize = 400
+	for start := 0; start < len(originIDs); start += batchSize {
+		end := start + batchSize
+		if end > len(originIDs) {
+			end = len(originIDs)
+		}
+		if err := db.WithContext(ctx).
+			Where("user_id = ? AND origin_type = ? AND origin_id IN ?", userID, "chat", originIDs[start:end]).
+			Delete(&ToolInvocation{}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // DeleteAllMessagesWithContext remove todas as mensagens de uma conversa
 // pertencente ao usuário do contexto.
 func DeleteAllMessagesWithContext(ctx context.Context, conversationID string) error {
 	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	// Limpa tool invocations associadas ao histórico desta conversa.
+	if err := deleteChatToolInvocationsForConversation(ctx, conversationID); err != nil {
 		return err
 	}
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.conversation_id = ?", conversationID))
@@ -830,6 +1125,16 @@ func DeleteAllMessagesWithContext(ctx context.Context, conversationID string) er
 func ClearAllConversationsWithContext(ctx context.Context) error {
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
+	}
+	userID, _ := UserIDFromContext(ctx)
+	// Limpa tool invocations de chat do usuário (histórico será apagado).
+	// Best-effort: alguns cenários de teste executam migrações parciais.
+	if db.Migrator().HasTable(&ToolInvocation{}) {
+		if err := db.WithContext(ctx).
+			Where("user_id = ? AND origin_type = ?", userID, "chat").
+			Delete(&ToolInvocation{}).Error; err != nil {
+			log.Printf("[DB] aviso: erro ao limpar tool invocations (best-effort): %v", err)
+		}
 	}
 	messageIDs := scopedMessageQuery(ctx, db.WithContext(ctx).Model(&ChatMessage{}).Select("chat_messages.id"))
 	if err := db.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error; err != nil {

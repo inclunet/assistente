@@ -13,6 +13,7 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
+	"assistente/internal/toolinvocations"
 )
 
 // Re-exporta tipos do pacote database para manter compatibilidade
@@ -79,10 +80,13 @@ func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.Messa
 		return nil, err
 	}
 
-	return buildMessageNodes(ctx, messages, parentID), nil
+	return buildMessageNodesWithInvocationFallback(ctx, messages, parentID), nil
 }
 
 func buildMessageNodes(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+	if len(messages) == 0 {
+		return []chat.MessageNode{}
+	}
 	msgIDs := make([]string, len(messages))
 	for i, msg := range messages {
 		msgIDs[i] = msg.ID
@@ -92,6 +96,61 @@ func buildMessageNodes(ctx context.Context, messages []database.ChatMessage, par
 		childCounts = make(map[string]int)
 	}
 	return chat.BuildMessageNodes(messages, childCounts, parentID)
+}
+
+func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+	if len(messages) == 0 {
+		return []chat.MessageNode{}
+	}
+
+	grouped := make(map[string][]database.ChatMessage)
+	order := make([]string, 0, len(messages))
+	seenKey := map[string]struct{}{}
+	turnIDs := make([]string, 0)
+	seenTurn := map[string]struct{}{}
+	for _, msg := range messages {
+		key := messageTimelineItemKey(msg)
+		grouped[key] = append(grouped[key], msg)
+		if _, ok := seenKey[key]; !ok {
+			seenKey[key] = struct{}{}
+			order = append(order, key)
+		}
+		// Só hidrata turnos que realmente têm uso de tools: assistant com ToolCalls ou
+		// mensagens role=tool com ToolCallID (inclui tool-only turns/placeholder).
+		shouldHydrate := false
+		if msg.Role == "assistant" && strings.TrimSpace(msg.ToolCalls) != "" {
+			shouldHydrate = true
+		}
+		if msg.Role == "tool" && strings.TrimSpace(msg.ToolCallID) != "" {
+			shouldHydrate = true
+		}
+		if shouldHydrate && msg.TurnID != nil {
+			turnID := strings.TrimSpace(*msg.TurnID)
+			if turnID != "" {
+				if _, ok := seenTurn[turnID]; !ok {
+					seenTurn[turnID] = struct{}{}
+					turnIDs = append(turnIDs, turnID)
+				}
+			}
+		}
+	}
+
+	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, turnIDs)
+	representatives := make([]database.ChatMessage, 0, len(order))
+	for _, key := range order {
+		itemMessages := grouped[key]
+		if len(itemMessages) == 0 {
+			continue
+		}
+		representative := itemMessages[0]
+		if strings.HasPrefix(key, "turn:") && representative.TurnID != nil {
+			turnID := strings.TrimSpace(*representative.TurnID)
+			turnResults := invocationToolResults[turnID]
+			representative = consolidateTimelineTurnMessages(itemMessages, turnResults)
+		}
+		representatives = append(representatives, representative)
+	}
+	return buildMessageNodes(ctx, representatives, parentID)
 }
 
 func assignMessageNodeOriginalIndexes(nodes []chat.MessageNode, indexesByID map[string]int) []chat.MessageNode {
@@ -168,7 +227,7 @@ func parseToolCalls(messageID string, raw string) []map[string]interface{} {
 	return nil
 }
 
-func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.ChatMessage {
+func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocationToolResults map[string]string) database.ChatMessage {
 	if len(messages) == 0 {
 		return database.ChatMessage{}
 	}
@@ -184,6 +243,17 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 		if message.Role == "tool" && message.ToolCallID != "" {
 			toolResults[message.ToolCallID] = message.Content
 		}
+	}
+	// tool_invocations é o caminho canônico novo; usa como fallback quando
+	// não existe mais mensagem role=tool persistida.
+	for callID, result := range invocationToolResults {
+		if callID == "" {
+			continue
+		}
+		if existing, ok := toolResults[callID]; ok && existing != "" {
+			continue
+		}
+		toolResults[callID] = result
 	}
 
 	consolidated := messages[0]
@@ -213,6 +283,13 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 					continue
 				}
 				seenToolCallIDs[callID] = struct{}{}
+				if existing, ok := call["result"].(string); ok {
+					if strings.TrimSpace(existing) != "" {
+						// Não sobrescreve resultado já embutido (ex.: import/export).
+						allToolCalls = append(allToolCalls, call)
+						continue
+					}
+				}
 				if result, ok := toolResults[callID]; ok {
 					call["result"] = result
 				}
@@ -262,6 +339,7 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage) database.C
 }
 
 func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, collectTurnIDsWithToolCalls(messages))
 	messagesByItemKey := make(map[string][]database.ChatMessage)
 	for _, message := range messages {
 		key := messageTimelineItemKey(message)
@@ -276,12 +354,63 @@ func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWind
 		}
 		representative := itemMessages[0]
 		if item.Kind == database.MessageWindowItemKindTurn {
-			representative = consolidateTimelineTurnMessages(itemMessages)
+			turnResults := invocationToolResults[strings.TrimSpace(item.TurnID)]
+			representative = consolidateTimelineTurnMessages(itemMessages, turnResults)
 		}
 		representatives = append(representatives, representative)
 		originalIndexesByMessageID[representative.ID] = item.OriginalIndex
 	}
 	return assignMessageNodeOriginalIndexes(buildMessageNodes(ctx, representatives, parentID), originalIndexesByMessageID)
+}
+
+func collectTurnIDsWithToolCalls(messages []database.ChatMessage) []string {
+	turnIDs := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, msg := range messages {
+		if msg.TurnID == nil {
+			continue
+		}
+		shouldHydrate := false
+		if msg.Role == "assistant" && strings.TrimSpace(msg.ToolCalls) != "" {
+			shouldHydrate = true
+		}
+		if msg.Role == "tool" && strings.TrimSpace(msg.ToolCallID) != "" {
+			shouldHydrate = true
+		}
+		if !shouldHydrate {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		if _, ok := seen[turnID]; ok {
+			continue
+		}
+		seen[turnID] = struct{}{}
+		turnIDs = append(turnIDs, turnID)
+	}
+	return turnIDs
+}
+
+func loadChatToolInvocationResultsForTurnIDs(ctx context.Context, turnIDs []string) map[string]map[string]string {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return map[string]map[string]string{}
+	}
+	return loadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
+}
+
+func loadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID string, turnIDs []string) map[string]map[string]string {
+	if len(turnIDs) == 0 {
+		return map[string]map[string]string{}
+	}
+	results, err := toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
+	if err != nil {
+		log.Printf("[Chat] load tool_invocations results failed: %v", err)
+		return map[string]map[string]string{}
+	}
+	return results
 }
 
 // GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
@@ -293,11 +422,44 @@ func (a *App) GetRecentMessages(conversationID string, limit int) ([]chat.Messag
 	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return nil, err
 	}
-	messages, err := database.GetRecentRootMessagesWithContext(ctx, conversationID, limit)
-	if err != nil {
-		return nil, err
+	if limit <= 0 {
+		return []chat.MessageNode{}, nil
 	}
-	return buildMessageNodes(ctx, messages, nil), nil
+	// A API legada pagina por mensagens, mas o renderer colapsa múltiplas linhas do mesmo turno
+	// em um único representative. Faz overfetch incremental até preencher o limit.
+	rawLimit := limit
+	if rawLimit < 10 {
+		rawLimit = 10
+	}
+	if rawLimit > 5000 {
+		rawLimit = 5000
+	}
+	var lastNodes []chat.MessageNode
+	for {
+		messages, err := database.GetRecentRootMessagesWithContext(ctx, conversationID, rawLimit)
+		if err != nil {
+			return nil, err
+		}
+		nodes := buildMessageNodesWithInvocationFallback(ctx, messages, nil)
+		lastNodes = nodes
+		if len(nodes) >= limit || len(messages) < rawLimit {
+			if len(nodes) > limit {
+				return nodes[len(nodes)-limit:], nil
+			}
+			return nodes, nil
+		}
+		if rawLimit >= 5000 {
+			break
+		}
+		rawLimit *= 2
+		if rawLimit > 5000 {
+			rawLimit = 5000
+		}
+	}
+	if len(lastNodes) > limit {
+		return lastNodes[len(lastNodes)-limit:], nil
+	}
+	return lastNodes, nil
 }
 
 // GetMessagesBefore retorna mensagens raiz anteriores ao cursor informado.
@@ -309,11 +471,42 @@ func (a *App) GetMessagesBefore(conversationID string, beforeID string, limit in
 	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return nil, err
 	}
-	messages, err := database.GetRootMessagesBeforeWithContext(ctx, conversationID, beforeID, limit)
-	if err != nil {
-		return nil, err
+	if limit <= 0 {
+		return []chat.MessageNode{}, nil
 	}
-	return buildMessageNodes(ctx, messages, nil), nil
+	rawLimit := limit
+	if rawLimit < 10 {
+		rawLimit = 10
+	}
+	if rawLimit > 5000 {
+		rawLimit = 5000
+	}
+	var lastNodes []chat.MessageNode
+	for {
+		messages, err := database.GetRootMessagesBeforeWithContext(ctx, conversationID, beforeID, rawLimit)
+		if err != nil {
+			return nil, err
+		}
+		nodes := buildMessageNodesWithInvocationFallback(ctx, messages, nil)
+		lastNodes = nodes
+		if len(nodes) >= limit || len(messages) < rawLimit {
+			if len(nodes) > limit {
+				return nodes[len(nodes)-limit:], nil
+			}
+			return nodes, nil
+		}
+		if rawLimit >= 5000 {
+			break
+		}
+		rawLimit *= 2
+		if rawLimit > 5000 {
+			rawLimit = 5000
+		}
+	}
+	if len(lastNodes) > limit {
+		return lastNodes[len(lastNodes)-limit:], nil
+	}
+	return lastNodes, nil
 }
 
 // GetConversationMessageWindow é a API canônica de carregamento incremental de mensagens.
