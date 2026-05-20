@@ -22,6 +22,11 @@ type Service struct {
 	executor *tools.Executor
 	now      func() time.Time
 
+	// persistOpTimeout limita o tempo de cada operação síncrona de persistência.
+	// A persistência deve sobreviver a cancelamento do usuário, mas não deve
+	// travar indefinidamente em locks/IO de DB.
+	persistOpTimeout time.Duration
+
 	// persistMaxResultSize limita o output armazenado em tool_invocations,
 	// independente do limite usado para a execução (que pode ser maior).
 	persistMaxResultSize int
@@ -40,11 +45,23 @@ func NewService(repo Repository, executor *tools.Executor) *Service {
 		repo:                 repo,
 		executor:             executor,
 		now:                  time.Now,
+		persistOpTimeout:     3 * time.Second,
 		persistMaxResultSize: tools.DefaultMaxResultSize,
 		// Mantém o mesmo limite de persistência do Output para consistência.
 		persistMaxErrorSize: tools.DefaultMaxResultSize,
 		persistMaxInputSize: tools.DefaultMaxResultSize,
 	}
+}
+
+func (s *Service) persistCtx(parent context.Context) context.Context {
+	return context.WithoutCancel(parent)
+}
+
+func (s *Service) persistOpCtx(parent context.Context) (context.Context, context.CancelFunc) {
+	if s == nil || s.persistOpTimeout <= 0 {
+		return context.WithTimeout(parent, 3*time.Second)
+	}
+	return context.WithTimeout(parent, s.persistOpTimeout)
 }
 
 func (s *Service) CanPersist() bool {
@@ -69,14 +86,17 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	}
 
 	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
-	persistCtx := context.WithoutCancel(ctx)
+	persistCtx := s.persistCtx(ctx)
 
 	// Defesa best-effort: se a origem do chat já foi deletada, não criar
 	// registros técnicos que ficarão órfãos. Alguns cenários de teste/migração
 	// não têm a tabela de chat_messages disponível.
 	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
 		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			if _, err := database.GetMessageWithContext(persistCtx, req.Origin.ID); err != nil {
+			opCtx, cancel := s.persistOpCtx(persistCtx)
+			_, err := database.GetMessageWithContext(opCtx, req.Origin.ID)
+			cancel()
+			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					// Se o turno/mensagem foi removido antes da execução, não execute tools com efeitos colaterais.
 					log.Printf("[toolinvocations] chat origin %s deleted before execution; aborting tool execution", strings.TrimSpace(req.Origin.ID))
@@ -93,7 +113,9 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	queuedAt := s.now()
 	toolCatalogID := req.ToolCatalogID
 	if strings.TrimSpace(toolCatalogID) != "" {
-		visible, err := s.repo.IsToolCatalogIDVisible(persistCtx, toolCatalogID)
+		opCtx, cancel := s.persistOpCtx(persistCtx)
+		visible, err := s.repo.IsToolCatalogIDVisible(opCtx, toolCatalogID)
+		cancel()
 		if err != nil {
 			log.Printf("[toolinvocations] failed to validate tool_catalog_id (best-effort): %v", err)
 			toolCatalogID = ""
@@ -102,7 +124,9 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 			toolCatalogID = ""
 		} else {
 			// Defesa: garante que o ID fornecido corresponde ao nome da tool.
-			resolved, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name)
+			opCtx, cancel := s.persistOpCtx(persistCtx)
+			resolved, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
+			cancel()
 			if err != nil {
 				log.Printf("[toolinvocations] failed to verify tool_catalog_id by name (best-effort): %v", err)
 				toolCatalogID = ""
@@ -113,7 +137,9 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		}
 	}
 	if toolCatalogID == "" {
-		id, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name)
+		opCtx, cancel := s.persistOpCtx(persistCtx)
+		id, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
+		cancel()
 		if err != nil {
 			// Best-effort: não bloqueia execução quando o catálogo está
 			// desatualizado/indisponível. Executa a tool sem persistir.
@@ -143,17 +169,21 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		return ExecuteResult{Execution: executionError(req.Call, "tool_catalog_id is required")}
 	}
 
-	if err := s.repo.Create(persistCtx, &inv); err != nil {
+	opCtx, cancel := s.persistOpCtx(persistCtx)
+	if err := s.repo.Create(opCtx, &inv); err != nil {
 		log.Printf("[toolinvocations] failed to create invocation (best-effort): %v", err)
 		inv.ID = ""
 	}
+	cancel()
 	if inv.ID != "" {
 		startedAt := s.now()
-		if err := s.repo.MarkRunning(persistCtx, inv.ID, startedAt); err != nil {
+		opCtx, cancel := s.persistOpCtx(persistCtx)
+		if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
 			log.Printf("[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
 		} else {
 			inv.StartedAt = &startedAt
 		}
+		cancel()
 	}
 
 	exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
@@ -164,9 +194,15 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		// para não deixar registros órfãos.
 		if strings.TrimSpace(inv.OriginType) == OriginChat && strings.TrimSpace(inv.OriginID) != "" {
 			if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-				if _, err := database.GetMessageWithContext(persistCtx, inv.OriginID); err != nil {
+				opCtx, cancel := s.persistOpCtx(persistCtx)
+				_, err := database.GetMessageWithContext(opCtx, inv.OriginID)
+				cancel()
+				if err != nil {
 					if errors.Is(err, gorm.ErrRecordNotFound) {
-						if delErr := s.repo.Delete(persistCtx, inv.ID); delErr != nil {
+						opCtx, cancel := s.persistOpCtx(persistCtx)
+						delErr := s.repo.Delete(opCtx, inv.ID)
+						cancel()
+						if delErr != nil {
 							log.Printf("[toolinvocations] failed to delete orphan invocation (id=%s): %v", inv.ID, delErr)
 						}
 						return ExecuteResult{Invocation: inv, Execution: exec, Persisted: false}
@@ -187,7 +223,10 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		inv.CompletedAt = &completedAt
 		inv.DurationMs = exec.DurationMs
 		inv.Metadata = nil
-		if err := s.repo.Complete(persistCtx, inv.ID, &inv); err != nil {
+		opCtx, cancel := s.persistOpCtx(persistCtx)
+		err := s.repo.Complete(opCtx, inv.ID, &inv)
+		cancel()
+		if err != nil {
 			log.Printf("[toolinvocations] failed to complete invocation (id=%s): %v", inv.ID, err)
 			persisted = false
 		} else {
@@ -290,10 +329,24 @@ func truncateUTF8Safe(s string, maxBytes int) string {
 
 func statusForExecution(exec tools.ToolExecutionResult) (string, string) {
 	if exec.ErrorKind == tools.ErrorKindCancelled {
-		return StatusCancelled, "cancelled"
+		msg := strings.TrimSpace(exec.Result.Content)
+		if msg == "" && exec.Error != nil {
+			msg = exec.Error.Error()
+		}
+		if msg == "" {
+			msg = "cancelled"
+		}
+		return StatusCancelled, msg
 	}
 	if exec.ErrorKind == tools.ErrorKindTimeout {
-		return StatusTimedOut, "timeout"
+		msg := strings.TrimSpace(exec.Result.Content)
+		if msg == "" && exec.Error != nil {
+			msg = exec.Error.Error()
+		}
+		if msg == "" {
+			msg = "timeout"
+		}
+		return StatusTimedOut, msg
 	}
 	if exec.Result.IsError || exec.Error != nil {
 		if exec.Error != nil {
@@ -535,13 +588,16 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	}
 
 	// Persistência de invocações externas também deve sobreviver a cancelamento.
-	persistCtx := context.WithoutCancel(ctx)
+	persistCtx := s.persistCtx(ctx)
 
 	// Defesa best-effort: se a origem do chat já foi deletada, não criar
 	// registros técnicos que ficarão órfãos.
 	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
 		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			if _, err := database.GetMessageWithContext(persistCtx, req.Origin.ID); err != nil {
+			opCtx, cancel := s.persistOpCtx(persistCtx)
+			_, err := database.GetMessageWithContext(opCtx, req.Origin.ID)
+			cancel()
+			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return Invocation{}, err
 				}
@@ -552,14 +608,18 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 
 	toolCatalogID := strings.TrimSpace(req.ToolCatalogID)
 	if toolCatalogID != "" {
-		visible, err := s.repo.IsToolCatalogIDVisible(persistCtx, toolCatalogID)
+		opCtx, cancel := s.persistOpCtx(persistCtx)
+		visible, err := s.repo.IsToolCatalogIDVisible(opCtx, toolCatalogID)
+		cancel()
 		if err != nil {
 			return Invocation{}, err
 		}
 		if !visible {
 			toolCatalogID = ""
 		} else {
-			resolved, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name)
+			opCtx, cancel := s.persistOpCtx(persistCtx)
+			resolved, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
+			cancel()
 			if err != nil {
 				// Melhor não persistir sob um ID possivelmente incorreto.
 				toolCatalogID = ""
@@ -569,7 +629,9 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		}
 	}
 	if toolCatalogID == "" {
-		id, err := s.repo.ResolveToolCatalogID(persistCtx, req.Call.Function.Name)
+		opCtx, cancel := s.persistOpCtx(persistCtx)
+		id, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
+		cancel()
 		if err != nil {
 			return Invocation{}, err
 		}
@@ -591,15 +653,20 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		inv.OriginType = OriginChat
 	}
 
-	if err := s.repo.Create(persistCtx, &inv); err != nil {
+	opCtx, cancel := s.persistOpCtx(persistCtx)
+	if err := s.repo.Create(opCtx, &inv); err != nil {
+		cancel()
 		return inv, err
 	}
+	cancel()
 	startedAt := s.now()
-	if err := s.repo.MarkRunning(persistCtx, inv.ID, startedAt); err != nil {
+	opCtx, cancel = s.persistOpCtx(persistCtx)
+	if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
 		log.Printf("[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
 	} else {
 		inv.StartedAt = &startedAt
 	}
+	cancel()
 	status, errorMessage := statusForRecord(req)
 	completedAt := s.now()
 	inv.Status = status
@@ -616,9 +683,15 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	// deleção de turno/mensagem após o pre-check do chamador.
 	if strings.TrimSpace(inv.OriginType) == OriginChat && strings.TrimSpace(inv.OriginID) != "" {
 		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			if _, err := database.GetMessageWithContext(persistCtx, inv.OriginID); err != nil {
+			opCtx, cancel := s.persistOpCtx(persistCtx)
+			_, err := database.GetMessageWithContext(opCtx, inv.OriginID)
+			cancel()
+			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
-					if delErr := s.repo.Delete(persistCtx, inv.ID); delErr != nil {
+						opCtx, cancel := s.persistOpCtx(persistCtx)
+						delErr := s.repo.Delete(opCtx, inv.ID)
+						cancel()
+						if delErr != nil {
 						log.Printf("[toolinvocations] failed to delete orphan recorded invocation (id=%s): %v", inv.ID, delErr)
 					}
 					return inv, err
@@ -627,7 +700,10 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 			}
 		}
 	}
-	if err := s.repo.Complete(persistCtx, inv.ID, &inv); err != nil {
+	opCtx, cancel = s.persistOpCtx(persistCtx)
+	err := s.repo.Complete(opCtx, inv.ID, &inv)
+	cancel()
+	if err != nil {
 		log.Printf("[toolinvocations] failed to complete recorded invocation (id=%s): %v", inv.ID, err)
 		return inv, err
 	}
