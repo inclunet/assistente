@@ -688,10 +688,10 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 			cancel()
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
-						opCtx, cancel := s.persistOpCtx(persistCtx)
-						delErr := s.repo.Delete(opCtx, inv.ID)
-						cancel()
-						if delErr != nil {
+					opCtx, cancel := s.persistOpCtx(persistCtx)
+					delErr := s.repo.Delete(opCtx, inv.ID)
+					cancel()
+					if delErr != nil {
 						log.Printf("[toolinvocations] failed to delete orphan recorded invocation (id=%s): %v", inv.ID, delErr)
 					}
 					return inv, err
