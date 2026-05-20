@@ -135,8 +135,9 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 		invResults := map[string]map[string]string{
 			turnID: {callID: strings.Repeat("y", 5000)},
 		}
+		fallback := collectSummarizationFallbackToolResults(msgs)
 
-		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, fallback) {
 			t.Fatal("expected summarization NOT to trigger when fallback tool message already accounts for the result")
 		}
 	})
