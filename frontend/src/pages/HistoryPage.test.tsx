@@ -14,6 +14,7 @@ const mockAnalyzeImportData = vi.fn();
 const mockSearchConversationHistory = vi.fn();
 const mockGetLLMProvidersWithStatus = vi.fn();
 const mockGetAllTaskLists = vi.fn();
+const mockListMcpServers = vi.fn();
 const mockOpenImportFileDialog = vi.fn();
 const mockAddTab = vi.fn().mockResolvedValue('tab-1');
 const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
@@ -30,9 +31,20 @@ type ConversationItem = {
   message_count: number;
 };
 
-vi.mock('react-router-dom', () => ({
-  useNavigate: () => mockNavigate,
-}));
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>();
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+    useLocation: () => ({
+      pathname: '/history',
+      search: '',
+      hash: '',
+      state: null,
+      key: 'test',
+    }),
+  };
+});
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -56,6 +68,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   ImportConversations: (payload: string) => mockImportConversations(payload),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
   AnalyzeImportData: (payload: string, password: string) => mockAnalyzeImportData(payload, password),
+  ListMCPServers: () => mockListMcpServers(),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
   GetLLMProvidersWithStatus: () => mockGetLLMProvidersWithStatus(),
   GetAllTaskLists: () => mockGetAllTaskLists(),
@@ -200,6 +213,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockSearchConversationHistory.mockResolvedValue([]);
     mockGetLLMProvidersWithStatus.mockResolvedValue([]);
     mockGetAllTaskLists.mockResolvedValue([]);
+    mockListMcpServers.mockResolvedValue([]);
     mockOpenImportFileDialog.mockReset();
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,

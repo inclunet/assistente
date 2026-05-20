@@ -145,6 +145,14 @@ func (m *Manager) ListToolCatalog(ctx context.Context, filter tools.ToolCatalogF
 	return repo.ListTools(ctx, filter)
 }
 
+func (m *Manager) GetLogs(slug string, limit int) ([]MCPServerLog, error) {
+	repo := m.repository()
+	if repo == nil {
+		return []MCPServerLog{}, nil
+	}
+	return repo.GetLogs(m.credentialContext(), slug, limit)
+}
+
 func (m *Manager) markServerToolsUnavailable(slug, reason string) {
 	repo := m.repository()
 	if repo == nil {

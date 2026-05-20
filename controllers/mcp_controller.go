@@ -167,6 +167,13 @@ func (c *MCPController) DiscoverMCPServerAuth(serverURL string) mcpmgr.OAuthDisc
 	return mcpmgr.DiscoverOAuth(serverURL)
 }
 
+func (c *MCPController) GetMCPServerLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, error) {
+	if err := c.guardMgr(); err != nil {
+		return nil, err
+	}
+	return c.mcpMgr.GetLogs(slug, limit)
+}
+
 // NewMCPEventEmitter retorna a função de emit usada internamente pelo mcpmgr.
 // Mantém a lógica de regenerar o catálogo de jobs quando tools mudam.
 func (c *MCPController) NewMCPEventEmitter() func(event string, data any) {
