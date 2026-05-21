@@ -16,7 +16,30 @@ import (
 	"assistente/internal/providers"
 	"assistente/internal/speech"
 	"assistente/internal/tools"
+	"assistente/internal/profiles"
 )
+
+func resolveStreamingRecoverySettings(activeProfile *profiles.Profile) (enabled bool, maxAttempts int) {
+	// Defaults (AEP-0064): enabled + 3 tentativas
+	enabled = true
+	maxAttempts = 3
+	if activeProfile == nil {
+		return enabled, maxAttempts
+	}
+	if activeProfile.Chat.StreamingRecoveryEnabled != nil {
+		enabled = *activeProfile.Chat.StreamingRecoveryEnabled
+	}
+	if activeProfile.Chat.StreamingRecoveryMaxAttempts != nil {
+		maxAttempts = *activeProfile.Chat.StreamingRecoveryMaxAttempts
+	}
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	if maxAttempts > 10 {
+		maxAttempts = 10
+	}
+	return enabled, maxAttempts
+}
 
 // SendMessageConfig agrupa as dependências do SendMessageUseCase.
 type SendMessageConfig struct {
@@ -248,6 +271,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	uc.streamMgr.Register(req.ConversationID, convCancel)
 
 	if len(llmToolDefs) > 0 {
+		recoveryEnabled, recoveryMaxAttempts := resolveStreamingRecoverySettings(activeProfile)
 		agentCtx := convCtx
 		if invokedSkillSlug != "" {
 			agentCtx = tools.WithExecutionContext(agentCtx, tools.ExecutionContext{
@@ -277,17 +301,19 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 					names = chat.FilterToolNamesForNativeMCP(requestStreamer, uc.mcpMgr, names, disableTools)
 					return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
 				},
+				recoveryEnabled,
+				recoveryMaxAttempts,
 			)
 		}()
 	} else {
-		handler := uc.agentSvc.NewSimpleStreamHandler(ctx, req.ConversationID, userMsg.ID, params.ProfileSlug, surfaceOrigin)
+		recoveryEnabled, recoveryMaxAttempts := resolveStreamingRecoverySettings(activeProfile)
 		go func() {
 			defer func() {
 				r := recover()
 				events.HandlePanic(uc.emitter, req.ConversationID, "StreamChat", r)
 			}()
 			defer uc.streamMgr.Unregister(req.ConversationID)
-			requestStreamer.StreamChat(convCtx, messages, params, handler)
+			uc.agentSvc.StreamSimpleWithRecovery(convCtx, requestStreamer, messages, params, req.ConversationID, userMsg.ID, params.ProfileSlug, surfaceOrigin, recoveryEnabled, recoveryMaxAttempts)
 		}()
 	}
 	return req.ConversationID, nil

@@ -67,6 +67,59 @@ type Service struct {
 	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 }
 
+// StreamSimpleWithRecovery executa um streaming simples (sem tool calling) com auto-retry opcional.
+// Em tentativas intermediárias, suprime o erro terminal para não finalizar o streaming no frontend.
+// Se o contexto for cancelado, retorna silenciosamente.
+func (s *Service) StreamSimpleWithRecovery(
+	ctx context.Context,
+	streamer llm.Streamer,
+	messages []llm.Message,
+	params llm.ChatParams,
+	conversationID string,
+	turnID string,
+	profileSlug string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+	streamingRecoveryEnabled bool,
+	streamingRecoveryMaxAttempts int,
+) {
+	if streamer == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	maxAttempts := streamingRecoveryMaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	attempts := 1
+	if streamingRecoveryEnabled {
+		attempts = maxAttempts
+	}
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if ctx.Err() != nil {
+			return
+		}
+		h := s.NewSimpleStreamHandler(ctx, conversationID, turnID, profileSlug, surfaceOrigin)
+		// Só a última tentativa deve finalizar o streaming com erro.
+		h.SuppressTerminalError(attempt < attempts)
+		streamer.StreamChat(ctx, messages, params, h)
+		if ctx.Err() != nil {
+			return
+		}
+		if h.LastError() == "" {
+			return
+		}
+		if attempt < attempts {
+			log.Printf("[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
+		}
+	}
+}
+
 // NewService cria um novo Service com as dependências injetadas.
 func NewService(cfg ServiceConfig) *Service {
 	return &Service{
@@ -97,6 +150,8 @@ func (s *Service) RunAgenticLoop(
 	surfaceOrigin *ports.ChatSurfaceOrigin,
 	newHandler func(conversationID string, iteration int) IterationHandler,
 	resolveToolDefs func([]string) []llm.ToolDefinition,
+	streamingRecoveryEnabled bool,
+	streamingRecoveryMaxAttempts int,
 ) {
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
@@ -127,6 +182,14 @@ func (s *Service) RunAgenticLoop(
 		maxIterations = s.toolExecutor.Config().MaxIterations
 	}
 
+	maxRecoveryAttempts := streamingRecoveryMaxAttempts
+	if maxRecoveryAttempts <= 0 {
+		maxRecoveryAttempts = 3
+	}
+	if maxRecoveryAttempts < 1 {
+		maxRecoveryAttempts = 1
+	}
+
 	// Propaga contexto de invocação (tab type + arquivo ativo) para as tools
 	if params.TabType != "" || params.ActiveFilePath != "" || params.SurfaceStateJSON != "" || params.SurfaceContextJSON != "" {
 		ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
@@ -148,35 +211,36 @@ func (s *Service) RunAgenticLoop(
 		// Verifica cancelamento
 		if ctx.Err() != nil {
 			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
-			cancelToolsUsed := make([]string, 0, len(toolsUsedSet))
-			for name := range toolsUsedSet {
-				cancelToolsUsed = append(cancelToolsUsed, name)
-			}
-			sort.Strings(cancelToolsUsed)
-			s.emitter.Emit("chat:done", ports.DoneEvent{
-				ConversationID:   conversationID,
-				TurnID:           turnID,
-				SurfaceOrigin:    surfaceOrigin,
-				HadToolCalls:     totalToolCallCount > 0,
-				Reason:           "error",
-				ErrorMessage:     "Operação cancelada",
-				IterationCount:   iteration,
-				ToolCallCount:    totalToolCallCount,
-				ToolsUsed:        cancelToolsUsed,
-				PromptTokens:     lastUsage.PromptTokens,
-				CompletionTokens: lastUsage.CompletionTokens,
-			})
 			return
 		}
 
-		// 1. Cria handler para esta iteração e chama o LLM (bloqueante)
-		handler := newHandler(conversationID, iteration)
-		if setter, ok := handler.(interface{ SetAssistantMessageID(string) }); ok {
-			setter.SetAssistantMessageID(assistantMessageID)
+		// 1. Cria handler para esta iteração e chama o LLM (bloqueante), com auto-retry opcional.
+		var result AgenticResult
+		var lastStreamErr string
+		attempts := 1
+		if streamingRecoveryEnabled {
+			attempts = maxRecoveryAttempts
 		}
-		streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
-
-		result := handler.Result()
+		for attempt := 1; attempt <= attempts; attempt++ {
+			if ctx.Err() != nil {
+				return
+			}
+			handler := newHandler(conversationID, iteration)
+			if setter, ok := handler.(interface{ SetAssistantMessageID(string) }); ok {
+				setter.SetAssistantMessageID(assistantMessageID)
+			}
+			streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
+			result = handler.Result()
+			if result.Error == "" {
+				lastStreamErr = ""
+				break
+			}
+			lastStreamErr = result.Error
+			if attempt < attempts {
+				log.Printf("[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
+				continue
+			}
+		}
 
 		// Acumula usage da última iteração (AEP-0039)
 		if result.Usage.PromptTokens > 0 || result.Usage.CompletionTokens > 0 {
@@ -184,7 +248,7 @@ func (s *Service) RunAgenticLoop(
 		}
 
 		// 2. Erro?
-		if result.Error != "" {
+		if lastStreamErr != "" {
 			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
 			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
 			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
@@ -199,7 +263,7 @@ func (s *Service) RunAgenticLoop(
 				SurfaceOrigin:    surfaceOrigin,
 				HadToolCalls:     totalToolCallCount > 0,
 				Reason:           "error",
-				ErrorMessage:     result.Error,
+				ErrorMessage:     lastStreamErr,
 				IterationCount:   iteration + 1,
 				ToolCallCount:    totalToolCallCount,
 				ToolsUsed:        errToolsUsed,

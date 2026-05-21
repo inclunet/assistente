@@ -20,6 +20,8 @@ type SimpleStreamHandler struct {
 	userMessageID string // ID of the user message (root of this response thread)
 	assistantMessageID string // ID estável do assistant (placeholder) para este turno
 	profileSlug   string // Profile slug for TTS resolution
+	lastError     string
+	suppressTerminalError bool
 }
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
@@ -50,7 +52,11 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 }
 
 func (h *SimpleStreamHandler) OnError(err string) {
+	h.lastError = err
 	content, _ := h.Finalize()
+	if h.suppressTerminalError {
+		return
+	}
 	h.Emitter.Emit("chat:stream", events.StreamEvent{
 		MessageID:      h.AssistantMessageID,
 		Content:        content,
@@ -60,6 +66,17 @@ func (h *SimpleStreamHandler) OnError(err string) {
 		TurnID:         h.TurnID,
 		SurfaceOrigin:  h.SurfaceOrigin,
 	})
+}
+
+func (h *SimpleStreamHandler) LastError() string {
+	return h.lastError
+}
+
+// SuppressTerminalError evita emitir chat:stream terminal com Error.
+// Usado pela auto-recuperação para não finalizar o streaming no frontend
+// antes de esgotar as tentativas.
+func (h *SimpleStreamHandler) SuppressTerminalError(v bool) {
+	h.suppressTerminalError = v
 }
 
 // OnToolCalls is the safety fallback for when simple streaming unexpectedly receives tool calls.

@@ -151,7 +151,7 @@ func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *t
 	streamer := &scriptedStreamer{call: llm.ToolCall{ID: "call-1", Type: "function", Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`}}}
 	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
 		return &testIterationHandler{}
-	}, nil)
+	}, nil, false, 0)
 
 	if msgRepo.toolResultCount != 0 {
 		t.Fatalf("expected no role=tool messages, got=%d", msgRepo.toolResultCount)
@@ -198,7 +198,7 @@ func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenAssistantToolCallsSaveFail
 	streamer := &scriptedStreamer{call: llm.ToolCall{ID: "call-1", Type: "function", Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`}}}
 	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
 		return &testIterationHandler{}
-	}, nil)
+	}, nil, false, 0)
 
 	if msgRepo.toolResultCount != 1 {
 		t.Fatalf("expected 1 fallback role=tool message, got=%d", msgRepo.toolResultCount)
@@ -240,7 +240,7 @@ func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenInvocationPersistenceFails
 	streamer := &scriptedStreamer{call: llm.ToolCall{ID: "call-1", Type: "function", Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`}}}
 	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
 		return &testIterationHandler{}
-	}, nil)
+	}, nil, false, 0)
 
 	if msgRepo.toolResultCount != 1 {
 		t.Fatalf("expected 1 fallback role=tool message, got=%d", msgRepo.toolResultCount)
