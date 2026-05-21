@@ -1,5 +1,18 @@
 # Refatoração: Arquitetura de Streaming e Mensagens
 
+## Adendo (2026-05) — Contrato vigente e exemplos históricos
+
+Este documento nasceu durante uma fase anterior do projeto e contém exemplos (Svelte, criação implícita de conversa no envio) que **não são mais contrato vigente**.
+
+O contrato atual (backend-driven) é:
+
+- **Conversa deve existir antes de enviar mensagem**: o fluxo de envio não cria conversa implicitamente. `SendMessage`/`RetryMessage` operam sobre `conversationId` já persistido (ver AEP-0040).
+- **Eventos são tipados e sempre carregam `conversationId`** (e `turnId` quando aplicável). O schema canônico está em `internal/core/ports/chat_events.go` e foi estendido por AEPs posteriores (AEP-0039).
+- **Cancelamento de geração é explícito** via `CancelStreamingForConversation(conversationId)`.
+- **Continuação/recuperação de streaming é explícita** (não depende de `assistant prefill` acidental). Ver AEP-0064.
+
+Os trechos abaixo devem ser lidos como motivação histórica e direção arquitetural, não como especificação literal de APIs.
+
 ## Problema Atual
 
 A arquitetura atual tem responsabilidades mal divididas entre frontend e backend:
