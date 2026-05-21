@@ -105,6 +105,13 @@ func (s *Service) StreamSimpleWithRecovery(
 			return
 		}
 		h := s.NewSimpleStreamHandler(ctx, conversationID, turnID, profileSlug, surfaceOrigin)
+		if params.AllowAssistantPrefill {
+			prefill := s.loadAssistantPrefill(ctx, h.AssistantMessageID)
+			if prefill != "" {
+				messages = patchTrailingAssistantPrefill(messages, prefill)
+				h.SetInitialContent(prefill)
+			}
+		}
 		// Só a última tentativa deve finalizar o streaming com erro.
 		h.SuppressTerminalError(attempt < attempts)
 		streamer.StreamChat(ctx, messages, params, h)
@@ -228,6 +235,15 @@ func (s *Service) RunAgenticLoop(
 			handler := newHandler(conversationID, iteration)
 			if setter, ok := handler.(interface{ SetAssistantMessageID(string) }); ok {
 				setter.SetAssistantMessageID(assistantMessageID)
+			}
+			if params.AllowAssistantPrefill {
+				prefill := s.loadAssistantPrefill(ctx, assistantMessageID)
+				if prefill != "" {
+					messages = patchTrailingAssistantPrefill(messages, prefill)
+					if prefillSetter, ok := handler.(interface{ SetInitialContent(string) }); ok {
+						prefillSetter.SetInitialContent(prefill)
+					}
+				}
 			}
 			streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
 			result = handler.Result()
@@ -1235,4 +1251,33 @@ func truncateString(s string, maxLen int) string {
 		cutoff--
 	}
 	return s[:cutoff] + suffix
+}
+
+func (s *Service) loadAssistantPrefill(ctx context.Context, assistantMessageID string) string {
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	if assistantMessageID == "" || s.msgRepo == nil {
+		return ""
+	}
+	msg, err := s.msgRepo.GetMessage(ctx, assistantMessageID)
+	if err != nil || msg == nil {
+		return ""
+	}
+	return msg.Content
+}
+
+// patchTrailingAssistantPrefill substitui o conteúdo do trailing assistant no prompt.
+// Intencionalmente NÃO adiciona uma nova mensagem assistant: isso preserva a regra
+// padrão de que o prompt termina em user, exceto quando o histórico já carrega um
+// trailing assistant (caso de continuação explícita).
+func patchTrailingAssistantPrefill(messages []llm.Message, prefill string) []llm.Message {
+	prefill = strings.TrimSpace(prefill)
+	if prefill == "" || len(messages) == 0 {
+		return messages
+	}
+	lastIdx := len(messages) - 1
+	if strings.TrimSpace(messages[lastIdx].Role) != "assistant" {
+		return messages
+	}
+	messages[lastIdx].Content = prefill
+	return messages
 }

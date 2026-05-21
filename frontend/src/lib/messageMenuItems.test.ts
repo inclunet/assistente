@@ -97,6 +97,35 @@ describe('messageMenuItems', () => {
     expect(items.some((item) => item.id === 'delete')).toBe(true);
   });
 
+  it('inclui "Continuar resposta" quando habilitado', () => {
+    const assistantMessage = new chat.EnrichedMessage({
+      id: 'a-sintetico',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      role: 'assistant',
+      content: 'parcial',
+      turnId: 'user-1',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+    }) as Message;
+
+    const items = getMessageMenuItems(assistantMessage, {
+      isTTSDisabled: true,
+      onContinue: vi.fn(),
+      shouldShowContinue: () => true,
+    });
+
+    expect(items.some((item) => item.id === 'continue-response')).toBe(true);
+
+    const hidden = getMessageMenuItems(assistantMessage, {
+      isTTSDisabled: true,
+      onContinue: vi.fn(),
+      shouldShowContinue: () => false,
+    });
+    expect(hidden.some((item) => item.id === 'continue-response')).toBe(false);
+  });
+
   it('inclui envio para editor quando configurado', () => {
     i18nTMock.mockClear();
     const assistantMessage = new chat.EnrichedMessage({

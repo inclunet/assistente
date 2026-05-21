@@ -270,6 +270,7 @@ export function startChatEventController({
       },
       appendVisibleMessages: true,
       streamingMessageId: streamingMsgId,
+      lastInterruptedMessageId: null,
     });
   };
 
@@ -404,7 +405,8 @@ export function startChatEventController({
       currentTurnId = event.turnId || currentTurnId;
       ensureAssistantNode();
       flushStreamingUpdate();
-      updateStreamingMessage(i18next.t('chat.errorPrefix', { message: event.error }));
+      announce(String(event.error || '').trim(), 'assertive');
+      patchCurrentSession({ lastInterruptedMessageId: streamingMsgId });
       finalizeStreaming();
       cleanup();
     }
@@ -543,7 +545,8 @@ export function startChatEventController({
     if (event.errorMessage) {
       ensureAssistantNode();
       flushStreamingUpdate();
-      updateStreamingMessage(i18next.t('chat.errorPrefix', { message: event.errorMessage }));
+      announce(String(event.errorMessage || '').trim(), 'assertive');
+      patchCurrentSession({ lastInterruptedMessageId: streamingMsgId });
       finalizeStreaming(null, currentTurnId);
       cleanup();
       return;
@@ -551,6 +554,7 @@ export function startChatEventController({
 
     const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
     finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
+    patchCurrentSession({ lastInterruptedMessageId: null });
 
     if (event.hadToolCalls) {
       reloadConversationSnapshot(conversationId, INITIAL_MESSAGE_WINDOW_SIZE).then((snapshot) => {

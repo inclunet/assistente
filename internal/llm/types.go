@@ -200,24 +200,27 @@ type ModelsResponse struct {
 
 // ChatParams contém os parâmetros para uma requisição de chat
 type ChatParams struct {
-	Model                string  `json:"model"`
-	MaxTokens            int     `json:"maxTokens"`
-	MaxTokensMode        string  `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
-	Temperature          float64 `json:"temperature"`
-	TopP                 float64 `json:"topP,omitempty"`
-	ReasoningEffort      string  `json:"reasoningEffort,omitempty"`      // off, low, medium, high
-	ProfileSlug          string  `json:"profileSlug,omitempty"`          // Perfil específico (canais). Vazio = perfil ativo global
-	MaxAgenticIterations int     `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
-	ResponseTimeout      int     `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
-	ContextWindow        int     `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.
-	TabType              string  `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
-	ActiveFilePath       string  `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
-	SurfaceStateJSON     string  `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
-	SurfaceContextJSON   string  `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
-	SurfaceSessionKey    string  `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
-	SurfaceID            string  `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
-	SurfaceType          string  `json:"surfaceType,omitempty"`          // page | embedded | modal | external
-	SurfaceTabID         string  `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
+	Model           string  `json:"model"`
+	MaxTokens       int     `json:"maxTokens"`
+	MaxTokensMode   string  `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
+	Temperature     float64 `json:"temperature"`
+	TopP            float64 `json:"topP,omitempty"`
+	ReasoningEffort string  `json:"reasoningEffort,omitempty"` // off, low, medium, high
+	ProfileSlug     string  `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
+	// AllowAssistantPrefill habilita a continuação explícita de resposta via trailing assistant.
+	// Default: false (AEP-0064 Fase 6). Só deve ser usado em retry explícito.
+	AllowAssistantPrefill bool   `json:"allowAssistantPrefill,omitempty"`
+	MaxAgenticIterations  int    `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
+	ResponseTimeout       int    `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
+	ContextWindow         int    `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.
+	TabType               string `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
+	ActiveFilePath        string `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
+	SurfaceStateJSON      string `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
+	SurfaceContextJSON    string `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
+	SurfaceSessionKey     string `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
+	SurfaceID             string `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
+	SurfaceType           string `json:"surfaceType,omitempty"`          // page | embedded | modal | external
+	SurfaceTabID          string `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
 }
 
 // ==================== Helper Functions ====================

@@ -2418,6 +2418,7 @@ export namespace llm {
 	    topP?: number;
 	    reasoningEffort?: string;
 	    profileSlug?: string;
+	    allowAssistantPrefill?: boolean;
 	    maxAgenticIterations?: number;
 	    responseTimeout?: number;
 	    contextWindow?: number;
@@ -2443,6 +2444,7 @@ export namespace llm {
 	        this.topP = source["topP"];
 	        this.reasoningEffort = source["reasoningEffort"];
 	        this.profileSlug = source["profileSlug"];
+	        this.allowAssistantPrefill = source["allowAssistantPrefill"];
 	        this.maxAgenticIterations = source["maxAgenticIterations"];
 	        this.responseTimeout = source["responseTimeout"];
 	        this.contextWindow = source["contextWindow"];

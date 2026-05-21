@@ -24,6 +24,8 @@ export interface MenuItemsOptions {
   onSpeak?: (message: Message) => void;
   onEdit?: (message: Message) => void;
   onResend?: (message: Message) => void;
+  onContinue?: (message: Message) => void;
+  shouldShowContinue?: (message: Message) => boolean;
   onDelete?: (message: Message) => void;
   onCancelStreaming?: (message: Message) => void;
   onPin?: (message: Message) => void;
@@ -261,6 +263,8 @@ export function getMessageMenuItems(
     onSpeak,
     onEdit,
     onResend,
+    onContinue,
+    shouldShowContinue,
     onDelete,
     onCancelStreaming,
     onPin,
@@ -348,6 +352,16 @@ export function getMessageMenuItems(
       ariaLabel: i18next.t('chat.cancelGenerationLabel'),
       shortcut: 'Esc',
       action: () => onCancelStreaming(message),
+    });
+  }
+
+  if (onContinue && (shouldShowContinue?.(message) ?? false)) {
+    items.push({
+      id: 'continue-response',
+      label: i18next.t('chat.continueResponse'),
+      icon: '⏭',
+      ariaLabel: i18next.t('chat.continueResponseLabel'),
+      action: () => onContinue(message),
     });
   }
 

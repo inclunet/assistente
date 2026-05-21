@@ -13,10 +13,10 @@ import (
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
 	"assistente/internal/tools"
-	"assistente/internal/profiles"
 )
 
 func resolveStreamingRecoverySettings(activeProfile *profiles.Profile) (enabled bool, maxAttempts int) {
@@ -122,6 +122,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", err
 	}
+	if req.Params.AllowAssistantPrefill && req.RetryMessageID == "" {
+		errMsg := "continuação explícita requer RetryMessage (mensagem para retry)"
+		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
+		return "", fmt.Errorf("%s", errMsg)
+	}
 
 	// Resolve modelo padrão do config como fallback.
 	var defaultModel string
@@ -158,6 +163,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 	activeProfile := pctx.ActiveProfile
 	params := pctx.Params
+	if params.AllowAssistantPrefill {
+		// Gating pelo perfil: se o usuário desabilitou a ação manual, o backend deve falhar fechado.
+		if activeProfile != nil && activeProfile.Chat.StreamingRecoveryShowContinue != nil && !*activeProfile.Chat.StreamingRecoveryShowContinue {
+			errMsg := "ação 'Continuar resposta' desabilitada no perfil ativo"
+			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
+			return "", fmt.Errorf("%s", errMsg)
+		}
+	}
 	userContent := pctx.UserContent
 	surfaceOrigin := ports.NewChatSurfaceOrigin(
 		req.ConversationID,

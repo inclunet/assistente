@@ -20,7 +20,7 @@ import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage, EditorGetDraftPath } from '@wailsjs/go/app/App';
+import { DeleteMessage, EditorGetDraftPath, GetActiveProfile } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
@@ -108,6 +108,8 @@ function ChatSessionViewContent({
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
+  const [showContinueEnabled, setShowContinueEnabled] = useState(true);
+
   const {
     session,
     conversation,
@@ -167,6 +169,31 @@ function ChatSessionViewContent({
     return count;
   }, [threadedMessages]);
   const usesLocalVisualWindowCount = visibleMessageCount > 0 && visibleMessageCount !== threadedMessages.length;
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadActiveProfile = async () => {
+      try {
+        const profile = await GetActiveProfile();
+        if (!mounted) return;
+        setShowContinueEnabled(profile?.chat?.streaming_recovery_show_continue ?? true);
+      } catch {
+        if (!mounted) return;
+        setShowContinueEnabled(true);
+      }
+    };
+
+    void loadActiveProfile();
+    const unsubChanged = EventsOn('profile:changed', () => void loadActiveProfile());
+    const unsubUpdated = EventsOn('profile:updated', () => void loadActiveProfile());
+
+    return () => {
+      mounted = false;
+      unsubChanged();
+      unsubUpdated();
+    };
+  }, []);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -432,6 +459,23 @@ function ChatSessionViewContent({
       if (!conversationId || !isBackendId(message.id)) return;
       await retryMessageToConversation(conversationId, message.id, undefined, { origin });
       announce(t('chat.announce.messageResent'));
+    },
+    onContinue: async (message) => {
+      const conversationId = getSessionConversation()?.id;
+      const turnId = String(message.turnId || '').trim();
+      if (!conversationId || !turnId) return;
+      await retryMessageToConversation(conversationId, turnId, { allowAssistantPrefill: true }, { origin });
+      announce(t('chat.announce.continuingResponse'));
+    },
+    shouldShowContinue: (message) => {
+      if (!showContinueEnabled) return false;
+      const interruptedId = session?.lastInterruptedMessageId;
+      if (!interruptedId) return false;
+      if (String(message.id) !== String(interruptedId)) return false;
+      if (message.role !== 'assistant' || message.isStreaming) return false;
+      if (!String(message.turnId || '').trim()) return false;
+      if (!String(message.content || '').trim()) return false;
+      return true;
     },
     onDelete: handleDeleteMessage,
     onCancelStreaming: (message) => {

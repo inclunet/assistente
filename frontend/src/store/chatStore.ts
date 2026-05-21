@@ -60,6 +60,7 @@ import {
   appendInternalMessageToTree,
   attachChildrenToMessage,
   flattenThreadedMessages,
+  finalizeStreamingNode,
   hasMessageId,
   updateMessageContentInTree,
   updateMessageReasoningInTree,
@@ -657,6 +658,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         topP: paramsOverride?.topP,
         reasoningEffort: paramsOverride?.reasoningEffort,
         profileSlug: paramsOverride?.profileSlug,
+        allowAssistantPrefill: paramsOverride?.allowAssistantPrefill,
         tabType: paramsOverride?.tabType,
         activeFilePath: paramsOverride?.activeFilePath,
         surfaceStateJson: paramsOverride?.surfaceStateJson,
@@ -1321,10 +1323,21 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         return;
       }
 
+      const sessionKey = options?.origin?.sessionKey;
+      const session = getSession(get(), conversationId, sessionKey);
+      const streamingMessageId = session.streamingMessageId;
+
       try {
         await CancelStreamingForConversation(conversationId);
         stopChatEventController(conversationId);
         setConversationLoading(conversationId, false, options?.origin?.sessionKey);
+
+        if (streamingMessageId) {
+          set((state) => patchConversation(state, conversationId, (conversation) => (
+            finalizeStreamingNode(conversation, streamingMessageId)
+          )));
+          set((state) => patchSession(state, conversationId, { lastInterruptedMessageId: streamingMessageId }, sessionKey));
+        }
         announce(i18next.t('chat.announce.streamingCancelled'));
       } catch (error: unknown) {
         const errorMsg = getErrorMessage(error);

@@ -13,11 +13,11 @@ import (
 // Lida com throttling de 50 ms para os eventos chat:stream e chat:thinking.
 // Emitter e ConversationID são exportados para permitir construção fora do pacote.
 type BaseStreamHandler struct {
-	Emitter        events.Emitter
-	ConversationID string
-	TurnID         string
+	Emitter            events.Emitter
+	ConversationID     string
+	TurnID             string
 	AssistantMessageID string
-	SurfaceOrigin  *ports.ChatSurfaceOrigin
+	SurfaceOrigin      *ports.ChatSurfaceOrigin
 
 	accumulatedContent   string
 	accumulatedReasoning string
@@ -37,6 +37,15 @@ type BaseStreamHandler struct {
 // Usado pelo RunAgenticLoop para garantir messageId consistente em chat:stream.
 func (h *BaseStreamHandler) SetAssistantMessageID(messageID string) {
 	h.AssistantMessageID = messageID
+}
+
+// SetInitialContent define o conteúdo inicial do stream (prefill).
+// Útil para continuação explícita: o handler passa a emitir conteúdo cumulativo
+// (prefill + novos chunks) sem sobrescrever o parcial já existente.
+func (h *BaseStreamHandler) SetInitialContent(content string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.accumulatedContent = content
 }
 
 func (h *BaseStreamHandler) OnChunk(content string) {

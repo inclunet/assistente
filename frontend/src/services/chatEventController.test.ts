@@ -103,6 +103,7 @@ vi.mock('i18next', () => ({
 interface TestSession extends ChatEventSession {
   isLoading: boolean;
   streamingMessageId: string | null;
+  lastInterruptedMessageId: string | null;
   streamingReasoning: string | null;
   isThinking: boolean;
 }
@@ -138,6 +139,7 @@ const createSession = (conversationId: string): TestSession => ({
   conversation: createConversation(conversationId),
   isLoading: false,
   streamingMessageId: null,
+  lastInterruptedMessageId: null,
   streamingReasoning: null,
   isThinking: false,
   activeToolCalls: [],
@@ -320,6 +322,40 @@ describe('chatEventController', () => {
     expect(messages[1].message.isStreaming).toBe(false);
     expect(sessions['conversation-1'].isLoading).toBe(false);
     expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith('conversation-1', 'Conversa conversation-1', undefined);
+  });
+
+  it('em erro no chat:done preserva conteúdo parcial e marca interrupção', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      content: 'parcial',
+      done: false,
+      turnId: 'user-1',
+    });
+
+    const assistantNode = sessions['conversation-1'].conversation?.threadedMessages[1];
+    const streamingId = String(assistantNode?.message.id || '');
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      hadToolCalls: false,
+      errorMessage: 'boom',
+      turnId: 'user-1',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.content).toBe('parcial');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe(streamingId);
+    expect(mockAnnounce).toHaveBeenCalledWith('boom', 'assertive');
   });
 
   it('propaga surfaceOrigin dos eventos para anúncio, som e fala', async () => {
