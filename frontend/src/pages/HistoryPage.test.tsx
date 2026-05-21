@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 const mockGetConversations = vi.fn();
 const mockDeleteConversation = vi.fn();
 const mockUpdateConversation = vi.fn();
-const mockExportConversations = vi.fn();
+const mockExportConversationsToFile = vi.fn();
 const mockExportData = vi.fn();
 const mockImportConversations = vi.fn();
 const mockImportData = vi.fn();
@@ -14,13 +14,24 @@ const mockAnalyzeImportData = vi.fn();
 const mockSearchConversationHistory = vi.fn();
 const mockGetLLMProvidersWithStatus = vi.fn();
 const mockGetAllTaskLists = vi.fn();
+const mockListMcpServers = vi.fn();
 const mockOpenImportFileDialog = vi.fn();
 const mockAddTab = vi.fn().mockResolvedValue('tab-1');
 const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
 const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
 
+let mockLocationSearch = '';
+
 let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> = [];
+
+const stableT = (key: string, fallback?: string | { defaultValue?: string; count?: number }) => {
+  if (typeof fallback === 'string') return fallback;
+  if (fallback?.defaultValue) {
+    return fallback.defaultValue.replace('{{count}}', String(fallback.count ?? ''));
+  }
+  return key;
+};
 
 type ConversationItem = {
   id: string;
@@ -30,20 +41,25 @@ type ConversationItem = {
   message_count: number;
 };
 
-vi.mock('react-router-dom', () => ({
-  useNavigate: () => mockNavigate,
-}));
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>();
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+    useLocation: () => ({
+      pathname: '/history',
+      search: mockLocationSearch,
+      hash: '',
+      state: null,
+      key: 'test',
+    }),
+  };
+});
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (key: string, fallback?: string | { defaultValue?: string; count?: number }) => {
-      if (typeof fallback === 'string') return fallback;
-      if (fallback?.defaultValue) {
-        return fallback.defaultValue.replace('{{count}}', String(fallback.count ?? ''));
-      }
-      return key;
-    },
+    t: stableT,
   }),
 }));
 
@@ -51,11 +67,12 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetConversations: () => mockGetConversations(),
   DeleteConversation: (id: string) => mockDeleteConversation(id),
   UpdateConversation: (id: string, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
-  ExportConversations: (ids: string[]) => mockExportConversations(ids),
+  ExportConversationsToFile: (ids: string[], format: string) => mockExportConversationsToFile(ids, format),
   ExportData: (payload: unknown) => mockExportData(payload),
   ImportConversations: (payload: string) => mockImportConversations(payload),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
   AnalyzeImportData: (payload: string, password: string) => mockAnalyzeImportData(payload, password),
+  ListMCPServers: () => mockListMcpServers(),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
   GetLLMProvidersWithStatus: () => mockGetLLMProvidersWithStatus(),
   GetAllTaskLists: () => mockGetAllTaskLists(),
@@ -177,10 +194,11 @@ import HistoryPage from './HistoryPage';
 
 describe('HistoryPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
+    mockLocationSearch = '';
     mockGetConversations.mockResolvedValue(conversations);
     mockDeleteConversation.mockResolvedValue(undefined);
     mockUpdateConversation.mockResolvedValue(undefined);
-    mockExportConversations.mockResolvedValue('{}');
+    mockExportConversationsToFile.mockResolvedValue('');
     mockExportData.mockResolvedValue('{}');
     mockImportConversations.mockResolvedValue({ success: true, message: 'ok' });
     mockImportData.mockResolvedValue({ success: true, message: 'ok' });
@@ -200,6 +218,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockSearchConversationHistory.mockResolvedValue([]);
     mockGetLLMProvidersWithStatus.mockResolvedValue([]);
     mockGetAllTaskLists.mockResolvedValue([]);
+    mockListMcpServers.mockResolvedValue([]);
     mockOpenImportFileDialog.mockReset();
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
@@ -215,6 +234,11 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     });
     mockAddTab.mockResolvedValue(undefined);
     mockNavigate.mockReset();
+    mockNavigate.mockImplementation((to: unknown, options?: unknown) => {
+      if (to === '/history' && typeof options === 'object' && options !== null && 'replace' in options && (options as { replace?: boolean }).replace === true) {
+        mockLocationSearch = '';
+      }
+    });
     lastToolbarActions = [];
     mockRequestConfirm.mockReset();
     mockRequestConfirm.mockResolvedValue(true);
@@ -389,5 +413,109 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     expect(await screen.findByText('backup-db-only.json')).toBeInTheDocument();
     expect(screen.getByText('Incluídas')).toBeInTheDocument();
     expect(screen.getByText('Nenhum conflito detectado')).toBeInTheDocument();
+  });
+
+  it('abre modal de export via querystring e limpa a URL', async () => {
+    const user = userEvent.setup();
+    mockLocationSearch = '?modal=export';
+    render(<HistoryPage />);
+
+    expect(await screen.findByRole('button', { name: 'Exportar agora' })).toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/history', { replace: true });
+
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        explicitSelection: true,
+        includeCredentials: false,
+        outputFormat: 'json',
+        conversationIds: [
+          '01926b90-7a5a-7c4e-8d3f-000000000001',
+          '01926b90-7a5a-7c4e-8d3f-000000000002',
+        ],
+      }));
+    });
+  });
+
+  it('abre fluxo de import via querystring e limpa a URL', async () => {
+    mockLocationSearch = '?modal=import';
+    const jsonData = JSON.stringify({
+      version: 2,
+      appVersion: '0.9.0',
+      exportedAt: '2025-01-01T00:00:00Z',
+      options: { includeCredentials: false, includeAudio: false },
+      resources: { conversations: [], providers: [], taskLists: [] },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup-db-only.json',
+      content: jsonData,
+    });
+
+    render(<HistoryPage />);
+
+    await waitFor(() => {
+      expect(mockAnalyzeImportData).toHaveBeenCalledWith(jsonData, '');
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('/history', { replace: true });
+  });
+
+  it('exporta servidores MCP no JSON canônico', async () => {
+    const user = userEvent.setup();
+    mockGetConversations.mockResolvedValue([]);
+    mockListMcpServers.mockResolvedValue([
+      { slug: 'github', name: 'GitHub' },
+      { slug: 'filesystem', name: 'Filesystem' },
+    ]);
+
+    render(<HistoryPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Exportar dados' }));
+    await user.click(screen.getByLabelText('Incluir servidores MCP persistidos no banco'));
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        explicitSelection: true,
+        includeCredentials: false,
+        outputFormat: 'json',
+        mcpServerSlugs: ['github', 'filesystem'],
+      }));
+    });
+  });
+
+  it('exporta MCP no formato mcp-json e desabilita opções incompatíveis', async () => {
+    const user = userEvent.setup();
+    mockGetConversations.mockResolvedValue([]);
+    mockListMcpServers.mockResolvedValue([{ slug: 'github', name: 'GitHub' }]);
+    mockGetLLMProvidersWithStatus.mockResolvedValue([{ id: 'provider-1', name: 'OpenAI' }]);
+
+    render(<HistoryPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Exportar dados' }));
+
+    const providersCheckbox = screen.getByLabelText('Incluir providers persistidos no banco') as HTMLInputElement;
+    expect(providersCheckbox.disabled).toBe(false);
+    await user.click(providersCheckbox);
+
+    await user.click(screen.getByLabelText('Incluir servidores MCP persistidos no banco'));
+    await user.click(screen.getByLabelText('Exportar servidores MCP em formato compatível (mcp-json)'));
+
+    expect((screen.getByLabelText('Incluir providers persistidos no banco') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Incluir tasklists persistidas no banco') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Incluir credenciais criptografadas no export') as HTMLInputElement).disabled).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        explicitSelection: true,
+        includeCredentials: false,
+        outputFormat: 'mcp-json',
+        mcpServerSlugs: ['github'],
+      }));
+    });
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('providerIds');
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('taskListIds');
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('conversationIds');
   });
 });

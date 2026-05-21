@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   CheckOutlined,
   DeleteOutlined,
@@ -10,7 +10,7 @@ import {
   ImportOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { AnalyzeImportData, GetAllTaskLists, GetConversations, GetLLMProvidersWithStatus, DeleteConversation, UpdateConversation, ExportConversationsToFile, ExportData, ImportData, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { AnalyzeImportData, GetAllTaskLists, GetConversations, GetLLMProvidersWithStatus, DeleteConversation, UpdateConversation, ExportConversationsToFile, ExportData, ImportData, ListMCPServers, SearchConversationHistory } from '@wailsjs/go/app/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../components/menu';
@@ -49,6 +49,7 @@ interface ImportPreview {
   conversationCount: number;
   messageCount: number;
   providerCount: number;
+  mcpServerCount: number;
   taskListCount: number;
   taskCount: number;
   taskNoteCount: number;
@@ -69,6 +70,7 @@ interface ImportAnalysis {
   conversationCount: number;
   messageCount: number;
   providerCount: number;
+  mcpServerCount: number;
   taskListCount: number;
   taskCount: number;
   taskNoteCount: number;
@@ -78,6 +80,7 @@ interface ImportAnalysis {
   conflictCount: number;
   conversationConflicts?: ImportConflict[];
   providerConflicts?: ImportConflict[];
+  mcpServerConflicts?: ImportConflict[];
   taskListConflicts?: ImportConflict[];
   credentialConflicts?: ImportConflict[];
   unsupportedResourceTypes?: string[];
@@ -93,6 +96,7 @@ interface ImportResultSummary {
   skippedEmptyConversations: number;
   skippedConversationConflict: number;
   skippedProviderConflict: number;
+  skippedMcpServerConflict: number;
   skippedTaskListConflict: number;
   skippedCredentialConflict: number;
   skippedOther: number;
@@ -106,10 +110,11 @@ interface ExportRequestPayload {
   explicitSelection?: boolean;
   conversationIds?: string[];
   providerIds?: string[];
+  mcpServerSlugs?: string[];
   taskListIds?: string[];
   includeCredentials: boolean;
   credentialExportPassword?: string;
-  outputFormat: 'json';
+  outputFormat: 'json' | 'mcp-json';
 }
 
 interface TaskListRecord {
@@ -118,6 +123,10 @@ interface TaskListRecord {
 
 interface ProviderRecord {
   id: string;
+}
+
+interface MCPServerRecord {
+  slug: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -152,6 +161,11 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
   const conversations = Array.isArray(resources.conversations) ? resources.conversations : [];
   const taskLists = Array.isArray(resources.taskLists) ? resources.taskLists : [];
   const providers = Array.isArray(resources.providers) ? resources.providers : [];
+  const mcpServers = Array.isArray(resources.mcpServers) ? resources.mcpServers : [];
+  const mcpServersExternalMap = isRecord(parsed.mcpServers) ? parsed.mcpServers : null;
+  const mcpServerCount = mcpServers.length > 0
+    ? mcpServers.length
+    : (mcpServersExternalMap ? Object.keys(mcpServersExternalMap).length : 0);
   const messageCount = conversations.reduce((count, item) => {
     if (!isRecord(item) || !Array.isArray(item.messages)) {
       return count;
@@ -180,6 +194,7 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
     conversationCount: conversations.length,
     messageCount,
     providerCount: providers.length,
+    mcpServerCount,
     taskListCount: taskLists.length,
     taskCount: taskCounts.taskCount,
     taskNoteCount: taskCounts.taskNoteCount,
@@ -198,6 +213,7 @@ function buildImportAnalysisKey(preview: ImportPreview, password: string): strin
     preview.conversationCount,
     preview.messageCount,
     preview.providerCount,
+    preview.mcpServerCount,
     preview.taskListCount,
     preview.taskCount,
     preview.taskNoteCount,
@@ -210,6 +226,7 @@ export default function HistoryPage() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
+  const location = useLocation();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -219,11 +236,15 @@ export default function HistoryPage() {
   const [snippetsMap, setSnippetsMap] = useState<Map<string, string>>(new Map());
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingQueryExportRef = useRef(false);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportTargetIds, setExportTargetIds] = useState<string[]>([]);
   const [includeProvidersExport, setIncludeProvidersExport] = useState(false);
   const [exportProviderIds, setExportProviderIds] = useState<string[]>([]);
+  const [includeMcpServersExport, setIncludeMcpServersExport] = useState(false);
+  const [exportMcpServerSlugs, setExportMcpServerSlugs] = useState<string[]>([]);
+  const [exportMcpExternalFormat, setExportMcpExternalFormat] = useState(false);
   const [includeTaskListsExport, setIncludeTaskListsExport] = useState(false);
   const [exportTaskListIds, setExportTaskListIds] = useState<string[]>([]);
   const [includeCredentialExport, setIncludeCredentialExport] = useState(false);
@@ -247,9 +268,28 @@ export default function HistoryPage() {
   const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
   const workspaces = useWorkspaceStore(state => state.workspaces);
 
+  const loadConversations = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await GetConversations();
+      const mapped = (result || []).map((c: Conversation) => ({
+        id: c.id,
+        title: c.title || t('history.untitled', 'Sem título'),
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        message_count: c.message_count || 0
+      }));
+      setConversations(mapped || []);
+    } catch (error) {
+      console.error('Erro ao carregar conversas:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
   useEffect(() => {
-    loadConversations();
-  }, []);
+    void loadConversations();
+  }, [loadConversations]);
 
   const doSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -308,25 +348,6 @@ export default function HistoryPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  const loadConversations = async () => {
-    setLoading(true);
-    try {
-      const result = await GetConversations();
-      const mapped = (result || []).map((c: Conversation) => ({
-        id: c.id,
-        title: c.title || t('history.untitled', 'Sem título'),
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        message_count: c.message_count || 0
-      }));
-      setConversations(mapped || []);
-    } catch (error) {
-      console.error('Erro ao carregar conversas:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleOpenConversation = useCallback(async (conversationId: string, title?: string) => {
     await executeDeepLink(
@@ -397,6 +418,9 @@ export default function HistoryPage() {
     setExportTargetIds(idsToExport);
     setIncludeProvidersExport(false);
     setExportProviderIds([]);
+    setIncludeMcpServersExport(false);
+    setExportMcpServerSlugs([]);
+    setExportMcpExternalFormat(false);
     setIncludeTaskListsExport(false);
     setExportTaskListIds([]);
     setIncludeCredentialExport(false);
@@ -410,6 +434,9 @@ export default function HistoryPage() {
     setExportTargetIds([]);
     setIncludeProvidersExport(false);
     setExportProviderIds([]);
+    setIncludeMcpServersExport(false);
+    setExportMcpServerSlugs([]);
+    setExportMcpExternalFormat(false);
     setIncludeTaskListsExport(false);
     setExportTaskListIds([]);
     setIncludeCredentialExport(false);
@@ -435,21 +462,34 @@ export default function HistoryPage() {
     return ids;
   }, []);
 
-  const exportJsonByIds = useCallback(async (idsToExport: string[], providerIdsToExport: string[], taskListIdsToExport: string[], options?: {
+  const loadExportMcpServerSlugs = useCallback(async () => {
+    const servers = await ListMCPServers() as MCPServerRecord[];
+    const slugs = (servers || [])
+      .map((server) => String(server.slug ?? '').trim())
+      .filter((slug) => slug.length > 0);
+    setExportMcpServerSlugs(slugs);
+    return slugs;
+  }, []);
+
+  const exportJsonByIds = useCallback(async (idsToExport: string[], providerIdsToExport: string[], mcpServerSlugsToExport: string[], taskListIdsToExport: string[], options?: {
     includeCredentials?: boolean;
     credentialExportPassword?: string;
+    outputFormat?: 'json' | 'mcp-json';
   }) => {
     try {
       const payload: ExportRequestPayload = {
         explicitSelection: true,
         includeCredentials: options?.includeCredentials === true,
-        outputFormat: 'json',
+        outputFormat: options?.outputFormat ?? 'json',
       };
       if (idsToExport.length > 0) {
         payload.conversationIds = idsToExport;
       }
       if (providerIdsToExport.length > 0) {
         payload.providerIds = providerIdsToExport;
+      }
+      if (mcpServerSlugsToExport.length > 0) {
+        payload.mcpServerSlugs = mcpServerSlugsToExport;
       }
       if (taskListIdsToExport.length > 0) {
         payload.taskListIds = taskListIdsToExport;
@@ -505,6 +545,11 @@ export default function HistoryPage() {
         providerIdsToExport = exportProviderIds.length > 0 ? exportProviderIds : await loadExportProviderIds();
       }
 
+      let mcpServerSlugsToExport: string[] = [];
+      if (includeMcpServersExport) {
+        mcpServerSlugsToExport = exportMcpServerSlugs.length > 0 ? exportMcpServerSlugs : await loadExportMcpServerSlugs();
+      }
+
       let taskListIdsToExport: string[] = [];
       if (includeTaskListsExport) {
         taskListIdsToExport = exportTaskListIds.length > 0 ? exportTaskListIds : await loadExportTaskListIds();
@@ -513,6 +558,7 @@ export default function HistoryPage() {
       const hasResourcesToExport =
         exportTargetIds.length > 0 ||
         providerIdsToExport.length > 0 ||
+        mcpServerSlugsToExport.length > 0 ||
         taskListIdsToExport.length > 0 ||
         includeCredentialExport;
       if (!hasResourcesToExport) {
@@ -520,15 +566,17 @@ export default function HistoryPage() {
         return;
       }
 
-      await exportJsonByIds(exportTargetIds, providerIdsToExport, taskListIdsToExport, {
+      const outputFormat = exportMcpExternalFormat ? 'mcp-json' : 'json';
+      await exportJsonByIds(exportTargetIds, providerIdsToExport, mcpServerSlugsToExport, taskListIdsToExport, {
         includeCredentials: includeCredentialExport,
         credentialExportPassword: exportPassword,
+        outputFormat,
       });
       closeExportModal();
     } finally {
       setIsExporting(false);
     }
-  }, [announce, closeExportModal, exportJsonByIds, exportPassword, exportProviderIds, exportTargetIds, exportTaskListIds, includeCredentialExport, includeProvidersExport, includeTaskListsExport, loadExportProviderIds, loadExportTaskListIds, t]);
+  }, [announce, closeExportModal, exportJsonByIds, exportMcpExternalFormat, exportMcpServerSlugs, exportPassword, exportProviderIds, exportTargetIds, exportTaskListIds, includeCredentialExport, includeMcpServersExport, includeProvidersExport, includeTaskListsExport, loadExportMcpServerSlugs, loadExportProviderIds, loadExportTaskListIds, t]);
 
   const closeImportModal = useCallback(() => {
     setIsImportModalOpen(false);
@@ -606,7 +654,7 @@ export default function HistoryPage() {
     return t('history.importInvalidFile', 'O arquivo selecionado não é um export canônico suportado.');
   }, [t]);
 
-  const handleImport = async () => {
+  const handleImport = useCallback(async () => {
     try {
       await selectImportFile();
     } catch (error) {
@@ -616,7 +664,7 @@ export default function HistoryPage() {
         announce(message, 'assertive');
       }
     }
-  };
+  }, [announce, getImportErrorMessage, selectImportFile]);
 
   const handleReplaceImportFile = useCallback(async () => {
     try {
@@ -629,6 +677,38 @@ export default function HistoryPage() {
       }
     }
   }, [announce, getImportErrorMessage, selectImportFile]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const modal = (params.get('modal') || '').trim().toLowerCase();
+    if (modal !== 'export' && modal !== 'import') {
+      return;
+    }
+
+    if (modal === 'export') {
+      if (loading) {
+        pendingQueryExportRef.current = true;
+      } else {
+        openExportModal(getTargetConversationIds());
+      }
+    }
+    if (modal === 'import') {
+      void handleImport();
+    }
+
+    navigate('/history', { replace: true });
+  }, [getTargetConversationIds, handleImport, loading, location.search, navigate, openExportModal]);
+
+  useEffect(() => {
+    if (!pendingQueryExportRef.current) {
+      return;
+    }
+    if (loading) {
+      return;
+    }
+    pendingQueryExportRef.current = false;
+    openExportModal(getTargetConversationIds());
+  }, [getTargetConversationIds, loading, openExportModal]);
 
   const handleConfirmImport = useCallback(async () => {
     if (lastImportResult) {
@@ -684,6 +764,12 @@ export default function HistoryPage() {
           count: result.skippedProviderConflict,
         }));
       }
+      if (result.skippedMcpServerConflict > 0) {
+        details.push(t('history.importSkippedMcpServerConflictCount', {
+          defaultValue: 'Ignoradas por conflito de servidor MCP: {{count}}',
+          count: result.skippedMcpServerConflict,
+        }));
+      }
       if (result.skippedTaskListConflict > 0) {
         details.push(t('history.importSkippedTaskListConflictCount', {
           defaultValue: 'Ignoradas por conflito de tasklist: {{count}}',
@@ -721,7 +807,7 @@ export default function HistoryPage() {
     } finally {
       setIsImporting(false);
     }
-  }, [announce, closeImportModal, importAnalysis?.credentialAnalysisError, importPassword, importPreview, lastImportResult, t]);
+  }, [announce, closeImportModal, importAnalysis?.credentialAnalysisError, importPassword, importPreview, lastImportResult, loadConversations, t]);
 
   useEffect(() => {
     if (!isImportModalOpen || !importPreview) return;
@@ -1096,6 +1182,17 @@ export default function HistoryPage() {
                 </dd>
               </div>
             <div className="history-page__import-row">
+              <dt>{t('history.exportMcpServersLabel', 'Servidores MCP')}</dt>
+              <dd>
+                {includeMcpServersExport
+                  ? t('history.exportMcpServersIncluded', {
+                      defaultValue: '{{count}} incluído(s)',
+                      count: exportMcpServerSlugs.length,
+                    })
+                  : t('history.exportMcpServersNotIncluded', 'Não incluir')}
+              </dd>
+            </div>
+            <div className="history-page__import-row">
               <dt>{t('history.exportTaskListsLabel', 'Tasklists')}</dt>
               <dd>
                 {includeTaskListsExport
@@ -1108,7 +1205,11 @@ export default function HistoryPage() {
             </div>
             <div className="history-page__import-row">
               <dt>{t('history.exportFormatLabel', 'Formato')}</dt>
-              <dd>{t('history.exportJson', 'Exportar JSON')}</dd>
+              <dd>
+                {exportMcpExternalFormat
+                  ? t('history.exportMcpJson', 'Exportar MCP JSON')
+                  : t('history.exportJson', 'Exportar JSON')}
+              </dd>
             </div>
             <div className="history-page__import-row">
               <dt>{t('history.exportCredentialsLabel', 'Credenciais')}</dt>
@@ -1122,6 +1223,7 @@ export default function HistoryPage() {
 
           <Checkbox
             checked={includeProvidersExport}
+            disabled={exportMcpExternalFormat}
             onChange={(event) => {
               const checked = event.target.checked;
               setIncludeProvidersExport(checked);
@@ -1149,7 +1251,58 @@ export default function HistoryPage() {
           )}
 
           <Checkbox
+            checked={includeMcpServersExport}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setIncludeMcpServersExport(checked);
+              if (!checked) {
+                setExportMcpServerSlugs([]);
+                setExportMcpExternalFormat(false);
+                return;
+              }
+              void loadExportMcpServerSlugs().catch((error) => {
+                console.error('Erro ao carregar servidores MCP para exportação:', error);
+                setIncludeMcpServersExport(false);
+                setExportMcpServerSlugs([]);
+                setExportMcpExternalFormat(false);
+                announce(t('history.exportMcpServersLoadError', 'Erro ao carregar servidores MCP para exportação'), 'assertive');
+              });
+            }}
+            label={t('history.exportMcpServersOption', 'Incluir servidores MCP persistidos no banco')}
+          />
+
+          {includeMcpServersExport && (
+            <>
+              <p className="history-page__import-note">
+                {t(
+                  'history.exportMcpServersDescription',
+                  'Os servidores MCP persistidos no banco serão adicionados ao export. Use o formato MCP JSON apenas quando exportar somente servidores MCP.'
+                )}
+              </p>
+              <Checkbox
+                checked={exportMcpExternalFormat}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setExportMcpExternalFormat(checked);
+                  if (checked) {
+                    setExportTargetIds([]);
+                    setIncludeProvidersExport(false);
+                    setExportProviderIds([]);
+                    setIncludeTaskListsExport(false);
+                    setExportTaskListIds([]);
+                    setIncludeCredentialExport(false);
+                    setExportPassword('');
+                    setExportPasswordError('');
+                  }
+                }}
+                label={t('history.exportMcpJsonOption', 'Exportar servidores MCP em formato compatível (mcp-json)')}
+              />
+            </>
+          )}
+
+          <Checkbox
             checked={includeTaskListsExport}
+            disabled={exportMcpExternalFormat}
             onChange={(event) => {
               const checked = event.target.checked;
               setIncludeTaskListsExport(checked);
@@ -1178,6 +1331,7 @@ export default function HistoryPage() {
 
           <Checkbox
             checked={includeCredentialExport}
+            disabled={exportMcpExternalFormat}
             onChange={(event) => {
               const checked = event.target.checked;
               setIncludeCredentialExport(checked);
@@ -1296,6 +1450,10 @@ export default function HistoryPage() {
                 <dd>{importPreview.providerCount}</dd>
               </div>
               <div className="history-page__import-row">
+                <dt>{t('history.importMcpServersLabel', 'Servidores MCP')}</dt>
+                <dd>{importPreview.mcpServerCount}</dd>
+              </div>
+              <div className="history-page__import-row">
                 <dt>{t('history.importTaskListsLabel', 'Tasklists')}</dt>
                 <dd>{importPreview.taskListCount}</dd>
               </div>
@@ -1374,6 +1532,11 @@ export default function HistoryPage() {
               )}
 
               {renderConflictGroup(
+                t('history.importMcpServerConflicts', 'Servidores MCP em conflito'),
+                importAnalysis.mcpServerConflicts,
+              )}
+
+              {renderConflictGroup(
                 t('history.importTaskListConflicts', 'Tasklists em conflito'),
                 importAnalysis.taskListConflicts,
               )}
@@ -1434,6 +1597,12 @@ export default function HistoryPage() {
                   <div className="history-page__import-row">
                     <dt>{t('history.importSkippedProviderConflictLabel', 'Conflitos de provider')}</dt>
                     <dd>{lastImportResult.skippedProviderConflict}</dd>
+                  </div>
+                )}
+                {lastImportResult.skippedMcpServerConflict > 0 && (
+                  <div className="history-page__import-row">
+                    <dt>{t('history.importSkippedMcpServerConflictLabel', 'Conflitos de servidor MCP')}</dt>
+                    <dd>{lastImportResult.skippedMcpServerConflict}</dd>
                   </div>
                 )}
                 {lastImportResult.skippedTaskListConflict > 0 && (

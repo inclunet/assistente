@@ -60,6 +60,10 @@ func (a *App) DiscoverMCPServerAuth(serverURL string) mcpmgr.OAuthDiscoveryResul
 	return a.mcpCtrl.DiscoverMCPServerAuth(serverURL)
 }
 
+func (a *App) GetMCPServerLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, error) {
+	return a.mcpCtrl.GetMCPServerLogs(slug, limit)
+}
+
 // LLMSettings é alias de controllers.LLMSettings para compatibilidade com o frontend Wails.
 type LLMSettings = controllers.LLMSettings
 
