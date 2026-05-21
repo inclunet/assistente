@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 const mockGetConversations = vi.fn();
 const mockDeleteConversation = vi.fn();
 const mockUpdateConversation = vi.fn();
-const mockExportConversations = vi.fn();
+const mockExportConversationsToFile = vi.fn();
 const mockExportData = vi.fn();
 const mockImportConversations = vi.fn();
 const mockImportData = vi.fn();
@@ -63,7 +63,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetConversations: () => mockGetConversations(),
   DeleteConversation: (id: string) => mockDeleteConversation(id),
   UpdateConversation: (id: string, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
-  ExportConversations: (ids: string[]) => mockExportConversations(ids),
+  ExportConversationsToFile: (ids: string[], format: string) => mockExportConversationsToFile(ids, format),
   ExportData: (payload: unknown) => mockExportData(payload),
   ImportConversations: (payload: string) => mockImportConversations(payload),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
@@ -193,7 +193,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockGetConversations.mockResolvedValue(conversations);
     mockDeleteConversation.mockResolvedValue(undefined);
     mockUpdateConversation.mockResolvedValue(undefined);
-    mockExportConversations.mockResolvedValue('{}');
+    mockExportConversationsToFile.mockResolvedValue('');
     mockExportData.mockResolvedValue('{}');
     mockImportConversations.mockResolvedValue({ success: true, message: 'ok' });
     mockImportData.mockResolvedValue({ success: true, message: 'ok' });
