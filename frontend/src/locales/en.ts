@@ -81,6 +81,8 @@ const en = {
       stopAudio: 'Stop audio',
       playAudio: 'Play audio',
       stop: 'Stop',
+      cancelGeneration: 'Cancel generation',
+      cancelGenerationLabel: 'Cancel generation (Esc)',
       listen: 'Listen',
       progressLabel: 'Assistant progress',
       step: 'Step',

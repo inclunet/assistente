@@ -81,6 +81,8 @@ const ptBR = {
       stopAudio: 'Parar áudio',
       playAudio: 'Reproduzir áudio',
       stop: 'Parar',
+      cancelGeneration: 'Cancelar geração',
+      cancelGenerationLabel: 'Cancelar geração (Esc)',
       listen: 'Ouvir',
       progressLabel: 'Progresso do assistente',
       step: 'Passo',

@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button } from 'antd';
 import { useEditorStore } from '../../store/editorStore';
+import { useChatStore } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { ttsService } from '../../services/tts';
 import { MessageList } from './MessageList';
@@ -138,6 +139,14 @@ function ChatSessionViewContent({
     setDraftMediaFiles,
     setScrollState,
   } = controller;
+
+  const cancelStreaming = useChatStore((state) => state.cancelStreaming);
+
+  const handleCancelStreaming = useCallback(async () => {
+    const targetConversationId = conversation?.id ?? conversationId;
+    if (!targetConversationId) return;
+    await cancelStreaming(targetConversationId, { origin });
+  }, [cancelStreaming, conversation?.id, conversationId, origin]);
   const getSessionConversation = useCallback(() => conversation, [conversation]);
   const visibleMessageCount = useMemo(() => {
     if (!threadedMessages.length) return 0;
@@ -425,6 +434,10 @@ function ChatSessionViewContent({
       announce(t('chat.announce.messageResent'));
     },
     onDelete: handleDeleteMessage,
+    onCancelStreaming: (message) => {
+      if (!message.isStreaming) return;
+      void handleCancelStreaming();
+    },
     onSendToEditor: sendToEditor,
     editorTargets,
     onPin: (_message) => {
@@ -444,6 +457,28 @@ function ChatSessionViewContent({
     ),
     isTTSDisabled,
   });
+
+  useEffect(() => {
+    if (!isInteractiveSurface || !isLoading) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.key !== 'Escape') return;
+
+      if (menuVisible) {
+        event.preventDefault();
+        hideMenu();
+        return;
+      }
+
+      event.preventDefault();
+      void handleCancelStreaming();
+    };
+
+    const listenerOptions = { capture: true } as const;
+    window.addEventListener('keydown', onKeyDown, listenerOptions);
+    return () => window.removeEventListener('keydown', onKeyDown, listenerOptions);
+  }, [handleCancelStreaming, hideMenu, isInteractiveSurface, isLoading, menuVisible]);
 
   useChatKeyboardNav({
     enabled: isInteractiveSurface,
@@ -776,6 +811,8 @@ function ChatSessionViewContent({
         <ChatInput
           onSend={handleSendMessage}
           disabled={variant === 'embedded' ? false : isLoading}
+          isStreaming={isLoading}
+          onCancelStreaming={() => void handleCancelStreaming()}
           ref={inputRef}
           voiceEnabled={true}
           message={draftMessage}

@@ -168,4 +168,28 @@ describe('messageMenuItems', () => {
       title: 'Table 2 (HTML)',
     }));
   });
+
+  it('inclui cancelar geração quando mensagem está em streaming', () => {
+    const onCancelStreaming = vi.fn();
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'streaming-1',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      role: 'assistant',
+      content: 'parcial',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    }) as Message;
+
+    const items = getMessageMenuItems(streamingMessage, {
+      isTTSDisabled: true,
+      onCancelStreaming,
+    });
+
+    const cancelItem = items.find((item) => item.id === 'cancel-generation');
+    expect(cancelItem).toBeTruthy();
+    cancelItem?.action?.();
+    expect(onCancelStreaming).toHaveBeenCalledWith(streamingMessage);
+  });
 });

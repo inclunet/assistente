@@ -80,6 +80,8 @@ const es = {
       stopAudio: 'Detener audio',
       playAudio: 'Reproducir audio',
       stop: 'Detener',
+      cancelGeneration: 'Cancelar generación',
+      cancelGenerationLabel: 'Cancelar generación (Esc)',
       listen: 'Escuchar',
       progressLabel: 'Progreso del asistente',
       step: 'Paso',
