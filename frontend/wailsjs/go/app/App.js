@@ -502,6 +502,10 @@ export function GetMCPServerConfig(arg1) {
   return window['go']['app']['App']['GetMCPServerConfig'](arg1);
 }
 
+export function GetMCPServerLogs(arg1, arg2) {
+  return window['go']['app']['App']['GetMCPServerLogs'](arg1, arg2);
+}
+
 export function GetMCPServerTools(arg1) {
   return window['go']['app']['App']['GetMCPServerTools'](arg1);
 }

@@ -267,6 +267,8 @@ export function GetMCPServerAuthInfo(arg1:string):Promise<Record<string, any>>;
 
 export function GetMCPServerConfig(arg1:string):Promise<mcp.ServerConfig>;
 
+export function GetMCPServerLogs(arg1:string,arg2:number):Promise<Array<mcp.MCPServerLog>>;
+
 export function GetMCPServerTools(arg1:string):Promise<Array<mcp.MCPToolInfo>>;
 
 export function GetMCPWorkspaceRoots():Promise<Array<mcp.Root>>;
