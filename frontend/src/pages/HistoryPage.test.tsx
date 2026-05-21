@@ -25,6 +25,14 @@ let mockLocationSearch = '';
 
 let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> = [];
 
+const stableT = (key: string, fallback?: string | { defaultValue?: string; count?: number }) => {
+  if (typeof fallback === 'string') return fallback;
+  if (fallback?.defaultValue) {
+    return fallback.defaultValue.replace('{{count}}', String(fallback.count ?? ''));
+  }
+  return key;
+};
+
 type ConversationItem = {
   id: string;
   title: string;
@@ -51,13 +59,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (key: string, fallback?: string | { defaultValue?: string; count?: number }) => {
-      if (typeof fallback === 'string') return fallback;
-      if (fallback?.defaultValue) {
-        return fallback.defaultValue.replace('{{count}}', String(fallback.count ?? ''));
-      }
-      return key;
-    },
+    t: stableT,
   }),
 }));
 
@@ -414,11 +416,25 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
   });
 
   it('abre modal de export via querystring e limpa a URL', async () => {
+    const user = userEvent.setup();
     mockLocationSearch = '?modal=export';
     render(<HistoryPage />);
 
     expect(await screen.findByRole('button', { name: 'Exportar agora' })).toBeInTheDocument();
     expect(mockNavigate).toHaveBeenCalledWith('/history', { replace: true });
+
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        explicitSelection: true,
+        includeCredentials: false,
+        outputFormat: 'json',
+        conversationIds: [
+          '01926b90-7a5a-7c4e-8d3f-000000000001',
+          '01926b90-7a5a-7c4e-8d3f-000000000002',
+        ],
+      }));
+    });
   });
 
   it('abre fluxo de import via querystring e limpa a URL', async () => {

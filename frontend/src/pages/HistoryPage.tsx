@@ -236,6 +236,7 @@ export default function HistoryPage() {
   const [snippetsMap, setSnippetsMap] = useState<Map<string, string>>(new Map());
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingQueryExportRef = useRef(false);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportTargetIds, setExportTargetIds] = useState<string[]>([]);
@@ -267,9 +268,28 @@ export default function HistoryPage() {
   const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
   const workspaces = useWorkspaceStore(state => state.workspaces);
 
+  const loadConversations = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await GetConversations();
+      const mapped = (result || []).map((c: Conversation) => ({
+        id: c.id,
+        title: c.title || t('history.untitled', 'Sem título'),
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        message_count: c.message_count || 0
+      }));
+      setConversations(mapped || []);
+    } catch (error) {
+      console.error('Erro ao carregar conversas:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
   useEffect(() => {
-    loadConversations();
-  }, []);
+    void loadConversations();
+  }, [loadConversations]);
 
   const doSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -328,25 +348,6 @@ export default function HistoryPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  const loadConversations = async () => {
-    setLoading(true);
-    try {
-      const result = await GetConversations();
-      const mapped = (result || []).map((c: Conversation) => ({
-        id: c.id,
-        title: c.title || t('history.untitled', 'Sem título'),
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        message_count: c.message_count || 0
-      }));
-      setConversations(mapped || []);
-    } catch (error) {
-      console.error('Erro ao carregar conversas:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleOpenConversation = useCallback(async (conversationId: string, title?: string) => {
     await executeDeepLink(
@@ -685,14 +686,29 @@ export default function HistoryPage() {
     }
 
     if (modal === 'export') {
-      openExportModal([]);
+      if (loading) {
+        pendingQueryExportRef.current = true;
+      } else {
+        openExportModal(getTargetConversationIds());
+      }
     }
     if (modal === 'import') {
       void handleImport();
     }
 
     navigate('/history', { replace: true });
-  }, [handleImport, location.search, navigate, openExportModal]);
+  }, [getTargetConversationIds, handleImport, loading, location.search, navigate, openExportModal]);
+
+  useEffect(() => {
+    if (!pendingQueryExportRef.current) {
+      return;
+    }
+    if (loading) {
+      return;
+    }
+    pendingQueryExportRef.current = false;
+    openExportModal(getTargetConversationIds());
+  }, [getTargetConversationIds, loading, openExportModal]);
 
   const handleConfirmImport = useCallback(async () => {
     if (lastImportResult) {
