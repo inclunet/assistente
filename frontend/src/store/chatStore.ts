@@ -1326,17 +1326,31 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const sessionKey = options?.origin?.sessionKey;
       const session = getSession(get(), conversationId, sessionKey);
       const streamingMessageId = session.streamingMessageId;
+      const timeline = getConversationTimeline(get(), conversationId);
+      const flattenedMessages = flattenThreadedMessages(timeline?.threadedMessages);
+      let streamingNodeId: string | null = null;
+      for (let i = flattenedMessages.length - 1; i >= 0; i -= 1) {
+        const message = flattenedMessages[i];
+        if (message.role === 'assistant' && message.isStreaming) {
+          streamingNodeId = message.id;
+          break;
+        }
+      }
 
       try {
         await CancelStreamingForConversation(conversationId);
         stopChatEventController(conversationId);
         setConversationLoading(conversationId, false, options?.origin?.sessionKey);
 
-        if (streamingMessageId) {
+        if (streamingMessageId || streamingNodeId) {
+          const nodeIdToFinalize = streamingNodeId || streamingMessageId;
+          const finalMessageId = streamingMessageId || streamingNodeId || undefined;
           set((state) => patchConversation(state, conversationId, (conversation) => (
-            finalizeStreamingNode(conversation, streamingMessageId)
+            finalizeStreamingNode(conversation, nodeIdToFinalize!, finalMessageId)
           )));
-          set((state) => patchSession(state, conversationId, { lastInterruptedMessageId: streamingMessageId }, sessionKey));
+          set((state) => patchSession(state, conversationId, {
+            lastInterruptedMessageId: finalMessageId || null,
+          }, sessionKey));
         }
         announce(i18next.t('chat.announce.streamingCancelled'));
       } catch (error: unknown) {

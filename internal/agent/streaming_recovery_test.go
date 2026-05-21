@@ -209,7 +209,7 @@ func TestStreamSimpleWithRecovery_EmitsTerminalErrorWhenExhausted(t *testing.T) 
 	if streamer.calls != 1 {
 		t.Fatalf("calls=%d, want 1", streamer.calls)
 	}
-	streamEvents := em.find("chat:stream")	
+	streamEvents := em.find("chat:stream")
 	var sawErr bool
 	for _, ev := range streamEvents {
 		se, ok := ev.data.(ports.StreamEvent)
@@ -220,6 +220,12 @@ func TestStreamSimpleWithRecovery_EmitsTerminalErrorWhenExhausted(t *testing.T) 
 	}
 	if !sawErr {
 		t.Fatalf("expected terminal error event")
+	}
+	if len(repo.messages) != 1 {
+		t.Fatalf("expected 1 placeholder message, got %d", len(repo.messages))
+	}
+	if repo.messages[0].Content != "parcial" {
+		t.Fatalf("expected partial content to be persisted, got %q", repo.messages[0].Content)
 	}
 }
 
@@ -270,5 +276,60 @@ func TestRunAgenticLoop_RetriesIterationBeforeChatDoneError(t *testing.T) {
 	}
 	if de.ErrorMessage != "" {
 		t.Fatalf("unexpected chat:done error after recovery: %q", de.ErrorMessage)
+	}
+}
+
+func TestRunAgenticLoop_ErrorIncludesAssistantMessageIDAndPersistsPartial(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+
+	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
+		func(h llm.StreamHandler) {
+			h.OnChunk("parcial")
+			h.OnError("boom")
+		},
+	}}
+
+	svc.RunAgenticLoop(
+		context.Background(),
+		[]llm.Message{{Role: "user", Content: "hi"}},
+		llm.ChatParams{MaxAgenticIterations: 1},
+		"c1",
+		"t1",
+		nil,
+		streamer,
+		nil,
+		func(convID string, iter int) IterationHandler {
+			return NewAgenticStreamHandler(em, convID, iter, nil, "t1")
+		},
+		nil,
+		true,
+		1,
+	)
+
+	doneEvents := em.find("chat:done")
+	if len(doneEvents) != 1 {
+		t.Fatalf("expected 1 chat:done, got %d", len(doneEvents))
+	}
+	de, ok := doneEvents[0].data.(ports.DoneEvent)
+	if !ok {
+		t.Fatalf("chat:done payload type mismatch")
+	}
+	if de.ErrorMessage == "" {
+		t.Fatalf("expected error in chat:done")
+	}
+	if de.AssistantMessageID == "" {
+		t.Fatalf("expected assistantMessageId in chat:done error")
+	}
+
+	if len(repo.messages) != 1 {
+		t.Fatalf("expected 1 placeholder message, got %d", len(repo.messages))
+	}
+	if repo.messages[0].ID != de.AssistantMessageID {
+		t.Fatalf("assistantMessageId mismatch: done=%s repo=%s", de.AssistantMessageID, repo.messages[0].ID)
+	}
+	if repo.messages[0].Content != "parcial" {
+		t.Fatalf("expected partial content to be persisted, got %q", repo.messages[0].Content)
 	}
 }

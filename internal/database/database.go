@@ -852,7 +852,7 @@ func UpdateMessageContentWithContext(ctx context.Context, messageID string, cont
 }
 
 // UpdateMessageContentAndReasoningWithContext atualiza conteúdo, reasoning e tokens de uma mensagem
-// existente do usuário do contexto.
+// existente no contexto do usuário atual.
 func UpdateMessageContentAndReasoningWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {
 	if _, err := RequireUserID(ctx); err != nil {
 		return err

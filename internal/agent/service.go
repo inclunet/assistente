@@ -116,10 +116,16 @@ func (s *Service) StreamSimpleWithRecovery(
 		h.SuppressTerminalError(attempt < attempts)
 		streamer.StreamChat(ctx, messages, params, h)
 		if ctx.Err() != nil {
+			partialContent, partialReasoning := h.Finalize()
+			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
 			return
 		}
 		if h.LastError() == "" {
 			return
+		}
+		if attempt == attempts {
+			partialContent, partialReasoning := h.Finalize()
+			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
 		}
 		if attempt < attempts {
 			log.Printf("[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
@@ -247,11 +253,24 @@ func (s *Service) RunAgenticLoop(
 			}
 			streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
 			result = handler.Result()
+			if ctx.Err() != nil {
+				if partialHandler, ok := handler.(interface{ Finalize() (string, string) }); ok {
+					partialContent, partialReasoning := partialHandler.Finalize()
+					s.persistAssistantPartialBestEffort(ctx, assistantMessageID, partialContent, partialReasoning)
+				}
+				return
+			}
 			if result.Error == "" {
 				lastStreamErr = ""
 				break
 			}
 			lastStreamErr = result.Error
+			if attempt == attempts {
+				if partialHandler, ok := handler.(interface{ Finalize() (string, string) }); ok {
+					partialContent, partialReasoning := partialHandler.Finalize()
+					s.persistAssistantPartialBestEffort(ctx, assistantMessageID, partialContent, partialReasoning)
+				}
+			}
 			if attempt < attempts {
 				log.Printf("[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
 				continue
@@ -274,17 +293,18 @@ func (s *Service) RunAgenticLoop(
 			}
 			sort.Strings(errToolsUsed)
 			s.emitter.Emit("chat:done", ports.DoneEvent{
-				ConversationID:   conversationID,
-				TurnID:           turnID,
-				SurfaceOrigin:    surfaceOrigin,
-				HadToolCalls:     totalToolCallCount > 0,
-				Reason:           "error",
-				ErrorMessage:     lastStreamErr,
-				IterationCount:   iteration + 1,
-				ToolCallCount:    totalToolCallCount,
-				ToolsUsed:        errToolsUsed,
-				PromptTokens:     lastUsage.PromptTokens,
-				CompletionTokens: lastUsage.CompletionTokens,
+				ConversationID:     conversationID,
+				TurnID:             turnID,
+				AssistantMessageID: assistantMessageID,
+				SurfaceOrigin:      surfaceOrigin,
+				HadToolCalls:       totalToolCallCount > 0,
+				Reason:             "error",
+				ErrorMessage:       lastStreamErr,
+				IterationCount:     iteration + 1,
+				ToolCallCount:      totalToolCallCount,
+				ToolsUsed:          errToolsUsed,
+				PromptTokens:       lastUsage.PromptTokens,
+				CompletionTokens:   lastUsage.CompletionTokens,
 			})
 			return
 		}
@@ -1263,6 +1283,34 @@ func (s *Service) loadAssistantPrefill(ctx context.Context, assistantMessageID s
 		return ""
 	}
 	return msg.Content
+}
+
+func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assistantMessageID, content, reasoning string) {
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	content = strings.TrimSpace(content)
+	if assistantMessageID == "" || content == "" || s.msgRepo == nil {
+		return
+	}
+
+	var (
+		promptTokens     int
+		completionTokens int
+		totalTokens      int
+		model            string
+	)
+	if msg, err := s.msgRepo.GetMessage(ctx, assistantMessageID); err == nil && msg != nil {
+		promptTokens = msg.PromptTokens
+		completionTokens = msg.CompletionTokens
+		totalTokens = msg.TotalTokens
+		model = msg.Model
+		if strings.TrimSpace(reasoning) == "" {
+			reasoning = msg.Reasoning
+		}
+	}
+
+	if err := s.msgRepo.UpdateMessageContentAndReasoning(ctx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
+		log.Printf("[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
+	}
 }
 
 // patchTrailingAssistantPrefill substitui o conteúdo do trailing assistant no prompt.

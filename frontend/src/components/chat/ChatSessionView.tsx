@@ -507,13 +507,15 @@ function ChatSessionViewContent({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
-      if (event.key !== 'Escape') return;
 
-      if (menuVisible) {
+      if (event.key === 'Escape' && menuVisible) {
         event.preventDefault();
         hideMenu();
         return;
       }
+
+      const isCancelShortcut = event.key === 'Backspace' && (event.ctrlKey || event.altKey);
+      if (!isCancelShortcut) return;
 
       event.preventDefault();
       void handleCancelStreaming();

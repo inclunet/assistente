@@ -358,6 +358,67 @@ describe('chatEventController', () => {
     expect(mockAnnounce).toHaveBeenCalledWith('boom', 'assertive');
   });
 
+  it('em erro no chat:done usa assistantMessageId persistido quando disponível', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      content: 'parcial',
+      done: false,
+      turnId: 'user-1',
+      messageId: 'assistant-db-1',
+    });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      hadToolCalls: false,
+      errorMessage: 'boom',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-1',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.id).toBe('assistant-db-1');
+    expect(messages[1].message.content).toBe('parcial');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-1');
+  });
+
+  it('em erro no chat:stream usa messageId persistido para interrupção', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      content: 'parcial',
+      done: false,
+      turnId: 'user-1',
+      messageId: 'assistant-db-2',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'boom stream',
+      turnId: 'user-1',
+      messageId: 'assistant-db-2',
+    });
+
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
+  });
+
   it('propaga surfaceOrigin dos eventos para anúncio, som e fala', async () => {
     const { adapter } = createAdapter(['conversation-1']);
     const surfaceOrigin = {

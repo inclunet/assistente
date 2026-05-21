@@ -394,6 +394,10 @@ export function startChatEventController({
     if (event.content && !event.done && !event.error) {
       currentTurnId = event.turnId || currentTurnId;
       ensureAssistantNode();
+      const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
+      if (backendAssistantId) {
+        patchCurrentSession({ streamingMessageId: backendAssistantId });
+      }
       if (!streamingAnnounced) {
         streamingAnnounced = true;
         announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite', getEventOrigin(event));
@@ -406,7 +410,8 @@ export function startChatEventController({
       ensureAssistantNode();
       flushStreamingUpdate();
       announce(String(event.error || '').trim(), 'assertive');
-      patchCurrentSession({ lastInterruptedMessageId: streamingMsgId });
+      const interruptedId = event.messageId && event.messageId !== '' ? event.messageId : streamingMsgId;
+      patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming();
       cleanup();
     }
@@ -546,8 +551,9 @@ export function startChatEventController({
       ensureAssistantNode();
       flushStreamingUpdate();
       announce(String(event.errorMessage || '').trim(), 'assertive');
-      patchCurrentSession({ lastInterruptedMessageId: streamingMsgId });
-      finalizeStreaming(null, currentTurnId);
+      const interruptedId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : streamingMsgId;
+      patchCurrentSession({ lastInterruptedMessageId: interruptedId });
+      finalizeStreaming(event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null, currentTurnId);
       cleanup();
       return;
     }

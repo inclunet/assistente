@@ -85,7 +85,7 @@ func FinalizeAssistantMessage(ctx context.Context, msgRepo MessageRepository, as
 		return assistantMessageID, nil
 	}
 	if msgRepo == nil {
-		return "", nil
+		return assistantMessageID, nil
 	}
 
 	if assistantMessageID != "" {
