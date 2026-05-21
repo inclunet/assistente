@@ -96,7 +96,7 @@ interface ImportResultSummary {
   skippedEmptyConversations: number;
   skippedConversationConflict: number;
   skippedProviderConflict: number;
-  skippedMcpServerConflict?: number;
+  skippedMcpServerConflict: number;
   skippedTaskListConflict: number;
   skippedCredentialConflict: number;
   skippedOther: number;
@@ -744,7 +744,7 @@ export default function HistoryPage() {
           count: result.skippedProviderConflict,
         }));
       }
-      if (result.skippedMcpServerConflict && result.skippedMcpServerConflict > 0) {
+      if (result.skippedMcpServerConflict > 0) {
         details.push(t('history.importSkippedMcpServerConflictCount', {
           defaultValue: 'Ignoradas por conflito de servidor MCP: {{count}}',
           count: result.skippedMcpServerConflict,
@@ -1579,7 +1579,7 @@ export default function HistoryPage() {
                     <dd>{lastImportResult.skippedProviderConflict}</dd>
                   </div>
                 )}
-                {!!lastImportResult.skippedMcpServerConflict && lastImportResult.skippedMcpServerConflict > 0 && (
+                {lastImportResult.skippedMcpServerConflict > 0 && (
                   <div className="history-page__import-row">
                     <dt>{t('history.importSkippedMcpServerConflictLabel', 'Conflitos de servidor MCP')}</dt>
                     <dd>{lastImportResult.skippedMcpServerConflict}</dd>

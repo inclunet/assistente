@@ -148,7 +148,7 @@ func (m *Manager) ListToolCatalog(ctx context.Context, filter tools.ToolCatalogF
 func (m *Manager) GetLogs(slug string, limit int) ([]MCPServerLog, error) {
 	repo := m.repository()
 	if repo == nil {
-		return []MCPServerLog{}, nil
+		return nil, fmt.Errorf("repository MCP não configurado")
 	}
 	return repo.GetLogs(m.credentialContext(), slug, limit)
 }

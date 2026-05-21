@@ -404,4 +404,64 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     expect(screen.getByText('Incluídas')).toBeInTheDocument();
     expect(screen.getByText('Nenhum conflito detectado')).toBeInTheDocument();
   });
+
+  it('exporta servidores MCP no JSON canônico', async () => {
+    const user = userEvent.setup();
+    mockGetConversations.mockResolvedValue([]);
+    mockListMcpServers.mockResolvedValue([
+      { slug: 'github', name: 'GitHub' },
+      { slug: 'filesystem', name: 'Filesystem' },
+    ]);
+
+    render(<HistoryPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Exportar dados' }));
+    await user.click(screen.getByLabelText('Incluir servidores MCP persistidos no banco'));
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        explicitSelection: true,
+        includeCredentials: false,
+        outputFormat: 'json',
+        mcpServerSlugs: ['github', 'filesystem'],
+      }));
+    });
+  });
+
+  it('exporta MCP no formato mcp-json e desabilita opções incompatíveis', async () => {
+    const user = userEvent.setup();
+    mockGetConversations.mockResolvedValue([]);
+    mockListMcpServers.mockResolvedValue([{ slug: 'github', name: 'GitHub' }]);
+    mockGetLLMProvidersWithStatus.mockResolvedValue([{ id: 'provider-1', name: 'OpenAI' }]);
+
+    render(<HistoryPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Exportar dados' }));
+
+    const providersCheckbox = screen.getByLabelText('Incluir providers persistidos no banco') as HTMLInputElement;
+    expect(providersCheckbox.disabled).toBe(false);
+    await user.click(providersCheckbox);
+
+    await user.click(screen.getByLabelText('Incluir servidores MCP persistidos no banco'));
+    await user.click(screen.getByLabelText('Exportar servidores MCP em formato compatível (mcp-json)'));
+
+    expect((screen.getByLabelText('Incluir providers persistidos no banco') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Incluir tasklists persistidas no banco') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Incluir credenciais criptografadas no export') as HTMLInputElement).disabled).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        explicitSelection: true,
+        includeCredentials: false,
+        outputFormat: 'mcp-json',
+        mcpServerSlugs: ['github'],
+      }));
+    });
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('providerIds');
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('taskListIds');
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('conversationIds');
+  });
 });
