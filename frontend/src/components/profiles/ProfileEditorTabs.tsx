@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { profiles } from '@wailsjs/go/models';
-import { main, allowlist, skills } from '@wailsjs/go/models';
+import { controllers, allowlist, skills } from '@wailsjs/go/models';
 import { Tabs, TabList, Tab, TabPanel } from '../ui/tabs';
 import { ProfileGeneralSection } from './ProfileGeneralSection';
 import { ProfileChatSection } from './ProfileChatSection';
@@ -15,7 +15,7 @@ type EditorTabId = (typeof EDITOR_TABS)[number];
 
 export interface ProfileEditorTabsProps {
   editingProfile: profiles.Profile & { id?: string; source?: string; isActive?: boolean };
-  availableTools: main.ToolInfo[];
+  availableTools: controllers.ToolInfo[];
   availableSkills: Array<
     | skills.SkillInfo
     | { slug: string; name: string; description?: string; version?: string; source?: string }

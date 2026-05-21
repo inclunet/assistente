@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 import {
   loadConversationSnapshot,
   loadMessageChildrenNodes,
@@ -24,14 +24,14 @@ vi.mock('i18next', () => ({
   },
 }));
 
-const node = (id: string) => new main.MessageNode({
-  message: new main.EnrichedMessage({ id, role: 'user', content: id }),
+const node = (id: string) => new chat.MessageNode({
+  message: new chat.EnrichedMessage({ id, role: 'user', content: id }),
   children: [],
   level: 0,
   childCount: 0,
 });
 
-const windowResult = (ids: string[], overrides: Partial<main.MessageWindow> = {}) => main.MessageWindow.createFrom({
+const windowResult = (ids: string[], overrides: Partial<chat.MessageWindow> = {}) => chat.MessageWindow.createFrom({
   scope: 'conversation',
   conversationId: 'conversation-1',
   nodes: ids.map(node),
@@ -140,7 +140,7 @@ describe('chatSessionLoader', () => {
   it('não inventa índices absolutos quando a janela vem expandida por turno', async () => {
     const rawWindowNode = node('raw-window');
     rawWindowNode.originalIndex = 4;
-    mockGetConversationMessageWindow.mockResolvedValue(main.MessageWindow.createFrom({
+    mockGetConversationMessageWindow.mockResolvedValue(chat.MessageWindow.createFrom({
       scope: 'conversation',
       conversationId: 'conversation-1',
       nodes: [node('expanded-before'), rawWindowNode],

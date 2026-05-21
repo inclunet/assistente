@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   SendMessage,
   RetryMessage,
+  CancelStreamingForConversation,
   EnsureConversation,
   AssignConversationToChannel,
   UnassignConversationFromChannel,
@@ -192,6 +193,7 @@ interface ChatStore {
     paramsOverride?: Partial<llm.ChatParams>,
     options?: { origin?: ChatSurfaceOrigin },
   ) => Promise<void>;
+  cancelStreaming: (conversationId: string, options?: { origin?: ChatSurfaceOrigin }) => Promise<void>;
   cancelConversationTurn: (conversationId: string) => void;
 
   getConversationMessages: (conversationId: string) => Message[];
@@ -1309,6 +1311,25 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         });
       } catch (error) {
         if (!isConversationTurnQueueClearedError(error)) throw error;
+      }
+    },
+
+    cancelStreaming: async (conversationId, options) => {
+      if (!conversationId) {
+        console.error('[Chat] cancelStreaming sem conversationId explícito');
+        announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
+        return;
+      }
+
+      try {
+        await CancelStreamingForConversation(conversationId);
+        stopChatEventController(conversationId);
+        setConversationLoading(conversationId, false, options?.origin?.sessionKey);
+        announce(i18next.t('chat.announce.streamingCancelled'));
+      } catch (error: unknown) {
+        const errorMsg = getErrorMessage(error);
+        console.error('[Chat] falha ao cancelar streaming', error);
+        announce(i18next.t('chat.errors.cancelStreamingFailed', { message: errorMsg }), 'assertive');
       }
     },
 

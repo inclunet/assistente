@@ -1,6 +1,6 @@
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import i18next from 'i18next';
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 import type { ToolCallStatus } from '../types/chat';
 import { announce } from '../hooks/useAnnouncer';
 import {
@@ -249,7 +249,7 @@ export function startChatEventController({
   const ensureAssistantNode = () => {
     if (assistantNodeCreated) return;
     assistantNodeCreated = true;
-    const assistantMsg = new main.EnrichedMessage({
+    const assistantMsg = new chat.EnrichedMessage({
       id: streamingMsgId,
       role: 'assistant',
       content: '',
@@ -260,7 +260,7 @@ export function startChatEventController({
       internal: false,
       createdAt: new Date().toISOString(),
     }) as Message;
-    const assistantNode = new main.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
+    const assistantNode = new chat.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
     const session = getCurrentSession();
     if (!session.conversation) return;
     patchCurrentSession({
@@ -356,7 +356,7 @@ export function startChatEventController({
     if (!event.userMessageId) return;
     currentTurnId = event.turnId || event.userMessageId.toString();
     if (hasMessageId(getCurrentSession().conversation?.threadedMessages, String(event.userMessageId))) return;
-    const userMsg = new main.EnrichedMessage({
+    const userMsg = new chat.EnrichedMessage({
       id: event.userMessageId.toString(),
       role: 'user',
       content: event.userContent || external?.text || initialUserContent,
@@ -367,7 +367,7 @@ export function startChatEventController({
       createdAt: new Date().toISOString(),
       source: external?.channel,
     }) as Message;
-    const userNode = new main.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
+    const userNode = new chat.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
     const session = getCurrentSession();
     if (!session.conversation) return;
     patchCurrentSession({

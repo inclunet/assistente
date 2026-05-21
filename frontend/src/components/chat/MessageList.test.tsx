@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageList } from './MessageList';
-import { main } from '../../../wailsjs/go/models';
+import { chat } from '../../../wailsjs/go/models';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -18,8 +18,8 @@ vi.mock('./MessageNode', () => ({
 }));
 
 describe('MessageList', () => {
-  const createNode = (id = '1') => main.MessageNode.createFrom({
-    message: new main.EnrichedMessage({
+  const createNode = (id = '1') => chat.MessageNode.createFrom({
+    message: new chat.EnrichedMessage({
       id,
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'user',
@@ -161,7 +161,7 @@ describe('MessageList', () => {
 
     render(<MessageList threadedMessages={[firstAssistant, secondAssistant, thirdAssistant]} />);
 
-    const props = hoisted.messageNodeMock.mock.calls[0][0] as { node: main.MessageNode };
+    const props = hoisted.messageNodeMock.mock.calls[0][0] as { node: chat.MessageNode };
     expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(1);
     expect(props.node.message.id).toBe('assistant-3');
     expect(props.node.message.content).toBe('intermediário');
@@ -186,7 +186,7 @@ describe('MessageList', () => {
     render(<MessageList threadedMessages={[canonicalNode, streamingNode]} />);
 
     const props = hoisted.messageNodeMock.mock.calls[0][0] as {
-      node: main.MessageNode & { message: main.EnrichedMessage & { _turnSegments?: unknown[] } };
+      node: chat.MessageNode & { message: chat.EnrichedMessage & { _turnSegments?: unknown[] } };
     };
     expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(1);
     expect(props.node.message.id).toBe('streaming-turn-1');

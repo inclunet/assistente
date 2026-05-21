@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { GetAvailableTools, GetAllowlists, GetSkills } from '@wailsjs/go/app/App';
-import { main, allowlist, skills } from '../../wailsjs/go/models';
+import { controllers, allowlist, skills } from '../../wailsjs/go/models';
 
 export interface ProfileDependencies {
-  tools: main.ToolInfo[];
+  tools: controllers.ToolInfo[];
   skills: skills.SkillInfo[];
   allowlists: allowlist.AllowlistInfo[];
   loading: boolean;
@@ -19,7 +19,7 @@ export interface ProfileDependencies {
  * Também escuta eventos MCP para atualizar ferramentas dinamicamente.
  */
 export function useProfileDependencies(): ProfileDependencies {
-  const [tools, setTools] = useState<main.ToolInfo[]>([]);
+  const [tools, setTools] = useState<controllers.ToolInfo[]>([]);
   const [skills, setSkills] = useState<skills.SkillInfo[]>([]);
   const [allowlists, setAllowlists] = useState<allowlist.AllowlistInfo[]>([]);
   const [loading, setLoading] = useState(true);

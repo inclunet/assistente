@@ -16,7 +16,7 @@ vi.mock('i18next', () => ({
 }));
 import { getMessageMenuItems } from './messageMenuItems';
 import type { Message } from '../store/chatStore';
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 
 vi.mock('../services/messageAudio', () => ({
   messageAudioService: {
@@ -40,7 +40,7 @@ vi.mock('../services/tts', () => ({
 describe('messageMenuItems', () => {
   it('inclui itens basicos e markdown', () => {
     i18nTMock.mockClear();
-    const assistantMessage = new main.EnrichedMessage({
+    const assistantMessage = new chat.EnrichedMessage({
       id: '1',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
@@ -70,7 +70,7 @@ describe('messageMenuItems', () => {
 
   it('inclui itens de usuario', () => {
     i18nTMock.mockClear();
-    const userMessage = new main.EnrichedMessage({
+    const userMessage = new chat.EnrichedMessage({
       id: '2',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'user',
@@ -99,7 +99,7 @@ describe('messageMenuItems', () => {
 
   it('inclui envio para editor quando configurado', () => {
     i18nTMock.mockClear();
-    const assistantMessage = new main.EnrichedMessage({
+    const assistantMessage = new chat.EnrichedMessage({
       id: '3',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
@@ -133,7 +133,7 @@ describe('messageMenuItems', () => {
   it('usa titulos distintos ao enviar multiplas tabelas para novo documento', () => {
     i18nTMock.mockClear();
     const onSendToEditor = vi.fn();
-    const assistantMessage = new main.EnrichedMessage({
+    const assistantMessage = new chat.EnrichedMessage({
       id: '4',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',

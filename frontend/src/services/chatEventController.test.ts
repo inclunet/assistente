@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 import {
   startChatEventController,
   stopAllChatEventControllers,
@@ -108,7 +108,7 @@ interface TestSession extends ChatEventSession {
 }
 
 const createMessage = (id: string, role: string, content = '', conversationId = 'conversation-1'): Message => (
-  new main.EnrichedMessage({
+  new chat.EnrichedMessage({
     id,
     role,
     content,
@@ -120,7 +120,7 @@ const createMessage = (id: string, role: string, content = '', conversationId = 
 );
 
 const createNode = (message: Message): MessageNode => (
-  new main.MessageNode({
+  new chat.MessageNode({
     message,
     children: [],
     level: 0,

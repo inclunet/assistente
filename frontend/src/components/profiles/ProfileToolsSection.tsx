@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { FilterOutlined } from '@ant-design/icons';
-import { main, allowlist } from '@wailsjs/go/models';
+import { controllers, allowlist } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import { useMCPStore } from '../../store/mcpStore';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
@@ -13,7 +13,7 @@ import { parseToolSource, extractMcpServers } from '../../utils/toolSource';
 export type ToolFilter = 'all' | 'local' | 'mcp' | `mcp:${string}`;
 
 export interface ProfileToolsSectionProps {
-  availableTools: main.ToolInfo[];
+  availableTools: controllers.ToolInfo[];
   enabledTools?: string[] | null;
   toolsDisabled?: boolean;
   commandAllowlist?: string;
