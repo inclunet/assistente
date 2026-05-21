@@ -162,6 +162,10 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
   const taskLists = Array.isArray(resources.taskLists) ? resources.taskLists : [];
   const providers = Array.isArray(resources.providers) ? resources.providers : [];
   const mcpServers = Array.isArray(resources.mcpServers) ? resources.mcpServers : [];
+  const mcpServersExternalMap = isRecord(parsed.mcpServers) ? parsed.mcpServers : null;
+  const mcpServerCount = mcpServers.length > 0
+    ? mcpServers.length
+    : (mcpServersExternalMap ? Object.keys(mcpServersExternalMap).length : 0);
   const messageCount = conversations.reduce((count, item) => {
     if (!isRecord(item) || !Array.isArray(item.messages)) {
       return count;
@@ -190,7 +194,7 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
     conversationCount: conversations.length,
     messageCount,
     providerCount: providers.length,
-    mcpServerCount: mcpServers.length,
+    mcpServerCount,
     taskListCount: taskLists.length,
     taskCount: taskCounts.taskCount,
     taskNoteCount: taskCounts.taskNoteCount,

@@ -21,6 +21,8 @@ const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
 const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
 
+let mockLocationSearch = '';
+
 let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> = [];
 
 type ConversationItem = {
@@ -38,7 +40,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
     useNavigate: () => mockNavigate,
     useLocation: () => ({
       pathname: '/history',
-      search: '',
+      search: mockLocationSearch,
       hash: '',
       state: null,
       key: 'test',
@@ -190,6 +192,7 @@ import HistoryPage from './HistoryPage';
 
 describe('HistoryPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
+    mockLocationSearch = '';
     mockGetConversations.mockResolvedValue(conversations);
     mockDeleteConversation.mockResolvedValue(undefined);
     mockUpdateConversation.mockResolvedValue(undefined);
@@ -229,6 +232,11 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     });
     mockAddTab.mockResolvedValue(undefined);
     mockNavigate.mockReset();
+    mockNavigate.mockImplementation((to: unknown, options?: unknown) => {
+      if (to === '/history' && typeof options === 'object' && options !== null && 'replace' in options && (options as { replace?: boolean }).replace === true) {
+        mockLocationSearch = '';
+      }
+    });
     lastToolbarActions = [];
     mockRequestConfirm.mockReset();
     mockRequestConfirm.mockResolvedValue(true);
@@ -403,6 +411,36 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     expect(await screen.findByText('backup-db-only.json')).toBeInTheDocument();
     expect(screen.getByText('Incluídas')).toBeInTheDocument();
     expect(screen.getByText('Nenhum conflito detectado')).toBeInTheDocument();
+  });
+
+  it('abre modal de export via querystring e limpa a URL', async () => {
+    mockLocationSearch = '?modal=export';
+    render(<HistoryPage />);
+
+    expect(await screen.findByRole('button', { name: 'Exportar agora' })).toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/history', { replace: true });
+  });
+
+  it('abre fluxo de import via querystring e limpa a URL', async () => {
+    mockLocationSearch = '?modal=import';
+    const jsonData = JSON.stringify({
+      version: 2,
+      appVersion: '0.9.0',
+      exportedAt: '2025-01-01T00:00:00Z',
+      options: { includeCredentials: false, includeAudio: false },
+      resources: { conversations: [], providers: [], taskLists: [] },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({
+      name: 'backup-db-only.json',
+      content: jsonData,
+    });
+
+    render(<HistoryPage />);
+
+    await waitFor(() => {
+      expect(mockAnalyzeImportData).toHaveBeenCalledWith(jsonData, '');
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('/history', { replace: true });
   });
 
   it('exporta servidores MCP no JSON canônico', async () => {
