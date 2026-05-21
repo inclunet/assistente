@@ -50,10 +50,18 @@ func (m *mockMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions)
 	id := fmt.Sprintf("%d", m.nextID)
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: id}, Role: opts.Role, Content: opts.Content}, nil
 }
+
+func (m *mockMsgRepo) UpdateMessageContentAndReasoning(_ context.Context, _ string, _ string, _ string, _, _, _ int, _ string) error {
+	return nil
+}
 func (m *mockMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}}, nil
 }
 func (m *mockMsgRepo) GetMessages(context.Context, string, *string) ([]chat.Message, error) {
+	return nil, nil
+}
+
+func (m *mockMsgRepo) GetMessagesByTurnID(context.Context, string, *string, string, int) ([]chat.Message, error) {
 	return nil, nil
 }
 func (m *mockMsgRepo) GetConversationSummary(context.Context, string) (string, string, error) {
@@ -100,7 +108,7 @@ func TestSaveAndFinish_CallsOnSpeechRequestBeforeChatDone(t *testing.T) {
 		},
 	})
 
-	svc.SaveAndFinish(context.Background(), "1", "", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "1", "", "", AgenticResult{
 		FullResponse: "Olá, mundo!",
 		Model:        "test-model",
 	}, "", nil, nil)
@@ -157,7 +165,7 @@ func TestSaveAndFinish_NilOnSpeechRequest_NoPanic(t *testing.T) {
 	})
 
 	// Não deve dar panic
-	svc.SaveAndFinish(context.Background(), "1", "", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "1", "", "", AgenticResult{
 		FullResponse: "Sem TTS",
 		Model:        "test-model",
 	}, "", nil, nil)
@@ -187,7 +195,7 @@ func TestSaveAndFinish_EmptyResponse_NoSpeechCall(t *testing.T) {
 		},
 	})
 
-	svc.SaveAndFinish(context.Background(), "1", "", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "1", "", "", AgenticResult{
 		FullResponse: "",
 		Model:        "test-model",
 	}, "", nil, nil)
@@ -210,7 +218,7 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 		},
 	})
 
-	svc.SaveAndFinish(context.Background(), "42", "", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "42", "", "", AgenticResult{
 		FullResponse: "Resposta com ID",
 		Model:        "test-model",
 	}, "", nil, nil)

@@ -111,6 +111,16 @@ func (s *Service) RunAgenticLoop(
 		return
 	}
 
+	assistantMessageID, err := chat.EnsureAssistantPlaceholder(ctx, s.msgRepo, conversationID, turnID)
+	if errors.Is(err, chat.ErrConversationGone) {
+		return
+	}
+	if err != nil {
+		// Best-effort: segue sem placeholder (streaming funciona, mas sem messageId estável).
+		log.Printf("[Agent] aviso: falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
+		assistantMessageID = ""
+	}
+
 	// Resolver maxIterations usando valor do perfil (params) ou fallback ao config do executor
 	maxIterations := params.MaxAgenticIterations
 	if maxIterations <= 0 {
@@ -161,6 +171,9 @@ func (s *Service) RunAgenticLoop(
 
 		// 1. Cria handler para esta iteração e chama o LLM (bloqueante)
 		handler := newHandler(conversationID, iteration)
+		if setter, ok := handler.(interface{ SetAssistantMessageID(string) }); ok {
+			setter.SetAssistantMessageID(assistantMessageID)
+		}
 		streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
 
 		result := handler.Result()
@@ -224,7 +237,7 @@ func (s *Service) RunAgenticLoop(
 			}
 
 			// 4. finish_reason="stop" → resposta final
-			s.SaveAndFinish(ctx, conversationID, turnID, result, params.ProfileSlug, &LoopStats{
+			s.SaveAndFinish(ctx, conversationID, turnID, assistantMessageID, result, params.ProfileSlug, &LoopStats{
 				IterationCount: iteration + 1,
 				ToolCallCount:  totalToolCallCount,
 				ToolsUsed:      toolsUsedSet,
@@ -571,6 +584,7 @@ type LoopStats struct {
 func (s *Service) SaveAndFinish(
 	ctx context.Context,
 	conversationID, turnID string,
+	assistantMessageID string,
 	result AgenticResult,
 	profileSlug string,
 	loopStats *LoopStats,
@@ -601,13 +615,16 @@ func (s *Service) SaveAndFinish(
 		}
 
 		var err error
-		savedMsgID, err = chat.SaveAssistantMessage(ctx, s.msgRepo, opts)
+		savedMsgID, err = chat.FinalizeAssistantMessage(ctx, s.msgRepo, assistantMessageID, opts)
 		if errors.Is(err, chat.ErrConversationGone) {
 			return
 		}
 		if err != nil {
 			log.Printf("[Agent] erro ao salvar resposta final: %v", err)
 		}
+	}
+	if savedMsgID == "" {
+		savedMsgID = assistantMessageID
 	}
 
 	if s.responseNotifier != nil {

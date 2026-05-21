@@ -16,6 +16,7 @@ type BaseStreamHandler struct {
 	Emitter        events.Emitter
 	ConversationID string
 	TurnID         string
+	AssistantMessageID string
 	SurfaceOrigin  *ports.ChatSurfaceOrigin
 
 	accumulatedContent   string
@@ -30,6 +31,12 @@ type BaseStreamHandler struct {
 	lastThinkingEmitTime time.Time
 	thinkingTimer        *time.Timer
 	pendingThinkingEmit  bool
+}
+
+// SetAssistantMessageID injeta o ID estável da mensagem assistant (placeholder) para este turno.
+// Usado pelo RunAgenticLoop para garantir messageId consistente em chat:stream.
+func (h *BaseStreamHandler) SetAssistantMessageID(messageID string) {
+	h.AssistantMessageID = messageID
 }
 
 func (h *BaseStreamHandler) OnChunk(content string) {
@@ -69,6 +76,7 @@ func (h *BaseStreamHandler) OnChunk(content string) {
 
 func (h *BaseStreamHandler) emitStreamEvent() {
 	h.Emitter.Emit("chat:stream", events.StreamEvent{
+		MessageID:      h.AssistantMessageID,
 		Content:        h.accumulatedContent,
 		Done:           false,
 		ConversationId: h.ConversationID,

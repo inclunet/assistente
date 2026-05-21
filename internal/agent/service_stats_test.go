@@ -33,7 +33,7 @@ func TestSaveAndFinish_DoneEvent_WithLoopStats(t *testing.T) {
 		},
 	}
 
-	svc.SaveAndFinish(context.Background(), "42", "1", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "42", "1", "", AgenticResult{
 		FullResponse: "Resposta final",
 		Model:        "gpt-4",
 	}, "", stats, nil)
@@ -93,7 +93,7 @@ func TestSaveAndFinish_DoneEvent_NilLoopStats(t *testing.T) {
 		MsgRepo: repo,
 	})
 
-	svc.SaveAndFinish(context.Background(), "1", "turn-1", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "1", "turn-1", "", AgenticResult{
 		FullResponse: "Resposta direta",
 		Model:        "test",
 		Usage: llm.Usage{
@@ -154,7 +154,7 @@ func TestSaveAndFinish_DoneEvent_ZeroToolCalls(t *testing.T) {
 		ToolsUsed:      map[string]struct{}{},
 	}
 
-	svc.SaveAndFinish(context.Background(), "1", "1", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "1", "1", "", AgenticResult{
 		FullResponse: "Sem tools",
 		Model:        "test",
 	}, "", stats, nil)

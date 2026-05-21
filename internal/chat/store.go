@@ -30,11 +30,18 @@ type MessageRepository interface {
 	// CreateMessage persiste uma mensagem no banco.
 	CreateMessage(ctx context.Context, opts MessageOptions) (*Message, error)
 
+	// UpdateMessageContentAndReasoning atualiza conteúdo, reasoning e tokens de uma mensagem.
+	UpdateMessageContentAndReasoning(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error
+
 	// GetMessage retorna uma mensagem completa pelo ID.
 	GetMessage(ctx context.Context, messageID string) (*Message, error)
 
 	// GetMessages retorna mensagens de uma conversa, opcionalmente filtradas por parentID.
 	GetMessages(ctx context.Context, conversationID string, parentID *string) ([]Message, error)
+
+	// GetMessagesByTurnID retorna mensagens de um turno específico pertencentes ao usuário do contexto.
+	// Mantém o mesmo escopo de parent da janela para não misturar raiz e threads.
+	GetMessagesByTurnID(ctx context.Context, conversationID string, parentID *string, turnID string, limit int) ([]Message, error)
 
 	// GetConversationSummary retorna o resumo salvo e o ID da última mensagem resumida.
 	GetConversationSummary(ctx context.Context, conversationID string) (summary string, upToMessageID string, err error)

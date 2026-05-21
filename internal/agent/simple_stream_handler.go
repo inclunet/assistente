@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 
+	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
@@ -17,6 +18,7 @@ type SimpleStreamHandler struct {
 	svc           *Service
 	ctx           context.Context
 	userMessageID string // ID of the user message (root of this response thread)
+	assistantMessageID string // ID estável do assistant (placeholder) para este turno
 	profileSlug   string // Profile slug for TTS resolution
 }
 
@@ -26,16 +28,23 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	assistantMsgID, err := chat.EnsureAssistantPlaceholder(ctx, s.msgRepo, conversationID, userMessageID)
+	if err != nil {
+		// Best-effort: streaming ainda funciona, mas sem messageId estável.
+		assistantMsgID = ""
+	}
 	return &SimpleStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        s.emitter,
 			ConversationID: conversationID,
 			TurnID:         userMessageID,
+			AssistantMessageID: assistantMsgID,
 			SurfaceOrigin:  surfaceOrigin,
 		},
 		svc:           s,
 		ctx:           ctx,
 		userMessageID: userMessageID,
+		assistantMessageID: assistantMsgID,
 		profileSlug:   profileSlug,
 	}
 }
@@ -43,6 +52,7 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 func (h *SimpleStreamHandler) OnError(err string) {
 	content, _ := h.Finalize()
 	h.Emitter.Emit("chat:stream", events.StreamEvent{
+		MessageID:      h.AssistantMessageID,
 		Content:        content,
 		Done:           true,
 		Error:          err,
@@ -79,7 +89,7 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 
 	// Delegate save, notify, and event emission to the Service (same as agentic path).
 	// The user message remains a standalone item; the assistant response carries the turn id.
-	h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, AgenticResult{
+	h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, h.assistantMessageID, AgenticResult{
 		FullResponse: finalContent,
 		Reasoning:    accumulatedReasoning,
 		Usage:        usage,
