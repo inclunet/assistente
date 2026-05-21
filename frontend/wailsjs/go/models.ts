@@ -3154,6 +3154,9 @@ export namespace profiles {
 	    disable_on_demand_skills?: boolean;
 	    command_allowlist?: string;
 	    max_agentic_iterations?: number;
+	    streaming_recovery_enabled?: boolean;
+	    streaming_recovery_max_attempts?: number;
+	    streaming_recovery_show_continue?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatConfig(source);
@@ -3179,6 +3182,9 @@ export namespace profiles {
 	        this.disable_on_demand_skills = source["disable_on_demand_skills"];
 	        this.command_allowlist = source["command_allowlist"];
 	        this.max_agentic_iterations = source["max_agentic_iterations"];
+	        this.streaming_recovery_enabled = source["streaming_recovery_enabled"];
+	        this.streaming_recovery_max_attempts = source["streaming_recovery_max_attempts"];
+	        this.streaming_recovery_show_continue = source["streaming_recovery_show_continue"];
 	    }
 	}
 	export class TriggerConfig {

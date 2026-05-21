@@ -15,6 +15,9 @@ export interface ProfileChatSectionProps {
   topP: number;
   responseTimeout: number;
   reasoningEffort: string;
+  streamingRecoveryEnabled?: boolean;
+  streamingRecoveryMaxAttempts?: number;
+  streamingRecoveryShowContinue?: boolean;
   onChange: (
     field:
       | 'llm_provider'
@@ -27,8 +30,11 @@ export interface ProfileChatSectionProps {
       | 'min_context_messages'
       | 'top_p'
       | 'response_timeout'
-      | 'reasoning_effort',
-    value: string | number
+      | 'reasoning_effort'
+      | 'streaming_recovery_enabled'
+      | 'streaming_recovery_max_attempts'
+      | 'streaming_recovery_show_continue',
+    value: string | number | boolean
   ) => void;
   onMultiChange?: (updates: Record<string, unknown>) => void;
   disabled?: boolean;
@@ -50,6 +56,9 @@ export function ProfileChatSection({
   topP,
   responseTimeout,
   reasoningEffort,
+  streamingRecoveryEnabled,
+  streamingRecoveryMaxAttempts,
+  streamingRecoveryShowContinue,
   onChange,
   onMultiChange,
   disabled = false,
@@ -64,6 +73,9 @@ export function ProfileChatSection({
   const minContextMessagesValue = minContextMessages ?? 0;
   const responseTimeoutValue = responseTimeout ?? 180;
   const reasoningValue = reasoningEffort || 'off';
+  const streamingRecoveryEnabledValue = streamingRecoveryEnabled ?? true;
+  const streamingRecoveryMaxAttemptsValue = streamingRecoveryMaxAttempts ?? 3;
+  const streamingRecoveryShowContinueValue = streamingRecoveryShowContinue ?? true;
 
   return (
     <div className="profiles-fields" data-testid="profile-chat-section">
@@ -284,6 +296,64 @@ export function ProfileChatSection({
             disabled={disabled}
           />
         </div>
+      </fieldset>
+
+      {/* ── Recuperação ── */}
+      <fieldset className="profiles-field-group">
+        <legend className="profiles-field-group__title">
+          {t('profiles.chatSection.groupRecovery')}
+        </legend>
+
+        <div className="profiles-field profiles-field--checkbox">
+          <label className="profiles-field__label" htmlFor="chat-streaming-recovery-enabled">
+            <input
+              id="chat-streaming-recovery-enabled"
+              type="checkbox"
+              checked={streamingRecoveryEnabledValue}
+              onChange={(e) => onChange('streaming_recovery_enabled', e.target.checked)}
+              disabled={disabled}
+            />
+            {t('profiles.chatSection.streamingRecoveryEnabled')}
+          </label>
+        </div>
+        <span className="profiles-field__hint">
+          {t('profiles.chatSection.streamingRecoveryEnabledHint')}
+        </span>
+
+        <div className="profiles-field">
+          <label htmlFor="chat-streaming-recovery-max-attempts" className="profiles-field__label">
+            {t('profiles.chatSection.streamingRecoveryMaxAttempts')}
+          </label>
+          <input
+            id="chat-streaming-recovery-max-attempts"
+            type="number"
+            className="profiles-field__input"
+            min={1}
+            max={10}
+            value={streamingRecoveryMaxAttemptsValue}
+            onChange={(e) => onChange('streaming_recovery_max_attempts', parseInt(e.target.value) || 3)}
+            disabled={disabled || !streamingRecoveryEnabledValue}
+          />
+          <span className="profiles-field__hint">
+            {t('profiles.chatSection.streamingRecoveryMaxAttemptsHint')}
+          </span>
+        </div>
+
+        <div className="profiles-field profiles-field--checkbox">
+          <label className="profiles-field__label" htmlFor="chat-streaming-recovery-show-continue">
+            <input
+              id="chat-streaming-recovery-show-continue"
+              type="checkbox"
+              checked={streamingRecoveryShowContinueValue}
+              onChange={(e) => onChange('streaming_recovery_show_continue', e.target.checked)}
+              disabled={disabled || !streamingRecoveryEnabledValue}
+            />
+            {t('profiles.chatSection.streamingRecoveryShowContinue')}
+          </label>
+        </div>
+        <span className="profiles-field__hint">
+          {t('profiles.chatSection.streamingRecoveryShowContinueHint')}
+        </span>
       </fieldset>
     </div>
   );
