@@ -401,6 +401,7 @@ export function startChatEventController({
       ensureAssistantNode();
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       if (backendAssistantId) {
+        flushStreamingUpdate();
         adapter.patchConversation(
           conversationId,
           (conversation) => migrateStreamingNodeId(conversation, currentAssistantNodeId, backendAssistantId, event.turnId || currentTurnId),
