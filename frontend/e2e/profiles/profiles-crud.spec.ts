@@ -144,15 +144,11 @@ test.describe('Perfis — exclusão', () => {
     // Aguarda o perfil custom aparecer no grid
     await page.waitForSelector('[role="gridcell"]', { timeout: 5_000 });
 
-    // Navega via teclado no grid, respeitando o foco lazy e o roving tabindex.
-    const grid = page.locator('[role="grid"]');
-    await grid.focus();
-    await page.keyboard.press('ArrowDown');
-    await page.waitForFunction(() => {
-      const currentGrid = document.querySelector('[role="grid"]');
-      return currentGrid?.contains(document.activeElement) ?? false;
-    }, { timeout: 5_000 });
-    await page.keyboard.press('ArrowDown');
+    // Seleciona diretamente o perfil inativo. O teste de navegação por teclado
+    // já cobre o roving tabindex; aqui o foco é a ação de exclusão.
+    await page.getByRole('gridcell', { name: 'Programador' }).evaluate((cell) => {
+      (cell as HTMLElement).click();
+    });
 
     // Aguarda o botão Delete ficar habilitado (seleção ativa perfil inativo)
     await page.waitForFunction(() => {

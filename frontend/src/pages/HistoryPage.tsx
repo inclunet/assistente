@@ -29,6 +29,7 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { executeDeepLink } from '../lib/deepLinks';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { downloadJSON, openImportFileDialog, generateFilename, ImportFileError, IMPORT_FILE_ERROR_CODES } from '../lib/exportImport';
+import { portability } from '../../wailsjs/go/models';
 import './HistoryPage.css';
 
 interface Conversation {
@@ -106,16 +107,7 @@ interface ImportResultSummary {
   message: string;
 }
 
-interface ExportRequestPayload {
-  explicitSelection?: boolean;
-  conversationIds?: string[];
-  providerIds?: string[];
-  mcpServerSlugs?: string[];
-  taskListIds?: string[];
-  includeCredentials: boolean;
-  credentialExportPassword?: string;
-  outputFormat: 'json' | 'mcp-json';
-}
+type ExportRequestPayload = portability.ExportRequest;
 
 interface TaskListRecord {
   id: string;
@@ -478,7 +470,11 @@ export default function HistoryPage() {
   }) => {
     try {
       const payload: ExportRequestPayload = {
+        all: false,
         explicitSelection: true,
+        includeContacts: false,
+        includeWorkspace: false,
+        includeAudio: false,
         includeCredentials: options?.includeCredentials === true,
         outputFormat: options?.outputFormat ?? 'json',
       };

@@ -103,14 +103,14 @@ describe('ChatInput', () => {
     expect(onCancelStreaming).toHaveBeenCalledTimes(1);
   });
 
-  it('aciona cancelamento no Ctrl+Backspace durante streaming', () => {
+  it('aciona cancelamento no Esc durante streaming', () => {
     getSkillsSpy.mockResolvedValueOnce([]);
     const onCancelStreaming = vi.fn();
 
     render(<ChatInput onSend={() => {}} isStreaming onCancelStreaming={onCancelStreaming} />);
 
     const textarea = screen.getByLabelText('chat.messageLabel');
-    fireEvent.keyDown(textarea, { key: 'Backspace', ctrlKey: true });
+    fireEvent.keyDown(textarea, { key: 'Escape' });
 
     expect(onCancelStreaming).toHaveBeenCalledTimes(1);
   });

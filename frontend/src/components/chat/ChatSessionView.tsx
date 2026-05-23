@@ -514,8 +514,7 @@ function ChatSessionViewContent({
         return;
       }
 
-      const isCancelShortcut = event.key === 'Backspace' && (event.ctrlKey || event.altKey);
-      if (!isCancelShortcut) return;
+      if (event.key !== 'Escape') return;
 
       event.preventDefault();
       void handleCancelStreaming();

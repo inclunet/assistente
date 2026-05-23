@@ -294,7 +294,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       }
     }
 
-    const isCancelShortcut = e.key === 'Backspace' && (e.ctrlKey || e.altKey);
+    const isCancelShortcut = e.key === 'Escape';
     if (isCancelShortcut && isStreaming && onCancelStreaming) {
       if (e.defaultPrevented) return;
       e.preventDefault();

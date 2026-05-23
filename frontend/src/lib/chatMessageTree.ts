@@ -144,6 +144,49 @@ export function finalizeStreamingNode<TConversation extends ChatTreeConversation
   };
 }
 
+export function migrateStreamingNodeId<TConversation extends ChatTreeConversation>(
+  conversation: TConversation,
+  syntheticId: string,
+  finalId: string,
+  finalTurnId?: string | null,
+): TConversation {
+  if (!finalId || finalId === syntheticId) return conversation;
+
+  const collidesWithExistingRealId = hasMessageId(conversation.threadedMessages, finalId, syntheticId);
+  const finalMessagePatch: Partial<Message> = finalTurnId ? { turnId: finalTurnId } : {};
+  const migrate = (nodes: MessageNode[]): MessageNode[] => nodes.flatMap((node) => {
+    const id = String(node.message.id);
+    if (id === syntheticId) {
+      if (collidesWithExistingRealId) {
+        return [];
+      }
+      return [cloneNode(node, {
+        message: cloneMessage(node.message, {
+          id: finalId,
+          isStreaming: true,
+          ...finalMessagePatch,
+        }),
+        children: node.children?.length ? migrate(node.children) : node.children,
+      })];
+    }
+    if (collidesWithExistingRealId && id === finalId) {
+      return [cloneNode(node, {
+        message: cloneMessage(node.message, { isStreaming: true, ...finalMessagePatch }),
+        children: node.children?.length ? migrate(node.children) : node.children,
+      })];
+    }
+    if (node.children?.length) {
+      return [cloneNode(node, { children: migrate(node.children) })];
+    }
+    return [node];
+  });
+
+  return {
+    ...conversation,
+    threadedMessages: migrate(conversation.threadedMessages),
+  };
+}
+
 function mapMessageTree(
   nodes: MessageNode[],
   visitor: (node: MessageNode) => MessageNode,

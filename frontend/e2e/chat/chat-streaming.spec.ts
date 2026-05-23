@@ -240,9 +240,10 @@ test.describe('Chat — erro no envio', () => {
     });
     await wails.emit('chat:stream', {
       conversationId,
+      messageId: firstFailedAssistantMessageId,
       error: '500 Internal Server Error',
     });
-    await expect(page.locator('.chat-message').filter({ hasText: /500 Internal Server Error/ })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('.chat-message').filter({ hasText: /resposta parcial/ })).toBeVisible({ timeout: 5_000 });
 
     await textarea.fill('segunda tentativa');
     await textarea.press('Enter');
