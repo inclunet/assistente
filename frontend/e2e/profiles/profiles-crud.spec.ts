@@ -146,9 +146,8 @@ test.describe('Perfis — exclusão', () => {
 
     // Seleciona diretamente o perfil inativo. O teste de navegação por teclado
     // já cobre o roving tabindex; aqui o foco é a ação de exclusão.
-    await page.getByRole('gridcell', { name: 'Programador' }).evaluate((cell) => {
-      (cell as HTMLElement).click();
-    });
+    await page.getByRole('gridcell', { name: 'Programador' }).click({ force: true });
+    await page.keyboard.press('ArrowDown');
 
     // Aguarda o botão Delete ficar habilitado (seleção ativa perfil inativo)
     await page.waitForFunction(() => {
