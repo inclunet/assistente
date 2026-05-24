@@ -1287,8 +1287,7 @@ func (s *Service) loadAssistantPrefill(ctx context.Context, assistantMessageID s
 
 func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assistantMessageID, content, reasoning string) {
 	assistantMessageID = strings.TrimSpace(assistantMessageID)
-	content = strings.TrimSpace(content)
-	if assistantMessageID == "" || content == "" || s.msgRepo == nil {
+	if assistantMessageID == "" || strings.TrimSpace(content) == "" || s.msgRepo == nil {
 		return
 	}
 
@@ -1318,8 +1317,7 @@ func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assista
 // padrão de que o prompt termina em user, exceto quando o histórico já carrega um
 // trailing assistant (caso de continuação explícita).
 func patchTrailingAssistantPrefill(messages []llm.Message, prefill string) []llm.Message {
-	prefill = strings.TrimSpace(prefill)
-	if prefill == "" || len(messages) == 0 {
+	if strings.TrimSpace(prefill) == "" || len(messages) == 0 {
 		return messages
 	}
 	lastIdx := len(messages) - 1
