@@ -69,7 +69,7 @@ type Service struct {
 
 // StreamSimpleWithRecovery executa um streaming simples (sem tool calling) com auto-retry opcional.
 // Em tentativas intermediárias, suprime o erro terminal para não finalizar o streaming no frontend.
-// Se o contexto for cancelado, retorna silenciosamente.
+// Se o contexto for cancelado, emite chat:done como evento terminal canônico.
 func (s *Service) StreamSimpleWithRecovery(
 	ctx context.Context,
 	streamer llm.Streamer,
@@ -102,9 +102,13 @@ func (s *Service) StreamSimpleWithRecovery(
 
 	for attempt := 1; attempt <= attempts; attempt++ {
 		if ctx.Err() != nil {
+			s.emitSimpleContextDone(ctx, conversationID, turnID, "", surfaceOrigin)
 			return
 		}
-		h := s.NewSimpleStreamHandler(ctx, conversationID, turnID, profileSlug, surfaceOrigin)
+		h, err := s.NewSimpleStreamHandler(ctx, conversationID, turnID, profileSlug, surfaceOrigin)
+		if errors.Is(err, chat.ErrConversationGone) {
+			return
+		}
 		if params.AllowAssistantPrefill {
 			prefill := s.loadAssistantPrefill(ctx, h.AssistantMessageID)
 			if prefill != "" {
@@ -118,6 +122,7 @@ func (s *Service) StreamSimpleWithRecovery(
 		if ctx.Err() != nil {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			s.emitSimpleContextDone(ctx, conversationID, turnID, h.AssistantMessageID, surfaceOrigin)
 			return
 		}
 		if h.LastError() == "" {
@@ -1313,6 +1318,31 @@ func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assista
 	if err := s.msgRepo.UpdateMessageContentAndReasoning(ctx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
 		log.Printf("[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
 	}
+}
+
+func (s *Service) emitSimpleContextDone(
+	ctx context.Context,
+	conversationID string,
+	turnID string,
+	assistantMessageID string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+) {
+	err := ctx.Err()
+	if err == nil || s.emitter == nil {
+		return
+	}
+	errorMessage := "geração cancelada"
+	if errors.Is(err, context.DeadlineExceeded) {
+		errorMessage = "tempo limite da geração atingido"
+	}
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		SurfaceOrigin:      surfaceOrigin,
+		Reason:             "error",
+		ErrorMessage:       errorMessage,
+	})
 }
 
 func (s *Service) emitAgenticContextDone(

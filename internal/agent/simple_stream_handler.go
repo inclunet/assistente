@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"log"
 
 	"assistente/internal/chat"
@@ -26,11 +27,14 @@ type SimpleStreamHandler struct {
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
 // It is created by the owning Service so it can close over its dependencies.
-func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, userMessageID string, profileSlug string, surfaceOrigin *ports.ChatSurfaceOrigin) *SimpleStreamHandler {
+func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, userMessageID string, profileSlug string, surfaceOrigin *ports.ChatSurfaceOrigin) (*SimpleStreamHandler, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	assistantMsgID, err := chat.EnsureAssistantPlaceholder(ctx, s.msgRepo, conversationID, userMessageID)
+	if errors.Is(err, chat.ErrConversationGone) {
+		return nil, err
+	}
 	if err != nil {
 		// Best-effort: streaming ainda funciona, mas sem messageId estável.
 		assistantMsgID = ""
@@ -48,7 +52,7 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 		userMessageID:      userMessageID,
 		assistantMessageID: assistantMsgID,
 		profileSlug:        profileSlug,
-	}
+	}, nil
 }
 
 func (h *SimpleStreamHandler) OnError(err string) {

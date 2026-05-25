@@ -46,11 +46,15 @@ var _ events.Emitter = (*captureEmitter)(nil)
 // inMemoryMsgRepo é um MessageRepository mínimo para suportar placeholder+finalize.
 // Implementa apenas o necessário para os testes de auto-recovery.
 type inMemoryMsgRepo struct {
-	nextID   int
-	messages []chat.Message
+	nextID    int
+	messages  []chat.Message
+	createErr error
 }
 
 func (r *inMemoryMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions) (*chat.Message, error) {
+	if r.createErr != nil {
+		return nil, r.createErr
+	}
 	r.nextID++
 	id := fmt.Sprintf("m%d", r.nextID)
 	msg := chat.Message{UUIDModel: database.UUIDModel{ID: id}, ConversationID: opts.ConversationID, Role: opts.Role, Content: opts.Content, TurnID: opts.TurnID}
@@ -137,6 +141,16 @@ func (s *recoveryStreamer) StreamChat(_ context.Context, _ []llm.Message, _ llm.
 		return
 	}
 	s.steps[idx](handler)
+}
+
+type cancelingStreamer struct {
+	calls  int
+	cancel context.CancelFunc
+}
+
+func (s *cancelingStreamer) StreamChat(_ context.Context, _ []llm.Message, _ llm.ChatParams, _ llm.StreamHandler, _ ...llm.ToolDefinition) {
+	s.calls++
+	s.cancel()
 }
 
 func TestStreamSimpleWithRecovery_RetriesWithoutTerminalError(t *testing.T) {
@@ -226,6 +240,57 @@ func TestStreamSimpleWithRecovery_EmitsTerminalErrorWhenExhausted(t *testing.T) 
 	}
 	if repo.messages[0].Content != "parcial" {
 		t.Fatalf("expected partial content to be persisted, got %q", repo.messages[0].Content)
+	}
+}
+
+func TestStreamSimpleWithRecovery_ContextCancelEmitsDone(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	ctx, cancel := context.WithCancel(context.Background())
+	streamer := &cancelingStreamer{cancel: cancel}
+
+	svc.StreamSimpleWithRecovery(ctx, streamer, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{}, "c1", "t1", "", nil, true, 3)
+
+	if streamer.calls != 1 {
+		t.Fatalf("calls=%d, want 1", streamer.calls)
+	}
+	doneEvents := em.find("chat:done")
+	if len(doneEvents) != 1 {
+		t.Fatalf("expected 1 chat:done, got %d", len(doneEvents))
+	}
+	de, ok := doneEvents[0].data.(ports.DoneEvent)
+	if !ok {
+		t.Fatalf("chat:done payload type mismatch")
+	}
+	if de.Reason != "error" || de.ErrorMessage == "" {
+		t.Fatalf("expected cancellation chat:done, got reason=%q error=%q", de.Reason, de.ErrorMessage)
+	}
+	if de.AssistantMessageID == "" {
+		t.Fatalf("expected assistantMessageId in simple cancellation chat:done")
+	}
+}
+
+func TestStreamSimpleWithRecovery_ConversationGoneDoesNotStream(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{createErr: chat.ErrConversationDeleted}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
+		func(h llm.StreamHandler) {
+			h.OnChunk("nao deve chamar")
+		},
+	}}
+
+	svc.StreamSimpleWithRecovery(context.Background(), streamer, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{}, "c1", "t1", "", nil, true, 3)
+
+	if streamer.calls != 0 {
+		t.Fatalf("streamer should not be called when conversation is gone, got %d calls", streamer.calls)
+	}
+	if len(em.find("chat:stream")) != 0 {
+		t.Fatalf("conversation gone should not emit chat:stream")
+	}
+	if len(em.find("chat:done")) != 0 {
+		t.Fatalf("conversation gone should abort silently")
 	}
 }
 

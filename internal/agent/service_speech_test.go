@@ -249,7 +249,10 @@ func TestSimpleStreamHandler_PersistsAssistantWithTurnID(t *testing.T) {
 		MsgRepo: repo,
 	})
 
-	handler := svc.NewSimpleStreamHandler(context.Background(), "conversation-1", "user-1", "profile", nil)
+	handler, err := svc.NewSimpleStreamHandler(context.Background(), "conversation-1", "user-1", "profile", nil)
+	if err != nil {
+		t.Fatalf("NewSimpleStreamHandler: %v", err)
+	}
 	handler.OnDone("Resposta simples", llm.Usage{}, "test-model")
 
 	if repo.lastCreateMessageOpts == nil {
