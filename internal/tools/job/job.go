@@ -128,7 +128,11 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	}
 	id := normalizeRepoSlug(params.JobID)
 	runID := strings.TrimSpace(params.RunID)
-	actionCount := boolCount(params.Delete, params.Run, params.DryRun, params.ListRuns, params.ListEvents, runID != "")
+	runIDProvided := params.has("run_id")
+	if runIDProvided && runID == "" {
+		return tools.ToolResult{Content: "run_id cannot be empty", IsError: true}, nil
+	}
+	actionCount := boolCount(params.Delete, params.Run, params.DryRun, params.ListRuns, params.ListEvents, runIDProvided)
 	if actionCount > 1 {
 		return tools.ToolResult{Content: "delete, run, dry_run, list_runs, list_events and run_id are mutually exclusive", IsError: true}, nil
 	}
@@ -136,7 +140,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if actionCount == 1 && (hasWrite || params.Enabled != nil) {
 		return tools.ToolResult{Content: "delete, run, dry_run, list_runs, list_events and run_id cannot be combined with write fields", IsError: true}, nil
 	}
-	if (params.Delete || params.Run || params.DryRun || params.ListRuns || runID != "") && id == "" {
+	if (params.Delete || params.Run || params.DryRun || params.ListRuns || runIDProvided) && id == "" {
 		return tools.ToolResult{Content: "job_id is required for delete/run/dry_run/list_runs/run_id", IsError: true}, nil
 	}
 	if err := params.validateFilterScope(); err != nil {
@@ -150,7 +154,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return t.runJob(ctx, mgr, id)
 	case params.DryRun:
 		return t.dryRunJob(ctx, mgr, id)
-	case runID != "":
+	case runIDProvided:
 		return t.getRunDetail(ctx, mgr, id, runID)
 	case params.ListEvents:
 		return t.listEvents(ctx, mgr, id, params)

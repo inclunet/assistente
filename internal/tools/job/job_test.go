@@ -595,6 +595,31 @@ func TestJobToolExclusivityValidation(t *testing.T) {
 	}
 }
 
+func TestJobToolRejectsEmptyRunID(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["x"] = &jobs.Job{ID: "x", Name: "X", Enabled: true}
+	tool := NewJob(mgr)
+
+	cases := []struct {
+		name string
+		args string
+	}{
+		{"empty run_id", `{"job_id":"x","run_id":""}`},
+		{"blank run_id", `{"job_id":"x","run_id":"   "}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result, err := tool.Execute(context.Background(), json.RawMessage(c.args))
+			if err != nil {
+				t.Fatalf("Execute error = %v", err)
+			}
+			if !result.IsError || !strings.Contains(result.Content, "run_id cannot be empty") {
+				t.Fatalf("expected empty run_id rejection, got %s", result.Content)
+			}
+		})
+	}
+}
+
 func TestJobToolFilterRequiresList(t *testing.T) {
 	mgr := newFakeManager()
 	mgr.jobs["x"] = &jobs.Job{ID: "x", Name: "X", Enabled: true}
