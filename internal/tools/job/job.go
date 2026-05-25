@@ -213,6 +213,9 @@ func (p jobArgs) validateFilterScope() error {
 			}
 		}
 	}
+	if !p.ListRuns && !p.ListEvents && p.has("limit") {
+		return fmt.Errorf("limit is only valid with list_runs or list_events")
+	}
 	return nil
 }
 

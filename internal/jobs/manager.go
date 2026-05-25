@@ -421,7 +421,7 @@ func (m *Manager) GetJobRunDetailContext(ctx context.Context, jobID, runID strin
 }
 
 // ListJobEventsContext lista eventos (domínio + timeline operacional) aplicando
-// EventFilter completo. Aplica limites de paginação consistentes com a UI.
+// EventFilter completo. Aplica limites conservadores para consumidores de ferramenta/API.
 func (m *Manager) ListJobEventsContext(ctx context.Context, filter EventFilter) ([]EventEntry, error) {
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
@@ -953,8 +953,8 @@ func (m *Manager) TestToolContext(parent context.Context, toolName string, input
 					Arguments: string(argsJSON),
 				},
 			},
-			Origin: toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
-			DryRun: true,
+			Origin:                 toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
+			DryRun:                 true,
 			ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
 		}).Execution
 		result = exec.Result
