@@ -96,6 +96,54 @@ func TestDefaultProfileHasLLMProvider(t *testing.T) {
 	}
 }
 
+func TestValidateStreamingRecoveryMaxAttempts(t *testing.T) {
+	tests := []struct {
+		name      string
+		attempts  int
+		wantError string
+	}{
+		{
+			name:      "invalid zero",
+			attempts:  0,
+			wantError: "chat.streaming_recovery_max_attempts must be at least 1",
+		},
+		{
+			name:      "invalid above max",
+			attempts:  11,
+			wantError: "chat.streaming_recovery_max_attempts must be at most 10",
+		},
+		{
+			name:     "valid min",
+			attempts: 1,
+		},
+		{
+			name:     "valid max",
+			attempts: 10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := validTestProfile()
+			p.Chat.StreamingRecoveryMaxAttempts = &tt.attempts
+
+			err := p.Validate()
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatalf("Validate() unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() expected error %q, got nil", tt.wantError)
+			}
+			if err.Error() != tt.wantError {
+				t.Fatalf("Validate() error = %q, want %q", err.Error(), tt.wantError)
+			}
+		})
+	}
+}
+
 func TestValidateHTTPVoiceContract(t *testing.T) {
 	tests := []struct {
 		name      string

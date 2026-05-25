@@ -476,7 +476,9 @@ function ChatSessionViewContent({
       if (!showContinueEnabled) return false;
       const interruptedId = session?.lastInterruptedMessageId;
       if (!interruptedId) return false;
+      if (!isBackendId(String(interruptedId))) return false;
       if (String(message.id) !== String(interruptedId)) return false;
+      if (!isBackendId(message.id)) return false;
       if (message.role !== 'assistant' || message.isStreaming) return false;
       if (!String(message.turnId || '').trim()) return false;
       if (!String(message.content || '').trim()) return false;

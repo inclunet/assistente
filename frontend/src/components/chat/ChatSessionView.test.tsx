@@ -124,13 +124,15 @@ vi.mock('./MessageList', async () => {
   return {
     MessageList: React.forwardRef<HTMLDivElement, {
       onContextMenu?: (event: MouseEvent, message: { id: string; role: string }) => void;
-      threadedMessages?: Array<{ id?: string; message?: { id: string } }>;
+      threadedMessages?: Array<{ id?: string; message?: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string } }>;
+      shouldShowContinue?: (message: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string }) => boolean;
       onJumpToStart?: () => Promise<void> | void;
       onJumpToEnd?: () => Promise<void> | void;
     }>((
     {
       onContextMenu,
       threadedMessages = [],
+      shouldShowContinue,
       onJumpToStart,
       onJumpToEnd,
     },
@@ -165,6 +167,7 @@ vi.mock('./MessageList', async () => {
           data-message-node
           data-level="0"
           data-message-id={message.message?.id ?? message.id}
+          data-show-continue={String(shouldShowContinue?.(message.message ?? { id: String(message.id || '') }) ?? false)}
         >
           {message.message?.id ?? message.id}
         </div>
@@ -316,6 +319,28 @@ describe('ChatSessionView', () => {
       surfaceId: 'embedded:workspace-chat-modal:tab-1',
       surfaceType: 'embedded',
     }));
+  });
+
+  it('não mostra continuar resposta para mensagem com ID sintético', async () => {
+    const syntheticMessage = {
+      id: 'streaming-assistant-1',
+      role: 'assistant',
+      isStreaming: false,
+      turnId: conversationId,
+      content: 'resposta parcial',
+    };
+    chatStoreState.sessionsByConversationId[conversationId].conversation = {
+      ...activeConversation,
+      threadedMessages: [{ message: syntheticMessage, children: [], level: 0, childCount: 0 }],
+    };
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { lastInterruptedMessageId: string }).lastInterruptedMessageId = syntheticMessage.id;
+
+    renderWithPanel(<ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={vi.fn()} showShortcutsHelp={false} />);
+
+    await waitFor(() => {
+      const node = screen.getByText(syntheticMessage.id);
+      expect(node).toHaveAttribute('data-show-continue', 'false');
+    });
   });
 
   it('restaura scroll pela âncora antes de usar scrollTop', async () => {
