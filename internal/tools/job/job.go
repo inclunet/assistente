@@ -205,16 +205,13 @@ func (p jobArgs) validateFilterScope() error {
 			}
 		}
 	}
-	eventFilterFields := []string{"date", "start_at", "end_at", "event_type", "event_name"}
+	eventFilterFields := []string{"date", "start_at", "end_at", "event_type", "event_name", "offset"}
 	if !p.ListEvents {
 		for _, f := range eventFilterFields {
 			if p.has(f) {
 				return fmt.Errorf("%s is only valid with list_events: true", f)
 			}
 		}
-	}
-	if !p.ListRuns && !p.ListEvents && p.has("offset") {
-		return fmt.Errorf("offset is only valid with list_runs or list_events")
 	}
 	return nil
 }

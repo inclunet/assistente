@@ -609,6 +609,8 @@ func TestJobToolFilterRequiresList(t *testing.T) {
 		{"status without list_runs", `{"job_id":"x","status":["failed"]}`, "status is only valid with list_runs"},
 		{"date without list_events", `{"job_id":"x","date":"2026-05-13"}`, "date is only valid with list_events"},
 		{"event_type without list_events", `{"event_type":"emitted"}`, "event_type is only valid with list_events"},
+		{"offset without list_events", `{"offset":10}`, "offset is only valid with list_events"},
+		{"offset with list_runs", `{"job_id":"x","list_runs":true,"offset":10}`, "offset is only valid with list_events"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
