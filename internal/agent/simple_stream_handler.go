@@ -15,12 +15,12 @@ import (
 // event emission to the owning Service — eliminating any *App reference in the main package.
 type SimpleStreamHandler struct {
 	BaseStreamHandler
-	svc           *Service
-	ctx           context.Context
-	userMessageID string // ID of the user message (root of this response thread)
-	assistantMessageID string // ID estável do assistant (placeholder) para este turno
-	profileSlug   string // Profile slug for TTS resolution
-	lastError     string
+	svc                   *Service
+	ctx                   context.Context
+	userMessageID         string // ID of the user message (root of this response thread)
+	assistantMessageID    string // ID estável do assistant (placeholder) para este turno
+	profileSlug           string // Profile slug for TTS resolution
+	lastError             string
 	suppressTerminalError bool
 }
 
@@ -37,22 +37,23 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 	}
 	return &SimpleStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
-			Emitter:        s.emitter,
-			ConversationID: conversationID,
-			TurnID:         userMessageID,
+			Emitter:            s.emitter,
+			ConversationID:     conversationID,
+			TurnID:             userMessageID,
 			AssistantMessageID: assistantMsgID,
-			SurfaceOrigin:  surfaceOrigin,
+			SurfaceOrigin:      surfaceOrigin,
 		},
-		svc:           s,
-		ctx:           ctx,
-		userMessageID: userMessageID,
+		svc:                s,
+		ctx:                ctx,
+		userMessageID:      userMessageID,
 		assistantMessageID: assistantMsgID,
-		profileSlug:   profileSlug,
+		profileSlug:        profileSlug,
 	}
 }
 
 func (h *SimpleStreamHandler) OnError(err string) {
 	h.lastError = err
+	h.FinishThinkingIfActive()
 	content, _ := h.Finalize()
 	if h.suppressTerminalError {
 		return

@@ -224,6 +224,7 @@ func (s *Service) RunAgenticLoop(
 		// Verifica cancelamento
 		if ctx.Err() != nil {
 			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
+			s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration, totalToolCallCount, toolsUsedSet)
 			return
 		}
 
@@ -236,6 +237,7 @@ func (s *Service) RunAgenticLoop(
 		}
 		for attempt := 1; attempt <= attempts; attempt++ {
 			if ctx.Err() != nil {
+				s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration, totalToolCallCount, toolsUsedSet)
 				return
 			}
 			handler := newHandler(conversationID, iteration)
@@ -258,6 +260,7 @@ func (s *Service) RunAgenticLoop(
 					partialContent, partialReasoning := partialHandler.Finalize()
 					s.persistAssistantPartialBestEffort(ctx, assistantMessageID, partialContent, partialReasoning)
 				}
+				s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration, totalToolCallCount, toolsUsedSet)
 				return
 			}
 			if result.Error == "" {
@@ -1310,6 +1313,43 @@ func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assista
 	if err := s.msgRepo.UpdateMessageContentAndReasoning(ctx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
 		log.Printf("[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
 	}
+}
+
+func (s *Service) emitAgenticContextDone(
+	ctx context.Context,
+	conversationID string,
+	turnID string,
+	assistantMessageID string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+	iteration int,
+	toolCallCount int,
+	toolsUsedSet map[string]struct{},
+) {
+	err := ctx.Err()
+	if err == nil || s.emitter == nil {
+		return
+	}
+	errorMessage := "geração cancelada"
+	if errors.Is(err, context.DeadlineExceeded) {
+		errorMessage = "tempo limite da geração atingido"
+	}
+	toolsUsed := make([]string, 0, len(toolsUsedSet))
+	for name := range toolsUsedSet {
+		toolsUsed = append(toolsUsed, name)
+	}
+	sort.Strings(toolsUsed)
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		SurfaceOrigin:      surfaceOrigin,
+		HadToolCalls:       toolCallCount > 0,
+		Reason:             "error",
+		ErrorMessage:       errorMessage,
+		IterationCount:     iteration + 1,
+		ToolCallCount:      toolCallCount,
+		ToolsUsed:          toolsUsed,
+	})
 }
 
 // patchTrailingAssistantPrefill substitui o conteúdo do trailing assistant no prompt.

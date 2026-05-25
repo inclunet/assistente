@@ -20,7 +20,7 @@ import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage, EditorGetDraftPath, GetActiveProfile } from '@wailsjs/go/app/App';
+import { DeleteMessage, EditorGetDraftPath, GetActiveProfile, GetActiveProviderInfo } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
@@ -108,7 +108,7 @@ function ChatSessionViewContent({
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
-  const [showContinueEnabled, setShowContinueEnabled] = useState(true);
+  const [showContinueEnabled, setShowContinueEnabled] = useState(false);
 
   const {
     session,
@@ -175,12 +175,17 @@ function ChatSessionViewContent({
 
     const loadActiveProfile = async () => {
       try {
-        const profile = await GetActiveProfile();
+        const [profile, providerInfo] = await Promise.all([
+          GetActiveProfile(),
+          GetActiveProviderInfo(),
+        ]);
         if (!mounted) return;
-        setShowContinueEnabled(profile?.chat?.streaming_recovery_show_continue ?? true);
+        const profileAllowsContinue = profile?.chat?.streaming_recovery_show_continue ?? true;
+        const providerSupportsPrefill = providerInfo?.supports_assistant_prefill === true;
+        setShowContinueEnabled(profileAllowsContinue && providerSupportsPrefill);
       } catch {
         if (!mounted) return;
-        setShowContinueEnabled(true);
+        setShowContinueEnabled(false);
       }
     };
 

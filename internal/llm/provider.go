@@ -145,6 +145,16 @@ func (p *ProviderConfig) EffectiveAuthMode() AuthMode {
 	return AuthModeRequired
 }
 
+// SupportsAssistantPrefill informa se é seguro enviar trailing assistant
+// intencional para continuação explícita. Começa conservador: só OpenAI real
+// via Responses API é habilitado até haver uma matriz de capacidades por modelo.
+func SupportsAssistantPrefill(p *ProviderConfig) bool {
+	if p == nil {
+		return false
+	}
+	return p.Type == ProviderOpenAI && p.GetAPIFormat() == APIFormatOpenAIResponses
+}
+
 // GetAPIFormat retorna o api_format efetivo.
 //
 // Precedência:

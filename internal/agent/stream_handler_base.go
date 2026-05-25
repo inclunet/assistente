@@ -170,6 +170,32 @@ func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 	})
 }
 
+// FinishThinkingIfActive encerra/cancela thinking pendente antes de uma tentativa
+// abortada, evitando timers e estado "pensando" vazarem entre retries.
+func (h *BaseStreamHandler) FinishThinkingIfActive() {
+	h.mu.Lock()
+	if !h.isThinking && !h.pendingThinkingEmit && h.thinkingTimer == nil {
+		h.mu.Unlock()
+		return
+	}
+	if h.thinkingTimer != nil {
+		h.thinkingTimer.Stop()
+		h.thinkingTimer = nil
+	}
+	h.pendingThinkingEmit = false
+	h.isThinking = false
+	reasoning := h.accumulatedReasoning
+	h.mu.Unlock()
+
+	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
+		ConversationID: h.ConversationID,
+		TurnID:         h.TurnID,
+		Content:        reasoning,
+		Done:           true,
+		SurfaceOrigin:  h.SurfaceOrigin,
+	})
+}
+
 // cancelPendingChunkTimer cancela o timer de throttle de chunk, se houver.
 // Deve ser chamado com h.mu locked.
 func (h *BaseStreamHandler) cancelPendingChunkTimer() {

@@ -100,6 +100,13 @@ vi.mock('../../hooks/useContextMenu', () => ({
 
 vi.mock('@wailsjs/go/app/App', () => ({
   DeleteMessage: vi.fn(),
+  EditorGetDraftPath: vi.fn().mockResolvedValue(''),
+  GetActiveProfile: vi.fn().mockResolvedValue({
+    chat: { streaming_recovery_show_continue: true },
+  }),
+  GetActiveProviderInfo: vi.fn().mockResolvedValue({
+    supports_assistant_prefill: true,
+  }),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({

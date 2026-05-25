@@ -317,6 +317,16 @@ export function startChatEventController({
     adapter.updateMessage(conversationId, currentAssistantNodeId, content);
   };
 
+  const getCurrentAssistantContent = () => {
+    const messages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
+    return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
+  };
+
+  const updateEmptyAssistantWithError = (message: string) => {
+    if (getCurrentAssistantContent().trim()) return;
+    updateStreamingMessage(i18next.t('chat.errorPrefix', { message }));
+  };
+
   const flushStreamingUpdate = () => {
     flushPendingUpdate(currentAssistantNodeId, (_messageId, nextContent) => updateStreamingMessage(nextContent));
   };
@@ -421,6 +431,7 @@ export function startChatEventController({
       ensureAssistantNode();
       flushStreamingUpdate();
       announce(String(event.error || '').trim(), 'assertive');
+      updateEmptyAssistantWithError(String(event.error || '').trim());
       const interruptedId = event.messageId && event.messageId !== '' ? event.messageId : streamingMsgId;
       if (interruptedId !== streamingMsgId && interruptedId !== currentAssistantNodeId) {
         adapter.patchConversation(
@@ -569,6 +580,7 @@ export function startChatEventController({
       ensureAssistantNode();
       flushStreamingUpdate();
       announce(String(event.errorMessage || '').trim(), 'assertive');
+      updateEmptyAssistantWithError(String(event.errorMessage || '').trim());
       const interruptedId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : streamingMsgId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null, currentTurnId);

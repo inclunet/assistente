@@ -419,6 +419,53 @@ describe('chatEventController', () => {
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
   });
 
+  it('preenche fallback visual quando chat:stream falha sem parcial', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'boom stream',
+      turnId: 'user-1',
+      messageId: 'assistant-db-2',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.content).toBe('Erro: boom stream');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
+  });
+
+  it('preenche fallback visual quando chat:done falha sem parcial', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      hadToolCalls: false,
+      errorMessage: 'boom done',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-3',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.content).toBe('Erro: boom done');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-3');
+  });
+
   it('propaga surfaceOrigin dos eventos para anúncio, som e fala', async () => {
     const { adapter } = createAdapter(['conversation-1']);
     const surfaceOrigin = {

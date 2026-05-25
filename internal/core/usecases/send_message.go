@@ -170,6 +170,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 			return "", fmt.Errorf("%s", errMsg)
 		}
+		if uc.providerSvc == nil || !uc.providerSvc.SupportsAssistantPrefill(ctx, activeProfile) {
+			errMsg := "provedor/modelo ativo não suporta continuação com assistant prefill"
+			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
+			return "", fmt.Errorf("%s", errMsg)
+		}
 	}
 	userContent := pctx.UserContent
 	surfaceOrigin := ports.NewChatSurfaceOrigin(

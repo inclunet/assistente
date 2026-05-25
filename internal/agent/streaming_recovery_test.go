@@ -333,3 +333,81 @@ func TestRunAgenticLoop_ErrorIncludesAssistantMessageIDAndPersistsPartial(t *tes
 		t.Fatalf("expected partial content to be persisted, got %q", repo.messages[0].Content)
 	}
 }
+
+func TestRunAgenticLoop_CanceledBeforeIterationEmitsDone(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
+		func(h llm.StreamHandler) {
+			h.OnChunk("nao deve chamar")
+		},
+	}}
+
+	svc.RunAgenticLoop(
+		ctx,
+		[]llm.Message{{Role: "user", Content: "hi"}},
+		llm.ChatParams{MaxAgenticIterations: 1},
+		"c1",
+		"t1",
+		nil,
+		streamer,
+		nil,
+		func(convID string, iter int) IterationHandler {
+			return NewAgenticStreamHandler(em, convID, iter, nil, "t1")
+		},
+		nil,
+		true,
+		1,
+	)
+
+	if streamer.calls != 0 {
+		t.Fatalf("streamer should not be called after cancellation, got %d calls", streamer.calls)
+	}
+	doneEvents := em.find("chat:done")
+	if len(doneEvents) != 1 {
+		t.Fatalf("expected 1 chat:done, got %d", len(doneEvents))
+	}
+	de, ok := doneEvents[0].data.(ports.DoneEvent)
+	if !ok {
+		t.Fatalf("chat:done payload type mismatch")
+	}
+	if de.Reason != "error" || de.ErrorMessage == "" {
+		t.Fatalf("expected terminal cancellation error, got reason=%q error=%q", de.Reason, de.ErrorMessage)
+	}
+	if de.AssistantMessageID == "" {
+		t.Fatalf("expected assistantMessageId in cancellation chat:done")
+	}
+}
+
+func TestSimpleStreamHandler_SuppressedErrorFinishesThinking(t *testing.T) {
+	em := &captureEmitter{}
+	handler := &SimpleStreamHandler{
+		BaseStreamHandler: BaseStreamHandler{
+			Emitter:        em,
+			ConversationID: "c1",
+			TurnID:         "t1",
+		},
+	}
+	handler.SuppressTerminalError(true)
+	handler.OnThinking("raciocinando")
+	handler.OnError("boom")
+
+	thinkingEvents := em.find("chat:thinking")
+	if len(thinkingEvents) < 2 {
+		t.Fatalf("expected thinking start/update and done events, got %d", len(thinkingEvents))
+	}
+	done, ok := thinkingEvents[len(thinkingEvents)-1].data.(ports.ThinkingEvent)
+	if !ok {
+		t.Fatalf("chat:thinking payload type mismatch")
+	}
+	if !done.Done {
+		t.Fatalf("expected thinking done event before suppressed error returns")
+	}
+	if len(em.find("chat:stream")) != 0 {
+		t.Fatalf("suppressed error should not emit terminal chat:stream")
+	}
+}
