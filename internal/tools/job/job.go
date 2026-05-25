@@ -428,15 +428,23 @@ func (t *Tool) listRuns(ctx context.Context, mgr Manager, id string, params jobA
 		}
 		filter.Status = append(filter.Status, s)
 	}
-	if params.StartedAfter != "" {
-		parsed, err := time.Parse(time.RFC3339, params.StartedAfter)
+	if params.has("started_after") {
+		value := strings.TrimSpace(params.StartedAfter)
+		if value == "" {
+			return tools.ToolResult{Content: "started_after cannot be empty", IsError: true}, nil
+		}
+		parsed, err := time.Parse(time.RFC3339, value)
 		if err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("invalid started_after (expect RFC3339): %v", err), IsError: true}, nil
 		}
 		filter.StartedAfter = parsed
 	}
-	if params.StartedBefore != "" {
-		parsed, err := time.Parse(time.RFC3339, params.StartedBefore)
+	if params.has("started_before") {
+		value := strings.TrimSpace(params.StartedBefore)
+		if value == "" {
+			return tools.ToolResult{Content: "started_before cannot be empty", IsError: true}, nil
+		}
+		parsed, err := time.Parse(time.RFC3339, value)
 		if err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("invalid started_before (expect RFC3339): %v", err), IsError: true}, nil
 		}
@@ -468,16 +476,24 @@ func (t *Tool) listEvents(ctx context.Context, mgr Manager, id string, params jo
 		Offset: params.Offset,
 	}
 	switch {
-	case params.StartAt != "" || params.EndAt != "":
-		if params.StartAt != "" {
-			parsed, err := time.Parse(time.RFC3339, params.StartAt)
+	case params.has("start_at") || params.has("end_at"):
+		if params.has("start_at") {
+			value := strings.TrimSpace(params.StartAt)
+			if value == "" {
+				return tools.ToolResult{Content: "start_at cannot be empty", IsError: true}, nil
+			}
+			parsed, err := time.Parse(time.RFC3339, value)
 			if err != nil {
 				return tools.ToolResult{Content: fmt.Sprintf("invalid start_at (expect RFC3339): %v", err), IsError: true}, nil
 			}
 			filter.StartAt = parsed
 		}
-		if params.EndAt != "" {
-			parsed, err := time.Parse(time.RFC3339, params.EndAt)
+		if params.has("end_at") {
+			value := strings.TrimSpace(params.EndAt)
+			if value == "" {
+				return tools.ToolResult{Content: "end_at cannot be empty", IsError: true}, nil
+			}
+			parsed, err := time.Parse(time.RFC3339, value)
 			if err != nil {
 				return tools.ToolResult{Content: fmt.Sprintf("invalid end_at (expect RFC3339): %v", err), IsError: true}, nil
 			}
@@ -486,6 +502,9 @@ func (t *Tool) listEvents(ctx context.Context, mgr Manager, id string, params jo
 	default:
 		date := strings.TrimSpace(params.Date)
 		if date == "" {
+			if params.has("date") {
+				return tools.ToolResult{Content: "date cannot be empty", IsError: true}, nil
+			}
 			date = time.Now().In(time.Local).Format("2006-01-02")
 		}
 		start, err := time.ParseInLocation("2006-01-02", date, time.Local)
@@ -493,7 +512,7 @@ func (t *Tool) listEvents(ctx context.Context, mgr Manager, id string, params jo
 			return tools.ToolResult{Content: fmt.Sprintf("invalid date %q (expect YYYY-MM-DD): %v", date, err), IsError: true}, nil
 		}
 		filter.StartAt = start
-		filter.EndAt = start.Add(24 * time.Hour)
+		filter.EndAt = start.AddDate(0, 0, 1)
 	}
 	events, err := mgr.ListJobEventsContext(ctx, filter)
 	if err != nil {

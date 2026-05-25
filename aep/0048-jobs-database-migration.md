@@ -525,10 +525,10 @@ Este adendo cataloga os gaps identificados e atualiza o desenho original do D8 e
 ### Gaps identificados
 
 **G1 — Timeline `RunEvents` não é exposta no JSON.**
-O struct `RunLog` (`internal/jobs/types.go:173`) declara `RunEvents []RunEvent` e `DomainEvents []EventEntry` com tag `json:"-"`, e `DBRepository.GetRuns` (`internal/jobs/repository.go:798`) faz `Find(&rows)` sem `Preload` da relação `Events`. A tabela `job_run_events` é populada pelo executor, mas nunca chega ao chat. O `Manager` também não tem método público que invoque `Repository.GetRunEvents` (que existe e é testado em `repository.go:1064`).
+O struct `RunLog` declara `RunEvents []RunEvent` e `DomainEvents []EventEntry` com tag `json:"-"`, e `DBRepository.GetRuns` faz `Find(&rows)` sem `Preload` da relação `Events`. A tabela `job_run_events` é populada pelo executor, mas nunca chega ao chat. O `Manager` também não tem método público que invoque `Repository.GetRunEvents`.
 
 **G2 — Sem ação para detalhar um run específico.**
-`Repository.GetRun(jobID, runID)` existe (`repository.go:855`) e `Manager.GetJobRun(jobID, runID)` o expõe (`manager.go:379`), mas a tool `job` (`internal/tools/job/job.go`) não tem nenhuma flag que aceite `run_id`. Não há como inspecionar `output`, `error`, `resolved_inputs` ou timeline de uma execução específica via chat.
+`Repository.GetRun(jobID, runID)` existe e `Manager.GetJobRun(jobID, runID)` o expõe, mas a tool `job` não tem nenhuma flag que aceite `run_id`. Não há como inspecionar `output`, `error`, `resolved_inputs` ou timeline de uma execução específica via chat.
 
 **G3 — Eventos de domínio (`JobEvent`) invisíveis ao LLM.**
 `Manager.GetJobEventsContext(date)` e `GetJobEventsPageContext(date, limit, offset)` retornam `EventEntry`s do event bus, mas nenhuma tool nativa os expõe. O assistente não consegue investigar gatilhos disparados, eventos publicados por outros jobs, nem mensagens de scheduler.

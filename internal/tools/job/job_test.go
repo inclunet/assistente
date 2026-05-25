@@ -651,6 +651,35 @@ func TestJobToolFilterRequiresList(t *testing.T) {
 	}
 }
 
+func TestJobToolRejectsEmptyTimeFilters(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["x"] = &jobs.Job{ID: "x", Name: "X", Enabled: true}
+	tool := NewJob(mgr)
+
+	cases := []struct {
+		name     string
+		args     string
+		fragment string
+	}{
+		{"blank started_after", `{"job_id":"x","list_runs":true,"started_after":"   "}`, "started_after cannot be empty"},
+		{"blank started_before", `{"job_id":"x","list_runs":true,"started_before":"   "}`, "started_before cannot be empty"},
+		{"blank start_at", `{"list_events":true,"start_at":"   "}`, "start_at cannot be empty"},
+		{"blank end_at", `{"list_events":true,"end_at":"   "}`, "end_at cannot be empty"},
+		{"blank date", `{"list_events":true,"date":"   "}`, "date cannot be empty"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result, err := tool.Execute(context.Background(), json.RawMessage(c.args))
+			if err != nil {
+				t.Fatalf("Execute error = %v", err)
+			}
+			if !result.IsError || !strings.Contains(result.Content, c.fragment) {
+				t.Fatalf("expected %q error, got %s", c.fragment, result.Content)
+			}
+		})
+	}
+}
+
 func TestPipelineToolCreatesUpdatesAndDeletes(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewPipeline(mgr)
