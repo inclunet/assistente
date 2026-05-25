@@ -830,13 +830,11 @@ func TestDBRepositoryGetRunDetailHydratesEvents(t *testing.T) {
 	if len(detail.RunEvents) != 2 || detail.RunEvents[0].Sequence != 1 || detail.RunEvents[1].Sequence != 2 {
 		t.Fatalf("run events not hydrated ordered: %#v", detail.RunEvents)
 	}
-	if len(detail.DomainEvents) == 0 {
-		t.Fatalf("domain events empty")
+	if len(detail.DomainEvents) != 1 {
+		t.Fatalf("domain events should include only job_events for run-detail, got %#v", detail.DomainEvents)
 	}
-	for _, ev := range detail.DomainEvents {
-		if ev.RunID != "" && ev.RunID != "run-detail" {
-			t.Fatalf("domain events not scoped to run: %#v", ev)
-		}
+	if detail.DomainEvents[0].RunID != "run-detail" || detail.DomainEvents[0].Event != "fail" {
+		t.Fatalf("domain event not scoped to run or leaked run timeline event: %#v", detail.DomainEvents[0])
 	}
 }
 
