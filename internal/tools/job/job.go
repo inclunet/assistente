@@ -7,18 +7,38 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"assistente/internal/jobs"
 	"assistente/internal/tools"
 )
 
+var allowedRunStatuses = map[string]struct{}{
+	"completed": {},
+	"failed":    {},
+	"retrying":  {},
+	"skipped":   {},
+}
+
 type jobArgs struct {
 	JobID          string             `json:"job_id,omitempty"`
+	RunID          string             `json:"run_id,omitempty"`
 	Delete         bool               `json:"delete,omitempty"`
 	Run            bool               `json:"run,omitempty"`
 	DryRun         bool               `json:"dry_run,omitempty"`
 	ListRuns       bool               `json:"list_runs,omitempty"`
+	ListEvents     bool               `json:"list_events,omitempty"`
 	Limit          int                `json:"limit,omitempty"`
+	Offset         int                `json:"offset,omitempty"`
+	Status         []string           `json:"status,omitempty"`
+	StartedAfter   string             `json:"started_after,omitempty"`
+	StartedBefore  string             `json:"started_before,omitempty"`
+	IncludeDryRun  bool               `json:"include_dry_run,omitempty"`
+	Date           string             `json:"date,omitempty"`
+	StartAt        string             `json:"start_at,omitempty"`
+	EndAt          string             `json:"end_at,omitempty"`
+	EventType      string             `json:"event_type,omitempty"`
+	EventName      string             `json:"event_name,omitempty"`
 	Enabled        *bool              `json:"enabled,omitempty"`
 	Name           string             `json:"name,omitempty"`
 	Description    string             `json:"description,omitempty"`
@@ -50,19 +70,31 @@ func NewJobWithProvider(provider ManagerProvider) *Tool {
 func (t *Tool) Name() string { return "job" }
 
 func (t *Tool) Description() string {
-	return "Composite DB-backed job manager. No params lists jobs. job_id reads a job. With job_id plus fields updates, or creates that stable job_id when not found and required create fields are present. Without job_id plus name/tool/triggers creates using a generated id. delete, run, dry_run and list_runs are mutually exclusive actions."
+	return "Composite DB-backed job manager. No params lists jobs. job_id reads a job. With job_id plus fields updates, or creates that stable job_id when not found and required create fields are present. Without job_id plus name/tool/triggers creates using a generated id. delete, run, dry_run, list_runs, list_events and run_id (get one run with timeline+domain events) are mutually exclusive actions. list_runs accepts status/started_after/started_before/include_dry_run filters; list_events accepts date or start_at/end_at, event_type, event_name, optional job_id."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "job_id": {"type": "string", "description": "Stable job slug/id. Required for read, update, delete, toggle, run, dry_run and list_runs. When combined with required create fields and the job does not exist, creates a job with this id. Omit to list all jobs or create with a generated id."},
+    "job_id": {"type": "string", "description": "Stable job slug/id. Required for read, update, delete, toggle, run, dry_run, list_runs and run_id. Optional for list_events (omit for global listing). When combined with required create fields and the job does not exist, creates a job with this id. Omit to list all jobs or create with a generated id."},
+    "run_id": {"type": "string", "description": "When set with job_id, returns the full RunLog including run_events (operational timeline ordered by sequence) and domain_events (correlated by job_run_id). Mutually exclusive with delete/run/dry_run/list_runs/list_events."},
     "delete": {"type": "boolean", "description": "Delete the referenced job. Requires job_id."},
     "run": {"type": "boolean", "description": "Run the referenced job now. Requires job_id."},
     "dry_run": {"type": "boolean", "description": "Dry-run the referenced job. Requires job_id."},
-    "list_runs": {"type": "boolean", "description": "List recent runs for the referenced job. Requires job_id."},
-    "limit": {"type": "integer", "description": "Limit for list_runs. Defaults to 20."},
+    "list_runs": {"type": "boolean", "description": "List recent runs for the referenced job. Requires job_id. Accepts status, started_after, started_before, include_dry_run and limit filters."},
+    "list_events": {"type": "boolean", "description": "List job events (domain + operational timeline) filterable by date or start_at/end_at, event_type, event_name and optional job_id. Defaults to today when no time filter is set."},
+    "limit": {"type": "integer", "description": "Limit for list_runs (default 20, max 100) or list_events (default 50, max 200)."},
+    "offset": {"type": "integer", "description": "Offset for list_events pagination. Defaults to 0."},
+    "status": {"type": "array", "items": {"type": "string", "enum": ["completed", "failed", "retrying", "skipped"]}, "description": "Filter list_runs by status. Only valid with list_runs: true."},
+    "started_after": {"type": "string", "description": "RFC3339 lower bound (inclusive) for list_runs. Only valid with list_runs: true."},
+    "started_before": {"type": "string", "description": "RFC3339 upper bound (exclusive) for list_runs. Only valid with list_runs: true."},
+    "include_dry_run": {"type": "boolean", "description": "When false (default), list_runs excludes dry-runs. Only valid with list_runs: true."},
+    "date": {"type": "string", "description": "YYYY-MM-DD shortcut for list_events covering 24h in local time. Ignored if start_at/end_at provided. Only valid with list_events: true."},
+    "start_at": {"type": "string", "description": "RFC3339 lower bound (inclusive) for list_events. Only valid with list_events: true."},
+    "end_at": {"type": "string", "description": "RFC3339 upper bound (exclusive) for list_events. Only valid with list_events: true."},
+    "event_type": {"type": "string", "description": "Filter list_events by event type. Only valid with list_events: true."},
+    "event_name": {"type": "string", "description": "Filter list_events by event name (applies only to domain events). Only valid with list_events: true."},
     "enabled": {"type": "boolean", "description": "Set enabled state when updating/creating, or toggle when sent with only job_id."},
     "name": {"type": "string", "description": "Job display name. Required when creating."},
     "description": {"type": "string"},
@@ -95,16 +127,24 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return tools.ToolResult{Content: "job manager not configured", IsError: true}, nil
 	}
 	id := normalizeRepoSlug(params.JobID)
-	actionCount := boolCount(params.Delete, params.Run, params.DryRun, params.ListRuns)
+	runID := strings.TrimSpace(params.RunID)
+	runIDProvided := params.has("run_id")
+	if runIDProvided && runID == "" {
+		return tools.ToolResult{Content: "run_id cannot be empty", IsError: true}, nil
+	}
+	actionCount := boolCount(params.Delete, params.Run, params.DryRun, params.ListRuns, params.ListEvents, runIDProvided)
 	if actionCount > 1 {
-		return tools.ToolResult{Content: "delete, run, dry_run and list_runs are mutually exclusive", IsError: true}, nil
+		return tools.ToolResult{Content: "delete, run, dry_run, list_runs, list_events and run_id are mutually exclusive", IsError: true}, nil
 	}
 	hasWrite := params.hasWriteFields()
 	if actionCount == 1 && (hasWrite || params.Enabled != nil) {
-		return tools.ToolResult{Content: "delete, run, dry_run and list_runs cannot be combined with write fields", IsError: true}, nil
+		return tools.ToolResult{Content: "delete, run, dry_run, list_runs, list_events and run_id cannot be combined with write fields", IsError: true}, nil
 	}
-	if actionCount == 1 && id == "" {
-		return tools.ToolResult{Content: "job_id is required for delete/run/dry_run/list_runs", IsError: true}, nil
+	if (params.Delete || params.Run || params.DryRun || params.ListRuns || runIDProvided) && id == "" {
+		return tools.ToolResult{Content: "job_id is required for delete/run/dry_run/list_runs/run_id", IsError: true}, nil
+	}
+	if err := params.validateFilterScope(); err != nil {
+		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
 	switch {
@@ -114,8 +154,12 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return t.runJob(ctx, mgr, id)
 	case params.DryRun:
 		return t.dryRunJob(ctx, mgr, id)
+	case runIDProvided:
+		return t.getRunDetail(ctx, mgr, id, runID)
+	case params.ListEvents:
+		return t.listEvents(ctx, mgr, id, params)
 	case params.ListRuns:
-		return t.listRuns(ctx, mgr, id, params.Limit)
+		return t.listRuns(ctx, mgr, id, params)
 	}
 
 	if id == "" && params.Enabled != nil && !hasWrite {
@@ -154,6 +198,29 @@ func (p jobArgs) hasWriteFields() bool {
 func (p jobArgs) has(field string) bool {
 	_, ok := p.present[field]
 	return ok
+}
+
+func (p jobArgs) validateFilterScope() error {
+	runFilterFields := []string{"status", "started_after", "started_before", "include_dry_run"}
+	if !p.ListRuns {
+		for _, f := range runFilterFields {
+			if p.has(f) {
+				return fmt.Errorf("%s is only valid with list_runs: true", f)
+			}
+		}
+	}
+	eventFilterFields := []string{"date", "start_at", "end_at", "event_type", "event_name", "offset"}
+	if !p.ListEvents {
+		for _, f := range eventFilterFields {
+			if p.has(f) {
+				return fmt.Errorf("%s is only valid with list_events: true", f)
+			}
+		}
+	}
+	if !p.ListRuns && !p.ListEvents && p.has("limit") {
+		return fmt.Errorf("limit is only valid with list_runs or list_events")
+	}
+	return nil
 }
 
 func (t *Tool) manager() Manager {
@@ -339,19 +406,124 @@ func (t *Tool) dryRunJob(ctx context.Context, mgr Manager, id string) (tools.Too
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id, "action": "dry_run"}}, nil
 }
 
-func (t *Tool) listRuns(ctx context.Context, mgr Manager, id string, limit int) (tools.ToolResult, error) {
+func (t *Tool) listRuns(ctx context.Context, mgr Manager, id string, params jobArgs) (tools.ToolResult, error) {
+	limit := params.Limit
 	if limit <= 0 {
 		limit = 20
 	}
 	if limit > 100 {
 		limit = 100
 	}
-	runs, err := mgr.GetJobRunsContext(ctx, id, limit)
+	filter := jobs.RunFilter{
+		IncludeDryRun: params.IncludeDryRun,
+		Limit:         limit,
+	}
+	for _, s := range params.Status {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s == "" {
+			continue
+		}
+		if _, ok := allowedRunStatuses[s]; !ok {
+			return tools.ToolResult{Content: fmt.Sprintf("invalid status %q (allowed: completed, failed, retrying, skipped)", s), IsError: true}, nil
+		}
+		filter.Status = append(filter.Status, s)
+	}
+	if params.has("started_after") {
+		value := strings.TrimSpace(params.StartedAfter)
+		if value == "" {
+			return tools.ToolResult{Content: "started_after cannot be empty", IsError: true}, nil
+		}
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("invalid started_after (expect RFC3339): %v", err), IsError: true}, nil
+		}
+		filter.StartedAfter = parsed
+	}
+	if params.has("started_before") {
+		value := strings.TrimSpace(params.StartedBefore)
+		if value == "" {
+			return tools.ToolResult{Content: "started_before cannot be empty", IsError: true}, nil
+		}
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("invalid started_before (expect RFC3339): %v", err), IsError: true}, nil
+		}
+		filter.StartedBefore = parsed
+	}
+	runs, err := mgr.ListJobRunsContext(ctx, id, filter)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error listing runs: %v", err), IsError: true}, nil
 	}
 	data, _ := json.Marshal(runs)
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": id, "count": len(runs)}}, nil
+}
+
+func (t *Tool) getRunDetail(ctx context.Context, mgr Manager, jobID, runID string) (tools.ToolResult, error) {
+	detail, err := mgr.GetJobRunDetailContext(ctx, jobID, runID)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error reading run detail: %v", err), IsError: true}, nil
+	}
+	data, _ := json.Marshal(detail)
+	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"job_id": jobID, "run_id": runID, "action": "get_run"}}, nil
+}
+
+func (t *Tool) listEvents(ctx context.Context, mgr Manager, id string, params jobArgs) (tools.ToolResult, error) {
+	filter := jobs.EventFilter{
+		JobID:  id,
+		Type:   strings.TrimSpace(params.EventType),
+		Event:  strings.TrimSpace(params.EventName),
+		Limit:  params.Limit,
+		Offset: params.Offset,
+	}
+	switch {
+	case params.has("start_at") || params.has("end_at"):
+		if params.has("start_at") {
+			value := strings.TrimSpace(params.StartAt)
+			if value == "" {
+				return tools.ToolResult{Content: "start_at cannot be empty", IsError: true}, nil
+			}
+			parsed, err := time.Parse(time.RFC3339, value)
+			if err != nil {
+				return tools.ToolResult{Content: fmt.Sprintf("invalid start_at (expect RFC3339): %v", err), IsError: true}, nil
+			}
+			filter.StartAt = parsed
+		}
+		if params.has("end_at") {
+			value := strings.TrimSpace(params.EndAt)
+			if value == "" {
+				return tools.ToolResult{Content: "end_at cannot be empty", IsError: true}, nil
+			}
+			parsed, err := time.Parse(time.RFC3339, value)
+			if err != nil {
+				return tools.ToolResult{Content: fmt.Sprintf("invalid end_at (expect RFC3339): %v", err), IsError: true}, nil
+			}
+			filter.EndAt = parsed
+		}
+	default:
+		date := strings.TrimSpace(params.Date)
+		if date == "" {
+			if params.has("date") {
+				return tools.ToolResult{Content: "date cannot be empty", IsError: true}, nil
+			}
+			date = time.Now().In(time.Local).Format("2006-01-02")
+		}
+		start, err := time.ParseInLocation("2006-01-02", date, time.Local)
+		if err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("invalid date %q (expect YYYY-MM-DD): %v", date, err), IsError: true}, nil
+		}
+		filter.StartAt = start
+		filter.EndAt = start.AddDate(0, 0, 1)
+	}
+	events, err := mgr.ListJobEventsContext(ctx, filter)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error listing events: %v", err), IsError: true}, nil
+	}
+	data, _ := json.Marshal(events)
+	meta := map[string]any{"count": len(events), "action": "list_events"}
+	if id != "" {
+		meta["job_id"] = id
+	}
+	return tools.ToolResult{Content: string(data), Metadata: meta}, nil
 }
 
 func (t *Tool) actionResult(action, id string) (tools.ToolResult, error) {

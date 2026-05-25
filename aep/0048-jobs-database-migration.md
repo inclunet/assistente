@@ -510,3 +510,104 @@ Consequências:
 11. **File watcher removido**: `internal/jobs/watcher.go` e `internal/jobs/logger.go` eliminados
 12. **Catálogo derivado em runtime**: `catalog.yaml` deixa de ser gerado; UI e jobs consultam o registry/catálogo persistente em tempo real
 13. **Logs legados descartados**: runs JSON e eventos JSONL antigos não são importados
+
+## Adendo (2026-05-21) — Observabilidade de runs e eventos via tool `job`
+
+Status: Proposto
+Autor: Leonardo Gleison (Inclunet)
+
+### Contexto
+
+Após a implementação inicial, identificou-se que o objetivo **M2** da Motivação ("Queries: listar jobs por status, filtrar runs por data/status, buscar eventos por tipo") não está sendo entregue ao chat do assistente. Dados gravados em `job_run_events` e `job_events` chegam ao banco mas não chegam ao LLM, e a única ação de observabilidade exposta (`list_runs`) aceita apenas `limit`.
+
+Este adendo cataloga os gaps identificados e atualiza o desenho original do D8 e da Fase 6.
+
+### Gaps identificados
+
+**G1 — Timeline `RunEvents` não é exposta no JSON.**
+O struct `RunLog` declara `RunEvents []RunEvent` e `DomainEvents []EventEntry` com tag `json:"-"`, e `DBRepository.GetRuns` faz `Find(&rows)` sem `Preload` da relação `Events`. A tabela `job_run_events` é populada pelo executor, mas nunca chega ao chat. O `Manager` também não tem método público que invoque `Repository.GetRunEvents`.
+
+**G2 — Sem ação para detalhar um run específico.**
+`Repository.GetRun(jobID, runID)` existe e `Manager.GetJobRun(jobID, runID)` o expõe, mas a tool `job` não tem nenhuma flag que aceite `run_id`. Não há como inspecionar `output`, `error`, `resolved_inputs` ou timeline de uma execução específica via chat.
+
+**G3 — Eventos de domínio (`JobEvent`) invisíveis ao LLM.**
+`Manager.GetJobEventsContext(date)` e `GetJobEventsPageContext(date, limit, offset)` retornam `EventEntry`s do event bus, mas nenhuma tool nativa os expõe. O assistente não consegue investigar gatilhos disparados, eventos publicados por outros jobs, nem mensagens de scheduler.
+
+**G4 — `list_runs` aceita apenas `limit`.**
+Sem filtros por `status`, intervalo de tempo ou `is_dry_run`, dry-runs e execuções reais ficam misturados e jobs com muitos runs saturam o resultado antes de revelar as falhas relevantes.
+
+### Decisões adicionais
+
+#### D14 — Consolidar observabilidade na tool `job`; não criar `job_run` separada
+
+Substitui a previsão original do D8 ("tools previstas: ... `job_run` — Lista runs de um job, lê um run específico e retorna timeline/eventos..."). A implementação consolidou observabilidade dentro da tool `job` (via `list_runs`), e mantemos esse desenho: simplifica catálogo, evita uma segunda tool com poucas ações e preserva o contrato já em uso. As ações faltantes (`get_run`, `list_events`) ganham flags próprias na mesma tool.
+
+A Fase 6 original (item 14) referenciava `job_run` como tool independente; passa a referenciar `job` com as flags adicionais deste adendo.
+
+#### D15 — `get_run` retorna `RunLog` completo com timeline
+
+Nova ação na tool `job`: combinada com `job_id` + `run_id`, retorna o `RunLog` com `RunEvents` (timeline operacional ordenada por `sequence`, com `type`, `message`, `data`, `timestamp`) e `DomainEvents` (eventos de domínio correlacionados via `JobRunID`).
+
+Mudanças necessárias:
+
+1. Manter `RunLog.RunEvents` e `RunLog.DomainEvents` como `json:"-"` (listagens leves) e introduzir DTO `RunDetail` (`RunLog` + `RunEvents` + `DomainEvents`) usado só pelo `get_run`.
+2. Adicionar `Repository.GetRunDetail(ctx, jobID, runID)` que combina `GetRun` + `GetRunEvents` + `ListEvents(filter{RunID})` em uma única chamada. `EventFilter` ganha campo `RunID string` para filtrar `job_events` por `job_run_id`.
+3. Expor via `Manager.GetJobRunDetailContext(ctx, jobID, runID)`.
+4. Tool `job`: aceita `run_id` validado em conjunto com `job_id`. `run_id` é mutuamente exclusivo com `list_runs`, `run`, `dry_run`, `delete` e `list_events`.
+
+#### D16 — `list_events` para eventos de domínio com filtros completos
+
+Nova ação `list_events` na tool `job` que aceita:
+
+| Parâmetro | Tipo | Default | Notas |
+|---|---|---|---|
+| `date` | string (`YYYY-MM-DD`) | hoje (local) | Atalho para `start_at`/`end_at` cobrindo 24h |
+| `start_at` | string (RFC3339) | — | Sobrescreve `date` se informado |
+| `end_at` | string (RFC3339) | — | Sobrescreve `date` se informado |
+| `event_type` | string | — | Filtra por `JobEvent.Type` |
+| `event_name` | string | — | Filtra por `JobEvent.Event` |
+| `job_id` | string (slug) | — | Quando informado, restringe ao job; sem ele, lista global |
+| `limit` | int | 50 | Máx 200 |
+| `offset` | int | 0 | Paginação |
+
+Implementação reaproveita `Manager.ListJobEventsContext` com `EventFilter` estendido. `list_events` é mutuamente exclusivo com `list_runs`, `run`, `dry_run`, `delete` e `run_id`.
+
+#### D17 — `list_runs` aceita `RunFilter`
+
+Adicionar `Repository.ListRuns(ctx, jobID, filter RunFilter)` ao lado de `GetRuns` (não breaking). `RunFilter`:
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `Status` | `[]string` | Aceita `completed`, `failed`, `retrying`, `skipped`. Vazio = todos |
+| `StartedAfter` | `time.Time` | RFC3339 na tool |
+| `StartedBefore` | `time.Time` | RFC3339 na tool |
+| `IncludeDryRun` | `bool` | Default `false` — dry-runs ficam fora a menos que explicitamente pedido |
+| `Limit` | `int` | Default 20, máx 100 |
+
+Filtros usam o índice composto `idx_job_runs_user_job_started_at` para `started_at`; `status` e `is_dry_run` já têm índice próprio (`models_jobs.go:97,103`).
+
+### Fases adicionais
+
+#### Fase 10 — Correções de observabilidade
+
+30. Adicionar struct `RunFilter` e DTO `RunDetail` em `types.go`; estender `EventFilter` com `RunID`.
+31. Adicionar `Repository.ListRuns`, `Repository.GetRunDetail`; estender `Repository.ListEvents` para usar `filter.RunID`.
+32. Adicionar `Manager.ListJobRunsContext`, `Manager.GetJobRunDetailContext`, `Manager.ListJobEventsContext`; métodos legados (`GetJobRuns`, `GetJobRun`, `GetJobEventsContext`, `GetJobEventsPageContext`) preservados para não quebrar callers Wails.
+33. Estender interface `Manager` da tool em `internal/tools/job/manager.go` com os 3 métodos novos.
+34. Estender tool `job` em `internal/tools/job/job.go`:
+    - Novos campos em `jobArgs`: `RunID`, `ListEvents`, `Status []string`, `StartedAfter`, `StartedBefore`, `IncludeDryRun`, `Date`, `StartAt`, `EndAt`, `EventType`, `EventName`, `Offset`.
+    - Atualizar `boolCount` e a validação de exclusividade para incluir `list_events` e `run_id`.
+    - Validar que filtros de runs só aparecem com `list_runs: true`; filtros de events só com `list_events: true`.
+    - Roteamento: `run_id` presente → `getRunDetail`; `list_events` → `listEvents`; demais ramos mantidos.
+35. Atualizar `Parameters()` JSON schema da tool com os novos campos e descrições.
+36. Testes Go cobrindo: roundtrip de `RunEvents`/`DomainEvents` em `get_run`, filtros de `list_runs` (status, intervalos, `include_dry_run`), paginação/filtros de `list_events`, validação de exclusividade entre `get_run`/`list_events`/`list_runs`/`run`/`dry_run`/`delete`, e validação "filtro requer list".
+
+### Critérios de aceitação adicionais
+
+14. Tool `job` com `job_id` + `run_id` retorna `RunDetail` (RunLog flat + `run_events` ordenado por `sequence` + `domain_events` correlacionados).
+15. Tool `job` com `list_events: true` retorna `EventEntry`s filtráveis por `date`/intervalo/`event_type`/`event_name`/`job_id`, com paginação por `limit`+`offset`.
+16. Tool `job` com `list_runs: true` aceita `status`, `started_after`, `started_before`, `include_dry_run` e devolve resultado filtrado pelo banco (sem filtragem em memória).
+17. Dry-runs ficam excluídos do `list_runs` por default; só aparecem com `include_dry_run: true`.
+18. Tool `job_run` independente **não** é criada — a previsão original do D8 é substituída por este adendo (D14).
+19. `list_runs` continua sem hidratar `RunEvents` (listagem leve); apenas `get_run` (via `RunDetail`) traz a timeline completa.
+20. Testes Go cobrem hidratação de eventos, todos os filtros de runs, paginação de eventos e validação de exclusividade entre as novas flags.

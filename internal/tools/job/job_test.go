@@ -7,21 +7,29 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/jobs"
 )
 
 type fakeManager struct {
-	jobs         map[string]*jobs.Job
-	pipelines    map[string]jobs.Pipeline
-	getErr       error
-	lastRunLimit int
+	jobs          map[string]*jobs.Job
+	pipelines     map[string]jobs.Pipeline
+	getErr        error
+	lastRunLimit  int
+	runsByJob     map[string][]jobs.RunLog
+	runDetails    map[string]*jobs.RunDetail
+	events        []jobs.EventEntry
+	lastRunFilter jobs.RunFilter
+	lastEventFilt jobs.EventFilter
 }
 
 func newFakeManager() *fakeManager {
 	return &fakeManager{
-		jobs:      make(map[string]*jobs.Job),
-		pipelines: make(map[string]jobs.Pipeline),
+		jobs:       make(map[string]*jobs.Job),
+		pipelines:  make(map[string]jobs.Pipeline),
+		runsByJob:  make(map[string][]jobs.RunLog),
+		runDetails: make(map[string]*jobs.RunDetail),
 	}
 }
 
@@ -115,6 +123,82 @@ func (m *fakeManager) GetJobRuns(id string, limit int) ([]jobs.RunLog, error) {
 
 func (m *fakeManager) GetJobRunsContext(ctx context.Context, id string, limit int) ([]jobs.RunLog, error) {
 	return m.GetJobRuns(id, limit)
+}
+
+func (m *fakeManager) ListJobRunsContext(ctx context.Context, id string, filter jobs.RunFilter) ([]jobs.RunLog, error) {
+	m.lastRunFilter = filter
+	m.lastRunLimit = filter.Limit
+	all := m.runsByJob[id]
+	out := make([]jobs.RunLog, 0, len(all))
+	for _, run := range all {
+		if !filter.IncludeDryRun && run.IsDryRun {
+			continue
+		}
+		if len(filter.Status) > 0 {
+			match := false
+			for _, s := range filter.Status {
+				if run.Status == s {
+					match = true
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+		if !filter.StartedAfter.IsZero() && run.StartedAt.Before(filter.StartedAfter) {
+			continue
+		}
+		if !filter.StartedBefore.IsZero() && !run.StartedAt.Before(filter.StartedBefore) {
+			continue
+		}
+		out = append(out, run)
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (m *fakeManager) GetJobRunDetailContext(ctx context.Context, jobID, runID string) (*jobs.RunDetail, error) {
+	if d, ok := m.runDetails[jobID+":"+runID]; ok {
+		return d, nil
+	}
+	return nil, errNotFound(jobID + ":" + runID)
+}
+
+func (m *fakeManager) ListJobEventsContext(ctx context.Context, filter jobs.EventFilter) ([]jobs.EventEntry, error) {
+	m.lastEventFilt = filter
+	out := make([]jobs.EventEntry, 0, len(m.events))
+	for _, ev := range m.events {
+		if filter.JobID != "" && ev.JobID != filter.JobID {
+			continue
+		}
+		if filter.RunID != "" && ev.RunID != filter.RunID {
+			continue
+		}
+		if filter.Type != "" && ev.Type != filter.Type {
+			continue
+		}
+		if filter.Event != "" && ev.Event != filter.Event {
+			continue
+		}
+		if !filter.StartAt.IsZero() && ev.Timestamp.Before(filter.StartAt) {
+			continue
+		}
+		if !filter.EndAt.IsZero() && !ev.Timestamp.Before(filter.EndAt) {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out, nil
 }
 
 func (m *fakeManager) GetPipelines() []jobs.PipelineInfo {
@@ -371,6 +455,228 @@ func TestJobToolCapsListRunsLimit(t *testing.T) {
 	}
 	if mgr.lastRunLimit != 100 {
 		t.Fatalf("limit not capped: got %d, want 100", mgr.lastRunLimit)
+	}
+}
+
+func TestJobToolGetRunReturnsDetailWithEvents(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["daily-report"] = &jobs.Job{ID: "daily-report", Name: "Daily Report", Enabled: true}
+	mgr.runDetails["daily-report:run-x"] = &jobs.RunDetail{
+		RunLog: jobs.RunLog{RunID: "run-x", JobID: "daily-report", Status: "failed"},
+		RunEvents: []jobs.RunEvent{
+			{RunID: "run-x", Sequence: 1, Type: "triggered", Message: "started"},
+			{RunID: "run-x", Sequence: 2, Type: "failed", Message: "boom"},
+		},
+		DomainEvents: []jobs.EventEntry{
+			{JobID: "daily-report", RunID: "run-x", Type: "emitted", Event: "fail"},
+		},
+	}
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"job_id":"daily-report","run_id":"run-x"}`))
+	if err != nil {
+		t.Fatalf("Execute get_run error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute get_run returned error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, `"run_events"`) || !strings.Contains(result.Content, `"domain_events"`) {
+		t.Fatalf("get_run output missing event fields: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, `"triggered"`) || !strings.Contains(result.Content, `"boom"`) {
+		t.Fatalf("get_run output missing event content: %s", result.Content)
+	}
+}
+
+func TestJobToolListEventsAppliesDateAndType(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["daily-report"] = &jobs.Job{ID: "daily-report", Name: "Daily Report", Enabled: true}
+	day := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)
+	mgr.events = []jobs.EventEntry{
+		{JobID: "daily-report", Timestamp: day.Add(time.Hour), Type: "emitted", Event: "done", Message: "inside"},
+		{JobID: "daily-report", Timestamp: day.AddDate(0, 0, -1), Type: "emitted", Event: "done", Message: "before"},
+		{JobID: "other", Timestamp: day.Add(2 * time.Hour), Type: "received", Event: "ping", Message: "other"},
+	}
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"list_events":true,"start_at":"2026-05-13T00:00:00Z","end_at":"2026-05-14T00:00:00Z","event_type":"emitted"}`))
+	if err != nil {
+		t.Fatalf("Execute list_events error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute list_events returned error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "inside") || strings.Contains(result.Content, "before") || strings.Contains(result.Content, "other") {
+		t.Fatalf("list_events filter mismatch: %s", result.Content)
+	}
+	if mgr.lastEventFilt.Type != "emitted" {
+		t.Fatalf("event filter type not passed: %#v", mgr.lastEventFilt)
+	}
+}
+
+func TestJobToolListRunsAppliesStatusFilter(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["daily-report"] = &jobs.Job{ID: "daily-report", Name: "Daily Report", Enabled: true}
+	mgr.runsByJob["daily-report"] = []jobs.RunLog{
+		{RunID: "r1", JobID: "daily-report", Status: "completed", StartedAt: time.Now()},
+		{RunID: "r2", JobID: "daily-report", Status: "failed", StartedAt: time.Now()},
+		{RunID: "r3", JobID: "daily-report", Status: "skipped", StartedAt: time.Now()},
+	}
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"job_id":"daily-report","list_runs":true,"status":["failed"]}`))
+	if err != nil {
+		t.Fatalf("Execute list_runs status error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute list_runs returned error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, `"r2"`) || strings.Contains(result.Content, `"r1"`) {
+		t.Fatalf("status filter mismatch: %s", result.Content)
+	}
+	if len(mgr.lastRunFilter.Status) != 1 || mgr.lastRunFilter.Status[0] != "failed" {
+		t.Fatalf("status filter not propagated: %#v", mgr.lastRunFilter)
+	}
+}
+
+func TestJobToolListRunsExcludesDryRunByDefault(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["daily-report"] = &jobs.Job{ID: "daily-report", Name: "Daily Report", Enabled: true}
+	mgr.runsByJob["daily-report"] = []jobs.RunLog{
+		{RunID: "real", JobID: "daily-report", Status: "completed", StartedAt: time.Now()},
+		{RunID: "dry", JobID: "daily-report", Status: "completed", IsDryRun: true, StartedAt: time.Now()},
+	}
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"job_id":"daily-report","list_runs":true}`))
+	if err != nil {
+		t.Fatalf("Execute list_runs default error = %v", err)
+	}
+	if strings.Contains(result.Content, `"dry"`) {
+		t.Fatalf("default list_runs leaked dry-run: %s", result.Content)
+	}
+	if mgr.lastRunFilter.IncludeDryRun {
+		t.Fatalf("default filter should not include dry runs")
+	}
+
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"job_id":"daily-report","list_runs":true,"include_dry_run":true}`))
+	if err != nil {
+		t.Fatalf("Execute list_runs include dry error = %v", err)
+	}
+	if !strings.Contains(result.Content, `"dry"`) || !strings.Contains(result.Content, `"real"`) {
+		t.Fatalf("include_dry_run did not surface dry-run: %s", result.Content)
+	}
+}
+
+func TestJobToolExclusivityValidation(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["x"] = &jobs.Job{ID: "x", Name: "X", Enabled: true}
+	tool := NewJob(mgr)
+
+	cases := []struct {
+		name string
+		args string
+	}{
+		{"list_runs+list_events", `{"job_id":"x","list_runs":true,"list_events":true}`},
+		{"run_id+run", `{"job_id":"x","run_id":"r1","run":true}`},
+		{"run_id+list_runs", `{"job_id":"x","run_id":"r1","list_runs":true}`},
+		{"delete+list_events", `{"job_id":"x","delete":true,"list_events":true}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result, err := tool.Execute(context.Background(), json.RawMessage(c.args))
+			if err != nil {
+				t.Fatalf("Execute error = %v", err)
+			}
+			if !result.IsError || !strings.Contains(result.Content, "mutually exclusive") {
+				t.Fatalf("expected mutually-exclusive rejection, got %s", result.Content)
+			}
+		})
+	}
+}
+
+func TestJobToolRejectsEmptyRunID(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["x"] = &jobs.Job{ID: "x", Name: "X", Enabled: true}
+	tool := NewJob(mgr)
+
+	cases := []struct {
+		name string
+		args string
+	}{
+		{"empty run_id", `{"job_id":"x","run_id":""}`},
+		{"blank run_id", `{"job_id":"x","run_id":"   "}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result, err := tool.Execute(context.Background(), json.RawMessage(c.args))
+			if err != nil {
+				t.Fatalf("Execute error = %v", err)
+			}
+			if !result.IsError || !strings.Contains(result.Content, "run_id cannot be empty") {
+				t.Fatalf("expected empty run_id rejection, got %s", result.Content)
+			}
+		})
+	}
+}
+
+func TestJobToolFilterRequiresList(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["x"] = &jobs.Job{ID: "x", Name: "X", Enabled: true}
+	tool := NewJob(mgr)
+
+	cases := []struct {
+		name     string
+		args     string
+		fragment string
+	}{
+		{"started_after without list_runs", `{"job_id":"x","started_after":"2026-05-13T00:00:00Z"}`, "started_after is only valid with list_runs"},
+		{"status without list_runs", `{"job_id":"x","status":["failed"]}`, "status is only valid with list_runs"},
+		{"date without list_events", `{"job_id":"x","date":"2026-05-13"}`, "date is only valid with list_events"},
+		{"event_type without list_events", `{"event_type":"emitted"}`, "event_type is only valid with list_events"},
+		{"offset without list_events", `{"offset":10}`, "offset is only valid with list_events"},
+		{"offset with list_runs", `{"job_id":"x","list_runs":true,"offset":10}`, "offset is only valid with list_events"},
+		{"limit without list action", `{"job_id":"x","limit":10}`, "limit is only valid with list_runs or list_events"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result, err := tool.Execute(context.Background(), json.RawMessage(c.args))
+			if err != nil {
+				t.Fatalf("Execute error = %v", err)
+			}
+			if !result.IsError || !strings.Contains(result.Content, c.fragment) {
+				t.Fatalf("expected %q error, got %s", c.fragment, result.Content)
+			}
+		})
+	}
+}
+
+func TestJobToolRejectsEmptyTimeFilters(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["x"] = &jobs.Job{ID: "x", Name: "X", Enabled: true}
+	tool := NewJob(mgr)
+
+	cases := []struct {
+		name     string
+		args     string
+		fragment string
+	}{
+		{"blank started_after", `{"job_id":"x","list_runs":true,"started_after":"   "}`, "started_after cannot be empty"},
+		{"blank started_before", `{"job_id":"x","list_runs":true,"started_before":"   "}`, "started_before cannot be empty"},
+		{"blank start_at", `{"list_events":true,"start_at":"   "}`, "start_at cannot be empty"},
+		{"blank end_at", `{"list_events":true,"end_at":"   "}`, "end_at cannot be empty"},
+		{"blank date", `{"list_events":true,"date":"   "}`, "date cannot be empty"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result, err := tool.Execute(context.Background(), json.RawMessage(c.args))
+			if err != nil {
+				t.Fatalf("Execute error = %v", err)
+			}
+			if !result.IsError || !strings.Contains(result.Content, c.fragment) {
+				t.Fatalf("expected %q error, got %s", c.fragment, result.Content)
+			}
+		})
 	}
 }
 
