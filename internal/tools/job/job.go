@@ -422,18 +422,18 @@ func (t *Tool) listRuns(ctx context.Context, mgr Manager, id string, params jobA
 		filter.Status = append(filter.Status, s)
 	}
 	if params.StartedAfter != "" {
-		t, err := time.Parse(time.RFC3339, params.StartedAfter)
+		parsed, err := time.Parse(time.RFC3339, params.StartedAfter)
 		if err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("invalid started_after (expect RFC3339): %v", err), IsError: true}, nil
 		}
-		filter.StartedAfter = t
+		filter.StartedAfter = parsed
 	}
 	if params.StartedBefore != "" {
-		t, err := time.Parse(time.RFC3339, params.StartedBefore)
+		parsed, err := time.Parse(time.RFC3339, params.StartedBefore)
 		if err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("invalid started_before (expect RFC3339): %v", err), IsError: true}, nil
 		}
-		filter.StartedBefore = t
+		filter.StartedBefore = parsed
 	}
 	runs, err := mgr.ListJobRunsContext(ctx, id, filter)
 	if err != nil {
@@ -463,18 +463,18 @@ func (t *Tool) listEvents(ctx context.Context, mgr Manager, id string, params jo
 	switch {
 	case params.StartAt != "" || params.EndAt != "":
 		if params.StartAt != "" {
-			t, err := time.Parse(time.RFC3339, params.StartAt)
+			parsed, err := time.Parse(time.RFC3339, params.StartAt)
 			if err != nil {
 				return tools.ToolResult{Content: fmt.Sprintf("invalid start_at (expect RFC3339): %v", err), IsError: true}, nil
 			}
-			filter.StartAt = t
+			filter.StartAt = parsed
 		}
 		if params.EndAt != "" {
-			t, err := time.Parse(time.RFC3339, params.EndAt)
+			parsed, err := time.Parse(time.RFC3339, params.EndAt)
 			if err != nil {
 				return tools.ToolResult{Content: fmt.Sprintf("invalid end_at (expect RFC3339): %v", err), IsError: true}, nil
 			}
-			filter.EndAt = t
+			filter.EndAt = parsed
 		}
 	default:
 		date := strings.TrimSpace(params.Date)
