@@ -19,6 +19,13 @@ func (s *DBMessageStore) CreateMessage(ctx context.Context, opts database.Messag
 	return database.CreateMessageWithContext(ctx, opts)
 }
 
+func (s *DBMessageStore) UpdateMessageContentAndReasoning(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateMessageContentAndReasoningWithContext(ctx, messageID, content, reasoning, promptTokens, completionTokens, totalTokens, model)
+}
+
 func (s *DBMessageStore) GetMessage(ctx context.Context, messageID string) (*database.ChatMessage, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
@@ -31,6 +38,13 @@ func (s *DBMessageStore) GetMessages(ctx context.Context, conversationID string,
 		return nil, err
 	}
 	return database.GetMessagesWithContext(ctx, conversationID, parentID)
+}
+
+func (s *DBMessageStore) GetMessagesByTurnID(ctx context.Context, conversationID string, parentID *string, turnID string, limit int) ([]database.ChatMessage, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetMessagesByTurnIDWithContext(ctx, conversationID, parentID, turnID, limit)
 }
 
 func (s *DBMessageStore) GetConversationSummary(ctx context.Context, conversationID string) (string, string, error) {

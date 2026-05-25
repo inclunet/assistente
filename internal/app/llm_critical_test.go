@@ -64,6 +64,10 @@ type mockMessageRepo struct {
 func (r *mockMessageRepo) CreateMessage(_ context.Context, opts database.MessageOptions) (*database.ChatMessage, error) {
 	return nil, nil
 }
+
+func (r *mockMessageRepo) UpdateMessageContentAndReasoning(_ context.Context, _ string, _ string, _ string, _, _, _ int, _ string) error {
+	return nil
+}
 func (r *mockMessageRepo) GetMessage(_ context.Context, messageID string) (*database.ChatMessage, error) {
 	for i := range r.messages {
 		if r.messages[i].ID == messageID {
@@ -74,6 +78,13 @@ func (r *mockMessageRepo) GetMessage(_ context.Context, messageID string) (*data
 	return nil, nil
 }
 func (r *mockMessageRepo) GetMessages(_ context.Context, conversationID string, parentID *string) ([]database.ChatMessage, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.messages, nil
+}
+
+func (r *mockMessageRepo) GetMessagesByTurnID(_ context.Context, _ string, _ *string, _ string, _ int) ([]database.ChatMessage, error) {
 	if r.err != nil {
 		return nil, r.err
 	}

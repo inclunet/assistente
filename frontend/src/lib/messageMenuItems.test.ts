@@ -16,7 +16,7 @@ vi.mock('i18next', () => ({
 }));
 import { getMessageMenuItems } from './messageMenuItems';
 import type { Message } from '../store/chatStore';
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 
 vi.mock('../services/messageAudio', () => ({
   messageAudioService: {
@@ -40,7 +40,7 @@ vi.mock('../services/tts', () => ({
 describe('messageMenuItems', () => {
   it('inclui itens basicos e markdown', () => {
     i18nTMock.mockClear();
-    const assistantMessage = new main.EnrichedMessage({
+    const assistantMessage = new chat.EnrichedMessage({
       id: '1',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
@@ -70,7 +70,7 @@ describe('messageMenuItems', () => {
 
   it('inclui itens de usuario', () => {
     i18nTMock.mockClear();
-    const userMessage = new main.EnrichedMessage({
+    const userMessage = new chat.EnrichedMessage({
       id: '2',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'user',
@@ -97,9 +97,38 @@ describe('messageMenuItems', () => {
     expect(items.some((item) => item.id === 'delete')).toBe(true);
   });
 
+  it('inclui "Continuar resposta" quando habilitado', () => {
+    const assistantMessage = new chat.EnrichedMessage({
+      id: 'a-sintetico',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      role: 'assistant',
+      content: 'parcial',
+      turnId: 'user-1',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+    }) as Message;
+
+    const items = getMessageMenuItems(assistantMessage, {
+      isTTSDisabled: true,
+      onContinue: vi.fn(),
+      shouldShowContinue: () => true,
+    });
+
+    expect(items.some((item) => item.id === 'continue-response')).toBe(true);
+
+    const hidden = getMessageMenuItems(assistantMessage, {
+      isTTSDisabled: true,
+      onContinue: vi.fn(),
+      shouldShowContinue: () => false,
+    });
+    expect(hidden.some((item) => item.id === 'continue-response')).toBe(false);
+  });
+
   it('inclui envio para editor quando configurado', () => {
     i18nTMock.mockClear();
-    const assistantMessage = new main.EnrichedMessage({
+    const assistantMessage = new chat.EnrichedMessage({
       id: '3',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
@@ -133,7 +162,7 @@ describe('messageMenuItems', () => {
   it('usa titulos distintos ao enviar multiplas tabelas para novo documento', () => {
     i18nTMock.mockClear();
     const onSendToEditor = vi.fn();
-    const assistantMessage = new main.EnrichedMessage({
+    const assistantMessage = new chat.EnrichedMessage({
       id: '4',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
@@ -167,5 +196,29 @@ describe('messageMenuItems', () => {
       target: 'new_document',
       title: 'Table 2 (HTML)',
     }));
+  });
+
+  it('inclui cancelar geração quando mensagem está em streaming', () => {
+    const onCancelStreaming = vi.fn();
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'streaming-1',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      role: 'assistant',
+      content: 'parcial',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    }) as Message;
+
+    const items = getMessageMenuItems(streamingMessage, {
+      isTTSDisabled: true,
+      onCancelStreaming,
+    });
+
+    const cancelItem = items.find((item) => item.id === 'cancel-generation');
+    expect(cancelItem).toBeTruthy();
+    cancelItem?.action?.();
+    expect(onCancelStreaming).toHaveBeenCalledWith(streamingMessage);
   });
 });

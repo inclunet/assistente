@@ -98,11 +98,12 @@ func (c *LLMController) GetActiveProviderInfo(ctx context.Context) map[string]in
 		}
 	}
 	return map[string]interface{}{
-		"id":       info.ID,
-		"name":     info.Name,
-		"type":     info.Type,
-		"base_url": info.BaseURL,
-		"model":    info.Model,
+		"id":                         info.ID,
+		"name":                       info.Name,
+		"type":                       info.Type,
+		"base_url":                   info.BaseURL,
+		"model":                      info.Model,
+		"supports_assistant_prefill": info.SupportsAssistantPrefill,
 	}
 }
 

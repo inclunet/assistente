@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 import {
   appendInternalMessageToTree,
   attachChildrenToMessage,
@@ -11,7 +11,7 @@ import {
   type MessageNode,
 } from './chatMessageTree';
 
-const message = (id: string, role: string, content = id, parentId?: string): Message => new main.EnrichedMessage({
+const message = (id: string, role: string, content = id, parentId?: string): Message => new chat.EnrichedMessage({
   id,
   role,
   content,
@@ -20,7 +20,7 @@ const message = (id: string, role: string, content = id, parentId?: string): Mes
   createdAt: '2026-04-30T00:00:00.000Z',
 }) as Message;
 
-const node = (msg: Message, children: MessageNode[] = [], level = 0): MessageNode => new main.MessageNode({
+const node = (msg: Message, children: MessageNode[] = [], level = 0): MessageNode => new chat.MessageNode({
   message: msg,
   children,
   level,

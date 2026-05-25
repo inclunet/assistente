@@ -13,10 +13,33 @@ import (
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
 	"assistente/internal/tools"
 )
+
+func resolveStreamingRecoverySettings(activeProfile *profiles.Profile) (enabled bool, maxAttempts int) {
+	// Defaults (AEP-0064): enabled + 3 tentativas
+	enabled = true
+	maxAttempts = 3
+	if activeProfile == nil {
+		return enabled, maxAttempts
+	}
+	if activeProfile.Chat.StreamingRecoveryEnabled != nil {
+		enabled = *activeProfile.Chat.StreamingRecoveryEnabled
+	}
+	if activeProfile.Chat.StreamingRecoveryMaxAttempts != nil {
+		maxAttempts = *activeProfile.Chat.StreamingRecoveryMaxAttempts
+	}
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	if maxAttempts > 10 {
+		maxAttempts = 10
+	}
+	return enabled, maxAttempts
+}
 
 // SendMessageConfig agrupa as dependências do SendMessageUseCase.
 type SendMessageConfig struct {
@@ -99,6 +122,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", err
 	}
+	if req.Params.AllowAssistantPrefill && req.RetryMessageID == "" {
+		errMsg := "continuação explícita requer RetryMessage (mensagem para retry)"
+		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
+		return "", fmt.Errorf("%s", errMsg)
+	}
 
 	// Resolve modelo padrão do config como fallback.
 	var defaultModel string
@@ -135,6 +163,19 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 	activeProfile := pctx.ActiveProfile
 	params := pctx.Params
+	if params.AllowAssistantPrefill {
+		// Gating pelo perfil: se o usuário desabilitou a ação manual, o backend deve falhar fechado.
+		if activeProfile != nil && activeProfile.Chat.StreamingRecoveryShowContinue != nil && !*activeProfile.Chat.StreamingRecoveryShowContinue {
+			errMsg := "ação 'Continuar resposta' desabilitada no perfil ativo"
+			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
+			return "", fmt.Errorf("%s", errMsg)
+		}
+		if uc.providerSvc == nil || !uc.providerSvc.SupportsAssistantPrefill(ctx, activeProfile) {
+			errMsg := "provedor/modelo ativo não suporta continuação com assistant prefill"
+			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
+			return "", fmt.Errorf("%s", errMsg)
+		}
+	}
 	userContent := pctx.UserContent
 	surfaceOrigin := ports.NewChatSurfaceOrigin(
 		req.ConversationID,
@@ -248,6 +289,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	uc.streamMgr.Register(req.ConversationID, convCancel)
 
 	if len(llmToolDefs) > 0 {
+		recoveryEnabled, recoveryMaxAttempts := resolveStreamingRecoverySettings(activeProfile)
 		agentCtx := convCtx
 		if invokedSkillSlug != "" {
 			agentCtx = tools.WithExecutionContext(agentCtx, tools.ExecutionContext{
@@ -277,17 +319,19 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 					names = chat.FilterToolNamesForNativeMCP(requestStreamer, uc.mcpMgr, names, disableTools)
 					return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
 				},
+				recoveryEnabled,
+				recoveryMaxAttempts,
 			)
 		}()
 	} else {
-		handler := uc.agentSvc.NewSimpleStreamHandler(ctx, req.ConversationID, userMsg.ID, params.ProfileSlug, surfaceOrigin)
+		recoveryEnabled, recoveryMaxAttempts := resolveStreamingRecoverySettings(activeProfile)
 		go func() {
 			defer func() {
 				r := recover()
 				events.HandlePanic(uc.emitter, req.ConversationID, "StreamChat", r)
 			}()
 			defer uc.streamMgr.Unregister(req.ConversationID)
-			requestStreamer.StreamChat(convCtx, messages, params, handler)
+			uc.agentSvc.StreamSimpleWithRecovery(convCtx, requestStreamer, messages, params, req.ConversationID, userMsg.ID, params.ProfileSlug, surfaceOrigin, recoveryEnabled, recoveryMaxAttempts)
 		}()
 	}
 	return req.ConversationID, nil

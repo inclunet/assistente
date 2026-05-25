@@ -24,7 +24,10 @@ export interface MenuItemsOptions {
   onSpeak?: (message: Message) => void;
   onEdit?: (message: Message) => void;
   onResend?: (message: Message) => void;
+  onContinue?: (message: Message) => void;
+  shouldShowContinue?: (message: Message) => boolean;
   onDelete?: (message: Message) => void;
+  onCancelStreaming?: (message: Message) => void;
   onPin?: (message: Message) => void;
   onAnnounce?: (text: string) => void;
   onSendToEditor?: (payload: SendToEditorPayload & {
@@ -260,7 +263,10 @@ export function getMessageMenuItems(
     onSpeak,
     onEdit,
     onResend,
+    onContinue,
+    shouldShowContinue,
     onDelete,
+    onCancelStreaming,
     onPin,
     onAnnounce,
     onSendToEditor,
@@ -337,6 +343,27 @@ export function getMessageMenuItems(
     shortcut: 'Enter',
     action: () => onReadMessage?.(message),
   });
+
+  if (message.isStreaming && onCancelStreaming) {
+    items.push({
+      id: 'cancel-generation',
+      label: i18next.t('chat.cancelGeneration'),
+      icon: '⏹',
+      ariaLabel: i18next.t('chat.cancelGenerationLabel'),
+      shortcut: 'Esc',
+      action: () => onCancelStreaming(message),
+    });
+  }
+
+  if (onContinue && (shouldShowContinue?.(message) ?? false)) {
+    items.push({
+      id: 'continue-response',
+      label: i18next.t('chat.continueResponse'),
+      icon: '⏭',
+      ariaLabel: i18next.t('chat.continueResponseLabel'),
+      action: () => onContinue(message),
+    });
+  }
 
   // 1.5 Ver/Ocultar Raciocínio (se a mensagem tem reasoning)
   type MessageFlags = Message & { reasoning?: string; pinned?: boolean };

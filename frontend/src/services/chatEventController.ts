@@ -1,12 +1,13 @@
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import i18next from 'i18next';
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 import type { ToolCallStatus } from '../types/chat';
 import { announce } from '../hooks/useAnnouncer';
 import {
   finalizeStreamingNode,
   flattenThreadedMessages,
   hasMessageId,
+  migrateStreamingNodeId,
   type ChatTreeConversation,
   type Message,
   type MessageNode,
@@ -215,6 +216,7 @@ export function startChatEventController({
 }: ChatEventControllerOptions): ChatEventControllerHandle {
   const conversationIdStr = conversationId.toString();
   const streamingMsgId = createStreamingMessageId(conversationId);
+  let currentAssistantNodeId = streamingMsgId;
   let cleanupExecuted = false;
   let streamingAnnounced = false;
   let assistantNodeCreated = false;
@@ -249,7 +251,7 @@ export function startChatEventController({
   const ensureAssistantNode = () => {
     if (assistantNodeCreated) return;
     assistantNodeCreated = true;
-    const assistantMsg = new main.EnrichedMessage({
+    const assistantMsg = new chat.EnrichedMessage({
       id: streamingMsgId,
       role: 'assistant',
       content: '',
@@ -260,7 +262,7 @@ export function startChatEventController({
       internal: false,
       createdAt: new Date().toISOString(),
     }) as Message;
-    const assistantNode = new main.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
+    const assistantNode = new chat.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
     const session = getCurrentSession();
     if (!session.conversation) return;
     patchCurrentSession({
@@ -270,6 +272,7 @@ export function startChatEventController({
       },
       appendVisibleMessages: true,
       streamingMessageId: streamingMsgId,
+      lastInterruptedMessageId: null,
     });
   };
 
@@ -287,6 +290,9 @@ export function startChatEventController({
     unsubError();
     unsubSpeak();
     discardPendingUpdate(streamingMsgId);
+    if (currentAssistantNodeId !== streamingMsgId) {
+      discardPendingUpdate(currentAssistantNodeId);
+    }
     activeControllers.delete(conversationIdStr);
     adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
     patchCurrentSession({
@@ -303,16 +309,26 @@ export function startChatEventController({
   const finalizeStreaming = (finalId?: string | null, finalTurnId: string | null = currentTurnId) => {
     adapter.patchConversation(
       conversationId,
-      (conversation) => finalizeStreamingNode(conversation, streamingMsgId, finalId, finalTurnId),
+      (conversation) => finalizeStreamingNode(conversation, currentAssistantNodeId, finalId, finalTurnId),
     );
   };
 
   const updateStreamingMessage = (content: string) => {
-    adapter.updateMessage(conversationId, streamingMsgId, content);
+    adapter.updateMessage(conversationId, currentAssistantNodeId, content);
+  };
+
+  const getCurrentAssistantContent = () => {
+    const messages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
+    return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
+  };
+
+  const updateEmptyAssistantWithError = (message: string) => {
+    if (getCurrentAssistantContent().trim()) return;
+    updateStreamingMessage(i18next.t('chat.errorPrefix', { message }));
   };
 
   const flushStreamingUpdate = () => {
-    flushPendingUpdate(streamingMsgId, (_messageId, nextContent) => updateStreamingMessage(nextContent));
+    flushPendingUpdate(currentAssistantNodeId, (_messageId, nextContent) => updateStreamingMessage(nextContent));
   };
 
   const existingCleanup = activeControllers.get(conversationIdStr);
@@ -356,7 +372,7 @@ export function startChatEventController({
     if (!event.userMessageId) return;
     currentTurnId = event.turnId || event.userMessageId.toString();
     if (hasMessageId(getCurrentSession().conversation?.threadedMessages, String(event.userMessageId))) return;
-    const userMsg = new main.EnrichedMessage({
+    const userMsg = new chat.EnrichedMessage({
       id: event.userMessageId.toString(),
       role: 'user',
       content: event.userContent || external?.text || initialUserContent,
@@ -367,7 +383,7 @@ export function startChatEventController({
       createdAt: new Date().toISOString(),
       source: external?.channel,
     }) as Message;
-    const userNode = new main.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
+    const userNode = new chat.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
     const session = getCurrentSession();
     if (!session.conversation) return;
     patchCurrentSession({
@@ -393,18 +409,38 @@ export function startChatEventController({
     if (event.content && !event.done && !event.error) {
       currentTurnId = event.turnId || currentTurnId;
       ensureAssistantNode();
+      const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
+      if (backendAssistantId) {
+        flushStreamingUpdate();
+        adapter.patchConversation(
+          conversationId,
+          (conversation) => migrateStreamingNodeId(conversation, currentAssistantNodeId, backendAssistantId, event.turnId || currentTurnId),
+        );
+        currentAssistantNodeId = backendAssistantId;
+        patchCurrentSession({ streamingMessageId: backendAssistantId });
+      }
       if (!streamingAnnounced) {
         streamingAnnounced = true;
         announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite', getEventOrigin(event));
       }
-      debouncedUpdateMessage(streamingMsgId, event.content, (_messageId, nextContent) => updateStreamingMessage(nextContent));
+      debouncedUpdateMessage(currentAssistantNodeId, event.content, (_messageId, nextContent) => updateStreamingMessage(nextContent));
     }
 
     if (event.error) {
       currentTurnId = event.turnId || currentTurnId;
       ensureAssistantNode();
       flushStreamingUpdate();
-      updateStreamingMessage(i18next.t('chat.errorPrefix', { message: event.error }));
+      announce(String(event.error || '').trim(), 'assertive');
+      updateEmptyAssistantWithError(String(event.error || '').trim());
+      const interruptedId = event.messageId && event.messageId !== '' ? event.messageId : streamingMsgId;
+      if (interruptedId !== streamingMsgId && interruptedId !== currentAssistantNodeId) {
+        adapter.patchConversation(
+          conversationId,
+          (conversation) => migrateStreamingNodeId(conversation, currentAssistantNodeId, interruptedId, event.turnId || currentTurnId),
+        );
+        currentAssistantNodeId = interruptedId;
+      }
+      patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming();
       cleanup();
     }
@@ -418,7 +454,7 @@ export function startChatEventController({
       finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
 
       const flatMessages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
-      const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || streamingMsgId));
+      const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || currentAssistantNodeId));
       if (finalMessage?.content) playChatReceiveSoundIfActive(conversationId, getEventOrigin(event));
     }
   });
@@ -436,7 +472,7 @@ export function startChatEventController({
       announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite', getEventOrigin(event));
     } else if (event.done) {
       patchCurrentSession({ isThinking: false });
-      if (event.content) adapter.updateReasoning(conversationId, streamingMsgId, event.content);
+      if (event.content) adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content);
     } else {
       patchCurrentSession({ streamingReasoning: event.content || '' });
     }
@@ -543,14 +579,18 @@ export function startChatEventController({
     if (event.errorMessage) {
       ensureAssistantNode();
       flushStreamingUpdate();
-      updateStreamingMessage(i18next.t('chat.errorPrefix', { message: event.errorMessage }));
-      finalizeStreaming(null, currentTurnId);
+      announce(String(event.errorMessage || '').trim(), 'assertive');
+      updateEmptyAssistantWithError(String(event.errorMessage || '').trim());
+      const interruptedId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : streamingMsgId;
+      patchCurrentSession({ lastInterruptedMessageId: interruptedId });
+      finalizeStreaming(event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null, currentTurnId);
       cleanup();
       return;
     }
 
     const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
     finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
+    patchCurrentSession({ lastInterruptedMessageId: null });
 
     if (event.hadToolCalls) {
       reloadConversationSnapshot(conversationId, INITIAL_MESSAGE_WINDOW_SIZE).then((snapshot) => {

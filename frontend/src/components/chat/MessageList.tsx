@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
-import { main } from '../../../wailsjs/go/models';
+import { chat } from '../../../wailsjs/go/models';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
 import './MessageList.css';
@@ -152,14 +152,14 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
       }
     }
 
-    const consolidatedMessage = main.EnrichedMessage.createFrom({
+    const consolidatedMessage = chat.EnrichedMessage.createFrom({
       ...finalNode.message,
       content: finalContent,
       reasoning: finalReasoning || finalNode.message.reasoning || '',
       toolCalls: allToolCalls.length > 0 ? JSON.stringify(allToolCalls) : undefined,
     });
 
-    const consolidated = main.MessageNode.createFrom({
+    const consolidated = chat.MessageNode.createFrom({
       ...finalNode,
       message: consolidatedMessage,
     }) as MessageNode;

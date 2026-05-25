@@ -13,6 +13,8 @@ import './ChatInput.css';
 
 export interface ChatInputProps {
   onSend: (message: string, mediaFiles?: MediaFile[]) => void;
+  onCancelStreaming?: () => void;
+  isStreaming?: boolean;
   disabled?: boolean;
   placeholder?: string;
   maxFiles?: number;
@@ -28,6 +30,8 @@ export interface ChatInputProps {
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   {
     onSend,
+    onCancelStreaming,
+    isStreaming = false,
     disabled = false,
     placeholder,
     maxFiles = 5,
@@ -285,9 +289,17 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled) {
+      if (!disabled && !isStreaming) {
         handleSend();
       }
+    }
+
+    const isCancelShortcut = e.key === 'Escape';
+    if (isCancelShortcut && isStreaming && onCancelStreaming) {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      onCancelStreaming();
+      return;
     }
     
     // ArrowUp no início do texto navega para a lista de mensagens
@@ -366,7 +378,18 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           aria-label={t('chat.messageLabel')}
         />
         {/* Mostra botão de voz quando input vazio, senão botão de enviar */}
-        {voiceEnabled && !message.trim() && mediaFiles.length === 0 ? (
+        {isStreaming ? (
+          <Button
+            onClick={onCancelStreaming}
+            disabled={!onCancelStreaming}
+            variant="danger"
+            size="md"
+            className="chat-input__button"
+            aria-label={t('chat.cancelGenerationLabel')}
+          >
+            {t('chat.cancelGeneration')}
+          </Button>
+        ) : voiceEnabled && !message.trim() && mediaFiles.length === 0 ? (
           <VoiceButton
             onTranscription={handleVoiceTranscription}
             disabled={disabled}

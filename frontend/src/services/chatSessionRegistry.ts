@@ -130,6 +130,9 @@ export interface ChatSurfaceSession {
   visibleThreadedMessages?: MessageNode[];
   messageWindow?: MessageWindowState;
   streamingMessageId: string | null;
+  // lastInterruptedMessageId aponta para a mensagem assistant (sintética) cuja geração
+  // foi interrompida (erro/cancelamento) e é elegível para "Continuar resposta".
+  lastInterruptedMessageId: string | null;
   streamingReasoning: string | null;
   isThinking: boolean;
   activeToolCalls: ToolCallStatus[];
@@ -169,6 +172,7 @@ export const createEmptyChatSurfaceSession = (
   isLoadingOlderMessages: false,
   isLoadingMessageWindow: false,
   streamingMessageId: null,
+  lastInterruptedMessageId: null,
   streamingReasoning: null,
   isThinking: false,
   activeToolCalls: [],

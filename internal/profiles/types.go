@@ -63,7 +63,20 @@ type ChatConfig struct {
 	// >0 = limite customizado (ex: 100 para code generation, 500 para análise profunda)
 	// Pode ser combinado com ResponseTimeout para dupla proteção
 	MaxAgenticIterations int `json:"max_agentic_iterations,omitempty"`
+
+	// StreamingRecoveryEnabled controla a auto-recuperação de streaming interrompido.
+	// Ponteiro para preservar compatibilidade com perfis antigos (nil = usar default).
+	StreamingRecoveryEnabled *bool `json:"streaming_recovery_enabled,omitempty"`
+	// StreamingRecoveryMaxAttempts define o máximo de tentativas de recuperação.
+	// Ponteiro para preservar compatibilidade com perfis antigos (nil = usar default).
+	StreamingRecoveryMaxAttempts *int `json:"streaming_recovery_max_attempts,omitempty"`
+	// StreamingRecoveryShowContinue controla a exibição da ação manual "Continuar resposta" após falha/cancelamento.
+	// Ponteiro para preservar compatibilidade com perfis antigos (nil = usar default).
+	StreamingRecoveryShowContinue *bool `json:"streaming_recovery_show_continue,omitempty"`
 }
+
+func boolPtr(v bool) *bool { return &v }
+func intPtr(v int) *int    { return &v }
 
 // VoiceRoleConfig configura TTS para uma role específica (assistant, user ou system).
 type VoiceRoleConfig struct {
@@ -181,6 +194,9 @@ func DefaultProfile() *Profile {
 			TopP:            1.0,
 			ResponseTimeout: 180,
 			ReasoningEffort: "",
+			StreamingRecoveryEnabled:     boolPtr(true),
+			StreamingRecoveryMaxAttempts: intPtr(3),
+			StreamingRecoveryShowContinue: boolPtr(true),
 		},
 		Voice: VoiceConfig{
 			Assistant: VoiceRoleConfig{
@@ -239,6 +255,14 @@ func (p *Profile) Validate() error {
 	}
 	if p.Chat.TopP < 0 || p.Chat.TopP > 1 {
 		return fmt.Errorf("chat.top_p must be between 0 and 1")
+	}
+	if p.Chat.StreamingRecoveryMaxAttempts != nil {
+		if *p.Chat.StreamingRecoveryMaxAttempts < 1 {
+			return fmt.Errorf("chat.streaming_recovery_max_attempts must be at least 1")
+		}
+		if *p.Chat.StreamingRecoveryMaxAttempts > 10 {
+			return fmt.Errorf("chat.streaming_recovery_max_attempts must be at most 10")
+		}
 	}
 	if p.Chat.ResponseTimeout < 10 {
 		return fmt.Errorf("chat.response_timeout must be at least 10 seconds")

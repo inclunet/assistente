@@ -715,7 +715,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
 
     createTaskNote: async (taskId: string, type: TaskNoteType, content: string, authorName?: string, authorId?: string) => {
       try {
-        const rawNote = await CreateTaskNote(taskId, String(type), content, authorName || '', authorId || '');
+        const rawNote = await CreateTaskNote(taskId, type, content, authorName || '', authorId || '');
         if (rawNote) {
           return normalizeTaskNote(rawNote);
         }

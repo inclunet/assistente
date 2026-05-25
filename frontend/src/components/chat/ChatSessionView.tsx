@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button } from 'antd';
 import { useEditorStore } from '../../store/editorStore';
+import { useChatStore } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { ttsService } from '../../services/tts';
 import { MessageList } from './MessageList';
@@ -19,7 +20,7 @@ import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage, EditorGetDraftPath } from '@wailsjs/go/app/App';
+import { DeleteMessage, EditorGetDraftPath, GetActiveProfile, GetActiveProviderInfo } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
@@ -107,6 +108,8 @@ function ChatSessionViewContent({
   const { isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
+  const [showContinueEnabled, setShowContinueEnabled] = useState(false);
+
   const {
     session,
     conversation,
@@ -138,6 +141,14 @@ function ChatSessionViewContent({
     setDraftMediaFiles,
     setScrollState,
   } = controller;
+
+  const cancelStreaming = useChatStore((state) => state.cancelStreaming);
+
+  const handleCancelStreaming = useCallback(async () => {
+    const targetConversationId = conversation?.id ?? conversationId;
+    if (!targetConversationId) return;
+    await cancelStreaming(targetConversationId, { origin });
+  }, [cancelStreaming, conversation?.id, conversationId, origin]);
   const getSessionConversation = useCallback(() => conversation, [conversation]);
   const visibleMessageCount = useMemo(() => {
     if (!threadedMessages.length) return 0;
@@ -158,6 +169,36 @@ function ChatSessionViewContent({
     return count;
   }, [threadedMessages]);
   const usesLocalVisualWindowCount = visibleMessageCount > 0 && visibleMessageCount !== threadedMessages.length;
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadActiveProfile = async () => {
+      try {
+        const [profile, providerInfo] = await Promise.all([
+          GetActiveProfile(),
+          GetActiveProviderInfo(),
+        ]);
+        if (!mounted) return;
+        const profileAllowsContinue = profile?.chat?.streaming_recovery_show_continue ?? true;
+        const providerSupportsPrefill = providerInfo?.supports_assistant_prefill === true;
+        setShowContinueEnabled(profileAllowsContinue && providerSupportsPrefill);
+      } catch {
+        if (!mounted) return;
+        setShowContinueEnabled(false);
+      }
+    };
+
+    void loadActiveProfile();
+    const unsubChanged = EventsOn('profile:changed', () => void loadActiveProfile());
+    const unsubUpdated = EventsOn('profile:updated', () => void loadActiveProfile());
+
+    return () => {
+      mounted = false;
+      unsubChanged();
+      unsubUpdated();
+    };
+  }, []);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -424,7 +465,30 @@ function ChatSessionViewContent({
       await retryMessageToConversation(conversationId, message.id, undefined, { origin });
       announce(t('chat.announce.messageResent'));
     },
+    onContinue: async (message) => {
+      const conversationId = getSessionConversation()?.id;
+      const turnId = String(message.turnId || '').trim();
+      if (!conversationId || !turnId) return;
+      await retryMessageToConversation(conversationId, turnId, { allowAssistantPrefill: true }, { origin });
+      announce(t('chat.announce.continuingResponse'));
+    },
+    shouldShowContinue: (message) => {
+      if (!showContinueEnabled) return false;
+      const interruptedId = session?.lastInterruptedMessageId;
+      if (!interruptedId) return false;
+      if (!isBackendId(String(interruptedId))) return false;
+      if (String(message.id) !== String(interruptedId)) return false;
+      if (!isBackendId(message.id)) return false;
+      if (message.role !== 'assistant' || message.isStreaming) return false;
+      if (!String(message.turnId || '').trim()) return false;
+      if (!String(message.content || '').trim()) return false;
+      return true;
+    },
     onDelete: handleDeleteMessage,
+    onCancelStreaming: (message) => {
+      if (!message.isStreaming) return;
+      void handleCancelStreaming();
+    },
     onSendToEditor: sendToEditor,
     editorTargets,
     onPin: (_message) => {
@@ -444,6 +508,29 @@ function ChatSessionViewContent({
     ),
     isTTSDisabled,
   });
+
+  useEffect(() => {
+    if (!isInteractiveSurface || !isLoading) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+
+      if (event.key === 'Escape' && menuVisible) {
+        event.preventDefault();
+        hideMenu();
+        return;
+      }
+
+      if (event.key !== 'Escape') return;
+
+      event.preventDefault();
+      void handleCancelStreaming();
+    };
+
+    const listenerOptions = { capture: true } as const;
+    window.addEventListener('keydown', onKeyDown, listenerOptions);
+    return () => window.removeEventListener('keydown', onKeyDown, listenerOptions);
+  }, [handleCancelStreaming, hideMenu, isInteractiveSurface, isLoading, menuVisible]);
 
   useChatKeyboardNav({
     enabled: isInteractiveSurface,
@@ -776,6 +863,8 @@ function ChatSessionViewContent({
         <ChatInput
           onSend={handleSendMessage}
           disabled={variant === 'embedded' ? false : isLoading}
+          isStreaming={isLoading}
+          onCancelStreaming={() => void handleCancelStreaming()}
           ref={inputRef}
           voiceEnabled={true}
           message={draftMessage}

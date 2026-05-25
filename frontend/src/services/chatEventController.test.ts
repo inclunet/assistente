@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 import {
   startChatEventController,
   stopAllChatEventControllers,
@@ -103,12 +103,13 @@ vi.mock('i18next', () => ({
 interface TestSession extends ChatEventSession {
   isLoading: boolean;
   streamingMessageId: string | null;
+  lastInterruptedMessageId: string | null;
   streamingReasoning: string | null;
   isThinking: boolean;
 }
 
 const createMessage = (id: string, role: string, content = '', conversationId = 'conversation-1'): Message => (
-  new main.EnrichedMessage({
+  new chat.EnrichedMessage({
     id,
     role,
     content,
@@ -120,7 +121,7 @@ const createMessage = (id: string, role: string, content = '', conversationId = 
 );
 
 const createNode = (message: Message): MessageNode => (
-  new main.MessageNode({
+  new chat.MessageNode({
     message,
     children: [],
     level: 0,
@@ -138,6 +139,7 @@ const createSession = (conversationId: string): TestSession => ({
   conversation: createConversation(conversationId),
   isLoading: false,
   streamingMessageId: null,
+  lastInterruptedMessageId: null,
   streamingReasoning: null,
   isThinking: false,
   activeToolCalls: [],
@@ -320,6 +322,148 @@ describe('chatEventController', () => {
     expect(messages[1].message.isStreaming).toBe(false);
     expect(sessions['conversation-1'].isLoading).toBe(false);
     expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith('conversation-1', 'Conversa conversation-1', undefined);
+  });
+
+  it('em erro no chat:done preserva conteúdo parcial e marca interrupção', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      content: 'parcial',
+      done: false,
+      turnId: 'user-1',
+    });
+
+    const assistantNode = sessions['conversation-1'].conversation?.threadedMessages[1];
+    const streamingId = String(assistantNode?.message.id || '');
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      hadToolCalls: false,
+      errorMessage: 'boom',
+      turnId: 'user-1',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.content).toBe('parcial');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe(streamingId);
+    expect(mockAnnounce).toHaveBeenCalledWith('boom', 'assertive');
+  });
+
+  it('em erro no chat:done usa assistantMessageId persistido quando disponível', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      content: 'parcial',
+      done: false,
+      turnId: 'user-1',
+      messageId: 'assistant-db-1',
+    });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      hadToolCalls: false,
+      errorMessage: 'boom',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-1',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.id).toBe('assistant-db-1');
+    expect(messages[1].message.content).toBe('parcial');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-1');
+  });
+
+  it('em erro no chat:stream usa messageId persistido para interrupção', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      content: 'parcial',
+      done: false,
+      turnId: 'user-1',
+      messageId: 'assistant-db-2',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'boom stream',
+      turnId: 'user-1',
+      messageId: 'assistant-db-2',
+    });
+
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
+  });
+
+  it('preenche fallback visual quando chat:stream falha sem parcial', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'boom stream',
+      turnId: 'user-1',
+      messageId: 'assistant-db-2',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.content).toBe('Erro: boom stream');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
+  });
+
+  it('preenche fallback visual quando chat:done falha sem parcial', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      hadToolCalls: false,
+      errorMessage: 'boom done',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-3',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.content).toBe('Erro: boom done');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-3');
   });
 
   it('propaga surfaceOrigin dos eventos para anúncio, som e fala', async () => {

@@ -76,6 +76,10 @@ func (r *retryMessageRepoStub) CreateMessage(_ context.Context, _ MessageOptions
 	return nil, nil
 }
 
+func (r *retryMessageRepoStub) UpdateMessageContentAndReasoning(_ context.Context, _ string, _ string, _ string, _, _, _ int, _ string) error {
+	return nil
+}
+
 func (r *retryMessageRepoStub) GetMessage(_ context.Context, messageID string) (*Message, error) {
 	if r.getMessage != nil {
 		return r.getMessage(messageID)
@@ -84,6 +88,10 @@ func (r *retryMessageRepoStub) GetMessage(_ context.Context, messageID string) (
 }
 
 func (r *retryMessageRepoStub) GetMessages(_ context.Context, _ string, _ *string) ([]Message, error) {
+	return nil, nil
+}
+
+func (r *retryMessageRepoStub) GetMessagesByTurnID(_ context.Context, _ string, _ *string, _ string, _ int) ([]Message, error) {
 	return nil, nil
 }
 

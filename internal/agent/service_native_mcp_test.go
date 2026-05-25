@@ -23,11 +23,19 @@ func (m msgRepoStub) CreateMessage(context.Context, chat.MessageOptions) (*chat.
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: "m"}}, nil
 }
 
+func (m msgRepoStub) UpdateMessageContentAndReasoning(context.Context, string, string, string, int, int, int, string) error {
+	return nil
+}
+
 func (m msgRepoStub) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}, ConversationID: m.conversationID}, nil
 }
 
 func (m msgRepoStub) GetMessages(context.Context, string, *string) ([]chat.Message, error) {
+	return nil, nil
+}
+
+func (m msgRepoStub) GetMessagesByTurnID(context.Context, string, *string, string, int) ([]chat.Message, error) {
 	return nil, nil
 }
 
@@ -73,11 +81,19 @@ func (m *capturingMsgRepo) CreateMessage(context.Context, chat.MessageOptions) (
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: "m"}}, nil
 }
 
+func (m *capturingMsgRepo) UpdateMessageContentAndReasoning(context.Context, string, string, string, int, int, int, string) error {
+	return nil
+}
+
 func (m *capturingMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}, ConversationID: m.conversationID}, nil
 }
 
 func (m *capturingMsgRepo) GetMessages(context.Context, string, *string) ([]chat.Message, error) {
+	return nil, nil
+}
+
+func (m *capturingMsgRepo) GetMessagesByTurnID(context.Context, string, *string, string, int) ([]chat.Message, error) {
 	return nil, nil
 }
 

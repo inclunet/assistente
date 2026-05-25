@@ -91,6 +91,43 @@ describe('ChatInput', () => {
     expect(screen.getByTestId('voice-button')).toBeInTheDocument();
   });
 
+  it('mostra botão de cancelar geração durante streaming', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const onCancelStreaming = vi.fn();
+
+    render(<ChatInput onSend={() => {}} isStreaming onCancelStreaming={onCancelStreaming} />);
+
+    const cancelButton = screen.getByText('chat.cancelGeneration');
+    fireEvent.click(cancelButton);
+
+    expect(onCancelStreaming).toHaveBeenCalledTimes(1);
+  });
+
+  it('aciona cancelamento no Esc durante streaming', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const onCancelStreaming = vi.fn();
+
+    render(<ChatInput onSend={() => {}} isStreaming onCancelStreaming={onCancelStreaming} />);
+
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    fireEvent.keyDown(textarea, { key: 'Escape' });
+
+    expect(onCancelStreaming).toHaveBeenCalledTimes(1);
+  });
+
+  it('não envia mensagem com Enter durante streaming', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const onSend = vi.fn();
+
+    render(<ChatInput onSend={onSend} isStreaming />);
+
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    fireEvent.change(textarea, { target: { value: 'Oi' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it('usa estado controlado para rascunho e anexos', () => {
     getSkillsSpy.mockResolvedValueOnce([]);
     const onMessageChange = vi.fn();

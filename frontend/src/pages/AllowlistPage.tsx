@@ -40,6 +40,24 @@ interface AllowlistRow extends allowlist.Allowlist {
   [key: string]: unknown;
 }
 
+const buildAllowlistPayload = (data: Partial<allowlist.Allowlist> = {}) => new allowlist.Allowlist({
+  name: data.name || '',
+  description: data.description || '',
+  auto_approve: data.auto_approve || [],
+  always_deny: data.always_deny || [],
+  command_rules: data.command_rules || [],
+  default_action: data.default_action || 'confirm',
+});
+
+const buildAllowlistRow = (data: Partial<AllowlistRow> = {}): AllowlistRow => Object.assign(
+  buildAllowlistPayload(data),
+  {
+    id: data.id || '',
+    slug: data.slug || '',
+    ruleCount: data.ruleCount || 0,
+  }
+) as AllowlistRow;
+
 export default function AllowlistPage() {
   const { t } = useTranslation();
   const { handleGridReady } = useGridFocus();
@@ -54,21 +72,17 @@ export default function AllowlistPage() {
     {
       loadItems: async () => {
         const list = await GetAllowlists();
-        return (list || []).map((a: AllowlistInfo) => ({
+        return (list || []).map((a: AllowlistInfo) => buildAllowlistRow({
           id: a.slug,
           slug: a.slug,
           name: a.name,
           description: a.description || '',
-          auto_approve: [],
-          always_deny: [],
-          command_rules: [],
-          default_action: 'confirm',
           ruleCount: a.ruleCount,
         }));
       },
       loadItem: async (id) => {
         const full = await GetAllowlist(String(id));
-        return {
+        return buildAllowlistRow({
           id: id as string,
           slug: id as string,
           name: full?.name || '',
@@ -81,28 +95,28 @@ export default function AllowlistPage() {
             (full?.auto_approve || []).length +
             (full?.always_deny || []).length +
             (full?.command_rules || []).length,
-        } as AllowlistRow;
+        });
       },
       createItem: async (data) => {
-        const payload: allowlist.Allowlist = {
+        const payload = buildAllowlistPayload({
           name: data.name,
           description: data.description,
           auto_approve: data.auto_approve || [],
           always_deny: data.always_deny || [],
           command_rules: data.command_rules || [],
           default_action: data.default_action || 'confirm',
-        };
+        });
         return await CreateAllowlist(payload);
       },
       updateItem: async (id, data) => {
-        const payload: allowlist.Allowlist = {
+        const payload = buildAllowlistPayload({
           name: data.name,
           description: data.description,
           auto_approve: data.auto_approve || [],
           always_deny: data.always_deny || [],
           command_rules: data.command_rules || [],
           default_action: data.default_action || 'confirm',
-        };
+        });
         await UpdateAllowlist(id as string, payload);
       },
       deleteItem: async (id) => {
@@ -121,7 +135,7 @@ export default function AllowlistPage() {
           return `Tem certeza que deseja excluir a allowlist "${name}"?`;
         },
       },
-      createDefault: () => ({
+      createDefault: () => buildAllowlistRow({
         id: '',
         slug: '',
         name: '',
@@ -207,19 +221,19 @@ export default function AllowlistPage() {
     try {
       const full = await GetAllowlist(row.slug);
       const name = getDuplicateName(full?.name || row.name || t('allowlist.buttons.new'));
-      const payload: allowlist.Allowlist = {
+      const payload = buildAllowlistPayload({
         name,
         description: full?.description || row.description || '',
         auto_approve: full?.auto_approve || [],
         always_deny: full?.always_deny || [],
         command_rules: full?.command_rules || [],
         default_action: full?.default_action || 'confirm',
-      };
+      });
       const newSlug = await CreateAllowlist(payload);
         addToast(t('allowlist.toast.duplicated'), 'success');
         announce(t('allowlist.toast.duplicated'));
       await crud.loadItems();
-      await crud.openEdit({
+      await crud.openEdit(buildAllowlistRow({
         id: newSlug,
         slug: newSlug,
         name: payload.name,
@@ -228,7 +242,7 @@ export default function AllowlistPage() {
           payload.auto_approve.length +
           payload.always_deny.length +
           (payload.command_rules?.length ?? 0),
-      } as AllowlistRow);
+      }));
     } catch (error: unknown) {
         addToast(getErrorMessage(error) || t('allowlist.error.duplicate'), 'error');
     }

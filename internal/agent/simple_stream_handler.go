@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"log"
 
+	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
@@ -14,35 +16,54 @@ import (
 // event emission to the owning Service — eliminating any *App reference in the main package.
 type SimpleStreamHandler struct {
 	BaseStreamHandler
-	svc           *Service
-	ctx           context.Context
-	userMessageID string // ID of the user message (root of this response thread)
-	profileSlug   string // Profile slug for TTS resolution
+	svc                   *Service
+	ctx                   context.Context
+	userMessageID         string // ID of the user message (root of this response thread)
+	assistantMessageID    string // ID estável do assistant (placeholder) para este turno
+	profileSlug           string // Profile slug for TTS resolution
+	lastError             string
+	suppressTerminalError bool
 }
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
 // It is created by the owning Service so it can close over its dependencies.
-func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, userMessageID string, profileSlug string, surfaceOrigin *ports.ChatSurfaceOrigin) *SimpleStreamHandler {
+func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, userMessageID string, profileSlug string, surfaceOrigin *ports.ChatSurfaceOrigin) (*SimpleStreamHandler, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	assistantMsgID, err := chat.EnsureAssistantPlaceholder(ctx, s.msgRepo, conversationID, userMessageID)
+	if errors.Is(err, chat.ErrConversationGone) {
+		return nil, err
+	}
+	if err != nil {
+		// Best-effort: streaming ainda funciona, mas sem messageId estável.
+		assistantMsgID = ""
+	}
 	return &SimpleStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
-			Emitter:        s.emitter,
-			ConversationID: conversationID,
-			TurnID:         userMessageID,
-			SurfaceOrigin:  surfaceOrigin,
+			Emitter:            s.emitter,
+			ConversationID:     conversationID,
+			TurnID:             userMessageID,
+			AssistantMessageID: assistantMsgID,
+			SurfaceOrigin:      surfaceOrigin,
 		},
-		svc:           s,
-		ctx:           ctx,
-		userMessageID: userMessageID,
-		profileSlug:   profileSlug,
-	}
+		svc:                s,
+		ctx:                ctx,
+		userMessageID:      userMessageID,
+		assistantMessageID: assistantMsgID,
+		profileSlug:        profileSlug,
+	}, nil
 }
 
 func (h *SimpleStreamHandler) OnError(err string) {
+	h.lastError = err
+	h.FinishThinkingIfActive()
 	content, _ := h.Finalize()
+	if h.suppressTerminalError {
+		return
+	}
 	h.Emitter.Emit("chat:stream", events.StreamEvent{
+		MessageID:      h.AssistantMessageID,
 		Content:        content,
 		Done:           true,
 		Error:          err,
@@ -50,6 +71,17 @@ func (h *SimpleStreamHandler) OnError(err string) {
 		TurnID:         h.TurnID,
 		SurfaceOrigin:  h.SurfaceOrigin,
 	})
+}
+
+func (h *SimpleStreamHandler) LastError() string {
+	return h.lastError
+}
+
+// SuppressTerminalError evita emitir chat:stream terminal com Error.
+// Usado pela auto-recuperação para não finalizar o streaming no frontend
+// antes de esgotar as tentativas.
+func (h *SimpleStreamHandler) SuppressTerminalError(v bool) {
+	h.suppressTerminalError = v
 }
 
 // OnToolCalls is the safety fallback for when simple streaming unexpectedly receives tool calls.
@@ -79,7 +111,7 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 
 	// Delegate save, notify, and event emission to the Service (same as agentic path).
 	// The user message remains a standalone item; the assistant response carries the turn id.
-	h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, AgenticResult{
+	h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, h.assistantMessageID, AgenticResult{
 		FullResponse: finalContent,
 		Reasoning:    accumulatedReasoning,
 		Usage:        usage,

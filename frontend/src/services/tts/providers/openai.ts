@@ -13,7 +13,7 @@ import {
   SetOpenAITTSSpeed,
   SetOpenAITTSVoice
 } from '@wailsjs/go/app/App';
-import { main } from '../../../../wailsjs/go/models';
+import { app } from '../../../../wailsjs/go/models';
 import { getStreamPlayer, TTSStreamPlayer } from '../streamPlayer';
 
 interface OpenAITTSVoiceInfo {
@@ -289,7 +289,7 @@ export class OpenAIProvider extends BaseTTSProvider {
       await SetOpenAITTSSpeed(this.calculateBackendRate());
       
       // Chama backend para sintetizar
-      const result: main.SynthesisResultInfo = await SynthesizeOpenAIWithVoice(
+      const result: app.SynthesisResultInfo = await SynthesizeOpenAIWithVoice(
         text, 
         this._currentVoice || 'nova'
       );

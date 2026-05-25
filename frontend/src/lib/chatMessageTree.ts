@@ -1,4 +1,4 @@
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 
 export interface TurnSegment {
   type: 'text' | 'tool_calls';
@@ -11,12 +11,12 @@ export interface TurnSegment {
   }>;
 }
 
-export type MessageNode = main.MessageNode & {
+export type MessageNode = chat.MessageNode & {
   originalIndex?: number;
   isExpanded?: boolean;
 };
 
-export type Message = main.EnrichedMessage & {
+export type Message = chat.EnrichedMessage & {
   _turnSegments?: TurnSegment[];
 };
 
@@ -29,7 +29,7 @@ export interface ChatTreeConversation {
 }
 
 function cloneMessage(message: Message, overrides: Partial<Message> = {}): Message {
-  const cloned = new main.EnrichedMessage({
+  const cloned = new chat.EnrichedMessage({
     ...message,
     ...overrides,
   }) as Message;
@@ -40,7 +40,7 @@ function cloneMessage(message: Message, overrides: Partial<Message> = {}): Messa
 }
 
 function createNode(input: Partial<MessageNode> & { message: Message }): MessageNode {
-  const node = new main.MessageNode({
+  const node = new chat.MessageNode({
     children: [],
     childCount: 0,
     level: 0,
@@ -84,7 +84,7 @@ export function flattenThreadedMessages(nodes: MessageNode[] | undefined): Messa
   return flat;
 }
 
-export function withOriginalIndex(node: main.MessageNode, index: number): MessageNode {
+export function withOriginalIndex(node: chat.MessageNode, index: number): MessageNode {
   const typed = node as MessageNode;
   typed.originalIndex = index;
   return typed;
@@ -141,6 +141,49 @@ export function finalizeStreamingNode<TConversation extends ChatTreeConversation
   return {
     ...conversation,
     threadedMessages: markDone(conversation.threadedMessages),
+  };
+}
+
+export function migrateStreamingNodeId<TConversation extends ChatTreeConversation>(
+  conversation: TConversation,
+  syntheticId: string,
+  finalId: string,
+  finalTurnId?: string | null,
+): TConversation {
+  if (!finalId || finalId === syntheticId) return conversation;
+
+  const collidesWithExistingRealId = hasMessageId(conversation.threadedMessages, finalId, syntheticId);
+  const finalMessagePatch: Partial<Message> = finalTurnId ? { turnId: finalTurnId } : {};
+  const migrate = (nodes: MessageNode[]): MessageNode[] => nodes.flatMap((node) => {
+    const id = String(node.message.id);
+    if (id === syntheticId) {
+      if (collidesWithExistingRealId) {
+        return [];
+      }
+      return [cloneNode(node, {
+        message: cloneMessage(node.message, {
+          id: finalId,
+          isStreaming: true,
+          ...finalMessagePatch,
+        }),
+        children: node.children?.length ? migrate(node.children) : node.children,
+      })];
+    }
+    if (collidesWithExistingRealId && id === finalId) {
+      return [cloneNode(node, {
+        message: cloneMessage(node.message, { isStreaming: true, ...finalMessagePatch }),
+        children: node.children?.length ? migrate(node.children) : node.children,
+      })];
+    }
+    if (node.children?.length) {
+      return [cloneNode(node, { children: migrate(node.children) })];
+    }
+    return [node];
+  });
+
+  return {
+    ...conversation,
+    threadedMessages: migrate(conversation.threadedMessages),
   };
 }
 

@@ -851,6 +851,23 @@ func UpdateMessageContentWithContext(ctx context.Context, messageID string, cont
 	}).Error
 }
 
+// UpdateMessageContentAndReasoningWithContext atualiza conteúdo, reasoning e tokens de uma mensagem
+// existente no contexto do usuário atual.
+func UpdateMessageContentAndReasoningWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
+	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
+		"content":           content,
+		"reasoning":         reasoning,
+		"prompt_tokens":     promptTokens,
+		"completion_tokens": completionTokens,
+		"total_tokens":      totalTokens,
+		"model":             model,
+	}).Error
+}
+
 // DeleteMessageWithContext exclui uma mensagem e todas as suas filhas
 // (respostas) do usuário do contexto.
 func DeleteMessageWithContext(ctx context.Context, messageID string) error {

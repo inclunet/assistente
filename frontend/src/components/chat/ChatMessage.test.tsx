@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
-import { main } from '../../../wailsjs/go/models';
+import { chat } from '../../../wailsjs/go/models';
 import { ChatMessage } from './ChatMessage';
 
 const subscribeSpy = vi.fn();
@@ -78,7 +78,7 @@ describe('ChatMessage', () => {
 
   it('renderiza conteudo e botao de audio', () => {
     const onSpeak = vi.fn();
-    const message = new main.EnrichedMessage({
+    const message = new chat.EnrichedMessage({
       id: '1',
       conversationId,
       role: 'user',
@@ -104,7 +104,7 @@ describe('ChatMessage', () => {
   });
 
   it('renderiza modo de edicao', () => {
-    const message = new main.EnrichedMessage({
+    const message = new chat.EnrichedMessage({
       id: '1',
       conversationId,
       role: 'user',
@@ -145,7 +145,7 @@ describe('ChatMessage', () => {
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
 
     const largeContent = `inicio-${'a'.repeat(8_100)}-fim`;
-    const message = new main.EnrichedMessage({
+    const message = new chat.EnrichedMessage({
       id: '1',
       conversationId,
       role: 'assistant',
@@ -183,7 +183,7 @@ describe('ChatMessage', () => {
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
 
     const largeContent = `inicio-${'a'.repeat(8_100)}-fim`;
-    const streamingMessage = new main.EnrichedMessage({
+    const streamingMessage = new chat.EnrichedMessage({
       id: '1',
       conversationId,
       role: 'assistant',
@@ -193,7 +193,7 @@ describe('ChatMessage', () => {
       isStreaming: true,
       internal: false,
     });
-    const completedMessage = new main.EnrichedMessage({
+    const completedMessage = new chat.EnrichedMessage({
       ...streamingMessage,
       isStreaming: false,
     });
@@ -227,7 +227,7 @@ describe('ChatMessage', () => {
         arguments: 'x'.repeat(8_100),
       },
     }]);
-    const message = new main.EnrichedMessage({
+    const message = new chat.EnrichedMessage({
       id: 'tool-only',
       conversationId,
       role: 'assistant',
@@ -248,7 +248,7 @@ describe('ChatMessage', () => {
   });
 
   it('renderiza placeholder acessível para turno sem resposta do assistente', () => {
-    const message = new main.EnrichedMessage({
+    const message = new chat.EnrichedMessage({
       id: 'tool-only',
       conversationId,
       role: 'assistant',

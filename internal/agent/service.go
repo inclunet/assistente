@@ -67,6 +67,77 @@ type Service struct {
 	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 }
 
+// StreamSimpleWithRecovery executa um streaming simples (sem tool calling) com auto-retry opcional.
+// Em tentativas intermediárias, suprime o erro terminal para não finalizar o streaming no frontend.
+// Se o contexto for cancelado, emite chat:done como evento terminal canônico.
+func (s *Service) StreamSimpleWithRecovery(
+	ctx context.Context,
+	streamer llm.Streamer,
+	messages []llm.Message,
+	params llm.ChatParams,
+	conversationID string,
+	turnID string,
+	profileSlug string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+	streamingRecoveryEnabled bool,
+	streamingRecoveryMaxAttempts int,
+) {
+	if streamer == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	maxAttempts := streamingRecoveryMaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	attempts := 1
+	if streamingRecoveryEnabled {
+		attempts = maxAttempts
+	}
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if ctx.Err() != nil {
+			s.emitSimpleContextDone(ctx, conversationID, turnID, "", surfaceOrigin)
+			return
+		}
+		h, err := s.NewSimpleStreamHandler(ctx, conversationID, turnID, profileSlug, surfaceOrigin)
+		if errors.Is(err, chat.ErrConversationGone) {
+			return
+		}
+		if params.AllowAssistantPrefill {
+			prefill := s.loadAssistantPrefill(ctx, h.AssistantMessageID)
+			if prefill != "" {
+				messages = patchTrailingAssistantPrefill(messages, prefill)
+				h.SetInitialContent(prefill)
+			}
+		}
+		// Só a última tentativa deve finalizar o streaming com erro.
+		h.SuppressTerminalError(attempt < attempts)
+		streamer.StreamChat(ctx, messages, params, h)
+		if ctx.Err() != nil {
+			partialContent, partialReasoning := h.Finalize()
+			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			s.emitSimpleContextDone(ctx, conversationID, turnID, h.AssistantMessageID, surfaceOrigin)
+			return
+		}
+		if h.LastError() == "" {
+			return
+		}
+		if attempt == attempts {
+			partialContent, partialReasoning := h.Finalize()
+			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+		}
+		if attempt < attempts {
+			log.Printf("[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
+		}
+	}
+}
+
 // NewService cria um novo Service com as dependências injetadas.
 func NewService(cfg ServiceConfig) *Service {
 	return &Service{
@@ -97,6 +168,8 @@ func (s *Service) RunAgenticLoop(
 	surfaceOrigin *ports.ChatSurfaceOrigin,
 	newHandler func(conversationID string, iteration int) IterationHandler,
 	resolveToolDefs func([]string) []llm.ToolDefinition,
+	streamingRecoveryEnabled bool,
+	streamingRecoveryMaxAttempts int,
 ) {
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
@@ -111,10 +184,28 @@ func (s *Service) RunAgenticLoop(
 		return
 	}
 
+	assistantMessageID, err := chat.EnsureAssistantPlaceholder(ctx, s.msgRepo, conversationID, turnID)
+	if errors.Is(err, chat.ErrConversationGone) {
+		return
+	}
+	if err != nil {
+		// Best-effort: segue sem placeholder (streaming funciona, mas sem messageId estável).
+		log.Printf("[Agent] aviso: falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
+		assistantMessageID = ""
+	}
+
 	// Resolver maxIterations usando valor do perfil (params) ou fallback ao config do executor
 	maxIterations := params.MaxAgenticIterations
 	if maxIterations <= 0 {
 		maxIterations = s.toolExecutor.Config().MaxIterations
+	}
+
+	maxRecoveryAttempts := streamingRecoveryMaxAttempts
+	if maxRecoveryAttempts <= 0 {
+		maxRecoveryAttempts = 3
+	}
+	if maxRecoveryAttempts < 1 {
+		maxRecoveryAttempts = 1
 	}
 
 	// Propaga contexto de invocação (tab type + arquivo ativo) para as tools
@@ -138,32 +229,61 @@ func (s *Service) RunAgenticLoop(
 		// Verifica cancelamento
 		if ctx.Err() != nil {
 			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
-			cancelToolsUsed := make([]string, 0, len(toolsUsedSet))
-			for name := range toolsUsedSet {
-				cancelToolsUsed = append(cancelToolsUsed, name)
-			}
-			sort.Strings(cancelToolsUsed)
-			s.emitter.Emit("chat:done", ports.DoneEvent{
-				ConversationID:   conversationID,
-				TurnID:           turnID,
-				SurfaceOrigin:    surfaceOrigin,
-				HadToolCalls:     totalToolCallCount > 0,
-				Reason:           "error",
-				ErrorMessage:     "Operação cancelada",
-				IterationCount:   iteration,
-				ToolCallCount:    totalToolCallCount,
-				ToolsUsed:        cancelToolsUsed,
-				PromptTokens:     lastUsage.PromptTokens,
-				CompletionTokens: lastUsage.CompletionTokens,
-			})
+			s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration-1, totalToolCallCount, toolsUsedSet)
 			return
 		}
 
-		// 1. Cria handler para esta iteração e chama o LLM (bloqueante)
-		handler := newHandler(conversationID, iteration)
-		streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
-
-		result := handler.Result()
+		// 1. Cria handler para esta iteração e chama o LLM (bloqueante), com auto-retry opcional.
+		var result AgenticResult
+		var lastStreamErr string
+		attempts := 1
+		if streamingRecoveryEnabled {
+			attempts = maxRecoveryAttempts
+		}
+		for attempt := 1; attempt <= attempts; attempt++ {
+			if ctx.Err() != nil {
+				s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration-1, totalToolCallCount, toolsUsedSet)
+				return
+			}
+			handler := newHandler(conversationID, iteration)
+			if setter, ok := handler.(interface{ SetAssistantMessageID(string) }); ok {
+				setter.SetAssistantMessageID(assistantMessageID)
+			}
+			if params.AllowAssistantPrefill {
+				prefill := s.loadAssistantPrefill(ctx, assistantMessageID)
+				if prefill != "" {
+					messages = patchTrailingAssistantPrefill(messages, prefill)
+					if prefillSetter, ok := handler.(interface{ SetInitialContent(string) }); ok {
+						prefillSetter.SetInitialContent(prefill)
+					}
+				}
+			}
+			streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
+			result = handler.Result()
+			if ctx.Err() != nil {
+				if partialHandler, ok := handler.(interface{ Finalize() (string, string) }); ok {
+					partialContent, partialReasoning := partialHandler.Finalize()
+					s.persistAssistantPartialBestEffort(ctx, assistantMessageID, partialContent, partialReasoning)
+				}
+				s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration, totalToolCallCount, toolsUsedSet)
+				return
+			}
+			if result.Error == "" {
+				lastStreamErr = ""
+				break
+			}
+			lastStreamErr = result.Error
+			if attempt == attempts {
+				if partialHandler, ok := handler.(interface{ Finalize() (string, string) }); ok {
+					partialContent, partialReasoning := partialHandler.Finalize()
+					s.persistAssistantPartialBestEffort(ctx, assistantMessageID, partialContent, partialReasoning)
+				}
+			}
+			if attempt < attempts {
+				log.Printf("[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
+				continue
+			}
+		}
 
 		// Acumula usage da última iteração (AEP-0039)
 		if result.Usage.PromptTokens > 0 || result.Usage.CompletionTokens > 0 {
@@ -171,7 +291,7 @@ func (s *Service) RunAgenticLoop(
 		}
 
 		// 2. Erro?
-		if result.Error != "" {
+		if lastStreamErr != "" {
 			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
 			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
 			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
@@ -181,17 +301,18 @@ func (s *Service) RunAgenticLoop(
 			}
 			sort.Strings(errToolsUsed)
 			s.emitter.Emit("chat:done", ports.DoneEvent{
-				ConversationID:   conversationID,
-				TurnID:           turnID,
-				SurfaceOrigin:    surfaceOrigin,
-				HadToolCalls:     totalToolCallCount > 0,
-				Reason:           "error",
-				ErrorMessage:     result.Error,
-				IterationCount:   iteration + 1,
-				ToolCallCount:    totalToolCallCount,
-				ToolsUsed:        errToolsUsed,
-				PromptTokens:     lastUsage.PromptTokens,
-				CompletionTokens: lastUsage.CompletionTokens,
+				ConversationID:     conversationID,
+				TurnID:             turnID,
+				AssistantMessageID: assistantMessageID,
+				SurfaceOrigin:      surfaceOrigin,
+				HadToolCalls:       totalToolCallCount > 0,
+				Reason:             "error",
+				ErrorMessage:       lastStreamErr,
+				IterationCount:     iteration + 1,
+				ToolCallCount:      totalToolCallCount,
+				ToolsUsed:          errToolsUsed,
+				PromptTokens:       lastUsage.PromptTokens,
+				CompletionTokens:   lastUsage.CompletionTokens,
 			})
 			return
 		}
@@ -224,7 +345,7 @@ func (s *Service) RunAgenticLoop(
 			}
 
 			// 4. finish_reason="stop" → resposta final
-			s.SaveAndFinish(ctx, conversationID, turnID, result, params.ProfileSlug, &LoopStats{
+			s.SaveAndFinish(ctx, conversationID, turnID, assistantMessageID, result, params.ProfileSlug, &LoopStats{
 				IterationCount: iteration + 1,
 				ToolCallCount:  totalToolCallCount,
 				ToolsUsed:      toolsUsedSet,
@@ -571,6 +692,7 @@ type LoopStats struct {
 func (s *Service) SaveAndFinish(
 	ctx context.Context,
 	conversationID, turnID string,
+	assistantMessageID string,
 	result AgenticResult,
 	profileSlug string,
 	loopStats *LoopStats,
@@ -601,13 +723,16 @@ func (s *Service) SaveAndFinish(
 		}
 
 		var err error
-		savedMsgID, err = chat.SaveAssistantMessage(ctx, s.msgRepo, opts)
+		savedMsgID, err = chat.FinalizeAssistantMessage(ctx, s.msgRepo, assistantMessageID, opts)
 		if errors.Is(err, chat.ErrConversationGone) {
 			return
 		}
 		if err != nil {
 			log.Printf("[Agent] erro ao salvar resposta final: %v", err)
 		}
+	}
+	if savedMsgID == "" {
+		savedMsgID = assistantMessageID
 	}
 
 	if s.responseNotifier != nil {
@@ -1154,4 +1279,122 @@ func truncateString(s string, maxLen int) string {
 		cutoff--
 	}
 	return s[:cutoff] + suffix
+}
+
+func (s *Service) loadAssistantPrefill(ctx context.Context, assistantMessageID string) string {
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	if assistantMessageID == "" || s.msgRepo == nil {
+		return ""
+	}
+	msg, err := s.msgRepo.GetMessage(ctx, assistantMessageID)
+	if err != nil || msg == nil {
+		return ""
+	}
+	return msg.Content
+}
+
+func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assistantMessageID, content, reasoning string) {
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	if assistantMessageID == "" || strings.TrimSpace(content) == "" || s.msgRepo == nil {
+		return
+	}
+	persistCtx := context.WithoutCancel(ctx)
+
+	var (
+		promptTokens     int
+		completionTokens int
+		totalTokens      int
+		model            string
+	)
+	if msg, err := s.msgRepo.GetMessage(persistCtx, assistantMessageID); err == nil && msg != nil {
+		promptTokens = msg.PromptTokens
+		completionTokens = msg.CompletionTokens
+		totalTokens = msg.TotalTokens
+		model = msg.Model
+		if strings.TrimSpace(reasoning) == "" {
+			reasoning = msg.Reasoning
+		}
+	}
+
+	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
+		log.Printf("[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
+	}
+}
+
+func (s *Service) emitSimpleContextDone(
+	ctx context.Context,
+	conversationID string,
+	turnID string,
+	assistantMessageID string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+) {
+	err := ctx.Err()
+	if err == nil || s.emitter == nil {
+		return
+	}
+	errorMessage := "geração cancelada"
+	if errors.Is(err, context.DeadlineExceeded) {
+		errorMessage = "tempo limite da geração atingido"
+	}
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		SurfaceOrigin:      surfaceOrigin,
+		Reason:             "error",
+		ErrorMessage:       errorMessage,
+	})
+}
+
+func (s *Service) emitAgenticContextDone(
+	ctx context.Context,
+	conversationID string,
+	turnID string,
+	assistantMessageID string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+	iteration int,
+	toolCallCount int,
+	toolsUsedSet map[string]struct{},
+) {
+	err := ctx.Err()
+	if err == nil || s.emitter == nil {
+		return
+	}
+	errorMessage := "geração cancelada"
+	if errors.Is(err, context.DeadlineExceeded) {
+		errorMessage = "tempo limite da geração atingido"
+	}
+	toolsUsed := make([]string, 0, len(toolsUsedSet))
+	for name := range toolsUsedSet {
+		toolsUsed = append(toolsUsed, name)
+	}
+	sort.Strings(toolsUsed)
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		SurfaceOrigin:      surfaceOrigin,
+		HadToolCalls:       toolCallCount > 0,
+		Reason:             "error",
+		ErrorMessage:       errorMessage,
+		IterationCount:     iteration + 1,
+		ToolCallCount:      toolCallCount,
+		ToolsUsed:          toolsUsed,
+	})
+}
+
+// patchTrailingAssistantPrefill substitui o conteúdo do trailing assistant no prompt.
+// Intencionalmente NÃO adiciona uma nova mensagem assistant: isso preserva a regra
+// padrão de que o prompt termina em user, exceto quando o histórico já carrega um
+// trailing assistant (caso de continuação explícita).
+func patchTrailingAssistantPrefill(messages []llm.Message, prefill string) []llm.Message {
+	if strings.TrimSpace(prefill) == "" || len(messages) == 0 {
+		return messages
+	}
+	lastIdx := len(messages) - 1
+	if strings.TrimSpace(messages[lastIdx].Role) != "assistant" {
+		return messages
+	}
+	messages[lastIdx].Content = prefill
+	return messages
 }

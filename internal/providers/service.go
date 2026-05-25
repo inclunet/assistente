@@ -763,12 +763,13 @@ func (s *Service) GetModelsByProvider(ctx context.Context, providerID string) ([
 
 // ActiveProviderInfo contém campos informativos sobre o provedor ativo.
 type ActiveProviderInfo struct {
-	ID      string           `json:"id"`
-	Name    string           `json:"name"`
-	Type    llm.ProviderType `json:"type"`
-	BaseURL string           `json:"base_url"`
-	Model   string           `json:"model"`
-	Error   string           `json:"error,omitempty"`
+	ID                       string           `json:"id"`
+	Name                     string           `json:"name"`
+	Type                     llm.ProviderType `json:"type"`
+	BaseURL                  string           `json:"base_url"`
+	Model                    string           `json:"model"`
+	SupportsAssistantPrefill bool             `json:"supports_assistant_prefill"`
+	Error                    string           `json:"error,omitempty"`
 }
 
 // GetActiveProviderInfo retorna informações sobre o provedor do perfil ativo.
@@ -788,10 +789,24 @@ func (s *Service) GetActiveProviderInfo(ctx context.Context, activeProfile *prof
 		}
 	}
 	return ActiveProviderInfo{
-		ID:      provider.ID,
-		Name:    provider.Name,
-		Type:    provider.Type,
-		BaseURL: provider.BaseURL,
-		Model:   provider.Model,
+		ID:                       provider.ID,
+		Name:                     provider.Name,
+		Type:                     provider.Type,
+		BaseURL:                  provider.BaseURL,
+		Model:                    provider.Model,
+		SupportsAssistantPrefill: llm.SupportsAssistantPrefill(provider),
 	}
+}
+
+// SupportsAssistantPrefill aplica a mesma resolução de perfil usada em runtime
+// para decidir se a continuação explícita pode enviar assistant prefill.
+func (s *Service) SupportsAssistantPrefill(ctx context.Context, activeProfile *profiles.Profile) bool {
+	if activeProfile == nil || s.registry == nil {
+		return false
+	}
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
+	if activeProfile == nil {
+		return false
+	}
+	return llm.SupportsAssistantPrefill(s.registry.Get(activeProfile.Chat.LLMProvider))
 }

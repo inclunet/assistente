@@ -91,12 +91,27 @@ func minValidProfile(name, llmProvider string) profiles.Profile {
 // newTestUseCase cria um SendMessageUseCase com dependências mínimas para testes.
 func newTestUseCase(t *testing.T, profileMgr *profiles.Manager) *usecases.SendMessageUseCase {
 	t.Helper()
+	return newTestUseCaseWithProviders(t, profileMgr)
+}
 
+func newTestUseCaseWithProviders(t *testing.T, profileMgr *profiles.Manager, providerConfigs ...*llm.ProviderConfig) *usecases.SendMessageUseCase {
+	t.Helper()
 	llmRegistry := llm.NewProviderRegistry()
 	provSvc := providers.NewService(providers.ServiceConfig{
 		Registry: llmRegistry,
 		Store:    providers.NewDBStore(),
 	})
+	if len(providerConfigs) > 0 {
+		ctx := database.WithUserID(context.Background(), "test-user")
+		for _, provider := range providerConfigs {
+			if err := llmRegistry.Register(provider); err != nil {
+				t.Fatalf("register provider %s: %v", provider.ID, err)
+			}
+		}
+		if err := providers.NewDBStore().Save(ctx, providerConfigs); err != nil {
+			t.Fatalf("save providers: %v", err)
+		}
+	}
 	settingsSvc := config.NewSettingsService(config.SettingsServiceConfig{})
 	speechSvc := speech.NewService(speech.ServiceConfig{
 		Emitter:  events.NoopEmitter{},
@@ -124,6 +139,24 @@ func newTestUseCase(t *testing.T, profileMgr *profiles.Manager) *usecases.SendMe
 		Emitter:        noop.EmitterAdapter{},
 		AgentSvc:       agentSvc,
 	})
+}
+
+func createRetryableUserMessage(t *testing.T, ctx context.Context) (conversationID string, userMessageID string) {
+	t.Helper()
+	conv, err := database.CreateConversationWithContext(ctx, "retry-conv", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	userMsg, err := database.CreateMessageWithContext(ctx, database.MessageOptions{
+		ConversationID: conv.ID,
+		Role:           "user",
+		Content:        "mensagem original",
+		Source:         "wails",
+	})
+	if err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+	return conv.ID, userMsg.ID
 }
 
 // TestSendMessageUseCase_ReturnsErrorWhenNoLLMProviders verifica que o UC retorna
@@ -172,6 +205,88 @@ func TestSendMessageUseCase_RejectsUnauthenticatedContext(t *testing.T) {
 	}
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Errorf("esperava ErrUserScopeRequired, recebeu: %v", err)
+	}
+}
+
+func TestSendMessageUseCase_RejectsAssistantPrefillWithoutRetryMessage(t *testing.T) {
+	setupTestDB(t)
+	mgr := setupProfileDir(t)
+	uc := newTestUseCase(t, mgr)
+
+	ctx := database.WithUserID(context.Background(), "test-user")
+	_, err := uc.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: "1",
+		UserContent:    "hello",
+		Source:         "test",
+		Params:         llm.ChatParams{AllowAssistantPrefill: true},
+	})
+	if err == nil {
+		t.Fatal("expected AllowAssistantPrefill without RetryMessageID to fail")
+	}
+	if !strings.Contains(err.Error(), "RetryMessage") {
+		t.Fatalf("expected RetryMessage error, got %q", err.Error())
+	}
+}
+
+func TestSendMessageUseCase_RejectsAssistantPrefillWhenProfileDisablesContinue(t *testing.T) {
+	setupTestDB(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	mgr := setupProfileDir(t)
+	profile := minValidProfile("Continue Disabled", "openai-real")
+	disabled := false
+	profile.Chat.StreamingRecoveryShowContinue = &disabled
+	setupProfileWith(t, mgr, profile)
+	uc := newTestUseCaseWithProviders(t, mgr, &llm.ProviderConfig{
+		ID:        "openai-real",
+		Name:      "OpenAI Real",
+		Type:      llm.ProviderOpenAI,
+		APIFormat: llm.APIFormatOpenAIResponses,
+		BaseURL:   "https://api.openai.com/v1",
+	})
+	conversationID, userMessageID := createRetryableUserMessage(t, ctx)
+
+	_, err := uc.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conversationID,
+		RetryMessageID: userMessageID,
+		Source:         "test",
+		Params:         llm.ChatParams{AllowAssistantPrefill: true},
+	})
+	if err == nil {
+		t.Fatal("expected disabled continue profile to fail")
+	}
+	if !strings.Contains(err.Error(), "desabilitada") {
+		t.Fatalf("expected disabled continue error, got %q", err.Error())
+	}
+}
+
+func TestSendMessageUseCase_RejectsAssistantPrefillWhenProviderUnsupported(t *testing.T) {
+	setupTestDB(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	mgr := setupProfileDir(t)
+	setupProfileWith(t, mgr, minValidProfile("Unsupported Prefill Provider", "openai-compatible"))
+	uc := newTestUseCaseWithProviders(t, mgr, &llm.ProviderConfig{
+		ID:        "openai-compatible",
+		Name:      "OpenAI Compatible",
+		Type:      llm.ProviderOpenAI,
+		APIFormat: llm.APIFormatOpenAI,
+		BaseURL:   "https://example.com/v1",
+	})
+	conversationID, userMessageID := createRetryableUserMessage(t, ctx)
+
+	_, err := uc.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conversationID,
+		RetryMessageID: userMessageID,
+		Source:         "test",
+		Params:         llm.ChatParams{AllowAssistantPrefill: true},
+	})
+	if err == nil {
+		t.Fatal("expected unsupported prefill provider to fail")
+	}
+	if !strings.Contains(err.Error(), "não suporta") {
+		t.Fatalf("expected unsupported provider error, got %q", err.Error())
 	}
 }
 

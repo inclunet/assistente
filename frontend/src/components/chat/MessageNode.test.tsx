@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageNode } from './MessageNode';
-import { main } from '../../../wailsjs/go/models';
+import { chat } from '../../../wailsjs/go/models';
 
 const chatMessageSpy = vi.fn();
 
@@ -74,8 +74,8 @@ describe('MessageNode', () => {
   it('renderiza container e passa indicador de thread', () => {
     render(
       <MessageNode
-        node={main.MessageNode.createFrom({
-          message: new main.EnrichedMessage({
+        node={chat.MessageNode.createFrom({
+          message: new chat.EnrichedMessage({
             id: '1',
             conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
             role: 'user',
@@ -102,8 +102,8 @@ describe('MessageNode', () => {
     render(
       <MessageNode
         onDelete={onDelete}
-        node={main.MessageNode.createFrom({
-          message: new main.EnrichedMessage({
+        node={chat.MessageNode.createFrom({
+          message: new chat.EnrichedMessage({
             id: 'tool-message-1',
             conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
             role: 'assistant',

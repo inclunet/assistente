@@ -235,7 +235,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     const generationAtStart = logoutGeneration;
     refreshGuard = (async () => {
       try {
-        const user = parseAuthUser(await RefreshAuth({}));
+        const user = parseAuthUser(await RefreshAuth({ refreshToken: '' }));
         if (logoutGeneration !== generationAtStart) {
           // Logout aconteceu durante o refresh — descartamos o resultado
           // para não ressuscitar a sessão (M36 do review).
@@ -263,7 +263,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   logout: async () => {
     logoutGeneration += 1;
     try {
-      await Logout({});
+      await Logout({ refreshToken: '' });
     } catch (error) {
       // Backend já trata logout como best-effort (M23 do Bloco 4); aqui
       // apenas logamos para telemetria e seguimos limpando o estado.
