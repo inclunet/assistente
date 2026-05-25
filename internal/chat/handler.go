@@ -32,8 +32,10 @@ func SaveAssistantMessage(ctx context.Context, msgRepo MessageRepository, opts M
 	return msg.ID, nil
 }
 
-// EnsureAssistantPlaceholder garante que exista uma mensagem root de assistant para o turno
-// (turnID aponta para a user message). Retorna o ID da mensagem existente ou recém-criada.
+// EnsureAssistantPlaceholder tenta garantir que exista uma mensagem root de assistant para o turno
+// (turnID aponta para a user message). Retorna o ID da mensagem existente ou recém-criada quando
+// há dados suficientes; se conversationID/turnID estiverem vazios ou msgRepo for nil, retorna
+// "", nil para preservar o comportamento best-effort dos chamadores de streaming.
 //
 // Nota: este placeholder pode começar com Content vazio e será atualizado ao final do streaming.
 func EnsureAssistantPlaceholder(ctx context.Context, msgRepo MessageRepository, conversationID string, turnID string) (string, error) {

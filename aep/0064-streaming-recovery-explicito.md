@@ -68,9 +68,10 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 - Em providers/modelos onde o prefill não for seguro (ex.: LocalAI/Qwen com thinking ativo e rejeição de prefill), o app **não deve oferecer** “Continuar resposta” (fica apenas “Regenerar”).
 - A detecção começa conservadora e pode evoluir para uma matriz explícita de capacidades por provider/modelo.
 
-### 7) Backend-driven: sem mensagens “fantasma” no frontend
+### 7) Backend-driven: sem mensagens “fantasma” persistentes no frontend
 
-- O frontend não deve criar mensagens locais para simular streaming.
+- O frontend não deve criar mensagens locais persistentes para simular streaming.
+- Um placeholder visual temporário é aceitável enquanto o primeiro evento ainda não trouxe o `messageId` persistido, desde que seja migrado para esse ID assim que disponível.
 - Para suportar recuperação/continuação, o backend deve ser a fonte da verdade: mensagem do assistant deve existir no banco (placeholder) e ser atualizada conforme conteúdo parcial evolui.
 
 ## Fases
