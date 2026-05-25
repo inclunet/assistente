@@ -8,7 +8,20 @@ const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
 const speakMessageMock = vi.fn();
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
-const activeConversation = { id: conversationId, title: 'Conversa', threadedMessages: [] };
+type MockThreadedMessage = {
+  id?: string;
+  message?: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string };
+  children?: MockThreadedMessage[];
+  level?: number;
+  childCount?: number;
+  originalIndex?: number;
+};
+
+const activeConversation: { id: string; title: string; threadedMessages: MockThreadedMessage[] } = {
+  id: conversationId,
+  title: 'Conversa',
+  threadedMessages: [],
+};
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
