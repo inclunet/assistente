@@ -18,6 +18,9 @@ type Manager interface {
 	RunJobContext(ctx context.Context, id string) (*jobs.RunLog, error)
 	DryRunJobContext(ctx context.Context, id string) (*jobs.DryRunResult, error)
 	GetJobRunsContext(ctx context.Context, id string, limit int) ([]jobs.RunLog, error)
+	ListJobRunsContext(ctx context.Context, id string, filter jobs.RunFilter) ([]jobs.RunLog, error)
+	GetJobRunDetailContext(ctx context.Context, jobID, runID string) (*jobs.RunDetail, error)
+	ListJobEventsContext(ctx context.Context, filter jobs.EventFilter) ([]jobs.EventEntry, error)
 
 	ListPipelinesContext(ctx context.Context) ([]jobs.Pipeline, error)
 	CreatePipelineContext(ctx context.Context, pipeline *jobs.Pipeline) error

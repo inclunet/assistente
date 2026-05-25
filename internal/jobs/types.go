@@ -225,12 +225,31 @@ type JobFilter struct {
 // EventFilter define filtros de listagem para eventos de domínio de jobs.
 type EventFilter struct {
 	JobID   string
+	RunID   string
 	Type    string
 	Event   string
 	StartAt time.Time
 	EndAt   time.Time
 	Limit   int
 	Offset  int
+}
+
+// RunFilter define filtros de listagem de runs.
+type RunFilter struct {
+	Status         []string
+	StartedAfter   time.Time
+	StartedBefore  time.Time
+	IncludeDryRun  bool
+	Limit          int
+}
+
+// RunDetail é o RunLog enriquecido com timeline operacional e eventos de
+// domínio correlacionados. Usado por consultas dedicadas de detalhamento de
+// um run específico; listagens continuam usando RunLog para permanecerem leves.
+type RunDetail struct {
+	RunLog
+	RunEvents    []RunEvent   `json:"run_events"`
+	DomainEvents []EventEntry `json:"domain_events"`
 }
 
 // --- Tipos para API/UI ---

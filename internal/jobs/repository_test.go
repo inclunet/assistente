@@ -701,6 +701,193 @@ func TestDBRepositoryGetLastRunsBatch(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryListRunsFilterByStatus(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, testRepositoryJob("filter-status", "Filter Status")); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	base := time.Now()
+	runs := []RunLog{
+		{RunID: "r-completed", JobID: "filter-status", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: base},
+		{RunID: "r-failed", JobID: "filter-status", Status: "failed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: base.Add(time.Minute)},
+		{RunID: "r-skipped", JobID: "filter-status", Status: "skipped", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: base.Add(2 * time.Minute)},
+	}
+	for i := range runs {
+		if err := repo.LogRun(userA, &runs[i]); err != nil {
+			t.Fatalf("log run %s: %v", runs[i].RunID, err)
+		}
+	}
+
+	got, err := repo.ListRuns(userA, "filter-status", RunFilter{Status: []string{"failed"}})
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(got) != 1 || got[0].RunID != "r-failed" {
+		t.Fatalf("status filter: %#v", got)
+	}
+
+	got, err = repo.ListRuns(userA, "filter-status", RunFilter{Status: []string{"failed", "skipped"}})
+	if err != nil {
+		t.Fatalf("list runs (multi): %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("multi status filter count: got %d want 2", len(got))
+	}
+}
+
+func TestDBRepositoryListRunsFilterByDateRange(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, testRepositoryJob("filter-range", "Filter Range")); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	day := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	runs := []RunLog{
+		{RunID: "r-before", JobID: "filter-range", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: day.Add(-2 * time.Hour)},
+		{RunID: "r-inside", JobID: "filter-range", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: day.Add(time.Hour)},
+		{RunID: "r-after", JobID: "filter-range", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: day.Add(25 * time.Hour)},
+	}
+	for i := range runs {
+		if err := repo.LogRun(userA, &runs[i]); err != nil {
+			t.Fatalf("log run %s: %v", runs[i].RunID, err)
+		}
+	}
+
+	got, err := repo.ListRuns(userA, "filter-range", RunFilter{StartedAfter: day, StartedBefore: day.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(got) != 1 || got[0].RunID != "r-inside" {
+		t.Fatalf("date range filter: %#v", got)
+	}
+}
+
+func TestDBRepositoryListRunsExcludesDryRunByDefault(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, testRepositoryJob("filter-dryrun", "Filter DryRun")); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	base := time.Now()
+	runs := []RunLog{
+		{RunID: "r-real", JobID: "filter-dryrun", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: base},
+		{RunID: "r-dry", JobID: "filter-dryrun", Status: "completed", Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: base.Add(time.Minute), IsDryRun: true},
+	}
+	for i := range runs {
+		if err := repo.LogRun(userA, &runs[i]); err != nil {
+			t.Fatalf("log run %s: %v", runs[i].RunID, err)
+		}
+	}
+
+	got, err := repo.ListRuns(userA, "filter-dryrun", RunFilter{})
+	if err != nil {
+		t.Fatalf("list runs default: %v", err)
+	}
+	if len(got) != 1 || got[0].RunID != "r-real" {
+		t.Fatalf("default should exclude dry-runs: %#v", got)
+	}
+
+	got, err = repo.ListRuns(userA, "filter-dryrun", RunFilter{IncludeDryRun: true})
+	if err != nil {
+		t.Fatalf("list runs include: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("include_dry_run: got %d want 2", len(got))
+	}
+}
+
+func TestDBRepositoryGetRunDetailHydratesEvents(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, testRepositoryJob("detail-job", "Detail Job")); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	rl := &RunLog{
+		RunID:     "run-detail",
+		JobID:     "detail-job",
+		Status:    "failed",
+		Trigger:   TriggerInfo{Type: TriggerManual},
+		StartedAt: time.Now(),
+		RunEvents: []RunEvent{
+			{Type: "triggered", Message: "started"},
+			{Type: "failed", Message: "boom"},
+		},
+	}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log run: %v", err)
+	}
+	if err := repo.LogEvent(userA, &EventEntry{JobID: "detail-job", RunID: "run-detail", Timestamp: time.Now(), Type: "emitted", Event: "fail", Message: "domain fail"}); err != nil {
+		t.Fatalf("log event: %v", err)
+	}
+	if err := repo.LogEvent(userA, &EventEntry{JobID: "detail-job", Timestamp: time.Now(), Type: "emitted", Event: "unrelated", Message: "no run"}); err != nil {
+		t.Fatalf("log unrelated event: %v", err)
+	}
+
+	detail, err := repo.GetRunDetail(userA, "detail-job", "run-detail")
+	if err != nil {
+		t.Fatalf("get run detail: %v", err)
+	}
+	if detail.RunID != "run-detail" || detail.Status != "failed" {
+		t.Fatalf("unexpected run log in detail: %#v", detail.RunLog)
+	}
+	if len(detail.RunEvents) != 2 || detail.RunEvents[0].Sequence != 1 || detail.RunEvents[1].Sequence != 2 {
+		t.Fatalf("run events not hydrated ordered: %#v", detail.RunEvents)
+	}
+	if len(detail.DomainEvents) == 0 {
+		t.Fatalf("domain events empty")
+	}
+	for _, ev := range detail.DomainEvents {
+		if ev.RunID != "" && ev.RunID != "run-detail" {
+			t.Fatalf("domain events not scoped to run: %#v", ev)
+		}
+	}
+}
+
+func TestDBRepositoryListEventsFilterByRunID(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, testRepositoryJob("evt-runid", "Evt RunID")); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	rl := &RunLog{
+		RunID:     "run-x",
+		JobID:     "evt-runid",
+		Status:    "completed",
+		Trigger:   TriggerInfo{Type: TriggerManual},
+		StartedAt: time.Now(),
+		RunEvents: []RunEvent{{Type: "triggered", Message: "x"}},
+	}
+	if err := repo.LogRun(userA, rl); err != nil {
+		t.Fatalf("log run x: %v", err)
+	}
+	rl2 := &RunLog{
+		RunID:     "run-y",
+		JobID:     "evt-runid",
+		Status:    "completed",
+		Trigger:   TriggerInfo{Type: TriggerManual},
+		StartedAt: time.Now().Add(time.Second),
+		RunEvents: []RunEvent{{Type: "triggered", Message: "y"}},
+	}
+	if err := repo.LogRun(userA, rl2); err != nil {
+		t.Fatalf("log run y: %v", err)
+	}
+	if err := repo.LogEvent(userA, &EventEntry{JobID: "evt-runid", RunID: "run-x", Timestamp: time.Now(), Type: "emitted", Event: "x-event", Message: "domain x"}); err != nil {
+		t.Fatalf("log domain x: %v", err)
+	}
+	if err := repo.LogEvent(userA, &EventEntry{JobID: "evt-runid", RunID: "run-y", Timestamp: time.Now(), Type: "emitted", Event: "y-event", Message: "domain y"}); err != nil {
+		t.Fatalf("log domain y: %v", err)
+	}
+
+	got, err := repo.ListEvents(userA, EventFilter{RunID: "run-x"})
+	if err != nil {
+		t.Fatalf("list events run-x: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatalf("expected events for run-x")
+	}
+	for _, ev := range got {
+		if ev.RunID != "run-x" {
+			t.Fatalf("run-id filter leaked event from other run: %#v", ev)
+		}
+	}
+}
+
 func testRepositoryJob(id, name string) *Job {
 	return &Job{
 		ID:      id,

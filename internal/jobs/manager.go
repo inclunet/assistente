@@ -401,6 +401,44 @@ func (m *Manager) GetJobRunsContext(ctx context.Context, id string, limit int) (
 	return m.cfg.Repository.GetRuns(ctx, id, limit)
 }
 
+// ListJobRunsContext lista runs com filtros completos (status, intervalo, dry-run).
+func (m *Manager) ListJobRunsContext(ctx context.Context, id string, filter RunFilter) ([]RunLog, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return m.cfg.Repository.ListRuns(ctx, id, filter)
+}
+
+// GetJobRunDetailContext retorna um run com timeline operacional e eventos
+// de domínio correlacionados, hidratados em uma chamada dedicada.
+func (m *Manager) GetJobRunDetailContext(ctx context.Context, jobID, runID string) (*RunDetail, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return m.cfg.Repository.GetRunDetail(ctx, jobID, runID)
+}
+
+// ListJobEventsContext lista eventos (domínio + timeline operacional) aplicando
+// EventFilter completo. Aplica limites de paginação consistentes com a UI.
+func (m *Manager) ListJobEventsContext(ctx context.Context, filter EventFilter) ([]EventEntry, error) {
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if filter.Limit <= 0 {
+		filter.Limit = 50
+	}
+	if filter.Limit > 200 {
+		filter.Limit = 200
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+	return m.cfg.Repository.ListEvents(ctx, filter)
+}
+
 // GetJobEvents retorna a timeline de eventos de uma data (formato "2006-01-02").
 func (m *Manager) GetJobEvents(date string) ([]EventEntry, error) {
 	return m.GetJobEventsContext(m.context(), date)

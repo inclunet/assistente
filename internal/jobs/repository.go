@@ -45,8 +45,10 @@ type Repository interface {
 
 	LogRun(ctx context.Context, rl *RunLog) error
 	GetRuns(ctx context.Context, jobID string, limit int) ([]RunLog, error)
+	ListRuns(ctx context.Context, jobID string, filter RunFilter) ([]RunLog, error)
 	GetLastRuns(ctx context.Context, jobIDs []string) (map[string]*RunLog, error)
 	GetRun(ctx context.Context, jobID, runID string) (*RunLog, error)
+	GetRunDetail(ctx context.Context, jobID, runID string) (*RunDetail, error)
 	LogEvent(ctx context.Context, entry *EventEntry) error
 	ListEvents(ctx context.Context, filter EventFilter) ([]EventEntry, error)
 	LogRunEvent(ctx context.Context, entry *RunEvent) error
@@ -806,6 +808,47 @@ func (r *DBRepository) GetRuns(ctx context.Context, jobID string, limit int) ([]
 	return out, nil
 }
 
+func (r *DBRepository) ListRuns(ctx context.Context, jobID string, filter RunFilter) ([]RunLog, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	jobRow, err := r.jobRowBySlug(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	query := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("job_id = ?", jobRow.ID).
+		Order("started_at DESC, created_at DESC, id DESC")
+	if len(filter.Status) > 0 {
+		query = query.Where("status IN ?", filter.Status)
+	}
+	if !filter.StartedAfter.IsZero() {
+		query = query.Where("started_at >= ?", filter.StartedAfter)
+	}
+	if !filter.StartedBefore.IsZero() {
+		query = query.Where("started_at < ?", filter.StartedBefore)
+	}
+	if !filter.IncludeDryRun {
+		query = query.Where("is_dry_run = ?", false)
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	query = query.Limit(limit)
+	var rows []database.JobRun
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]RunLog, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, runModelToDomain(row, jobRow.Slug))
+	}
+	return out, nil
+}
+
 func (r *DBRepository) GetLastRuns(ctx context.Context, jobIDs []string) (map[string]*RunLog, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -867,6 +910,26 @@ func (r *DBRepository) GetRun(ctx context.Context, jobID, runID string) (*RunLog
 	}
 	rl := runModelToDomain(row, jobRow.Slug)
 	return &rl, nil
+}
+
+func (r *DBRepository) GetRunDetail(ctx context.Context, jobID, runID string) (*RunDetail, error) {
+	run, err := r.GetRun(ctx, jobID, runID)
+	if err != nil {
+		return nil, err
+	}
+	runEvents, err := r.GetRunEvents(ctx, run.RunID)
+	if err != nil {
+		return nil, err
+	}
+	domainEvents, err := r.ListEvents(ctx, EventFilter{RunID: run.RunID})
+	if err != nil {
+		return nil, err
+	}
+	return &RunDetail{
+		RunLog:       *run,
+		RunEvents:    runEvents,
+		DomainEvents: domainEvents,
+	}, nil
 }
 
 func (r *DBRepository) LogEvent(ctx context.Context, entry *EventEntry) error {
@@ -950,6 +1013,12 @@ func (r *DBRepository) ListEvents(ctx context.Context, filter EventFilter) ([]Ev
 	if filter.Event != "" {
 		whereJobEvents = append(whereJobEvents, "job_events.event = ?")
 		jobArgs = append(jobArgs, filter.Event)
+	}
+	if runID := strings.TrimSpace(filter.RunID); runID != "" {
+		whereJobEvents = append(whereJobEvents, "job_events.job_run_id = ?")
+		jobArgs = append(jobArgs, runID)
+		whereRunEvents = append(whereRunEvents, "job_run_events.job_run_id = ?")
+		runArgs = append(runArgs, runID)
 	}
 	if !filter.StartAt.IsZero() {
 		whereJobEvents = append(whereJobEvents, "job_events.occurred_at >= ?")
