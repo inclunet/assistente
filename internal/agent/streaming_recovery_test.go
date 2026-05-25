@@ -46,9 +46,11 @@ var _ events.Emitter = (*captureEmitter)(nil)
 // inMemoryMsgRepo é um MessageRepository mínimo para suportar placeholder+finalize.
 // Implementa apenas o necessário para os testes de auto-recovery.
 type inMemoryMsgRepo struct {
-	nextID    int
-	messages  []chat.Message
-	createErr error
+	nextID             int
+	messages           []chat.Message
+	createErr          error
+	rejectCanceledCtx  bool
+	canceledCtxUpdates int
 }
 
 func (r *inMemoryMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions) (*chat.Message, error) {
@@ -62,7 +64,11 @@ func (r *inMemoryMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOpti
 	return &msg, nil
 }
 
-func (r *inMemoryMsgRepo) UpdateMessageContentAndReasoning(_ context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {
+func (r *inMemoryMsgRepo) UpdateMessageContentAndReasoning(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {
+	if err := ctx.Err(); err != nil && r.rejectCanceledCtx {
+		r.canceledCtxUpdates++
+		return err
+	}
 	for i := range r.messages {
 		if r.messages[i].ID == messageID {
 			r.messages[i].Content = content
@@ -77,7 +83,10 @@ func (r *inMemoryMsgRepo) UpdateMessageContentAndReasoning(_ context.Context, me
 	return nil
 }
 
-func (r *inMemoryMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
+func (r *inMemoryMsgRepo) GetMessage(ctx context.Context, messageID string) (*chat.Message, error) {
+	if err := ctx.Err(); err != nil && r.rejectCanceledCtx {
+		return nil, err
+	}
 	for i := range r.messages {
 		if r.messages[i].ID == messageID {
 			msg := r.messages[i]
@@ -141,16 +150,6 @@ func (s *recoveryStreamer) StreamChat(_ context.Context, _ []llm.Message, _ llm.
 		return
 	}
 	s.steps[idx](handler)
-}
-
-type cancelingStreamer struct {
-	calls  int
-	cancel context.CancelFunc
-}
-
-func (s *cancelingStreamer) StreamChat(_ context.Context, _ []llm.Message, _ llm.ChatParams, _ llm.StreamHandler, _ ...llm.ToolDefinition) {
-	s.calls++
-	s.cancel()
 }
 
 func TestStreamSimpleWithRecovery_RetriesWithoutTerminalError(t *testing.T) {
@@ -245,10 +244,15 @@ func TestStreamSimpleWithRecovery_EmitsTerminalErrorWhenExhausted(t *testing.T) 
 
 func TestStreamSimpleWithRecovery_ContextCancelEmitsDone(t *testing.T) {
 	em := &captureEmitter{}
-	repo := &inMemoryMsgRepo{}
+	repo := &inMemoryMsgRepo{rejectCanceledCtx: true}
 	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
 	ctx, cancel := context.WithCancel(context.Background())
-	streamer := &cancelingStreamer{cancel: cancel}
+	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
+		func(h llm.StreamHandler) {
+			h.OnChunk("parcial")
+			cancel()
+		},
+	}}
 
 	svc.StreamSimpleWithRecovery(ctx, streamer, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{}, "c1", "t1", "", nil, true, 3)
 
@@ -268,6 +272,15 @@ func TestStreamSimpleWithRecovery_ContextCancelEmitsDone(t *testing.T) {
 	}
 	if de.AssistantMessageID == "" {
 		t.Fatalf("expected assistantMessageId in simple cancellation chat:done")
+	}
+	if len(repo.messages) != 1 {
+		t.Fatalf("expected 1 placeholder message, got %d", len(repo.messages))
+	}
+	if repo.messages[0].Content != "parcial" {
+		t.Fatalf("expected partial content to be persisted with non-canceled context, got %q", repo.messages[0].Content)
+	}
+	if repo.canceledCtxUpdates != 0 {
+		t.Fatalf("partial persistence used canceled context %d time(s)", repo.canceledCtxUpdates)
 	}
 }
 
@@ -396,6 +409,64 @@ func TestRunAgenticLoop_ErrorIncludesAssistantMessageIDAndPersistsPartial(t *tes
 	}
 	if repo.messages[0].Content != "parcial" {
 		t.Fatalf("expected partial content to be persisted, got %q", repo.messages[0].Content)
+	}
+}
+
+func TestRunAgenticLoop_ContextCancelPersistsPartialWithNonCanceledContext(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{rejectCanceledCtx: true}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	ctx, cancel := context.WithCancel(context.Background())
+
+	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
+		func(h llm.StreamHandler) {
+			h.OnChunk("parcial")
+			cancel()
+		},
+	}}
+
+	svc.RunAgenticLoop(
+		ctx,
+		[]llm.Message{{Role: "user", Content: "hi"}},
+		llm.ChatParams{MaxAgenticIterations: 1},
+		"c1",
+		"t1",
+		nil,
+		streamer,
+		nil,
+		func(convID string, iter int) IterationHandler {
+			return NewAgenticStreamHandler(em, convID, iter, nil, "t1")
+		},
+		nil,
+		true,
+		1,
+	)
+
+	if streamer.calls != 1 {
+		t.Fatalf("calls=%d, want 1", streamer.calls)
+	}
+	doneEvents := em.find("chat:done")
+	if len(doneEvents) != 1 {
+		t.Fatalf("expected 1 chat:done, got %d", len(doneEvents))
+	}
+	de, ok := doneEvents[0].data.(ports.DoneEvent)
+	if !ok {
+		t.Fatalf("chat:done payload type mismatch")
+	}
+	if de.Reason != "error" || de.ErrorMessage == "" {
+		t.Fatalf("expected cancellation chat:done, got reason=%q error=%q", de.Reason, de.ErrorMessage)
+	}
+	if len(repo.messages) != 1 {
+		t.Fatalf("expected 1 placeholder message, got %d", len(repo.messages))
+	}
+	if repo.messages[0].ID != de.AssistantMessageID {
+		t.Fatalf("assistantMessageId mismatch: done=%s repo=%s", de.AssistantMessageID, repo.messages[0].ID)
+	}
+	if repo.messages[0].Content != "parcial" {
+		t.Fatalf("expected partial content to be persisted with non-canceled context, got %q", repo.messages[0].Content)
+	}
+	if repo.canceledCtxUpdates != 0 {
+		t.Fatalf("partial persistence used canceled context %d time(s)", repo.canceledCtxUpdates)
 	}
 }
 

@@ -1298,6 +1298,7 @@ func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assista
 	if assistantMessageID == "" || strings.TrimSpace(content) == "" || s.msgRepo == nil {
 		return
 	}
+	persistCtx := context.WithoutCancel(ctx)
 
 	var (
 		promptTokens     int
@@ -1305,7 +1306,7 @@ func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assista
 		totalTokens      int
 		model            string
 	)
-	if msg, err := s.msgRepo.GetMessage(ctx, assistantMessageID); err == nil && msg != nil {
+	if msg, err := s.msgRepo.GetMessage(persistCtx, assistantMessageID); err == nil && msg != nil {
 		promptTokens = msg.PromptTokens
 		completionTokens = msg.CompletionTokens
 		totalTokens = msg.TotalTokens
@@ -1315,7 +1316,7 @@ func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assista
 		}
 	}
 
-	if err := s.msgRepo.UpdateMessageContentAndReasoning(ctx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
+	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
 		log.Printf("[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
 	}
 }
