@@ -289,7 +289,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled) {
+      if (!disabled && !isStreaming) {
         handleSend();
       }
     }

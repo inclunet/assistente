@@ -443,6 +443,9 @@ func TestRunAgenticLoop_CanceledBeforeIterationEmitsDone(t *testing.T) {
 	if de.Reason != "error" || de.ErrorMessage == "" {
 		t.Fatalf("expected terminal cancellation error, got reason=%q error=%q", de.Reason, de.ErrorMessage)
 	}
+	if de.IterationCount != 0 {
+		t.Fatalf("expected 0 started iterations, got %d", de.IterationCount)
+	}
 	if de.AssistantMessageID == "" {
 		t.Fatalf("expected assistantMessageId in cancellation chat:done")
 	}

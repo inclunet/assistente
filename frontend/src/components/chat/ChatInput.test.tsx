@@ -115,6 +115,19 @@ describe('ChatInput', () => {
     expect(onCancelStreaming).toHaveBeenCalledTimes(1);
   });
 
+  it('não envia mensagem com Enter durante streaming', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const onSend = vi.fn();
+
+    render(<ChatInput onSend={onSend} isStreaming />);
+
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    fireEvent.change(textarea, { target: { value: 'Oi' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it('usa estado controlado para rascunho e anexos', () => {
     getSkillsSpy.mockResolvedValueOnce([]);
     const onMessageChange = vi.fn();

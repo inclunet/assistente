@@ -229,7 +229,7 @@ func (s *Service) RunAgenticLoop(
 		// Verifica cancelamento
 		if ctx.Err() != nil {
 			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
-			s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration, totalToolCallCount, toolsUsedSet)
+			s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration-1, totalToolCallCount, toolsUsedSet)
 			return
 		}
 
@@ -242,7 +242,7 @@ func (s *Service) RunAgenticLoop(
 		}
 		for attempt := 1; attempt <= attempts; attempt++ {
 			if ctx.Err() != nil {
-				s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration, totalToolCallCount, toolsUsedSet)
+				s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration-1, totalToolCallCount, toolsUsedSet)
 				return
 			}
 			handler := newHandler(conversationID, iteration)
