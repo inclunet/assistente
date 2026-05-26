@@ -909,6 +909,9 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if toolName == "" {
 		return nil, fmt.Errorf("tool_name is required")
 	}
+	if m.cfg.ToolRegistry == nil {
+		return nil, fmt.Errorf("tool registry not configured")
+	}
 	origin := effectiveToolOrigin(toolName, req.Origin)
 	if blocked, reason := dryRunBlockedReason(origin, strings.TrimSpace(req.Risk), req.AllowUnsafe); blocked && origin == tools.ToolOriginMCPNative {
 		return &TestToolResult{

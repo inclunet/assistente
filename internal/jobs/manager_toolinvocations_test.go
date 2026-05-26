@@ -233,3 +233,12 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 		t.Fatalf("expected resolved MCP bridge to execute, got %#v", bridgeResolved)
 	}
 }
+
+func TestManagerTestToolDryRunContext_RequiresToolRegistry(t *testing.T) {
+	mgr := NewManager(ManagerConfig{})
+
+	_, err := mgr.TestToolDryRunContext(context.Background(), TestToolRequest{ToolName: "read_file"})
+	if err == nil || err.Error() != "tool registry not configured" {
+		t.Fatalf("expected tool registry error, got %v", err)
+	}
+}

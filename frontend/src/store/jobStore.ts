@@ -15,6 +15,7 @@ import {
 } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { jobs } from '@wailsjs/go/models';
+import { parseToolSource } from '../utils/toolSource';
 
 function applyEffectiveEnabled(job: jobs.JobInfo, enabled: boolean): jobs.JobInfo {
   const updated = Object.assign(Object.create(Object.getPrototypeOf(job)), job);
@@ -57,9 +58,9 @@ function normalizeCatalogEntry(entry: jobs.CatalogEntry): jobs.CatalogEntry {
 
 function isMCPBridgeToolName(toolName: string): boolean {
   const name = toolName.trim();
-  if (name.startsWith('mcp_native__') || !name.startsWith('mcp_')) return false;
-  const parts = name.slice(4).split('__');
-  return parts.length === 2 && parts[0].trim() !== '' && parts[1].trim() !== '';
+  if (name.startsWith('mcp_native__')) return false;
+  const source = parseToolSource(name);
+  return source.type === 'mcp' && Boolean(source.serverSlug);
 }
 
 interface JobStoreState {
