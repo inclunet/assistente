@@ -19,7 +19,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetToolCatalog: vi.fn(),
   SaveJob: vi.fn(),
   DeleteJob: vi.fn(),
-  TestTool: vi.fn(),
+  TestToolDryRun: vi.fn(),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({

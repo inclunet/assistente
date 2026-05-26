@@ -927,7 +927,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 		}, nil
 	}
 
-	log.Printf("[Jobs] TestTool(%q): input fields=%d, eventData fields=%d, eventData nil=%v",
+	log.Printf("[Jobs] TestToolDryRun(%q): input fields=%d, eventData fields=%d, eventData nil=%v",
 		toolName, len(req.Inputs), func() int {
 			if req.EventData == nil {
 				return 0
@@ -944,14 +944,14 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	}
 	if req.EventData != nil {
 		if c, ok := req.EventData["content"]; ok {
-			log.Printf("[Jobs] TestTool: eventData.content type=%T", c)
+			log.Printf("[Jobs] TestToolDryRun: eventData.content type=%T", c)
 		}
 	}
 	resolved, err := ResolveInputs(req.Inputs, tmplCtx)
 	if err != nil {
 		return nil, fmt.Errorf("resolve templates: %w", err)
 	}
-	log.Printf("[Jobs] TestTool: resolved input fields=%d", len(resolved))
+	log.Printf("[Jobs] TestToolDryRun: resolved input fields=%d", len(resolved))
 	inputs := resolved
 
 	inputs = CoerceInputs(inputs, tool.Parameters())
