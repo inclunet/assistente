@@ -637,20 +637,8 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 	registryTools := m.cfg.ToolRegistry.Discoverable()
 	entriesByName := make(map[string]CatalogEntry, len(registryTools))
 	for _, tool := range registryTools {
-		meta := tools.CatalogEntryFromTool(tool)
-		source := "internal"
-		if strings.HasPrefix(tool.Name(), "mcp_") {
-			source = "mcp"
-		}
-		entriesByName[tool.Name()] = CatalogEntry{
-			Name:               tool.Name(),
-			Description:        tool.Description(),
-			Schema:             tool.Parameters(),
-			Source:             source,
-			Origin:             meta.Origin,
-			Risk:               meta.Risk,
-			AvailabilityStatus: tools.ToolAvailabilityAvailable,
-		}
+		entry := catalogEntryFromRegistryTool(tool)
+		entriesByName[entry.Name] = entry
 	}
 	if m.cfg.Repository != nil {
 		ctx, err := m.scopedContext(context.Background())
@@ -688,6 +676,32 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries, nil
+}
+
+func catalogEntryFromRegistryTool(tool tools.Tool) CatalogEntry {
+	meta := tools.CatalogEntryFromTool(tool)
+	entry := CatalogEntry{
+		Name:               tool.Name(),
+		Description:        tool.Description(),
+		Schema:             tool.Parameters(),
+		Source:             "internal",
+		Origin:             meta.Origin,
+		Risk:               meta.Risk,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}
+	if strings.HasPrefix(entry.Name, "mcp_") {
+		entry.Source = "mcp"
+	}
+	if strings.HasPrefix(entry.Name, "mcp_native__") {
+		entry.Origin = tools.ToolOriginMCPNative
+		entry.Risk = ""
+		return entry
+	}
+	if _, _, ok := mcp.ParseToolName(entry.Name); ok {
+		entry.Origin = tools.ToolOriginMCPBridge
+		entry.Risk = ""
+	}
+	return entry
 }
 
 func catalogSchemaIsEmpty(schema json.RawMessage) bool {

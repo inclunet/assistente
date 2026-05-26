@@ -154,6 +154,37 @@ func TestManagerGetToolCatalogIncludesDiscoverableOptIn(t *testing.T) {
 	}
 }
 
+func TestManagerGetToolCatalogDerivesMCPRegistryMetadata(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.MustRegister(&fakeTool{
+		name:   "mcp_jira__issue__delete",
+		params: json.RawMessage(`{"type":"object"}`),
+	})
+	registry.MustRegister(&fakeTool{
+		name:   "mcp_native__filesystem",
+		params: json.RawMessage(`{"type":"object"}`),
+	})
+
+	mgr := NewManager(ManagerConfig{ToolRegistry: registry})
+	catalog, err := mgr.GetToolCatalog()
+	if err != nil {
+		t.Fatalf("get catalog: %v", err)
+	}
+
+	entries := map[string]CatalogEntry{}
+	for _, entry := range catalog {
+		entries[entry.Name] = entry
+	}
+	bridge := entries["mcp_jira__issue__delete"]
+	if bridge.Source != "mcp" || bridge.Origin != tools.ToolOriginMCPBridge || bridge.Risk != "" {
+		t.Fatalf("unexpected MCP bridge metadata: %#v", bridge)
+	}
+	native := entries["mcp_native__filesystem"]
+	if native.Source != "mcp" || native.Origin != tools.ToolOriginMCPNative || native.Risk != "" {
+		t.Fatalf("unexpected MCP native metadata: %#v", native)
+	}
+}
+
 func TestManagerGetToolCatalogBackfillsEmptyMCPSchemaFromRegistry(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	userID := "user-a"
