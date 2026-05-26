@@ -40,6 +40,15 @@ func (testToolWrite) Execute(_ context.Context, _ json.RawMessage) (tools.ToolRe
 	return tools.ToolResult{Content: `{"wrote":true}`}, nil
 }
 
+type testToolMCPNative struct{}
+
+func (testToolMCPNative) Name() string                { return "mcp_native__create_issue" }
+func (testToolMCPNative) Description() string         { return "native" }
+func (testToolMCPNative) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (testToolMCPNative) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{Content: `{"executed":true}`}, nil
+}
+
 func TestManagerTestToolDryRunContext_RecordsDryRunToolCatalogInvocations(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -130,6 +139,7 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 	userCtx := database.WithUserID(context.Background(), "user-jobs")
 	registry := tools.NewRegistry()
 	registry.MustRegister(testToolWrite{})
+	registry.MustRegister(testToolMCPNative{})
 
 	mgr := NewManager(ManagerConfig{
 		ToolRegistry:    registry,
@@ -162,5 +172,16 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 	}
 	if native == nil || !native.Blocked || native.Success {
 		t.Fatalf("expected native MCP dry-run to be blocked, got %#v", native)
+	}
+
+	nativeImplicit, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{
+		ToolName:    "mcp_native__create_issue",
+		MCPServerID: "server-1",
+	})
+	if err != nil {
+		t.Fatalf("native implicit dry-run err: %v", err)
+	}
+	if nativeImplicit == nil || !nativeImplicit.Blocked || nativeImplicit.Success || nativeImplicit.Origin != tools.ToolOriginMCPNative {
+		t.Fatalf("expected implicit native MCP dry-run to be blocked, got %#v", nativeImplicit)
 	}
 }

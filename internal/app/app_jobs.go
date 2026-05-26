@@ -193,15 +193,14 @@ func (a *App) TestToolDryRun(requestJSON string) (*jobs.TestToolResult, error) {
 			result := &jobs.TestToolResult{
 				Success:       false,
 				Error:         err.Error(),
-				Blocked:       true,
 				Origin:        req.Origin,
 				MCPServerID:   req.MCPServerID,
 				ToolName:      req.ToolName,
 				ToolCatalogID: req.ToolCatalogID,
 			}
 			if a.mcpMgr != nil && strings.TrimSpace(req.ToolName) != "" {
-				if recordErr := a.mcpMgr.RecordToolTestStatus(ctx, req.ToolName, tools.ToolTestStatusBlocked, result.Error); recordErr != nil {
-					log.Printf("[Tools] erro ao registrar bloqueio de dry-run para %s: %v", req.ToolName, recordErr)
+				if recordErr := a.mcpMgr.RecordToolTestStatus(ctx, req.ToolName, tools.ToolTestStatusError, result.Error); recordErr != nil {
+					log.Printf("[Tools] erro ao registrar falha de dry-run para %s: %v", req.ToolName, recordErr)
 				}
 			}
 			return result, nil

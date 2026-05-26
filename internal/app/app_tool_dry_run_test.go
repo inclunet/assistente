@@ -109,4 +109,40 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	if len(entries) != 1 || entries[0].LastTestStatus != tools.ToolTestStatusOK {
 		t.Fatalf("expected catalog last_test_status=ok, got %#v", entries)
 	}
+
+	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+		MCPServerID:        "srv-1",
+		Name:               "mcp_jira__delete_issue",
+		DisplayName:        "delete_issue",
+		Origin:             tools.ToolOriginMCPBridge,
+		Risk:               "destructive",
+		AvailabilityStatus: tools.ToolAvailabilityUnavailable,
+		AvailabilityReason: "server disconnected",
+	}); err != nil {
+		t.Fatalf("seed unavailable tool catalog: %v", err)
+	}
+
+	unavailable, err := app.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"delete_issue","inputs":{}}`)
+	if err != nil {
+		t.Fatalf("TestToolDryRun unavailable error: %v", err)
+	}
+	if unavailable == nil || unavailable.Success || unavailable.Blocked {
+		t.Fatalf("expected unavailable tool to return operational error, got %#v", unavailable)
+	}
+	entries, err = mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
+	if err != nil {
+		t.Fatalf("list tools after unavailable test: %v", err)
+	}
+	var foundUnavailable bool
+	for _, entry := range entries {
+		if entry.Name == "mcp_jira__delete_issue" {
+			foundUnavailable = true
+			if entry.LastTestStatus != tools.ToolTestStatusError {
+				t.Fatalf("expected unavailable catalog last_test_status=error, got %#v", entry)
+			}
+		}
+	}
+	if !foundUnavailable {
+		t.Fatalf("expected unavailable tool entry in catalog, got %#v", entries)
+	}
 }

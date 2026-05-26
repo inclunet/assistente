@@ -901,7 +901,9 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	origin := strings.TrimSpace(req.Origin)
 	if origin == "" {
 		origin = tools.ToolOriginBuiltin
-		if _, _, ok := mcpToolNameParts(toolName); ok {
+		if strings.HasPrefix(toolName, "mcp_native__") {
+			origin = tools.ToolOriginMCPNative
+		} else if _, _, ok := mcpToolNameParts(toolName); ok {
 			origin = tools.ToolOriginMCPBridge
 		}
 	}
