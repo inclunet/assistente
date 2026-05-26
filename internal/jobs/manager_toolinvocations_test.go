@@ -154,6 +154,14 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 		t.Fatalf("expected unsafe tool to be blocked, got %#v", blocked)
 	}
 
+	riskOverride, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "write_file", Risk: "read"})
+	if err != nil {
+		t.Fatalf("risk override dry-run err: %v", err)
+	}
+	if riskOverride == nil || !riskOverride.Blocked || riskOverride.Success {
+		t.Fatalf("expected metadata risk to override caller risk, got %#v", riskOverride)
+	}
+
 	allowed, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "write_file", AllowUnsafe: true})
 	if err != nil {
 		t.Fatalf("allow unsafe dry-run err: %v", err)
@@ -176,6 +184,7 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 
 	nativeImplicit, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{
 		ToolName:    "mcp_native__create_issue",
+		Origin:      tools.ToolOriginBuiltin,
 		MCPServerID: "server-1",
 	})
 	if err != nil {

@@ -898,15 +898,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if toolName == "" {
 		return nil, fmt.Errorf("tool_name is required")
 	}
-	origin := strings.TrimSpace(req.Origin)
-	if origin == "" {
-		origin = tools.ToolOriginBuiltin
-		if strings.HasPrefix(toolName, "mcp_native__") {
-			origin = tools.ToolOriginMCPNative
-		} else if _, _, ok := mcpToolNameParts(toolName); ok {
-			origin = tools.ToolOriginMCPBridge
-		}
-	}
+	origin := effectiveToolOrigin(toolName, req.Origin)
 	if blocked, reason := dryRunBlockedReason(origin, strings.TrimSpace(req.Risk), req.AllowUnsafe); blocked && origin == tools.ToolOriginMCPNative {
 		return &TestToolResult{
 			Success:       false,
@@ -922,10 +914,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", toolName)
 	}
-	risk := strings.TrimSpace(req.Risk)
-	if risk == "" {
-		risk = tools.CatalogEntryFromTool(tool).Risk
-	}
+	risk := effectiveToolRisk(tools.CatalogEntryFromTool(tool).Risk, req.Risk)
 	if blocked, reason := dryRunBlockedReason(origin, risk, req.AllowUnsafe); blocked {
 		return &TestToolResult{
 			Success:       false,
@@ -1062,6 +1051,46 @@ func mcpToolNameParts(fullName string) (serverSlug, toolName string, ok bool) {
 		return "", "", false
 	}
 	return parts[0], parts[1], true
+}
+
+func effectiveToolOrigin(toolName, requestedOrigin string) string {
+	if strings.HasPrefix(toolName, "mcp_native__") {
+		return tools.ToolOriginMCPNative
+	}
+	if _, _, ok := mcpToolNameParts(toolName); ok {
+		return tools.ToolOriginMCPBridge
+	}
+	origin := strings.TrimSpace(requestedOrigin)
+	if origin != "" {
+		return origin
+	}
+	return tools.ToolOriginBuiltin
+}
+
+func effectiveToolRisk(metadataRisk, requestedRisk string) string {
+	metadataRisk = strings.TrimSpace(metadataRisk)
+	requestedRisk = strings.TrimSpace(requestedRisk)
+	if riskSeverity(requestedRisk) > riskSeverity(metadataRisk) {
+		return requestedRisk
+	}
+	return metadataRisk
+}
+
+func riskSeverity(risk string) int {
+	switch risk {
+	case "destructive":
+		return 5
+	case "shell":
+		return 4
+	case "write":
+		return 3
+	case "network":
+		return 2
+	case "read":
+		return 1
+	default:
+		return 0
+	}
 }
 
 func dryRunBlockedReason(origin, risk string, allowUnsafe bool) (bool, string) {
