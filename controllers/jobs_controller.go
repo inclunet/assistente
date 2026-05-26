@@ -128,7 +128,7 @@ func (c *JobsController) ReplayRun(jobID, runID string) (*jobs.TestToolResult, e
 	if !rl.Replayable {
 		return nil, fmt.Errorf("run %s is not replayable", runID)
 	}
-	return c.jobMgr.TestToolDryRunContext(nil, jobs.TestToolRequest{
+	return c.jobMgr.TestToolDryRunContext(context.Background(), jobs.TestToolRequest{
 		ToolName: rl.ToolName,
 		Inputs:   rl.ResolvedInputs,
 	})
