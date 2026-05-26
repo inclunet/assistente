@@ -637,6 +637,7 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 	registryTools := m.cfg.ToolRegistry.Discoverable()
 	entriesByName := make(map[string]CatalogEntry, len(registryTools))
 	for _, tool := range registryTools {
+		meta := tools.CatalogEntryFromTool(tool)
 		source := "internal"
 		if strings.HasPrefix(tool.Name(), "mcp_") {
 			source = "mcp"
@@ -646,8 +647,8 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 			Description:        tool.Description(),
 			Schema:             tool.Parameters(),
 			Source:             source,
-			Origin:             tools.CatalogEntryFromTool(tool).Origin,
-			Risk:               tools.CatalogEntryFromTool(tool).Risk,
+			Origin:             meta.Origin,
+			Risk:               meta.Risk,
 			AvailabilityStatus: tools.ToolAvailabilityAvailable,
 		}
 	}
@@ -664,7 +665,7 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 			existing, exists := entriesByName[entry.Name]
 			if exists {
 				if entry.Source == "mcp" {
-					if len(entry.Schema) == 0 {
+					if catalogSchemaIsEmpty(entry.Schema) {
 						entry.Schema = existing.Schema
 					}
 					entriesByName[entry.Name] = entry
@@ -687,6 +688,11 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries, nil
+}
+
+func catalogSchemaIsEmpty(schema json.RawMessage) bool {
+	normalized := strings.TrimSpace(string(schema))
+	return normalized == "" || normalized == "{}"
 }
 
 // InferEventSchema tenta inferir o schema de um evento a partir dos jobs existentes.
