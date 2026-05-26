@@ -137,6 +137,14 @@ func (m *Manager) RecordToolTest(ctx context.Context, toolName string, success b
 	return repo.RecordToolTest(ctx, toolName, status, errorMessage)
 }
 
+func (m *Manager) RecordToolTestStatus(ctx context.Context, toolName, status, errorMessage string) error {
+	repo := m.repository()
+	if repo == nil {
+		return nil
+	}
+	return repo.RecordToolTest(ctx, toolName, status, errorMessage)
+}
+
 func (m *Manager) ListToolCatalog(ctx context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
 	repo := m.repository()
 	if repo == nil {

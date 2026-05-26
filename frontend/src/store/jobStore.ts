@@ -11,7 +11,7 @@ import {
   GetToolCatalog,
   SaveJob,
   DeleteJob,
-  TestTool,
+  TestToolDryRun,
 } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { jobs } from '@wailsjs/go/models';
@@ -234,7 +234,13 @@ export const useJobStore = create<JobStoreState>((set, get) => {
 
     testTool: async (toolName: string, inputs: Record<string, unknown>, eventData?: Record<string, unknown>) => {
       try {
-        return await TestTool(toolName, JSON.stringify(inputs), eventData ? JSON.stringify(eventData) : '');
+        return await TestToolDryRun(
+          JSON.stringify({
+            tool_name: toolName,
+            inputs,
+            event_data: eventData,
+          }),
+        );
       } catch (err) {
         set({ error: String(err) });
         return null;

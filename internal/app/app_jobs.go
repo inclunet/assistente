@@ -2,12 +2,16 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"path/filepath"
+	"strings"
 
 	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/jobs"
+	"assistente/internal/tools"
 )
 
 // credentialSecretStore adapta credentials.Manager para a interface jobs.SecretStore.
@@ -170,20 +174,91 @@ func (a *App) SaveJob(jobJSON string) error {
 	return a.jobsCtrl.SaveJobContext(ctx, jobJSON)
 }
 
-func (a *App) TestTool(toolName, inputsJSON, eventJSON string) (*jobs.TestToolResult, error) {
+func (a *App) TestToolDryRun(requestJSON string) (*jobs.TestToolResult, error) {
 	ctx, authErr := a.requireAuthenticatedContext()
 	if authErr != nil {
 		return nil, authErr
 	}
-	result, err := a.jobsCtrl.TestToolContext(ctx, toolName, inputsJSON, eventJSON)
+	var req jobs.TestToolRequest
+	if strings.TrimSpace(requestJSON) != "" {
+		if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
+			return nil, fmt.Errorf("invalid dry-run request: %w", err)
+		}
+	}
+	if req.Inputs == nil {
+		req.Inputs = make(map[string]any)
+	}
+	if strings.TrimSpace(req.MCPServerID) != "" {
+		if err := a.resolveMCPToolDryRunTarget(ctx, &req); err != nil {
+			result := &jobs.TestToolResult{
+				Success:       false,
+				Error:         err.Error(),
+				Blocked:       true,
+				Origin:        req.Origin,
+				MCPServerID:   req.MCPServerID,
+				ToolName:      req.ToolName,
+				ToolCatalogID: req.ToolCatalogID,
+			}
+			if a.mcpMgr != nil && strings.TrimSpace(req.ToolName) != "" {
+				if recordErr := a.mcpMgr.RecordToolTestStatus(ctx, req.ToolName, tools.ToolTestStatusBlocked, result.Error); recordErr != nil {
+					log.Printf("[Tools] erro ao registrar bloqueio de dry-run para %s: %v", req.ToolName, recordErr)
+				}
+			}
+			return result, nil
+		}
+	}
+	result, err := a.jobsCtrl.TestToolDryRunContext(ctx, req)
 	if err != nil || result == nil || a.mcpMgr == nil {
 		return result, err
 	}
-	testErr := result.Error
-	if recordErr := a.mcpMgr.RecordToolTest(ctx, toolName, result.Success, testErr); recordErr != nil {
-		log.Printf("[Tools] erro ao registrar resultado de teste para %s: %v", toolName, recordErr)
+	if result.ToolName == "" {
+		result.ToolName = strings.TrimSpace(req.ToolName)
+	}
+	status := tools.ToolTestStatusOK
+	if result.Blocked {
+		status = tools.ToolTestStatusBlocked
+	} else if !result.Success {
+		status = tools.ToolTestStatusError
+	}
+	if recordErr := a.mcpMgr.RecordToolTestStatus(ctx, result.ToolName, status, result.Error); recordErr != nil {
+		log.Printf("[Tools] erro ao registrar resultado de dry-run para %s: %v", result.ToolName, recordErr)
 	}
 	return result, nil
+}
+
+func (a *App) resolveMCPToolDryRunTarget(ctx context.Context, req *jobs.TestToolRequest) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("mcp manager not configured")
+	}
+	serverID := strings.TrimSpace(req.MCPServerID)
+	toolName := strings.TrimSpace(req.ToolName)
+	if serverID == "" {
+		return fmt.Errorf("mcp_server_id is required")
+	}
+	if toolName == "" {
+		return fmt.Errorf("tool_name is required")
+	}
+	entries, err := a.mcpMgr.ListToolCatalog(ctx, tools.ToolCatalogFilter{
+		MCPServerID:        serverID,
+		IncludeUnavailable: true,
+	})
+	if err != nil {
+		return fmt.Errorf("list MCP tool catalog: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.DisplayName == toolName || entry.Name == toolName {
+			req.ToolName = entry.Name
+			req.ToolCatalogID = entry.ID
+			req.MCPServerID = entry.MCPServerID
+			req.Origin = entry.Origin
+			req.Risk = entry.Risk
+			if entry.AvailabilityStatus != "" && entry.AvailabilityStatus != tools.ToolAvailabilityAvailable {
+				return fmt.Errorf("mcp tool %q is unavailable: %s", toolName, entry.AvailabilityReason)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("mcp tool %q not found for server %s", toolName, serverID)
 }
 
 func (a *App) InferEventSchema(eventName string) map[string]any {

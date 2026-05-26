@@ -236,11 +236,11 @@ type EventFilter struct {
 
 // RunFilter define filtros de listagem de runs.
 type RunFilter struct {
-	Status         []string
-	StartedAfter   time.Time
-	StartedBefore  time.Time
-	IncludeDryRun  bool
-	Limit          int
+	Status        []string
+	StartedAfter  time.Time
+	StartedBefore time.Time
+	IncludeDryRun bool
+	Limit         int
 }
 
 // RunDetail é o RunLog enriquecido com timeline operacional e eventos de
@@ -296,8 +296,25 @@ type DryRunResult struct {
 
 // TestToolResult contem o resultado de um teste direto de tool (sem job salvo).
 type TestToolResult struct {
-	Success  bool           `json:"success"`
-	Output   map[string]any `json:"output,omitempty"`
-	Error    string         `json:"error,omitempty"`
-	Duration string         `json:"duration,omitempty"`
+	Success       bool           `json:"success"`
+	Output        map[string]any `json:"output,omitempty"`
+	Error         string         `json:"error,omitempty"`
+	Duration      string         `json:"duration,omitempty"`
+	Blocked       bool           `json:"blocked,omitempty"`
+	Origin        string         `json:"origin,omitempty"`
+	MCPServerID   string         `json:"mcp_server_id,omitempty"`
+	ToolName      string         `json:"tool_name,omitempty"`
+	ToolCatalogID string         `json:"tool_catalog_id,omitempty"`
+}
+
+// TestToolRequest descreve o alvo explícito de dry-run/teste de tool.
+type TestToolRequest struct {
+	ToolName      string         `json:"tool_name"`
+	MCPServerID   string         `json:"mcp_server_id,omitempty"`
+	Origin        string         `json:"origin,omitempty"`
+	ToolCatalogID string         `json:"tool_catalog_id,omitempty"`
+	Risk          string         `json:"risk,omitempty"`
+	Inputs        map[string]any `json:"inputs,omitempty"`
+	EventData     map[string]any `json:"event_data,omitempty"`
+	AllowUnsafe   bool           `json:"allow_unsafe,omitempty"`
 }
