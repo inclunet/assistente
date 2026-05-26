@@ -216,7 +216,20 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bridge with risk dry-run err: %v", err)
 	}
-	if bridgeWithRisk == nil || !bridgeWithRisk.Success {
-		t.Fatalf("expected MCP bridge with resolved risk to execute, got %#v", bridgeWithRisk)
+	if bridgeWithRisk == nil || !bridgeWithRisk.Blocked || bridgeWithRisk.Success {
+		t.Fatalf("expected MCP bridge with caller-only risk to be blocked, got %#v", bridgeWithRisk)
+	}
+
+	bridgeResolved, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{
+		ToolName:      "mcp_jira__delete_issue",
+		MCPServerID:   "srv-1",
+		ToolCatalogID: "catalog-1",
+		Risk:          "network",
+	})
+	if err != nil {
+		t.Fatalf("resolved bridge dry-run err: %v", err)
+	}
+	if bridgeResolved == nil || !bridgeResolved.Success {
+		t.Fatalf("expected resolved MCP bridge to execute, got %#v", bridgeResolved)
 	}
 }

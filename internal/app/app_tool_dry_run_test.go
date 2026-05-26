@@ -110,6 +110,14 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 		t.Fatalf("expected catalog last_test_status=ok, got %#v", entries)
 	}
 
+	unresolved, err := app.TestToolDryRun(`{"tool_name":"mcp_jira__create_issue","inputs":{}}`)
+	if err != nil {
+		t.Fatalf("TestToolDryRun unresolved MCP error: %v", err)
+	}
+	if unresolved == nil || !unresolved.Blocked || unresolved.Success {
+		t.Fatalf("expected unresolved MCP bridge dry-run to be blocked, got %#v", unresolved)
+	}
+
 	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
 		MCPServerID:        "srv-1",
 		Name:               "mcp_jira__delete_issue",

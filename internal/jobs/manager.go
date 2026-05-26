@@ -914,10 +914,11 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", toolName)
 	}
-	if origin == tools.ToolOriginMCPBridge && strings.TrimSpace(req.Risk) == "" && !req.AllowUnsafe {
+	if origin == tools.ToolOriginMCPBridge && !req.AllowUnsafe &&
+		(strings.TrimSpace(req.Risk) == "" || strings.TrimSpace(req.MCPServerID) == "" || strings.TrimSpace(req.ToolCatalogID) == "") {
 		return &TestToolResult{
 			Success:       false,
-			Error:         "dry-run bloqueado por política para tool MCP sem risco do catálogo resolvido",
+			Error:         "dry-run bloqueado por política para tool MCP sem alvo resolvido pelo catálogo",
 			Blocked:       true,
 			Origin:        origin,
 			MCPServerID:   strings.TrimSpace(req.MCPServerID),

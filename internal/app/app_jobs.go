@@ -191,6 +191,15 @@ func (a *App) TestToolDryRun(requestJSON string) (*jobs.TestToolResult, error) {
 	if req.Inputs == nil {
 		req.Inputs = make(map[string]any)
 	}
+	if strings.TrimSpace(req.MCPServerID) == "" && isMCPBridgeDryRunName(req.ToolName) && !req.AllowUnsafe {
+		return &jobs.TestToolResult{
+			Success:  false,
+			Error:    "dry-run bloqueado por política para tool MCP sem mcp_server_id",
+			Blocked:  true,
+			Origin:   tools.ToolOriginMCPBridge,
+			ToolName: strings.TrimSpace(req.ToolName),
+		}, nil
+	}
 	if strings.TrimSpace(req.MCPServerID) != "" {
 		if err := a.resolveMCPToolDryRunTarget(ctx, &req); err != nil {
 			result := &jobs.TestToolResult{
@@ -222,6 +231,16 @@ func (a *App) TestToolDryRun(requestJSON string) (*jobs.TestToolResult, error) {
 	}
 	a.recordToolDryRunStatus(ctx, result, status)
 	return result, nil
+}
+
+func isMCPBridgeDryRunName(toolName string) bool {
+	toolName = strings.TrimSpace(toolName)
+	if strings.HasPrefix(toolName, "mcp_native__") || !strings.HasPrefix(toolName, "mcp_") {
+		return false
+	}
+	rest := strings.TrimPrefix(toolName, "mcp_")
+	parts := strings.SplitN(rest, "__", 2)
+	return len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
 }
 
 func (a *App) recordToolDryRunStatus(ctx context.Context, result *jobs.TestToolResult, status string) {
