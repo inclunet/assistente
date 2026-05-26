@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/jobs"
 	"assistente/internal/tools"
+
+	"gorm.io/gorm"
 )
 
 // credentialSecretStore adapta credentials.Manager para a interface jobs.SecretStore.
@@ -198,10 +201,8 @@ func (a *App) TestToolDryRun(requestJSON string) (*jobs.TestToolResult, error) {
 				ToolName:      req.ToolName,
 				ToolCatalogID: req.ToolCatalogID,
 			}
-			if a.mcpMgr != nil && strings.TrimSpace(req.ToolName) != "" {
-				if recordErr := a.mcpMgr.RecordToolTestStatus(ctx, req.ToolName, tools.ToolTestStatusError, result.Error); recordErr != nil {
-					log.Printf("[Tools] erro ao registrar falha de dry-run para %s: %v", req.ToolName, recordErr)
-				}
+			if req.ToolCatalogID != "" {
+				a.recordToolDryRunStatus(ctx, result, tools.ToolTestStatusError)
 			}
 			return result, nil
 		}
@@ -219,10 +220,21 @@ func (a *App) TestToolDryRun(requestJSON string) (*jobs.TestToolResult, error) {
 	} else if !result.Success {
 		status = tools.ToolTestStatusError
 	}
-	if recordErr := a.mcpMgr.RecordToolTestStatus(ctx, result.ToolName, status, result.Error); recordErr != nil {
-		log.Printf("[Tools] erro ao registrar resultado de dry-run para %s: %v", result.ToolName, recordErr)
-	}
+	a.recordToolDryRunStatus(ctx, result, status)
 	return result, nil
+}
+
+func (a *App) recordToolDryRunStatus(ctx context.Context, result *jobs.TestToolResult, status string) {
+	if a.mcpMgr == nil || result == nil || result.Origin == tools.ToolOriginMCPNative {
+		return
+	}
+	toolName := strings.TrimSpace(result.ToolName)
+	if toolName == "" {
+		return
+	}
+	if err := a.mcpMgr.RecordToolTestStatus(ctx, toolName, status, result.Error); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Printf("[Tools] erro ao registrar resultado de dry-run para %s: %v", toolName, err)
+	}
 }
 
 func (a *App) resolveMCPToolDryRunTarget(ctx context.Context, req *jobs.TestToolRequest) error {
