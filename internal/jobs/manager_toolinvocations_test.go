@@ -49,6 +49,15 @@ func (testToolMCPNative) Execute(_ context.Context, _ json.RawMessage) (tools.To
 	return tools.ToolResult{Content: `{"executed":true}`}, nil
 }
 
+type testToolMCPBridge struct{}
+
+func (testToolMCPBridge) Name() string                { return "mcp_jira__delete_issue" }
+func (testToolMCPBridge) Description() string         { return "bridge" }
+func (testToolMCPBridge) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (testToolMCPBridge) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{Content: `{"deleted":true}`}, nil
+}
+
 func TestManagerTestToolDryRunContext_RecordsDryRunToolCatalogInvocations(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -140,6 +149,7 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(testToolWrite{})
 	registry.MustRegister(testToolMCPNative{})
+	registry.MustRegister(testToolMCPBridge{})
 
 	mgr := NewManager(ManagerConfig{
 		ToolRegistry:    registry,
@@ -192,5 +202,21 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 	}
 	if nativeImplicit == nil || !nativeImplicit.Blocked || nativeImplicit.Success || nativeImplicit.Origin != tools.ToolOriginMCPNative {
 		t.Fatalf("expected implicit native MCP dry-run to be blocked, got %#v", nativeImplicit)
+	}
+
+	bridgeWithoutRisk, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "mcp_jira__delete_issue"})
+	if err != nil {
+		t.Fatalf("bridge without risk dry-run err: %v", err)
+	}
+	if bridgeWithoutRisk == nil || !bridgeWithoutRisk.Blocked || bridgeWithoutRisk.Success {
+		t.Fatalf("expected MCP bridge without catalog risk to be blocked, got %#v", bridgeWithoutRisk)
+	}
+
+	bridgeWithRisk, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "mcp_jira__delete_issue", Risk: "network"})
+	if err != nil {
+		t.Fatalf("bridge with risk dry-run err: %v", err)
+	}
+	if bridgeWithRisk == nil || !bridgeWithRisk.Success {
+		t.Fatalf("expected MCP bridge with resolved risk to execute, got %#v", bridgeWithRisk)
 	}
 }

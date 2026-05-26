@@ -129,8 +129,9 @@ func (c *JobsController) ReplayRun(jobID, runID string) (*jobs.TestToolResult, e
 		return nil, fmt.Errorf("run %s is not replayable", runID)
 	}
 	return c.jobMgr.TestToolDryRunContext(context.Background(), jobs.TestToolRequest{
-		ToolName: rl.ToolName,
-		Inputs:   rl.ResolvedInputs,
+		ToolName:    rl.ToolName,
+		Inputs:      rl.ResolvedInputs,
+		AllowUnsafe: true,
 	})
 }
 
@@ -155,8 +156,9 @@ func (c *JobsController) ReplayRunContext(ctx context.Context, jobID, runID stri
 		return nil, fmt.Errorf("run %s is not replayable", runID)
 	}
 	return c.jobMgr.TestToolDryRunContext(ctx, jobs.TestToolRequest{
-		ToolName: rl.ToolName,
-		Inputs:   rl.ResolvedInputs,
+		ToolName:    rl.ToolName,
+		Inputs:      rl.ResolvedInputs,
+		AllowUnsafe: true,
 	})
 }
 
