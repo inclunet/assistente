@@ -12,6 +12,7 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/jobs"
+	"assistente/internal/mcp"
 	"assistente/internal/tools"
 
 	"gorm.io/gorm"
@@ -235,12 +236,11 @@ func (a *App) TestToolDryRun(requestJSON string) (*jobs.TestToolResult, error) {
 
 func isMCPBridgeDryRunName(toolName string) bool {
 	toolName = strings.TrimSpace(toolName)
-	if strings.HasPrefix(toolName, "mcp_native__") || !strings.HasPrefix(toolName, "mcp_") {
+	if strings.HasPrefix(toolName, "mcp_native__") {
 		return false
 	}
-	rest := strings.TrimPrefix(toolName, "mcp_")
-	parts := strings.SplitN(rest, "__", 2)
-	return len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
+	_, _, ok := mcp.ParseToolName(toolName)
+	return ok
 }
 
 func (a *App) recordToolDryRunStatus(ctx context.Context, result *jobs.TestToolResult, status string) {

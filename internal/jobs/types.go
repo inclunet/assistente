@@ -278,10 +278,14 @@ type PipelineInfo struct {
 
 // CatalogEntry descreve uma tool disponivel para uso em jobs.
 type CatalogEntry struct {
+	ID                 string          `json:"id,omitempty" yaml:"id,omitempty"`
+	MCPServerID        string          `json:"mcp_server_id,omitempty" yaml:"mcp_server_id,omitempty"`
 	Name               string          `json:"name" yaml:"name"`
 	Description        string          `json:"description" yaml:"description"`
 	Schema             json.RawMessage `json:"schema" yaml:"schema"`
 	Source             string          `json:"source" yaml:"source"` // "internal", "mcp"
+	Origin             string          `json:"origin,omitempty" yaml:"origin,omitempty"`
+	Risk               string          `json:"risk,omitempty" yaml:"risk,omitempty"`
 	AvailabilityStatus string          `json:"availability_status,omitempty" yaml:"availability_status,omitempty"`
 	AvailabilityReason string          `json:"availability_reason,omitempty" yaml:"availability_reason,omitempty"`
 }

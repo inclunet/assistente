@@ -647,6 +647,10 @@ func (r *DBRepository) ListToolCatalog(ctx context.Context) ([]CatalogEntry, err
 	}
 	entries := make([]CatalogEntry, 0, len(rows))
 	for _, row := range rows {
+		mcpServerID := ""
+		if row.MCPServerID != nil {
+			mcpServerID = *row.MCPServerID
+		}
 		schema := json.RawMessage(row.Schema)
 		if len(schema) == 0 {
 			schema = json.RawMessage(`{}`)
@@ -660,10 +664,14 @@ func (r *DBRepository) ListToolCatalog(ctx context.Context) ([]CatalogEntry, err
 			description = row.AvailabilityReason
 		}
 		entries = append(entries, CatalogEntry{
+			ID:                 row.ID,
+			MCPServerID:        mcpServerID,
 			Name:               row.Name,
 			Description:        description,
 			Schema:             schema,
 			Source:             source,
+			Origin:             row.Origin,
+			Risk:               row.Risk,
 			AvailabilityStatus: row.AvailabilityStatus,
 			AvailabilityReason: row.AvailabilityReason,
 		})

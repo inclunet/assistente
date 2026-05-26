@@ -1838,10 +1838,14 @@ export namespace database {
 export namespace jobs {
 	
 	export class CatalogEntry {
+	    id?: string;
+	    mcp_server_id?: string;
 	    name: string;
 	    description: string;
 	    schema: number[];
 	    source: string;
+	    origin?: string;
+	    risk?: string;
 	    availability_status?: string;
 	    availability_reason?: string;
 	
@@ -1851,10 +1855,14 @@ export namespace jobs {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.mcp_server_id = source["mcp_server_id"];
 	        this.name = source["name"];
 	        this.description = source["description"];
 	        this.schema = source["schema"];
 	        this.source = source["source"];
+	        this.origin = source["origin"];
+	        this.risk = source["risk"];
 	        this.availability_status = source["availability_status"];
 	        this.availability_reason = source["availability_reason"];
 	    }

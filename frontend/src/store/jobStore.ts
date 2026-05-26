@@ -55,6 +55,13 @@ function normalizeCatalogEntry(entry: jobs.CatalogEntry): jobs.CatalogEntry {
   return normalized;
 }
 
+function isMCPBridgeToolName(toolName: string): boolean {
+  const name = toolName.trim();
+  if (name.startsWith('mcp_native__') || !name.startsWith('mcp_')) return false;
+  const parts = name.slice(4).split('__');
+  return parts.length === 2 && parts[0].trim() !== '' && parts[1].trim() !== '';
+}
+
 interface JobStoreState {
   jobs: jobs.JobInfo[];
   isLoading: boolean;
@@ -234,12 +241,23 @@ export const useJobStore = create<JobStoreState>((set, get) => {
 
     testTool: async (toolName: string, inputs: Record<string, unknown>, eventData?: Record<string, unknown>) => {
       try {
+        const request: Record<string, unknown> = {
+          tool_name: toolName,
+          inputs,
+          event_data: eventData,
+        };
+        if (isMCPBridgeToolName(toolName)) {
+          const catalog = await get().fetchToolCatalog();
+          const entry = catalog.find((item) => item.name === toolName);
+          if (entry) {
+            request.mcp_server_id = entry.mcp_server_id;
+            request.tool_catalog_id = entry.id;
+            request.origin = entry.origin;
+            request.risk = entry.risk;
+          }
+        }
         return await TestToolDryRun(
-          JSON.stringify({
-            tool_name: toolName,
-            inputs,
-            event_data: eventData,
-          }),
+          JSON.stringify(request),
         );
       } catch (err) {
         set({ error: String(err) });

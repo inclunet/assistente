@@ -13,6 +13,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
+	"assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -645,6 +646,8 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 			Description:        tool.Description(),
 			Schema:             tool.Parameters(),
 			Source:             source,
+			Origin:             tools.CatalogEntryFromTool(tool).Origin,
+			Risk:               tools.CatalogEntryFromTool(tool).Risk,
 			AvailabilityStatus: tools.ToolAvailabilityAvailable,
 		}
 	}
@@ -658,14 +661,22 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 			return nil, err
 		}
 		for _, entry := range persisted {
-			if _, exists := entriesByName[entry.Name]; !exists {
-				// Evita ressuscitar tools "internal" antigas deixadas no DB.
-				// O catálogo live (registry) é a fonte de verdade para builtins.
-				if entry.Source != "mcp" {
-					continue
+			existing, exists := entriesByName[entry.Name]
+			if exists {
+				if entry.Source == "mcp" {
+					if len(entry.Schema) == 0 {
+						entry.Schema = existing.Schema
+					}
+					entriesByName[entry.Name] = entry
 				}
-				entriesByName[entry.Name] = entry
+				continue
 			}
+			// Evita ressuscitar tools "internal" antigas deixadas no DB.
+			// O catálogo live (registry) é a fonte de verdade para builtins.
+			if entry.Source != "mcp" {
+				continue
+			}
+			entriesByName[entry.Name] = entry
 		}
 	}
 	entries := make([]CatalogEntry, 0, len(entriesByName))
@@ -1053,23 +1064,11 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	}, nil
 }
 
-func mcpToolNameParts(fullName string) (serverSlug, toolName string, ok bool) {
-	if !strings.HasPrefix(fullName, "mcp_") {
-		return "", "", false
-	}
-	rest := strings.TrimPrefix(fullName, "mcp_")
-	parts := strings.SplitN(rest, "__", 2)
-	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
-}
-
 func effectiveToolOrigin(toolName, requestedOrigin string) string {
 	if strings.HasPrefix(toolName, "mcp_native__") {
 		return tools.ToolOriginMCPNative
 	}
-	if _, _, ok := mcpToolNameParts(toolName); ok {
+	if _, _, ok := mcp.ParseToolName(toolName); ok {
 		return tools.ToolOriginMCPBridge
 	}
 	origin := strings.TrimSpace(requestedOrigin)
