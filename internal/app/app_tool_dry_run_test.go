@@ -220,4 +220,38 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	if !foundNativeUnavailable {
 		t.Fatalf("expected unavailable native tool entry in catalog, got %#v", entries)
 	}
+
+	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+		MCPServerID:        "srv-1",
+		Name:               "mcp_jira__missing_tool",
+		DisplayName:        "missing_tool",
+		Origin:             tools.ToolOriginMCPBridge,
+		Risk:               "network",
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}); err != nil {
+		t.Fatalf("seed missing runtime tool catalog: %v", err)
+	}
+	missingRuntime, err := app.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"missing_tool","inputs":{}}`)
+	if err != nil {
+		t.Fatalf("TestToolDryRun missing runtime tool error: %v", err)
+	}
+	if missingRuntime == nil || missingRuntime.Success || missingRuntime.Error == "" {
+		t.Fatalf("expected missing runtime tool to return error result, got %#v", missingRuntime)
+	}
+	entries, err = mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
+	if err != nil {
+		t.Fatalf("list tools after missing runtime test: %v", err)
+	}
+	var foundMissingRuntime bool
+	for _, entry := range entries {
+		if entry.Name == "mcp_jira__missing_tool" {
+			foundMissingRuntime = true
+			if entry.LastTestStatus != tools.ToolTestStatusError {
+				t.Fatalf("expected missing runtime catalog last_test_status=error, got %#v", entry)
+			}
+		}
+	}
+	if !foundMissingRuntime {
+		t.Fatalf("expected missing runtime tool entry in catalog, got %#v", entries)
+	}
 }

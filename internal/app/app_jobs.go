@@ -218,7 +218,22 @@ func (a *App) TestToolDryRun(requestJSON string) (*jobs.TestToolResult, error) {
 		}
 	}
 	result, err := a.jobsCtrl.TestToolDryRunContext(ctx, req)
-	if err != nil || result == nil || a.mcpMgr == nil {
+	if err != nil {
+		if a.mcpMgr != nil && strings.TrimSpace(req.ToolCatalogID) != "" {
+			result = &jobs.TestToolResult{
+				Success:       false,
+				Error:         err.Error(),
+				Origin:        req.Origin,
+				MCPServerID:   req.MCPServerID,
+				ToolName:      req.ToolName,
+				ToolCatalogID: req.ToolCatalogID,
+			}
+			a.recordToolDryRunStatus(ctx, result, tools.ToolTestStatusError)
+			return result, nil
+		}
+		return result, err
+	}
+	if result == nil || a.mcpMgr == nil {
 		return result, err
 	}
 	if result.ToolName == "" {
