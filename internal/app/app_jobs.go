@@ -244,7 +244,10 @@ func isMCPBridgeDryRunName(toolName string) bool {
 }
 
 func (a *App) recordToolDryRunStatus(ctx context.Context, result *jobs.TestToolResult, status string) {
-	if a.mcpMgr == nil || result == nil || result.Origin == tools.ToolOriginMCPNative {
+	if a.mcpMgr == nil || result == nil {
+		return
+	}
+	if result.Origin == tools.ToolOriginMCPNative && strings.TrimSpace(result.ToolCatalogID) == "" {
 		return
 	}
 	toolName := strings.TrimSpace(result.ToolName)

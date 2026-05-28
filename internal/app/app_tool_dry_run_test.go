@@ -153,4 +153,71 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	if !foundUnavailable {
 		t.Fatalf("expected unavailable tool entry in catalog, got %#v", entries)
 	}
+
+	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+		MCPServerID:        "srv-1",
+		Name:               "mcp_native__filesystem",
+		DisplayName:        "filesystem",
+		Origin:             tools.ToolOriginMCPNative,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}); err != nil {
+		t.Fatalf("seed native tool catalog: %v", err)
+	}
+	nativeBlocked, err := app.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"filesystem","inputs":{}}`)
+	if err != nil {
+		t.Fatalf("TestToolDryRun native error: %v", err)
+	}
+	if nativeBlocked == nil || !nativeBlocked.Blocked || nativeBlocked.ToolCatalogID == "" {
+		t.Fatalf("expected resolved native dry-run to be blocked with catalog id, got %#v", nativeBlocked)
+	}
+	entries, err = mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
+	if err != nil {
+		t.Fatalf("list tools after native blocked test: %v", err)
+	}
+	var foundNativeBlocked bool
+	for _, entry := range entries {
+		if entry.Name == "mcp_native__filesystem" {
+			foundNativeBlocked = true
+			if entry.LastTestStatus != tools.ToolTestStatusBlocked {
+				t.Fatalf("expected native catalog last_test_status=blocked, got %#v", entry)
+			}
+		}
+	}
+	if !foundNativeBlocked {
+		t.Fatalf("expected native tool entry in catalog, got %#v", entries)
+	}
+
+	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+		MCPServerID:        "srv-1",
+		Name:               "mcp_native__offline",
+		DisplayName:        "offline",
+		Origin:             tools.ToolOriginMCPNative,
+		AvailabilityStatus: tools.ToolAvailabilityUnavailable,
+		AvailabilityReason: "server disconnected",
+	}); err != nil {
+		t.Fatalf("seed unavailable native tool catalog: %v", err)
+	}
+	nativeUnavailable, err := app.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"offline","inputs":{}}`)
+	if err != nil {
+		t.Fatalf("TestToolDryRun unavailable native error: %v", err)
+	}
+	if nativeUnavailable == nil || nativeUnavailable.Success || nativeUnavailable.Blocked {
+		t.Fatalf("expected unavailable native tool to return operational error, got %#v", nativeUnavailable)
+	}
+	entries, err = mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
+	if err != nil {
+		t.Fatalf("list tools after unavailable native test: %v", err)
+	}
+	var foundNativeUnavailable bool
+	for _, entry := range entries {
+		if entry.Name == "mcp_native__offline" {
+			foundNativeUnavailable = true
+			if entry.LastTestStatus != tools.ToolTestStatusError {
+				t.Fatalf("expected unavailable native catalog last_test_status=error, got %#v", entry)
+			}
+		}
+	}
+	if !foundNativeUnavailable {
+		t.Fatalf("expected unavailable native tool entry in catalog, got %#v", entries)
+	}
 }
