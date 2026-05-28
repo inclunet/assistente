@@ -55,7 +55,7 @@ jobs:
             fi
 
             echo "${output}"
-            if [[ "${output}" == *"already"* || "${output}" == *"requested"* ]]; then
+            if [[ "${output}" == *"already requested"* || "${output}" == *"Review request already exists"* ]]; then
               echo "Copilot review is already requested."
               exit 0
             fi

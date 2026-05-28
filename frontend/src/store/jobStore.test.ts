@@ -3,7 +3,9 @@ import { act } from '@testing-library/react';
 import { jobs } from '@wailsjs/go/models';
 import { useJobStore } from './jobStore';
 
-const { mockToggleJob } = vi.hoisted(() => ({
+const { mockGetToolCatalog, mockTestToolDryRun, mockToggleJob } = vi.hoisted(() => ({
+  mockGetToolCatalog: vi.fn(),
+  mockTestToolDryRun: vi.fn(),
   mockToggleJob: vi.fn(),
 }));
 
@@ -16,10 +18,10 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetJobRuns: vi.fn(),
   GetJobEvents: vi.fn(),
   GetJobPipelines: vi.fn(),
-  GetToolCatalog: vi.fn(),
+  GetToolCatalog: () => mockGetToolCatalog(),
   SaveJob: vi.fn(),
   DeleteJob: vi.fn(),
-  TestToolDryRun: vi.fn(),
+  TestToolDryRun: (requestJSON: string) => mockTestToolDryRun(requestJSON),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -45,6 +47,10 @@ function jobInfo(overrides: Partial<jobs.JobInfo>): jobs.JobInfo {
 }
 
 beforeEach(() => {
+  mockGetToolCatalog.mockReset();
+  mockGetToolCatalog.mockResolvedValue([]);
+  mockTestToolDryRun.mockReset();
+  mockTestToolDryRun.mockResolvedValue({ success: true });
   mockToggleJob.mockReset();
   mockToggleJob.mockResolvedValue(undefined);
   useJobStore.setState({
@@ -88,5 +94,58 @@ describe('jobStore.toggleJob', () => {
     expect(job.enabled).toBe(true);
     expect(job.pipeline_enabled).toBe(true);
     expect(job.effective_enabled).toBe(true);
+  });
+});
+
+describe('jobStore.testTool', () => {
+  it('envia metadata resolvida para dry-run de tool MCP bridge', async () => {
+    mockGetToolCatalog.mockResolvedValue([
+      {
+        id: 'catalog-1',
+        mcp_server_id: 'server-1',
+        name: 'mcp_jira__issue__delete',
+        description: 'Delete issue',
+        schema: [],
+        source: 'mcp',
+        origin: 'mcp_bridge',
+        risk: 'write',
+      },
+    ]);
+
+    await act(async () => {
+      await useJobStore.getState().testTool(
+        '  mcp_jira__issue__delete  ',
+        { issue_key: 'ABC-1' },
+        { event: 'manual' },
+      );
+    });
+
+    expect(mockGetToolCatalog).toHaveBeenCalledTimes(1);
+    expect(mockTestToolDryRun).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(mockTestToolDryRun.mock.calls[0][0])).toEqual({
+      tool_name: 'mcp_jira__issue__delete',
+      inputs: { issue_key: 'ABC-1' },
+      event_data: { event: 'manual' },
+      mcp_server_id: 'server-1',
+      tool_catalog_id: 'catalog-1',
+      origin: 'mcp_bridge',
+      risk: 'write',
+    });
+  });
+
+  it('mantem request sem metadata MCP quando catalogo nao contem a tool', async () => {
+    mockGetToolCatalog.mockResolvedValue([]);
+
+    await act(async () => {
+      await useJobStore.getState().testTool('mcp_jira__issue__delete', {}, undefined);
+    });
+
+    expect(mockGetToolCatalog).toHaveBeenCalledTimes(1);
+    expect(mockTestToolDryRun).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(mockTestToolDryRun.mock.calls[0][0])).toEqual({
+      tool_name: 'mcp_jira__issue__delete',
+      inputs: {},
+      event_data: undefined,
+    });
   });
 });

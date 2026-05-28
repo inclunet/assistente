@@ -242,14 +242,15 @@ export const useJobStore = create<JobStoreState>((set, get) => {
 
     testTool: async (toolName: string, inputs: Record<string, unknown>, eventData?: Record<string, unknown>) => {
       try {
+        const name = toolName.trim();
         const request: Record<string, unknown> = {
-          tool_name: toolName,
+          tool_name: name,
           inputs,
           event_data: eventData,
         };
-        if (isMCPBridgeToolName(toolName)) {
+        if (isMCPBridgeToolName(name)) {
           const catalog = await get().fetchToolCatalog();
-          const entry = catalog.find((item) => item.name === toolName);
+          const entry = catalog.find((item) => item.name === name);
           if (entry) {
             request.mcp_server_id = entry.mcp_server_id;
             request.tool_catalog_id = entry.id;
