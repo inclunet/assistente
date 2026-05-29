@@ -171,6 +171,53 @@ describe('DataManagementPage', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/settings/data', { replace: true });
   });
 
+  it('permite repetir a mesma action depois que a querystring e limpa', async () => {
+    const jsonData = JSON.stringify({
+      version: 2,
+      options: { includeCredentials: false, includeAudio: false },
+      resources: { conversations: [], providers: [], taskLists: [] },
+    });
+    mockSearch = '?action=import';
+    mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
+    mockAnalyzeImportData.mockResolvedValue({ conflictCount: 0 });
+
+    const { rerender } = render(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(mockOpenImportFileDialog).toHaveBeenCalledTimes(1);
+    });
+
+    mockSearch = '';
+    rerender(<DataManagementPage />);
+    mockSearch = '?action=import';
+    rerender(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(mockOpenImportFileDialog).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('mostra marcador vazio quando exportedAt do preview e invalido', async () => {
+    const user = userEvent.setup();
+    const jsonData = JSON.stringify({
+      version: 2,
+      exportedAt: 'data-invalida',
+      options: { includeCredentials: false, includeAudio: false },
+      resources: { conversations: [], providers: [], taskLists: [] },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
+    mockAnalyzeImportData.mockResolvedValue({ conflictCount: 0 });
+
+    render(<DataManagementPage />);
+    await user.click(screen.getByRole('button', { name: 'Selecionar arquivo JSON' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('backup.json')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+    expect(screen.getAllByText('-').length).toBeGreaterThan(0);
+  });
+
   it('aceita action de exportacao na URL e limpa querystring', async () => {
     mockSearch = '?action=export';
 
@@ -188,9 +235,7 @@ describe('DataManagementPage', () => {
 
     render(<DataManagementPage />);
 
-    await waitFor(() => {
-      expect(mockGetConversations).toHaveBeenCalled();
-    });
+    expect(mockGetConversations).not.toHaveBeenCalled();
     expect(mockOpenImportFileDialog).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
   });

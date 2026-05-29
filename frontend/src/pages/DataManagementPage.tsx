@@ -215,8 +215,12 @@ export default function DataManagementPage() {
   }, []);
 
   useEffect(() => {
+    if (location.pathname !== '/settings/data') {
+      setLoadingConversations(false);
+      return;
+    }
     void loadConversations();
-  }, [loadConversations]);
+  }, [loadConversations, location.pathname]);
 
   const loadExportProviderIds = useCallback(async () => {
     const providers = await GetLLMProvidersWithStatus() as ProviderRecord[];
@@ -445,6 +449,10 @@ export default function DataManagementPage() {
     if (location.pathname !== '/settings/data') return;
     const params = new URLSearchParams(location.search);
     const action = (params.get('action') || '').trim().toLowerCase();
+    if (action !== 'export' && action !== 'import') {
+      handledActionSearchRef.current = null;
+      return;
+    }
     if (handledActionSearchRef.current === location.search) {
       return;
     }
@@ -452,11 +460,12 @@ export default function DataManagementPage() {
     if (action === 'export') {
       document.getElementById('data-export-section')?.scrollIntoView?.({ block: 'start' });
     }
-    if (action === 'export' || action === 'import') {
-      handledActionSearchRef.current = location.search;
-      navigate('/settings/data', { replace: true });
-    }
+    handledActionSearchRef.current = location.search;
+    navigate('/settings/data', { replace: true });
   }, [handleSelectImportFile, location.pathname, location.search, navigate]);
+
+  const exportedAtTimestamp = importPreview?.exportedAt ? Date.parse(importPreview.exportedAt) : NaN;
+  const exportedAtLabel = Number.isFinite(exportedAtTimestamp) ? formatRelativeTime(exportedAtTimestamp) : '-';
 
   const renderConflictGroup = useCallback((title: string, conflicts: ImportConflict[] | undefined) => {
     if (!conflicts?.length) return null;
@@ -655,7 +664,7 @@ export default function DataManagementPage() {
           <dl className="data-management__summary">
             <div><dt>{t('history.importFileLabel', 'Arquivo')}</dt><dd>{importPreview.fileName}</dd></div>
             <div><dt>{t('history.importVersionLabel', 'Versão')}</dt><dd>{importPreview.version ?? '-'}</dd></div>
-            <div><dt>{t('history.importExportedAtLabel', 'Exportado em')}</dt><dd>{importPreview.exportedAt ? formatRelativeTime(Date.parse(importPreview.exportedAt)) : '-'}</dd></div>
+            <div><dt>{t('history.importExportedAtLabel', 'Exportado em')}</dt><dd>{exportedAtLabel}</dd></div>
             <div><dt>{t('history.importConversationsLabel', 'Conversas')}</dt><dd>{importPreview.conversationCount}</dd></div>
             <div><dt>{t('history.importMessagesLabel', 'Mensagens')}</dt><dd>{importPreview.messageCount}</dd></div>
             <div><dt>{t('history.importProvidersLabel', 'Providers')}</dt><dd>{importPreview.providerCount}</dd></div>
