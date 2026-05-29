@@ -265,6 +265,13 @@ func (a *App) recordToolDryRunStatus(ctx context.Context, result *jobs.TestToolR
 	if result.Origin == tools.ToolOriginMCPNative && strings.TrimSpace(result.ToolCatalogID) == "" {
 		return
 	}
+	toolCatalogID := strings.TrimSpace(result.ToolCatalogID)
+	if toolCatalogID != "" {
+		if err := a.mcpMgr.RecordToolTestStatusByID(ctx, toolCatalogID, status, result.Error); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("[Tools] erro ao registrar resultado de dry-run para catálogo %s: %v", toolCatalogID, err)
+		}
+		return
+	}
 	toolName := strings.TrimSpace(result.ToolName)
 	if toolName == "" {
 		return

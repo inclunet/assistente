@@ -81,6 +81,14 @@ func TestDBRepositoryRequiresUserForServers(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryRejectsReservedNativeServerSlug(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	err := repo.SaveServer(userA, &ServerConfig{Slug: "native", Name: "Native", Transport: TransportStdio})
+	if err == nil {
+		t.Fatal("expected reserved native slug to be rejected")
+	}
+}
+
 func TestDBRepositoryDeleteServerPreservesToolCatalogRowsForJobs(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
 	if err := repo.db.AutoMigrate(&database.Job{}); err != nil {
@@ -553,6 +561,57 @@ func TestDBRepositoryRecordsToolTestResults(t *testing.T) {
 	}
 	if found.LastTestStatus != tools.ToolTestStatusError || found.LastTestError != "boom" {
 		t.Fatalf("unexpected mcp test metadata: %#v", found)
+	}
+}
+
+func TestDBRepositoryRecordToolTestByIDUpdatesOnlySelectedCatalogRow(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	serverA := &ServerConfig{Slug: "a", Name: "A", Transport: TransportStreamable, URL: "https://a.example/mcp", Enabled: true, AutoConnect: true}
+	serverB := &ServerConfig{Slug: "b", Name: "B", Transport: TransportStreamable, URL: "https://b.example/mcp", Enabled: true, AutoConnect: true}
+	if err := repo.SaveServer(userA, serverA); err != nil {
+		t.Fatalf("save server A: %v", err)
+	}
+	if err := repo.SaveServer(userA, serverB); err != nil {
+		t.Fatalf("save server B: %v", err)
+	}
+	if err := repo.UpsertTool(userA, &tools.ToolCatalogEntry{
+		MCPServerID:        serverA.ID,
+		Name:               "mcp_native__filesystem",
+		DisplayName:        "filesystem",
+		Origin:             tools.ToolOriginMCPNative,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}); err != nil {
+		t.Fatalf("upsert native A: %v", err)
+	}
+	if err := repo.UpsertTool(userA, &tools.ToolCatalogEntry{
+		MCPServerID:        serverB.ID,
+		Name:               "mcp_native__filesystem",
+		DisplayName:        "filesystem",
+		Origin:             tools.ToolOriginMCPNative,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}); err != nil {
+		t.Fatalf("upsert native B: %v", err)
+	}
+	entries, err := repo.ListTools(userA, tools.ToolCatalogFilter{MCPServerID: serverA.ID, IncludeUnavailable: true})
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("list server A tools: entries=%#v err=%v", entries, err)
+	}
+	if err := repo.RecordToolTestByID(userA, entries[0].ID, tools.ToolTestStatusBlocked, "native dry-run blocked"); err != nil {
+		t.Fatalf("record by id: %v", err)
+	}
+	entriesA, err := repo.ListTools(userA, tools.ToolCatalogFilter{MCPServerID: serverA.ID, IncludeUnavailable: true})
+	if err != nil {
+		t.Fatalf("list server A after record: %v", err)
+	}
+	entriesB, err := repo.ListTools(userA, tools.ToolCatalogFilter{MCPServerID: serverB.ID, IncludeUnavailable: true})
+	if err != nil {
+		t.Fatalf("list server B after record: %v", err)
+	}
+	if entriesA[0].LastTestStatus != tools.ToolTestStatusBlocked {
+		t.Fatalf("expected server A status blocked, got %#v", entriesA[0])
+	}
+	if entriesB[0].LastTestStatus != "" {
+		t.Fatalf("expected server B status unchanged, got %#v", entriesB[0])
 	}
 }
 

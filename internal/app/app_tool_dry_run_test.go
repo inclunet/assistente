@@ -163,6 +163,25 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed native tool catalog: %v", err)
 	}
+	if err := db.Create(&database.MCPServer{
+		UUIDModel: database.UUIDModel{ID: "srv-2"},
+		UserID:    userID,
+		Slug:      "other",
+		Name:      "Other",
+		Transport: "stdio",
+		Enabled:   true,
+	}).Error; err != nil {
+		t.Fatalf("seed second server: %v", err)
+	}
+	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+		MCPServerID:        "srv-2",
+		Name:               "mcp_native__filesystem",
+		DisplayName:        "filesystem",
+		Origin:             tools.ToolOriginMCPNative,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}); err != nil {
+		t.Fatalf("seed second native tool catalog: %v", err)
+	}
 	nativeBlocked, err := app.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"filesystem","inputs":{}}`)
 	if err != nil {
 		t.Fatalf("TestToolDryRun native error: %v", err)
@@ -185,6 +204,13 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	}
 	if !foundNativeBlocked {
 		t.Fatalf("expected native tool entry in catalog, got %#v", entries)
+	}
+	otherEntries, err := mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-2", IncludeUnavailable: true})
+	if err != nil {
+		t.Fatalf("list second server native tool after blocked test: %v", err)
+	}
+	if len(otherEntries) != 1 || otherEntries[0].LastTestStatus != "" {
+		t.Fatalf("expected second server native status unchanged, got %#v", otherEntries)
 	}
 
 	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{

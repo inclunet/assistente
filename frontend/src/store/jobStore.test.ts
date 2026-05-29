@@ -148,4 +148,35 @@ describe('jobStore.testTool', () => {
       event_data: undefined,
     });
   });
+
+  it('usa catalogo para nomes MCP native namespaced', async () => {
+    mockGetToolCatalog.mockResolvedValue([
+      {
+        id: 'catalog-native-1',
+        mcp_server_id: 'server-1',
+        name: 'mcp_native__filesystem',
+        description: 'Filesystem',
+        schema: [],
+        source: 'mcp',
+        origin: 'mcp_native',
+        risk: '',
+      },
+    ]);
+
+    await act(async () => {
+      await useJobStore.getState().testTool('mcp_native__filesystem', {}, undefined);
+    });
+
+    expect(mockGetToolCatalog).toHaveBeenCalledTimes(1);
+    expect(mockTestToolDryRun).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(mockTestToolDryRun.mock.calls[0][0])).toEqual({
+      tool_name: 'mcp_native__filesystem',
+      inputs: {},
+      event_data: undefined,
+      mcp_server_id: 'server-1',
+      tool_catalog_id: 'catalog-native-1',
+      origin: 'mcp_native',
+      risk: '',
+    });
+  });
 });

@@ -58,7 +58,6 @@ function normalizeCatalogEntry(entry: jobs.CatalogEntry): jobs.CatalogEntry {
 
 function isMCPBridgeToolName(toolName: string): boolean {
   const name = toolName.trim();
-  if (name.startsWith('mcp_native__')) return false;
   const source = parseToolSource(name);
   return source.type === 'mcp' && Boolean(source.serverSlug);
 }

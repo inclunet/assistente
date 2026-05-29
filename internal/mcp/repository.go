@@ -30,6 +30,7 @@ type Repository interface {
 	ListTools(ctx context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error)
 	MarkServerToolsUnavailable(ctx context.Context, serverID string, seenNames []string, reason string) (int, error)
 	RecordToolTest(ctx context.Context, toolName, status, errorMessage string) error
+	RecordToolTestByID(ctx context.Context, toolCatalogID, status, errorMessage string) error
 }
 
 // DBRepository implementa Repository usando GORM.
@@ -112,6 +113,9 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 	if cfg.Slug == "" {
 		return fmt.Errorf("slug do servidor MCP é obrigatório")
 	}
+	if strings.EqualFold(cfg.Slug, "native") {
+		return fmt.Errorf("slug do servidor MCP 'native' é reservado")
+	}
 	cfg.UserID = userID
 	cfg.applyDefaults(cfg.Slug)
 
@@ -162,7 +166,7 @@ func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {
 			Updates(map[string]any{
 				// Mantém ownership explícito ao desanexar do server, evitando rows "unowned"
 				// (user_id NULL) que podem vazar entre usuários.
-				"user_id":            row.UserID,
+				"user_id":             row.UserID,
 				"mcp_server_id":       nil,
 				"availability_status": tools.ToolAvailabilityUnavailable,
 				"availability_reason": fmt.Sprintf("MCP server %q was deleted", row.Slug),
@@ -477,6 +481,36 @@ func (r *DBRepository) RecordToolTest(ctx context.Context, toolName, status, err
 		"last_test_status": status,
 		"last_test_error":  errorMessage,
 	})
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if tx.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *DBRepository) RecordToolTestByID(ctx context.Context, toolCatalogID, status, errorMessage string) error {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	toolCatalogID = strings.TrimSpace(toolCatalogID)
+	if toolCatalogID == "" {
+		return fmt.Errorf("toolCatalogID é obrigatório")
+	}
+	status = strings.TrimSpace(status)
+	if status == "" {
+		status = tools.ToolTestStatusOK
+	}
+	now := r.now()
+	tx := r.db.WithContext(ctx).Model(&database.ToolCatalog{}).
+		Where("id = ? AND (user_id = ? OR user_id IS NULL OR user_id = '')", toolCatalogID, userID).
+		Updates(map[string]any{
+			"last_tested_at":   &now,
+			"last_test_status": status,
+			"last_test_error":  errorMessage,
+		})
 	if tx.Error != nil {
 		return tx.Error
 	}
