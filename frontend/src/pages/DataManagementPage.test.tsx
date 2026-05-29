@@ -110,6 +110,22 @@ describe('DataManagementPage', () => {
     expect(mockDownloadJSON).toHaveBeenCalledWith('{}', 'dados_test.json');
   });
 
+  it('bloqueia exportacao enquanto conversas padrao estao carregando', async () => {
+    let resolveConversations: (value: Array<{ id: string }>) => void = () => {};
+    mockGetConversations.mockReturnValue(new Promise((resolve) => {
+      resolveConversations = resolve;
+    }));
+
+    render(<DataManagementPage />);
+
+    expect(screen.getByRole('button', { name: 'Exportar agora' })).toBeDisabled();
+
+    resolveConversations([{ id: 'conversation-1' }]);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Exportar agora' })).not.toBeDisabled();
+    });
+  });
+
   it('exporta providers sem depender do historico', async () => {
     const user = userEvent.setup();
     mockGetConversations.mockResolvedValue([]);
@@ -151,6 +167,45 @@ describe('DataManagementPage', () => {
     await waitFor(() => {
       expect(mockImportData).toHaveBeenCalledWith(jsonData, '');
     });
+  });
+
+  it('rotula erros e avisos do resultado de importacao', async () => {
+    const user = userEvent.setup();
+    const jsonData = JSON.stringify({
+      version: 2,
+      options: { includeCredentials: false, includeAudio: false },
+      resources: { conversations: [], providers: [], taskLists: [] },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
+    mockAnalyzeImportData.mockResolvedValue({ conflictCount: 0 });
+    mockImportData.mockResolvedValue({
+      success: false,
+      imported: 0,
+      skipped: 1,
+      failed: 1,
+      skippedEmptyConversations: 0,
+      skippedConversationConflict: 0,
+      skippedProviderConflict: 0,
+      skippedMcpServerConflict: 0,
+      skippedTaskListConflict: 0,
+      skippedCredentialConflict: 0,
+      skippedOther: 1,
+      message: 'parcial',
+      errors: ['Falha ao importar conversa'],
+      warnings: ['Provider ignorado'],
+    });
+
+    render(<DataManagementPage />);
+    await user.click(screen.getByRole('button', { name: 'Selecionar arquivo JSON' }));
+    await user.click(await screen.findByRole('button', { name: 'Importar agora' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Resultado da importação')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Erros')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Erros' })).toHaveTextContent('Falha ao importar conversa');
+    expect(screen.getByText('Avisos')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Avisos' })).toHaveTextContent('Provider ignorado');
   });
 
   it('abre importacao por action na URL e limpa querystring', async () => {

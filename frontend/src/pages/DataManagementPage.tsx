@@ -466,6 +466,7 @@ export default function DataManagementPage() {
 
   const exportedAtTimestamp = importPreview?.exportedAt ? Date.parse(importPreview.exportedAt) : NaN;
   const exportedAtLabel = Number.isFinite(exportedAtTimestamp) ? formatRelativeTime(exportedAtTimestamp) : '-';
+  const isExportButtonDisabled = includeConversations && !exportMcpExternalFormat && loadingConversations;
 
   const renderConflictGroup = useCallback((title: string, conflicts: ImportConflict[] | undefined) => {
     if (!conflicts?.length) return null;
@@ -634,7 +635,13 @@ export default function DataManagementPage() {
         )}
 
         <div className="data-management-card__actions">
-          <Button type="button" variant="primary" onClick={() => void handleConfirmExport()} loading={isExporting}>
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => void handleConfirmExport()}
+            loading={isExporting}
+            disabled={isExportButtonDisabled}
+          >
             {t('history.exportConfirm', 'Exportar agora')}
           </Button>
         </div>
@@ -720,14 +727,20 @@ export default function DataManagementPage() {
               <div><dt>{t('history.importFailedLabel', 'Falhas')}</dt><dd>{lastImportResult.failed}</dd></div>
             </dl>
             {!!lastImportResult.errors?.length && (
-              <ul className="data-management__list">
-                {lastImportResult.errors.map((error) => <li key={error}>{error}</li>)}
-              </ul>
+              <div>
+                <strong>{t('history.importResultErrorsTitle', 'Erros')}</strong>
+                <ul className="data-management__list" aria-label={t('history.importResultErrorsTitle', 'Erros')}>
+                  {lastImportResult.errors.map((error) => <li key={error}>{error}</li>)}
+                </ul>
+              </div>
             )}
             {!!lastImportResult.warnings?.length && (
-              <ul className="data-management__list data-management__list--warning">
-                {lastImportResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}
-              </ul>
+              <div>
+                <strong>{t('history.importResultWarningsTitle', 'Avisos')}</strong>
+                <ul className="data-management__list data-management__list--warning" aria-label={t('history.importResultWarningsTitle', 'Avisos')}>
+                  {lastImportResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                </ul>
+              </div>
             )}
           </div>
         )}
