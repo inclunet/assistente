@@ -234,9 +234,6 @@ export function Topbar() {
       { id: 'sep-back', separator: true as const },
     ] : []),
     { id: 'history', label: t('menu.history'), icon: <HistoryOutlined />, shortcut: 'Alt+H', onClick: () => navigate('/history') },
-    { id: 'export-data', label: t('menu.exportData'), icon: <ExportOutlined />, shortcut: 'Alt+E', onClick: () => navigate('/history?modal=export') },
-    { id: 'import-data', label: t('menu.importData'), icon: <ImportOutlined />, shortcut: 'Alt+I', onClick: () => navigate('/history?modal=import') },
-    { id: 'sep-data', separator: true as const },
     { id: 'tasklists', label: t('menu.tasklists'), icon: <CheckSquareOutlined />, onClick: () => navigate('/tasklists') },
     { id: 'jobs', label: t('menu.jobs'), icon: <ThunderboltOutlined />, onClick: () => navigate('/jobs') },
     { id: 'profiles', label: t('menu.profiles'), icon: <UserSwitchOutlined />, shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
@@ -251,7 +248,7 @@ export function Topbar() {
       if (event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
         const key = event.key.toLowerCase();
         if (key === 'm') { event.preventDefault(); menuButtonRef.current?.toggleMenu(); return; }
-        const altRoutes: Record<string, string> = { h: '/history', e: '/history?modal=export', i: '/history?modal=import', p: '/profiles' };
+        const altRoutes: Record<string, string> = { h: '/history', e: '/settings/data?action=export', i: '/settings/data?action=import', p: '/profiles' };
         const target = altRoutes[key];
         if (target) { event.preventDefault(); navigate(target); return; }
       }

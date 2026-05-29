@@ -1,0 +1,115 @@
+.data-management-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  max-width: 960px;
+}
+
+.data-management-page__header h1 {
+  margin: 0 0 8px;
+  font-size: var(--font-size-2xl);
+}
+
+.data-management-page__header p,
+.data-management-card__header p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.data-management-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+}
+
+.data-management-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.data-management-card__header > span {
+  margin-top: 3px;
+  color: var(--accent);
+  font-size: 20px;
+}
+
+.data-management-card__header h2 {
+  margin: 0 0 4px;
+  font-size: var(--font-size-lg);
+}
+
+.data-management-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.data-management-card__actions--start {
+  justify-content: flex-start;
+}
+
+.data-management__options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.data-management__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.data-management__summary > div {
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-default);
+}
+
+.data-management__summary dt {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.data-management__summary dd {
+  margin: 4px 0 0;
+  font-weight: 600;
+}
+
+.data-management__note {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.data-management__analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-default);
+}
+
+.data-management__analysis-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.data-management__list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.data-management__list--warning {
+  color: var(--warning);
+}

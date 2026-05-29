@@ -316,8 +316,16 @@ const es = {
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
         appearance: 'Apariencia',
+        data: 'Datos',
         'restore-defaults': 'Restaurar valores predeterminados',
       },
+    },
+
+    dataManagement: {
+      title: 'Importación y exportación',
+      description: 'Centraliza backups, migraciones y restauraciones de los datos persistidos del asistente.',
+      exportConversationsOption: 'Incluir conversaciones del historial',
+      selectImportFile: 'Seleccionar archivo JSON',
     },
 
     appearance: {

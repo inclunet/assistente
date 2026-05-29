@@ -317,8 +317,16 @@ const ptBR = {
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
         appearance: 'Aparência',
+        data: 'Dados',
         'restore-defaults': 'Restaurar Padrões',
       },
+    },
+
+    dataManagement: {
+      title: 'Importação e exportação',
+      description: 'Centralize backups, migrações e restaurações dos dados persistidos do Assistente.',
+      exportConversationsOption: 'Incluir conversas do histórico',
+      selectImportFile: 'Selecionar arquivo JSON',
     },
 
     appearance: {
