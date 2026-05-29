@@ -206,6 +206,9 @@ export default function DataManagementPage() {
         .map((conversation) => String(conversation.id ?? '').trim())
         .filter((id) => id.length > 0);
       setConversationIds(ids);
+    } catch (error) {
+      console.error('Erro ao carregar conversas para exportação:', error);
+      setConversationIds([]);
     } finally {
       setLoadingConversations(false);
     }
@@ -439,6 +442,7 @@ export default function DataManagementPage() {
   }, [importPassword, importPreview, runLatestImportAnalysis]);
 
   useEffect(() => {
+    if (location.pathname !== '/settings/data') return;
     const params = new URLSearchParams(location.search);
     const action = (params.get('action') || '').trim().toLowerCase();
     if (handledActionSearchRef.current === location.search) {
@@ -452,7 +456,7 @@ export default function DataManagementPage() {
       handledActionSearchRef.current = location.search;
       navigate('/settings/data', { replace: true });
     }
-  }, [handleSelectImportFile, location.search, navigate]);
+  }, [handleSelectImportFile, location.pathname, location.search, navigate]);
 
   const renderConflictGroup = useCallback((title: string, conflicts: ImportConflict[] | undefined) => {
     if (!conflicts?.length) return null;

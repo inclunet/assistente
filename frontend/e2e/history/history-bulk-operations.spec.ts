@@ -112,9 +112,9 @@ test.describe('Histórico — bulk delete', () => {
 });
 
 test.describe('Histórico — exportação', () => {
-  test('exportar conversa chama ExportData', async ({ page, wails }) => {
+  test('exportar conversa chama ExportConversations', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
-    await wails.setResponse('ExportData', '{"conversations":[]}');
+    await wails.setResponse('ExportConversations', '{"conversations":[]}');
 
     await wails.waitForApp();
     await page.goto('/#/history');
@@ -126,20 +126,19 @@ test.describe('Histórico — exportação', () => {
     await grid.focus();
     await page.keyboard.press('ArrowDown');
 
-    // Clica no botão Export
-    const exportBtn = page.locator('button', { hasText: /export/i });
+    // Clica no botão de exportação contextual; o fluxo canônico em massa fica em Configurações > Dados.
+    const exportBtn = page.getByRole('button', { name: /exportar JSON|export JSON/i });
     if (await exportBtn.count() > 0) {
       await exportBtn.first().click();
-      await page.getByRole('button', { name: /export now|exportar agora/i }).click();
 
       await page.waitForFunction(() => {
         return window.__wailsMock.getCallLog().some(
-          (c: { fn: string }) => c.fn === 'ExportData'
+          (c: { fn: string }) => c.fn === 'ExportConversations'
         );
       }, { timeout: 5_000 });
 
       const log = await wails.getCallLog();
-      const exportCalls = log.filter(c => c.fn === 'ExportData');
+      const exportCalls = log.filter(c => c.fn === 'ExportConversations');
       expect(exportCalls.length).toBeGreaterThanOrEqual(1);
     }
   });

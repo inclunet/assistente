@@ -14,6 +14,7 @@ const mockOpenImportFileDialog = vi.fn();
 const mockAnnounce = vi.fn();
 const mockNavigate = vi.fn();
 let mockSearch = '';
+let mockPathname = '/settings/data';
 
 vi.mock('@wailsjs/go/app/App', () => ({
   AnalyzeImportData: (payload: string, password: string) => mockAnalyzeImportData(payload, password),
@@ -40,7 +41,7 @@ vi.mock('../hooks/useAnnouncer', () => ({
 }));
 
 vi.mock('react-router-dom', () => ({
-  useLocation: () => ({ search: mockSearch }),
+  useLocation: () => ({ pathname: mockPathname, search: mockSearch }),
   useNavigate: () => mockNavigate,
 }));
 
@@ -85,6 +86,7 @@ describe('DataManagementPage', () => {
     mockAnnounce.mockReset();
     mockNavigate.mockReset();
     mockSearch = '';
+    mockPathname = '/settings/data';
   });
 
   it('exporta conversas do historico a partir da aba de dados', async () => {
@@ -178,5 +180,18 @@ describe('DataManagementPage', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/settings/data', { replace: true });
     });
     expect(mockOpenImportFileDialog).not.toHaveBeenCalled();
+  });
+
+  it('ignora action na URL quando a aba de dados esta oculta', async () => {
+    mockPathname = '/settings/providers';
+    mockSearch = '?action=import';
+
+    render(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(mockGetConversations).toHaveBeenCalled();
+    });
+    expect(mockOpenImportFileDialog).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

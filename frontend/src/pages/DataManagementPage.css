@@ -8,7 +8,7 @@
 
 .data-management-page__header h1 {
   margin: 0 0 8px;
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-xl);
 }
 
 .data-management-page__header p,
@@ -71,7 +71,7 @@
   padding: 10px 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: var(--bg-default);
+  background: var(--bg-surface);
 }
 
 .data-management__summary dt {
@@ -96,7 +96,7 @@
   padding: 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: var(--bg-default);
+  background: var(--bg-surface);
 }
 
 .data-management__analysis-header {
@@ -111,5 +111,5 @@
 }
 
 .data-management__list--warning {
-  color: var(--warning);
+  color: var(--color-warning);
 }
