@@ -154,6 +154,89 @@ func TestManagerGetToolCatalogIncludesDiscoverableOptIn(t *testing.T) {
 	}
 }
 
+func TestManagerGetToolCatalogDerivesMCPRegistryMetadata(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.MustRegister(&fakeTool{
+		name:   "mcp_jira__issue__delete",
+		params: json.RawMessage(`{"type":"object"}`),
+	})
+	registry.MustRegister(&fakeTool{
+		name:   "mcp_native__filesystem",
+		params: json.RawMessage(`{"type":"object"}`),
+	})
+
+	mgr := NewManager(ManagerConfig{ToolRegistry: registry})
+	catalog, err := mgr.GetToolCatalog()
+	if err != nil {
+		t.Fatalf("get catalog: %v", err)
+	}
+
+	entries := map[string]CatalogEntry{}
+	for _, entry := range catalog {
+		entries[entry.Name] = entry
+	}
+	bridge := entries["mcp_jira__issue__delete"]
+	if bridge.Source != "mcp" || bridge.Origin != tools.ToolOriginMCPBridge || bridge.Risk != "" {
+		t.Fatalf("unexpected MCP bridge metadata: %#v", bridge)
+	}
+	native := entries["mcp_native__filesystem"]
+	if native.Source != "mcp" || native.Origin != tools.ToolOriginMCPNative || native.Risk != "" {
+		t.Fatalf("unexpected MCP native metadata: %#v", native)
+	}
+}
+
+func TestManagerGetToolCatalogBackfillsEmptyMCPSchemaFromRegistry(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	userID := "user-a"
+	serverID := "srv-1"
+	toolName := "mcp_jira__issue__delete"
+	liveSchema := json.RawMessage(`{"type":"object","properties":{"issue_key":{"type":"string"}}}`)
+	if err := repo.db.Create(&database.MCPServer{
+		UUIDModel: database.UUIDModel{ID: serverID},
+		UserID:    userID,
+		Slug:      "jira",
+		Name:      "Jira",
+		Transport: "stdio",
+		Enabled:   true,
+	}).Error; err != nil {
+		t.Fatalf("seed MCP server: %v", err)
+	}
+	if err := repo.db.Create(&database.ToolCatalog{
+		UUIDModel:          database.UUIDModel{ID: "tool-1"},
+		MCPServerID:        &serverID,
+		Name:               toolName,
+		DisplayName:        "issue__delete",
+		Origin:             tools.ToolOriginMCPBridge,
+		Risk:               "network",
+		Schema:             `{}`,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}).Error; err != nil {
+		t.Fatalf("seed MCP tool: %v", err)
+	}
+
+	registry := tools.NewRegistry()
+	registry.MustRegister(&fakeTool{name: toolName, params: liveSchema})
+	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
+		ToolRegistry:    registry,
+		ContextProvider: func() context.Context { return userA },
+	})
+
+	catalog, err := mgr.GetToolCatalog()
+	if err != nil {
+		t.Fatalf("get catalog: %v", err)
+	}
+	for _, entry := range catalog {
+		if entry.Name == toolName {
+			if string(entry.Schema) != string(liveSchema) {
+				t.Fatalf("expected live schema backfill, got %s", entry.Schema)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected MCP tool in catalog: %#v", catalog)
+}
+
 func TestManagerSaveJobBeforeStartDoesNotScheduleInterval(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	mgr := NewManager(ManagerConfig{

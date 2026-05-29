@@ -31,7 +31,34 @@ func (testToolErr) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResu
 	return tools.ToolResult{}, context.Canceled
 }
 
-func TestManagerTestToolContext_RecordsDryRunToolCatalogInvocations(t *testing.T) {
+type testToolWrite struct{}
+
+func (testToolWrite) Name() string                { return "write_file" }
+func (testToolWrite) Description() string         { return "write" }
+func (testToolWrite) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (testToolWrite) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{Content: `{"wrote":true}`}, nil
+}
+
+type testToolMCPNative struct{}
+
+func (testToolMCPNative) Name() string                { return "mcp_native__create_issue" }
+func (testToolMCPNative) Description() string         { return "native" }
+func (testToolMCPNative) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (testToolMCPNative) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{Content: `{"executed":true}`}, nil
+}
+
+type testToolMCPBridge struct{}
+
+func (testToolMCPBridge) Name() string                { return "mcp_jira__delete_issue" }
+func (testToolMCPBridge) Description() string         { return "bridge" }
+func (testToolMCPBridge) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (testToolMCPBridge) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{Content: `{"deleted":true}`}, nil
+}
+
+func TestManagerTestToolDryRunContext_RecordsDryRunToolCatalogInvocations(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -62,15 +89,15 @@ func TestManagerTestToolContext_RecordsDryRunToolCatalogInvocations(t *testing.T
 	invSvc := toolinvocations.NewService(repo, exec)
 
 	mgr := NewManager(ManagerConfig{
-		ToolRegistry: registry,
+		ToolRegistry:    registry,
 		ToolInvocations: invSvc,
 		ContextProvider: func() context.Context { return userCtx },
 	})
 
 	// Success path.
-	okRes, err := mgr.TestToolContext(userCtx, "tool_ok", map[string]any{}, nil)
+	okRes, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "tool_ok", Inputs: map[string]any{}})
 	if err != nil {
-		t.Fatalf("TestToolContext ok err: %v", err)
+		t.Fatalf("TestToolDryRunContext ok err: %v", err)
 	}
 	if okRes == nil || !okRes.Success {
 		t.Fatalf("expected success result, got %#v", okRes)
@@ -89,11 +116,18 @@ func TestManagerTestToolContext_RecordsDryRunToolCatalogInvocations(t *testing.T
 	if !invocations[0].DryRun {
 		t.Fatalf("expected dry_run=true, got %#v", invocations[0])
 	}
+	var okTool database.ToolCatalog
+	if err := db.Where("name = ?", "tool_ok").First(&okTool).Error; err != nil {
+		t.Fatalf("load tool_ok catalog: %v", err)
+	}
+	if invocations[0].ToolCatalogID != okTool.ID {
+		t.Fatalf("expected explicit/auto catalog id %q, got %q", okTool.ID, invocations[0].ToolCatalogID)
+	}
 
 	// Error path.
-	errRes, err := mgr.TestToolContext(userCtx, "tool_err", map[string]any{}, nil)
+	errRes, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "tool_err", Inputs: map[string]any{}})
 	if err != nil {
-		t.Fatalf("TestToolContext err err: %v", err)
+		t.Fatalf("TestToolDryRunContext err err: %v", err)
 	}
 	if errRes == nil || errRes.Success {
 		t.Fatalf("expected failure result, got %#v", errRes)
@@ -107,5 +141,104 @@ func TestManagerTestToolContext_RecordsDryRunToolCatalogInvocations(t *testing.T
 	}
 	if invocations[0].Status != toolinvocations.StatusFailed {
 		t.Fatalf("expected status=failed, got %#v", invocations[0])
+	}
+}
+
+func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
+	userCtx := database.WithUserID(context.Background(), "user-jobs")
+	registry := tools.NewRegistry()
+	registry.MustRegister(testToolWrite{})
+	registry.MustRegister(testToolMCPNative{})
+	registry.MustRegister(testToolMCPBridge{})
+
+	mgr := NewManager(ManagerConfig{
+		ToolRegistry:    registry,
+		ContextProvider: func() context.Context { return userCtx },
+	})
+
+	blocked, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "write_file"})
+	if err != nil {
+		t.Fatalf("unsafe dry-run err: %v", err)
+	}
+	if blocked == nil || !blocked.Blocked || blocked.Success {
+		t.Fatalf("expected unsafe tool to be blocked, got %#v", blocked)
+	}
+
+	riskOverride, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "write_file", Risk: "read"})
+	if err != nil {
+		t.Fatalf("risk override dry-run err: %v", err)
+	}
+	if riskOverride == nil || !riskOverride.Blocked || riskOverride.Success {
+		t.Fatalf("expected metadata risk to override caller risk, got %#v", riskOverride)
+	}
+
+	allowed, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "write_file", AllowUnsafe: true})
+	if err != nil {
+		t.Fatalf("allow unsafe dry-run err: %v", err)
+	}
+	if allowed == nil || !allowed.Success {
+		t.Fatalf("expected allow_unsafe execution to succeed, got %#v", allowed)
+	}
+
+	native, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{
+		ToolName:    "mcp_native__create_issue",
+		Origin:      tools.ToolOriginMCPNative,
+		MCPServerID: "server-1",
+	})
+	if err != nil {
+		t.Fatalf("native dry-run err: %v", err)
+	}
+	if native == nil || !native.Blocked || native.Success {
+		t.Fatalf("expected native MCP dry-run to be blocked, got %#v", native)
+	}
+
+	nativeImplicit, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{
+		ToolName:    "mcp_native__create_issue",
+		Origin:      tools.ToolOriginBuiltin,
+		MCPServerID: "server-1",
+	})
+	if err != nil {
+		t.Fatalf("native implicit dry-run err: %v", err)
+	}
+	if nativeImplicit == nil || !nativeImplicit.Blocked || nativeImplicit.Success || nativeImplicit.Origin != tools.ToolOriginMCPNative {
+		t.Fatalf("expected implicit native MCP dry-run to be blocked, got %#v", nativeImplicit)
+	}
+
+	bridgeWithoutRisk, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "mcp_jira__delete_issue"})
+	if err != nil {
+		t.Fatalf("bridge without risk dry-run err: %v", err)
+	}
+	if bridgeWithoutRisk == nil || !bridgeWithoutRisk.Blocked || bridgeWithoutRisk.Success {
+		t.Fatalf("expected MCP bridge without catalog risk to be blocked, got %#v", bridgeWithoutRisk)
+	}
+
+	bridgeWithRisk, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "mcp_jira__delete_issue", Risk: "network"})
+	if err != nil {
+		t.Fatalf("bridge with risk dry-run err: %v", err)
+	}
+	if bridgeWithRisk == nil || !bridgeWithRisk.Blocked || bridgeWithRisk.Success {
+		t.Fatalf("expected MCP bridge with caller-only risk to be blocked, got %#v", bridgeWithRisk)
+	}
+
+	bridgeResolved, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{
+		ToolName:      "mcp_jira__delete_issue",
+		MCPServerID:   "srv-1",
+		ToolCatalogID: "catalog-1",
+		Risk:          "network",
+	})
+	if err != nil {
+		t.Fatalf("resolved bridge dry-run err: %v", err)
+	}
+	if bridgeResolved == nil || !bridgeResolved.Success {
+		t.Fatalf("expected resolved MCP bridge to execute, got %#v", bridgeResolved)
+	}
+}
+
+func TestManagerTestToolDryRunContext_RequiresToolRegistry(t *testing.T) {
+	mgr := NewManager(ManagerConfig{})
+
+	_, err := mgr.TestToolDryRunContext(context.Background(), TestToolRequest{ToolName: "read_file"})
+	if err == nil || err.Error() != "tool registry not configured" {
+		t.Fatalf("expected tool registry error, got %v", err)
 	}
 }

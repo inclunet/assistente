@@ -128,7 +128,11 @@ func (c *JobsController) ReplayRun(jobID, runID string) (*jobs.TestToolResult, e
 	if !rl.Replayable {
 		return nil, fmt.Errorf("run %s is not replayable", runID)
 	}
-	return c.jobMgr.TestTool(rl.ToolName, rl.ResolvedInputs, nil)
+	return c.jobMgr.TestToolDryRunContext(context.Background(), jobs.TestToolRequest{
+		ToolName:    rl.ToolName,
+		Inputs:      rl.ResolvedInputs,
+		AllowUnsafe: true,
+	})
 }
 
 func (c *JobsController) ReplayRunContext(ctx context.Context, jobID, runID string) (*jobs.TestToolResult, error) {
@@ -151,7 +155,11 @@ func (c *JobsController) ReplayRunContext(ctx context.Context, jobID, runID stri
 	if !rl.Replayable {
 		return nil, fmt.Errorf("run %s is not replayable", runID)
 	}
-	return c.jobMgr.TestToolContext(ctx, rl.ToolName, rl.ResolvedInputs, nil)
+	return c.jobMgr.TestToolDryRunContext(ctx, jobs.TestToolRequest{
+		ToolName:    rl.ToolName,
+		Inputs:      rl.ResolvedInputs,
+		AllowUnsafe: true,
+	})
 }
 
 func (c *JobsController) GetJobEvents(date string) ([]jobs.EventEntry, error) {
@@ -232,52 +240,14 @@ func (c *JobsController) SaveJobContext(ctx context.Context, jobJSON string) err
 	return c.jobMgr.SaveJobContext(ctx, &job)
 }
 
-func (c *JobsController) TestTool(toolName, inputsJSON, eventJSON string) (*jobs.TestToolResult, error) {
+func (c *JobsController) TestToolDryRunContext(ctx context.Context, req jobs.TestToolRequest) (*jobs.TestToolResult, error) {
 	if c.jobMgr == nil {
 		return nil, fmt.Errorf("job manager not initialized")
 	}
-
-	var inputs map[string]any
-	if inputsJSON != "" && inputsJSON != "{}" {
-		if err := json.Unmarshal([]byte(inputsJSON), &inputs); err != nil {
-			return nil, fmt.Errorf("invalid inputs: %w", err)
-		}
+	if req.Inputs == nil {
+		req.Inputs = make(map[string]any)
 	}
-	if inputs == nil {
-		inputs = make(map[string]any)
-	}
-
-	var eventData map[string]any
-	if eventJSON != "" && eventJSON != "{}" {
-		if err := json.Unmarshal([]byte(eventJSON), &eventData); err != nil {
-			return nil, fmt.Errorf("invalid event data: %w", err)
-		}
-	}
-	return c.jobMgr.TestTool(toolName, inputs, eventData)
-}
-
-func (c *JobsController) TestToolContext(ctx context.Context, toolName, inputsJSON, eventJSON string) (*jobs.TestToolResult, error) {
-	if c.jobMgr == nil {
-		return nil, fmt.Errorf("job manager not initialized")
-	}
-
-	var inputs map[string]any
-	if inputsJSON != "" && inputsJSON != "{}" {
-		if err := json.Unmarshal([]byte(inputsJSON), &inputs); err != nil {
-			return nil, fmt.Errorf("invalid inputs: %w", err)
-		}
-	}
-	if inputs == nil {
-		inputs = make(map[string]any)
-	}
-
-	var eventData map[string]any
-	if eventJSON != "" && eventJSON != "{}" {
-		if err := json.Unmarshal([]byte(eventJSON), &eventData); err != nil {
-			return nil, fmt.Errorf("invalid event data: %w", err)
-		}
-	}
-	return c.jobMgr.TestToolContext(ctx, toolName, inputs, eventData)
+	return c.jobMgr.TestToolDryRunContext(ctx, req)
 }
 
 func (c *JobsController) InferEventSchema(eventName string) map[string]any {

@@ -45,29 +45,19 @@ jobs:
           fi
           echo "Target head SHA: ${HEAD_SHA}"
 
-          copilot_reviewed_head() {
-            gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
-              --jq "any(.[]; .commit_id == \"${HEAD_SHA}\" and (.user.login == \"Copilot\" or .user.login == \"copilot-pull-request-reviewer\" or .user.login == \"copilot-pull-request-reviewer[bot]\"))"
-          }
-
-          copilot_review_pending() {
-            gh api "repos/${REPO}/pulls/${PR_NUMBER}" \
-              --jq 'any(.requested_reviewers[]?; .login == "Copilot" or .login == "copilot-pull-request-reviewer" or .login == "copilot-pull-request-reviewer[bot]")'
-          }
-
           for attempt in 1 2 3; do
             if output=$(gh api \
               --method POST \
               "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
               -f "reviewers[]=Copilot" 2>&1); then
               echo "Copilot review requested."
-              break
+              exit 0
             fi
 
             echo "${output}"
-            if [[ "${output}" == *"already"* || "${output}" == *"requested"* ]]; then
+            if [[ "${output}" == *"already requested"* || "${output}" == *"Review request already exists"* ]]; then
               echo "Copilot review is already requested."
-              break
+              exit 0
             fi
 
             if [[ "${attempt}" != "3" ]]; then
@@ -79,28 +69,3 @@ jobs:
               exit 1
             fi
           done
-
-          pending_seen=false
-          for attempt in $(seq 1 30); do
-            if [[ "$(copilot_reviewed_head)" == "true" ]]; then
-              echo "Copilot reviewed head ${HEAD_SHA}."
-              exit 0
-            fi
-
-            if [[ "$(copilot_review_pending)" == "true" ]]; then
-              pending_seen=true
-              echo "Copilot review request is pending (${attempt}/30)."
-            else
-              echo "Copilot review is not pending yet (${attempt}/30)."
-            fi
-
-            sleep 10
-          done
-
-          if [[ "${pending_seen}" == "true" && "$(copilot_review_pending)" == "true" ]]; then
-            echo "Copilot review request remains pending."
-            exit 0
-          fi
-
-          echo "Copilot review was requested, but no pending request or review for ${HEAD_SHA} was observed."
-          exit 1

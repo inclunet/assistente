@@ -13,6 +13,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
+	"assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -636,17 +637,8 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 	registryTools := m.cfg.ToolRegistry.Discoverable()
 	entriesByName := make(map[string]CatalogEntry, len(registryTools))
 	for _, tool := range registryTools {
-		source := "internal"
-		if strings.HasPrefix(tool.Name(), "mcp_") {
-			source = "mcp"
-		}
-		entriesByName[tool.Name()] = CatalogEntry{
-			Name:               tool.Name(),
-			Description:        tool.Description(),
-			Schema:             tool.Parameters(),
-			Source:             source,
-			AvailabilityStatus: tools.ToolAvailabilityAvailable,
-		}
+		entry := catalogEntryFromRegistryTool(tool)
+		entriesByName[entry.Name] = entry
 	}
 	if m.cfg.Repository != nil {
 		ctx, err := m.scopedContext(context.Background())
@@ -658,14 +650,22 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 			return nil, err
 		}
 		for _, entry := range persisted {
-			if _, exists := entriesByName[entry.Name]; !exists {
-				// Evita ressuscitar tools "internal" antigas deixadas no DB.
-				// O catálogo live (registry) é a fonte de verdade para builtins.
-				if entry.Source != "mcp" {
-					continue
+			existing, exists := entriesByName[entry.Name]
+			if exists {
+				if entry.Source == "mcp" {
+					if catalogSchemaIsEmpty(entry.Schema) {
+						entry.Schema = existing.Schema
+					}
+					entriesByName[entry.Name] = entry
 				}
-				entriesByName[entry.Name] = entry
+				continue
 			}
+			// Evita ressuscitar tools "internal" antigas deixadas no DB.
+			// O catálogo live (registry) é a fonte de verdade para builtins.
+			if entry.Source != "mcp" {
+				continue
+			}
+			entriesByName[entry.Name] = entry
 		}
 	}
 	entries := make([]CatalogEntry, 0, len(entriesByName))
@@ -676,6 +676,37 @@ func (m *Manager) GetToolCatalog() ([]CatalogEntry, error) {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries, nil
+}
+
+func catalogEntryFromRegistryTool(tool tools.Tool) CatalogEntry {
+	meta := tools.CatalogEntryFromTool(tool)
+	entry := CatalogEntry{
+		Name:               tool.Name(),
+		Description:        tool.Description(),
+		Schema:             tool.Parameters(),
+		Source:             "internal",
+		Origin:             meta.Origin,
+		Risk:               meta.Risk,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}
+	if strings.HasPrefix(entry.Name, "mcp_") {
+		entry.Source = "mcp"
+	}
+	if strings.HasPrefix(entry.Name, "mcp_native__") {
+		entry.Origin = tools.ToolOriginMCPNative
+		entry.Risk = ""
+		return entry
+	}
+	if _, _, ok := mcp.ParseToolName(entry.Name); ok {
+		entry.Origin = tools.ToolOriginMCPBridge
+		entry.Risk = ""
+	}
+	return entry
+}
+
+func catalogSchemaIsEmpty(schema json.RawMessage) bool {
+	normalized := strings.TrimSpace(string(schema))
+	return normalized == "" || normalized == "{}"
 }
 
 // InferEventSchema tenta inferir o schema de um evento a partir dos jobs existentes.
@@ -890,45 +921,84 @@ func (m *Manager) DeleteJobContext(ctx context.Context, id string) error {
 	return nil
 }
 
-// TestTool executa uma tool diretamente com inputs fornecidos, sem precisar de um job salvo.
-// Util para testar no builder antes de salvar.
-func (m *Manager) TestTool(toolName string, inputs map[string]any, eventData map[string]any) (*TestToolResult, error) {
-	return m.TestToolContext(m.context(), toolName, inputs, eventData)
-}
-
-func (m *Manager) TestToolContext(parent context.Context, toolName string, inputs map[string]any, eventData map[string]any) (*TestToolResult, error) {
+// TestToolDryRunContext executa uma tool diretamente com inputs fornecidos, sem precisar de um job salvo.
+// Util para testar no builder antes de salvar e para dry-run explícito do catálogo.
+func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequest) (*TestToolResult, error) {
 	execCtx := m.contextFrom(parent)
+	toolName := strings.TrimSpace(req.ToolName)
+	if toolName == "" {
+		return nil, fmt.Errorf("tool_name is required")
+	}
+	if m.cfg.ToolRegistry == nil {
+		return nil, fmt.Errorf("tool registry not configured")
+	}
+	origin := effectiveToolOrigin(toolName, req.Origin)
+	if blocked, reason := dryRunBlockedReason(origin, strings.TrimSpace(req.Risk), req.AllowUnsafe); blocked && origin == tools.ToolOriginMCPNative {
+		return &TestToolResult{
+			Success:       false,
+			Error:         reason,
+			Blocked:       true,
+			Origin:        origin,
+			MCPServerID:   strings.TrimSpace(req.MCPServerID),
+			ToolName:      toolName,
+			ToolCatalogID: strings.TrimSpace(req.ToolCatalogID),
+		}, nil
+	}
 	tool, ok := m.cfg.ToolRegistry.Get(toolName)
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", toolName)
 	}
+	if origin == tools.ToolOriginMCPBridge && !req.AllowUnsafe &&
+		(strings.TrimSpace(req.Risk) == "" || strings.TrimSpace(req.MCPServerID) == "" || strings.TrimSpace(req.ToolCatalogID) == "") {
+		return &TestToolResult{
+			Success:       false,
+			Error:         "dry-run bloqueado por política para tool MCP sem alvo resolvido pelo catálogo",
+			Blocked:       true,
+			Origin:        origin,
+			MCPServerID:   strings.TrimSpace(req.MCPServerID),
+			ToolName:      toolName,
+			ToolCatalogID: strings.TrimSpace(req.ToolCatalogID),
+		}, nil
+	}
+	risk := effectiveToolRisk(tools.CatalogEntryFromTool(tool).Risk, req.Risk)
+	if blocked, reason := dryRunBlockedReason(origin, risk, req.AllowUnsafe); blocked {
+		return &TestToolResult{
+			Success:       false,
+			Error:         reason,
+			Blocked:       true,
+			Origin:        origin,
+			MCPServerID:   strings.TrimSpace(req.MCPServerID),
+			ToolName:      toolName,
+			ToolCatalogID: strings.TrimSpace(req.ToolCatalogID),
+		}, nil
+	}
 
-	log.Printf("[Jobs] TestTool(%q): input fields=%d, eventData fields=%d, eventData nil=%v",
-		toolName, len(inputs), func() int {
-			if eventData == nil {
+	log.Printf("[Jobs] TestToolDryRun(%q): input fields=%d, eventData fields=%d, eventData nil=%v",
+		toolName, len(req.Inputs), func() int {
+			if req.EventData == nil {
 				return 0
 			}
-			return len(eventData)
-		}(), eventData == nil)
+			return len(req.EventData)
+		}(), req.EventData == nil)
 
 	tmplCtx := &TemplateContext{
-		Event: eventData,
+		Event: req.EventData,
 		Secrets: func(key string) (string, error) {
 			return m.resolveSecret(execCtx, key)
 		},
 		Now: time.Now(),
 	}
-	if eventData != nil {
-		if c, ok := eventData["content"]; ok {
-			log.Printf("[Jobs] TestTool: eventData.content type=%T", c)
+	if req.EventData != nil {
+		if c, ok := req.EventData["content"]; ok {
+			log.Printf("[Jobs] TestToolDryRun: eventData.content type=%T", c)
 		}
 	}
-	resolved, err := ResolveInputs(inputs, tmplCtx)
+	resolved, err := ResolveInputs(req.Inputs, tmplCtx)
 	if err != nil {
 		return nil, fmt.Errorf("resolve templates: %w", err)
 	}
-	log.Printf("[Jobs] TestTool: resolved input fields=%d", len(resolved))
-	inputs = resolved
+	log.Printf("[Jobs] TestToolDryRun: resolved input fields=%d", len(resolved))
+	inputs := resolved
 
 	inputs = CoerceInputs(inputs, tool.Parameters())
 
@@ -954,6 +1024,7 @@ func (m *Manager) TestToolContext(parent context.Context, toolName string, input
 				},
 			},
 			Origin:                 toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
+			ToolCatalogID:          strings.TrimSpace(req.ToolCatalogID),
 			DryRun:                 true,
 			ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
 		}).Execution
@@ -966,17 +1037,25 @@ func (m *Manager) TestToolContext(parent context.Context, toolName string, input
 
 	if execErr != nil {
 		return &TestToolResult{
-			Success:  false,
-			Error:    execErr.Error(),
-			Duration: duration.String(),
+			Success:       false,
+			Error:         execErr.Error(),
+			Duration:      duration.String(),
+			Origin:        origin,
+			MCPServerID:   strings.TrimSpace(req.MCPServerID),
+			ToolName:      toolName,
+			ToolCatalogID: strings.TrimSpace(req.ToolCatalogID),
 		}, nil
 	}
 
 	if result.IsError {
 		return &TestToolResult{
-			Success:  false,
-			Error:    result.Content,
-			Duration: duration.String(),
+			Success:       false,
+			Error:         result.Content,
+			Duration:      duration.String(),
+			Origin:        origin,
+			MCPServerID:   strings.TrimSpace(req.MCPServerID),
+			ToolName:      toolName,
+			ToolCatalogID: strings.TrimSpace(req.ToolCatalogID),
 		}, nil
 	}
 
@@ -998,10 +1077,71 @@ func (m *Manager) TestToolContext(parent context.Context, toolName string, input
 	}
 
 	return &TestToolResult{
-		Success:  true,
-		Output:   output,
-		Duration: duration.String(),
+		Success:       true,
+		Output:        output,
+		Duration:      duration.String(),
+		Origin:        origin,
+		MCPServerID:   strings.TrimSpace(req.MCPServerID),
+		ToolName:      toolName,
+		ToolCatalogID: strings.TrimSpace(req.ToolCatalogID),
 	}, nil
+}
+
+func effectiveToolOrigin(toolName, requestedOrigin string) string {
+	if strings.HasPrefix(toolName, "mcp_native__") {
+		return tools.ToolOriginMCPNative
+	}
+	if _, _, ok := mcp.ParseToolName(toolName); ok {
+		return tools.ToolOriginMCPBridge
+	}
+	origin := strings.TrimSpace(requestedOrigin)
+	if origin != "" {
+		return origin
+	}
+	return tools.ToolOriginBuiltin
+}
+
+func effectiveToolRisk(metadataRisk, requestedRisk string) string {
+	metadataRisk = strings.TrimSpace(metadataRisk)
+	requestedRisk = strings.TrimSpace(requestedRisk)
+	if riskSeverity(requestedRisk) > riskSeverity(metadataRisk) {
+		return requestedRisk
+	}
+	return metadataRisk
+}
+
+func riskSeverity(risk string) int {
+	switch risk {
+	case "destructive":
+		return 5
+	case "shell":
+		return 4
+	case "write":
+		return 3
+	case "network":
+		return 2
+	case "read":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func dryRunBlockedReason(origin, risk string, allowUnsafe bool) (bool, string) {
+	origin = strings.TrimSpace(origin)
+	risk = strings.TrimSpace(risk)
+	if origin == tools.ToolOriginMCPNative {
+		return true, "dry-run direto de MCP nativo não é suportado; use bridge local ou execute via provider com auditoria"
+	}
+	if allowUnsafe {
+		return false, ""
+	}
+	switch risk {
+	case "write", "destructive", "shell":
+		return true, fmt.Sprintf("dry-run bloqueado por política para tool de risco %q; habilite allow_unsafe para executar explicitamente", risk)
+	default:
+		return false, ""
+	}
 }
 
 // RegenerateCatalog é mantido para compatibilidade com a UI antiga.

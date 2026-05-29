@@ -1838,10 +1838,14 @@ export namespace database {
 export namespace jobs {
 	
 	export class CatalogEntry {
+	    id?: string;
+	    mcp_server_id?: string;
 	    name: string;
 	    description: string;
 	    schema: number[];
 	    source: string;
+	    origin?: string;
+	    risk?: string;
 	    availability_status?: string;
 	    availability_reason?: string;
 	
@@ -1851,10 +1855,14 @@ export namespace jobs {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.mcp_server_id = source["mcp_server_id"];
 	        this.name = source["name"];
 	        this.description = source["description"];
 	        this.schema = source["schema"];
 	        this.source = source["source"];
+	        this.origin = source["origin"];
+	        this.risk = source["risk"];
 	        this.availability_status = source["availability_status"];
 	        this.availability_reason = source["availability_reason"];
 	    }
@@ -2391,6 +2399,11 @@ export namespace jobs {
 	    output?: Record<string, any>;
 	    error?: string;
 	    duration?: string;
+	    blocked?: boolean;
+	    origin?: string;
+	    mcp_server_id?: string;
+	    tool_name?: string;
+	    tool_catalog_id?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TestToolResult(source);
@@ -2402,6 +2415,11 @@ export namespace jobs {
 	        this.output = source["output"];
 	        this.error = source["error"];
 	        this.duration = source["duration"];
+	        this.blocked = source["blocked"];
+	        this.origin = source["origin"];
+	        this.mcp_server_id = source["mcp_server_id"];
+	        this.tool_name = source["tool_name"];
+	        this.tool_catalog_id = source["tool_catalog_id"];
 	    }
 	}
 	

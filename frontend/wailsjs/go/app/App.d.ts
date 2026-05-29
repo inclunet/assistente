@@ -530,7 +530,7 @@ export function TestConnectionWithModels():Promise<Array<string>>;
 
 export function TestLLMProvider(arg1:controllers.TestLLMProviderRequest):Promise<boolean>;
 
-export function TestTool(arg1:string,arg2:string,arg3:string):Promise<jobs.TestToolResult>;
+export function TestToolDryRun(arg1:string):Promise<jobs.TestToolResult>;
 
 export function ToggleJob(arg1:string,arg2:boolean):Promise<void>;
 

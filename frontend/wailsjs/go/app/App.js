@@ -1018,8 +1018,8 @@ export function TestLLMProvider(arg1) {
   return window['go']['app']['App']['TestLLMProvider'](arg1);
 }
 
-export function TestTool(arg1, arg2, arg3) {
-  return window['go']['app']['App']['TestTool'](arg1, arg2, arg3);
+export function TestToolDryRun(arg1) {
+  return window['go']['app']['App']['TestToolDryRun'](arg1);
 }
 
 export function ToggleJob(arg1, arg2) {

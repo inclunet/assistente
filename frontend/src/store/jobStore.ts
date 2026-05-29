@@ -11,10 +11,11 @@ import {
   GetToolCatalog,
   SaveJob,
   DeleteJob,
-  TestTool,
+  TestToolDryRun,
 } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { jobs } from '@wailsjs/go/models';
+import { parseToolSource } from '../utils/toolSource';
 
 function applyEffectiveEnabled(job: jobs.JobInfo, enabled: boolean): jobs.JobInfo {
   const updated = Object.assign(Object.create(Object.getPrototypeOf(job)), job);
@@ -53,6 +54,12 @@ function normalizeCatalogEntry(entry: jobs.CatalogEntry): jobs.CatalogEntry {
     (normalized as unknown as { schema?: unknown }).schema = schema;
   }
   return normalized;
+}
+
+function isMCPBridgeToolName(toolName: string): boolean {
+  const name = toolName.trim();
+  const source = parseToolSource(name);
+  return source.type === 'mcp' && Boolean(source.serverSlug);
 }
 
 interface JobStoreState {
@@ -234,7 +241,25 @@ export const useJobStore = create<JobStoreState>((set, get) => {
 
     testTool: async (toolName: string, inputs: Record<string, unknown>, eventData?: Record<string, unknown>) => {
       try {
-        return await TestTool(toolName, JSON.stringify(inputs), eventData ? JSON.stringify(eventData) : '');
+        const name = toolName.trim();
+        const request: Record<string, unknown> = {
+          tool_name: name,
+          inputs,
+          event_data: eventData,
+        };
+        if (isMCPBridgeToolName(name)) {
+          const catalog = await get().fetchToolCatalog();
+          const entry = catalog.find((item) => item.name === name);
+          if (entry) {
+            request.mcp_server_id = entry.mcp_server_id;
+            request.tool_catalog_id = entry.id;
+            request.origin = entry.origin;
+            request.risk = entry.risk;
+          }
+        }
+        return await TestToolDryRun(
+          JSON.stringify(request),
+        );
       } catch (err) {
         set({ error: String(err) });
         return null;

@@ -2,12 +2,20 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"path/filepath"
+	"strings"
 
 	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/jobs"
+	"assistente/internal/mcp"
+	"assistente/internal/tools"
+
+	"gorm.io/gorm"
 )
 
 // credentialSecretStore adapta credentials.Manager para a interface jobs.SecretStore.
@@ -170,20 +178,142 @@ func (a *App) SaveJob(jobJSON string) error {
 	return a.jobsCtrl.SaveJobContext(ctx, jobJSON)
 }
 
-func (a *App) TestTool(toolName, inputsJSON, eventJSON string) (*jobs.TestToolResult, error) {
+func (a *App) TestToolDryRun(requestJSON string) (*jobs.TestToolResult, error) {
 	ctx, authErr := a.requireAuthenticatedContext()
 	if authErr != nil {
 		return nil, authErr
 	}
-	result, err := a.jobsCtrl.TestToolContext(ctx, toolName, inputsJSON, eventJSON)
-	if err != nil || result == nil || a.mcpMgr == nil {
+	var req jobs.TestToolRequest
+	if strings.TrimSpace(requestJSON) != "" {
+		if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
+			return nil, fmt.Errorf("invalid dry-run request: %w", err)
+		}
+	}
+	if req.Inputs == nil {
+		req.Inputs = make(map[string]any)
+	}
+	if strings.TrimSpace(req.MCPServerID) == "" && isMCPBridgeDryRunName(req.ToolName) && !req.AllowUnsafe {
+		return &jobs.TestToolResult{
+			Success:  false,
+			Error:    "dry-run bloqueado por política para tool MCP sem mcp_server_id",
+			Blocked:  true,
+			Origin:   tools.ToolOriginMCPBridge,
+			ToolName: strings.TrimSpace(req.ToolName),
+		}, nil
+	}
+	if strings.TrimSpace(req.MCPServerID) != "" {
+		if err := a.resolveMCPToolDryRunTarget(ctx, &req); err != nil {
+			result := &jobs.TestToolResult{
+				Success:       false,
+				Error:         err.Error(),
+				Origin:        req.Origin,
+				MCPServerID:   req.MCPServerID,
+				ToolName:      req.ToolName,
+				ToolCatalogID: req.ToolCatalogID,
+			}
+			if req.ToolCatalogID != "" {
+				a.recordToolDryRunStatus(ctx, result, tools.ToolTestStatusError)
+			}
+			return result, nil
+		}
+	}
+	result, err := a.jobsCtrl.TestToolDryRunContext(ctx, req)
+	if err != nil {
+		if a.mcpMgr != nil && strings.TrimSpace(req.ToolCatalogID) != "" {
+			result = &jobs.TestToolResult{
+				Success:       false,
+				Error:         err.Error(),
+				Origin:        req.Origin,
+				MCPServerID:   req.MCPServerID,
+				ToolName:      req.ToolName,
+				ToolCatalogID: req.ToolCatalogID,
+			}
+			a.recordToolDryRunStatus(ctx, result, tools.ToolTestStatusError)
+			return result, nil
+		}
 		return result, err
 	}
-	testErr := result.Error
-	if recordErr := a.mcpMgr.RecordToolTest(ctx, toolName, result.Success, testErr); recordErr != nil {
-		log.Printf("[Tools] erro ao registrar resultado de teste para %s: %v", toolName, recordErr)
+	if result == nil || a.mcpMgr == nil {
+		return result, err
 	}
+	if result.ToolName == "" {
+		result.ToolName = strings.TrimSpace(req.ToolName)
+	}
+	status := tools.ToolTestStatusOK
+	if result.Blocked {
+		status = tools.ToolTestStatusBlocked
+	} else if !result.Success {
+		status = tools.ToolTestStatusError
+	}
+	a.recordToolDryRunStatus(ctx, result, status)
 	return result, nil
+}
+
+func isMCPBridgeDryRunName(toolName string) bool {
+	toolName = strings.TrimSpace(toolName)
+	if strings.HasPrefix(toolName, "mcp_native__") {
+		return false
+	}
+	_, _, ok := mcp.ParseToolName(toolName)
+	return ok
+}
+
+func (a *App) recordToolDryRunStatus(ctx context.Context, result *jobs.TestToolResult, status string) {
+	if a.mcpMgr == nil || result == nil {
+		return
+	}
+	if result.Origin == tools.ToolOriginMCPNative && strings.TrimSpace(result.ToolCatalogID) == "" {
+		return
+	}
+	toolCatalogID := strings.TrimSpace(result.ToolCatalogID)
+	if toolCatalogID != "" {
+		if err := a.mcpMgr.RecordToolTestStatusByID(ctx, toolCatalogID, status, result.Error); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("[Tools] erro ao registrar resultado de dry-run para catálogo %s: %v", toolCatalogID, err)
+		}
+		return
+	}
+	toolName := strings.TrimSpace(result.ToolName)
+	if toolName == "" {
+		return
+	}
+	if err := a.mcpMgr.RecordToolTestStatus(ctx, toolName, status, result.Error); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Printf("[Tools] erro ao registrar resultado de dry-run para %s: %v", toolName, err)
+	}
+}
+
+func (a *App) resolveMCPToolDryRunTarget(ctx context.Context, req *jobs.TestToolRequest) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("mcp manager not configured")
+	}
+	serverID := strings.TrimSpace(req.MCPServerID)
+	toolName := strings.TrimSpace(req.ToolName)
+	if serverID == "" {
+		return fmt.Errorf("mcp_server_id is required")
+	}
+	if toolName == "" {
+		return fmt.Errorf("tool_name is required")
+	}
+	entries, err := a.mcpMgr.ListToolCatalog(ctx, tools.ToolCatalogFilter{
+		MCPServerID:        serverID,
+		IncludeUnavailable: true,
+	})
+	if err != nil {
+		return fmt.Errorf("list MCP tool catalog: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.DisplayName == toolName || entry.Name == toolName {
+			req.ToolName = entry.Name
+			req.ToolCatalogID = entry.ID
+			req.MCPServerID = entry.MCPServerID
+			req.Origin = entry.Origin
+			req.Risk = entry.Risk
+			if entry.AvailabilityStatus != "" && entry.AvailabilityStatus != tools.ToolAvailabilityAvailable {
+				return fmt.Errorf("mcp tool %q is unavailable: %s", toolName, entry.AvailabilityReason)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("mcp tool %q not found for server %s", toolName, serverID)
 }
 
 func (a *App) InferEventSchema(eventName string) map[string]any {
