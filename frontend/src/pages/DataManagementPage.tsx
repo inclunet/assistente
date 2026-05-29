@@ -728,16 +728,16 @@ export default function DataManagementPage() {
             </dl>
             {!!lastImportResult.errors?.length && (
               <div>
-                <strong>{t('history.importResultErrorsTitle', 'Erros')}</strong>
-                <ul className="data-management__list" aria-label={t('history.importResultErrorsTitle', 'Erros')}>
+                <strong>{t('history.importErrorsLabel', 'Erros')}</strong>
+                <ul className="data-management__list" aria-label={t('history.importErrorsLabel', 'Erros')}>
                   {lastImportResult.errors.map((error) => <li key={error}>{error}</li>)}
                 </ul>
               </div>
             )}
             {!!lastImportResult.warnings?.length && (
               <div>
-                <strong>{t('history.importResultWarningsTitle', 'Avisos')}</strong>
-                <ul className="data-management__list data-management__list--warning" aria-label={t('history.importResultWarningsTitle', 'Avisos')}>
+                <strong>{t('history.importWarningsLabel', 'Avisos')}</strong>
+                <ul className="data-management__list data-management__list--warning" aria-label={t('history.importWarningsLabel', 'Avisos')}>
                   {lastImportResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}
                 </ul>
               </div>
