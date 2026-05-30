@@ -214,6 +214,30 @@ describe('DataManagementPage', () => {
       expect.stringContaining('Provider ignorado'),
       'assertive',
     );
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('Outros descartes'),
+      'assertive',
+    );
+  });
+
+  it('limpa preview quando analise inicial do arquivo falha', async () => {
+    const user = userEvent.setup();
+    const jsonData = JSON.stringify({
+      version: 2,
+      options: { includeCredentials: false, includeAudio: false },
+      resources: { conversations: [], providers: [], taskLists: [] },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
+    mockAnalyzeImportData.mockRejectedValue(new Error('unsupported-version'));
+
+    render(<DataManagementPage />);
+    await user.click(screen.getByRole('button', { name: 'Selecionar arquivo JSON' }));
+
+    await waitFor(() => {
+      expect(mockAnnounce).toHaveBeenCalledWith('O arquivo selecionado não é um export canônico suportado.', 'assertive');
+    });
+    expect(screen.queryByText('backup.json')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Importar agora' })).not.toBeInTheDocument();
   });
 
   it('ignora analise atrasada quando importacao e cancelada', async () => {

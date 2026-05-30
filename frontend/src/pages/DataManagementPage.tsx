@@ -396,10 +396,13 @@ export default function DataManagementPage() {
       await selectImportFile();
     } catch (error) {
       console.error('Erro ao selecionar arquivo de importação:', error);
+      if (!(error instanceof ImportFileError && error.code === IMPORT_FILE_ERROR_CODES.NO_FILE_SELECTED)) {
+        resetImportState();
+      }
       const message = getImportErrorMessage(error);
       if (message) announce(message, 'assertive');
     }
-  }, [announce, getImportErrorMessage, selectImportFile]);
+  }, [announce, getImportErrorMessage, resetImportState, selectImportFile]);
 
   const handleConfirmImport = useCallback(async () => {
     if (lastImportResult) {
@@ -425,6 +428,27 @@ export default function DataManagementPage() {
       const failureDetails = [
         result.failed > 0
           ? t('history.importFailedCount', { defaultValue: 'Falhas: {{count}}', count: result.failed })
+          : '',
+        result.skippedEmptyConversations > 0
+          ? t('history.importSkippedEmptyCount', { defaultValue: 'Vazias descartadas: {{count}}', count: result.skippedEmptyConversations })
+          : '',
+        result.skippedConversationConflict > 0
+          ? t('history.importSkippedConversationConflictCount', { defaultValue: 'Ignoradas por conflito de conversa: {{count}}', count: result.skippedConversationConflict })
+          : '',
+        result.skippedProviderConflict > 0
+          ? t('history.importSkippedProviderConflictCount', { defaultValue: 'Ignoradas por conflito de provider: {{count}}', count: result.skippedProviderConflict })
+          : '',
+        result.skippedMcpServerConflict > 0
+          ? t('history.importSkippedMcpServerConflictCount', { defaultValue: 'Ignoradas por conflito de servidor MCP: {{count}}', count: result.skippedMcpServerConflict })
+          : '',
+        result.skippedTaskListConflict > 0
+          ? t('history.importSkippedTaskListConflictCount', { defaultValue: 'Ignoradas por conflito de tasklist: {{count}}', count: result.skippedTaskListConflict })
+          : '',
+        result.skippedCredentialConflict > 0
+          ? t('history.importSkippedCredentialConflictCount', { defaultValue: 'Credenciais duplicadas ignoradas: {{count}}', count: result.skippedCredentialConflict })
+          : '',
+        result.skippedOther > 0
+          ? t('history.importSkippedOtherCount', { defaultValue: 'Outros descartes: {{count}}', count: result.skippedOther })
           : '',
         ...(result.errors?.length
           ? [t('history.importErrorsLabel', 'Erros'), ...result.errors]
