@@ -196,6 +196,7 @@ export default function DataManagementPage() {
   const [importPasswordError, setImportPasswordError] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const importAnalysisInFlightRef = useRef(false);
+  const importAnalysisInFlightKeyRef = useRef<string | null>(null);
   const pendingImportAnalysisRef = useRef<{ jsonData: string; password: string; key: string } | null>(null);
   const lastAnalyzedImportRef = useRef<string | null>(null);
   const activeImportAnalysisKeyRef = useRef<string | null>(null);
@@ -317,6 +318,7 @@ export default function DataManagementPage() {
   }, [announce, conversationIds, exportMcpExternalFormat, exportMcpServerSlugs, exportPassword, exportProviderIds, exportTaskListIds, includeConversations, includeCredentialExport, includeMcpServersExport, includeProvidersExport, includeTaskListsExport, loadExportMcpServerSlugs, loadExportProviderIds, loadExportTaskListIds, t]);
 
   const analyzeImportPayload = useCallback(async (jsonData: string, credentialPassword: string, requestKey: string) => {
+    importAnalysisInFlightKeyRef.current = requestKey;
     setIsAnalyzingImport(true);
     try {
       const analysis = await AnalyzeImportData(jsonData, credentialPassword);
@@ -326,6 +328,9 @@ export default function DataManagementPage() {
       }
       return nextAnalysis;
     } finally {
+      if (importAnalysisInFlightKeyRef.current === requestKey) {
+        importAnalysisInFlightKeyRef.current = null;
+      }
       if (activeImportAnalysisKeyRef.current === requestKey) {
         setIsAnalyzingImport(false);
       }
@@ -336,6 +341,14 @@ export default function DataManagementPage() {
     if (importAnalysisInFlightRef.current) return;
     const queuedRequest = pendingImportAnalysisRef.current;
     if (!queuedRequest) return;
+
+    if (
+      lastAnalyzedImportRef.current === queuedRequest.key
+      || importAnalysisInFlightKeyRef.current === queuedRequest.key
+    ) {
+      pendingImportAnalysisRef.current = null;
+      return;
+    }
 
     pendingImportAnalysisRef.current = null;
     importAnalysisInFlightRef.current = true;
@@ -359,6 +372,7 @@ export default function DataManagementPage() {
     setImportPassword('');
     setImportPasswordError('');
     pendingImportAnalysisRef.current = null;
+    importAnalysisInFlightKeyRef.current = null;
     lastAnalyzedImportRef.current = null;
     activeImportAnalysisKeyRef.current = null;
     setIsAnalyzingImport(false);
@@ -492,6 +506,9 @@ export default function DataManagementPage() {
     activeImportAnalysisKeyRef.current = nextRequest.key;
     if (lastAnalyzedImportRef.current === nextRequest.key) {
       setIsAnalyzingImport(false);
+      return;
+    }
+    if (importAnalysisInFlightKeyRef.current === nextRequest.key) {
       return;
     }
     setImportAnalysis(null);

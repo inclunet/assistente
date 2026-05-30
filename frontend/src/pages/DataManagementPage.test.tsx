@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockAnalyzeImportData = vi.fn();
@@ -279,6 +279,36 @@ describe('DataManagementPage', () => {
     await user.type(screen.getByPlaceholderText('Digite a senha de exportação'), 'segredo');
 
     expect(screen.getByRole('button', { name: 'Importar agora' })).toBeDisabled();
+  });
+
+  it('nao duplica analise inicial de importacao criptografada', async () => {
+    const user = userEvent.setup();
+    const jsonData = JSON.stringify({
+      version: 2,
+      options: { includeCredentials: true, includeAudio: false },
+      resources: {
+        conversations: [],
+        providers: [],
+        taskLists: [],
+        credentials: { mode: 'encrypted' },
+      },
+    });
+    let resolveAnalysis: (value: { conflictCount: number }) => void = () => {};
+    mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
+    mockAnalyzeImportData.mockReturnValue(new Promise((resolve) => {
+      resolveAnalysis = resolve;
+    }));
+
+    render(<DataManagementPage />);
+    await user.click(screen.getByRole('button', { name: 'Selecionar arquivo JSON' }));
+
+    expect(await screen.findByText('backup.json')).toBeInTheDocument();
+    await new Promise((resolve) => window.setTimeout(resolve, 700));
+
+    expect(mockAnalyzeImportData).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveAnalysis({ conflictCount: 0 });
+    });
   });
 
   it('ignora analise atrasada quando importacao e cancelada', async () => {
