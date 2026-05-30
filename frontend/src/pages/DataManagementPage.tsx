@@ -196,6 +196,7 @@ export default function DataManagementPage() {
   const importAnalysisInFlightRef = useRef(false);
   const pendingImportAnalysisRef = useRef<{ jsonData: string; password: string; key: string } | null>(null);
   const lastAnalyzedImportRef = useRef<string | null>(null);
+  const activeImportAnalysisKeyRef = useRef<string | null>(null);
   const handledActionSearchRef = useRef<string | null>(null);
 
   const loadConversations = useCallback(async () => {
@@ -313,15 +314,19 @@ export default function DataManagementPage() {
     }
   }, [announce, conversationIds, exportMcpExternalFormat, exportMcpServerSlugs, exportPassword, exportProviderIds, exportTaskListIds, includeConversations, includeCredentialExport, includeMcpServersExport, includeProvidersExport, includeTaskListsExport, loadExportMcpServerSlugs, loadExportProviderIds, loadExportTaskListIds, t]);
 
-  const analyzeImportPayload = useCallback(async (jsonData: string, credentialPassword: string) => {
+  const analyzeImportPayload = useCallback(async (jsonData: string, credentialPassword: string, requestKey: string) => {
     setIsAnalyzingImport(true);
     try {
       const analysis = await AnalyzeImportData(jsonData, credentialPassword);
       const nextAnalysis = analysis as ImportAnalysis;
-      setImportAnalysis(nextAnalysis);
+      if (activeImportAnalysisKeyRef.current === requestKey) {
+        setImportAnalysis(nextAnalysis);
+      }
       return nextAnalysis;
     } finally {
-      setIsAnalyzingImport(false);
+      if (activeImportAnalysisKeyRef.current === requestKey) {
+        setIsAnalyzingImport(false);
+      }
     }
   }, []);
 
@@ -333,9 +338,12 @@ export default function DataManagementPage() {
     pendingImportAnalysisRef.current = null;
     importAnalysisInFlightRef.current = true;
     const queuedRequestKey = queuedRequest.key;
+    activeImportAnalysisKeyRef.current = queuedRequestKey;
     try {
-      await analyzeImportPayload(queuedRequest.jsonData, queuedRequest.password);
-      lastAnalyzedImportRef.current = queuedRequestKey;
+      await analyzeImportPayload(queuedRequest.jsonData, queuedRequest.password, queuedRequestKey);
+      if (activeImportAnalysisKeyRef.current === queuedRequestKey) {
+        lastAnalyzedImportRef.current = queuedRequestKey;
+      }
     } finally {
       importAnalysisInFlightRef.current = false;
       if (pendingImportAnalysisRef.current) void runLatestImportAnalysis();
@@ -350,6 +358,8 @@ export default function DataManagementPage() {
     setImportPasswordError('');
     pendingImportAnalysisRef.current = null;
     lastAnalyzedImportRef.current = null;
+    activeImportAnalysisKeyRef.current = null;
+    setIsAnalyzingImport(false);
   }, []);
 
   const getImportErrorMessage = useCallback((error: unknown) => {
@@ -373,8 +383,12 @@ export default function DataManagementPage() {
     setLastImportResult(null);
     setImportPassword('');
     setImportPasswordError('');
-    await analyzeImportPayload(selectedFile.content, '');
-    lastAnalyzedImportRef.current = buildImportAnalysisKey(preview, '');
+    const requestKey = buildImportAnalysisKey(preview, '');
+    activeImportAnalysisKeyRef.current = requestKey;
+    await analyzeImportPayload(selectedFile.content, '', requestKey);
+    if (activeImportAnalysisKeyRef.current === requestKey) {
+      lastAnalyzedImportRef.current = requestKey;
+    }
   }, [analyzeImportPayload]);
 
   const handleSelectImportFile = useCallback(async () => {
@@ -408,6 +422,17 @@ export default function DataManagementPage() {
       const result = await ImportData(importPreview.jsonData, importPassword.trim()) as ImportResultSummary;
       setLastImportResult(result);
       await loadConversations();
+      const failureDetails = [
+        result.failed > 0
+          ? t('history.importFailedCount', { defaultValue: 'Falhas: {{count}}', count: result.failed })
+          : '',
+        ...(result.errors?.length
+          ? [t('history.importErrorsLabel', 'Erros'), ...result.errors]
+          : []),
+        ...(result.warnings?.length
+          ? [t('history.importWarningsLabel', 'Avisos'), ...result.warnings]
+          : []),
+      ].filter(Boolean);
       announce(
         [
           result.success
@@ -419,6 +444,7 @@ export default function DataManagementPage() {
             imported: result.imported,
             skipped: result.skipped,
           }),
+          ...failureDetails,
         ].filter(Boolean).join('. '),
         result.success ? 'polite' : 'assertive',
       );
@@ -438,6 +464,7 @@ export default function DataManagementPage() {
       key: buildImportAnalysisKey(importPreview, importPassword.trim()),
     };
     if (lastAnalyzedImportRef.current === nextRequest.key) return;
+    activeImportAnalysisKeyRef.current = nextRequest.key;
     const timer = window.setTimeout(() => {
       pendingImportAnalysisRef.current = nextRequest;
       void runLatestImportAnalysis();

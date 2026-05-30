@@ -206,6 +206,40 @@ describe('DataManagementPage', () => {
     expect(screen.getByRole('list', { name: 'Erros' })).toHaveTextContent('Falha ao importar conversa');
     expect(screen.getByText('Avisos')).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Avisos' })).toHaveTextContent('Provider ignorado');
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('Falha ao importar conversa'),
+      'assertive',
+    );
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('Provider ignorado'),
+      'assertive',
+    );
+  });
+
+  it('ignora analise atrasada quando importacao e cancelada', async () => {
+    const user = userEvent.setup();
+    const jsonData = JSON.stringify({
+      version: 2,
+      options: { includeCredentials: false, includeAudio: false },
+      resources: { conversations: [], providers: [], taskLists: [] },
+    });
+    let resolveAnalysis: (value: { conflictCount: number; warnings: string[] }) => void = () => {};
+    mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
+    mockAnalyzeImportData.mockReturnValue(new Promise((resolve) => {
+      resolveAnalysis = resolve;
+    }));
+
+    render(<DataManagementPage />);
+    await user.click(screen.getByRole('button', { name: 'Selecionar arquivo JSON' }));
+
+    expect(await screen.findByText('backup.json')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    resolveAnalysis({ conflictCount: 0, warnings: ['Aviso atrasado'] });
+
+    await waitFor(() => {
+      expect(screen.queryByText('backup.json')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Aviso atrasado')).not.toBeInTheDocument();
   });
 
   it('abre importacao por action na URL e limpa querystring', async () => {

@@ -128,18 +128,16 @@ test.describe('Histórico — exportação', () => {
 
     // Clica no botão de exportação contextual; o fluxo canônico em massa fica em Configurações > Dados.
     const exportBtn = page.getByRole('button', { name: /exportar JSON|export JSON/i });
-    if (await exportBtn.count() > 0) {
-      await exportBtn.first().click();
+    await exportBtn.first().click();
 
-      await page.waitForFunction(() => {
-        return window.__wailsMock.getCallLog().some(
-          (c: { fn: string }) => c.fn === 'ExportConversations'
-        );
-      }, { timeout: 5_000 });
+    await page.waitForFunction(() => {
+      return window.__wailsMock.getCallLog().some(
+        (c: { fn: string }) => c.fn === 'ExportConversations'
+      );
+    }, { timeout: 5_000 });
 
-      const log = await wails.getCallLog();
-      const exportCalls = log.filter(c => c.fn === 'ExportConversations');
-      expect(exportCalls.length).toBeGreaterThanOrEqual(1);
-    }
+    const log = await wails.getCallLog();
+    const exportCalls = log.filter(c => c.fn === 'ExportConversations');
+    expect(exportCalls.length).toBeGreaterThanOrEqual(1);
   });
 });
