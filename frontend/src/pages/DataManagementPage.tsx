@@ -8,6 +8,7 @@ import { Checkbox } from '../components/ui/Checkbox';
 import { FormField } from '../components/ui/FormField';
 import { Input } from '../components/ui/Input';
 import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import { downloadJSON, generateFilename, ImportFileError, IMPORT_FILE_ERROR_CODES, openImportFileDialog } from '../lib/exportImport';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { portability } from '../../wailsjs/go/models';
@@ -170,6 +171,7 @@ export default function DataManagementPage() {
   const { announce } = useAnnouncer();
   const location = useLocation();
   const navigate = useNavigate();
+  useContentPageLandmarks({ pageClass: 'data-management-page' });
 
   const [conversationIds, setConversationIds] = useState<string[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(true);
@@ -754,9 +756,12 @@ export default function DataManagementPage() {
               </p>
             )}
             {!!importAnalysis.warnings?.length && (
-              <ul className="data-management__list data-management__list--warning">
-                {importAnalysis.warnings.map((warning) => <li key={warning}>{warning}</li>)}
-              </ul>
+              <div>
+                <strong>{t('history.importWarningsLabel', 'Avisos')}</strong>
+                <ul className="data-management__list data-management__list--warning" aria-label={t('history.importWarningsLabel', 'Avisos')}>
+                  {importAnalysis.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                </ul>
+              </div>
             )}
             {renderConflictGroup(t('history.importConversationConflicts', 'Conversas em conflito'), importAnalysis.conversationConflicts)}
             {renderConflictGroup(t('history.importProviderConflicts', 'Providers em conflito'), importAnalysis.providerConflicts)}
