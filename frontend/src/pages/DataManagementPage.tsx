@@ -489,8 +489,13 @@ export default function DataManagementPage() {
       password: importPassword.trim(),
       key: buildImportAnalysisKey(importPreview, importPassword.trim()),
     };
-    if (lastAnalyzedImportRef.current === nextRequest.key) return;
     activeImportAnalysisKeyRef.current = nextRequest.key;
+    if (lastAnalyzedImportRef.current === nextRequest.key) {
+      setIsAnalyzingImport(false);
+      return;
+    }
+    setImportAnalysis(null);
+    setIsAnalyzingImport(true);
     const timer = window.setTimeout(() => {
       pendingImportAnalysisRef.current = nextRequest;
       void runLatestImportAnalysis();

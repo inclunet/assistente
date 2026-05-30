@@ -240,6 +240,32 @@ describe('DataManagementPage', () => {
     expect(screen.queryByRole('button', { name: 'Importar agora' })).not.toBeInTheDocument();
   });
 
+  it('bloqueia importacao imediatamente ao alterar senha de credenciais', async () => {
+    const user = userEvent.setup();
+    const jsonData = JSON.stringify({
+      version: 2,
+      options: { includeCredentials: true, includeAudio: false },
+      resources: {
+        conversations: [],
+        providers: [],
+        taskLists: [],
+        credentials: { mode: 'encrypted' },
+      },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
+    mockAnalyzeImportData.mockResolvedValue({ conflictCount: 0 });
+
+    render(<DataManagementPage />);
+    await user.click(screen.getByRole('button', { name: 'Selecionar arquivo JSON' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Senha das credenciais')).toBeInTheDocument();
+    });
+    await user.type(screen.getByPlaceholderText('Digite a senha de exportação'), 'segredo');
+
+    expect(screen.getByRole('button', { name: 'Importar agora' })).toBeDisabled();
+  });
+
   it('ignora analise atrasada quando importacao e cancelada', async () => {
     const user = userEvent.setup();
     const jsonData = JSON.stringify({
