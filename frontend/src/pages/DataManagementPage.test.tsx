@@ -126,6 +126,21 @@ describe('DataManagementPage', () => {
     });
   });
 
+  it('mostra conversas como nao incluidas quando exportacao de conversas esta desmarcada', async () => {
+    const user = userEvent.setup();
+
+    render(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByLabelText('Incluir conversas do histórico'));
+
+    const conversationsSummary = screen.getByText('Conversas').closest('div');
+    expect(conversationsSummary).toHaveTextContent('Não incluir');
+  });
+
   it('exporta providers sem depender do historico', async () => {
     const user = userEvent.setup();
     mockGetConversations.mockResolvedValue([]);

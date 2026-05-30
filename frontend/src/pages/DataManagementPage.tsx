@@ -525,6 +525,9 @@ export default function DataManagementPage() {
   const exportedAtTimestamp = importPreview?.exportedAt ? Date.parse(importPreview.exportedAt) : NaN;
   const exportedAtLabel = Number.isFinite(exportedAtTimestamp) ? formatRelativeTime(exportedAtTimestamp) : '-';
   const isExportButtonDisabled = includeConversations && !exportMcpExternalFormat && loadingConversations;
+  const exportConversationSummary = includeConversations && !exportMcpExternalFormat
+    ? (loadingConversations ? t('common.loading', 'Carregando...') : conversationIds.length)
+    : t('history.exportConversationsNotIncluded', 'Não incluir');
 
   const renderConflictGroup = useCallback((title: string, conflicts: ImportConflict[] | undefined) => {
     if (!conflicts?.length) return null;
@@ -566,7 +569,7 @@ export default function DataManagementPage() {
         </div>
 
         <dl className="data-management__summary">
-          <div><dt>{t('history.exportConversationsLabel', 'Conversas')}</dt><dd>{loadingConversations ? t('common.loading', 'Carregando...') : conversationIds.length}</dd></div>
+          <div><dt>{t('history.exportConversationsLabel', 'Conversas')}</dt><dd>{exportConversationSummary}</dd></div>
           <div><dt>{t('history.exportProvidersLabel', 'Providers')}</dt><dd>{includeProvidersExport ? exportProviderIds.length : t('history.exportProvidersNotIncluded', 'Não incluir')}</dd></div>
           <div><dt>{t('history.exportMcpServersLabel', 'Servidores MCP')}</dt><dd>{includeMcpServersExport ? exportMcpServerSlugs.length : t('history.exportMcpServersNotIncluded', 'Não incluir')}</dd></div>
           <div><dt>{t('history.exportTaskListsLabel', 'Tasklists')}</dt><dd>{includeTaskListsExport ? exportTaskListIds.length : t('history.exportTaskListsNotIncluded', 'Não incluir')}</dd></div>
