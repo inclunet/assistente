@@ -6,9 +6,14 @@ import type { MediaFile } from '../../services/mediaService';
 
 const getSkillsSpy = vi.fn();
 const processMediaFilesSpy = vi.fn();
+const announceSpy = vi.fn();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({ announce: announceSpy }),
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
@@ -52,6 +57,7 @@ describe('ChatInput', () => {
   beforeEach(() => {
     getSkillsSpy.mockReset();
     processMediaFilesSpy.mockReset();
+    announceSpy.mockReset();
     processMediaFilesSpy.mockImplementation(async (files: File[]) => mediaResult(files, 'file'));
   });
 
@@ -206,21 +212,7 @@ describe('ChatInput', () => {
     expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
   });
 
-  it('não monta live region anunciável quando não há rascunho', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
-
-    render(
-      <ChatInput
-        onSend={() => {}}
-        message=""
-        onMessageChange={() => {}}
-      />,
-    );
-
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
-  });
-
-  it('aplica live region polida apenas quando há rascunho', () => {
+  it('não cria live region local (indicador é puramente visual com aria-hidden)', () => {
     getSkillsSpy.mockResolvedValueOnce([]);
 
     render(
@@ -231,9 +223,47 @@ describe('ChatInput', () => {
       />,
     );
 
-    const liveRegion = screen.getByRole('status');
-    expect(liveRegion).toHaveAttribute('aria-live', 'polite');
-    expect(liveRegion).toHaveTextContent('chat.draftSaved');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByText('chat.draftSaved')).toBeInTheDocument();
+  });
+
+  it('não anuncia quando monta já com rascunho existente', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message="Rascunho restaurado"
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(announceSpy).not.toHaveBeenCalled();
+  });
+
+  it('anuncia via announcer global na transição de sem rascunho para com rascunho', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    const { rerender } = render(
+      <ChatInput
+        onSend={() => {}}
+        message=""
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(announceSpy).not.toHaveBeenCalled();
+
+    rerender(
+      <ChatInput
+        onSend={() => {}}
+        message="Acabei de digitar"
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(announceSpy).toHaveBeenCalledWith('chat.draftSaved', 'polite');
+    expect(announceSpy).toHaveBeenCalledTimes(1);
   });
 
   it('mostra indicador quando apenas os anexos são controlados e não-vazios', () => {

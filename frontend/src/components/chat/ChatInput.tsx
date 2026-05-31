@@ -6,6 +6,7 @@ import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
 import { SlashCommandMenu, countFilteredSkills } from './SlashCommandMenu';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { DIMENSIONS } from '../../constants/chat';
 import { GetUserInvocableSkills } from '@wailsjs/go/app/App';
 import type { skills } from '../../../wailsjs/go/models';
@@ -45,6 +46,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   ref
 ) => {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const [localMessage, setLocalMessage] = useState('');
   const [localMediaFiles, setLocalMediaFiles] = useState<MediaFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -78,6 +80,17 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   useEffect(() => {
     mediaFilesRef.current = mediaFiles;
   }, [mediaFiles]);
+
+  // Anúncio do rascunho salvo via announcer global (sem criar live region local).
+  // Inicializado com o valor atual para não anunciar na montagem; só dispara na
+  // transição real false->true durante a sessão, evitando spam a cada render.
+  const draftSavedAnnouncedRef = useRef(showDraftSaved);
+  useEffect(() => {
+    if (showDraftSaved && !draftSavedAnnouncedRef.current) {
+      announce(t('chat.draftSaved'), 'polite');
+    }
+    draftSavedAnnouncedRef.current = showDraftSaved;
+  }, [showDraftSaved, announce, t]);
 
   const setMessage = useCallback((nextMessage: string) => {
     if (handleMessageChange) {
@@ -429,15 +442,11 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         )}
       </div>
 
-      {/* Container sempre montado para preservar o espaço visual (min-height no CSS)
-          e evitar layout shift. Os atributos de live region só são aplicados quando
-          há conteúdo, evitando uma live region vazia anunciável; quando vazio o
-          container fica oculto para leitores de tela. */}
-      <div
-        className="chat-input__draft-status"
-        aria-hidden={showDraftSaved ? undefined : true}
-        {...(showDraftSaved ? { role: 'status', 'aria-live': 'polite' as const } : {})}
-      >
+      {/* Indicador puramente visual; sempre montado para preservar o espaço
+          (min-height no CSS) e evitar layout shift. O anúncio para leitores de
+          tela é feito pelo announcer global (useAnnouncer), não por uma live
+          region local — por isso o container fica marcado como aria-hidden. */}
+      <div className="chat-input__draft-status" aria-hidden="true">
         {showDraftSaved && (
           <span className="chat-input__draft-indicator">
             <CheckCircleOutlined aria-hidden="true" />
