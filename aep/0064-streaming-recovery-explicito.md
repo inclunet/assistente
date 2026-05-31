@@ -62,11 +62,18 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 - “Máximo de tentativas de recuperação” (default: 3)
 - “Mostrar ação ‘Continuar resposta’ quando falhar” (default: ligado)
 
-### 6) Compatibilidade por provider/modelo
+### 6) Compatibilidade por provider/modelo (matriz explícita de capacidades)
 
-- A continuação via `assistant prefill` depende de compatibilidade do provider/modelo.
-- Em providers/modelos onde o prefill não for seguro (ex.: LocalAI/Qwen com thinking ativo e rejeição de prefill), o app **não deve oferecer** “Continuar resposta” (fica apenas “Regenerar”).
-- A detecção começa conservadora e pode evoluir para uma matriz explícita de capacidades por provider/modelo.
+> Atualizado pela Issue #124 (continuação com fallback por mensagem de usuário).
+
+- A continuação via `assistant prefill` depende de compatibilidade do provider/modelo. Modelamos **três casos explícitos** de capacidade (`internal/llm.AssistantPrefillCapability`):
+  - **`PrefillWithThinking`**: aceita `assistant` trailing como prefill mesmo com thinking/reasoning ativo. Hoje, apenas OpenAI real via Responses API.
+  - **`PrefillWithoutThinking`**: aceita prefill apenas com thinking desativado. É o caso de servidores locais (Qwen via LocalAI/Ollama/llama.cpp) que rejeitam prefill com `enable_thinking`.
+  - **`PrefillUnsupported`**: não aceita prefill (demais providers OpenAI-compatible).
+- **Fallback por mensagem de usuário**: quando o provider/modelo **não suporta** prefill incondicional (`PrefillWithoutThinking` ou `PrefillUnsupported`), a continuação **não falha mais** — em vez de injetar um `assistant` trailing, o backend monta uma mensagem de `user` do tipo “Continue a resposta a partir deste texto: …\<texto parcial\>” e prossegue o streaming normalmente. Assim o prompt volta a terminar em `user`, compatível com qualquer provider (inclusive Qwen/LocalAI com thinking).
+- **Gating pelo perfil continua valendo**: se o perfil desabilita “Continuar resposta” (`StreamingRecoveryShowContinue=false`), o backend falha fechado independentemente da capacidade — não há prefill nem fallback.
+- A UI passa a oferecer “Continuar resposta” sempre que o perfil permitir, pois o backend sempre consegue continuar (prefill quando suportado, fallback por mensagem de usuário caso contrário). O flag `supports_assistant_prefill` permanece exposto apenas como informação.
+- A detecção começa conservadora: `SupportsAssistantPrefill` (atalho booleano) só é verdadeiro para `PrefillWithThinking`. A matriz pode evoluir para granularidade por modelo no futuro.
 
 ### 7) Backend-driven: sem mensagens “fantasma” persistentes no frontend
 
@@ -81,7 +88,7 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 3. **Profile settings**: persistir as opções de recuperação no perfil e aplicar defaults no envio.
 4. **Persistência do assistant no início do turno**: criar/reusar placeholder do assistant no backend e garantir `messageId` consistente no `chat:stream`.
 5. **Auto-recuperação**: implementar retry interno até N tentativas (default 3).
-6. **Continuação explícita**: implementar “Continuar resposta” via `RetryMessage` em modo de continuação, atualizando a mesma mensagem do assistant.
+6. **Continuação explícita**: implementar “Continuar resposta” via `RetryMessage` em modo de continuação, atualizando a mesma mensagem do assistant. Quando o provider/modelo não suporta prefill, usar fallback por mensagem de usuário (Issue #124).
 7. **Testes**: Go + Vitest cobrindo cancelamento, auto-recuperação e ausência de prefill acidental.
 
 ## Riscos
@@ -95,7 +102,7 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 
 - Requests normais nunca enviam `assistant prefill` acidental.
 - Em interrupção de streaming com texto parcial, o app tenta recuperar automaticamente até 3 vezes.
-- Após falhar (ou após cancelamento), a UI mostra “Continuar resposta” no menu da mensagem quando suportado.
+- Após falhar (ou após cancelamento), a UI mostra “Continuar resposta” no menu da mensagem sempre que o perfil permitir; a continuação usa `assistant prefill` quando suportado ou fallback por mensagem de usuário quando o provider/modelo não suporta prefill (Issue #124).
 - “Cancelar geração” funciona via botão, menu e `Esc`.
 - Cancelamento não limpa fila inteira; apenas interrompe a geração atual.
 - Perfis expõem as opções com rótulos amigáveis e i18n (pt-BR, en, es).

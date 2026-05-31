@@ -221,6 +221,109 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 7. Há retenção/limpeza para invocações antigas.
 8. Testes cobrem sucesso, falha, timeout, dry-run e origem `job_run`/`chat`.
 
+## Plano de Transição e Compatibilidade (Issue #127)
+
+Esta seção fecha formalmente o critério de aceite "há migração/compatibilidade para dados
+existentes OU um plano explícito de transição" do issue #127. O núcleo do AEP-0063 já está
+implementado; o que falta é documentar explicitamente o que migrou, o que permanece em
+armazenamento legado, por que permanece, e como/quando deprecá-lo.
+
+### O que já migrou para `tool_invocations`
+
+Já usam o executor comum (`internal/toolinvocations.Service`) e persistem em `tool_invocations`:
+
+- **Chat / agentic loop** (`internal/agent/service.go`): cada tool call do loop passa por
+  `Service.Execute`/`ExecuteAll` com `origin_type = chat` e `origin_id = turnID`. O resultado
+  técnico (input redigido, output truncado, status, duração, erro) fica em `tool_invocations`.
+- **Jobs** (`internal/jobs/executor.go`): execuções reais de tools chamam `Service.Execute`
+  com `origin_type = job_run` e `origin_id = run.RunID` (o ID do `job_run`). Isso é o vínculo
+  origem→armazenamento comum: dado um `job_run`, é possível listar suas invocações por
+  `(origin_type=job_run, origin_id=run_id)`. Coberto por
+  `internal/jobs/executor_toolinvocations_test.go`.
+- **Dry-run** (`internal/jobs/manager.go`, `internal/jobs/executor.go`): usa o mesmo executor
+  com `dry_run = true` (a origem permanece `job_run`/`tool_catalog`, conforme D6).
+- **MCP nativo** (`internal/agent/service.go` → `Service.Record`): invocações executadas fora
+  do executor comum (pelo provedor LLM) são registradas via `Record` no mesmo formato,
+  marcadas com `metadata.external = true`. MCP bridge e tools internas/nativas passam pelo
+  mesmo caminho `Execute`, garantindo representação consistente (D-MCP / critério de
+  consistência MCP↔builtin do issue #127).
+- **Export/Import** (`internal/portability/service.go`): hidratação reconstrói os resultados de
+  tools a partir de `tool_invocations`, sem depender exclusivamente de mensagens.
+
+### O que permanece em armazenamento legado e por quê
+
+Três mecanismos legados continuam ativos de forma **intencional**. Nenhum é removido neste
+ciclo (issue #127) por serem de alto risco; cada um tem função de compatibilidade ou de
+domínio distinta da trilha técnica de `tool_invocations`.
+
+#### L1 — Fallback `role=tool` no chat
+
+- **Onde**: `internal/agent/service.go` (`RunAgenticLoop` e `persistNativeMCPCalls`),
+  via `msgRepo.AddToolResultMessage`.
+- **Quando dispara**: somente quando a persistência técnica não pôde ser usada como fonte
+  para hidratação — isto é, quando `tool_invocations` não persistiu (`Persisted = false`,
+  ex.: catálogo indisponível) **ou** quando a mensagem assistant `tool_calls` falhou ao salvar
+  (`assistantToolCallsSaved = false`). No caminho feliz, **não** são criadas mensagens
+  `role=tool` (ver `TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence`).
+- **Por que permanece**: é a rede de segurança que evita órfãos no histórico/exportação quando
+  a hidratação a partir de `tool_invocations` + assistant `tool_calls` não é possível. Remover
+  agora poderia perder rastreabilidade em falhas transitórias de DB.
+- **Status**: compatibilidade ativa, acionada apenas em caminho de exceção.
+
+#### L2 — Timeline própria de jobs em `job_run_events`
+
+- **Onde**: `internal/jobs/repository.go` (`LogRunEvent`/`GetRunEvents`, modelo
+  `database.JobRunEvent`).
+- **O que guarda**: eventos **operacionais** do run (triggered, event_emitted, completed,
+  failed, skipped) — a timeline do job, não a chamada técnica da tool.
+- **Por que permanece**: `job_run_events` e `tool_invocations` têm responsabilidades
+  distintas e complementares (ver seção "Integração com jobs"): a timeline operacional do job
+  vive em `job_run_events`; a execução técnica da tool vive em `tool_invocations`. Jobs
+  **referenciam** o armazenamento comum pelo vínculo `origin_id = run_id`, satisfazendo o
+  critério "jobs não dependem de um log isolado para representar chamadas de tools; usam ou
+  referenciam o armazenamento comum". `job_run_events` não representa a chamada de tool — ela
+  é referenciada via o `job_run`.
+- **Status**: mantido por design. Não é storage redundante de tool calls.
+
+#### L3 — `tool_calls` JSON em mensagens assistant
+
+- **Onde**: mensagens assistant (`AddAssistantToolMessage`, campo `tool_calls`).
+- **O que guarda**: a intenção de chamada (nome, argumentos, enriquecimento MCP: origin,
+  server_label, iteration), não o output bruto.
+- **Por que permanece**: é o que a UI e o export/import usam para **hidratar** e associar o
+  resultado técnico (`tool_invocations`) à mensagem correta. É a "referência leve" prevista em
+  D2 (`tool_invocation_id`/`tool_call_id`), não um armazenamento de resultado.
+- **Status**: mantido por design enquanto a hidratação depender da ordem
+  tool-call→tool-result no histórico de mensagens.
+
+### Plano e critérios para deprecar cada legado
+
+| Legado | Ação | Critério para deprecar |
+|---|---|---|
+| L1 `role=tool` | Reduzir gradualmente o acionamento. | Quando a hidratação por `tool_invocations` + assistant `tool_calls` cobrir 100% dos caminhos de leitura (UI, export, sumarização) **e** métricas mostrarem 0 acionamentos do fallback em produção por um período de observação. Só então remover `AddToolResultMessage` do caminho de chat. |
+| L2 `job_run_events` | **Não deprecar.** | Permanece como timeline operacional. Só seria reavaliado se a UI de jobs passar a derivar a timeline inteiramente de `tool_invocations` + `job_runs`, o que não é objetivo do issue #127. |
+| L3 `tool_calls` JSON em mensagens | Manter como referência leve. | Só deprecável se a UI/export passarem a montar a associação call↔result diretamente por `tool_invocations.tool_call_id`/`parent_invocation_id` sem depender da ordem de mensagens. Requer AEP próprio. |
+
+### Compatibilidade com dados existentes
+
+- Não há backfill destrutivo. Mensagens `role=tool` e `tool_calls` históricas continuam
+  legíveis; a hidratação prioriza `tool_invocations` quando presente e cai para o conteúdo de
+  mensagens quando não há registro técnico (dados anteriores à introdução da tabela).
+- `tool_invocations` é log efêmero (D5): a ausência de registros antigos é esperada e tratada
+  pela leitura como "sem trilha técnica", sem quebrar a exibição da conversa/job.
+
+### Critérios de aceite do issue #127 — mapeamento
+
+| Critério do issue | Situação | Evidência |
+|---|---|---|
+| Executor comum em chat e jobs | Atendido | `internal/toolinvocations`, `internal/agent/service.go`, `internal/jobs/executor.go` |
+| Invocações em tabela própria com vínculo à origem | Atendido | `database.ToolInvocation`, `origin_type`/`origin_id` |
+| Jobs referenciam armazenamento comum (não dependem de log isolado) | Atendido | `executor.go` (`origin_id = run.RunID`) + `executor_toolinvocations_test.go`; `job_run_events` documentado como timeline operacional (L2) |
+| Tool results de chat não exclusivamente como mensagens | Atendido | Hidratação via `tool_invocations`; `role=tool` só como fallback (L1) |
+| MCP e tools internas representadas de forma consistente | Atendido | `Execute`/`Record` unificados; `metadata.external` para MCP nativo |
+| Migração/compatibilidade OU plano explícito de transição | **Atendido por esta seção** | Plano L1/L2/L3 + critérios de deprecação |
+| Testes cobrindo chat, job e dry-run no mesmo executor | Atendido | `service_tool_calls_persistence_test.go`, `executor_toolinvocations_test.go`, `manager_toolinvocations_test.go`, `app_tool_dry_run_test.go` |
+
 ## Relação com issues
 
 - Fecha a issue de unificação de execução e storage de tool calls.
