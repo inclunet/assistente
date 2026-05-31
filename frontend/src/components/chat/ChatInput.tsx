@@ -66,10 +66,13 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleMediaFilesChange = isMediaFilesControlled ? onMediaFilesChange : undefined;
   const message = isMessageControlled ? controlledMessage : localMessage;
   const mediaFiles = isMediaFilesControlled ? controlledMediaFiles : localMediaFiles;
-  // Só indicamos "rascunho salvo" quando o estado é controlado pela superfície
-  // (auto-save por aba/conversa). Em modo local não há persistência.
-  const showDraftSaved =
-    isMessageControlled && (message.trim().length > 0 || mediaFiles.length > 0);
+  // Só indicamos "rascunho salvo" quando o estado é persistido pela superfície
+  // (auto-save por aba/conversa). Texto e anexos são dimensões independentes:
+  // o indicador aparece se houver rascunho persistido de texto OU de anexos.
+  // Estado puramente local/não-controlado não conta como "salvo".
+  const hasControlledTextDraft = isMessageControlled && message.trim().length > 0;
+  const hasControlledMediaDraft = isMediaFilesControlled && mediaFiles.length > 0;
+  const showDraftSaved = hasControlledTextDraft || hasControlledMediaDraft;
   const mediaFilesRef = useRef<MediaFile[]>(mediaFiles);
 
   useEffect(() => {

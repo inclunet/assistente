@@ -206,6 +206,60 @@ describe('ChatInput', () => {
     expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
   });
 
+  it('mostra indicador quando apenas os anexos são controlados e não-vazios', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const controlledMedia = mediaResult(
+      [new File(['anexo'], 'anexo.txt', { type: 'text/plain' })],
+      'draft',
+    );
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        mediaFiles={controlledMedia}
+        onMediaFilesChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('chat.draftSaved')).toBeInTheDocument();
+  });
+
+  it('não mostra indicador quando os anexos controlados estão vazios', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        mediaFiles={[]}
+        onMediaFilesChange={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
+  });
+
+  it('não mostra indicador para anexos locais quando só a mensagem está controlada', async () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const localFile = new File(['local'], 'local.txt', { type: 'text/plain' });
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message=""
+        onMessageChange={() => {}}
+      />,
+    );
+
+    const fileInput = screen.getByLabelText('chat.selectFiles');
+    fireEvent.change(fileInput, { target: { files: [localFile] } });
+
+    await waitFor(() => {
+      expect(processMediaFilesSpy).toHaveBeenCalledWith([localFile]);
+    });
+
+    expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
+  });
+
   it('ignora prop message sem onMessageChange para evitar textarea read-only', () => {
     getSkillsSpy.mockResolvedValueOnce([]);
 
