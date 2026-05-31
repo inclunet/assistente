@@ -69,6 +69,7 @@ const ptBR = {
       selectFiles: 'Selecionar arquivos',
       attachFile: 'Anexar arquivo',
       messageLabel: 'Mensagem',
+      draftSaved: 'Rascunho salvo',
       waitResponse: 'Aguarde o término da resposta para enviar',
       you: 'Você',
       result: 'Resultado',

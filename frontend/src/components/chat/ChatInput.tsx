@@ -1,6 +1,6 @@
 import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PaperClipOutlined } from '@ant-design/icons';
+import { PaperClipOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
@@ -66,6 +66,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleMediaFilesChange = isMediaFilesControlled ? onMediaFilesChange : undefined;
   const message = isMessageControlled ? controlledMessage : localMessage;
   const mediaFiles = isMediaFilesControlled ? controlledMediaFiles : localMediaFiles;
+  // Só indicamos "rascunho salvo" quando o estado é controlado pela superfície
+  // (auto-save por aba/conversa). Em modo local não há persistência.
+  const showDraftSaved =
+    isMessageControlled && (message.trim().length > 0 || mediaFiles.length > 0);
   const mediaFilesRef = useRef<MediaFile[]>(mediaFiles);
 
   useEffect(() => {
@@ -419,6 +423,15 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
               />
             </svg>
           </Button>
+        )}
+      </div>
+
+      <div className="chat-input__draft-status" role="status" aria-live="polite">
+        {showDraftSaved && (
+          <span className="chat-input__draft-indicator">
+            <CheckCircleOutlined aria-hidden="true" />
+            {t('chat.draftSaved')}
+          </span>
         )}
       </div>
     </div>

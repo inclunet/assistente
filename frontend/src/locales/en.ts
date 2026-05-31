@@ -69,6 +69,7 @@ const en = {
       selectFiles: 'Select files',
       attachFile: 'Attach file',
       messageLabel: 'Message',
+      draftSaved: 'Draft saved',
       waitResponse: 'Wait for the response to finish before sending',
       you: 'You',
       result: 'Result',

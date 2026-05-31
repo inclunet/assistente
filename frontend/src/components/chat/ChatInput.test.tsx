@@ -152,6 +152,60 @@ describe('ChatInput', () => {
     expect(onMediaFilesChange).not.toHaveBeenCalled();
   });
 
+  it('mostra indicador de rascunho salvo quando há rascunho controlado', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message="Rascunho em progresso"
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('chat.draftSaved')).toBeInTheDocument();
+  });
+
+  it('não mostra indicador de rascunho quando o rascunho controlado está vazio', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message="   "
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
+  });
+
+  it('esconde indicador de rascunho após enviar a mensagem', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const onSend = vi.fn();
+
+    function ControlledDraftInput() {
+      const [message, setMessage] = useState('Mensagem com rascunho');
+      return (
+        <ChatInput
+          onSend={onSend}
+          message={message}
+          onMessageChange={setMessage}
+        />
+      );
+    }
+
+    render(<ControlledDraftInput />);
+
+    expect(screen.getByText('chat.draftSaved')).toBeInTheDocument();
+
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(onSend).toHaveBeenCalledWith('Mensagem com rascunho', undefined);
+    expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
+  });
+
   it('ignora prop message sem onMessageChange para evitar textarea read-only', () => {
     getSkillsSpy.mockResolvedValueOnce([]);
 
