@@ -145,14 +145,62 @@ func (p *ProviderConfig) EffectiveAuthMode() AuthMode {
 	return AuthModeRequired
 }
 
-// SupportsAssistantPrefill informa se é seguro enviar trailing assistant
-// intencional para continuação explícita. Começa conservador: só OpenAI real
-// via Responses API é habilitado até haver uma matriz de capacidades por modelo.
-func SupportsAssistantPrefill(p *ProviderConfig) bool {
+// AssistantPrefillCapability descreve, de forma explícita, até onde um
+// provider/modelo suporta continuação via trailing assistant ("assistant
+// prefill"). Modela os três casos previstos no AEP-0064 / Issue #124:
+//
+//   - PrefillUnsupported: o provider não aceita um trailing assistant como
+//     prefill. A continuação explícita deve usar o fallback por mensagem de
+//     usuário ("continue a partir deste texto: ...").
+//
+//   - PrefillWithoutThinking: aceita prefill apenas quando o thinking/reasoning
+//     está desativado. É o caso de servidores locais (Qwen via LocalAI/Ollama/
+//     llama.cpp) que rejeitam um trailing assistant quando `enable_thinking`
+//     está ligado. Como o pipeline atual não desliga thinking só para
+//     continuar, tratamos esse caso de forma conservadora: NÃO enviamos
+//     prefill incondicionalmente; o fallback por mensagem de usuário é usado,
+//     mantendo compatibilidade independentemente do estado do thinking.
+//
+//   - PrefillWithThinking: aceita prefill mesmo com thinking/reasoning ativo.
+//     É o caso da OpenAI real via Responses API.
+type AssistantPrefillCapability string
+
+const (
+	PrefillUnsupported     AssistantPrefillCapability = "unsupported"
+	PrefillWithoutThinking AssistantPrefillCapability = "without_thinking"
+	PrefillWithThinking    AssistantPrefillCapability = "with_thinking"
+)
+
+// PrefillCapability classifica o provider em um dos três casos de capacidade
+// de assistant prefill. Mantém a postura conservadora existente: apenas a
+// OpenAI real (Responses API) recebe prefill incondicional; servidores locais
+// (LocalAI/Ollama/llama.cpp) são marcados como "só sem thinking" — e na
+// prática usam o fallback por mensagem de usuário; os demais são tratados como
+// não suportados.
+func PrefillCapability(p *ProviderConfig) AssistantPrefillCapability {
 	if p == nil {
-		return false
+		return PrefillUnsupported
 	}
-	return p.Type == ProviderOpenAI && p.GetAPIFormat() == APIFormatOpenAIResponses
+	switch {
+	case p.Type == ProviderOpenAI && p.GetAPIFormat() == APIFormatOpenAIResponses:
+		return PrefillWithThinking
+	case p.Type == ProviderLocalAI, p.Type == ProviderOllama, p.Type == ProviderLlamaCPP:
+		return PrefillWithoutThinking
+	default:
+		return PrefillUnsupported
+	}
+}
+
+// SupportsAssistantPrefill informa se é seguro enviar trailing assistant
+// intencional para continuação explícita SEM nenhum tratamento adicional.
+// Só é verdadeiro quando o provider aceita prefill mesmo com thinking ativo
+// (PrefillWithThinking) — hoje, apenas OpenAI real via Responses API.
+//
+// Quando retorna false (inclui o caso "só sem thinking" de Qwen/LocalAI), a
+// continuação explícita deve recorrer ao fallback por mensagem de usuário em
+// vez de injetar um trailing assistant.
+func SupportsAssistantPrefill(p *ProviderConfig) bool {
+	return PrefillCapability(p) == PrefillWithThinking
 }
 
 // GetAPIFormat retorna o api_format efetivo.

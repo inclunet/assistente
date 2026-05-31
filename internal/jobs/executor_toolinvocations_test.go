@@ -78,4 +78,18 @@ func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 	if invocations[0].OriginType != toolinvocations.OriginJobRun {
 		t.Fatalf("expected origin_type=%s, got=%s", toolinvocations.OriginJobRun, invocations[0].OriginType)
 	}
+
+	// Consistência (issue #127): a invocação de um job referencia o armazenamento
+	// comum pelo tool_catalog (mesmo contrato de tools builtin/MCP) e termina com
+	// status normalizado. Isso comprova que jobs não dependem de um log isolado
+	// para representar a chamada de tool: a tool é resolvida no catálogo comum.
+	if invocations[0].ToolCatalogID == "" {
+		t.Fatalf("expected invocation linked to tool_catalog (builtin tool), got empty tool_catalog_id")
+	}
+	if invocations[0].Status != toolinvocations.StatusSucceeded {
+		t.Fatalf("expected status=%s, got=%s", toolinvocations.StatusSucceeded, invocations[0].Status)
+	}
+	if invocations[0].DryRun {
+		t.Fatalf("expected dry_run=false for real job run, got true")
+	}
 }
