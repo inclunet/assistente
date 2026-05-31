@@ -303,4 +303,25 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     });
     expect(mockDownloadJSON).toHaveBeenCalledWith('{}', 'conversas_test.json');
   });
+
+  it('nao exporta conversa focada que ja foi removida da lista', async () => {
+    const user = userEvent.setup();
+    render(<HistoryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Conversa 2')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'focus-second' }));
+    await user.click(screen.getAllByRole('button', { name: 'Excluir conversa' })[0]);
+
+    await waitFor(() => {
+      expect(mockDeleteConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000002');
+    });
+    expect(screen.queryByText('Conversa 2')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Exportar JSON' }));
+
+    expect(mockExportConversations).not.toHaveBeenCalled();
+  });
 });

@@ -197,8 +197,8 @@ export default function HistoryPage() {
   const getContextConversationIds = useCallback(() => (
     selectedIds.size > 0
       ? Array.from(selectedIds).map(String)
-      : (focusedRow ? [focusedRow.id] : [])
-  ), [focusedRow, selectedIds]);
+      : (focusedRow && conversations.some((conversation) => conversation.id === focusedRow.id) ? [focusedRow.id] : [])
+  ), [conversations, focusedRow, selectedIds]);
 
   const exportJsonByIds = useCallback(async (idsToExport: string[]) => {
     if (idsToExport.length === 0) {
