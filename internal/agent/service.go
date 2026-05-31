@@ -109,13 +109,7 @@ func (s *Service) StreamSimpleWithRecovery(
 		if errors.Is(err, chat.ErrConversationGone) {
 			return
 		}
-		if params.AllowAssistantPrefill {
-			prefill := s.loadAssistantPrefill(ctx, h.AssistantMessageID)
-			if prefill != "" {
-				messages = patchTrailingAssistantPrefill(messages, prefill)
-				h.SetInitialContent(prefill)
-			}
-		}
+		messages = s.applyContinuationPrefill(ctx, messages, params, h.AssistantMessageID, h.SetInitialContent)
 		// Só a última tentativa deve finalizar o streaming com erro.
 		h.SuppressTerminalError(attempt < attempts)
 		streamer.StreamChat(ctx, messages, params, h)
@@ -249,15 +243,11 @@ func (s *Service) RunAgenticLoop(
 			if setter, ok := handler.(interface{ SetAssistantMessageID(string) }); ok {
 				setter.SetAssistantMessageID(assistantMessageID)
 			}
-			if params.AllowAssistantPrefill {
-				prefill := s.loadAssistantPrefill(ctx, assistantMessageID)
-				if prefill != "" {
-					messages = patchTrailingAssistantPrefill(messages, prefill)
-					if prefillSetter, ok := handler.(interface{ SetInitialContent(string) }); ok {
-						prefillSetter.SetInitialContent(prefill)
-					}
-				}
+			var setInitialContent func(string)
+			if prefillSetter, ok := handler.(interface{ SetInitialContent(string) }); ok {
+				setInitialContent = prefillSetter.SetInitialContent
 			}
+			messages = s.applyContinuationPrefill(ctx, messages, params, assistantMessageID, setInitialContent)
 			streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
 			result = handler.Result()
 			if ctx.Err() != nil {
@@ -1396,5 +1386,62 @@ func patchTrailingAssistantPrefill(messages []llm.Message, prefill string) []llm
 		return messages
 	}
 	messages[lastIdx].Content = prefill
+	return messages
+}
+
+// buildUserContinuationPrompt monta o conteúdo da mensagem de usuário usada no
+// fallback de continuação para providers/modelos sem suporte a assistant prefill
+// (Issue #124). O texto parcial é embutido na instrução para que o modelo
+// continue exatamente de onde parou, sem repetir o que já foi escrito.
+func buildUserContinuationPrompt(prefill string) string {
+	return "Continue a resposta a partir deste texto, sem repetir o que já foi escrito e sem reintroduções:\n\n" + prefill
+}
+
+// patchTrailingAssistantAsUserContinuation converte o trailing assistant (parcial)
+// em uma mensagem de usuário "continue a partir deste texto: ...". É o fallback
+// usado quando o provider/modelo não suporta assistant prefill: o prompt volta a
+// terminar em user (compatível com qualquer provider, inclusive Qwen/LocalAI que
+// rejeitam prefill com enable_thinking) e o texto parcial é preservado na instrução.
+func patchTrailingAssistantAsUserContinuation(messages []llm.Message, prefill string) []llm.Message {
+	if strings.TrimSpace(prefill) == "" || len(messages) == 0 {
+		return messages
+	}
+	lastIdx := len(messages) - 1
+	if strings.TrimSpace(messages[lastIdx].Role) != "assistant" {
+		return messages
+	}
+	messages[lastIdx] = llm.Message{
+		Role:    "user",
+		Content: buildUserContinuationPrompt(prefill),
+	}
+	return messages
+}
+
+// applyContinuationPrefill prepara o prompt e o handler para uma continuação
+// explícita. Centraliza a regra dos dois modos: assistant prefill (suportado)
+// vs. fallback por mensagem de usuário (provider não suporta prefill).
+// Retorna as mensagens (possivelmente alteradas) e o prefill carregado.
+func (s *Service) applyContinuationPrefill(
+	ctx context.Context,
+	messages []llm.Message,
+	params llm.ChatParams,
+	assistantMessageID string,
+	setInitialContent func(string),
+) []llm.Message {
+	if !params.AllowAssistantPrefill && !params.ContinueViaUserMessage {
+		return messages
+	}
+	prefill := s.loadAssistantPrefill(ctx, assistantMessageID)
+	if prefill == "" {
+		return messages
+	}
+	if params.ContinueViaUserMessage {
+		messages = patchTrailingAssistantAsUserContinuation(messages, prefill)
+	} else {
+		messages = patchTrailingAssistantPrefill(messages, prefill)
+	}
+	if setInitialContent != nil {
+		setInitialContent(prefill)
+	}
 	return messages
 }

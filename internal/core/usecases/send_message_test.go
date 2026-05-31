@@ -261,11 +261,52 @@ func TestSendMessageUseCase_RejectsAssistantPrefillWhenProfileDisablesContinue(t
 	}
 }
 
-func TestSendMessageUseCase_RejectsAssistantPrefillWhenProviderUnsupported(t *testing.T) {
+// TestSendMessageUseCase_FallsBackToUserMessageWhenProviderUnsupported cobre o
+// caminho (b) do Issue #124: o provider/modelo NÃO suporta assistant prefill mas
+// a continuação está habilitada no perfil. Em vez de falhar, o UC deve recorrer
+// ao fallback por mensagem de usuário e prosseguir o streaming (sem erro síncrono).
+func TestSendMessageUseCase_FallsBackToUserMessageWhenProviderUnsupported(t *testing.T) {
 	setupTestDB(t)
 	ctx := database.WithUserID(context.Background(), "test-user")
 	mgr := setupProfileDir(t)
 	setupProfileWith(t, mgr, minValidProfile("Unsupported Prefill Provider", "openai-compatible"))
+	uc := newTestUseCaseWithProviders(t, mgr, &llm.ProviderConfig{
+		ID:        "openai-compatible",
+		Name:      "OpenAI Compatible",
+		Type:      llm.ProviderOpenAI,
+		APIFormat: llm.APIFormatOpenAI,
+		// Endpoint local que recusa conexão imediatamente: o streaming roda em
+		// goroutine após o retorno; o teste só valida a decisão síncrona (sem erro).
+		BaseURL: "http://127.0.0.1:1/v1",
+	})
+	conversationID, userMessageID := createRetryableUserMessage(t, ctx)
+
+	gotConversationID, err := uc.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conversationID,
+		RetryMessageID: userMessageID,
+		Source:         "test",
+		Params:         llm.ChatParams{AllowAssistantPrefill: true},
+	})
+	if err != nil {
+		t.Fatalf("expected fallback to user message (no sync error), got %v", err)
+	}
+	if gotConversationID != conversationID {
+		t.Fatalf("expected conversationID %q, got %q", conversationID, gotConversationID)
+	}
+}
+
+// TestSendMessageUseCase_RejectsAssistantPrefillWhenContinueDisabledEvenIfUnsupported
+// cobre o caminho (c): mesmo com provider sem suporte a prefill, se o perfil
+// desabilita a continuação manual o backend deve falhar fechado (sem fallback).
+func TestSendMessageUseCase_RejectsAssistantPrefillWhenContinueDisabledEvenIfUnsupported(t *testing.T) {
+	setupTestDB(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	mgr := setupProfileDir(t)
+	profile := minValidProfile("Continue Disabled Unsupported", "openai-compatible")
+	disabled := false
+	profile.Chat.StreamingRecoveryShowContinue = &disabled
+	setupProfileWith(t, mgr, profile)
 	uc := newTestUseCaseWithProviders(t, mgr, &llm.ProviderConfig{
 		ID:        "openai-compatible",
 		Name:      "OpenAI Compatible",
@@ -283,10 +324,10 @@ func TestSendMessageUseCase_RejectsAssistantPrefillWhenProviderUnsupported(t *te
 		Params:         llm.ChatParams{AllowAssistantPrefill: true},
 	})
 	if err == nil {
-		t.Fatal("expected unsupported prefill provider to fail")
+		t.Fatal("expected disabled continue profile to fail even when prefill unsupported")
 	}
-	if !strings.Contains(err.Error(), "não suporta") {
-		t.Fatalf("expected unsupported provider error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "desabilitada") {
+		t.Fatalf("expected disabled continue error, got %q", err.Error())
 	}
 }
 

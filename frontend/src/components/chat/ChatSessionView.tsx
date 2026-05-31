@@ -20,7 +20,7 @@ import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage, EditorGetDraftPath, GetActiveProfile, GetActiveProviderInfo } from '@wailsjs/go/app/App';
+import { DeleteMessage, EditorGetDraftPath, GetActiveProfile } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
@@ -175,14 +175,13 @@ function ChatSessionViewContent({
 
     const loadActiveProfile = async () => {
       try {
-        const [profile, providerInfo] = await Promise.all([
-          GetActiveProfile(),
-          GetActiveProviderInfo(),
-        ]);
+        const profile = await GetActiveProfile();
         if (!mounted) return;
+        // A continuação é habilitada apenas pelo perfil: o backend sempre consegue
+        // continuar — via assistant prefill quando o provider suporta, ou via
+        // fallback por mensagem de usuário quando não suporta (Issue #124).
         const profileAllowsContinue = profile?.chat?.streaming_recovery_show_continue ?? true;
-        const providerSupportsPrefill = providerInfo?.supports_assistant_prefill === true;
-        setShowContinueEnabled(profileAllowsContinue && providerSupportsPrefill);
+        setShowContinueEnabled(profileAllowsContinue);
       } catch {
         if (!mounted) return;
         setShowContinueEnabled(false);
