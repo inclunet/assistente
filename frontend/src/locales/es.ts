@@ -68,6 +68,7 @@ const es = {
       selectFiles: 'Seleccionar archivos',
       attachFile: 'Adjuntar archivo',
       messageLabel: 'Mensaje',
+      draftSaved: 'Borrador guardado',
       waitResponse: 'Espera a que termine la respuesta para enviar',
       you: 'Tú',
       result: 'Resultado',

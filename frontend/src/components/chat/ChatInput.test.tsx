@@ -6,9 +6,14 @@ import type { MediaFile } from '../../services/mediaService';
 
 const getSkillsSpy = vi.fn();
 const processMediaFilesSpy = vi.fn();
+const announceSpy = vi.fn();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({ announce: announceSpy }),
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
@@ -52,6 +57,7 @@ describe('ChatInput', () => {
   beforeEach(() => {
     getSkillsSpy.mockReset();
     processMediaFilesSpy.mockReset();
+    announceSpy.mockReset();
     processMediaFilesSpy.mockImplementation(async (files: File[]) => mediaResult(files, 'file'));
   });
 
@@ -150,6 +156,168 @@ describe('ChatInput', () => {
 
     expect(onMessageChange).toHaveBeenCalledWith('Novo rascunho');
     expect(onMediaFilesChange).not.toHaveBeenCalled();
+  });
+
+  it('mostra indicador de rascunho salvo quando há rascunho controlado', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message="Rascunho em progresso"
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('chat.draftSaved')).toBeInTheDocument();
+  });
+
+  it('não mostra indicador de rascunho quando o rascunho controlado está vazio', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message="   "
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
+  });
+
+  it('esconde indicador de rascunho após enviar a mensagem', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const onSend = vi.fn();
+
+    function ControlledDraftInput() {
+      const [message, setMessage] = useState('Mensagem com rascunho');
+      return (
+        <ChatInput
+          onSend={onSend}
+          message={message}
+          onMessageChange={setMessage}
+        />
+      );
+    }
+
+    render(<ControlledDraftInput />);
+
+    expect(screen.getByText('chat.draftSaved')).toBeInTheDocument();
+
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(onSend).toHaveBeenCalledWith('Mensagem com rascunho', undefined);
+    expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
+  });
+
+  it('não cria live region local (indicador é puramente visual com aria-hidden)', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message="Rascunho anunciável"
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByText('chat.draftSaved')).toBeInTheDocument();
+  });
+
+  it('não anuncia quando monta já com rascunho existente', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message="Rascunho restaurado"
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(announceSpy).not.toHaveBeenCalled();
+  });
+
+  it('anuncia via announcer global na transição de sem rascunho para com rascunho', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    const { rerender } = render(
+      <ChatInput
+        onSend={() => {}}
+        message=""
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(announceSpy).not.toHaveBeenCalled();
+
+    rerender(
+      <ChatInput
+        onSend={() => {}}
+        message="Acabei de digitar"
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(announceSpy).toHaveBeenCalledWith('chat.draftSaved', 'polite');
+    expect(announceSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('mostra indicador quando apenas os anexos são controlados e não-vazios', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const controlledMedia = mediaResult(
+      [new File(['anexo'], 'anexo.txt', { type: 'text/plain' })],
+      'draft',
+    );
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        mediaFiles={controlledMedia}
+        onMediaFilesChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('chat.draftSaved')).toBeInTheDocument();
+  });
+
+  it('não mostra indicador quando os anexos controlados estão vazios', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        mediaFiles={[]}
+        onMediaFilesChange={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
+  });
+
+  it('não mostra indicador para anexos locais quando só a mensagem está controlada', async () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+    const localFile = new File(['local'], 'local.txt', { type: 'text/plain' });
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message=""
+        onMessageChange={() => {}}
+      />,
+    );
+
+    const fileInput = screen.getByLabelText('chat.selectFiles');
+    fireEvent.change(fileInput, { target: { files: [localFile] } });
+
+    await waitFor(() => {
+      expect(processMediaFilesSpy).toHaveBeenCalledWith([localFile]);
+    });
+
+    expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
   });
 
   it('ignora prop message sem onMessageChange para evitar textarea read-only', () => {
