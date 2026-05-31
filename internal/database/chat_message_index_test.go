@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -40,11 +41,19 @@ func setupChatMessageIndexTestDB(t *testing.T) *sql.DB {
 	return sqlDB
 }
 
+// quoteSQLiteIdent cita um identificador SQLite (tabela, índice) com aspas
+// duplas, escapando aspas internas duplicando-as. Evita concatenar identificador
+// cru no SQL (frágil para nomes que exijam quoting e vetor de SQL injection caso
+// o helper passe a receber entrada não-constante).
+func quoteSQLiteIdent(ident string) string {
+	return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
+}
+
 // chatMessageIndexNames coleta os nomes dos índices existentes na tabela
 // chat_messages via PRAGMA index_list.
 func chatMessageIndexNames(t *testing.T, sqlDB *sql.DB) map[string]bool {
 	t.Helper()
-	rows, err := sqlDB.Query(`PRAGMA index_list(chat_messages)`)
+	rows, err := sqlDB.Query("PRAGMA index_list(" + quoteSQLiteIdent("chat_messages") + ")")
 	if err != nil {
 		t.Fatalf("PRAGMA index_list(chat_messages): %v", err)
 	}
@@ -113,7 +122,7 @@ func TestChatMessageIndexCreationIsIdempotent(t *testing.T) {
 // indexColumns retorna as colunas (na ordem) de um índice via PRAGMA index_info.
 func indexColumns(t *testing.T, sqlDB *sql.DB, index string) []string {
 	t.Helper()
-	rows, err := sqlDB.Query(fmt.Sprintf("PRAGMA index_info(%s)", index))
+	rows, err := sqlDB.Query("PRAGMA index_info(" + quoteSQLiteIdent(index) + ")")
 	if err != nil {
 		t.Fatalf("PRAGMA index_info(%s): %v", index, err)
 	}
