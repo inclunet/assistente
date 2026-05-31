@@ -15,6 +15,7 @@ const ContactsPage = lazy(() => import('./ContactsPage'));
 const CredentialsPage = lazy(() => import('./CredentialsPage'));
 const AllowlistPage = lazy(() => import('./AllowlistPage'));
 const AppearancePage = lazy(() => import('./AppearancePage'));
+const DataManagementPage = lazy(() => import('./DataManagementPage'));
 const RestoreDefaultsPage = lazy(() => import('./RestoreDefaultsPage'));
 
 const SETTINGS_TABS = [
@@ -26,6 +27,7 @@ const SETTINGS_TABS = [
   { id: 'credentials',      component: CredentialsPage },
   { id: 'allowlists',       component: AllowlistPage },
   { id: 'appearance',       component: AppearancePage },
+  { id: 'data',             component: DataManagementPage },
   { id: 'restore-defaults', component: RestoreDefaultsPage },
 ] as const;
 

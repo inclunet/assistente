@@ -214,6 +214,7 @@ describe('parseDeepLink', () => {
         'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
         'settings/channels', 'settings/contacts', 'settings/credentials',
         'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
+        'settings/data',
         'profiles', 'history', 'tasklists', 'help', 'about', 'update',
       ];
 

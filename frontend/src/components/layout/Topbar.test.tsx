@@ -84,6 +84,8 @@ describe('Topbar', () => {
 
     const items = screen.getByTestId('menu-items').textContent || '';
     expect(items).toContain('settings');
+    expect(items).not.toContain('export-data');
+    expect(items).not.toContain('import-data');
     expect(items).not.toContain('theme');
     expect(items).not.toContain('language');
   });
@@ -107,6 +109,8 @@ describe('Topbar', () => {
 
   it.each([
     ['h', '/history'],
+    ['e', '/settings/data?action=export'],
+    ['i', '/settings/data?action=import'],
     ['p', '/profiles'],
   ])('navega com Alt+%s para %s', (key, route) => {
     render(<Topbar />);

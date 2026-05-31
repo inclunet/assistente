@@ -34,6 +34,7 @@ const VALID_ROUTES = new Set([
   '', 'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
   'settings/channels', 'settings/contacts', 'settings/credentials',
   'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
+  'settings/data',
   'profiles', 'history', 'tasklists', 'help', 'about', 'update',
 ]);
 
@@ -62,6 +63,7 @@ const ROUTE_I18N_KEYS: Record<string, string> = {
   'settings/allowlists': 'menu.allowlists',
   'settings/appearance': 'appearance.pageTitle',
   'settings/restore-defaults': 'menu.restoreDefaults',
+  'settings/data': 'settingsPage.tabs.data',
   profiles: 'menu.profiles',
   history: 'menu.history',
   tasklists: 'menu.tasklists',

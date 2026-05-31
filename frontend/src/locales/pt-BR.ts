@@ -317,8 +317,16 @@ const ptBR = {
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
         appearance: 'Aparência',
+        data: 'Dados',
         'restore-defaults': 'Restaurar Padrões',
       },
+    },
+
+    dataManagement: {
+      title: 'Importação e exportação',
+      description: 'Centralize backups, migrações e restaurações dos dados persistidos do Assistente.',
+      exportConversationsOption: 'Incluir conversas do histórico',
+      selectImportFile: 'Selecionar arquivo JSON',
     },
 
     appearance: {
@@ -1397,6 +1405,7 @@ const ptBR = {
       exportHtml: 'Exportar HTML',
       exportPdf: 'Exportar PDF',
       exportSaved: 'Arquivo exportado: {{path}}',
+      exportSuccess: 'Dados exportados com sucesso!',
       exportSelected: 'Exportar Selecionadas',
       exportAll: 'Exportar Todas',
       exportJsonSelected: 'Exportar JSON ({{count}})',
@@ -1404,6 +1413,7 @@ const ptBR = {
       exportDialogDescription: 'Exporte o JSON canônico dos dados persistidos no banco. Esse arquivo é o formato suportado para importação.',
       noDataToExport: 'Nenhum dado selecionado para exportar',
       exportConversationsLabel: 'Conversas',
+      exportConversationsNotIncluded: 'Não incluir',
       exportProvidersLabel: 'Providers',
       exportProvidersIncluded: '{{count}} incluído(s)',
       exportProvidersNotIncluded: 'Não incluir',
