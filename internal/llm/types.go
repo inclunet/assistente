@@ -209,7 +209,14 @@ type ChatParams struct {
 	ProfileSlug     string  `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
 	// AllowAssistantPrefill habilita a continuação explícita de resposta via trailing assistant.
 	// Default: false (AEP-0064 Fase 6). Só deve ser usado em retry explícito.
-	AllowAssistantPrefill bool   `json:"allowAssistantPrefill,omitempty"`
+	AllowAssistantPrefill bool `json:"allowAssistantPrefill,omitempty"`
+	// ContinueViaUserMessage habilita o fallback de continuação para providers/modelos
+	// que NÃO suportam assistant prefill (Issue #124). Em vez de injetar um trailing
+	// assistant, a continuação é montada como uma mensagem de usuário do tipo
+	// "continue a partir deste texto: ...". É definido pelo backend (use case) quando
+	// a continuação está habilitada no perfil mas o provider não suporta prefill.
+	// Mutuamente exclusivo com AllowAssistantPrefill.
+	ContinueViaUserMessage bool   `json:"continueViaUserMessage,omitempty"`
 	MaxAgenticIterations  int    `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
 	ResponseTimeout       int    `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
 	ContextWindow         int    `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.

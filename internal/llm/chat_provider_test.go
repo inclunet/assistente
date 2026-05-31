@@ -319,6 +319,79 @@ func TestRemoveTrailingAssistantPrefill_KeepsAssistantHistoryFollowedByUser(t *t
 	}
 }
 
+// TestPrefillCapability_ThreeCases documenta o mapeamento explícito de
+// capacidades de assistant prefill por provider (Issue #124): suporta com
+// thinking / só sem thinking / não suporta.
+func TestPrefillCapability_ThreeCases(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  *ProviderConfig
+		want AssistantPrefillCapability
+	}{
+		{
+			name: "nil provider",
+			cfg:  nil,
+			want: PrefillUnsupported,
+		},
+		{
+			name: "openai real responses suporta com thinking",
+			cfg:  &ProviderConfig{Type: ProviderOpenAI, APIFormat: APIFormatOpenAIResponses, BaseURL: "https://api.openai.com/v1"},
+			want: PrefillWithThinking,
+		},
+		{
+			name: "openai compatible (chat completions) nao suporta",
+			cfg:  &ProviderConfig{Type: ProviderOpenAI, APIFormat: APIFormatOpenAI, BaseURL: "https://example.com/v1"},
+			want: PrefillUnsupported,
+		},
+		{
+			name: "localai (qwen) so sem thinking",
+			cfg:  &ProviderConfig{Type: ProviderLocalAI, BaseURL: "http://localhost:8080/v1"},
+			want: PrefillWithoutThinking,
+		},
+		{
+			name: "ollama so sem thinking",
+			cfg:  &ProviderConfig{Type: ProviderOllama, BaseURL: "http://localhost:11434/v1"},
+			want: PrefillWithoutThinking,
+		},
+		{
+			name: "llamacpp so sem thinking",
+			cfg:  &ProviderConfig{Type: ProviderLlamaCPP, BaseURL: "http://localhost:8080/v1"},
+			want: PrefillWithoutThinking,
+		},
+		{
+			name: "deepseek nao suporta",
+			cfg:  &ProviderConfig{Type: ProviderDeepSeek, BaseURL: "https://api.deepseek.com/v1"},
+			want: PrefillUnsupported,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PrefillCapability(tc.cfg); got != tc.want {
+				t.Fatalf("PrefillCapability = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSupportsAssistantPrefill_OnlyWithThinking garante que o atalho booleano
+// permanece conservador: só é verdadeiro para providers que aceitam prefill com
+// thinking ativo (OpenAI real). Qwen/LocalAI (só sem thinking) devem usar o
+// fallback por mensagem de usuário, logo retornam false aqui.
+func TestSupportsAssistantPrefill_OnlyWithThinking(t *testing.T) {
+	if !SupportsAssistantPrefill(&ProviderConfig{Type: ProviderOpenAI, APIFormat: APIFormatOpenAIResponses, BaseURL: "https://api.openai.com/v1"}) {
+		t.Fatal("openai real responses deveria suportar prefill")
+	}
+	if SupportsAssistantPrefill(&ProviderConfig{Type: ProviderLocalAI, BaseURL: "http://localhost:8080/v1"}) {
+		t.Fatal("localai não deveria reportar suporte incondicional a prefill")
+	}
+	if SupportsAssistantPrefill(&ProviderConfig{Type: ProviderOpenAI, APIFormat: APIFormatOpenAI, BaseURL: "https://example.com/v1"}) {
+		t.Fatal("openai compatible não deveria suportar prefill")
+	}
+	if SupportsAssistantPrefill(nil) {
+		t.Fatal("nil provider não suporta prefill")
+	}
+}
+
 func TestConvertTools(t *testing.T) {
 	tools := []ToolDefinition{
 		{

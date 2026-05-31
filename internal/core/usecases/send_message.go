@@ -170,10 +170,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 			return "", fmt.Errorf("%s", errMsg)
 		}
+		// Capacidades por provider/modelo (Issue #124): quando o provider/modelo
+		// não suporta assistant prefill (ex.: Qwen/LocalAI), NÃO falhamos — fazemos
+		// fallback de continuação por mensagem de usuário ("continue a partir deste
+		// texto: ..."). O prompt volta a terminar em user e prossegue normalmente.
 		if uc.providerSvc == nil || !uc.providerSvc.SupportsAssistantPrefill(ctx, activeProfile) {
-			errMsg := "provedor/modelo ativo não suporta continuação com assistant prefill"
-			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
-			return "", fmt.Errorf("%s", errMsg)
+			params.AllowAssistantPrefill = false
+			params.ContinueViaUserMessage = true
+			log.Printf("[SendMessage] provider/modelo sem suporte a assistant prefill — usando fallback de continuação por mensagem de usuário (conversa %s)", req.ConversationID)
 		}
 	}
 	userContent := pctx.UserContent
