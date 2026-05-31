@@ -158,6 +158,77 @@ describe('DataManagementPage', () => {
     expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('conversationIds');
   });
 
+  it('exporta servidores MCP em formato mcp-json e limpa opcoes incompatíveis', async () => {
+    const user = userEvent.setup();
+    mockListMCPServers.mockResolvedValue([{ slug: 'server-1' }]);
+
+    render(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByLabelText('Incluir credenciais criptografadas no export'));
+    await user.type(screen.getByPlaceholderText('Digite a senha de exportação'), 'segredo');
+    await user.click(screen.getByLabelText('Incluir servidores MCP persistidos no banco'));
+
+    await waitFor(() => {
+      expect(mockListMCPServers).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByLabelText('Exportar servidores MCP em formato compatível (mcp-json)'));
+
+    expect(screen.getByLabelText('Incluir conversas do histórico')).toBeDisabled();
+    expect(screen.getByLabelText('Incluir providers persistidos no banco')).toBeDisabled();
+    expect(screen.getByLabelText('Incluir tasklists persistidas no banco')).toBeDisabled();
+    expect(screen.getByLabelText('Incluir credenciais criptografadas no export')).toBeDisabled();
+    expect(screen.queryByPlaceholderText('Digite a senha de exportação')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        explicitSelection: true,
+        includeCredentials: false,
+        outputFormat: 'mcp-json',
+        mcpServerSlugs: ['server-1'],
+      }));
+    });
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('conversationIds');
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('providerIds');
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('taskListIds');
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('credentialExportPassword');
+  });
+
+  it('exige senha para exportar credenciais e envia senha aparada', async () => {
+    const user = userEvent.setup();
+
+    render(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByLabelText('Incluir credenciais criptografadas no export'));
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    expect(mockExportData).not.toHaveBeenCalled();
+    expect(screen.getByText('Informe uma senha para criptografar as credenciais exportadas.')).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText('Digite a senha de exportação'), '  segredo  ');
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        explicitSelection: true,
+        includeCredentials: true,
+        credentialExportPassword: 'segredo',
+        outputFormat: 'json',
+        conversationIds: ['conversation-1', 'conversation-2'],
+      }));
+    });
+  });
+
   it('mostra preview e confirma importacao', async () => {
     const user = userEvent.setup();
     const jsonData = JSON.stringify({
