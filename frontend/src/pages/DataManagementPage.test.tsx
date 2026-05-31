@@ -352,6 +352,55 @@ describe('DataManagementPage', () => {
     expect(screen.getByRole('button', { name: 'Importar agora' })).toBeDisabled();
   });
 
+  it('reanalisar senha de credenciais ja vista quando analise atual foi limpa', async () => {
+    const user = userEvent.setup();
+    const jsonData = JSON.stringify({
+      version: 2,
+      options: { includeCredentials: true, includeAudio: false },
+      resources: {
+        conversations: [],
+        providers: [],
+        taskLists: [],
+        credentials: { mode: 'encrypted' },
+      },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
+    mockAnalyzeImportData.mockImplementation(async (_payload: string, password: string) => ({
+      conflictCount: 0,
+      ...(password === 'errada' ? { credentialAnalysisError: 'invalid-password' } : {}),
+    }));
+
+    render(<DataManagementPage />);
+    await user.click(screen.getByRole('button', { name: 'Selecionar arquivo JSON' }));
+
+    const passwordInput = await screen.findByPlaceholderText('Digite a senha de exportação');
+    await user.type(passwordInput, 'errada');
+
+    await waitFor(() => {
+      expect(mockAnalyzeImportData).toHaveBeenCalledWith(jsonData, 'errada');
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Analisando conflitos do arquivo...')).not.toBeInTheDocument();
+    });
+
+    await user.clear(passwordInput);
+    await user.type(passwordInput, 'outra');
+    await user.clear(passwordInput);
+    await user.type(passwordInput, 'errada');
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+    });
+
+    await waitFor(() => {
+      const invalidPasswordCalls = mockAnalyzeImportData.mock.calls.filter(([, password]) => password === 'errada');
+      expect(invalidPasswordCalls).toHaveLength(2);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Importar agora' }));
+    expect(mockImportData).not.toHaveBeenCalled();
+    expect(screen.getByText('Não foi possível validar a senha informada para as credenciais.')).toBeInTheDocument();
+  });
+
   it('nao duplica analise inicial de importacao criptografada', async () => {
     const user = userEvent.setup();
     const jsonData = JSON.stringify({

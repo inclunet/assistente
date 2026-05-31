@@ -511,6 +511,7 @@ export default function DataManagementPage() {
     if (importAnalysisInFlightKeyRef.current === nextRequest.key) {
       return;
     }
+    lastAnalyzedImportRef.current = null;
     setImportAnalysis(null);
     setIsAnalyzingImport(true);
     const timer = window.setTimeout(() => {
