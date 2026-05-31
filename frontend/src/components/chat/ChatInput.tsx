@@ -429,7 +429,15 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         )}
       </div>
 
-      <div className="chat-input__draft-status" role="status" aria-live="polite">
+      {/* Container sempre montado para preservar o espaço visual (min-height no CSS)
+          e evitar layout shift. Os atributos de live region só são aplicados quando
+          há conteúdo, evitando uma live region vazia anunciável; quando vazio o
+          container fica oculto para leitores de tela. */}
+      <div
+        className="chat-input__draft-status"
+        aria-hidden={showDraftSaved ? undefined : true}
+        {...(showDraftSaved ? { role: 'status', 'aria-live': 'polite' as const } : {})}
+      >
         {showDraftSaved && (
           <span className="chat-input__draft-indicator">
             <CheckCircleOutlined aria-hidden="true" />

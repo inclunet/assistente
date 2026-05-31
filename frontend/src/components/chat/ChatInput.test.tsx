@@ -206,6 +206,36 @@ describe('ChatInput', () => {
     expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
   });
 
+  it('não monta live region anunciável quando não há rascunho', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message=""
+        onMessageChange={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('aplica live region polida apenas quando há rascunho', () => {
+    getSkillsSpy.mockResolvedValueOnce([]);
+
+    render(
+      <ChatInput
+        onSend={() => {}}
+        message="Rascunho anunciável"
+        onMessageChange={() => {}}
+      />,
+    );
+
+    const liveRegion = screen.getByRole('status');
+    expect(liveRegion).toHaveAttribute('aria-live', 'polite');
+    expect(liveRegion).toHaveTextContent('chat.draftSaved');
+  });
+
   it('mostra indicador quando apenas os anexos são controlados e não-vazios', () => {
     getSkillsSpy.mockResolvedValueOnce([]);
     const controlledMedia = mediaResult(
