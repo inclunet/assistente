@@ -110,14 +110,12 @@ func TestChatMessageIndexCreationIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestChatMessageUpdatedAtIndexColumns confirma que idx_chat_messages_updated_at
-// indexa (conversation_id, updated_at), na ordem esperada.
-func TestChatMessageUpdatedAtIndexColumns(t *testing.T) {
-	sqlDB := setupChatMessageIndexTestDB(t)
-
-	rows, err := sqlDB.Query(`PRAGMA index_info(idx_chat_messages_updated_at)`)
+// indexColumns retorna as colunas (na ordem) de um índice via PRAGMA index_info.
+func indexColumns(t *testing.T, sqlDB *sql.DB, index string) []string {
+	t.Helper()
+	rows, err := sqlDB.Query(fmt.Sprintf("PRAGMA index_info(%s)", index))
 	if err != nil {
-		t.Fatalf("PRAGMA index_info: %v", err)
+		t.Fatalf("PRAGMA index_info(%s): %v", index, err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -134,9 +132,27 @@ func TestChatMessageUpdatedAtIndexColumns(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("rows err: %v", err)
 	}
+	return cols
+}
 
-	want := []string{"conversation_id", "updated_at"}
-	if fmt.Sprint(cols) != fmt.Sprint(want) {
-		t.Errorf("colunas do índice updated_at = %v, esperado %v", cols, want)
+// TestChatMessageIndexColumns confirma que os índices de created_at e updated_at
+// indexam as colunas esperadas, na ordem correta. O índice de created_at inclui
+// `id` para resolver empates de created_at sem ordenação adicional (queries como
+// GetAllConversationMessagesWithContext ordenam por created_at ASC, id ASC).
+func TestChatMessageIndexColumns(t *testing.T) {
+	sqlDB := setupChatMessageIndexTestDB(t)
+
+	cases := []struct {
+		index string
+		want  []string
+	}{
+		{"idx_chat_messages_created_at", []string{"conversation_id", "created_at", "id"}},
+		{"idx_chat_messages_updated_at", []string{"conversation_id", "updated_at"}},
+	}
+	for _, tc := range cases {
+		got := indexColumns(t, sqlDB, tc.index)
+		if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+			t.Errorf("colunas de %s = %v, esperado %v", tc.index, got, tc.want)
+		}
 	}
 }
