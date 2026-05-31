@@ -2568,12 +2568,47 @@ func ensureTaskNoteExternalUniqueIndex() {
 	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_notes_external_source_id ON task_notes (external_source, external_id) WHERE external_source <> '' AND external_id <> ''`)
 }
 
+// ensureChatMessageWindowIndex cria os índices de ordenação/paginação de
+// chat_messages. Os campos CreatedAt/UpdatedAt vivem em UUIDModel (issue #20),
+// compartilhado por vários models, então NÃO adicionamos `gorm:"index"` lá —
+// indexaria todas as tabelas indevidamente. Em vez disso, os índices ficam
+// explícitos aqui, escopados a chat_messages. Todos usam CREATE INDEX IF NOT
+// EXISTS, garantindo idempotência no boot/AutoMigrate.
+//
+// Cobertura de queries (verificado em database.go):
+//   - Os ORDER BY de mensagens usam sempre `chat_messages.created_at` (ASC/DESC)
+//     com desempate por `id`, quase sempre filtrando por `conversation_id`
+//     (e por vezes `parent_id`/`turn_id`). Os índices _window/_timeline_window
+//     cobrem os caminhos com parent_id; idx_chat_messages_created_at
+//     (conversation_id, created_at, id) cobre o caso sem o predicado de
+//     parent_id — ex.: GetAllConversationMessagesWithContext, que ordena por
+//     `created_at ASC, id ASC`. O `id` no índice permite resolver os empates de
+//     created_at pela própria leitura ordenada do índice, sem sort adicional.
+//   - Nenhuma query atual ordena ou filtra `chat_messages.updated_at`
+//     (ordenações por updated_at existem apenas em conversations/mcp). Ainda
+//     assim, o issue #20 pede o índice e o campo é atualizado a cada edição de
+//     mensagem; idx_chat_messages_updated_at (conversation_id, updated_at)
+//     deixa pronto o caminho para listagens incrementais por "modificadas
+//     recentemente" sem custo relevante de manutenção.
+//
+// Falhas de criação de índice são logadas como aviso e não abortam o boot: o
+// app ainda funciona sem o índice (apenas com queries mais lentas), e abortar a
+// inicialização por causa de um índice seria pior do que degradar performance.
 func ensureChatMessageWindowIndex() {
 	if db == nil {
 		return
 	}
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_window ON chat_messages (conversation_id, parent_id, created_at, id)`)
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_timeline_window ON chat_messages (conversation_id, parent_id, turn_id, created_at, id)`)
+	indexStmts := []string{
+		`CREATE INDEX IF NOT EXISTS idx_chat_messages_window ON chat_messages (conversation_id, parent_id, created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_messages_timeline_window ON chat_messages (conversation_id, parent_id, turn_id, created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages (conversation_id, created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_messages_updated_at ON chat_messages (conversation_id, updated_at)`,
+	}
+	for _, stmt := range indexStmts {
+		if err := db.Exec(stmt).Error; err != nil {
+			log.Printf("[Database] AVISO: falha ao criar índice de chat_messages: %v (stmt: %s)", err, stmt)
+		}
+	}
 }
 
 // dedupCredentialEntriesBeforeMigrate remove duplicatas em
