@@ -539,6 +539,90 @@ export namespace channels {
 
 export namespace chat {
 	
+	export class TurnSegmentToolFunction {
+	    name: string;
+	    arguments: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TurnSegmentToolFunction(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.arguments = source["arguments"];
+	    }
+	}
+	export class TurnSegmentToolCall {
+	    id: string;
+	    type: string;
+	    function: TurnSegmentToolFunction;
+	    result?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TurnSegmentToolCall(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.type = source["type"];
+	        this.function = this.convertValues(source["function"], TurnSegmentToolFunction);
+	        this.result = source["result"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TurnSegment {
+	    type: string;
+	    content?: string;
+	    toolCalls?: TurnSegmentToolCall[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TurnSegment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.content = source["content"];
+	        this.toolCalls = this.convertValues(source["toolCalls"], TurnSegmentToolCall);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class EnrichedMessage {
 	    id: string;
 	    conversationId: string;
@@ -560,6 +644,7 @@ export namespace chat {
 	    timestamp: number;
 	    isStreaming: boolean;
 	    internal: boolean;
+	    turnSegments?: TurnSegment[];
 	
 	    static createFrom(source: any = {}) {
 	        return new EnrichedMessage(source);
@@ -586,6 +671,7 @@ export namespace chat {
 	        this.timestamp = source["timestamp"];
 	        this.isStreaming = source["isStreaming"];
 	        this.internal = source["internal"];
+	        this.turnSegments = this.convertValues(source["turnSegments"], TurnSegment);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

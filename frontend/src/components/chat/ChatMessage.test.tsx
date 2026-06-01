@@ -64,7 +64,9 @@ vi.mock('./ReasoningSection', () => ({
 }));
 
 vi.mock('./ToolCallsSection', () => ({
-  ToolCallsSection: () => <div data-testid="toolcalls" />,
+  ToolCallsSection: ({ toolCallsJson }: { toolCallsJson?: string }) => (
+    <div data-testid="toolcalls" data-json={toolCallsJson ?? ''} />
+  ),
 }));
 
 describe('ChatMessage', () => {
@@ -247,6 +249,53 @@ describe('ChatMessage', () => {
     expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
   });
 
+  // Issue #150: o backend envia segmentos canônicos (texto → tools → texto →
+  // tools → resposta final) e o ChatMessage precisa renderizar tudo dentro de
+  // UMA única entrada acessível, com a cadeia de raciocínio em ordem.
+  it('renderiza segmentos canônicos do turno em ordem cronológica numa única entrada', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'turn-final',
+      conversationId,
+      role: 'assistant',
+      content: 'resposta final',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        { type: 'text', content: 'vou pesquisar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{
+            id: 'tool-1',
+            type: 'function',
+            function: { name: 'search', arguments: '{}' },
+            result: 'resultado da busca',
+          }],
+        },
+        { type: 'text', content: 'agora vou refinar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{
+            id: 'tool-2',
+            type: 'function',
+            function: { name: 'fetch', arguments: '{}' },
+          }],
+        },
+        { type: 'text', content: 'resposta final' },
+      ],
+    });
+
+    const { container } = render(<ChatMessage message={message} />);
+
+    expect(container.querySelectorAll('.chat-message')).toHaveLength(1);
+    expect(screen.getByText('vou pesquisar')).toBeInTheDocument();
+    expect(screen.getByText('agora vou refinar')).toBeInTheDocument();
+    expect(screen.getByText('resposta final')).toBeInTheDocument();
+    expect(screen.getAllByTestId('toolcalls')).toHaveLength(2);
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('chat.assistant');
+  });
+
   it('renderiza placeholder acessível para turno sem resposta do assistente', () => {
     const message = new chat.EnrichedMessage({
       id: 'tool-only',
@@ -269,5 +318,44 @@ describe('ChatMessage', () => {
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
       displayContent: 'chat.toolOnlyTurnPlaceholder',
     }));
+  });
+
+  // Turnos tool-only persistidos chegam do backend com `turnSegments` contendo
+  // apenas um segmento `tool_calls`. Sem injetar o placeholder no início, o
+  // leitor de tela perderia o contexto e a entrada soaria como resposta cortada.
+  it('injeta placeholder textual antes das tools quando o turno tool-only tem apenas turnSegments', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'tool-only-segmented',
+      conversationId,
+      role: 'assistant',
+      content: '',
+      source: 'tool_only_turn_placeholder',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        {
+          type: 'tool_calls',
+          toolCalls: [{
+            id: 'tool-1',
+            type: 'function',
+            function: { name: 'search', arguments: '{}' },
+            result: 'ok',
+          }],
+        },
+      ],
+    });
+
+    const { container } = render(<ChatMessage message={message} />);
+
+    const placeholder = screen.getByText('chat.toolOnlyTurnPlaceholder');
+    const tools = screen.getByTestId('toolcalls');
+    expect(placeholder).toBeInTheDocument();
+    expect(tools).toBeInTheDocument();
+    expect(container.querySelectorAll('.chat-message')).toHaveLength(1);
+    // Placeholder precisa vir ANTES das tools na ordem do DOM para que o NVDA
+    // anuncie o contexto antes do bloco de ferramentas.
+    expect(placeholder.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

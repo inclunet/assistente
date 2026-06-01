@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
+import { getMessageTurnSegments } from '../../lib/chatMessageTree';
 import { chat } from '../../../wailsjs/go/models';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
@@ -103,10 +104,10 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
     for (const tn of turnNodes) {
       if (tn.message.role !== 'assistant') continue;
       finalNode = tn;
-      const existingSegments = (tn.message as Message)._turnSegments;
-      const hasCanonicalSegments = existingSegments && existingSegments.length > 0;
+      const existingSegments = getMessageTurnSegments(tn.message as Message);
+      const hasCanonicalSegments = !!(existingSegments && existingSegments.length > 0);
       if (hasCanonicalSegments) {
-        canonicalSegments.push(...existingSegments);
+        canonicalSegments.push(...(existingSegments as TurnSegment[]));
       }
 
       // Text segment (intermediate reasoning or final answer)
