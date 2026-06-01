@@ -55,13 +55,16 @@ export function useWorkspaceKeyboardShortcuts() {
       const target = event.target as HTMLElement;
 
       // Ctrl+? (Ctrl+Shift+/): alterna o painel global de atalhos.
-      // Trata variações de layout: alguns teclados emitem `?` direto, outros `/`
-      // com Shift; `code === 'Slash'` cobre a tecla física em layouts US.
+      // Trata variações de layout: alguns teclados emitem `?` direto (o caractere
+      // já reflete o Shift), outros exigem Shift sobre `/` (`code === 'Slash'`
+      // cobre a tecla física em layouts US). Quando a tecla base é `/`/`Slash`,
+      // o Shift é obrigatório — assim `Ctrl+/` puro NÃO é interceptado.
       if (
         event.ctrlKey &&
         !event.altKey &&
         !event.metaKey &&
-        (event.key === '?' || event.key === '/' || event.code === 'Slash')
+        (event.key === '?' ||
+          (event.shiftKey && (event.key === '/' || event.code === 'Slash')))
       ) {
         event.preventDefault();
         useShortcutsHelpStore.getState().toggle();
