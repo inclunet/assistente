@@ -17,6 +17,16 @@ describe('Modal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('expoe aria-modal="true" no dialogo', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Titulo">
+        <button>Acao</button>
+      </Modal>
+    );
+
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
+  });
+
   it('fecha ao pressionar Escape', () => {
     const onClose = vi.fn();
 

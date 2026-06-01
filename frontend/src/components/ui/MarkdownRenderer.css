@@ -111,6 +111,20 @@
   border-radius: var(--border-radius);
 }
 
+.markdown-content img.markdown-image--interactive {
+  cursor: zoom-in;
+  transition: box-shadow var(--duration-fast) var(--ease-default);
+}
+
+.markdown-content img.markdown-image--interactive:hover {
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.markdown-content img.markdown-image--interactive:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 /* Wrappers de código e tabela */
 .markdown-content .code-block,
 .markdown-content .table-block {

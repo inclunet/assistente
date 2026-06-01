@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import MarkdownIt from 'markdown-it';
@@ -10,6 +10,7 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { loadMonacoLanguage } from '../../lib/monacoLanguageLoader';
 import { markdownItDeepLink } from '../../lib/markdownItDeepLink';
 import { isDeepLink, parseDeepLink, executeDeepLink } from '../../lib/deepLinks';
+import { ImageViewerModal, type ImageViewerImage } from './ImageViewerModal';
 import {
   buildEditorDestinationSubmenu,
   type EditorSendTargetOption,
@@ -107,6 +108,11 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
 }: MarkdownRendererProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
+  const [imageViewer, setImageViewer] = useState<{
+    open: boolean;
+    images: ImageViewerImage[];
+    index: number;
+  }>({ open: false, images: [], index: 0 });
   const mermaidInitializedRef = useRef(false);
   const editorsRef = useRef<Map<string, MonacoEditor>>(new Map());
   const mermaidApiRef = useRef<MermaidApi | null>(null);
@@ -512,6 +518,81 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     ]
   );
 
+  const setupImages = useCallback(
+    (cleanups: Array<() => void>) => {
+      if (!containerRef.current) return;
+      const root = containerRef.current;
+
+      const imageElements = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
+      if (imageElements.length === 0) return;
+
+      // Constrói a lista apenas com imagens válidas (com src não vazio) e
+      // mapeia o índice do elemento no DOM para o índice na lista filtrada,
+      // garantindo que a navegação prev/next nunca caia numa imagem quebrada.
+      const validImages: ImageViewerImage[] = [];
+
+      imageElements.forEach((img) => {
+        const src = img.getAttribute('src') || '';
+        if (!src) return;
+
+        const alt = img.getAttribute('alt') || undefined;
+        const viewerIndex = validImages.length;
+        validImages.push({ src, alt });
+
+        img.classList.add('markdown-image--interactive');
+        img.setAttribute('role', 'button');
+        img.setAttribute('tabindex', '0');
+        const altText = alt?.trim();
+        img.setAttribute(
+          'aria-label',
+          altText
+            ? `${altText} — ${t('ui.imageViewer.openHint')}`
+            : t('ui.imageViewer.openHint'),
+        );
+
+        const parentLink = img.closest('a[href]');
+
+        const open = () => {
+          setImageViewer({ open: true, images: validImages, index: viewerIndex });
+        };
+
+        const onClick = (e: MouseEvent) => {
+          // Quando a imagem está dentro de um link, cliques modificados
+          // (Ctrl/Cmd/Shift/Alt) ou que não sejam do botão esquerdo
+          // (ex.: middle-click) devem seguir a navegação padrão do
+          // navegador (abrir em nova aba/janela) em vez de abrir o viewer.
+          if (parentLink) {
+            const isModifiedClick = e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
+            const isNonPrimaryButton = typeof e.button === 'number' && e.button !== 0;
+            if (isModifiedClick || isNonPrimaryButton) {
+              return;
+            }
+          }
+
+          e.preventDefault();
+          e.stopPropagation();
+          open();
+        };
+
+        const onKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            open();
+          }
+        };
+
+        img.addEventListener('click', onClick);
+        img.addEventListener('keydown', onKeyDown);
+        cleanups.push(() => {
+          img.removeEventListener('click', onClick);
+          img.removeEventListener('keydown', onKeyDown);
+        });
+      });
+    },
+    [t],
+  );
+
   const renderMermaidDiagrams = useCallback(
     async (cleanups: Array<() => void>) => {
       if (!containerRef.current) return;
@@ -838,6 +919,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     }
 
     addContextMenus(cleanups);
+    setupImages(cleanups);
     void renderMermaidDiagrams(cleanups);
 
     const container = containerRef.current;
@@ -861,7 +943,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       });
       editorsRef.current.clear();
     };
-  }, [addContextMenus, closeMenu, handleDeepLinkClick, handleDeepLinkKeydown, html, renderMermaidDiagrams]);
+  }, [addContextMenus, closeMenu, handleDeepLinkClick, handleDeepLinkKeydown, html, renderMermaidDiagrams, setupImages]);
 
   return (
     <>
@@ -878,6 +960,12 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
         ariaLabel={menuState.ariaLabel}
         onClose={closeMenu}
         onSelect={onSelectMenuItem}
+      />
+      <ImageViewerModal
+        isOpen={imageViewer.open}
+        images={imageViewer.images}
+        initialIndex={imageViewer.index}
+        onClose={() => setImageViewer((prev) => ({ ...prev, open: false }))}
       />
     </>
   );
