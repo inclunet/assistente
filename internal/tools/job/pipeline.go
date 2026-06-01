@@ -48,7 +48,7 @@ func (t *PipelineTool) Parameters() json.RawMessage {
     "enabled": {"type": "boolean", "description": "Enable or disable scheduling for jobs in this pipeline."},
     "name": {"type": "string", "description": "Pipeline display name. Required when creating."},
     "description": {"type": "string"},
-    "metadata": {"type": "object", "additionalProperties": true}
+    "metadata": {"type": "object", "additionalProperties": true, "description": "Free-form object of arbitrary key/value metadata for the pipeline. MUST be passed as a JSON object, NOT as a stringified JSON. Example: {\"owner\": \"ops\"}."}
   },
   "additionalProperties": false
 }`)
@@ -58,6 +58,11 @@ func (t *PipelineTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if strings.TrimSpace(string(args)) == "" {
 		args = json.RawMessage(`{}`)
 	}
+	coerced, cerr := coerceArgs(args, pipelineTypedFields)
+	if cerr != nil {
+		return tools.ToolResult{Content: "Error parsing arguments: " + cerr.Error(), IsError: true}, nil
+	}
+	args = coerced
 	var params pipelineArgs
 	if err := json.Unmarshal(args, &params); err != nil {
 		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
