@@ -148,8 +148,8 @@ export function useWorkspaceKeyboardShortcuts() {
         if (isInput) return;
         event.preventDefault();
         if (isModalOpen()) return;
-        addTab('chat', 'Nova conversa');
-        announce('Nova aba criada');
+        addTab('chat', i18next.t('chat.newConversation'));
+        announce(i18next.t('workspace.tabCreated'));
         return;
       }
 
