@@ -51,4 +51,28 @@ describe('Modal', () => {
 
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('aplica role="application" no corpo por padrao (forca focus mode no NVDA)', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Configuracoes">
+        <button>Salvar</button>
+      </Modal>
+    );
+
+    const application = screen.getByRole('application');
+    expect(application).toHaveClass('modal-body');
+    expect(screen.queryByRole('document')).toBeNull();
+  });
+
+  it('aplica role="document" no corpo quando readingMode esta ligado', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Detalhes" readingMode>
+        <p>Texto para leitura</p>
+      </Modal>
+    );
+
+    const document = screen.getByRole('document');
+    expect(document).toHaveClass('modal-body');
+    expect(screen.queryByRole('application')).toBeNull();
+  });
 });

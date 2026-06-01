@@ -106,7 +106,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   } : null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={t('tokenStats.title')} size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('tokenStats.title')} size="md" readingMode>
       <div className="token-stats-modal__content">
         {loading && (
           <div className="token-stats-modal__loading">
