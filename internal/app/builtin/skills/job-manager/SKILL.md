@@ -281,7 +281,7 @@ Create and then disable an ops pipeline:
 - Use `events.emit_when` to avoid noisy downstream propagation.
 - For fan-out, set `events.for_each` to the output array path and optionally `emit_when` to filter items per iteration.
 - Before enabling a freshly created job, validate it with `dry_run: true`. For repeated mocked executions during development, set `dry_run_config.enabled: true` with a `mock_output`.
-- **Round-tripping dry-run config:** when reading a job, the persisted dry-run config comes back under the `dry_run` key (matching `jobs.Job`'s JSON shape). When creating/updating, send it as `dry_run_config`. Don't pipe the read payload straight back as a write — rename the key first.
+- **Round-tripping a read payload:** `job(read)` returns the persisted shape of `jobs.Job` (`id`, `dry_run`, ...), but the write API uses different keys (`job_id`, `dry_run_config`). To turn a read payload into an update, rename **both** keys: `id` → `job_id` and `dry_run` → `dry_run_config`. Otherwise the tool may treat the call as a create (no `job_id`) and/or silently drop the dry-run config.
 - Never combine **action flags** (`delete`, `run`, `dry_run`, `list_runs`, `list_events`, `run_id`) with each other or with write fields / `enabled` — they are mutually exclusive. (Note: `enabled` together with other write fields **is** allowed; it just becomes a regular update.)
 - When listing runs/events, prefer narrow filters (status, time window, `event_name`) over large `limit` values.
 - For destructive actions (`delete`), confirm with the user first.
