@@ -1,6 +1,6 @@
 ---
 name: job-manager
-version: 2.0.0
+version: 2.1.0
 description: Provides context and instructions for managing event-driven automation jobs and pipelines via the `job` and `job_pipeline` tools (DB-backed) — creation, editing, triggers, conditional events, runs and events inspection
 displayName: Job Manager
 author: Assistente
@@ -141,20 +141,229 @@ emit_when: '{{ eq .output.status "Done" }}'
 | Input | `trigger.when` | Avoids unnecessary tool calls |
 | Output | `events.emit_when` | Avoids unnecessary event propagation |
 
-## Template Functions
+## Template Reference
 
-Available in `inputs`, `when`, `emit_when`, `payload_template`, `output.map`:
+This is the **formal contract** for every templated field (`inputs`, `output.map`, `trigger.when`, `events.emit_when`, `events.payload_template`). Read it before writing any template — most job bugs come from a wrong mental model here. (Source of truth: `internal/jobs/template.go` and `internal/jobs/executor.go`.)
 
-| Function | Usage | Description |
-|----------|-------|-------------|
-| `eq`, `ne`, `lt`, `gt` | `{{ eq .output.x "y" }}` | Comparison |
-| `pluck` | `{{ pluck .output.items "key" }}` | Extract field from each item |
-| `any` | `{{ any .output.items "status" "critical" }}` | Check if any item matches |
-| `join` | `{{ join .output.tags ", " }}` | Join slice with separator |
-| `json` | `{{ json .output.data }}` | Serialize to JSON string |
-| `default` | `{{ default 50 .event.limit }}` | Fallback for nil/zero |
-| `date` | `{{ date .now "2006-01-02" }}` | Format time |
-| `secret` | `{{ secret "API_KEY" }}` | Resolve secret by name |
+### Engine
+
+The engine is **Go `text/template`** — *not* Jinja, Mustache or Handlebars. Go syntax, Go semantics, Go pipelines. A template that "looks right" in another engine will silently misbehave here.
+
+### Root variables (the only three)
+
+The data passed to every template is exactly:
+
+```go
+data := map[string]any{
+    "event":  ctx.Event,   // payload of the event that triggered the job
+    "output": ctx.Output,  // the tool result of THIS job — or the current item in fan-out
+    "now":    ctx.Now,     // time.Now()
+}
+```
+
+| Variable | What it is | When to use it |
+|----------|-----------|----------------|
+| `.event.X` (≡ `$.event.X`) | Payload of the event that triggered the job | `trigger.type: event` jobs consuming the upstream payload, in `inputs`/`when` |
+| `.output.X` | Tool result of this job **or the current item when `for_each` fan-out is active** | `output.map`, `emit_when`, `payload_template` |
+| `.now` | `time.Now()` (use with `date`) | timestamps |
+
+Key facts:
+
+- `$` is the template root. At the top level `.event` **is** `$.event` — they are interchangeable. `$` only matters **inside a `range`**, where `.` is rebound to the current element but `$.event` still reaches the root.
+- There is **no `.item`**. In a `for_each` fan-out, the current array element becomes `.output` (see [Fan-out and iteration](#patterns-fan-out-and-iteration)). Writing `{{ .item.key }}` resolves to nothing.
+- A **missing reference renders `<no value>`** — never an error, never `<nil>`. In conditions (`when`/`emit_when`), `<no value>`, `""` and `"false"` are all **falsy**.
+
+### Functions
+
+**Go built-ins** are available: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `and`, `or`, `not`, `index`, `len`, `print`, `printf`, plus actions `if`/`else`, `range`, `with`. There is **no `upper`, `lower` or `toJson`** — they do not exist; do not use them.
+
+**Custom functions** (from `templateFuncs`):
+
+| Function | Signature / Usage | Description |
+|----------|-------------------|-------------|
+| `pluck` | `{{ pluck .output.issues "key" }}` | Extract a (dot-path) field from every item of a slice → new slice |
+| `any` | `{{ any .output.issues "fields.priority.name" "Critical" }}` | True if any item's dot-path equals the value |
+| `join` | `{{ join .output.keys ", " }}` | Join a slice into a string with a separator |
+| `json` | `{{ json .output }}` | Serialize a value to a JSON string (this is the `toJson` replacement) |
+| `default` | `{{ default 50 .event.limit }}` | **Argument order is `default <fallback> <value>`** — returns `<value>` unless it is nil/zero, in which case returns `<fallback>`. ⚠️ Fallback comes **first** (unlike Sprig's `default`). |
+| `date` | `{{ date .now "2006-01-02" }}` | Format a `time.Time` (or RFC3339 string) using a Go layout |
+| `secret` | `{{ secret "API_KEY" }}` | Resolve a secret by name — never hardcode credentials |
+| `adf_markdown` | `{{ adf_markdown .event.description }}` | Render an Atlassian Document Format (ADF) node to Markdown |
+| `adf_text` | `{{ adf_text .event.description }}` | Render an ADF node to plain text |
+
+### Auto-corrections applied before parsing
+
+Two forgiving rewrites run on every template **before** it is parsed:
+
+- **`fixTemplateDots`**: a leading `{{ event.x }}` / `{{ output.x }}` / `{{ now }}` gets the missing dot → `{{ .event.x }}`. This only fixes the root word at the **start** of a `{{ … }}` block; inside `if`/`range`/`with` you must write the dot yourself (e.g. `{{ if .event.x }}`). **Always write the leading dot** — do not rely on the auto-fix.
+- **`fixArrayAccess`**: JS-style numeric dot indexing is converted to a Go `index` call → `{{ .event.content.0.id }}` becomes `{{ (index .event.content 0).id }}`. You can write either form.
+
+### `payload_template` renders a JSON string
+
+`events.payload_template` is special: the template must render a **JSON object string** that is then `json.Unmarshal`-ed into the emitted payload map. Rules:
+
+- The rendered text must be a valid JSON **object** (a `map`), not an array or scalar.
+- Quote dynamic string values: `"id": "{{ .output.id }}"`. For nested objects/arrays use `json`: `"raw": {{ json .output.fields }}`.
+- **Silent fallback**: if the rendered text is not valid JSON, the error is only logged and the job emits the **original, unshaped output** instead. There is no run failure — so a broken `payload_template` looks like "it ignored my template". Validate it with a dry-run and inspect the emitted payload.
+
+### Common template errors & how to diagnose
+
+| Symptom | Cause | Diagnosis / fix |
+|---------|-------|-----------------|
+| Field comes out as `<no value>` | Wrong path, or used `.item.*` in fan-out, or referenced `.output.*` in a non-fan-out `inputs` template (inputs only see `.event`/`.now`) | Inspect the resolved value with a dry-run; confirm the path against the upstream payload via `job(job_id, run_id)` → `output` |
+| `template: invalid character ':' in variable reference` | JSON/Jinja-style syntax inside `{{ }}` (e.g. `{{ event:foo }}` or `{{ {"a":1} }}`) | Use Go syntax. To emit a JSON literal in `payload_template`, put the JSON **outside** `{{ }}` and only interpolate values inside them |
+| `payload_template` seems ignored | Rendered text is not a valid JSON object → silent fallback to raw output | Dry-run and check the emitted payload; ensure the template renders `{ … }` with quoted strings |
+| Used `upper`/`lower`/`toJson` and parse fails | Those functions do not exist | Use `json` for serialization; do case changes upstream or omit |
+| `default` returns the wrong branch | Argument order: it is `default <fallback> <value>` | Put the fallback first: `{{ default 50 .event.limit }}` |
+
+See [`troubleshooting.md`](./troubleshooting.md) for runtime (non-template) errors.
+
+## Patterns: fan-out and iteration
+
+`events.for_each` turns one job run into **N events** — one per element of an output array. Use it whenever a single tool call returns a list and you want one downstream job run **per item** (e.g. one task per Jira issue).
+
+How it works (`resolveForEachItems` + `emitSuccess` in `executor.go`):
+
+1. `for_each` is a **dot-path into the tool output** that must resolve to an array (e.g. `"issues"`, `"data.items"`). If it does not resolve to an array, the job falls back to emitting a **single** event.
+2. For each element:
+   - If the element is an object, its keys become the event payload (so a child reads `{{ .event.<key> }}`). If it is a scalar, it is wrapped as `{{ .event.content }}`.
+   - Two bookkeeping fields are added: `_fan_out_index` and `_fan_out_total`.
+   - `emit_when` is evaluated **per item**, with the item exposed as `.output` — filter items with `{{ .output.X }}`.
+   - `payload_template` is applied **per item**, again with the item as `.output`.
+3. Each emitted event is published under `events.on_success`.
+
+> ⚠️ Inside the producer's `emit_when` / `payload_template`, the current item is `.output.X` — **never `.item.X`** (`.item` does not exist). In the **child** job that listens to the event, the same fields are read as `.event.X`.
+
+### Recipe: one task per issue from a Jira search
+
+**Producer** — searches Jira and fans out one event per issue:
+
+```json
+{
+  "name": "FSD Search Tickets",
+  "tool": "mcp_jira__search_issues",
+  "triggers": [{ "type": "cron", "expression": "0 9 * * 1-5" }],
+  "inputs": { "jql": "project = FSD AND status = 'To Do'" },
+  "events": {
+    "on_success": "fsd.issue.found",
+    "for_each": "issues",
+    "emit_when": "{{ ne .output.fields.status.name \"Done\" }}",
+    "payload_template": "{ \"key\": \"{{ .output.key }}\", \"summary\": \"{{ .output.fields.summary }}\" }"
+  }
+}
+```
+
+**Consumer** — one run per emitted issue, reading the item via `.event`:
+
+```json
+{
+  "name": "FSD Create Task Per Issue",
+  "tool": "mcp_tasklist__create_task",
+  "triggers": [{ "type": "event", "listen": "fsd.issue.found" }],
+  "inputs": {
+    "task_list_slug": "fsd",
+    "title": "{{ .event.key }} — {{ .event.summary }}"
+  }
+}
+```
+
+If `mcp_jira__search_issues` returns `{ "issues": [ {…}, {…} ] }`, the producer emits `fsd.issue.found` once per issue and the consumer runs once per issue.
+
+## Inputs: use stable string slugs (`task_list_slug`), not numeric ids
+
+Prefer **stable string identifiers** in `inputs` over numeric ids. The canonical example is `task_list_slug: "fsd"` instead of `task_list_id: 2`.
+
+Why this matters:
+
+- Input templates always produce strings, and `CoerceInputs` only coerces a **string → number/bool/array/object** when the tool schema asks for it. It never coerces a JSON **number → string**.
+- So a literal `task_list_id: 2` (a JSON number) sent to a tool whose schema declares that field as a `string` fails at execution with:
+
+  ```
+  cannot unmarshal number into Go struct field <…> of type string
+  ```
+
+- With `error_policy.strategy: skip`, that failure is recorded as **`skipped`** rather than `failed` — so the job can stay broken silently for days.
+
+**Fix:** use the string slug (`task_list_slug`), or pass the id as a quoted string if the tool's schema really expects a string. Confirm the field type in the tool catalog schema before choosing.
+
+## `error_policy` in practice
+
+Confirmed semantics (retry loop in `executor.go`):
+
+- `maxAttempts` is `1` by default. It becomes `max_retries + 1` **only when `strategy: retry` and `max_retries > 0`**.
+- **`strategy: skip` never retries**, even if `max_retries` is set. When all attempts fail, the final status is flipped from `failed` to **`skipped`**.
+- **`strategy: stop`** also does not retry; the run ends as **`failed`** and `on_failure` is emitted.
+- `on_exhausted: notify` fires **regardless of strategy** once attempts are exhausted (defaults to the `chat` channel if `notify_channels` is empty).
+
+### When to use each strategy
+
+| Strategy | Retries? | Final status on failure | Use when |
+|----------|----------|-------------------------|----------|
+| `retry` | Yes (`max_retries+1` attempts) | `failed` after exhaustion | Transient errors: network blips, rate limits, DB locks, flaky upstreams |
+| `stop` | No | `failed` (emits `on_failure`) | Deterministic bugs where retrying wastes calls and you want the failure to propagate downstream |
+| `skip` | No | `skipped` (no failure propagation) | Non-critical jobs where an occasional failure is acceptable — **but watch out:** failures hide as `skipped` |
+
+### Backoff (only meaningful with `strategy: retry`)
+
+`retry_delay` is the base delay (default `30s`). For retry attempt `n` (1-based):
+
+| `backoff` | Delay for attempt `n` | Example with `retry_delay: 10s` |
+|-----------|------------------------|----------------------------------|
+| `fixed` (default) | `base` | 10s, 10s, 10s |
+| `linear` | `base × n` | 10s, 20s, 30s |
+| `exponential` | `base × 2^(n-1)` | 10s, 20s, 40s |
+
+Pick `fixed` for steady rate limits, `linear`/`exponential` to back off from a struggling dependency.
+
+## Dry-run & validation
+
+Validate a job before enabling it, without firing downstream events, using the two dry-run mechanisms:
+
+- **`job(job_id, dry_run: true)` action** — runs the job once and **suppresses event emission** (`ExecuteDryRun`):
+  - If the persisted `dry_run_config.mock_output` is set, it is returned **without invoking the underlying tool** — ideal for inspecting the output/payload shape your downstream jobs will consume, with **no MCP call at all**.
+  - If no mock is set, the underlying tool **is executed for real** (use only with safe/read-only tools), and only event emission is suppressed.
+- **`dry_run_config.enabled: true` + `mock_output`** (persisted) — normal/scheduled runs skip the tool and return the mock, but **still take the success path so `on_success` events ARE emitted**. Use this to develop a downstream chain against a deterministic mock payload.
+
+Recommended flow: set a representative `dry_run_config.mock_output`, run `dry_run: true` to confirm the output shape, then unset/disable the mock before going live.
+
+## Auditing chronically broken jobs
+
+Failures (and especially `skipped`) can pile up unnoticed. Two complementary recipes using the `job` tool:
+
+1. **Per-job failure rate** — `list_runs` is authoritative for status. For each job, pull the recent window and compare failed/skipped vs total:
+
+```json
+{ "job_id": "update-fsd-tiket-statuses", "list_runs": true, "status": ["failed", "skipped"], "limit": 100 }
+```
+
+   Compare the returned count against an unfiltered `list_runs` (`limit: 100`) for the same job to get a failure ratio. To sweep every job, first call `job()` (no args) to list all jobs, then iterate.
+
+2. **Cross-job scan** — `list_events` accepts an **optional** `job_id` (omit for global) and an `event_type` filter, so you can spot failures across all jobs for a day:
+
+```json
+{ "list_events": true, "event_type": "failed", "date": "2026-06-01" }
+```
+
+Consider a daily **meta-monitoring** job (see [`examples/`](./examples/)) that flags any job exceeding a failure threshold.
+
+## Traceability: event ↔ runs
+
+Every emitted event payload is enriched by `emitSuccess` with two correlation fields you **can read downstream**:
+
+- `_chain_id` — stable id of the whole reactive chain (the originating run id). Read it in a child via `{{ .event._chain_id }}`.
+- `_chain_history` — ordered list of job ids already executed in the chain (used by the circuit breaker for loop/depth detection).
+- For fan-out items, `_fan_out_index` / `_fan_out_total` are also present on the event.
+
+To trace a run: `job(job_id, run_id)` returns the `RunDetail` with `run_events` (operational timeline) and `domain_events` (the emitted/received events correlated by run). First-class visible run fields for cross-run correlation (`triggered_by_event`, `triggered_by_run_id`, `triggered_by_job_id`) are proposed in **#164**.
+
+## Examples
+
+Canonical, copy-pasteable recipes live in [`examples/`](./examples/):
+
+- [`cron-mcp-chain.md`](./examples/cron-mcp-chain.md) — scheduled job that kicks off an MCP event chain (FSD-style).
+- [`fanout-tasks.md`](./examples/fanout-tasks.md) — webhook/event → N tasks via `for_each` fan-out.
+- [`meta-monitoring.md`](./examples/meta-monitoring.md) — a daily job that audits other jobs' failure rates.
+- [`conditional-when.md`](./examples/conditional-when.md) — `when`/`emit_when` gating on upstream output.
 
 ## How to Manage Jobs (`job` tool)
 
