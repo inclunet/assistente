@@ -78,8 +78,12 @@ export function useWorkspaceKeyboardShortcuts() {
         (event.code === 'KeyI' || event.key === 'i' || event.key === 'I') &&
         !event.altKey
       ) {
-        if (!activeTabId) return;
+        // Sempre previne o default (DevTools do navegador), mesmo com um modal
+        // aberto; mas não aciona o chat modal enquanto isModalOpen() for true
+        // (não agir na UI de fundo / não empilhar modais).
         event.preventDefault();
+        if (isModalOpen()) return;
+        if (!activeTabId) return;
         void useWorkspaceChatModalStore.getState().requestOpen(activeTabId);
         return;
       }

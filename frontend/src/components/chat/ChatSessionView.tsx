@@ -514,6 +514,9 @@ function ChatSessionViewContent({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      // Com um modal aberto (ex.: painel de atalhos), o Escape deve fechar o
+      // modal — não cancelar o streaming nem o menu na UI de fundo.
+      if (isModalOpen()) return;
 
       if (event.key === 'Escape' && menuVisible) {
         event.preventDefault();
@@ -668,6 +671,9 @@ function ChatSessionViewContent({
   useEffect(() => {
     if (!isInteractiveSurface) return;
     const handleEscape = (e: KeyboardEvent) => {
+      // Com um modal aberto, o Escape fecha o modal; não descarta o banner de
+      // erro na UI de fundo.
+      if (isModalOpen()) return;
       if (e.key === 'Escape' && sendError) {
         setSendError(null);
         setLastFailedMessage(null);

@@ -4,6 +4,7 @@ import { renderHook } from '@testing-library/react';
 const toggle = vi.fn();
 const addTab = vi.fn(() => Promise.resolve());
 const removeTab = vi.fn(() => Promise.resolve());
+const requestOpen = vi.fn(() => Promise.resolve());
 const modalOpen = vi.fn(() => false);
 
 vi.mock('zustand/shallow', () => ({
@@ -22,7 +23,7 @@ vi.mock('../store/workspaceStore', () => ({
 }));
 
 vi.mock('../store/workspaceChatModalStore', () => ({
-  useWorkspaceChatModalStore: { getState: () => ({ requestOpen: vi.fn() }) },
+  useWorkspaceChatModalStore: { getState: () => ({ requestOpen }) },
 }));
 
 vi.mock('../store/shortcutsHelpStore', () => ({
@@ -90,7 +91,27 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     toggle.mockClear();
     addTab.mockClear();
     removeTab.mockClear();
+    requestOpen.mockClear();
     modalOpen.mockReturnValue(false);
+  });
+
+  it('Ctrl+Shift+I abre o chat modal quando nenhum modal está aberto', () => {
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+
+    const event = dispatchKey({ ctrlKey: true, shiftKey: true, key: 'I', code: 'KeyI' });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(requestOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('Ctrl+Shift+I previne o default (DevTools) mas NÃO abre o chat modal com modal aberto', () => {
+    modalOpen.mockReturnValue(true);
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+
+    const event = dispatchKey({ ctrlKey: true, shiftKey: true, key: 'I', code: 'KeyI' });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(requestOpen).not.toHaveBeenCalled();
   });
 
   it('com nenhum modal aberto, Ctrl+T cria aba e Ctrl+W fecha aba', () => {

@@ -13,6 +13,7 @@ import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { isModalOpen } from '../ui/Modal';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useUIStore } from '../../store/uiStore';
 import { TokenStatsButton } from './TokenStatsButton';
@@ -139,17 +140,22 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   useEffect(() => {
     if (!enableShortcuts) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Sempre previne o default do navegador (Ctrl+L/H/P) mas não age na UI de
+      // fundo enquanto um modal está aberto (ex.: painel de atalhos).
       if (e.ctrlKey && e.key === 'l') {
         e.preventDefault();
+        if (isModalOpen()) return;
         void handleClearConversation();
       }
       else if (e.ctrlKey && e.key === 'h') {
         e.preventDefault();
+        if (isModalOpen()) return;
         const btn = historyContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
         btn?.click();
       }
       else if (e.ctrlKey && e.key === 'p') {
         e.preventDefault();
+        if (isModalOpen()) return;
         const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
         btn?.click();
       }
