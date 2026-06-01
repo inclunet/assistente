@@ -7,6 +7,7 @@ import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
 import { isModalOpen } from '../ui/Modal';
 import { useShallow } from 'zustand/shallow';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
+import { ConnectionStatusIndicator } from './ConnectionStatusIndicator';
 import { Menu, type MenuItem } from '../menu';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
@@ -292,6 +293,7 @@ export function Topbar() {
             buttonLabel={t('menu.navLabel')}
             tabIndex={-1}
           />
+          <ConnectionStatusIndicator />
         </div>
 
         <h1 className="topbar__title">{pageTitle}</h1>

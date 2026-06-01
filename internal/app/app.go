@@ -13,6 +13,7 @@ import (
 	"assistente/internal/auth"
 	"assistente/internal/chat"
 	"assistente/internal/config"
+	"assistente/internal/connstatus"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
@@ -93,6 +94,11 @@ type App struct {
 	userRuntimeMu     sync.Mutex
 	userRuntimeCtx    context.Context
 	userRuntimeCancel context.CancelFunc
+
+	// Monitor de status de conexão com a API LLM (health check periódico).
+	connMu      sync.Mutex
+	connMonitor *connstatus.Monitor
+	connCancel  context.CancelFunc
 
 	// Provider service (business logic para provedores LLM)
 	providerSvc *providers.Service
@@ -467,6 +473,7 @@ func (a *App) ShowWindow() {
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
 	a.stopAllEditorWatches()
+	a.stopConnectionMonitor()
 
 	if a.httpAPIServer != nil {
 		_ = a.httpAPIServer.Shutdown(context.Background())
