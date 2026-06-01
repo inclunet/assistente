@@ -97,6 +97,9 @@ func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, p
 		Options: ExportOptions{
 			IncludeAudio:       req.IncludeAudio,
 			IncludeCredentials: req.IncludeCredentials,
+			IncludeTimestamps:  ResolveContentToggle(req.IncludeTimestamps),
+			IncludeReasoning:   ResolveContentToggle(req.IncludeReasoning),
+			IncludeMetadata:    ResolveContentToggle(req.IncludeMetadata),
 		},
 		Resources: ExportResources{
 			Conversations: conversations,

@@ -233,6 +233,20 @@ Consequências:
 - HTML/PDF não precisam conter todos os campos necessários para roundtrip
 - O pipeline recomendado é: montar modelo canônico → gerar JSON → renderizar representação HTML → opcionalmente converter HTML para PDF
 
+### D5.2 — Markdown e toggles de conteúdo na exportação rica
+
+Além de HTML e PDF, a exportação rica de conversas passa a oferecer **Markdown (`.md`)** como formato derivado adicional, gerado a partir do mesmo modelo canônico de conversas. Markdown continua sendo apenas saída (não é aceito na importação, como HTML/PDF).
+
+Os três formatos derivados (HTML, PDF, Markdown) respeitam **toggles de conteúdo** opcionais, expostos em `ExportOptions`:
+
+- `includeTimestamps`: datas/horários de geração, criação da conversa e de cada mensagem
+- `includeReasoning`: bloco de raciocínio (`reasoning`) das mensagens
+- `includeMetadata`: metadados como modelo, origem/provider e contagem de tokens
+
+No contrato de requisição (`ExportRequest`), esses toggles são opcionais (ponteiros) e, quando ausentes, assumem o comportamento histórico de **incluir tudo**, preservando compatibilidade. A UI do Histórico apresenta esses toggles como checkboxes acessíveis antes de confirmar a exportação.
+
+Adicionalmente, o HTML exportado passa a aplicar **syntax highlighting real** nos blocos de código (Chroma via goldmark-highlighting, com classes CSS e stylesheet embutida), mantendo o documento autocontido. As cores do tema de highlighting são intrínsecas ao artefato exportado (documento standalone), não à UI temada do app.
+
 ### D6 — Seleção múltipla de recursos
 
 O export suporta três modos:
