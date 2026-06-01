@@ -1,4 +1,4 @@
-# AEP-0065 — Indicador de status de conexão com a API LLM
+# AEP-0066 — Indicador de status de conexão com a API LLM
 
 Status: Proposto
 Data: 2026-06-01

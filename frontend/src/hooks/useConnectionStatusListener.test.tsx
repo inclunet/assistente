@@ -23,6 +23,12 @@ vi.mock('../store/uiStore', () => ({
   useUIStore: (selector: (s: { addToast: typeof addToastSpy }) => unknown) => selector({ addToast: addToastSpy }),
 }));
 
+const authState = vi.hoisted(() => ({ isAuthenticated: true }));
+vi.mock('../store/authStore', () => ({
+  useAuthStore: (selector: (s: { isAuthenticated: boolean }) => unknown) =>
+    selector({ isAuthenticated: authState.isAuthenticated }),
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
@@ -47,6 +53,7 @@ describe('useConnectionStatusListener', () => {
     lastHandler = null;
     announceSpy.mockClear();
     addToastSpy.mockClear();
+    authState.isAuthenticated = true;
     useConnectionStore.getState().reset();
   });
 
@@ -96,5 +103,27 @@ describe('useConnectionStatusListener', () => {
 
     expect(announceSpy).toHaveBeenCalledWith('connectionStatus.announce.restored', 'polite');
     expect(addToastSpy).toHaveBeenCalledWith('connectionStatus.announce.restored', 'success', 4000);
+  });
+
+  it('reseta a store e o tracking ao perder a sessão, sem anúncio espúrio ao relogar', () => {
+    const { rerender } = renderHook(() => useConnectionStatusListener());
+    act(() => lastHandler?.(payload({ state: 'online' })));
+    expect(useConnectionStore.getState().state).toBe('online');
+
+    // Logout: isAuthenticated -> false deve limpar a store e o tracking.
+    authState.isAuthenticated = false;
+    rerender();
+    expect(useConnectionStore.getState().state).toBe('unknown');
+    expect(useConnectionStore.getState().status).toBeNull();
+
+    // Relogin: primeiro estado estável (offline) não deve anunciar, pois não
+    // há estado "herdado" (lastStableRef foi resetado).
+    authState.isAuthenticated = true;
+    rerender();
+    announceSpy.mockClear();
+    addToastSpy.mockClear();
+    act(() => lastHandler?.(payload({ state: 'offline' })));
+    expect(announceSpy).not.toHaveBeenCalled();
+    expect(addToastSpy).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useWailsEvent } from './useWails';
 import { useAnnouncer } from './useAnnouncer';
 import { useUIStore } from '../store/uiStore';
+import { useAuthStore } from '../store/authStore';
 import { useConnectionStore } from '../store/connectionStore';
 import { CONNECTION_STATUS_EVENT, type ConnectionStatusPayload } from '../types/connection';
 
@@ -21,6 +22,8 @@ export function useConnectionStatusListener() {
   const { announce } = useAnnouncer();
   const addToast = useUIStore((s) => s.addToast);
   const setStatus = useConnectionStore((s) => s.setStatus);
+  const resetStatus = useConnectionStore((s) => s.reset);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   // Último estado "estável" (online/offline) já notificado, para anunciar
   // apenas transições reais e ignorar o intermediário "checking".
@@ -48,8 +51,18 @@ export function useConnectionStatusListener() {
     lastStableRef.current = data.state;
   });
 
-  // Reseta o tracking de transição quando o componente desmonta (logout),
-  // evitando anúncios espúrios ao re-logar.
+  // O hook é montado em App (fora do AuthGate), então permanece ativo após o
+  // logout. Ao perder a sessão, o monitor backend é parado, mas o estado da UI
+  // ficaria "herdado" e poderia gerar anúncios/toasts espúrios ao relogar.
+  // Por isso, limpamos a connectionStore e o tracking de transição sempre que
+  // isAuthenticated passa a false. Também limpa no unmount.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      lastStableRef.current = null;
+      resetStatus();
+    }
+  }, [isAuthenticated, resetStatus]);
+
   useEffect(() => {
     return () => {
       lastStableRef.current = null;

@@ -2,16 +2,10 @@ package app
 
 import (
 	"context"
-	"time"
 
 	"assistente/internal/connstatus"
 	"assistente/internal/database"
 )
-
-// connectionHealthInterval é o intervalo entre health checks periódicos do
-// provider/API LLM ativo. Valor sensato para feedback de UI sem martelar o
-// endpoint. Um intervalo configurável por usuário fica como follow-up.
-const connectionHealthInterval = 30 * time.Second
 
 // startConnectionMonitor inicia (ou reinicia) o monitor de status de conexão
 // para o usuário autenticado. O loop roda em um contexto próprio cancelável,
@@ -53,7 +47,9 @@ func (a *App) startConnectionMonitor(userID string) {
 		}
 	}
 
-	monitor := connstatus.New(check, a.emitter, connectionHealthInterval)
+	// Reaproveita o intervalo padrão do pacote (connstatus trata <=0 como
+	// default). Um intervalo configurável por usuário fica como follow-up.
+	monitor := connstatus.New(check, a.emitter, connstatus.DefaultInterval)
 	a.connMonitor = monitor
 	a.connMu.Unlock()
 

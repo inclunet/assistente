@@ -53,7 +53,9 @@ export function ConnectionStatusIndicator() {
       className="connection-status"
       data-state={state}
       aria-label={ariaLabel}
-      title={status.error ? `${providerName} — ${status.error}` : providerName}
+      // Tooltip localizado: reutiliza o ariaLabel já traduzido. Evita vazar o
+      // status.error cru do backend (texto técnico não localizado) na UI.
+      title={ariaLabel}
     >
       <span className="connection-status__icon">{STATE_ICON[state]}</span>
       <span className="connection-status__label">{label}</span>

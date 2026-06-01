@@ -142,6 +142,37 @@ func TestMonitor_OfflineLatencyNotAveraged(t *testing.T) {
 	}
 }
 
+// TestMonitor_ResetsLatencyWindowOnProviderChange: ao trocar o provider ativo
+// (ProviderID diferente entre checks), a janela de latência é zerada para a
+// média não misturar latências de providers distintos.
+func TestMonitor_ResetsLatencyWindowOnProviderChange(t *testing.T) {
+	emitter := &captureEmitter{}
+	snaps := []Snapshot{
+		{State: StateOnline, ProviderID: "p1", LatencyMs: 100},
+		{State: StateOnline, ProviderID: "p1", LatencyMs: 200},
+		{State: StateOnline, ProviderID: "p2", LatencyMs: 40},
+	}
+	idx := 0
+	m := New(func(context.Context) Snapshot {
+		s := snaps[idx]
+		idx++
+		return s
+	}, emitter, time.Hour)
+
+	for range snaps {
+		m.checkOnce(context.Background())
+	}
+
+	events := emitter.snapshot()
+	last := events[len(events)-1]
+	if last.AvgLatencyMs != 40 {
+		t.Fatalf("após troca de provider a média deveria refletir só o novo provider (40), got %d", last.AvgLatencyMs)
+	}
+	if last.ProviderID != "p2" {
+		t.Fatalf("último evento deveria ser do provider p2, got %q", last.ProviderID)
+	}
+}
+
 // TestMonitor_RunStopsOnContextCancel garante que Run respeita o cancelamento.
 func TestMonitor_RunStopsOnContextCancel(t *testing.T) {
 	emitter := &captureEmitter{}

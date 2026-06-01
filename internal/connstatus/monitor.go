@@ -70,6 +70,10 @@ type Monitor struct {
 	last    Event
 	hasLast bool
 	samples []int64
+	// samplesProviderID identifica a qual provider a janela de latência
+	// pertence. Ao trocar de provider ativo, a janela é resetada para a média
+	// não misturar latências de endpoints distintos.
+	samplesProviderID string
 }
 
 // New cria um Monitor. Intervalos <= 0 caem no DefaultInterval.
@@ -134,6 +138,13 @@ func (m *Monitor) checkOnce(ctx context.Context) {
 func (m *Monitor) buildEvent(snap Snapshot) Event {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Troca de provider ativo (ex.: mudança de perfil) invalida a janela de
+	// latência: zera as amostras para não misturar providers diferentes na média.
+	if snap.ProviderID != "" && snap.ProviderID != m.samplesProviderID {
+		m.samples = nil
+		m.samplesProviderID = snap.ProviderID
+	}
 
 	if snap.State == StateOnline && snap.LatencyMs > 0 {
 		m.samples = append(m.samples, snap.LatencyMs)
