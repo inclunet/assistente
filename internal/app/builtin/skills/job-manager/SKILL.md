@@ -88,7 +88,11 @@ error_policy:
 
 max_runs_per_hour: 60
 
-dry_run_config:                      # configuration-level dry-run (different from the `dry_run` action)
+dry_run_config:                      # configuration-level dry-run, persisted on the job
+  # When `enabled: true`, normal executions (run + scheduled triggers) skip the
+  # underlying tool and return `mock_output`, but still take the success path —
+  # so on_success events ARE emitted. The `dry_run: true` action, by contrast,
+  # also suppresses event emission.
   enabled: false
   mock_output:
     status: "ok"
@@ -167,14 +171,14 @@ The following are **action flags** and cannot be combined with each other, nor w
 | Action | Call shape (key arguments) | Notes |
 |--------|----------------------------|-------|
 | List jobs | `job()` (no args) | Returns summaries of all jobs. |
-| Read job | `job(job_id)` | Returns the full job config. Resolved inputs are redacted; recent run history is not included. **Naming asymmetry:** the persisted dry-run config is returned under the `dry_run` key (matching `jobs.Job`'s JSON), while create/update accept it as `dry_run_config` — translate the key when round-tripping. |
+| Read job | `job(job_id)` | Returns the full job config. Sensitive fields inside the **configured** `inputs` are redacted (by sensitive key names and `{{ secret … }}` references); `last_run` is cleared. **Naming asymmetry:** the persisted dry-run config is returned under the `dry_run` key (matching `jobs.Job`'s JSON), while create/update accept it as `dry_run_config` — translate the key when round-tripping. |
 | Create with generated id | `job(name, tool, triggers, …)` | `name` + `tool` + ≥ 1 `triggers` are required. Slug is derived from `name`. |
 | Create with explicit id | `job(job_id, name, tool, triggers, …)` | When the (sanitized) id does not exist and the required create fields are present, creates a new job. The stored id may differ from the raw `job_id` — see slug normalization below. |
 | Update | `job(job_id, <one or more write fields>)` | Only the provided fields are changed. Sending `triggers: []` resets to a single `manual` trigger. |
 | Toggle enabled | `job(job_id, enabled: true \| false)` | Sending `enabled` alone routes to the dedicated toggle path. Combining `enabled` with other write fields is **allowed** — it becomes a regular update that also updates `enabled`. Only **action flags** (`delete`, `run`, `dry_run`, `list_runs`, `list_events`, `run_id`) are mutually exclusive with writes/`enabled`. |
 | Delete | `job(job_id, delete: true)` | Destructive — confirm with the user. |
 | Run now | `job(job_id, run: true)` | Triggers a real execution and returns the resulting `RunLog`. |
-| Dry-run | `job(job_id, dry_run: true)` | Runs the job once without emitting downstream events. If `dry_run_config.mock_output` is set, that mock is returned **without invoking the underlying tool** (regardless of `dry_run_config.enabled`). Otherwise the underlying tool **is** invoked for real — only event emission is suppressed. |
+| Dry-run | `job(job_id, dry_run: true)` | Runs the job once without emitting downstream events. Uses the job's **persisted** `dry_run_config`: if `mock_output` is set there, that mock is returned without invoking the underlying tool (regardless of `dry_run_config.enabled`); otherwise the underlying tool **is** invoked for real and only event emission is suppressed. `dry_run_config` cannot be sent in the same call — it's a write field and is mutually exclusive with action flags; configure it via an update first. |
 | List runs | `job(job_id, list_runs: true, status?, started_after?, started_before?, include_dry_run?, limit?)` | `status` ∈ `completed`, `failed`, `retrying`, `skipped`. Dates are RFC3339. `limit` defaults to 20 (max 100). Dry-runs are excluded unless `include_dry_run: true`. |
 | Get one run (with timelines) | `job(job_id, run_id)` | Returns the `RunDetail`: `RunLog` + `run_events` (operational timeline) + `domain_events` (correlated by run). |
 | List events | `job(list_events: true, job_id?, date?, start_at?, end_at?, event_type?, event_name?, limit?, offset?)` | `job_id` is optional (omit for global). Defaults to today when no time filter is set. `date` is `YYYY-MM-DD` and is ignored if `start_at`/`end_at` are given. `limit` defaults to 50 (max 200). |
