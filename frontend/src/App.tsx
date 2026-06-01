@@ -13,6 +13,7 @@ import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
 import { ConfirmHost } from './components/ui/ConfirmHost';
 import { QuestionnaireDialog, QuestionnairePayload } from './components/ui/QuestionnaireDialog';
 import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
+import { useConnectionStatusListener } from './hooks/useConnectionStatusListener';
 import { useTheme } from './hooks/useTheme';
 import { ConfigProvider } from 'antd';
 import type { Locale } from 'antd/es/locale';
@@ -61,6 +62,10 @@ function App() {
     const uiQuestionnaireData = useQuestionnaireUIStore((s) => s.active);
     const uiSubmit = useQuestionnaireUIStore((s) => s.submit);
     const uiCancel = useQuestionnaireUIStore((s) => s.cancel);
+
+    // Status de conexão com a API LLM (Issue #38): assinatura única do evento,
+    // anúncios de queda/restauração via announcer global + toast.
+    useConnectionStatusListener();
 
     useEffect(() => {
         const controller = new AbortController();

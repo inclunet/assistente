@@ -1596,6 +1596,23 @@ const es = {
       newTab: 'Nuevo {{type}}',
       announcedNewTab: 'Nuevo {{type}} creado',
     },
+    connectionStatus: {
+      provider: 'API',
+      online: 'En línea',
+      offline: 'Sin conexión',
+      checking: 'Reconectando…',
+      latency: '{{latency}} ms',
+      aria: {
+        online: 'Conexión con {{provider}} en línea',
+        onlineLatency: 'Conexión con {{provider}} en línea, latencia media {{latency}} milisegundos',
+        offline: 'Conexión con {{provider}} sin conexión',
+        checking: 'Comprobando conexión con {{provider}}',
+      },
+      announce: {
+        lost: 'Conexión con {{provider}} perdida',
+        restored: 'Conexión con {{provider}} restaurada',
+      },
+    },
     landmarks: {
       tabs: 'Pestañas',
       toolbar: 'Barra de herramientas',

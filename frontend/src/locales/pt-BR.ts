@@ -1571,6 +1571,23 @@ const ptBR = {
       newTab: 'Novo {{type}}',
       announcedNewTab: 'Novo {{type}} criado',
     },
+    connectionStatus: {
+      provider: 'API',
+      online: 'Online',
+      offline: 'Offline',
+      checking: 'Reconectando…',
+      latency: '{{latency}} ms',
+      aria: {
+        online: 'Conexão com {{provider}} online',
+        onlineLatency: 'Conexão com {{provider}} online, latência média {{latency}} milissegundos',
+        offline: 'Conexão com {{provider}} offline',
+        checking: 'Verificando conexão com {{provider}}',
+      },
+      announce: {
+        lost: 'Conexão com {{provider}} perdida',
+        restored: 'Conexão com {{provider}} restaurada',
+      },
+    },
     landmarks: {
       tabs: 'Guias',
       toolbar: 'Barra de ferramentas',

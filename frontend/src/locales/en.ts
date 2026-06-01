@@ -1597,6 +1597,23 @@ const en = {
       newTab: 'New {{type}}',
       announcedNewTab: 'New {{type}} created',
     },
+    connectionStatus: {
+      provider: 'API',
+      online: 'Online',
+      offline: 'Offline',
+      checking: 'Reconnecting…',
+      latency: '{{latency}} ms',
+      aria: {
+        online: 'Connection to {{provider}} online',
+        onlineLatency: 'Connection to {{provider}} online, average latency {{latency}} milliseconds',
+        offline: 'Connection to {{provider}} offline',
+        checking: 'Checking connection to {{provider}}',
+      },
+      announce: {
+        lost: 'Connection to {{provider}} lost',
+        restored: 'Connection to {{provider}} restored',
+      },
+    },
     landmarks: {
       tabs: 'Tabs',
       toolbar: 'Toolbar',
