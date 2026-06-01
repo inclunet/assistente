@@ -1995,6 +1995,7 @@ const es = {
         grabCancelled: 'Movimiento cancelado',
         cardMenu: 'Menú de tarjeta',
         renameCard: 'Renombrar tarea',
+        cardCreatedAt: 'creado',
       },
       details: 'Detalles',
       taskDetails: 'Detalles de la Tarea',

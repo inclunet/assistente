@@ -1970,6 +1970,7 @@ const ptBR = {
         grabCancelled: 'Movimentação cancelada',
         cardMenu: 'Menu do card',
         renameCard: 'Renomear tarefa',
+        cardCreatedAt: 'criado',
       },
       // Task Detail Modal
       details: 'Detalhes',
