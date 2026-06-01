@@ -167,11 +167,11 @@ The following are **action flags** and cannot be combined with each other, nor w
 | Action | Call shape (key arguments) | Notes |
 |--------|----------------------------|-------|
 | List jobs | `job()` (no args) | Returns summaries of all jobs. |
-| Read job | `job(job_id)` | Returns the full job config. Resolved inputs are redacted; recent run history is not included. |
+| Read job | `job(job_id)` | Returns the full job config. Resolved inputs are redacted; recent run history is not included. **Naming asymmetry:** the persisted dry-run config is returned under the `dry_run` key (matching `jobs.Job`'s JSON), while create/update accept it as `dry_run_config` — translate the key when round-tripping. |
 | Create with generated id | `job(name, tool, triggers, …)` | `name` + `tool` + ≥ 1 `triggers` are required. Slug is derived from `name`. |
 | Create with explicit id | `job(job_id, name, tool, triggers, …)` | When the (sanitized) id does not exist and the required create fields are present, creates a new job. The stored id may differ from the raw `job_id` — see slug normalization below. |
 | Update | `job(job_id, <one or more write fields>)` | Only the provided fields are changed. Sending `triggers: []` resets to a single `manual` trigger. |
-| Toggle enabled | `job(job_id, enabled: true \| false)` | Send `enabled` alone (no other write fields). |
+| Toggle enabled | `job(job_id, enabled: true \| false)` | Sending `enabled` alone routes to the dedicated toggle path. Combining `enabled` with other write fields is **allowed** — it becomes a regular update that also updates `enabled`. Only **action flags** (`delete`, `run`, `dry_run`, `list_runs`, `list_events`, `run_id`) are mutually exclusive with writes/`enabled`. |
 | Delete | `job(job_id, delete: true)` | Destructive — confirm with the user. |
 | Run now | `job(job_id, run: true)` | Triggers a real execution and returns the resulting `RunLog`. |
 | Dry-run | `job(job_id, dry_run: true)` | Runs the job once without emitting downstream events. If `dry_run_config.mock_output` is set, that mock is returned **without invoking the underlying tool** (regardless of `dry_run_config.enabled`). Otherwise the underlying tool **is** invoked for real — only event emission is suppressed. |
@@ -281,6 +281,7 @@ Create and then disable an ops pipeline:
 - Use `events.emit_when` to avoid noisy downstream propagation.
 - For fan-out, set `events.for_each` to the output array path and optionally `emit_when` to filter items per iteration.
 - Before enabling a freshly created job, validate it with `dry_run: true`. For repeated mocked executions during development, set `dry_run_config.enabled: true` with a `mock_output`.
-- Never combine action flags (`delete`, `run`, `dry_run`, `list_runs`, `list_events`, `run_id`) with each other or with write fields / `enabled` — they are mutually exclusive.
+- **Round-tripping dry-run config:** when reading a job, the persisted dry-run config comes back under the `dry_run` key (matching `jobs.Job`'s JSON shape). When creating/updating, send it as `dry_run_config`. Don't pipe the read payload straight back as a write — rename the key first.
+- Never combine **action flags** (`delete`, `run`, `dry_run`, `list_runs`, `list_events`, `run_id`) with each other or with write fields / `enabled` — they are mutually exclusive. (Note: `enabled` together with other write fields **is** allowed; it just becomes a regular update.)
 - When listing runs/events, prefer narrow filters (status, time window, `event_name`) over large `limit` values.
 - For destructive actions (`delete`), confirm with the user first.
