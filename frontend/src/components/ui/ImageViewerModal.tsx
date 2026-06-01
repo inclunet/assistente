@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   ZoomInOutlined,
   ZoomOutOutlined,
@@ -43,6 +43,7 @@ interface ImageViewerViewProps {
 function ImageViewerView({ images, initialIndex, captionId }: ImageViewerViewProps) {
   const { t } = useTranslation();
   const isTopmost = useModalIsTopmost();
+  const stageRef = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(MIN_ZOOM);
 
@@ -94,16 +95,24 @@ function ImageViewerView({ images, initialIndex, captionId }: ImageViewerViewPro
     return () => document.removeEventListener('keydown', handler);
   }, [isTopmost, hasMultiple, goPrev, goNext, zoomIn, zoomOut, resetZoom]);
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
+  // Zoom via scroll do mouse. Registrado manualmente como listener NÃO passivo
+  // para que `preventDefault()` tenha efeito — listeners de `wheel` adicionados
+  // pelo React (onWheel) são passivos, e o gesto rolaria o container scrollável
+  // ao mesmo tempo em que aplica zoom. Aqui o scroll é cancelado durante o zoom.
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
       if (e.deltaY < 0) {
         zoomIn();
       } else {
         zoomOut();
       }
-    },
-    [zoomIn, zoomOut],
-  );
+    };
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    return () => stage.removeEventListener('wheel', onWheel);
+  }, [zoomIn, zoomOut]);
 
   if (!current) return null;
 
@@ -151,7 +160,7 @@ function ImageViewerView({ images, initialIndex, captionId }: ImageViewerViewPro
         </button>
       </div>
 
-      <div className="image-viewer__stage" onWheel={handleWheel}>
+      <div className="image-viewer__stage" ref={stageRef}>
         {hasMultiple && (
           <button
             type="button"

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, createEvent } from '@testing-library/react';
 import { ImageViewerModal, type ImageViewerImage } from './ImageViewerModal';
 import { Modal } from './Modal';
 
@@ -54,6 +54,26 @@ describe('ImageViewerModal', () => {
     expect(screen.getByText('150%')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'ui.imageViewer.zoomOut' }));
+    expect(screen.getByText('100%')).toBeInTheDocument();
+  });
+
+  it('aplica zoom com o scroll do mouse e previne o scroll do container', () => {
+    render(<ImageViewerModal isOpen images={single} onClose={vi.fn()} />);
+
+    const stage = document.querySelector('.image-viewer__stage') as HTMLElement;
+    expect(stage).not.toBeNull();
+    expect(screen.getByText('100%')).toBeInTheDocument();
+
+    // Scroll para cima amplia e cancela o scroll do container.
+    const wheelUp = createEvent.wheel(stage, { deltaY: -100 });
+    fireEvent(stage, wheelUp);
+    expect(wheelUp.defaultPrevented).toBe(true);
+    expect(screen.getByText('150%')).toBeInTheDocument();
+
+    // Scroll para baixo reduz e também cancela o scroll.
+    const wheelDown = createEvent.wheel(stage, { deltaY: 100 });
+    fireEvent(stage, wheelDown);
+    expect(wheelDown.defaultPrevented).toBe(true);
     expect(screen.getByText('100%')).toBeInTheDocument();
   });
 
