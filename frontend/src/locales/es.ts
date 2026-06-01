@@ -1270,7 +1270,7 @@ const es = {
         next: 'Imagen siguiente',
         counter: '{{current}} de {{total}}',
         defaultAlt: 'Imagen',
-        openHint: 'Pulsa Enter para ampliar',
+        openHint: 'Clic, Enter o Espacio para ampliar',
       },
       toast: { close: 'Cerrar notificación' },
       dataGrid: {

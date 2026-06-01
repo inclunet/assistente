@@ -1271,7 +1271,7 @@ const en = {
         next: 'Next image',
         counter: '{{current}} of {{total}}',
         defaultAlt: 'Image',
-        openHint: 'Press Enter to enlarge',
+        openHint: 'Click, Enter or Space to enlarge',
       },
       toast: { close: 'Close notification' },
       dataGrid: {

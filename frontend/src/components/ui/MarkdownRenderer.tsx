@@ -545,11 +545,25 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
             : t('ui.imageViewer.openHint'),
         );
 
+        const parentLink = img.closest('a[href]');
+
         const open = () => {
           setImageViewer({ open: true, images, index });
         };
 
         const onClick = (e: MouseEvent) => {
+          // Quando a imagem está dentro de um link, cliques modificados
+          // (Ctrl/Cmd/Shift/Alt) ou que não sejam do botão esquerdo
+          // (ex.: middle-click) devem seguir a navegação padrão do
+          // navegador (abrir em nova aba/janela) em vez de abrir o viewer.
+          if (parentLink) {
+            const isModifiedClick = e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
+            const isNonPrimaryButton = typeof e.button === 'number' && e.button !== 0;
+            if (isModifiedClick || isNonPrimaryButton) {
+              return;
+            }
+          }
+
           e.preventDefault();
           e.stopPropagation();
           open();

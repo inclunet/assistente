@@ -51,4 +51,43 @@ describe('MarkdownRenderer', () => {
 
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
+
+  it('não abre o visualizador em clique modificado dentro de um link', () => {
+    render(
+      <MarkdownRenderer
+        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
+      />,
+    );
+
+    const img = screen.getByAltText('Gato');
+    expect(img.closest('a[href]')).not.toBeNull();
+
+    fireEvent.click(img, { ctrlKey: true });
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(img, { metaKey: true });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('não abre o visualizador em middle-click dentro de um link', () => {
+    render(
+      <MarkdownRenderer
+        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
+      />,
+    );
+
+    fireEvent.click(screen.getByAltText('Gato'), { button: 1 });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('abre o visualizador em clique simples mesmo dentro de um link', () => {
+    render(
+      <MarkdownRenderer
+        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
+      />,
+    );
+
+    fireEvent.click(screen.getByAltText('Gato'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
 });

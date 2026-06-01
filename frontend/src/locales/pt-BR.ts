@@ -1245,7 +1245,7 @@ const ptBR = {
         next: 'Próxima imagem',
         counter: '{{current}} de {{total}}',
         defaultAlt: 'Imagem',
-        openHint: 'Pressione Enter para ampliar',
+        openHint: 'Clique, Enter ou Espaço para ampliar',
       },
       toast: { close: 'Fechar notificação' },
       dataGrid: {
