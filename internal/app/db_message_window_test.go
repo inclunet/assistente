@@ -184,6 +184,148 @@ func TestConsolidateTimelineTurnMessages_DeduplicatesToolCallsByID(t *testing.T)
 	}
 }
 
+// Issue #150: o backend agora retorna segmentos cronológicos do turno
+// (texto → tool_calls → texto → tool_calls → resposta final) para que o
+// frontend renderize o turno inteiro como UMA única entrada acessível, sem
+// perder a cadeia de raciocínio entre iterações do agentic loop.
+func TestConsolidateTimelineTurn_BuildsChronologicalSegmentsForAgenticTurn(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	result := consolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-iter1", CreatedAt: baseTime},
+			Role:      "assistant",
+			TurnID:    &turnID,
+			Content:   "vou pesquisar",
+			ToolCalls: `[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{\"q\":\"foo\"}"}}]`,
+		},
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-1-result", CreatedAt: baseTime.Add(time.Minute)},
+			Role:       "tool",
+			TurnID:     &turnID,
+			ToolCallID: "tool-1",
+			Content:    "resultado da busca",
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-iter2", CreatedAt: baseTime.Add(2 * time.Minute)},
+			Role:      "assistant",
+			TurnID:    &turnID,
+			Content:   "agora vou buscar mais detalhes",
+			ToolCalls: `[{"id":"tool-2","type":"function","function":{"name":"fetch","arguments":"{\"id\":1}"}}]`,
+		},
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-2-result", CreatedAt: baseTime.Add(3 * time.Minute)},
+			Role:       "tool",
+			TurnID:     &turnID,
+			ToolCallID: "tool-2",
+			Content:    "detalhes",
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime.Add(4 * time.Minute)},
+			Role:      "assistant",
+			TurnID:    &turnID,
+			Content:   "resposta final",
+		},
+	}, nil)
+
+	if result.Message.ID != "assistant-final" {
+		t.Fatalf("expected last assistant as representative, got %s", result.Message.ID)
+	}
+	if result.Message.Content != "resposta final" {
+		t.Fatalf("expected final content to drive representative content, got %q", result.Message.Content)
+	}
+	if len(result.Segments) != 5 {
+		t.Fatalf("expected 5 chronological segments (text→tools→text→tools→text), got %d: %+v", len(result.Segments), result.Segments)
+	}
+	expected := []struct {
+		kind    string
+		content string
+		toolIDs []string
+	}{
+		{kind: "text", content: "vou pesquisar"},
+		{kind: "tool_calls", toolIDs: []string{"tool-1"}},
+		{kind: "text", content: "agora vou buscar mais detalhes"},
+		{kind: "tool_calls", toolIDs: []string{"tool-2"}},
+		{kind: "text", content: "resposta final"},
+	}
+	for i, want := range expected {
+		seg := result.Segments[i]
+		if seg.Type != want.kind {
+			t.Fatalf("segment[%d] expected kind %q, got %q", i, want.kind, seg.Type)
+		}
+		if want.kind == "text" && seg.Content != want.content {
+			t.Fatalf("segment[%d] expected text %q, got %q", i, want.content, seg.Content)
+		}
+		if want.kind == "tool_calls" {
+			if len(seg.ToolCalls) != len(want.toolIDs) {
+				t.Fatalf("segment[%d] expected %d tool calls, got %d", i, len(want.toolIDs), len(seg.ToolCalls))
+			}
+			for j, expectedID := range want.toolIDs {
+				if seg.ToolCalls[j].ID != expectedID {
+					t.Fatalf("segment[%d] tool[%d] expected id %q, got %q", i, j, expectedID, seg.ToolCalls[j].ID)
+				}
+			}
+		}
+	}
+	// Tool results devem ser propagados para os segmentos canônicos (NVDA precisa
+	// ler o resultado dentro da mesma entrada do turno).
+	if result.Segments[1].ToolCalls[0].Result != "resultado da busca" {
+		t.Fatalf("expected tool-1 result attached to its segment, got %+v", result.Segments[1].ToolCalls[0])
+	}
+	if result.Segments[3].ToolCalls[0].Result != "detalhes" {
+		t.Fatalf("expected tool-2 result attached to its segment, got %+v", result.Segments[3].ToolCalls[0])
+	}
+}
+
+// Turnos triviais (sem ferramentas e com uma única mensagem do assistente) não
+// precisam de segments — o renderizador legado de uma única bolha cobre o caso
+// e evita payload extra. Issue #150.
+func TestConsolidateTimelineTurn_SkipsSegmentsForTrivialTurn(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	result := consolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime},
+			Role:      "assistant",
+			TurnID:    &turnID,
+			Content:   "resposta única",
+		},
+	}, nil)
+
+	if len(result.Segments) != 0 {
+		t.Fatalf("expected no segments for trivial single-assistant turn, got %+v", result.Segments)
+	}
+}
+
+// Tool-only placeholder (turno sem mensagem do assistente persistida) ainda
+// deve expor um segmento de tool_calls para que o frontend renderize as
+// ferramentas executadas em uma única entrada do histórico. Issue #150.
+func TestConsolidateTimelineTurn_ToolOnlyPlaceholderEmitsSegment(t *testing.T) {
+	turnID := "turn-1"
+	result := consolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-a-message"},
+			Role:       "tool",
+			Content:    "resultado a",
+			TurnID:     &turnID,
+			ToolCallID: "tool-a",
+		},
+	}, nil)
+
+	if len(result.Segments) != 1 {
+		t.Fatalf("expected 1 placeholder tool_calls segment, got %+v", result.Segments)
+	}
+	if result.Segments[0].Type != "tool_calls" {
+		t.Fatalf("expected tool_calls segment, got %q", result.Segments[0].Type)
+	}
+	if len(result.Segments[0].ToolCalls) != 1 || result.Segments[0].ToolCalls[0].ID != "tool-a" {
+		t.Fatalf("expected single tool call with id tool-a, got %+v", result.Segments[0].ToolCalls)
+	}
+	if result.Segments[0].ToolCalls[0].Result != "resultado a" {
+		t.Fatalf("expected tool result preserved, got %q", result.Segments[0].ToolCalls[0].Result)
+	}
+}
+
 func TestParseToolCalls_InvalidJSONReturnsNil(t *testing.T) {
 	if calls := parseToolCalls("message-invalid", "{invalid"); calls != nil {
 		t.Fatalf("expected invalid tool calls JSON to be discarded, got %+v", calls)
@@ -408,6 +550,21 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 	}
 	if !strings.Contains(turnNode.Message.ToolCalls, "resultado") {
 		t.Fatalf("expected enriched tool call result, got %s", turnNode.Message.ToolCalls)
+	}
+	// Issue #150: o turno volta com segments cronológicos para que o frontend
+	// renderize o turno inteiro em UMA única entrada acessível (cadeia de
+	// raciocínio: texto → tool_calls → resposta final).
+	if len(turnNode.Message.TurnSegments) != 3 {
+		t.Fatalf("expected 3 segments (intermediate text → tool_calls → final text), got %+v", turnNode.Message.TurnSegments)
+	}
+	if turnNode.Message.TurnSegments[0].Type != "text" || turnNode.Message.TurnSegments[0].Content != "vou buscar" {
+		t.Fatalf("expected first segment to be intermediate text 'vou buscar', got %+v", turnNode.Message.TurnSegments[0])
+	}
+	if turnNode.Message.TurnSegments[1].Type != "tool_calls" || len(turnNode.Message.TurnSegments[1].ToolCalls) == 0 {
+		t.Fatalf("expected second segment to be tool_calls, got %+v", turnNode.Message.TurnSegments[1])
+	}
+	if turnNode.Message.TurnSegments[2].Type != "text" || turnNode.Message.TurnSegments[2].Content != "resposta final" {
+		t.Fatalf("expected third segment to be final text, got %+v", turnNode.Message.TurnSegments[2])
 	}
 }
 

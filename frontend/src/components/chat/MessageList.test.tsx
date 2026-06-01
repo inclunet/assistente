@@ -167,6 +167,36 @@ describe('MessageList', () => {
     expect(props.node.message.content).toBe('intermediário');
   });
 
+  // Issue #150: quando o backend devolve um único nó canônico já consolidado
+  // com `turnSegments`, o MessageList NÃO deve quebrá-lo em itens separados —
+  // o turno inteiro é UMA entrada do histórico.
+  it('mantém turno canônico do backend como uma única entrada com segments', () => {
+    hoisted.messageNodeMock.mockClear();
+    const userNode = createNode('user-1');
+    const turnNode = createNode('assistant-final');
+    turnNode.message.role = 'assistant';
+    turnNode.message.turnId = 'turn-1';
+    turnNode.message.content = 'resposta final';
+    (turnNode.message as unknown as Record<string, unknown>).turnSegments = [
+      { type: 'text', content: 'intermediário' },
+      { type: 'tool_calls', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+      { type: 'text', content: 'resposta final' },
+    ];
+
+    render(<MessageList threadedMessages={[userNode, turnNode]} />);
+
+    expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(2);
+    const turnProps = hoisted.messageNodeMock.mock.calls[1][0] as {
+      node: chat.MessageNode & { message: chat.EnrichedMessage & { turnSegments?: unknown[] } };
+    };
+    expect(turnProps.node.message.id).toBe('assistant-final');
+    expect(turnProps.node.message.turnSegments).toEqual([
+      { type: 'text', content: 'intermediário' },
+      { type: 'tool_calls', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+      { type: 'text', content: 'resposta final' },
+    ]);
+  });
+
   it('preserva segmentos canônicos ao consolidar nó de backend com transitório do mesmo turno', () => {
     hoisted.messageNodeMock.mockClear();
     const canonicalNode = createNode('assistant-canonical');
