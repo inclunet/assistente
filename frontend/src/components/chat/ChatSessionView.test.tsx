@@ -23,6 +23,13 @@ const activeConversation: { id: string; title: string; threadedMessages: MockThr
   threadedMessages: [],
 };
 
+const modalState = vi.hoisted(() => ({ open: false }));
+
+vi.mock('../ui/Modal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ui/Modal')>();
+  return { ...actual, isModalOpen: () => modalState.open };
+});
+
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
@@ -233,6 +240,7 @@ import { ChatSessionView } from './ChatSessionView';
 import { createEmptyChatSurfaceSession, type ChatSurfaceIdentity } from '../../services/chatSessionRegistry';
 import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
 import { announce } from '../../hooks/useAnnouncer';
+import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
 
 const panelTab = {
   id: 'chat-tab',
@@ -277,6 +285,33 @@ describe('ChatSessionView', () => {
     (activeConversation.threadedMessages as unknown[]) = [];
     (announce as ReturnType<typeof vi.fn>).mockReset();
     chatStoreState.surfaceSessionsByKey = {};
+    modalState.open = false;
+    useShortcutsHelpStore.setState({ isOpen: false });
+  });
+
+  it('? abre o painel de atalhos quando nenhum modal está aberto', () => {
+    renderWithPanel(
+      <ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={vi.fn()} showShortcutsHelp />,
+    );
+
+    const event = new KeyboardEvent('keypress', { key: '?', bubbles: true, cancelable: true });
+    document.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(useShortcutsHelpStore.getState().isOpen).toBe(true);
+  });
+
+  it('? NÃO abre o painel (nem chama preventDefault) quando outro modal está aberto', () => {
+    modalState.open = true;
+    renderWithPanel(
+      <ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={vi.fn()} showShortcutsHelp />,
+    );
+
+    const event = new KeyboardEvent('keypress', { key: '?', bubbles: true, cancelable: true });
+    document.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(useShortcutsHelpStore.getState().isOpen).toBe(false);
   });
 
   it('embedded: aciona menu de contexto via MessageList', async () => {

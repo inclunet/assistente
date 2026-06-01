@@ -15,7 +15,8 @@ import type {
   ChatSurfaceOrigin,
 } from '../../services/chatSessionRegistry';
 import { ContextMenu } from '../menu';
-import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
+import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
+import { isModalOpen } from '../ui/Modal';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
@@ -325,7 +326,6 @@ function ChatSessionViewContent({
   const isTTSDisabled = !hasVoiceConfig;
 
   const shortcutsOpen = showShortcutsHelp ?? variant === 'page';
-  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -514,6 +514,9 @@ function ChatSessionViewContent({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      // Com um modal aberto (ex.: painel de atalhos), o Escape deve fechar o
+      // modal — não cancelar o streaming nem o menu na UI de fundo.
+      if (isModalOpen()) return;
 
       if (event.key === 'Escape' && menuVisible) {
         event.preventDefault();
@@ -589,18 +592,25 @@ function ChatSessionViewContent({
   useEffect(() => {
     if (!shortcutsOpen || !isInteractiveSurface) return;
     const handleKeyPress = (e: KeyboardEvent) => {
+      // Não interceptar '?' quando outro modal está aberto: o Modal é portalado
+      // para fora de #root, então o evento ainda chega em `document`. Sem esta
+      // guarda o painel abriria por cima de outra UI modal e ainda chamaria
+      // preventDefault sobre o '?'. (Quando o próprio painel está aberto,
+      // isModalOpen() também é true; fechar é via ESC/Ctrl+?/overlay.)
+      if (e.defaultPrevented || isModalOpen()) return;
+
       const target = e.target as HTMLElement;
       const isInputElement = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
 
-      if (e.key === '?' && !isInputElement && !shortcutsHelpOpen) {
+      if (e.key === '?' && !isInputElement) {
         e.preventDefault();
-        setShortcutsHelpOpen(true);
+        useShortcutsHelpStore.getState().open();
       }
     };
 
     document.addEventListener('keypress', handleKeyPress);
     return () => document.removeEventListener('keypress', handleKeyPress);
-  }, [isInteractiveSurface, shortcutsHelpOpen, shortcutsOpen]);
+  }, [isInteractiveSurface, shortcutsOpen]);
 
   useEffect(() => {
     const handleMessageUpdated = (data: unknown) => {
@@ -661,6 +671,9 @@ function ChatSessionViewContent({
   useEffect(() => {
     if (!isInteractiveSurface) return;
     const handleEscape = (e: KeyboardEvent) => {
+      // Com um modal aberto, o Escape fecha o modal; não descarta o banner de
+      // erro na UI de fundo.
+      if (isModalOpen()) return;
       if (e.key === 'Escape' && sendError) {
         setSendError(null);
         setLastFailedMessage(null);
@@ -893,10 +906,6 @@ function ChatSessionViewContent({
         onClose={hideMenu}
         ariaLabel={t('chat.contextMenuAriaLabel')}
       />
-
-      {shortcutsOpen && (
-        <KeyboardShortcutsHelp isOpen={shortcutsHelpOpen} onClose={() => setShortcutsHelpOpen(false)} />
-      )}
     </div>
   );
 }

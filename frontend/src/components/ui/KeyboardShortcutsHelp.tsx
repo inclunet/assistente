@@ -1,7 +1,6 @@
-import React from 'react';
-import { CloseOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { SHORTCUTS } from '../../constants/chat';
+import { Modal } from './Modal';
 import './KeyboardShortcutsHelp.css';
 
 export interface KeyboardShortcutsHelpProps {
@@ -9,75 +8,108 @@ export interface KeyboardShortcutsHelpProps {
   onClose: () => void;
 }
 
+interface ShortcutEntry {
+  keys: string;
+  description: string;
+}
+
+interface ShortcutCategory {
+  id: string;
+  title: string;
+  items: ShortcutEntry[];
+}
+
+const ESC_HINT_ID = 'keyboard-shortcuts-esc-hint';
+
+/**
+ * Painel de atalhos de teclado.
+ *
+ * Usa o componente compartilhado `Modal`, de modo que enquanto aberto ele se
+ * registra no stack global de modais (`isModalOpen()` passa a retornar true).
+ * Assim, todos os handlers globais que respeitam `isModalOpen()` — F6 em
+ * `useLandmarkNavigation`, navegação de abas, etc. — deixam de agir na UI de
+ * fundo, e o `Modal` cuida de focus trap, ESC no topo do stack e inert/aria
+ * no fundo. O contrato da store `shortcutsHelpStore` (isOpen/onClose) é mantido.
+ */
 export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelpProps) {
   const { t } = useTranslation();
-  React.useEffect(() => {
-    if (!isOpen) return;
 
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
-  const shortcuts = [
-    { keys: SHORTCUTS.NEW_TAB, description: t('ui.shortcuts.newConversation') },
-    { keys: SHORTCUTS.CLEAR_CONVERSATION, description: t('ui.shortcuts.clearConversation') },
-    { keys: SHORTCUTS.PREV_TAB, description: t('ui.shortcuts.navigateTabs') },
-    { keys: SHORTCUTS.HISTORY, description: t('ui.shortcuts.openHistory') },
-    { keys: SHORTCUTS.MODELS, description: t('ui.shortcuts.selectModel') },
-    { keys: SHORTCUTS.PROFILES, description: t('ui.shortcuts.interactionProfiles') },
-    { keys: SHORTCUTS.SPEAK_MESSAGE, description: t('ui.shortcuts.playAudio') },
-    { keys: SHORTCUTS.MESSAGE_DETAILS, description: t('ui.shortcuts.viewDetails') },
-    { keys: 'Shift+F10', description: t('ui.shortcuts.contextMenu') },
-    { keys: '↑', description: t('ui.shortcuts.prevMessage') },
-    { keys: '↓', description: t('ui.shortcuts.nextMessage') },
-    { keys: 'Ctrl+Enter', description: t('ui.shortcuts.sendMessage') },
-    { keys: SHORTCUTS.HELP, description: t('ui.shortcuts.showHelp') },
+  const categories: ShortcutCategory[] = [
+    {
+      id: 'navigation',
+      title: t('ui.shortcuts.categories.navigation'),
+      items: [
+        { keys: 'Ctrl+T', description: t('ui.shortcuts.newChatTab') },
+        { keys: SHORTCUTS.NEW_TAB, description: t('ui.shortcuts.openNewTabMenu') },
+        { keys: 'Ctrl+W', description: t('ui.shortcuts.closeTab') },
+        { keys: 'Ctrl+Tab', description: t('ui.shortcuts.nextTab') },
+        { keys: 'Ctrl+Shift+Tab', description: t('ui.shortcuts.previousTab') },
+        { keys: 'Ctrl+1…9', description: t('ui.shortcuts.goToTab') },
+        { keys: 'Ctrl+PageDown / Ctrl+PageUp', description: t('ui.shortcuts.navigateTabs') },
+      ],
+    },
+    {
+      id: 'chat',
+      title: t('ui.shortcuts.categories.chat'),
+      items: [
+        { keys: 'Ctrl+Enter', description: t('ui.shortcuts.sendMessage') },
+        { keys: SHORTCUTS.CLEAR_CONVERSATION, description: t('ui.shortcuts.clearConversation') },
+        { keys: SHORTCUTS.HISTORY, description: t('ui.shortcuts.openHistory') },
+        { keys: 'Ctrl+P', description: t('ui.shortcuts.interactionProfiles') },
+        { keys: SHORTCUTS.SPEAK_MESSAGE, description: t('ui.shortcuts.playAudio') },
+        { keys: SHORTCUTS.MESSAGE_DETAILS, description: t('ui.shortcuts.viewDetails') },
+        { keys: 'Shift+F10', description: t('ui.shortcuts.contextMenu') },
+        { keys: '↑', description: t('ui.shortcuts.prevMessage') },
+        { keys: '↓', description: t('ui.shortcuts.nextMessage') },
+      ],
+    },
+    {
+      id: 'general',
+      title: t('ui.shortcuts.categories.general'),
+      items: [
+        { keys: 'Ctrl+?', description: t('ui.shortcuts.showHelp') },
+        { keys: 'F1', description: t('ui.shortcuts.openHelpPage') },
+        { keys: 'Alt+M', description: t('ui.shortcuts.openMenu') },
+        { keys: 'Esc', description: t('ui.shortcuts.closeDialog') },
+      ],
+    },
   ];
 
   return (
-    <div
-      className="keyboard-shortcuts-overlay"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="shortcuts-title"
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={t('ui.shortcuts.title')}
+      size="md"
+      className="keyboard-shortcuts-modal"
+      ariaDescribedBy={ESC_HINT_ID}
     >
-      <div
-        className="keyboard-shortcuts-panel"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="keyboard-shortcuts-header">
-          <h2 id="shortcuts-title">{t('ui.shortcuts.title')}</h2>
-          <button
-            className="keyboard-shortcuts-close"
-            onClick={onClose}
-            aria-label={t('ui.shortcuts.close')}
+      <div className="keyboard-shortcuts-content">
+        {categories.map((category) => (
+          <section
+            key={category.id}
+            className="keyboard-shortcuts-category"
+            aria-labelledby={`shortcuts-category-${category.id}`}
           >
-            <CloseOutlined aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="keyboard-shortcuts-content">
-          {shortcuts.map((shortcut, index) => (
-            <div key={index} className="keyboard-shortcut-item">
-              <kbd className="keyboard-shortcut-keys">{shortcut.keys}</kbd>
-              <span className="keyboard-shortcut-description">{shortcut.description}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="keyboard-shortcuts-footer">
-          <p>{t('ui.shortcuts.escToClose')}</p>
-        </div>
+            <h3
+              id={`shortcuts-category-${category.id}`}
+              className="keyboard-shortcuts-category-title"
+            >
+              {category.title}
+            </h3>
+            {category.items.map((shortcut, index) => (
+              <div key={index} className="keyboard-shortcut-item">
+                <kbd className="keyboard-shortcut-keys">{shortcut.keys}</kbd>
+                <span className="keyboard-shortcut-description">{shortcut.description}</span>
+              </div>
+            ))}
+          </section>
+        ))}
       </div>
-    </div>
+
+      <p id={ESC_HINT_ID} className="keyboard-shortcuts-footer-text">
+        {t('ui.shortcuts.escToClose')}
+      </p>
+    </Modal>
   );
 }
