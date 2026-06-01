@@ -155,6 +155,41 @@
   color: var(--accent);
 }
 
+/* Controle de contrair/expandir da cadeia do turno (Issue #163) */
+.chat-message__chain-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast) var(--ease-default), background-color var(--duration-fast) var(--ease-default);
+}
+
+.chat-message__chain-toggle:hover,
+.chat-message__chain-toggle:focus-visible {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.chat-message__chain-toggle::before {
+  content: '▸';
+  display: inline-block;
+  transition: transform var(--duration-fast) var(--ease-default);
+}
+
+.chat-message__chain-toggle--expanded::before {
+  transform: rotate(90deg);
+}
+
 /* Reading mode (virtual modal) */
 .chat-message--reading {
   background-color: var(--bg-surface);

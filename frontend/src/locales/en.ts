@@ -184,6 +184,8 @@ const en = {
       toolOriginMcpNative: 'MCP Native',
       collapseThread: 'Collapse interactions',
       expandThread: 'Expand interactions',
+      collapseChain: 'Collapse turn chain',
+      expandChain: 'Expand turn chain',
       interactionCount_one: '{{count}} interaction',
       interactionCount_other: '{{count}} interactions',
       editingMessage: 'Editing message',

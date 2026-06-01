@@ -75,9 +75,15 @@ export function useVirtualModal({
       // isolamos a interação usando inert nos irmãos ao longo da árvore.
       applyInert(el);
 
-      // Foca no conteúdo da mensagem
-      const contentEl = el.querySelector('.chat-message__text') as HTMLElement
-        || el.querySelector('.chat-message__content') as HTMLElement
+      // Foca no conteúdo da mensagem. O alvo precisa englobar a CADEIA INTEIRA
+      // do turno (todos os segmentos de texto E as chamadas de ferramenta, em
+      // ordem) — não apenas o primeiro `.chat-message__text`. `.chat-message__content`
+      // é o container estável que envolve cabeçalho, segmentos e tool calls, então
+      // `role="document"` aqui expõe o turno inteiro à navegação do leitor de tela
+      // (Issue #163). Mantém o fallback para `.chat-message__text` (mensagens simples
+      // e harness de teste) e por fim o próprio elemento.
+      const contentEl = el.querySelector('.chat-message__content') as HTMLElement
+        || el.querySelector('.chat-message__text') as HTMLElement
         || el;
       
       if (contentEl) {

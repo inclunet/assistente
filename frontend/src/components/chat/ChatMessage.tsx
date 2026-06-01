@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect, useState } from 'react';
+import React, { useMemo, useRef, useEffect, useState, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ToolOutlined, RobotOutlined, SendOutlined, LockOutlined,
@@ -86,6 +86,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const { t } = useTranslation();
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const messageRef = useRef<HTMLDivElement>(null);
+  const chainRegionId = useId();
+  // Issue #163: a cadeia do turno (segmentos intermediários + tool calls) ganha
+  // uma affordance acessível de contrair/expandir. Inicia expandida para
+  // preservar o layout visual já existente (a cadeia é exibida agrupada); o
+  // controle expõe `aria-expanded` e permite recolher a cadeia por economia.
+  const [isChainExpanded, setIsChainExpanded] = useState(true);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const previousShouldDeferHeavyContentRef = useRef(false);
   const {
@@ -133,22 +139,33 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       ]
     : rawTurnSegments;
 
-  // Issue #160: para turnos agênticos (texto → tools → … → texto final) o
-  // leitor de tela deve anunciar APENAS a CONCLUSÃO do turno — o último
-  // `TurnSegment` de texto não-vazio — e não trechos intermediários nem a
-  // concatenação carregada em `effectiveContent`. A cadeia completa continua
-  // acessível via browse mode (segmentos em `role="log"`). Durante o streaming
-  // este valor reflete sempre o último segmento textual disponível no momento,
-  // substituindo (não concatenando) o anúncio anterior. Fallback para o
-  // `placeholderContent` quando não há texto (ex.: turno tool-only).
+  // Issues #160/#163: em turnos agênticos (texto → tools → … → texto final) o
+  // leitor de tela deve anunciar APENAS a CONCLUSÃO do turno — não trechos
+  // intermediários. A regra de seleção da conclusão é determinística, nesta
+  // ordem de precedência:
+  //
+  //   1. Streaming agêntico ativo: o conteúdo ao vivo (`effectiveContent`) tem
+  //      precedência. O trecho mais recente costuma ainda estar em
+  //      `effectiveContent` (iteração em curso) e só vira um `TurnSegment`
+  //      concluído depois; usá-lo torna o anúncio substitutivo (reflete o
+  //      último texto disponível, não o segmento anterior já fechado) — #160.
+  //   2. `message.content` consolidado, quando presente e não-vazio: é a fonte
+  //      de verdade da resposta final. O backend (`consolidateTimelineTurn`)
+  //      define `content = finalContent`, ou seja, o ÚLTIMO conteúdo textual
+  //      não-vazio emitido pelo assistente no turno — a conclusão canônica —
+  //      mesmo quando ela não é o último `TurnSegment` da cadeia (#163).
+  //   3. Fallback: último `TurnSegment` de texto não-vazio, para turnos cujo
+  //      `content` escalar esteja ausente/vazio mas a cadeia traga texto.
+  //   4. Placeholder, quando não há texto algum (ex.: turno tool-only).
+  //
+  // A cadeia completa continua acessível via browse mode (segmentos navegáveis)
+  // e pelo modo de leitura (Enter), independente deste valor.
   const conclusionContent = useMemo(() => {
-    // Durante o streaming agêntico, o trecho mais recente costuma ainda estar em
-    // `effectiveContent` (texto da iteração em curso) e só vira um `TurnSegment`
-    // concluído depois. Para o anúncio ser de fato substitutivo (refletir o
-    // último texto disponível, não o segmento anterior já fechado), o conteúdo
-    // ao vivo tem prioridade enquanto há streaming.
     if (effectiveIsStreaming && effectiveContent && effectiveContent.trim()) {
       return effectiveContent;
+    }
+    if (content && content.trim()) {
+      return content;
     }
     for (let i = displaySegments.length - 1; i >= 0; i -= 1) {
       const seg = displaySegments[i];
@@ -157,7 +174,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       }
     }
     return placeholderContent || '';
-  }, [effectiveIsStreaming, effectiveContent, displaySegments, placeholderContent]);
+  }, [effectiveIsStreaming, effectiveContent, content, displaySegments, placeholderContent]);
 
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : effectiveContent;
@@ -401,7 +418,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     <div
       ref={messageRef}
       className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''} ${isReading ? 'chat-message--reading' : ''}`}
-      aria-label={isEditing ? undefined : getAriaLabel()}
+      aria-label={isEditing || isReading ? undefined : getAriaLabel()}
       aria-live={effectiveIsStreaming && !isAgenticStreaming ? 'polite' : 'off'}
       aria-busy={effectiveIsStreaming && !isAgenticStreaming}
       onKeyDown={handleKeyDown}
@@ -476,15 +493,31 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         {/* Interleaved segments: text → tools → text → tools → final answer */}
         {role === 'assistant' && hasAgenticSegments ? (
           <>
+            {/* Issue #163: turnos concluídos expõem um controle acessível para
+                contrair/expandir a cadeia inteira (segmentos + tool calls). Durante
+                o streaming a cadeia permanece sempre visível (log ao vivo). */}
+            {!isAgenticStreaming && (
+              <button
+                type="button"
+                className={`chat-message__chain-toggle${isChainExpanded ? ' chat-message__chain-toggle--expanded' : ''}`}
+                onClick={(e) => { e.stopPropagation(); setIsChainExpanded((prev) => !prev); }}
+                aria-expanded={isChainExpanded}
+                aria-controls={chainRegionId}
+                tabIndex={-1}
+              >
+                {isChainExpanded ? t('chat.collapseChain') : t('chat.expandChain')}
+              </button>
+            )}
             {/* Completed segments — role="log" so screen readers announce each addition
                 and browse mode users can navigate segment by segment */}
             <div
+              id={chainRegionId}
               role={isAgenticStreaming ? 'log' : undefined}
               aria-label={isAgenticStreaming ? t('chat.progressLabel') : undefined}
               aria-relevant={isAgenticStreaming ? 'additions' : undefined}
               className="chat-message__segments-log"
             >
-              {canRenderHeavyContent ? displaySegments.map((seg, idx) => (
+              {(isAgenticStreaming || isChainExpanded) && (canRenderHeavyContent ? displaySegments.map((seg, idx) => (
                 <React.Fragment key={idx}>
                   {seg.type === 'text' && seg.content && (
                     <div className="chat-message__text chat-message__text--segment">
@@ -508,7 +541,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 <div className="chat-message__text chat-message__text--segment">
                   {t('chat.largeMessageDeferred')}
                 </div>
-              )}
+              ))}
             </div>
 
             {/* Current iteration — aria-busy suppresses char-by-char updates */}
