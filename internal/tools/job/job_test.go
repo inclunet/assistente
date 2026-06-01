@@ -864,7 +864,8 @@ func TestJobToolStringifiedInvalidReturnsExplanatoryError(t *testing.T) {
 		fragment string
 	}{
 		{"enabled not bool", `{"job_id":"j","enabled":"yes"}`, "must be a boolean"},
-		{"max_runs not number", `{"job_id":"j","max_runs_per_hour":"lots"}`, "must be a number"},
+		{"max_runs not number", `{"job_id":"j","max_runs_per_hour":"lots"}`, "must be an integer"},
+		{"max_runs float string", `{"job_id":"j","max_runs_per_hour":"1.5"}`, "must be an integer"},
 		{"inputs not object", `{"job_id":"j","inputs":"not json"}`, "must be a JSON object"},
 		{"triggers not array", `{"job_id":"j","triggers":"nope"}`, "must be a JSON array"},
 	}

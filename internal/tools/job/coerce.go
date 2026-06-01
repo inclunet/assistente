@@ -17,7 +17,11 @@ const (
 	kindObject jsonKind = iota
 	kindArray
 	kindBool
-	kindNumber
+	// kindInteger cobre os campos numéricos das tools de job, que sem exceção
+	// fazem unmarshal em `int`/`*int` (limit, offset, max_runs_per_hour). Aceitar
+	// floats/notação científica aqui apenas adiaria a falha para o unmarshal
+	// estrito com um erro cru — então a coerção exige um inteiro JSON.
+	kindInteger
 )
 
 // jobTypedFields lista os campos da tool `job` cujo tipo NÃO é string. Campos
@@ -31,9 +35,9 @@ var jobTypedFields = map[string]jsonKind{
 	"list_events":       kindBool,
 	"include_dry_run":   kindBool,
 	"enabled":           kindBool,
-	"limit":             kindNumber,
-	"offset":            kindNumber,
-	"max_runs_per_hour": kindNumber,
+	"limit":             kindInteger,
+	"offset":            kindInteger,
+	"max_runs_per_hour": kindInteger,
 	"status":            kindArray,
 	"tags":              kindArray,
 	"triggers":          kindArray,
@@ -114,8 +118,8 @@ func coerceStringValue(field, inner string, kind jsonKind) (json.RawMessage, err
 		case "false":
 			return json.RawMessage("false"), nil
 		}
-	case kindNumber:
-		if isJSONNumber(value) {
+	case kindInteger:
+		if isJSONInteger(value) {
 			return json.RawMessage(value), nil
 		}
 	case kindObject:
@@ -145,8 +149,8 @@ func (k jsonKind) label() string {
 		return "a JSON array"
 	case kindBool:
 		return "a boolean"
-	case kindNumber:
-		return "a number"
+	case kindInteger:
+		return "an integer"
 	default:
 		return "a value"
 	}
@@ -160,7 +164,7 @@ func (k jsonKind) example(field string) string {
 		return fmt.Sprintf(`%q: ["value"]`, field)
 	case kindBool:
 		return fmt.Sprintf(`%q: true`, field)
-	case kindNumber:
+	case kindInteger:
 		return fmt.Sprintf(`%q: 1000`, field)
 	default:
 		return ""
@@ -182,14 +186,19 @@ func isJSONArray(s string) bool {
 	return len(t) > 0 && t[0] == '[' && json.Valid([]byte(t))
 }
 
-func isJSONNumber(s string) bool {
+// isJSONInteger só aceita inteiros em base 10 (com sinal opcional), recusando
+// floats e notação científica ("1.5", "1e3"). Os campos numéricos das tools de
+// job fazem unmarshal em `int`; aceitar um float aqui apenas trocaria o erro cru
+// do encoding/json por outro mais adiante, derrotando a tolerância defensiva.
+func isJSONInteger(s string) bool {
 	t := strings.TrimSpace(s)
 	if t == "" {
 		return false
 	}
-	if _, err := strconv.ParseFloat(t, 64); err != nil {
+	if _, err := strconv.ParseInt(t, 10, 64); err != nil {
 		return false
 	}
-	// Descarta Inf/NaN e afins que o ParseFloat aceita mas não são JSON válido.
+	// Garante que o literal também é um número JSON válido (sem zeros à esquerda,
+	// "+", espaços internos, etc. que ParseInt toleraria mas o JSON não).
 	return json.Valid([]byte(t))
 }
