@@ -1,4 +1,13 @@
-import { ReactNode, useEffect, useRef, useCallback, useId } from 'react';
+import {
+  ReactNode,
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  useId,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { CloseOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -68,6 +77,23 @@ export function ensureModalCleanup() {
   }
 }
 
+/**
+ * Contexto que expõe, para os descendentes de um Modal, se aquele Modal é o
+ * que está no topo da stack. Reutiliza o mesmo critério usado pelo Modal para
+ * tratar ESC/Tab, garantindo que handlers de teclado de conteúdos internos
+ * (ex.: setas/zoom do ImageViewerModal) só ajam quando o modal estiver ativo.
+ */
+const ModalTopmostContext = createContext<(() => boolean) | null>(null);
+
+/**
+ * Retorna uma função que indica se o Modal mais próximo (ancestral) é o do
+ * topo da stack. Fora de um Modal, assume `true` (sem stack concorrente).
+ */
+export function useModalIsTopmost(): () => boolean {
+  const ctx = useContext(ModalTopmostContext);
+  return ctx ?? (() => true);
+}
+
 // Seletor para elementos focáveis
 const FOCUSABLE_SELECTOR = 
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
@@ -122,6 +148,9 @@ export function Modal({
     const id = modalInstanceIdRef.current;
     return OPEN_MODAL_STACK.length > 0 && OPEN_MODAL_STACK[OPEN_MODAL_STACK.length - 1] === id;
   }, []);
+
+  // Valor estável exposto via contexto para descendentes do Modal.
+  const topmostValue = useMemo(() => isTopMost, [isTopMost]);
 
   // Mantém o stack em sync com abertura/fechamento.
   useEffect(() => {
@@ -240,30 +269,32 @@ export function Modal({
   if (!isOpen) return null;
 
   return createPortal(
-    <div
-      className="modal-overlay"
-      role="dialog"
-      aria-labelledby={titleId}
-      aria-describedby={ariaDescribedBy}
-    >
-      <div ref={modalRef} className={`modal-content ${size}${className ? ` ${className}` : ''}`}>
-        <div className="modal-header">
-          {allowClose && (
-            <button 
-              className="modal-close"
-              onClick={onClose}
-              aria-label={t('ui.modal.close')}
-            >
-              <CloseOutlined aria-hidden="true" />
-            </button>
-          )}
-          <h1 id={titleId} className="modal-title">{title}</h1>
-        </div>
-        <div className="modal-body">
-          {children}
+    <ModalTopmostContext.Provider value={topmostValue}>
+      <div
+        className="modal-overlay"
+        role="dialog"
+        aria-labelledby={titleId}
+        aria-describedby={ariaDescribedBy}
+      >
+        <div ref={modalRef} className={`modal-content ${size}${className ? ` ${className}` : ''}`}>
+          <div className="modal-header">
+            {allowClose && (
+              <button 
+                className="modal-close"
+                onClick={onClose}
+                aria-label={t('ui.modal.close')}
+              >
+                <CloseOutlined aria-hidden="true" />
+              </button>
+            )}
+            <h1 id={titleId} className="modal-title">{title}</h1>
+          </div>
+          <div className="modal-body">
+            {children}
+          </div>
         </div>
       </div>
-    </div>,
+    </ModalTopmostContext.Provider>,
     document.body
   );
 }

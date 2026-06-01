@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ImageViewerModal, type ImageViewerImage } from './ImageViewerModal';
+import { Modal } from './Modal';
 
 const single: ImageViewerImage[] = [
   { src: 'http://example.com/a.png', alt: 'Foto A' },
@@ -90,5 +91,53 @@ describe('ImageViewerModal', () => {
 
     fireEvent.keyDown(document, { key: 'ArrowLeft' });
     expect(screen.getByAltText('Foto A')).toBeInTheDocument();
+  });
+
+  it('não responde a setas/zoom quando outro modal está por cima', () => {
+    render(
+      <>
+        <ImageViewerModal isOpen images={multiple} initialIndex={0} onClose={vi.fn()} />
+        <Modal isOpen onClose={vi.fn()} title="Modal do topo">
+          <p>conteúdo do topo</p>
+        </Modal>
+      </>,
+    );
+
+    // O viewer está atrás do segundo modal (topo da stack).
+    expect(screen.getByAltText('Foto A')).toBeInTheDocument();
+    expect(screen.getByText('100%')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'ArrowRight' });
+    expect(screen.getByAltText('Foto A')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: '+' });
+    expect(screen.getByText('100%')).toBeInTheDocument();
+  });
+
+  it('volta a responder às teclas quando o modal do topo é fechado', () => {
+    const { rerender } = render(
+      <>
+        <ImageViewerModal isOpen images={multiple} initialIndex={0} onClose={vi.fn()} />
+        <Modal isOpen onClose={vi.fn()} title="Modal do topo">
+          <p>conteúdo do topo</p>
+        </Modal>
+      </>,
+    );
+
+    fireEvent.keyDown(document, { key: 'ArrowRight' });
+    expect(screen.getByAltText('Foto A')).toBeInTheDocument();
+
+    // Fecha o modal do topo: o viewer volta a ser o modal ativo.
+    rerender(
+      <>
+        <ImageViewerModal isOpen images={multiple} initialIndex={0} onClose={vi.fn()} />
+        <Modal isOpen={false} onClose={vi.fn()} title="Modal do topo">
+          <p>conteúdo do topo</p>
+        </Modal>
+      </>,
+    );
+
+    fireEvent.keyDown(document, { key: 'ArrowRight' });
+    expect(screen.getByAltText('Foto B')).toBeInTheDocument();
   });
 });
