@@ -215,7 +215,7 @@ Objetivo: manter a experiência “Docs-like” no modo rico, mas garantindo que
 
 **Como abre**
 - No modo rico, o bloco Mermaid aparece como “card”: preview + ações.
-- A ação “Editar código” abre um `SimpleModal` (ou um “painel” dockado, se preferir) com:
+- A ação “Editar código” abre um `Modal` (ou um “painel” dockado, se preferir) com:
   - editor (Monaco) para o conteúdo do bloco ` ```mermaid ... ``` ` (somente o conteúdo interno);
   - preview renderizado ao lado/abaixo.
 
