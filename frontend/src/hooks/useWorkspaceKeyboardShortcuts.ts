@@ -71,6 +71,17 @@ export function useWorkspaceKeyboardShortcuts() {
         return;
       }
 
+      // Enquanto o painel global de atalhos está aberto ele se comporta como um
+      // modal: nenhum outro atalho global do workspace deve agir na UI de fundo
+      // (ex.: Ctrl+W fechar aba, Ctrl+T criar aba). O fechamento é feito pelo ESC
+      // do próprio painel e pelo toggle Ctrl+? acima — por isso esta guarda vem
+      // depois do bloco de toggle. Observação: apenas marcar o painel como inert
+      // (Modal) não bastaria, pois listeners de keydown em `window` continuam
+      // recebendo os eventos vindos do diálogo.
+      if (useShortcutsHelpStore.getState().isOpen) {
+        return;
+      }
+
       // Ctrl+Shift+I: chat modal do painel (adaptador registado pela aba ativa)
       if (
         event.ctrlKey &&

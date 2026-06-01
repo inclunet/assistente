@@ -253,6 +253,9 @@ export function Topbar() {
   // --- Keyboard shortcuts ---
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Enquanto o painel global de atalhos está aberto, os atalhos de navegação
+      // da Topbar (Alt+M/H/E/I/P, F1) não devem agir na UI de fundo.
+      if (useShortcutsHelpStore.getState().isOpen) return;
       if (event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
         const key = event.key.toLowerCase();
         if (key === 'm') { event.preventDefault(); menuButtonRef.current?.toggleMenu(); return; }
