@@ -184,16 +184,25 @@ func (a *App) AnalyzeImportData(jsonData string, credentialExportPassword string
 	return portability.AnalyzeImportDataWithContext(ctx, jsonData, a.credMgr, credentialExportPassword)
 }
 
-func (a *App) ExportConversationsToFile(ids []string, format string) (string, error) {
+func (a *App) ExportConversationsToFile(ids []string, format string, options portability.ContentExportOptions) (string, error) {
 	if a.dialogPort == nil {
 		return "", fmt.Errorf("diálogo de sistema não inicializado")
 	}
 
-	req := portability.ExportRequest{OutputFormat: format}
 	switch format {
-	case portability.FormatHTML, portability.FormatPDF:
+	case portability.FormatHTML, portability.FormatPDF, portability.FormatMarkdown:
 	default:
 		return "", fmt.Errorf("formato de exportação não suportado: %s", format)
+	}
+
+	includeTimestamps := options.IncludeTimestamps
+	includeReasoning := options.IncludeReasoning
+	includeMetadata := options.IncludeMetadata
+	req := portability.ExportRequest{
+		OutputFormat:      format,
+		IncludeTimestamps: &includeTimestamps,
+		IncludeReasoning:  &includeReasoning,
+		IncludeMetadata:   &includeMetadata,
 	}
 
 	ctx, err := a.importExportContext()
@@ -251,7 +260,7 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 			return "", err
 		}
 		return path, nil
-	case portability.FormatHTML, portability.FormatPDF:
+	case portability.FormatHTML, portability.FormatPDF, portability.FormatMarkdown:
 		ctx, err := a.importExportContext()
 		if err != nil {
 			return "", err

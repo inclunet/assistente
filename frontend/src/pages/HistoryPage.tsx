@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CheckOutlined,
+  CodeOutlined,
   DeleteOutlined,
   ExportOutlined,
   FilePdfOutlined,
@@ -11,11 +12,15 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ExportConversationsToFile, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { portability } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../components/menu';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
+import { Modal } from '../components/ui/Modal';
+import { Checkbox } from '../components/ui/Checkbox';
+import { Button } from '../components/ui/Button';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -35,6 +40,25 @@ interface Conversation {
   snippet?: string;
 }
 
+type RichExportFormat = 'html' | 'pdf' | 'md';
+
+interface ContentExportOptions {
+  includeTimestamps: boolean;
+  includeReasoning: boolean;
+  includeMetadata: boolean;
+}
+
+const DEFAULT_EXPORT_OPTIONS: ContentExportOptions = {
+  includeTimestamps: true,
+  includeReasoning: true,
+  includeMetadata: true,
+};
+
+interface ActiveRichExport {
+  format: RichExportFormat;
+  ids: string[];
+}
+
 export default function HistoryPage() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
@@ -49,6 +73,8 @@ export default function HistoryPage() {
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
+  const [exportRequest, setExportRequest] = useState<ActiveRichExport | null>(null);
+  const [exportOptions, setExportOptions] = useState<ContentExportOptions>(DEFAULT_EXPORT_OPTIONS);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
   const moveTabToWorkspace = useWorkspaceStore(state => state.moveTabToWorkspace);
@@ -217,14 +243,22 @@ export default function HistoryPage() {
     }
   }, [announce, t]);
 
-  const exportRichByIds = useCallback(async (idsToExport: string[], format: 'html' | 'pdf') => {
+  const exportRichByIds = useCallback(async (
+    idsToExport: string[],
+    format: RichExportFormat,
+    options: ContentExportOptions,
+  ) => {
     if (idsToExport.length === 0) {
       announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
       return;
     }
 
     try {
-      const savedPath = await ExportConversationsToFile(idsToExport, format);
+      const savedPath = await ExportConversationsToFile(
+        idsToExport,
+        format,
+        portability.ContentExportOptions.createFrom(options),
+      );
       if (!savedPath) return;
       announce(t('history.exportSaved', { path: savedPath, defaultValue: `Arquivo exportado: ${savedPath}` }));
     } catch (error) {
@@ -237,10 +271,29 @@ export default function HistoryPage() {
     void exportJsonByIds(getContextConversationIds());
   }, [exportJsonByIds, getContextConversationIds]);
 
-  const handleRichExport = useCallback(async (format: 'html' | 'pdf') => {
-    const idsToExport = getContextConversationIds();
-    await exportRichByIds(idsToExport, format);
-  }, [exportRichByIds, getContextConversationIds]);
+  const openRichExport = useCallback((format: RichExportFormat, ids: string[]) => {
+    if (ids.length === 0) {
+      announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
+      return;
+    }
+    setExportOptions(DEFAULT_EXPORT_OPTIONS);
+    setExportRequest({ format, ids });
+  }, [announce, t]);
+
+  const handleRichExport = useCallback((format: RichExportFormat) => {
+    openRichExport(format, getContextConversationIds());
+  }, [openRichExport, getContextConversationIds]);
+
+  const closeExportModal = useCallback(() => {
+    setExportRequest(null);
+  }, []);
+
+  const confirmRichExport = useCallback(async () => {
+    if (!exportRequest) return;
+    const { ids, format } = exportRequest;
+    setExportRequest(null);
+    await exportRichByIds(ids, format, exportOptions);
+  }, [exportRequest, exportOptions, exportRichByIds]);
 
   const handleDeleteAction = useCallback(() => {
     if (selectedIds.size > 0) {
@@ -319,13 +372,19 @@ export default function HistoryPage() {
             id: 'export-html',
             label: t('history.exportHtml', 'Exportar HTML'),
             icon: <FileTextOutlined />,
-            action: () => void exportRichByIds([item.id], 'html'),
+            action: () => openRichExport('html', [item.id]),
+          },
+          {
+            id: 'export-markdown',
+            label: t('history.exportMarkdown', 'Exportar Markdown'),
+            icon: <CodeOutlined />,
+            action: () => openRichExport('md', [item.id]),
           },
           {
             id: 'export-pdf',
             label: t('history.exportPdf', 'Exportar PDF'),
             icon: <FilePdfOutlined />,
-            action: () => void exportRichByIds([item.id], 'pdf'),
+            action: () => openRichExport('pdf', [item.id]),
           },
         ],
       });
@@ -339,7 +398,7 @@ export default function HistoryPage() {
 
       return actions;
     },
-    [exportJsonByIds, exportRichByIds, handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
+    [exportJsonByIds, openRichExport, handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
   );
 
   const getMenuButtonItems = useCallback(
@@ -500,7 +559,15 @@ export default function HistoryPage() {
             key: 'export-html',
             label: t('history.exportHtml', 'Exportar HTML'),
             icon: <FileTextOutlined />,
-            onClick: () => void handleRichExport('html'),
+            onClick: () => handleRichExport('html'),
+            disabled: selectedIds.size === 0 && !focusedRow,
+            variant: 'secondary',
+          },
+          {
+            key: 'export-markdown',
+            label: t('history.exportMarkdown', 'Exportar Markdown'),
+            icon: <CodeOutlined />,
+            onClick: () => handleRichExport('md'),
             disabled: selectedIds.size === 0 && !focusedRow,
             variant: 'secondary',
           },
@@ -508,7 +575,7 @@ export default function HistoryPage() {
             key: 'export-pdf',
             label: t('history.exportPdf', 'Exportar PDF'),
             icon: <FilePdfOutlined />,
-            onClick: () => void handleRichExport('pdf'),
+            onClick: () => handleRichExport('pdf'),
             disabled: selectedIds.size === 0 && !focusedRow,
             variant: 'secondary',
           },
@@ -533,6 +600,65 @@ export default function HistoryPage() {
         getRowActions={getRowActions}
       />
 
+      <Modal
+        isOpen={exportRequest !== null}
+        onClose={closeExportModal}
+        title={t('history.exportOptionsTitle', 'Opções de exportação')}
+        size="sm"
+        ariaDescribedBy="history-export-options-desc"
+      >
+        <p id="history-export-options-desc" className="history-page__export-desc">
+          {exportRequest
+            ? t('history.exportOptionsDescription', {
+                format: exportFormatLabel(exportRequest.format),
+                count: exportRequest.ids.length,
+                defaultValue: 'Escolha o que incluir na exportação ({{format}}) de {{count}} conversa(s).',
+              })
+            : ''}
+        </p>
+        <fieldset className="history-page__export-fieldset">
+          <legend className="history-page__export-legend">
+            {t('history.exportOptionsLegend', 'Conteúdo incluído')}
+          </legend>
+          <Checkbox
+            checked={exportOptions.includeTimestamps}
+            onChange={(e) => setExportOptions((prev) => ({ ...prev, includeTimestamps: e.target.checked }))}
+            label={t('history.exportIncludeTimestamps', 'Incluir datas e horários')}
+          />
+          <Checkbox
+            checked={exportOptions.includeReasoning}
+            onChange={(e) => setExportOptions((prev) => ({ ...prev, includeReasoning: e.target.checked }))}
+            label={t('history.exportIncludeReasoning', 'Incluir raciocínio (reasoning)')}
+          />
+          <Checkbox
+            checked={exportOptions.includeMetadata}
+            onChange={(e) => setExportOptions((prev) => ({ ...prev, includeMetadata: e.target.checked }))}
+            label={t('history.exportIncludeMetadata', 'Incluir metadados (modelo, provedor, tokens)')}
+          />
+        </fieldset>
+        <div className="history-page__export-actions">
+          <Button variant="secondary" onClick={closeExportModal}>
+            {t('common.cancel', 'Cancelar')}
+          </Button>
+          <Button variant="primary" onClick={() => void confirmRichExport()}>
+            {t('history.exportConfirm', 'Exportar')}
+          </Button>
+        </div>
+      </Modal>
+
     </div>
   );
+}
+
+function exportFormatLabel(format: RichExportFormat): string {
+  switch (format) {
+    case 'html':
+      return 'HTML';
+    case 'pdf':
+      return 'PDF';
+    case 'md':
+      return 'Markdown';
+    default:
+      return format;
+  }
 }

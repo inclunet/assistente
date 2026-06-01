@@ -2912,6 +2912,22 @@ export namespace mcp {
 
 export namespace portability {
 	
+	export class ContentExportOptions {
+	    includeTimestamps: boolean;
+	    includeReasoning: boolean;
+	    includeMetadata: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContentExportOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.includeTimestamps = source["includeTimestamps"];
+	        this.includeReasoning = source["includeReasoning"];
+	        this.includeMetadata = source["includeMetadata"];
+	    }
+	}
 	export class ExportRequest {
 	    all: boolean;
 	    explicitSelection?: boolean;
@@ -2930,6 +2946,9 @@ export namespace portability {
 	    includeCredentials: boolean;
 	    credentialExportPassword?: string;
 	    outputFormat?: string;
+	    includeTimestamps?: boolean;
+	    includeReasoning?: boolean;
+	    includeMetadata?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ExportRequest(source);
@@ -2954,6 +2973,9 @@ export namespace portability {
 	        this.includeCredentials = source["includeCredentials"];
 	        this.credentialExportPassword = source["credentialExportPassword"];
 	        this.outputFormat = source["outputFormat"];
+	        this.includeTimestamps = source["includeTimestamps"];
+	        this.includeReasoning = source["includeReasoning"];
+	        this.includeMetadata = source["includeMetadata"];
 	    }
 	}
 	export class ImportConflict {

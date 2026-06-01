@@ -314,8 +314,8 @@ export function ExportConversations(arg1) {
   return window['go']['app']['App']['ExportConversations'](arg1);
 }
 
-export function ExportConversationsToFile(arg1, arg2) {
-  return window['go']['app']['App']['ExportConversationsToFile'](arg1, arg2);
+export function ExportConversationsToFile(arg1, arg2, arg3) {
+  return window['go']['app']['App']['ExportConversationsToFile'](arg1, arg2, arg3);
 }
 
 export function ExportData(arg1) {
