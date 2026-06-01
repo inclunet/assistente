@@ -85,13 +85,18 @@ export function ensureModalCleanup() {
  */
 const ModalTopmostContext = createContext<(() => boolean) | null>(null);
 
+// Fallback estável por referência para uso fora de um Modal: sem stack
+// concorrente, considera-se sempre o topo. Constante de módulo para não
+// criar uma nova função a cada render (evita reexecução de useEffect/deps).
+const ALWAYS_TOPMOST = () => true;
+
 /**
  * Retorna uma função que indica se o Modal mais próximo (ancestral) é o do
  * topo da stack. Fora de um Modal, assume `true` (sem stack concorrente).
  */
 export function useModalIsTopmost(): () => boolean {
   const ctx = useContext(ModalTopmostContext);
-  return ctx ?? (() => true);
+  return ctx ?? ALWAYS_TOPMOST;
 }
 
 // Seletor para elementos focáveis
