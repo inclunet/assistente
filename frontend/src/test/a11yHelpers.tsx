@@ -38,12 +38,16 @@ import { Modal, isModalOpen } from '../components/ui/Modal';
  * `document` (inclusive em fase de captura) continuam sendo acionados.
  *
  * @param init   Campos do KeyboardEvent (`key`, `code`, `ctrlKey`, etc.).
- * @param options.target Alvo do dispatch (default: `document.body`).
+ * @param options.target `HTMLElement` alvo do dispatch (default: `document.body`).
+ *   Espera-se um `HTMLElement` (e não `window`/`document`) justamente porque os
+ *   handlers globais costumam ler `event.target.closest(...)`, método que só
+ *   existe em `Element`. Quem realmente precisar despachar em `window`/
+ *   `document` deve fazer cast explícito no call site, ciente do risco.
  * @param options.type   Tipo do evento (default: `'keydown'`).
  */
 export function dispatchKey(
   init: KeyboardEventInit,
-  options: { target?: Window | Document | HTMLElement; type?: 'keydown' | 'keyup' | 'keypress' } = {},
+  options: { target?: HTMLElement; type?: 'keydown' | 'keyup' | 'keypress' } = {},
 ): KeyboardEvent {
   const { target = document.body, type = 'keydown' } = options;
   // `...init` vem PRIMEIRO; `bubbles`/`cancelable` são forçados DEPOIS para

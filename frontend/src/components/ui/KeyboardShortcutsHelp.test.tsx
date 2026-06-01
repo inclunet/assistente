@@ -22,7 +22,7 @@ vi.mock('react-i18next', () => ({
 const CANONICAL_SHORTCUT_COMBOS = [
   'Ctrl+N',     // nova aba / criar
   'Ctrl+L',     // limpar conversa
-  'Ctrl+P',     // ação no contexto da aba (seletor de perfil)
+  'Ctrl+P',     // navegação entre abas (SHORTCUTS.PREV_TAB -> t('ui.shortcuts.navigateTabs'))
   'Ctrl+H',     // histórico
   'Ctrl+M',     // modelos
   'Ctrl+I',     // perfis de interação
