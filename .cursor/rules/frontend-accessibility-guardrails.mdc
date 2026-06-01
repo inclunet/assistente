@@ -1,6 +1,6 @@
 ---
-description: Salvaguardas de acessibilidade para o frontend (reuso de Modal, isModalOpen, contraste por token). Complementa o CLAUDE.md e o frontend-design-system.
-globs: frontend/src/**/*.tsx,frontend/src/**/*.ts
+description: Salvaguardas de acessibilidade para o frontend (reuso de Modal, isModalOpen, contraste por token). Complementa o CLAUDE.md e o frontend-design-system.mdc.
+globs: frontend/src/**/*.tsx,frontend/src/**/*.ts,frontend/src/**/*.css
 alwaysApply: false
 ---
 
@@ -64,7 +64,7 @@ Painel de atalhos, tooltips e textos de ajuda só podem mostrar combinações qu
 
 ## Lacunas das ferramentas → exigem teste manual
 
-`axe-core`/jsdom NÃO calcula contraste de `var(--token)` nem detecta interação teclado-entre-modais; `stylelint` só bloqueia cor hardcoded (não token errado); `jsx-a11y` não conhece listeners globais em `document`. Para esses casos, escreva testes dedicados (padrão de `frontend/src/test/a11y.test.tsx` e `a11y-composed.test.tsx`):
+`axe-core`/jsdom NÃO calcula contraste de `var(--token)` nem detecta interação teclado-entre-modais; `stylelint` só bloqueia cor hardcoded (não token errado); `jsx-a11y` não conhece listeners globais em `document`. Para esses casos, escreva testes dedicados (padrão de `frontend/src/test/a11y.test.tsx` e `frontend/src/test/a11y-composed.test.tsx`):
 - atalho global **não age** com modal aberto: renderizar com um `Modal` aberto e disparar a tecla, esperando que a ação de fundo não ocorra.
 - mapeamento atalho↔descrição: garantir que cada combinação exibida bate com a constante/handler real.
 - foco: foco inicial dentro do modal e restauração ao fechar.
