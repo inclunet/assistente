@@ -335,7 +335,7 @@ func TestRenderConversationsHTMLHighlightsCode(t *testing.T) {
 	if !strings.Contains(html, `class="chroma"`) {
 		t.Fatalf("html should wrap highlighted code with chroma class: %s", html)
 	}
-	if !strings.Contains(html, "<span class=") {
+	if !strings.Contains(html, `<span class=`) {
 		t.Fatalf("html should emit chroma token spans for highlighted code: %s", html)
 	}
 	if !strings.Contains(html, ".chroma") {
