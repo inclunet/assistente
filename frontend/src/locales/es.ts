@@ -1260,6 +1260,18 @@ const es = {
 
     ui: {
       modal: { close: 'Cerrar modal' },
+      imageViewer: {
+        title: 'Ver imagen',
+        toolbarLabel: 'Controles de imagen',
+        zoomIn: 'Acercar',
+        zoomOut: 'Alejar',
+        resetZoom: 'Restablecer zoom',
+        previous: 'Imagen anterior',
+        next: 'Imagen siguiente',
+        counter: '{{current}} de {{total}}',
+        defaultAlt: 'Imagen',
+        openHint: 'Pulsa Enter para ampliar',
+      },
       toast: { close: 'Cerrar notificación' },
       dataGrid: {
         defaultLabel: 'Grid de datos',

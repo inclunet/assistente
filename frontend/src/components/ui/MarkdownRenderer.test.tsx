@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 vi.mock('react-router-dom', () => ({
@@ -23,5 +23,32 @@ describe('MarkdownRenderer', () => {
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(link).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('torna imagens interativas e foca acessível', () => {
+    render(<MarkdownRenderer content={'![Gato](http://example.com/cat.png)'} />);
+
+    const img = screen.getByAltText('Gato');
+    expect(img).toHaveAttribute('role', 'button');
+    expect(img).toHaveAttribute('tabindex', '0');
+    expect(img).toHaveClass('markdown-image--interactive');
+  });
+
+  it('abre o visualizador de imagem ao clicar', () => {
+    render(<MarkdownRenderer content={'![Gato](http://example.com/cat.png)'} />);
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(screen.getByAltText('Gato'));
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('abre o visualizador com Enter no teclado', () => {
+    render(<MarkdownRenderer content={'![Gato](http://example.com/cat.png)'} />);
+
+    fireEvent.keyDown(screen.getByAltText('Gato'), { key: 'Enter' });
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });

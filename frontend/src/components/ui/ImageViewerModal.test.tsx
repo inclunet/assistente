@@ -1,0 +1,94 @@
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { ImageViewerModal, type ImageViewerImage } from './ImageViewerModal';
+
+const single: ImageViewerImage[] = [
+  { src: 'http://example.com/a.png', alt: 'Foto A' },
+];
+
+const multiple: ImageViewerImage[] = [
+  { src: 'http://example.com/a.png', alt: 'Foto A' },
+  { src: 'http://example.com/b.png', alt: 'Foto B' },
+];
+
+describe('ImageViewerModal', () => {
+  it('não renderiza nada quando fechado', () => {
+    const { container } = render(
+      <ImageViewerModal isOpen={false} images={single} onClose={vi.fn()} />,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('renderiza a imagem ampliada e o diálogo quando aberto', () => {
+    render(<ImageViewerModal isOpen images={single} onClose={vi.fn()} />);
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    const img = screen.getByAltText('Foto A');
+    expect(img).toHaveAttribute('src', 'http://example.com/a.png');
+  });
+
+  it('fecha ao clicar no botão de fechar', () => {
+    const onClose = vi.fn();
+    render(<ImageViewerModal isOpen images={single} onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'ui.modal.close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('fecha ao pressionar Escape', () => {
+    const onClose = vi.fn();
+    render(<ImageViewerModal isOpen images={single} onClose={onClose} />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('aplica zoom in e zoom out via botões', () => {
+    render(<ImageViewerModal isOpen images={single} onClose={vi.fn()} />);
+
+    expect(screen.getByText('100%')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'ui.imageViewer.zoomIn' }));
+    expect(screen.getByText('150%')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'ui.imageViewer.zoomOut' }));
+    expect(screen.getByText('100%')).toBeInTheDocument();
+  });
+
+  it('desabilita zoom out no zoom mínimo', () => {
+    render(<ImageViewerModal isOpen images={single} onClose={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'ui.imageViewer.zoomOut' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'ui.imageViewer.resetZoom' })).toBeDisabled();
+  });
+
+  it('não mostra controles de navegação para uma única imagem', () => {
+    render(<ImageViewerModal isOpen images={single} onClose={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'ui.imageViewer.next' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'ui.imageViewer.previous' })).toBeNull();
+  });
+
+  it('navega entre múltiplas imagens com os botões', () => {
+    render(<ImageViewerModal isOpen images={multiple} initialIndex={0} onClose={vi.fn()} />);
+
+    expect(screen.getByAltText('Foto A')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'ui.imageViewer.next' }));
+    expect(screen.getByAltText('Foto B')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'ui.imageViewer.previous' }));
+    expect(screen.getByAltText('Foto A')).toBeInTheDocument();
+  });
+
+  it('navega com as setas do teclado', () => {
+    render(<ImageViewerModal isOpen images={multiple} initialIndex={0} onClose={vi.fn()} />);
+
+    fireEvent.keyDown(document, { key: 'ArrowRight' });
+    expect(screen.getByAltText('Foto B')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'ArrowLeft' });
+    expect(screen.getByAltText('Foto A')).toBeInTheDocument();
+  });
+});

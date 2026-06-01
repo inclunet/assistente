@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import MarkdownIt from 'markdown-it';
@@ -10,6 +10,7 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { loadMonacoLanguage } from '../../lib/monacoLanguageLoader';
 import { markdownItDeepLink } from '../../lib/markdownItDeepLink';
 import { isDeepLink, parseDeepLink, executeDeepLink } from '../../lib/deepLinks';
+import { ImageViewerModal, type ImageViewerImage } from './ImageViewerModal';
 import {
   buildEditorDestinationSubmenu,
   type EditorSendTargetOption,
@@ -107,6 +108,11 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
 }: MarkdownRendererProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
+  const [imageViewer, setImageViewer] = useState<{
+    open: boolean;
+    images: ImageViewerImage[];
+    index: number;
+  }>({ open: false, images: [], index: 0 });
   const mermaidInitializedRef = useRef(false);
   const editorsRef = useRef<Map<string, MonacoEditor>>(new Map());
   const mermaidApiRef = useRef<MermaidApi | null>(null);
@@ -512,6 +518,62 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     ]
   );
 
+  const setupImages = useCallback(
+    (cleanups: Array<() => void>) => {
+      if (!containerRef.current) return;
+      const root = containerRef.current;
+
+      const imageElements = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
+      if (imageElements.length === 0) return;
+
+      const images: ImageViewerImage[] = imageElements.map((img) => ({
+        src: img.getAttribute('src') || '',
+        alt: img.getAttribute('alt') || undefined,
+      }));
+
+      imageElements.forEach((img, index) => {
+        if (!images[index]?.src) return;
+
+        img.classList.add('markdown-image--interactive');
+        img.setAttribute('role', 'button');
+        img.setAttribute('tabindex', '0');
+        const altText = images[index].alt?.trim();
+        img.setAttribute(
+          'aria-label',
+          altText
+            ? `${altText} — ${t('ui.imageViewer.openHint')}`
+            : t('ui.imageViewer.openHint'),
+        );
+
+        const open = () => {
+          setImageViewer({ open: true, images, index });
+        };
+
+        const onClick = (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          open();
+        };
+
+        const onKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            open();
+          }
+        };
+
+        img.addEventListener('click', onClick);
+        img.addEventListener('keydown', onKeyDown);
+        cleanups.push(() => {
+          img.removeEventListener('click', onClick);
+          img.removeEventListener('keydown', onKeyDown);
+        });
+      });
+    },
+    [t],
+  );
+
   const renderMermaidDiagrams = useCallback(
     async (cleanups: Array<() => void>) => {
       if (!containerRef.current) return;
@@ -838,6 +900,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     }
 
     addContextMenus(cleanups);
+    setupImages(cleanups);
     void renderMermaidDiagrams(cleanups);
 
     const container = containerRef.current;
@@ -861,7 +924,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       });
       editorsRef.current.clear();
     };
-  }, [addContextMenus, closeMenu, handleDeepLinkClick, handleDeepLinkKeydown, html, renderMermaidDiagrams]);
+  }, [addContextMenus, closeMenu, handleDeepLinkClick, handleDeepLinkKeydown, html, renderMermaidDiagrams, setupImages]);
 
   return (
     <>
@@ -878,6 +941,12 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
         ariaLabel={menuState.ariaLabel}
         onClose={closeMenu}
         onSelect={onSelectMenuItem}
+      />
+      <ImageViewerModal
+        isOpen={imageViewer.open}
+        images={imageViewer.images}
+        initialIndex={imageViewer.index}
+        onClose={() => setImageViewer((prev) => ({ ...prev, open: false }))}
       />
     </>
   );
