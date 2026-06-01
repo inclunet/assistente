@@ -27,16 +27,23 @@ real cause, how to diagnose it, and the fix. For **template** errors specificall
 - **Fix:** use the stable string slug (`task_list_slug`) or quote the value as a string. Verify the
   field type against the tool catalog schema before choosing.
 
-## `tool execute: context canceled` / `cancelled during retry`
+## `tool execute: context canceled` / `cancelled during retry` (historical, fixed)
 
-- **Cause:** the execution context was canceled mid tool-call or between retries. This is a **known
-  runtime bug for event-driven jobs** — tracked separately in **#164**, not a configuration error in your job.
+- **Status:** **fixed on `main`.** This was a runtime bug (**#164**) where event-driven runs inherited
+  the event subscriber's context and were canceled when it ended. The fix (**PR #166**) decouples the
+  run lifetime via `context.WithoutCancel` in the event subscriber, so this failure mode should no
+  longer occur for event-driven runs after that merge. Kept here as a **known/historical** error for
+  diagnosing older runs.
+- **Cause:** the run's context was canceled mid tool-call. Once the context is canceled, the retry
+  loop **short-circuits immediately** with `cancelled during retry` — it does **not** wait for
+  `retry_delay` or perform further attempts.
 - **Diagnose:** `run_events` ends with a `failed` entry whose message contains `context canceled` or
-  `cancelled during retry`; the run usually has little/no `output`. It tends to correlate with
-  event-triggered (fan-out/chained) runs rather than manual `run: true`.
-- **Fix:** there is no job-level fix — track **#164**. As a mitigation, prefer `strategy: retry` with a
-  small `max_retries` so transient cancellations are retried, and re-run manually (`run: true`) to
-  confirm the job config itself is sound.
+  `cancelled during retry`; the run usually has little/no `output`. It correlated with event-triggered
+  (fan-out/chained) runs rather than manual `run: true`.
+- **Fix:** ensure you are on a build that includes **#166/#164**. **`strategy: retry` does NOT help**
+  with this failure mode — a canceled context aborts the retry loop instantly rather than retrying.
+  For old/historical runs the only recourse was a manual rerun (`run: true`), which executes outside
+  the canceled event context.
 
 ## `template: invalid character ':' in variable reference`
 
@@ -51,8 +58,10 @@ real cause, how to diagnose it, and the fix. For **template** errors specificall
 ## A field renders as `<no value>`
 
 - **Cause:** a missing/wrong path. Common variants: using `.item.X` in a `for_each` fan-out
-  (`.item` does not exist — use `.output.X`), referencing `.output.*` inside `inputs` (inputs only
-  see `.event`/`.now`), or a typo in the dot-path.
+  (`.item` does not exist — use `.output.X`), referencing `.output.*` during `inputs`/`when`
+  resolution (`.output` exists as a root variable but is still **empty/nil** before the tool runs,
+  so `.output.*` renders `<no value>` there — it is only populated for `output.map`,
+  `payload_template` and `emit_when`), or a typo in the dot-path.
 - **Diagnose:** dry-run and inspect the resolved value, or compare the path to the upstream payload
   via `job(job_id, run_id)` → `output`.
 - **Fix:** correct the path. Remember `<no value>` is falsy in `when`/`emit_when`.

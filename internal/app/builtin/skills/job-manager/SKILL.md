@@ -172,6 +172,7 @@ Key facts:
 - `$` is the template root. At the top level `.event` **is** `$.event` — they are interchangeable. `$` only matters **inside a `range`**, where `.` is rebound to the current element but `$.event` still reaches the root.
 - There is **no `.item`**. In a `for_each` fan-out, the current array element becomes `.output` (see [Fan-out and iteration](#patterns-fan-out-and-iteration)). Writing `{{ .item.key }}` resolves to nothing.
 - A **missing reference renders `<no value>`** — never an error, never `<nil>`. In conditions (`when`/`emit_when`), `<no value>`, `""` and `"false"` are all **falsy**.
+- All three roots (`event`, `output`, `now`) **always exist** in the data map, but `.output` is only **populated after the tool runs**. During `inputs` resolution (and `trigger.when`), `.output` is still **empty (nil)**, so `.output.*` resolves to `<no value>` there. `.output` only carries data in `output.map`, `events.payload_template` and `events.emit_when`.
 
 ### Functions
 
@@ -187,6 +188,7 @@ Key facts:
 | `json` | `{{ json .output }}` | Serialize a value to a JSON string (this is the `toJson` replacement) |
 | `default` | `{{ default 50 .event.limit }}` | **Argument order is `default <fallback> <value>`** — returns `<value>` unless it is nil/zero, in which case returns `<fallback>`. ⚠️ Fallback comes **first** (unlike Sprig's `default`). |
 | `date` | `{{ date .now "2006-01-02" }}` | Format a `time.Time` (or RFC3339 string) using a Go layout |
+| `now` | `{{ date (now) "2006-01-02" }}` | Function returning the current `time.Time`. ⚠️ Distinct from the root variable `.now` — see the pitfall below. |
 | `secret` | `{{ secret "API_KEY" }}` | Resolve a secret by name — never hardcode credentials |
 | `adf_markdown` | `{{ adf_markdown .event.description }}` | Render an Atlassian Document Format (ADF) node to Markdown |
 | `adf_text` | `{{ adf_text .event.description }}` | Render an ADF node to plain text |
@@ -197,6 +199,8 @@ Two forgiving rewrites run on every template **before** it is parsed:
 
 - **`fixTemplateDots`**: a leading `{{ event.x }}` / `{{ output.x }}` / `{{ now }}` gets the missing dot → `{{ .event.x }}`. This only fixes the root word at the **start** of a `{{ … }}` block; inside `if`/`range`/`with` you must write the dot yourself (e.g. `{{ if .event.x }}`). **Always write the leading dot** — do not rely on the auto-fix.
 - **`fixArrayAccess`**: JS-style numeric dot indexing is converted to a Go `index` call → `{{ .event.content.0.id }}` becomes `{{ (index .event.content 0).id }}`. You can write either form.
+
+> ⚠️ **`now` function vs `.now` variable pitfall.** Both the `now` *function* and the `.now` root *variable* return the current time. But `fixTemplateDots` rewrites a leading `now` without a dot — so `{{ now }}` is silently rewritten to `{{ .now }}` (the variable), and `{{ now "..." }}`-style calls at the start of a block get the dot prepended too, turning the function call into a variable reference. To call the function unambiguously, **parenthesize it**: `{{ date (now) "2006-01-02" }}`. In practice just use the `.now` variable (e.g. `{{ date .now "2006-01-02" }}`) unless you specifically need a fresh `time.Now()`.
 
 ### `payload_template` renders a JSON string
 
@@ -210,7 +214,7 @@ Two forgiving rewrites run on every template **before** it is parsed:
 
 | Symptom | Cause | Diagnosis / fix |
 |---------|-------|-----------------|
-| Field comes out as `<no value>` | Wrong path, or used `.item.*` in fan-out, or referenced `.output.*` in a non-fan-out `inputs` template (inputs only see `.event`/`.now`) | Inspect the resolved value with a dry-run; confirm the path against the upstream payload via `job(job_id, run_id)` → `output` |
+| Field comes out as `<no value>` | Wrong path, or used `.item.*` in fan-out, or referenced `.output.*` during `inputs`/`when` resolution — `.output` exists as a root but is still **empty (nil)** before the tool runs, so `.output.*` is `<no value>` there | Inspect the resolved value with a dry-run; confirm the path against the upstream payload via `job(job_id, run_id)` → `output` |
 | `template: invalid character ':' in variable reference` | JSON/Jinja-style syntax inside `{{ }}` (e.g. `{{ event:foo }}` or `{{ {"a":1} }}`) | Use Go syntax. To emit a JSON literal in `payload_template`, put the JSON **outside** `{{ }}` and only interpolate values inside them |
 | `payload_template` seems ignored | Rendered text is not a valid JSON object → silent fallback to raw output | Dry-run and check the emitted payload; ensure the template renders `{ … }` with quoted strings |
 | Used `upper`/`lower`/`toJson` and parse fails | Those functions do not exist | Use `json` for serialization; do case changes upstream or omit |
