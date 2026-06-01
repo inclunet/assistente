@@ -60,6 +60,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0063](0063-tool-invocations-and-common-executor.md) | Tool Invocations e Executor Comum | 📝 Draft |
 | [0064](0064-streaming-recovery-explicito.md) | Recuperação Explícita de Streaming e Cancelamento | 📝 Draft |
 | [0065](0065-llm-rate-limiting.md) | Rate Limiting nas Chamadas ao Provedor LLM | 📝 Draft |
+| [0066](0066-connection-status-indicator.md) | Indicador de Status de Conexão com a API LLM | 📝 Draft |
 
 ## Status Legend
 
