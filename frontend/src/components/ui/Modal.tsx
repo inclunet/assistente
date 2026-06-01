@@ -122,6 +122,15 @@ export interface ModalProps {
   returnFocusOnClose?: boolean;
   /** Se false, desabilita fechamento (ESC, clique fora e botão X). Default: true */
   allowClose?: boolean;
+  /**
+   * Modais de leitura (ex.: detalhes de mensagem, estatísticas de tokens) recebem
+   * `role="document"` no corpo, o que faz o NVDA alternar para modo de navegação
+   * e permitir leitura linear do conteúdo. Modais de configuração/formulário NÃO
+   * devem habilitar esta opção: eles permanecem com `role="application"` (modo
+   * de foco do NVDA) para que setas e teclas sejam entregues aos controles.
+   * Default: false
+   */
+  readingMode?: boolean;
 }
 
 export function Modal({
@@ -134,6 +143,7 @@ export function Modal({
   ariaDescribedBy,
   returnFocusOnClose = true,
   allowClose = true,
+  readingMode = false,
 }: ModalProps) {
   const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -295,7 +305,10 @@ export function Modal({
             )}
             <h1 id={titleId} className="modal-title">{title}</h1>
           </div>
-          <div className="modal-body">
+          <div
+            className="modal-body"
+            role={readingMode ? 'document' : 'application'}
+          >
             {children}
           </div>
         </div>
