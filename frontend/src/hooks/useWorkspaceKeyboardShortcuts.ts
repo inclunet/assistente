@@ -18,6 +18,7 @@ import i18next from 'i18next';
 import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
 import { useShallow } from 'zustand/shallow';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import { useShortcutsHelpStore } from '../store/shortcutsHelpStore';
 import { isModalOpen } from '../components/ui/Modal';
 import { useAnnouncer } from './useAnnouncer';
 import { restoreDefaultFocus } from './useDefaultFocus';
@@ -52,6 +53,21 @@ export function useWorkspaceKeyboardShortcuts() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
+
+      // Ctrl+? (Ctrl+Shift+/): alterna o painel global de atalhos.
+      // Trata variações de layout: alguns teclados emitem `?` direto, outros `/`
+      // com Shift; `code === 'Slash'` cobre a tecla física em layouts US.
+      if (
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        (event.key === '?' || event.key === '/' || event.code === 'Slash')
+      ) {
+        event.preventDefault();
+        useShortcutsHelpStore.getState().toggle();
+        return;
+      }
+
       // Ctrl+Shift+I: chat modal do painel (adaptador registado pela aba ativa)
       if (
         event.ctrlKey &&

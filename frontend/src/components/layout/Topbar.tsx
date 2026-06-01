@@ -3,9 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
 import { useShallow } from 'zustand/shallow';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
 import { Menu, type MenuItem } from '../menu';
+import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -26,6 +28,7 @@ import {
   ImportOutlined,
   CheckOutlined,
   DownOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 import './Topbar.css';
 
@@ -59,6 +62,9 @@ export function Topbar() {
   const { workspace, workspaces, switchWorkspace, createWorkspace, renameWorkspace } = useWorkspaceStore(
     useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, switchWorkspace: s.switchWorkspace, createWorkspace: s.createWorkspace, renameWorkspace: s.renameWorkspace }))
   );
+  const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.isOpen);
+  const openShortcutsHelp = useShortcutsHelpStore((s) => s.open);
+  const closeShortcutsHelp = useShortcutsHelpStore((s) => s.close);
   const isWorkspaceRoute = pathname === '/' || pathname === '';
   const toolbarRef = useToolbarKeyboardNav();
   const menuButtonRef = useRef<MenuButtonRef>(null);
@@ -240,8 +246,9 @@ export function Topbar() {
     { id: 'profiles', label: t('menu.profiles'), icon: <UserSwitchOutlined />, shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
     { id: 'settings', label: t('menu.settings'), icon: <SettingOutlined />, onClick: () => navigate('/settings') },
     { id: 'help', label: t('menu.help'), icon: <QuestionCircleOutlined />, shortcut: 'F1', onClick: () => navigate('/help') },
+    { id: 'keyboard-shortcuts', label: t('menu.keyboardShortcuts'), icon: <KeyOutlined />, shortcut: 'Ctrl+?', onClick: () => openShortcutsHelp() },
     { id: 'about', label: t('menu.about'), icon: <InfoCircleOutlined />, onClick: () => navigate('/about') },
-  ], [navigate, t, isWorkspaceRoute]);
+  ], [navigate, t, isWorkspaceRoute, openShortcutsHelp]);
 
   // --- Keyboard shortcuts ---
   useEffect(() => {
@@ -346,6 +353,8 @@ export function Topbar() {
         onClose={closeCtx}
         onSelect={onCtxSelect}
       />
+
+      <KeyboardShortcutsHelp isOpen={shortcutsHelpOpen} onClose={closeShortcutsHelp} />
     </>
   );
 }

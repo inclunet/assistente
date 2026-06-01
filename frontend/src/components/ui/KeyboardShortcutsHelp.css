@@ -63,6 +63,23 @@
   flex: 1;
 }
 
+.keyboard-shortcuts-category {
+  margin-bottom: 24px;
+}
+
+.keyboard-shortcuts-category:last-child {
+  margin-bottom: 0;
+}
+
+.keyboard-shortcuts-category-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
 .keyboard-shortcut-item {
   display: flex;
   justify-content: space-between;

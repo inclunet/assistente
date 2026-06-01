@@ -15,7 +15,7 @@ import type {
   ChatSurfaceOrigin,
 } from '../../services/chatSessionRegistry';
 import { ContextMenu } from '../menu';
-import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
+import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
@@ -325,7 +325,6 @@ function ChatSessionViewContent({
   const isTTSDisabled = !hasVoiceConfig;
 
   const shortcutsOpen = showShortcutsHelp ?? variant === 'page';
-  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -592,15 +591,15 @@ function ChatSessionViewContent({
       const target = e.target as HTMLElement;
       const isInputElement = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
 
-      if (e.key === '?' && !isInputElement && !shortcutsHelpOpen) {
+      if (e.key === '?' && !isInputElement) {
         e.preventDefault();
-        setShortcutsHelpOpen(true);
+        useShortcutsHelpStore.getState().open();
       }
     };
 
     document.addEventListener('keypress', handleKeyPress);
     return () => document.removeEventListener('keypress', handleKeyPress);
-  }, [isInteractiveSurface, shortcutsHelpOpen, shortcutsOpen]);
+  }, [isInteractiveSurface, shortcutsOpen]);
 
   useEffect(() => {
     const handleMessageUpdated = (data: unknown) => {
@@ -893,10 +892,6 @@ function ChatSessionViewContent({
         onClose={hideMenu}
         ariaLabel={t('chat.contextMenuAriaLabel')}
       />
-
-      {shortcutsOpen && (
-        <KeyboardShortcutsHelp isOpen={shortcutsHelpOpen} onClose={() => setShortcutsHelpOpen(false)} />
-      )}
     </div>
   );
 }
