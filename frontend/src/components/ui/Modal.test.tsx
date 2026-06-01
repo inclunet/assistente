@@ -51,4 +51,14 @@ describe('Modal', () => {
 
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('expõe aria-modal="true" no diálogo', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Titulo">
+        <button>Acao</button>
+      </Modal>
+    );
+
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
+  });
 });

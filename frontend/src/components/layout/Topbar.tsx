@@ -254,9 +254,14 @@ export function Topbar() {
   // --- Keyboard shortcuts ---
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Enquanto qualquer modal está aberto (incl. o painel de atalhos, que se
-      // registra no stack via Modal), os atalhos de navegação da Topbar
-      // (Alt+M/H/E/I/P, F1) não devem agir na UI de fundo.
+      // F1 (ajuda) é tratado primeiro e SEMPRE faz preventDefault, mesmo com um
+      // modal aberto, para nunca vazar para o comportamento padrão do
+      // navegador/OS.
+      if (event.key === 'F1') { event.preventDefault(); navigate('/help'); return; }
+
+      // Os atalhos de navegação (Alt+M/H/E/I/P) não devem agir na UI de fundo
+      // enquanto qualquer modal está aberto (incl. o painel de atalhos, que se
+      // registra no stack via Modal).
       if (isModalOpen()) return;
       if (event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
         const key = event.key.toLowerCase();
@@ -265,7 +270,6 @@ export function Topbar() {
         const target = altRoutes[key];
         if (target) { event.preventDefault(); navigate(target); return; }
       }
-      if (event.key === 'F1') { event.preventDefault(); navigate('/help'); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);

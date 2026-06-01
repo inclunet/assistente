@@ -5,6 +5,12 @@ import { Topbar } from './Topbar';
 const navigateSpy = vi.fn();
 const toggleMenuSpy = vi.fn();
 const announceSpy = vi.fn();
+const modalState = vi.hoisted(() => ({ open: false }));
+
+vi.mock('../ui/Modal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ui/Modal')>();
+  return { ...actual, isModalOpen: () => modalState.open };
+});
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -134,5 +140,35 @@ describe('Topbar', () => {
 
     fireEvent.keyDown(window, { key: 'F1' });
     expect(navigateSpy).toHaveBeenCalledWith('/help');
+  });
+
+  it('F1 chama preventDefault e abre ajuda mesmo com um modal aberto', () => {
+    modalState.open = true;
+    try {
+      render(<Topbar />);
+      navigateSpy.mockClear();
+
+      const event = new KeyboardEvent('keydown', { key: 'F1', bubbles: true, cancelable: true });
+      window.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(navigateSpy).toHaveBeenCalledWith('/help');
+    } finally {
+      modalState.open = false;
+    }
+  });
+
+  it('Alt+M não age quando um modal está aberto', () => {
+    modalState.open = true;
+    try {
+      render(<Topbar />);
+      toggleMenuSpy.mockClear();
+
+      fireEvent.keyDown(window, { key: 'm', altKey: true });
+
+      expect(toggleMenuSpy).not.toHaveBeenCalled();
+    } finally {
+      modalState.open = false;
+    }
   });
 });

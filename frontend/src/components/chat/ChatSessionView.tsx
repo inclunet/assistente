@@ -16,6 +16,7 @@ import type {
 } from '../../services/chatSessionRegistry';
 import { ContextMenu } from '../menu';
 import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
+import { isModalOpen } from '../ui/Modal';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
@@ -588,6 +589,13 @@ function ChatSessionViewContent({
   useEffect(() => {
     if (!shortcutsOpen || !isInteractiveSurface) return;
     const handleKeyPress = (e: KeyboardEvent) => {
+      // Não interceptar '?' quando outro modal está aberto: o Modal é portalado
+      // para fora de #root, então o evento ainda chega em `document`. Sem esta
+      // guarda o painel abriria por cima de outra UI modal e ainda chamaria
+      // preventDefault sobre o '?'. (Quando o próprio painel está aberto,
+      // isModalOpen() também é true; fechar é via ESC/Ctrl+?/overlay.)
+      if (e.defaultPrevented || isModalOpen()) return;
+
       const target = e.target as HTMLElement;
       const isInputElement = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
 
