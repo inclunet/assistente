@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
 import { openTaskLink } from '../../lib/deepLinks';
+import { formatRelativeTime } from '../../lib/dateUtils';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { ContextMenu } from '../menu';
@@ -130,6 +131,19 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
     focusCard(focusPos.col, focusPos.row);
   }, [focusPos, focusCard]);
 
+  // Formata a data de criação no MESMO formato relativo usado nas mensagens
+  // do chat (ver `getAriaLabel` em ChatMessage.tsx e `buildChatMessageAriaLabel`).
+  // O leitor de tela passa a anunciar a "idade" do card (issue #151).
+  const formatCardCreatedAt = useCallback(
+    (task: Task): string | null => {
+      if (!task.createdAt) return null;
+      const ts = new Date(task.createdAt).getTime();
+      if (Number.isNaN(ts)) return null;
+      return `${t('tasklist.kanban.cardCreatedAt', 'criado')} ${formatRelativeTime(ts)}`;
+    },
+    [t],
+  );
+
   const announceCard = useCallback(
     (task: Task, colIdx: number, rowIdx: number) => {
       const status = statuses[colIdx];
@@ -139,9 +153,11 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
       if (task.creatorName) parts.push(`${t('tasklist.creator', 'Criador')}: ${task.creatorName}`);
       parts.push(status?.label ?? '');
       parts.push(`${rowIdx + 1} ${t('tasklist.kanban.of', 'de')} ${columnTasks.length}`);
+      const createdLabel = formatCardCreatedAt(task);
+      if (createdLabel) parts.push(createdLabel);
       announce(parts.join('. '), 'assertive');
     },
-    [statuses, getColumnTasks, announce, t],
+    [statuses, getColumnTasks, announce, t, formatCardCreatedAt],
   );
 
   // ── Ações de tarefa ────────────────────────────────────────
@@ -700,6 +716,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
                               task.creatorName && `${t('tasklist.creator', 'Criador')}: ${task.creatorName}`,
                               status?.label ?? '',
                               `${rowIdx + 1} ${t('tasklist.kanban.of', 'de')} ${columnTasks.length}`,
+                              formatCardCreatedAt(task),
                             ].filter(Boolean).join('. ')}
                           </span>
                           {renamingTaskId === task.id ? (
