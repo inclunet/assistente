@@ -39,6 +39,13 @@ export function useVirtualModal({
     ariaLabel: string | null;
     tabIndex: string | null;
   } | null>(null);
+  // Guarda os atributos do elemento de conteúdo (alvo do foco) para que o
+  // `role="document"` aplicado durante a leitura seja restaurado ao sair.
+  const previousContentAttrs = useRef<{
+    element: HTMLElement;
+    role: string | null;
+    tabIndex: string | null;
+  } | null>(null);
 
   // Ativa/desativa o modo dialog no elemento
   useEffect(() => {
@@ -74,7 +81,17 @@ export function useVirtualModal({
         || el;
       
       if (contentEl) {
+        // Salva atributos atuais do conteúdo para restauração no cleanup.
+        previousContentAttrs.current = {
+          element: contentEl,
+          role: contentEl.getAttribute('role'),
+          tabIndex: contentEl.getAttribute('tabindex'),
+        };
         contentEl.setAttribute('tabindex', '0');
+        // `role="document"` faz o NVDA alternar do modo de foco (forçado pelo
+        // `role="application"` do #root) para o modo de navegação enquanto o
+        // usuário lê o conteúdo. Ao sair (ESC), o role é restaurado.
+        contentEl.setAttribute('role', 'document');
         contentEl.focus();
       }
 
@@ -86,6 +103,14 @@ export function useVirtualModal({
       restoreAttribute(el, 'aria-modal', previousAriaAttrs.current.ariaModal);
       restoreAttribute(el, 'aria-label', previousAriaAttrs.current.ariaLabel);
       restoreAttribute(el, 'tabindex', previousAriaAttrs.current.tabIndex);
+
+      // Restaura atributos do elemento de conteúdo (role/tabindex).
+      if (previousContentAttrs.current) {
+        const { element, role, tabIndex } = previousContentAttrs.current;
+        restoreAttribute(element, 'role', role);
+        restoreAttribute(element, 'tabindex', tabIndex);
+        previousContentAttrs.current = null;
+      }
 
       // Remove inert dos irmãos
       removeInert();
@@ -99,6 +124,12 @@ export function useVirtualModal({
       // Cleanup: se desmontar enquanto ativo
       if (isActive) {
         removeInert();
+        if (previousContentAttrs.current) {
+          const { element, role, tabIndex } = previousContentAttrs.current;
+          restoreAttribute(element, 'role', role);
+          restoreAttribute(element, 'tabindex', tabIndex);
+          previousContentAttrs.current = null;
+        }
       }
     };
   }, [isActive]);
