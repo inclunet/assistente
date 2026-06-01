@@ -45,7 +45,7 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
         { keys: 'Ctrl+Tab', description: t('ui.shortcuts.nextTab') },
         { keys: 'Ctrl+Shift+Tab', description: t('ui.shortcuts.previousTab') },
         { keys: 'Ctrl+1…9', description: t('ui.shortcuts.goToTab') },
-        { keys: SHORTCUTS.PREV_TAB, description: t('ui.shortcuts.navigateTabs') },
+        { keys: 'Ctrl+PageDown / Ctrl+PageUp', description: t('ui.shortcuts.navigateTabs') },
       ],
     },
     {
