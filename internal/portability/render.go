@@ -218,7 +218,7 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
               {{ if and $.Options.IncludeReasoning .Reasoning }}
                 <div class="message__reasoning">{{ renderMarkdown .Reasoning }}</div>
               {{ end }}
-              {{ if or .Media .AudioMimeType .ToolCalls .ToolCallID }}
+              {{ if and $.Options.IncludeMetadata (or .Media .AudioMimeType .ToolCallID) }}
                 <div class="message__flags">
                   {{ if .Media }}<span class="message__flag">mídia anexada</span>{{ end }}
                   {{ if .AudioMimeType }}<span class="message__flag">áudio: {{ .AudioMimeType }}</span>{{ end }}
@@ -331,7 +331,7 @@ func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
 			if err := writePDFMediaAttachments(pdf, useUTF8, msg); err != nil {
 				writePDFMeta(pdf, useUTF8, "Falha ao renderizar uma ou mais mídias anexadas: "+err.Error())
 			}
-			if msg.AudioMimeType != "" || msg.ToolCallID != "" {
+			if opts.IncludeMetadata && (msg.AudioMimeType != "" || msg.ToolCallID != "") {
 				flags := make([]string, 0, 3)
 				if msg.AudioMimeType != "" {
 					flags = append(flags, "audio: "+msg.AudioMimeType)
@@ -361,9 +361,9 @@ func RenderConversationsMarkdown(file *ExportFile) (string, error) {
 
 	sb.WriteString("# Exportação de conversas\n\n")
 	if opts.IncludeTimestamps {
-		sb.WriteString(fmt.Sprintf("Gerado em %s\n\n", formatConversationTime(file.ExportedAt)))
+		fmt.Fprintf(&sb, "Gerado em %s\n\n", formatConversationTime(file.ExportedAt))
 	}
-	sb.WriteString(fmt.Sprintf("%d conversa(s) exportada(s)\n", len(file.Resources.Conversations)))
+	fmt.Fprintf(&sb, "%d conversa(s) exportada(s)\n", len(file.Resources.Conversations))
 
 	for _, conv := range file.Resources.Conversations {
 		sb.WriteString("\n---\n\n")
@@ -964,6 +964,17 @@ func renderSanitizedHTMLNode(n *html.Node, sb *strings.Builder) {
 	}
 }
 
+// isHighlightClassTag indica se a tag é uma das emitidas pelo syntax
+// highlighting do Chroma, nas quais o atributo class deve ser preservado.
+func isHighlightClassTag(tag string) bool {
+	switch tag {
+	case "pre", "code", "span", "div":
+		return true
+	default:
+		return false
+	}
+}
+
 func sanitizeHTMLAttrs(n *html.Node) []html.Attribute {
 	attrs := make([]html.Attribute, 0, len(n.Attr))
 	for _, attr := range n.Attr {
@@ -972,10 +983,14 @@ func sanitizeHTMLAttrs(n *html.Node) []html.Attribute {
 			continue
 		}
 
-		// class é seguro (não executa) e necessário para as classes de
-		// syntax highlighting do Chroma nos blocos de código.
+		// class só é preservado nas tags emitidas pelo syntax highlighting
+		// do Chroma (pre/code/span/div). Para as demais tags permitidas o
+		// atributo é descartado, evitando que conteúdo do usuário aplique
+		// classes que colidam com o CSS do documento exportado.
 		if key == "class" {
-			attrs = append(attrs, html.Attribute{Key: key, Val: attr.Val})
+			if isHighlightClassTag(n.Data) {
+				attrs = append(attrs, html.Attribute{Key: key, Val: attr.Val})
+			}
 			continue
 		}
 

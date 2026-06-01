@@ -282,7 +282,7 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 			return "", err
 		}
 		if len(taskListIDs) > 0 || len(providerIDs) > 0 || len(mcpServerSlugs) > 0 {
-			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
+			return "", fmt.Errorf("exportação HTML/PDF/Markdown atualmente suporta apenas conversas")
 		}
 		req, err = normalizeRichConversationExportRequest(req)
 		if err != nil {

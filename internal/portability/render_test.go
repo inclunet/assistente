@@ -16,6 +16,7 @@ func TestRenderConversationsHTMLIncludesConversationContent(t *testing.T) {
 	file := &ExportFile{
 		Version:    ExportVersion,
 		ExportedAt: time.Unix(100, 0),
+		Options:    ExportOptions{IncludeTimestamps: true, IncludeReasoning: true, IncludeMetadata: true},
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
 				{
@@ -343,6 +344,77 @@ func TestRenderConversationsHTMLHighlightsCode(t *testing.T) {
 	}
 	if strings.Contains(html, "rgba(") {
 		t.Fatalf("chroma stylesheet should not introduce rgba colors: %s", html)
+	}
+}
+
+func TestRenderConversationsHTMLGatesMetadataFlags(t *testing.T) {
+	const tinyPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1EAAAAASUVORK5CYII="
+
+	build := func(opts ExportOptions) string {
+		t.Helper()
+		file := &ExportFile{
+			Version:    ExportVersion,
+			ExportedAt: time.Unix(100, 0),
+			Options:    opts,
+			Resources: ExportResources{
+				Conversations: []ConversationExport{
+					{
+						Title:     "Conversa com flags",
+						CreatedAt: time.Unix(90, 0),
+						Messages: []MessageExport{
+							{
+								Role:          "tool",
+								Content:       "ok",
+								Media:         `[{"type":"image/png","name":"captura.png","data":"` + tinyPNG + `"}]`,
+								AudioMimeType: "audio/mpeg",
+								ToolCallID:    "call_123",
+								CreatedAt:     time.Unix(91, 0),
+							},
+						},
+					},
+				},
+			},
+		}
+		html, err := RenderConversationsHTML(file)
+		if err != nil {
+			t.Fatalf("RenderConversationsHTML() error = %v", err)
+		}
+		return html
+	}
+
+	on := build(ExportOptions{IncludeMetadata: true})
+	if !strings.Contains(on, "message__flags") {
+		t.Fatalf("html should render metadata flags when enabled: %s", on)
+	}
+	if !strings.Contains(on, "toolCallId: call_123") {
+		t.Fatalf("html should render toolCallId flag when metadata enabled: %s", on)
+	}
+
+	off := build(ExportOptions{IncludeMetadata: false})
+	if strings.Contains(off, `class="message__flags"`) {
+		t.Fatalf("html should omit metadata flags container when disabled: %s", off)
+	}
+	if strings.Contains(off, "toolCallId: call_123") {
+		t.Fatalf("html should omit toolCallId flag when metadata disabled: %s", off)
+	}
+}
+
+func TestSanitizeRenderedHTMLRestrictsClassToHighlightTags(t *testing.T) {
+	in := `<p class="hero">texto</p>` +
+		`<pre class="chroma"><code class="language-go"><span class="k">func</span></code></pre>`
+	out := sanitizeRenderedHTML(in)
+
+	if strings.Contains(out, `<p class=`) {
+		t.Fatalf("sanitizer should drop class on non-highlight tags: %s", out)
+	}
+	if !strings.Contains(out, `<pre class="chroma">`) {
+		t.Fatalf("sanitizer should keep class on pre: %s", out)
+	}
+	if !strings.Contains(out, `<span class="k">`) {
+		t.Fatalf("sanitizer should keep class on span: %s", out)
+	}
+	if !strings.Contains(out, `<code class="language-go">`) {
+		t.Fatalf("sanitizer should keep class on code: %s", out)
 	}
 }
 
