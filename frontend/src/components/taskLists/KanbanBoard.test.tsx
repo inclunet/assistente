@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -120,6 +120,16 @@ describe('KanbanBoard', () => {
     mockReorderTasks.mockResolvedValue(undefined);
     mockDeleteTask.mockResolvedValue(undefined);
     mockUpdateTask.mockResolvedValue(undefined);
+    // Congela apenas o Date (sem afetar timers/Promises) para que os
+    // asserts sobre formatRelativeTime sejam determinísticos: com createdAt
+    // fixo em 2024-01-01 e "agora" travado em 2026-06-01, o helper produz
+    // "há 2 anos" independentemente do ano em que o teste rodar.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-01T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   async function renderBoard(tasks = makeTasks()) {
@@ -212,9 +222,10 @@ describe('KanbanBoard', () => {
     expect(desc).toBeInTheDocument();
     // Prefixo i18n para a data de criação
     expect(desc?.textContent).toContain('criado');
-    // Sufixo no mesmo formato relativo usado nas mensagens do chat
-    // (formatRelativeTime para "2024-01-01" produz "há X anos").
-    expect(desc?.textContent).toMatch(/há \d+ ano/);
+    // Sufixo no mesmo formato relativo usado nas mensagens do chat.
+    // Com o relógio travado em 2026-06-01 e createdAt em 2024-01-01,
+    // formatRelativeTime retorna "há 2 anos".
+    expect(desc?.textContent).toMatch(/há \d+ anos?/);
     // E a data deve vir DEPOIS da posição (último item lido).
     const text = desc?.textContent ?? '';
     expect(text.indexOf('criado')).toBeGreaterThan(text.indexOf('1 de 2'));
@@ -226,7 +237,7 @@ describe('KanbanBoard', () => {
     fireEvent.focus(board);
 
     expect(mockAnnounce).toHaveBeenCalledWith(
-      expect.stringMatching(/criado há \d+ ano/),
+      expect.stringMatching(/criado há \d+ anos?/),
       'assertive',
     );
   });
