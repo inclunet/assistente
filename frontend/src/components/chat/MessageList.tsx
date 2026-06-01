@@ -1,5 +1,6 @@
 import { logger } from '../../utils/logger';
-import React, { useEffect, useLayoutEffect, useRef, useMemo, forwardRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, forwardRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
@@ -36,6 +37,18 @@ export interface MessageListProps {
   editorTargets?: EditorSendTargetOption[];
   onSendToEditor?: (payload: SendToEditorPayload) => void;
 }
+
+/**
+ * Acima deste número de mensagens de nível 0, a lista passa a renderizar apenas
+ * os itens visíveis (virtualização). Conversas curtas seguem o caminho simples,
+ * preservando o comportamento histórico e mantendo o DOM totalmente disponível
+ * para tecnologias assistivas e navegação por teclado.
+ */
+const VIRTUALIZATION_THRESHOLD = 40;
+/** Altura inicial estimada por mensagem antes da medição real (px). */
+const ESTIMATED_MESSAGE_HEIGHT = 140;
+/** Quantos itens extras renderizar acima/abaixo da viewport. */
+const VIRTUAL_OVERSCAN = 6;
 
 /**
  * Consolida mensagens de turnos de tool calling em entradas únicas com
@@ -260,6 +273,58 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     ? Math.max(messageWindow.totalCount, ...messagePositions)
     : displayMessages.length;
 
+  // Virtualização: conversas longas renderizam apenas os itens visíveis.
+  const listRef = useRef<HTMLDivElement>(null);
+  const shouldVirtualize = displayMessages.length > VIRTUALIZATION_THRESHOLD;
+  const [scrollMargin, setScrollMargin] = useState(0);
+
+  const rowVirtualizer = useVirtualizer({
+    count: displayMessages.length,
+    enabled: shouldVirtualize,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => ESTIMATED_MESSAGE_HEIGHT,
+    overscan: VIRTUAL_OVERSCAN,
+    scrollMargin,
+    // Chave estável por nó preserva a medição ao paginar histórico (prepend/append).
+    getItemKey: (index) => getTimelineNodeKey(displayMessages[index]),
+  });
+
+  // Foca um irmão de nível 0 quando virtualizado: rola o índice até a viewport
+  // (pode não estar montado) e então move o foco para o nó correspondente.
+  const focusMessageAtIndex = useCallback((index: number) => {
+    if (displayMessages.length === 0) return;
+    const clamped = Math.max(0, Math.min(index, displayMessages.length - 1));
+    rowVirtualizer.scrollToIndex(clamped, { align: 'auto' });
+    const focusTarget = (): boolean => {
+      const el = listRef.current?.querySelector(
+        `[data-message-node][data-level="0"][data-sibling-index="${clamped}"]`
+      ) as HTMLElement | null;
+      if (el) {
+        el.focus();
+        return true;
+      }
+      return false;
+    };
+    if (!focusTarget()) {
+      requestAnimationFrame(() => {
+        focusTarget();
+      });
+    }
+  }, [displayMessages.length, rowVirtualizer]);
+
+  // Mede o deslocamento da lista dentro do container rolável (botão "carregar
+  // anteriores" ocupa espaço acima da lista virtualizada).
+  useLayoutEffect(() => {
+    if (!shouldVirtualize) return;
+    const container = containerRef.current;
+    const list = listRef.current;
+    if (!container || !list) return;
+    const containerRect = container.getBoundingClientRect();
+    const listRect = list.getBoundingClientRect();
+    const nextMargin = listRect.top - containerRect.top + container.scrollTop;
+    setScrollMargin((prev) => (Math.abs(prev - nextMargin) > 1 ? nextMargin : prev));
+  }, [shouldVirtualize, hasOlderMessages, isLoadingOlderMessages, displayMessages.length]);
+
   useEffect(() => {
     if (!import.meta.env.DEV) return;
 
@@ -281,6 +346,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     suppressNextScrollLoadRef.current = true;
+    if (shouldVirtualize && displayMessages.length > 0) {
+      // Garante que o último item esteja montado/medido antes do ajuste final.
+      rowVirtualizer.scrollToIndex(displayMessages.length - 1, { align: 'end' });
+    }
     messagesEndRef.current?.scrollIntoView({ behavior });
     if (suppressScrollLoadTimerRef.current !== null) {
       window.clearTimeout(suppressScrollLoadTimerRef.current);
@@ -377,6 +446,51 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     };
   }, [canLoadNewerFromDisplayEnd, hasNewerMessages, hasOlderMessages, isLoadingMessageWindow, onLoadNewer, onLoadOlder]);
 
+  const renderMessageNode = (node: MessageNode, index: number, virtualized: boolean) => (
+    <MessageNodeComponent
+      key={getTimelineNodeKey(node)}
+      node={node}
+      level={0}
+      siblingIndex={index}
+      siblingCount={displayMessages.length}
+      ariaPosition={messagePositions[index] ?? index + 1}
+      ariaSetSize={ariaSetSize}
+      onLoadChildren={onLoadChildren}
+      onReachStart={effectiveReachStart}
+      onReachEnd={handleReachEnd}
+      onJumpToStart={onJumpToStart}
+      onJumpToEnd={onJumpToEnd}
+      onContextMenu={onContextMenu}
+      onSpeak={onSpeak}
+      onDelete={onDelete}
+      editorTargets={editorTargets}
+      onSendToEditor={onSendToEditor}
+      onFocusSiblingIndex={virtualized ? focusMessageAtIndex : undefined}
+    />
+  );
+
+  const handleListKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.ctrlKey && e.key === 'Home' && onJumpToStart) {
+      e.preventDefault();
+      void Promise.resolve(onJumpToStart());
+      return;
+    }
+    if (e.ctrlKey && e.key === 'End' && onJumpToEnd) {
+      e.preventDefault();
+      void Promise.resolve(onJumpToEnd());
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (shouldVirtualize) {
+        focusMessageAtIndex(0);
+        return;
+      }
+      const firstChild = e.currentTarget.querySelector('[data-message-node]') as HTMLElement | null;
+      firstChild?.focus();
+    }
+  };
+
   if (threadedMessages.length === 0) {
     return (
       <div 
@@ -420,49 +534,39 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
           </div>
         )}
         <div 
+          ref={listRef}
+          className="message-list__list"
           role="list" 
           aria-label={t('chat.messagesRegion')}
           tabIndex={0}
-          onKeyDown={(e) => {
-            const target = e.currentTarget;
-            const firstChild = target.querySelector('[data-message-node]') as HTMLElement;
-            if (e.ctrlKey && e.key === 'Home' && onJumpToStart) {
-              e.preventDefault();
-              void Promise.resolve(onJumpToStart());
-              return;
-            }
-            if (e.ctrlKey && e.key === 'End' && onJumpToEnd) {
-              e.preventDefault();
-              void Promise.resolve(onJumpToEnd());
-              return;
-            }
-            if (firstChild && e.key === 'ArrowDown') {
-              e.preventDefault();
-              firstChild.focus();
-            }
-          }}
+          style={shouldVirtualize
+            ? { position: 'relative', height: `${rowVirtualizer.getTotalSize()}px` }
+            : undefined}
+          onKeyDown={handleListKeyDown}
         >
-          {displayMessages.map((node, index) => (
-            <MessageNodeComponent
-              key={getTimelineNodeKey(node)}
-              node={node}
-              level={0}
-              siblingIndex={index}
-              siblingCount={displayMessages.length}
-              ariaPosition={messagePositions[index] ?? index + 1}
-              ariaSetSize={ariaSetSize}
-              onLoadChildren={onLoadChildren}
-              onReachStart={effectiveReachStart}
-              onReachEnd={handleReachEnd}
-              onJumpToStart={onJumpToStart}
-              onJumpToEnd={onJumpToEnd}
-              onContextMenu={onContextMenu}
-              onSpeak={onSpeak}
-              onDelete={onDelete}
-              editorTargets={editorTargets}
-              onSendToEditor={onSendToEditor}
-            />
-          ))}
+          {shouldVirtualize
+            ? rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                const node = displayMessages[virtualItem.index];
+                return (
+                  <div
+                    key={virtualItem.key}
+                    role="presentation"
+                    data-index={virtualItem.index}
+                    ref={rowVirtualizer.measureElement}
+                    className="message-list__virtual-item"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualItem.start - rowVirtualizer.options.scrollMargin}px)`,
+                    }}
+                  >
+                    {renderMessageNode(node, virtualItem.index, true)}
+                  </div>
+                );
+              })
+            : displayMessages.map((node, index) => renderMessageNode(node, index, false))}
         </div>
         {isLoading && (
           <div

@@ -26,6 +26,12 @@ export interface MessageNodeProps {
   onLoadChildren?: (messageId: string) => Promise<MessageNodeType[]>;
   onReachEnd?: () => void; // Chamado quando tenta ir além do último item no level 0
   onReachStart?: () => void | Promise<void>;
+  /**
+   * Quando a lista de nível 0 está virtualizada, a navegação por irmãos não pode
+   * depender de `parentElement.children` (apenas itens visíveis existem no DOM).
+   * A MessageList fornece este callback para rolar o índice até a viewport e focá-lo.
+   */
+  onFocusSiblingIndex?: (index: number) => void;
   onJumpToStart?: () => void | Promise<void>;
   onJumpToEnd?: () => void | Promise<void>;
   onContextMenu?: (e: React.MouseEvent, message: Message) => void;
@@ -52,6 +58,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   onDelete,
   editorTargets,
   onSendToEditor,
+  onFocusSiblingIndex,
 }) => {
   const { t } = useTranslation();
   const nodeRef = React.useRef<HTMLDivElement>(null);
@@ -210,6 +217,13 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 
   // Funções de navegação por DOM (como no Svelte)
   const focusSibling = (idx: number) => {
+    // Em listas virtualizadas (nível 0), delega para a MessageList rolar o índice
+    // até a viewport antes de focar — nem todos os irmãos existem no DOM.
+    if (onFocusSiblingIndex) {
+      onFocusSiblingIndex(idx);
+      return;
+    }
+
     if (!nodeRef.current) return;
     
     const parent = nodeRef.current.parentElement;
