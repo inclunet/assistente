@@ -10,7 +10,7 @@ A11y é **proativa**, não follow-up de review. As ferramentas de CI têm lacuna
 
 ## 1. Reuse a infra compartilhada — nunca faça diálogo caseiro
 
-Qualquer diálogo/modal/overlay DEVE usar `Modal` (ou `SimpleModal`/`ConfirmDialog`) de `frontend/src/components/ui/`. Um `<div role="dialog">` próprio é proibido.
+Qualquer diálogo/modal/overlay DEVE usar `Modal` (ou um wrapper sobre ele, como `ConfirmDialog`) de `frontend/src/components/ui/`. Um `<div role="dialog">` próprio é proibido.
 
 Motivo: o `Modal` (`frontend/src/components/ui/Modal.tsx`) já entrega, e um diálogo caseiro perde, tudo isto:
 - focus trap (Tab/Shift+Tab), foco inicial no primeiro focável e restauração via `restoreDefaultFocus()` ao fechar;
@@ -41,7 +41,16 @@ const onKeyDown = (e: KeyboardEvent) => {
 };
 ```
 
-Ordem de `preventDefault()`: teclas que precisam suprimir o default do browser/OS (ex.: `F1`) chamam `e.preventDefault()` **antes** de qualquer `return`/guarda que possa abortar o handler.
+Ordem correta para teclas que devem sempre suprimir o default do browser/OS (ex.: `F1`, `Ctrl+Shift+I`): (1) primeiro valide que o evento é a tecla/combinação alvo; (2) então chame `e.preventDefault()`; (3) só DEPOIS aplique guardas que podem abortar a ação (como `isModalOpen()`). Assim a ação de fundo não roda atrás do modal, mas o default do navegador/SO nunca vaza.
+
+```ts
+const onKeyDown = (e: KeyboardEvent) => {
+  if (e.key !== 'F1') return;   // 1. é a tecla alvo?
+  e.preventDefault();           // 2. suprime o default do SO sempre
+  if (isModalOpen()) return;    // 3. guarda: não age no fundo, mas já preveniu o default
+  openHelp();
+};
+```
 
 ## 3. Contraste é escolha de TOKEN semântico (stylelint não pega token errado)
 
@@ -55,7 +64,7 @@ Painel de atalhos, tooltips e textos de ajuda só podem mostrar combinações qu
 
 ## 5. Checklist de "pronto" (antes de abrir PR)
 
-- [ ] Diálogo usa `Modal`/`SimpleModal` (não caseiro); tem `aria-modal`, foco inicial, restauração e focus trap herdados.
+- [ ] Diálogo usa `Modal` ou wrapper (`ConfirmDialog`), não caseiro; tem `aria-modal`, foco inicial, restauração e focus trap herdados.
 - [ ] ESC fecha só o modal do topo; handlers globais checam `isModalOpen()`.
 - [ ] `preventDefault()` na ordem correta para teclas que suprimem default do SO.
 - [ ] Par texto/fundo com contraste suficiente em todos os temas (token semântico correto).
