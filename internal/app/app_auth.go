@@ -273,6 +273,7 @@ func (a *App) rollbackLoginState(refreshToken string) {
 		a.userRuntimeCtx = nil
 	}
 	a.userRuntimeMu.Unlock()
+	a.stopConnectionMonitor()
 	if a.jobMgr != nil {
 		a.jobMgr.Stop()
 	}
@@ -716,6 +717,10 @@ func (a *App) reloadUserScopedRuntime() {
 	} else {
 		startJobsForCurrentUser()
 	}
+
+	// Inicia o health check periódico do provider LLM ativo (status na topbar).
+	a.startConnectionMonitor(userID)
+
 	if err := ctx.Err(); err != nil {
 		log.Printf("[reloadUserScopedRuntime] timeout/cancel atingido (%s): %v — runtime pode estar parcialmente inicializado", reloadUserScopedRuntimeTimeout, err)
 	}
@@ -729,6 +734,8 @@ func (a *App) stopUserScopedRuntime() {
 		a.userRuntimeCtx = nil
 	}
 	a.userRuntimeMu.Unlock()
+
+	a.stopConnectionMonitor()
 
 	if a.jobMgr != nil {
 		a.jobMgr.Stop()
