@@ -1235,6 +1235,18 @@ const ptBR = {
 
     ui: {
       modal: { close: 'Fechar modal' },
+      imageViewer: {
+        title: 'Visualizar imagem',
+        toolbarLabel: 'Controles de imagem',
+        zoomIn: 'Ampliar',
+        zoomOut: 'Reduzir',
+        resetZoom: 'Restaurar zoom',
+        previous: 'Imagem anterior',
+        next: 'Próxima imagem',
+        counter: '{{current}} de {{total}}',
+        defaultAlt: 'Imagem',
+        openHint: 'Clique, Enter ou Espaço para ampliar',
+      },
       toast: { close: 'Fechar notificação' },
       dataGrid: {
         defaultLabel: 'Grid de dados',

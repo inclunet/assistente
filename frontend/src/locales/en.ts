@@ -1261,6 +1261,18 @@ const en = {
 
     ui: {
       modal: { close: 'Close modal' },
+      imageViewer: {
+        title: 'View image',
+        toolbarLabel: 'Image controls',
+        zoomIn: 'Zoom in',
+        zoomOut: 'Zoom out',
+        resetZoom: 'Reset zoom',
+        previous: 'Previous image',
+        next: 'Next image',
+        counter: '{{current}} of {{total}}',
+        defaultAlt: 'Image',
+        openHint: 'Click, Enter or Space to enlarge',
+      },
       toast: { close: 'Close notification' },
       dataGrid: {
         defaultLabel: 'Data grid',

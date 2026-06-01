@@ -13,3 +13,5 @@ export * from './tabs';
 
 export { Modal } from './Modal';
 export type { ModalProps } from './Modal';
+export { ImageViewerModal } from './ImageViewerModal';
+export type { ImageViewerModalProps, ImageViewerImage } from './ImageViewerModal';
