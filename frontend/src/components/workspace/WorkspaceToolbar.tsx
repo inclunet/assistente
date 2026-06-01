@@ -21,6 +21,7 @@ import { ProfilePicker } from '../pickers/ProfilePicker';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { isModalOpen } from '../ui/Modal';
 import { useUIStore } from '../../store/uiStore';
 import './WorkspaceToolbar.css';
 
@@ -236,6 +237,8 @@ export function WorkspaceToolbar() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'P') {
         e.preventDefault();
+        // Não age na UI de fundo enquanto um modal está aberto (ex.: painel de atalhos).
+        if (isModalOpen()) return;
         const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
         btn?.click();
       }

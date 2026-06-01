@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
+import { isModalOpen } from '../ui/Modal';
 import { useShallow } from 'zustand/shallow';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
 import { Menu, type MenuItem } from '../menu';
@@ -253,9 +254,10 @@ export function Topbar() {
   // --- Keyboard shortcuts ---
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Enquanto o painel global de atalhos está aberto, os atalhos de navegação
-      // da Topbar (Alt+M/H/E/I/P, F1) não devem agir na UI de fundo.
-      if (useShortcutsHelpStore.getState().isOpen) return;
+      // Enquanto qualquer modal está aberto (incl. o painel de atalhos, que se
+      // registra no stack via Modal), os atalhos de navegação da Topbar
+      // (Alt+M/H/E/I/P, F1) não devem agir na UI de fundo.
+      if (isModalOpen()) return;
       if (event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
         const key = event.key.toLowerCase();
         if (key === 'm') { event.preventDefault(); menuButtonRef.current?.toggleMenu(); return; }

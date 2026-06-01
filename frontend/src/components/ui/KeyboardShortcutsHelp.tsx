@@ -1,7 +1,6 @@
-import React from 'react';
-import { CloseOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { SHORTCUTS } from '../../constants/chat';
+import { Modal } from './Modal';
 import './KeyboardShortcutsHelp.css';
 
 export interface KeyboardShortcutsHelpProps {
@@ -20,66 +19,20 @@ interface ShortcutCategory {
   items: ShortcutEntry[];
 }
 
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const ESC_HINT_ID = 'keyboard-shortcuts-esc-hint';
 
+/**
+ * Painel de atalhos de teclado.
+ *
+ * Usa o componente compartilhado `Modal`, de modo que enquanto aberto ele se
+ * registra no stack global de modais (`isModalOpen()` passa a retornar true).
+ * Assim, todos os handlers globais que respeitam `isModalOpen()` — F6 em
+ * `useLandmarkNavigation`, navegação de abas, etc. — deixam de agir na UI de
+ * fundo, e o `Modal` cuida de focus trap, ESC no topo do stack e inert/aria
+ * no fundo. O contrato da store `shortcutsHelpStore` (isOpen/onClose) é mantido.
+ */
 export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelpProps) {
   const { t } = useTranslation();
-  const panelRef = React.useRef<HTMLDivElement>(null);
-  const previousFocusRef = React.useRef<HTMLElement | null>(null);
-
-  React.useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
-
-      if (e.key === 'Tab') {
-        const panel = panelRef.current;
-        if (!panel) return;
-        const focusable = Array.from(
-          panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-        ).filter((el) => el.offsetParent !== null || el === document.activeElement);
-        if (focusable.length === 0) {
-          e.preventDefault();
-          panel.focus();
-          return;
-        }
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        const active = document.activeElement as HTMLElement | null;
-        if (e.shiftKey && active === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && active === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  React.useEffect(() => {
-    if (!isOpen) return;
-    previousFocusRef.current = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    const firstFocusable = panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-    requestAnimationFrame(() => {
-      (firstFocusable ?? panel)?.focus();
-    });
-    return () => {
-      previousFocusRef.current?.focus?.();
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
 
   const categories: ShortcutCategory[] = [
     {
@@ -124,57 +77,40 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
   ];
 
   return (
-    <div
-      className="keyboard-shortcuts-overlay"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="shortcuts-title"
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={t('ui.shortcuts.title')}
+      size="md"
+      className="keyboard-shortcuts-modal"
+      ariaDescribedBy={ESC_HINT_ID}
     >
-      <div
-        className="keyboard-shortcuts-panel"
-        onClick={(e) => e.stopPropagation()}
-        ref={panelRef}
-        tabIndex={-1}
-      >
-        <div className="keyboard-shortcuts-header">
-          <h2 id="shortcuts-title">{t('ui.shortcuts.title')}</h2>
-          <button
-            className="keyboard-shortcuts-close"
-            onClick={onClose}
-            aria-label={t('ui.shortcuts.close')}
+      <div className="keyboard-shortcuts-content">
+        {categories.map((category) => (
+          <section
+            key={category.id}
+            className="keyboard-shortcuts-category"
+            aria-labelledby={`shortcuts-category-${category.id}`}
           >
-            <CloseOutlined aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="keyboard-shortcuts-content">
-          {categories.map((category) => (
-            <section
-              key={category.id}
-              className="keyboard-shortcuts-category"
-              aria-labelledby={`shortcuts-category-${category.id}`}
+            <h3
+              id={`shortcuts-category-${category.id}`}
+              className="keyboard-shortcuts-category-title"
             >
-              <h3
-                id={`shortcuts-category-${category.id}`}
-                className="keyboard-shortcuts-category-title"
-              >
-                {category.title}
-              </h3>
-              {category.items.map((shortcut, index) => (
-                <div key={index} className="keyboard-shortcut-item">
-                  <kbd className="keyboard-shortcut-keys">{shortcut.keys}</kbd>
-                  <span className="keyboard-shortcut-description">{shortcut.description}</span>
-                </div>
-              ))}
-            </section>
-          ))}
-        </div>
-
-        <div className="keyboard-shortcuts-footer">
-          <p>{t('ui.shortcuts.escToClose')}</p>
-        </div>
+              {category.title}
+            </h3>
+            {category.items.map((shortcut, index) => (
+              <div key={index} className="keyboard-shortcut-item">
+                <kbd className="keyboard-shortcut-keys">{shortcut.keys}</kbd>
+                <span className="keyboard-shortcut-description">{shortcut.description}</span>
+              </div>
+            ))}
+          </section>
+        ))}
       </div>
-    </div>
+
+      <p id={ESC_HINT_ID} className="keyboard-shortcuts-footer-text">
+        {t('ui.shortcuts.escToClose')}
+      </p>
+    </Modal>
   );
 }

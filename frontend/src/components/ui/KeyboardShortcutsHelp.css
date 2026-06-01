@@ -1,79 +1,20 @@
-.keyboard-shortcuts-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--bg-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: fadeIn var(--duration-fast) var(--ease-default);
-}
-
-.keyboard-shortcuts-panel {
-  background-color: var(--bg-surface);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 10px 40px var(--bg-overlay);
-  max-width: 600px;
-  width: 90%;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  animation: slideUp var(--duration-normal) var(--ease-default);
-}
-
-.keyboard-shortcuts-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 24px 24px 16px;
-  border-bottom: 1px solid var(--border-default);
-}
-
-.keyboard-shortcuts-header h2 {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.keyboard-shortcuts-close {
-  background: none;
-  border: none;
-  font-size: 24px;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  transition:
-    background-color var(--duration-fast) var(--ease-default),
-    color var(--duration-fast) var(--ease-default);
-}
-
-.keyboard-shortcuts-close:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.keyboard-shortcuts-content {
-  padding: 24px;
-  overflow-y: auto;
-  flex: 1;
-}
+/*
+ * O painel de atalhos usa o componente compartilhado `Modal` para overlay,
+ * cabeçalho, botão de fechar e gerenciamento de stack/foco. Aqui ficam apenas
+ * os estilos do conteúdo (categorias e itens de atalho) renderizado no corpo.
+ */
 
 .keyboard-shortcuts-category {
   margin-bottom: 24px;
 }
 
-.keyboard-shortcuts-category:last-child {
+.keyboard-shortcuts-category:last-of-type {
   margin-bottom: 0;
 }
 
 .keyboard-shortcuts-category-title {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -93,10 +34,10 @@
 }
 
 .keyboard-shortcut-keys {
-  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
   font-weight: 600;
-  background-color: var(--bg-elevated);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: 6px 12px;
@@ -110,30 +51,13 @@
   flex: 1;
   min-width: 0;
   margin-left: 20px;
-  font-size: 15px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
 }
 
-.keyboard-shortcuts-footer {
-  padding: 16px 24px;
-  border-top: 1px solid var(--border-default);
+.keyboard-shortcuts-footer-text {
+  margin: 16px 0 0;
   text-align: center;
-}
-
-.keyboard-shortcuts-footer p {
-  margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
-
-.keyboard-shortcuts-footer kbd {
-  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
-  font-size: 12px;
-  font-weight: 600;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  padding: 2px 6px;
-  margin: 0 2px;
-}
-

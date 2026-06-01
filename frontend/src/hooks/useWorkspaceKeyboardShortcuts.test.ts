@@ -4,7 +4,7 @@ import { renderHook } from '@testing-library/react';
 const toggle = vi.fn();
 const addTab = vi.fn(() => Promise.resolve());
 const removeTab = vi.fn(() => Promise.resolve());
-const shortcutsState = { isOpen: false, toggle };
+const modalOpen = vi.fn(() => false);
 
 vi.mock('zustand/shallow', () => ({
   useShallow: <T,>(fn: T) => fn,
@@ -26,11 +26,11 @@ vi.mock('../store/workspaceChatModalStore', () => ({
 }));
 
 vi.mock('../store/shortcutsHelpStore', () => ({
-  useShortcutsHelpStore: { getState: () => shortcutsState },
+  useShortcutsHelpStore: { getState: () => ({ toggle }) },
 }));
 
 vi.mock('../components/ui/Modal', () => ({
-  isModalOpen: () => false,
+  isModalOpen: () => modalOpen(),
 }));
 
 vi.mock('./useAnnouncer', () => ({
@@ -54,7 +54,7 @@ describe('useWorkspaceKeyboardShortcuts - atalho Ctrl+?', () => {
     toggle.mockClear();
     addTab.mockClear();
     removeTab.mockClear();
-    shortcutsState.isOpen = false;
+    modalOpen.mockReturnValue(false);
   });
 
   it('abre o painel com Ctrl+? (caractere já reflete Shift)', () => {
@@ -85,15 +85,15 @@ describe('useWorkspaceKeyboardShortcuts - atalho Ctrl+?', () => {
   });
 });
 
-describe('useWorkspaceKeyboardShortcuts - painel aberto bloqueia atalhos de fundo', () => {
+describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
   beforeEach(() => {
     toggle.mockClear();
     addTab.mockClear();
     removeTab.mockClear();
-    shortcutsState.isOpen = false;
+    modalOpen.mockReturnValue(false);
   });
 
-  it('com o painel fechado, Ctrl+T cria aba e Ctrl+W fecha aba', () => {
+  it('com nenhum modal aberto, Ctrl+T cria aba e Ctrl+W fecha aba', () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     dispatchKey({ ctrlKey: true, key: 't' });
@@ -103,8 +103,8 @@ describe('useWorkspaceKeyboardShortcuts - painel aberto bloqueia atalhos de fund
     expect(removeTab).toHaveBeenCalledTimes(1);
   });
 
-  it('com o painel ABERTO, Ctrl+T e Ctrl+W não agem na UI de fundo', () => {
-    shortcutsState.isOpen = true;
+  it('com um modal aberto (ex.: painel de atalhos), Ctrl+T e Ctrl+W não agem na UI de fundo', () => {
+    modalOpen.mockReturnValue(true);
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     dispatchKey({ ctrlKey: true, key: 't' });
@@ -114,8 +114,8 @@ describe('useWorkspaceKeyboardShortcuts - painel aberto bloqueia atalhos de fund
     expect(removeTab).not.toHaveBeenCalled();
   });
 
-  it('com o painel ABERTO, Ctrl+? ainda alterna (permite fechar)', () => {
-    shortcutsState.isOpen = true;
+  it('com um modal aberto, Ctrl+? ainda alterna (permite fechar o painel)', () => {
+    modalOpen.mockReturnValue(true);
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     const event = dispatchKey({ ctrlKey: true, key: '?' });
@@ -124,16 +124,14 @@ describe('useWorkspaceKeyboardShortcuts - painel aberto bloqueia atalhos de fund
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it('ao fechar o painel, os atalhos de fundo voltam a funcionar', () => {
-    shortcutsState.isOpen = true;
-    const { rerender } = renderHook(() => useWorkspaceKeyboardShortcuts());
+  it('ao fechar o modal, os atalhos de fundo voltam a funcionar', () => {
+    modalOpen.mockReturnValue(true);
+    renderHook(() => useWorkspaceKeyboardShortcuts());
 
     dispatchKey({ ctrlKey: true, key: 't' });
     expect(addTab).not.toHaveBeenCalled();
 
-    shortcutsState.isOpen = false;
-    rerender();
-
+    modalOpen.mockReturnValue(false);
     dispatchKey({ ctrlKey: true, key: 't' });
     expect(addTab).toHaveBeenCalledTimes(1);
   });
