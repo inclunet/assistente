@@ -30,14 +30,22 @@ type ServiceConfig struct {
 	Registry *llm.ProviderRegistry
 	CredMgr  CredentialManager
 	Store    ProviderStore
+	// RateLimiter aplica rate limiting por usuário nas chamadas de geração ao
+	// provedor LLM (Issue #27 / AEP-0065). Opcional: nil = sem limite.
+	RateLimiter *llm.RateLimiter
+	// RateLimitKeyFunc extrai a chave de limite (tipicamente o userID) do
+	// contexto. Opcional: nil cai na chave global do limitador.
+	RateLimitKeyFunc func(context.Context) string
 }
 
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
 // Não depende de Wails — é testável de forma isolada.
 type Service struct {
-	registry *llm.ProviderRegistry
-	credMgr  CredentialManager
-	store    ProviderStore
+	registry         *llm.ProviderRegistry
+	credMgr          CredentialManager
+	store            ProviderStore
+	rateLimiter      *llm.RateLimiter
+	rateLimitKeyFunc func(context.Context) string
 }
 
 // Count retorna o número de provedores no store.
@@ -48,9 +56,11 @@ func (s *Service) Count(ctx context.Context) (int, error) {
 // NewService cria um Service com as dependências injetadas.
 func NewService(cfg ServiceConfig) *Service {
 	return &Service{
-		registry: cfg.Registry,
-		credMgr:  cfg.CredMgr,
-		store:    cfg.Store,
+		registry:         cfg.Registry,
+		credMgr:          cfg.CredMgr,
+		store:            cfg.Store,
+		rateLimiter:      cfg.RateLimiter,
+		rateLimitKeyFunc: cfg.RateLimitKeyFunc,
 	}
 }
 
@@ -651,7 +661,9 @@ func (s *Service) GetChatProvider(ctx context.Context, providerID string) (llm.C
 		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
 	}
 	cm, _ := s.credMgr.(*credentials.Manager)
-	return llm.NewChatProvider(provider, cm), nil
+	// Aplica rate limiting por usuário de forma central (Issue #27). Quando
+	// rateLimiter é nil, NewRateLimitedProvider devolve o provider inalterado.
+	return llm.NewRateLimitedProvider(llm.NewChatProvider(provider, cm), s.rateLimiter, s.rateLimitKeyFunc), nil
 }
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.

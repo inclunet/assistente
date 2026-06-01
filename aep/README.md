@@ -58,6 +58,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0061](0061-credential-loss-incident-and-defenses.md) | Incidente de Perda de Credenciais e Defesas | 📝 Draft |
 | [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil e Auth de Provider Local | 📝 Draft |
 | [0063](0063-tool-invocations-and-common-executor.md) | Tool Invocations e Executor Comum | 📝 Draft |
+| [0064](0064-streaming-recovery-explicito.md) | Recuperação Explícita de Streaming e Cancelamento | 📝 Draft |
+| [0065](0065-llm-rate-limiting.md) | Rate Limiting nas Chamadas ao Provedor LLM | 📝 Draft |
 
 ## Status Legend
 

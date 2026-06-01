@@ -1,0 +1,126 @@
+# AEP-0065 — Rate limiting nas chamadas ao provedor LLM
+
+Status: Proposto
+Data: 2026-06-01
+Autor: Cursor Agent (Inclunet)
+
+## Resumo
+
+Define um mecanismo central de **rate limiting** para as chamadas de geração ao
+provedor LLM, escopado **por usuário**, usando um token bucket
+(`golang.org/x/time/rate`). O objetivo é evitar custos inesperados e estouro de
+cota causados por uso excessivo, loops de agentes ou erros em cascata, sem
+travar a UI e sem espalhar lógica de throttling pelo código.
+
+Resolve o GitHub issue #27 ("security: implementar rate limiting nas chamadas LLM").
+
+## Motivação
+
+Hoje não há controle de taxa nas chamadas ao provedor LLM. Cenários de risco:
+
+- **Loops de agentes**: o loop agêntico pode disparar várias iterações em
+  sequência (cada iteração é uma chamada ao provedor). Um perfil mal configurado
+  ou um modelo "preso" em tool calling pode gerar muitas chamadas rápidas.
+- **Retries em cascata**: a recuperação automática de streaming (AEP-0064) e os
+  retries de tool podem multiplicar chamadas em situações de erro.
+- **Uso abusivo**: múltiplos envios em rajada.
+
+Cada chamada consome cota/custo no provedor. Sem um teto, o gasto é ilimitado.
+
+## Decisões
+
+### 1) Escopo: por usuário
+
+O limite é aplicado **por usuário**, usando o `userID` já carimbado no contexto
+(AEP-0052, multi-user). Quando o contexto não tem `userID` (fluxos internos sem
+escopo), uma **chave global** é usada para que nenhuma chamada escape do
+controle. Escolhemos por-usuário (em vez de global ou por-provider) por ser o
+escopo mais coerente com o modelo de contas e o que o issue pede ("limites
+configuráveis por usuário").
+
+### 2) Estratégia: token bucket via `golang.org/x/time/rate`
+
+Um `*rate.Limiter` por chave (usuário), guardado em um mapa protegido por mutex.
+Conforme proposto no issue, usamos `golang.org/x/time/rate` (pinado em v0.8.0
+para não forçar bump da diretiva `go`/toolchain).
+
+> Nota: o pacote `internal/httpapi` mantém um token bucket próprio para os
+> endpoints HTTP públicos (decisão local de evitar dependência para ~30 linhas).
+> Aqui seguimos a sugestão explícita do issue e usamos a lib idiomática, pois o
+> limitador de LLM precisa de semântica de refill precisa e testável.
+
+### 3) Ponto de aplicação: central, no factory de ChatProvider
+
+O limite é aplicado em **um único ponto**: `providers.Service.GetChatProvider`
+embrulha o `ChatProvider` resolvido com um decorator `rateLimitedProvider`
+(pacote `llm`). Assim, todos os consumidores que resolvem o provider por esse
+factory — o loop agêntico e o streaming simples do pipeline único de
+`SendMessage` (AEP-0040) — passam pelo mesmo controle, sem duplicação.
+
+Apenas os métodos de **geração** são contabilizados: `StreamChat`, `SendChat`,
+`SimpleChat`. `GetModels` (metadata leve usada pela UI de configurações) **não**
+é limitado.
+
+### 4) Defaults sensatos e configuração
+
+- `RequestsPerMinute` (default **60**): teto sustentado por usuário (~1/s).
+- `Burst` (default **30**): rajada instantânea. Deliberadamente
+  `>= MaxAgenticIterations` (default 25) para **não interromper um loop agêntico
+  legítimo** que dispare várias iterações em sequência rápida.
+- Override por variáveis de ambiente:
+  - `ASSISTENTE_LLM_RATE_LIMIT_ENABLED` (bool)
+  - `ASSISTENTE_LLM_RATE_LIMIT_RPM` (int > 0)
+  - `ASSISTENTE_LLM_RATE_LIMIT_BURST` (int > 0)
+- Valores inválidos são ignorados (mantêm o default) com log de aviso — nunca
+  desabilitam o controle por erro de digitação.
+
+### 5) Tratamento ao atingir o limite
+
+- **Streaming** (`StreamChat`): quando barrado, o decorator sinaliza
+  `handler.OnError(...)` com uma mensagem clara. O handler finaliza o turno com
+  `chat:done` de erro (contrato existente), **sem travar a UI** e sem chamar o
+  upstream.
+- **Síncrono** (`SendChat`/`SimpleChat`): retorna `*llm.RateLimitError`, que
+  carrega `RetryAfter` (tempo sugerido para backoff). `IsRateLimitError(err)`
+  permite identificação tipada pelos callers.
+
+### 6) Alerta de proximidade
+
+O `RateLimiter` aceita um callback opcional (`SetNearLimitHandler`) disparado
+quando, após permitir uma chamada, os tokens restantes caem abaixo de um limiar
+(default 20% da rajada). Na wiring atual o alerta é **logado**. A propagação do
+alerta para a UI (evento dedicado) fica como follow-up.
+
+## Fases
+
+1. **Núcleo** (`internal/llm/ratelimit.go`): `RateLimitConfig`, `RateLimiter`,
+   `RateLimitError`, configuração por env. ✅
+2. **Decorator** (`internal/llm/ratelimit_provider.go`): `rateLimitedProvider`
+   implementando `ChatProvider`. ✅
+3. **Wiring** (`providers.Service` + `app.go`): injeção do limitador e da função
+   de chave (userID do contexto). ✅
+4. **Testes** (`internal/llm/ratelimit_test.go`): dentro do limite, acima do
+   limite, reset após intervalo, isolamento por usuário, env, decorator. ✅
+5. **Follow-up**: evento/UX dedicado para o alerta de proximidade e, se desejado,
+   tornar os limites configuráveis por perfil (hoje são globais por env/defaults).
+
+## Riscos
+
+- **Burst pequeno demais** interromperia loops agênticos legítimos. Mitigado com
+  `Burst` default >= `MaxAgenticIterations` e documentação da relação.
+- **Crescimento do mapa de buckets**: um bucket por usuário. Em uso local
+  (desktop), o número de usuários é finito; GC/expiração de buckets ociosos fica
+  como follow-up se necessário (mesma postura do `httpapi`).
+- **Mensagem de erro em pt-BR no backend**: segue o padrão atual de erros do
+  backend exibidos diretamente. i18n completa por código de erro no frontend é
+  follow-up alinhado ao restante das mensagens de erro do backend.
+
+## Critérios de aceitação
+
+- [x] Rate limiter por usuário usando `golang.org/x/time/rate`.
+- [x] Limites configuráveis (env) com defaults sensatos.
+- [x] Aplicação central no caminho de chamada LLM (sem espalhar lógica).
+- [x] Erro claro com backoff (`RetryAfter`) sem travar a UI.
+- [x] Alerta quando o uso se aproxima do limite (log; UI = follow-up).
+- [x] Testes: dentro do limite passa, acima é barrado, reset após intervalo.
+- [x] `go build ./...` e `go test ./...` (pacotes afetados) verdes.

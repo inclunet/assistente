@@ -214,11 +214,28 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.initCredentialManager()
 	a.initAuthServices()
 
+	// Inicializa o rate limiter das chamadas LLM (Issue #27 / AEP-0065).
+	// Escopo por usuário (userID do contexto); defaults sensatos com override
+	// por variáveis de ambiente. nil quando desabilitado.
+	llmRateLimiter := llm.NewRateLimiter(llm.RateLimitConfigFromEnv())
+	if llmRateLimiter != nil {
+		llmRateLimiter.SetNearLimitHandler(func(key string, remaining float64) {
+			log.Printf("[llm/ratelimit] usuário %s próximo do limite de chamadas LLM (%.0f tokens restantes)", key, remaining)
+		})
+	}
+
 	// Inicializa o Provider Service (camada de negócio para provedores LLM)
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
-		Registry: a.llmRegistry,
-		CredMgr:  a.credMgr,
-		Store:    providers.NewDBStore(),
+		Registry:    a.llmRegistry,
+		CredMgr:     a.credMgr,
+		Store:       providers.NewDBStore(),
+		RateLimiter: llmRateLimiter,
+		RateLimitKeyFunc: func(ctx context.Context) string {
+			if userID, ok := database.UserIDFromContext(ctx); ok {
+				return userID
+			}
+			return ""
+		},
 	})
 
 	// Inicializa o Token Service (estatísticas de tokens)
