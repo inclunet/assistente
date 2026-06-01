@@ -61,6 +61,14 @@ Apenas os métodos de **geração** são contabilizados: `StreamChat`, `SendChat
 `SimpleChat`. `GetModels` (metadata leve usada pela UI de configurações) **não**
 é limitado.
 
+A **sumarização de conversas** (`internal/summarization`) constrói o provider
+diretamente via `llm.NewChatProvider(...)` (não passa pelo `GetChatProvider`),
+mas também é um vetor de custo. Por isso ela recebe o **mesmo** `*llm.RateLimiter`
+e a mesma `RateLimitKeyFunc` por injeção e embrulha o provider com
+`llm.NewRateLimitedProvider`, compartilhando o bucket por usuário com o chat.
+Como a sumarização é background/best-effort, um eventual bloqueio apenas adia o
+resumo (o erro já é tratado), sem impacto na UI.
+
 ### 4) Defaults sensatos e configuração
 
 - `RequestsPerMinute` (default **60**): teto sustentado por usuário (~1/s).

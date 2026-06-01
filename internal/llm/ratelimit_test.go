@@ -340,6 +340,7 @@ type fakeChatProvider struct {
 	streamCalls int
 	sendCalls   int
 	modelsCalls int
+	simpleCalls int
 }
 
 func (f *fakeChatProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
@@ -360,6 +361,7 @@ func (f *fakeChatProvider) GetModels(ctx context.Context) ([]string, error) {
 }
 
 func (f *fakeChatProvider) SimpleChat(ctx context.Context, model, systemPrompt, userMessage string) (string, error) {
+	f.simpleCalls++
 	return "ok", nil
 }
 
@@ -429,6 +431,30 @@ func TestRateLimitedProvider_SendChatBlockedReturnsError(t *testing.T) {
 	}
 	if !IsRateLimitError(err) {
 		t.Fatalf("erro deveria ser RateLimitError, got: %T", err)
+	}
+}
+
+func TestRateLimitedProvider_SimpleChatLimited(t *testing.T) {
+	inner := &fakeChatProvider{}
+	limiter := newTestLimiter(60, 1)
+	keyFn := func(context.Context) string { return "user-1" }
+	p := NewRateLimitedProvider(inner, limiter, keyFn)
+
+	if _, err := p.SimpleChat(context.Background(), "m", "sys", "hi"); err != nil {
+		t.Fatalf("primeira SimpleChat deveria passar, got: %v", err)
+	}
+	if inner.simpleCalls != 1 {
+		t.Fatalf("primeira SimpleChat deveria delegar, simpleCalls=%d", inner.simpleCalls)
+	}
+	_, err := p.SimpleChat(context.Background(), "m", "sys", "hi")
+	if err == nil {
+		t.Fatal("segunda SimpleChat deveria ser barrada")
+	}
+	if !IsRateLimitError(err) {
+		t.Fatalf("erro deveria ser RateLimitError, got: %T", err)
+	}
+	if inner.simpleCalls != 1 {
+		t.Fatalf("SimpleChat barrada não deveria delegar, simpleCalls=%d", inner.simpleCalls)
 	}
 }
 

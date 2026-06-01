@@ -223,19 +223,22 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 			log.Printf("[llm/ratelimit] usuário %s próximo do limite de chamadas LLM (%.0f tokens restantes)", key, remaining)
 		})
 	}
+	// Chave do rate limit = userID do contexto (AEP-0052). Compartilhada entre
+	// o provider service (chat) e a sumarização para usarem o mesmo bucket.
+	llmRateLimitKeyFunc := func(ctx context.Context) string {
+		if userID, ok := database.UserIDFromContext(ctx); ok {
+			return userID
+		}
+		return ""
+	}
 
 	// Inicializa o Provider Service (camada de negócio para provedores LLM)
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
-		Registry:    a.llmRegistry,
-		CredMgr:     a.credMgr,
-		Store:       providers.NewDBStore(),
-		RateLimiter: llmRateLimiter,
-		RateLimitKeyFunc: func(ctx context.Context) string {
-			if userID, ok := database.UserIDFromContext(ctx); ok {
-				return userID
-			}
-			return ""
-		},
+		Registry:         a.llmRegistry,
+		CredMgr:          a.credMgr,
+		Store:            providers.NewDBStore(),
+		RateLimiter:      llmRateLimiter,
+		RateLimitKeyFunc: llmRateLimitKeyFunc,
 	})
 
 	// Inicializa o Token Service (estatísticas de tokens)
@@ -268,6 +271,8 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		ProfileResolver: func(ctx context.Context, p *profiles.Profile) *profiles.Profile {
 			return a.providerSvc.ResolveProfileDefaults(ctx, p)
 		},
+		RateLimiter:      llmRateLimiter,
+		RateLimitKeyFunc: llmRateLimitKeyFunc,
 	})
 	// Inicializa managers de terminal, confirmação e allowlists
 	a.initTerminalAndAllowlists()
