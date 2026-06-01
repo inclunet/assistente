@@ -323,6 +323,141 @@ describe('ChatMessage', () => {
   // Turnos tool-only persistidos chegam do backend com `turnSegments` contendo
   // apenas um segmento `tool_calls`. Sem injetar o placeholder no início, o
   // leitor de tela perderia o contexto e a entrada soaria como resposta cortada.
+  // Issue #160: o leitor de tela deve anunciar APENAS a conclusão do turno (o
+  // último segmento textual não-vazio), nunca um trecho intermediário ou a
+  // concatenação carregada no `content` escalar da mensagem.
+  it('deriva o aria-label apenas do último segmento textual de um turno persistido multi-segmento', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'turn-final',
+      conversationId,
+      role: 'assistant',
+      // `content` escalar carrega o PRIMEIRO chunk — não deve vazar para o aria-label.
+      content: 'vou pesquisar',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        { type: 'text', content: 'vou pesquisar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+        },
+        { type: 'text', content: 'agora vou refinar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-2', type: 'function', function: { name: 'fetch', arguments: '{}' } }],
+        },
+        { type: 'text', content: 'resposta final' },
+      ],
+    });
+
+    render(<ChatMessage message={message} />);
+
+    expect(buildAriaLabelMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      displayContent: 'resposta final',
+    }));
+    const lastArgs = buildAriaLabelMock.mock.calls.at(-1)?.[0] as { displayContent: string };
+    expect(lastArgs.displayContent).not.toContain('vou pesquisar');
+    expect(lastArgs.displayContent).not.toContain('agora vou refinar');
+  });
+
+  it('substitui (não concatena) o aria-label pelo último segmento textual disponível durante o streaming', () => {
+    const baseMessage = new chat.EnrichedMessage({
+      id: 'turn-streaming',
+      conversationId,
+      role: 'assistant',
+      content: 'parte um',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+
+    const { rerender } = render(
+      <ChatMessage
+        message={baseMessage}
+        completedSegments={[{ type: 'text', content: 'parte um' }]}
+      />
+    );
+
+    expect(buildAriaLabelMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      displayContent: 'parte um',
+    }));
+
+    rerender(
+      <ChatMessage
+        message={baseMessage}
+        completedSegments={[
+          { type: 'text', content: 'parte um' },
+          { type: 'tool_calls', toolCalls: [{ id: 't', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+          { type: 'text', content: 'parte dois' },
+        ]}
+      />
+    );
+
+    expect(buildAriaLabelMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      displayContent: 'parte dois',
+    }));
+    const lastArgs = buildAriaLabelMock.mock.calls.at(-1)?.[0] as { displayContent: string };
+    // Substituição: o anúncio reflete só o último segmento, sem acumular o anterior.
+    expect(lastArgs.displayContent).not.toContain('parte um');
+  });
+
+  it('mantém o placeholder tool-only no aria-label quando o turno só tem tool_calls', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'tool-only-aria',
+      conversationId,
+      role: 'assistant',
+      content: '',
+      source: 'tool_only_turn_placeholder',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'ok' }],
+        },
+      ],
+    });
+
+    render(<ChatMessage message={message} />);
+
+    expect(buildAriaLabelMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      displayContent: 'chat.toolOnlyTurnPlaceholder',
+    }));
+  });
+
+  it('usa o último segmento textual NÃO-vazio quando a conclusão está vazia', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'turn-empty-final',
+      conversationId,
+      role: 'assistant',
+      content: 'primeiro',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        { type: 'text', content: 'primeiro' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+        },
+        { type: 'text', content: 'segundo' },
+        { type: 'text', content: '   ' },
+      ],
+    });
+
+    render(<ChatMessage message={message} />);
+
+    expect(buildAriaLabelMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      displayContent: 'segundo',
+    }));
+  });
+
   it('injeta placeholder textual antes das tools quando o turno tool-only tem apenas turnSegments', () => {
     const message = new chat.EnrichedMessage({
       id: 'tool-only-segmented',
