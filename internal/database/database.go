@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -1729,29 +1730,97 @@ func GetMessageTreeWithContext(ctx context.Context, messageID string) (*ChatMess
 		return nil, nil, err
 	}
 
-	var descendants []ChatMessage
-	if err := getDescendantsWithContext(ctx, messageID, &descendants); err != nil {
+	descendants, err := getDescendantsWithContext(ctx, messageID)
+	if err != nil {
 		return nil, nil, err
 	}
 
 	return &message, descendants, nil
 }
 
-func getDescendantsWithContext(ctx context.Context, parentID string, descendants *[]ChatMessage) error {
-	var children []ChatMessage
-	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
-		Where("chat_messages.parent_id = ?", parentID).
-		Order("chat_messages.created_at ASC").
-		Find(&children).Error; err != nil {
-		return err
+// maxDescendantDepth limita a profundidade da CTE recursiva como guarda contra
+// ciclos de parent_id (que não devem existir, mas a recursão precisa ser
+// segura — issue #21).
+const maxDescendantDepth = 10000
+
+// descendantsCTE busca, em UMA única consulta, todos os descendentes de
+// parentID via CTE recursiva do SQLite. O escopo por usuário é preservado com
+// JOIN em conversations + filtro user_id em cada passo da recursão, espelhando
+// scopedMessageQuery. A coluna auxiliar __depth serve apenas de guarda contra
+// ciclos e é ignorada ao escanear para ChatMessage.
+const descendantsCTE = `
+WITH RECURSIVE descendants AS (
+	SELECT cm.*, 0 AS __depth
+	FROM chat_messages cm
+	JOIN conversations c ON c.id = cm.conversation_id
+	WHERE cm.parent_id = ? AND c.user_id = ?
+	UNION ALL
+	SELECT cm.*, d.__depth + 1 AS __depth
+	FROM chat_messages cm
+	JOIN conversations c ON c.id = cm.conversation_id
+	JOIN descendants d ON cm.parent_id = d.id
+	WHERE c.user_id = ? AND d.__depth < ?
+)
+SELECT * FROM descendants`
+
+// getDescendantsWithContext retorna todos os descendentes de parentID na ordem
+// de uma travessia em pré-ordem (DFS), com os filhos de cada nível ordenados
+// por created_at ASC e id ASC como desempate determinístico.
+//
+// Antes (issue #21) a obtenção era uma recursão em Go que emitia uma query por
+// nível (N queries em hierarquias profundas). Agora uma única CTE recursiva
+// traz todos os registros do banco e a ordenação hierárquica é reconstruída em
+// memória, reproduzindo o comportamento anterior sem o custo de N consultas.
+func getDescendantsWithContext(ctx context.Context, parentID string) ([]ChatMessage, error) {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, err
 	}
-	for _, child := range children {
-		*descendants = append(*descendants, child)
-		if err := getDescendantsWithContext(ctx, child.ID, descendants); err != nil {
-			return err
+
+	var rows []ChatMessage
+	if err := db.WithContext(ctx).
+		Raw(descendantsCTE, parentID, userID, userID, maxDescendantDepth).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	// Agrupa por parent_id e ordena cada grupo de irmãos (created_at ASC,
+	// id ASC como desempate) para uma travessia determinística.
+	childrenByParent := make(map[string][]ChatMessage, len(rows))
+	for _, row := range rows {
+		if row.ParentID == nil {
+			continue
+		}
+		childrenByParent[*row.ParentID] = append(childrenByParent[*row.ParentID], row)
+	}
+	for pid := range childrenByParent {
+		siblings := childrenByParent[pid]
+		sort.SliceStable(siblings, func(i, j int) bool {
+			if siblings[i].CreatedAt.Equal(siblings[j].CreatedAt) {
+				return siblings[i].ID < siblings[j].ID
+			}
+			return siblings[i].CreatedAt.Before(siblings[j].CreatedAt)
+		})
+	}
+
+	// Travessia em pré-ordem a partir de parentID. O conjunto visited evita
+	// loop caso exista um ciclo de parent_id entre os registros retornados.
+	ordered := make([]ChatMessage, 0, len(rows))
+	visited := make(map[string]bool, len(rows))
+	var walk func(parent string)
+	walk = func(parent string) {
+		for _, child := range childrenByParent[parent] {
+			if visited[child.ID] {
+				continue
+			}
+			visited[child.ID] = true
+			ordered = append(ordered, child)
+			walk(child.ID)
 		}
 	}
-	return nil
+	walk(parentID)
+
+	return ordered, nil
 }
 
 // GetConversationTokenStatsWithContext retorna estatísticas de tokens de uma
