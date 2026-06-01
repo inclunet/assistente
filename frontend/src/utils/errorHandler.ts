@@ -3,7 +3,7 @@
  * Provides consistent error handling across the application
  */
 
-import { logger } from '../utils/logger';
+import { logger } from './logger';
 import { announce } from '../hooks/useAnnouncer';
 
 export enum ErrorSeverity {
@@ -36,7 +36,7 @@ export interface ErrorContext {
 export function handleError(error: unknown, context: ErrorContext): void {
   const errorMessage = error instanceof Error ? error.message : String(error);
   
-  // Log to console with full context
+  // Route the log through the centralized logger (not directly to console)
   logger.error(`[${context.source}] Error (${context.severity}):`, {
     userMessage: context.userMessage,
     technicalMessage: context.technicalMessage || errorMessage,
