@@ -273,6 +273,7 @@ export function Modal({
       <div
         className="modal-overlay"
         role="dialog"
+        aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={ariaDescribedBy}
       >

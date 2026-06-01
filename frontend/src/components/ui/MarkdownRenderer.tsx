@@ -526,18 +526,23 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       const imageElements = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
       if (imageElements.length === 0) return;
 
-      const images: ImageViewerImage[] = imageElements.map((img) => ({
-        src: img.getAttribute('src') || '',
-        alt: img.getAttribute('alt') || undefined,
-      }));
+      // Constrói a lista apenas com imagens válidas (com src não vazio) e
+      // mapeia o índice do elemento no DOM para o índice na lista filtrada,
+      // garantindo que a navegação prev/next nunca caia numa imagem quebrada.
+      const validImages: ImageViewerImage[] = [];
 
-      imageElements.forEach((img, index) => {
-        if (!images[index]?.src) return;
+      imageElements.forEach((img) => {
+        const src = img.getAttribute('src') || '';
+        if (!src) return;
+
+        const alt = img.getAttribute('alt') || undefined;
+        const viewerIndex = validImages.length;
+        validImages.push({ src, alt });
 
         img.classList.add('markdown-image--interactive');
         img.setAttribute('role', 'button');
         img.setAttribute('tabindex', '0');
-        const altText = images[index].alt?.trim();
+        const altText = alt?.trim();
         img.setAttribute(
           'aria-label',
           altText
@@ -548,7 +553,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
         const parentLink = img.closest('a[href]');
 
         const open = () => {
-          setImageViewer({ open: true, images, index });
+          setImageViewer({ open: true, images: validImages, index: viewerIndex });
         };
 
         const onClick = (e: MouseEvent) => {

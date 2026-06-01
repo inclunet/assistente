@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 vi.mock('react-router-dom', () => ({
@@ -89,5 +89,47 @@ describe('MarkdownRenderer', () => {
 
     fireEvent.click(screen.getByAltText('Gato'));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('ignora imagens sem src e não as torna interativas', () => {
+    render(<MarkdownRenderer content={'![vazia]() ![Gato](http://example.com/cat.png)'} />);
+
+    const empty = screen.getByAltText('vazia');
+    expect(empty).not.toHaveAttribute('role', 'button');
+    expect(empty).not.toHaveClass('markdown-image--interactive');
+
+    const valid = screen.getByAltText('Gato');
+    expect(valid).toHaveAttribute('role', 'button');
+  });
+
+  it('clicar numa imagem válida abre a correta mesmo com imagem inválida antes', () => {
+    render(<MarkdownRenderer content={'![vazia]() ![Gato](http://example.com/cat.png)'} />);
+
+    fireEvent.click(screen.getByAltText('Gato'));
+
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByAltText('Gato')).toBeInTheDocument();
+    expect(within(dialog).queryByAltText('vazia')).toBeNull();
+  });
+
+  it('a navegação do viewer percorre apenas imagens válidas', () => {
+    render(
+      <MarkdownRenderer
+        content={'![vazia]() ![Gato](http://example.com/cat.png) ![Cachorro](http://example.com/dog.png)'}
+      />,
+    );
+
+    fireEvent.click(screen.getByAltText('Gato'));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByAltText('Gato')).toBeInTheDocument();
+
+    // Só há 2 imagens válidas: voltar a partir da primeira leva à última (Cachorro),
+    // nunca à imagem de src vazio.
+    fireEvent.keyDown(document, { key: 'ArrowLeft' });
+    expect(within(dialog).getByAltText('Cachorro')).toBeInTheDocument();
+    expect(within(dialog).queryByAltText('vazia')).toBeNull();
+
+    fireEvent.keyDown(document, { key: 'ArrowRight' });
+    expect(within(dialog).getByAltText('Gato')).toBeInTheDocument();
   });
 });
