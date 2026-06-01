@@ -16,9 +16,26 @@ export type MessageNode = chat.MessageNode & {
   isExpanded?: boolean;
 };
 
+// Issue #150: o backend agora envia segmentos canônicos via `turnSegments`
+// (campo gerado pelo Wails). `_turnSegments` permanece como override
+// transitório usado pelo controlador de streaming até o turno ser persistido.
 export type Message = chat.EnrichedMessage & {
   _turnSegments?: TurnSegment[];
 };
+
+// getMessageTurnSegments retorna os segmentos cronológicos do turno preferindo
+// o override transitório (`_turnSegments`, populado durante o streaming
+// agentic) e caindo para os segmentos canônicos enviados pelo backend
+// (`turnSegments`). Issue #150 garante que ambas as fontes existam para que
+// recarregar o histórico mantenha a cadeia de raciocínio em UMA única entrada.
+export function getMessageTurnSegments(message: Message): TurnSegment[] | undefined {
+  if (message._turnSegments && message._turnSegments.length > 0) {
+    return message._turnSegments as TurnSegment[];
+  }
+  const canonical = (message as Message & { turnSegments?: TurnSegment[] }).turnSegments;
+  if (canonical && canonical.length > 0) return canonical;
+  return undefined;
+}
 
 export interface ChatTreeConversation {
   id: string;
