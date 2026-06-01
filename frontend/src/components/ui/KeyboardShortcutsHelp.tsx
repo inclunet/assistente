@@ -40,7 +40,7 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
       title: t('ui.shortcuts.categories.navigation'),
       items: [
         { keys: 'Ctrl+T', description: t('ui.shortcuts.newChatTab') },
-        { keys: SHORTCUTS.NEW_TAB, description: t('ui.shortcuts.newConversation') },
+        { keys: SHORTCUTS.NEW_TAB, description: t('ui.shortcuts.openNewTabMenu') },
         { keys: 'Ctrl+W', description: t('ui.shortcuts.closeTab') },
         { keys: 'Ctrl+Tab', description: t('ui.shortcuts.nextTab') },
         { keys: 'Ctrl+Shift+Tab', description: t('ui.shortcuts.previousTab') },
@@ -55,8 +55,7 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
         { keys: 'Ctrl+Enter', description: t('ui.shortcuts.sendMessage') },
         { keys: SHORTCUTS.CLEAR_CONVERSATION, description: t('ui.shortcuts.clearConversation') },
         { keys: SHORTCUTS.HISTORY, description: t('ui.shortcuts.openHistory') },
-        { keys: SHORTCUTS.MODELS, description: t('ui.shortcuts.selectModel') },
-        { keys: SHORTCUTS.PROFILES, description: t('ui.shortcuts.interactionProfiles') },
+        { keys: 'Ctrl+P', description: t('ui.shortcuts.interactionProfiles') },
         { keys: SHORTCUTS.SPEAK_MESSAGE, description: t('ui.shortcuts.playAudio') },
         { keys: SHORTCUTS.MESSAGE_DETAILS, description: t('ui.shortcuts.viewDetails') },
         { keys: 'Shift+F10', description: t('ui.shortcuts.contextMenu') },
