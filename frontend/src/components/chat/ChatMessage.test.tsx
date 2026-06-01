@@ -319,4 +319,43 @@ describe('ChatMessage', () => {
       displayContent: 'chat.toolOnlyTurnPlaceholder',
     }));
   });
+
+  // Turnos tool-only persistidos chegam do backend com `turnSegments` contendo
+  // apenas um segmento `tool_calls`. Sem injetar o placeholder no início, o
+  // leitor de tela perderia o contexto e a entrada soaria como resposta cortada.
+  it('injeta placeholder textual antes das tools quando o turno tool-only tem apenas turnSegments', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'tool-only-segmented',
+      conversationId,
+      role: 'assistant',
+      content: '',
+      source: 'tool_only_turn_placeholder',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        {
+          type: 'tool_calls',
+          toolCalls: [{
+            id: 'tool-1',
+            type: 'function',
+            function: { name: 'search', arguments: '{}' },
+            result: 'ok',
+          }],
+        },
+      ],
+    });
+
+    const { container } = render(<ChatMessage message={message} />);
+
+    const placeholder = screen.getByText('chat.toolOnlyTurnPlaceholder');
+    const tools = screen.getByTestId('toolcalls');
+    expect(placeholder).toBeInTheDocument();
+    expect(tools).toBeInTheDocument();
+    expect(container.querySelectorAll('.chat-message')).toHaveLength(1);
+    // Placeholder precisa vir ANTES das tools na ordem do DOM para que o NVDA
+    // anuncie o contexto antes do bloco de ferramentas.
+    expect(placeholder.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

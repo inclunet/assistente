@@ -116,6 +116,23 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const hasAgenticSegments = !!(persistedTurnSegments || (completedSegments && completedSegments.length > 0));
   const isAgenticStreaming = effectiveIsStreaming && hasAgenticSegments;
 
+  // Turnos "tool-only" (assistente não emitiu texto, só executou tools) chegam
+  // do backend como um único segmento `tool_calls`. Sem injetar o placeholder
+  // textual antes das tools, o leitor de tela perde o contexto e a entrada
+  // soa como resposta cortada — preserva paridade com o branch flat que já
+  // renderiza `placeholderContent` (Issue #150 follow-up).
+  const rawTurnSegments = persistedTurnSegments || completedSegments || [];
+  const shouldInjectToolOnlyPlaceholder =
+    isToolOnlyTurnPlaceholder &&
+    rawTurnSegments.length > 0 &&
+    !rawTurnSegments.some((seg) => seg.type === 'text' && !!seg.content);
+  const displaySegments: TurnSegment[] = shouldInjectToolOnlyPlaceholder
+    ? [
+        { type: 'text', content: t('chat.toolOnlyTurnPlaceholder') } as TurnSegment,
+        ...rawTurnSegments,
+      ]
+    : rawTurnSegments;
+
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : effectiveContent;
 
@@ -434,7 +451,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               aria-relevant={isAgenticStreaming ? 'additions' : undefined}
               className="chat-message__segments-log"
             >
-              {canRenderHeavyContent ? (persistedTurnSegments || completedSegments || []).map((seg, idx) => (
+              {canRenderHeavyContent ? displaySegments.map((seg, idx) => (
                 <React.Fragment key={idx}>
                   {seg.type === 'text' && seg.content && (
                     <div className="chat-message__text chat-message__text--segment">
