@@ -3,16 +3,29 @@ package portability
 import "time"
 
 const (
-	FormatJSON    = "json"
-	FormatHTML    = "html"
-	FormatPDF     = "pdf"
-	FormatMCPJSON = "mcp-json"
-	ExportVersion = 2
+	FormatJSON     = "json"
+	FormatHTML     = "html"
+	FormatPDF      = "pdf"
+	FormatMarkdown = "md"
+	FormatMCPJSON  = "mcp-json"
+	ExportVersion  = 2
 )
 
 type ExportOptions struct {
 	IncludeAudio       bool `json:"includeAudio"`
 	IncludeCredentials bool `json:"includeCredentials"`
+	IncludeTimestamps  bool `json:"includeTimestamps"`
+	IncludeReasoning   bool `json:"includeReasoning"`
+	IncludeMetadata    bool `json:"includeMetadata"`
+}
+
+// ContentExportOptions controla quais blocos de conteúdo entram nas
+// exportações ricas (HTML, PDF e Markdown). É o contrato usado pela UI ao
+// escolher os toggles de exportação por conversa.
+type ContentExportOptions struct {
+	IncludeTimestamps bool `json:"includeTimestamps"`
+	IncludeReasoning  bool `json:"includeReasoning"`
+	IncludeMetadata   bool `json:"includeMetadata"`
 }
 
 type CredentialCipher struct {
@@ -208,6 +221,18 @@ type ExportRequest struct {
 	IncludeCredentials       bool     `json:"includeCredentials"`
 	CredentialExportPassword string   `json:"credentialExportPassword,omitempty"`
 	OutputFormat             string   `json:"outputFormat,omitempty"`
+	// Toggles de conteúdo para exportações ricas. Quando nil, assumem o
+	// comportamento padrão (incluído) para não quebrar exports existentes.
+	IncludeTimestamps *bool `json:"includeTimestamps,omitempty"`
+	IncludeReasoning  *bool `json:"includeReasoning,omitempty"`
+	IncludeMetadata   *bool `json:"includeMetadata,omitempty"`
+}
+
+// ResolveContentToggle interpreta um toggle opcional de conteúdo. Quando não
+// especificado (nil) o padrão é incluir o bloco, preservando o comportamento
+// histórico das exportações ricas.
+func ResolveContentToggle(v *bool) bool {
+	return v == nil || *v
 }
 
 type ConflictResolutionStrategy string

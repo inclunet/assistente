@@ -126,3 +126,34 @@
   color: var(--color-warning);
 }
 
+.history-page__export-desc {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+}
+
+.history-page__export-fieldset {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-page__export-legend {
+  padding: 0 6px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.history-page__export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+

@@ -16,6 +16,7 @@ func TestRenderConversationsHTMLIncludesConversationContent(t *testing.T) {
 	file := &ExportFile{
 		Version:    ExportVersion,
 		ExportedAt: time.Unix(100, 0),
+		Options:    ExportOptions{IncludeTimestamps: true, IncludeReasoning: true, IncludeMetadata: true},
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
 				{
@@ -185,6 +186,325 @@ func TestRoleLabelNormalizesUnicodeFallbackSafely(t *testing.T) {
 	}
 	if got := roleLabel(" "); got != "Mensagem" {
 		t.Fatalf("roleLabel() = %q, want %q", got, "Mensagem")
+	}
+}
+
+func sampleConversationFile(opts ExportOptions) *ExportFile {
+	return &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Unix(100, 0),
+		Options:    opts,
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Conversa de teste",
+					CreatedAt: time.Unix(90, 0),
+					Summary:   "Resumo da conversa.",
+					Messages: []MessageExport{
+						{
+							Role:             "user",
+							Content:          "Olá, **mundo**.",
+							CreatedAt:        time.Unix(91, 0),
+							Model:            "gpt-4o",
+							Source:           "chat",
+							PromptTokens:     12,
+							CompletionTokens: 34,
+							Reasoning:        "Pensando no problema.",
+							ToolCalls:        `{"name":"search"}`,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestRenderConversationsMarkdownIncludesContent(t *testing.T) {
+	file := sampleConversationFile(ExportOptions{
+		IncludeTimestamps: true,
+		IncludeReasoning:  true,
+		IncludeMetadata:   true,
+	})
+
+	md, err := RenderConversationsMarkdown(file)
+	if err != nil {
+		t.Fatalf("RenderConversationsMarkdown() error = %v", err)
+	}
+	if !strings.Contains(md, "# Exportação de conversas") {
+		t.Fatalf("markdown missing document title: %s", md)
+	}
+	if !strings.Contains(md, "## Conversa de teste") {
+		t.Fatalf("markdown missing conversation heading: %s", md)
+	}
+	if !strings.Contains(md, "### Usuário") {
+		t.Fatalf("markdown missing role heading: %s", md)
+	}
+	if !strings.Contains(md, "Olá, **mundo**.") {
+		t.Fatalf("markdown should preserve message markdown: %s", md)
+	}
+	if !strings.Contains(md, "**Reasoning:**") || !strings.Contains(md, "Pensando no problema.") {
+		t.Fatalf("markdown should include reasoning when enabled: %s", md)
+	}
+	if !strings.Contains(md, "```json") || !strings.Contains(md, `{"name":"search"}`) {
+		t.Fatalf("markdown should include tool calls as fenced code: %s", md)
+	}
+	if !strings.Contains(md, "modelo: gpt-4o") {
+		t.Fatalf("markdown should include metadata when enabled: %s", md)
+	}
+}
+
+func TestRenderConversationsMarkdownRespectsToggles(t *testing.T) {
+	file := sampleConversationFile(ExportOptions{
+		IncludeTimestamps: false,
+		IncludeReasoning:  false,
+		IncludeMetadata:   false,
+	})
+
+	md, err := RenderConversationsMarkdown(file)
+	if err != nil {
+		t.Fatalf("RenderConversationsMarkdown() error = %v", err)
+	}
+	if strings.Contains(md, "**Reasoning:**") {
+		t.Fatalf("markdown should omit reasoning when disabled: %s", md)
+	}
+	if strings.Contains(md, "modelo: gpt-4o") || strings.Contains(md, "origem: chat") {
+		t.Fatalf("markdown should omit metadata when disabled: %s", md)
+	}
+	if strings.Contains(md, "Gerado em") || strings.Contains(md, "Criada em") {
+		t.Fatalf("markdown should omit timestamps when disabled: %s", md)
+	}
+	if !strings.Contains(md, "Olá, **mundo**.") {
+		t.Fatalf("markdown should still include message content: %s", md)
+	}
+}
+
+func TestRenderConversationsMarkdownNormalizesTitle(t *testing.T) {
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Unix(100, 0),
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Título\ncom\nquebras   e   espaços",
+					CreatedAt: time.Unix(90, 0),
+					Messages: []MessageExport{
+						{Role: "user", Content: "ok", CreatedAt: time.Unix(91, 0)},
+					},
+				},
+			},
+		},
+	}
+
+	md, err := RenderConversationsMarkdown(file)
+	if err != nil {
+		t.Fatalf("RenderConversationsMarkdown() error = %v", err)
+	}
+	if !strings.Contains(md, "## Título com quebras e espaços\n") {
+		t.Fatalf("markdown heading should collapse title to a single line: %s", md)
+	}
+	if strings.Contains(md, "## Título\n") || strings.Contains(md, "com\nquebras") {
+		t.Fatalf("markdown heading should not preserve line breaks from the title: %s", md)
+	}
+}
+
+func TestRenderConversationsMarkdownToolCallIDFollowsMetadataToggle(t *testing.T) {
+	build := func(opts ExportOptions) string {
+		t.Helper()
+		file := &ExportFile{
+			Version:    ExportVersion,
+			ExportedAt: time.Unix(100, 0),
+			Options:    opts,
+			Resources: ExportResources{
+				Conversations: []ConversationExport{
+					{
+						Title:     "Conversa com ferramenta",
+						CreatedAt: time.Unix(90, 0),
+						Messages: []MessageExport{
+							{
+								Role:       "tool",
+								Content:    "resultado",
+								ToolCallID: "call_abc123",
+								CreatedAt:  time.Unix(91, 0),
+							},
+						},
+					},
+				},
+			},
+		}
+		md, err := RenderConversationsMarkdown(file)
+		if err != nil {
+			t.Fatalf("RenderConversationsMarkdown() error = %v", err)
+		}
+		return md
+	}
+
+	if on := build(ExportOptions{IncludeMetadata: true}); !strings.Contains(on, "toolCallId: call_abc123") {
+		t.Fatalf("markdown should include toolCallId when metadata enabled: %s", on)
+	}
+	if off := build(ExportOptions{IncludeMetadata: false}); strings.Contains(off, "toolCallId: call_abc123") {
+		t.Fatalf("markdown should omit toolCallId when metadata disabled: %s", off)
+	}
+}
+
+func TestRenderConversationsHTMLRespectsToggles(t *testing.T) {
+	on := sampleConversationFile(ExportOptions{IncludeTimestamps: true, IncludeReasoning: true, IncludeMetadata: true})
+	htmlOn, err := RenderConversationsHTML(on)
+	if err != nil {
+		t.Fatalf("RenderConversationsHTML() error = %v", err)
+	}
+	if !strings.Contains(htmlOn, "Modelo: gpt-4o") {
+		t.Fatalf("html should include metadata when enabled: %s", htmlOn)
+	}
+	if !strings.Contains(htmlOn, `<div class="message__reasoning">`) {
+		t.Fatalf("html should include reasoning when enabled: %s", htmlOn)
+	}
+
+	off := sampleConversationFile(ExportOptions{IncludeTimestamps: false, IncludeReasoning: false, IncludeMetadata: false})
+	htmlOff, err := RenderConversationsHTML(off)
+	if err != nil {
+		t.Fatalf("RenderConversationsHTML() error = %v", err)
+	}
+	if strings.Contains(htmlOff, "Modelo: gpt-4o") {
+		t.Fatalf("html should omit metadata when disabled: %s", htmlOff)
+	}
+	if strings.Contains(htmlOff, `<div class="message__reasoning">`) {
+		t.Fatalf("html should omit reasoning when disabled: %s", htmlOff)
+	}
+	if strings.Contains(htmlOff, "Criada em") || strings.Contains(htmlOff, "Gerado em") {
+		t.Fatalf("html should omit timestamps when disabled: %s", htmlOff)
+	}
+}
+
+func TestRenderConversationsHTMLHighlightsCode(t *testing.T) {
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Unix(100, 0),
+		Options:    ExportOptions{IncludeTimestamps: true, IncludeReasoning: true, IncludeMetadata: true},
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Conversa com código",
+					CreatedAt: time.Unix(90, 0),
+					Messages: []MessageExport{
+						{
+							Role:      "assistant",
+							Content:   "```go\nfunc main() {}\n```",
+							CreatedAt: time.Unix(91, 0),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	html, err := RenderConversationsHTML(file)
+	if err != nil {
+		t.Fatalf("RenderConversationsHTML() error = %v", err)
+	}
+	if !strings.Contains(html, `class="chroma"`) {
+		t.Fatalf("html should wrap highlighted code with chroma class: %s", html)
+	}
+	if !strings.Contains(html, `<span class=`) {
+		t.Fatalf("html should emit chroma token spans for highlighted code: %s", html)
+	}
+	if !strings.Contains(html, ".chroma") {
+		t.Fatalf("html should embed chroma stylesheet: %s", html)
+	}
+	if strings.Contains(html, "rgba(") {
+		t.Fatalf("chroma stylesheet should not introduce rgba colors: %s", html)
+	}
+}
+
+func TestRenderConversationsHTMLGatesMetadataFlags(t *testing.T) {
+	const tinyPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1EAAAAASUVORK5CYII="
+
+	build := func(opts ExportOptions) string {
+		t.Helper()
+		file := &ExportFile{
+			Version:    ExportVersion,
+			ExportedAt: time.Unix(100, 0),
+			Options:    opts,
+			Resources: ExportResources{
+				Conversations: []ConversationExport{
+					{
+						Title:     "Conversa com flags",
+						CreatedAt: time.Unix(90, 0),
+						Messages: []MessageExport{
+							{
+								Role:          "tool",
+								Content:       "ok",
+								Media:         `[{"type":"image/png","name":"captura.png","data":"` + tinyPNG + `"}]`,
+								AudioMimeType: "audio/mpeg",
+								ToolCallID:    "call_123",
+								CreatedAt:     time.Unix(91, 0),
+							},
+						},
+					},
+				},
+			},
+		}
+		html, err := RenderConversationsHTML(file)
+		if err != nil {
+			t.Fatalf("RenderConversationsHTML() error = %v", err)
+		}
+		return html
+	}
+
+	on := build(ExportOptions{IncludeMetadata: true})
+	if !strings.Contains(on, "message__flags") {
+		t.Fatalf("html should render metadata flags when enabled: %s", on)
+	}
+	if !strings.Contains(on, "toolCallId: call_123") {
+		t.Fatalf("html should render toolCallId flag when metadata enabled: %s", on)
+	}
+
+	off := build(ExportOptions{IncludeMetadata: false})
+	if strings.Contains(off, `class="message__flags"`) {
+		t.Fatalf("html should omit metadata flags container when disabled: %s", off)
+	}
+	if strings.Contains(off, "toolCallId: call_123") {
+		t.Fatalf("html should omit toolCallId flag when metadata disabled: %s", off)
+	}
+}
+
+func TestSanitizeRenderedHTMLRestrictsClassToHighlightTags(t *testing.T) {
+	in := `<p class="hero">texto</p>` +
+		`<pre class="chroma"><code class="language-go"><span class="k">func</span></code></pre>`
+	out := sanitizeRenderedHTML(in)
+
+	if strings.Contains(out, `<p class=`) {
+		t.Fatalf("sanitizer should drop class on non-highlight tags: %s", out)
+	}
+	if !strings.Contains(out, `<pre class="chroma">`) {
+		t.Fatalf("sanitizer should keep class on pre: %s", out)
+	}
+	if !strings.Contains(out, `<span class="k">`) {
+		t.Fatalf("sanitizer should keep class on span: %s", out)
+	}
+	if !strings.Contains(out, `<code class="language-go">`) {
+		t.Fatalf("sanitizer should keep class on code: %s", out)
+	}
+}
+
+func TestRenderConversationsPDFRespectsTogglesStillRenders(t *testing.T) {
+	file := sampleConversationFile(ExportOptions{IncludeTimestamps: false, IncludeReasoning: false, IncludeMetadata: false})
+	pdfBytes, err := RenderConversationsPDF(file)
+	if err != nil {
+		t.Fatalf("RenderConversationsPDF() error = %v", err)
+	}
+	if !strings.HasPrefix(string(pdfBytes), "%PDF") {
+		t.Fatalf("pdf header missing, got %q", string(pdfBytes[:4]))
+	}
+}
+
+func TestRenderConversationExportSupportsMarkdownFormat(t *testing.T) {
+	file := sampleConversationFile(ExportOptions{IncludeTimestamps: true, IncludeReasoning: true, IncludeMetadata: true})
+	out, err := RenderConversationExport(file, FormatMarkdown)
+	if err != nil {
+		t.Fatalf("RenderConversationExport(markdown) error = %v", err)
+	}
+	if !strings.Contains(string(out), "# Exportação de conversas") {
+		t.Fatalf("markdown export missing title: %s", string(out))
 	}
 }
 
