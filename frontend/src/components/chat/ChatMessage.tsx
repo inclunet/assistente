@@ -387,6 +387,18 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     }
   }, [isEditing]);
 
+  // Issue #163: ao entrar no modo de leitura a cadeia precisa estar inteira no
+  // DOM (segmentos + tool calls) para que o `role="document"` do useVirtualModal
+  // a exponha por completo. Se o usuário a havia recolhido, força a expansão —
+  // mantendo `aria-expanded` consistente com o conteúdo visível. O toggle (agora
+  // focável durante a leitura) continua permitindo recolher/expandir dentro do
+  // modo de leitura.
+  useEffect(() => {
+    if (isReading) {
+      setIsChainExpanded(true);
+    }
+  }, [isReading]);
+
   useEffect(() => {
     if (shouldDeferHeavyContent && !previousShouldDeferHeavyContentRef.current) {
       setIsHeavyContentReady(false);
@@ -503,7 +515,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 onClick={(e) => { e.stopPropagation(); setIsChainExpanded((prev) => !prev); }}
                 aria-expanded={isChainExpanded}
                 aria-controls={chainRegionId}
-                tabIndex={-1}
+                tabIndex={isReading ? 0 : -1}
               >
                 {isChainExpanded ? t('chat.collapseChain') : t('chat.expandChain')}
               </button>

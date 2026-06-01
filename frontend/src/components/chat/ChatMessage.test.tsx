@@ -647,6 +647,10 @@ describe('ChatMessage', () => {
 
     const toggle = screen.getByRole('button', { name: 'chat.collapseChain' });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    // Fora do modo de leitura o toggle não é alcançável por Tab (convenção do
+    // componente: interativos in-message usam tabIndex=-1 para não criar tabstops
+    // ao longo da lista de mensagens).
+    expect(toggle).toHaveAttribute('tabindex', '-1');
     expect(screen.getByText('vou pesquisar')).toBeInTheDocument();
     expect(screen.getAllByTestId('toolcalls')).toHaveLength(1);
 
@@ -662,5 +666,83 @@ describe('ChatMessage', () => {
     expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('vou pesquisar')).toBeInTheDocument();
     expect(screen.getAllByTestId('toolcalls')).toHaveLength(1);
+  });
+
+  // Issue #163 (PR #168, comentário de legle): o toggle só pode receber foco no
+  // modo de leitura; do contrário ele (e os demais interativos da mensagem) não
+  // deve ser um tabstop ao navegar pela lista de mensagens.
+  it('torna o toggle da cadeia focável apenas no modo de leitura', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'turn-toggle-tabindex',
+      conversationId,
+      role: 'assistant',
+      content: 'resposta final',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        { type: 'text', content: 'vou pesquisar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+        },
+        { type: 'text', content: 'resposta final' },
+      ],
+    });
+
+    const { rerender } = render(<ChatMessage message={message} />);
+    expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('tabindex', '-1');
+
+    rerender(<ChatMessage message={message} isReading />);
+    expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('tabindex', '0');
+  });
+
+  // Issue #163 (PR #168, comentário Copilot 3337447363): se o usuário recolheu a
+  // cadeia, ao entrar no modo de leitura ela precisa ser forçada de volta ao DOM
+  // para que o role="document" do useVirtualModal exponha todos os segmentos +
+  // tool calls. O `aria-expanded` permanece consistente com o conteúdo visível.
+  it('força a cadeia recolhida de volta ao DOM ao entrar no modo de leitura', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'turn-reading-collapsed',
+      conversationId,
+      role: 'assistant',
+      content: 'resposta final',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        { type: 'text', content: 'vou pesquisar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+        },
+        { type: 'text', content: 'agora vou refinar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-2', type: 'function', function: { name: 'fetch', arguments: '{}' } }],
+        },
+        { type: 'text', content: 'resposta final' },
+      ],
+    });
+
+    const { rerender } = render(<ChatMessage message={message} />);
+
+    // Usuário recolhe a cadeia fora do modo de leitura.
+    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('vou pesquisar')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
+
+    // Ao entrar no modo de leitura, a cadeia inteira volta ao DOM.
+    rerender(<ChatMessage message={message} isReading />);
+
+    const toggle = screen.getByRole('button', { name: 'chat.collapseChain' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('vou pesquisar')).toBeInTheDocument();
+    expect(screen.getByText('agora vou refinar')).toBeInTheDocument();
+    expect(screen.getByText('resposta final')).toBeInTheDocument();
+    expect(screen.getAllByTestId('toolcalls')).toHaveLength(2);
   });
 });
