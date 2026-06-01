@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { HistoryOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
@@ -47,7 +48,7 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
       });
       setConversations(sorted);
     } catch (error) {
-      console.error('[HistoryPicker] Erro ao carregar conversas:', error);
+      logger.error('[HistoryPicker] Erro ao carregar conversas:', error);
     } finally {
       setIsLoading(false);
     }

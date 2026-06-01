@@ -1,3 +1,4 @@
+import { logger } from './utils/logger';
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -85,7 +86,7 @@ function App() {
                             addToast(t('app.wizard.success'), 'success', 5000);
                         }
                     } catch (error) {
-                        console.error('[App] Erro ao executar wizard:', error);
+                        logger.error('[App] Erro ao executar wizard:', error);
                         addToast(t('app.wizard.error'), 'error');
                     }
                 }
@@ -114,7 +115,7 @@ function App() {
                 });
                 addToast(t('app.config.loaded'), 'success', 3000);
             } catch (error) {
-                console.error('Erro ao carregar configuração:', error);
+                logger.error('Erro ao carregar configuração:', error);
                 setError(t('app.config.loadError'));
                 addToast(t('app.config.loadError'), 'error');
             } finally {
@@ -128,7 +129,7 @@ function App() {
             if (error instanceof DOMException && error.name === 'AbortError') {
                 return;
             }
-            console.error('Erro ao carregar configuração:', error);
+            logger.error('Erro ao carregar configuração:', error);
         });
         return () => controller.abort();
     }, [setConfig, setLoading, setError, addToast, isAuthenticated, authUser]);
@@ -283,7 +284,7 @@ function App() {
                 setQuestionnaireData(null);
                 restoreFocus();
             } catch (err) {
-                console.error('[App] Erro ao enviar questionário:', err);
+                logger.error('[App] Erro ao enviar questionário:', err);
                 addToast(t('app.questionnaire.submitError'), 'error');
             }
             return;
@@ -302,7 +303,7 @@ function App() {
                 setQuestionnaireData(null);
                 restoreFocus();
             } catch (err) {
-                console.error('[App] Erro ao cancelar questionário:', err);
+                logger.error('[App] Erro ao cancelar questionário:', err);
                 addToast(t('app.questionnaire.submitError'), 'error');
             }
             return;

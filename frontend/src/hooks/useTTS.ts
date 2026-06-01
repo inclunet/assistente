@@ -3,6 +3,7 @@
  * Hook React para integração com o serviço de Text-to-Speech com múltiplos provedores
  */
 
+import { logger } from '../utils/logger';
 import { useEffect, useState, useCallback } from 'react';
 import { ttsService, TTSConfig } from '../services/tts';
 import { TTSVoice } from '../services/tts/types';
@@ -41,7 +42,7 @@ export function useTTS(): UseTTSReturn {
         const allVoices = await ttsService.getVoices();
         setVoices(allVoices);
       } catch (error) {
-        console.error('[useTTS] Error loading voices:', error);
+        logger.error('[useTTS] Error loading voices:', error);
       }
     };
     
@@ -115,7 +116,7 @@ export function useTTS(): UseTTSReturn {
       const allVoices = await ttsService.getVoices();
       setVoices(allVoices);
     } catch (error) {
-      console.error('[useTTS] Error reloading voices:', error);
+      logger.error('[useTTS] Error reloading voices:', error);
     }
   }, []);
   

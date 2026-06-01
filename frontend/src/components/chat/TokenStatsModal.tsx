@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -65,7 +66,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
         const result = await GetConversationTokenStats(conversationId);
         setStats(result);
       } catch (err) {
-        console.error('[TokenStatsModal] Erro ao carregar estatísticas:', err);
+        logger.error('[TokenStatsModal] Erro ao carregar estatísticas:', err);
         setError(t('tokenStats.loadError'));
       } finally {
         setLoading(false);

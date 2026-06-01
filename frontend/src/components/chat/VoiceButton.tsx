@@ -11,6 +11,7 @@
  * Usa o sistema unificado de perfis (profiles.Profile).
  */
 
+import { logger } from '../../utils/logger';
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useInteractionProfile } from '../../hooks/useInteractionProfile';
@@ -88,7 +89,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     },
     onError: (message) => {
       finishSTTSession(voiceOrigin);
-      console.error('[VoiceButton] Erro:', message);
+      logger.error('[VoiceButton] Erro:', message);
     },
   });
 

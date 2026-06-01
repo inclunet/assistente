@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -67,7 +68,7 @@ export default function HistoryPage() {
       }));
       setConversations(mapped || []);
     } catch (error) {
-      console.error('Erro ao carregar conversas:', error);
+      logger.error('Erro ao carregar conversas:', error);
     } finally {
       setLoading(false);
     }
@@ -104,7 +105,7 @@ export default function HistoryPage() {
         setSnippetsMap(snippets);
       }
     } catch (error) {
-      console.error('Erro na busca:', error);
+      logger.error('Erro na busca:', error);
       setSearchResultIds(new Set());
       setSnippetsMap(new Map());
     } finally {
@@ -167,7 +168,7 @@ export default function HistoryPage() {
         return newSet;
       });
     } catch (error) {
-      console.error('Erro ao deletar conversa:', error);
+      logger.error('Erro ao deletar conversa:', error);
     }
   }, [confirm, conversations, t]);
 
@@ -190,7 +191,7 @@ export default function HistoryPage() {
       setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
       setSelectedIds(new Set());
     } catch (error) {
-      console.error('Erro ao deletar conversas:', error);
+      logger.error('Erro ao deletar conversas:', error);
     }
   }, [confirm, selectedIds, t]);
 
@@ -211,7 +212,7 @@ export default function HistoryPage() {
       const filename = generateFilename('conversas');
       downloadJSON(jsonData, filename);
     } catch (error) {
-      console.error('Erro ao exportar conversas em JSON:', error);
+      logger.error('Erro ao exportar conversas em JSON:', error);
       announce(t('history.exportError', 'Erro ao exportar conversas'), 'assertive');
     }
   }, [announce, t]);
@@ -227,7 +228,7 @@ export default function HistoryPage() {
       if (!savedPath) return;
       announce(t('history.exportSaved', { path: savedPath, defaultValue: `Arquivo exportado: ${savedPath}` }));
     } catch (error) {
-      console.error(`Erro ao exportar conversas em ${format}:`, error);
+      logger.error(`Erro ao exportar conversas em ${format}:`, error);
       announce(t('history.exportError', 'Erro ao exportar conversas'), 'assertive');
     }
   }, [announce, t]);
@@ -275,7 +276,7 @@ export default function HistoryPage() {
         await moveTabToWorkspace(tabId, targetWorkspaceId);
       }
     } catch (error) {
-      console.error('Erro ao enviar conversa ao workspace:', error);
+      logger.error('Erro ao enviar conversa ao workspace:', error);
     }
   }, [addWorkspaceTab, moveTabToWorkspace, navigate, t]);
 
@@ -436,7 +437,7 @@ export default function HistoryPage() {
           )
         );
       } catch (error) {
-        console.error('Erro ao atualizar título:', error);
+        logger.error('Erro ao atualizar título:', error);
       }
     }
   }, []);

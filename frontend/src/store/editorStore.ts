@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { create } from 'zustand';
 
 export type EditorMode = 'markdown' | 'rich' | 'view';
@@ -116,7 +117,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ? (() => {
             const targetDocumentId = String(req.targetDocumentId ?? '').trim();
             if (!targetDocumentId) {
-              console.error('[EditorStore] requestInsert rejected: document target requires targetDocumentId');
+              logger.error('[EditorStore] requestInsert rejected: document target requires targetDocumentId');
               return null;
             }
             return {

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useEffect, useRef } from 'react';
 import { useTerminalStore } from '../../store/terminalStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';
@@ -39,7 +40,7 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
       }).catch((error: unknown) => {
         if (!isWorkspaceTabActive(tab.id)) return;
 
-        console.error('[TerminalSurfaceController] Erro ao carregar sessões:', error);
+        logger.error('[TerminalSurfaceController] Erro ao carregar sessões:', error);
         void recoverStaleSession(tab.id);
       });
       return;
@@ -58,7 +59,7 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
         await updateWorkspaceTab(tabId, { state: { sessionId: newSessionId } });
       }
     } catch (error) {
-      console.error('[TerminalSurfaceController] Erro ao recuperar sessão obsoleta:', error);
+      logger.error('[TerminalSurfaceController] Erro ao recuperar sessão obsoleta:', error);
     } finally {
       creatingRef.current = false;
     }
@@ -72,7 +73,7 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
         await updateWorkspaceTab(tabId, { state: { sessionId: newSessionId } });
       }
     } catch (error) {
-      console.error('[TerminalSurfaceController] Erro ao criar sessão:', error);
+      logger.error('[TerminalSurfaceController] Erro ao criar sessão:', error);
     } finally {
       creatingRef.current = false;
     }

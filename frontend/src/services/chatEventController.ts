@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import i18next from 'i18next';
 import { chat } from '../../wailsjs/go/models';
@@ -362,7 +363,7 @@ export function startChatEventController({
         : voiceOrigin,
     }).catch((err) => {
       announce(i18next.t('chat.autoReadError'));
-      console.error('[chat:speak] falha ao processar evento TTS', err);
+      logger.error('[chat:speak] falha ao processar evento TTS', err);
     });
   });
 
@@ -612,7 +613,7 @@ export function startChatEventController({
           && currentSession.messageWindow.totalCount > snapshot.messageWindow.totalCount
           && import.meta.env.DEV
         ) {
-          console.warn('[Chat] snapshot retornou totalCount menor que a janela paginada atual', {
+          logger.warn('[Chat] snapshot retornou totalCount menor que a janela paginada atual', {
             conversationId,
             currentTotalCount: currentSession.messageWindow.totalCount,
             snapshotTotalCount: snapshot.messageWindow.totalCount,
@@ -642,7 +643,7 @@ export function startChatEventController({
           completedSegments: [],
         });
       }).catch((err) => {
-        console.error('[Chat] Erro ao recarregar mensagens:', err);
+        logger.error('[Chat] Erro ao recarregar mensagens:', err);
       });
     }
 
@@ -657,7 +658,7 @@ export function startChatEventController({
     done,
     handleSendFailure: (message: string) => {
       if (cleanupExecuted) return;
-      console.error('[Chat] Error sending message:', message);
+      logger.error('[Chat] Error sending message:', message);
       cleanup();
       ensureAssistantNode();
       updateStreamingMessage(i18next.t('chat.sendErrorPrefix', { message }));

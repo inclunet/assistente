@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import i18next from 'i18next';
 import type { MediaFile } from '../services/mediaService';
@@ -185,7 +186,7 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
     try {
       result = await adapter.prepare();
     } catch (e) {
-      console.error('[workspaceChatModal] prepare() falhou:', e);
+      logger.error('[workspaceChatModal] prepare() falhou:', e);
       useUIStore.getState().addToast(
         i18next.t('workspace.chatModal.prepareFailed'),
         'error',
@@ -204,7 +205,7 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
     try {
       conversationId = await ensureWorkspaceTabConversationId(tab);
     } catch (e) {
-      console.error('[workspaceChatModal] falha ao garantir conversa:', e);
+      logger.error('[workspaceChatModal] falha ao garantir conversa:', e);
       useUIStore.getState().addToast(
         i18next.t('editor.chatModal.newConversationError'),
         'error',

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
@@ -77,13 +78,13 @@ export function WorkspaceChatModal() {
       try {
         targetConversationId = await ensureWorkspaceTabConversationId(tab);
       } catch (e) {
-        console.error('[workspaceChatModal] falha ao garantir conversa no envio:', e);
+        logger.error('[workspaceChatModal] falha ao garantir conversa no envio:', e);
         useUIStore.getState().addToast(t('editor.chatModal.newConversationError'), 'error');
         return;
       }
 
       if (!targetConversationId) {
-        console.error('[workspaceChatModal] conversationId ausente após ensure — envio cancelado');
+        logger.error('[workspaceChatModal] conversationId ausente após ensure — envio cancelado');
         useUIStore.getState().addToast(t('editor.chatModal.newConversationError'), 'error');
         return;
       }

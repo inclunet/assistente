@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PaperClipOutlined, CheckCircleOutlined } from '@ant-design/icons';
@@ -203,7 +204,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       if (latestRemainingSlots <= 0) return;
       setMediaFiles([...latestMediaFiles, ...processed.slice(0, latestRemainingSlots)]);
     } catch (error) {
-      console.error('Erro ao processar arquivos:', error);
+      logger.error('Erro ao processar arquivos:', error);
     } finally {
       setIsProcessing(false);
     }

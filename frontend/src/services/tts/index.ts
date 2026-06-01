@@ -3,6 +3,7 @@
  * Suporta WebSpeech API e OpenAI TTS (SAPI5 foi unificado via backend_audio)
  */
 
+import { logger } from '../../utils/logger';
 import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig } from './types';
 import type { TTSModel } from './types';
 import { ttsFactory } from './factory';
@@ -121,7 +122,7 @@ class TTSService {
     this.currentProvider = ttsFactory.getProviderWithFallback(type);
     
     if (!this.currentProvider) {
-      console.error('[TTSService] No provider available');
+      logger.error('[TTSService] No provider available');
       return;
     }
     
@@ -541,7 +542,7 @@ class TTSService {
     ) => Promise<void>) | undefined;
 
     if (!speakPreview) {
-      console.error('[TTSService] SpeakPreview não disponível no backend');
+      logger.error('[TTSService] SpeakPreview não disponível no backend');
       return;
     }
 
@@ -662,7 +663,7 @@ class TTSService {
         description: m.description || m.name,
       }));
     } catch (error) {
-      console.error(`[TTSService] Erro ao buscar modelos TTS para ${providerId}:`, error);
+      logger.error(`[TTSService] Erro ao buscar modelos TTS para ${providerId}:`, error);
       return [];
     }
   }
@@ -691,7 +692,7 @@ class TTSService {
           description: v.description || v.name
         }));
       } catch (error) {
-        console.error('[TTSService] Erro ao buscar vozes SAPI5:', error);
+        logger.error('[TTSService] Erro ao buscar vozes SAPI5:', error);
         return [];
       }
     }
@@ -712,7 +713,7 @@ class TTSService {
         description: v.description || v.name
       }));
     } catch (error) {
-      console.error(`[TTSService] Erro ao buscar vozes para ${providerId}:`, error);
+      logger.error(`[TTSService] Erro ao buscar vozes para ${providerId}:`, error);
       return [];
     }
   }
@@ -732,7 +733,7 @@ class TTSService {
           const voices = await provider.getVoices();
           allVoices.push(...voices);
         } catch (error) {
-          console.error(`[TTSService] Error getting voices from ${providerType}:`, error);
+          logger.error(`[TTSService] Error getting voices from ${providerType}:`, error);
         }
       }
     }

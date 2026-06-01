@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 /**
  * Audio Feedback Service
  * Gera sons sintéticos usando Web Audio API para feedback de interações
@@ -252,10 +253,10 @@ export function playSound(type: SoundType): void {
         break;
         
       default:
-        console.warn(`Unknown sound type: ${type}`);
+        logger.warn(`Unknown sound type: ${type}`);
     }
   } catch (error) {
-    console.error('Error playing sound:', error);
+    logger.error('Error playing sound:', error);
   }
 }
 

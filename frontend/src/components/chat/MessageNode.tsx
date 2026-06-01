@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChatMessage } from './ChatMessage';
@@ -163,7 +164,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         // onLoadChildren atualiza node.children na store, causando re-render automático
         await onLoadChildren(node.message.id);
       } catch (error) {
-        console.error('[MessageNode] Error loading children:', error);
+        logger.error('[MessageNode] Error loading children:', error);
       } finally {
         setIsLoading(false);
       }

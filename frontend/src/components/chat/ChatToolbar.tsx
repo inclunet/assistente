@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -129,7 +130,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
       announce(t('chat.conversationCleared'));
     } catch (error) {
-      console.error('[ChatToolbar] Erro ao limpar conversa:', error);
+      logger.error('[ChatToolbar] Erro ao limpar conversa:', error);
       announce(t('chat.clearError'));
     }
     focusInput();
@@ -171,7 +172,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         profile_override: { slug },
       });
     } catch (error) {
-      console.error('[ChatToolbar] Erro ao trocar perfil:', error);
+      logger.error('[ChatToolbar] Erro ao trocar perfil:', error);
       addToast(
         t('chat.profileChangeError', 'Não foi possível alterar o perfil. Tente novamente.'),
         'error'
@@ -197,7 +198,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       }
       announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
     } catch (error) {
-      console.error('[ChatToolbar] Erro ao carregar conversa:', error);
+      logger.error('[ChatToolbar] Erro ao carregar conversa:', error);
       announce(t('chat.loadError'));
     }
     focusInput();

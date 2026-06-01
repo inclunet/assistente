@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -102,7 +103,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
       try {
         renameTabContent(tabIdToRename, trimmedTitle);
       } catch (error) {
-        console.error('[WorkspaceTabList] Rename tab content error:', error);
+        logger.error('[WorkspaceTabList] Rename tab content error:', error);
       }
     }
 
@@ -267,7 +268,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
               await moveTabToWorkspace(tabId, ws.id);
               announce(`${tab.title} movida para ${ws.name}`);
             } catch (error) {
-              console.error('[WorkspaceTabList] Move tab error:', error);
+              logger.error('[WorkspaceTabList] Move tab error:', error);
             }
           },
         })),

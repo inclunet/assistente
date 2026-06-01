@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -64,7 +65,7 @@ export default function ContactsPage() {
       }
       setContactRows(rows);
     } catch (error) {
-      console.error('Erro ao carregar contatos:', error);
+      logger.error('Erro ao carregar contatos:', error);
       addToast(t('contacts.error.loadFailed', 'Erro ao carregar contatos'), 'error');
       setContactRows([]);
     } finally {

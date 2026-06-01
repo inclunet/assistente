@@ -10,6 +10,7 @@ import {
 import { MediaFile } from '../services/mediaService';
 import { llm } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';
+import { logger } from '../utils/logger';
 import i18next from 'i18next';
 import { playSendSound } from '../services/audioFeedback';
 import { isChatConversationActive } from '../services/chatArbitration';
@@ -326,7 +327,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const existingIndex = existingNode.originalIndex ?? Number.NEGATIVE_INFINITY;
         const incomingIndex = incomingNode.originalIndex ?? Number.NEGATIVE_INFINITY;
         if (incomingIndex === existingIndex && import.meta.env.DEV) {
-          console.warn('[Chat] conflito de representante persistido para turno', {
+          logger.warn('[Chat] conflito de representante persistido para turno', {
             key,
             existingMessageId: existingNode.message.id,
             incomingMessageId: incomingNode.message.id,
@@ -871,7 +872,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           };
         });
       } catch (error) {
-        console.error('[Chat] Erro ao carregar conversa:', error);
+        logger.error('[Chat] Erro ao carregar conversa:', error);
         set((state) => {
           const emptyWindow = {
             scope: 'conversation' as const,
@@ -1009,7 +1010,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           };
         });
       } catch (error) {
-        console.error('[Chat] Erro ao carregar mensagens anteriores:', error);
+        logger.error('[Chat] Erro ao carregar mensagens anteriores:', error);
         set((current) => {
           const currentSession = getSession(current, conversationId, sessionKey);
           const patches = patchSession(current, conversationId, {
@@ -1114,7 +1115,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           };
         });
       } catch (error) {
-        console.error('[Chat] Erro ao carregar mensagens posteriores:', error);
+        logger.error('[Chat] Erro ao carregar mensagens posteriores:', error);
         set((current) => {
           const currentSession = getSession(current, conversationId, sessionKey);
           return patchSession(current, conversationId, {
@@ -1183,7 +1184,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           };
         });
       } catch (error) {
-        console.error('[Chat] Erro ao carregar limite da conversa:', error);
+        logger.error('[Chat] Erro ao carregar limite da conversa:', error);
         set((current) => {
           const currentSession = getSession(current, conversationId, sessionKey);
           return patchSession(current, conversationId, {
@@ -1221,9 +1222,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (message.turnId) {
         const warning = '[Chat] addInternalMessage recebeu turnId; removendo para evitar colisão com timeline canônica';
         if (import.meta.env.DEV) {
-          console.error(new Error(warning));
+          logger.error(new Error(warning));
         } else {
-          console.warn(warning);
+          logger.warn(warning);
         }
       }
 
@@ -1274,7 +1275,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride, options) => {
       if (!conversationId) {
-        console.error('[Chat] sendMessageToConversation sem conversationId explícito');
+        logger.error('[Chat] sendMessageToConversation sem conversationId explícito');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }
@@ -1296,7 +1297,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     retryMessageToConversation: async (conversationId, messageId, paramsOverride, options) => {
       if (!conversationId || !messageId) {
-        console.error('[Chat] retryMessageToConversation sem conversationId/messageId válido');
+        logger.error('[Chat] retryMessageToConversation sem conversationId/messageId válido');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }
@@ -1318,7 +1319,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     cancelStreaming: async (conversationId, options) => {
       if (!conversationId) {
-        console.error('[Chat] cancelStreaming sem conversationId explícito');
+        logger.error('[Chat] cancelStreaming sem conversationId explícito');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }
@@ -1355,7 +1356,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         announce(i18next.t('chat.announce.streamingCancelled'));
       } catch (error: unknown) {
         const errorMsg = getErrorMessage(error);
-        console.error('[Chat] falha ao cancelar streaming', error);
+        logger.error('[Chat] falha ao cancelar streaming', error);
         announce(i18next.t('chat.errors.cancelStreamingFailed', { message: errorMsg }), 'assertive');
       }
     },
@@ -1406,7 +1407,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     loadMessageChildren: async (messageId) => {
       try {
         if (!messageId) {
-          console.error('[Chat] Invalid message ID:', messageId);
+          logger.error('[Chat] Invalid message ID:', messageId);
           return [];
         }
         const frontendNodes = await loadMessageChildrenNodes(messageId);
@@ -1426,7 +1427,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
         return frontendNodes;
       } catch (error) {
-        console.error('[Chat] Error loading children:', error);
+        logger.error('[Chat] Error loading children:', error);
         return [];
       }
     },
@@ -1517,7 +1518,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           });
         });
       } catch (err) {
-        console.error('[Chat] Erro ao recarregar mensagens:', err);
+        logger.error('[Chat] Erro ao recarregar mensagens:', err);
       }
     },
 

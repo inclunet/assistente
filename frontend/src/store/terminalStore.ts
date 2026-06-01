@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import {
   ListTerminalSessions,
@@ -70,7 +71,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       const sessions = await ListTerminalSessions();
       set({ sessions: sessions || [] });
     } catch (err) {
-      console.error('[Terminal] Erro ao carregar sessões:', err);
+      logger.error('[Terminal] Erro ao carregar sessões:', err);
     } finally {
       set({ isLoadingSessions: false });
     }
@@ -84,7 +85,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       }
       return null;
     } catch (err) {
-      console.error('[Terminal] Erro ao criar sessão:', err);
+      logger.error('[Terminal] Erro ao criar sessão:', err);
       return null;
     }
   },
@@ -93,7 +94,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     try {
       await CloseTerminalSession(id);
     } catch (err) {
-      console.error('[Terminal] Erro ao fechar sessão:', err);
+      logger.error('[Terminal] Erro ao fechar sessão:', err);
     }
   },
 
@@ -104,7 +105,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       playSendSound();
       await SendTerminalInput(sessionId, input);
     } catch (err) {
-      console.error('[Terminal] Erro ao enviar input:', err);
+      logger.error('[Terminal] Erro ao enviar input:', err);
     }
   },
 
@@ -114,7 +115,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     try {
       await InterruptTerminalCommand(sessionId);
     } catch (err) {
-      console.error('[Terminal] Erro ao interromper:', err);
+      logger.error('[Terminal] Erro ao interromper:', err);
     }
   },
 
@@ -139,7 +140,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         };
       });
     } catch (err) {
-      console.error('[Terminal] Erro ao carregar histórico:', err);
+      logger.error('[Terminal] Erro ao carregar histórico:', err);
     } finally {
       set(state => {
         const nextLoading = { ...state.loadingHistoryBySession };

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -80,7 +81,7 @@ export function WorkspaceToolbar() {
       URL.revokeObjectURL(url);
       announce(t('workspace.exported'));
     } catch (error) {
-      console.error('[WorkspaceToolbar] Export error:', error);
+      logger.error('[WorkspaceToolbar] Export error:', error);
     }
   }, [workspace?.name, announce, t]);
 
@@ -97,7 +98,7 @@ export function WorkspaceToolbar() {
       };
       input.click();
     } catch (error) {
-      console.error('[WorkspaceToolbar] Import error:', error);
+      logger.error('[WorkspaceToolbar] Import error:', error);
     }
   }, []);
 
@@ -222,7 +223,7 @@ export function WorkspaceToolbar() {
       await setProfile(slug);
       announce(`${t('workspace.profileChanged')}: ${slug}`);
     } catch (error) {
-      console.error('[WorkspaceToolbar] Erro ao trocar perfil do workspace:', error);
+      logger.error('[WorkspaceToolbar] Erro ao trocar perfil do workspace:', error);
       addToast(
         t('chat.profileChangeError'),
         'error'

@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { logger } from '../utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CompassOutlined, FileOutlined, MessageOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -495,7 +496,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         try {
           await startMergeSessionForTab(tabId, filePath, diskContent, localContent);
         } catch (e: any) {
-          console.error('[EditorPage] startMergeSession error:', e);
+          logger.error('[EditorPage] startMergeSession error:', e);
           addToast(e?.message || 'Erro ao iniciar mesclagem', 'error');
         }
         return;
@@ -639,7 +640,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       // Atualiza baseline após salvar
       void refreshDiskInfoForTab(tab);
     } catch (e: any) {
-      console.warn('[EditorPage] falha ao salvar:', e);
+      logger.warn('[EditorPage] falha ao salvar:', e);
     }
   };
 
@@ -670,7 +671,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       fileModeByPath: fileModeByPathRef.current,
       mergeSessionsByTabId: mergeSessionByTabRef.current as any,
     } as any).catch((e: unknown) => {
-      console.warn('[EditorPage] falha ao salvar estado:', e);
+      logger.warn('[EditorPage] falha ao salvar estado:', e);
     });
   };
 
@@ -1277,7 +1278,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
     const requestedDocumentId = String(r.targetDocumentId || '').trim();
     if (r.target === 'document' && !requestedDocumentId) {
-      console.error('[EditorPage] applyInsertRequest rejected: document target requires targetDocumentId');
+      logger.error('[EditorPage] applyInsertRequest rejected: document target requires targetDocumentId');
       return false;
     }
     const currentEditorState = useEditorStore.getState();
@@ -1783,19 +1784,19 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
             await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
           } catch (e: unknown) {
-            console.error('[EditorPage] inline chat error:', e);
+            logger.error('[EditorPage] inline chat error:', e);
             useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
             setIsAsking(false);
           }
         },
         onSendError: (e: unknown) => {
-          console.error('[EditorPage] inline chat error:', e);
+          logger.error('[EditorPage] inline chat error:', e);
           useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
           setIsAsking(false);
         },
       };
     } catch (e: unknown) {
-      console.error('[EditorPage] inline chat error:', e);
+      logger.error('[EditorPage] inline chat error:', e);
       useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
       setIsAsking(false);
       return null;
@@ -1949,7 +1950,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       addToast('Arquivo aberto', 'success');
       focusEditorSoon();
     } catch (e: unknown) {
-      console.error('[EditorPage] openFile error:', e);
+      logger.error('[EditorPage] openFile error:', e);
       addToast(getErrorMessage(e) || 'Erro ao abrir arquivo', 'error');
     }
   };
@@ -2074,7 +2075,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       addToast('Arquivo salvo', 'success');
       focusEditorSoon();
     } catch (e: unknown) {
-      console.error('[EditorPage] saveFile error:', e);
+      logger.error('[EditorPage] saveFile error:', e);
       addToast(getErrorMessage(e) || 'Erro ao salvar', 'error');
     }
   };
@@ -2093,7 +2094,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       addToast('Cópia salva', 'success');
       focusEditorSoon();
     } catch (e: unknown) {
-      console.error('[EditorPage] saveAs error:', e);
+      logger.error('[EditorPage] saveAs error:', e);
       addToast(getErrorMessage(e) || 'Erro ao salvar como', 'error');
     }
   };

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useEffect, useLayoutEffect, useRef, useMemo, forwardRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MessageOutlined } from '@ant-design/icons';
@@ -274,7 +275,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     }
 
     if (duplicates.size === 0) return;
-    console.warn('[MessageList] duplicate timeline keys detected in display messages', Array.from(duplicates));
+    logger.warn('[MessageList] duplicate timeline keys detected in display messages', Array.from(duplicates));
   }, [displayMessages, threadedMessages]);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
