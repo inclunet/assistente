@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockGetConversations = vi.fn();
@@ -62,7 +62,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   DeleteConversation: (id: string) => mockDeleteConversation(id),
   UpdateConversation: (id: string, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
   ExportConversations: (ids: string[]) => mockExportConversations(ids),
-  ExportConversationsToFile: (ids: string[], format: string) => mockExportConversationsToFile(ids, format),
+  ExportConversationsToFile: (ids: string[], format: string, options: unknown) => mockExportConversationsToFile(ids, format, options),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
 }));
 
@@ -302,6 +302,33 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       expect(mockExportConversations).toHaveBeenCalledWith(['01926b90-7a5a-7c4e-8d3f-000000000001']);
     });
     expect(mockDownloadJSON).toHaveBeenCalledWith('{}', 'conversas_test.json');
+  });
+
+  it('exporta Markdown com toggles via modal de opcoes', async () => {
+    const user = userEvent.setup();
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'select-one' }));
+    await user.click(await screen.findByRole('button', { name: 'Exportar Markdown' }));
+
+    const dialog = await screen.findByRole('dialog');
+    // Desmarca o toggle de reasoning antes de confirmar.
+    await user.click(within(dialog).getByLabelText('Incluir raciocínio (reasoning)'));
+    await user.click(within(dialog).getByRole('button', { name: 'Exportar' }));
+
+    await waitFor(() => {
+      expect(mockExportConversationsToFile).toHaveBeenCalledWith(
+        ['01926b90-7a5a-7c4e-8d3f-000000000001'],
+        'md',
+        expect.objectContaining({
+          includeTimestamps: true,
+          includeReasoning: false,
+          includeMetadata: true,
+        }),
+      );
+    });
   });
 
   it('nao exporta conversa focada que ja foi removida da lista', async () => {

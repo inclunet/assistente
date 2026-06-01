@@ -178,7 +178,7 @@ export function EnsureConversation(arg1:string):Promise<database.Conversation>;
 
 export function ExportConversations(arg1:Array<string>):Promise<string>;
 
-export function ExportConversationsToFile(arg1:Array<string>,arg2:string):Promise<string>;
+export function ExportConversationsToFile(arg1:Array<string>,arg2:string,arg3:portability.ContentExportOptions):Promise<string>;
 
 export function ExportData(arg1:portability.ExportRequest):Promise<string>;
 

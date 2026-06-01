@@ -17,18 +17,60 @@ import (
 	"time"
 
 	"codeberg.org/go-pdf/fpdf"
+	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	htmlrenderer "github.com/yuin/goldmark/renderer/html"
+	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"golang.org/x/net/html"
 )
 
+// highlightStyle é o tema Chroma usado para o syntax highlighting do HTML
+// exportado. É um estilo claro coerente com o color-scheme do documento e que
+// gera apenas cores hexadecimais (sem rgba), mantendo o artefato autocontido.
+const highlightStyle = "github"
+
+// markdownRenderer converte markdown puro para HTML sem syntax highlighting.
+// É reutilizado pela extração de texto do PDF, onde o highlighting só geraria
+// ruído.
 var markdownRenderer = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
 	goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 	goldmark.WithRendererOptions(htmlrenderer.WithHardWraps()),
 )
+
+// markdownHTMLRenderer adiciona syntax highlighting via Chroma (classes CSS) aos
+// blocos de código, para a exportação HTML rica.
+var markdownHTMLRenderer = goldmark.New(
+	goldmark.WithExtensions(
+		extension.GFM,
+		highlighting.NewHighlighting(
+			highlighting.WithStyle(highlightStyle),
+			highlighting.WithFormatOptions(
+				chromahtml.WithClasses(true),
+			),
+		),
+	),
+	goldmark.WithParserOptions(parser.WithAutoHeadingID()),
+	goldmark.WithRendererOptions(htmlrenderer.WithHardWraps()),
+)
+
+// chromaHighlightCSS gera a folha de estilo das classes Chroma usadas pelos
+// blocos de código destacados no HTML exportado.
+func chromaHighlightCSS() string {
+	style := styles.Get(highlightStyle)
+	if style == nil {
+		style = styles.Fallback
+	}
+	formatter := chromahtml.New(chromahtml.WithClasses(true))
+	var buf bytes.Buffer
+	if err := formatter.WriteCSS(&buf, style); err != nil {
+		return ""
+	}
+	return buf.String()
+}
 
 type mediaAttachment struct {
 	Name string
@@ -48,6 +90,12 @@ func RenderConversationExport(file *ExportFile, format string) ([]byte, error) {
 		return []byte(html), nil
 	case FormatPDF:
 		return RenderConversationsPDF(file)
+	case FormatMarkdown:
+		md, err := RenderConversationsMarkdown(file)
+		if err != nil {
+			return nil, err
+		}
+		return []byte(md), nil
 	default:
 		return nil, fmt.Errorf("formato de exportação não suportado: %s", format)
 	}
@@ -126,13 +174,16 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
     .message__media-card img, .message__media-card video, .message__media-card audio { width: 100%; max-width: 100%; border-radius: var(--export-radius-summary); }
     .message__media-card pre { margin: 8px 0 0; white-space: pre-wrap; max-height: 240px; overflow: auto; }
     .message__media-card a { color: var(--export-accent); }
+    .message__content pre.chroma, .message__reasoning pre.chroma, .conversation__summary pre.chroma { padding: 12px; border-radius: var(--export-radius-summary); overflow-x: auto; }
+    .message__content pre.chroma code, .message__reasoning pre.chroma code, .conversation__summary pre.chroma code { background: transparent; border: 0; padding: 0; }
+{{ chromaCSS }}
   </style>
 </head>
 <body>
   <div class="page">
     <section class="hero">
       <h1>Exportação de conversas</h1>
-      <p>Gerado em {{ formatTime .ExportedAt }}</p>
+      {{ if .Options.IncludeTimestamps }}<p>Gerado em {{ formatTime .ExportedAt }}</p>{{ end }}
       <p>{{ len .Resources.Conversations }} conversa(s) exportada(s)</p>
       <p>Formato canônico: JSON version {{ .Version }}</p>
     </section>
@@ -141,7 +192,7 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
         <header class="conversation__header">
           <h2 class="conversation__title">{{ conversationTitle .Title }}</h2>
           <div class="conversation__meta">
-            <span>Criada em {{ formatTime .CreatedAt }}</span>
+            {{ if $.Options.IncludeTimestamps }}<span>Criada em {{ formatTime .CreatedAt }}</span>{{ end }}
             {{ if .Channel }}<span>Canal: {{ .Channel }}</span>{{ end }}
             {{ if .ContactID }}<span>Contato: {{ .ContactID }}</span>{{ end }}
             <span>{{ len .Messages }} mensagem(ns)</span>
@@ -155,17 +206,19 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
             <section class="message {{ messageClass .Role }}">
               <div class="message__meta">
                 <span class="message__role">{{ roleLabel .Role }}</span>
-                <span>{{ formatTime .CreatedAt }}</span>
-                {{ if .Model }}<span>Modelo: {{ .Model }}</span>{{ end }}
-                {{ if .Source }}<span>Origem: {{ .Source }}</span>{{ end }}
-                {{ if .PromptTokens }}<span>Prompt: {{ .PromptTokens }}</span>{{ end }}
-                {{ if .CompletionTokens }}<span>Resposta: {{ .CompletionTokens }}</span>{{ end }}
+                {{ if $.Options.IncludeTimestamps }}<span>{{ formatTime .CreatedAt }}</span>{{ end }}
+                {{ if $.Options.IncludeMetadata }}
+                  {{ if .Model }}<span>Modelo: {{ .Model }}</span>{{ end }}
+                  {{ if .Source }}<span>Origem: {{ .Source }}</span>{{ end }}
+                  {{ if .PromptTokens }}<span>Prompt: {{ .PromptTokens }}</span>{{ end }}
+                  {{ if .CompletionTokens }}<span>Resposta: {{ .CompletionTokens }}</span>{{ end }}
+                {{ end }}
               </div>
               <div class="message__content">{{ renderMarkdown .Content }}</div>
-              {{ if .Reasoning }}
+              {{ if and $.Options.IncludeReasoning .Reasoning }}
                 <div class="message__reasoning">{{ renderMarkdown .Reasoning }}</div>
               {{ end }}
-              {{ if or .Media .AudioMimeType .ToolCalls .ToolCallID }}
+              {{ if and $.Options.IncludeMetadata (or .Media .AudioMimeType .ToolCallID) }}
                 <div class="message__flags">
                   {{ if .Media }}<span class="message__flag">mídia anexada</span>{{ end }}
                   {{ if .AudioMimeType }}<span class="message__flag">áudio: {{ .AudioMimeType }}</span>{{ end }}
@@ -196,6 +249,7 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
 		"renderPreformatted": renderPreformattedTemplate,
 		"renderMessageMedia": renderMessageMediaTemplate,
 		"hasRichMedia":       hasRichMedia,
+		"chromaCSS":          func() template.CSS { return template.CSS(chromaHighlightCSS()) },
 	}).Parse(page)
 	if err != nil {
 		return "", err
@@ -217,9 +271,13 @@ func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
 
 	useUTF8 := configurePDFFont(pdf)
 
+	opts := file.Options
+
 	pdf.AddPage()
 	writePDFTitle(pdf, useUTF8, "Exportação de conversas")
-	writePDFMeta(pdf, useUTF8, fmt.Sprintf("Gerado em %s", formatConversationTime(file.ExportedAt)))
+	if opts.IncludeTimestamps {
+		writePDFMeta(pdf, useUTF8, fmt.Sprintf("Gerado em %s", formatConversationTime(file.ExportedAt)))
+	}
 	writePDFMeta(pdf, useUTF8, fmt.Sprintf("%d conversa(s)", len(file.Resources.Conversations)))
 	pdf.Ln(4)
 
@@ -229,7 +287,9 @@ func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
 		}
 
 		writePDFSectionTitle(pdf, useUTF8, conversationTitle(conv.Title))
-		writePDFMeta(pdf, useUTF8, fmt.Sprintf("Criada em %s", formatConversationTime(conv.CreatedAt)))
+		if opts.IncludeTimestamps {
+			writePDFMeta(pdf, useUTF8, fmt.Sprintf("Criada em %s", formatConversationTime(conv.CreatedAt)))
+		}
 		if conv.Channel != "" {
 			writePDFMeta(pdf, useUTF8, fmt.Sprintf("Canal: %s", conv.Channel))
 		}
@@ -245,15 +305,24 @@ func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
 
 		for _, msg := range conv.Messages {
 			header := roleLabel(msg.Role)
-			metaParts := []string{formatConversationTime(msg.CreatedAt)}
-			if msg.Model != "" {
-				metaParts = append(metaParts, "modelo: "+msg.Model)
+			metaParts := make([]string, 0, 3)
+			if opts.IncludeTimestamps {
+				metaParts = append(metaParts, formatConversationTime(msg.CreatedAt))
 			}
-			if msg.Source != "" {
-				metaParts = append(metaParts, "origem: "+msg.Source)
+			if opts.IncludeMetadata {
+				if msg.Model != "" {
+					metaParts = append(metaParts, "modelo: "+msg.Model)
+				}
+				if msg.Source != "" {
+					metaParts = append(metaParts, "origem: "+msg.Source)
+				}
 			}
-			writePDFBlock(pdf, useUTF8, header+" - "+strings.Join(metaParts, " | "), markdownToPDFText(msg.Content))
-			if strings.TrimSpace(msg.Reasoning) != "" {
+			blockTitle := header
+			if len(metaParts) > 0 {
+				blockTitle = header + " - " + strings.Join(metaParts, " | ")
+			}
+			writePDFBlock(pdf, useUTF8, blockTitle, markdownToPDFText(msg.Content))
+			if opts.IncludeReasoning && strings.TrimSpace(msg.Reasoning) != "" {
 				writePDFIndentedBlock(pdf, useUTF8, "Reasoning", markdownToPDFText(msg.Reasoning))
 			}
 			if strings.TrimSpace(msg.ToolCalls) != "" {
@@ -262,7 +331,7 @@ func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
 			if err := writePDFMediaAttachments(pdf, useUTF8, msg); err != nil {
 				writePDFMeta(pdf, useUTF8, "Falha ao renderizar uma ou mais mídias anexadas: "+err.Error())
 			}
-			if msg.AudioMimeType != "" || msg.ToolCallID != "" {
+			if opts.IncludeMetadata && (msg.AudioMimeType != "" || msg.ToolCallID != "") {
 				flags := make([]string, 0, 3)
 				if msg.AudioMimeType != "" {
 					flags = append(flags, "audio: "+msg.AudioMimeType)
@@ -281,6 +350,112 @@ func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// RenderConversationsMarkdown gera um documento Markdown (.md) a partir do
+// modelo canônico de conversas, respeitando os toggles de conteúdo em
+// file.Options (timestamps, reasoning e metadados).
+func RenderConversationsMarkdown(file *ExportFile) (string, error) {
+	opts := file.Options
+	var sb strings.Builder
+
+	sb.WriteString("# Exportação de conversas\n\n")
+	if opts.IncludeTimestamps {
+		fmt.Fprintf(&sb, "Gerado em %s\n\n", formatConversationTime(file.ExportedAt))
+	}
+	fmt.Fprintf(&sb, "%d conversa(s) exportada(s)\n", len(file.Resources.Conversations))
+
+	for _, conv := range file.Resources.Conversations {
+		sb.WriteString("\n---\n\n")
+		sb.WriteString("## " + collapseToInline(conversationTitle(conv.Title)) + "\n\n")
+
+		meta := make([]string, 0, 4)
+		if opts.IncludeTimestamps {
+			meta = append(meta, "Criada em "+formatConversationTime(conv.CreatedAt))
+		}
+		if strings.TrimSpace(conv.Channel) != "" {
+			meta = append(meta, "Canal: "+collapseToInline(conv.Channel))
+		}
+		if strings.TrimSpace(conv.ContactID) != "" {
+			meta = append(meta, "Contato: "+collapseToInline(conv.ContactID))
+		}
+		meta = append(meta, fmt.Sprintf("%d mensagem(ns)", len(conv.Messages)))
+		for _, line := range meta {
+			sb.WriteString("- " + line + "\n")
+		}
+		sb.WriteString("\n")
+
+		if strings.TrimSpace(conv.Summary) != "" {
+			sb.WriteString("> **Resumo:** " + collapseToInline(conv.Summary) + "\n\n")
+		}
+
+		for _, msg := range conv.Messages {
+			sb.WriteString("### " + roleLabel(msg.Role) + "\n\n")
+
+			info := make([]string, 0, 4)
+			if opts.IncludeTimestamps {
+				info = append(info, formatConversationTime(msg.CreatedAt))
+			}
+			if opts.IncludeMetadata {
+				if strings.TrimSpace(msg.Model) != "" {
+					info = append(info, "modelo: "+msg.Model)
+				}
+				if strings.TrimSpace(msg.Source) != "" {
+					info = append(info, "origem: "+msg.Source)
+				}
+				if msg.PromptTokens > 0 {
+					info = append(info, fmt.Sprintf("prompt: %d", msg.PromptTokens))
+				}
+				if msg.CompletionTokens > 0 {
+					info = append(info, fmt.Sprintf("resposta: %d", msg.CompletionTokens))
+				}
+			}
+			if len(info) > 0 {
+				sb.WriteString("*" + strings.Join(info, " · ") + "*\n\n")
+			}
+
+			if content := strings.TrimRight(msg.Content, "\n"); strings.TrimSpace(content) != "" {
+				sb.WriteString(content + "\n\n")
+			}
+
+			if opts.IncludeReasoning && strings.TrimSpace(msg.Reasoning) != "" {
+				sb.WriteString("**Reasoning:**\n\n")
+				sb.WriteString(strings.TrimRight(msg.Reasoning, "\n") + "\n\n")
+			}
+
+			if strings.TrimSpace(msg.ToolCalls) != "" {
+				sb.WriteString("**Tool calls:**\n\n")
+				sb.WriteString("```json\n")
+				sb.WriteString(strings.TrimRight(msg.ToolCalls, "\n") + "\n")
+				sb.WriteString("```\n\n")
+			}
+
+			if opts.IncludeMetadata {
+				flags := make([]string, 0, 3)
+				if strings.TrimSpace(msg.Media) != "" {
+					flags = append(flags, "mídia anexada")
+				}
+				if strings.TrimSpace(msg.AudioMimeType) != "" {
+					flags = append(flags, "áudio: "+msg.AudioMimeType)
+				}
+				if strings.TrimSpace(msg.ToolCallID) != "" {
+					flags = append(flags, "toolCallId: "+msg.ToolCallID)
+				}
+				if len(flags) > 0 {
+					sb.WriteString("> " + strings.Join(flags, " · ") + "\n\n")
+				}
+			}
+		}
+	}
+
+	return strings.TrimRight(sb.String(), "\n") + "\n", nil
+}
+
+// collapseToInline transforma um texto multilinha em uma única linha, útil para
+// resumos exibidos como blockquote no Markdown.
+func collapseToInline(text string) string {
+	fields := strings.Fields(text)
+	return strings.Join(fields, " ")
 }
 
 func configurePDFFont(pdf *fpdf.Fpdf) bool {
@@ -441,7 +616,7 @@ func formatConversationTime(t time.Time) string {
 }
 
 func renderMarkdownTemplate(content string) template.HTML {
-	return template.HTML(sanitizeRenderedHTML(markdownToHTML(content)))
+	return template.HTML(sanitizeRenderedHTML(markdownToHTMLHighlighted(content)))
 }
 
 func renderPreformattedTemplate(content string) template.HTML {
@@ -697,6 +872,17 @@ func markdownToHTML(content string) string {
 	return buf.String()
 }
 
+func markdownToHTMLHighlighted(content string) string {
+	if strings.TrimSpace(content) == "" {
+		return ""
+	}
+	var buf bytes.Buffer
+	if err := markdownHTMLRenderer.Convert([]byte(content), &buf); err != nil {
+		return markdownToHTML(content)
+	}
+	return buf.String()
+}
+
 func sanitizeRenderedHTML(fragment string) string {
 	if strings.TrimSpace(fragment) == "" {
 		return ""
@@ -781,11 +967,33 @@ func renderSanitizedHTMLNode(n *html.Node, sb *strings.Builder) {
 	}
 }
 
+// isHighlightClassTag indica se a tag é uma das emitidas pelo syntax
+// highlighting do Chroma, nas quais o atributo class deve ser preservado.
+func isHighlightClassTag(tag string) bool {
+	switch tag {
+	case "pre", "code", "span", "div":
+		return true
+	default:
+		return false
+	}
+}
+
 func sanitizeHTMLAttrs(n *html.Node) []html.Attribute {
 	attrs := make([]html.Attribute, 0, len(n.Attr))
 	for _, attr := range n.Attr {
 		key := strings.ToLower(strings.TrimSpace(attr.Key))
 		if strings.HasPrefix(key, "on") {
+			continue
+		}
+
+		// class só é preservado nas tags emitidas pelo syntax highlighting
+		// do Chroma (pre/code/span/div). Para as demais tags permitidas o
+		// atributo é descartado, evitando que conteúdo do usuário aplique
+		// classes que colidam com o CSS do documento exportado.
+		if key == "class" {
+			if isHighlightClassTag(n.Data) {
+				attrs = append(attrs, html.Attribute{Key: key, Val: attr.Val})
+			}
 			continue
 		}
 
@@ -834,7 +1042,7 @@ func isAllowedHTMLTag(tag string) bool {
 	switch tag {
 	case "p", "br", "hr", "strong", "em", "code", "pre", "blockquote",
 		"ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td",
-		"a", "img", "h1", "h2", "h3", "h4", "h5", "h6":
+		"a", "img", "h1", "h2", "h3", "h4", "h5", "h6", "span", "div", "del":
 		return true
 	default:
 		return false
