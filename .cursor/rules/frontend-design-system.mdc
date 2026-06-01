@@ -124,7 +124,7 @@ A acessibilidade é um requisito fundamental, não opcional. Toda mudança no fr
 - Usar `role="region"` + `aria-label` em painéis de edição
 - Usar `announce()` de `useAnnouncer` para ações (salvar, excluir, abrir editor)
 - Listas e grids DEVEM usar `DataGrid` (já tem `role="grid"` e navegação por teclado)
-- Modais DEVEM usar `Modal` ou `ConfirmDialog` (já têm focus trap e ESC)
+- Modais DEVEM usar `Modal` (já tem focus trap e ESC); para confirmações, usar `ConfirmDialog`, que é um wrapper específico sobre o `Modal`
 - Classe `.sr-only` para textos visíveis apenas para leitores de tela
 
 ### Navegação por teclado
