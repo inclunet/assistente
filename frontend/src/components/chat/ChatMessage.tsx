@@ -133,6 +133,32 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       ]
     : rawTurnSegments;
 
+  // Issue #160: para turnos agênticos (texto → tools → … → texto final) o
+  // leitor de tela deve anunciar APENAS a CONCLUSÃO do turno — o último
+  // `TurnSegment` de texto não-vazio — e não trechos intermediários nem a
+  // concatenação carregada em `effectiveContent`. A cadeia completa continua
+  // acessível via browse mode (segmentos em `role="log"`). Durante o streaming
+  // este valor reflete sempre o último segmento textual disponível no momento,
+  // substituindo (não concatenando) o anúncio anterior. Fallback para o
+  // `placeholderContent` quando não há texto (ex.: turno tool-only).
+  const conclusionContent = useMemo(() => {
+    // Durante o streaming agêntico, o trecho mais recente costuma ainda estar em
+    // `effectiveContent` (texto da iteração em curso) e só vira um `TurnSegment`
+    // concluído depois. Para o anúncio ser de fato substitutivo (refletir o
+    // último texto disponível, não o segmento anterior já fechado), o conteúdo
+    // ao vivo tem prioridade enquanto há streaming.
+    if (effectiveIsStreaming && effectiveContent && effectiveContent.trim()) {
+      return effectiveContent;
+    }
+    for (let i = displaySegments.length - 1; i >= 0; i -= 1) {
+      const seg = displaySegments[i];
+      if (seg.type === 'text' && seg.content && seg.content.trim()) {
+        return seg.content;
+      }
+    }
+    return placeholderContent || '';
+  }, [effectiveIsStreaming, effectiveContent, displaySegments, placeholderContent]);
+
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : effectiveContent;
 
@@ -202,13 +228,20 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     const relativeTime = formatRelativeTime(timestamp);
     const timePrefix = role === 'user' ? t('chat.sent') : t('chat.received');
 
+    // Issue #160: em turnos agênticos o anúncio usa só a conclusão do turno; nos
+    // demais (mensagem simples) mantém-se o conteúdo principal `displayContent`.
+    // `text_edit` continua suprimindo o corpo textual (displayContent === '').
+    const ariaContent = hasAgenticSegments && !toolCallsHasTextEdit
+      ? conclusionContent
+      : displayContent;
+
     if (!canRenderHeavyContent) {
       return buildChatMessageAriaLabel({
         roleLabel,
         role,
-        displayContent: displayContent.length > HEAVY_ARIA_CONTENT_PREVIEW_LENGTH
-          ? `${displayContent.slice(0, HEAVY_ARIA_CONTENT_PREVIEW_LENGTH)}... ${t('chat.largeMessageDeferred')}`
-          : displayContent,
+        displayContent: ariaContent.length > HEAVY_ARIA_CONTENT_PREVIEW_LENGTH
+          ? `${ariaContent.slice(0, HEAVY_ARIA_CONTENT_PREVIEW_LENGTH)}... ${t('chat.largeMessageDeferred')}`
+          : ariaContent,
         isStreaming: effectiveIsStreaming,
         timePrefix,
         relativeTime,
@@ -223,7 +256,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     return buildChatMessageAriaLabel({
       roleLabel,
       role,
-      displayContent,
+      displayContent: ariaContent,
       isStreaming: effectiveIsStreaming,
       timePrefix,
       relativeTime,
