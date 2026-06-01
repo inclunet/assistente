@@ -88,8 +88,18 @@ Apenas os métodos de **geração** são contabilizados: `StreamChat`, `SendChat
 
 O `RateLimiter` aceita um callback opcional (`SetNearLimitHandler`) disparado
 quando, após permitir uma chamada, os tokens restantes caem abaixo de um limiar
-(default 20% da rajada). Na wiring atual o alerta é **logado**. A propagação do
+(default 20% da rajada). O alerta é **edge-triggered por chave (usuário)**:
+dispara apenas na transição acima→abaixo do limiar e é rearmado quando a chave
+volta acima, evitando spam de log/telemetria sob uso sustentado. O estado por
+chave é guardado em um mapa protegido pelo mesmo mutex do limitador; o callback
+é invocado fora do lock. Na wiring atual o alerta é **logado**. A propagação do
 alerta para a UI (evento dedicado) fica como follow-up.
+
+> Implementação: `allowAt` usa **uma única** `ReserveN(now, 1)` para decidir e,
+> quando barrado, derivar o `RetryAfter` (cancelando a reserva só quando há
+> atraso > 0). Isso evita o estado inconsistente que surgiria ao combinar
+> `AllowN` + `ReserveN` sob concorrência e preserva o contrato "permitido
+> consome 1 token; bloqueado não consome".
 
 ## Fases
 

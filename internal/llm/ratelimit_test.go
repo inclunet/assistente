@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,32 @@ func TestRateLimiter_OverLimitBlocked(t *testing.T) {
 	}
 	if rl.RetryAfter <= 0 {
 		t.Errorf("RetryAfter deveria ser > 0, got: %v", rl.RetryAfter)
+	}
+}
+
+// TestRateLimiter_BlockedDoesNotConsumeToken: uma chamada barrada NÃO consome
+// cota futura (a reserva é cancelada). Após o reabastecimento de exatamente 1
+// token, exatamente 1 chamada passa. Valida o refator de allowAt (ReserveN
+// único + Cancel apenas quando há atraso).
+func TestRateLimiter_BlockedDoesNotConsumeToken(t *testing.T) {
+	l := newTestLimiter(60, 1) // 1 token/s, burst 1
+	now := time.Now()
+	if err := l.allowAt("u", now); err != nil {
+		t.Fatalf("primeira chamada deveria passar, got: %v", err)
+	}
+	// Várias tentativas barradas não devem "endividar" o bucket.
+	for i := 0; i < 5; i++ {
+		if err := l.allowAt("u", now); err == nil {
+			t.Fatalf("tentativa barrada %d deveria falhar", i+1)
+		}
+	}
+	// Após 1s, exatamente 1 token disponível → 1 chamada passa, a próxima barra.
+	later := now.Add(1 * time.Second)
+	if err := l.allowAt("u", later); err != nil {
+		t.Fatalf("após reabastecimento deveria passar (barrado não consumiu cota futura), got: %v", err)
+	}
+	if err := l.allowAt("u", later); err == nil {
+		t.Fatal("segunda chamada imediata após 1 token deveria barrar")
 	}
 }
 
@@ -114,9 +141,10 @@ func TestRateLimiter_EmptyKeyUsesGlobal(t *testing.T) {
 	}
 }
 
-// TestRateLimiter_NearLimitAlert: o callback de proximidade dispara quando os
-// tokens restantes caem abaixo do limiar.
-func TestRateLimiter_NearLimitAlert(t *testing.T) {
+// TestRateLimiter_NearLimitAlert_EdgeTriggered: o callback dispara UMA vez ao
+// cruzar o limiar (acima→abaixo) e NÃO realerta enquanto a chave continua
+// abaixo do limiar.
+func TestRateLimiter_NearLimitAlert_EdgeTriggered(t *testing.T) {
 	l := NewRateLimiter(RateLimitConfig{
 		Enabled:            true,
 		RequestsPerMinute:  60,
@@ -131,17 +159,76 @@ func TestRateLimiter_NearLimitAlert(t *testing.T) {
 	})
 
 	now := time.Now()
-	// 7 chamadas: tokens restantes 9,8,...,3 — só a última cruza o limiar (<=3).
+	// 7 chamadas: tokens restantes 9,8,...,3 — só a 7ª cruza o limiar (<=3).
 	for i := 0; i < 7; i++ {
 		if err := l.allowAt("user-1", now); err != nil {
 			t.Fatalf("chamada %d deveria passar, got: %v", i+1, err)
 		}
 	}
-	if alertCount == 0 {
-		t.Fatal("alerta de proximidade deveria ter disparado")
+	if alertCount != 1 {
+		t.Fatalf("esperava 1 alerta ao cruzar o limiar, got %d", alertCount)
 	}
 	if alertedKey != "user-1" {
 		t.Errorf("chave do alerta = %q, want user-1", alertedKey)
+	}
+
+	// Mais chamadas permitidas, mas ainda abaixo do limiar (tokens 2,1,0):
+	// NÃO devem realertar.
+	for i := 0; i < 3; i++ {
+		if err := l.allowAt("user-1", now); err != nil {
+			t.Fatalf("chamada extra %d deveria passar dentro da rajada, got: %v", i+1, err)
+		}
+	}
+	if alertCount != 1 {
+		t.Fatalf("não deveria realertar enquanto continua abaixo do limiar, got %d", alertCount)
+	}
+}
+
+// TestRateLimiter_NearLimitAlert_ResetsAboveThreshold: após a chave voltar
+// acima do limiar (reabastecimento), um novo cruzamento dispara o alerta de
+// novo.
+func TestRateLimiter_NearLimitAlert_ResetsAboveThreshold(t *testing.T) {
+	l := NewRateLimiter(RateLimitConfig{
+		Enabled:            true,
+		RequestsPerMinute:  60, // 1 token/segundo de reabastecimento
+		Burst:              10,
+		NearLimitThreshold: 0.3, // <= 3 tokens
+	})
+	var alertCount int
+	l.SetNearLimitHandler(func(string, float64) { alertCount++ })
+
+	now := time.Now()
+	// Cruza o limiar pela primeira vez (7ª chamada → restam 3).
+	for i := 0; i < 7; i++ {
+		if err := l.allowAt("user-1", now); err != nil {
+			t.Fatalf("chamada %d deveria passar, got: %v", i+1, err)
+		}
+	}
+	if alertCount != 1 {
+		t.Fatalf("esperava 1 alerta inicial, got %d", alertCount)
+	}
+
+	// Reabastece acima do limiar: +7s → bucket volta cheio (cap 10).
+	// last era `now` com 3 tokens; após 7s: min(10, 3+7) = 10 tokens.
+	later := now.Add(7 * time.Second)
+	// Uma chamada permitida acima do limiar reseta o estado de alerta sem
+	// disparar o callback (restam ~9 > 3).
+	if err := l.allowAt("user-1", later); err != nil {
+		t.Fatalf("chamada após reabastecimento deveria passar, got: %v", err)
+	}
+	if alertCount != 1 {
+		t.Fatalf("chamada acima do limiar não deveria realertar, got %d", alertCount)
+	}
+
+	// Drena exatamente até cruzar o limiar de novo (tokens 9→8→7→6→5→4→3),
+	// sem gerar chamadas barradas. O cruzamento ocorre na 6ª chamada → 2º alerta.
+	for i := 0; i < 6; i++ {
+		if err := l.allowAt("user-1", later); err != nil {
+			t.Fatalf("drain %d deveria passar dentro da rajada, got: %v", i+1, err)
+		}
+	}
+	if alertCount != 2 {
+		t.Fatalf("esperava 2 alertas após novo cruzamento, got %d", alertCount)
 	}
 }
 
@@ -151,12 +238,31 @@ func TestNewRateLimiter_DisabledReturnsNil(t *testing.T) {
 	}
 }
 
+// unsetRateLimitEnv remove as env vars de rate limit e restaura o valor
+// anterior ao fim do teste. Necessário porque t.Setenv não consegue
+// representar "ausente" (sempre define a variável).
+func unsetRateLimitEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{envRateLimitEnabled, envRateLimitRPM, envRateLimitBurst} {
+		prev, had := os.LookupEnv(k)
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatalf("não foi possível limpar %s: %v", k, err)
+		}
+		if had {
+			t.Cleanup(func() { _ = os.Setenv(k, prev) })
+		} else {
+			t.Cleanup(func() { _ = os.Unsetenv(k) })
+		}
+	}
+}
+
+// TestRateLimitConfigFromEnv_Defaults exercita a função real
+// RateLimitConfigFromEnv() com as env vars AUSENTES e valida que ela retorna
+// os defaults — pegando regressões na leitura/validação de env.
 func TestRateLimitConfigFromEnv_Defaults(t *testing.T) {
-	t.Setenv(envRateLimitEnabled, "")
-	// Remove para garantir defaults — Setenv com "" ainda define a var; usamos
-	// Unsetenv via os: t.Setenv não tem unset, então validamos os defaults
-	// diretamente em DefaultRateLimitConfig.
-	cfg := DefaultRateLimitConfig()
+	unsetRateLimitEnv(t)
+
+	cfg := RateLimitConfigFromEnv()
 	if !cfg.Enabled {
 		t.Error("default deveria estar habilitado")
 	}
@@ -165,6 +271,9 @@ func TestRateLimitConfigFromEnv_Defaults(t *testing.T) {
 	}
 	if cfg.Burst != DefaultRateLimitBurst {
 		t.Errorf("burst default = %d, want %d", cfg.Burst, DefaultRateLimitBurst)
+	}
+	if cfg.NearLimitThreshold != DefaultNearLimitThreshold {
+		t.Errorf("near-limit threshold default = %v, want %v", cfg.NearLimitThreshold, DefaultNearLimitThreshold)
 	}
 }
 
@@ -186,8 +295,10 @@ func TestRateLimitConfigFromEnv_Overrides(t *testing.T) {
 }
 
 func TestRateLimitConfigFromEnv_InvalidKeepsDefault(t *testing.T) {
+	unsetRateLimitEnv(t)
 	t.Setenv(envRateLimitRPM, "not-a-number")
 	t.Setenv(envRateLimitBurst, "-5")
+	t.Setenv(envRateLimitEnabled, "maybe")
 
 	cfg := RateLimitConfigFromEnv()
 	if cfg.RequestsPerMinute != DefaultRateLimitRPM {
@@ -195,6 +306,10 @@ func TestRateLimitConfigFromEnv_InvalidKeepsDefault(t *testing.T) {
 	}
 	if cfg.Burst != DefaultRateLimitBurst {
 		t.Errorf("burst inválido deveria manter default %d, got %d", DefaultRateLimitBurst, cfg.Burst)
+	}
+	// enabled inválido deve manter o default (habilitado).
+	if !cfg.Enabled {
+		t.Errorf("enabled inválido deveria manter default true, got %v", cfg.Enabled)
 	}
 }
 

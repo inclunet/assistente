@@ -141,6 +141,12 @@ type RateLimiter struct {
 	burst    int
 	nearFrac float64
 
+	// nearAlerted guarda, por chave, se o alerta de proximidade já foi
+	// disparado enquanto a chave permanece abaixo do limiar. Usado para tornar
+	// o alerta edge-triggered (dispara só na transição acima→abaixo) e evitar
+	// spam de log/telemetria. Protegido por mu.
+	nearAlerted map[string]bool
+
 	onNearLimit func(key string, remaining float64)
 }
 
@@ -164,16 +170,20 @@ func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
 		nearFrac = DefaultNearLimitThreshold
 	}
 	return &RateLimiter{
-		limiters: make(map[string]*rate.Limiter),
-		limit:    rate.Limit(float64(rpm) / 60.0),
-		burst:    burst,
-		nearFrac: nearFrac,
+		limiters:    make(map[string]*rate.Limiter),
+		nearAlerted: make(map[string]bool),
+		limit:       rate.Limit(float64(rpm) / 60.0),
+		burst:       burst,
+		nearFrac:    nearFrac,
 	}
 }
 
 // SetNearLimitHandler registra um callback opcional disparado quando, após
-// permitir uma chamada, os tokens restantes ficam abaixo do limiar. Deve ser
-// chamado uma vez na inicialização (não é thread-safe com Allow concorrente).
+// permitir uma chamada, os tokens restantes CRUZAM o limiar (transição
+// acima→abaixo). É edge-triggered por chave: não realerta enquanto a chave
+// continua abaixo do limiar e volta a poder alertar quando ela retorna acima.
+// Deve ser chamado uma vez na inicialização (não é thread-safe com Allow
+// concorrente).
 func (l *RateLimiter) SetNearLimitHandler(fn func(key string, remaining float64)) {
 	if l == nil {
 		return
@@ -204,6 +214,12 @@ func (l *RateLimiter) Allow(key string) error {
 
 // allowAt é a variante com tempo explícito, usada internamente por Allow e
 // nos testes para exercitar reabastecimento de tokens de forma determinística.
+//
+// Usa uma única observação do limiter (uma chamada ReserveN) para decidir e,
+// quando barrado, calcular o RetryAfter — evitando o estado inconsistente que
+// surgiria ao combinar AllowN + ReserveN sob concorrência. A reserva só é
+// cancelada quando há atraso (>0), preservando o contrato "permitido consome 1
+// token; bloqueado não consome".
 func (l *RateLimiter) allowAt(key string, now time.Time) error {
 	if l == nil {
 		return nil
@@ -213,18 +229,47 @@ func (l *RateLimiter) allowAt(key string, now time.Time) error {
 		key = globalRateLimitKey
 	}
 	lim := l.limiterFor(key)
-	if !lim.AllowN(now, 1) {
-		// Calcula o tempo até o próximo token sem consumir cota futura.
-		r := lim.ReserveN(now, 1)
-		retryAfter := r.DelayFrom(now)
+
+	r := lim.ReserveN(now, 1)
+	if !r.OK() {
+		// burst insuficiente para 1 token (não deveria ocorrer com burst >= 1).
+		return &RateLimitError{Key: key}
+	}
+	if delay := r.DelayFrom(now); delay > 0 {
+		// Estourou: devolve o token reservado e sinaliza o tempo de espera.
 		r.Cancel()
-		return &RateLimitError{Key: key, RetryAfter: retryAfter}
+		return &RateLimitError{Key: key, RetryAfter: delay}
 	}
-	if l.onNearLimit != nil {
-		remaining := lim.TokensAt(now)
-		if remaining <= float64(l.burst)*l.nearFrac {
-			l.onNearLimit(key, remaining)
-		}
-	}
+
+	// Permitido (token consumido). Avalia o alerta de proximidade.
+	l.maybeNearLimit(key, lim, now)
 	return nil
+}
+
+// maybeNearLimit dispara o callback de proximidade de forma edge-triggered:
+// apenas na transição acima→abaixo do limiar, por chave. Enquanto a chave
+// continua abaixo do limiar, não realerta; quando volta acima, o estado é
+// resetado para permitir um novo alerta no próximo cruzamento. Mantém o
+// disparo do callback fora do lock para evitar reentrância/deadlock.
+func (l *RateLimiter) maybeNearLimit(key string, lim *rate.Limiter, now time.Time) {
+	if l.onNearLimit == nil {
+		return
+	}
+	remaining := lim.TokensAt(now)
+	below := remaining <= float64(l.burst)*l.nearFrac
+
+	l.mu.Lock()
+	alreadyAlerted := l.nearAlerted[key]
+	crossed := below && !alreadyAlerted
+	switch {
+	case crossed:
+		l.nearAlerted[key] = true
+	case !below && alreadyAlerted:
+		delete(l.nearAlerted, key)
+	}
+	l.mu.Unlock()
+
+	if crossed {
+		l.onNearLimit(key, remaining)
+	}
 }
