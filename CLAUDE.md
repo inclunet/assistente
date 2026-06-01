@@ -56,7 +56,7 @@ A acessibilidade é um requisito fundamental do projeto, não opcional.
 ### Componentes reutilizáveis
 Sempre usar componentes existentes em `frontend/src/components/ui/`:
 - `DataGrid` para tabelas (já tem role="grid" e navegação por teclado)
-- `Modal` / `SimpleModal` para diálogos (focus trap, ESC, aria-hidden)
+- `Modal` / `ConfirmDialog` para diálogos (focus trap, ESC, aria-hidden)
 - `Button` para botões (variantes: primary, secondary, danger, ghost, outline)
 - `Toolbar` para barras de ferramentas (ARIA toolbar)
 
