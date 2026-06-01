@@ -921,6 +921,49 @@ func TestExecute_CapturesInputsEvenOnFailure(t *testing.T) {
 	}
 }
 
+// fakeBlockingTool simula uma tool MCP que leva alguns ms para responder e
+// respeita o ctx: se o contexto for cancelado antes do delay, retorna o erro
+// do contexto (reproduzindo "tool execute: context canceled").
+type fakeBlockingTool struct {
+	name     string
+	delay    time.Duration
+	response string
+
+	mu       sync.Mutex
+	finished bool
+	canceled bool
+}
+
+func (f *fakeBlockingTool) Name() string                { return f.name }
+func (f *fakeBlockingTool) Description() string         { return "blocking tool that honors ctx" }
+func (f *fakeBlockingTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (f *fakeBlockingTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	select {
+	case <-time.After(f.delay):
+		f.mu.Lock()
+		f.finished = true
+		f.mu.Unlock()
+		return tools.ToolResult{Content: f.response}, nil
+	case <-ctx.Done():
+		f.mu.Lock()
+		f.canceled = true
+		f.mu.Unlock()
+		return tools.ToolResult{}, ctx.Err()
+	}
+}
+
+func (f *fakeBlockingTool) didFinish() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.finished
+}
+
+func (f *fakeBlockingTool) wasCanceled() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.canceled
+}
+
 type fakeErrorTool struct {
 	name string
 }
