@@ -16,7 +16,6 @@ Use estes componentes em vez de criar novos:
 |---|---|
 | `Button` | Botões com variantes: `primary`, `secondary`, `danger`, `ghost`, `outline` |
 | `Modal` | Diálogos modais com focus trap, ESC, aria-hidden no root |
-| `SimpleModal` | Modal leve com retorno de foco ao grid |
 | `ConfirmDialog` | Confirmações (danger, warning, info) |
 | `DataGrid` | Tabelas de dados com seleção, edição inline, ações por célula, ARIA grid |
 | `Toolbar` | Barra de ferramentas ARIA com search e ações |
@@ -125,7 +124,7 @@ A acessibilidade é um requisito fundamental, não opcional. Toda mudança no fr
 - Usar `role="region"` + `aria-label` em painéis de edição
 - Usar `announce()` de `useAnnouncer` para ações (salvar, excluir, abrir editor)
 - Listas e grids DEVEM usar `DataGrid` (já tem `role="grid"` e navegação por teclado)
-- Modais DEVEM usar `Modal` ou `SimpleModal` (já têm focus trap e ESC)
+- Modais DEVEM usar `Modal` ou `ConfirmDialog` (já têm focus trap e ESC)
 - Classe `.sr-only` para textos visíveis apenas para leitores de tela
 
 ### Navegação por teclado
