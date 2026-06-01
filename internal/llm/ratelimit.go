@@ -147,6 +147,9 @@ type RateLimiter struct {
 	// spam de log/telemetria. Protegido por mu.
 	nearAlerted map[string]bool
 
+	// onNearLimit é o callback opcional de proximidade. Protegido por mu:
+	// escrito por SetNearLimitHandler e lido (copiado para uma var local) em
+	// maybeNearLimit sob o lock, sendo invocado fora do lock.
 	onNearLimit func(key string, remaining float64)
 }
 
@@ -182,13 +185,15 @@ func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
 // permitir uma chamada, os tokens restantes CRUZAM o limiar (transição
 // acima→abaixo). É edge-triggered por chave: não realerta enquanto a chave
 // continua abaixo do limiar e volta a poder alertar quando ela retorna acima.
-// Deve ser chamado uma vez na inicialização (não é thread-safe com Allow
-// concorrente).
+// Seguro para chamar concorrentemente com Allow: a escrita do handler é
+// protegida pelo mutex do limitador.
 func (l *RateLimiter) SetNearLimitHandler(fn func(key string, remaining float64)) {
 	if l == nil {
 		return
 	}
+	l.mu.Lock()
 	l.onNearLimit = fn
+	l.mu.Unlock()
 }
 
 func (l *RateLimiter) limiterFor(key string) *rate.Limiter {
@@ -252,13 +257,14 @@ func (l *RateLimiter) allowAt(key string, now time.Time) error {
 // resetado para permitir um novo alerta no próximo cruzamento. Mantém o
 // disparo do callback fora do lock para evitar reentrância/deadlock.
 func (l *RateLimiter) maybeNearLimit(key string, lim *rate.Limiter, now time.Time) {
-	if l.onNearLimit == nil {
-		return
-	}
+	// remaining/below dependem apenas de campos imutáveis (burst, nearFrac) e do
+	// próprio rate.Limiter (thread-safe), então podem ser calculados sem o lock.
 	remaining := lim.TokensAt(now)
 	below := remaining <= float64(l.burst)*l.nearFrac
 
+	// Sob o lock: copia o handler e lê/atualiza o estado edge-triggered por chave.
 	l.mu.Lock()
+	handler := l.onNearLimit
 	alreadyAlerted := l.nearAlerted[key]
 	crossed := below && !alreadyAlerted
 	switch {
@@ -269,7 +275,9 @@ func (l *RateLimiter) maybeNearLimit(key string, lim *rate.Limiter, now time.Tim
 	}
 	l.mu.Unlock()
 
-	if crossed {
-		l.onNearLimit(key, remaining)
+	// Invoca o callback FORA do lock (evita segurar o mutex durante código de
+	// usuário) e somente quando há handler e houve cruzamento do limiar.
+	if crossed && handler != nil {
+		handler(key, remaining)
 	}
 }

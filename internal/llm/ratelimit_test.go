@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -230,6 +231,49 @@ func TestRateLimiter_NearLimitAlert_ResetsAboveThreshold(t *testing.T) {
 	if alertCount != 2 {
 		t.Fatalf("esperava 2 alertas após novo cruzamento, got %d", alertCount)
 	}
+}
+
+// TestRateLimiter_ConcurrentSetHandlerAndAllow exercita SetNearLimitHandler
+// concorrentemente com Allow/maybeNearLimit para que o `-race` detector
+// flagre regressões de data race no campo onNearLimit.
+func TestRateLimiter_ConcurrentSetHandlerAndAllow(t *testing.T) {
+	l := newTestLimiter(6000, 100) // alto o suficiente para não barrar sob carga
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Escritores: trocam o handler repetidamente (inclui nil).
+	for w := 0; w < 4; w++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				l.SetNearLimitHandler(func(string, float64) {})
+				l.SetNearLimitHandler(nil)
+			}
+		}(w)
+	}
+
+	// Leitores: chamam Allow concorrentemente, exercitando maybeNearLimit.
+	for r := 0; r < 8; r++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			key := "user-" + string(rune('a'+id))
+			for i := 0; i < 2000; i++ {
+				_ = l.Allow(key)
+			}
+		}(r)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }
 
 func TestNewRateLimiter_DisabledReturnsNil(t *testing.T) {
