@@ -278,6 +278,74 @@ func TestRenderConversationsMarkdownRespectsToggles(t *testing.T) {
 	}
 }
 
+func TestRenderConversationsMarkdownNormalizesTitle(t *testing.T) {
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Unix(100, 0),
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					Title:     "Título\ncom\nquebras   e   espaços",
+					CreatedAt: time.Unix(90, 0),
+					Messages: []MessageExport{
+						{Role: "user", Content: "ok", CreatedAt: time.Unix(91, 0)},
+					},
+				},
+			},
+		},
+	}
+
+	md, err := RenderConversationsMarkdown(file)
+	if err != nil {
+		t.Fatalf("RenderConversationsMarkdown() error = %v", err)
+	}
+	if !strings.Contains(md, "## Título com quebras e espaços\n") {
+		t.Fatalf("markdown heading should collapse title to a single line: %s", md)
+	}
+	if strings.Contains(md, "## Título\n") || strings.Contains(md, "com\nquebras") {
+		t.Fatalf("markdown heading should not preserve line breaks from the title: %s", md)
+	}
+}
+
+func TestRenderConversationsMarkdownToolCallIDFollowsMetadataToggle(t *testing.T) {
+	build := func(opts ExportOptions) string {
+		t.Helper()
+		file := &ExportFile{
+			Version:    ExportVersion,
+			ExportedAt: time.Unix(100, 0),
+			Options:    opts,
+			Resources: ExportResources{
+				Conversations: []ConversationExport{
+					{
+						Title:     "Conversa com ferramenta",
+						CreatedAt: time.Unix(90, 0),
+						Messages: []MessageExport{
+							{
+								Role:       "tool",
+								Content:    "resultado",
+								ToolCallID: "call_abc123",
+								CreatedAt:  time.Unix(91, 0),
+							},
+						},
+					},
+				},
+			},
+		}
+		md, err := RenderConversationsMarkdown(file)
+		if err != nil {
+			t.Fatalf("RenderConversationsMarkdown() error = %v", err)
+		}
+		return md
+	}
+
+	if on := build(ExportOptions{IncludeMetadata: true}); !strings.Contains(on, "toolCallId: call_abc123") {
+		t.Fatalf("markdown should include toolCallId when metadata enabled: %s", on)
+	}
+	if off := build(ExportOptions{IncludeMetadata: false}); strings.Contains(off, "toolCallId: call_abc123") {
+		t.Fatalf("markdown should omit toolCallId when metadata disabled: %s", off)
+	}
+}
+
 func TestRenderConversationsHTMLRespectsToggles(t *testing.T) {
 	on := sampleConversationFile(ExportOptions{IncludeTimestamps: true, IncludeReasoning: true, IncludeMetadata: true})
 	htmlOn, err := RenderConversationsHTML(on)

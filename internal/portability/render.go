@@ -367,17 +367,17 @@ func RenderConversationsMarkdown(file *ExportFile) (string, error) {
 
 	for _, conv := range file.Resources.Conversations {
 		sb.WriteString("\n---\n\n")
-		sb.WriteString("## " + conversationTitle(conv.Title) + "\n\n")
+		sb.WriteString("## " + collapseToInline(conversationTitle(conv.Title)) + "\n\n")
 
 		meta := make([]string, 0, 4)
 		if opts.IncludeTimestamps {
 			meta = append(meta, "Criada em "+formatConversationTime(conv.CreatedAt))
 		}
 		if strings.TrimSpace(conv.Channel) != "" {
-			meta = append(meta, "Canal: "+conv.Channel)
+			meta = append(meta, "Canal: "+collapseToInline(conv.Channel))
 		}
 		if strings.TrimSpace(conv.ContactID) != "" {
-			meta = append(meta, "Contato: "+conv.ContactID)
+			meta = append(meta, "Contato: "+collapseToInline(conv.ContactID))
 		}
 		meta = append(meta, fmt.Sprintf("%d mensagem(ns)", len(conv.Messages)))
 		for _, line := range meta {
@@ -431,12 +431,15 @@ func RenderConversationsMarkdown(file *ExportFile) (string, error) {
 			}
 
 			if opts.IncludeMetadata {
-				flags := make([]string, 0, 2)
+				flags := make([]string, 0, 3)
 				if strings.TrimSpace(msg.Media) != "" {
 					flags = append(flags, "mídia anexada")
 				}
 				if strings.TrimSpace(msg.AudioMimeType) != "" {
 					flags = append(flags, "áudio: "+msg.AudioMimeType)
+				}
+				if strings.TrimSpace(msg.ToolCallID) != "" {
+					flags = append(flags, "toolCallId: "+msg.ToolCallID)
 				}
 				if len(flags) > 0 {
 					sb.WriteString("> " + strings.Join(flags, " · ") + "\n\n")
