@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageList } from './MessageList';
 import { chat } from '../../../wailsjs/go/models';
@@ -11,9 +12,17 @@ const hoisted = vi.hoisted(() => ({
   messageNodeMock: vi.fn(),
 }));
 vi.mock('./MessageNode', () => ({
-  MessageNode: (props: unknown) => {
+  MessageNode: (props: { level?: number; siblingIndex?: number; [key: string]: unknown }) => {
     hoisted.messageNodeMock(props);
-    return <div data-testid="message-node" />;
+    return (
+      <div
+        data-testid="message-node"
+        data-message-node=""
+        data-level={props.level}
+        data-sibling-index={props.siblingIndex}
+        tabIndex={-1}
+      />
+    );
   },
 }));
 
@@ -299,5 +308,176 @@ describe('MessageList', () => {
 
     expect(onLoadNewer).not.toHaveBeenCalled();
     expect(onReachEnd).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MessageList (virtualização)', () => {
+  const VIEWPORT_HEIGHT = 700;
+  const ITEM_HEIGHT = 140;
+  let restoreDims: (() => void) | null = null;
+
+  const createNodes = (count: number) =>
+    Array.from({ length: count }, (_, index) =>
+      chat.MessageNode.createFrom({
+        message: new chat.EnrichedMessage({
+          id: `msg-${index}`,
+          conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+          role: index % 2 === 0 ? 'user' : 'assistant',
+          content: `Mensagem ${index}`,
+          createdAt: new Date().toISOString(),
+          timestamp: Date.now() + index,
+          isStreaming: false,
+          internal: false,
+        }),
+        childCount: 0,
+        level: 0,
+        children: [],
+      })
+    );
+
+  beforeEach(() => {
+    const proto = window.HTMLElement.prototype;
+    const original = Object.getOwnPropertyDescriptor(proto, 'offsetHeight');
+    Object.defineProperty(proto, 'offsetHeight', {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (this.classList?.contains('message-list')) return VIEWPORT_HEIGHT;
+        if (this.hasAttribute?.('data-index')) return ITEM_HEIGHT;
+        return 0;
+      },
+    });
+    restoreDims = () => {
+      if (original) {
+        Object.defineProperty(proto, 'offsetHeight', original);
+      } else {
+        delete (proto as unknown as Record<string, unknown>).offsetHeight;
+      }
+    };
+  });
+
+  afterEach(() => {
+    restoreDims?.();
+    restoreDims = null;
+  });
+
+  const renderedIndexes = (container: HTMLElement): number[] =>
+    Array.from(container.querySelectorAll('[data-message-node]'))
+      .map((el) => Number(el.getAttribute('data-sibling-index')))
+      .filter((value) => !Number.isNaN(value));
+
+  it('renderiza apenas um subconjunto das mensagens em conversas longas', () => {
+    const total = 120;
+    const { container } = render(<MessageList threadedMessages={createNodes(total)} />);
+
+    const rendered = screen.getAllByTestId('message-node');
+    expect(rendered.length).toBeGreaterThan(0);
+    // Virtualizado: muito menos itens no DOM do que o total.
+    expect(rendered.length).toBeLessThan(total / 2);
+
+    const indexes = renderedIndexes(container);
+    // O topo da lista está visível ao montar (auto-scroll mantém o fim, mas o
+    // virtualizer ainda materializa apenas uma faixa contígua de itens).
+    expect(Math.min(...indexes)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('não virtualiza (renderiza tudo) em conversas curtas e mantém navegação por DOM', () => {
+    hoisted.messageNodeMock.mockClear();
+    const total = 5;
+    render(<MessageList threadedMessages={createNodes(total)} />);
+
+    expect(screen.getAllByTestId('message-node')).toHaveLength(total);
+    // Sem virtualização, a MessageList não injeta o callback de foco virtual.
+    const calls = hoisted.messageNodeMock.mock.calls.map(([props]) => props);
+    expect(calls.every((props) => props.onFocusSiblingIndex === undefined)).toBe(true);
+  });
+
+  it('injeta callback de foco virtualizado para os nós renderizados', () => {
+    hoisted.messageNodeMock.mockClear();
+    render(<MessageList threadedMessages={createNodes(120)} />);
+
+    const calls = hoisted.messageNodeMock.mock.calls.map(([props]) => props);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((props) => typeof props.onFocusSiblingIndex === 'function')).toBe(true);
+  });
+
+  it('materializa itens fora da viewport ao rolar (janela acompanha o scroll)', () => {
+    const total = 120;
+    const { container } = render(<MessageList threadedMessages={createNodes(total)} />);
+
+    const scrollContainer = screen.getByLabelText('chat.messageListLabel');
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      value: ITEM_HEIGHT * 60,
+    });
+    fireEvent.scroll(scrollContainer);
+
+    const indexes = renderedIndexes(container);
+    // Após rolar bastante para baixo, itens próximos ao índice 60 são montados
+    // e o item 0 deixa de existir no DOM — confirmando o janelamento.
+    expect(Math.max(...indexes)).toBeGreaterThanOrEqual(40);
+    expect(indexes).not.toContain(0);
+  });
+
+  it('não quebra Ctrl+Home/Ctrl+End com lista virtualizada', () => {
+    const onJumpToStart = vi.fn();
+    const onJumpToEnd = vi.fn();
+    render(
+      <MessageList
+        threadedMessages={createNodes(120)}
+        onJumpToStart={onJumpToStart}
+        onJumpToEnd={onJumpToEnd}
+      />
+    );
+
+    const list = screen.getByRole('list');
+    fireEvent.keyDown(list, { key: 'Home', ctrlKey: true });
+    fireEvent.keyDown(list, { key: 'End', ctrlKey: true });
+
+    expect(onJumpToStart).toHaveBeenCalledTimes(1);
+    expect(onJumpToEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('faz auto-scroll para o fim ao receber nova mensagem', () => {
+    const scrollSpy = vi.spyOn(window.HTMLElement.prototype, 'scrollIntoView');
+    const initial = createNodes(2);
+    const { rerender } = render(<MessageList threadedMessages={initial} />);
+
+    scrollSpy.mockClear();
+    rerender(<MessageList threadedMessages={createNodes(3)} />);
+
+    expect(scrollSpy).toHaveBeenCalled();
+    scrollSpy.mockRestore();
+  });
+
+  it('virtualiza corretamente quando recebe um callback ref externo', () => {
+    let externalNode: HTMLElement | null = null;
+    const callbackRef = (node: HTMLDivElement | null) => {
+      externalNode = node;
+    };
+    const total = 120;
+    render(<MessageList ref={callbackRef} threadedMessages={createNodes(total)} />);
+
+    // O callback ref externo recebe o elemento de scroll real.
+    expect(externalNode).toBeInstanceOf(HTMLElement);
+    expect((externalNode as HTMLElement | null)?.classList.contains('message-list')).toBe(true);
+
+    // A virtualização continua funcionando (apenas um subconjunto é renderizado),
+    // provando que getScrollElement usa o ref interno como fonte de verdade
+    // mesmo com um callback ref externo (cujo `.current` não existe).
+    const rendered = screen.getAllByTestId('message-node');
+    expect(rendered.length).toBeGreaterThan(0);
+    expect(rendered.length).toBeLessThan(total / 2);
+  });
+
+  it('encaminha o nó para um RefObject externo mantendo a virtualização', () => {
+    const externalRef = React.createRef<HTMLDivElement>();
+    const total = 120;
+    render(<MessageList ref={externalRef} threadedMessages={createNodes(total)} />);
+
+    expect(externalRef.current).toBeInstanceOf(HTMLElement);
+    expect(externalRef.current?.classList.contains('message-list')).toBe(true);
+
+    const rendered = screen.getAllByTestId('message-node');
+    expect(rendered.length).toBeLessThan(total / 2);
   });
 });
