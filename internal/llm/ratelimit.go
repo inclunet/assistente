@@ -242,7 +242,10 @@ func (l *RateLimiter) allowAt(key string, now time.Time) error {
 	}
 	if delay := r.DelayFrom(now); delay > 0 {
 		// Estourou: devolve o token reservado e sinaliza o tempo de espera.
-		r.Cancel()
+		// Usa CancelAt(now) (e não Cancel(), que usa time.Now()) para manter o
+		// cancelamento determinístico e consistente com o `now` passado a
+		// ReserveN — essencial nos testes que usam tempo artificial.
+		r.CancelAt(now)
 		return &RateLimitError{Key: key, RetryAfter: delay}
 	}
 
