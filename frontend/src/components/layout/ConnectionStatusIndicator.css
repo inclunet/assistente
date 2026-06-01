@@ -1,0 +1,51 @@
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.connection-status__icon {
+  display: inline-flex;
+  font-size: var(--font-size-base);
+  line-height: 1;
+}
+
+.connection-status__latency {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.connection-status[data-state='online'] {
+  color: var(--color-success);
+  border-color: var(--color-success-dim);
+  background: var(--color-success-dim);
+}
+
+.connection-status[data-state='offline'] {
+  color: var(--color-danger);
+  border-color: var(--color-danger-dim);
+  background: var(--color-danger-dim);
+}
+
+.connection-status[data-state='checking'] {
+  color: var(--color-info);
+  border-color: var(--color-info-dim);
+  background: var(--color-info-dim);
+}
+
+/* O rótulo de texto some em telas estreitas; ícone + aria-label permanecem. */
+@media (max-width: 640px) {
+  .connection-status__label,
+  .connection-status__latency {
+    display: none;
+  }
+}
