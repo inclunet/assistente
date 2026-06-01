@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -677,6 +678,273 @@ func TestJobToolRejectsEmptyTimeFilters(t *testing.T) {
 				t.Fatalf("expected %q error, got %s", c.fragment, result.Content)
 			}
 		})
+	}
+}
+
+// mustCreateJob executa um create e devolve o job persistido sob o id `want`.
+func mustCreateJob(t *testing.T, args, want string) *jobs.Job {
+	t.Helper()
+	mgr := newFakeManager()
+	tool := NewJob(mgr)
+	result, err := tool.Execute(context.Background(), json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("Execute error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute returned error result: %s", result.Content)
+	}
+	job, ok := mgr.jobs[want]
+	if !ok {
+		t.Fatalf("expected job %q to be created, got %#v", want, mgr.jobs)
+	}
+	return job
+}
+
+// TestJobToolCoercesStringifiedWriteFields prova a camada de tolerância: cada
+// campo tipado enviado como string JSON é aceito e produz o valor correto no job.
+func TestJobToolCoercesStringifiedWriteFields(t *testing.T) {
+	cases := []struct {
+		name  string
+		args  string
+		check func(t *testing.T, job *jobs.Job)
+	}{
+		{
+			name: "inputs stringified",
+			args: `{"job_id":"j","inputs":"{\"task_list_slug\":\"ops\",\"limit\":50}"}`,
+			check: func(t *testing.T, job *jobs.Job) {
+				if got := job.Inputs["task_list_slug"]; got != "ops" {
+					t.Fatalf("inputs.task_list_slug = %#v, want ops", got)
+				}
+				if got, ok := job.Inputs["limit"].(float64); !ok || got != 50 {
+					t.Fatalf("inputs.limit = %#v, want 50", job.Inputs["limit"])
+				}
+			},
+		},
+		{
+			name: "max_runs_per_hour stringified",
+			args: `{"job_id":"j","max_runs_per_hour":"1000"}`,
+			check: func(t *testing.T, job *jobs.Job) {
+				if job.MaxRunsPerHour != 1000 {
+					t.Fatalf("max_runs_per_hour = %d, want 1000", job.MaxRunsPerHour)
+				}
+			},
+		},
+		{
+			name: "triggers stringified",
+			args: `{"job_id":"j","triggers":"[{\"type\":\"cron\",\"expression\":\"0 9 * * 1-5\"}]"}`,
+			check: func(t *testing.T, job *jobs.Job) {
+				if len(job.Triggers) != 1 || job.Triggers[0].Type != jobs.TriggerCron || job.Triggers[0].Expression != "0 9 * * 1-5" {
+					t.Fatalf("triggers = %#v", job.Triggers)
+				}
+			},
+		},
+		{
+			name: "tags stringified",
+			args: `{"job_id":"j","tags":"[\"ops\",\"jira\"]"}`,
+			check: func(t *testing.T, job *jobs.Job) {
+				if len(job.Tags) != 2 || job.Tags[0] != "ops" || job.Tags[1] != "jira" {
+					t.Fatalf("tags = %#v", job.Tags)
+				}
+			},
+		},
+		{
+			name: "error_policy stringified",
+			args: `{"job_id":"j","error_policy":"{\"strategy\":\"retry\",\"max_retries\":3,\"backoff\":\"exponential\"}"}`,
+			check: func(t *testing.T, job *jobs.Job) {
+				if job.ErrorPolicy.Strategy != jobs.ErrorRetry || job.ErrorPolicy.MaxRetries != 3 || job.ErrorPolicy.Backoff != jobs.BackoffExponential {
+					t.Fatalf("error_policy = %#v", job.ErrorPolicy)
+				}
+			},
+		},
+		{
+			name: "events stringified",
+			args: `{"job_id":"j","events":"{\"on_success\":\"e.done\",\"emit_when\":\"{{ true }}\"}"}`,
+			check: func(t *testing.T, job *jobs.Job) {
+				if job.Events.OnSuccess != "e.done" || job.Events.EmitWhen != "{{ true }}" {
+					t.Fatalf("events = %#v", job.Events)
+				}
+			},
+		},
+		{
+			name: "output stringified",
+			args: `{"job_id":"j","output":"{\"map\":{\"result\":\"{{ .output.data }}\"}}"}`,
+			check: func(t *testing.T, job *jobs.Job) {
+				if job.Output.Map["result"] != "{{ .output.data }}" {
+					t.Fatalf("output = %#v", job.Output)
+				}
+			},
+		},
+		{
+			name: "dry_run_config stringified",
+			args: `{"job_id":"j","dry_run_config":"{\"enabled\":true,\"mock_output\":{\"status\":\"ok\"}}"}`,
+			check: func(t *testing.T, job *jobs.Job) {
+				if !job.DryRun.Enabled || job.DryRun.MockOutput["status"] != "ok" {
+					t.Fatalf("dry_run = %#v", job.DryRun)
+				}
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mgr := newFakeManager()
+			mgr.jobs["j"] = &jobs.Job{ID: "j", Name: "J", Enabled: true, Tool: "web_fetch", Triggers: []jobs.Trigger{{Type: jobs.TriggerManual}}}
+			tool := NewJob(mgr)
+			result, err := tool.Execute(context.Background(), json.RawMessage(c.args))
+			if err != nil {
+				t.Fatalf("Execute error = %v", err)
+			}
+			if result.IsError {
+				t.Fatalf("Execute returned error result: %s", result.Content)
+			}
+			c.check(t, mgr.jobs["j"])
+		})
+	}
+}
+
+// TestJobToolCoercesStringifiedEnabledToggle cobre o caminho de toggle (enabled
+// sozinho com job_id), onde o valor também pode chegar stringificado.
+func TestJobToolCoercesStringifiedEnabledToggle(t *testing.T) {
+	mgr := newFakeManager()
+	mgr.jobs["j"] = &jobs.Job{ID: "j", Name: "J", Enabled: true}
+	tool := NewJob(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"job_id":"j","enabled":"false"}`))
+	if err != nil {
+		t.Fatalf("Execute error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute returned error result: %s", result.Content)
+	}
+	if mgr.jobs["j"].Enabled {
+		t.Fatal("expected enabled to be coerced to false and job disabled")
+	}
+}
+
+// TestJobToolStringifiedEquivalentToTyped garante que um payload totalmente
+// stringificado produz exatamente o mesmo job que o payload com tipos corretos.
+func TestJobToolStringifiedEquivalentToTyped(t *testing.T) {
+	typed := `{
+		"name":"J","tool":"web_fetch",
+		"triggers":[{"type":"cron","expression":"0 9 * * 1-5"}],
+		"inputs":{"k":"v","n":3},
+		"enabled":false,
+		"max_runs_per_hour":1000,
+		"tags":["ops"],
+		"error_policy":{"strategy":"retry","max_retries":3},
+		"events":{"on_success":"e.done"},
+		"output":{"map":{"result":"{{ .output.data }}"}},
+		"dry_run_config":{"enabled":true,"mock_output":{"status":"ok"}}
+	}`
+	stringified := `{
+		"name":"J","tool":"web_fetch",
+		"triggers":"[{\"type\":\"cron\",\"expression\":\"0 9 * * 1-5\"}]",
+		"inputs":"{\"k\":\"v\",\"n\":3}",
+		"enabled":"false",
+		"max_runs_per_hour":"1000",
+		"tags":"[\"ops\"]",
+		"error_policy":"{\"strategy\":\"retry\",\"max_retries\":3}",
+		"events":"{\"on_success\":\"e.done\"}",
+		"output":"{\"map\":{\"result\":\"{{ .output.data }}\"}}",
+		"dry_run_config":"{\"enabled\":true,\"mock_output\":{\"status\":\"ok\"}}"
+	}`
+
+	a := mustCreateJob(t, typed, "j")
+	b := mustCreateJob(t, stringified, "j")
+	if !reflect.DeepEqual(a, b) {
+		t.Fatalf("stringified job not equivalent to typed job:\n typed=%#v\n string=%#v", a, b)
+	}
+}
+
+// TestJobToolStringifiedInvalidReturnsExplanatoryError prova que strings que não
+// são válidas para o tipo esperado produzem mensagem explicativa (não o erro cru).
+func TestJobToolStringifiedInvalidReturnsExplanatoryError(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     string
+		fragment string
+	}{
+		{"enabled not bool", `{"job_id":"j","enabled":"yes"}`, "must be a boolean"},
+		{"max_runs not number", `{"job_id":"j","max_runs_per_hour":"lots"}`, "must be an integer"},
+		{"max_runs float string", `{"job_id":"j","max_runs_per_hour":"1.5"}`, "must be an integer"},
+		{"inputs not object", `{"job_id":"j","inputs":"not json"}`, "must be a JSON object"},
+		{"triggers not array", `{"job_id":"j","triggers":"nope"}`, "must be a JSON array"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mgr := newFakeManager()
+			mgr.jobs["j"] = &jobs.Job{ID: "j", Name: "J", Enabled: true}
+			tool := NewJob(mgr)
+			result, err := tool.Execute(context.Background(), json.RawMessage(c.args))
+			if err != nil {
+				t.Fatalf("Execute error = %v", err)
+			}
+			if !result.IsError {
+				t.Fatalf("expected explanatory error, got %s", result.Content)
+			}
+			if !strings.Contains(result.Content, c.fragment) {
+				t.Fatalf("expected error to contain %q, got %s", c.fragment, result.Content)
+			}
+			if !strings.Contains(result.Content, "Example") {
+				t.Fatalf("expected explanatory error with example, got %s", result.Content)
+			}
+			if strings.Contains(result.Content, "cannot unmarshal") {
+				t.Fatalf("expected explanatory error, not raw encoding/json error: %s", result.Content)
+			}
+		})
+	}
+}
+
+// TestJobParametersHasNoOpaqueObjects congela o fix de raiz: nenhum campo do
+// schema deve ser um `object` opaco (sem properties e sem additionalProperties
+// tipado), exceto os intencionalmente livres: inputs, mock_output e output.schema.
+func TestJobParametersHasNoOpaqueObjects(t *testing.T) {
+	tool := NewJob(newFakeManager())
+	var schema map[string]any
+	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
+		t.Fatalf("Parameters() is not valid JSON: %v", err)
+	}
+	allowed := map[string]bool{"inputs": true, "mock_output": true, "schema": true}
+
+	var offenders []string
+	var walk func(name string, node map[string]any)
+	walk = func(name string, node map[string]any) {
+		if typ, _ := node["type"].(string); typ == "object" {
+			_, hasProps := node["properties"]
+			_, apIsSchema := node["additionalProperties"].(map[string]any)
+			if !hasProps && !apIsSchema && !allowed[name] {
+				offenders = append(offenders, name)
+			}
+		}
+		if props, ok := node["properties"].(map[string]any); ok {
+			for k, v := range props {
+				if child, ok := v.(map[string]any); ok {
+					walk(k, child)
+				}
+			}
+		}
+		if items, ok := node["items"].(map[string]any); ok {
+			walk(name+".items", items)
+		}
+	}
+	walk("root", schema)
+	if len(offenders) > 0 {
+		t.Fatalf("opaque object schema fields without properties: %v", offenders)
+	}
+}
+
+func TestPipelineToolCoercesStringifiedMetadata(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewPipeline(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"Ops","metadata":"{\"owner\":\"ops\"}"}`))
+	if err != nil {
+		t.Fatalf("Execute error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("Execute returned error result: %s", result.Content)
+	}
+	if got := mgr.pipelines["ops"].Metadata["owner"]; got != "ops" {
+		t.Fatalf("metadata.owner = %#v, want ops", got)
 	}
 }
 

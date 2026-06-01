@@ -101,13 +101,78 @@ func (t *Tool) Parameters() json.RawMessage {
     "pipeline": {"type": "string", "description": "Pipeline slug/name."},
     "tags": {"type": "array", "items": {"type": "string"}},
     "tool": {"type": "string", "description": "Tool name from tool_catalog. Required when creating."},
-    "inputs": {"type": "object", "additionalProperties": true},
-    "triggers": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
-    "output": {"type": "object", "additionalProperties": true},
-    "events": {"type": "object", "additionalProperties": true},
-    "error_policy": {"type": "object", "additionalProperties": true},
-    "max_runs_per_hour": {"type": "integer"},
-    "dry_run_config": {"type": "object", "additionalProperties": true}
+    "inputs": {"type": "object", "additionalProperties": true, "description": "Object map of input keys to values resolved at runtime (templates allowed). MUST be passed as a JSON object, NOT as a stringified JSON. Correct: {\"task_list_slug\": \"ops\", \"limit\": 50}. Wrong: \"{\\\"task_list_slug\\\": \\\"ops\\\"}\"."},
+    "triggers": {
+      "type": "array",
+      "description": "List of triggers that fire this job (at least one required on create). MUST be a JSON array, not a stringified JSON.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {"type": "string", "enum": ["cron", "interval", "event", "hotkey", "manual", "webhook"], "description": "Trigger kind."},
+          "expression": {"type": "string", "description": "Cron expression when type=cron, e.g. '0 9 * * 1-5'."},
+          "every": {"type": "string", "description": "Interval duration when type=interval, e.g. '2h', '30m'."},
+          "listen": {"type": "string", "description": "Event name to listen to when type=event."},
+          "keys": {"type": "string", "description": "Hotkey combo when type=hotkey, e.g. 'Ctrl+Shift+J'."},
+          "path": {"type": "string", "description": "Webhook path when type=webhook (v2)."},
+          "when": {"type": "string", "description": "Optional Go template condition evaluated before running; truthy = run."}
+        },
+        "required": ["type"],
+        "additionalProperties": false
+      }
+    },
+    "output": {
+      "type": "object",
+      "description": "Output mapping/schema for the tool result. MUST be a JSON object, not a stringified JSON.",
+      "properties": {
+        "schema": {"type": "object", "additionalProperties": true, "description": "Optional free-form JSON Schema describing the expected tool output."},
+        "map": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Map of output keys to Go template expressions, e.g. {\"result\": \"{{ .output.data }}\"}."}
+      },
+      "additionalProperties": false
+    },
+    "events": {
+      "type": "object",
+      "description": "Events emitted by the job. MUST be a JSON object, not a stringified JSON.",
+      "properties": {
+        "on_success": {"type": "string", "description": "Event name emitted on success."},
+        "on_failure": {"type": "string", "description": "Event name emitted on failure."},
+        "emit_when": {"type": "string", "description": "Optional Go template; the success event is suppressed when falsy. Evaluated per item when fan-out is used."},
+        "for_each": {"type": "string", "description": "Output array path for fan-out; emits one event per item."},
+        "payload_template": {"type": "string", "description": "Optional Go template that reshapes the emitted payload."},
+        "payload_filter": {
+          "type": "object",
+          "description": "Whitelist/blacklist of payload fields.",
+          "properties": {
+            "include": {"type": "array", "items": {"type": "string"}, "description": "Only these payload keys are emitted."},
+            "exclude": {"type": "array", "items": {"type": "string"}, "description": "These payload keys are removed."}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "error_policy": {
+      "type": "object",
+      "description": "Error handling policy. MUST be a JSON object, not a stringified JSON.",
+      "properties": {
+        "strategy": {"type": "string", "enum": ["retry", "stop", "skip"], "description": "How to handle failures."},
+        "max_retries": {"type": "integer", "description": "Maximum retry attempts when strategy=retry."},
+        "retry_delay": {"type": "string", "description": "Delay between retries as a duration string, e.g. '30s'."},
+        "backoff": {"type": "string", "enum": ["linear", "exponential", "fixed"], "description": "Backoff strategy for retries."},
+        "on_exhausted": {"type": "string", "enum": ["notify", "ignore"], "description": "Action when retries are exhausted."},
+        "notify_channels": {"type": "array", "items": {"type": "string"}, "description": "Channels to notify on exhaustion/failure."}
+      },
+      "additionalProperties": false
+    },
+    "max_runs_per_hour": {"type": "integer", "description": "Rate limit: maximum runs per hour."},
+    "dry_run_config": {
+      "type": "object",
+      "description": "Configuration-level dry-run persisted on the job. MUST be a JSON object, not a stringified JSON.",
+      "properties": {
+        "enabled": {"type": "boolean", "description": "When true, normal executions skip the underlying tool and return mock_output (still taking the success path)."},
+        "mock_output": {"type": "object", "additionalProperties": true, "description": "Free-form object returned as the mocked tool output when dry-run is enabled."}
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }`)
@@ -117,6 +182,11 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if strings.TrimSpace(string(args)) == "" {
 		args = json.RawMessage(`{}`)
 	}
+	coerced, cerr := coerceArgs(args, jobTypedFields)
+	if cerr != nil {
+		return tools.ToolResult{Content: "Error parsing arguments: " + cerr.Error(), IsError: true}, nil
+	}
+	args = coerced
 	var params jobArgs
 	if err := json.Unmarshal(args, &params); err != nil {
 		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
