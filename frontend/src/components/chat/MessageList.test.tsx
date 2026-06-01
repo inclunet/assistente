@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageList } from './MessageList';
 import { chat } from '../../../wailsjs/go/models';
@@ -446,5 +447,37 @@ describe('MessageList (virtualização)', () => {
 
     expect(scrollSpy).toHaveBeenCalled();
     scrollSpy.mockRestore();
+  });
+
+  it('virtualiza corretamente quando recebe um callback ref externo', () => {
+    let externalNode: HTMLElement | null = null;
+    const callbackRef = (node: HTMLDivElement | null) => {
+      externalNode = node;
+    };
+    const total = 120;
+    render(<MessageList ref={callbackRef} threadedMessages={createNodes(total)} />);
+
+    // O callback ref externo recebe o elemento de scroll real.
+    expect(externalNode).toBeInstanceOf(HTMLElement);
+    expect((externalNode as HTMLElement | null)?.classList.contains('message-list')).toBe(true);
+
+    // A virtualização continua funcionando (apenas um subconjunto é renderizado),
+    // provando que getScrollElement usa o ref interno como fonte de verdade
+    // mesmo com um callback ref externo (cujo `.current` não existe).
+    const rendered = screen.getAllByTestId('message-node');
+    expect(rendered.length).toBeGreaterThan(0);
+    expect(rendered.length).toBeLessThan(total / 2);
+  });
+
+  it('encaminha o nó para um RefObject externo mantendo a virtualização', () => {
+    const externalRef = React.createRef<HTMLDivElement>();
+    const total = 120;
+    render(<MessageList ref={externalRef} threadedMessages={createNodes(total)} />);
+
+    expect(externalRef.current).toBeInstanceOf(HTMLElement);
+    expect(externalRef.current?.classList.contains('message-list')).toBe(true);
+
+    const rendered = screen.getAllByTestId('message-node');
+    expect(rendered.length).toBeLessThan(total / 2);
   });
 });

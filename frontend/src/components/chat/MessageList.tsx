@@ -231,13 +231,24 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const { t } = useTranslation();
   const effectiveLoadingText = loadingText ?? t('chat.typing');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const internalContainerRef = useRef<HTMLDivElement>(null);
+  // Fonte de verdade do elemento de scroll. Sempre apontado por um callback ref
+  // próprio, então `.current` é confiável mesmo quando o ref externo é um callback.
+  const innerContainerRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const suppressNextScrollLoadRef = useRef(false);
   const suppressScrollLoadTimerRef = useRef<number | null>(null);
-  
-  // Use external ref if provided, otherwise use internal ref
-  const containerRef = (ref as React.RefObject<HTMLDivElement>) || internalContainerRef;
+
+  // Callback ref que mantém `innerContainerRef` como fonte de verdade e encaminha
+  // o ref externo do forwardRef. Trata os dois formatos válidos do React:
+  // função (callback ref) ou objeto mutável (RefObject); ignora null/undefined.
+  const setContainerRef = useCallback((node: HTMLDivElement | null) => {
+    innerContainerRef.current = node;
+    if (typeof ref === 'function') {
+      ref(node);
+    } else if (ref) {
+      (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    }
+  }, [ref]);
 
   // Fallback transitório: o backend já retorna timeline items canônicos;
   // durante streaming ainda podem existir múltiplos nós locais do mesmo turnId.
@@ -281,7 +292,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const rowVirtualizer = useVirtualizer({
     count: displayMessages.length,
     enabled: shouldVirtualize,
-    getScrollElement: () => containerRef.current,
+    getScrollElement: () => innerContainerRef.current,
     estimateSize: () => ESTIMATED_MESSAGE_HEIGHT,
     overscan: VIRTUAL_OVERSCAN,
     scrollMargin,
@@ -316,7 +327,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   // anteriores" ocupa espaço acima da lista virtualizada).
   useLayoutEffect(() => {
     if (!shouldVirtualize) return;
-    const container = containerRef.current;
+    const container = innerContainerRef.current;
     const list = listRef.current;
     if (!container || !list) return;
     const containerRect = container.getBoundingClientRect();
@@ -361,7 +372,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   };
 
   const handleLoadOlder = () => {
-    const container = containerRef.current;
+    const container = innerContainerRef.current;
     const snapshot = container
       ? { scrollHeight: container.scrollHeight, scrollTop: container.scrollTop }
       : null;
@@ -403,7 +414,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
 
   useLayoutEffect(() => {
     const pendingRestore = pendingScrollRestoreRef.current;
-    const container = containerRef.current;
+    const container = innerContainerRef.current;
     if (pendingRestore && container) {
       const heightDelta = container.scrollHeight - pendingRestore.scrollHeight;
       container.scrollTop = pendingRestore.scrollTop + heightDelta;
@@ -420,7 +431,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   }, []);
 
   useEffect(() => {
-    const container = containerRef.current;
+    const container = innerContainerRef.current;
     if (!container) return;
     const handleScroll = () => {
       if (suppressNextScrollLoadRef.current) {
@@ -516,7 +527,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   return (
     <div 
       className="message-list" 
-      ref={containerRef}
+      ref={setContainerRef}
       aria-label={t('chat.messageListLabel')}
     >
       <div className="message-list__messages">
