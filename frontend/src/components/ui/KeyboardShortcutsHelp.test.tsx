@@ -115,9 +115,11 @@ describe('KeyboardShortcutsHelp', () => {
   });
 
   it('toda combinação exibida corresponde a um atalho canônico', () => {
-    const { container } = render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} />);
+    // O painel usa o Modal compartilhado, que renderiza via portal em
+    // document.body — por isso consultamos `baseElement` (e não `container`).
+    const { baseElement } = render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} />);
 
-    const displayed = getDisplayedShortcutCombos(container);
+    const displayed = getDisplayedShortcutCombos(baseElement);
     expect(displayed.length).toBeGreaterThan(0);
 
     expectDisplayedShortcutsAreCanonical({
