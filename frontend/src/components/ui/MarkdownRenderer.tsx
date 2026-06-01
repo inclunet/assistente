@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -641,7 +642,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           diagramWrapper.addEventListener('contextmenu', onContextMenu);
           cleanups.push(() => diagramWrapper.removeEventListener('contextmenu', onContextMenu));
         } catch (err) {
-          console.error('Erro ao renderizar Mermaid:', err);
+          logger.error('Erro ao renderizar Mermaid:', err);
           const errorText = truncate(getErrorText(err));
 
           const diagramWrapper = document.createElement('div');

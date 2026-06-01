@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -107,7 +108,7 @@ export function Topbar() {
       URL.revokeObjectURL(url);
       announce(t('workspace.exported'));
     } catch (error) {
-      console.error('[Topbar] Export error:', error);
+      logger.error('[Topbar] Export error:', error);
     }
   }, [workspace?.name, announce, t]);
 
@@ -124,7 +125,7 @@ export function Topbar() {
       };
       input.click();
     } catch (error) {
-      console.error('[Topbar] Import error:', error);
+      logger.error('[Topbar] Import error:', error);
     }
   }, []);
 

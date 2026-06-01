@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -264,7 +265,7 @@ export default function TaskListsPage() {
       }
       announce(t('tasklist.sentToWorkspace', 'Lista enviada ao workspace'));
     } catch (error) {
-      console.error('Erro ao enviar lista ao workspace:', error);
+      logger.error('Erro ao enviar lista ao workspace:', error);
     }
   }, [addTab, moveTabToWorkspace, navigate, announce, t]);
 

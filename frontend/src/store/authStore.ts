@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import {
   CreateAdminUser,
@@ -147,7 +148,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         }
         set({ isLoading: false });
       } catch (error) {
-        console.error('[authStore] loadStatus failed', error);
+        logger.error('[authStore] loadStatus failed', error);
         set({
           error: mapBackendError(error),
           isLoading: false,
@@ -169,7 +170,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       set({ status, isLoading: false });
       return recoveryKey;
     } catch (error) {
-      console.error('[authStore] setupVault failed', error);
+      logger.error('[authStore] setupVault failed', error);
       set({ error: mapBackendError(error), isLoading: false });
       throw error;
     }
@@ -186,7 +187,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       }
       set({ isLoading: false });
     } catch (error) {
-      console.error('[authStore] unlockVault failed', error);
+      logger.error('[authStore] unlockVault failed', error);
       set({ error: mapBackendError(error), isLoading: false });
       throw error;
     }
@@ -199,7 +200,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       const status = (await GetAuthStatus()) as AuthStatus;
       set({ status, isLoading: false });
     } catch (error) {
-      console.error('[authStore] createAdmin failed', error);
+      logger.error('[authStore] createAdmin failed', error);
       set({ error: mapBackendError(error), isLoading: false });
       throw error;
     }
@@ -216,7 +217,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         error: null,
       });
     } catch (error) {
-      console.error('[authStore] login failed', error);
+      logger.error('[authStore] login failed', error);
       set({
         error: mapBackendError(error),
         isLoading: false,
@@ -239,7 +240,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         if (logoutGeneration !== generationAtStart) {
           // Logout aconteceu durante o refresh — descartamos o resultado
           // para não ressuscitar a sessão (M36 do review).
-          console.warn('[authStore] refresh result discarded: logout in flight');
+          logger.warn('[authStore] refresh result discarded: logout in flight');
           return;
         }
         set({ user, isAuthenticated: true, error: null });
@@ -249,7 +250,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
           // pediu logout — o estado correto é "deslogado".
           return;
         }
-        console.warn('[authStore] refresh failed', error);
+        logger.warn('[authStore] refresh failed', error);
         set({ user: null, isAuthenticated: false });
       }
     })();
@@ -267,7 +268,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     } catch (error) {
       // Backend já trata logout como best-effort (M23 do Bloco 4); aqui
       // apenas logamos para telemetria e seguimos limpando o estado.
-      console.warn('[authStore] logout RPC failed', error);
+      logger.warn('[authStore] logout RPC failed', error);
     }
     purgeLegacyTokenStorage();
     set({ user: null, isAuthenticated: false, error: null });

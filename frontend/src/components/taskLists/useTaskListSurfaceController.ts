@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useEffect, useRef } from 'react';
 import i18next from 'i18next';
 import { useTaskListStore } from '../../store/taskListStore';
@@ -56,7 +57,7 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
       }
       lastSyncedRef.current = `${tabId}:${id}`;
     } catch (error) {
-      console.error('[TaskListSurfaceController] Erro ao sincronizar tasklist:', error);
+      logger.error('[TaskListSurfaceController] Erro ao sincronizar tasklist:', error);
     }
   }
 
@@ -73,7 +74,7 @@ export function useTaskListSurfaceController(tab: WorkspaceTab, isActive: boolea
         lastSyncedRef.current = `${tabId}:${taskList.id}`;
       }
     } catch (error) {
-      console.error('[TaskListSurfaceController] Erro ao criar tasklist:', error);
+      logger.error('[TaskListSurfaceController] Erro ao criar tasklist:', error);
     } finally {
       creatingRef.current = false;
     }

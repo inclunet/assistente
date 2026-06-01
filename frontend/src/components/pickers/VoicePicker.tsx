@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { SoundOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -112,7 +113,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       } catch (err) {
         if (cancelled?.()) return;
         setError(err instanceof Error ? err.message : t('pickers.voice.loadError'));
-        console.error('[VoicePicker] Failed to load voices:', err);
+        logger.error('[VoicePicker] Failed to load voices:', err);
       } finally {
         if (!cancelled?.()) setLoading(false);
       }

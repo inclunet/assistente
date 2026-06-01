@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { BarChartOutlined, LoadingOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -45,7 +46,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
           setStats(data);
         })
         .catch((error) => {
-          console.error('[TokenStatsButton] Erro ao carregar stats:', error);
+          logger.error('[TokenStatsButton] Erro ao carregar stats:', error);
           // Define stats padrão em caso de erro
           setStats({
             conversationId,

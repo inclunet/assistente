@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useEffect, useRef } from 'react';
 import { EditorReadFile } from '@wailsjs/go/app/App';
 import i18next from 'i18next';
@@ -54,7 +55,7 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
 
       if (Object.keys(updates).length > 0) {
         ws.updateTab(wsTab.id, updates).catch((error: unknown) => {
-          console.warn('[EditorSurfaceController] falha ao sincronizar tab', wsTab.id, error);
+          logger.warn('[EditorSurfaceController] falha ao sincronizar tab', wsTab.id, error);
         });
       }
     };
@@ -106,7 +107,7 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
         draftId: draftId || (filePath ? null : tabId),
       });
     } catch (error) {
-      console.error('[EditorSurfaceController] Erro ao criar documento:', error);
+      logger.error('[EditorSurfaceController] Erro ao criar documento:', error);
     } finally {
       creatingRef.current = false;
     }

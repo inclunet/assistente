@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ExportOutlined, ImportOutlined } from '@ant-design/icons';
@@ -211,7 +212,7 @@ export default function DataManagementPage() {
         .filter((id) => id.length > 0);
       setConversationIds(ids);
     } catch (error) {
-      console.error('Erro ao carregar conversas para exportação:', error);
+      logger.error('Erro ao carregar conversas para exportação:', error);
       setConversationIds([]);
     } finally {
       setLoadingConversations(false);
@@ -310,7 +311,7 @@ export default function DataManagementPage() {
       downloadJSON(jsonData, generateFilename('dados'));
       announce(t('history.exportSuccess', 'Dados exportados com sucesso!'));
     } catch (error) {
-      console.error('Erro ao exportar dados:', error);
+      logger.error('Erro ao exportar dados:', error);
       announce(t('history.exportError', 'Erro ao exportar dados'), 'assertive');
     } finally {
       setIsExporting(false);
@@ -411,7 +412,7 @@ export default function DataManagementPage() {
     try {
       await selectImportFile();
     } catch (error) {
-      console.error('Erro ao selecionar arquivo de importação:', error);
+      logger.error('Erro ao selecionar arquivo de importação:', error);
       if (!(error instanceof ImportFileError && error.code === IMPORT_FILE_ERROR_CODES.NO_FILE_SELECTED)) {
         resetImportState();
       }
@@ -489,7 +490,7 @@ export default function DataManagementPage() {
         result.success ? 'polite' : 'assertive',
       );
     } catch (error) {
-      console.error('Erro ao confirmar importação:', error);
+      logger.error('Erro ao confirmar importação:', error);
       announce(t('history.importError', 'Erro ao importar conversas'), 'assertive');
     } finally {
       setIsImporting(false);
@@ -612,7 +613,7 @@ export default function DataManagementPage() {
                 return;
               }
               void loadExportProviderIds().catch((error) => {
-                console.error('Erro ao carregar providers para exportação:', error);
+                logger.error('Erro ao carregar providers para exportação:', error);
                 setIncludeProvidersExport(false);
                 setExportProviderIds([]);
                 announce(t('history.exportProvidersLoadError', 'Erro ao carregar providers para exportação'), 'assertive');
@@ -631,7 +632,7 @@ export default function DataManagementPage() {
                 return;
               }
               void loadExportMcpServerSlugs().catch((error) => {
-                console.error('Erro ao carregar servidores MCP para exportação:', error);
+                logger.error('Erro ao carregar servidores MCP para exportação:', error);
                 setIncludeMcpServersExport(false);
                 setExportMcpServerSlugs([]);
                 setExportMcpExternalFormat(false);
@@ -671,7 +672,7 @@ export default function DataManagementPage() {
                 return;
               }
               void loadExportTaskListIds().catch((error) => {
-                console.error('Erro ao carregar tasklists para exportação:', error);
+                logger.error('Erro ao carregar tasklists para exportação:', error);
                 setIncludeTaskListsExport(false);
                 setExportTaskListIds([]);
                 announce(t('history.exportTaskListsLoadError', 'Erro ao carregar tasklists para exportação'), 'assertive');

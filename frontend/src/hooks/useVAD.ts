@@ -31,6 +31,7 @@
  * ```
  */
 
+import { logger } from '../utils/logger';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { VoiceActivityDetector, VADOptions, VADConfig } from '../services/vad';
 
@@ -173,7 +174,7 @@ export function useVAD(options: UseVADOptions = {}): UseVADReturn {
       const error = err instanceof Error ? err : new Error('Erro ao inicializar VAD');
       setError(error);
       setIsInitializing(false);
-      console.error('[useVAD] Erro ao inicializar:', error);
+      logger.error('[useVAD] Erro ao inicializar:', error);
       return false;
     }
   }, [isInitialized, isInitializing, configOptions, createCallbacks, autoStart]);
@@ -181,7 +182,7 @@ export function useVAD(options: UseVADOptions = {}): UseVADReturn {
   // Inicia detecção
   const start = useCallback(() => {
     if (!vadRef.current || !isInitialized) {
-      console.warn('[useVAD] VAD não inicializado. Chame init() primeiro.');
+      logger.warn('[useVAD] VAD não inicializado. Chame init() primeiro.');
       return;
     }
 

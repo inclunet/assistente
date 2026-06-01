@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/shallow';
 import {
@@ -211,7 +212,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
         }
       } catch (error) {
         if (isWailsBridgeTimeoutError(error)) {
-          console.warn('[Workspace] Wails bridge timeout during initialize; retrying...', error);
+          logger.warn('[Workspace] Wails bridge timeout during initialize; retrying...', error);
           if (initializeRetryTimer === null) {
             initializeRetryTimer = setTimeout(() => {
               initializeRetryTimer = null;
@@ -220,7 +221,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
           }
           return;
         }
-        console.error('[Workspace] Error initializing:', error);
+        logger.error('[Workspace] Error initializing:', error);
         set({ isInitialized: true });
       } finally {
         initializingPromise = null;
@@ -326,7 +327,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       const list = await ListWorkspaces();
       set({ workspaces: list || [] });
     } catch (error) {
-      console.error('[Workspace] Error refreshing list:', error);
+      logger.error('[Workspace] Error refreshing list:', error);
     }
   },
 
@@ -405,7 +406,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     // Fire-and-forget: UI já atualizada; rollback em caso de falha.
     // A persistência no backend é assíncrona e não bloqueia callers.
     void SetActiveWorkspaceTab(tabId).catch((err: unknown) => {
-      console.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
+      logger.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
       // Só faz rollback se nenhuma ativação mais recente ocorreu desde esta
       // e o workspace não mudou (evita alterar activeTabId de outro workspace).
       if (activationSeqId === mySeq && get().workspace?.id === currentWorkspaceId) {

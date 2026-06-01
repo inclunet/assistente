@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -93,7 +94,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
       await deleteTask(taskId);
       onTaskDeleted?.(taskId);
     } catch (error) {
-      console.error('Erro ao deletar tarefa:', error);
+      logger.error('Erro ao deletar tarefa:', error);
     }
   };
 

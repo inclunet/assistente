@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { Message } from '../store/chatStore';
 import { MenuItem } from '../components/menu';
 import { unified } from 'unified';
@@ -78,7 +79,7 @@ function extractCodeBlocks(content: string): Array<{ code: string; language: str
       });
     });
   } catch (error) {
-    console.error('Erro ao extrair blocos de código:', error);
+    logger.error('Erro ao extrair blocos de código:', error);
   }
   return blocks;
 }
@@ -108,7 +109,7 @@ function extractLinks(content: string): Array<{ url: string; text: string }> {
       }
     });
   } catch (error) {
-    console.error('Erro ao extrair links:', error);
+    logger.error('Erro ao extrair links:', error);
   }
   return links;
 }
@@ -151,7 +152,7 @@ function extractTables(content: string): Array<{ headers: string[]; rows: string
         }
       });
     } catch (error) {
-      console.error('❌ Erro ao processar markdown:', error);
+      logger.error('❌ Erro ao processar markdown:', error);
     }
   };
 
@@ -171,7 +172,7 @@ function extractTables(content: string): Array<{ headers: string[]; rows: string
       }
     });
   } catch (error) {
-    console.error('❌ Erro ao extrair tabelas:', error);
+    logger.error('❌ Erro ao extrair tabelas:', error);
   }
 
   return tables;
@@ -426,7 +427,7 @@ export function getMessageMenuItems(
           messageAudioService.downloadAudioBlob(audioBlob, filename);
           onAnnounce?.(i18next.t('chat.announce.audioDownloaded'));
         } catch (error) {
-          console.error('Erro ao baixar audio:', error);
+          logger.error('Erro ao baixar audio:', error);
           onAnnounce?.(i18next.t('chat.announce.audioError'));
         }
       },

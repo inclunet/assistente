@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -81,7 +82,7 @@ export default function RestoreDefaultsPage() {
       onSuccess?.();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error ?? '');
-      console.error(`Erro em ${opId}:`, error);
+      logger.error(`Erro em ${opId}:`, error);
       addToast(message || `Erro ao executar ${opId}`, 'error');
     } finally {
       setLoadingOps((prev) => {

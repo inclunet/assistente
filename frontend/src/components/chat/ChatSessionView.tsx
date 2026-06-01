@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button } from 'antd';
@@ -678,7 +679,7 @@ function ChatSessionViewContent({
       await controller.sendMessage(content, mediaFiles);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[ChatSessionView] send error:', errorMessage);
+      logger.error('[ChatSessionView] send error:', errorMessage);
       setLastFailedMessage({ content, media: mediaFiles });
       setSendError(ErrorMessages.CHAT.SEND_FAILED);
 

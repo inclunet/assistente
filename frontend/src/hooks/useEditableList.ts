@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useCallback } from 'react';
 import { useAnnouncer } from './useAnnouncer';
 import { useUIStore } from '../store/uiStore';
@@ -130,7 +131,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       const list = await operations.loadItems();
       setItems(list);
     } catch (error) {
-      console.error(`Erro ao carregar ${options.entityName}:`, error);
+      logger.error(`Erro ao carregar ${options.entityName}:`, error);
       addToast(
         messages.loadError || `Erro ao carregar ${options.entityName}`,
         'error'
@@ -162,7 +163,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       setIsNew(false);
       announce(`Editor aberto para ${getName(item)}`);
     } catch (error) {
-      console.error(`Erro ao carregar ${options.entityName}:`, error);
+      logger.error(`Erro ao carregar ${options.entityName}:`, error);
       addToast(
         messages.loadError || `Erro ao carregar ${options.entityName}`,
         'error'
@@ -220,7 +221,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       closeEditor();
       options.onSuccess?.();
     } catch (error: unknown) {
-      console.error(`Erro ao salvar ${options.entityName}:`, error);
+      logger.error(`Erro ao salvar ${options.entityName}:`, error);
       const errorMessage = isNew
         ? messages.createError || `Erro ao criar ${options.entityName}`
         : messages.updateError || `Erro ao atualizar ${options.entityName}`;
@@ -280,7 +281,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       await loadItems();
       options.onDeleteSuccess?.();
     } catch (error: unknown) {
-      console.error(`Erro ao excluir ${options.entityName}:`, error);
+      logger.error(`Erro ao excluir ${options.entityName}:`, error);
       addToast(
         getErrorMessage(error) || messages.deleteError || `Erro ao excluir ${options.entityName}`,
         'error'

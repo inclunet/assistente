@@ -2,6 +2,7 @@
  * Factory para criação e gerenciamento de provedores TTS
  */
 
+import { logger } from '../../utils/logger';
 import { TTSProvider, ITTSProvider } from './types';
 import { WebSpeechProvider } from './providers/webSpeech';
 import { OpenAIProvider } from './providers/openai';
@@ -25,10 +26,10 @@ export class TTSProviderFactory {
     // Inicializa em paralelo
     await Promise.all([
       webSpeech.initialize().catch(err => 
-        console.warn('[TTSFactory] WebSpeech init failed:', err)
+        logger.warn('[TTSFactory] WebSpeech init failed:', err)
       ),
       openai.initialize().catch(err => 
-        console.warn('[TTSFactory] OpenAI init failed:', err)
+        logger.warn('[TTSFactory] OpenAI init failed:', err)
       )
     ]);
 
@@ -78,7 +79,7 @@ export class TTSProviderFactory {
           return provider;
         }
       } catch (error) {
-        console.warn('[TTSFactory] Error checking voices for provider:', error);
+        logger.warn('[TTSFactory] Error checking voices for provider:', error);
       }
     }
     
@@ -103,7 +104,7 @@ export class TTSProviderFactory {
       return provider;
     }
 
-    console.error('[TTSFactory] No providers available');
+    logger.error('[TTSFactory] No providers available');
     return null;
   }
 

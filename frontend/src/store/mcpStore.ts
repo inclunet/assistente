@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import {
   ListMCPServers,
@@ -48,7 +49,7 @@ export const useMCPStore = create<MCPState>((set, get) => ({
       const servers = await ListMCPServers();
       set({ servers: servers || [], isLoading: false });
     } catch (err) {
-      console.error('[MCP] Erro ao carregar servidores:', err);
+      logger.error('[MCP] Erro ao carregar servidores:', err);
       set({ isLoading: false });
     }
   },
@@ -59,7 +60,7 @@ export const useMCPStore = create<MCPState>((set, get) => ({
       // Recarrega para obter status atualizado
       await get().loadServers();
     } catch (err) {
-      console.error(`[MCP] Erro ao conectar '${slug}':`, err);
+      logger.error(`[MCP] Erro ao conectar '${slug}':`, err);
       await get().loadServers();
     }
   },
@@ -69,7 +70,7 @@ export const useMCPStore = create<MCPState>((set, get) => ({
       await DisconnectMCPServer(slug);
       await get().loadServers();
     } catch (err) {
-      console.error(`[MCP] Erro ao desconectar '${slug}':`, err);
+      logger.error(`[MCP] Erro ao desconectar '${slug}':`, err);
       await get().loadServers();
     }
   },
@@ -79,7 +80,7 @@ export const useMCPStore = create<MCPState>((set, get) => ({
       await ReconnectMCPServer(slug);
       await get().loadServers();
     } catch (err) {
-      console.error(`[MCP] Erro ao reconectar '${slug}':`, err);
+      logger.error(`[MCP] Erro ao reconectar '${slug}':`, err);
       await get().loadServers();
     }
   },
@@ -89,7 +90,7 @@ export const useMCPStore = create<MCPState>((set, get) => ({
       await SaveMCPServer(slug, config);
       await get().loadServers();
     } catch (err) {
-      console.error(`[MCP] Erro ao salvar '${slug}':`, err);
+      logger.error(`[MCP] Erro ao salvar '${slug}':`, err);
       throw err;
     }
   },
@@ -103,7 +104,7 @@ export const useMCPStore = create<MCPState>((set, get) => ({
       }
       await get().loadServers();
     } catch (err) {
-      console.error(`[MCP] Erro ao remover '${slug}':`, err);
+      logger.error(`[MCP] Erro ao remover '${slug}':`, err);
       throw err;
     }
   },
@@ -112,7 +113,7 @@ export const useMCPStore = create<MCPState>((set, get) => ({
     try {
       return await GetMCPServerTools(slug) || [];
     } catch (err) {
-      console.error(`[MCP] Erro ao obter tools de '${slug}':`, err);
+      logger.error(`[MCP] Erro ao obter tools de '${slug}':`, err);
       return [];
     }
   },
@@ -121,7 +122,7 @@ export const useMCPStore = create<MCPState>((set, get) => ({
     try {
       return await GetMCPServerConfig(slug);
     } catch (err) {
-      console.error(`[MCP] Erro ao obter config de '${slug}':`, err);
+      logger.error(`[MCP] Erro ao obter config de '${slug}':`, err);
       return null;
     }
   },

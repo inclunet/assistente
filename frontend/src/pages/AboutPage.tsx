@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -45,7 +46,7 @@ export default function AboutPage() {
       const currentVersion = await GetAppVersion();
       setVersion(currentVersion);
     } catch (error) {
-      console.error('Erro ao obter versão:', error);
+      logger.error('Erro ao obter versão:', error);
       setVersion(t('about.versionUnknown'));
     }
   };
@@ -62,7 +63,7 @@ export default function AboutPage() {
         addToast(t('about.upToDateDesc', { version: info.currentVersion }), 'success');
       }
     } catch (error: unknown) {
-      console.error('Erro ao verificar atualizações:', error);
+      logger.error('Erro ao verificar atualizações:', error);
       addToast(getErrorMessage(error) || 'Erro ao verificar atualizações', 'error');
     } finally {
       setChecking(false);
@@ -76,7 +77,7 @@ export default function AboutPage() {
       // O backend irá emitir evento navigate:update que será capturado
       // pela App.tsx e navegará para /update
     } catch (error: unknown) {
-      console.error('Erro ao iniciar atualização:', error);
+      logger.error('Erro ao iniciar atualização:', error);
       addToast(getErrorMessage(error) || 'Erro ao iniciar atualização', 'error');
       setLoading(false);
     }

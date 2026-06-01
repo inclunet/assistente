@@ -59,4 +59,11 @@ export default [
       'no-restricted-imports': 'off',
     },
   },
+  {
+    // Exceção centralizada: o logger é o único ponto autorizado a usar console.*
+    files: ['src/utils/logger.ts', 'src/utils/logger.test.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
 ];

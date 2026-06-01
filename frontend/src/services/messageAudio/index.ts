@@ -8,6 +8,7 @@
  * Fallback quando backend não tem TTS: frontend usa speakAsRole (WebSpeech/SAPI5)
  */
 
+import { logger } from '../../utils/logger';
 import { SpeakMessage } from '@wailsjs/go/app/App';
 import { base64ToBlob } from '../../lib/audioUtils';
 
@@ -173,7 +174,7 @@ async function speakMessage(messageId: string, volume: number = 1.0, provider?: 
     }
     return false;
   } catch (err) {
-    console.warn('[messageAudio] speakMessage failed:', err);
+    logger.warn('[messageAudio] speakMessage failed:', err);
     return false;
   }
 }
@@ -205,7 +206,7 @@ async function getMessageAudioBlob(messageId: string, provider?: TTSProviderPara
     }
     return null;
   } catch (err) {
-    console.warn('[messageAudio] getMessageAudioBlob failed:', err);
+    logger.warn('[messageAudio] getMessageAudioBlob failed:', err);
     return null;
   }
 }
