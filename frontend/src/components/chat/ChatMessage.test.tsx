@@ -64,7 +64,9 @@ vi.mock('./ReasoningSection', () => ({
 }));
 
 vi.mock('./ToolCallsSection', () => ({
-  ToolCallsSection: () => <div data-testid="toolcalls" />,
+  ToolCallsSection: ({ toolCallsJson }: { toolCallsJson?: string }) => (
+    <div data-testid="toolcalls" data-json={toolCallsJson ?? ''} />
+  ),
 }));
 
 describe('ChatMessage', () => {
@@ -245,6 +247,53 @@ describe('ChatMessage', () => {
       toolCallsRaw: JSON.stringify([{ function: { name: 'search_documents' } }]),
     }));
     expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
+  });
+
+  // Issue #150: o backend envia segmentos canônicos (texto → tools → texto →
+  // tools → resposta final) e o ChatMessage precisa renderizar tudo dentro de
+  // UMA única entrada acessível, com a cadeia de raciocínio em ordem.
+  it('renderiza segmentos canônicos do turno em ordem cronológica numa única entrada', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'turn-final',
+      conversationId,
+      role: 'assistant',
+      content: 'resposta final',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        { type: 'text', content: 'vou pesquisar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{
+            id: 'tool-1',
+            type: 'function',
+            function: { name: 'search', arguments: '{}' },
+            result: 'resultado da busca',
+          }],
+        },
+        { type: 'text', content: 'agora vou refinar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{
+            id: 'tool-2',
+            type: 'function',
+            function: { name: 'fetch', arguments: '{}' },
+          }],
+        },
+        { type: 'text', content: 'resposta final' },
+      ],
+    });
+
+    const { container } = render(<ChatMessage message={message} />);
+
+    expect(container.querySelectorAll('.chat-message')).toHaveLength(1);
+    expect(screen.getByText('vou pesquisar')).toBeInTheDocument();
+    expect(screen.getByText('agora vou refinar')).toBeInTheDocument();
+    expect(screen.getByText('resposta final')).toBeInTheDocument();
+    expect(screen.getAllByTestId('toolcalls')).toHaveLength(2);
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('chat.assistant');
   });
 
   it('renderiza placeholder acessível para turno sem resposta do assistente', () => {

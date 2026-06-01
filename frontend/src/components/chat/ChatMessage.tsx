@@ -5,6 +5,7 @@ import {
   MessageOutlined, MobileOutlined, SoundOutlined, PauseCircleOutlined,
 } from '@ant-design/icons';
 import type { Message, TurnSegment } from '../../store/chatStore';
+import { getMessageTurnSegments } from '../../lib/chatMessageTree';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
@@ -108,7 +109,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     ? t('chat.toolOnlyTurnPlaceholder')
     : effectiveContent;
 
-  const hasAgenticSegments = !!(message._turnSegments || (completedSegments && completedSegments.length > 0));
+  // Segmentos cronológicos do turno: durante streaming usamos override em
+  // memória; turnos persistidos vêm com `turnSegments` canônicos do backend
+  // (Issue #150) para preservar a cadeia de raciocínio em UMA única entrada.
+  const persistedTurnSegments = getMessageTurnSegments(message);
+  const hasAgenticSegments = !!(persistedTurnSegments || (completedSegments && completedSegments.length > 0));
   const isAgenticStreaming = effectiveIsStreaming && hasAgenticSegments;
 
   // Usa editContent externo se está editando
@@ -122,7 +127,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   // Quando `text_edit` é usado, o conteúdo do assistente pode vir poluído com fences (ex.: ```markdown).
   // Como a UI já mostra as tool calls, omitimos o corpo textual para evitar ruído.
   const displayContent = isEditing ? externalEditContent : (toolCallsHasTextEdit ? '' : placeholderContent);
-  const segmentCount = (message._turnSegments || completedSegments || []).length;
+  const segmentCount = (persistedTurnSegments || completedSegments || []).length;
   const shouldDeferHeavyContent =
     !effectiveIsStreaming &&
     !isReading &&
@@ -429,7 +434,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               aria-relevant={isAgenticStreaming ? 'additions' : undefined}
               className="chat-message__segments-log"
             >
-              {canRenderHeavyContent ? (message._turnSegments || completedSegments || []).map((seg, idx) => (
+              {canRenderHeavyContent ? (persistedTurnSegments || completedSegments || []).map((seg, idx) => (
                 <React.Fragment key={idx}>
                   {seg.type === 'text' && seg.content && (
                     <div className="chat-message__text chat-message__text--segment">
@@ -462,7 +467,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 <ToolCallsSection activeToolCalls={effectiveToolCalls} />
               )}
 
-              {effectiveIsStreaming && displayContent && !message._turnSegments && (
+              {effectiveIsStreaming && displayContent && !persistedTurnSegments && (
                 <div className="chat-message__text">
                   <MarkdownRenderer
                     content={displayContent}
@@ -474,7 +479,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                   />
                 </div>
               )}
-              {effectiveIsStreaming && !displayContent && !message._turnSegments && (
+              {effectiveIsStreaming && !displayContent && !persistedTurnSegments && (
                 <div className="chat-message__text">
                   <span className="chat-message__cursor">▋</span>
                 </div>

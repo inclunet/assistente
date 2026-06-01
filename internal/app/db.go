@@ -137,6 +137,7 @@ func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []dat
 
 	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, turnIDs)
 	representatives := make([]database.ChatMessage, 0, len(order))
+	segmentsByMessageID := make(map[string][]chat.TurnSegment)
 	for _, key := range order {
 		itemMessages := grouped[key]
 		if len(itemMessages) == 0 {
@@ -146,11 +147,34 @@ func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []dat
 		if strings.HasPrefix(key, "turn:") && representative.TurnID != nil {
 			turnID := strings.TrimSpace(*representative.TurnID)
 			turnResults := invocationToolResults[turnID]
-			representative = consolidateTimelineTurnMessages(itemMessages, turnResults)
+			result := consolidateTimelineTurn(itemMessages, turnResults)
+			representative = result.Message
+			if len(result.Segments) > 0 {
+				segmentsByMessageID[representative.ID] = result.Segments
+			}
 		}
 		representatives = append(representatives, representative)
 	}
-	return buildMessageNodes(ctx, representatives, parentID)
+	return assignMessageNodeTurnSegments(buildMessageNodes(ctx, representatives, parentID), segmentsByMessageID)
+}
+
+// assignMessageNodeTurnSegments anexa segmentos canônicos de turno aos nós já
+// construídos. Mantemos a atribuição em uma única passagem para evitar mutação
+// implícita dentro do builder e para que a árvore (com filhos lazy-loaded)
+// também receba os segmentos quando aplicável (Issue #150).
+func assignMessageNodeTurnSegments(nodes []chat.MessageNode, segmentsByID map[string][]chat.TurnSegment) []chat.MessageNode {
+	if len(segmentsByID) == 0 {
+		return nodes
+	}
+	for i := range nodes {
+		if segments, ok := segmentsByID[nodes[i].Message.ID]; ok && len(segments) > 0 {
+			nodes[i].Message.TurnSegments = segments
+		}
+		if len(nodes[i].Children) > 0 {
+			nodes[i].Children = assignMessageNodeTurnSegments(nodes[i].Children, segmentsByID)
+		}
+	}
+	return nodes
 }
 
 func assignMessageNodeOriginalIndexes(nodes []chat.MessageNode, indexesByID map[string]int) []chat.MessageNode {
@@ -227,9 +251,66 @@ func parseToolCalls(messageID string, raw string) []map[string]interface{} {
 	return nil
 }
 
+// consolidatedTurnResult agrega o representante do turno (uma única ChatMessage
+// canônica para a timeline) e os segmentos cronológicos do turno (Issue #150),
+// usados pelo frontend para renderizar texto → tools → texto → tools → resposta
+// final dentro de UMA única entrada do message history acessível.
+type consolidatedTurnResult struct {
+	Message  database.ChatMessage
+	Segments []chat.TurnSegment
+}
+
+func toolCallToTurnSegmentToolCall(call map[string]interface{}) chat.TurnSegmentToolCall {
+	id, _ := call["id"].(string)
+	tipo, _ := call["type"].(string)
+	if tipo == "" {
+		tipo = "function"
+	}
+	name := ""
+	args := ""
+	if fn, ok := call["function"].(map[string]interface{}); ok {
+		if v, ok := fn["name"].(string); ok {
+			name = v
+		}
+		if v, ok := fn["arguments"].(string); ok {
+			args = v
+		}
+	}
+	if name == "" {
+		if v, ok := call["name"].(string); ok {
+			name = v
+		}
+	}
+	if args == "" {
+		if v, ok := call["arguments"].(string); ok {
+			args = v
+		}
+	}
+	result := ""
+	if v, ok := call["result"].(string); ok {
+		result = v
+	}
+	return chat.TurnSegmentToolCall{
+		ID:       id,
+		Type:     tipo,
+		Function: chat.TurnSegmentToolFunction{Name: name, Arguments: args},
+		Result:   result,
+	}
+}
+
 func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocationToolResults map[string]string) database.ChatMessage {
+	return consolidateTimelineTurn(messages, invocationToolResults).Message
+}
+
+// consolidateTimelineTurn produz a representação canônica de um turno do
+// assistente para o timeline do chat: uma `database.ChatMessage` representativa
+// (compatível com a paginação por timeline_items e com a UI legada que lê
+// `content` + `toolCalls`) e a lista cronológica de segmentos `chat.TurnSegment`
+// (usada pelo frontend acessível para preservar a cadeia de raciocínio em uma
+// única entrada do message history — Issue #150).
+func consolidateTimelineTurn(messages []database.ChatMessage, invocationToolResults map[string]string) consolidatedTurnResult {
 	if len(messages) == 0 {
-		return database.ChatMessage{}
+		return consolidatedTurnResult{}
 	}
 	messages = append([]database.ChatMessage(nil), messages...)
 	sort.SliceStable(messages, func(i, j int) bool {
@@ -264,11 +345,17 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocation
 	// callID is immutable within a turn; keep the first assistant emission as canonical
 	// and enrich it with the persisted tool result when available.
 	seenToolCallIDs := make(map[string]struct{})
+	// Segmentos cronológicos do turno: cada iteração do agentic loop produz
+	// (texto opcional) seguido de (tool_calls opcional). A última iteração tem
+	// só texto (resposta final). Issue #150.
+	segments := make([]chat.TurnSegment, 0)
+	assistantCount := 0
 	for _, message := range messages {
 		if message.Role != "assistant" {
 			continue
 		}
 		hasAssistant = true
+		assistantCount++
 		consolidated = message
 		if message.Content != "" {
 			finalContent = message.Content
@@ -276,6 +363,15 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocation
 		if message.Reasoning != "" {
 			finalReasoning = message.Reasoning
 		}
+		// Texto desta iteração é um segmento próprio quando não vazio. Mantém a
+		// ordem cronológica para que NVDA leia a cadeia de raciocínio inteira.
+		if strings.TrimSpace(message.Content) != "" {
+			segments = append(segments, chat.TurnSegment{
+				Type:    "text",
+				Content: message.Content,
+			})
+		}
+		iterationCalls := make([]chat.TurnSegmentToolCall, 0)
 		for _, call := range parseToolCalls(message.ID, message.ToolCalls) {
 			callID, _ := call["id"].(string)
 			if callID != "" {
@@ -287,6 +383,7 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocation
 					if strings.TrimSpace(existing) != "" {
 						// Não sobrescreve resultado já embutido (ex.: import/export).
 						allToolCalls = append(allToolCalls, call)
+						iterationCalls = append(iterationCalls, toolCallToTurnSegmentToolCall(call))
 						continue
 					}
 				}
@@ -295,6 +392,13 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocation
 				}
 			}
 			allToolCalls = append(allToolCalls, call)
+			iterationCalls = append(iterationCalls, toolCallToTurnSegmentToolCall(call))
+		}
+		if len(iterationCalls) > 0 {
+			segments = append(segments, chat.TurnSegment{
+				Type:      "tool_calls",
+				ToolCalls: iterationCalls,
+			})
 		}
 	}
 	if !hasAssistant {
@@ -306,6 +410,7 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocation
 		consolidated.ToolCallID = ""
 		consolidated.Source = toolOnlyTurnPlaceholderSource
 		placeholderCalls := make([]map[string]interface{}, 0, len(toolResults))
+		segmentToolCalls := make([]chat.TurnSegmentToolCall, 0, len(toolResults))
 		for callID, result := range toolResults {
 			placeholderCalls = append(placeholderCalls, map[string]interface{}{
 				"id":       callID,
@@ -319,6 +424,9 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocation
 			right, _ := placeholderCalls[j]["id"].(string)
 			return left < right
 		})
+		for _, call := range placeholderCalls {
+			segmentToolCalls = append(segmentToolCalls, toolCallToTurnSegmentToolCall(call))
+		}
 		if len(placeholderCalls) > 0 {
 			if encoded, err := json.Marshal(placeholderCalls); err == nil {
 				consolidated.ToolCalls = string(encoded)
@@ -326,7 +434,14 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocation
 		} else {
 			consolidated.ToolCalls = ""
 		}
-		return consolidated
+		var placeholderSegments []chat.TurnSegment
+		if len(segmentToolCalls) > 0 {
+			placeholderSegments = []chat.TurnSegment{{
+				Type:      "tool_calls",
+				ToolCalls: segmentToolCalls,
+			}}
+		}
+		return consolidatedTurnResult{Message: consolidated, Segments: placeholderSegments}
 	}
 	consolidated.Content = finalContent
 	consolidated.Reasoning = finalReasoning
@@ -335,7 +450,13 @@ func consolidateTimelineTurnMessages(messages []database.ChatMessage, invocation
 			consolidated.ToolCalls = string(encoded)
 		}
 	}
-	return consolidated
+	// Turnos triviais (apenas resposta final, sem ferramentas) não precisam de
+	// segments — o renderizador legado de uma única bolha cobre o caso e evita
+	// payload extra na timeline.
+	if assistantCount <= 1 && len(allToolCalls) == 0 {
+		return consolidatedTurnResult{Message: consolidated, Segments: nil}
+	}
+	return consolidatedTurnResult{Message: consolidated, Segments: segments}
 }
 
 func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
@@ -347,6 +468,7 @@ func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWind
 	}
 	representatives := make([]database.ChatMessage, 0, len(items))
 	originalIndexesByMessageID := make(map[string]int, len(items))
+	segmentsByMessageID := make(map[string][]chat.TurnSegment)
 	for _, item := range items {
 		itemMessages := messagesByItemKey[timelineWindowItemKey(item)]
 		if len(itemMessages) == 0 {
@@ -355,12 +477,17 @@ func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWind
 		representative := itemMessages[0]
 		if item.Kind == database.MessageWindowItemKindTurn {
 			turnResults := invocationToolResults[strings.TrimSpace(item.TurnID)]
-			representative = consolidateTimelineTurnMessages(itemMessages, turnResults)
+			result := consolidateTimelineTurn(itemMessages, turnResults)
+			representative = result.Message
+			if len(result.Segments) > 0 {
+				segmentsByMessageID[representative.ID] = result.Segments
+			}
 		}
 		representatives = append(representatives, representative)
 		originalIndexesByMessageID[representative.ID] = item.OriginalIndex
 	}
-	return assignMessageNodeOriginalIndexes(buildMessageNodes(ctx, representatives, parentID), originalIndexesByMessageID)
+	nodes := assignMessageNodeOriginalIndexes(buildMessageNodes(ctx, representatives, parentID), originalIndexesByMessageID)
+	return assignMessageNodeTurnSegments(nodes, segmentsByMessageID)
 }
 
 func collectTurnIDsWithToolCalls(messages []database.ChatMessage) []string {
