@@ -25,7 +25,7 @@ describe('MarkdownRenderer', () => {
     expect(link).toHaveAttribute('tabindex', '-1');
   });
 
-  it('torna imagens interativas e foca acessível', () => {
+  it('torna imagens interativas e focáveis via teclado', () => {
     render(<MarkdownRenderer content={'![Gato](http://example.com/cat.png)'} />);
 
     const img = screen.getByAltText('Gato');
