@@ -8,13 +8,15 @@
  * Política de níveis (dev vs. produção):
  * - `debug` / `log` / `info`: emitidos apenas em desenvolvimento
  *   (`import.meta.env.DEV`) ou quando `VITE_DEBUG` está habilitado.
- *   Em produção ficam silenciados para não poluir o console nem expor
- *   informações sensíveis.
- * - `warn` e `error`: preservados sempre (também em produção), pois
+ *   Em produção ficam silenciados por padrão para não poluir o console
+ *   nem expor informações sensíveis.
+ * - `warn` e `error`: habilitados por padrão (inclusive em produção), pois
  *   sinalizam problemas reais úteis para diagnóstico.
  *
- * O nível pode ser ajustado em runtime via `logger.setLevel(...)`, útil
- * para depuração pontual sem recompilar.
+ * O nível efetivo é sempre regido por `setLevel()`: ajustá-lo pode tanto
+ * reabilitar `debug`/`info` quanto silenciar `warn`/`error` (ex.:
+ * `setLevel('silent')` desliga tudo; `setLevel('error')` silencia `warn`).
+ * Útil para depuração pontual em runtime sem recompilar.
  */
 
 export type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug';

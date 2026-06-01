@@ -7,6 +7,7 @@ import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { ProfileInteractionSection } from './ProfileInteractionSection';
 import { VOICE_REF_ASSISTANT, VOICE_REF_USER, VOICE_REF_SYSTEM } from '../pickers/VoicePicker';
 import { VoiceProviderPicker, type VoiceProviderItem } from '../pickers/VoiceProviderPicker';
+import { logger } from '../../utils/logger';
 
 export interface ProfileAudioTabProps {
   editingProfile: profiles.Profile;
@@ -23,7 +24,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   const [sttModelsCache, setSTTModelsCache] = useState<Record<string, speech.SpeechModelInfo[]>>({});
 
   useEffect(() => {
-    GetSpeechProviders().then(setSpeechProviders).catch(console.error);
+    GetSpeechProviders().then(setSpeechProviders).catch(logger.error);
     GetNativeTTSProviders()
       .then(setNativeTTSProviders)
       .catch(() => setNativeTTSProviders(['webspeech']));
@@ -35,7 +36,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
     if (sttModelsCache[providerID]) return;
     GetSTTModels(providerID)
       .then((models) => setSTTModelsCache((prev) => ({ ...prev, [providerID]: models })))
-      .catch(console.error);
+      .catch(logger.error);
   }, [sttModelsCache]);
 
   const voice = editingProfile.voice;
