@@ -46,7 +46,11 @@ export function dispatchKey(
   options: { target?: Window | Document | HTMLElement; type?: 'keydown' | 'keyup' | 'keypress' } = {},
 ): KeyboardEvent {
   const { target = document.body, type = 'keydown' } = options;
-  const event = new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init });
+  // `...init` vem PRIMEIRO; `bubbles`/`cancelable` são forçados DEPOIS para
+  // que o chamador não consiga sobrescrevê-los. Isso garante que o evento é
+  // sempre cancelável (preserva `event.defaultPrevented`) e bubbling
+  // (alcança listeners em `window`/`document`), conforme o contrato acima.
+  const event = new KeyboardEvent(type, { ...init, bubbles: true, cancelable: true });
   target.dispatchEvent(event);
   return event;
 }
