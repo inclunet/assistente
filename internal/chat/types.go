@@ -26,6 +26,35 @@ type MessageWindowRequest struct {
 	Limit           int    `json:"limit"`
 }
 
+// TurnSegmentToolCall descreve uma chamada de ferramenta dentro de um segmento
+// de turno consolidado. Espelha a estrutura emitida pelo evento chat:segment_done
+// (AEP-0039) para que o frontend renderize segmentos canônicos vindos do histórico
+// com o mesmo componente usado durante o streaming.
+type TurnSegmentToolCall struct {
+	ID       string                  `json:"id"`
+	Type     string                  `json:"type"`
+	Function TurnSegmentToolFunction `json:"function"`
+	Result   string                  `json:"result,omitempty"`
+}
+
+// TurnSegmentToolFunction encapsula o nome e os argumentos de uma tool call.
+type TurnSegmentToolFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// TurnSegment é uma fatia ordenada cronologicamente de um turno do assistente:
+// um trecho de texto OU uma sequência de tool calls dentro de uma única iteração
+// do agentic loop. Issue #150: o chat history precisa preservar a cadeia de
+// raciocínio (texto → tool_calls → texto → tool_calls → resposta final) dentro
+// de uma ÚNICA entrada do timeline para que leitores de tela como NVDA leiam o
+// turno inteiro como uma única mensagem do assistente.
+type TurnSegment struct {
+	Type      string                `json:"type"` // "text" | "tool_calls"
+	Content   string                `json:"content,omitempty"`
+	ToolCalls []TurnSegmentToolCall `json:"toolCalls,omitempty"`
+}
+
 type EnrichedMessage struct {
 	ID               string    `json:"id"`
 	ConversationID   string    `json:"conversationId"`
@@ -46,6 +75,12 @@ type EnrichedMessage struct {
 	Timestamp        int64     `json:"timestamp"`
 	IsStreaming      bool      `json:"isStreaming"`
 	Internal         bool      `json:"internal"`
+	// TurnSegments é populado pelo backend quando uma representação de turno
+	// consolidado é construída a partir de múltiplas mensagens persistidas
+	// (Issue #150). Cada segmento mantém a ordem cronológica do turno; ToolCalls
+	// continua presente para retrocompatibilidade com renderizadores que ainda
+	// dependem do JSON concatenado.
+	TurnSegments []TurnSegment `json:"turnSegments,omitempty"`
 }
 
 type MessageNode struct {
