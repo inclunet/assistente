@@ -44,7 +44,7 @@ job_id: my-job                       # optional on create (slug auto-generated f
 name: "Human-readable name"          # required on create
 description: "What this job does"
 enabled: true
-pipeline: my-pipeline                # optional grouping (slug of an existing pipeline)
+pipeline: my-pipeline                # optional grouping; pipeline is auto-created on first use if the slug does not exist
 tags: ["reports", "jira"]
 
 triggers:                            # required on create (≥ 1)
@@ -55,7 +55,7 @@ triggers:                            # required on create (≥ 1)
     when: '{{ eq .event.type "relevant" }}'   # optional condition
   - type: manual
 
-tool: mcp.some.tool                  # required on create — must exist in tool catalog
+tool: mcp_jira__search_issues        # required on create — must exist in tool catalog. MCP tools are namespaced as `mcp_<serverSlug>__<toolName>`.
 inputs:
   field: "fixed value"
   dynamic: "{{ .event.data }}"
@@ -169,12 +169,12 @@ The following are **action flags** and cannot be combined with each other, nor w
 | List jobs | `job()` (no args) | Returns summaries of all jobs. |
 | Read job | `job(job_id)` | Returns the full job config. Resolved inputs are redacted; recent run history is not included. |
 | Create with generated id | `job(name, tool, triggers, …)` | `name` + `tool` + ≥ 1 `triggers` are required. Slug is derived from `name`. |
-| Create with explicit id | `job(job_id, name, tool, triggers, …)` | When `job_id` does not exist and the required create fields are present, creates with that exact slug. |
+| Create with explicit id | `job(job_id, name, tool, triggers, …)` | When the (sanitized) id does not exist and the required create fields are present, creates a new job. The stored id may differ from the raw `job_id` — see slug normalization below. |
 | Update | `job(job_id, <one or more write fields>)` | Only the provided fields are changed. Sending `triggers: []` resets to a single `manual` trigger. |
 | Toggle enabled | `job(job_id, enabled: true \| false)` | Send `enabled` alone (no other write fields). |
 | Delete | `job(job_id, delete: true)` | Destructive — confirm with the user. |
 | Run now | `job(job_id, run: true)` | Triggers a real execution and returns the resulting `RunLog`. |
-| Dry-run | `job(job_id, dry_run: true)` | Simulates execution. If `dry_run_config.enabled: true` with `mock_output`, that mock is returned; otherwise the run is simulated without invoking the underlying tool. |
+| Dry-run | `job(job_id, dry_run: true)` | Runs the job once without emitting downstream events. If `dry_run_config.mock_output` is set, that mock is returned **without invoking the underlying tool** (regardless of `dry_run_config.enabled`). Otherwise the underlying tool **is** invoked for real — only event emission is suppressed. |
 | List runs | `job(job_id, list_runs: true, status?, started_after?, started_before?, include_dry_run?, limit?)` | `status` ∈ `completed`, `failed`, `retrying`, `skipped`. Dates are RFC3339. `limit` defaults to 20 (max 100). Dry-runs are excluded unless `include_dry_run: true`. |
 | Get one run (with timelines) | `job(job_id, run_id)` | Returns the `RunDetail`: `RunLog` + `run_events` (operational timeline) + `domain_events` (correlated by run). |
 | List events | `job(list_events: true, job_id?, date?, start_at?, end_at?, event_type?, event_name?, limit?, offset?)` | `job_id` is optional (omit for global). Defaults to today when no time filter is set. `date` is `YYYY-MM-DD` and is ignored if `start_at`/`end_at` are given. `limit` defaults to 50 (max 200). |
@@ -192,7 +192,7 @@ Create a job that runs every weekday at 9am:
 ```json
 {
   "name": "Daily Jira Sync",
-  "tool": "mcp.jira.search_issues",
+  "tool": "mcp_jira__search_issues",
   "triggers": [{ "type": "cron", "expression": "0 9 * * 1-5" }],
   "inputs": { "jql": "project = OPS AND updated >= -1d" },
   "events": { "on_success": "ops.tickets.fetched" }
@@ -267,8 +267,12 @@ Create and then disable an ops pipeline:
 ## Guidelines
 
 - Every job needs a `name`, a `tool`, and at least one trigger. Prefer letting the slug be generated from `name`; only set `job_id` explicitly when you need a stable, well-known id.
-- Job ids and pipeline slugs are lowercased and spaces become `-`. Avoid characters that would change after normalization.
-- Always reference an existing tool from the tool catalog in `tool`. Do not invent tool names.
+- Slug normalization is asymmetric and worth knowing:
+  - For **lookup/routing**, the incoming `job_id` is just lowercased and has spaces replaced by `-`.
+  - For **creation** (slug derived from `name`, or explicit `job_id` being persisted), an extra sanitization runs: `/` and `\` become `-`, any character outside `[a-z0-9_-]` is collapsed to `-`, repeated `-` are merged, and leading/trailing `-` are trimmed.
+  - Net effect: the **stored** id may differ from what was sent. Prefer ids that are already `[a-z0-9_-]+` to avoid surprises.
+- Pipeline slugs follow the lookup rule (lowercase + spaces → `-`). A pipeline is **auto-created** the first time a job references its slug, so you don't need to `job_pipeline(create)` upfront.
+- Always reference an existing tool from the tool catalog in `tool`. MCP tools are namespaced as `mcp_<serverSlug>__<toolName>` (e.g. `mcp_jira__search_issues`) — do not use dotted names like `mcp.jira.search_issues`, they will not resolve.
 - Use `{{ .event.* }}` in `inputs` to pass data from upstream jobs that emitted the event you are listening to.
 - Use `{{ secret "KEY" }}` for credentials — never hardcode secrets in `inputs`.
 - Use `pipeline` to group related jobs and to enable/disable them together.
