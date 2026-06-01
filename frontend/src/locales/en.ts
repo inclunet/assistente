@@ -1457,6 +1457,11 @@ const en = {
       exportHtml: 'Export HTML',
       exportPdf: 'Export PDF',
       exportMarkdown: 'Export Markdown',
+      exportFormat: {
+        html: 'HTML',
+        pdf: 'PDF',
+        markdown: 'Markdown',
+      },
       exportOptionsTitle: 'Export options',
       exportOptionsDescription: 'Choose what to include in the {{format}} export of {{count}} conversation(s).',
       exportOptionsLegend: 'Included content',

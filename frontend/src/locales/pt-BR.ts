@@ -1431,6 +1431,11 @@ const ptBR = {
       exportHtml: 'Exportar HTML',
       exportPdf: 'Exportar PDF',
       exportMarkdown: 'Exportar Markdown',
+      exportFormat: {
+        html: 'HTML',
+        pdf: 'PDF',
+        markdown: 'Markdown',
+      },
       exportOptionsTitle: 'Opções de exportação',
       exportOptionsDescription: 'Escolha o que incluir na exportação ({{format}}) de {{count}} conversa(s).',
       exportOptionsLegend: 'Conteúdo incluído',

@@ -14,6 +14,7 @@ import {
 import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ExportConversationsToFile, SearchConversationHistory } from '@wailsjs/go/app/App';
 import { portability } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../components/menu';
 import { MenuButton } from '../components/layout/MenuButton';
@@ -610,7 +611,7 @@ export default function HistoryPage() {
         <p id="history-export-options-desc" className="history-page__export-desc">
           {exportRequest
             ? t('history.exportOptionsDescription', {
-                format: exportFormatLabel(exportRequest.format),
+                format: exportFormatLabel(exportRequest.format, t),
                 count: exportRequest.ids.length,
                 defaultValue: 'Escolha o que incluir na exportação ({{format}}) de {{count}} conversa(s).',
               })
@@ -650,14 +651,14 @@ export default function HistoryPage() {
   );
 }
 
-function exportFormatLabel(format: RichExportFormat): string {
+function exportFormatLabel(format: RichExportFormat, t: TFunction): string {
   switch (format) {
     case 'html':
-      return 'HTML';
+      return t('history.exportFormat.html', { defaultValue: 'HTML' });
     case 'pdf':
-      return 'PDF';
+      return t('history.exportFormat.pdf', { defaultValue: 'PDF' });
     case 'md':
-      return 'Markdown';
+      return t('history.exportFormat.markdown', { defaultValue: 'Markdown' });
     default:
       return format;
   }

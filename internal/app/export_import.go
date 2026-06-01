@@ -308,10 +308,10 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 
 func normalizeRichConversationExportRequest(req ExportRequest) (ExportRequest, error) {
 	if req.IncludeCredentials {
-		return req, fmt.Errorf("exportação HTML/PDF não suporta credenciais")
+		return req, fmt.Errorf("exportação HTML/PDF/Markdown não suporta credenciais")
 	}
 	if strings.TrimSpace(req.CredentialExportPassword) != "" {
-		return req, fmt.Errorf("exportação HTML/PDF não usa senha de credenciais")
+		return req, fmt.Errorf("exportação HTML/PDF/Markdown não usa senha de credenciais")
 	}
 	req.IncludeCredentials = false
 	req.CredentialExportPassword = ""
