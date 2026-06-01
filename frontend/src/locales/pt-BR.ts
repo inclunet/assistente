@@ -1603,6 +1603,7 @@ const ptBR = {
       tabSingular: 'aba',
       tabPlural: 'abas',
       tabCreated: 'Aba criada',
+      createTabChordHint: 'Criar aba: C chat, E editor, R terminal, T tarefas',
       rename: 'Renomear workspace',
       renamed: 'Workspace renomeado',
       export: 'Exportar workspace',

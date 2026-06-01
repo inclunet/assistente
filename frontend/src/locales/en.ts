@@ -1629,6 +1629,7 @@ const en = {
       tabSingular: 'tab',
       tabPlural: 'tabs',
       tabCreated: 'Tab created',
+      createTabChordHint: 'Create tab: C chat, E editor, R terminal, T tasks',
       rename: 'Rename workspace',
       renamed: 'Workspace renamed',
       export: 'Export workspace',

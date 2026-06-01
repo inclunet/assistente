@@ -1635,6 +1635,7 @@ const es = {
       tabSingular: 'pestaña',
       tabPlural: 'pestañas',
       tabCreated: 'Pestaña creada',
+      createTabChordHint: 'Crear pestaña: C chat, E editor, R terminal, T tareas',
       tabsRegion: 'Paneles',
       tabListLabel: 'Lista de paneles',
       editTabTitle: 'Editar título de la pestaña',

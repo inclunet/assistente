@@ -25,11 +25,14 @@ import { restoreDefaultFocus } from './useDefaultFocus';
 
 const CHORD_TIMEOUT_MS = 1500;
 
-const CHORD_MAP: Record<string, { type: TabType; title: string }> = {
-  c: { type: 'chat', title: 'Nova conversa' },
-  e: { type: 'editor', title: 'Novo documento' },
-  r: { type: 'terminal', title: 'Terminal' },
-  t: { type: 'tasklist', title: 'Tarefas' },
+// Títulos resolvidos via i18next.t(titleKey) no momento do uso (CHORD_MAP é
+// const de módulo, avaliada uma vez): assim a aba criada respeita o idioma
+// corrente, inclusive após troca em runtime. Reutiliza chaves existentes.
+const CHORD_MAP: Record<string, { type: TabType; titleKey: string }> = {
+  c: { type: 'chat', titleKey: 'chat.newConversation' },
+  e: { type: 'editor', titleKey: 'editor.fallback.newDoc' },
+  r: { type: 'terminal', titleKey: 'workspace.newTerminal' },
+  t: { type: 'tasklist', titleKey: 'workspace.newTasklist' },
 };
 
 export function useWorkspaceKeyboardShortcuts() {
@@ -108,8 +111,9 @@ export function useWorkspaceKeyboardShortcuts() {
         if (match) {
           event.preventDefault();
           event.stopPropagation();
-          void addTab(match.type, match.title);
-          announce(`Nova aba: ${match.title}`);
+          const title = i18next.t(match.titleKey);
+          void addTab(match.type, title);
+          announce(`${i18next.t('workspace.tabCreated')}: ${title}`);
         }
         chordPendingRef.current = false;
         if (chordTimerRef.current) {
@@ -123,7 +127,7 @@ export function useWorkspaceKeyboardShortcuts() {
       if (event.ctrlKey && event.shiftKey && event.key === 'N') {
         event.preventDefault();
         if (isModalOpen()) return;
-        createWorkspace(`Workspace ${Date.now().toString(36)}`);
+        void createWorkspace(`Workspace ${Date.now().toString(36)}`);
         return;
       }
 
@@ -138,7 +142,7 @@ export function useWorkspaceKeyboardShortcuts() {
           chordTimerRef.current = null;
         }, CHORD_TIMEOUT_MS);
         window.dispatchEvent(new CustomEvent('workspace:open-new-tab-menu'));
-        announce('Criar aba: C chat, E editor, R terminal, T tarefas');
+        announce(i18next.t('workspace.createTabChordHint'));
         return;
       }
 
@@ -148,7 +152,7 @@ export function useWorkspaceKeyboardShortcuts() {
         if (isInput) return;
         event.preventDefault();
         if (isModalOpen()) return;
-        addTab('chat', i18next.t('chat.newConversation'));
+        void addTab('chat', i18next.t('chat.newConversation'));
         announce(i18next.t('workspace.tabCreated'));
         return;
       }
