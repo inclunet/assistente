@@ -184,16 +184,25 @@ func (a *App) AnalyzeImportData(jsonData string, credentialExportPassword string
 	return portability.AnalyzeImportDataWithContext(ctx, jsonData, a.credMgr, credentialExportPassword)
 }
 
-func (a *App) ExportConversationsToFile(ids []string, format string) (string, error) {
+func (a *App) ExportConversationsToFile(ids []string, format string, options portability.ContentExportOptions) (string, error) {
 	if a.dialogPort == nil {
 		return "", fmt.Errorf("diálogo de sistema não inicializado")
 	}
 
-	req := portability.ExportRequest{OutputFormat: format}
 	switch format {
-	case portability.FormatHTML, portability.FormatPDF:
+	case portability.FormatHTML, portability.FormatPDF, portability.FormatMarkdown:
 	default:
 		return "", fmt.Errorf("formato de exportação não suportado: %s", format)
+	}
+
+	includeTimestamps := options.IncludeTimestamps
+	includeReasoning := options.IncludeReasoning
+	includeMetadata := options.IncludeMetadata
+	req := portability.ExportRequest{
+		OutputFormat:      format,
+		IncludeTimestamps: &includeTimestamps,
+		IncludeReasoning:  &includeReasoning,
+		IncludeMetadata:   &includeMetadata,
 	}
 
 	ctx, err := a.importExportContext()
@@ -251,7 +260,7 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 			return "", err
 		}
 		return path, nil
-	case portability.FormatHTML, portability.FormatPDF:
+	case portability.FormatHTML, portability.FormatPDF, portability.FormatMarkdown:
 		ctx, err := a.importExportContext()
 		if err != nil {
 			return "", err
@@ -273,7 +282,7 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 			return "", err
 		}
 		if len(taskListIDs) > 0 || len(providerIDs) > 0 || len(mcpServerSlugs) > 0 {
-			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
+			return "", fmt.Errorf("exportação HTML/PDF/Markdown atualmente suporta apenas conversas")
 		}
 		req, err = normalizeRichConversationExportRequest(req)
 		if err != nil {
@@ -299,10 +308,10 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 
 func normalizeRichConversationExportRequest(req ExportRequest) (ExportRequest, error) {
 	if req.IncludeCredentials {
-		return req, fmt.Errorf("exportação HTML/PDF não suporta credenciais")
+		return req, fmt.Errorf("exportação HTML/PDF/Markdown não suporta credenciais")
 	}
 	if strings.TrimSpace(req.CredentialExportPassword) != "" {
-		return req, fmt.Errorf("exportação HTML/PDF não usa senha de credenciais")
+		return req, fmt.Errorf("exportação HTML/PDF/Markdown não usa senha de credenciais")
 	}
 	req.IncludeCredentials = false
 	req.CredentialExportPassword = ""
