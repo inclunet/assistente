@@ -226,6 +226,12 @@ type ServiceConfig struct {
 	CredMgr         *credentials.Manager
 	ProfileManager  *profiles.Manager
 	ProfileResolver func(context.Context, *profiles.Profile) *profiles.Profile
+	// RateLimiter aplica o mesmo rate limiting por usuário das chamadas de chat
+	// (Issue #27 / AEP-0065) também à chamada LLM de sumarização, que é um vetor
+	// de custo. Opcional: nil = sem limite.
+	RateLimiter *llm.RateLimiter
+	// RateLimitKeyFunc extrai a chave de limite (userID) do contexto. Opcional.
+	RateLimitKeyFunc func(context.Context) string
 }
 
 // Service encapsula a lógica de sumarização de conversas, sem depender de Wails.
@@ -413,7 +419,14 @@ func (s *Service) executeSummarization(
 		return
 	}
 
-	cp := llm.NewChatProvider(provider, s.cfg.CredMgr)
+	// Aplica o mesmo rate limiting por usuário das chamadas de chat — a
+	// sumarização também consome cota/custo do provedor (Issue #27 / AEP-0065).
+	// Quando RateLimiter é nil, NewRateLimitedProvider devolve o provider inalterado.
+	cp := llm.NewRateLimitedProvider(
+		llm.NewChatProvider(provider, s.cfg.CredMgr),
+		s.cfg.RateLimiter,
+		s.cfg.RateLimitKeyFunc,
+	)
 	summary, err := cp.SimpleChat(ctx, model, SummaryPrompt, userPrompt)
 	if err != nil {
 		log.Printf("[Summary] Erro na chamada LLM: %v", err)
