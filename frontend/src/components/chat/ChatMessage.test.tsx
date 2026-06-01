@@ -357,13 +357,18 @@ describe('ChatMessage', () => {
     expect(buildAriaLabelMock).toHaveBeenLastCalledWith(expect.objectContaining({
       displayContent: 'resposta final',
     }));
-    const lastArgs = buildAriaLabelMock.mock.calls.at(-1)?.[0] as { displayContent: string };
+    const lastCalls = buildAriaLabelMock.mock.calls;
+    const lastArgs = lastCalls[lastCalls.length - 1]?.[0] as { displayContent: string };
     expect(lastArgs.displayContent).not.toContain('vou pesquisar');
     expect(lastArgs.displayContent).not.toContain('agora vou refinar');
   });
 
-  it('substitui (não concatena) o aria-label pelo último segmento textual disponível durante o streaming', () => {
-    const baseMessage = new chat.EnrichedMessage({
+  it('substitui (não concatena) o aria-label pelo texto ao vivo mais recente durante o streaming, mesmo antes de virar TurnSegment', () => {
+    // Cenário real do streaming agêntico: a iteração em curso aparece em
+    // `content` (live) e só vira um TurnSegment concluído depois. O anúncio
+    // precisa refletir esse trecho mais recente, sem ficar preso no último
+    // segmento já fechado.
+    const first = new chat.EnrichedMessage({
       id: 'turn-streaming',
       conversationId,
       role: 'assistant',
@@ -376,7 +381,7 @@ describe('ChatMessage', () => {
 
     const { rerender } = render(
       <ChatMessage
-        message={baseMessage}
+        message={first}
         completedSegments={[{ type: 'text', content: 'parte um' }]}
       />
     );
@@ -385,13 +390,25 @@ describe('ChatMessage', () => {
       displayContent: 'parte um',
     }));
 
+    // O novo trecho ("parte dois") chega como conteúdo ao vivo; os segmentos
+    // concluídos ainda terminam no texto anterior ("parte um") + tool_calls.
+    const second = new chat.EnrichedMessage({
+      id: 'turn-streaming',
+      conversationId,
+      role: 'assistant',
+      content: 'parte dois',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+
     rerender(
       <ChatMessage
-        message={baseMessage}
+        message={second}
         completedSegments={[
           { type: 'text', content: 'parte um' },
           { type: 'tool_calls', toolCalls: [{ id: 't', type: 'function', function: { name: 'search', arguments: '{}' } }] },
-          { type: 'text', content: 'parte dois' },
         ]}
       />
     );
@@ -399,8 +416,9 @@ describe('ChatMessage', () => {
     expect(buildAriaLabelMock).toHaveBeenLastCalledWith(expect.objectContaining({
       displayContent: 'parte dois',
     }));
-    const lastArgs = buildAriaLabelMock.mock.calls.at(-1)?.[0] as { displayContent: string };
-    // Substituição: o anúncio reflete só o último segmento, sem acumular o anterior.
+    const calls = buildAriaLabelMock.mock.calls;
+    const lastArgs = calls[calls.length - 1]?.[0] as { displayContent: string };
+    // Substituição: o anúncio reflete só o trecho mais recente, sem acumular o anterior.
     expect(lastArgs.displayContent).not.toContain('parte um');
   });
 

@@ -142,6 +142,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   // substituindo (não concatenando) o anúncio anterior. Fallback para o
   // `placeholderContent` quando não há texto (ex.: turno tool-only).
   const conclusionContent = useMemo(() => {
+    // Durante o streaming agêntico, o trecho mais recente costuma ainda estar em
+    // `effectiveContent` (texto da iteração em curso) e só vira um `TurnSegment`
+    // concluído depois. Para o anúncio ser de fato substitutivo (refletir o
+    // último texto disponível, não o segmento anterior já fechado), o conteúdo
+    // ao vivo tem prioridade enquanto há streaming.
+    if (effectiveIsStreaming && effectiveContent && effectiveContent.trim()) {
+      return effectiveContent;
+    }
     for (let i = displaySegments.length - 1; i >= 0; i -= 1) {
       const seg = displaySegments[i];
       if (seg.type === 'text' && seg.content && seg.content.trim()) {
@@ -149,7 +157,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       }
     }
     return placeholderContent || '';
-  }, [displaySegments, placeholderContent]);
+  }, [effectiveIsStreaming, effectiveContent, displaySegments, placeholderContent]);
 
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : effectiveContent;
