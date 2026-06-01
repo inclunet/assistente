@@ -1996,6 +1996,7 @@ const en = {
         grabCancelled: 'Move cancelled',
         cardMenu: 'Card menu',
         renameCard: 'Rename task',
+        cardCreatedAt: 'created',
       },
       details: 'Details',
       taskDetails: 'Task Details',

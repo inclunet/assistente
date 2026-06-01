@@ -203,6 +203,34 @@ describe('KanbanBoard', () => {
     expect(desc?.textContent).toContain('1 de 2');
   });
 
+  // ── Data de criação (issue #151) ──────────────────────────
+
+  it('card aria-describedby inclui a data de criação ao final, no formato do chat', async () => {
+    await renderBoard();
+
+    const desc = document.getElementById('card-desc-10');
+    expect(desc).toBeInTheDocument();
+    // Prefixo i18n para a data de criação
+    expect(desc?.textContent).toContain('criado');
+    // Sufixo no mesmo formato relativo usado nas mensagens do chat
+    // (formatRelativeTime para "2024-01-01" produz "há X anos").
+    expect(desc?.textContent).toMatch(/há \d+ ano/);
+    // E a data deve vir DEPOIS da posição (último item lido).
+    const text = desc?.textContent ?? '';
+    expect(text.indexOf('criado')).toBeGreaterThan(text.indexOf('1 de 2'));
+  });
+
+  it('anúncio do card inclui a data de criação ao receber foco', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringMatching(/criado há \d+ ano/),
+      'assertive',
+    );
+  });
+
   // ── Navegação por teclado ─────────────────────────────────
 
   it('navega entre cards com ArrowDown', async () => {
