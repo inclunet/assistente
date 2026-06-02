@@ -184,7 +184,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 			select {
 			case <-ctx.Done():
 				rl.Status = "failed"
-				rl.Error = "cancelled during retry"
+				rl.Error = cancellationError("cancelled during retry", ctx)
 				e.emitFailure(ctx, job, rl, trigCtx)
 				return rl
 			case <-time.After(delay):
@@ -341,7 +341,7 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		}
 		result, err := tool.Execute(ctx, argsJSON)
 		if err != nil {
-			return tools.ToolResult{}, fmt.Errorf("tool execute: %w", err)
+			return tools.ToolResult{}, wrapToolExecuteErr(ctx, err)
 		}
 		if result.IsError {
 			return tools.ToolResult{}, fmt.Errorf("tool error: %s", result.Content)
@@ -377,7 +377,7 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
 	}).Execution
 	if result.Error != nil {
-		return tools.ToolResult{}, fmt.Errorf("tool execute: %w", result.Error)
+		return tools.ToolResult{}, wrapToolExecuteErr(ctx, result.Error)
 	}
 	if result.Result.IsError {
 		return tools.ToolResult{}, fmt.Errorf("tool error: %s", result.Result.Content)
@@ -678,6 +678,30 @@ func (e *JobExecutor) calculateRetryDelay(job *Job, attempt int) time.Duration {
 	default: // fixed
 		return baseDelay
 	}
+}
+
+// wrapToolExecuteErr envelopa o erro da tool com o prefixo "tool execute" e,
+// quando o ctx foi cancelado, anexa o motivo (context.Cause) para distinguir
+// deadline vs cancelamento do publicador vs cancelamento manual.
+func wrapToolExecuteErr(ctx context.Context, err error) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return fmt.Errorf("tool execute: %w (ctx cause: %v)", err, cause)
+	}
+	return fmt.Errorf("tool execute: %w", err)
+}
+
+// cancellationError anexa o motivo do cancelamento (context.Cause) à mensagem
+// quando ele difere do erro genérico do ctx, ajudando a distinguir "deadline
+// exceeded" vs "parent canceled" vs cancelamento manual em diagnósticos.
+func cancellationError(prefix string, ctx context.Context) string {
+	cause := context.Cause(ctx)
+	if cause == nil || cause == ctx.Err() {
+		if err := ctx.Err(); err != nil {
+			return fmt.Sprintf("%s: %v", prefix, err)
+		}
+		return prefix
+	}
+	return fmt.Sprintf("%s: %v", prefix, cause)
 }
 
 func estimateSize(v map[string]any) int {

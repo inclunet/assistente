@@ -287,6 +287,74 @@ func TestManagerExecuteJobSkipsAutomaticMCPRunWhenToolUnavailable(t *testing.T) 
 	}
 }
 
+// TestEventTriggeredRunSurvivesPublisherContextCancellation reproduz o bug #164:
+// um run disparado por evento herdava o ctx do publicador, que é cancelado logo
+// após o publicador retornar (o fan-out do EventBus é assíncrono). A tool MCP
+// downstream morria com "context canceled" em poucos ms. Com o desacoplamento do
+// lifetime (context.WithoutCancel no subscriber), o run downstream deve completar.
+func TestEventTriggeredRunSurvivesPublisherContextCancellation(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	registry := tools.NewRegistry()
+	blocking := &fakeBlockingTool{
+		name:     "test_tool",
+		delay:    120 * time.Millisecond,
+		response: `{"ok":true}`,
+	}
+	registry.MustRegister(blocking)
+
+	job := testRepositoryJob("downstream", "Downstream")
+	job.Tool = "test_tool"
+	job.Triggers = []Trigger{{Type: TriggerEvent, Listen: "upstream.success"}}
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+
+	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
+		ToolRegistry:    registry,
+		ContextProvider: func() context.Context { return userA },
+	})
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start manager: %v", err)
+	}
+	t.Cleanup(mgr.Stop)
+
+	// Simula o publicador: um ctx de escopo de requisição (com user_id) que é
+	// cancelado imediatamente após publicar, como acontece com a tool `job` ou
+	// um interval em hot reload.
+	pubCtx, cancel := context.WithCancel(userA)
+	mgr.eventBus.Publish(pubCtx, "upstream.success", map[string]any{"id": "evt-1"})
+	cancel()
+
+	// Aguarda o run downstream ser persistido com status terminal.
+	var run *RunLog
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		runs, err := repo.GetRuns(userA, "downstream", 1)
+		if err != nil {
+			t.Fatalf("get runs: %v", err)
+		}
+		if len(runs) == 1 && runs[0].Status != "" {
+			run = &runs[0]
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if run == nil {
+		t.Fatal("downstream run was never persisted")
+	}
+	if blocking.wasCanceled() {
+		t.Fatalf("tool received a canceled context (run inherited publisher lifetime): %#v", run)
+	}
+	if !blocking.didFinish() {
+		t.Fatal("tool did not run to completion")
+	}
+	if run.Status != "completed" {
+		t.Fatalf("downstream run status = %q (error: %q), want completed", run.Status, run.Error)
+	}
+}
+
 func TestManagerGetJobContextReturnsCopy(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	job := testRepositoryJob("sync-jira", "Sync Jira")
