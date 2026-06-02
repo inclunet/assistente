@@ -14,6 +14,10 @@ type contextKey struct{}
 
 var provenanceKey = contextKey{}
 
+type suppressKey struct{}
+
+var domainSuppressKey = suppressKey{}
+
 // Provenance descreve a origem de uma mutação que pode emitir eventos de domínio.
 type Provenance struct {
 	Source       string   // "user" (humano) | "job" (automação)
@@ -34,4 +38,21 @@ func From(ctx context.Context) (Provenance, bool) {
 	}
 	p, ok := ctx.Value(provenanceKey).(Provenance)
 	return p, ok
+}
+
+// WithSuppressed marca o ctx para que eventos de domínio NÃO sejam publicados.
+// Usado em dry-run: a tool roda de verdade (e pode mutar estado), mas a ponte de
+// eventos de domínio deve ficar muda para não cascatear outros jobs. A supressão
+// é independente da proveniência (chave própria), então convive com With/From.
+func WithSuppressed(ctx context.Context) context.Context {
+	return context.WithValue(ctx, domainSuppressKey, true)
+}
+
+// IsSuppressed informa se a publicação de eventos de domínio está suprimida no ctx.
+func IsSuppressed(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(domainSuppressKey).(bool)
+	return v
 }

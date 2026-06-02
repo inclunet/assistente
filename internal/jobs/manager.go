@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/eventctx"
 	"assistente/internal/hotkey"
 	"assistente/internal/mcp"
 	"assistente/internal/messaging"
@@ -805,6 +806,13 @@ func (m *Manager) ListKnownEvents() []string {
 func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload map[string]any) error {
 	if name == "" {
 		return fmt.Errorf("domain event name is required")
+	}
+	// Dry-run: a tool pode mutar estado de domínio, mas a ponte de eventos fica
+	// muda para não cascatear outros jobs (ExecuteDryRun carimba a supressão no
+	// ctx). Choke point único — cobre tasklist.Service e chamadores diretos
+	// (custom actions). Ver eventctx.WithSuppressed / executor.ExecuteDryRun.
+	if eventctx.IsSuppressed(ctx) {
+		return nil
 	}
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
