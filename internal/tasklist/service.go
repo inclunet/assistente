@@ -296,7 +296,12 @@ func (s *Service) UpdateTask(ctx context.Context, id string, title, description,
 	s.emitter.Emit("task:updated", task)
 	if s.wantsDomain("tasklist.task.updated") {
 		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
-			payload["changed_fields"] = changedTaskFields(old, task)
+			// Só preenche changed_fields quando há snapshot recarregado: no
+			// fallback (task==nil) o diff ficaria vazio e induziria o consumidor
+			// a achar que nada mudou. Melhor omitir do que mentir.
+			if task != nil {
+				payload["changed_fields"] = changedTaskFields(old, task)
+			}
 			s.publishDomain(ctx, "tasklist.task.updated", payload)
 		}
 	}
@@ -315,7 +320,10 @@ func (s *Service) UpdateTaskFull(ctx context.Context, id string, title, descript
 	s.emitter.Emit("task:updated", task)
 	if s.wantsDomain("tasklist.task.updated") {
 		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
-			payload["changed_fields"] = changedTaskFields(old, task)
+			// Ver UpdateTask: changed_fields só com snapshot recarregado.
+			if task != nil {
+				payload["changed_fields"] = changedTaskFields(old, task)
+			}
 			s.publishDomain(ctx, "tasklist.task.updated", payload)
 		}
 	}

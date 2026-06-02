@@ -2,6 +2,7 @@ package tasklist
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"assistente/internal/database"
@@ -33,7 +34,13 @@ func (s *Service) publishDomain(ctx context.Context, name string, payload map[st
 		payload = map[string]any{}
 	}
 	applyProvenance(ctx, payload)
-	_ = s.domain.PublishDomainEvent(ctx, name, payload)
+	// Política best-effort: eventos de domínio não devem quebrar a mutação que
+	// os originou. Mas só chegamos aqui quando há listener (wantsDomain), então
+	// uma falha (event bus não inicializado, ctx sem user_id, etc.) silenciaria
+	// um evento que alguém espera — logamos para não esconder o problema.
+	if err := s.domain.PublishDomainEvent(ctx, name, payload); err != nil {
+		log.Printf("[tasklist] falha ao publicar evento de domínio %q: %v", name, err)
+	}
 }
 
 // applyProvenance copia a proveniência carimbada no ctx (por um run de job) para

@@ -234,6 +234,11 @@ func TestUpdateTaskFallsBackToOldSnapshotWhenReloadFails(t *testing.T) {
 	if p["task_list_slug"] != "suporte" {
 		t.Fatalf("task_list_slug = %v, want suporte (fallback)", p["task_list_slug"])
 	}
+	// Sem snapshot recarregado, changed_fields é omitido (não vazio) para não
+	// induzir o consumidor a achar que nada mudou. Regressão do review #171.
+	if _, ok := p["changed_fields"]; ok {
+		t.Fatalf("changed_fields não deveria estar presente no fallback (task==nil), veio %v", p["changed_fields"])
+	}
 }
 
 func TestCreateTaskNoteEmitsNoteAdded(t *testing.T) {
