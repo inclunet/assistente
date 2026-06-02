@@ -38,34 +38,69 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Requesting Copilot review for ${REPO}#${PR_NUMBER}"
+          echo "Solicitando review do Copilot para ${REPO}#${PR_NUMBER}"
 
           if [[ -z "${HEAD_SHA}" ]]; then
             HEAD_SHA="$(gh pr view "${PR_NUMBER}" --repo "${REPO}" --json headRefOid --jq '.headRefOid')"
           fi
-          echo "Target head SHA: ${HEAD_SHA}"
+          echo "Commit alvo (head SHA): ${HEAD_SHA}"
 
+          # Mostra o último review do Copilot ANTES de solicitar, para servir de
+          # base de comparação nos logs (ajuda a verificar se um novo review foi gerado).
+          echo "Reviews anteriores do Copilot (login -> commit):"
+          gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+            --jq '.[] | select(.user.login == "copilot-pull-request-reviewer") | "  - " + .commit_id + " (" + .state + ")"' \
+            2>/dev/null || echo "  (nenhum review anterior do Copilot)"
+
+          # IMPORTANTE: apenas re-postar o Copilot em requested_reviewers NÃO dispara
+          # um novo review quando ele já revisou o PR — a API responde 2xx mas nada
+          # acontece (no-op silencioso). Para forçar um review a cada commit, removemos
+          # o Copilot dos reviewers pendentes e o adicionamos de novo, garantindo a
+          # transição "não solicitado" -> "solicitado" que dispara o review.
+          echo "Removendo solicitação de review anterior do Copilot (se houver)..."
+          gh api \
+            --method DELETE \
+            "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+            -f "reviewers[]=Copilot" >/dev/null 2>&1 \
+            && echo "Solicitação anterior removida." \
+            || echo "Nenhuma solicitação pendente para remover (ok)."
+
+          requested=0
           for attempt in 1 2 3; do
             if output=$(gh api \
               --method POST \
               "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
               -f "reviewers[]=Copilot" 2>&1); then
-              echo "Copilot review requested."
-              exit 0
+              echo "Review do Copilot solicitado para o commit ${HEAD_SHA}."
+              requested=1
+              break
             fi
 
             echo "${output}"
             if [[ "${output}" == *"already requested"* || "${output}" == *"Review request already exists"* ]]; then
-              echo "Copilot review is already requested."
-              exit 0
+              echo "Review do Copilot já está solicitado."
+              requested=1
+              break
             fi
 
             if [[ "${attempt}" != "3" ]]; then
-              echo "Attempt ${attempt} failed; retrying shortly..."
+              echo "Tentativa ${attempt} falhou; tentando novamente em instantes..."
               sleep 15
             else
-              echo "Attempt ${attempt} failed."
-              echo "Failed to request Copilot review after 3 attempts."
+              echo "Tentativa ${attempt} falhou."
+              echo "Falha ao solicitar review do Copilot após 3 tentativas."
+              echo "Verifique se o 'Copilot code review' está habilitado para o repositório"
+              echo "(Settings -> Copilot -> Code review) e se a licença Copilot cobre o repositório."
               exit 1
             fi
           done
+
+          # Verificação observável: lista os reviewers pendentes logo após solicitar.
+          # OBS: o Copilot pode iniciar o review imediatamente e sair de "pendente",
+          # então uma lista vazia aqui NÃO indica falha — é apenas diagnóstico.
+          if [[ "${requested}" == "1" ]]; then
+            echo "Reviewers pendentes após a solicitação:"
+            gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+              --jq '.users[].login | "  - " + .' 2>/dev/null \
+              || echo "  (nenhum reviewer pendente listado no momento)"
+          fi
