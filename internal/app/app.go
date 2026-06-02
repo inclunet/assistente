@@ -370,6 +370,12 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o sistema de jobs (event-driven automation)
 	a.initJobs()
 
+	// Liga a ponte de eventos de domínio das tasklists ao EventBus de jobs (AEP-0067).
+	// O Service é criado antes do jobMgr, então o sink é injetado aqui.
+	if a.taskSvc != nil {
+		a.taskSvc.SetDomainEventSink(a.jobMgr)
+	}
+
 	// Inicializa o updater
 	a.initUpdater()
 

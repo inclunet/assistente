@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/eventctx"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
@@ -249,6 +250,12 @@ func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *Trig
 }
 
 func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *TriggerContext, rl *RunLog) (map[string]any, error) {
+	// Carimba proveniência no ctx do run (AEP-0067): mutações de domínio feitas
+	// pela tool (ex.: task_list) durante este run são marcadas como _source="job".
+	// Isso flui ctx -> tool -> tasklist.Service, que injeta no payload do evento,
+	// permitindo anti-loop via trigger.when ({{ eq .event._source "user" }}).
+	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, rl))
+
 	// Resolve a tool no registry
 	tool, ok := e.toolRegistry.Get(job.Tool)
 	if !ok {
@@ -385,6 +392,33 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 	return result.Result, nil
 }
 
+// runProvenance monta a proveniência carimbada no ctx do run, espelhando a
+// semântica de cadeia de emitSuccess (chainID herdado do trigger ou o RunID).
+func (e *JobExecutor) runProvenance(job *Job, trigCtx *TriggerContext, rl *RunLog) eventctx.Provenance {
+	chainID := ""
+	var history []string
+	if trigCtx != nil {
+		chainID = trigCtx.ChainID
+		history = trigCtx.ChainHistory
+	}
+	if chainID == "" {
+		if rl != nil && rl.RunID != "" {
+			chainID = rl.RunID
+		} else {
+			chainID = newChainID()
+		}
+	}
+	chain := make([]string, 0, len(history)+1)
+	chain = append(chain, history...)
+	chain = append(chain, job.ID)
+	return eventctx.Provenance{
+		Source:       "job",
+		SourceJobID:  job.ID,
+		ChainID:      chainID,
+		ChainHistory: chain,
+	}
+}
+
 func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, trigCtx *TriggerContext) {
 	if job.Events.OnSuccess == "" {
 		return
@@ -394,7 +428,10 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	if chainID == "" {
 		chainID = rl.RunID
 	}
-	chainHistory := append(trigCtx.ChainHistory, job.ID)
+	// clipHistory garante cap == len: o mesmo slice é compartilhado entre os itens
+	// de fan-out e entregue a handlers concorrentes pelo EventBus, então um append
+	// downstream com capacidade sobrando mutaria o backing array compartilhado.
+	chainHistory := clipHistory(append(trigCtx.ChainHistory, job.ID))
 
 	// Fan-out: se for_each aponta para um campo que é array, emite um evento por item
 	if job.Events.ForEach != "" {

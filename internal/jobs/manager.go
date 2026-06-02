@@ -859,6 +859,17 @@ func clipHistory(h []string) []string {
 	return h[:len(h):len(h)]
 }
 
+// HasDomainListener informa se há ao menos um job inscrito (habilitado) no evento.
+// Produtores de eventos de domínio (ex.: tasklist.Service) usam isto para evitar
+// montar payloads e fazer queries quando ninguém está escutando — preservando o
+// custo ~zero do barramento.
+func (m *Manager) HasDomainListener(name string) bool {
+	if m == nil || m.eventBus == nil {
+		return false
+	}
+	return m.eventBus.SubscriberCount(name) > 0
+}
+
 // newChainID gera um identificador de cadeia para o circuit breaker.
 func newChainID() string {
 	if id, err := uuid.NewV7(); err == nil {
