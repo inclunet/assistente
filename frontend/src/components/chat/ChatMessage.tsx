@@ -402,7 +402,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   useEffect(() => {
     if (isReading) {
       if (!isChainExpandedRef.current) {
-        forcedChainExpandRef.current = { restore: false };
+        forcedChainExpandRef.current = { restore: isChainExpandedRef.current };
         setIsChainExpanded(true);
       }
     } else if (forcedChainExpandRef.current) {
