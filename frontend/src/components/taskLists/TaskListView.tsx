@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
-import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, ReloadOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
@@ -42,7 +42,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
-  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, requestTaskListRefresh } = useTaskListStore();
+  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus } = useTaskListStore();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
   const [isWorkflowEditorOpen, setIsWorkflowEditorOpen] = useState(false);
@@ -123,18 +123,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       throw new Error(msg || t('tasklist.workflow.saveFailed', 'Erro ao salvar workflow'));
     }
   }, [taskListId, updateWorkflowFull, addToast, announce, t]);
-
-  const handleRequestRefresh = useCallback(async () => {
-    try {
-      await requestTaskListRefresh(taskListId);
-      const msg = t('tasklist.refreshRequested', 'Atualização solicitada');
-      addToast(msg, 'success');
-      announce(msg);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      addToast(msg || t('common.error', 'Erro ao solicitar atualização'), 'error');
-    }
-  }, [taskListId, requestTaskListRefresh, addToast, announce, t]);
 
   const handleClone = useCallback(async () => {
     const newTitle = `${taskList?.title || 'Lista'} (Cópia)`;
@@ -300,13 +288,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
                   },
                 ]
               : []),
-            {
-              key: 'refresh-list',
-              label: t('tasklist.refresh', 'Atualizar'),
-              icon: <ReloadOutlined />,
-              onClick: () => void handleRequestRefresh(),
-              variant: 'secondary' as const,
-            },
             {
               key: 'edit-workflow',
               label: t('tasklist.workflow.editWorkflow', 'Editar Workflow'),

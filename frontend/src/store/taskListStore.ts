@@ -30,7 +30,6 @@ import {
   GetTaskNotes,
   UpdateTaskNote,
   DeleteTaskNote,
-  RequestTaskListRefresh,
 } from '@wailsjs/go/app/App';
 import type {
   Task,
@@ -183,7 +182,6 @@ interface TaskListStoreState {
   clearTaskList: (taskListId: string) => Promise<void>;
   cloneTaskList: (taskListId: string, newTitle: string) => Promise<TaskListWithWorkflow | null>;
   fetchAllTaskLists: () => Promise<database.TaskList[]>;
-  requestTaskListRefresh: (taskListId: string) => Promise<void>;
 
   // View mode
   setViewMode: (taskListId: string, viewMode: ViewMode) => Promise<void>;
@@ -421,17 +419,6 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         return lists || [];
       } catch {
         return [];
-      }
-    },
-
-    // requestTaskListRefresh publica tasklist.list.refresh_requested no EventBus de jobs
-    // (AEP-0067). Gatilho one-shot iniciado pelo usuário; no-op se nenhum job estiver vinculado.
-    requestTaskListRefresh: async (taskListId: string) => {
-      try {
-        await RequestTaskListRefresh(taskListId);
-      } catch (error) {
-        get().setError(taskListErrorKey('requestTaskListRefresh', taskListId), String(error));
-        throw error instanceof Error ? error : new Error(String(error));
       }
     },
 

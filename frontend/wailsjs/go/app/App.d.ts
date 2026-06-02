@@ -424,8 +424,6 @@ export function ReorderWorkspaceTabs(arg1:Array<string>):Promise<void>;
 
 export function ReplayRun(arg1:string,arg2:string):Promise<jobs.TestToolResult>;
 
-export function RequestTaskListRefresh(arg1:string):Promise<void>;
-
 export function ResetConfig():Promise<void>;
 
 export function ResetDatabase():Promise<void>;

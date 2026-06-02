@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
@@ -26,7 +26,6 @@ const taskListStoreState = vi.hoisted(() => ({
   deleteTaskList: vi.fn(),
   updateWorkflowFull: vi.fn(),
   getTaskCountsByStatus: vi.fn(),
-  requestTaskListRefresh: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -121,8 +120,6 @@ describe('TaskListView', () => {
     workspacePanelState.isActive = false;
     openCreateModalMock.mockReset();
     taskListStoreState.loadTaskList.mockReset();
-    taskListStoreState.requestTaskListRefresh.mockReset();
-    taskListStoreState.requestTaskListRefresh.mockResolvedValue(undefined);
     taskListStoreState.taskLists = new Map([
       ['tasklist-1', {
         id: 'tasklist-1',
@@ -151,14 +148,5 @@ describe('TaskListView', () => {
     await user.keyboard('n');
 
     expect(openCreateModalMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('a ação "Atualizar" publica o pedido de refresh da lista', async () => {
-    const user = userEvent.setup();
-    render(<TaskListView taskListId="tasklist-1" />);
-
-    await user.click(await screen.findByRole('button', { name: 'Atualizar' }));
-
-    expect(taskListStoreState.requestTaskListRefresh).toHaveBeenCalledWith('tasklist-1');
   });
 });
