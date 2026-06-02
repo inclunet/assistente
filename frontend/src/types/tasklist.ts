@@ -110,6 +110,38 @@ export interface TaskListWithWorkflow extends TaskList {
   tasks: Task[];
 }
 
+// ==================== Custom Actions (AEP-0067) ====================
+
+export type CustomActionSurface = 'card_menu' | 'card_detail' | 'board_menu';
+
+export interface CustomAction {
+  id: string;
+  label: string;
+  icon?: string;
+  surfaces?: CustomActionSurface[];
+  event?: string;
+  payload_template?: string;
+  link?: string;
+  when?: string;
+  danger?: boolean;
+  confirm?: string;
+}
+
+export interface TaskListCustomActions {
+  actions?: CustomAction[];
+}
+
+// Projeção renderizável de uma custom action (when já avaliado server-side).
+export interface CustomActionView {
+  id: string;
+  label: string;
+  icon?: string;
+  danger?: boolean;
+  confirm?: string;
+  hasEvent: boolean;
+  hasLink: boolean;
+}
+
 // ==================== UI/Store Types ====================
 
 export interface TaskListState {

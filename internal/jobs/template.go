@@ -164,6 +164,39 @@ func resolveTemplate(tmplStr string, ctx *TemplateContext) (any, error) {
 	return result, nil
 }
 
+// RenderWithRoot renderiza um template Go contra uma raiz de dados arbitrária
+// (ex.: {"task": {...}, "now": time.Time}), reusando as mesmas funções e
+// correções de sintaxe dos templates de jobs. Usado por custom actions de
+// tasklists (AEP-0067), onde a raiz é `.task`.
+func RenderWithRoot(tmplStr string, data map[string]any) (string, error) {
+	tmplStr = fixTemplateDots(tmplStr)
+	tmplStr = fixArrayAccess(tmplStr)
+
+	t, err := template.New("").Funcs(templateFuncs(nil)).Parse(tmplStr)
+	if err != nil {
+		return "", fmt.Errorf("template parse error: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("template exec error (template=%q): %w", tmplStr, err)
+	}
+	return strings.TrimSpace(buf.String()), nil
+}
+
+// EvaluateConditionWithRoot avalia uma condição (template truthy) contra uma raiz
+// arbitrária. Condição vazia é sempre verdadeira (sem filtragem).
+func EvaluateConditionWithRoot(condition string, data map[string]any) (bool, error) {
+	if strings.TrimSpace(condition) == "" {
+		return true, nil
+	}
+	result, err := RenderWithRoot(condition, data)
+	if err != nil {
+		return false, fmt.Errorf("condition eval: %w", err)
+	}
+	s := strings.TrimSpace(result)
+	return s != "" && s != "false" && s != "<no value>", nil
+}
+
 // --- Funcoes de template ---
 
 // pluck extrai um campo de cada item de uma slice de maps.

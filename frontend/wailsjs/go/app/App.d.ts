@@ -330,6 +330,8 @@ export function GetTaskCountsByStatus(arg1:string):Promise<Record<number, number
 
 export function GetTaskList(arg1:string):Promise<database.TaskList>;
 
+export function GetTaskListCustomActions(arg1:string):Promise<database.TaskListCustomActions>;
+
 export function GetTaskListStats(arg1:string):Promise<Record<string, any>>;
 
 export function GetTaskListWithHierarchy(arg1:string):Promise<database.TaskList>;
@@ -371,6 +373,10 @@ export function InitSpeechManagerFromProfile():Promise<void>;
 export function InterruptTerminalCommand(arg1:string):Promise<void>;
 
 export function IsGlobalHotkeySupported():Promise<boolean>;
+
+export function ListBoardCustomActions(arg1:string):Promise<Array<app.CustomActionView>>;
+
+export function ListCardCustomActions(arg1:string,arg2:string):Promise<Array<app.CustomActionView>>;
 
 export function ListCredentials():Promise<Array<controllers.CredentialSummary>>;
 
@@ -480,6 +486,8 @@ export function SetOpenAITTSSpeed(arg1:number):Promise<void>;
 
 export function SetOpenAITTSVoice(arg1:string):Promise<void>;
 
+export function SetTaskListCustomActions(arg1:string,arg2:string):Promise<void>;
+
 export function SetTaskListViewMode(arg1:string,arg2:string):Promise<void>;
 
 export function SetWorkspaceProfile(arg1:string):Promise<void>;
@@ -535,6 +543,8 @@ export function TestToolDryRun(arg1:string):Promise<jobs.TestToolResult>;
 export function ToggleJob(arg1:string,arg2:boolean):Promise<void>;
 
 export function TranscribeWhisper(arg1:string,arg2:string):Promise<speech.TranscriptionResult>;
+
+export function TriggerCustomAction(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function UnassignConversationFromChannel(arg1:string):Promise<void>;
 

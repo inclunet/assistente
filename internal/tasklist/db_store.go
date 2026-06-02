@@ -63,6 +63,20 @@ func (s *DBStore) SetTaskListValidationPolicy(ctx context.Context, taskListID st
 	return database.SetTaskListValidationPolicyWithContext(ctx, taskListID, policyJSON)
 }
 
+func (s *DBStore) GetTaskListCustomActions(ctx context.Context, taskListID string) (*database.TaskListCustomActions, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.LoadTaskListCustomActionsWithContext(ctx, taskListID)
+}
+
+func (s *DBStore) SetTaskListCustomActions(ctx context.Context, taskListID string, actionsJSON string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.SetTaskListCustomActionsWithContext(ctx, taskListID, actionsJSON)
+}
+
 func (s *DBStore) SetTaskListViewMode(ctx context.Context, id string, viewMode string) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err

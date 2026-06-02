@@ -618,6 +618,10 @@ export function GetTaskList(arg1) {
   return window['go']['app']['App']['GetTaskList'](arg1);
 }
 
+export function GetTaskListCustomActions(arg1) {
+  return window['go']['app']['App']['GetTaskListCustomActions'](arg1);
+}
+
 export function GetTaskListStats(arg1) {
   return window['go']['app']['App']['GetTaskListStats'](arg1);
 }
@@ -700,6 +704,14 @@ export function InterruptTerminalCommand(arg1) {
 
 export function IsGlobalHotkeySupported() {
   return window['go']['app']['App']['IsGlobalHotkeySupported']();
+}
+
+export function ListBoardCustomActions(arg1) {
+  return window['go']['app']['App']['ListBoardCustomActions'](arg1);
+}
+
+export function ListCardCustomActions(arg1, arg2) {
+  return window['go']['app']['App']['ListCardCustomActions'](arg1, arg2);
 }
 
 export function ListCredentials() {
@@ -918,6 +930,10 @@ export function SetOpenAITTSVoice(arg1) {
   return window['go']['app']['App']['SetOpenAITTSVoice'](arg1);
 }
 
+export function SetTaskListCustomActions(arg1, arg2) {
+  return window['go']['app']['App']['SetTaskListCustomActions'](arg1, arg2);
+}
+
 export function SetTaskListViewMode(arg1, arg2) {
   return window['go']['app']['App']['SetTaskListViewMode'](arg1, arg2);
 }
@@ -1028,6 +1044,10 @@ export function ToggleJob(arg1, arg2) {
 
 export function TranscribeWhisper(arg1, arg2) {
   return window['go']['app']['App']['TranscribeWhisper'](arg1, arg2);
+}
+
+export function TriggerCustomAction(arg1, arg2, arg3) {
+  return window['go']['app']['App']['TriggerCustomAction'](arg1, arg2, arg3);
 }
 
 export function UnassignConversationFromChannel(arg1) {

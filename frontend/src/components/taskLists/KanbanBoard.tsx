@@ -20,6 +20,7 @@ import { Modal } from '../ui/Modal';
 import { playBumpSound } from '../../services/audioFeedback';
 import TaskForm from './TaskForm';
 import TaskDetailModal from './TaskDetailModal';
+import { useCustomActions } from './useCustomActions';
 import type { Task, TaskListWithWorkflow } from '../../types/tasklist';
 import './KanbanBoard.css';
 
@@ -52,7 +53,8 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { announce } = useAnnouncer();
-  const { updateTaskStatus, reorderTasks, deleteTask } = useTaskListStore();
+  const { updateTaskStatus, reorderTasks, deleteTask, listCardCustomActions } = useTaskListStore();
+  const { runCustomAction } = useCustomActions();
 
   // ── Estado ─────────────────────────────────────────────────
   const [focusPos, setFocusPos] = useState<FocusPos>({ col: 0, row: 0 });
@@ -250,7 +252,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
 
   // ── Context menu para card ─────────────────────────────────
   const openCardContextMenu = useCallback(
-    (task: Task, _colIdx: number, trigger: HTMLElement) => {
+    async (task: Task, _colIdx: number, trigger: HTMLElement) => {
       const items = [
         {
           id: 'details',
@@ -292,9 +294,27 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         },
       ];
 
+      // Custom actions (AEP-0067): when avaliado server-side; só aparecem as visíveis.
+      try {
+        const customs = await listCardCustomActions(task.id, 'card_menu');
+        if (customs.length > 0) {
+          items.push({ separator: true, id: 'sep-custom' } as never);
+          for (const ca of customs) {
+            items.push({
+              id: `custom-${ca.id}`,
+              label: ca.label,
+              danger: ca.danger,
+              action: () => { void runCustomAction(ca, taskListId, task.id); },
+            } as never);
+          }
+        }
+      } catch {
+        // Best-effort: ausência de custom actions não deve quebrar o menu.
+      }
+
       openForTrigger(trigger, t('tasklist.kanban.cardMenu', 'Menu do card'), items);
     },
-    [statuses, moveTaskToColumn, handleDeleteTask, openForTrigger, t],
+    [statuses, moveTaskToColumn, handleDeleteTask, openForTrigger, t, listCardCustomActions, runCustomAction, taskListId],
   );
 
   // ── Inline rename (F2) ────────────────────────────────────

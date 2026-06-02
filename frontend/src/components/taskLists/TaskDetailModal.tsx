@@ -8,7 +8,8 @@ import { useTaskListStore } from '../../store/taskListStore';
 import { useConfirm } from '../../hooks/useConfirm';
 import { openTaskLink } from '../../lib/deepLinks';
 import { TASK_NOTE_TYPES } from '../../types/tasklist';
-import type { Task, TaskNote, TaskNoteType, TaskListWorkflowStatus } from '../../types/tasklist';
+import type { Task, TaskNote, TaskNoteType, TaskListWorkflowStatus, CustomActionView } from '../../types/tasklist';
+import { useCustomActions } from './useCustomActions';
 import './TaskDetailModal.css';
 
 interface TaskDetailModalProps {
@@ -47,9 +48,11 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const { t } = useTranslation();
   const navigate = useNavigate();
   const requestConfirm = useConfirm();
-  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote } = useTaskListStore();
+  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions } = useTaskListStore();
+  const { runCustomAction } = useCustomActions();
 
   const [notes, setNotes] = useState<TaskNote[]>([]);
+  const [customActions, setCustomActions] = useState<CustomActionView[]>([]);
   const [isLoadingNotes, setIsLoadingNotes] = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -70,12 +73,16 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   useEffect(() => {
     if (isOpen && task) {
       loadNotes();
+      listCardCustomActions(task.id, 'card_detail')
+        .then(setCustomActions)
+        .catch(() => setCustomActions([]));
     } else {
       setNotes([]);
+      setCustomActions([]);
       setShowNoteForm(false);
       setEditingNoteId(null);
     }
-  }, [isOpen, task, loadNotes]);
+  }, [isOpen, task, loadNotes, listCardCustomActions]);
 
   const resetForm = useCallback(() => {
     setNoteType(TASK_NOTE_TYPES.INTERNAL);
@@ -197,6 +204,22 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
           </span>
         )}
       </div>
+
+      {/* Custom actions (AEP-0067): when avaliado server-side */}
+      {customActions.length > 0 && (
+        <div className="task-detail__custom-actions">
+          {customActions.map((ca) => (
+            <button
+              key={ca.id}
+              type="button"
+              className={`task-detail__custom-action${ca.danger ? ' task-detail__custom-action--danger' : ''}`}
+              onClick={() => { void runCustomAction(ca, task.taskListId, task.id); }}
+            >
+              {ca.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Description */}
       <div className="task-detail__section">

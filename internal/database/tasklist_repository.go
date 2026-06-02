@@ -154,6 +154,13 @@ func CloneTaskListWithContext(ctx context.Context, id string, newTitle string) (
 		cloned.ValidationPolicy = original.ValidationPolicy
 	}
 
+	if strings.TrimSpace(original.CustomActions) != "" {
+		if err := SetTaskListCustomActionsWithContext(ctx, cloned.ID, original.CustomActions); err != nil {
+			return nil, err
+		}
+		cloned.CustomActions = original.CustomActions
+	}
+
 	return cloned, nil
 }
 

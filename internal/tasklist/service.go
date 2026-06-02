@@ -102,6 +102,21 @@ func (s *Service) SetTaskListValidationPolicy(ctx context.Context, taskListID st
 	return s.store.SetTaskListValidationPolicy(ctx, taskListID, policyJSON)
 }
 
+// GetTaskListCustomActions retorna as custom actions configuradas na lista (AEP-0067).
+func (s *Service) GetTaskListCustomActions(ctx context.Context, taskListID string) (*database.TaskListCustomActions, error) {
+	return s.store.GetTaskListCustomActions(ctx, taskListID)
+}
+
+// SetTaskListCustomActions persiste as custom actions (JSON validado) e notifica a UI.
+func (s *Service) SetTaskListCustomActions(ctx context.Context, taskListID string, actionsJSON string) error {
+	if err := s.store.SetTaskListCustomActions(ctx, taskListID, actionsJSON); err != nil {
+		return err
+	}
+	tl, _ := s.store.GetTaskList(ctx, taskListID)
+	s.emitter.Emit("taskList:updated", tl)
+	return nil
+}
+
 func (s *Service) SetTaskListViewMode(ctx context.Context, id string, viewMode string) error {
 	if err := s.store.SetTaskListViewMode(ctx, id, viewMode); err != nil {
 		return err

@@ -56,6 +56,14 @@ func (c *TaskListController) DeleteTaskList(ctx context.Context, id string) erro
 	return c.taskSvc.DeleteTaskList(ctx, id)
 }
 
+func (c *TaskListController) GetTaskListCustomActions(ctx context.Context, taskListID string) (*database.TaskListCustomActions, error) {
+	return c.taskSvc.GetTaskListCustomActions(ctx, taskListID)
+}
+
+func (c *TaskListController) SetTaskListCustomActions(ctx context.Context, taskListID string, actionsJSON string) error {
+	return c.taskSvc.SetTaskListCustomActions(ctx, taskListID, actionsJSON)
+}
+
 // ==================== Workflow Operations ====================
 
 func (c *TaskListController) GetWorkflow(ctx context.Context, taskListID string) (*database.TaskListWorkflow, error) {

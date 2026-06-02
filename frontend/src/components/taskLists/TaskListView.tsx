@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
-import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
@@ -16,9 +16,11 @@ import { Toolbar } from '../ui/Toolbar';
 import { buildChatSurfaceParams } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
-import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../../types/tasklist';
+import { useCustomActions } from './useCustomActions';
+import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions, CustomActionView } from '../../types/tasklist';
 
 const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
+const CustomActionsEditor = lazy(() => import('./CustomActionsEditor'));
 
 interface TaskListViewProps {
   taskListId: string;
@@ -42,11 +44,24 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
-  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus } = useTaskListStore();
+  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions } = useTaskListStore();
+  const { runCustomAction } = useCustomActions();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
   const [isWorkflowEditorOpen, setIsWorkflowEditorOpen] = useState(false);
+  const [isCustomActionsEditorOpen, setIsCustomActionsEditorOpen] = useState(false);
+  const [boardActions, setBoardActions] = useState<CustomActionView[]>([]);
   const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
+
+  const reloadBoardActions = useCallback(() => {
+    listBoardCustomActions(taskListId)
+      .then(setBoardActions)
+      .catch(() => setBoardActions([]));
+  }, [listBoardCustomActions, taskListId]);
+
+  useEffect(() => {
+    reloadBoardActions();
+  }, [reloadBoardActions]);
 
   useEffect(() => {
     if (!taskList) {
@@ -288,6 +303,20 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
                   },
                 ]
               : []),
+            ...boardActions.map((ca) => ({
+              key: `custom-${ca.id}`,
+              label: ca.label,
+              icon: <ThunderboltOutlined />,
+              onClick: () => void runCustomAction(ca, taskListId, ''),
+              variant: (ca.danger ? 'danger' : 'secondary') as 'danger' | 'secondary',
+            })),
+            {
+              key: 'custom-actions',
+              label: t('tasklist.customActions.configure', 'Ações customizadas'),
+              icon: <ThunderboltOutlined />,
+              onClick: () => setIsCustomActionsEditorOpen(true),
+              variant: 'secondary' as const,
+            },
             {
               key: 'edit-workflow',
               label: t('tasklist.workflow.editWorkflow', 'Editar Workflow'),
@@ -346,6 +375,23 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           />
         )}
       </div>
+
+      {isCustomActionsEditorOpen && (
+        <Modal
+          isOpen={isCustomActionsEditorOpen}
+          onClose={() => setIsCustomActionsEditorOpen(false)}
+          title={t('tasklist.customActions.configure', 'Ações customizadas')}
+          size="lg"
+        >
+          <Suspense fallback={<div>{t('tasklist.loading', 'Carregando...')}</div>}>
+            <CustomActionsEditor
+              taskListId={taskListId}
+              onClose={() => setIsCustomActionsEditorOpen(false)}
+              onSaved={reloadBoardActions}
+            />
+          </Suspense>
+        </Modal>
+      )}
 
       {isWorkflowEditorOpen && taskList.workflow && (
         <Modal

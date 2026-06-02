@@ -17,6 +17,8 @@ type TaskListRepository interface {
 	UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error
 	ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error)
 	SetTaskListValidationPolicy(ctx context.Context, taskListID string, policyJSON string) error
+	GetTaskListCustomActions(ctx context.Context, taskListID string) (*database.TaskListCustomActions, error)
+	SetTaskListCustomActions(ctx context.Context, taskListID string, actionsJSON string) error
 	SetTaskListViewMode(ctx context.Context, id string, viewMode string) error
 	CloneTaskList(ctx context.Context, id string, newTitle string) (*database.TaskList, error)
 	ClearTaskList(ctx context.Context, id string) error

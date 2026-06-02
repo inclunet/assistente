@@ -171,6 +171,30 @@ export namespace app {
 	        this.password = source["password"];
 	    }
 	}
+	export class CustomActionView {
+	    id: string;
+	    label: string;
+	    icon?: string;
+	    danger?: boolean;
+	    confirm?: string;
+	    hasEvent: boolean;
+	    hasLink: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CustomActionView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.icon = source["icon"];
+	        this.danger = source["danger"];
+	        this.confirm = source["confirm"];
+	        this.hasEvent = source["hasEvent"];
+	        this.hasLink = source["hasLink"];
+	    }
+	}
 	export class EditorFileInfo {
 	    path: string;
 	    exists: boolean;
@@ -922,6 +946,9 @@ export namespace chat {
 		    return a;
 		}
 	}
+	
+	
+	
 
 }
 
@@ -1527,6 +1554,36 @@ export namespace database {
 		    return a;
 		}
 	}
+	export class CustomAction {
+	    id: string;
+	    label: string;
+	    icon?: string;
+	    surfaces?: string[];
+	    event?: string;
+	    payload_template?: string;
+	    link?: string;
+	    when?: string;
+	    danger?: boolean;
+	    confirm?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CustomAction(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.icon = source["icon"];
+	        this.surfaces = source["surfaces"];
+	        this.event = source["event"];
+	        this.payload_template = source["payload_template"];
+	        this.link = source["link"];
+	        this.when = source["when"];
+	        this.danger = source["danger"];
+	        this.confirm = source["confirm"];
+	    }
+	}
 	export class MessageSearchResult {
 	    conversation_id: string;
 	    conversation_title: string;
@@ -1734,6 +1791,7 @@ export namespace database {
 	    description: string;
 	    preferred_view_mode: string;
 	    validation_policy?: string;
+	    custom_actions?: string;
 	    workflow?: TaskListWorkflow;
 	    tasks?: Task[];
 	
@@ -1752,6 +1810,7 @@ export namespace database {
 	        this.description = source["description"];
 	        this.preferred_view_mode = source["preferred_view_mode"];
 	        this.validation_policy = source["validation_policy"];
+	        this.custom_actions = source["custom_actions"];
 	        this.workflow = this.convertValues(source["workflow"], TaskListWorkflow);
 	        this.tasks = this.convertValues(source["tasks"], Task);
 	    }
@@ -1849,6 +1908,36 @@ export namespace database {
 		}
 	}
 	
+	export class TaskListCustomActions {
+	    actions?: CustomAction[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskListCustomActions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.actions = this.convertValues(source["actions"], CustomAction);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class TaskListWorkflowStatus {
 	    id: number;
@@ -2523,6 +2612,7 @@ export namespace llm {
 	    reasoningEffort?: string;
 	    profileSlug?: string;
 	    allowAssistantPrefill?: boolean;
+	    continueViaUserMessage?: boolean;
 	    maxAgenticIterations?: number;
 	    responseTimeout?: number;
 	    contextWindow?: number;
@@ -2549,6 +2639,7 @@ export namespace llm {
 	        this.reasoningEffort = source["reasoningEffort"];
 	        this.profileSlug = source["profileSlug"];
 	        this.allowAssistantPrefill = source["allowAssistantPrefill"];
+	        this.continueViaUserMessage = source["continueViaUserMessage"];
 	        this.maxAgenticIterations = source["maxAgenticIterations"];
 	        this.responseTimeout = source["responseTimeout"];
 	        this.contextWindow = source["contextWindow"];
