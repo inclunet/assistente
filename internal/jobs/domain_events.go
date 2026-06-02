@@ -1,5 +1,7 @@
 package jobs
 
+import "sync"
+
 // Catálogo estático de eventos de domínio (AEP-0067).
 //
 // O EventBus só conhece nomes de eventos derivados dos jobs existentes
@@ -9,7 +11,7 @@ package jobs
 // estático usado como fallback por InferEventSchema.
 //
 // Extensível para superfícies futuras (chat.*, workspace.tab.*, terminal.*,
-// editor.*) — basta adicionar entradas em domainEventCatalog().
+// editor.*) — basta adicionar entradas em newDomainEventCatalog().
 
 // provenanceFields são os campos de proveniência anti-loop presentes em todo
 // evento publicado via Manager.PublishDomainEvent.
@@ -89,11 +91,32 @@ func mergeSchema(base, extra map[string]any) map[string]any {
 	return out
 }
 
-// domainEventCatalog é a lista canônica dos eventos de domínio, em ordem de
+// O catálogo é conceitualmente estático: construímos uma vez (sync.Once) e
+// indexamos por nome para lookup O(1), evitando reconstruir os schemas
+// (map[string]any) a cada chamada de KnownDomainEvents/DomainEventSchema.
+var (
+	domainCatalogOnce sync.Once
+	cachedCatalog     []domainEvent
+	cachedNames       []string
+	cachedSchemas     map[string]map[string]any
+)
+
+func buildDomainCatalog() {
+	cachedCatalog = newDomainEventCatalog()
+	cachedNames = make([]string, len(cachedCatalog))
+	cachedSchemas = make(map[string]map[string]any, len(cachedCatalog))
+	for i, ev := range cachedCatalog {
+		cachedNames[i] = ev.name
+		cachedSchemas[ev.name] = ev.schema
+	}
+}
+
+// newDomainEventCatalog é a lista canônica dos eventos de domínio, em ordem de
 // declaração (agrupada por entidade) apenas para legibilidade deste arquivo.
 // Nota: o picker do JobBuilder consome Manager.ListKnownEvents(), que ordena
 // alfabeticamente — a ordem declarada aqui não é a ordem exibida na UI.
-func domainEventCatalog() []domainEvent {
+// Chamada uma única vez por buildDomainCatalog.
+func newDomainEventCatalog() []domainEvent {
 	return []domainEvent{
 		{"tasklist.task.created", mergeSchema(taskEventBase(), nil)},
 		{"tasklist.task.updated", mergeSchema(taskEventBase(), map[string]any{"changed_fields": []string{}})},
@@ -127,24 +150,28 @@ func domainEventCatalog() []domainEvent {
 
 // KnownDomainEvents retorna os nomes canônicos dos eventos de domínio do catálogo,
 // na ordem de declaração. (ListKnownEvents reordena alfabeticamente ao montar o
-// picker, então esta ordem não chega à UI.)
+// picker, então esta ordem não chega à UI.) Devolve uma cópia para que o caller
+// não mute o slice cacheado.
 func KnownDomainEvents() []string {
-	catalog := domainEventCatalog()
-	names := make([]string, 0, len(catalog))
-	for _, ev := range catalog {
-		names = append(names, ev.name)
-	}
+	domainCatalogOnce.Do(buildDomainCatalog)
+	names := make([]string, len(cachedNames))
+	copy(names, cachedNames)
 	return names
 }
 
 // DomainEventSchema retorna o schema estático de um evento de domínio do
 // catálogo, ou nil se não for um evento conhecido. Usado como fallback por
-// InferEventSchema quando nenhum job emissor tem output.
+// InferEventSchema quando nenhum job emissor tem output. Devolve uma cópia (rasa)
+// do schema para evitar mutação acidental do catálogo compartilhado.
 func DomainEventSchema(name string) map[string]any {
-	for _, ev := range domainEventCatalog() {
-		if ev.name == name {
-			return ev.schema
-		}
+	domainCatalogOnce.Do(buildDomainCatalog)
+	schema, ok := cachedSchemas[name]
+	if !ok {
+		return nil
 	}
-	return nil
+	out := make(map[string]any, len(schema))
+	for k, v := range schema {
+		out[k] = v
+	}
+	return out
 }

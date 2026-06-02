@@ -251,6 +251,35 @@ func TestInferEventSchemaFallsBackToCatalog(t *testing.T) {
 	}
 }
 
+// TestDomainEventSchemaReturnsCopy garante que DomainEventSchema/KnownDomainEvents
+// devolvem cópias: mutar o resultado não deve afetar o catálogo cacheado nem
+// chamadas subsequentes. Regressão do review #170.
+func TestDomainEventSchemaReturnsCopy(t *testing.T) {
+	s1 := DomainEventSchema("tasklist.task.updated")
+	if s1 == nil {
+		t.Fatal("schema esperado para tasklist.task.updated")
+	}
+	s1["_injected"] = "mutação"
+	delete(s1, "task_id")
+
+	s2 := DomainEventSchema("tasklist.task.updated")
+	if _, leaked := s2["_injected"]; leaked {
+		t.Fatal("mutação vazou para o catálogo cacheado (schema não é cópia)")
+	}
+	if _, ok := s2["task_id"]; !ok {
+		t.Fatal("campo removido na cópia afetou o catálogo cacheado")
+	}
+
+	names := KnownDomainEvents()
+	if len(names) == 0 {
+		t.Fatal("KnownDomainEvents vazio")
+	}
+	names[0] = "MUTADO"
+	if KnownDomainEvents()[0] == "MUTADO" {
+		t.Fatal("mutação do slice de nomes vazou para o cache")
+	}
+}
+
 func contains(s []string, target string) bool {
 	for _, v := range s {
 		if v == target {
