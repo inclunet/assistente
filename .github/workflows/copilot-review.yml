@@ -47,23 +47,56 @@ jobs:
 
           # Mostra o último review do Copilot ANTES de solicitar, para servir de
           # base de comparação nos logs (ajuda a verificar se um novo review foi gerado).
-          echo "Reviews anteriores do Copilot (login -> commit):"
-          gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+          # OBS: capturamos a saída numa variável e checamos explicitamente, pois `jq`
+          # sobre uma lista vazia sai com status 0 e não imprime nada — então um
+          # `|| echo "(nenhum...)"` nunca dispararia no caso mais comum.
+          echo "Reviews anteriores do Copilot (commit / estado):"
+          prev_reviews="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
             --jq '.[] | select(.user.login == "copilot-pull-request-reviewer") | "  - " + .commit_id + " (" + .state + ")"' \
-            2>/dev/null || echo "  (nenhum review anterior do Copilot)"
+            2>/dev/null || true)"
+          if [[ -n "${prev_reviews}" ]]; then
+            echo "${prev_reviews}"
+          else
+            echo "  (nenhum review anterior do Copilot)"
+          fi
 
           # IMPORTANTE: apenas re-postar o Copilot em requested_reviewers NÃO dispara
           # um novo review quando ele já revisou o PR — a API responde 2xx mas nada
           # acontece (no-op silencioso). Para forçar um review a cada commit, removemos
-          # o Copilot dos reviewers pendentes e o adicionamos de novo, garantindo a
-          # transição "não solicitado" -> "solicitado" que dispara o review.
-          echo "Removendo solicitação de review anterior do Copilot (se houver)..."
-          gh api \
-            --method DELETE \
-            "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
-            -f "reviewers[]=Copilot" >/dev/null 2>&1 \
-            && echo "Solicitação anterior removida." \
-            || echo "Nenhuma solicitação pendente para remover (ok)."
+          # o Copilot dos reviewers pendentes (quando houver) e o adicionamos de novo,
+          # garantindo a transição "não solicitado" -> "solicitado" que dispara o review.
+          #
+          # Consultamos primeiro os reviewers pendentes e só removemos se o Copilot
+          # estiver lá. Assim evitamos o DELETE "às cegas" — cujo 422 de "reviewer
+          # inexistente" era tratado como sucesso, mascarando erros reais (permissão,
+          # rate limit, endpoint/param inválido) — e distinguimos "nada a remover" de
+          # falhas inesperadas, abortando o job nestas últimas.
+          echo "Consultando reviewers pendentes..."
+          pending_json="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" 2>&1)" || {
+            echo "Falha ao consultar reviewers pendentes:"
+            echo "${pending_json}"
+            exit 1
+          }
+          # O Copilot pode aparecer como "Copilot" ou "copilot-pull-request-reviewer";
+          # casamos qualquer login que contenha "copilot" (case-insensitive).
+          copilot_pending="$(printf '%s' "${pending_json}" \
+            | jq -r '[.users[]?.login | select(test("copilot"; "i"))] | length' 2>/dev/null || echo 0)"
+
+          if [[ "${copilot_pending}" -gt 0 ]]; then
+            echo "Copilot já está como reviewer pendente; removendo para forçar um novo review..."
+            if del_out="$(gh api \
+              --method DELETE \
+              "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+              -f "reviewers[]=Copilot" 2>&1)"; then
+              echo "Solicitação anterior do Copilot removida."
+            else
+              echo "Falha inesperada ao remover a solicitação de review do Copilot:"
+              echo "${del_out}"
+              exit 1
+            fi
+          else
+            echo "Copilot não está como reviewer pendente; nada a remover."
+          fi
 
           requested=0
           for attempt in 1 2 3; do
@@ -98,9 +131,15 @@ jobs:
           # Verificação observável: lista os reviewers pendentes logo após solicitar.
           # OBS: o Copilot pode iniciar o review imediatamente e sair de "pendente",
           # então uma lista vazia aqui NÃO indica falha — é apenas diagnóstico.
+          # Mesma armadilha do bloco de reviews anteriores: `jq` sobre lista vazia sai
+          # com status 0 sem imprimir nada, então capturamos e checamos explicitamente.
           if [[ "${requested}" == "1" ]]; then
             echo "Reviewers pendentes após a solicitação:"
-            gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
-              --jq '.users[].login | "  - " + .' 2>/dev/null \
-              || echo "  (nenhum reviewer pendente listado no momento)"
+            pending_after="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+              --jq '.users[]?.login | "  - " + .' 2>/dev/null || true)"
+            if [[ -n "${pending_after}" ]]; then
+              echo "${pending_after}"
+            else
+              echo "  (nenhum reviewer pendente listado no momento)"
+            fi
           fi
