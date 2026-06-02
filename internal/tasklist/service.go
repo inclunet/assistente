@@ -113,7 +113,14 @@ func (s *Service) SetTaskListCustomActions(ctx context.Context, taskListID strin
 		return err
 	}
 	tl, _ := s.store.GetTaskList(ctx, taskListID)
-	s.emitter.Emit("taskList:updated", tl)
+	if tl != nil {
+		s.emitter.Emit("taskList:updated", tl)
+	} else {
+		// Fallback (mesmo padrão de ReorderTasks): se a recarga falhar, emite só o
+		// id em vez de nil — o handler do frontend ignora null (não é string nem
+		// objeto) e a UI ficaria sem invalidar/recarregar após salvar as ações.
+		s.emitter.Emit("taskList:updated", taskListID)
+	}
 	return nil
 }
 

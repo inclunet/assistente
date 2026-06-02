@@ -76,6 +76,11 @@ func ParseTaskListCustomActionsJSON(raw string) (*TaskListCustomActions, error) 
 		if id == "" {
 			return nil, fmt.Errorf("custom_actions: action #%d sem id", i+1)
 		}
+		// id é um slug estável (referenciado em logs/payloads): mesma regra dos ids
+		// de job (internal/jobs/parser.go) — sem espaços nem separadores de path.
+		if strings.ContainsAny(id, " /\\") {
+			return nil, fmt.Errorf("custom_actions: id %q não pode conter espaços ou separadores de path (/ \\)", id)
+		}
 		if seen[id] {
 			return nil, fmt.Errorf("custom_actions: id duplicado %q", id)
 		}
@@ -85,6 +90,12 @@ func ParseTaskListCustomActionsJSON(raw string) (*TaskListCustomActions, error) 
 		}
 		if strings.TrimSpace(a.Event) == "" && strings.TrimSpace(a.Link) == "" {
 			return nil, fmt.Errorf("custom_actions: action %q precisa de event e/ou link", id)
+		}
+		// event vira nome de evento publicado direto no EventBus; whitespace (ex.:
+		// "tasklist.card.foo ") geraria um nome diferente e quebraria listeners/picker
+		// de forma difícil de diagnosticar. PublishDomainEvent só rejeita nome vazio.
+		if strings.ContainsAny(a.Event, " \t\n\r\f\v") {
+			return nil, fmt.Errorf("custom_actions: action %q tem event com espaços em branco: %q", id, a.Event)
 		}
 		for _, surf := range a.Surfaces {
 			if !isValidCustomActionSurface(surf) {

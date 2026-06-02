@@ -2112,6 +2112,7 @@ const es = {
           eventPlaceholder: 'tasklist.card.investigate_requested',
           link: 'Enlace (opcional, plantilla)',
           payload: 'Plantilla de payload (JSON, opcional)',
+          payloadPlaceholder: '{"code": {{ json .task.code }}, "title": {{ json .task.title }}}',
           when: 'Condición "when" (opcional, plantilla)',
           confirm: 'Confirmación (opcional)',
           confirmPlaceholder: '¿Confirmar esta acción?',

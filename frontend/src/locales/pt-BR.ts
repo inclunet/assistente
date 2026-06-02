@@ -2088,6 +2088,7 @@ const ptBR = {
           eventPlaceholder: 'tasklist.card.investigate_requested',
           link: 'Link (opcional, template)',
           payload: 'Payload template (JSON, opcional)',
+          payloadPlaceholder: '{"code": {{ json .task.code }}, "title": {{ json .task.title }}}',
           when: 'Condição "when" (opcional, template)',
           confirm: 'Confirmação (opcional)',
           confirmPlaceholder: 'Confirmar esta ação?',

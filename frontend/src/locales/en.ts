@@ -2113,6 +2113,7 @@ const en = {
           eventPlaceholder: 'tasklist.card.investigate_requested',
           link: 'Link (optional, template)',
           payload: 'Payload template (JSON, optional)',
+          payloadPlaceholder: '{"code": {{ json .task.code }}, "title": {{ json .task.title }}}',
           when: '"when" condition (optional, template)',
           confirm: 'Confirmation (optional)',
           confirmPlaceholder: 'Confirm this action?',

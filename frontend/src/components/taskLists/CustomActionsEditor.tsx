@@ -208,7 +208,10 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
               <textarea
                 rows={2}
                 value={action.payload_template ?? ''}
-                placeholder={'{"prompt": "Investigue {{ .task.code }}: {{ .task.title }}"}'}
+                placeholder={t(
+                  'tasklist.customActions.field.payloadPlaceholder',
+                  '{"code": {{ json .task.code }}, "title": {{ json .task.title }}}',
+                )}
                 onChange={(e) => updateAction(idx, { payload_template: e.target.value })}
               />
             </label>
