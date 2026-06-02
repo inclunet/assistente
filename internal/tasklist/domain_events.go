@@ -217,3 +217,19 @@ func listPayload(tl *database.TaskList) map[string]any {
 		"title":          tl.Title,
 	}
 }
+
+// listEventPayload monta o payload-base de um evento de lista preferindo o
+// snapshot recarregado (tl). Se a recarga falhou (tl==nil), garante ao menos
+// task_list_id a partir do id conhecido — alinhando com os fallbacks de note/task
+// e mantendo o contrato do evento mesmo no pior caso. O slug é best-effort
+// (pode ficar vazio se a lista não puder ser recarregada).
+func (s *Service) listEventPayload(ctx context.Context, tl *database.TaskList, id string) map[string]any {
+	if tl != nil {
+		return listPayload(tl)
+	}
+	return map[string]any{
+		"task_list_id":   id,
+		"task_list_slug": s.taskListSlug(ctx, id),
+		"title":          "",
+	}
+}

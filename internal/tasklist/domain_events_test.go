@@ -50,6 +50,7 @@ type fakeStore struct {
 	notes                  map[string]*database.TaskNote
 	getTaskCalls           int
 	reloadFailsAfterUpdate bool
+	listReloadFails        bool
 }
 
 func (s *fakeStore) GetTask(_ context.Context, id string) (*database.Task, error) {
@@ -63,9 +64,18 @@ func (s *fakeStore) GetTask(_ context.Context, id string) (*database.Task, error
 }
 
 func (s *fakeStore) GetTaskList(_ context.Context, id string) (*database.TaskList, error) {
+	if s.listReloadFails {
+		return nil, errors.New("task list not found")
+	}
 	tl := &database.TaskList{Title: "Suporte", Slug: "suporte"}
 	tl.ID = id
 	return tl, nil
+}
+
+// UpdateTaskList é no-op; o foco do teste de fallback é a recarga pós-update
+// (GetTaskList) falhar — controlada por listReloadFails.
+func (s *fakeStore) UpdateTaskList(_ context.Context, id, title, description string) error {
+	return nil
 }
 
 func (s *fakeStore) UpdateTaskStatus(_ context.Context, id string, newStatusID int) error {
@@ -153,6 +163,31 @@ func TestUpdateTaskStatusEmitsStatusChangedAndCompleted(t *testing.T) {
 	}
 	if _, ok := sink.find("tasklist.task.completed"); !ok {
 		t.Fatal("completed not emitted on transition to done")
+	}
+}
+
+// TestUpdateTaskListFallsBackToIDWhenReloadFails garante que, se a recarga da
+// lista pós-update falhar (GetTaskList -> nil), o evento tasklist.list.updated
+// ainda carrega task_list_id (a partir do parâmetro) em vez de sair vazio. O slug
+// é best-effort (vazio quando a lista não recarrega). Regressão do review #171.
+func TestUpdateTaskListFallsBackToIDWhenReloadFails(t *testing.T) {
+	store := &fakeStore{listReloadFails: true}
+	sink := &fakeSink{listening: map[string]bool{"tasklist.list.updated": true}}
+	svc := newServiceWithSink(store, sink)
+
+	if err := svc.UpdateTaskList(context.Background(), "L-9", "Novo título", ""); err != nil {
+		t.Fatalf("UpdateTaskList: %v", err)
+	}
+
+	p, ok := sink.find("tasklist.list.updated")
+	if !ok {
+		t.Fatal("tasklist.list.updated não emitido")
+	}
+	if p["task_list_id"] != "L-9" {
+		t.Fatalf("task_list_id = %v, want L-9 (fallback do parâmetro)", p["task_list_id"])
+	}
+	if p["task_list_slug"] != "" {
+		t.Fatalf("task_list_slug = %v, want vazio (best-effort sem recarga)", p["task_list_slug"])
 	}
 }
 

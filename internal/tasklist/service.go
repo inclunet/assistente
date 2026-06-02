@@ -74,7 +74,7 @@ func (s *Service) UpdateTaskList(ctx context.Context, id string, title, descript
 	tl, _ := s.store.GetTaskList(ctx, id)
 	s.emitter.Emit("taskList:updated", tl)
 	if s.wantsDomain("tasklist.list.updated") {
-		s.publishDomain(ctx, "tasklist.list.updated", listPayload(tl))
+		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
 	}
 	return nil
 }
@@ -85,7 +85,7 @@ func (s *Service) UpdateTaskListFull(ctx context.Context, id string, title, desc
 	}
 	if s.wantsDomain("tasklist.list.updated") {
 		tl, _ := s.store.GetTaskList(ctx, id)
-		s.publishDomain(ctx, "tasklist.list.updated", listPayload(tl))
+		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
 	}
 	return nil
 }
@@ -105,7 +105,7 @@ func (s *Service) SetTaskListViewMode(ctx context.Context, id string, viewMode s
 	tl, _ := s.store.GetTaskList(ctx, id)
 	s.emitter.Emit("taskList:updated", tl)
 	if s.wantsDomain("tasklist.list.updated") {
-		s.publishDomain(ctx, "tasklist.list.updated", listPayload(tl))
+		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
 	}
 	return nil
 }
