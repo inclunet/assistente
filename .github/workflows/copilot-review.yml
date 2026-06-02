@@ -106,8 +106,12 @@ jobs:
           # NÃO silenciamos o `jq`: se a resposta não for um JSON parseável, falhamos
           # explicitamente em vez de assumir "nada pendente" e pular o DELETE (que é
           # justamente o passo que torna o re-review confiável).
+          # Coletamos os logins que casam num array e pegamos o primeiro com `[0]`
+          # (em vez de `first(<stream>)`), o que é robusto em qualquer versão de jq e
+          # consistente com o `[...] | last` usado acima. `// empty` => string vazia
+          # quando não há Copilot pendente.
           if ! copilot_login="$(printf '%s' "${pending_json}" \
-            | jq -r 'first(.users[]?.login | select((ascii_downcase) == "copilot" or (ascii_downcase) == "copilot-pull-request-reviewer")) // empty')"; then
+            | jq -r '[.users[]?.login | select((ascii_downcase) == "copilot" or (ascii_downcase) == "copilot-pull-request-reviewer")][0] // empty')"; then
             echo "Resposta de reviewers pendentes não é um JSON válido:"
             echo "${pending_json}"
             exit 1
