@@ -825,16 +825,20 @@ func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload m
 	for k, v := range payload {
 		enriched[k] = v
 	}
-	if _, ok := enriched["_source"]; !ok {
+	// Trata valor vazio/tipo inválido como ausente. Um payload copiado do schema
+	// estático do catálogo traz _chain_id="" e _chain_history=[] (e _source="");
+	// sem isto a cadeia ficaria sem ID e o circuit breaker (executor) não rodaria,
+	// pois só age quando ChainID != "".
+	if s, _ := enriched["_source"].(string); s == "" {
 		enriched["_source"] = "user"
 	}
 	if _, ok := enriched["_source_job_id"]; !ok {
-		enriched["_source_job_id"] = ""
+		enriched["_source_job_id"] = "" // vazio é válido (origem de usuário)
 	}
-	if _, ok := enriched["_chain_id"]; !ok {
+	if id, _ := enriched["_chain_id"].(string); id == "" {
 		enriched["_chain_id"] = newChainID()
 	}
-	if _, ok := enriched["_chain_history"]; !ok {
+	if h, ok := enriched["_chain_history"].([]string); !ok || len(h) == 0 {
 		enriched["_chain_history"] = []string{name}
 	}
 	// O clip de _chain_history (cap == len) anti-data-race é aplicado de forma

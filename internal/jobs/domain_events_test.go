@@ -135,6 +135,52 @@ func TestPublishDomainEventClipsChainHistory(t *testing.T) {
 	}
 }
 
+// TestPublishDomainEventTreatsEmptyProvenanceAsAbsent garante que _chain_id/
+// _chain_history presentes porém vazios (ex.: payload copiado do schema estático
+// do catálogo) são preenchidos, senão o circuit breaker ficaria sem ChainID e não
+// rodaria. Regressão do review #170.
+func TestPublishDomainEventTreatsEmptyProvenanceAsAbsent(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
+		ContextProvider: func() context.Context { return userA },
+	})
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start manager: %v", err)
+	}
+	t.Cleanup(mgr.Stop)
+
+	received := make(chan map[string]any, 1)
+	mgr.eventBus.Subscribe("tasklist.task.updated", "test", func(_ context.Context, _ string, payload map[string]any) {
+		received <- payload
+	})
+
+	// Simula um payload montado a partir do schema estático do catálogo.
+	if err := mgr.PublishDomainEvent(userA, "tasklist.task.updated", map[string]any{
+		"task_id":        "t-1",
+		"_source":        "",
+		"_chain_id":      "",
+		"_chain_history": []string{},
+	}); err != nil {
+		t.Fatalf("publish domain event: %v", err)
+	}
+
+	select {
+	case payload := <-received:
+		if payload["_source"] != "user" {
+			t.Fatalf("_source = %v, want user (vazio tratado como ausente)", payload["_source"])
+		}
+		if id, _ := payload["_chain_id"].(string); id == "" {
+			t.Fatal("_chain_id vazio deveria ter sido preenchido com uma nova cadeia")
+		}
+		if h, ok := payload["_chain_history"].([]string); !ok || len(h) != 1 || h[0] != "tasklist.task.updated" {
+			t.Fatalf("_chain_history = %#v, want [tasklist.task.updated]", payload["_chain_history"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("subscriber never received the domain event")
+	}
+}
+
 // TestPublishDomainEventRequiresUserID garante que, sem user_id resolvivel
 // (nem no ctx nem no Manager), a publicacao é rejeitada; e que nome vazio falha.
 func TestPublishDomainEventRequiresUserID(t *testing.T) {
