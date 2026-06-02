@@ -89,8 +89,10 @@ func mergeSchema(base, extra map[string]any) map[string]any {
 	return out
 }
 
-// domainEventCatalog é a lista ordenada e canônica dos eventos de domínio.
-// A ordem é preservada em KnownDomainEvents para uma UX previsível no picker.
+// domainEventCatalog é a lista canônica dos eventos de domínio, em ordem de
+// declaração (agrupada por entidade) apenas para legibilidade deste arquivo.
+// Nota: o picker do JobBuilder consome Manager.ListKnownEvents(), que ordena
+// alfabeticamente — a ordem declarada aqui não é a ordem exibida na UI.
 func domainEventCatalog() []domainEvent {
 	return []domainEvent{
 		{"tasklist.task.created", mergeSchema(taskEventBase(), nil)},
@@ -117,7 +119,8 @@ func domainEventCatalog() []domainEvent {
 }
 
 // KnownDomainEvents retorna os nomes canônicos dos eventos de domínio do catálogo,
-// na ordem de declaração.
+// na ordem de declaração. (ListKnownEvents reordena alfabeticamente ao montar o
+// picker, então esta ordem não chega à UI.)
 func KnownDomainEvents() []string {
 	catalog := domainEventCatalog()
 	names := make([]string, 0, len(catalog))

@@ -39,6 +39,9 @@ func TestPublishDomainEventReachesSubscriber(t *testing.T) {
 		if payload["_source"] != "user" {
 			t.Fatalf("_source = %v, want user (default)", payload["_source"])
 		}
+		if jid, ok := payload["_source_job_id"]; !ok || jid != "" {
+			t.Fatalf("_source_job_id = %v (present=%v), want \"\" sempre presente", payload["_source_job_id"], ok)
+		}
 		if id, _ := payload["_chain_id"].(string); id == "" {
 			t.Fatal("_chain_id should be set by PublishDomainEvent")
 		}

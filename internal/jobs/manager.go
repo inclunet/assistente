@@ -792,8 +792,10 @@ func (m *Manager) ListKnownEvents() []string {
 //
 // Custo ~zero quando nao ha job inscrito: EventBus.Publish é no-op (apenas loga).
 //
-// Enriquecimento aplicado quando ausente no payload:
+// Enriquecimento aplicado quando ausente no payload (mantém o payload alinhado
+// ao schema estático do catálogo, que sempre declara estes campos):
 //   - _source: "user" (mutacao humana); a proveniencia de job (Fase 4) sobrescreve.
+//   - _source_job_id: "" (vazio para origem de usuário; job preenche na Fase 4).
 //   - _chain_id: nova cadeia (UUID) para o circuit breaker.
 //   - _chain_history: [name].
 //
@@ -814,6 +816,9 @@ func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload m
 	}
 	if _, ok := enriched["_source"]; !ok {
 		enriched["_source"] = "user"
+	}
+	if _, ok := enriched["_source_job_id"]; !ok {
+		enriched["_source_job_id"] = ""
 	}
 	if _, ok := enriched["_chain_id"]; !ok {
 		enriched["_chain_id"] = newChainID()
