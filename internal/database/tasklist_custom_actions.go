@@ -92,6 +92,12 @@ func ParseTaskListCustomActionsJSON(raw string) (*TaskListCustomActions, error) 
 		if strings.TrimSpace(a.Event) == "" && strings.TrimSpace(a.Link) == "" {
 			return nil, fmt.Errorf("custom_actions: action %q precisa de event e/ou link", id)
 		}
+		// link só-whitespace é "presente" no JSON/UI mas renderiza para vazio no
+		// trigger (nada é aberto): config confusa. Rejeita cedo. (Vazio de verdade
+		// é permitido — significa "sem link", coberto pela checagem event/link acima.)
+		if a.Link != "" && strings.TrimSpace(a.Link) == "" {
+			return nil, fmt.Errorf("custom_actions: action %q tem link composto só por espaços em branco", id)
+		}
 		// event vira nome de evento publicado direto no EventBus; whitespace (ex.:
 		// "tasklist.card.foo ") geraria um nome diferente e quebraria listeners/picker
 		// de forma difícil de diagnosticar. PublishDomainEvent só rejeita nome vazio.
