@@ -747,11 +747,19 @@ func (m *Manager) InferEventSchema(eventName string) map[string]any {
 		log.Printf("[Jobs] InferEventSchema(%q): job %s emits this event but has no output data", eventName, job.ID)
 	}
 
+	// Fallback: schema estatico do catalogo de eventos de dominio (AEP-0067).
+	if schema := DomainEventSchema(eventName); schema != nil {
+		log.Printf("[Jobs] InferEventSchema(%q): using static domain-event catalog schema", eventName)
+		return schema
+	}
+
 	log.Printf("[Jobs] InferEventSchema(%q): no emitting job found", eventName)
 	return nil
 }
 
-// ListKnownEvents retorna todos os nomes de eventos unicos referenciados pelos jobs.
+// ListKnownEvents retorna todos os nomes de eventos unicos referenciados pelos jobs,
+// unidos ao catalogo estatico de eventos de dominio (AEP-0067) para que apareçam no
+// picker do JobBuilder mesmo sem nenhum job referenciando-os.
 func (m *Manager) ListKnownEvents() []string {
 	seen := make(map[string]bool)
 	for _, job := range m.registry.GetAll() {
@@ -767,12 +775,96 @@ func (m *Manager) ListKnownEvents() []string {
 			}
 		}
 	}
+	for _, name := range KnownDomainEvents() {
+		seen[name] = true
+	}
 	result := make([]string, 0, len(seen))
 	for k := range seen {
 		result = append(result, k)
 	}
 	sort.Strings(result)
 	return result
+}
+
+// PublishDomainEvent publica um evento de dominio (UI/serviço) no EventBus de jobs.
+// É a API publica generica para qualquer superficie (tasklist, e no futuro
+// chat/abas/terminal/editor) alimentar triggers por evento (AEP-0067).
+//
+// Custo ~zero quando nao ha job inscrito: retorna cedo (no-op) se
+// SubscriberCount(name) == 0, sem enriquecer o payload nem chamar Publish.
+//
+// Enriquecimento aplicado quando ausente no payload (mantém o payload alinhado
+// ao schema estático do catálogo, que sempre declara estes campos):
+//   - _source: "user" (mutacao humana); a proveniencia de job (Fase 4) sobrescreve.
+//   - _source_job_id: "" (vazio para origem de usuário; job preenche na Fase 4).
+//   - _chain_id: nova cadeia (UUID) para o circuit breaker.
+//   - _chain_history: [name].
+//
+// Usa context.WithoutCancel (fix #166): o subscriber roda em goroutine de fan-out
+// e o publisher retorna sem esperar — herdar o cancel do publisher mataria o run.
+func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload map[string]any) error {
+	if name == "" {
+		return fmt.Errorf("domain event name is required")
+	}
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	if m.eventBus == nil {
+		return fmt.Errorf("event bus not initialized")
+	}
+	// No-op quando ninguém escuta: evita o log "published with no listeners" e o
+	// overhead de montar o payload. Eventos de domínio são frequentes; produtores
+	// já checam HasDomainListener, mas chamadores diretos (ex.: custom actions) não.
+	if m.eventBus.SubscriberCount(name) == 0 {
+		return nil
+	}
+
+	enriched := make(map[string]any, len(payload)+4)
+	for k, v := range payload {
+		enriched[k] = v
+	}
+	// Trata valor vazio/tipo inválido como ausente. Um payload copiado do schema
+	// estático do catálogo traz _chain_id="" e _chain_history=[] (e _source="");
+	// sem isto a cadeia ficaria sem ID e o circuit breaker (executor) não rodaria,
+	// pois só age quando ChainID != "".
+	if s, _ := enriched["_source"].(string); s == "" {
+		enriched["_source"] = "user"
+	}
+	if _, ok := enriched["_source_job_id"]; !ok {
+		enriched["_source_job_id"] = "" // vazio é válido (origem de usuário)
+	}
+	if id, _ := enriched["_chain_id"].(string); id == "" {
+		enriched["_chain_id"] = newChainID()
+	}
+	if h, ok := enriched["_chain_history"].([]string); !ok || len(h) == 0 {
+		enriched["_chain_history"] = []string{name}
+	}
+	// O clip de _chain_history (cap == len) anti-data-race é aplicado de forma
+	// central em EventBus.Publish, cobrindo este e qualquer outro publisher.
+
+	m.eventBus.Publish(context.WithoutCancel(ctx), name, enriched)
+	return nil
+}
+
+// clipHistory devolve uma vista "clipada" (cap == len) de h. Como o backing array
+// pode ser compartilhado entre handlers concorrentes (o EventBus entrega o mesmo
+// slice), garantir cap == len faz qualquer append downstream alocar um novo array
+// em vez de escrever in-place no array compartilhado — evitando data race.
+func clipHistory(h []string) []string {
+	if h == nil {
+		return h
+	}
+	return h[:len(h):len(h)]
+}
+
+// newChainID gera um identificador de cadeia para o circuit breaker.
+func newChainID() string {
+	if id, err := uuid.NewV7(); err == nil {
+		return id.String()
+	}
+	return uuid.New().String()
 }
 
 // SaveJob cria ou atualiza um job a partir de dados do frontend.
