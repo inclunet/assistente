@@ -92,6 +92,49 @@ func TestPublishDomainEventPreservesExplicitProvenance(t *testing.T) {
 	}
 }
 
+// TestPublishDomainEventClipsChainHistory garante que um _chain_history com
+// capacidade sobrando é clipado (cap == len) antes de publicar, para que o
+// append downstream (executor) aloque um novo array em vez de mutar o backing
+// compartilhado entre handlers concorrentes. Regressão do review #170.
+func TestPublishDomainEventClipsChainHistory(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
+		ContextProvider: func() context.Context { return userA },
+	})
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start manager: %v", err)
+	}
+	t.Cleanup(mgr.Stop)
+
+	received := make(chan map[string]any, 1)
+	mgr.eventBus.Subscribe("tasklist.task.updated", "test", func(_ context.Context, _ string, payload map[string]any) {
+		received <- payload
+	})
+
+	hist := make([]string, 1, 8) // len=1, cap=8 (capacidade sobrando de propósito)
+	hist[0] = "tasklist.task.updated"
+	if err := mgr.PublishDomainEvent(userA, "tasklist.task.updated", map[string]any{
+		"task_id":        "t-1",
+		"_chain_history": hist,
+	}); err != nil {
+		t.Fatalf("publish domain event: %v", err)
+	}
+
+	select {
+	case payload := <-received:
+		h, ok := payload["_chain_history"].([]string)
+		if !ok {
+			t.Fatalf("_chain_history type = %T, want []string", payload["_chain_history"])
+		}
+		if cap(h) != len(h) {
+			t.Fatalf("_chain_history cap = %d, len = %d; want cap == len (clipado)", cap(h), len(h))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("subscriber never received the domain event")
+	}
+}
+
 // TestPublishDomainEventRequiresUserID garante que, sem user_id resolvivel
 // (nem no ctx nem no Manager), a publicacao é rejeitada; e que nome vazio falha.
 func TestPublishDomainEventRequiresUserID(t *testing.T) {

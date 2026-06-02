@@ -825,6 +825,13 @@ func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload m
 	}
 	if _, ok := enriched["_chain_history"]; !ok {
 		enriched["_chain_history"] = []string{name}
+	} else if h, ok := enriched["_chain_history"].([]string); ok {
+		// O EventBus entrega o MESMO payload (e o mesmo slice) a todos os
+		// handlers concorrentes; downstream o executor faz append(history, job.ID).
+		// Se o slice tiver capacidade sobrando (cap > len), esse append escreveria
+		// in-place no backing array compartilhado, gerando data race entre handlers.
+		// Clipamos (cap == len) para forçar o append a alocar um novo array.
+		enriched["_chain_history"] = clipHistory(h)
 	}
 
 	if m.eventBus == nil {
@@ -832,6 +839,17 @@ func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload m
 	}
 	m.eventBus.Publish(context.WithoutCancel(ctx), name, enriched)
 	return nil
+}
+
+// clipHistory devolve uma vista "clipada" (cap == len) de h. Como o backing array
+// pode ser compartilhado entre handlers concorrentes (o EventBus entrega o mesmo
+// slice), garantir cap == len faz qualquer append downstream alocar um novo array
+// em vez de escrever in-place no array compartilhado — evitando data race.
+func clipHistory(h []string) []string {
+	if h == nil {
+		return h
+	}
+	return h[:len(h):len(h)]
 }
 
 // newChainID gera um identificador de cadeia para o circuit breaker.
