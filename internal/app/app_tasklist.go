@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+
 	"assistente/internal/database"
 	"assistente/internal/tasklist"
 )
@@ -247,6 +249,34 @@ func (a *App) DeleteTaskNote(noteID string) error {
 		return err
 	}
 	return a.taskListCtrl.DeleteTaskNote(ctx, noteID)
+}
+
+// ==================== Domain Events (AEP-0067) ====================
+
+// RequestTaskListRefresh publica o evento de dominio tasklist.list.refresh_requested
+// no EventBus de jobs. Gatilho one-shot iniciado pelo usuario (menu do board) para
+// destravar listas paradas — um job vinculado por evento pode ressincronizar a lista.
+// No-op de custo ~zero quando nenhum job esta inscrito.
+func (a *App) RequestTaskListRefresh(taskListID string) error {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	if a.jobMgr == nil {
+		return fmt.Errorf("job manager not initialized")
+	}
+	tl, err := a.taskListCtrl.GetTaskList(ctx, taskListID)
+	if err != nil {
+		return err
+	}
+	if tl == nil {
+		return fmt.Errorf("task list %q not found", taskListID)
+	}
+	return a.jobMgr.PublishDomainEvent(ctx, "tasklist.list.refresh_requested", map[string]any{
+		"task_list_id":   tl.ID,
+		"task_list_slug": tl.Slug,
+		"title":          tl.Title,
+	})
 }
 
 // ==================== Utility Operations ====================

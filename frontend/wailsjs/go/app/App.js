@@ -806,6 +806,10 @@ export function ReplayRun(arg1, arg2) {
   return window['go']['app']['App']['ReplayRun'](arg1, arg2);
 }
 
+export function RequestTaskListRefresh(arg1) {
+  return window['go']['app']['App']['RequestTaskListRefresh'](arg1);
+}
+
 export function ResetConfig() {
   return window['go']['app']['App']['ResetConfig']();
 }

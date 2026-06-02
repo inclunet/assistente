@@ -747,11 +747,19 @@ func (m *Manager) InferEventSchema(eventName string) map[string]any {
 		log.Printf("[Jobs] InferEventSchema(%q): job %s emits this event but has no output data", eventName, job.ID)
 	}
 
+	// Fallback: schema estatico do catalogo de eventos de dominio (AEP-0067).
+	if schema := DomainEventSchema(eventName); schema != nil {
+		log.Printf("[Jobs] InferEventSchema(%q): using static domain-event catalog schema", eventName)
+		return schema
+	}
+
 	log.Printf("[Jobs] InferEventSchema(%q): no emitting job found", eventName)
 	return nil
 }
 
-// ListKnownEvents retorna todos os nomes de eventos unicos referenciados pelos jobs.
+// ListKnownEvents retorna todos os nomes de eventos unicos referenciados pelos jobs,
+// unidos ao catalogo estatico de eventos de dominio (AEP-0067) para que apareçam no
+// picker do JobBuilder mesmo sem nenhum job referenciando-os.
 func (m *Manager) ListKnownEvents() []string {
 	seen := make(map[string]bool)
 	for _, job := range m.registry.GetAll() {
@@ -767,12 +775,66 @@ func (m *Manager) ListKnownEvents() []string {
 			}
 		}
 	}
+	for _, name := range KnownDomainEvents() {
+		seen[name] = true
+	}
 	result := make([]string, 0, len(seen))
 	for k := range seen {
 		result = append(result, k)
 	}
 	sort.Strings(result)
 	return result
+}
+
+// PublishDomainEvent publica um evento de dominio (UI/serviço) no EventBus de jobs.
+// É a API publica generica para qualquer superficie (tasklist, e no futuro
+// chat/abas/terminal/editor) alimentar triggers por evento (AEP-0067).
+//
+// Custo ~zero quando nao ha job inscrito: EventBus.Publish é no-op (apenas loga).
+//
+// Enriquecimento aplicado quando ausente no payload:
+//   - _source: "user" (mutacao humana); a proveniencia de job (Fase 4) sobrescreve.
+//   - _chain_id: nova cadeia (UUID) para o circuit breaker.
+//   - _chain_history: [name].
+//
+// Usa context.WithoutCancel (fix #166): o subscriber roda em goroutine de fan-out
+// e o publisher retorna sem esperar — herdar o cancel do publisher mataria o run.
+func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload map[string]any) error {
+	if name == "" {
+		return fmt.Errorf("domain event name is required")
+	}
+	ctx, err := m.scopedContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	enriched := make(map[string]any, len(payload)+3)
+	for k, v := range payload {
+		enriched[k] = v
+	}
+	if _, ok := enriched["_source"]; !ok {
+		enriched["_source"] = "user"
+	}
+	if _, ok := enriched["_chain_id"]; !ok {
+		enriched["_chain_id"] = newChainID()
+	}
+	if _, ok := enriched["_chain_history"]; !ok {
+		enriched["_chain_history"] = []string{name}
+	}
+
+	if m.eventBus == nil {
+		return fmt.Errorf("event bus not initialized")
+	}
+	m.eventBus.Publish(context.WithoutCancel(ctx), name, enriched)
+	return nil
+}
+
+// newChainID gera um identificador de cadeia para o circuit breaker.
+func newChainID() string {
+	if id, err := uuid.NewV7(); err == nil {
+		return id.String()
+	}
+	return uuid.New().String()
 }
 
 // SaveJob cria ou atualiza um job a partir de dados do frontend.
