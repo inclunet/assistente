@@ -167,7 +167,7 @@ Key facts:
 | `tasklist.note.added` / `.updated` / `.deleted` | Note lifecycle | `note_id`, `task_id`, `task_list_id`, `note_type`, `source`, `external_id`, `author_id` |
 | `tasklist.list.created` / `.updated` / `.cleared` / `.deleted` | List lifecycle | `task_list_id`, `task_list_slug`, `title` |
 | `tasklist.list.cloned` | List cloned | + `source_task_list_id` |
-| `tasklist.list.refresh_requested` | User clicks **Atualizar** (manual one-shot) | `task_list_id`, `task_list_slug`, `title` |
+| `tasklist.list.refresh_requested` | User triggers an optional **Atualizar** board custom action (manual one-shot; not a fixed button) | `task_list_id`, `task_list_slug` |
 | `tasklist.workflow.updated` | Workflow changes | `task_list_id`, `initial_status_id` |
 | `tasklist.item.opened` | A card/detail is opened | task fields |
 
