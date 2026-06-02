@@ -108,8 +108,12 @@ func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[s
 	// append(history, jobID). Clipando para cap == len antes do fan-out, cada append
 	// aloca um novo backing array em vez de escrever in-place no compartilhado. Vale
 	// para QUALQUER publisher (PublishDomainEvent, executor, futuros), não só um.
-	if h, ok := payload["_chain_history"].([]string); ok {
-		payload["_chain_history"] = clipHistory(h)
+	// payload pode ser nil (publishers legados): ler de map nil é seguro em Go, mas
+	// o nil-check explícito evita a escrita em map nil e deixa a intenção clara.
+	if payload != nil {
+		if h, ok := payload["_chain_history"].([]string); ok {
+			payload["_chain_history"] = clipHistory(h)
+		}
 	}
 
 	log.Printf("[EventBus] Event %q published to %d listener(s)", eventName, len(handlers))
