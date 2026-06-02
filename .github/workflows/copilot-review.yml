@@ -78,19 +78,21 @@ jobs:
             exit 1
           }
           # O Copilot pode aparecer como "Copilot" ou "copilot-pull-request-reviewer".
-          # Casamos por login EXATO (case-insensitive) contra essa lista conhecida —
-          # um `test("copilot")` por substring pegaria falsos positivos (ex.: um
-          # usuário humano "copilotaria"), fazendo o DELETE de "Copilot" devolver 422
-          # e abortar o job indevidamente.
-          copilot_pending="$(printf '%s' "${pending_json}" \
-            | jq -r '[.users[]?.login | ascii_downcase | select(. == "copilot" or . == "copilot-pull-request-reviewer")] | length' 2>/dev/null || echo 0)"
+          # Extraímos o login EXATO presente em pending_json (case-insensitive contra
+          # essa lista conhecida) e o reutilizamos no DELETE. Isso evita: (a) falsos
+          # positivos de um match por substring (ex.: usuário humano "copilotaria"); e
+          # (b) remover com um login diferente do que está pendente — se o pendente for
+          # "copilot-pull-request-reviewer" e mandássemos "Copilot", o DELETE devolveria
+          # 422 e abortaria o job, impedindo o re-request que dispara o novo review.
+          copilot_login="$(printf '%s' "${pending_json}" \
+            | jq -r 'first(.users[]?.login | select((ascii_downcase) == "copilot" or (ascii_downcase) == "copilot-pull-request-reviewer")) // empty' 2>/dev/null || true)"
 
-          if [[ "${copilot_pending}" -gt 0 ]]; then
-            echo "Copilot já está como reviewer pendente; removendo para forçar um novo review..."
+          if [[ -n "${copilot_login}" ]]; then
+            echo "Copilot já está como reviewer pendente (login: ${copilot_login}); removendo para forçar um novo review..."
             if del_out="$(gh api \
               --method DELETE \
               "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
-              -f "reviewers[]=Copilot" 2>&1)"; then
+              -f "reviewers[]=${copilot_login}" 2>&1)"; then
               echo "Solicitação anterior do Copilot removida."
             else
               echo "Falha inesperada ao remover a solicitação de review do Copilot:"
