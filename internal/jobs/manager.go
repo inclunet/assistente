@@ -1224,7 +1224,13 @@ func (m *Manager) registerTriggers(job *Job) {
 					ChainHistory: chainHistory,
 				}
 
-				m.executeJob(ctx, &jobCopy, trigCtx)
+				// O run downstream roda em goroutine de fan-out do EventBus, mas o
+				// publicador retorna sem esperar. Se herdarmos o ctx do publicador
+				// (ex.: escopo da tool `job` ou interval cancelável), o cancelamento
+				// dele mata este run antes da tool MCP responder. Desacopla o lifetime
+				// preservando os valores (user_id/auth) exigidos por scopedContext.
+				runCtx := context.WithoutCancel(ctx)
+				m.executeJob(runCtx, &jobCopy, trigCtx)
 			})
 		}
 
