@@ -745,4 +745,82 @@ describe('ChatMessage', () => {
     expect(screen.getByText('resposta final')).toBeInTheDocument();
     expect(screen.getAllByTestId('toolcalls')).toHaveLength(2);
   });
+
+  // Issue #163 (PR #168, comentário Copilot 3337834792): ao SAIR do modo de
+  // leitura, o estado da cadeia deve voltar ao que era antes — se o usuário a
+  // tinha recolhido, ela volta a recolher (não fica expandida permanentemente).
+  it('restaura o estado recolhido da cadeia ao sair do modo de leitura', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'turn-restore-collapsed',
+      conversationId,
+      role: 'assistant',
+      content: 'resposta final',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        { type: 'text', content: 'vou pesquisar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+        },
+        { type: 'text', content: 'resposta final' },
+      ],
+    });
+
+    const { rerender } = render(<ChatMessage message={message} />);
+
+    // Usuário recolhe a cadeia.
+    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+
+    // Entra no modo de leitura — a cadeia é forçada a expandir.
+    rerender(<ChatMessage message={message} isReading />);
+    expect(screen.getByRole('button', { name: 'chat.collapseChain' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('vou pesquisar')).toBeInTheDocument();
+
+    // Sai do modo de leitura — o estado recolhido anterior é restaurado.
+    rerender(<ChatMessage message={message} />);
+    expect(screen.getByRole('button', { name: 'chat.expandChain' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('vou pesquisar')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
+  });
+
+  // Issue #163 (PR #168, comentário baixa-confiança ChatMessage.tsx:536): com a
+  // cadeia recolhida (fora de streaming) a mensagem NÃO pode ficar vazia — exibe
+  // a CONCLUSÃO do turno (mesma fonte de verdade do aria-label), sem as tool
+  // calls nem os segmentos intermediários.
+  it('exibe a conclusão (sem tool calls/intermediários) quando a cadeia está recolhida', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'turn-collapsed-preview',
+      conversationId,
+      role: 'assistant',
+      content: 'resposta final',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+      turnSegments: [
+        { type: 'text', content: 'vou pesquisar' },
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+        },
+        { type: 'text', content: 'agora vou refinar' },
+        { type: 'text', content: 'resposta final' },
+      ],
+    });
+
+    render(<ChatMessage message={message} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+
+    // Conclusão visível; mensagem não fica vazia.
+    expect(screen.getByText('resposta final')).toBeInTheDocument();
+    // Segmentos intermediários e tool calls ocultos no estado recolhido.
+    expect(screen.queryByText('vou pesquisar')).not.toBeInTheDocument();
+    expect(screen.queryByText('agora vou refinar')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
+  });
 });

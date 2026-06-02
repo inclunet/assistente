@@ -389,13 +389,26 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   // Issue #163: ao entrar no modo de leitura a cadeia precisa estar inteira no
   // DOM (segmentos + tool calls) para que o `role="document"` do useVirtualModal
-  // a exponha por completo. Se o usuário a havia recolhido, força a expansão —
-  // mantendo `aria-expanded` consistente com o conteúdo visível. O toggle (agora
-  // focável durante a leitura) continua permitindo recolher/expandir dentro do
-  // modo de leitura.
+  // a exponha por completo. Se o usuário a havia recolhido, força a expansão e
+  // lembra o estado anterior para restaurá-lo ao SAIR (ESC) — mantendo
+  // `aria-expanded` consistente com o conteúdo visível. A restauração só ocorre
+  // quando a expansão foi forçada por nós: se o usuário recolher/expandir
+  // manualmente dentro da leitura, o toggle limpa esta marca e preserva a
+  // escolha dele. O ref espelha o valor atual para evitar dependência de estado
+  // no effect (sem loops de render).
+  const isChainExpandedRef = useRef(isChainExpanded);
+  isChainExpandedRef.current = isChainExpanded;
+  const forcedChainExpandRef = useRef<{ restore: boolean } | null>(null);
   useEffect(() => {
     if (isReading) {
-      setIsChainExpanded(true);
+      if (!isChainExpandedRef.current) {
+        forcedChainExpandRef.current = { restore: false };
+        setIsChainExpanded(true);
+      }
+    } else if (forcedChainExpandRef.current) {
+      const { restore } = forcedChainExpandRef.current;
+      forcedChainExpandRef.current = null;
+      setIsChainExpanded(restore);
     }
   }, [isReading]);
 
@@ -512,13 +525,35 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               <button
                 type="button"
                 className={`chat-message__chain-toggle${isChainExpanded ? ' chat-message__chain-toggle--expanded' : ''}`}
-                onClick={(e) => { e.stopPropagation(); setIsChainExpanded((prev) => !prev); }}
+                onClick={(e) => { e.stopPropagation(); forcedChainExpandRef.current = null; setIsChainExpanded((prev) => !prev); }}
                 aria-expanded={isChainExpanded}
                 aria-controls={chainRegionId}
                 tabIndex={isReading ? 0 : -1}
               >
                 {isChainExpanded ? t('chat.collapseChain') : t('chat.expandChain')}
               </button>
+            )}
+            {/* Issue #163: com a cadeia recolhida (economia), ainda exibimos a
+                CONCLUSÃO do turno — mesma fonte de verdade do aria-label — para a
+                mensagem não ficar vazia. As tool calls e os segmentos
+                intermediários ficam ocultos até expandir. Fica FORA da região
+                controlada pelo toggle (chainRegionId) para manter `aria-expanded`
+                coerente com o conteúdo da cadeia. */}
+            {!isAgenticStreaming && !isChainExpanded && conclusionContent && (
+              <div className="chat-message__text chat-message__text--segment chat-message__text--conclusion-preview">
+                {canRenderHeavyContent ? (
+                  <MarkdownRenderer
+                    content={conclusionContent}
+                    interactiveButtons={!!onSendToEditor}
+                    focusableMermaid={!!onSendToEditor}
+                    enableSendToEditorButtons={!!onSendToEditor}
+                    editorTargets={editorTargets}
+                    onSendToEditor={onSendToEditor}
+                  />
+                ) : (
+                  <span>{t('chat.largeMessageDeferred')}</span>
+                )}
+              </div>
             )}
             {/* Completed segments — role="log" so screen readers announce each addition
                 and browse mode users can navigate segment by segment */}
