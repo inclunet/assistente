@@ -810,7 +810,7 @@ func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload m
 		return err
 	}
 
-	enriched := make(map[string]any, len(payload)+3)
+	enriched := make(map[string]any, len(payload)+4)
 	for k, v := range payload {
 		enriched[k] = v
 	}
