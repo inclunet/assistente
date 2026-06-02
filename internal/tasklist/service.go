@@ -309,8 +309,10 @@ func (s *Service) UpdateTask(ctx context.Context, id string, title, description,
 }
 
 func (s *Service) UpdateTaskFull(ctx context.Context, id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	wantUpdated := s.wantsDomain("tasklist.task.updated")
+	wantAssignee := s.wantsDomain("tasklist.task.assignee_changed")
 	var old *database.Task
-	if s.wantsDomain("tasklist.task.updated") {
+	if wantUpdated || wantAssignee {
 		old, _ = s.store.GetTask(ctx, id)
 	}
 	if err := s.store.UpdateTaskFull(ctx, id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID); err != nil {
@@ -318,13 +320,22 @@ func (s *Service) UpdateTaskFull(ctx context.Context, id string, title, descript
 	}
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
-	if s.wantsDomain("tasklist.task.updated") {
+	if wantUpdated {
 		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
 			// Ver UpdateTask: changed_fields só com snapshot recarregado.
 			if task != nil {
 				payload["changed_fields"] = changedTaskFields(old, task)
 			}
 			s.publishDomain(ctx, "tasklist.task.updated", payload)
+		}
+	}
+	// UpdateTaskFull também pode trocar o responsável: emite assignee_changed com
+	// o mesmo contrato de UpdateTaskAssignee, para não esconder a troca de quem
+	// escuta especificamente esse evento (e não só tasklist.task.updated).
+	if wantAssignee && old != nil && old.AssigneeID != assigneeID {
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			payload["from_assignee_id"] = old.AssigneeID
+			s.publishDomain(ctx, "tasklist.task.assignee_changed", payload)
 		}
 	}
 	return nil
@@ -368,8 +379,10 @@ func (s *Service) UpdateTaskAssignee(ctx context.Context, id string, assigneeNam
 }
 
 func (s *Service) UpdateTaskStatus(ctx context.Context, id string, statusID int) error {
+	wantStatus := s.wantsDomain("tasklist.task.status_changed")
+	wantCompleted := s.wantsDomain("tasklist.task.completed")
 	var old *database.Task
-	if s.wantsDomain("tasklist.task.status_changed") || s.wantsDomain("tasklist.task.completed") {
+	if wantStatus || wantCompleted {
 		old, _ = s.store.GetTask(ctx, id)
 	}
 	if err := s.store.UpdateTaskStatus(ctx, id, statusID); err != nil {
@@ -377,22 +390,29 @@ func (s *Service) UpdateTaskStatus(ctx context.Context, id string, statusID int)
 	}
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
-	if task != nil {
-		slug := ""
-		if s.wantsDomain("tasklist.task.status_changed") || s.wantsDomain("tasklist.task.completed") {
-			slug = s.taskListSlug(ctx, task.TaskListID)
-		}
-		if s.wantsDomain("tasklist.task.status_changed") {
-			payload := taskPayload(task, slug)
-			if old != nil {
-				payload["from_status_id"] = old.StatusID
+
+	if wantStatus {
+		// Não emite em no-op (status igual): evita disparar jobs à toa e facilita
+		// o anti-loop. Só dá para detectar no-op quando há snapshot anterior; sem
+		// ele (old==nil), publicamos best-effort.
+		statusChanged := old == nil || old.StatusID != statusID
+		// Best-effort mesmo se a recarga falhar (task==nil): cai para o snapshot
+		// anterior e força status_id ao novo valor do input, mantendo o contrato.
+		if statusChanged {
+			if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+				payload["status_id"] = statusID
+				if old != nil {
+					payload["from_status_id"] = old.StatusID
+				}
+				s.publishDomain(ctx, "tasklist.task.status_changed", payload)
 			}
-			s.publishDomain(ctx, "tasklist.task.status_changed", payload)
 		}
-		// Derivado: transição para concluído (completed_at passou a estar setado).
-		if s.wantsDomain("tasklist.task.completed") && task.CompletedAt != nil && (old == nil || old.CompletedAt == nil) {
-			s.publishDomain(ctx, "tasklist.task.completed", taskPayload(task, slug))
-		}
+	}
+	// Derivado: transição para concluído. Exige o snapshot recarregado, pois
+	// depende de completed_at já estar setado pós-mutação (o snapshot antigo não
+	// reflete isso).
+	if wantCompleted && task != nil && task.CompletedAt != nil && (old == nil || old.CompletedAt == nil) {
+		s.publishDomain(ctx, "tasklist.task.completed", taskPayload(task, s.taskListSlug(ctx, task.TaskListID)))
 	}
 	return nil
 }

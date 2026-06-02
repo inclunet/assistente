@@ -235,7 +235,7 @@ func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *Trig
 		}
 	}
 
-	// Sem mock: executa a tool de verdade mas nao emite eventos. Além de não
+	// Sem mock: executa a tool de verdade mas não emite eventos. Além de não
 	// chamar emitSuccess/emitFailure, suprimimos a ponte de eventos de domínio
 	// (AEP-0067): uma mutação feita pela tool durante o dry-run não deve publicar
 	// no EventBus nem cascatear outros jobs. Checado por Manager.PublishDomainEvent.

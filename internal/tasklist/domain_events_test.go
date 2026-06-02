@@ -88,6 +88,23 @@ func (s *fakeStore) UpdateTaskStatus(_ context.Context, id string, newStatusID i
 		now := time.Now()
 		t.CompletedAt = &now
 	}
+	if s.reloadFailsAfterUpdate {
+		delete(s.tasks, id)
+	}
+	return nil
+}
+
+func (s *fakeStore) UpdateTaskFull(_ context.Context, id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	t := s.tasks[id]
+	if t == nil {
+		return errors.New("task not found")
+	}
+	t.Title, t.Code, t.Link = title, code, link
+	t.AssigneeName, t.AssigneeID = assigneeName, assigneeID
+	t.CreatorName, t.CreatorID = creatorName, creatorID
+	if s.reloadFailsAfterUpdate {
+		delete(s.tasks, id)
+	}
 	return nil
 }
 
@@ -188,6 +205,97 @@ func TestUpdateTaskListFallsBackToIDWhenReloadFails(t *testing.T) {
 	}
 	if p["task_list_slug"] != "" {
 		t.Fatalf("task_list_slug = %v, want vazio (best-effort sem recarga)", p["task_list_slug"])
+	}
+}
+
+// TestUpdateTaskFullEmitsAssigneeChanged garante que trocar o responsável via
+// UpdateTaskFull também dispara tasklist.task.assignee_changed (com
+// from_assignee_id), não só tasklist.task.updated. Regressão do review #171.
+func TestUpdateTaskFullEmitsAssigneeChanged(t *testing.T) {
+	store := &fakeStore{}
+	seedTask(store, "t1", "L1", 1)
+	store.tasks["t1"].AssigneeID = "ana"
+	store.tasks["t1"].AssigneeName = "Ana"
+	sink := &fakeSink{listening: map[string]bool{
+		"tasklist.task.updated":          true,
+		"tasklist.task.assignee_changed": true,
+	}}
+	svc := newServiceWithSink(store, sink)
+
+	if err := svc.UpdateTaskFull(context.Background(), "t1", "Card", "", "", "", "Bruno", "bruno", "", ""); err != nil {
+		t.Fatalf("UpdateTaskFull: %v", err)
+	}
+
+	ac, ok := sink.find("tasklist.task.assignee_changed")
+	if !ok {
+		t.Fatal("tasklist.task.assignee_changed não emitido por UpdateTaskFull")
+	}
+	if ac["from_assignee_id"] != "ana" {
+		t.Fatalf("from_assignee_id = %v, want ana", ac["from_assignee_id"])
+	}
+	if ac["assignee_id"] != "bruno" {
+		t.Fatalf("assignee_id = %v, want bruno", ac["assignee_id"])
+	}
+}
+
+// TestUpdateTaskFullNoAssigneeChangeSkipsEvent garante que UpdateTaskFull sem
+// troca de responsável não emite assignee_changed.
+func TestUpdateTaskFullNoAssigneeChangeSkipsEvent(t *testing.T) {
+	store := &fakeStore{}
+	seedTask(store, "t1", "L1", 1)
+	store.tasks["t1"].AssigneeID = "ana"
+	sink := &fakeSink{listening: map[string]bool{"tasklist.task.assignee_changed": true}}
+	svc := newServiceWithSink(store, sink)
+
+	if err := svc.UpdateTaskFull(context.Background(), "t1", "Novo título", "", "", "", "", "ana", "", ""); err != nil {
+		t.Fatalf("UpdateTaskFull: %v", err)
+	}
+	if _, ok := sink.find("tasklist.task.assignee_changed"); ok {
+		t.Fatal("assignee_changed não deveria ser emitido sem troca de responsável")
+	}
+}
+
+// TestUpdateTaskStatusSkipsNoOp garante que UpdateTaskStatus não emite
+// status_changed quando o status não muda (from == to). Regressão do review #171.
+func TestUpdateTaskStatusSkipsNoOp(t *testing.T) {
+	store := &fakeStore{}
+	seedTask(store, "t1", "L1", 2)
+	sink := &fakeSink{listening: map[string]bool{"tasklist.task.status_changed": true}}
+	svc := newServiceWithSink(store, sink)
+
+	if err := svc.UpdateTaskStatus(context.Background(), "t1", 2); err != nil {
+		t.Fatalf("UpdateTaskStatus: %v", err)
+	}
+	if _, ok := sink.find("tasklist.task.status_changed"); ok {
+		t.Fatal("status_changed não deveria ser emitido em no-op (from == to)")
+	}
+}
+
+// TestUpdateTaskStatusFallsBackOnReloadFail garante que, se a recarga do card
+// falhar (task==nil), status_changed ainda é emitido best-effort a partir do
+// snapshot anterior, com status_id refletindo o novo valor do input e
+// from_status_id o anterior. Regressão do review #171.
+func TestUpdateTaskStatusFallsBackOnReloadFail(t *testing.T) {
+	store := &fakeStore{reloadFailsAfterUpdate: true}
+	seedTask(store, "t1", "L1", 1)
+	sink := &fakeSink{listening: map[string]bool{"tasklist.task.status_changed": true}}
+	svc := newServiceWithSink(store, sink)
+
+	if err := svc.UpdateTaskStatus(context.Background(), "t1", 2); err != nil {
+		t.Fatalf("UpdateTaskStatus: %v", err)
+	}
+	sc, ok := sink.find("tasklist.task.status_changed")
+	if !ok {
+		t.Fatal("status_changed deveria ser emitido best-effort mesmo com reload falho")
+	}
+	if sc["status_id"] != 2 {
+		t.Fatalf("status_id = %v, want 2 (novo valor do input)", sc["status_id"])
+	}
+	if sc["from_status_id"] != 1 {
+		t.Fatalf("from_status_id = %v, want 1 (snapshot anterior)", sc["from_status_id"])
+	}
+	if sc["task_id"] != "t1" {
+		t.Fatalf("task_id = %v, want t1 (fallback do snapshot)", sc["task_id"])
 	}
 }
 
