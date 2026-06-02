@@ -49,6 +49,18 @@ function AgenticHarness({ isActive, onClose = () => {} }: HarnessProps) {
   );
 }
 
+// Sem `.chat-message__content` nem `.chat-message__text`: não há elemento de
+// conteúdo real para receber `role="document"`.
+function NoContentHarness({ isActive, onClose = () => {} }: HarnessProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  useVirtualModal({ elementRef: ref, isActive, onClose });
+  return (
+    <div ref={ref} data-testid="message-node">
+      <span data-testid="plain-child">sem container de conteúdo</span>
+    </div>
+  );
+}
+
 describe('useVirtualModal', () => {
   it('marca o elemento ancora como role="dialog" e o conteudo como role="document" quando ativo', () => {
     render(<VirtualModalHarness isActive={true} />);
@@ -108,5 +120,33 @@ describe('useVirtualModal', () => {
 
     expect(content).not.toHaveAttribute('role');
     expect(content).not.toHaveAttribute('tabindex');
+  });
+
+  // Issue #163 (PR #168, Copilot 3337893960): sem elemento de conteúdo real, o
+  // hook NÃO deve sobrescrever o `role="dialog"` do próprio `el` com `document`.
+  // O dialog recebe o foco e, ao sair, role/tabindex voltam ao estado original
+  // (sem resíduo), pois a restauração do `el` fica a cargo de `previousAriaAttrs`.
+  it('mantém role="dialog" e foca o próprio el quando não há elemento de conteúdo', () => {
+    const { rerender } = render(<NoContentHarness isActive={true} />);
+
+    const dialog = screen.getByTestId('message-node');
+    expect(dialog).toHaveAttribute('role', 'dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    // Não vira document.
+    expect(dialog).not.toHaveAttribute('role', 'document');
+    // O próprio dialog recebe o foco.
+    expect(dialog).toHaveFocus();
+    // tabindex do dialog é o definido pelo modo dialog (-1), não 0.
+    expect(dialog).toHaveAttribute('tabindex', '-1');
+
+    act(() => {
+      rerender(<NoContentHarness isActive={false} />);
+    });
+
+    // Sem container, o estado original do `el` é restaurado pelo previousAriaAttrs:
+    // o harness não tinha role/aria-modal/tabindex, então não sobra resíduo.
+    expect(dialog).not.toHaveAttribute('role');
+    expect(dialog).not.toHaveAttribute('aria-modal');
+    expect(dialog).not.toHaveAttribute('tabindex');
   });
 });
