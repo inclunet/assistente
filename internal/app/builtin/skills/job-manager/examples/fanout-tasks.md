@@ -16,7 +16,7 @@ issues fans out into one task per issue.
     "on_success": "fsd.issue.found",
     "for_each": "issues",
     "emit_when": "{{ ne .output.fields.status.name \"Done\" }}",
-    "payload_template": "{ \"key\": \"{{ .output.key }}\", \"summary\": \"{{ .output.fields.summary }}\", \"priority\": \"{{ .output.fields.priority.name }}\" }"
+    "payload_template": "{ \"key\": {{ json .output.key }}, \"summary\": {{ json .output.fields.summary }}, \"priority\": {{ json .output.fields.priority.name }} }"
   }
 }
 ```
@@ -24,7 +24,9 @@ issues fans out into one task per issue.
 - `for_each: "issues"` points to the array inside the tool output (`{ "issues": [ … ] }`).
 - During fan-out the **current item is `.output`** — note `.output.key`, **never `.item.key`**.
 - `emit_when` runs **per item**, so only matching issues emit an event.
-- `payload_template` reshapes each item into a tidy event payload (must render a JSON object).
+- `payload_template` reshapes each item into a tidy event payload (must render a JSON object). Wrap
+  **every** dynamic value with the `json` function (no manual quotes) so quotes/newlines are escaped
+  correctly — otherwise an invalid render silently falls back to the raw output.
 
 ## 2. Consumer — one run per emitted item
 

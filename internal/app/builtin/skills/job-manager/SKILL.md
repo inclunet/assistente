@@ -70,10 +70,10 @@ events:
   on_failure: "my-job.failed"
   emit_when: '{{ ne .output.status "unchanged" }}'   # optional
   for_each: "items"                                    # fan-out (optional)
-  payload_template: |                                  # reshape payload (optional)
+  payload_template: |                                  # reshape payload (optional); wrap every value with `json`
     {
-      "id": "{{ .output.id }}",
-      "source": "{{ .event.origin }}"
+      "id": {{ json .output.id }},
+      "source": {{ json .event.origin }}
     }
   payload_filter:                                      # whitelist/blacklist (optional)
     include: ["id", "status"]
@@ -221,7 +221,7 @@ Two forgiving rewrites run on every template **before** it is parsed:
 |---------|-------|-----------------|
 | Field comes out as `<no value>` | Wrong path, or used `.item.*` in fan-out, or referenced `.output.*` during `inputs`/`when` resolution — `.output` exists as a root but is still **empty (nil)** before the tool runs, so `.output.*` is `<no value>` there | Inspect the resolved value with a dry-run; confirm the path against the upstream payload via `job(job_id, run_id)` → `output` |
 | `template: invalid character ':' in variable reference` | JSON/Jinja-style syntax inside `{{ }}` (e.g. `{{ event:foo }}` or `{{ {"a":1} }}`) | Use Go syntax. To emit a JSON literal in `payload_template`, put the JSON **outside** `{{ }}` and only interpolate values inside them |
-| `payload_template` seems ignored | Rendered text is not a valid JSON object → silent fallback to raw output | Dry-run and check the emitted payload; ensure the template renders `{ … }` with quoted strings |
+| `payload_template` seems ignored | Rendered text is not a valid JSON object → silent fallback to raw output | Dry-run and check the emitted payload; render a valid JSON object wrapping **every** dynamic value with `json` (no manual quotes), e.g. `{ "task_code": {{ json .output.key }} }` |
 | Used `upper`/`lower`/`toJson` and parse fails | Those functions do not exist | Use `json` for serialization; do case changes upstream or omit |
 | `default` returns the wrong branch | Argument order: it is `default <fallback> <value>` | Put the fallback first: `{{ default 50 .event.limit }}` |
 
