@@ -160,6 +160,18 @@ func (a *App) TriggerCustomAction(taskListID string, taskID string, actionID str
 		return "", fmt.Errorf("custom action %q not found", actionID)
 	}
 
+	// Revalida o surface server-side: uma action só de board_menu não pode ser
+	// disparada com um card (taskID), e uma action de card não pode ser disparada
+	// como board action (sem taskID). A listagem já filtra por surface, mas um
+	// caller direto (devtools) poderia burlar a regra de visibilidade do servidor.
+	if taskID != "" {
+		if !action.HasSurface(database.CustomActionSurfaceCardMenu) && !action.HasSurface(database.CustomActionSurfaceCardDetail) {
+			return "", fmt.Errorf("custom action %q is not available for cards", actionID)
+		}
+	} else if !action.HasSurface(database.CustomActionSurfaceBoardMenu) {
+		return "", fmt.Errorf("custom action %q is not available as a board action", actionID)
+	}
+
 	var taskMap map[string]any
 	if task != nil {
 		taskMap = a.customActionTaskMap(ctx, task)

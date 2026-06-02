@@ -53,10 +53,14 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const [boardActions, setBoardActions] = useState<CustomActionView[]>([]);
   const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
 
+  const boardActionsReqRef = useRef(0);
   const reloadBoardActions = useCallback(() => {
+    // Guard por request-id: se taskListId mudar enquanto a Promise anterior ainda
+    // está pendente, a resposta antiga não deve sobrescrever a lista mais recente.
+    const reqId = ++boardActionsReqRef.current;
     listBoardCustomActions(taskListId)
-      .then(setBoardActions)
-      .catch(() => setBoardActions([]));
+      .then((res) => { if (boardActionsReqRef.current === reqId) setBoardActions(res); })
+      .catch(() => { if (boardActionsReqRef.current === reqId) setBoardActions([]); });
   }, [listBoardCustomActions, taskListId]);
 
   useEffect(() => {

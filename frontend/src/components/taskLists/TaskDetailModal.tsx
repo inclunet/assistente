@@ -62,20 +62,16 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const [noteContent, setNoteContent] = useState('');
   const [noteAuthor, setNoteAuthor] = useState('');
 
-  const loadNotes = useCallback(async () => {
-    if (!task) return;
-    setIsLoadingNotes(true);
-    const loaded = await loadTaskNotes(task.id);
-    setNotes(loaded);
-    setIsLoadingNotes(false);
-  }, [task, loadTaskNotes]);
-
   useEffect(() => {
     if (isOpen && task) {
-      loadNotes();
-      // Flag de cancelamento: se o modal fechar/trocar de task antes do
-      // listCardCustomActions resolver, não setamos estado da task anterior.
+      // Stale guard único para os dois loads assíncronos (notes + custom actions):
+      // se o modal fechar/trocar de task antes das Promises resolverem, não
+      // sobrescrevemos estado com dados do card anterior.
       let cancelled = false;
+      setIsLoadingNotes(true);
+      loadTaskNotes(task.id)
+        .then((loaded) => { if (!cancelled) { setNotes(loaded); setIsLoadingNotes(false); } })
+        .catch(() => { if (!cancelled) { setNotes([]); setIsLoadingNotes(false); } });
       listCardCustomActions(task.id, 'card_detail')
         .then((res) => { if (!cancelled) setCustomActions(res); })
         .catch(() => { if (!cancelled) setCustomActions([]); });
@@ -86,7 +82,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     setShowNoteForm(false);
     setEditingNoteId(null);
     return undefined;
-  }, [isOpen, task, loadNotes, listCardCustomActions]);
+  }, [isOpen, task, loadTaskNotes, listCardCustomActions]);
 
   const resetForm = useCallback(() => {
     setNoteType(TASK_NOTE_TYPES.INTERNAL);

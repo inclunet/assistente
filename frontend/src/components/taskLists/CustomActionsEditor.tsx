@@ -113,7 +113,9 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
         ...a,
         surfaces: a.surfaces && a.surfaces.length > 0 ? a.surfaces : ['card_menu'],
       }));
-      const json = JSON.stringify({ actions: cleaned });
+      // Sem ações: persiste string vazia (não `{"actions":[]}`). O backend trata
+      // vazio como "sem ações" e isso mantém custom_actions limpo no round-trip/clone.
+      const json = cleaned.length > 0 ? JSON.stringify({ actions: cleaned }) : '';
       await setTaskListCustomActions(taskListId, json);
       addToast(t('tasklist.customActions.saved', 'Ações customizadas salvas'), 'success');
       onSaved?.();
