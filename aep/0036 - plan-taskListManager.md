@@ -1,5 +1,25 @@
 # Plano: Task List Manager Feature
 
+> **Nota de status (alinhamento 2026-06)** — Documento parcialmente **histórico**.
+> A feature foi implementada, mas o **modelo de dados** abaixo divergiu do código
+> real. As seções de modelo de dados foram corrigidas para refletir a
+> implementação (`internal/database/models.go`). Divergências principais que esta
+> nota e as correções abaixo resolvem:
+> - **IDs**: hoje são **UUIDv7** (AEP-0046), não inteiros sequenciais. Exemplos
+>   com IDs `int` no texto são ilustrativos/históricos.
+> - **Origem externa**: `ExternalSource`/`ExternalID`/`ExternalParentID`/
+>   `ExternalUpdatedAt` vivem em **`TaskNote`**, **não** em `Task`. No `Task`, o
+>   campo **`Code` funciona como external id** (equivalente, preenchível manual).
+> - **`Task`** não tem `Priority`, `Tags`, `Progress` nem `LinkedMessageID`
+>   (não implementados). Tem `Code`, `Link`, `AssigneeName/ID`, `CreatorName/ID`,
+>   `CompletedAt`.
+> - **`TaskList`** não tem `Type` (personal/ephemeral), `WorkflowID` (FK),
+>   `Metadata` (JSON) nem `ConversationID` no model atual. Tem `UserID`, `Slug`,
+>   `Description`, `PreferredViewMode`, `ValidationPolicy`. O `Workflow` é uma
+>   **tabela separada** referenciada por `TaskListID` (não FK no `TaskList`).
+> - Evolução posterior (eventos de domínio + custom actions de card): ver
+>   **AEP-0067**.
+
 ## TL;DR
 
 Implementar um **sistema de gerenciamento de TaskLists reutilizáveis** que funciona em 3 contextos:
@@ -15,45 +35,53 @@ Com suporte futuro para sincronização externa (Jira, GitHub) via background se
 
 ### **1. Modelo de Dados**      (Backend)
     
+> As definições abaixo refletem a **implementação real** (`internal/database/models.go`).
+> Campos comuns (`ID`, `CreatedAt`, `UpdatedAt`) vêm de `UUIDModel` (IDs UUIDv7, AEP-0046).
+
 **TaskListWorkflow** (define máquina de estado **per-tasklist**, customizável)
-- PK: ID
-- TaskListID (FK) → Cada TaskList tem seu próprio workflow
-- Name (ex: "Kanban Padrão", "Jira Workflow", "Simples")
-- InitialStatus (int) → ID do status inicial
-- DoneStatus (int) → ID do status final
-- Statuses (JSON array com **ordem mutável + imutabilidade condicional**): [
-    { id: 1, order: 0, label: "A Fazer", color: "gray", icon: "circle-outline" },
-    { id: 2, order: 1, label: "Em Andamento", color: "blue", icon: "circle-half" },
-    { id: 3, order: 2, label: "Concluído", color: "green", icon: "circle-check" }
-  ]
-  - `id`: Identificador imutável (nunca muda mesmo se renomear)
-  - `order`: Posição (reordenável sempre)
-  - `label`: Nome do status (imutável se TaskList tiver Tasks; mutável se vazio)
-  - `color`, `icon`: Propriedades visuais (sempre mutáveis)
-- AllowedTransitions (JSON): { "1": [2], "2": [1, 3], "3": [2] } (keyed by status ID)
-- CanBeModifiedByLLM (bool) — LLM pode alterar este workflow ao criar/editar tasklist
-- CreatedAt, UpdatedAt
+- `ID` (UUIDModel)
+- `TaskListID` (uniqueIndex) → Cada TaskList tem seu próprio workflow (tabela separada)
+- `Statuses` (string JSON): array `[{ id, order, label, color, icon }]`
+  - `id`: identificador imutável (nunca muda mesmo se renomear)
+  - `order`: posição (reordenável sempre)
+  - `label`: nome do status (imutável se TaskList tiver Tasks; mutável se vazio)
+  - `color`, `icon`: propriedades visuais (sempre mutáveis)
+- `AllowedTransitions` (string JSON): `{ "1": [2,3], "2": [3] }` (keyed by status ID)
+- `InitialStatusID` (int) → ID do status inicial para novas tasks
+- _(Histórico/não implementado: `Name`, `DoneStatus`, `CanBeModifiedByLLM`.)_
 
-**TaskList** (entidade raiz, com workflow **per-tasklist**)
-- PK: ID
-- Title, Type ("personal" | "ephemeral")
-- ConversationID (nullable, unique) ← 1:1 link a Conversation
-- WorkflowID (FK) → referencia TaskListWorkflow (criado junto com TaskList)
-- **PreferredViewMode** ("list" | "kanban") ← user pode escolher qual modo ver por padrão
-- Metadata (JSON): tags, descrição, cloneOriginID (se foi clonado)
-- CreatedAt, UpdatedAt
+**TaskList** (entidade raiz; workflow em tabela separada)
+- `ID` (UUIDModel), `UserID`
+- `Title`, `Slug` (identificador estável portável, opcional/único quando não vazio)
+- `Description`
+- `PreferredViewMode` ("list" | "kanban")
+- `ValidationPolicy` (string JSON opcional — regras de code de tasks e notas externas)
+- Relacionamentos: `Workflow` (por `TaskListID`), `Tasks`
+- _(Histórico/não implementado no model: `Type` personal/ephemeral, `ConversationID`, `WorkflowID` FK, `Metadata`.)_
 
-**Task** (com hierarquia via ParentTaskID e status por ID)
-- PK: ID
-- TaskListID (FK), ParentTaskID (FK, nullable) ← recursão para subtasks
-- Title, Description, StatusID (int, FK para TaskListWorkflow.Statuses[].id)
-- Priority, DueDate, Tags, Progress (0-100)
-- ExternalID/ExternalSource ← para Jira, GitHub, etc.
-- LinkedMessageID (nullable) ← link opcional a mensagem de conversa
-- Order/Position para listagem
+**Task** (com hierarquia via `ParentID` e status por ID)
+- `ID` (UUIDModel), `TaskListID`
+- `Title`, `Description`
+- `Code` (size:128, index) ← **funciona como external id** (preenchível manual; normalmente equivale ao id do sistema de origem)
+- `Link` (size:512) ← link externo do card
+- `StatusID` (int, aponta para `TaskListWorkflow.Statuses[].id`)
+- `ParentID` (nullable) ← recursão para subtasks
+- `Order`
+- `AssigneeName`, `AssigneeID`
+- `CreatorName`, `CreatorID`
+- `DueDate`, `CompletedAt` (nullable)
+- Relacionamentos: `TaskList`, `Parent`, `Subtasks`, `Notes`
+- _(Histórico/não implementado: `Priority`, `Tags`, `Progress`, `LinkedMessageID`, `ExternalID/ExternalSource` no Task — origem externa vive em `TaskNote`.)_
+
+**TaskNote** (nota/interação de uma task; carrega a origem externa)
+- `ID` (UUIDModel), `UserID`, `TaskID`
+- `Type` (TaskNoteType: 1 interna, 2 cliente, 3 agente, 4 sistema)
+- `Content`
+- `AuthorName`, `AuthorID`
+- `ExternalSource` (coluna `external_source`), `ExternalID`, `ExternalParentID`, `ExternalUpdatedAt` ← origem externa (sync Jira/FSD/etc.); upsert idempotente por `(external_source, external_id)`
 
 **TaskListHistory** (persistência de tabs)
-- TaskListID, Position, LastAccessedAt ← recarrega tabs ao abrir app
+- `TaskListID`, `Position`, `LastAccessedAt` ← recarrega tabs ao abrir app
 
 ---
 

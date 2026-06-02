@@ -39,6 +39,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0031](0031-email-refinements-security.md) | Email + Chat Security | 📋 Open |
 | [0032](0032-editor-rico.md) | Editor Rico + Inline Chat | 📋 Open |
 | [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery | 📋 Open |
+| [0036](0036%20-%20plan-taskListManager.md) | Task List Manager Feature | ✅ Done |
 | [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |
 | [0042](0042-chat-surface-context.md) | Chat Surface Context | 🚧 In Progress |
 | [0043](0043-tts-stt-voices.md) | Evolução TTS/STT: Vozes (Assistant + User) | 📝 Draft |
@@ -61,6 +62,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0064](0064-streaming-recovery-explicito.md) | Recuperação Explícita de Streaming e Cancelamento | 📝 Draft |
 | [0065](0065-llm-rate-limiting.md) | Rate Limiting nas Chamadas ao Provedor LLM | 📝 Draft |
 | [0066](0066-connection-status-indicator.md) | Indicador de Status de Conexão com a API LLM | 📝 Draft |
+| [0067](0067-tasklist-domain-events-and-custom-actions.md) | Eventos de Domínio de Tasklists e Custom Actions | 📝 Draft |
 
 ## Status Legend
 
