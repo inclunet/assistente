@@ -79,6 +79,10 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     }
     setNotes([]);
     setCustomActions([]);
+    // Reseta o loading também: se o modal fechou com loadTaskNotes ainda pendente,
+    // o stale guard impede o setIsLoadingNotes(false) na Promise, e sem isto o
+    // estado ficaria preso em "carregando" até o próximo open.
+    setIsLoadingNotes(false);
     setShowNoteForm(false);
     setEditingNoteId(null);
     return undefined;
