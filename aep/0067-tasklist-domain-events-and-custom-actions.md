@@ -145,10 +145,14 @@ Ver o schema completo em "Schema de custom_actions" abaixo.
 
 ### 5) Refresh manual
 
-- `App.RequestTaskListRefresh(taskListID)` publica `tasklist.list.refresh_requested`
-  com `{ task_list_id, task_list_slug }`.
-- Exposto como uma custom action de `board` (ou item dedicado) no menu do
-  board/Shift+F10. One-shot, iniciado pelo usuário, sem ciclo.
+- **Não é um item nativo/fixo.** O refresh é uma **custom action opcional** que o
+  usuário cria por lista (surface `board`, `event: tasklist.list.refresh_requested`).
+  Não há botão "Atualizar" sempre presente — ele só existe se for definido nas
+  `custom_actions` da lista.
+- Disparo pelo caminho genérico `App.TriggerCustomAction(taskListID, "", actionID)`
+  → `PublishDomainEvent` (com proveniência). One-shot, iniciado pelo usuário, sem
+  ciclo. Um job vinculado por `listen: tasklist.list.refresh_requested` ressincroniza
+  a lista.
 
 ### 6) Catálogo de eventos na UI
 
@@ -216,7 +220,7 @@ Campos-base por entidade:
 | `tasklist.list.updated` | `UpdateTaskList`/`UpdateTaskListFull`/`SetTaskListViewMode` | Título/descrição/view mode | Já emite (`taskList:updated`) |
 | `tasklist.list.cleared` | `ClearTaskList` | Lista esvaziada | Já emite (`taskList:cleared`) |
 | `tasklist.list.deleted` | `DeleteTaskList` | Lista removida | Já emite (`taskList:deleted`) |
-| `tasklist.list.refresh_requested` | `RequestTaskListRefresh` | Custom action de board "Atualizar" | Novo |
+| `tasklist.list.refresh_requested` | `TriggerCustomAction` (custom action de board, opcional) | Custom action "Atualizar" (não-nativa) | Novo |
 | `tasklist.workflow.updated` | `UpdateWorkflow`/`UpdateWorkflowFull`/`ReorderWorkflowStatuses` | Workflow alterado | Já emite (`workflow:updated`) |
 | `tasklist.item.opened` | `App.NotifyTaskOpened` (opcional) | Card aberto para detalhe | Novo (opcional, read-side) |
 | `tasklist.card.investigate` | `TriggerCustomAction` (custom action) | Action "Investigar" | Novo (custom, nome livre) |
@@ -328,9 +332,11 @@ steps:
 ## Fases (PRs incrementais, em sequência após esta AEP aprovada)
 
 - **PR 0 (este)**: documentação — AEP-0067 + alinhamento da AEP-0036.
-- **Fase 1 — Refresh manual**: `PublishDomainEvent`, `RequestTaskListRefresh`,
-  custom action de board "Atualizar", catálogo de eventos. Maior valor, sem risco
-  de loop.
+- **Fase 1 — Base do barramento de eventos de domínio**: `PublishDomainEvent`,
+  catálogo estático de eventos (inclui `tasklist.list.refresh_requested`) e
+  fallback de `InferEventSchema`. Maior valor, sem risco de loop. (O refresh
+  deixou de ser um botão fixo; passa a ser uma custom action opcional — ver §5
+  e Fase 5.)
 - **Fase 2 — Ponte de eventos de lifecycle**: `DomainEventSink`, emissão dos
   eventos de domínio nos pontos de mutação do `Service` (payload normalizado).
 - **Fase 3 (opcional) — `tasklist.item.opened`** (read-side).
