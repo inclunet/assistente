@@ -78,7 +78,7 @@ func (a *App) ListCardCustomActions(taskID string, surface string) ([]CustomActi
 }
 
 // ListBoardCustomActions retorna as custom actions de board (board_menu) de uma
-// lista. Sem card de contexto — `.task` fica vazio.
+// lista. Sem card de contexto, mas `.task` ainda carrega a lista atual.
 func (a *App) ListBoardCustomActions(taskListID string) ([]CustomActionView, error) {
 	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
@@ -88,7 +88,7 @@ func (a *App) ListBoardCustomActions(taskListID string) ([]CustomActionView, err
 	if err != nil || ca == nil {
 		return []CustomActionView{}, err
 	}
-	data := map[string]any{"task": emptyTaskMap(), "now": time.Now()}
+	data := map[string]any{"task": a.customActionBoardTaskMap(ctx, taskListID), "now": time.Now()}
 	return a.filterVisibleActions(ca.Actions, database.CustomActionSurfaceBoardMenu, data), nil
 }
 
@@ -164,13 +164,7 @@ func (a *App) TriggerCustomAction(taskListID string, taskID string, actionID str
 	if task != nil {
 		taskMap = a.customActionTaskMap(ctx, task)
 	} else {
-		// Ação de board (sem card): taskListID é conhecido, então populamos o
-		// contexto da lista mesmo assim — senão templates/when não acessariam a
-		// lista e o payload sairia com task_list_id/slug vazios.
-		taskMap["task_list_id"] = taskListID
-		if tl, terr := a.taskListCtrl.GetTaskList(ctx, taskListID); terr == nil && tl != nil {
-			taskMap["task_list_slug"] = tl.Slug
-		}
+		taskMap = a.customActionBoardTaskMap(ctx, taskListID)
 	}
 	data := map[string]any{"task": taskMap, "now": time.Now()}
 
@@ -222,6 +216,9 @@ func (a *App) TriggerCustomAction(taskListID string, taskID string, actionID str
 					return "", fmt.Errorf("payload_template did not render to a JSON object: %w", jerr)
 				}
 				for k, v := range extra {
+					if _, exists := payload[k]; exists {
+						continue
+					}
 					payload[k] = v
 				}
 			}
@@ -255,6 +252,15 @@ func (a *App) customActionTaskMap(ctx context.Context, task *database.Task) map[
 		m["parent_id"] = *task.ParentID
 	}
 	if tl, err := a.taskListCtrl.GetTaskList(ctx, task.TaskListID); err == nil && tl != nil {
+		m["task_list_slug"] = tl.Slug
+	}
+	return m
+}
+
+func (a *App) customActionBoardTaskMap(ctx context.Context, taskListID string) map[string]any {
+	m := emptyTaskMap()
+	m["task_list_id"] = taskListID
+	if tl, err := a.taskListCtrl.GetTaskList(ctx, taskListID); err == nil && tl != nil {
 		m["task_list_slug"] = tl.Slug
 	}
 	return m
