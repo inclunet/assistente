@@ -50,15 +50,24 @@ jobs:
           # OBS: capturamos a saída numa variável e checamos explicitamente, pois `jq`
           # sobre uma lista vazia sai com status 0 e não imprime nada — então um
           # `|| echo "(nenhum...)"` nunca dispararia no caso mais comum.
+          # Este bloco é apenas diagnóstico: NÃO falhamos o job se a API der erro, mas
+          # capturamos o stderr e o imprimimos para não confundir "falha da API" com
+          # "nenhum review anterior" (antes o `2>/dev/null || true` mascarava o erro).
           echo "Reviews anteriores do Copilot (commit / estado):"
-          prev_reviews="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+          prev_err="$(mktemp)"
+          if prev_reviews="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
             --jq '.[] | select(.user.login == "copilot-pull-request-reviewer") | "  - " + .commit_id + " (" + .state + ")"' \
-            2>/dev/null || true)"
-          if [[ -n "${prev_reviews}" ]]; then
-            echo "${prev_reviews}"
+            2>"${prev_err}")"; then
+            if [[ -n "${prev_reviews}" ]]; then
+              echo "${prev_reviews}"
+            else
+              echo "  (nenhum review anterior do Copilot)"
+            fi
           else
-            echo "  (nenhum review anterior do Copilot)"
+            echo "  (falha ao consultar reviews anteriores — apenas diagnóstico, seguindo):"
+            sed 's/^/    /' "${prev_err}"
           fi
+          rm -f "${prev_err}"
 
           # IMPORTANTE: apenas re-postar o Copilot em requested_reviewers NÃO dispara
           # um novo review quando ele já revisou o PR — a API responde 2xx mas nada
@@ -71,12 +80,19 @@ jobs:
           # inexistente" era tratado como sucesso, mascarando erros reais (permissão,
           # rate limit, endpoint/param inválido) — e distinguimos "nada a remover" de
           # falhas inesperadas, abortando o job nestas últimas.
+          # Capturamos APENAS o stdout (stderr vai para um arquivo separado). Misturar
+          # stderr no stdout com `2>&1` poderia corromper o JSON caso o `gh api` emita
+          # algum aviso, quebrando o parse mais adiante.
           echo "Consultando reviewers pendentes..."
-          pending_json="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" 2>&1)" || {
+          pending_err="$(mktemp)"
+          if ! pending_json="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" 2>"${pending_err}")"; then
             echo "Falha ao consultar reviewers pendentes:"
-            echo "${pending_json}"
+            sed 's/^/    /' "${pending_err}"
+            rm -f "${pending_err}"
             exit 1
-          }
+          fi
+          rm -f "${pending_err}"
+
           # O Copilot pode aparecer como "Copilot" ou "copilot-pull-request-reviewer".
           # Extraímos o login EXATO presente em pending_json (case-insensitive contra
           # essa lista conhecida) e o reutilizamos no DELETE. Isso evita: (a) falsos
@@ -84,8 +100,15 @@ jobs:
           # (b) remover com um login diferente do que está pendente — se o pendente for
           # "copilot-pull-request-reviewer" e mandássemos "Copilot", o DELETE devolveria
           # 422 e abortaria o job, impedindo o re-request que dispara o novo review.
-          copilot_login="$(printf '%s' "${pending_json}" \
-            | jq -r 'first(.users[]?.login | select((ascii_downcase) == "copilot" or (ascii_downcase) == "copilot-pull-request-reviewer")) // empty' 2>/dev/null || true)"
+          # NÃO silenciamos o `jq`: se a resposta não for um JSON parseável, falhamos
+          # explicitamente em vez de assumir "nada pendente" e pular o DELETE (que é
+          # justamente o passo que torna o re-review confiável).
+          if ! copilot_login="$(printf '%s' "${pending_json}" \
+            | jq -r 'first(.users[]?.login | select((ascii_downcase) == "copilot" or (ascii_downcase) == "copilot-pull-request-reviewer")) // empty')"; then
+            echo "Resposta de reviewers pendentes não é um JSON válido:"
+            echo "${pending_json}"
+            exit 1
+          fi
 
           if [[ -n "${copilot_login}" ]]; then
             echo "Copilot já está como reviewer pendente (login: ${copilot_login}); removendo para forçar um novo review..."
@@ -138,13 +161,21 @@ jobs:
           # então uma lista vazia aqui NÃO indica falha — é apenas diagnóstico.
           # Mesma armadilha do bloco de reviews anteriores: `jq` sobre lista vazia sai
           # com status 0 sem imprimir nada, então capturamos e checamos explicitamente.
+          # Tratamos erro da API separadamente (capturando stderr) para que uma falha
+          # real (rate limit/permissão) não fique indistinguível de "lista vazia".
           if [[ "${requested}" == "1" ]]; then
             echo "Reviewers pendentes após a solicitação:"
-            pending_after="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
-              --jq '.users[]?.login | "  - " + .' 2>/dev/null || true)"
-            if [[ -n "${pending_after}" ]]; then
-              echo "${pending_after}"
+            after_err="$(mktemp)"
+            if pending_after="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+              --jq '.users[]?.login | "  - " + .' 2>"${after_err}")"; then
+              if [[ -n "${pending_after}" ]]; then
+                echo "${pending_after}"
+              else
+                echo "  (nenhum reviewer pendente listado no momento)"
+              fi
             else
-              echo "  (nenhum reviewer pendente listado no momento)"
+              echo "  (falha ao consultar reviewers pendentes — apenas diagnóstico):"
+              sed 's/^/    /' "${after_err}"
             fi
+            rm -f "${after_err}"
           fi
