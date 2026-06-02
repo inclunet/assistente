@@ -1,6 +1,6 @@
 ---
 name: job-manager
-version: 2.1.0
+version: 2.2.0
 description: Provides context and instructions for managing event-driven automation jobs and pipelines via the `job` and `job_pipeline` tools (DB-backed) — creation, editing, triggers, conditional events, runs and events inspection
 displayName: Job Manager
 author: Assistente
@@ -140,6 +140,59 @@ emit_when: '{{ eq .output.status "Done" }}'
 |-------|-------|-------|
 | Input | `trigger.when` | Avoids unnecessary tool calls |
 | Output | `events.emit_when` | Avoids unnecessary event propagation |
+
+## Domain events — listen to app surfaces (AEP-0067)
+
+Besides job-to-job events, the app **surfaces** publish semantic **domain events** onto the same EventBus. A job can subscribe to them with `trigger.type: event` + `listen: "<name>"` exactly like any other event. The first producer is the **tasklist** surface; the catalog is extensible to future surfaces (`chat.*`, `workspace.tab.*`, `terminal.*`, `editor.*`).
+
+Key facts:
+
+- These events appear in the JobBuilder event picker even when **no job** emits them yet (static catalog in `internal/jobs/domain_events.go`).
+- Emission is **cost ~zero**: the surface only builds the payload and publishes when at least one job is actually listening (`HasDomainListener`). With no listener, nothing is computed.
+- Every domain event carries **provenance** fields (see [Provenance & anti-loop](#provenance--anti-loop)).
+
+### Tasklist domain event catalog
+
+| Event | Emitted when | Notable payload fields (besides provenance) |
+|-------|--------------|---------------------------------------------|
+| `tasklist.task.created` | A task is created | `task_id`, `task_list_id`, `task_list_slug`, `code`, `title`, `status_id`, `parent_id`, `assignee_id`, `link` |
+| `tasklist.task.updated` | A task's fields change | + `changed_fields` (array of field names) |
+| `tasklist.task.status_changed` | Status changes | + `from_status_id` |
+| `tasklist.task.assignee_changed` | Assignee changes | + `from_assignee_id` |
+| `tasklist.task.moved` | Task moves to another list | + `from_task_list_id` |
+| `tasklist.task.reparented` | Task's parent changes | + `from_parent_id` |
+| `tasklist.task.reordered` | Task order changes | task fields |
+| `tasklist.task.completed` | Task reaches a completed state | task fields (`completed_at` set) |
+| `tasklist.task.deleted` | Task is deleted | task fields |
+| `tasklist.note.added` / `.updated` / `.deleted` | Note lifecycle | `note_id`, `task_id`, `task_list_id`, `note_type`, `source`, `external_id`, `author_id` |
+| `tasklist.list.created` / `.updated` / `.cleared` / `.deleted` | List lifecycle | `task_list_id`, `task_list_slug`, `title` |
+| `tasklist.list.cloned` | List cloned | + `source_task_list_id` |
+| `tasklist.list.refresh_requested` | User clicks **Atualizar** (manual one-shot) | `task_list_id`, `task_list_slug`, `title` |
+| `tasklist.workflow.updated` | Workflow changes | `task_list_id`, `initial_status_id` |
+| `tasklist.item.opened` | A card/detail is opened | task fields |
+
+`code` ≡ external id of the card. Use `task_list_slug` (stable) over numeric ids in `inputs` (see the slug section).
+
+### Custom actions (per-TaskList, user-defined)
+
+A `TaskList` can define **custom actions** that appear in the card context menu, the card detail screen and/or the board menu. Each action can **publish a templated event** (any name — including a job-listenable one) and/or **open a templated link/deep link**. The event a custom action publishes is a first-class EventBus event: just create a job with `trigger.listen: "<that event name>"`.
+
+Custom-action events also appear in `ListKnownEvents`, so they show up in the picker once configured. Their payload includes `action_id`, `task_list_id`, `task_list_slug`, the task identity (when fired from a card) plus whatever the action's `payload_template` adds. They carry the same provenance fields.
+
+### Recipe: react to a manual refresh
+
+```json
+{
+  "name": "Sync FSD on manual refresh",
+  "tool": "mcp_jira__search_issues",
+  "triggers": [
+    { "type": "event", "listen": "tasklist.list.refresh_requested",
+      "when": "{{ eq .event.task_list_slug \"fsd\" }}" }
+  ],
+  "inputs": { "jql": "project = FSD AND updated >= -7d" },
+  "events": { "on_success": "fsd.issue.found", "for_each": "issues" }
+}
+```
 
 ## Template Reference
 
@@ -357,11 +410,30 @@ Consider a daily **meta-monitoring** job (see [`examples/`](./examples/)) that f
 
 ## Traceability: event ↔ runs
 
-Every emitted event payload is enriched by `emitSuccess` with two correlation fields you **can read downstream**:
+Every emitted event payload is enriched with correlation/provenance fields you **can read downstream** (and filter on with `trigger.when`):
 
 - `_chain_id` — stable id of the whole reactive chain (the originating run id). Read it in a child via `{{ .event._chain_id }}`.
 - `_chain_history` — ordered list of job ids already executed in the chain (used by the circuit breaker for loop/depth detection).
+- `_source` — origin of the mutation: `"user"` (a human acted in the UI) or `"job"` (an automation acted). Domain events published from app surfaces inherit this from the acting context (`internal/eventctx`).
+- `_source_job_id` — when `_source == "job"`, the id of the job whose run caused the mutation. Empty for user-originated events.
 - For fan-out items, `_fan_out_index` / `_fan_out_total` are also present on the event.
+
+### Anti-loop guidance (provenance)
+
+Domain events fire for **every** mutation, including those a job itself performs (e.g. a job that moves a card emits `tasklist.task.status_changed`). Without care, a job listening to the very events it causes will loop. Two layers protect you:
+
+1. **Circuit breaker** — `_chain_history` + `_chain_id` cap chain depth and detect repeats automatically.
+2. **Explicit `trigger.when` on provenance** — the recommended, intentional guard. React only to human actions, or skip events your own automation caused:
+
+```yaml
+# Only react to human-driven changes (ignore job-driven mutations)
+when: '{{ eq .event._source "user" }}'
+
+# Or: react to job-driven changes but never to your own
+when: '{{ ne .event._source_job_id "move-card-job" }}'
+```
+
+Prefer gating high-frequency events (`tasklist.task.updated`, `.status_changed`, `.moved`) on `_source` so an automation chain cannot feed itself.
 
 To trace a run: `job(job_id, run_id)` returns the `RunDetail` with `run_events` (operational timeline) and `domain_events` (the emitted/received events correlated by run). First-class visible run fields for cross-run correlation (`triggered_by_event`, `triggered_by_run_id`, `triggered_by_job_id`) are proposed in **#164**.
 
