@@ -149,7 +149,7 @@ Key facts:
 
 - These events appear in the JobBuilder event picker even when **no job** emits them yet (static catalog in `internal/jobs/domain_events.go`).
 - Emission is **cost ~zero**: the surface only builds the payload and publishes when at least one job is actually listening (`HasDomainListener`). With no listener, nothing is computed.
-- Every domain event carries **provenance** fields (see [Provenance & anti-loop](#provenance--anti-loop)).
+- Domain events published via `PublishDomainEvent` carry **provenance** fields for anti-loop guards (see [Anti-loop guidance (provenance)](#anti-loop-guidance-provenance)). Note: `_source_job_id` is only set for job-originated mutations and is empty for user-originated events.
 
 ### Tasklist domain event catalog
 
@@ -169,7 +169,7 @@ Key facts:
 | `tasklist.list.cloned` | List cloned | + `source_task_list_id` |
 | `tasklist.list.refresh_requested` | User triggers an optional **Atualizar** board custom action (manual one-shot; not a fixed button) | `task_list_id`, `task_list_slug` |
 | `tasklist.workflow.updated` | Workflow changes | `task_list_id`, `initial_status_id` |
-| `tasklist.item.opened` | A card/detail is opened | task fields |
+| `tasklist.item.opened` | *(reserved — present in the static catalog so it shows in the picker, but no producer emits it yet)* | task fields |
 
 `code` ≡ external id of the card. Use `task_list_slug` (stable) over numeric ids in `inputs` (see the slug section).
 
@@ -410,12 +410,11 @@ Consider a daily **meta-monitoring** job (see [`examples/`](./examples/)) that f
 
 ## Traceability: event ↔ runs
 
-Every emitted event payload is enriched with correlation/provenance fields you **can read downstream** (and filter on with `trigger.when`):
+Event payloads are enriched with correlation/provenance fields you **can read downstream** (and filter on with `trigger.when`):
 
 - `_chain_id` — stable id of the whole reactive chain (the originating run id). Read it in a child via `{{ .event._chain_id }}`.
-- `_chain_history` — ordered list of job ids already executed in the chain (used by the circuit breaker for loop/depth detection).
-- `_source` — origin of the mutation: `"user"` (a human acted in the UI) or `"job"` (an automation acted). Domain events published from app surfaces inherit this from the acting context (`internal/eventctx`).
-- `_source_job_id` — when `_source == "job"`, the id of the job whose run caused the mutation. Empty for user-originated events.
+- `_chain_history` — ordered history used by the circuit breaker for loop/depth detection. For job-to-job chains it accumulates job ids; for a domain event published from a surface it starts with the originating **event name**.
+- `_source` / `_source_job_id` — added by `PublishDomainEvent` (i.e. on domain events). `_source` is `"user"` (a human acted in the UI) or `"job"` (an automation acted); domain events inherit this from the acting context (`internal/eventctx`). `_source_job_id` holds the job id when `_source == "job"`, and is empty for user-originated events.
 - For fan-out items, `_fan_out_index` / `_fan_out_total` are also present on the event.
 
 ### Anti-loop guidance (provenance)
