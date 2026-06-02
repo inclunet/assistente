@@ -160,7 +160,7 @@ func (a *App) TriggerCustomAction(taskListID string, taskID string, actionID str
 		return "", fmt.Errorf("custom action %q not found", actionID)
 	}
 
-	taskMap := emptyTaskMap()
+	var taskMap map[string]any
 	if task != nil {
 		taskMap = a.customActionTaskMap(ctx, task)
 	} else {
