@@ -188,7 +188,7 @@ Key facts:
 | `json` | `{{ json .output }}` | Serialize a value to a JSON string (this is the `toJson` replacement) |
 | `default` | `{{ default 50 .event.limit }}` | **Argument order is `default <fallback> <value>`** — returns `<value>` unless it is nil/zero, in which case returns `<fallback>`. ⚠️ Fallback comes **first** (unlike Sprig's `default`). |
 | `date` | `{{ date .now "2006-01-02" }}` | Format a `time.Time` (or RFC3339 string) using a Go layout |
-| `now` | `{{ date (now) "2006-01-02" }}` | Function returning the current `time.Time`. ⚠️ Distinct from the root variable `.now` — see the pitfall below. |
+| `now` | `{{ date (now) "2006-01-02" }}` | Function returning the current `time.Time`. Takes **no arguments**. ⚠️ Distinct from the root variable `.now` — see the pitfall below. |
 | `secret` | `{{ secret "API_KEY" }}` | Resolve a secret by name — never hardcode credentials |
 | `adf_markdown` | `{{ adf_markdown .event.description }}` | Render an Atlassian Document Format (ADF) node to Markdown |
 | `adf_text` | `{{ adf_text .event.description }}` | Render an ADF node to plain text |
@@ -200,14 +200,19 @@ Two forgiving rewrites run on every template **before** it is parsed:
 - **`fixTemplateDots`**: a leading `{{ event.x }}` / `{{ output.x }}` / `{{ now }}` gets the missing dot → `{{ .event.x }}`. This only fixes the root word at the **start** of a `{{ … }}` block; inside `if`/`range`/`with` you must write the dot yourself (e.g. `{{ if .event.x }}`). **Always write the leading dot** — do not rely on the auto-fix.
 - **`fixArrayAccess`**: JS-style numeric dot indexing is converted to a Go `index` call → `{{ .event.content.0.id }}` becomes `{{ (index .event.content 0).id }}`. You can write either form.
 
-> ⚠️ **`now` function vs `.now` variable pitfall.** Both the `now` *function* and the `.now` root *variable* return the current time. But `fixTemplateDots` rewrites a leading `now` without a dot — so `{{ now }}` is silently rewritten to `{{ .now }}` (the variable), and `{{ now "..." }}`-style calls at the start of a block get the dot prepended too, turning the function call into a variable reference. To call the function unambiguously, **parenthesize it**: `{{ date (now) "2006-01-02" }}`. In practice just use the `.now` variable (e.g. `{{ date .now "2006-01-02" }}`) unless you specifically need a fresh `time.Now()`.
+> ⚠️ **`now` function vs `.now` variable pitfall.** Both the `now` *function* (which takes **no arguments** — `func() time.Time`) and the `.now` root *variable* return the current time. But `fixTemplateDots` rewrites a leading `now` without a dot, so any block that **starts** with `now` — `{{ now }}` or even a pipe like `{{ now | … }}` — is silently rewritten to `{{ .now }}`, i.e. it becomes the **variable**, not a function call. (There is no valid `{{ now "…" }}` form — passing arguments to `now` is an error anyway.) To actually **call** the function, keep it off the start of the block by **parenthesizing** it: `{{ date (now) "2006-01-02" }}` — there the auto-fix leaves it alone. In practice just use the `.now` variable (e.g. `{{ date .now "2006-01-02" }}`) unless you specifically need a fresh `time.Now()`.
 
 ### `payload_template` renders a JSON string
 
 `events.payload_template` is special: the template must render a **JSON object string** that is then `json.Unmarshal`-ed into the emitted payload map. Rules:
 
 - The rendered text must be a valid JSON **object** (a `map`), not an array or scalar.
-- Quote dynamic string values: `"id": "{{ .output.id }}"`. For nested objects/arrays use `json`: `"raw": {{ json .output.fields }}`.
+- **Wrap *every* dynamic value with the `json` function — including strings** — and do **not** add manual quotes around it. `json` escapes and quotes the value correctly. Manually quoting (`"id": "{{ .output.id }}"`) does **not** guarantee valid JSON: if the value contains a `"`, a newline or other control characters, `json.Unmarshal` fails and you hit the silent fallback below. Correct form:
+
+  ```
+  { "task_code": {{ json .output.key }}, "title": {{ json .output.fields.summary }}, "raw": {{ json .output.fields }} }
+  ```
+
 - **Silent fallback**: if the rendered text is not valid JSON, the error is only logged and the job emits the **original, unshaped output** instead. There is no run failure — so a broken `payload_template` looks like "it ignored my template". Validate it with a dry-run and inspect the emitted payload.
 
 ### Common template errors & how to diagnose
@@ -252,7 +257,7 @@ How it works (`resolveForEachItems` + `emitSuccess` in `executor.go`):
     "on_success": "fsd.issue.found",
     "for_each": "issues",
     "emit_when": "{{ ne .output.fields.status.name \"Done\" }}",
-    "payload_template": "{ \"key\": \"{{ .output.key }}\", \"summary\": \"{{ .output.fields.summary }}\" }"
+    "payload_template": "{ \"key\": {{ json .output.key }}, \"summary\": {{ json .output.fields.summary }} }"
   }
 }
 ```

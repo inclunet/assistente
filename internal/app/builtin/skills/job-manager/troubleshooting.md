@@ -29,14 +29,18 @@ real cause, how to diagnose it, and the fix. For **template** errors specificall
 
 ## `tool execute: context canceled` / `cancelled during retry` (historical, fixed)
 
-- **Status:** **fixed on `main`.** This was a runtime bug (**#164**) where event-driven runs inherited
-  the event subscriber's context and were canceled when it ended. The fix (**PR #166**) decouples the
-  run lifetime via `context.WithoutCancel` in the event subscriber, so this failure mode should no
-  longer occur for event-driven runs after that merge. Kept here as a **known/historical** error for
-  diagnosing older runs.
-- **Cause:** the run's context was canceled mid tool-call. Once the context is canceled, the retry
-  loop **short-circuits immediately** with `cancelled during retry` — it does **not** wait for
-  `retry_delay` or perform further attempts.
+- **Status:** **fixed on `main`.** This was a runtime bug (**#164**): a run triggered by an event
+  inherited the **publisher run's context** (propagated through `EventBus.Publish`), which was canceled
+  shortly after the publisher returned — the fan-out is dispatched asynchronously in goroutines, so the
+  downstream tool call died with `context canceled` a few ms in. The fix (**PR #166**, merged to main)
+  decouples the run lifetime in the event subscriber registered by `registerTriggers` (`manager.go`):
+  the inherited ctx is wrapped with `context.WithoutCancel(ctx)` before executing the downstream run,
+  preserving its values (e.g. `user_id`/auth) but dropping the publisher's cancellation. So this
+  failure mode should no longer occur for event-driven runs on builds that include #166. Kept here as a
+  **known/historical** error for diagnosing older runs.
+- **Cause:** the downstream run's context — inherited from the publisher — was canceled mid tool-call.
+  Once the context is canceled, the retry loop **short-circuits immediately** with `cancelled during
+  retry` — it does **not** wait for `retry_delay` or perform further attempts.
 - **Diagnose:** `run_events` ends with a `failed` entry whose message contains `context canceled` or
   `cancelled during retry`; the run usually has little/no `output`. It correlated with event-triggered
   (fan-out/chained) runs rather than manual `run: true`.
@@ -53,7 +57,7 @@ real cause, how to diagnose it, and the fix. For **template** errors specificall
 - **Diagnose:** the run fails immediately at template resolution; the `error` includes the offending
   template text (`template exec error (template=…)` or `template parse error`).
 - **Fix:** use Go template syntax. In `payload_template`, keep the JSON **structure outside** `{{ }}`
-  and only interpolate values inside them, e.g. `{ "id": "{{ .output.id }}" }`.
+  and wrap each value with `json` (no manual quotes), e.g. `{ "id": {{ json .output.id }} }`.
 
 ## A field renders as `<no value>`
 
@@ -72,8 +76,10 @@ real cause, how to diagnose it, and the fix. For **template** errors specificall
   and **silently falls back** to emitting the original, unshaped output.
 - **Diagnose:** dry-run the producer and inspect the emitted payload shape; check application logs for
   `payload_template JSON parse error`.
-- **Fix:** ensure the template renders a single JSON object with quoted string values; serialize
-  nested structures with `{{ json .output.X }}`.
+- **Fix:** wrap **every** dynamic value with the `json` function (and drop manual quotes) so it is
+  escaped and quoted correctly — e.g. `{ "task_code": {{ json .output.key }}, "title": {{ json .output.fields.summary }} }`.
+  Manually quoting (`"...{{ .output.x }}..."`) breaks whenever the value contains a quote or newline and
+  silently falls back to the raw output.
 
 ## Job silently `skipped` for a long time
 
