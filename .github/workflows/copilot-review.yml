@@ -77,10 +77,13 @@ jobs:
             echo "${pending_json}"
             exit 1
           }
-          # O Copilot pode aparecer como "Copilot" ou "copilot-pull-request-reviewer";
-          # casamos qualquer login que contenha "copilot" (case-insensitive).
+          # O Copilot pode aparecer como "Copilot" ou "copilot-pull-request-reviewer".
+          # Casamos por login EXATO (case-insensitive) contra essa lista conhecida —
+          # um `test("copilot")` por substring pegaria falsos positivos (ex.: um
+          # usuário humano "copilotaria"), fazendo o DELETE de "Copilot" devolver 422
+          # e abortar o job indevidamente.
           copilot_pending="$(printf '%s' "${pending_json}" \
-            | jq -r '[.users[]?.login | select(test("copilot"; "i"))] | length' 2>/dev/null || echo 0)"
+            | jq -r '[.users[]?.login | ascii_downcase | select(. == "copilot" or . == "copilot-pull-request-reviewer")] | length' 2>/dev/null || echo 0)"
 
           if [[ "${copilot_pending}" -gt 0 ]]; then
             echo "Copilot já está como reviewer pendente; removendo para forçar um novo review..."
