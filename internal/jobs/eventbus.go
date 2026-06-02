@@ -103,6 +103,15 @@ func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[s
 		return
 	}
 
+	// Guard central anti-data-race: o mesmo payload (e o mesmo slice _chain_history)
+	// é entregue a todos os handlers concorrentes, que downstream fazem
+	// append(history, jobID). Clipando para cap == len antes do fan-out, cada append
+	// aloca um novo backing array em vez de escrever in-place no compartilhado. Vale
+	// para QUALQUER publisher (PublishDomainEvent, executor, futuros), não só um.
+	if h, ok := payload["_chain_history"].([]string); ok {
+		payload["_chain_history"] = clipHistory(h)
+	}
+
 	log.Printf("[EventBus] Event %q published to %d listener(s)", eventName, len(handlers))
 
 	for _, h := range handlers {

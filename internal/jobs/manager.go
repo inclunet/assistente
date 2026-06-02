@@ -810,6 +810,16 @@ func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload m
 		return err
 	}
 
+	if m.eventBus == nil {
+		return fmt.Errorf("event bus not initialized")
+	}
+	// No-op quando ninguém escuta: evita o log "published with no listeners" e o
+	// overhead de montar o payload. Eventos de domínio são frequentes; produtores
+	// já checam HasDomainListener, mas chamadores diretos (ex.: custom actions) não.
+	if m.eventBus.SubscriberCount(name) == 0 {
+		return nil
+	}
+
 	enriched := make(map[string]any, len(payload)+4)
 	for k, v := range payload {
 		enriched[k] = v
@@ -825,18 +835,10 @@ func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload m
 	}
 	if _, ok := enriched["_chain_history"]; !ok {
 		enriched["_chain_history"] = []string{name}
-	} else if h, ok := enriched["_chain_history"].([]string); ok {
-		// O EventBus entrega o MESMO payload (e o mesmo slice) a todos os
-		// handlers concorrentes; downstream o executor faz append(history, job.ID).
-		// Se o slice tiver capacidade sobrando (cap > len), esse append escreveria
-		// in-place no backing array compartilhado, gerando data race entre handlers.
-		// Clipamos (cap == len) para forçar o append a alocar um novo array.
-		enriched["_chain_history"] = clipHistory(h)
 	}
+	// O clip de _chain_history (cap == len) anti-data-race é aplicado de forma
+	// central em EventBus.Publish, cobrindo este e qualquer outro publisher.
 
-	if m.eventBus == nil {
-		return fmt.Errorf("event bus not initialized")
-	}
 	m.eventBus.Publish(context.WithoutCancel(ctx), name, enriched)
 	return nil
 }
