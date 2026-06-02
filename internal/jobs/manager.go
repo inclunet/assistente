@@ -790,7 +790,8 @@ func (m *Manager) ListKnownEvents() []string {
 // É a API publica generica para qualquer superficie (tasklist, e no futuro
 // chat/abas/terminal/editor) alimentar triggers por evento (AEP-0067).
 //
-// Custo ~zero quando nao ha job inscrito: EventBus.Publish é no-op (apenas loga).
+// Custo ~zero quando nao ha job inscrito: retorna cedo (no-op) se
+// SubscriberCount(name) == 0, sem enriquecer o payload nem chamar Publish.
 //
 // Enriquecimento aplicado quando ausente no payload (mantém o payload alinhado
 // ao schema estático do catálogo, que sempre declara estes campos):
