@@ -101,7 +101,14 @@ func domainEventCatalog() []domainEvent {
 		{"tasklist.task.assignee_changed", mergeSchema(taskEventBase(), map[string]any{"from_assignee_id": ""})},
 		{"tasklist.task.moved", mergeSchema(taskEventBase(), map[string]any{"from_task_list_id": ""})},
 		{"tasklist.task.reparented", mergeSchema(taskEventBase(), map[string]any{"from_parent_id": ""})},
-		{"tasklist.task.reordered", mergeSchema(taskEventBase(), nil)},
+		// reordered é um evento de lista (não de card): carrega só a ordenação
+		// da raia, então usa schema próprio em vez de taskEventBase().
+		{"tasklist.task.reordered", mergeSchema(map[string]any{
+			"task_list_id":   "",
+			"task_list_slug": "",
+			"status_id":      0,
+			"ordered_ids":    []string{},
+		}, nil)},
 		{"tasklist.task.completed", mergeSchema(taskEventBase(), nil)},
 		{"tasklist.task.deleted", mergeSchema(taskEventBase(), nil)},
 		{"tasklist.note.added", mergeSchema(noteEventBase(), nil)},
