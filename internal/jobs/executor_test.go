@@ -994,6 +994,29 @@ func (f *fakeDomainPublishTool) Execute(ctx context.Context, _ json.RawMessage) 
 	return tools.ToolResult{Content: `{"ok":true}`}, nil
 }
 
+// TestExecuteDryRunNilTrigCtxNoPanic garante que ExecuteDryRun normaliza um
+// trigCtx nil (como Execute), evitando o panic em executeSingle ao acessar
+// trigCtx.EventPayload. Regressão do review #171.
+func TestExecuteDryRunNilTrigCtxNoPanic(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.MustRegister(&fakeTool{
+		name:     "noop_tool",
+		params:   json.RawMessage(`{"type":"object"}`),
+		response: `{"ok":true}`,
+	})
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	job := &Job{ID: "dry-nil", Tool: "noop_tool"}
+	res := executor.ExecuteDryRun(context.Background(), job, nil)
+	if res == nil || !res.Success {
+		t.Fatalf("dry-run com trigCtx nil deveria suceder, veio: %+v", res)
+	}
+}
+
 // TestExecuteDryRunSuppressesDomainEvents garante que, durante um dry-run, uma
 // mutação feita pela tool não dispara a ponte de eventos de domínio (e portanto
 // não cascateia outros jobs), enquanto a execução normal continua publicando.

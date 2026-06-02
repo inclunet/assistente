@@ -83,8 +83,12 @@ func (s *Service) UpdateTaskListFull(ctx context.Context, id string, title, desc
 	if err := s.store.UpdateTaskListFull(ctx, id, title, description, preferredViewMode, slug); err != nil {
 		return err
 	}
+	tl, _ := s.store.GetTaskList(ctx, id)
+	// Emite taskList:updated (como os demais updates de lista): o frontend escuta
+	// esse evento para recarregar/invalidar cache; sem ele, updates via tool/job
+	// deixariam a UI com dados stale até um refresh manual.
+	s.emitter.Emit("taskList:updated", tl)
 	if s.wantsDomain("tasklist.list.updated") {
-		tl, _ := s.store.GetTaskList(ctx, id)
 		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
 	}
 	return nil

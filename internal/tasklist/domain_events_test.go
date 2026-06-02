@@ -42,6 +42,23 @@ type noopEmitter struct{}
 
 func (noopEmitter) Emit(string, any) {}
 
+// recordingEmitter registra os nomes dos eventos Wails emitidos, para verificar
+// que mutações disparam os eventos que o frontend escuta.
+type recordingEmitter struct {
+	events []string
+}
+
+func (r *recordingEmitter) Emit(name string, _ any) { r.events = append(r.events, name) }
+
+func (r *recordingEmitter) has(name string) bool {
+	for _, e := range r.events {
+		if e == name {
+			return true
+		}
+	}
+	return false
+}
+
 // fakeStore embute a interface (métodos não sobrescritos retornam panic se chamados,
 // o que mantém os testes focados nos caminhos exercidos).
 type fakeStore struct {
@@ -75,6 +92,10 @@ func (s *fakeStore) GetTaskList(_ context.Context, id string) (*database.TaskLis
 // UpdateTaskList é no-op; o foco do teste de fallback é a recarga pós-update
 // (GetTaskList) falhar — controlada por listReloadFails.
 func (s *fakeStore) UpdateTaskList(_ context.Context, id, title, description string) error {
+	return nil
+}
+
+func (s *fakeStore) UpdateTaskListFull(_ context.Context, id, title, description, preferredViewMode string, slug *string) error {
 	return nil
 }
 
@@ -296,6 +317,22 @@ func TestUpdateTaskStatusFallsBackOnReloadFail(t *testing.T) {
 	}
 	if sc["task_id"] != "t1" {
 		t.Fatalf("task_id = %v, want t1 (fallback do snapshot)", sc["task_id"])
+	}
+}
+
+// TestUpdateTaskListFullEmitsTaskListUpdated garante que UpdateTaskListFull emite
+// o evento Wails taskList:updated (que o frontend escuta para invalidar cache),
+// como os demais updates de lista. Regressão do review #171.
+func TestUpdateTaskListFullEmitsTaskListUpdated(t *testing.T) {
+	store := &fakeStore{}
+	emitter := &recordingEmitter{}
+	svc := NewService(ServiceConfig{Store: store, Emitter: emitter, DomainEvents: &fakeSink{listening: map[string]bool{}}})
+
+	if err := svc.UpdateTaskListFull(context.Background(), "L-1", "Título", "", "kanban", nil); err != nil {
+		t.Fatalf("UpdateTaskListFull: %v", err)
+	}
+	if !emitter.has("taskList:updated") {
+		t.Fatalf("taskList:updated não emitido; emitidos: %v", emitter.events)
 	}
 }
 

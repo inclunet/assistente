@@ -228,6 +228,11 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 
 // ExecuteDryRun executa um job em modo dry run, ignorando a flag do YAML.
 func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *TriggerContext) *DryRunResult {
+	// Normaliza trigCtx (como Execute): executeSingle acessa trigCtx.EventPayload
+	// sem nil-check, então um trigCtx nil causaria panic.
+	if trigCtx == nil {
+		trigCtx = &TriggerContext{Type: TriggerManual}
+	}
 	if job.DryRun.MockOutput != nil {
 		return &DryRunResult{
 			Success: true,
