@@ -215,7 +215,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
               className={`task-detail__custom-action${ca.danger ? ' task-detail__custom-action--danger' : ''}`}
               onClick={() => { void runCustomAction(ca, task.taskListId, task.id); }}
             >
-              {ca.label}
+              {ca.icon ? `${ca.icon} ${ca.label}` : ca.label}
             </button>
           ))}
         </div>

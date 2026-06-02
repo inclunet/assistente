@@ -303,6 +303,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
             items.push({
               id: `custom-${ca.id}`,
               label: ca.label,
+              icon: ca.icon || undefined,
               danger: ca.danger,
               action: () => { void runCustomAction(ca, taskListId, task.id); },
             } as never);

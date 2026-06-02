@@ -18,7 +18,23 @@ const SURFACES: { value: CustomActionSurface; labelKey: string; fallback: string
   { value: 'board_menu', labelKey: 'tasklist.customActions.surface.boardMenu', fallback: 'Menu do quadro' },
 ];
 
-function emptyAction(): CustomAction {
+// EditableAction adiciona um id de UI estável (não persistido) para usar como
+// React key — evita bugs visuais de inputs controlados ao remover/reordenar
+// (com key={idx} o React reaproveita DOM/estado entre linhas).
+type EditableAction = CustomAction & { _uiId: string };
+
+function newUiId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `ca-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function withUiId(a: CustomAction): EditableAction {
+  return { ...a, _uiId: newUiId() };
+}
+
+function emptyAction(): EditableAction {
   return {
     id: '',
     label: '',
@@ -29,6 +45,7 @@ function emptyAction(): CustomAction {
     when: '',
     danger: false,
     confirm: '',
+    _uiId: newUiId(),
   };
 }
 
@@ -44,7 +61,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
   const getTaskListCustomActions = useTaskListStore((s) => s.getTaskListCustomActions);
   const setTaskListCustomActions = useTaskListStore((s) => s.setTaskListCustomActions);
 
-  const [actions, setActions] = useState<CustomAction[]>([]);
+  const [actions, setActions] = useState<EditableAction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -52,7 +69,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
     let cancelled = false;
     getTaskListCustomActions(taskListId)
       .then((res) => {
-        if (!cancelled) setActions(res.actions ?? []);
+        if (!cancelled) setActions((res.actions ?? []).map(withUiId));
       })
       .catch(() => {
         if (!cancelled) setActions([]);
@@ -88,7 +105,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     try {
-      const cleaned = actions.map((a) => ({
+      const cleaned = actions.map(({ _uiId, ...a }) => ({
         ...a,
         surfaces: a.surfaces && a.surfaces.length > 0 ? a.surfaces : ['card_menu'],
       }));
@@ -128,7 +145,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
 
       <div className="custom-actions-editor__list">
         {actions.map((action, idx) => (
-          <div key={idx} className="custom-actions-editor__item">
+          <div key={action._uiId} className="custom-actions-editor__item">
             <div className="custom-actions-editor__row">
               <label className="custom-actions-editor__field">
                 <span>{t('tasklist.customActions.field.id', 'ID')}</span>
@@ -197,7 +214,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
                 <input
                   type="text"
                   value={action.link ?? ''}
-                  placeholder="{{ .task.link }}"
+                  placeholder={t('tasklist.customActions.field.linkPlaceholder', '{{ .task.link }}')}
                   onChange={(e) => updateAction(idx, { link: e.target.value })}
                 />
               </label>
@@ -222,7 +239,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
                 <input
                   type="text"
                   value={action.when ?? ''}
-                  placeholder='{{ ne .task.code "" }}'
+                  placeholder={t('tasklist.customActions.field.whenPlaceholder', '{{ ne .task.code "" }}')}
                   onChange={(e) => updateAction(idx, { when: e.target.value })}
                 />
               </label>

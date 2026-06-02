@@ -308,7 +308,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
             ...boardActions.map((ca) => ({
               key: `custom-${ca.id}`,
               label: ca.label,
-              icon: <ThunderboltOutlined />,
+              icon: ca.icon ? ca.icon : <ThunderboltOutlined />,
               onClick: () => void runCustomAction(ca, taskListId, ''),
               variant: (ca.danger ? 'danger' : 'secondary') as 'danger' | 'secondary',
             })),
