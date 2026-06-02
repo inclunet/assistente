@@ -183,6 +183,8 @@ const es = {
       toolOriginMcpNative: 'MCP Nativo',
       collapseThread: 'Contraer interacciones',
       expandThread: 'Expandir interacciones',
+      collapseChain: 'Contraer cadena del turno',
+      expandChain: 'Expandir cadena del turno',
       interactionCount_one: '{{count}} interacción',
       interactionCount_other: '{{count}} interacciones',
       editingMessage: 'Editando mensaje',

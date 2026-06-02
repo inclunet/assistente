@@ -75,13 +75,22 @@ export function useVirtualModal({
       // isolamos a interação usando inert nos irmãos ao longo da árvore.
       applyInert(el);
 
-      // Foca no conteúdo da mensagem
-      const contentEl = el.querySelector('.chat-message__text') as HTMLElement
-        || el.querySelector('.chat-message__content') as HTMLElement
-        || el;
-      
-      if (contentEl) {
-        // Salva atributos atuais do conteúdo para restauração no cleanup.
+      // Foca no conteúdo da mensagem. O alvo precisa englobar a CADEIA INTEIRA
+      // do turno (todos os segmentos de texto E as chamadas de ferramenta, em
+      // ordem) — não apenas o primeiro `.chat-message__text`. `.chat-message__content`
+      // é o container estável que envolve cabeçalho, segmentos e tool calls, então
+      // `role="document"` aqui expõe o turno inteiro à navegação do leitor de tela
+      // (Issue #163). Mantém o fallback para `.chat-message__text` (mensagens
+      // simples e harness de teste).
+      const contentEl = el.querySelector('.chat-message__content') as HTMLElement | null
+        ?? el.querySelector('.chat-message__text') as HTMLElement | null;
+
+      if (contentEl && contentEl !== el) {
+        // Só aplicamos `role="document"`/`tabindex` (e salvamos para restaurar)
+        // quando há um elemento de conteúdo REAL (filho). Aplicá-los no próprio
+        // `el` sobrescreveria o `role="dialog"` recém-definido e deixaria
+        // role/tabindex inconsistentes ao sair — a restauração do `el` já é
+        // tratada por `previousAriaAttrs`.
         previousContentAttrs.current = {
           element: contentEl,
           role: contentEl.getAttribute('role'),
@@ -93,6 +102,11 @@ export function useVirtualModal({
         // usuário lê o conteúdo. Ao sair (ESC), o role é restaurado.
         contentEl.setAttribute('role', 'document');
         contentEl.focus();
+      } else {
+        // Sem elemento de conteúdo: foca o próprio dialog, preservando seu
+        // `role="dialog"`. A restauração fica exclusivamente a cargo de
+        // `previousAriaAttrs`.
+        el.focus();
       }
 
       // Anuncia para leitores de tela

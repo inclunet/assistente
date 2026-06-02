@@ -184,6 +184,8 @@ const ptBR = {
       toolOriginMcpNative: 'MCP Nativo',
       collapseThread: 'Recolher interações',
       expandThread: 'Expandir interações',
+      collapseChain: 'Recolher cadeia do turno',
+      expandChain: 'Expandir cadeia do turno',
       interactionCount_one: '{{count}} interação',
       interactionCount_other: '{{count}} interações',
       editingMessage: 'Editando mensagem',
