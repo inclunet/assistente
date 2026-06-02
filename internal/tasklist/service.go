@@ -239,7 +239,9 @@ func (s *Service) CreateTask(ctx context.Context, taskListID string, title, desc
 	}
 	s.emitter.Emit("task:created", task)
 	if s.wantsDomain("tasklist.task.created") {
-		s.publishDomain(ctx, "tasklist.task.created", taskPayload(task, s.taskListSlug(ctx, task.TaskListID)))
+		if payload := s.taskEventPayload(ctx, task, nil); payload != nil {
+			s.publishDomain(ctx, "tasklist.task.created", payload)
+		}
 	}
 	return task, nil
 }
@@ -251,7 +253,9 @@ func (s *Service) CreateTaskFull(ctx context.Context, taskListID string, title, 
 	}
 	s.emitter.Emit("task:created", task)
 	if s.wantsDomain("tasklist.task.created") {
-		s.publishDomain(ctx, "tasklist.task.created", taskPayload(task, s.taskListSlug(ctx, task.TaskListID)))
+		if payload := s.taskEventPayload(ctx, task, nil); payload != nil {
+			s.publishDomain(ctx, "tasklist.task.created", payload)
+		}
 	}
 	return task, nil
 }
@@ -291,9 +295,10 @@ func (s *Service) UpdateTask(ctx context.Context, id string, title, description,
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
 	if s.wantsDomain("tasklist.task.updated") {
-		payload := taskPayload(task, s.taskListSlug(ctx, task.TaskListID))
-		payload["changed_fields"] = changedTaskFields(old, task)
-		s.publishDomain(ctx, "tasklist.task.updated", payload)
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			payload["changed_fields"] = changedTaskFields(old, task)
+			s.publishDomain(ctx, "tasklist.task.updated", payload)
+		}
 	}
 	return nil
 }
@@ -309,9 +314,10 @@ func (s *Service) UpdateTaskFull(ctx context.Context, id string, title, descript
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
 	if s.wantsDomain("tasklist.task.updated") {
-		payload := taskPayload(task, s.taskListSlug(ctx, task.TaskListID))
-		payload["changed_fields"] = changedTaskFields(old, task)
-		s.publishDomain(ctx, "tasklist.task.updated", payload)
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			payload["changed_fields"] = changedTaskFields(old, task)
+			s.publishDomain(ctx, "tasklist.task.updated", payload)
+		}
 	}
 	return nil
 }
@@ -345,9 +351,10 @@ func (s *Service) UpdateTaskAssignee(ctx context.Context, id string, assigneeNam
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
 	if s.wantsDomain("tasklist.task.assignee_changed") && oldTask != nil && oldTask.AssigneeID != assigneeID {
-		payload := taskPayload(task, s.taskListSlug(ctx, task.TaskListID))
-		payload["from_assignee_id"] = oldTask.AssigneeID
-		s.publishDomain(ctx, "tasklist.task.assignee_changed", payload)
+		if payload := s.taskEventPayload(ctx, task, oldTask); payload != nil {
+			payload["from_assignee_id"] = oldTask.AssigneeID
+			s.publishDomain(ctx, "tasklist.task.assignee_changed", payload)
+		}
 	}
 	return nil
 }
@@ -409,11 +416,12 @@ func (s *Service) PromoteTask(ctx context.Context, id string) error {
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
 	if s.wantsDomain("tasklist.task.reparented") {
-		payload := taskPayload(task, s.taskListSlug(ctx, task.TaskListID))
-		if old != nil {
-			payload["from_parent_id"] = parentOrEmpty(old.ParentID)
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			if old != nil {
+				payload["from_parent_id"] = parentOrEmpty(old.ParentID)
+			}
+			s.publishDomain(ctx, "tasklist.task.reparented", payload)
 		}
-		s.publishDomain(ctx, "tasklist.task.reparented", payload)
 	}
 	return nil
 }
@@ -429,11 +437,12 @@ func (s *Service) DemoteTask(ctx context.Context, id string, parentID string) er
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
 	if s.wantsDomain("tasklist.task.reparented") {
-		payload := taskPayload(task, s.taskListSlug(ctx, task.TaskListID))
-		if old != nil {
-			payload["from_parent_id"] = parentOrEmpty(old.ParentID)
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			if old != nil {
+				payload["from_parent_id"] = parentOrEmpty(old.ParentID)
+			}
+			s.publishDomain(ctx, "tasklist.task.reparented", payload)
 		}
-		s.publishDomain(ctx, "tasklist.task.reparented", payload)
 	}
 	return nil
 }
@@ -455,9 +464,10 @@ func (s *Service) MoveTaskToList(ctx context.Context, taskID string, targetTaskL
 		s.emitter.Emit("taskList:updated", oldListID)
 		s.emitter.Emit("taskList:updated", targetTaskListID)
 		if s.wantsDomain("tasklist.task.moved") {
-			payload := taskPayload(task, s.taskListSlug(ctx, task.TaskListID))
-			payload["from_task_list_id"] = oldListID
-			s.publishDomain(ctx, "tasklist.task.moved", payload)
+			if payload := s.taskEventPayload(ctx, task, nil); payload != nil {
+				payload["from_task_list_id"] = oldListID
+				s.publishDomain(ctx, "tasklist.task.moved", payload)
+			}
 		}
 	}
 	return task, nil

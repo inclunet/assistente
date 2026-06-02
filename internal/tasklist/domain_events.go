@@ -95,6 +95,22 @@ func parentOrEmpty(p *string) string {
 	return *p
 }
 
+// taskEventPayload monta o payload-base de um evento de card a partir do snapshot
+// mais recente disponível (best-effort): prefere `task` (recarregado pós-mutação) e
+// cai para `fallback` (snapshot pré-mutação) quando a recarga falha. Devolve nil
+// quando nenhum snapshot está disponível, sinalizando para não publicar — evitando
+// deref de task nil ao resolver task_list_id/slug.
+func (s *Service) taskEventPayload(ctx context.Context, task, fallback *database.Task) map[string]any {
+	t := task
+	if t == nil {
+		t = fallback
+	}
+	if t == nil {
+		return nil
+	}
+	return taskPayload(t, s.taskListSlug(ctx, t.TaskListID))
+}
+
 // taskPayload normaliza os campos-base de um card (AEP-0067).
 func taskPayload(t *database.Task, slug string) map[string]any {
 	if t == nil {

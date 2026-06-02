@@ -46,9 +46,10 @@ func (noopEmitter) Emit(string, any) {}
 // o que mantém os testes focados nos caminhos exercidos).
 type fakeStore struct {
 	TaskListRepository
-	tasks        map[string]*database.Task
-	notes        map[string]*database.TaskNote
-	getTaskCalls int
+	tasks                  map[string]*database.Task
+	notes                  map[string]*database.TaskNote
+	getTaskCalls           int
+	reloadFailsAfterUpdate bool
 }
 
 func (s *fakeStore) GetTask(_ context.Context, id string) (*database.Task, error) {
@@ -76,6 +77,20 @@ func (s *fakeStore) UpdateTaskStatus(_ context.Context, id string, newStatusID i
 	if newStatusID == 3 && t.CompletedAt == nil {
 		now := time.Now()
 		t.CompletedAt = &now
+	}
+	return nil
+}
+
+// UpdateTask aplica a mutação e, quando reloadFailsAfterUpdate, remove o card do
+// store para simular a recarga pós-update retornando nil (caminho best-effort).
+func (s *fakeStore) UpdateTask(_ context.Context, id, title, description, code, link string) error {
+	t := s.tasks[id]
+	if t == nil {
+		return errors.New("task not found")
+	}
+	t.Title, t.Code, t.Link = title, code, link
+	if s.reloadFailsAfterUpdate {
+		delete(s.tasks, id)
 	}
 	return nil
 }
@@ -190,6 +205,34 @@ func TestProvenanceFromContextIsPropagated(t *testing.T) {
 	}
 	if p["code"] != "PROJ-1" {
 		t.Fatalf("code = %v, want PROJ-1", p["code"])
+	}
+}
+
+// TestUpdateTaskFallsBackToOldSnapshotWhenReloadFails garante que, se a recarga
+// pós-update retornar nil, o evento ainda é publicado a partir do snapshot
+// pré-mutação (sem panic ao resolver task_list_id/slug). Regressão do review #171.
+func TestUpdateTaskFallsBackToOldSnapshotWhenReloadFails(t *testing.T) {
+	store := &fakeStore{reloadFailsAfterUpdate: true}
+	seedTask(store, "t1", "L1", 1)
+	sink := &fakeSink{listening: map[string]bool{"tasklist.task.updated": true}}
+	svc := newServiceWithSink(store, sink)
+
+	if err := svc.UpdateTask(context.Background(), "t1", "Novo título", "", "PROJ-9", ""); err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+
+	p, ok := sink.find("tasklist.task.updated")
+	if !ok {
+		t.Fatal("task.updated não emitido com fallback para o snapshot antigo")
+	}
+	if p["task_id"] != "t1" {
+		t.Fatalf("task_id = %v, want t1 (fallback)", p["task_id"])
+	}
+	if p["task_list_id"] != "L1" {
+		t.Fatalf("task_list_id = %v, want L1 (fallback)", p["task_list_id"])
+	}
+	if p["task_list_slug"] != "suporte" {
+		t.Fatalf("task_list_slug = %v, want suporte (fallback)", p["task_list_slug"])
 	}
 }
 
