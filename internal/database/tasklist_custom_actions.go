@@ -72,14 +72,15 @@ func ParseTaskListCustomActionsJSON(raw string) (*TaskListCustomActions, error) 
 	}
 	seen := make(map[string]bool, len(ca.Actions))
 	for i, a := range ca.Actions {
-		id := strings.TrimSpace(a.ID)
-		if id == "" {
+		if strings.TrimSpace(a.ID) == "" {
 			return nil, fmt.Errorf("custom_actions: action #%d sem id", i+1)
 		}
 		// id é um slug estável (referenciado em logs/payloads): mesma regra dos ids
-		// de job (internal/jobs/parser.go) — sem espaços nem separadores de path.
-		if strings.ContainsAny(id, " /\\") {
-			return nil, fmt.Errorf("custom_actions: id %q não pode conter espaços ou separadores de path (/ \\)", id)
+		// de job (internal/jobs/parser.go), validada SEM trim — qualquer whitespace
+		// (inclusive nas bordas, ex.: "open ") ou separador de path é rejeitado.
+		id := a.ID
+		if strings.ContainsAny(id, " \t\n\r\f\v/\\") {
+			return nil, fmt.Errorf("custom_actions: id %q não pode conter espaços/whitespace ou separadores de path (/ \\)", id)
 		}
 		if seen[id] {
 			return nil, fmt.Errorf("custom_actions: id duplicado %q", id)
