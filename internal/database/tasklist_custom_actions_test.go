@@ -42,6 +42,7 @@ func TestParseTaskListCustomActionsJSON_Invalid(t *testing.T) {
 		"id with backslash": `{"actions":[{"id":"a\\b","label":"X","event":"e"}]}`,
 		"event with space":  `{"actions":[{"id":"x","label":"X","event":"tasklist.card.foo "}]}`,
 		"event inner space": `{"actions":[{"id":"x","label":"X","event":"tasklist.card foo"}]}`,
+		"payload sem event": `{"actions":[{"id":"x","label":"X","link":"https://x","payload_template":"{\"a\":1}"}]}`,
 	}
 	for name, raw := range cases {
 		if _, err := ParseTaskListCustomActionsJSON(raw); err == nil {

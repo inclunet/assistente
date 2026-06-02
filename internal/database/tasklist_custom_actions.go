@@ -97,6 +97,12 @@ func ParseTaskListCustomActionsJSON(raw string) (*TaskListCustomActions, error) 
 		if strings.ContainsAny(a.Event, " \t\n\r\f\v") {
 			return nil, fmt.Errorf("custom_actions: action %q tem event com espaços em branco: %q", id, a.Event)
 		}
+		// payload_template só é aplicado quando há event (ver TriggerCustomAction):
+		// permitir payload_template + apenas link seria uma config "válida" mas
+		// silenciosamente sem efeito. Rejeita cedo para evitar surpresa.
+		if strings.TrimSpace(a.PayloadTemplate) != "" && strings.TrimSpace(a.Event) == "" {
+			return nil, fmt.Errorf("custom_actions: action %q define payload_template mas não tem event (payload_template só se aplica a event)", id)
+		}
 		for _, surf := range a.Surfaces {
 			if !isValidCustomActionSurface(surf) {
 				return nil, fmt.Errorf("custom_actions: action %q tem surface inválida %q", id, surf)

@@ -163,6 +163,14 @@ func (a *App) TriggerCustomAction(taskListID string, taskID string, actionID str
 	taskMap := emptyTaskMap()
 	if task != nil {
 		taskMap = a.customActionTaskMap(ctx, task)
+	} else {
+		// Ação de board (sem card): taskListID é conhecido, então populamos o
+		// contexto da lista mesmo assim — senão templates/when não acessariam a
+		// lista e o payload sairia com task_list_id/slug vazios.
+		taskMap["task_list_id"] = taskListID
+		if tl, terr := a.taskListCtrl.GetTaskList(ctx, taskListID); terr == nil && tl != nil {
+			taskMap["task_list_slug"] = tl.Slug
+		}
 	}
 	data := map[string]any{"task": taskMap, "now": time.Now()}
 
