@@ -73,15 +73,19 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   useEffect(() => {
     if (isOpen && task) {
       loadNotes();
+      // Flag de cancelamento: se o modal fechar/trocar de task antes do
+      // listCardCustomActions resolver, não setamos estado da task anterior.
+      let cancelled = false;
       listCardCustomActions(task.id, 'card_detail')
-        .then(setCustomActions)
-        .catch(() => setCustomActions([]));
-    } else {
-      setNotes([]);
-      setCustomActions([]);
-      setShowNoteForm(false);
-      setEditingNoteId(null);
+        .then((res) => { if (!cancelled) setCustomActions(res); })
+        .catch(() => { if (!cancelled) setCustomActions([]); });
+      return () => { cancelled = true; };
     }
+    setNotes([]);
+    setCustomActions([]);
+    setShowNoteForm(false);
+    setEditingNoteId(null);
+    return undefined;
   }, [isOpen, task, loadNotes, listCardCustomActions]);
 
   const resetForm = useCallback(() => {

@@ -313,6 +313,10 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         // Best-effort: ausência de custom actions não deve quebrar o menu.
       }
 
+      // Durante o await acima o card pode ter sido removido/desmontado: abrir o
+      // menu com um trigger desconectado ancoraria errado. Aborta se for o caso.
+      if (!trigger.isConnected) return;
+
       openForTrigger(trigger, t('tasklist.kanban.cardMenu', 'Menu do card'), items);
     },
     [statuses, moveTaskToColumn, handleDeleteTask, openForTrigger, t, listCardCustomActions, runCustomAction, taskListId],
