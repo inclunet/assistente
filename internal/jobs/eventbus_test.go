@@ -31,6 +31,27 @@ func TestEventBus_SubscribeAndPublish(t *testing.T) {
 	}
 }
 
+// TestEventBus_PublishNilPayload garante que publicar com payload nil não causa
+// panic no guard de clip de _chain_history. Regressão do review #170.
+func TestEventBus_PublishNilPayload(t *testing.T) {
+	eb := NewEventBus()
+	done := make(chan map[string]any, 1)
+	eb.Subscribe("nil.event", "sub-1", func(_ context.Context, _ string, payload map[string]any) {
+		done <- payload
+	})
+
+	eb.Publish(context.Background(), "nil.event", nil)
+
+	select {
+	case payload := <-done:
+		if payload != nil {
+			t.Fatalf("payload = %v, want nil (preservado)", payload)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for event")
+	}
+}
+
 func TestEventBus_MultipleSubscribers(t *testing.T) {
 	eb := NewEventBus()
 	var count atomic.Int32
