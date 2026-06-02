@@ -156,12 +156,12 @@ Key facts:
 | Event | Emitted when | Notable payload fields (besides provenance) |
 |-------|--------------|---------------------------------------------|
 | `tasklist.task.created` | A task is created | `task_id`, `task_list_id`, `task_list_slug`, `code`, `title`, `status_id`, `parent_id`, `assignee_id`, `link` |
-| `tasklist.task.updated` | A task's fields change | + `changed_fields` (array of field names) |
+| `tasklist.task.updated` | A task's fields change | + `changed_fields` (array of field names; omitted if the post-update snapshot could not be reloaded) |
 | `tasklist.task.status_changed` | Status changes | + `from_status_id` |
 | `tasklist.task.assignee_changed` | Assignee changes | + `from_assignee_id` |
 | `tasklist.task.moved` | Task moves to another list | + `from_task_list_id` |
 | `tasklist.task.reparented` | Task's parent changes | + `from_parent_id` |
-| `tasklist.task.reordered` | Task order changes | task fields |
+| `tasklist.task.reordered` | Task order changes within a column | `task_list_id`, `task_list_slug`, `status_id`, `ordered_ids` (list-level event; no per-card fields) |
 | `tasklist.task.completed` | Task reaches a completed state | task fields (`completed_at` set) |
 | `tasklist.task.deleted` | Task is deleted | task fields |
 | `tasklist.note.added` / `.updated` / `.deleted` | Note lifecycle | `note_id`, `task_id`, `task_list_id`, `note_type`, `source`, `external_id`, `author_id` |
