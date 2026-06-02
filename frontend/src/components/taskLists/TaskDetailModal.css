@@ -49,7 +49,7 @@
 
 .task-detail__custom-action--danger:hover {
   background: var(--color-danger);
-  color: #fff;
+  color: var(--text-inverse);
 }
 
 .task-detail__badge {

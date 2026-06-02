@@ -154,11 +154,14 @@ func CloneTaskListWithContext(ctx context.Context, id string, newTitle string) (
 		cloned.ValidationPolicy = original.ValidationPolicy
 	}
 
-	if strings.TrimSpace(original.CustomActions) != "" {
-		if err := SetTaskListCustomActionsWithContext(ctx, cloned.ID, original.CustomActions); err != nil {
+	if trimmed := strings.TrimSpace(original.CustomActions); trimmed != "" {
+		if err := SetTaskListCustomActionsWithContext(ctx, cloned.ID, trimmed); err != nil {
 			return nil, err
 		}
-		cloned.CustomActions = original.CustomActions
+		// Reflete o valor efetivamente persistido (SetTaskListCustomActionsWithContext
+		// grava a versão com TrimSpace), evitando devolver ao caller um CustomActions
+		// diferente do que ficou no banco.
+		cloned.CustomActions = trimmed
 	}
 
 	return cloned, nil

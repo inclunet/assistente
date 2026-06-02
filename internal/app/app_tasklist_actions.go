@@ -127,8 +127,16 @@ func (a *App) TriggerCustomAction(taskListID string, taskID string, actionID str
 		if err != nil {
 			return "", err
 		}
-		if task != nil && taskListID == "" {
+		if task == nil {
+			return "", fmt.Errorf("task %q not found", taskID)
+		}
+		switch {
+		case taskListID == "":
 			taskListID = task.TaskListID
+		case taskListID != task.TaskListID:
+			// Card e lista informados não pertencem um ao outro: recusa cedo
+			// para não disparar a ação/configuração da lista errada.
+			return "", fmt.Errorf("task %q does not belong to task list %q", taskID, taskListID)
 		}
 	}
 	if taskListID == "" {
@@ -157,6 +165,19 @@ func (a *App) TriggerCustomAction(taskListID string, taskID string, actionID str
 		taskMap = a.customActionTaskMap(ctx, task)
 	}
 	data := map[string]any{"task": taskMap, "now": time.Now()}
+
+	// Reavalia o `when` server-side no momento do trigger. A listagem já filtra
+	// por visibilidade, mas um caller direto (ex.: devtools) poderia disparar uma
+	// ação que deveria estar escondida/inválida para este card — então revalida.
+	if action.When != "" {
+		ok, werr := jobs.EvaluateConditionWithRoot(action.When, data)
+		if werr != nil {
+			return "", fmt.Errorf("evaluate when: %w", werr)
+		}
+		if !ok {
+			return "", fmt.Errorf("custom action %q is not available in the current context", actionID)
+		}
+	}
 
 	// Link renderizado (devolvido ao frontend).
 	var renderedLink string
@@ -249,6 +270,9 @@ func emptyTaskMap() map[string]any {
 // customActionEventNames coleta os nomes de eventos das custom actions de todas
 // as listas do usuário (para o picker do JobBuilder).
 func (a *App) customActionEventNames(ctx context.Context) []string {
+	// GetAllTaskLists já traz a coluna custom_actions de todas as listas do
+	// usuário numa única consulta; parseamos em memória para evitar um N+1
+	// (uma query de custom_actions por lista).
 	lists, err := a.taskListCtrl.GetAllTaskLists(ctx)
 	if err != nil {
 		return nil
@@ -256,7 +280,7 @@ func (a *App) customActionEventNames(ctx context.Context) []string {
 	seen := make(map[string]bool)
 	var names []string
 	for i := range lists {
-		ca, err := a.taskListCtrl.GetTaskListCustomActions(ctx, lists[i].ID)
+		ca, err := database.ParseTaskListCustomActionsJSON(lists[i].CustomActions)
 		if err != nil || ca == nil {
 			continue
 		}

@@ -116,7 +116,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
       <p className="custom-actions-editor__hint">
         {t(
           'tasklist.customActions.hint',
-          'Defina ações por card ou quadro. Cada ação pode publicar um evento (que pode disparar jobs) e/ou abrir um link. Templates usam {{.task.code}}, {{.task.link}}, etc.',
+          'Defina ações por card ou quadro. Cada ação pode publicar um evento (que pode disparar jobs) e/ou abrir um link. Os templates têm acesso aos campos do card (.task.code, .task.link, etc.).',
         )}
       </p>
 
@@ -135,7 +135,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
                 <input
                   type="text"
                   value={action.id}
-                  placeholder="investigar"
+                  placeholder={t('tasklist.customActions.field.idPlaceholder', 'investigar')}
                   onChange={(e) => updateAction(idx, { id: e.target.value })}
                 />
               </label>
@@ -153,7 +153,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
                 <input
                   type="text"
                   value={action.icon ?? ''}
-                  placeholder="🔍"
+                  placeholder={t('tasklist.customActions.field.iconPlaceholder', '🔍')}
                   onChange={(e) => updateAction(idx, { icon: e.target.value })}
                 />
               </label>
@@ -188,7 +188,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
                 <input
                   type="text"
                   value={action.event ?? ''}
-                  placeholder="tasklist.card.investigate_requested"
+                  placeholder={t('tasklist.customActions.field.eventPlaceholder', 'tasklist.card.investigate_requested')}
                   onChange={(e) => updateAction(idx, { event: e.target.value })}
                 />
               </label>

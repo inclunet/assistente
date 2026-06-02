@@ -49,7 +49,10 @@ func (a CustomAction) HasSurface(surface string) bool {
 }
 
 func isValidCustomActionSurface(s string) bool {
-	switch strings.TrimSpace(s) {
+	// Normaliza para lowercase para alinhar com a leitura case-insensitive de
+	// HasSurface (EqualFold) — assim a validação não rejeita valores que a
+	// renderização aceitaria.
+	switch strings.ToLower(strings.TrimSpace(s)) {
 	case CustomActionSurfaceCardMenu, CustomActionSurfaceCardDetail, CustomActionSurfaceBoardMenu:
 		return true
 	default:
