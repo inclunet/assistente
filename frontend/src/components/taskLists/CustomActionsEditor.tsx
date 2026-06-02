@@ -34,6 +34,10 @@ function withUiId(a: CustomAction): EditableAction {
   return { ...a, _uiId: newUiId() };
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error ?? '');
+}
+
 function emptyAction(): EditableAction {
   return {
     id: '',
@@ -116,7 +120,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
       onClose();
     } catch (error) {
       addToast(
-        t('tasklist.customActions.saveError', 'Falha ao salvar ações: {{error}}', { error: String(error) }),
+        t('tasklist.customActions.saveError', 'Falha ao salvar ações: {{error}}', { error: getErrorMessage(error) }),
         'error',
       );
     } finally {

@@ -48,6 +48,7 @@ import type {
   WorkflowTransitions,
   TaskListCustomActions,
   CustomActionView,
+  CustomActionSurface,
 } from '../types/tasklist';
 import type { database } from '@wailsjs/go/models';
 
@@ -193,7 +194,7 @@ interface TaskListStoreState {
   // Custom actions (AEP-0067)
   getTaskListCustomActions: (taskListId: string) => Promise<TaskListCustomActions>;
   setTaskListCustomActions: (taskListId: string, actionsJSON: string) => Promise<void>;
-  listCardCustomActions: (taskId: string, surface: string) => Promise<CustomActionView[]>;
+  listCardCustomActions: (taskId: string, surface: CustomActionSurface) => Promise<CustomActionView[]>;
   listBoardCustomActions: (taskListId: string) => Promise<CustomActionView[]>;
   triggerCustomAction: (taskListId: string, taskId: string, actionId: string) => Promise<string>;
 
@@ -446,7 +447,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       await SetTaskListCustomActions(taskListId, actionsJSON);
     },
 
-    listCardCustomActions: async (taskId: string, surface: string) => {
+    listCardCustomActions: async (taskId: string, surface: CustomActionSurface) => {
       const res = await ListCardCustomActions(taskId, surface);
       return (res as unknown as CustomActionView[]) || [];
     },

@@ -7,6 +7,10 @@ import { requestConfirm } from '../../store/confirmStore';
 import { openTaskLink } from '../../lib/deepLinks';
 import type { CustomActionView } from '../../types/tasklist';
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error ?? '');
+}
+
 /**
  * Hook que executa uma custom action (AEP-0067) a partir de qualquer surface
  * (menu do card, detalhe do card ou menu do quadro).
@@ -39,7 +43,7 @@ export function useCustomActions() {
       } catch (error) {
         addToast(
           t('tasklist.customActions.runError', 'Falha ao executar ação: {{error}}', {
-            error: String(error),
+            error: getErrorMessage(error),
           }),
           'error',
         );

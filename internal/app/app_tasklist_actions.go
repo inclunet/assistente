@@ -197,7 +197,10 @@ func (a *App) TriggerCustomAction(taskListID string, taskID string, actionID str
 	}
 
 	// Evento publicado no EventBus (se configurado).
-	if action.Event != "" && a.jobMgr != nil {
+	if action.Event != "" {
+		if a.jobMgr == nil {
+			return "", fmt.Errorf("custom action %q requires jobs manager to publish event %q", action.ID, action.Event)
+		}
 		payload := map[string]any{
 			"action_id":      action.ID,
 			"task_list_id":   taskListID,
