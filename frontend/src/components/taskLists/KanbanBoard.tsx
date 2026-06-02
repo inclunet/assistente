@@ -15,7 +15,7 @@ import { openTaskLink } from '../../lib/deepLinks';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
-import { ContextMenu } from '../menu';
+import { ContextMenu, type MenuItem } from '../menu';
 import { Modal } from '../ui/Modal';
 import { playBumpSound } from '../../services/audioFeedback';
 import TaskForm from './TaskForm';
@@ -253,7 +253,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   // ── Context menu para card ─────────────────────────────────
   const openCardContextMenu = useCallback(
     async (task: Task, _colIdx: number, trigger: HTMLElement) => {
-      const items = [
+      const items: MenuItem[] = [
         {
           id: 'details',
           label: t('tasklist.details', 'Detalhes'),
@@ -298,7 +298,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
       try {
         const customs = await listCardCustomActions(task.id, 'card_menu');
         if (customs.length > 0) {
-          items.push({ separator: true, id: 'sep-custom' } as never);
+          items.push({ separator: true, id: 'sep-custom' });
           for (const ca of customs) {
             items.push({
               id: `custom-${ca.id}`,
@@ -306,7 +306,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
               icon: ca.icon || undefined,
               danger: ca.danger,
               action: () => { void runCustomAction(ca, taskListId, task.id); },
-            } as never);
+            });
           }
         }
       } catch {
