@@ -68,7 +68,7 @@
 }
 
 .task-detail__badge--code {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-secondary);
   font-family: var(--font-mono);
 }
@@ -166,7 +166,7 @@
 }
 
 .task-detail__add-note-btn:hover {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
 }
 
 /* Notes list */
@@ -210,7 +210,7 @@
 }
 
 .task-detail__note-type--internal {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-secondary);
 }
 
@@ -257,7 +257,7 @@
 }
 
 .task-detail__note-action:hover {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-primary);
 }
 
@@ -280,7 +280,7 @@
   border: 1px solid var(--border-focus);
   border-radius: var(--radius-md);
   padding: 12px;
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -343,7 +343,7 @@
 }
 
 .task-detail__note-form-actions button:hover {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
 }
 
 .task-detail__note-form-actions button[data-primary] {

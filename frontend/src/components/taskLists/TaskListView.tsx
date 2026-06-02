@@ -104,7 +104,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     try {
       await setViewMode(taskListId, newMode);
       announce(
-        t('tasklist.viewModeChanged', `Alterado para visualização ${newMode === 'list' ? 'Lista' : 'Kanban'}`)
+        t('tasklist.viewModeChanged', 'Alterado para visualização {{mode}}', {
+          mode: t(newMode === 'list' ? 'tasklist.viewModeList' : 'tasklist.viewModeKanban'),
+        }),
       );
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -296,7 +298,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               ? [
                   {
                     key: 'toggle-view',
-                    label: currentViewMode === 'list' ? 'Kanban' : 'Lista',
+                    label: t(currentViewMode === 'list' ? 'tasklist.viewModeKanban' : 'tasklist.viewModeList'),
                     icon: currentViewMode === 'list' ? <AppstoreOutlined /> : <UnorderedListOutlined />,
                     onClick: handleToggleViewMode,
                     variant: 'secondary' as const,

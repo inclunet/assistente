@@ -1918,6 +1918,8 @@ const es = {
       sentToWorkspace: 'Lista enviada al workspace',
       tabClosed: 'Pestaña cerrada',
       viewModeChanged: 'Cambiado a vista {{mode}}',
+      viewModeKanban: 'Kanban',
+      viewModeList: 'Lista',
       createNew: 'Crear nueva lista',
       create: 'Crear',
       titlePlaceholder: 'Título de la lista',

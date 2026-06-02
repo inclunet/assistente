@@ -1919,6 +1919,8 @@ const en = {
       sentToWorkspace: 'List sent to workspace',
       tabClosed: 'Tab closed',
       viewModeChanged: 'Changed to {{mode}} view',
+      viewModeKanban: 'Kanban',
+      viewModeList: 'List',
       createNew: 'Create new list',
       create: 'Create',
       titlePlaceholder: 'List title',

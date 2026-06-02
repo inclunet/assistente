@@ -1893,6 +1893,8 @@ const ptBR = {
       sentToWorkspace: 'Lista enviada ao workspace',
       tabClosed: 'Aba fechada',
       viewModeChanged: 'Alterado para visualização {{mode}}',
+      viewModeKanban: 'Kanban',
+      viewModeList: 'Lista',
       createNew: 'Criar nova lista',
       create: 'Criar',
       titlePlaceholder: 'Título da lista',
