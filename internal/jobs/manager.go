@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/eventctx"
 	"assistente/internal/hotkey"
 	"assistente/internal/mcp"
 	"assistente/internal/messaging"
@@ -806,6 +807,13 @@ func (m *Manager) PublishDomainEvent(ctx context.Context, name string, payload m
 	if name == "" {
 		return fmt.Errorf("domain event name is required")
 	}
+	// Dry-run: a tool pode mutar estado de domínio, mas a ponte de eventos fica
+	// muda para não cascatear outros jobs (ExecuteDryRun carimba a supressão no
+	// ctx). Choke point único — cobre tasklist.Service e chamadores diretos
+	// (custom actions). Ver eventctx.WithSuppressed / executor.ExecuteDryRun.
+	if eventctx.IsSuppressed(ctx) {
+		return nil
+	}
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -857,6 +865,17 @@ func clipHistory(h []string) []string {
 		return h
 	}
 	return h[:len(h):len(h)]
+}
+
+// HasDomainListener informa se há ao menos um job inscrito (habilitado) no evento.
+// Produtores de eventos de domínio (ex.: tasklist.Service) usam isto para evitar
+// montar payloads e fazer queries quando ninguém está escutando — preservando o
+// custo ~zero do barramento.
+func (m *Manager) HasDomainListener(name string) bool {
+	if m == nil || m.eventBus == nil {
+		return false
+	}
+	return m.eventBus.SubscriberCount(name) > 0
 }
 
 // newChainID gera um identificador de cadeia para o circuit breaker.

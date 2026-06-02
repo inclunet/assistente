@@ -977,4 +977,96 @@ func (f *fakeErrorTool) Execute(_ context.Context, _ json.RawMessage) (tools.Too
 	return tools.ToolResult{Content: "something went wrong", IsError: true}, nil
 }
 
+// fakeDomainPublishTool simula uma tool que, ao rodar, faz uma mutação de domínio
+// que publica um evento no EventBus (via Manager.PublishDomainEvent), usando o ctx
+// do run. Permite verificar que o dry-run suprime a ponte de eventos.
+type fakeDomainPublishTool struct {
+	name  string
+	mgr   *Manager
+	event string
+}
+
+func (f *fakeDomainPublishTool) Name() string                { return f.name }
+func (f *fakeDomainPublishTool) Description() string         { return "publishes a domain event when executed" }
+func (f *fakeDomainPublishTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (f *fakeDomainPublishTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	_ = f.mgr.PublishDomainEvent(ctx, f.event, map[string]any{"task_id": "t-1"})
+	return tools.ToolResult{Content: `{"ok":true}`}, nil
+}
+
+// TestExecuteDryRunNilTrigCtxNoPanic garante que ExecuteDryRun normaliza um
+// trigCtx nil (como Execute), evitando o panic em executeSingle ao acessar
+// trigCtx.EventPayload. Regressão do review #171.
+func TestExecuteDryRunNilTrigCtxNoPanic(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.MustRegister(&fakeTool{
+		name:     "noop_tool",
+		params:   json.RawMessage(`{"type":"object"}`),
+		response: `{"ok":true}`,
+	})
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	job := &Job{ID: "dry-nil", Tool: "noop_tool"}
+	res := executor.ExecuteDryRun(context.Background(), job, nil)
+	if res == nil || !res.Success {
+		t.Fatalf("dry-run com trigCtx nil deveria suceder, veio: %+v", res)
+	}
+}
+
+// TestExecuteDryRunSuppressesDomainEvents garante que, durante um dry-run, uma
+// mutação feita pela tool não dispara a ponte de eventos de domínio (e portanto
+// não cascateia outros jobs), enquanto a execução normal continua publicando.
+// Regressão do review #171.
+func TestExecuteDryRunSuppressesDomainEvents(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
+		ContextProvider: func() context.Context { return userA },
+	})
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start manager: %v", err)
+	}
+	t.Cleanup(mgr.Stop)
+
+	const evt = "tasklist.task.updated"
+	fired := make(chan struct{}, 4)
+	mgr.eventBus.Subscribe(evt, "test-listener", func(_ context.Context, _ string, _ map[string]any) {
+		fired <- struct{}{}
+	})
+
+	registry := tools.NewRegistry()
+	registry.MustRegister(&fakeDomainPublishTool{name: "domain_pub", mgr: mgr, event: evt})
+
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       mgr.eventBus,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	job := &Job{ID: "dry-job", Tool: "domain_pub"}
+
+	// Dry-run: a tool publica, mas a ponte deve ficar muda.
+	res := executor.ExecuteDryRun(userA, job, &TriggerContext{Type: TriggerManual})
+	if !res.Success {
+		t.Fatalf("dry-run falhou: %s", res.Error)
+	}
+	select {
+	case <-fired:
+		t.Fatal("evento de domínio publicado durante dry-run (deveria ser suprimido)")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// Controle: execução normal deve publicar e disparar o listener.
+	executor.Execute(userA, job, &TriggerContext{Type: TriggerManual})
+	select {
+	case <-fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("execução normal não publicou o evento de domínio (controle)")
+	}
+}
+
 // --- Execute no longer persists RunLog to disk without Repository ---

@@ -13,8 +13,9 @@ type EventEmitter interface {
 
 // ServiceConfig agrupa as dependências necessárias para criar um Service.
 type ServiceConfig struct {
-	Store   TaskListRepository
-	Emitter EventEmitter
+	Store        TaskListRepository
+	Emitter      EventEmitter
+	DomainEvents DomainEventSink // opcional: ponte para o EventBus de jobs (AEP-0067)
 }
 
 // Service encapsula toda a lógica de negócio de task lists.
@@ -22,11 +23,18 @@ type ServiceConfig struct {
 type Service struct {
 	store   TaskListRepository
 	emitter EventEmitter
+	domain  DomainEventSink
 }
 
 // NewService cria um Service com as dependências fornecidas.
 func NewService(cfg ServiceConfig) *Service {
-	return &Service{store: cfg.Store, emitter: cfg.Emitter}
+	return &Service{store: cfg.Store, emitter: cfg.Emitter, domain: cfg.DomainEvents}
+}
+
+// SetDomainEventSink injeta (ou substitui) o sink de eventos de domínio.
+// Usado pela wiring da app, onde o jobs.Manager só existe após o Service.
+func (s *Service) SetDomainEventSink(sink DomainEventSink) {
+	s.domain = sink
 }
 
 // ── Task List ──────────────────────────────────────────────────────────────────
@@ -45,6 +53,9 @@ func (s *Service) CreateTaskList(ctx context.Context, title, description string,
 		full = tl
 	}
 	s.emitter.Emit("taskList:created", full)
+	if s.wantsDomain("tasklist.list.created") {
+		s.publishDomain(ctx, "tasklist.list.created", listPayload(full))
+	}
 	return full, nil
 }
 
@@ -62,11 +73,25 @@ func (s *Service) UpdateTaskList(ctx context.Context, id string, title, descript
 	}
 	tl, _ := s.store.GetTaskList(ctx, id)
 	s.emitter.Emit("taskList:updated", tl)
+	if s.wantsDomain("tasklist.list.updated") {
+		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
+	}
 	return nil
 }
 
 func (s *Service) UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error {
-	return s.store.UpdateTaskListFull(ctx, id, title, description, preferredViewMode, slug)
+	if err := s.store.UpdateTaskListFull(ctx, id, title, description, preferredViewMode, slug); err != nil {
+		return err
+	}
+	tl, _ := s.store.GetTaskList(ctx, id)
+	// Emite taskList:updated (como os demais updates de lista): o frontend escuta
+	// esse evento para recarregar/invalidar cache; sem ele, updates via tool/job
+	// deixariam a UI com dados stale até um refresh manual.
+	s.emitter.Emit("taskList:updated", tl)
+	if s.wantsDomain("tasklist.list.updated") {
+		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
+	}
+	return nil
 }
 
 func (s *Service) ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error) {
@@ -83,6 +108,9 @@ func (s *Service) SetTaskListViewMode(ctx context.Context, id string, viewMode s
 	}
 	tl, _ := s.store.GetTaskList(ctx, id)
 	s.emitter.Emit("taskList:updated", tl)
+	if s.wantsDomain("tasklist.list.updated") {
+		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
+	}
 	return nil
 }
 
@@ -100,6 +128,11 @@ func (s *Service) CloneTaskList(ctx context.Context, id string, newTitle string)
 		full = tl
 	}
 	s.emitter.Emit("taskList:created", full)
+	if s.wantsDomain("tasklist.list.cloned") {
+		payload := listPayload(full)
+		payload["source_task_list_id"] = id
+		s.publishDomain(ctx, "tasklist.list.cloned", payload)
+	}
 	return full, nil
 }
 
@@ -108,14 +141,31 @@ func (s *Service) ClearTaskList(ctx context.Context, id string) error {
 		return err
 	}
 	s.emitter.Emit("taskList:cleared", id)
+	if s.wantsDomain("tasklist.list.cleared") {
+		s.publishDomain(ctx, "tasklist.list.cleared", map[string]any{
+			"task_list_id":   id,
+			"task_list_slug": s.taskListSlug(ctx, id),
+		})
+	}
 	return nil
 }
 
 func (s *Service) DeleteTaskList(ctx context.Context, id string) error {
+	// Resolve o slug antes de deletar (best-effort) para enriquecer o evento.
+	var slug string
+	if s.wantsDomain("tasklist.list.deleted") {
+		slug = s.taskListSlug(ctx, id)
+	}
 	if err := s.store.DeleteTaskList(ctx, id); err != nil {
 		return err
 	}
 	s.emitter.Emit("taskList:deleted", id)
+	if s.wantsDomain("tasklist.list.deleted") {
+		s.publishDomain(ctx, "tasklist.list.deleted", map[string]any{
+			"task_list_id":   id,
+			"task_list_slug": slug,
+		})
+	}
 	return nil
 }
 
@@ -139,6 +189,9 @@ func (s *Service) UpdateWorkflow(ctx context.Context, taskListID string, statuse
 	}
 	wf, _ := s.store.GetWorkflow(ctx, taskListID)
 	s.emitter.Emit("workflow:updated", wf)
+	if s.wantsDomain("tasklist.workflow.updated") {
+		s.publishDomain(ctx, "tasklist.workflow.updated", s.workflowEventPayload(ctx, taskListID, wf))
+	}
 	return nil
 }
 
@@ -151,6 +204,13 @@ func (s *Service) UpdateWorkflowFull(ctx context.Context, taskListID string, sta
 		s.emitter.Emit("workflow:updated", tl.Workflow)
 	}
 	s.emitter.Emit("taskList:updated", tl)
+	if s.wantsDomain("tasklist.workflow.updated") {
+		var wf *database.TaskListWorkflow
+		if tl != nil {
+			wf = tl.Workflow
+		}
+		s.publishDomain(ctx, "tasklist.workflow.updated", s.workflowEventPayload(ctx, taskListID, wf))
+	}
 	return nil
 }
 
@@ -164,6 +224,9 @@ func (s *Service) ReorderWorkflowStatuses(ctx context.Context, taskListID string
 	}
 	wf, _ := s.store.GetWorkflow(ctx, taskListID)
 	s.emitter.Emit("workflow:updated", wf)
+	if s.wantsDomain("tasklist.workflow.updated") {
+		s.publishDomain(ctx, "tasklist.workflow.updated", s.workflowEventPayload(ctx, taskListID, wf))
+	}
 	return nil
 }
 
@@ -179,6 +242,11 @@ func (s *Service) CreateTask(ctx context.Context, taskListID string, title, desc
 		return nil, err
 	}
 	s.emitter.Emit("task:created", task)
+	if s.wantsDomain("tasklist.task.created") {
+		if payload := s.taskEventPayload(ctx, task, nil); payload != nil {
+			s.publishDomain(ctx, "tasklist.task.created", payload)
+		}
+	}
 	return task, nil
 }
 
@@ -188,6 +256,11 @@ func (s *Service) CreateTaskFull(ctx context.Context, taskListID string, title, 
 		return nil, err
 	}
 	s.emitter.Emit("task:created", task)
+	if s.wantsDomain("tasklist.task.created") {
+		if payload := s.taskEventPayload(ctx, task, nil); payload != nil {
+			s.publishDomain(ctx, "tasklist.task.created", payload)
+		}
+	}
 	return task, nil
 }
 
@@ -216,20 +289,59 @@ func (s *Service) ResolveTaskIDByTaskCode(ctx context.Context, taskListID *strin
 }
 
 func (s *Service) UpdateTask(ctx context.Context, id string, title, description, code, link string) error {
+	var old *database.Task
+	if s.wantsDomain("tasklist.task.updated") {
+		old, _ = s.store.GetTask(ctx, id)
+	}
 	if err := s.store.UpdateTask(ctx, id, title, description, code, link); err != nil {
 		return err
 	}
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
+	if s.wantsDomain("tasklist.task.updated") {
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			// Só preenche changed_fields quando há snapshot recarregado: no
+			// fallback (task==nil) o diff ficaria vazio e induziria o consumidor
+			// a achar que nada mudou. Melhor omitir do que mentir.
+			if task != nil {
+				payload["changed_fields"] = changedTaskFields(old, task)
+			}
+			s.publishDomain(ctx, "tasklist.task.updated", payload)
+		}
+	}
 	return nil
 }
 
 func (s *Service) UpdateTaskFull(ctx context.Context, id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	wantUpdated := s.wantsDomain("tasklist.task.updated")
+	wantAssignee := s.wantsDomain("tasklist.task.assignee_changed")
+	var old *database.Task
+	if wantUpdated || wantAssignee {
+		old, _ = s.store.GetTask(ctx, id)
+	}
 	if err := s.store.UpdateTaskFull(ctx, id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID); err != nil {
 		return err
 	}
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
+	if wantUpdated {
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			// Ver UpdateTask: changed_fields só com snapshot recarregado.
+			if task != nil {
+				payload["changed_fields"] = changedTaskFields(old, task)
+			}
+			s.publishDomain(ctx, "tasklist.task.updated", payload)
+		}
+	}
+	// UpdateTaskFull também pode trocar o responsável: emite assignee_changed com
+	// o mesmo contrato de UpdateTaskAssignee, para não esconder a troca de quem
+	// escuta especificamente esse evento (e não só tasklist.task.updated).
+	if wantAssignee && old != nil && old.AssigneeID != assigneeID {
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			payload["from_assignee_id"] = old.AssigneeID
+			s.publishDomain(ctx, "tasklist.task.assignee_changed", payload)
+		}
+	}
 	return nil
 }
 
@@ -253,20 +365,59 @@ func (s *Service) UpdateTaskAssignee(ctx context.Context, id string, assigneeNam
 		note, _ := s.store.CreateTaskNote(ctx, id, database.TaskNoteSystem, content, "system", "")
 		if note != nil {
 			s.emitter.Emit("taskNote:created", note)
+			if s.wantsDomain("tasklist.note.added") {
+				s.publishDomain(ctx, "tasklist.note.added", notePayload(note, oldTask.TaskListID, s.taskListSlug(ctx, oldTask.TaskListID)))
+			}
 		}
 	}
 
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
+	if s.wantsDomain("tasklist.task.assignee_changed") && oldTask != nil && oldTask.AssigneeID != assigneeID {
+		if payload := s.taskEventPayload(ctx, task, oldTask); payload != nil {
+			payload["from_assignee_id"] = oldTask.AssigneeID
+			s.publishDomain(ctx, "tasklist.task.assignee_changed", payload)
+		}
+	}
 	return nil
 }
 
 func (s *Service) UpdateTaskStatus(ctx context.Context, id string, statusID int) error {
+	wantStatus := s.wantsDomain("tasklist.task.status_changed")
+	wantCompleted := s.wantsDomain("tasklist.task.completed")
+	var old *database.Task
+	if wantStatus || wantCompleted {
+		old, _ = s.store.GetTask(ctx, id)
+	}
 	if err := s.store.UpdateTaskStatus(ctx, id, statusID); err != nil {
 		return err
 	}
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
+
+	if wantStatus {
+		// Não emite em no-op (status igual): evita disparar jobs à toa e facilita
+		// o anti-loop. Só dá para detectar no-op quando há snapshot anterior; sem
+		// ele (old==nil), publicamos best-effort.
+		statusChanged := old == nil || old.StatusID != statusID
+		// Best-effort mesmo se a recarga falhar (task==nil): cai para o snapshot
+		// anterior e força status_id ao novo valor do input, mantendo o contrato.
+		if statusChanged {
+			if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+				payload["status_id"] = statusID
+				if old != nil {
+					payload["from_status_id"] = old.StatusID
+				}
+				s.publishDomain(ctx, "tasklist.task.status_changed", payload)
+			}
+		}
+	}
+	// Derivado: transição para concluído. Exige o snapshot recarregado, pois
+	// depende de completed_at já estar setado pós-mutação (o snapshot antigo não
+	// reflete isso).
+	if wantCompleted && task != nil && task.CompletedAt != nil && (old == nil || old.CompletedAt == nil) {
+		s.publishDomain(ctx, "tasklist.task.completed", taskPayload(task, s.taskListSlug(ctx, task.TaskListID)))
+	}
 	return nil
 }
 
@@ -275,24 +426,56 @@ func (s *Service) ReorderTasks(ctx context.Context, taskListID string, statusID 
 		return err
 	}
 	s.emitter.Emit("taskList:updated", taskListID)
+	if s.wantsDomain("tasklist.task.reordered") {
+		s.publishDomain(ctx, "tasklist.task.reordered", map[string]any{
+			"task_list_id":   taskListID,
+			"task_list_slug": s.taskListSlug(ctx, taskListID),
+			"status_id":      statusID,
+			"ordered_ids":    orderedIDs,
+		})
+	}
 	return nil
 }
 
 func (s *Service) PromoteTask(ctx context.Context, id string) error {
+	var old *database.Task
+	if s.wantsDomain("tasklist.task.reparented") {
+		old, _ = s.store.GetTask(ctx, id)
+	}
 	if err := s.store.PromoteTask(ctx, id); err != nil {
 		return err
 	}
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
+	if s.wantsDomain("tasklist.task.reparented") {
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			if old != nil {
+				payload["from_parent_id"] = parentOrEmpty(old.ParentID)
+			}
+			s.publishDomain(ctx, "tasklist.task.reparented", payload)
+		}
+	}
 	return nil
 }
 
 func (s *Service) DemoteTask(ctx context.Context, id string, parentID string) error {
+	var old *database.Task
+	if s.wantsDomain("tasklist.task.reparented") {
+		old, _ = s.store.GetTask(ctx, id)
+	}
 	if err := s.store.DemoteTask(ctx, id, parentID); err != nil {
 		return err
 	}
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
+	if s.wantsDomain("tasklist.task.reparented") {
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			if old != nil {
+				payload["from_parent_id"] = parentOrEmpty(old.ParentID)
+			}
+			s.publishDomain(ctx, "tasklist.task.reparented", payload)
+		}
+	}
 	return nil
 }
 
@@ -312,15 +495,33 @@ func (s *Service) MoveTaskToList(ctx context.Context, taskID string, targetTaskL
 		s.emitter.Emit("task:updated", task)
 		s.emitter.Emit("taskList:updated", oldListID)
 		s.emitter.Emit("taskList:updated", targetTaskListID)
+		if s.wantsDomain("tasklist.task.moved") {
+			if payload := s.taskEventPayload(ctx, task, nil); payload != nil {
+				payload["from_task_list_id"] = oldListID
+				s.publishDomain(ctx, "tasklist.task.moved", payload)
+			}
+		}
 	}
 	return task, nil
 }
 
 func (s *Service) DeleteTask(ctx context.Context, id string) error {
+	// Captura o card antes de deletar (best-effort) para enriquecer o evento.
+	var old *database.Task
+	if s.wantsDomain("tasklist.task.deleted") {
+		old, _ = s.store.GetTask(ctx, id)
+	}
 	if err := s.store.DeleteTask(ctx, id); err != nil {
 		return err
 	}
 	s.emitter.Emit("task:deleted", id)
+	if s.wantsDomain("tasklist.task.deleted") {
+		if old != nil {
+			s.publishDomain(ctx, "tasklist.task.deleted", taskPayload(old, s.taskListSlug(ctx, old.TaskListID)))
+		} else {
+			s.publishDomain(ctx, "tasklist.task.deleted", map[string]any{"task_id": id})
+		}
+	}
 	return nil
 }
 
@@ -336,6 +537,10 @@ func (s *Service) CreateTaskNote(ctx context.Context, taskID string, noteType in
 		return nil, err
 	}
 	s.emitter.Emit("taskNote:created", note)
+	if s.wantsDomain("tasklist.note.added") {
+		listID, slug := s.listRefForTask(ctx, note.TaskID)
+		s.publishDomain(ctx, "tasklist.note.added", notePayload(note, listID, slug))
+	}
 	return note, nil
 }
 
@@ -346,8 +551,16 @@ func (s *Service) UpsertTaskNoteByExternal(ctx context.Context, p database.Upser
 	}
 	if created {
 		s.emitter.Emit("taskNote:created", note)
+		if s.wantsDomain("tasklist.note.added") {
+			listID, slug := s.listRefForTask(ctx, note.TaskID)
+			s.publishDomain(ctx, "tasklist.note.added", notePayload(note, listID, slug))
+		}
 	} else {
 		s.emitter.Emit("taskNote:updated", note.ID)
+		if s.wantsDomain("tasklist.note.updated") {
+			listID, slug := s.listRefForTask(ctx, note.TaskID)
+			s.publishDomain(ctx, "tasklist.note.updated", notePayload(note, listID, slug))
+		}
 	}
 	return note, created, nil
 }
@@ -365,13 +578,34 @@ func (s *Service) UpdateTaskNote(ctx context.Context, noteID string, content str
 		return err
 	}
 	s.emitter.Emit("taskNote:updated", noteID)
+	if s.wantsDomain("tasklist.note.updated") {
+		note, _ := s.store.GetTaskNote(ctx, noteID)
+		if note != nil {
+			listID, slug := s.listRefForTask(ctx, note.TaskID)
+			s.publishDomain(ctx, "tasklist.note.updated", notePayload(note, listID, slug))
+		} else {
+			s.publishDomain(ctx, "tasklist.note.updated", map[string]any{"note_id": noteID})
+		}
+	}
 	return nil
 }
 
 func (s *Service) DeleteTaskNote(ctx context.Context, noteID string) error {
+	var old *database.TaskNote
+	if s.wantsDomain("tasklist.note.deleted") {
+		old, _ = s.store.GetTaskNote(ctx, noteID)
+	}
 	if err := s.store.DeleteTaskNote(ctx, noteID); err != nil {
 		return err
 	}
 	s.emitter.Emit("taskNote:deleted", noteID)
+	if s.wantsDomain("tasklist.note.deleted") {
+		if old != nil {
+			listID, slug := s.listRefForTask(ctx, old.TaskID)
+			s.publishDomain(ctx, "tasklist.note.deleted", notePayload(old, listID, slug))
+		} else {
+			s.publishDomain(ctx, "tasklist.note.deleted", map[string]any{"note_id": noteID})
+		}
+	}
 	return nil
 }
