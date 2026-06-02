@@ -45,18 +45,21 @@ jobs:
           fi
           echo "Commit alvo (head SHA): ${HEAD_SHA}"
 
-          # Mostra o último review do Copilot ANTES de solicitar, para servir de
+          # Mostra o ÚLTIMO review do Copilot ANTES de solicitar, para servir de
           # base de comparação nos logs (ajuda a verificar se um novo review foi gerado).
+          # A API /reviews vem em ordem cronológica, então pegamos o último elemento
+          # que casa com o Copilot (`[... ] | last`) — listar todos poluiria o log e
+          # contradiz o objetivo de exibir só o mais recente.
           # OBS: capturamos a saída numa variável e checamos explicitamente, pois `jq`
-          # sobre uma lista vazia sai com status 0 e não imprime nada — então um
+          # não imprime nada quando não há review anterior — então um
           # `|| echo "(nenhum...)"` nunca dispararia no caso mais comum.
           # Este bloco é apenas diagnóstico: NÃO falhamos o job se a API der erro, mas
           # capturamos o stderr e o imprimimos para não confundir "falha da API" com
           # "nenhum review anterior" (antes o `2>/dev/null || true` mascarava o erro).
-          echo "Reviews anteriores do Copilot (commit / estado):"
+          echo "Último review do Copilot (commit / estado):"
           prev_err="$(mktemp)"
           if prev_reviews="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
-            --jq '.[] | select(.user.login == "copilot-pull-request-reviewer") | "  - " + .commit_id + " (" + .state + ")"' \
+            --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer")] | last | if . == null then empty else "  - " + .commit_id + " (" + .state + ")" end' \
             2>"${prev_err}")"; then
             if [[ -n "${prev_reviews}" ]]; then
               echo "${prev_reviews}"
@@ -64,7 +67,7 @@ jobs:
               echo "  (nenhum review anterior do Copilot)"
             fi
           else
-            echo "  (falha ao consultar reviews anteriores — apenas diagnóstico, seguindo):"
+            echo "  (falha ao consultar o último review — apenas diagnóstico, seguindo):"
             sed 's/^/    /' "${prev_err}"
           fi
           rm -f "${prev_err}"
