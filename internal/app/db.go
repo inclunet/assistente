@@ -17,14 +17,18 @@ import (
 )
 
 // messageHasToolCalls indica se uma mensagem assistant carrega tool calls.
-// Usado para identificar a resposta final do turno (a única mensagem assistant
-// sem tool calls — finish_reason=stop).
+// Usado para identificar a resposta final do turno: a única mensagem assistant
+// sem tool calls e com conteúdo. A detecção é puramente pela string `ToolCalls`
+// persistida (vazia / array vazio / null = sem tool calls); não há campo
+// `finish_reason` no nível do banco. Evita um `json.Unmarshal` redundante —
+// `consolidateTimelineTurn` já parseia `ToolCalls` ao montar os segmentos.
 func messageHasToolCalls(m database.ChatMessage) bool {
-	tc := strings.TrimSpace(m.ToolCalls)
-	if tc == "" || tc == "[]" {
+	switch strings.TrimSpace(m.ToolCalls) {
+	case "", "[]", "null":
 		return false
+	default:
+		return true
 	}
-	return len(parseToolCalls(m.ID, m.ToolCalls)) > 0
 }
 
 // Re-exporta tipos do pacote database para manter compatibilidade
@@ -362,7 +366,8 @@ func consolidateTimelineTurn(messages []database.ChatMessage, invocationToolResu
 	segments := make([]chat.TurnSegment, 0)
 	assistantCount := 0
 	// Resposta final do turno: o placeholder finalizado (FinalizeAssistantMessage)
-	// é a única mensagem assistant SEM tool calls e com conteúdo — finish_reason=stop.
+	// é a única mensagem assistant SEM tool calls e com conteúdo (a iteração final
+	// para sem pedir ferramentas, então sua linha não tem `tool_calls`).
 	// Como o placeholder é criado no INÍCIO do turno (EnsureAssistantPlaceholder),
 	// seu created_at é o mais antigo e ele ordena ANTES das iterações intermediárias.
 	// Sem tratamento, `finalContent` e o último segmento de texto cairiam num passo
