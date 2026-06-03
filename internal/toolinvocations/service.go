@@ -151,11 +151,18 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	}
 
 	input := s.buildInvocationInput(req.Call)
+	// Encadeamento pai↔filho (AEP-0068): se o chamador não trouxe um
+	// ParentInvocationID explícito, herda o carimbado no ctx (ex.: sub-conversa
+	// de sub-agente herda a invocação da tool `subagent` que a originou).
+	parentInvocationID := req.ParentInvocationID
+	if parentInvocationID == "" {
+		parentInvocationID = ParentInvocationIDFromContext(ctx)
+	}
 	inv := Invocation{
 		ToolCatalogID:      toolCatalogID,
 		OriginType:         req.Origin.Type,
 		OriginID:           req.Origin.ID,
-		ParentInvocationID: req.ParentInvocationID,
+		ParentInvocationID: parentInvocationID,
 		ToolCallID:         req.Call.ID,
 		Status:             StatusQueued,
 		DryRun:             req.DryRun,
@@ -186,7 +193,10 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		cancel()
 	}
 
-	exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
+	// Carimba o ID da invocação corrente no ctx para que tools que delegam
+	// (ex.: `subagent`) possam encadear suas sub-invocações a este turno.
+	execCtx := WithCurrentInvocationID(ctx, inv.ID)
+	exec := s.executorForRequest(req).ExecuteOne(execCtx, req.Call)
 	persisted := false
 	if s.repo != nil && inv.ID != "" {
 		// Revalida a origem de chat antes de finalizar. Se o turno/mensagem foi

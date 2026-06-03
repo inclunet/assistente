@@ -14,6 +14,7 @@ import (
 	"assistente/internal/messaging"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
+	"assistente/internal/subagent"
 	"assistente/internal/tools"
 )
 
@@ -109,6 +110,21 @@ func (c *ChatController) SendMessageFromChannel(ctx context.Context, conversatio
 		UserMedia:      media,
 		Params:         params,
 		Source:         source,
+	})
+}
+
+// SendForSubagent dispara um envio de sub-agente (AEP-0068) pela MESMA
+// SendMessageUseCase usada pelo chat e canais — sem fluxo alternativo de envio
+// (AEP-0040). A conversa (sub-conversa) deve já existir; o Manager de
+// sub-agentes a cria antes de chamar este método.
+func (c *ChatController) SendForSubagent(ctx context.Context, conversationID, prompt, media, profileSlug, model string) (string, error) {
+	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conversationID,
+		UserContent:    prompt,
+		UserMedia:      media,
+		Params:         llm.ChatParams{ProfileSlug: profileSlug, Model: model},
+		Source:         subagent.Source,
 	})
 }
 

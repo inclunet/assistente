@@ -28,6 +28,7 @@ import (
 	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
+	"assistente/internal/subagent"
 	"assistente/internal/summarization"
 	"assistente/internal/tasklist"
 	"assistente/internal/terminal"
@@ -89,6 +90,9 @@ type App struct {
 
 	// Jobs manager (event-driven automation)
 	jobMgr *jobs.Manager
+
+	// Subagent manager (sub-agentes em sub-conversas — AEP-0068)
+	subagentMgr *subagent.Manager
 
 	// Contexto cancelável do runtime user-scoped (ex.: loops de auto-connect).
 	userRuntimeMu     sync.Mutex
@@ -434,6 +438,16 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		OnSpeechRequest:  speechDispatcher,
 		OpenEditorPaths:  a.workspaceMgr.OpenEditorFilePaths,
 	})
+	// Subagent manager (AEP-0068): criado após o ChatController para reusar a
+	// MESMA SendMessageUseCase (sem fluxo alternativo de envio — AEP-0040).
+	a.subagentMgr = subagent.NewManager(subagent.ManagerConfig{
+		Repo:     subagent.NewDBRepository(database.DB()),
+		Notifier: a.responseNotifier,
+		Send: func(ctx context.Context, p subagent.SendParams) (string, error) {
+			return a.chatCtrl.SendForSubagent(ctx, p.ConversationID, p.Prompt, p.Media, p.ProfileSlug, p.Model)
+		},
+	})
+
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,
 	})

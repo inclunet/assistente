@@ -125,6 +125,7 @@ func Init() error {
 		&JobEvent{},
 		&JobRunEvent{},
 		&ToolInvocation{},
+		&SubAgentRun{},
 	); err != nil {
 		return err
 	}
@@ -300,6 +301,28 @@ func CreateConversationWithContext(ctx context.Context, title, model string) (*C
 	return conv, nil
 }
 
+// CreateSubAgentConversationWithContext cria uma sub-conversa de sub-agente
+// (AEP-0068) pertencente ao usuário do contexto, marcada com
+// Kind=ConversationKindSubagent e vinculada à conversa-pai. Falha fechado com
+// ErrUserScopeRequired se o ctx não carregar userID (AEP-0052) — uma
+// sub-conversa sem dono não pode existir.
+func CreateSubAgentConversationWithContext(ctx context.Context, title, parentConversationID string) (*Conversation, error) {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conv := &Conversation{
+		Title:                title,
+		UserID:               userID,
+		Kind:                 ConversationKindSubagent,
+		ParentConversationID: parentConversationID,
+	}
+	if err := db.WithContext(ctx).Create(conv).Error; err != nil {
+		return nil, err
+	}
+	return conv, nil
+}
+
 // RecycleOrCreateConversationWithContext busca uma conversa vazia (0 mensagens,
 // sem canal, não vinculada a nenhuma tab aberta) do usuário do contexto e a
 // recicla, resetando título e timestamps. Se não encontrar candidata, cria uma
@@ -310,7 +333,7 @@ func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (
 	}
 	var candidate Conversation
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
-		Where("channel = '' AND contact_id = ''").
+		Where("channel = '' AND contact_id = '' AND (kind = '' OR kind IS NULL)").
 		Where("id NOT IN (?)",
 			db.WithContext(ctx).Model(&ChatMessage{}).Select("DISTINCT conversation_id"),
 		).
@@ -393,11 +416,14 @@ func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 	}
 	var conversations []Conversation
 
-	// Usa subquery para contar mensagens em uma única query (evita N+1)
+	// Usa subquery para contar mensagens em uma única query (evita N+1).
+	// Sub-conversas de sub-agentes (kind=subagent, AEP-0068) são omitidas da
+	// listagem principal — elas têm binding/UI próprios (AEP-0068 Fase 5).
 	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
 	err := query.
 		Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count").
 		Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count FROM chat_messages GROUP BY conversation_id) as msg_counts ON msg_counts.conversation_id = conversations.id").
+		Where("conversations.kind = '' OR conversations.kind IS NULL").
 		Order("conversations.updated_at DESC").
 		Find(&conversations).Error
 

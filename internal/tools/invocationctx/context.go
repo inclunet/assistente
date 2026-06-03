@@ -9,6 +9,13 @@ type InvocationContext struct {
 	ActiveFilePath string // caminho absoluto do arquivo ativo (apenas para editor tabs)
 	SurfaceState   map[string]any
 	SurfaceContext map[string]any
+
+	// Identidade da conversa/turno corrente (AEP-0068). Permite que a tool
+	// `subagent` saiba qual é a conversa-pai e o turno que a invocou, e qual
+	// profile o pai está usando (para herança de profile por padrão).
+	ConversationID string
+	TurnID         string
+	ProfileSlug    string
 }
 
 type ctxKey struct{}
