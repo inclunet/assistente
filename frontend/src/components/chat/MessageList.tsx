@@ -300,28 +300,42 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     getItemKey: (index) => getTimelineNodeKey(displayMessages[index]),
   });
 
+  // Índice do irmão de nível 0 atualmente focado dentro desta lista. Mantido em
+  // sincronia por listeners de foco nativos para que possamos restaurar o foco
+  // caso o nó seja desmontado por um re-render do streaming (Issue #178).
+  const focusedSiblingIndexRef = useRef<number | null>(null);
+  // Sinaliza que o foco caiu no <body> a partir de um nó da lista (provável
+  // desmontagem durante streaming) e deve ser restaurado no próximo commit.
+  const pendingFocusRestoreRef = useRef(false);
+
+  // Move o foco para um irmão de nível 0 pelo índice. Quando virtualizado, rola
+  // o índice até a viewport antes (nem todos os irmãos estão montados no DOM).
+  // Retorna `true` quando o nó foi encontrado e focado.
+  const focusSiblingByIndex = useCallback((index: number): boolean => {
+    if (displayMessages.length === 0) return false;
+    const clamped = Math.max(0, Math.min(index, displayMessages.length - 1));
+    if (shouldVirtualize) {
+      rowVirtualizer.scrollToIndex(clamped, { align: 'auto' });
+    }
+    const el = listRef.current?.querySelector(
+      `[data-message-node][data-level="0"][data-sibling-index="${clamped}"]`
+    ) as HTMLElement | null;
+    if (el) {
+      el.focus();
+      return true;
+    }
+    return false;
+  }, [displayMessages.length, rowVirtualizer, shouldVirtualize]);
+
   // Foca um irmão de nível 0 quando virtualizado: rola o índice até a viewport
   // (pode não estar montado) e então move o foco para o nó correspondente.
   const focusMessageAtIndex = useCallback((index: number) => {
-    if (displayMessages.length === 0) return;
-    const clamped = Math.max(0, Math.min(index, displayMessages.length - 1));
-    rowVirtualizer.scrollToIndex(clamped, { align: 'auto' });
-    const focusTarget = (): boolean => {
-      const el = listRef.current?.querySelector(
-        `[data-message-node][data-level="0"][data-sibling-index="${clamped}"]`
-      ) as HTMLElement | null;
-      if (el) {
-        el.focus();
-        return true;
-      }
-      return false;
-    };
-    if (!focusTarget()) {
+    if (!focusSiblingByIndex(index)) {
       requestAnimationFrame(() => {
-        focusTarget();
+        focusSiblingByIndex(index);
       });
     }
-  }, [displayMessages.length, rowVirtualizer]);
+  }, [focusSiblingByIndex]);
 
   // Mede o deslocamento da lista dentro do container rolável (botão "carregar
   // anteriores" ocupa espaço acima da lista virtualizada).
@@ -354,6 +368,71 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     if (duplicates.size === 0) return;
     logger.warn('[MessageList] duplicate timeline keys detected in display messages', Array.from(duplicates));
   }, [displayMessages, threadedMessages]);
+
+  // Rastreia o foco dentro da lista por listeners nativos. Durante o streaming a
+  // mensagem em curso re-renderiza e, quando sua chave de timeline muda
+  // (`message:<id>` → `turn:<turnId>`), o React desmonta/remonta o nó focado e o
+  // foco cai no <body>. Memorizamos o índice do irmão focado e, quando o foco é
+  // perdido para o <body> (relatedTarget nulo), marcamos para restaurar após o
+  // próximo commit. Foco movido intencionalmente para fora (ex.: input via
+  // ArrowDown/Esc) zera o rastreamento e não dispara restauração. (Issue #178)
+  const hasMessages = threadedMessages.length > 0;
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null;
+      const node = target?.closest?.('[data-message-node][data-level="0"]') as HTMLElement | null;
+      if (!node || !list.contains(node)) return;
+      const rawIndex = node.getAttribute('data-sibling-index');
+      const parsed = rawIndex !== null ? Number.parseInt(rawIndex, 10) : Number.NaN;
+      if (!Number.isNaN(parsed)) {
+        focusedSiblingIndexRef.current = parsed;
+      }
+    };
+
+    const handleFocusOut = (event: FocusEvent) => {
+      const next = event.relatedTarget as HTMLElement | null;
+      if (next) {
+        // Foco moveu-se para um elemento concreto fora da lista: intencional.
+        if (!list.contains(next)) {
+          focusedSiblingIndexRef.current = null;
+        }
+        return;
+      }
+      // relatedTarget nulo: o foco caiu no <body>, provavelmente porque o nó
+      // focado foi desmontado por um re-render do streaming. Marca restauração.
+      if (focusedSiblingIndexRef.current !== null) {
+        pendingFocusRestoreRef.current = true;
+      }
+    };
+
+    list.addEventListener('focusin', handleFocusIn);
+    list.addEventListener('focusout', handleFocusOut);
+    return () => {
+      list.removeEventListener('focusin', handleFocusIn);
+      list.removeEventListener('focusout', handleFocusOut);
+    };
+  }, [hasMessages]);
+
+  // Após cada atualização das mensagens (streaming), restaura o foco no irmão
+  // que o detinha caso ele tenha sido perdido para o <body> pela remontagem.
+  useLayoutEffect(() => {
+    if (!pendingFocusRestoreRef.current) return;
+    pendingFocusRestoreRef.current = false;
+    const index = focusedSiblingIndexRef.current;
+    if (index === null) return;
+    const active = document.activeElement;
+    // Só restaura quando o foco realmente caiu no <body>; nunca rouba o foco de
+    // outro elemento legítimo (input, modal, outra mensagem).
+    if (active && active !== document.body && active !== document.documentElement) return;
+    if (!focusSiblingByIndex(index)) {
+      requestAnimationFrame(() => {
+        focusSiblingByIndex(index);
+      });
+    }
+  }, [displayMessages, focusSiblingByIndex]);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     suppressNextScrollLoadRef.current = true;
