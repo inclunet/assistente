@@ -681,6 +681,29 @@ func (f *fakeTaskListManager) SetTaskListValidationPolicy(_ context.Context, id 
 	return nil
 }
 
+func (f *fakeTaskListManager) GetTaskListCustomActions(_ context.Context, id string) (*database.TaskListCustomActions, error) {
+	tl, ok := f.taskLists[id]
+	if !ok {
+		return nil, fmt.Errorf("task list not found: %s", id)
+	}
+	return database.ParseTaskListCustomActionsJSON(tl.CustomActions)
+}
+
+func (f *fakeTaskListManager) SetTaskListCustomActions(_ context.Context, id string, actionsJSON string) error {
+	tl, ok := f.taskLists[id]
+	if !ok {
+		return fmt.Errorf("task list not found: %s", id)
+	}
+	s := strings.TrimSpace(actionsJSON)
+	if s != "" {
+		if _, err := database.ParseTaskListCustomActionsJSON(s); err != nil {
+			return err
+		}
+	}
+	tl.CustomActions = s
+	return nil
+}
+
 func fakeListPolicy(f *fakeTaskListManager, taskListID string) (*database.TaskListValidationPolicy, error) {
 	tl, ok := f.taskLists[taskListID]
 	if !ok {
@@ -769,6 +792,18 @@ func mustMarshal(t *testing.T, v any) json.RawMessage {
 }
 
 // ==================== GetTaskList Tests (consolidated: list all, full details, summary) ====================
+
+func TestGetTaskList_ParametersValidJSON(t *testing.T) {
+	tool := NewTaskList(nil)
+	var schema map[string]any
+	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
+		t.Fatalf("Parameters() is not valid JSON: %v", err)
+	}
+	props, _ := schema["properties"].(map[string]any)
+	if _, ok := props["custom_actions"]; !ok {
+		t.Fatalf("expected 'custom_actions' in tool parameters schema")
+	}
+}
 
 func TestGetTaskList_Name(t *testing.T) {
 	tool := NewTaskList(nil)
@@ -2068,6 +2103,84 @@ func TestUpsertTaskList_CreateSimple(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "created") {
 		t.Fatalf("expected 'created' in content, got: %s", result.Content)
+	}
+}
+
+func TestUpsertTaskList_CreateWithCustomActions(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"title": "Suporte",
+		"custom_actions": []map[string]any{
+			{
+				"id":       "refresh",
+				"label":    "Atualizar",
+				"icon":     "🔄",
+				"surfaces": []string{"card_menu", "board_menu"},
+				"event":    "tasklist.card.refresh",
+			},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	id, _ := result.Metadata["task_list_id"].(string)
+	if id == "" {
+		t.Fatalf("expected task_list_id in metadata, got: %#v", result.Metadata)
+	}
+	tl := mgr.taskLists[id]
+	ca, err := database.ParseTaskListCustomActionsJSON(tl.CustomActions)
+	if err != nil {
+		t.Fatalf("stored custom_actions invalid: %v (raw=%s)", err, tl.CustomActions)
+	}
+	if len(ca.Actions) != 1 || ca.Actions[0].ID != "refresh" {
+		t.Fatalf("expected one action 'refresh', got: %#v", ca.Actions)
+	}
+	if !strings.Contains(result.Content, "custom_actions") {
+		t.Fatalf("expected custom_actions echoed in content, got: %s", result.Content)
+	}
+}
+
+func TestUpsertTaskList_UpdateCustomActionsClear(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Suporte", defaultStatuses())
+	tl.CustomActions = `{"actions":[{"id":"refresh","label":"Atualizar","event":"tasklist.card.refresh"}]}`
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id":   tl.ID,
+		"custom_actions": []map[string]any{},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if mgr.taskLists[tl.ID].CustomActions != "" {
+		t.Fatalf("expected custom_actions cleared, got: %q", mgr.taskLists[tl.ID].CustomActions)
+	}
+}
+
+func TestUpsertTaskList_CustomActionsInvalid(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"title": "Suporte",
+		"custom_actions": []map[string]any{
+			{"id": "bad id", "label": "X", "event": "tasklist.card.refresh"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error for invalid action id, got: %s", result.Content)
 	}
 }
 
