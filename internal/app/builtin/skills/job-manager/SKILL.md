@@ -55,7 +55,7 @@ triggers:                            # required on create (≥ 1)
     when: '{{ eq .event.type "relevant" }}'   # optional condition
   - type: manual
 
-tool: mcp_jira__search_issues        # required on create — must exist in tool catalog. MCP tools are namespaced as `mcp_<serverSlug>__<toolName>`.
+tool: mcp_jira__search_issue         # required on create — must exist in tool catalog. MCP tools are namespaced as `mcp_<serverSlug>__<toolName>`.
 inputs:
   field: "fixed value"
   dynamic: "{{ .event.data }}"
@@ -306,7 +306,7 @@ How it works (`resolveForEachItems` + `emitSuccess` in `executor.go`):
 ```json
 {
   "name": "FSD Search Tickets",
-  "tool": "mcp_jira__search_issues",
+  "tool": "mcp_jira__search_issue",
   "triggers": [{ "type": "cron", "expression": "0 9 * * 1-5" }],
   "inputs": { "jql": "project = FSD AND status = 'To Do'" },
   "events": {
@@ -332,7 +332,7 @@ How it works (`resolveForEachItems` + `emitSuccess` in `executor.go`):
 }
 ```
 
-If `mcp_jira__search_issues` returns `{ "issues": [ {…}, {…} ] }`, the producer emits `fsd.issue.found` once per issue and the consumer runs once per issue.
+If `mcp_jira__search_issue` returns `{ "issues": [ {…}, {…} ] }`, the producer emits `fsd.issue.found` once per issue and the consumer runs once per issue.
 
 ## Inputs: use stable string slugs (`task_list_slug`), not numeric ids
 
@@ -413,12 +413,14 @@ Consider a daily **meta-monitoring** job (see [`examples/`](./examples/)) that f
 
 ## Traceability: event ↔ runs
 
-Event payloads are enriched with correlation/provenance fields you **can read downstream** (and filter on with `trigger.when`):
+`on_success` and domain-event payloads are enriched with correlation/provenance fields you **can read downstream** (and filter on with `trigger.when`):
 
 - `_chain_id` — stable id of the whole reactive chain (the originating run id). Read it in a child via `{{ .event._chain_id }}`.
 - `_chain_history` — ordered history used by the circuit breaker for loop/depth detection. For job-to-job chains it accumulates job ids; for a domain event published from a surface it starts with the originating **event name**.
 - `_source` / `_source_job_id` — added by `PublishDomainEvent` (i.e. on domain events). `_source` is `"user"` (a human acted in the UI) or `"job"` (an automation acted); domain events inherit this from the acting context (`internal/eventctx`). `_source_job_id` holds the job id when `_source == "job"`, and is empty for user-originated events.
 - For fan-out items, `_fan_out_index` / `_fan_out_total` are also present on the event.
+
+> **`on_failure` is the exception:** `emitFailure` publishes a minimal payload — only `{ error, job_id, run_id }`, with **no** `_chain_id`/`_chain_history`/`_source`. Don't gate failure handlers on provenance fields; they won't be present.
 
 ### Anti-loop guidance (provenance)
 
@@ -490,7 +492,7 @@ Create a job that runs every weekday at 9am:
 ```json
 {
   "name": "Daily Jira Sync",
-  "tool": "mcp_jira__search_issues",
+  "tool": "mcp_jira__search_issue",
   "triggers": [{ "type": "cron", "expression": "0 9 * * 1-5" }],
   "inputs": { "jql": "project = OPS AND updated >= -1d" },
   "events": { "on_success": "ops.tickets.fetched" }
@@ -570,7 +572,7 @@ Create and then disable an ops pipeline:
   - For **creation** (slug derived from `name`, or explicit `job_id` being persisted), an extra sanitization runs: `/` and `\` become `-`, any character outside `[a-z0-9_-]` is collapsed to `-`, repeated `-` are merged, and leading/trailing `-` are trimmed.
   - Net effect: the **stored** id may differ from what was sent. Prefer ids that are already `[a-z0-9_-]+` to avoid surprises.
 - Pipeline slugs follow the lookup rule (lowercase + spaces → `-`). A pipeline is **auto-created** the first time a job references its slug, so you don't need to `job_pipeline(create)` upfront.
-- Always reference an existing tool from the tool catalog in `tool`. MCP tools are namespaced as `mcp_<serverSlug>__<toolName>` (e.g. `mcp_jira__search_issues`) — do not use dotted names like `mcp.jira.search_issues`, they will not resolve.
+- Always reference an existing tool from the tool catalog in `tool`. MCP tools are namespaced as `mcp_<serverSlug>__<toolName>` (e.g. `mcp_jira__search_issue`) — do not use dotted names like `mcp.jira.search_issue`, they will not resolve.
 - Use `{{ .event.* }}` in `inputs` to pass data from upstream jobs that emitted the event you are listening to.
 - Use `{{ secret "KEY" }}` for credentials — never hardcode secrets in `inputs`.
 - Use `pipeline` to group related jobs and to enable/disable them together.

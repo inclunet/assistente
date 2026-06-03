@@ -11,7 +11,7 @@ Runs every weekday at 9am, searches Jira, and emits `fsd.tickets.fetched` on suc
 {
   "name": "FSD Daily Search",
   "pipeline": "fsd",
-  "tool": "mcp_jira__search_issues",
+  "tool": "mcp_jira__search_issue",
   "triggers": [{ "type": "cron", "expression": "0 9 * * 1-5" }],
   "inputs": { "jql": "project = FSD AND status = 'To Do' ORDER BY created DESC" },
   "events": {

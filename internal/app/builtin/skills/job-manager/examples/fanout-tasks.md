@@ -9,7 +9,7 @@ issues fans out into one task per issue.
 {
   "name": "FSD Search For Fan-out",
   "pipeline": "fsd",
-  "tool": "mcp_jira__search_issues",
+  "tool": "mcp_jira__search_issue",
   "triggers": [{ "type": "cron", "expression": "*/30 * * * *" }],
   "inputs": { "jql": "project = FSD AND status = 'To Do'" },
   "events": {
