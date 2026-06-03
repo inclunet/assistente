@@ -167,10 +167,11 @@ Key facts:
 | `tasklist.task.completed` | Task reaches a completed state | task fields (`completed_at` set) |
 | `tasklist.task.deleted` | Task is deleted | task fields (best-effort: if the pre-delete snapshot can't be loaded, only `task_id` is published) |
 | `tasklist.note.added` / `.updated` / `.deleted` | Note lifecycle | `note_id`, `task_id`, `task_list_id`, `note_type`, `source`, `external_id`, `author_id`. `.added` always carries full fields; `.updated`/`.deleted` are best-effort — only `note_id` is published when the note snapshot can't be (re)loaded |
-| `tasklist.list.created` / `.updated` / `.cleared` / `.deleted` | List lifecycle | `task_list_id`, `task_list_slug`, `title` |
-| `tasklist.list.cloned` | List cloned | + `source_task_list_id` |
+| `tasklist.list.created` / `.updated` | List lifecycle | `task_list_id`, `task_list_slug`, `title` |
+| `tasklist.list.cleared` / `.deleted` | List cleared/deleted | `task_list_id`, `task_list_slug` (no `title`) |
+| `tasklist.list.cloned` | List cloned | `task_list_id`, `task_list_slug`, `title`, + `source_task_list_id` |
 | `tasklist.list.refresh_requested` | User triggers an optional **Atualizar** board custom action (manual one-shot; not a fixed button) | `task_list_id`, `task_list_slug` |
-| `tasklist.workflow.updated` | Workflow changes | `task_list_id`, `initial_status_id` |
+| `tasklist.workflow.updated` | Workflow changes | `task_list_id`, `task_list_slug`, `initial_status_id` |
 | `tasklist.item.opened` | *(reserved — present in the static catalog so it shows in the picker, but no producer emits it yet)* | task fields |
 
 `code` ≡ external id of the card. Use `task_list_slug` (stable) over numeric ids in `inputs` (see the slug section).
@@ -186,7 +187,7 @@ Custom-action events also appear in `ListKnownEvents`, so they show up in the pi
 ```json
 {
   "name": "Sync FSD on manual refresh",
-  "tool": "mcp_jira__search_issues",
+  "tool": "mcp_jira__search_issue",
   "triggers": [
     { "type": "event", "listen": "tasklist.list.refresh_requested",
       "when": "{{ eq .event.task_list_slug \"fsd\" }}" }
@@ -430,8 +431,10 @@ Domain events fire for **every** mutation, including those a job itself performs
 # Only react to human-driven changes (ignore job-driven mutations)
 when: '{{ eq .event._source "user" }}'
 
-# Or: react to job-driven changes but never to your own
-when: '{{ ne .event._source_job_id "move-card-job" }}'
+# Or: react to job-driven changes but never to your own.
+# Must also require _source == "job": _source_job_id is empty for user events,
+# so `ne _source_job_id "move-card-job"` alone would also match human actions.
+when: '{{ and (eq .event._source "job") (ne .event._source_job_id "move-card-job") }}'
 ```
 
 Prefer gating high-frequency events (`tasklist.task.updated`, `.status_changed`, `.moved`) on `_source` so an automation chain cannot feed itself.
