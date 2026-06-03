@@ -2,6 +2,7 @@ package subagent
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,12 @@ func setupManagerTest(t *testing.T) (*DBRepository, context.Context) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
+	}
+	// :memory: SQLite vive enquanto a conexão existir; sob concorrência
+	// (runs em background) o pool pode abrir conexões sem o schema. Uma única
+	// conexão garante que o schema persista durante o teste.
+	if sqlDB, sErr := db.DB(); sErr == nil {
+		sqlDB.SetMaxOpenConns(1)
 	}
 	if err := db.AutoMigrate(&database.User{}, &database.Conversation{}, &database.ChatMessage{}, &database.SubAgentRun{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
@@ -145,6 +152,204 @@ func TestManagerRunTimeout(t *testing.T) {
 	}
 	if res.Status != StatusTimedOut {
 		t.Fatalf("status esperado timed_out, veio %q", res.Status)
+	}
+}
+
+type recordingDelivery struct {
+	mu      sync.Mutex
+	notices []ParentNotice
+	ch      chan ParentNotice
+	err     error
+}
+
+func (d *recordingDelivery) Deliver(_ context.Context, n ParentNotice) error {
+	d.mu.Lock()
+	d.notices = append(d.notices, n)
+	d.mu.Unlock()
+	if d.ch != nil {
+		select {
+		case d.ch <- n:
+		default:
+		}
+	}
+	return d.err
+}
+
+func (d *recordingDelivery) count() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.notices)
+}
+
+func TestManagerRunBackgroundDeliversNotice(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	delivery := &recordingDelivery{ch: make(chan ParentNotice, 1)}
+
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: delivery,
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			go notifier.Notify(p.ConversationID, "resultado bg", "msg-bg")
+			return p.ConversationID, nil
+		},
+	})
+
+	res, err := mgr.Run(ctx, RunParams{
+		ParentConversationID: "parent-conv",
+		Prompt:               "trabalho longo",
+		Background:           true,
+	})
+	if err != nil {
+		t.Fatalf("Run bg erro: %v", err)
+	}
+	if res.Status != StatusRunning {
+		t.Fatalf("status imediato esperado running, veio %q", res.Status)
+	}
+
+	select {
+	case n := <-delivery.ch:
+		if n.Status != StatusSucceeded || n.Summary != "resultado bg" {
+			t.Fatalf("notice inesperada: %#v", n)
+		}
+		if n.ParentConversationID != "parent-conv" {
+			t.Fatalf("parent na notice inesperado: %q", n.ParentConversationID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("aviso de conclusão não entregue ao pai")
+	}
+
+	// Run persistido como succeeded e marcado como entregue (idempotência).
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		run, err := repo.Get(ctx, res.RunID)
+		if err != nil {
+			t.Fatalf("buscar run: %v", err)
+		}
+		if run.Status == StatusSucceeded && run.DeliveredAt != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("run não chegou a succeeded/delivered: %#v", run)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestManagerDeliverIsIdempotent(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	delivery := &recordingDelivery{}
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Delivery: delivery, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+
+	// Cria um run terminal (succeeded) manualmente.
+	conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent-conv")
+	if err != nil {
+		t.Fatalf("criar conv: %v", err)
+	}
+	run := &database.SubAgentRun{UserID: "user-a", ParentConversationID: "parent-conv", ChildConversationID: conv.ID, Status: StatusSucceeded, ResultSummary: "x"}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatalf("criar run: %v", err)
+	}
+
+	mgr.deliver(ctx, run, RunParams{ParentConversationID: "parent-conv"})
+	mgr.deliver(ctx, run, RunParams{ParentConversationID: "parent-conv"})
+
+	if delivery.count() != 1 {
+		t.Fatalf("esperava 1 entrega (idempotente), veio %d", delivery.count())
+	}
+}
+
+func TestManagerStatus(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m1")
+		return p.ConversationID, nil
+	}})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "x"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	st, err := mgr.Status(ctx, res.ConversationID, "")
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if st.Status != StatusSucceeded || st.RunID != res.RunID {
+		t.Fatalf("status inesperado: %#v", st)
+	}
+}
+
+func TestManagerCancelNoOpWhenTerminal(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m1")
+		return p.ConversationID, nil
+	}})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "x"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	cr, err := mgr.Cancel(ctx, res.ConversationID, "")
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if cr.Cancelled {
+		t.Fatalf("esperava no-op (cancelled=false) para run terminal; veio %#v", cr)
+	}
+	if cr.Status != StatusSucceeded {
+		t.Fatalf("status real esperado succeeded; veio %q", cr.Status)
+	}
+}
+
+func TestManagerCancelActiveBackgroundRun(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	var cancelledConv string
+	mgr := NewManager(ManagerConfig{
+		Repo:         repo,
+		Notifier:     notifier,
+		Delivery:     &recordingDelivery{},
+		CancelStream: func(conversationID string) { cancelledConv = conversationID },
+		// Nunca notifica → run fica ativo até cancelar.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "loop", Background: true, ParentConversationID: "parent-conv"})
+	if err != nil {
+		t.Fatalf("Run bg: %v", err)
+	}
+	cr, err := mgr.Cancel(ctx, res.ConversationID, res.RunID)
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if !cr.Cancelled {
+		t.Fatalf("esperava cancelled=true para run ativo; veio %#v", cr)
+	}
+	if cancelledConv != res.ConversationID {
+		t.Fatalf("CancelStream não chamado com a sub-conversa; veio %q", cancelledConv)
+	}
+
+	// Eventualmente o run persiste como cancelado.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		run, _ := repo.Get(ctx, res.RunID)
+		if run != nil && run.Status == StatusCancelled {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("run não chegou a cancelled")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

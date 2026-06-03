@@ -12,14 +12,16 @@ import (
 	"strings"
 
 	"assistente/internal/subagent"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
-	"assistente/internal/toolinvocations"
 )
 
 // Runner é a porta de execução de sub-agentes. *subagent.Manager a satisfaz.
 type Runner interface {
 	Run(ctx context.Context, p subagent.RunParams) (subagent.RunResult, error)
+	Status(ctx context.Context, conversationID, runID string) (subagent.StatusResult, error)
+	Cancel(ctx context.Context, conversationID, runID string) (subagent.CancelResult, error)
 }
 
 // RunnerProvider resolve o Runner de forma tardia (lazy), pois a tool é
@@ -39,7 +41,7 @@ func NewWithProvider(provider RunnerProvider) *Tool {
 func (t *Tool) Name() string { return "subagent" }
 
 func (t *Tool) Description() string {
-	return "Delegate a task to a sub-agent running in its own persisted sub-conversation, and wait for the result (synchronous). Provide 'prompt' with the task. Optionally set 'profile' (slug of the interaction profile that defines the sub-agent's model, behavior and enabled tools — defaults to the parent's profile), 'title' (sub-conversation title) and 'model' (override the model for this run). Returns conversation_id and run_id (durable handles), status and the sub-agent's result_summary."
+	return "Delegate work to a sub-agent running in its own persisted sub-conversation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent; with 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' and pass 'conversation_id' (optionally 'run_id') to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt'."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
@@ -48,7 +50,23 @@ func (t *Tool) Parameters() json.RawMessage {
 		"properties": {
 			"prompt": {
 				"type": "string",
-				"description": "Task/message for the sub-agent. Required."
+				"description": "Task/message for the sub-agent. Present = send/continue; omitted (with conversation_id) = status query."
+			},
+			"background": {
+				"type": "boolean",
+				"description": "If true, return a handle immediately and deliver the result back to this conversation when done. Default false (wait inline)."
+			},
+			"conversation_id": {
+				"type": "string",
+				"description": "Sub-conversation handle. Required for status/cancel. (Reusing an existing sub-conversation to send a new prompt is added in a later phase.)"
+			},
+			"run_id": {
+				"type": "string",
+				"description": "Specific run (turn) of a sub-conversation for status/cancel. If omitted, acts on the most recent run of conversation_id. Requires conversation_id."
+			},
+			"cancel": {
+				"type": "boolean",
+				"description": "Cancel a running sub-agent. Requires conversation_id. Mutually exclusive with prompt."
 			},
 			"profile": {
 				"type": "string",
@@ -62,74 +80,108 @@ func (t *Tool) Parameters() json.RawMessage {
 				"type": "string",
 				"description": "Optional model override for this run (overrides the model derived from the profile)."
 			}
-		},
-		"required": ["prompt"]
+		}
 	}`)
 }
 
 type subagentArgs struct {
-	Prompt  string `json:"prompt"`
-	Profile string `json:"profile,omitempty"`
-	Title   string `json:"title,omitempty"`
-	Model   string `json:"model,omitempty"`
+	Prompt         string `json:"prompt"`
+	Background     bool   `json:"background,omitempty"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	RunID          string `json:"run_id,omitempty"`
+	Cancel         bool   `json:"cancel,omitempty"`
+	Profile        string `json:"profile,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Model          string `json:"model,omitempty"`
 }
 
 func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	var a subagentArgs
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &a); err != nil {
-			return tools.ToolResult{Content: fmt.Sprintf("argumentos inválidos: %v", err), IsError: true}, nil
+			return errResult(fmt.Sprintf("argumentos inválidos: %v", err)), nil
 		}
 	}
-	if strings.TrimSpace(a.Prompt) == "" {
-		return tools.ToolResult{Content: "o parâmetro 'prompt' é obrigatório", IsError: true}, nil
+	prompt := strings.TrimSpace(a.Prompt)
+	conversationID := strings.TrimSpace(a.ConversationID)
+	runID := strings.TrimSpace(a.RunID)
+
+	// Validações de combinação (AEP-0068).
+	if a.Cancel && prompt != "" {
+		return errResult("'cancel' e 'prompt' são mutuamente exclusivos"), nil
 	}
+	if a.Cancel && conversationID == "" {
+		return errResult("'cancel' requer 'conversation_id'"), nil
+	}
+	if runID != "" && conversationID == "" {
+		return errResult("'run_id' requer 'conversation_id'"), nil
+	}
+	if !a.Cancel && prompt == "" && conversationID == "" && runID == "" {
+		return errResult("nada a fazer: informe 'prompt' (enviar), 'conversation_id' (status) ou 'cancel'"), nil
+	}
+
 	if t.provider == nil {
-		return tools.ToolResult{Content: "sub-agentes indisponíveis: runner não configurado", IsError: true}, nil
+		return errResult("sub-agentes indisponíveis: runner não configurado"), nil
 	}
 	runner := t.provider()
 	if runner == nil {
-		return tools.ToolResult{Content: "sub-agentes indisponíveis no momento", IsError: true}, nil
+		return errResult("sub-agentes indisponíveis no momento"), nil
 	}
 
-	// Contexto de invocação: conversa-pai, turno e profile herdado.
-	inv, _ := invocationctx.Get(ctx)
-	profile := strings.TrimSpace(a.Profile)
-	if profile == "" {
-		profile = inv.ProfileSlug
-	}
+	switch {
+	case a.Cancel:
+		res, err := runner.Cancel(ctx, conversationID, runID)
+		if err != nil {
+			return errResult(fmt.Sprintf("erro ao cancelar sub-agente: %v", err)), nil
+		}
+		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status, "cancelled": res.Cancelled}), nil
 
-	params := subagent.RunParams{
-		ParentConversationID: inv.ConversationID,
-		ParentTurnID:         inv.TurnID,
-		ParentInvocationID:   toolinvocations.CurrentInvocationID(ctx),
-		Prompt:               a.Prompt,
-		ProfileSlug:          profile,
-		Model:                strings.TrimSpace(a.Model),
-		Title:                strings.TrimSpace(a.Title),
-	}
+	case prompt != "":
+		// Reuso de sub-conversa existente (resume) é Fase 3.
+		if conversationID != "" {
+			return errResult("reuso de sub-conversa existente (resume) ainda não é suportado nesta fase"), nil
+		}
+		inv, _ := invocationctx.Get(ctx)
+		profile := strings.TrimSpace(a.Profile)
+		if profile == "" {
+			profile = inv.ProfileSlug
+		}
+		res, err := runner.Run(ctx, subagent.RunParams{
+			ParentConversationID: inv.ConversationID,
+			ParentTurnID:         inv.TurnID,
+			ParentInvocationID:   toolinvocations.CurrentInvocationID(ctx),
+			Prompt:               prompt,
+			ProfileSlug:          profile,
+			Model:                strings.TrimSpace(a.Model),
+			Title:                strings.TrimSpace(a.Title),
+			Background:           a.Background,
+		})
+		if err != nil {
+			return errResult(fmt.Sprintf("erro ao iniciar sub-agente: %v", err)), nil
+		}
+		isError := res.Status == subagent.StatusFailed ||
+			res.Status == subagent.StatusTimedOut ||
+			res.Status == subagent.StatusCancelled
+		return jsonResult(res, isError, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}), nil
 
-	res, err := runner.Run(ctx, params)
+	default:
+		// Status (prompt omitido).
+		res, err := runner.Status(ctx, conversationID, runID)
+		if err != nil {
+			return errResult(fmt.Sprintf("erro ao consultar status do sub-agente: %v", err)), nil
+		}
+		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}), nil
+	}
+}
+
+func errResult(msg string) tools.ToolResult {
+	return tools.ToolResult{Content: msg, IsError: true}
+}
+
+func jsonResult(v any, isError bool, metadata map[string]any) tools.ToolResult {
+	payload, err := json.Marshal(v)
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("erro ao iniciar sub-agente: %v", err), IsError: true}, nil
+		return errResult(fmt.Sprintf("erro ao serializar resultado do sub-agente: %v", err))
 	}
-
-	payload, mErr := json.Marshal(res)
-	if mErr != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("erro ao serializar resultado do sub-agente: %v", mErr), IsError: true}, nil
-	}
-
-	isError := res.Status == subagent.StatusFailed ||
-		res.Status == subagent.StatusTimedOut ||
-		res.Status == subagent.StatusCancelled
-
-	return tools.ToolResult{
-		Content: string(payload),
-		IsError: isError,
-		Metadata: map[string]any{
-			"conversation_id": res.ConversationID,
-			"run_id":          res.RunID,
-			"status":          res.Status,
-		},
-	}, nil
+	return tools.ToolResult{Content: string(payload), IsError: isError, Metadata: metadata}
 }

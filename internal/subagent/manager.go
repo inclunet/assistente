@@ -2,12 +2,15 @@ package subagent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
 	"assistente/internal/database"
+	"assistente/internal/eventctx"
 	"assistente/internal/messaging"
 	"assistente/internal/toolinvocations"
 )
@@ -22,14 +25,39 @@ type completion struct {
 	assistantMessageID string
 }
 
+// outcome representa o desfecho da espera por um run.
+type outcome struct {
+	status             string
+	summary            string
+	assistantMessageID string
+	errMsg             string
+}
+
+// activeRun rastreia um run em andamento para permitir cancelamento.
+type activeRun struct {
+	childConversationID string
+	cancelCh            chan struct{}
+	cancelOnce          sync.Once
+}
+
+func (a *activeRun) cancel() {
+	a.cancelOnce.Do(func() { close(a.cancelCh) })
+}
+
 // Manager orquestra runs de sub-agente (AEP-0068). É a única porta de entrada
 // para criar/continuar sub-conversas; reusa o pipeline oficial via SendFunc e
 // detecta conclusão por callback in-process (ResponseNotifier).
 type Manager struct {
-	repo     Repository
-	notifier *messaging.ResponseNotifier
-	send     SendFunc
-	now      func() time.Time
+	repo       Repository
+	notifier   *messaging.ResponseNotifier
+	send       SendFunc
+	delivery   ParentDelivery
+	cancelStrm func(conversationID string)
+	now        func() time.Time
+
+	mu       sync.Mutex
+	active   map[string]*activeRun // runID -> run ativo
+	parentMu map[string]*sync.Mutex
 }
 
 // ManagerConfig agrupa as dependências do Manager.
@@ -37,6 +65,13 @@ type ManagerConfig struct {
 	Repo     Repository
 	Notifier *messaging.ResponseNotifier
 	Send     SendFunc
+	// Delivery entrega o aviso de conclusão de runs em background ao pai
+	// (auto-wake). Pode ser nil (ex.: contextos sem pai); então o aviso é
+	// apenas persistido no run.
+	Delivery ParentDelivery
+	// CancelStream cancela o streaming LLM de uma conversa (barge-in). Usado
+	// para interromper um sub-agente em background. Pode ser nil em testes.
+	CancelStream func(conversationID string)
 	// Now é injetável para testes; nil usa time.Now.
 	Now func() time.Time
 }
@@ -48,20 +83,24 @@ func NewManager(cfg ManagerConfig) *Manager {
 		now = time.Now
 	}
 	return &Manager{
-		repo:     cfg.Repo,
-		notifier: cfg.Notifier,
-		send:     cfg.Send,
-		now:      now,
+		repo:       cfg.Repo,
+		notifier:   cfg.Notifier,
+		send:       cfg.Send,
+		delivery:   cfg.Delivery,
+		cancelStrm: cfg.CancelStream,
+		now:        now,
+		active:     make(map[string]*activeRun),
+		parentMu:   make(map[string]*sync.Mutex),
 	}
 }
 
-// Run executa um sub-agente de forma SÍNCRONA (background:false, Fase 1):
-// cria a sub-conversa, dispara o envio pelo pipeline oficial e espera a
-// conclusão (callback in-process) ou timeout/cancelamento.
+// Run executa um sub-agente. Com Background=false é síncrono (Fase 1): espera a
+// conclusão e devolve o resultado. Com Background=true (Fase 2) retorna o handle
+// imediatamente e executa em goroutine, entregando o aviso de conclusão ao pai.
 //
-// Retorna o RunResult sempre que o run foi criado (mesmo em falha/timeout), com
-// Status refletindo o desfecho. O error não-nil é reservado para falhas de
-// pré-condição (validação, sem dono no ctx, falha ao criar a sub-conversa).
+// Retorna o RunResult sempre que o run foi criado; error não-nil é reservado a
+// falhas de pré-condição (validação, sem dono no ctx, falha ao criar a
+// sub-conversa/run).
 func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	if m == nil || m.send == nil || m.repo == nil || m.notifier == nil {
 		return RunResult{}, fmt.Errorf("subagent manager não configurado")
@@ -84,7 +123,9 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, fmt.Errorf("erro ao criar sub-conversa: %w", err)
 	}
 
-	// 2. Persiste o run (queued).
+	// 2. Persiste o run (queued) com proveniência (anti-runaway, AEP-0067/0001).
+	prov := deriveProvenance(ctx, "")
+	chainHistoryJSON := encodeChainHistory(prov.ChainHistory)
 	run := &database.SubAgentRun{
 		UserID:               userID,
 		ParentConversationID: p.ParentConversationID,
@@ -92,16 +133,17 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		ChildConversationID:  conv.ID,
 		TurnIndex:            0,
 		Status:               database.SubAgentRunStatusQueued,
-		Background:           false,
+		Background:           p.Background,
+		ChainID:              prov.ChainID,
+		ChainHistory:         chainHistoryJSON,
 	}
 	if err := m.repo.Create(ctx, run); err != nil {
 		return RunResult{}, fmt.Errorf("erro ao registrar run de sub-agente: %w", err)
 	}
 
-	result := RunResult{ConversationID: conv.ID, RunID: run.ID}
+	result := RunResult{ConversationID: conv.ID, RunID: run.ID, Status: run.Status}
 
-	// 3. Registra o callback de conclusão ANTES de enviar (evita corrida com
-	//    um agentic loop muito rápido).
+	// 3. Registra o callback de conclusão e o run ativo ANTES de enviar.
 	done := make(chan completion, 1)
 	m.notifier.Register(conv.ID, messaging.ResponseCallback{
 		Channel: Source,
@@ -114,14 +156,16 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			}
 		},
 	})
+	ar := &activeRun{childConversationID: conv.ID, cancelCh: make(chan struct{})}
+	m.registerActive(run.ID, ar)
 
 	// 4. Marca running e dispara o envio pelo pipeline oficial.
 	startedAt := m.now()
 	run.Status = database.SubAgentRunStatusRunning
 	run.StartedAt = &startedAt
 	_ = m.repo.Update(ctx, run)
+	result.Status = run.Status
 
-	// Encadeia as sub-invocações da sub-conversa à invocação da tool `subagent`.
 	sendCtx := toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID)
 	if _, err := m.send(sendCtx, SendParams{
 		ConversationID: conv.ID,
@@ -132,11 +176,37 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		Source:         Source,
 	}); err != nil {
 		m.notifier.Cancel(conv.ID)
-		return m.finish(ctx, run, &result, database.SubAgentRunStatusFailed, "", "", err.Error()), nil
+		m.unregisterActive(run.ID)
+		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: err.Error()}
+		finished := m.finish(ctx, run, &result, o)
+		if p.Background {
+			m.deliver(ctx, run, p)
+		}
+		return finished, nil
 	}
 
-	// 5. Espera conclusão / timeout / cancelamento.
-	timeout := p.Timeout
+	if p.Background {
+		// Background real: goroutine com ctx desacoplado de cancelamento, mas
+		// preservando o userID (WithoutCancel mantém valores do ctx — AEP-0052).
+		bgCtx := context.WithoutCancel(ctx)
+		go func() {
+			o := m.wait(bgCtx, conv.ID, done, ar, p.Timeout)
+			m.finish(bgCtx, run, &result, o)
+			m.unregisterActive(run.ID)
+			m.deliver(bgCtx, run, p)
+		}()
+		return result, nil
+	}
+
+	// Síncrono (Fase 1): espera inline.
+	o := m.wait(ctx, conv.ID, done, ar, p.Timeout)
+	m.unregisterActive(run.ID)
+	return m.finish(ctx, run, &result, o), nil
+}
+
+// wait bloqueia até a conclusão, timeout, cancelamento explícito ou
+// cancelamento do ctx.
+func (m *Manager) wait(ctx context.Context, childConvID string, done chan completion, ar *activeRun, timeout time.Duration) outcome {
 	if timeout <= 0 {
 		timeout = DefaultSyncTimeout
 	}
@@ -145,35 +215,219 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 
 	select {
 	case c := <-done:
-		return m.finish(ctx, run, &result, database.SubAgentRunStatusSucceeded, c.response, c.assistantMessageID, ""), nil
+		return outcome{status: database.SubAgentRunStatusSucceeded, summary: c.response, assistantMessageID: c.assistantMessageID}
+	case <-ar.cancelCh:
+		m.notifier.Cancel(childConvID)
+		return outcome{status: database.SubAgentRunStatusCancelled, errMsg: "cancelado"}
 	case <-timer.C:
-		m.notifier.Cancel(conv.ID)
-		return m.finish(ctx, run, &result, database.SubAgentRunStatusTimedOut, "", "", "tempo limite excedido aguardando o sub-agente"), nil
+		m.notifier.Cancel(childConvID)
+		return outcome{status: database.SubAgentRunStatusTimedOut, errMsg: "tempo limite excedido aguardando o sub-agente"}
 	case <-ctx.Done():
-		m.notifier.Cancel(conv.ID)
-		return m.finish(ctx, run, &result, database.SubAgentRunStatusCancelled, "", "", ctx.Err().Error()), nil
+		m.notifier.Cancel(childConvID)
+		return outcome{status: database.SubAgentRunStatusCancelled, errMsg: ctx.Err().Error()}
 	}
 }
 
-// finish atualiza o run com o desfecho e preenche o RunResult. A persistência
-// usa um ctx desacoplado de cancelamento para registrar o estado final mesmo
-// quando o run foi cancelado.
-func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result *RunResult, status, summary, assistantMessageID, errMsg string) RunResult {
+// Status retorna o estado atual de um run (prompt omitido). Resolve por run_id
+// quando informado; senão pelo run mais recente da sub-conversa.
+func (m *Manager) Status(ctx context.Context, conversationID, runID string) (StatusResult, error) {
+	run, err := m.resolveRun(ctx, conversationID, runID)
+	if err != nil {
+		return StatusResult{}, err
+	}
+	return StatusResult{
+		ConversationID:     run.ChildConversationID,
+		RunID:              run.ID,
+		Status:             run.Status,
+		ResultSummary:      run.ResultSummary,
+		AssistantMessageID: run.AssistantMessageID,
+		Error:              run.Error,
+	}, nil
+}
+
+// Cancel cancela um run em andamento. Se havia run ativo, retorna
+// Cancelled=true com Status=cancelled; se o run já era terminal/inexistente, é
+// no-op (Cancelled=false) retornando o status real (AEP-0068).
+func (m *Manager) Cancel(ctx context.Context, conversationID, runID string) (CancelResult, error) {
+	run, err := m.resolveRun(ctx, conversationID, runID)
+	if err != nil {
+		return CancelResult{}, err
+	}
+	res := CancelResult{ConversationID: run.ChildConversationID, RunID: run.ID, Status: run.Status}
+
+	ar := m.lookupActive(run.ID)
+	if ar == nil || isTerminal(run.Status) {
+		// No-op: nada ativo para cancelar.
+		res.Cancelled = false
+		res.Message = "nenhum run ativo para cancelar; status atual mantido"
+		return res, nil
+	}
+
+	// Interrompe o streaming do sub-agente e sinaliza o waiter.
+	if m.cancelStrm != nil {
+		m.cancelStrm(run.ChildConversationID)
+	}
+	m.notifier.Cancel(run.ChildConversationID)
+	ar.cancel()
+
+	res.Status = database.SubAgentRunStatusCancelled
+	res.Cancelled = true
+	res.Message = "run cancelado"
+	return res, nil
+}
+
+// resolveRun encontra o run alvo por run_id (validando que pertence à conversa)
+// ou pelo run mais recente da conversa.
+func (m *Manager) resolveRun(ctx context.Context, conversationID, runID string) (*database.SubAgentRun, error) {
+	if strings.TrimSpace(runID) != "" {
+		run, err := m.repo.Get(ctx, runID)
+		if err != nil {
+			return nil, fmt.Errorf("run não encontrado: %w", err)
+		}
+		if strings.TrimSpace(conversationID) != "" && run.ChildConversationID != conversationID {
+			return nil, fmt.Errorf("run %s não pertence à conversa %s", runID, conversationID)
+		}
+		return run, nil
+	}
+	if strings.TrimSpace(conversationID) == "" {
+		return nil, fmt.Errorf("conversation_id ou run_id é obrigatório")
+	}
+	run, err := m.repo.GetLatestByChildConversation(ctx, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("nenhum run encontrado para a conversa %s: %w", conversationID, err)
+	}
+	return run, nil
+}
+
+// finish atualiza o run com o desfecho e preenche o RunResult.
+func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result *RunResult, o outcome) RunResult {
 	completedAt := m.now()
-	run.Status = status
-	run.ResultSummary = truncate(summary, maxResultSummary)
-	run.AssistantMessageID = assistantMessageID
-	run.Error = errMsg
+	run.Status = o.status
+	run.ResultSummary = truncate(o.summary, maxResultSummary)
+	run.AssistantMessageID = o.assistantMessageID
+	run.Error = o.errMsg
 	run.CompletedAt = &completedAt
 
 	persistCtx := context.WithoutCancel(ctx)
 	_ = m.repo.Update(persistCtx, run)
 
-	result.Status = status
+	result.Status = o.status
 	result.ResultSummary = run.ResultSummary
-	result.AssistantMessageID = assistantMessageID
-	result.Error = errMsg
+	result.AssistantMessageID = o.assistantMessageID
+	result.Error = o.errMsg
 	return *result
+}
+
+// deliver entrega o aviso de conclusão ao pai (auto-wake), serializado por
+// conversa-pai e idempotente por run_id.
+func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun, p RunParams) {
+	if m.delivery == nil || strings.TrimSpace(run.ParentConversationID) == "" {
+		return
+	}
+
+	// Fila serializada por conversa-pai (evita corrida no StreamingManager).
+	lock := m.parentLock(run.ParentConversationID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	persistCtx := context.WithoutCancel(ctx)
+
+	// Idempotência por run_id: recarrega o run e não entrega duas vezes.
+	if fresh, err := m.repo.Get(persistCtx, run.ID); err == nil && fresh != nil {
+		if fresh.DeliveredAt != nil {
+			return
+		}
+		run = fresh
+	}
+
+	notice := ParentNotice{
+		ParentConversationID: run.ParentConversationID,
+		ParentTurnID:         run.ParentTurnID,
+		RunID:                run.ID,
+		ChildConversationID:  run.ChildConversationID,
+		Status:               run.Status,
+		Summary:              run.ResultSummary,
+		AssistantMessageID:   run.AssistantMessageID,
+		Error:                run.Error,
+	}
+
+	// Proveniência propagada para o auto-wake (backstop anti-runaway).
+	prov := deriveProvenance(ctx, run.ChainID)
+	prov.ChainHistory = appendChain(prov.ChainHistory, run.ID)
+	dctx := eventctx.With(persistCtx, prov)
+
+	if err := m.delivery.Deliver(dctx, notice); err != nil {
+		// Não marca DeliveredAt em falha — permite reentrega futura.
+		return
+	}
+
+	now := m.now()
+	run.DeliveredAt = &now
+	_ = m.repo.Update(persistCtx, run)
+}
+
+// ---- registro de runs ativos / locks por pai ----
+
+func (m *Manager) registerActive(runID string, ar *activeRun) {
+	m.mu.Lock()
+	m.active[runID] = ar
+	m.mu.Unlock()
+}
+
+func (m *Manager) unregisterActive(runID string) {
+	m.mu.Lock()
+	delete(m.active, runID)
+	m.mu.Unlock()
+}
+
+func (m *Manager) lookupActive(runID string) *activeRun {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.active[runID]
+}
+
+func (m *Manager) parentLock(parentConversationID string) *sync.Mutex {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	lock, ok := m.parentMu[parentConversationID]
+	if !ok {
+		lock = &sync.Mutex{}
+		m.parentMu[parentConversationID] = lock
+	}
+	return lock
+}
+
+// ---- proveniência / utilitários ----
+
+func deriveProvenance(ctx context.Context, existingChainID string) eventctx.Provenance {
+	prov, ok := eventctx.From(ctx)
+	if !ok {
+		prov = eventctx.Provenance{Source: Source}
+	}
+	if strings.TrimSpace(prov.ChainID) == "" {
+		if strings.TrimSpace(existingChainID) != "" {
+			prov.ChainID = existingChainID
+		}
+	}
+	return prov
+}
+
+func appendChain(history []string, id string) []string {
+	if id == "" {
+		return history
+	}
+	return append(history, id)
+}
+
+func encodeChainHistory(history []string) string {
+	if len(history) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(history)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // deriveTitle gera um título curto a partir do prompt.

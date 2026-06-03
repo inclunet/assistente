@@ -446,6 +446,8 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Send: func(ctx context.Context, p subagent.SendParams) (string, error) {
 			return a.chatCtrl.SendForSubagent(ctx, p.ConversationID, p.Prompt, p.Media, p.ProfileSlug, p.Model)
 		},
+		Delivery:     &subagentParentDelivery{app: a},
+		CancelStream: a.streamMgr.Cancel,
 	})
 
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
