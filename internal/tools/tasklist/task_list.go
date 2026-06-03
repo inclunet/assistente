@@ -744,22 +744,29 @@ func validationPolicyToMap(raw string) map[string]any {
 
 // customActionsToList interpreta o JSON armazenado em custom_actions e devolve
 // a lista de ações como []map[string]any para echo nas respostas. Retorna nil
-// quando não há ações configuradas ou o JSON é inválido.
+// quando não há ações configuradas (campo vazio ou lista vazia válida), de modo
+// que o campo seja omitido. Se o JSON armazenado for inválido (config corrompida
+// ou legada), em vez de sumir silenciosamente com o campo, expõe um marcador de
+// erro — coerente com validationPolicyToMap — para não atrapalhar diagnóstico.
 func customActionsToList(raw string) []map[string]any {
-	if strings.TrimSpace(raw) == "" {
+	s := strings.TrimSpace(raw)
+	if s == "" {
 		return nil
 	}
 	ca, err := database.ParseTaskListCustomActionsJSON(raw)
-	if err != nil || ca == nil || len(ca.Actions) == 0 {
+	if err != nil || ca == nil {
+		return []map[string]any{{"_parse_error": true, "raw": s}}
+	}
+	if len(ca.Actions) == 0 {
 		return nil
 	}
 	actionsJSON, err := json.Marshal(ca.Actions)
 	if err != nil {
-		return nil
+		return []map[string]any{{"_parse_error": true, "raw": s}}
 	}
 	var out []map[string]any
 	if err := json.Unmarshal(actionsJSON, &out); err != nil {
-		return nil
+		return []map[string]any{{"_parse_error": true, "raw": s}}
 	}
 	return out
 }

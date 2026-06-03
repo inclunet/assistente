@@ -2220,6 +2220,39 @@ func TestGetTaskList_BySlugDoesNotMutate(t *testing.T) {
 	}
 }
 
+// TestCustomActionsToList_InvalidSurfacesError garante que JSON corrompido em
+// custom_actions não some silenciosamente do echo: expõe um marcador de erro,
+// coerente com validationPolicyToMap.
+func TestCustomActionsToList_InvalidSurfacesError(t *testing.T) {
+	// vazio -> omitido (nil)
+	if out := customActionsToList("   "); out != nil {
+		t.Fatalf("empty should be nil, got: %#v", out)
+	}
+	// lista vazia válida -> omitido (nil)
+	if out := customActionsToList(`{"actions":[]}`); out != nil {
+		t.Fatalf("empty actions should be nil, got: %#v", out)
+	}
+	// JSON inválido -> marcador de erro
+	out := customActionsToList(`{"actions":[{"id":"x"`)
+	if len(out) != 1 {
+		t.Fatalf("invalid JSON should yield one marker entry, got: %#v", out)
+	}
+	if pe, _ := out[0]["_parse_error"].(bool); !pe {
+		t.Fatalf("expected _parse_error marker, got: %#v", out[0])
+	}
+	if _, ok := out[0]["raw"]; !ok {
+		t.Fatalf("expected raw in parse error marker, got: %#v", out[0])
+	}
+	// campo desconhecido (parser estrito) -> também é marcador de erro
+	out2 := customActionsToList(`{"actions":[{"id":"x","label":"X","emits_event":"e"}]}`)
+	if len(out2) != 1 {
+		t.Fatalf("unknown field should yield marker, got: %#v", out2)
+	}
+	if pe, _ := out2[0]["_parse_error"].(bool); !pe {
+		t.Fatalf("expected _parse_error marker for unknown field, got: %#v", out2[0])
+	}
+}
+
 func TestUpsertTaskList_CreateWithCustomWorkflow(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewTaskList(mgr)
