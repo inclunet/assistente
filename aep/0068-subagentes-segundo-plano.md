@@ -1,6 +1,6 @@
 # AEP-0068 — Sub-agentes em segundo plano (tool de sub-conversas)
 
-Status: Proposto
+Status: Draft
 Data: 2026-06-02
 Autor: Inclunet + Cursor Agent
 
