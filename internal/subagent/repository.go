@@ -91,8 +91,25 @@ func (r *DBRepository) Update(ctx context.Context, run *database.SubAgentRun) er
 	if _, err := enforceRunOwnership(ctx, run); err != nil {
 		return err
 	}
-	return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Save(run).Error
+	// Usa Updates (não Save): o Save do GORM faz fallback para INSERT quando o
+	// UPDATE não casa nenhuma linha, mascarando o no-op (e podendo recriar um
+	// run de outro usuário). Select("*") preserva a semântica do Save de gravar
+	// todos os campos (inclusive zero-values). O WHERE leva o id (via Model) e o
+	// user_id (ScopeByUser, AEP-0052).
+	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(run), "user_id").
+		Select("*").
+		Updates(run)
+	if tx.Error != nil {
+		return tx.Error
+	}
+	// Se nenhuma linha foi afetada (run inexistente ou de outro usuário, fora do
+	// escopo), o Update é um no-op silencioso. Seguimos o padrão do códigobase
+	// (internal/toolinvocations/repository.go) e reportamos ErrRecordNotFound
+	// para o no-op não passar como sucesso.
+	if tx.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // ReconcileOrphans marca como failed runs deixados em queued/running por um

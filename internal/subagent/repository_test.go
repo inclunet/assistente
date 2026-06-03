@@ -2,9 +2,12 @@ package subagent
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"assistente/internal/database"
+
+	"gorm.io/gorm"
 )
 
 // TestRepositoryCreateNormalizesEmptyUserID garante que o Create preenche o
@@ -102,6 +105,52 @@ func TestRepositoryUpdateNormalizesEmptyUserID(t *testing.T) {
 	}
 	if got.UserID != "user-a" || got.Status != database.SubAgentRunStatusRunning {
 		t.Fatalf("esperava user-a/running, veio %q/%q", got.UserID, got.Status)
+	}
+}
+
+// TestRepositoryUpdateNonexistentReturnsNotFound garante que um Update que não
+// casa nenhuma linha (run inexistente) retorna gorm.ErrRecordNotFound em vez de
+// um no-op silencioso "bem-sucedido".
+func TestRepositoryUpdateNonexistentReturnsNotFound(t *testing.T) {
+	repo, ctx := setupManagerTest(t) // ctx => user-a
+	run := &database.SubAgentRun{
+		UUIDModel:           database.UUIDModel{ID: "00000000-0000-7000-8000-00000000abcd"},
+		ChildConversationID: "child-x",
+		Status:              database.SubAgentRunStatusRunning,
+	}
+	if err := repo.Update(ctx, run); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("esperava gorm.ErrRecordNotFound para run inexistente, veio %v", err)
+	}
+}
+
+// TestRepositoryUpdateOtherUsersRunReturnsNotFound garante que tentar atualizar
+// um run de outro usuário (UserID vazio normalizado para o usuário do contexto;
+// o WHERE de escopo não casa a linha do outro dono) retorna ErrRecordNotFound e
+// não altera o registro alheio (AEP-0052).
+func TestRepositoryUpdateOtherUsersRunReturnsNotFound(t *testing.T) {
+	repo, ctxA := setupManagerTest(t) // ctx => user-a
+	ctxB := database.WithUserID(context.Background(), "user-b")
+
+	runB := &database.SubAgentRun{ChildConversationID: "child-b", Status: database.SubAgentRunStatusQueued}
+	if err := repo.Create(ctxB, runB); err != nil {
+		t.Fatalf("Create user-b: %v", err)
+	}
+
+	upd := &database.SubAgentRun{
+		UUIDModel:           database.UUIDModel{ID: runB.ID},
+		ChildConversationID: "child-b",
+		Status:              database.SubAgentRunStatusRunning,
+	}
+	if err := repo.Update(ctxA, upd); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("esperava gorm.ErrRecordNotFound ao atualizar run de outro usuário, veio %v", err)
+	}
+
+	got, err := repo.Get(ctxB, runB.ID)
+	if err != nil {
+		t.Fatalf("Get user-b: %v", err)
+	}
+	if got.Status != database.SubAgentRunStatusQueued {
+		t.Fatalf("status de user-b não deveria mudar, veio %q", got.Status)
 	}
 }
 
