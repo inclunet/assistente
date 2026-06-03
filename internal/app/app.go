@@ -450,6 +450,18 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		CancelStream: a.streamMgr.Cancel,
 	})
 
+	// Reconciliação de runs órfãos (AEP-0068 F4): runs deixados em queued/running
+	// por um encerramento abrupto do app são marcados como failed no startup
+	// (espelha a reconciliação de jobs). Não bloqueia o startup.
+	go func() {
+		n, err := a.subagentMgr.ReconcileOrphans(context.WithoutCancel(a.ctx))
+		if err != nil {
+			log.Printf("[Subagent] erro ao reconciliar runs órfãos: %v", err)
+		} else if n > 0 {
+			log.Printf("[Subagent] %d run(s) órfão(s) de sub-agente reconciliado(s) como failed", n)
+		}
+	}()
+
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,
 	})

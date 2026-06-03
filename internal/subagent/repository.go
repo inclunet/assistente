@@ -2,6 +2,7 @@ package subagent
 
 import (
 	"context"
+	"time"
 
 	"assistente/internal/database"
 
@@ -66,4 +67,21 @@ func (r *DBRepository) Update(ctx context.Context, run *database.SubAgentRun) er
 	}
 	return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
 		Save(run).Error
+}
+
+// ReconcileOrphans marca como failed runs deixados em queued/running por um
+// encerramento abrupto. É uma manutenção instance-wide de startup (não um
+// pedido de usuário), por isso NÃO exige userID no ctx — alinhado a operações
+// como migrações/reconciliação de jobs (AEP-0052: maintenance op, não leitura
+// de dados de usuário). Atualiza apenas o status terminal de runs interrompidos.
+func (r *DBRepository) ReconcileOrphans(ctx context.Context, now time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&database.SubAgentRun{}).
+		Where("status IN ?", []string{database.SubAgentRunStatusQueued, database.SubAgentRunStatusRunning}).
+		Updates(map[string]any{
+			"status":       database.SubAgentRunStatusFailed,
+			"error":        "interrompido: o app foi encerrado durante a execução do sub-agente",
+			"completed_at": now,
+			"updated_at":   now,
+		})
+	return res.RowsAffected, res.Error
 }

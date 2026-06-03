@@ -157,4 +157,7 @@ type Repository interface {
 	Get(ctx context.Context, id string) (*database.SubAgentRun, error)
 	GetLatestByChildConversation(ctx context.Context, childConversationID string) (*database.SubAgentRun, error)
 	Update(ctx context.Context, run *database.SubAgentRun) error
+	// ReconcileOrphans marca como failed runs em queued/running (órfãos após
+	// restart). Operação instance-wide de startup (não é pedido de usuário).
+	ReconcileOrphans(ctx context.Context, now time.Time) (int64, error)
 }

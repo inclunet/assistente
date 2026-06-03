@@ -19,6 +19,13 @@ import (
 // crescimento excessivo da tabela sub_agent_runs.
 const maxResultSummary = 16 * 1024
 
+// DefaultMaxChainDepth é o teto de profundidade de cadeia (backstop anti-runaway,
+// AEP-0068). Espelha jobs.DefaultMaxChainDepth para coerência entre os dois
+// caminhos que compartilham proveniência via eventctx. Não é o gate de
+// profundidade (esse é o profile) — é só um circuit-breaker contra recursão
+// descontrolada (sub-agente acordando o pai que delega de novo, etc.).
+const DefaultMaxChainDepth = 10
+
 // completion carrega o resultado entregue pelo callback in-process do notifier.
 type completion struct {
 	response           string
@@ -48,12 +55,13 @@ func (a *activeRun) cancel() {
 // para criar/continuar sub-conversas; reusa o pipeline oficial via SendFunc e
 // detecta conclusão por callback in-process (ResponseNotifier).
 type Manager struct {
-	repo       Repository
-	notifier   *messaging.ResponseNotifier
-	send       SendFunc
-	delivery   ParentDelivery
-	cancelStrm func(conversationID string)
-	now        func() time.Time
+	repo          Repository
+	notifier      *messaging.ResponseNotifier
+	send          SendFunc
+	delivery      ParentDelivery
+	cancelStrm    func(conversationID string)
+	now           func() time.Time
+	maxChainDepth int
 
 	mu       sync.Mutex
 	active   map[string]*activeRun // runID -> run ativo
@@ -74,6 +82,9 @@ type ManagerConfig struct {
 	CancelStream func(conversationID string)
 	// Now é injetável para testes; nil usa time.Now.
 	Now func() time.Time
+	// MaxChainDepth é o teto de profundidade de cadeia (backstop anti-runaway).
+	// <=0 usa DefaultMaxChainDepth.
+	MaxChainDepth int
 }
 
 // NewManager cria um Manager com as dependências injetadas.
@@ -82,15 +93,20 @@ func NewManager(cfg ManagerConfig) *Manager {
 	if now == nil {
 		now = time.Now
 	}
+	maxChainDepth := cfg.MaxChainDepth
+	if maxChainDepth <= 0 {
+		maxChainDepth = DefaultMaxChainDepth
+	}
 	return &Manager{
-		repo:       cfg.Repo,
-		notifier:   cfg.Notifier,
-		send:       cfg.Send,
-		delivery:   cfg.Delivery,
-		cancelStrm: cfg.CancelStream,
-		now:        now,
-		active:     make(map[string]*activeRun),
-		parentMu:   make(map[string]*sync.Mutex),
+		repo:          cfg.Repo,
+		notifier:      cfg.Notifier,
+		send:          cfg.Send,
+		delivery:      cfg.Delivery,
+		cancelStrm:    cfg.CancelStream,
+		now:           now,
+		maxChainDepth: maxChainDepth,
+		active:        make(map[string]*activeRun),
+		parentMu:      make(map[string]*sync.Mutex),
 	}
 }
 
@@ -113,6 +129,14 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, err
 	}
 
+	// Backstop anti-runaway (AEP-0068/0067): a cadeia de proveniência
+	// compartilhada com jobs limita a profundidade de delegação. Verifica ANTES
+	// de criar qualquer sub-conversa/run para não deixar lixo.
+	prov := deriveProvenance(ctx, "")
+	if len(prov.ChainHistory) >= m.maxChainDepth {
+		return RunResult{}, fmt.Errorf("limite de profundidade de cadeia atingido (%d): possível runaway de sub-agentes/jobs", m.maxChainDepth)
+	}
+
 	// 1. Resolve a sub-conversa: cria nova ou reusa uma existente
 	// (resume/clear — Fase 3), preservando o contexto da sub-conversa.
 	childConvID, turnIndex, err := m.resolveChildConversation(ctx, p)
@@ -121,7 +145,6 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	}
 
 	// 2. Persiste o run (queued) com proveniência (anti-runaway, AEP-0067/0001).
-	prov := deriveProvenance(ctx, "")
 	chainHistoryJSON := encodeChainHistory(prov.ChainHistory)
 	run := &database.SubAgentRun{
 		UserID:               userID,
@@ -319,6 +342,18 @@ func (m *Manager) Cancel(ctx context.Context, conversationID, runID string) (Can
 	res.Cancelled = true
 	res.Message = "run cancelado"
 	return res, nil
+}
+
+// ReconcileOrphans marca como failed os runs deixados em queued/running por um
+// encerramento abrupto do app (AEP-0068 F4). Após um restart não há goroutine
+// viva para concluí-los nem entrada no mapa `active`, então qualquer run não
+// terminal persistido é órfão. Espelha a reconciliação de jobs no startup.
+// Retorna quantos runs foram reconciliados.
+func (m *Manager) ReconcileOrphans(ctx context.Context) (int64, error) {
+	if m == nil || m.repo == nil {
+		return 0, nil
+	}
+	return m.repo.ReconcileOrphans(ctx, m.now())
 }
 
 // resolveRun encontra o run alvo por run_id (validando que pertence à conversa)

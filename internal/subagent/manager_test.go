@@ -2,11 +2,13 @@ package subagent
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/eventctx"
 	"assistente/internal/messaging"
 
 	"github.com/glebarez/sqlite"
@@ -446,6 +448,107 @@ func TestManagerClearResetsHistoryBeforeSend(t *testing.T) {
 	if summary != "" {
 		t.Fatalf("clear deveria ter limpado o resumo; veio %q", summary)
 	}
+}
+
+func TestManagerInheritsJobProvenance(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	// Simula um job chamando o sub-agente: o ctx carrega a proveniência do job.
+	jobCtx := eventctx.With(ctx, eventctx.Provenance{Source: "job", SourceJobID: "job-a", ChainID: "chain-1", ChainHistory: []string{"job-a"}})
+
+	res, err := mgr.Run(jobCtx, RunParams{Prompt: "tarefa do job"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	run, err := repo.Get(ctx, res.RunID)
+	if err != nil {
+		t.Fatalf("buscar run: %v", err)
+	}
+	if run.ChainID != "chain-1" {
+		t.Fatalf("chain_id do job não herdado: %q", run.ChainID)
+	}
+	if run.ChainHistory == "" || !contains(run.ChainHistory, "job-a") {
+		t.Fatalf("chain_history do job não preservado: %q", run.ChainHistory)
+	}
+}
+
+func TestManagerChainDepthBackstop(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	sendCalled := false
+	mgr := NewManager(ManagerConfig{
+		Repo:          repo,
+		Notifier:      notifier,
+		MaxChainDepth: 2,
+		Send:          func(_ context.Context, p SendParams) (string, error) { sendCalled = true; return p.ConversationID, nil },
+	})
+
+	// Cadeia já no limite (2 itens) → deve recusar antes de criar conversa/run.
+	deepCtx := eventctx.With(ctx, eventctx.Provenance{Source: "job", ChainID: "c", ChainHistory: []string{"a", "b"}})
+	if _, err := mgr.Run(deepCtx, RunParams{Prompt: "x"}); err == nil {
+		t.Fatal("esperava erro de profundidade de cadeia")
+	}
+	if sendCalled {
+		t.Fatal("não deveria ter enviado nada ao atingir o limite de cadeia")
+	}
+}
+
+func TestManagerReconcileOrphans(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+
+	mkRun := func(status string) string {
+		conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent")
+		if err != nil {
+			t.Fatalf("criar conv: %v", err)
+		}
+		run := &database.SubAgentRun{UserID: "user-a", ParentConversationID: "parent", ChildConversationID: conv.ID, Status: status}
+		if err := repo.Create(ctx, run); err != nil {
+			t.Fatalf("criar run: %v", err)
+		}
+		return run.ID
+	}
+	runningID := mkRun(StatusRunning)
+	queuedID := mkRun(StatusQueued)
+	succeededID := mkRun(StatusSucceeded)
+
+	n, err := mgr.ReconcileOrphans(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileOrphans: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("esperava 2 runs reconciliados, veio %d", n)
+	}
+
+	for _, id := range []string{runningID, queuedID} {
+		run, err := repo.Get(ctx, id)
+		if err != nil {
+			t.Fatalf("buscar run %s: %v", id, err)
+		}
+		if run.Status != StatusFailed || run.Error == "" || run.CompletedAt == nil {
+			t.Fatalf("run órfão %s não reconciliado: %#v", id, run)
+		}
+	}
+	done, err := repo.Get(ctx, succeededID)
+	if err != nil {
+		t.Fatalf("buscar run concluído: %v", err)
+	}
+	if done.Status != StatusSucceeded {
+		t.Fatalf("run terminal não deveria ser alterado; veio %q", done.Status)
+	}
+}
+
+func contains(haystack, needle string) bool {
+	return strings.Contains(haystack, needle)
 }
 
 func TestManagerRunRequiresUserScope(t *testing.T) {
