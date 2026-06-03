@@ -100,7 +100,7 @@ type Conversation struct {
 	//   - Kind="" → conversa normal; Kind="subagent" → sub-conversa de sub-agente.
 	//   - ParentConversationID aponta para a conversa que originou o sub-agente.
 	Kind                 string `json:"kind,omitempty" gorm:"index"`
-	ParentConversationID string `json:"parent_conversation_id,omitempty" gorm:"index"`
+	ParentConversationID string `json:"parentConversationId,omitempty" gorm:"index"`
 
 	// Rolling Context: sumarização automática de mensagens antigas
 	Summary               string `json:"summary,omitempty" gorm:"type:text"`                     // Resumo acumulativo da conversa

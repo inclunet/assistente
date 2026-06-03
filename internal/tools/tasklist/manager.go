@@ -16,6 +16,8 @@ type TaskListManager interface {
 	UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error
 	ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error)
 	SetTaskListValidationPolicy(ctx context.Context, taskListID string, policyJSON string) error
+	GetTaskListCustomActions(ctx context.Context, taskListID string) (*database.TaskListCustomActions, error)
+	SetTaskListCustomActions(ctx context.Context, taskListID string, actionsJSON string) error
 	UpdateWorkflowFull(ctx context.Context, taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error
 	GetTaskCountsByStatus(ctx context.Context, taskListID string) (map[int]int64, error)
 	CreateTask(ctx context.Context, taskListID string, title, description, code, link string, parentID *string) (*database.Task, error)
