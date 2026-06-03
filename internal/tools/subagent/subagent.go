@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 
+	"assistente/internal/eventctx"
 	"assistente/internal/subagent"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -101,6 +102,17 @@ type subagentArgs struct {
 	Model          string `json:"model,omitempty"`
 }
 
+// originAllowsParentless informa se a origem da chamada permite rodar o
+// sub-agente SEM vínculo com um turno-pai. Apenas origem job/system
+// (eventctx.Provenance.Source == "job", carimbada pelo executor de jobs antes
+// de resolver a tool — ver internal/jobs/executor.go) é aceitável sem pai
+// (AEP-0068, ponto de entrada formalizado na F4). Chamadas de chat NUNCA caem
+// aqui: o agentic loop sempre fornece conversation_id/turn_id.
+func originAllowsParentless(ctx context.Context) bool {
+	prov, ok := eventctx.From(ctx)
+	return ok && prov.Source == "job"
+}
+
 func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	var a subagentArgs
 	if len(args) > 0 {
@@ -163,6 +175,20 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		// (clear). A continuidade de contexto é garantida pelo pipeline oficial,
 		// que carrega o histórico da conversa pelo conversation_id.
 		inv, _ := invocationctx.Get(ctx)
+
+		// Vínculo com o turno-pai (AEP-0068). Uma chamada vinda do chat/workspace
+		// SEMPRE tem conversa/turno pai (o agentic loop carimba o InvocationContext
+		// — ver internal/agent/service.go). Se faltarem ao CRIAR uma nova
+		// sub-conversa, é bug de wiring e NÃO devemos criar sub-conversa órfã
+		// (kind=subagent some da listagem principal). Falha fechado. A única
+		// exceção legítima sem-pai é a origem job/system (origin "job", ponto de
+		// entrada formalizado na F4): distinção EXPLÍCITA por origem
+		// (eventctx.Provenance), não pela mera ausência de InvocationContext.
+		hasParent := strings.TrimSpace(inv.ConversationID) != "" && strings.TrimSpace(inv.TurnID) != ""
+		if !hasParent && !originAllowsParentless(ctx) {
+			return errResult("sub-agente requer um turno-pai: invocado sem conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+		}
+
 		profile := strings.TrimSpace(a.Profile)
 		if profile == "" {
 			profile = inv.ProfileSlug
