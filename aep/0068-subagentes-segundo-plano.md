@@ -103,6 +103,7 @@ quanto os jobs o acionam pelo mesmo caminho.
 - `clear:true` sem `prompt` → erro. `clear` é sempre **reset + envio** na mesma
   chamada; nunca limpa o histórico sem enviar uma nova mensagem. Logo, `clear` não é
   válido em consultas de `status` (sem `prompt`).
+- `cancel:true` sem `conversation_id` → erro (não há run a cancelar sem a conversa alvo).
 - `cancel:true` junto com `prompt` ou `clear` → erro (operações mutuamente exclusivas).
 - `run_id` sem `conversation_id` → erro (run sempre pertence a uma conversa).
 - `run_id`/`conversation_id` que não pertencem ao usuário → erro (escopo AEP-0052).
@@ -190,11 +191,17 @@ propagada:
   `sub_agent_runs` (um run por turno): `id`, `user_id`, `parent_conversation_id`,
   `parent_turn_id`, `child_conversation_id`, `turn_index`, `status`,
   `result_summary`, `assistant_message_id`, `error`, `chain_*`, timestamps.
-- Reusar `tool_invocations` com `origin_type=sub_agent_run`. O campo
-  `ParentInvocationID` já existe e é suportado no modelo/repositório
+- Reusar `tool_invocations` **sem expandir o enum `origin_type`** da AEP-0063
+  (`chat`/`job_run`/`tool_catalog`). A invocação da tool `subagent` é uma tool call de
+  chat comum (`origin_type=chat`) e os turnos da própria sub-conversa também são
+  `chat`; o vínculo pai↔filho não vem de um novo `origin_type`, e sim de
+  `ParentInvocationID` + da tabela `sub_agent_runs`. O campo `ParentInvocationID` já
+  existe e é suportado no modelo/repositório
   (`internal/database/models_tool_invocations.go`, `internal/toolinvocations/repository.go`);
   o que falta é o **pipeline de chat preenchê-lo** — esta AEP passa a populá-lo para
-  encadear a invocação ao turno pai.
+  encadear a invocação ao turno pai. (Caso a telemetria futura exija distinguir runs de
+  sub-agente já na linha de `tool_invocations`, isso será uma evolução explícita da
+  AEP-0063, não uma extensão silenciosa aqui.)
 
 ## Fases
 
