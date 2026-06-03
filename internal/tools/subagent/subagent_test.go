@@ -156,6 +156,14 @@ func TestToolValidationRunIDWithoutConversation(t *testing.T) {
 	}
 }
 
+func TestToolValidationRunIDWithPrompt(t *testing.T) {
+	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"x","conversation_id":"c1","run_id":"r1"}`))
+	if !res.IsError {
+		t.Fatal("esperava erro: run_id é para status/cancel e não pode acompanhar prompt")
+	}
+}
+
 func TestToolValidationNothingToDo(t *testing.T) {
 	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
 	res, _ := tool.Execute(context.Background(), json.RawMessage(`{}`))

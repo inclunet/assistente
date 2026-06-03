@@ -64,9 +64,10 @@ type Manager struct {
 	now           func() time.Time
 	maxChainDepth int
 
-	mu       sync.Mutex
-	active   map[string]*activeRun // runID -> run ativo
-	parentMu map[string]*sync.Mutex
+	mu          sync.Mutex
+	active      map[string]*activeRun // runID -> run ativo
+	activeConvs map[string]struct{}   // childConversationID com run ativo (fail-fast resume)
+	parentMu    map[string]*sync.Mutex
 }
 
 // ManagerConfig agrupa as dependências do Manager.
@@ -107,6 +108,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 		now:           now,
 		maxChainDepth: maxChainDepth,
 		active:        make(map[string]*activeRun),
+		activeConvs:   make(map[string]struct{}),
 		parentMu:      make(map[string]*sync.Mutex),
 	}
 }
@@ -145,6 +147,16 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, err
 	}
 
+	// Fail-fast (AEP-0068): impede DOIS runs concorrentes na MESMA sub-conversa.
+	// O ResponseNotifier é indexado só por conversationID e Notify()/Cancel()
+	// atuam sobre TODOS os callbacks pendentes da conversa; dois runs simultâneos
+	// no mesmo childConversationID se confundiriam (a 1ª conclusão concluiria
+	// ambos, ou um cancelamento atingiria o run errado). A reserva é feita ANTES
+	// do Create e liberada quando o run deixa de estar ativo (unregisterActive).
+	if err := m.reserveConversation(childConvID); err != nil {
+		return RunResult{}, err
+	}
+
 	// 2. Persiste o run (queued) com proveniência (anti-runaway, AEP-0067/0001).
 	chainHistoryJSON := encodeChainHistory(prov.ChainHistory)
 	run := &database.SubAgentRun{
@@ -159,6 +171,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		ChainHistory:         chainHistoryJSON,
 	}
 	if err := m.repo.Create(ctx, run); err != nil {
+		m.releaseConversation(childConvID)
 		return RunResult{}, fmt.Errorf("erro ao registrar run de sub-agente: %w", err)
 	}
 
@@ -224,9 +237,13 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		// Background real: goroutine com ctx desacoplado de cancelamento, mas
 		// preservando o userID (WithoutCancel mantém valores do ctx — AEP-0052).
 		bgCtx := context.WithoutCancel(ctx)
+		// Cópia local do RunResult para a goroutine: o Run retorna `result`
+		// (handle imediato) logo abaixo, então a goroutine NÃO pode escrever no
+		// mesmo struct (corrida detectada por -race).
+		bgResult := result
 		go func() {
 			o := m.wait(bgCtx, childConvID, done, ar, p.Timeout)
-			m.finish(bgCtx, run, &result, o)
+			m.finish(bgCtx, run, &bgResult, o)
 			m.unregisterActive(run.ID)
 			m.deliver(bgCtx, run, p)
 		}()
@@ -296,19 +313,49 @@ func (m *Manager) wait(ctx context.Context, childConvID string, done chan comple
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
+	// O select de Go não prioriza cases: se `done` ficar pronto quase junto com
+	// cancelCh/timer/ctx, o desfecho poderia virar cancelado/timed_out mesmo
+	// havendo resposta. Por isso, antes de persistir cancel/timeout, re-checamos
+	// `done` de forma não-bloqueante e damos prioridade à conclusão bem-sucedida.
 	select {
 	case c := <-done:
-		return outcome{status: database.SubAgentRunStatusSucceeded, summary: c.response, assistantMessageID: c.assistantMessageID}
+		return successOutcome(c)
 	case <-ar.cancelCh:
+		if c, ok := pollDone(done); ok {
+			return successOutcome(c)
+		}
 		m.notifier.Cancel(childConvID)
 		return outcome{status: database.SubAgentRunStatusCancelled, errMsg: "cancelado"}
 	case <-timer.C:
+		if c, ok := pollDone(done); ok {
+			return successOutcome(c)
+		}
 		m.notifier.Cancel(childConvID)
 		return outcome{status: database.SubAgentRunStatusTimedOut, errMsg: "tempo limite excedido aguardando o sub-agente"}
 	case <-ctx.Done():
+		if c, ok := pollDone(done); ok {
+			return successOutcome(c)
+		}
 		m.notifier.Cancel(childConvID)
 		return outcome{status: database.SubAgentRunStatusCancelled, errMsg: ctx.Err().Error()}
 	}
+}
+
+// pollDone lê `done` de forma não-bloqueante, retornando a conclusão se já
+// estiver disponível. Usado para dar prioridade à resposta bem-sucedida quando
+// done e cancel/timeout ficam prontos quase simultaneamente.
+func pollDone(done chan completion) (completion, bool) {
+	select {
+	case c := <-done:
+		return c, true
+	default:
+		return completion{}, false
+	}
+}
+
+// successOutcome monta o desfecho de sucesso a partir da conclusão recebida.
+func successOutcome(c completion) outcome {
+	return outcome{status: database.SubAgentRunStatusSucceeded, summary: c.response, assistantMessageID: c.assistantMessageID}
 }
 
 // Status retorna o estado atual de um run (prompt omitido). Resolve por run_id
@@ -467,6 +514,28 @@ func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun, p RunP
 
 // ---- registro de runs ativos / locks por pai ----
 
+// reserveConversation marca a sub-conversa como tendo um run ativo. Retorna
+// erro (fail-fast) se já existir um run ativo para o mesmo childConversationID,
+// evitando dois runs concorrentes na mesma sub-conversa (limitação do
+// ResponseNotifier, indexado por conversationID — AEP-0068).
+func (m *Manager) reserveConversation(childConversationID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, busy := m.activeConvs[childConversationID]; busy {
+		return fmt.Errorf("já existe um sub-agente ativo nesta sub-conversa (%s); aguarde a conclusão ou cancele o run atual antes de continuar", childConversationID)
+	}
+	m.activeConvs[childConversationID] = struct{}{}
+	return nil
+}
+
+// releaseConversation libera a reserva de uma sub-conversa. Usado no caminho de
+// falha antes de o run virar ativo (o caminho normal libera em unregisterActive).
+func (m *Manager) releaseConversation(childConversationID string) {
+	m.mu.Lock()
+	delete(m.activeConvs, childConversationID)
+	m.mu.Unlock()
+}
+
 func (m *Manager) registerActive(runID string, ar *activeRun) {
 	m.mu.Lock()
 	m.active[runID] = ar
@@ -475,6 +544,9 @@ func (m *Manager) registerActive(runID string, ar *activeRun) {
 
 func (m *Manager) unregisterActive(runID string) {
 	m.mu.Lock()
+	if ar := m.active[runID]; ar != nil {
+		delete(m.activeConvs, ar.childConversationID)
+	}
 	delete(m.active, runID)
 	m.mu.Unlock()
 }

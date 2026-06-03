@@ -563,6 +563,79 @@ func TestManagerRunRequiresUserScope(t *testing.T) {
 	}
 }
 
+// TestManagerFailFastConcurrentRunSameConversation garante o fail-fast (AEP-0068):
+// enquanto houver um run ATIVO em uma sub-conversa, iniciar outro run (resume) na
+// MESMA sub-conversa deve falhar de imediato, em vez de dois runs disputarem o
+// mesmo ResponseNotifier (que é indexado só por conversationID).
+func TestManagerFailFastConcurrentRunSameConversation(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: &recordingDelivery{},
+		// Nunca notifica → o 1º run permanece ativo.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	// 1º run em background → fica ativo (sem notificação). Timeout curto só para
+	// o goroutine encerrar após o teste.
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Prompt: "tarefa longa", Background: true, Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("primeiro Run: %v", err)
+	}
+
+	// 2º run (resume) na MESMA sub-conversa enquanto o 1º está ativo → fail-fast.
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Prompt: "tarefa concorrente"}); err == nil {
+		t.Fatal("esperava fail-fast ao iniciar run concorrente na mesma sub-conversa")
+	}
+
+	// Cancela o 1º para liberar a reserva e, então, um novo run na mesma
+	// sub-conversa deve ser aceito.
+	if _, err := mgr.Cancel(ctx, first.ConversationID, first.RunID); err != nil {
+		t.Fatalf("cancelar 1º run: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Prompt: "agora pode", Background: true, Timeout: time.Second}); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("após cancelar o 1º run, a sub-conversa deveria aceitar novo run")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestWaitPrefersDoneOverCancelAndTimeout garante a semântica de prioridade do
+// select no limite: com a resposta já disponível em `done`, mesmo que cancelCh,
+// timer e ctx também estejam prontos, o desfecho deve ser succeeded (não pode
+// virar cancelled/timed_out por causa do não-determinismo do select).
+func TestWaitPrefersDoneOverCancelAndTimeout(t *testing.T) {
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	m := &Manager{notifier: notifier, now: time.Now}
+
+	for i := 0; i < 300; i++ {
+		done := make(chan completion, 1)
+		done <- completion{response: "ok", assistantMessageID: "msg"}
+		ar := &activeRun{childConversationID: "c", cancelCh: make(chan struct{})}
+		close(ar.cancelCh) // cancel também pronto ao mesmo tempo que done
+
+		cctx, cancel := context.WithCancel(context.Background())
+		cancel() // ctx.Done() também pronto
+
+		o := m.wait(cctx, "c", done, ar, time.Nanosecond) // timer praticamente pronto
+		if o.status != StatusSucceeded {
+			t.Fatalf("iter %d: com done disponível esperava succeeded, veio %q", i, o.status)
+		}
+		if o.summary != "ok" || o.assistantMessageID != "msg" {
+			t.Fatalf("iter %d: desfecho de sucesso incompleto: %#v", i, o)
+		}
+	}
+}
+
 // runningUpdateFailRepo embute um Repository real mas falha o Update que marca
 // o run como running (segundo Update da vida do run), permitindo exercitar o
 // tratamento de erro de persistência da transição para running.
