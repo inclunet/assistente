@@ -1,6 +1,6 @@
 ---
 name: job-manager
-version: 2.2.0
+version: 2.3.0
 description: Provides context and instructions for managing event-driven automation jobs and pipelines via the `job` and `job_pipeline` tools (DB-backed) — creation, editing, triggers, conditional events, runs and events inspection
 displayName: Job Manager
 author: Assistente
@@ -243,7 +243,8 @@ Key facts:
 | `join` | `{{ join .output.keys ", " }}` | Join a slice into a string with a separator |
 | `json` | `{{ json .output }}` | Serialize a value to a JSON string (this is the `toJson` replacement) |
 | `default` | `{{ default 50 .event.limit }}` | **Argument order is `default <fallback> <value>`** — returns `<value>` unless it is nil/zero, in which case returns `<fallback>`. ⚠️ Fallback comes **first** (unlike Sprig's `default`). |
-| `date` | `{{ date .now "2006-01-02" }}` | Format a `time.Time` (or RFC3339 string) using a Go layout |
+| `date` | `{{ date .now "2006-01-02" }}` | Format a `time.Time` or a date string using a Go layout. Accepts RFC3339 **and** Jira-style ISO-8601 with a numeric `±HHMM` offset (no colon), e.g. `2026-05-25T15:35:53.521-0300`. |
+| `jiraTime` | `{{ jiraTime .output.updated }}` | Normalize a Jira-style timestamp (`±HHMM` offset) to an RFC3339 string (`±HH:MM`) that downstream tools accept (e.g. `task_note.external_updated_at`). RFC3339 input passes through. Errors on unparseable input. |
 | `now` | `{{ date (now) "2006-01-02" }}` | Function returning the current `time.Time`. Takes **no arguments**. ⚠️ Distinct from the root variable `.now` — see the pitfall below. |
 | `secret` | `{{ secret "API_KEY" }}` | Resolve a secret by name — never hardcode credentials |
 | `adf_markdown` | `{{ adf_markdown .event.description }}` | Render an Atlassian Document Format (ADF) node to Markdown |
