@@ -44,6 +44,14 @@ interface FocusPos {
   row: number;
 }
 
+// Para onde reposicionar o foco depois que um card muda de coluna (issue #177).
+// `sourceNext`: vai para o próximo card da coluna de ORIGEM (comportamento
+// preferido). `followTask`: o foco acompanha o card movido (usado no modo grab
+// e como fallback quando a coluna de origem fica vazia).
+type PendingFocus =
+  | { kind: 'sourceNext'; sourceCol: number; sourceRow: number; taskId: string }
+  | { kind: 'followTask'; taskId: string };
+
 /* ── Componente ────────────────────────────────────────────────── */
 
 const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function KanbanBoard(
@@ -69,6 +77,8 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   // ── Refs ───────────────────────────────────────────────────
   const boardRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Foco a reaplicar depois que um movimento de card recompõe as colunas.
+  const pendingFocusRef = useRef<PendingFocus | null>(null);
 
   // ── Context menu ───────────────────────────────────────────
   const {
@@ -132,6 +142,61 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   useEffect(() => {
     focusCard(focusPos.col, focusPos.row);
   }, [focusPos, focusCard]);
+
+  // Localiza a posição (coluna/linha) atual de um card pelo id.
+  const findTaskPos = useCallback(
+    (taskId: string): FocusPos | null => {
+      for (let c = 0; c < statuses.length; c += 1) {
+        const idx = getColumnTasks(c).findIndex((tk) => tk.id === taskId);
+        if (idx >= 0) return { col: c, row: idx };
+      }
+      return null;
+    },
+    [statuses, getColumnTasks],
+  );
+
+  // Primeira coluna que ainda tem cards (último fallback de foco).
+  const firstNonEmptyColumnPos = useCallback((): FocusPos | null => {
+    for (let c = 0; c < statuses.length; c += 1) {
+      if (getColumnTasks(c).length > 0) return { col: c, row: 0 };
+    }
+    return null;
+  }, [statuses, getColumnTasks]);
+
+  // issue #177: ao mover um card entre colunas, o card focado é desmontado e o
+  // foco "cai" para o body, obrigando o usuário a apertar Tab. Quando há um
+  // foco pendente, reposicionamos o foco dentro do board assim que as colunas
+  // são recompostas (depois da atualização otimista de `tasks`).
+  useEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (!pending) return;
+    pendingFocusRef.current = null;
+
+    let next: FocusPos | null = null;
+    if (pending.kind === 'followTask') {
+      next = findTaskPos(pending.taskId);
+    } else {
+      const sourceTasks = getColumnTasks(pending.sourceCol);
+      if (sourceTasks.length > 0) {
+        // Próximo card da coluna de origem (o que ocupou a posição liberada);
+        // se o card movido era o último, cai no novo último da coluna.
+        next = {
+          col: pending.sourceCol,
+          row: Math.min(pending.sourceRow, sourceTasks.length - 1),
+        };
+      } else {
+        // Coluna de origem ficou vazia: o foco acompanha o card movido.
+        next = findTaskPos(pending.taskId) ?? firstNonEmptyColumnPos();
+      }
+    }
+
+    if (next) {
+      setFocusPos(next);
+      // Reaplica o foco imediatamente, pois `focusPos` pode não mudar quando
+      // o card seguinte assume a mesma posição (col/row) do card que saiu.
+      focusCard(next.col, next.row);
+    }
+  }, [tasksByStatus, getColumnTasks, findTaskPos, firstNonEmptyColumnPos, focusCard]);
 
   // Formata a data de criação no MESMO formato relativo usado nas mensagens
   // do chat (ver `getAriaLabel` em ChatMessage.tsx e `buildChatMessageAriaLabel`).
@@ -373,13 +438,14 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           e.preventDefault();
           if (col > 0) {
             const newCol = col - 1;
-            const targetTasks = getColumnTasks(newCol);
-            const newRow = Math.min(row, Math.max(0, targetTasks.length - 1));
-            setFocusPos({ col: newCol, row: newRow });
-
             if (grabbedTask) {
+              // No modo grab o foco acompanha o card carregado (issue #177).
+              pendingFocusRef.current = { kind: 'followTask', taskId: grabbedTask.id };
               moveTaskToColumn(grabbedTask, newCol);
             } else {
+              const targetTasks = getColumnTasks(newCol);
+              const newRow = Math.min(row, Math.max(0, targetTasks.length - 1));
+              setFocusPos({ col: newCol, row: newRow });
               const task = targetTasks[newRow];
               if (task) announceCard(task, newCol, newRow);
               else announce(statuses[newCol]?.label ?? '', 'assertive');
@@ -393,13 +459,14 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           e.preventDefault();
           if (col < statuses.length - 1) {
             const newCol = col + 1;
-            const targetTasks = getColumnTasks(newCol);
-            const newRow = Math.min(row, Math.max(0, targetTasks.length - 1));
-            setFocusPos({ col: newCol, row: newRow });
-
             if (grabbedTask) {
+              // No modo grab o foco acompanha o card carregado (issue #177).
+              pendingFocusRef.current = { kind: 'followTask', taskId: grabbedTask.id };
               moveTaskToColumn(grabbedTask, newCol);
             } else {
+              const targetTasks = getColumnTasks(newCol);
+              const newRow = Math.min(row, Math.max(0, targetTasks.length - 1));
+              setFocusPos({ col: newCol, row: newRow });
               const task = targetTasks[newRow];
               if (task) announceCard(task, newCol, newRow);
               else announce(statuses[newCol]?.label ?? '', 'assertive');
@@ -540,11 +607,19 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         const direction = e.key === 'ArrowLeft' ? -1 : 1;
         const targetCol = colIdx + direction;
         if (targetCol >= 0 && targetCol < statuses.length) {
+          // issue #177: após sair da coluna, o foco vai para o próximo card da
+          // coluna de origem (em vez de acompanhar o card até o destino), para
+          // que o board não perca o foco e o usuário continue processando a
+          // coluna sem precisar de Tab.
+          const sourceTasks = getColumnTasks(colIdx);
+          const sourceRow = sourceTasks.findIndex((tk) => tk.id === task.id);
+          pendingFocusRef.current = {
+            kind: 'sourceNext',
+            sourceCol: colIdx,
+            sourceRow: sourceRow < 0 ? 0 : sourceRow,
+            taskId: task.id,
+          };
           moveTaskToColumn(task, targetCol);
-          setFocusPos((prev) => ({
-            col: targetCol,
-            row: Math.min(prev.row, Math.max(0, getColumnTasks(targetCol).length)),
-          }));
         }
       }
     },
