@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpenOutlined, ReloadOutlined } from '@ant-design/icons';
 import { GetSubAgentConversations } from '@wailsjs/go/app/App';
-import { subagent } from '@wailsjs/go/models';
+import type { subagent } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';

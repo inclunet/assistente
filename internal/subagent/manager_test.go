@@ -553,6 +553,24 @@ func TestManagerListSubConversations(t *testing.T) {
 	}
 }
 
+// TestManagerListSubConversationsUnconfiguredFails garante que, sem
+// repo/lister/manager, a listagem falha explicitamente em vez de devolver lista
+// vazia (que mascararia wiring quebrado no binding Wails).
+func TestManagerListSubConversationsUnconfiguredFails(t *testing.T) {
+	var nilMgr *Manager
+	if _, err := nilMgr.ListSubConversations(context.Background()); err == nil {
+		t.Fatal("esperava erro com Manager nil")
+	}
+	repo, _ := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+	// Sem Lister configurado.
+	if _, err := mgr.ListSubConversations(context.Background()); err == nil {
+		t.Fatal("esperava erro com lister não configurado")
+	}
+}
+
 func TestManagerInheritsJobProvenance(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

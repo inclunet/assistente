@@ -497,7 +497,10 @@ func (m *Manager) ReconcileOrphans(ctx context.Context, cutoff time.Time) (int64
 // usuário.
 func (m *Manager) ListSubConversations(ctx context.Context) ([]SubConversationSummary, error) {
 	if m == nil || m.repo == nil || m.lister == nil {
-		return []SubConversationSummary{}, nil
+		// Falha explicitamente: retornar lista vazia mascararia wiring quebrado
+		// do binding Wails (a UI veria "nenhum sub-agente" em vez de um erro),
+		// consistente com Run/ReconcileOrphans.
+		return nil, fmt.Errorf("subagent manager não configurado: não é possível listar sub-conversas")
 	}
 	metas, err := m.lister.ListSubAgentConversations(ctx)
 	if err != nil {
