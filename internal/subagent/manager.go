@@ -167,9 +167,9 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	run.StartedAt = &startedAt
 	result.Status = run.Status
 	if err := m.repo.Update(context.WithoutCancel(ctx), run); err != nil {
-		m.notifier.Cancel(conv.ID)
+		m.notifier.Cancel(childConvID)
 		m.unregisterActive(run.ID)
-		log.Printf("[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, conv.ID, err)
+		log.Printf("[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, childConvID, err)
 		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: fmt.Sprintf("erro ao persistir estado running: %v", err)}
 		finished := m.finish(ctx, run, &result, o)
 		if p.Background {
