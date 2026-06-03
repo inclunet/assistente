@@ -118,6 +118,42 @@ func TestWaitForCompletionPrefersDoneOverTimeout(t *testing.T) {
 	}
 }
 
+// TestWaitForCompletionClassifiesCtxDone garante que o caminho ctx.Done()
+// distingue timed_out (deadline) de cancelled (cancelamento explícito), em vez
+// de marcar sempre cancelled. Sem resposta em `done` e com timeout longo, só o
+// ctx.Done() está pronto.
+func TestWaitForCompletionClassifiesCtxDone(t *testing.T) {
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	m := &Manager{notifier: notifier, now: time.Now}
+
+	t.Run("cancel", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		done := make(chan completion, 1)
+		status, _, _, errMsg := m.waitForCompletion(ctx, "conv-1", done, time.Hour)
+		if status != StatusCancelled {
+			t.Fatalf("esperava cancelled, veio %q", status)
+		}
+		if errMsg == "" {
+			t.Fatalf("esperava mensagem de erro preenchida")
+		}
+	})
+
+	t.Run("deadline", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Hour))
+		defer cancel()
+		done := make(chan completion, 1)
+		status, _, _, errMsg := m.waitForCompletion(ctx, "conv-1", done, time.Hour)
+		if status != StatusTimedOut {
+			t.Fatalf("esperava timed_out, veio %q", status)
+		}
+		if errMsg == "" {
+			t.Fatalf("esperava mensagem de erro preenchida")
+		}
+	})
+}
+
 func TestManagerRunRequiresPrompt(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

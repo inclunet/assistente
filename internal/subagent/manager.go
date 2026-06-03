@@ -183,7 +183,10 @@ func (m *Manager) waitForCompletion(ctx context.Context, childConvID string, don
 			return database.SubAgentRunStatusSucceeded, c.response, c.assistantMessageID, ""
 		}
 		m.notifier.Cancel(childConvID)
-		return database.SubAgentRunStatusCancelled, "", "", ctx.Err().Error()
+		// Distingue timed_out (deadline do executor) de cancelled (cancelamento
+		// explícito), em vez de tratar todo ctx.Done() como cancelled.
+		status, errMsg := classifyCtxErr(ctx.Err())
+		return status, "", "", errMsg
 	}
 }
 
@@ -203,13 +206,22 @@ func classifySendError(ctx context.Context, err error) (status, errMsg string) {
 		return database.SubAgentRunStatusCancelled, err.Error()
 	case errors.Is(err, context.DeadlineExceeded):
 		return database.SubAgentRunStatusTimedOut, err.Error()
-	case ctx.Err() == context.Canceled:
-		return database.SubAgentRunStatusCancelled, err.Error()
-	case ctx.Err() == context.DeadlineExceeded:
-		return database.SubAgentRunStatusTimedOut, err.Error()
+	case ctx.Err() != nil:
+		return classifyCtxErr(ctx.Err())
 	default:
 		return database.SubAgentRunStatusFailed, err.Error()
 	}
+}
+
+// classifyCtxErr mapeia o erro de um contexto encerrado para o status do run:
+// context.DeadlineExceeded → timed_out; cancelamento (ou qualquer outro) →
+// cancelled. Compartilhado pelo caminho ctx.Done() (waitForCompletion) e pela
+// classificação de erro de send, mantendo a distinção timed_out vs cancelled.
+func classifyCtxErr(err error) (status, errMsg string) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return database.SubAgentRunStatusTimedOut, err.Error()
+	}
+	return database.SubAgentRunStatusCancelled, err.Error()
 }
 
 func pollDone(done chan completion) (completion, bool) {

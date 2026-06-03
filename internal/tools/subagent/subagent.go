@@ -63,7 +63,8 @@ func (t *Tool) Parameters() json.RawMessage {
 				"description": "Optional model override for this run (overrides the model derived from the profile)."
 			}
 		},
-		"required": ["prompt"]
+		"required": ["prompt"],
+		"additionalProperties": false
 	}`)
 }
 
