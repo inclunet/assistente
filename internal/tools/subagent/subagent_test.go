@@ -3,6 +3,7 @@ package subagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"assistente/internal/subagent"
@@ -78,6 +79,65 @@ func TestToolHappyPathPropagatesContext(t *testing.T) {
 	// Metadata exposta ao LLM/UI.
 	if res.Metadata["conversation_id"] != "child-conv" || res.Metadata["run_id"] != "run-1" {
 		t.Fatalf("metadata inesperada: %#v", res.Metadata)
+	}
+}
+
+// TestToolBusinessOutcomeIsNotToolError garante que o desfecho de NEGÓCIO do
+// sub-agente (failed/timed_out/cancelled) NÃO marca IsError: a tool executou
+// corretamente e o status é dado no payload. Marcar IsError faria o pipeline de
+// toolinvocations persistir o JSON como error_message e emitir tool_failure/retry
+// indevidos (ver statusForExecution).
+func TestToolBusinessOutcomeIsNotToolError(t *testing.T) {
+	for _, status := range []string{
+		subagent.StatusFailed,
+		subagent.StatusTimedOut,
+		subagent.StatusCancelled,
+		subagent.StatusSucceeded,
+		subagent.StatusRunning,
+		subagent.StatusQueued,
+	} {
+		runner := &fakeRunner{result: subagent.RunResult{ConversationID: "c", RunID: "r", Status: status}}
+		tool := NewWithProvider(func() Runner { return runner })
+		res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"faça X"}`))
+		if err != nil {
+			t.Fatalf("status %s: Execute erro: %v", status, err)
+		}
+		if res.IsError {
+			t.Fatalf("status %s: desfecho de negócio não deveria marcar IsError; conteúdo=%s", status, res.Content)
+		}
+		// O status continua disponível como dado (payload + metadata).
+		if res.Metadata["status"] != status {
+			t.Fatalf("status %s: metadata.status inesperada: %#v", status, res.Metadata)
+		}
+		var decoded subagent.RunResult
+		if err := json.Unmarshal([]byte(res.Content), &decoded); err != nil {
+			t.Fatalf("status %s: payload não é RunResult JSON: %v", status, err)
+		}
+		if decoded.Status != status {
+			t.Fatalf("status %s: payload.status inesperado: %q", status, decoded.Status)
+		}
+	}
+}
+
+// TestToolRealFailureMarksError garante que falhas da PRÓPRIA tool marcam
+// IsError=true: erro do runner/manager (envio/criação) e wiring ausente.
+func TestToolRealFailureMarksError(t *testing.T) {
+	// Erro real ao executar a operação (runner/manager retorna erro).
+	runner := &fakeRunner{err: errors.New("falha ao enviar")}
+	tool := NewWithProvider(func() Runner { return runner })
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"x"}`))
+	if err != nil {
+		t.Fatalf("Execute não deve retornar erro Go: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("erro real do runner deveria marcar IsError=true")
+	}
+
+	// Wiring ausente (provider nil) → erro da tool.
+	noWiring := NewWithProvider(nil)
+	res2, _ := noWiring.Execute(context.Background(), json.RawMessage(`{"prompt":"x"}`))
+	if !res2.IsError {
+		t.Fatal("wiring ausente deveria marcar IsError=true")
 	}
 }
 

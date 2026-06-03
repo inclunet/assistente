@@ -119,13 +119,17 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return tools.ToolResult{Content: fmt.Sprintf("erro ao serializar resultado do sub-agente: %v", mErr), IsError: true}, nil
 	}
 
-	isError := res.Status == subagent.StatusFailed ||
-		res.Status == subagent.StatusTimedOut ||
-		res.Status == subagent.StatusCancelled
-
+	// IMPORTANTE (AEP-0068, "Retorno da tool"): o desfecho do sub-agente
+	// (succeeded/failed/timed_out/cancelled) é DADO de negócio, exposto no campo
+	// `status` do payload (e na metadata) — NÃO é falha da tool. A tool executou
+	// corretamente a operação solicitada. Marcar IsError com base no status faria
+	// o pipeline de toolinvocations (ver statusForExecution) persistir o JSON
+	// inteiro do RunResult como error_message e emitir tool_failure/retries
+	// indevidos. IsError fica reservado a falhas da PRÓPRIA tool (args inválidos,
+	// wiring ausente, erro ao criar conversa/enviar), tratadas acima.
 	return tools.ToolResult{
 		Content: string(payload),
-		IsError: isError,
+		IsError: false,
 		Metadata: map[string]any{
 			"conversation_id": res.ConversationID,
 			"run_id":          res.RunID,
