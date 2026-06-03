@@ -204,9 +204,13 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		// Background real: goroutine com ctx desacoplado de cancelamento, mas
 		// preservando o userID (WithoutCancel mantém valores do ctx — AEP-0052).
 		bgCtx := context.WithoutCancel(ctx)
+		// Cópia local do RunResult para a goroutine: o Run retorna `result`
+		// (handle imediato) logo abaixo, então a goroutine NÃO pode escrever no
+		// mesmo struct (corrida detectada por -race).
+		bgResult := result
 		go func() {
 			o := m.wait(bgCtx, conv.ID, done, ar, p.Timeout)
-			m.finish(bgCtx, run, &result, o)
+			m.finish(bgCtx, run, &bgResult, o)
 			m.unregisterActive(run.ID)
 			m.deliver(bgCtx, run, p)
 		}()
@@ -228,19 +232,49 @@ func (m *Manager) wait(ctx context.Context, childConvID string, done chan comple
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
+	// O select de Go não prioriza cases: se `done` ficar pronto quase junto com
+	// cancelCh/timer/ctx, o desfecho poderia virar cancelado/timed_out mesmo
+	// havendo resposta. Por isso, antes de persistir cancel/timeout, re-checamos
+	// `done` de forma não-bloqueante e damos prioridade à conclusão bem-sucedida.
 	select {
 	case c := <-done:
-		return outcome{status: database.SubAgentRunStatusSucceeded, summary: c.response, assistantMessageID: c.assistantMessageID}
+		return successOutcome(c)
 	case <-ar.cancelCh:
+		if c, ok := pollDone(done); ok {
+			return successOutcome(c)
+		}
 		m.notifier.Cancel(childConvID)
 		return outcome{status: database.SubAgentRunStatusCancelled, errMsg: "cancelado"}
 	case <-timer.C:
+		if c, ok := pollDone(done); ok {
+			return successOutcome(c)
+		}
 		m.notifier.Cancel(childConvID)
 		return outcome{status: database.SubAgentRunStatusTimedOut, errMsg: "tempo limite excedido aguardando o sub-agente"}
 	case <-ctx.Done():
+		if c, ok := pollDone(done); ok {
+			return successOutcome(c)
+		}
 		m.notifier.Cancel(childConvID)
 		return outcome{status: database.SubAgentRunStatusCancelled, errMsg: ctx.Err().Error()}
 	}
+}
+
+// pollDone lê `done` de forma não-bloqueante, retornando a conclusão se já
+// estiver disponível. Usado para dar prioridade à resposta bem-sucedida quando
+// done e cancel/timeout ficam prontos quase simultaneamente.
+func pollDone(done chan completion) (completion, bool) {
+	select {
+	case c := <-done:
+		return c, true
+	default:
+		return completion{}, false
+	}
+}
+
+// successOutcome monta o desfecho de sucesso a partir da conclusão recebida.
+func successOutcome(c completion) outcome {
+	return outcome{status: database.SubAgentRunStatusSucceeded, summary: c.response, assistantMessageID: c.assistantMessageID}
 }
 
 // Status retorna o estado atual de um run (prompt omitido). Resolve por run_id
