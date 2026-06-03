@@ -2,6 +2,8 @@ package subagent
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"assistente/internal/database"
 
@@ -19,10 +21,31 @@ func NewDBRepository(db *gorm.DB) *DBRepository {
 	return &DBRepository{db: db}
 }
 
-// Create persiste um novo run. O UserID deve estar preenchido pelo chamador
-// (derivado do ctx autenticado) — a coluna é NOT NULL.
+// enforceRunOwnership garante que o run pertence ao usuário do contexto
+// autenticado (AEP-0052): normaliza UserID vazio para esse usuário e rejeita
+// qualquer divergência (tentativa de gravar/transferir o run sob outro
+// user_id). Retorna o userID efetivo.
+func enforceRunOwnership(ctx context.Context, run *database.SubAgentRun) (string, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return "", err
+	}
+	if run == nil {
+		return "", fmt.Errorf("run de sub-agente nulo")
+	}
+	current := strings.TrimSpace(run.UserID)
+	if current != "" && current != userID {
+		return "", fmt.Errorf("user_id do run de sub-agente diverge do usuário autenticado (violação de escopo AEP-0052)")
+	}
+	run.UserID = userID
+	return userID, nil
+}
+
+// Create persiste um novo run, forçando o UserID ao usuário do contexto
+// (AEP-0052): impede inserir um run sob outro user_id mesmo que o chamador
+// preencha o campo incorretamente.
 func (r *DBRepository) Create(ctx context.Context, run *database.SubAgentRun) error {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	if _, err := enforceRunOwnership(ctx, run); err != nil {
 		return err
 	}
 	return r.db.WithContext(ctx).Create(run).Error
@@ -59,9 +82,12 @@ func (r *DBRepository) GetLatestByChildConversation(ctx context.Context, childCo
 	return &run, nil
 }
 
-// Update persiste alterações de um run existente, escopado ao usuário do contexto.
+// Update persiste alterações de um run existente, escopado ao usuário do
+// contexto. Força o UserID ao usuário do contexto (AEP-0052) antes do Save para
+// que um UserID alterado não troque o dono do registro (transferência de posse);
+// o filtro ScopeByUser no WHERE garante que só o dono atual é atingido.
 func (r *DBRepository) Update(ctx context.Context, run *database.SubAgentRun) error {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	if _, err := enforceRunOwnership(ctx, run); err != nil {
 		return err
 	}
 	return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
