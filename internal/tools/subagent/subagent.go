@@ -181,10 +181,15 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		if err != nil {
 			return errResult(fmt.Sprintf("erro ao iniciar sub-agente: %v", err)), nil
 		}
-		isError := res.Status == subagent.StatusFailed ||
-			res.Status == subagent.StatusTimedOut ||
-			res.Status == subagent.StatusCancelled
-		return jsonResult(res, isError, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}), nil
+		// IMPORTANTE (AEP-0068, "Retorno da tool"): o desfecho do sub-agente
+		// (succeeded/failed/timed_out/cancelled) é DADO de negócio, exposto no
+		// campo `status` do payload (e na metadata) — NÃO é falha da tool.
+		// Marcar IsError com base no status faria o pipeline de toolinvocations
+		// (ver statusForExecution) persistir o JSON do RunResult como
+		// error_message e emitir tool_failure/retries indevidos. IsError fica
+		// reservado a falhas da PRÓPRIA tool (args inválidos, wiring ausente,
+		// erro do runner/manager), tratadas acima.
+		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}), nil
 
 	default:
 		// Status (prompt omitido).
