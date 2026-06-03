@@ -440,6 +440,96 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           break;
         }
 
+        // ── Home/End: primeiro/último card (Ctrl = board inteiro) ──
+        case 'Home': {
+          e.preventDefault();
+          if (e.ctrlKey) {
+            // Primeiro card do board inteiro (primeira coluna com cards).
+            const firstCol = statuses.findIndex((_, i) => getColumnTasks(i).length > 0);
+            if (firstCol === -1 || (firstCol === col && row === 0)) {
+              playBumpSound();
+              break;
+            }
+            setFocusPos({ col: firstCol, row: 0 });
+            const task = getColumnTasks(firstCol)[0];
+            if (task) announceCard(task, firstCol, 0);
+          } else {
+            // Primeiro card da coluna atual.
+            if (columnTasks.length === 0 || row === 0) {
+              playBumpSound();
+              break;
+            }
+            setFocusPos({ col, row: 0 });
+            const task = columnTasks[0];
+            if (task) announceCard(task, col, 0);
+          }
+          break;
+        }
+        case 'End': {
+          e.preventDefault();
+          if (e.ctrlKey) {
+            // Último card do board inteiro (última coluna com cards).
+            let lastCol = -1;
+            for (let i = statuses.length - 1; i >= 0; i--) {
+              if (getColumnTasks(i).length > 0) {
+                lastCol = i;
+                break;
+              }
+            }
+            const lastRow = lastCol === -1 ? 0 : getColumnTasks(lastCol).length - 1;
+            if (lastCol === -1 || (lastCol === col && row === lastRow)) {
+              playBumpSound();
+              break;
+            }
+            setFocusPos({ col: lastCol, row: lastRow });
+            const task = getColumnTasks(lastCol)[lastRow];
+            if (task) announceCard(task, lastCol, lastRow);
+          } else {
+            // Último card da coluna atual.
+            const lastRow = columnTasks.length - 1;
+            if (columnTasks.length === 0 || row === lastRow) {
+              playBumpSound();
+              break;
+            }
+            setFocusPos({ col, row: lastRow });
+            const task = columnTasks[lastRow];
+            if (task) announceCard(task, col, lastRow);
+          }
+          break;
+        }
+
+        // ── PageUp/PageDown: salta 10 cards dentro da coluna ──
+        // Não interceptamos quando ctrlKey está pressionado para não conflitar
+        // com o atalho global Ctrl+PageUp/PageDown de troca de abas
+        // (useWorkspaceKeyboardShortcuts). metaKey é ignorado apenas para deixar
+        // passar atalhos do browser/OS — não é um atalho do app.
+        case 'PageUp': {
+          if (e.ctrlKey || e.metaKey) break;
+          e.preventDefault();
+          if (columnTasks.length === 0 || row === 0) {
+            playBumpSound();
+            break;
+          }
+          const newRow = Math.max(row - 10, 0);
+          setFocusPos({ col, row: newRow });
+          const task = columnTasks[newRow];
+          if (task) announceCard(task, col, newRow);
+          break;
+        }
+        case 'PageDown': {
+          if (e.ctrlKey || e.metaKey) break;
+          e.preventDefault();
+          if (columnTasks.length === 0 || row === columnTasks.length - 1) {
+            playBumpSound();
+            break;
+          }
+          const newRow = Math.min(row + 10, columnTasks.length - 1);
+          setFocusPos({ col, row: newRow });
+          const task = columnTasks[newRow];
+          if (task) announceCard(task, col, newRow);
+          break;
+        }
+
         // ── Grab/Drop com Space ──
         case ' ': {
           e.preventDefault();
@@ -659,7 +749,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         <div id="kanban-instructions" className="sr-only">
           {t(
             'tasklist.kanban.instructions',
-            'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre detalhes. Shift+F10 abre o menu.',
+            'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Início e Fim vão ao primeiro e último card da coluna; Ctrl+Início e Ctrl+Fim vão ao primeiro e último card do quadro. Page Up e Page Down saltam 10 cards na coluna. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre os detalhes do card. Shift+F10 ou a tecla Menu abrem o menu de contexto.',
           )}
         </div>
 

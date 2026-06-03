@@ -284,6 +284,105 @@ describe('KanbanBoard', () => {
     );
   });
 
+  // ── Home/End/PageUp/PageDown/Ctrl+Home/End (issue #179) ───
+
+  it('End vai ao último card da coluna e Home volta ao primeiro', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // foca col 0, row 0 (Tarefa Alpha)
+    mockAnnounce.mockClear();
+
+    fireEvent.keyDown(board, { key: 'End' });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Tarefa Beta'),
+      'assertive',
+    );
+
+    mockAnnounce.mockClear();
+    fireEvent.keyDown(board, { key: 'Home' });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Tarefa Alpha'),
+      'assertive',
+    );
+  });
+
+  it('PageDown salta 10 cards dentro da coluna e PageUp retorna', async () => {
+    const manyTasks = Array.from({ length: 12 }, (_, i) => ({
+      id: String(100 + i),
+      taskListId: '1',
+      title: `Card ${i + 1}`,
+      description: '',
+      statusId: 1,
+      order: i,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    }));
+    await renderBoard(manyTasks);
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // col 0, row 0 (Card 1)
+    mockAnnounce.mockClear();
+
+    fireEvent.keyDown(board, { key: 'PageDown' });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Card 11'),
+      'assertive',
+    );
+
+    mockAnnounce.mockClear();
+    fireEvent.keyDown(board, { key: 'PageUp' });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Card 1'),
+      'assertive',
+    );
+  });
+
+  it('não intercepta Ctrl+PageDown/Ctrl+PageUp (atalho global de abas)', async () => {
+    const manyTasks = Array.from({ length: 12 }, (_, i) => ({
+      id: String(100 + i),
+      taskListId: '1',
+      title: `Card ${i + 1}`,
+      description: '',
+      statusId: 1,
+      order: i,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    }));
+    await renderBoard(manyTasks);
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // col 0, row 0 (Card 1)
+    mockAnnounce.mockClear();
+
+    // fireEvent.keyDown retorna false quando preventDefault foi chamado.
+    // O board NÃO deve cancelar o evento nem mover o foco.
+    const notCanceledDown = fireEvent.keyDown(board, { key: 'PageDown', ctrlKey: true });
+    const notCanceledUp = fireEvent.keyDown(board, { key: 'PageUp', ctrlKey: true });
+
+    expect(notCanceledDown).toBe(true);
+    expect(notCanceledUp).toBe(true);
+    expect(mockAnnounce).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+End vai ao último card do board e Ctrl+Home ao primeiro', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // col 0, row 0 (Tarefa Alpha)
+    mockAnnounce.mockClear();
+
+    // Última coluna com cards é "Em Progresso" (Tarefa Gamma)
+    fireEvent.keyDown(board, { key: 'End', ctrlKey: true });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Tarefa Gamma'),
+      'assertive',
+    );
+
+    mockAnnounce.mockClear();
+    fireEvent.keyDown(board, { key: 'Home', ctrlKey: true });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Tarefa Alpha'),
+      'assertive',
+    );
+  });
+
   // ── Reordenar com Alt+Arrow ───────────────────────────────
 
   it('reordena card com Alt+ArrowDown', async () => {
