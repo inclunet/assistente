@@ -3,6 +3,7 @@ package subagent
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -116,10 +117,18 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	})
 
 	// 4. Marca running e dispara o envio pelo pipeline oficial.
+	//    Persiste a transição num ctx desacoplado de cancelamento (como em
+	//    finish): o estado não pode ficar preso em queued enquanto o loop roda.
+	//    Se nem isso persistir, aborta ANTES de enviar para não deixar trabalho
+	//    órfão e reporta a falha (não descarta o erro silenciosamente).
 	startedAt := m.now()
 	run.Status = database.SubAgentRunStatusRunning
 	run.StartedAt = &startedAt
-	_ = m.repo.Update(ctx, run)
+	if err := m.repo.Update(context.WithoutCancel(ctx), run); err != nil {
+		m.notifier.Cancel(conv.ID)
+		log.Printf("[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, conv.ID, err)
+		return m.finish(ctx, run, &result, database.SubAgentRunStatusFailed, "", "", fmt.Sprintf("erro ao persistir estado running: %v", err)), nil
+	}
 
 	// Encadeia as sub-invocações da sub-conversa à invocação da tool `subagent`.
 	sendCtx := toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID)
