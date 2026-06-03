@@ -3,6 +3,7 @@ package subagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -202,7 +203,13 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	}); err != nil {
 		m.notifier.Cancel(childConvID)
 		m.unregisterActive(run.ID)
-		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: err.Error()}
+		// Um cancel/timeout do ctx (usuário cancela a tool, deadline do executor)
+		// pode se manifestar como erro de send. Classificamos pelo estado do
+		// ctx/erro para não reportar cancelled/timed_out como failed (telemetria).
+		// Vale para o caminho síncrono e o de background (send é compartilhado
+		// antes do branch p.Background).
+		status, errMsg := classifySendError(ctx, err)
+		o := outcome{status: status, errMsg: errMsg}
 		finished := m.finish(ctx, run, &result, o)
 		if p.Background {
 			m.deliver(ctx, run, p)
@@ -329,6 +336,26 @@ func pollDone(done chan completion) (completion, bool) {
 		return c, true
 	default:
 		return completion{}, false
+	}
+}
+
+// classifySendError mapeia um erro de m.send para o status correto do run
+// conforme o enum do AEP-0068 ("Retorno da tool"). Um cancelamento/timeout do
+// contexto que apareça como erro de envio deve refletir cancelled/timed_out, e
+// não failed. Prioriza a classificação do próprio erro (errors.Is) e, em
+// seguida, o estado do ctx. A mensagem real do erro é sempre preservada.
+func classifySendError(ctx context.Context, err error) (status, errMsg string) {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return database.SubAgentRunStatusCancelled, err.Error()
+	case errors.Is(err, context.DeadlineExceeded):
+		return database.SubAgentRunStatusTimedOut, err.Error()
+	case ctx.Err() == context.Canceled:
+		return database.SubAgentRunStatusCancelled, err.Error()
+	case ctx.Err() == context.DeadlineExceeded:
+		return database.SubAgentRunStatusTimedOut, err.Error()
+	default:
+		return database.SubAgentRunStatusFailed, err.Error()
 	}
 }
 
