@@ -36,7 +36,46 @@ func templateFuncs(secrets SecretResolver) template.FuncMap {
 		"default":      tplDefault,
 		"adf_markdown": tplADFMarkdown,
 		"adf_text":     tplADFText,
+		"jiraTime":     tplJiraTime,
 	}
+}
+
+// flexibleTimeLayouts cobre os formatos de timestamp que aparecem no pipeline de
+// jobs. Além do RFC3339 (offset ±HH:MM), inclui o ISO-8601 com offset numérico
+// ±HHMM (SEM dois-pontos) emitido pelo Jira (MCP Atlassian), que NÃO é RFC3339 e
+// por isso quebrava `date`/`task_note`. Tentados em ordem (RFC3339 primeiro).
+var flexibleTimeLayouts = []string{
+	time.RFC3339Nano,                     // 2006-01-02T15:04:05.999999999Z07:00 (offset com :)
+	time.RFC3339,                         // 2006-01-02T15:04:05Z07:00
+	"2006-01-02T15:04:05.999999999-0700", // Jira: offset ±HHMM, fração opcional
+	"2006-01-02T15:04:05-0700",           // Jira: offset ±HHMM, sem fração
+}
+
+// parseFlexibleTime tenta interpretar uma string de data/hora usando os layouts
+// de flexibleTimeLayouts, aceitando tanto RFC3339 quanto o offset ±HHMM do Jira.
+func parseFlexibleTime(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	var lastErr error
+	for _, layout := range flexibleTimeLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		} else {
+			lastErr = err
+		}
+	}
+	return time.Time{}, lastErr
+}
+
+// tplJiraTime normaliza um timestamp estilo Jira (ISO-8601 com offset ±HHMM) para
+// uma string RFC3339 (offset ±HH:MM) que as tools downstream aceitam (ex.: o campo
+// external_updated_at de task_note). Strings já em RFC3339 passam direto.
+// Uso: {{ jiraTime .output.updated }}
+func tplJiraTime(s string) (string, error) {
+	t, err := parseFlexibleTime(s)
+	if err != nil {
+		return "", fmt.Errorf("jiraTime: cannot parse %q: %w", s, err)
+	}
+	return t.Format(time.RFC3339Nano), nil
 }
 
 // ResolveInputs resolve templates em todos os valores do mapa de inputs.
@@ -247,7 +286,7 @@ func tplDate(t any, layout string) (string, error) {
 	case time.Time:
 		return v.Format(layout), nil
 	case string:
-		parsed, err := time.Parse(time.RFC3339, v)
+		parsed, err := parseFlexibleTime(v)
 		if err != nil {
 			return "", fmt.Errorf("date: cannot parse %q: %w", v, err)
 		}
