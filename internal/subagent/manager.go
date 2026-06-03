@@ -2,6 +2,7 @@ package subagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -141,7 +142,11 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		Source:         Source,
 	}); err != nil {
 		m.notifier.Cancel(conv.ID)
-		return m.finish(ctx, run, &result, database.SubAgentRunStatusFailed, "", "", err.Error()), nil
+		// Um cancel/timeout do ctx (usuário cancela a tool, deadline do executor)
+		// pode se manifestar como erro de send. Classificamos pelo estado do
+		// ctx/erro para não reportar cancelled/timed_out como failed (telemetria).
+		status, errMsg := classifySendError(ctx, err)
+		return m.finish(ctx, run, &result, status, "", "", errMsg), nil
 	}
 
 	// 5. Espera conclusão / timeout / cancelamento.
@@ -187,6 +192,26 @@ func (m *Manager) waitForCompletion(ctx context.Context, childConvID string, don
 // `done` e timer/ctx ficam prontos quase simultaneamente (evita timed_out/
 // cancelled indevido). Na F2+ o caminho de background compartilha o mesmo
 // helper via wait().
+// classifySendError mapeia um erro de m.send para o status correto do run
+// conforme o enum do AEP-0068 ("Retorno da tool"). Um cancelamento/timeout do
+// contexto que apareça como erro de envio deve refletir cancelled/timed_out, e
+// não failed. Prioriza a classificação do próprio erro (errors.Is) e, em
+// seguida, o estado do ctx. A mensagem real do erro é sempre preservada.
+func classifySendError(ctx context.Context, err error) (status, errMsg string) {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return database.SubAgentRunStatusCancelled, err.Error()
+	case errors.Is(err, context.DeadlineExceeded):
+		return database.SubAgentRunStatusTimedOut, err.Error()
+	case ctx.Err() == context.Canceled:
+		return database.SubAgentRunStatusCancelled, err.Error()
+	case ctx.Err() == context.DeadlineExceeded:
+		return database.SubAgentRunStatusTimedOut, err.Error()
+	default:
+		return database.SubAgentRunStatusFailed, err.Error()
+	}
+}
+
 func pollDone(done chan completion) (completion, bool) {
 	select {
 	case c := <-done:
