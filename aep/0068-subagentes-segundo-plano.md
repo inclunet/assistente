@@ -1,6 +1,6 @@
 # AEP-0068 — Sub-agentes em segundo plano (tool de sub-conversas)
 
-Status: Draft
+Status: Proposto
 Data: 2026-06-02
 Autor: Inclunet + Cursor Agent
 
@@ -73,8 +73,9 @@ quanto os jobs o acionam pelo mesmo caminho.
   preservando histórico.
 - `background` (bool, default `false`): `false` → executa e o pai **espera** o
   resultado (inline); `true` → retorna o handle na hora e **avisa ao concluir**.
-- `clear` (bool, default `false`): reseta o histórico da sub-conversa antes de
-  enviar (requer `conversation_id`).
+- `clear` (bool, default `false`): reseta o histórico da sub-conversa **e envia** a
+  nova mensagem na mesma chamada (requer `conversation_id` **e** `prompt`; não é
+  válido em consultas de `status`).
 - `profile` (string, opcional): slug do profile do sub-agente
   (`ChatParams.ProfileSlug`). Default (vazio): chamadas originadas do chat/workspace
   **herdam o profile já resolvido do pai**; só na ausência de pai (job/system) cai no
@@ -99,6 +100,9 @@ quanto os jobs o acionam pelo mesmo caminho.
 #### Validações mínimas (combinações inválidas → erro)
 
 - `clear:true` sem `conversation_id` → erro (nada a resetar).
+- `clear:true` sem `prompt` → erro. `clear` é sempre **reset + envio** na mesma
+  chamada; nunca limpa o histórico sem enviar uma nova mensagem. Logo, `clear` não é
+  válido em consultas de `status` (sem `prompt`).
 - `cancel:true` junto com `prompt` ou `clear` → erro (operações mutuamente exclusivas).
 - `run_id` sem `conversation_id` → erro (run sempre pertence a uma conversa).
 - `run_id`/`conversation_id` que não pertencem ao usuário → erro (escopo AEP-0052).
