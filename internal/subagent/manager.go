@@ -132,7 +132,15 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	}
 
 	// Encadeia as sub-invocações da sub-conversa à invocação da tool `subagent`.
-	sendCtx := toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID)
+	// Contexto cancelável ESCOPADO a este run: o pipeline oficial dispara o
+	// agentic loop da sub-conversa em background sob um ctx derivado deste
+	// (SendMessageUseCase.Execute → context.WithCancel). Ao concluir por timeout,
+	// cancelamento ou ctx.Done() (e também no sucesso, via defer) cancelamos esse
+	// loop para não deixar trabalho rodando/custando após o desfecho. O cancel é
+	// filho de ctx (nunca cancela o pai) e privado deste run (sem cancelamento
+	// cruzado entre runs/sub-conversas).
+	sendCtx, cancelSend := context.WithCancel(toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID))
+	defer cancelSend()
 	if _, err := m.send(sendCtx, SendParams{
 		ConversationID: conv.ID,
 		Prompt:         p.Prompt,
