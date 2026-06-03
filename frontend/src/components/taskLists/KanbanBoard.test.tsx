@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import KanbanBoard from './KanbanBoard';
@@ -120,6 +120,26 @@ const makeTaskList = (tasks = makeTasks()) => ({
   workflow,
   tasks,
 });
+
+type TestTask = ReturnType<typeof makeTasks>[number];
+
+/**
+ * Board "controlado": liga o mock de `updateTaskStatus` a uma atualização
+ * otimista real do prop `tasks`, como o store faz em produção. Sem isso, mover
+ * um card não recompõe as colunas e a lógica de foco pós-move (issue #177) não
+ * seria exercida nos testes.
+ */
+function ControlledBoard({ initialTasks }: { initialTasks: TestTask[] }) {
+  const [tasks, setTasks] = useState<TestTask[]>(initialTasks);
+  mockUpdateTaskStatus.mockImplementation(async (taskId: string, statusId: number) => {
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, statusId } : t)));
+  });
+  return (
+    <MemoryRouter>
+      <KanbanBoard taskListId={"1"} tasks={tasks} taskList={makeTaskList(tasks)} />
+    </MemoryRouter>
+  );
+}
 
 /* ── Suíte de testes ───────────────────────────────────────── */
 
@@ -451,6 +471,86 @@ describe('KanbanBoard', () => {
 
     await waitFor(() => {
       expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+    });
+  });
+
+  // ── Foco após mover entre colunas (issue #177) ───────────
+
+  it('mantém o foco no board e vai para o próximo card da coluna de origem ao mover (Alt+ArrowRight)', async () => {
+    render(<ControlledBoard initialTasks={makeTasks()} />);
+
+    // Move "Tarefa Alpha" (col 0, linha 0) para a coluna 1.
+    const alphaCard = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+    expect(alphaCard).toBeTruthy();
+    fireEvent.keyDown(alphaCard!, { key: 'ArrowRight', altKey: true });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+    });
+
+    const board = screen.getByRole('grid');
+    const betaCard = screen.getByText('Tarefa Beta').closest('.kanban-card');
+
+    await waitFor(() => {
+      // (1) o foco permanece DENTRO do board
+      expect(board.contains(document.activeElement)).toBe(true);
+      // (2) o foco foi para o PRÓXIMO card da coluna de origem ("Tarefa Beta")
+      expect(document.activeElement).toBe(betaCard);
+    });
+  });
+
+  it('ao esvaziar a coluna de origem, o foco acompanha o card movido', async () => {
+    const tasks: TestTask[] = [
+      { id: "10", taskListId: "1", title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      { id: "12", taskListId: "1", title: 'Tarefa Gamma', description: '', statusId: 2, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    ];
+    render(<ControlledBoard initialTasks={tasks} />);
+
+    // "Tarefa Alpha" é o único card da coluna 0; ao movê-la a coluna esvazia.
+    const alphaCard = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+    fireEvent.keyDown(alphaCard!, { key: 'ArrowRight', altKey: true });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+    });
+
+    const board = screen.getByRole('grid');
+    await waitFor(() => {
+      const movedAlpha = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+      expect(board.contains(document.activeElement)).toBe(true);
+      // fallback: o foco acompanha o card movido (agora na coluna de destino)
+      expect(document.activeElement).toBe(movedAlpha);
+    });
+  });
+
+  it('no modo grab usa o task atual e permite mover de volta à coluna de origem', async () => {
+    const tasks: TestTask[] = [
+      { id: "10", taskListId: "1", title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      { id: "12", taskListId: "1", title: 'Tarefa Gamma', description: '', statusId: 2, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    ];
+    render(<ControlledBoard initialTasks={tasks} />);
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    // Agarra "Tarefa Alpha" e move para a direita (status 2).
+    fireEvent.keyDown(board, { key: ' ' });
+    fireEvent.keyDown(board, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+    });
+    // O foco acompanha o card carregado até a nova coluna.
+    await waitFor(() => {
+      const alpha = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+      expect(document.activeElement).toBe(alpha);
+    });
+
+    // Move de volta para a coluna original: sem usar o task atual, o
+    // `grabbedTask` stale bloquearia este movimento (early-return por status).
+    fireEvent.keyDown(board, { key: 'ArrowLeft' });
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 1);
     });
   });
 
