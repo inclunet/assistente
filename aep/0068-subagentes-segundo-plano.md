@@ -34,7 +34,7 @@ Hoje o "agentic loop" (`internal/agent/service.go`, `RunAgenticLoop`) é sempre
 - delegar uma subtarefa a um agente paralelo com seu próprio contexto e modelo;
 - pedir algo "em segundo plano" e ser avisado ao concluir, sem travar a conversa;
 - reabrir um agente anterior para continuar resolvendo um problema mal resolvido
-  (ex.: vários PRs abertos, pedindo a cada review que o subagente original corrija
+  (ex.: vários PRs abertos, pedindo a cada review que o sub-agente original corrija
   os problemas do seu PR);
 - usar um sub-agente conversacional como passo de um job recorrente.
 
@@ -79,7 +79,26 @@ quanto os jobs o acionam pelo mesmo caminho.
 - `title?`, `model?` (opcionais): metadados da sub-conversa. `tools?[]` (opcional):
   **restringe** (subconjunto) sobre as tools já habilitadas pelo profile — o
   profile é o gate primário.
-- `cancel` (bool, opcional): cancela o run em andamento (com `conversation_id`/`run_id`).
+- `run_id` (string, opcional): identifica um **run específico** (turno) de uma
+  sub-conversa para `status`/`cancel`. Se omitido, as operações abaixo agem sobre o
+  **run mais recente** da `conversation_id` informada.
+- `cancel` (bool, opcional): cancela um run em andamento. Requer `conversation_id`
+  (e opcionalmente `run_id` para escolher um run específico; sem ele, cancela o run
+  ativo mais recente). É **mutuamente exclusivo com `prompt`** — uma chamada ou
+  envia/continua, ou cancela, nunca ambos.
+
+#### Resolução de run em `status`/`cancel` (múltiplos runs por conversa)
+
+Como cada `prompt` cria um novo run (turno) sobre a mesma `conversation_id`, as
+operações de consulta/cancelamento resolvem o alvo assim:
+
+- `run_id` informado → opera exatamente nesse run (validando que pertence à
+  `conversation_id`/usuário).
+- `run_id` omitido → opera no **run mais recente** da `conversation_id` (para `cancel`,
+  o run ativo mais recente; se nenhum estiver ativo, é no-op com status informativo).
+- Precedência de parâmetros (mutuamente exclusivos): `cancel:true` → cancelar;
+  senão `prompt` presente → criar/continuar; senão (só `conversation_id`/`run_id`,
+  sem `prompt`) → `status`.
 
 Listar sub-agentes do usuário é **binding Wails/UI**, não tool — para não inchar a
 superfície exposta ao LLM; ele reabre usando o `conversation_id` que já recebeu.
