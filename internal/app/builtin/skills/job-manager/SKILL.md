@@ -166,7 +166,7 @@ Key facts:
 | `tasklist.task.reordered` | Task order changes within a column | `task_list_id`, `task_list_slug`, `status_id`, `ordered_ids` (list-level event; no per-card fields) |
 | `tasklist.task.completed` | Task reaches a completed state | task fields (`completed_at` set) |
 | `tasklist.task.deleted` | Task is deleted | task fields (best-effort: if the pre-delete snapshot can't be loaded, only `task_id` is published) |
-| `tasklist.note.added` / `.updated` / `.deleted` | Note lifecycle | `note_id`, `task_id`, `task_list_id`, `note_type`, `source`, `external_id`, `author_id` |
+| `tasklist.note.added` / `.updated` / `.deleted` | Note lifecycle | `note_id`, `task_id`, `task_list_id`, `note_type`, `source`, `external_id`, `author_id`. `.added` always carries full fields; `.updated`/`.deleted` are best-effort — only `note_id` is published when the note snapshot can't be (re)loaded |
 | `tasklist.list.created` / `.updated` / `.cleared` / `.deleted` | List lifecycle | `task_list_id`, `task_list_slug`, `title` |
 | `tasklist.list.cloned` | List cloned | + `source_task_list_id` |
 | `tasklist.list.refresh_requested` | User triggers an optional **Atualizar** board custom action (manual one-shot; not a fixed button) | `task_list_id`, `task_list_slug` |
