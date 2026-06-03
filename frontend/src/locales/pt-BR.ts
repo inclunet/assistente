@@ -2018,7 +2018,7 @@ const ptBR = {
       // Kanban
       kanban: {
         boardLabel: 'Quadro Kanban de {{name}}',
-        instructions: 'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre o menu.',
+        instructions: 'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Início e Fim vão ao primeiro e último card da coluna; Ctrl+Início e Ctrl+Fim vão ao primeiro e último card do quadro. Page Up e Page Down saltam 10 cards na coluna. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre os detalhes do card. Shift+F10 ou a tecla Menu abrem o menu de contexto.',
         emptyColumn: 'coluna vazia',
         task: 'tarefa',
         tasks: 'tarefas',

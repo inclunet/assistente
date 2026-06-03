@@ -1,6 +1,6 @@
 ---
 name: job-manager
-version: 2.2.0
+version: 2.3.0
 description: Provides context and instructions for managing event-driven automation jobs and pipelines via the `job` and `job_pipeline` tools (DB-backed) — creation, editing, triggers, conditional events, runs and events inspection
 displayName: Job Manager
 author: Assistente
@@ -243,7 +243,8 @@ Key facts:
 | `join` | `{{ join .output.keys ", " }}` | Join a slice into a string with a separator |
 | `json` | `{{ json .output }}` | Serialize a value to a JSON string (this is the `toJson` replacement) |
 | `default` | `{{ default 50 .event.limit }}` | **Argument order is `default <fallback> <value>`** — returns `<value>` unless it is nil/zero, in which case returns `<fallback>`. ⚠️ Fallback comes **first** (unlike Sprig's `default`). |
-| `date` | `{{ date .now "2006-01-02" }}` | Format a `time.Time` (or RFC3339 string) using a Go layout |
+| `date` | `{{ date .now "2006-01-02" }}` | Format a `time.Time` or a date string using a Go layout. Accepts RFC3339 **and** Jira-style ISO-8601 with a numeric `±HHMM` offset (no colon), e.g. `2026-05-25T15:35:53.521-0300`. |
+| `jiraTime` | `{{ jiraTime .output.updated }}` | Normalize a Jira-style timestamp (`±HHMM` offset) to an RFC3339 string (`±HH:MM`) that downstream tools accept (e.g. `task_note.external_updated_at`). RFC3339 input passes through. Errors on unparseable input. |
 | `now` | `{{ date (now) "2006-01-02" }}` | Function returning the current `time.Time`. Takes **no arguments**. ⚠️ Distinct from the root variable `.now` — see the pitfall below. |
 | `secret` | `{{ secret "API_KEY" }}` | Resolve a secret by name — never hardcode credentials |
 | `adf_markdown` | `{{ adf_markdown .event.description }}` | Render an Atlassian Document Format (ADF) node to Markdown |
@@ -278,6 +279,7 @@ Two forgiving rewrites run on every template **before** it is parsed:
 | Field comes out as `<no value>` | Wrong path, or used `.item.*` in fan-out, or referenced `.output.*` during `inputs`/`when` resolution — `.output` exists as a root but is still **empty (nil)** before the tool runs, so `.output.*` is `<no value>` there | Inspect the resolved value with a dry-run; confirm the path against the upstream payload via `job(job_id, run_id)` → `output` |
 | `template: invalid character ':' in variable reference` | JSON/Jinja-style syntax inside `{{ }}` (e.g. `{{ event:foo }}` or `{{ {"a":1} }}`) | Use Go syntax. To emit a JSON literal in `payload_template`, put the JSON **outside** `{{ }}` and only interpolate values inside them |
 | `payload_template` seems ignored | Rendered text is not a valid JSON object → silent fallback to raw output | Dry-run and check the emitted payload; render a valid JSON object wrapping **every** dynamic value with `json` (no manual quotes), e.g. `{ "task_code": {{ json .output.key }} }` |
+| `date: cannot parse "…-0300"` / whole payload comes out `<no value>` | A **Jira timestamp** (e.g. `2026-05-25T15:35:53.521-0300`) uses a numeric `±HHMM` offset (no colon) → not RFC3339. When `date`/`task_note` rejects it, the template render aborts and you hit the silent fallback (every field empty) | Normalize Jira timestamps with **`jiraTime`** before passing them downstream: `"comment_updated": {{ json (jiraTime .output.updated) }}`. (`date` and `task_note.external_updated_at` also accept the `±HHMM` form directly now, but `jiraTime` makes intent explicit.) |
 | Used `upper`/`lower`/`toJson` and parse fails | Those functions do not exist | Use `json` for serialization; do case changes upstream or omit |
 | `default` returns the wrong branch | Argument order: it is `default <fallback> <value>` | Put the fallback first: `{{ default 50 .event.limit }}` |
 
