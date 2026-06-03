@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import KanbanBoard from './KanbanBoard';
@@ -131,9 +131,19 @@ type TestTask = ReturnType<typeof makeTasks>[number];
  */
 function ControlledBoard({ initialTasks }: { initialTasks: TestTask[] }) {
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks);
-  mockUpdateTaskStatus.mockImplementation(async (taskId: string, statusId: number) => {
-    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, statusId } : t)));
-  });
+
+  // Configura o mock uma única vez (no mount) e o limpa no unmount, evitando
+  // side-effect durante o render. O updater funcional do setState garante que
+  // a atualização sempre parte do estado mais recente (sem capturar stale).
+  useEffect(() => {
+    mockUpdateTaskStatus.mockImplementation(async (taskId: string, statusId: number) => {
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, statusId } : t)));
+    });
+    return () => {
+      mockUpdateTaskStatus.mockReset();
+    };
+  }, []);
+
   return (
     <MemoryRouter>
       <KanbanBoard taskListId={"1"} tasks={tasks} taskList={makeTaskList(tasks)} />
