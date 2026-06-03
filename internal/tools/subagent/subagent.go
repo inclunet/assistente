@@ -176,16 +176,18 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		// que carrega o histórico da conversa pelo conversation_id.
 		inv, _ := invocationctx.Get(ctx)
 
-		// Vínculo com o turno-pai (AEP-0068). Uma chamada vinda do chat/workspace
-		// SEMPRE tem conversa/turno pai (o agentic loop carimba o InvocationContext
-		// — ver internal/agent/service.go). Se faltarem ao CRIAR uma nova
-		// sub-conversa, é bug de wiring e NÃO devemos criar sub-conversa órfã
-		// (kind=subagent some da listagem principal). Falha fechado. A única
-		// exceção legítima sem-pai é a origem job/system (origin "job", ponto de
-		// entrada formalizado na F4): distinção EXPLÍCITA por origem
-		// (eventctx.Provenance), não pela mera ausência de InvocationContext.
+		// Vínculo com o turno-pai (AEP-0068). Só vale ao CRIAR uma nova
+		// sub-conversa (sem conversation_id): uma chamada vinda do chat/workspace
+		// SEMPRE tem conversa/turno pai (o agentic loop carimba o
+		// InvocationContext — ver internal/agent/service.go). Se faltarem, é bug
+		// de wiring e NÃO devemos criar sub-conversa órfã (kind=subagent some da
+		// listagem principal). Falha fechado. No resume (conversation_id presente)
+		// a sub-conversa já existe, então não há risco de órfã e a checagem não se
+		// aplica. A única exceção legítima sem-pai na criação é a origem
+		// job/system (origin "job", formalizado na F4): distinção EXPLÍCITA por
+		// origem (eventctx.Provenance), não pela ausência de InvocationContext.
 		hasParent := strings.TrimSpace(inv.ConversationID) != "" && strings.TrimSpace(inv.TurnID) != ""
-		if !hasParent && !originAllowsParentless(ctx) {
+		if conversationID == "" && !hasParent && !originAllowsParentless(ctx) {
 			return errResult("sub-agente requer um turno-pai: invocado sem conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
 		}
 
