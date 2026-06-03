@@ -749,7 +749,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         <div id="kanban-instructions" className="sr-only">
           {t(
             'tasklist.kanban.instructions',
-            'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Início e Fim vão ao primeiro e último card da coluna; Ctrl+Início e Ctrl+Fim ao primeiro e último card do quadro. Page Up e Page Down saltam 10 cards na coluna. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre os detalhes do card. Shift+F10 ou a tecla Menu abrem o menu de contexto.',
+            'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Início e Fim vão ao primeiro e último card da coluna; Ctrl+Início e Ctrl+Fim vão ao primeiro e último card do quadro. Page Up e Page Down saltam 10 cards na coluna. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre os detalhes do card. Shift+F10 ou a tecla Menu abrem o menu de contexto.',
           )}
         </div>
 
