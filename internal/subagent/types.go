@@ -159,5 +159,7 @@ type Repository interface {
 	Update(ctx context.Context, run *database.SubAgentRun) error
 	// ReconcileOrphans marca como failed runs em queued/running (órfãos após
 	// restart). Operação instance-wide de startup (não é pedido de usuário).
-	ReconcileOrphans(ctx context.Context, now time.Time) (int64, error)
+	// cutoff limita aos runs criados antes do início do app; now carimba o
+	// desfecho.
+	ReconcileOrphans(ctx context.Context, cutoff, now time.Time) (int64, error)
 }

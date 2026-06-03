@@ -214,7 +214,18 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return finished, nil
 	}
 
-	sendCtx := toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID)
+	// Anexa o run.ID à cadeia de proveniência ANTES do envio: o run.ID só existe
+	// após o Create, então o backstop acima checa a cadeia que chega; ao enviar,
+	// a cadeia precisa CRESCER com este run para que qualquer sub-agente/job
+	// disparado DENTRO deste run enxergue a profundidade aumentada e o
+	// circuit-breaker seja efetivo nível a nível (AEP-0068/0067).
+	sendProv := deriveProvenance(ctx, run.ChainID)
+	sendProv.ChainHistory = appendChain(sendProv.ChainHistory, run.ID)
+	if strings.TrimSpace(sendProv.ChainID) == "" {
+		sendProv.ChainID = run.ID
+	}
+	sendCtx := eventctx.With(ctx, sendProv)
+	sendCtx = toolinvocations.WithParentInvocationID(sendCtx, p.ParentInvocationID)
 	if _, err := m.send(sendCtx, SendParams{
 		ConversationID: childConvID,
 		Prompt:         p.Prompt,
@@ -409,13 +420,20 @@ func (m *Manager) Cancel(ctx context.Context, conversationID, runID string) (Can
 // ReconcileOrphans marca como failed os runs deixados em queued/running por um
 // encerramento abrupto do app (AEP-0068 F4). Após um restart não há goroutine
 // viva para concluí-los nem entrada no mapa `active`, então qualquer run não
-// terminal persistido é órfão. Espelha a reconciliação de jobs no startup.
-// Retorna quantos runs foram reconciliados.
-func (m *Manager) ReconcileOrphans(ctx context.Context) (int64, error) {
+// terminal persistido ANTES do início desta instância é órfão. Espelha a
+// reconciliação de jobs no startup. Retorna quantos runs foram reconciliados.
+//
+// cutoff é a fronteira temporal (tipicamente o instante de início do app): só
+// runs criados antes dele são reconciliados, evitando marcar como órfão um run
+// legítimo criado em paralelo enquanto o startup ainda roda.
+//
+// Falha explicitamente se o Manager/Repo não estiver configurado: mascarar
+// wiring quebrado retornando (0,nil) esconderia um erro de inicialização.
+func (m *Manager) ReconcileOrphans(ctx context.Context, cutoff time.Time) (int64, error) {
 	if m == nil || m.repo == nil {
-		return 0, nil
+		return 0, fmt.Errorf("subagent manager não configurado: não é possível reconciliar runs órfãos")
 	}
-	return m.repo.ReconcileOrphans(ctx, m.now())
+	return m.repo.ReconcileOrphans(ctx, cutoff, m.now())
 }
 
 // resolveRun encontra o run alvo por run_id (validando que pertence à conversa)

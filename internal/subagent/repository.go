@@ -100,9 +100,14 @@ func (r *DBRepository) Update(ctx context.Context, run *database.SubAgentRun) er
 // pedido de usuário), por isso NÃO exige userID no ctx — alinhado a operações
 // como migrações/reconciliação de jobs (AEP-0052: maintenance op, não leitura
 // de dados de usuário). Atualiza apenas o status terminal de runs interrompidos.
-func (r *DBRepository) ReconcileOrphans(ctx context.Context, now time.Time) (int64, error) {
+//
+// cutoff é a fronteira temporal: só runs CRIADOS antes de cutoff são
+// reconciliados. Como o startup roda em goroutine enquanto o app já pode
+// aceitar requests, runs legítimos criados após o início (created_at >= cutoff)
+// NÃO podem ser marcados como órfãos. now é o instante para carimbar o desfecho.
+func (r *DBRepository) ReconcileOrphans(ctx context.Context, cutoff, now time.Time) (int64, error) {
 	res := r.db.WithContext(ctx).Model(&database.SubAgentRun{}).
-		Where("status IN ?", []string{database.SubAgentRunStatusQueued, database.SubAgentRunStatusRunning}).
+		Where("status IN ? AND created_at < ?", []string{database.SubAgentRunStatusQueued, database.SubAgentRunStatusRunning}, cutoff).
 		Updates(map[string]any{
 			"status":       database.SubAgentRunStatusFailed,
 			"error":        "interrompido: o app foi encerrado durante a execução do sub-agente",
