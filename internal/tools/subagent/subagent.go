@@ -66,7 +66,7 @@ func (t *Tool) Parameters() json.RawMessage {
 			},
 			"run_id": {
 				"type": "string",
-				"description": "Specific run (turn) of a sub-conversation for status/cancel. If omitted, acts on the most recent run of conversation_id. Requires conversation_id."
+				"description": "Specific run (turn) of a sub-conversation for status/cancel only. If omitted, acts on the most recent run of conversation_id. Requires conversation_id. Must NOT be combined with prompt (send/resume)."
 			},
 			"cancel": {
 				"type": "boolean",
@@ -129,6 +129,12 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	}
 	if runID != "" && conversationID == "" {
 		return errResult("'run_id' requer 'conversation_id'"), nil
+	}
+	if runID != "" && prompt != "" {
+		// run_id identifica um run específico para status/cancel; não faz sentido
+		// (e seria ignorado) ao enviar/continuar. Rejeita para não criar uma
+		// superfície ambígua (AEP-0068 — validações mínimas).
+		return errResult("'run_id' é para status/cancel e não pode ser combinado com 'prompt' (enviar/continuar)"), nil
 	}
 	if !a.Cancel && prompt == "" && conversationID == "" && runID == "" {
 		return errResult("nada a fazer: informe 'prompt' (enviar), 'conversation_id' (status) ou 'cancel'"), nil

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"assistente/controllers"
 	"assistente/internal/agent"
@@ -454,8 +455,15 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Reconciliação de runs órfãos (AEP-0068 F4): runs deixados em queued/running
 	// por um encerramento abrupto do app são marcados como failed no startup
 	// (espelha a reconciliação de jobs). Não bloqueia o startup.
+	//
+	// cutoff capturado AQUI (após criar o manager, antes de servir requests):
+	// como a reconciliação roda em goroutine enquanto o app já pode aceitar
+	// chamadas, só reconciliamos runs criados antes deste instante — um run
+	// legítimo criado em paralelo (created_at >= cutoff) não é marcado como
+	// órfão.
+	reconcileCutoff := time.Now()
 	go func() {
-		n, err := a.subagentMgr.ReconcileOrphans(context.WithoutCancel(a.ctx))
+		n, err := a.subagentMgr.ReconcileOrphans(context.WithoutCancel(a.ctx), reconcileCutoff)
 		if err != nil {
 			log.Printf("[Subagent] erro ao reconciliar runs órfãos: %v", err)
 		} else if n > 0 {

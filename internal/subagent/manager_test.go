@@ -581,6 +581,40 @@ func TestManagerInheritsJobProvenance(t *testing.T) {
 	}
 }
 
+// TestManagerAppendsRunIDToProvenanceBeforeSend garante que o run.ID é anexado
+// à cadeia de proveniência ANTES do envio (fix review PR #186): assim qualquer
+// sub-agente/job disparado DENTRO deste run vê a cadeia maior e o backstop de
+// profundidade cresce nível a nível.
+func TestManagerAppendsRunIDToProvenanceBeforeSend(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	var sentProv eventctx.Provenance
+	var sentOK bool
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(sctx context.Context, p SendParams) (string, error) {
+		sentProv, sentOK = eventctx.From(sctx)
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	jobCtx := eventctx.With(ctx, eventctx.Provenance{Source: "job", ChainID: "chain-1", ChainHistory: []string{"job-a"}})
+	res, err := mgr.Run(jobCtx, RunParams{Prompt: "tarefa"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !sentOK {
+		t.Fatal("ctx de envio deveria carregar proveniência (eventctx)")
+	}
+	if len(sentProv.ChainHistory) != 2 {
+		t.Fatalf("cadeia deveria crescer de 1 para 2 ao enviar; veio %v", sentProv.ChainHistory)
+	}
+	last := sentProv.ChainHistory[len(sentProv.ChainHistory)-1]
+	if last != res.RunID {
+		t.Fatalf("último elo da cadeia deveria ser o run.ID (%s); veio %q", res.RunID, last)
+	}
+}
+
 func TestManagerChainDepthBackstop(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()
@@ -624,7 +658,9 @@ func TestManagerReconcileOrphans(t *testing.T) {
 	queuedID := mkRun(StatusQueued)
 	succeededID := mkRun(StatusSucceeded)
 
-	n, err := mgr.ReconcileOrphans(ctx)
+	// cutoff no futuro: inclui os runs já criados (simulando órfãos de um
+	// processo anterior).
+	n, err := mgr.ReconcileOrphans(ctx, time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatalf("ReconcileOrphans: %v", err)
 	}
@@ -654,6 +690,55 @@ func contains(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
 }
 
+// TestManagerReconcileOrphansRespectsCutoff garante que a reconciliação NÃO
+// marca como órfão um run criado após o cutoff (instante de início do app):
+// runs legítimos criados em paralelo ao startup devem ser preservados.
+func TestManagerReconcileOrphansRespectsCutoff(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+
+	conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent")
+	if err != nil {
+		t.Fatalf("criar conv: %v", err)
+	}
+	run := &database.SubAgentRun{UserID: "user-a", ParentConversationID: "parent", ChildConversationID: conv.ID, Status: StatusRunning}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatalf("criar run: %v", err)
+	}
+
+	// cutoff no passado: o run (criado agora) é POSTERIOR ao cutoff → não pode
+	// ser reconciliado.
+	n, err := mgr.ReconcileOrphans(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ReconcileOrphans: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("nenhum run deveria ser reconciliado (criado após cutoff), veio %d", n)
+	}
+	got, err := repo.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("buscar run: %v", err)
+	}
+	if got.Status != StatusRunning {
+		t.Fatalf("run criado após cutoff não deveria mudar de status; veio %q", got.Status)
+	}
+}
+
+// TestManagerReconcileOrphansUnconfiguredFails garante que, sem repo/manager, a
+// reconciliação falha explicitamente (não mascara wiring quebrado no startup).
+func TestManagerReconcileOrphansUnconfiguredFails(t *testing.T) {
+	var nilMgr *Manager
+	if _, err := nilMgr.ReconcileOrphans(context.Background(), time.Now()); err == nil {
+		t.Fatal("esperava erro com Manager nil")
+	}
+	mgr := &Manager{} // sem repo
+	if _, err := mgr.ReconcileOrphans(context.Background(), time.Now()); err == nil {
+		t.Fatal("esperava erro com repo não configurado")
+	}
+}
+
 func TestManagerRunRequiresUserScope(t *testing.T) {
 	repo, _ := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()
@@ -662,6 +747,79 @@ func TestManagerRunRequiresUserScope(t *testing.T) {
 
 	if _, err := mgr.Run(context.Background(), RunParams{Prompt: "faça X"}); err == nil {
 		t.Fatal("esperava erro de escopo de usuário ausente")
+	}
+}
+
+// TestManagerFailFastConcurrentRunSameConversation garante o fail-fast (AEP-0068):
+// enquanto houver um run ATIVO em uma sub-conversa, iniciar outro run (resume) na
+// MESMA sub-conversa deve falhar de imediato, em vez de dois runs disputarem o
+// mesmo ResponseNotifier (que é indexado só por conversationID).
+func TestManagerFailFastConcurrentRunSameConversation(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: &recordingDelivery{},
+		// Nunca notifica → o 1º run permanece ativo.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	// 1º run em background → fica ativo (sem notificação). Timeout curto só para
+	// o goroutine encerrar após o teste.
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Prompt: "tarefa longa", Background: true, Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("primeiro Run: %v", err)
+	}
+
+	// 2º run (resume) na MESMA sub-conversa enquanto o 1º está ativo → fail-fast.
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Prompt: "tarefa concorrente"}); err == nil {
+		t.Fatal("esperava fail-fast ao iniciar run concorrente na mesma sub-conversa")
+	}
+
+	// Cancela o 1º para liberar a reserva e, então, um novo run na mesma
+	// sub-conversa deve ser aceito.
+	if _, err := mgr.Cancel(ctx, first.ConversationID, first.RunID); err != nil {
+		t.Fatalf("cancelar 1º run: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Prompt: "agora pode", Background: true, Timeout: time.Second}); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("após cancelar o 1º run, a sub-conversa deveria aceitar novo run")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestWaitPrefersDoneOverCancelAndTimeout garante a semântica de prioridade do
+// select no limite: com a resposta já disponível em `done`, mesmo que cancelCh,
+// timer e ctx também estejam prontos, o desfecho deve ser succeeded (não pode
+// virar cancelled/timed_out por causa do não-determinismo do select).
+func TestWaitPrefersDoneOverCancelAndTimeout(t *testing.T) {
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	m := &Manager{notifier: notifier, now: time.Now}
+
+	for i := 0; i < 300; i++ {
+		done := make(chan completion, 1)
+		done <- completion{response: "ok", assistantMessageID: "msg"}
+		ar := &activeRun{childConversationID: "c", cancelCh: make(chan struct{})}
+		close(ar.cancelCh) // cancel também pronto ao mesmo tempo que done
+
+		cctx, cancel := context.WithCancel(context.Background())
+		cancel() // ctx.Done() também pronto
+
+		o := m.wait(cctx, "c", done, ar, time.Nanosecond) // timer praticamente pronto
+		if o.status != StatusSucceeded {
+			t.Fatalf("iter %d: com done disponível esperava succeeded, veio %q", i, o.status)
+		}
+		if o.summary != "ok" || o.assistantMessageID != "msg" {
+			t.Fatalf("iter %d: desfecho de sucesso incompleto: %#v", i, o)
+		}
 	}
 }
 
