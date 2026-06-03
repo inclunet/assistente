@@ -148,7 +148,9 @@ Besides job-to-job events, the app **surfaces** publish semantic **domain events
 Key facts:
 
 - These events appear in the JobBuilder event picker even when **no job** emits them yet (static catalog in `internal/jobs/domain_events.go`).
-- Emission is **cost ~zero**: the surface only builds the payload and publishes when at least one job is actually listening (`HasDomainListener`). With no listener, nothing is computed.
+- Emission is **cheap when nobody listens** — but the details differ by producer:
+  - The **tasklist surface** checks `HasDomainListener` *before* building the payload, so with no subscriber **nothing is computed**.
+  - **User-triggered custom actions** are different: they render `link`/`payload_template` first and only then call `PublishDomainEvent`, which **no-ops** if there are no subscribers. The publish/fan-out is skipped, but the template render already happened (negligible, and only on explicit user action).
 - Domain events published via `PublishDomainEvent` carry **provenance** fields for anti-loop guards (see [Anti-loop guidance (provenance)](#anti-loop-guidance-provenance)). Note: `_source_job_id` is only set for job-originated mutations and is empty for user-originated events.
 
 ### Tasklist domain event catalog
@@ -163,7 +165,7 @@ Key facts:
 | `tasklist.task.reparented` | Task's parent changes | + `from_parent_id` |
 | `tasklist.task.reordered` | Task order changes within a column | `task_list_id`, `task_list_slug`, `status_id`, `ordered_ids` (list-level event; no per-card fields) |
 | `tasklist.task.completed` | Task reaches a completed state | task fields (`completed_at` set) |
-| `tasklist.task.deleted` | Task is deleted | task fields |
+| `tasklist.task.deleted` | Task is deleted | task fields (best-effort: if the pre-delete snapshot can't be loaded, only `task_id` is published) |
 | `tasklist.note.added` / `.updated` / `.deleted` | Note lifecycle | `note_id`, `task_id`, `task_list_id`, `note_type`, `source`, `external_id`, `author_id` |
 | `tasklist.list.created` / `.updated` / `.cleared` / `.deleted` | List lifecycle | `task_list_id`, `task_list_slug`, `title` |
 | `tasklist.list.cloned` | List cloned | + `source_task_list_id` |
