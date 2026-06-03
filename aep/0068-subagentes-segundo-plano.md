@@ -66,7 +66,8 @@ quanto os jobs o acionam pelo mesmo caminho.
 ### Contrato da tool `subagent` (única, dirigida por parâmetros)
 
 - `prompt` (string, **opcional**): tarefa/mensagem. Presente = envia/continua;
-  omitido (com `conversation_id`/`run_id`, sem `cancel`) = consulta de **status**.
+  omitido (com `conversation_id`, opcionalmente `run_id`, e sem `cancel`) =
+  consulta de **status**.
 - `conversation_id` (string UUID, opcional): **ausente → cria** sub-conversa nova;
   **presente → continua** na mesma (resume), preservando histórico.
 - `background` (bool, default `false`): `false` → executa e o pai **espera** o
@@ -100,7 +101,8 @@ quanto os jobs o acionam pelo mesmo caminho.
 #### Retorno da tool
 
 Campos **sempre presentes** na resposta: `conversation_id`, `run_id`, `status`
-(`queued`/`running`/`succeeded`/`failed`/`cancelled`). Variações por modo:
+(`queued`/`running`/`succeeded`/`failed`/`cancelled`/`timed_out` — alinhado ao
+enum já usado em `tool_invocations`). Variações por modo:
 
 - `background:false` (síncrono): além do handle, retorna o **resultado final**
   (`result_summary`/conteúdo da resposta do sub-agente e `assistant_message_id`). O
@@ -109,8 +111,12 @@ Campos **sempre presentes** na resposta: `conversation_id`, `run_id`, `status`
   `running`); o resultado chega depois pelo aviso de conclusão.
 - `status` (sem `prompt`): retorna o estado atual do run alvo (`status`, e
   `result_summary`/`assistant_message_id`/`error` quando já concluído).
-- `cancel`: retorna o handle com `status=cancelled` (ou no-op informativo se não
-  havia run ativo).
+- `cancel`: se havia run ativo (`queued`/`running`), retorna o handle com
+  `status=cancelled` e `cancelled:true`. Se **não** havia run ativo (run já terminal
+  ou inexistente), é **no-op**: retorna o `status` atual real do run (ex.: `succeeded`/
+  `failed`/`timed_out`/`cancelled`) com `cancelled:false` e uma `message`
+  informativa. O chamador (LLM/job) diferencia pelo campo `cancelled` (e/ou pela
+  transição do `status`), não apenas pelo `status` final.
 
 #### Resolução de run em `status`/`cancel` (múltiplos runs por conversa)
 
