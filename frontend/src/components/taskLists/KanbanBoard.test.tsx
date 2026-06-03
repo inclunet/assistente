@@ -132,15 +132,19 @@ type TestTask = ReturnType<typeof makeTasks>[number];
 function ControlledBoard({ initialTasks }: { initialTasks: TestTask[] }) {
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks);
 
-  // Configura o mock uma única vez (no mount) e o limpa no unmount, evitando
+  // Configura os mocks uma única vez (no mount) e os limpa no unmount, evitando
   // side-effect durante o render. O updater funcional do setState garante que
   // a atualização sempre parte do estado mais recente (sem capturar stale).
   useEffect(() => {
     mockUpdateTaskStatus.mockImplementation(async (taskId: string, statusId: number) => {
       setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, statusId } : t)));
     });
+    mockDeleteTask.mockImplementation(async (taskId: string) => {
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    });
     return () => {
       mockUpdateTaskStatus.mockReset();
+      mockDeleteTask.mockReset();
     };
   }, []);
 
@@ -562,6 +566,38 @@ describe('KanbanBoard', () => {
     await waitFor(() => {
       expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 1);
     });
+  });
+
+  it('cancela o grab (e não move outro card) se o card carregado for removido', async () => {
+    const tasks: TestTask[] = [
+      { id: "10", taskListId: "1", title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      { id: "12", taskListId: "1", title: 'Tarefa Gamma', description: '', statusId: 2, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    ];
+    render(<ControlledBoard initialTasks={tasks} />);
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    // Agarra "Tarefa Alpha" e em seguida a deleta (some do estado).
+    fireEvent.keyDown(board, { key: ' ' });
+    fireEvent.keyDown(board, { key: 'Delete' });
+    await waitFor(() => {
+      expect(mockDeleteTask).toHaveBeenCalledWith("10");
+    });
+
+    mockAnnounce.mockClear();
+
+    // Tenta mover com o card carregado já inexistente: deve cancelar o grab
+    // e NÃO mover nenhum outro card.
+    fireEvent.keyDown(board, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(mockAnnounce).toHaveBeenCalledWith(
+        expect.stringContaining('cancelada'),
+        'assertive',
+      );
+    });
+    expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
   });
 
   // ── Coluna vazia ──────────────────────────────────────────
