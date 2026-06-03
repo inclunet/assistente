@@ -154,7 +154,8 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 							"description": "When true, renders the action with a destructive/danger style"
 						}
 					},
-					"required": ["id", "label"]
+					"required": ["id", "label"],
+					"additionalProperties": false
 				}
 			},
 			"workflow": {

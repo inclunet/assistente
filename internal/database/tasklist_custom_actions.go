@@ -1,6 +1,7 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -60,6 +61,21 @@ func isValidCustomActionSurface(s string) bool {
 	}
 }
 
+// unknownJSONField extrai o nome do campo de um erro de DisallowUnknownFields
+// ("json: unknown field \"X\"") para uma mensagem mais amigável. encoding/json
+// não expõe um tipo de erro dedicado, então casamos pela string.
+func unknownJSONField(err error) (string, bool) {
+	const prefix = "json: unknown field "
+	msg := err.Error()
+	idx := strings.Index(msg, prefix)
+	if idx < 0 {
+		return "", false
+	}
+	field := strings.TrimSpace(msg[idx+len(prefix):])
+	field = strings.Trim(field, "\"")
+	return field, field != ""
+}
+
 // ParseTaskListCustomActionsJSON interpreta o campo custom_actions e valida.
 func ParseTaskListCustomActionsJSON(raw string) (*TaskListCustomActions, error) {
 	s := strings.TrimSpace(raw)
@@ -67,7 +83,16 @@ func ParseTaskListCustomActionsJSON(raw string) (*TaskListCustomActions, error) 
 		return &TaskListCustomActions{}, nil
 	}
 	var ca TaskListCustomActions
-	if err := json.Unmarshal([]byte(s), &ca); err != nil {
+	// DisallowUnknownFields: rejeita campos que não existem no schema (ex.: typos
+	// ou aliases inventados como "emits_event"/"enabled_when") em vez de ignorá-los
+	// silenciosamente — assim uma config errada falha cedo, com mensagem clara, em
+	// vez de ser salva sem efeito.
+	dec := json.NewDecoder(bytes.NewReader([]byte(s)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&ca); err != nil {
+		if field, ok := unknownJSONField(err); ok {
+			return nil, fmt.Errorf("custom_actions: campo desconhecido %q — verifique o nome (campos válidos por ação: id, label, icon, surfaces, event, payload_template, link, when, confirm, danger)", field)
+		}
 		return nil, fmt.Errorf("custom_actions: JSON inválido: %w", err)
 	}
 	seen := make(map[string]bool, len(ca.Actions))
