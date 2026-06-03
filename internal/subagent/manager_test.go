@@ -450,6 +450,108 @@ func TestManagerClearResetsHistoryBeforeSend(t *testing.T) {
 	}
 }
 
+type fakeLister struct {
+	metas []SubConversationMeta
+	err   error
+}
+
+func (f *fakeLister) ListSubAgentConversations(_ context.Context) ([]SubConversationMeta, error) {
+	return f.metas, f.err
+}
+
+func TestManagerConcurrencyLimitPerUser(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:                 repo,
+		Notifier:             notifier,
+		Delivery:             &recordingDelivery{},
+		MaxConcurrentPerUser: 1,
+		CancelStream:         func(string) {},
+		// Nunca notifica → o primeiro run em background ocupa a vaga.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	first, err := mgr.Run(ctx, RunParams{Prompt: "ocupa a vaga", Background: true, ParentConversationID: "p"})
+	if err != nil {
+		t.Fatalf("primeiro run: %v", err)
+	}
+
+	// Segundo run deve ser barrado pelo teto de concorrência.
+	if _, err := mgr.Run(ctx, RunParams{Prompt: "deve falhar", Background: true, ParentConversationID: "p"}); err == nil {
+		t.Fatal("esperava erro de limite de concorrência no segundo run")
+	}
+
+	// Cancelar o primeiro libera a vaga.
+	if _, err := mgr.Cancel(ctx, first.ConversationID, first.RunID); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	// Aguarda a goroutine do primeiro run liberar a vaga.
+	deadline := time.Now().Add(2 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		_, lastErr = mgr.Run(ctx, RunParams{Prompt: "agora vai", Background: true, ParentConversationID: "p"})
+		if lastErr == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if lastErr != nil {
+		t.Fatalf("vaga não liberada após cancelar o primeiro run: %v", lastErr)
+	}
+}
+
+func TestManagerListSubConversations(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	// Cria uma sub-conversa real com um run succeeded.
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			go notifier.Notify(p.ConversationID, "ok", "m1")
+			return p.ConversationID, nil
+		},
+	})
+	run1, err := mgr.Run(ctx, RunParams{Prompt: "tarefa", ParentConversationID: "parent-conv"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// Lister falso devolve a meta da sub-conversa criada, com custo.
+	lister := &fakeLister{metas: []SubConversationMeta{{
+		ConversationID:       run1.ConversationID,
+		Title:                "tarefa",
+		ParentConversationID: "parent-conv",
+		MessageCount:         2,
+		PromptTokens:         100,
+		CompletionTokens:     50,
+		TotalTokens:          150,
+	}}}
+	mgr.lister = lister
+
+	list, err := mgr.ListSubConversations(ctx)
+	if err != nil {
+		t.Fatalf("ListSubConversations: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("esperava 1 sub-conversa, veio %d", len(list))
+	}
+	s := list[0]
+	if s.ConversationID != run1.ConversationID {
+		t.Fatalf("conversationId inesperado: %#v", s)
+	}
+	if s.LatestStatus != StatusSucceeded || s.RunCount != 1 {
+		t.Fatalf("status/contagem de run inesperados: %#v", s)
+	}
+	if s.TotalTokens != 150 || s.PromptTokens != 100 || s.CompletionTokens != 50 {
+		t.Fatalf("custo (tokens) inesperado: %#v", s)
+	}
+}
+
 func TestManagerInheritsJobProvenance(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

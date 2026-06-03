@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"assistente/internal/database"
 	"assistente/internal/subagent"
 )
 
@@ -30,6 +31,50 @@ func (d *subagentParentDelivery) Deliver(ctx context.Context, n subagent.ParentN
 	// derivado do profile. Source="subagent" é definido por SendForSubagent.
 	_, err := d.app.chatCtrl.SendForSubagent(ctx, n.ParentConversationID, content, "", "", "")
 	return err
+}
+
+// subagentConversationLister implementa subagent.ConversationLister sobre o
+// pacote database (AEP-0068 F5), convertendo o tipo local do banco para o DTO
+// do pacote subagent. Mantém o pacote subagent livre de detalhes de consulta.
+type subagentConversationLister struct {
+	app *App
+}
+
+func (l *subagentConversationLister) ListSubAgentConversations(ctx context.Context) ([]subagent.SubConversationMeta, error) {
+	rows, err := database.ListSubAgentConversationsWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]subagent.SubConversationMeta, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, subagent.SubConversationMeta{
+			ConversationID:       r.ConversationID,
+			Title:                r.Title,
+			ParentConversationID: r.ParentConversationID,
+			CreatedAt:            r.CreatedAt,
+			UpdatedAt:            r.UpdatedAt,
+			MessageCount:         r.MessageCount,
+			PromptTokens:         r.PromptTokens,
+			CompletionTokens:     r.CompletionTokens,
+			TotalTokens:          r.TotalTokens,
+		})
+	}
+	return out, nil
+}
+
+// GetSubAgentConversations lista as sub-conversas de sub-agentes do usuário
+// autenticado (AEP-0068 F5): identidade, vínculo com o pai, status do run mais
+// recente, contagem de runs e custo (tokens). Binding Wails para a UI — NÃO é
+// uma tool exposta ao LLM.
+func (a *App) GetSubAgentConversations() ([]subagent.SubConversationSummary, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	if a.subagentMgr == nil {
+		return []subagent.SubConversationSummary{}, nil
+	}
+	return a.subagentMgr.ListSubConversations(ctx)
 }
 
 // buildSubagentNotice monta o conteúdo do aviso entregue ao pai.

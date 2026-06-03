@@ -26,6 +26,11 @@ const maxResultSummary = 16 * 1024
 // descontrolada (sub-agente acordando o pai que delega de novo, etc.).
 const DefaultMaxChainDepth = 10
 
+// DefaultMaxConcurrentPerUser é o teto global de sub-agentes simultâneos por
+// usuário (AEP-0068 F5). Protege contra custo/concorrência descontrolados
+// quando muitos runs em background são disparados ao mesmo tempo.
+const DefaultMaxConcurrentPerUser = 4
+
 // completion carrega o resultado entregue pelo callback in-process do notifier.
 type completion struct {
 	response           string
@@ -59,13 +64,16 @@ type Manager struct {
 	notifier      *messaging.ResponseNotifier
 	send          SendFunc
 	delivery      ParentDelivery
+	lister        ConversationLister
 	cancelStrm    func(conversationID string)
 	now           func() time.Time
 	maxChainDepth int
+	maxConcurrent int
 
-	mu       sync.Mutex
-	active   map[string]*activeRun // runID -> run ativo
-	parentMu map[string]*sync.Mutex
+	mu           sync.Mutex
+	active       map[string]*activeRun // runID -> run ativo
+	activeByUser map[string]int        // userID -> nº de runs ativos (teto de concorrência)
+	parentMu     map[string]*sync.Mutex
 }
 
 // ManagerConfig agrupa as dependências do Manager.
@@ -77,6 +85,9 @@ type ManagerConfig struct {
 	// (auto-wake). Pode ser nil (ex.: contextos sem pai); então o aviso é
 	// apenas persistido no run.
 	Delivery ParentDelivery
+	// Lister fornece metadados/custo das sub-conversas para a UI (AEP-0068 F5).
+	// Pode ser nil (ex.: testes que não exercitam a listagem).
+	Lister ConversationLister
 	// CancelStream cancela o streaming LLM de uma conversa (barge-in). Usado
 	// para interromper um sub-agente em background. Pode ser nil em testes.
 	CancelStream func(conversationID string)
@@ -85,6 +96,9 @@ type ManagerConfig struct {
 	// MaxChainDepth é o teto de profundidade de cadeia (backstop anti-runaway).
 	// <=0 usa DefaultMaxChainDepth.
 	MaxChainDepth int
+	// MaxConcurrentPerUser é o teto global de sub-agentes simultâneos por
+	// usuário. <=0 usa DefaultMaxConcurrentPerUser.
+	MaxConcurrentPerUser int
 }
 
 // NewManager cria um Manager com as dependências injetadas.
@@ -97,15 +111,22 @@ func NewManager(cfg ManagerConfig) *Manager {
 	if maxChainDepth <= 0 {
 		maxChainDepth = DefaultMaxChainDepth
 	}
+	maxConcurrent := cfg.MaxConcurrentPerUser
+	if maxConcurrent <= 0 {
+		maxConcurrent = DefaultMaxConcurrentPerUser
+	}
 	return &Manager{
 		repo:          cfg.Repo,
 		notifier:      cfg.Notifier,
 		send:          cfg.Send,
 		delivery:      cfg.Delivery,
+		lister:        cfg.Lister,
 		cancelStrm:    cfg.CancelStream,
 		now:           now,
 		maxChainDepth: maxChainDepth,
+		maxConcurrent: maxConcurrent,
 		active:        make(map[string]*activeRun),
+		activeByUser:  make(map[string]int),
 		parentMu:      make(map[string]*sync.Mutex),
 	}
 }
@@ -137,10 +158,17 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, fmt.Errorf("limite de profundidade de cadeia atingido (%d): possível runaway de sub-agentes/jobs", m.maxChainDepth)
 	}
 
+	// Teto global de concorrência por usuário (AEP-0068 F5): reserva uma vaga
+	// antes de criar qualquer sub-conversa/run; cada caminho terminal libera.
+	if err := m.acquireSlot(userID); err != nil {
+		return RunResult{}, err
+	}
+
 	// 1. Resolve a sub-conversa: cria nova ou reusa uma existente
 	// (resume/clear — Fase 3), preservando o contexto da sub-conversa.
 	childConvID, turnIndex, err := m.resolveChildConversation(ctx, p)
 	if err != nil {
+		m.releaseSlot(userID)
 		return RunResult{}, err
 	}
 
@@ -158,6 +186,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		ChainHistory:         chainHistoryJSON,
 	}
 	if err := m.repo.Create(ctx, run); err != nil {
+		m.releaseSlot(userID)
 		return RunResult{}, fmt.Errorf("erro ao registrar run de sub-agente: %w", err)
 	}
 
@@ -202,6 +231,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		if p.Background {
 			m.deliver(ctx, run, p)
 		}
+		m.releaseSlot(userID)
 		return finished, nil
 	}
 
@@ -214,6 +244,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			m.finish(bgCtx, run, &result, o)
 			m.unregisterActive(run.ID)
 			m.deliver(bgCtx, run, p)
+			m.releaseSlot(userID)
 		}()
 		return result, nil
 	}
@@ -221,7 +252,28 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// Síncrono (Fase 1): espera inline.
 	o := m.wait(ctx, childConvID, done, ar, p.Timeout)
 	m.unregisterActive(run.ID)
+	defer m.releaseSlot(userID)
 	return m.finish(ctx, run, &result, o), nil
+}
+
+// acquireSlot reserva uma vaga de concorrência para o usuário; falha se o teto
+// já foi atingido. releaseSlot devolve a vaga (idempotente em zero).
+func (m *Manager) acquireSlot(userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeByUser[userID] >= m.maxConcurrent {
+		return fmt.Errorf("limite de %d sub-agentes simultâneos atingido para este usuário; aguarde a conclusão de um run ou cancele um existente", m.maxConcurrent)
+	}
+	m.activeByUser[userID]++
+	return nil
+}
+
+func (m *Manager) releaseSlot(userID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeByUser[userID] > 0 {
+		m.activeByUser[userID]--
+	}
 }
 
 // resolveChildConversation decide a sub-conversa alvo do run e o índice do turno:
@@ -354,6 +406,68 @@ func (m *Manager) ReconcileOrphans(ctx context.Context) (int64, error) {
 		return 0, nil
 	}
 	return m.repo.ReconcileOrphans(ctx, m.now())
+}
+
+// ListSubConversations retorna a visão das sub-conversas do usuário para a UI
+// (AEP-0068 F5): identidade, vínculo com o pai, status do run mais recente,
+// contagem de runs e custo agregado (tokens). Combina os metadados da conversa
+// (via Lister) com os runs persistidos (via Repository), tudo escopado por
+// usuário.
+func (m *Manager) ListSubConversations(ctx context.Context) ([]SubConversationSummary, error) {
+	if m == nil || m.repo == nil || m.lister == nil {
+		return []SubConversationSummary{}, nil
+	}
+	metas, err := m.lister.ListSubAgentConversations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := m.repo.ListByUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// runs vem ordenado do mais recente para o mais antigo: o primeiro visto por
+	// child_conversation_id é o mais recente.
+	type runAgg struct {
+		latest *database.SubAgentRun
+		count  int
+	}
+	byConv := make(map[string]*runAgg, len(metas))
+	for i := range runs {
+		r := &runs[i]
+		agg, ok := byConv[r.ChildConversationID]
+		if !ok {
+			agg = &runAgg{}
+			byConv[r.ChildConversationID] = agg
+		}
+		if agg.latest == nil {
+			agg.latest = r
+		}
+		agg.count++
+	}
+
+	out := make([]SubConversationSummary, 0, len(metas))
+	for _, meta := range metas {
+		s := SubConversationSummary{
+			ConversationID:       meta.ConversationID,
+			Title:                meta.Title,
+			ParentConversationID: meta.ParentConversationID,
+			MessageCount:         meta.MessageCount,
+			PromptTokens:         meta.PromptTokens,
+			CompletionTokens:     meta.CompletionTokens,
+			TotalTokens:          meta.TotalTokens,
+			CreatedAt:            meta.CreatedAt,
+			UpdatedAt:            meta.UpdatedAt,
+		}
+		if agg, ok := byConv[meta.ConversationID]; ok && agg.latest != nil {
+			s.LatestStatus = agg.latest.Status
+			s.RunCount = agg.count
+			s.Background = agg.latest.Background
+			s.LastError = agg.latest.Error
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 // resolveRun encontra o run alvo por run_id (validando que pertence à conversa)

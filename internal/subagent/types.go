@@ -141,6 +141,46 @@ func isTerminal(status string) bool {
 	}
 }
 
+// ConversationLister fornece os metadados/custo das sub-conversas do usuário
+// para a UI (AEP-0068 F5). Implementado pelo wiring do app sobre o pacote
+// database (evita o pacote subagent depender de detalhes de consulta/joins).
+type ConversationLister interface {
+	ListSubAgentConversations(ctx context.Context) ([]SubConversationMeta, error)
+}
+
+// SubConversationMeta são os metadados de uma sub-conversa vindos do banco
+// (sem dados de run). O Manager enriquece com status/contagem/custo dos runs.
+type SubConversationMeta struct {
+	ConversationID       string
+	Title                string
+	ParentConversationID string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	MessageCount         int
+	PromptTokens         int
+	CompletionTokens     int
+	TotalTokens          int
+}
+
+// SubConversationSummary é a visão de uma sub-conversa para a UI: identidade,
+// vínculo com o pai, status do run mais recente, contagem de runs e custo
+// agregado (tokens). Serializada para o frontend pelo binding Wails.
+type SubConversationSummary struct {
+	ConversationID       string    `json:"conversationId"`
+	Title                string    `json:"title"`
+	ParentConversationID string    `json:"parentConversationId,omitempty"`
+	LatestStatus         string    `json:"latestStatus"`
+	RunCount             int       `json:"runCount"`
+	Background           bool      `json:"background"`
+	MessageCount         int       `json:"messageCount"`
+	PromptTokens         int       `json:"promptTokens"`
+	CompletionTokens     int       `json:"completionTokens"`
+	TotalTokens          int       `json:"totalTokens"`
+	LastError            string    `json:"lastError,omitempty"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+}
+
 // RunResult é o retorno de um run de sub-agente.
 type RunResult struct {
 	ConversationID     string `json:"conversation_id"`
@@ -156,6 +196,7 @@ type Repository interface {
 	Create(ctx context.Context, run *database.SubAgentRun) error
 	Get(ctx context.Context, id string) (*database.SubAgentRun, error)
 	GetLatestByChildConversation(ctx context.Context, childConversationID string) (*database.SubAgentRun, error)
+	ListByUser(ctx context.Context) ([]database.SubAgentRun, error)
 	Update(ctx context.Context, run *database.SubAgentRun) error
 	// ReconcileOrphans marca como failed runs em queued/running (órfãos após
 	// restart). Operação instance-wide de startup (não é pedido de usuário).

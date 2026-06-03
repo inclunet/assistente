@@ -446,6 +446,10 @@ export function GetConversations() {
   return window['go']['app']['App']['GetConversations']();
 }
 
+export function GetSubAgentConversations() {
+  return window['go']['app']['App']['GetSubAgentConversations']();
+}
+
 export function GetEffectiveModel() {
   return window['go']['app']['App']['GetEffectiveModel']();
 }

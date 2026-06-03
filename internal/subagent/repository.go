@@ -60,6 +60,23 @@ func (r *DBRepository) GetLatestByChildConversation(ctx context.Context, childCo
 	return &run, nil
 }
 
+// ListByUser retorna todos os runs do usuário do contexto, ordenados do mais
+// recente para o mais antigo. Usado pela UI (AEP-0068 F5) para derivar status,
+// contagem de runs e custo por sub-conversa.
+func (r *DBRepository) ListByUser(ctx context.Context) ([]database.SubAgentRun, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	var runs []database.SubAgentRun
+	err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+		Order("created_at DESC, id DESC").
+		Find(&runs).Error
+	if err != nil {
+		return nil, err
+	}
+	return runs, nil
+}
+
 // Update persiste alterações de um run existente, escopado ao usuário do contexto.
 func (r *DBRepository) Update(ctx context.Context, run *database.SubAgentRun) error {
 	if _, err := database.RequireUserID(ctx); err != nil {

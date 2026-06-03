@@ -434,6 +434,47 @@ func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 	return conversations, nil
 }
 
+// SubAgentConversationMeta carrega os metadados + custo (tokens) de uma
+// sub-conversa de sub-agente, para a listagem da UI (AEP-0068 F5). É um tipo
+// local do pacote database para evitar ciclo de imports com internal/subagent.
+type SubAgentConversationMeta struct {
+	ConversationID       string    `gorm:"column:id"`
+	Title                string    `gorm:"column:title"`
+	ParentConversationID string    `gorm:"column:parent_conversation_id"`
+	CreatedAt            time.Time `gorm:"column:created_at"`
+	UpdatedAt            time.Time `gorm:"column:updated_at"`
+	MessageCount         int       `gorm:"column:message_count"`
+	PromptTokens         int       `gorm:"column:prompt_tokens"`
+	CompletionTokens     int       `gorm:"column:completion_tokens"`
+	TotalTokens          int       `gorm:"column:total_tokens"`
+}
+
+// ListSubAgentConversationsWithContext lista as sub-conversas de sub-agente
+// (kind=subagent) do usuário do contexto, com contagem de mensagens e soma de
+// tokens (custo) em uma única query (evita N+1). Não inclui dados de run — o
+// chamador (Manager) enriquece com status/contagem de runs.
+func ListSubAgentConversationsWithContext(ctx context.Context) ([]SubAgentConversationMeta, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	var rows []SubAgentConversationMeta
+	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
+	err := query.
+		Select("conversations.id, conversations.title, conversations.parent_conversation_id, conversations.created_at, conversations.updated_at, "+
+			"COALESCE(m.count, 0) as message_count, COALESCE(m.prompt_tokens, 0) as prompt_tokens, "+
+			"COALESCE(m.completion_tokens, 0) as completion_tokens, COALESCE(m.total_tokens, 0) as total_tokens").
+		Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count, SUM(prompt_tokens) as prompt_tokens, "+
+			"SUM(completion_tokens) as completion_tokens, SUM(total_tokens) as total_tokens "+
+			"FROM chat_messages GROUP BY conversation_id) as m ON m.conversation_id = conversations.id").
+		Where("conversations.kind = ?", ConversationKindSubagent).
+		Order("conversations.updated_at DESC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // GetConversationWithContext retorna uma conversa do usuário do contexto com
 // suas mensagens. Deprecated em favor de GetConversationInfoWithContext +
 // GetMessagesWithContext (lazy loading), mas mantida para callers que ainda
