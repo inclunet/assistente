@@ -90,6 +90,34 @@ func TestManagerRunSyncSuccess(t *testing.T) {
 	}
 }
 
+// TestWaitForCompletionPrefersDoneOverTimeout cobre a corrida do caminho
+// SÍNCRONO (F1): com a resposta já disponível em `done`, mesmo que o timer e o
+// ctx também estejam prontos, o desfecho deve ser succeeded (o select não pode
+// marcar timed_out/cancelled havendo resposta). Determinístico: `done` é
+// pré-bufferizado e o timeout é mínimo (timer pronto) — repetido para cobrir o
+// não-determinismo do select.
+func TestWaitForCompletionPrefersDoneOverTimeout(t *testing.T) {
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	m := &Manager{notifier: notifier, now: time.Now}
+
+	for i := 0; i < 300; i++ {
+		done := make(chan completion, 1)
+		done <- completion{response: "resposta", assistantMessageID: "msg-x"}
+
+		cctx, cancel := context.WithCancel(context.Background())
+		cancel() // ctx.Done() também pronto
+
+		status, summary, amid, errMsg := m.waitForCompletion(cctx, "conv-1", done, time.Nanosecond)
+		if status != StatusSucceeded {
+			t.Fatalf("iter %d: com done disponível esperava succeeded, veio %q (err=%q)", i, status, errMsg)
+		}
+		if summary != "resposta" || amid != "msg-x" {
+			t.Fatalf("iter %d: desfecho de sucesso incompleto: status=%q summary=%q amid=%q", i, status, summary, amid)
+		}
+	}
+}
+
 func TestManagerRunRequiresPrompt(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

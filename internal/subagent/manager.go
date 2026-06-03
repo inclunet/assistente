@@ -145,7 +145,19 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	}
 
 	// 5. Espera conclusão / timeout / cancelamento.
-	timeout := p.Timeout
+	status, summary, assistantMessageID, errMsg := m.waitForCompletion(ctx, conv.ID, done, p.Timeout)
+	return m.finish(ctx, run, &result, status, summary, assistantMessageID, errMsg), nil
+}
+
+// waitForCompletion bloqueia até a conclusão (`done`), timeout ou cancelamento
+// do ctx, e devolve o desfecho (status + dados). É extraído do Run para ser
+// testável de forma determinística (injetando `done`).
+//
+// O select de Go não prioriza cases: se `done` ficar pronto quase junto com
+// timer.C/ctx.Done(), o desfecho poderia virar timed_out/cancelled mesmo
+// havendo resposta. Por isso, antes de persistir timeout/cancel, re-checamos
+// `done` de forma não-bloqueante (pollDone) e priorizamos succeeded.
+func (m *Manager) waitForCompletion(ctx context.Context, childConvID string, done chan completion, timeout time.Duration) (status, summary, assistantMessageID, errMsg string) {
 	if timeout <= 0 {
 		timeout = DefaultSyncTimeout
 	}
@@ -154,13 +166,33 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 
 	select {
 	case c := <-done:
-		return m.finish(ctx, run, &result, database.SubAgentRunStatusSucceeded, c.response, c.assistantMessageID, ""), nil
+		return database.SubAgentRunStatusSucceeded, c.response, c.assistantMessageID, ""
 	case <-timer.C:
-		m.notifier.Cancel(conv.ID)
-		return m.finish(ctx, run, &result, database.SubAgentRunStatusTimedOut, "", "", "tempo limite excedido aguardando o sub-agente"), nil
+		if c, ok := pollDone(done); ok {
+			return database.SubAgentRunStatusSucceeded, c.response, c.assistantMessageID, ""
+		}
+		m.notifier.Cancel(childConvID)
+		return database.SubAgentRunStatusTimedOut, "", "", "tempo limite excedido aguardando o sub-agente"
 	case <-ctx.Done():
-		m.notifier.Cancel(conv.ID)
-		return m.finish(ctx, run, &result, database.SubAgentRunStatusCancelled, "", "", ctx.Err().Error()), nil
+		if c, ok := pollDone(done); ok {
+			return database.SubAgentRunStatusSucceeded, c.response, c.assistantMessageID, ""
+		}
+		m.notifier.Cancel(childConvID)
+		return database.SubAgentRunStatusCancelled, "", "", ctx.Err().Error()
+	}
+}
+
+// pollDone lê `done` de forma não-bloqueante, retornando a conclusão se já
+// estiver disponível. Usado para dar prioridade à resposta bem-sucedida quando
+// `done` e timer/ctx ficam prontos quase simultaneamente (evita timed_out/
+// cancelled indevido). Na F2+ o caminho de background compartilha o mesmo
+// helper via wait().
+func pollDone(done chan completion) (completion, bool) {
+	select {
+	case c := <-done:
+		return c, true
+	default:
+		return completion{}, false
 	}
 }
 
