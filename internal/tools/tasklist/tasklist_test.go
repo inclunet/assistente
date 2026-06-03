@@ -2184,6 +2184,30 @@ func TestUpsertTaskList_CustomActionsInvalid(t *testing.T) {
 	}
 }
 
+// TestUpsertTaskList_CustomActionsObjectRejected garante que custom_actions
+// como objeto ({}) é rejeitado com erro, em vez de ser tratado como "limpar"
+// (que mascararia um tipo errado como data-loss). Só [] limpa.
+func TestUpsertTaskList_CustomActionsObjectRejected(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Suporte", defaultStatuses())
+	tl.CustomActions = `{"actions":[{"id":"refresh","label":"Atualizar","event":"tasklist.card.refresh"}]}`
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id":   tl.ID,
+		"custom_actions": map[string]any{},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error for custom_actions as object {}, got: %s", result.Content)
+	}
+	if mgr.taskLists[tl.ID].CustomActions == "" {
+		t.Fatalf("custom_actions should NOT be cleared by an invalid object {}")
+	}
+}
+
 // TestGetTaskList_BySlugDoesNotMutate garante que uma chamada de leitura apenas
 // com task_list_slug retorna os detalhes da lista SEM cair no caminho de
 // escrita (que sobrescreveria description/view_mode com vazio). Regressão do

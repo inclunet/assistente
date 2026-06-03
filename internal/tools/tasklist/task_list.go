@@ -803,27 +803,32 @@ func rawJSONPresent(raw json.RawMessage) bool {
 	return s != "" && s != "null"
 }
 
-// applyCustomActions aplica custom_actions quando enviado. Aceita um array de
-// ações (forma natural do schema) ou um objeto {"actions":[...]}. [] ou {} limpam.
+// applyCustomActions aplica custom_actions quando enviado. custom_actions é um
+// ARRAY de ações (forma do schema do tool): um array vazio ([]) limpa todas as
+// ações. Qualquer outro tipo JSON (objeto, inclusive {}, ou escalar) é rejeitado
+// explicitamente — assim um tipo errado vira erro claro em vez de data-loss
+// silencioso e mantém coerência com a descrição do tool ("[] clears").
 func (t *TaskListTool) applyCustomActions(ctx context.Context, taskListID string, raw json.RawMessage) (errMsg string, err error) {
 	if !rawJSONPresent(raw) {
 		return "", nil
 	}
 	s := strings.TrimSpace(string(raw))
-	if s == "[]" || s == "{}" {
+	if !strings.HasPrefix(s, "[") {
+		msg := "custom_actions deve ser um array de ações (use [] para limpar todas)"
+		return msg, fmt.Errorf("%s", msg)
+	}
+	// Embrulha o array no formato armazenado {"actions":[...]} e valida.
+	normalized := `{"actions":` + s + `}`
+	parsed, e := database.ParseTaskListCustomActionsJSON(normalized)
+	if e != nil {
+		return e.Error(), e
+	}
+	// Array vazio ([] ou [ ]) limpa tudo.
+	if len(parsed.Actions) == 0 {
 		if e := t.mgr.SetTaskListCustomActions(ctx, taskListID, ""); e != nil {
 			return fmt.Sprintf("Error clearing custom_actions: %v", e), e
 		}
 		return "", nil
-	}
-	// Aceita array (forma do schema) e o embrulha no formato armazenado
-	// {"actions":[...]}; objeto já no formato esperado passa direto.
-	normalized := s
-	if strings.HasPrefix(s, "[") {
-		normalized = `{"actions":` + s + `}`
-	}
-	if _, e := database.ParseTaskListCustomActionsJSON(normalized); e != nil {
-		return e.Error(), e
 	}
 	if e := t.mgr.SetTaskListCustomActions(ctx, taskListID, normalized); e != nil {
 		return fmt.Sprintf("Error saving custom_actions: %v", e), e

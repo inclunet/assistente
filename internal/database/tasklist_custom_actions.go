@@ -92,7 +92,7 @@ func ParseTaskListCustomActionsJSON(raw string) (*TaskListCustomActions, error) 
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&ca); err != nil {
 		if field, ok := unknownJSONField(err); ok {
-			return nil, fmt.Errorf("custom_actions: campo desconhecido %q — verifique o nome (campos válidos por ação: id, label, icon, surfaces, event, payload_template, link, when, confirm, danger)", field)
+			return nil, fmt.Errorf("custom_actions: campo desconhecido %q — verifique o nome (campo top-level válido: actions; campos válidos por ação: id, label, icon, surfaces, event, payload_template, link, when, confirm, danger)", field)
 		}
 		return nil, fmt.Errorf("custom_actions: JSON inválido: %w", err)
 	}

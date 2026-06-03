@@ -75,6 +75,17 @@ func TestParseTaskListCustomActionsJSON_UnknownFieldMessage(t *testing.T) {
 	}
 }
 
+func TestParseTaskListCustomActionsJSON_UnknownTopLevelMessage(t *testing.T) {
+	_, err := ParseTaskListCustomActionsJSON(`{"actions":[],"version":2}`)
+	if err == nil {
+		t.Fatal("expected error for unknown top-level field")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "version") || !strings.Contains(msg, "actions") {
+		t.Fatalf("expected message to name the unknown field and the valid top-level field 'actions', got: %q", msg)
+	}
+}
+
 func TestSetLoadCustomActionsRoundTrip(t *testing.T) {
 	setupValidationPolicyTestDB(t)
 	ctx := testCtx()
