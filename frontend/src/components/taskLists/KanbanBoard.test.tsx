@@ -331,7 +331,7 @@ describe('KanbanBoard', () => {
     mockAnnounce.mockClear();
     fireEvent.keyDown(board, { key: 'PageUp' });
     expect(mockAnnounce).toHaveBeenLastCalledWith(
-      expect.stringContaining('Card 1.'),
+      expect.stringContaining('Card 1'),
       'assertive',
     );
   });

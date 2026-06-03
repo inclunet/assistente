@@ -499,8 +499,10 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         }
 
         // ── PageUp/PageDown: salta 10 cards dentro da coluna ──
-        // Ctrl/Meta+PageUp/PageDown são atalhos globais de troca de aba
-        // (useWorkspaceKeyboardShortcuts): deixamos propagar sem interceptar.
+        // Não interceptamos quando ctrlKey está pressionado para não conflitar
+        // com o atalho global Ctrl+PageUp/PageDown de troca de abas
+        // (useWorkspaceKeyboardShortcuts). metaKey é ignorado apenas para deixar
+        // passar atalhos do browser/OS — não é um atalho do app.
         case 'PageUp': {
           if (e.ctrlKey || e.metaKey) break;
           e.preventDefault();
@@ -747,7 +749,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         <div id="kanban-instructions" className="sr-only">
           {t(
             'tasklist.kanban.instructions',
-            'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Início e Fim vão ao primeiro e último card da coluna; Ctrl+Início e Ctrl+Fim ao primeiro e último card do quadro. Page Up e Page Down saltam 10 cards na coluna. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre detalhes. Shift+F10 abre o menu.',
+            'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Início e Fim vão ao primeiro e último card da coluna; Ctrl+Início e Ctrl+Fim ao primeiro e último card do quadro. Page Up e Page Down saltam 10 cards na coluna. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre os detalhes do card. Shift+F10 ou a tecla Menu abrem o menu de contexto.',
           )}
         </div>
 
