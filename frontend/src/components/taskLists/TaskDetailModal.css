@@ -14,6 +14,49 @@
   padding: 16px 24px 0;
 }
 
+/* Custom actions (AEP-0067) */
+.task-detail__custom-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 24px;
+}
+
+.task-detail__custom-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.task-detail__custom-action:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.task-detail__custom-action:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.task-detail__custom-action--danger {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.task-detail__custom-action--danger:hover {
+  background: var(--color-danger);
+  color: var(--text-inverse);
+}
+
 .task-detail__badge {
   display: inline-flex;
   align-items: center;
@@ -30,7 +73,7 @@
 }
 
 .task-detail__badge--code {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-secondary);
   font-family: var(--font-mono);
 }
@@ -128,7 +171,7 @@
 }
 
 .task-detail__add-note-btn:hover {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
 }
 
 /* Notes list */
@@ -172,7 +215,7 @@
 }
 
 .task-detail__note-type--internal {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-secondary);
 }
 
@@ -219,7 +262,7 @@
 }
 
 .task-detail__note-action:hover {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-primary);
 }
 
@@ -239,10 +282,10 @@
 
 /* Note form (inline) */
 .task-detail__note-form {
-  border: 1px solid var(--border-focus);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: 12px;
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -305,7 +348,7 @@
 }
 
 .task-detail__note-form-actions button:hover {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
 }
 
 .task-detail__note-form-actions button[data-primary] {

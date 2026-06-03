@@ -213,6 +213,8 @@ type TaskList struct {
 	PreferredViewMode string `json:"preferred_view_mode" gorm:"default:'list'"` // 'list' ou 'kanban'
 	// ValidationPolicy: JSON opcional (TaskListValidationPolicy) — padrões para code de tasks e notas externas.
 	ValidationPolicy string `json:"validation_policy,omitempty" gorm:"type:text"`
+	// CustomActions: JSON opcional (TaskListCustomActions) — ações customizáveis por lista (AEP-0067).
+	CustomActions string `json:"custom_actions,omitempty" gorm:"type:text"`
 
 	// Relacionamentos
 	Workflow *TaskListWorkflow `json:"workflow,omitempty" gorm:"foreignKey:TaskListID"`

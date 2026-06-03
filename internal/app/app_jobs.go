@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"assistente/internal/configdir"
@@ -323,10 +324,25 @@ func (a *App) InferEventSchema(eventName string) map[string]any {
 	return a.jobsCtrl.InferEventSchema(eventName)
 }
 func (a *App) ListKnownEvents() []string {
-	if _, err := a.requireAuthenticatedContext(); err != nil {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
 		return nil
 	}
-	return a.jobsCtrl.ListKnownEvents()
+	events := a.jobsCtrl.ListKnownEvents()
+	// União com os eventos configurados nas custom actions de todas as listas (AEP-0067),
+	// para que apareçam no picker do JobBuilder mesmo sem job referenciando.
+	seen := make(map[string]bool, len(events))
+	for _, e := range events {
+		seen[e] = true
+	}
+	for _, e := range a.customActionEventNames(ctx) {
+		if e != "" && !seen[e] {
+			seen[e] = true
+			events = append(events, e)
+		}
+	}
+	sort.Strings(events)
+	return events
 }
 func (a *App) DeleteJob(id string) error {
 	ctx, err := a.requireAuthenticatedContext()

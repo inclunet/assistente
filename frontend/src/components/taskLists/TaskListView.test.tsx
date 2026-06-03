@@ -26,6 +26,8 @@ const taskListStoreState = vi.hoisted(() => ({
   deleteTaskList: vi.fn(),
   updateWorkflowFull: vi.fn(),
   getTaskCountsByStatus: vi.fn(),
+  listBoardCustomActions: vi.fn(),
+  triggerCustomAction: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -115,11 +117,17 @@ vi.mock('./KanbanBoard', () => ({
   }),
 }));
 
+vi.mock('./useCustomActions', () => ({
+  useCustomActions: () => ({ runCustomAction: vi.fn() }),
+}));
+
 describe('TaskListView', () => {
   beforeEach(() => {
     workspacePanelState.isActive = false;
     openCreateModalMock.mockReset();
     taskListStoreState.loadTaskList.mockReset();
+    taskListStoreState.listBoardCustomActions.mockReset();
+    taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
     taskListStoreState.taskLists = new Map([
       ['tasklist-1', {
         id: 'tasklist-1',
