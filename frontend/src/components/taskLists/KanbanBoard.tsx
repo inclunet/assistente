@@ -740,23 +740,31 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         const direction = e.key === 'ArrowLeft' ? -1 : 1;
         const targetCol = colIdx + direction;
         if (targetCol >= 0 && targetCol < statuses.length) {
-          // issue #177: após sair da coluna, o foco vai para o próximo card da
-          // coluna de origem (em vez de acompanhar o card até o destino), para
-          // que o board não perca o foco e o usuário continue processando a
-          // coluna sem precisar de Tab.
-          const sourceTasks = getColumnTasks(colIdx);
-          const sourceRow = sourceTasks.findIndex((tk) => tk.id === task.id);
-          pendingFocusRef.current = {
-            kind: 'sourceNext',
-            sourceCol: colIdx,
-            sourceRow: sourceRow < 0 ? 0 : sourceRow,
-            taskId: task.id,
-          };
-          moveTaskToColumn(task, targetCol);
+          // Usa o status ATUAL do card (estado mais recente) e só arma o foco
+          // pendente / move quando há mudança real de status — mesma condição
+          // do `moveTaskToColumn`. Evita reposicionar o foco em uma atualização
+          // futura quando não houve movimento (ex.: card em coluna fallback ou
+          // alvo igual ao status atual). Issue #177.
+          const liveTask = findTaskById(task.id) ?? task;
+          const targetStatus = statuses[targetCol];
+          if (targetStatus && liveTask.statusId !== targetStatus.id) {
+            // Após sair da coluna, o foco vai para o próximo card da coluna de
+            // origem para que o board não perca o foco e o usuário continue
+            // processando a coluna sem precisar de Tab.
+            const sourceTasks = getColumnTasks(colIdx);
+            const sourceRow = sourceTasks.findIndex((tk) => tk.id === task.id);
+            pendingFocusRef.current = {
+              kind: 'sourceNext',
+              sourceCol: colIdx,
+              sourceRow: sourceRow < 0 ? 0 : sourceRow,
+              taskId: task.id,
+            };
+            moveTaskToColumn(liveTask, targetCol);
+          }
         }
       }
     },
-    [statuses, moveTaskToColumn, getColumnTasks],
+    [statuses, moveTaskToColumn, getColumnTasks, findTaskById],
   );
 
   // ── Drag & Drop (visual) ──────────────────────────────────

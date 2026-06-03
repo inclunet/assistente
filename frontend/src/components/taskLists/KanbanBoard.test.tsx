@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { useEffect, useState, type ReactNode } from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import KanbanBoard from './KanbanBoard';
 
@@ -129,15 +129,24 @@ type TestTask = ReturnType<typeof makeTasks>[number];
  * um card não recompõe as colunas e a lógica de foco pós-move (issue #177) não
  * seria exercida nos testes.
  */
+type TasksUpdater = (updater: (prev: TestTask[]) => TestTask[]) => void;
+
 function ControlledBoard({
   initialTasks,
   removeOnStatusChange = false,
+  workflowOverride,
+  controlRef,
 }: {
   initialTasks: TestTask[];
   // Simula uma atualização concorrente que REMOVE o card ao mudar de status
   // (ex.: consolidação), para exercitar o fallback de foco quando o followTask
   // não acha mais o card movido.
   removeOnStatusChange?: boolean;
+  // Permite usar um workflow diferente do padrão (ex.: colunas que compartilham
+  // o mesmo status id).
+  workflowOverride?: typeof workflow;
+  // Expõe o setter de `tasks` para o teste simular atualizações concorrentes.
+  controlRef?: { current: TasksUpdater | null };
 }) {
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks);
 
@@ -155,15 +164,21 @@ function ControlledBoard({
     mockDeleteTask.mockImplementation(async (taskId: string) => {
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
     });
+    if (controlRef) controlRef.current = (updater) => setTasks(updater);
     return () => {
       mockUpdateTaskStatus.mockReset();
       mockDeleteTask.mockReset();
+      if (controlRef) controlRef.current = null;
     };
-  }, [removeOnStatusChange]);
+  }, [removeOnStatusChange, controlRef]);
+
+  const taskList = workflowOverride
+    ? { ...makeTaskList(tasks), workflow: workflowOverride }
+    : makeTaskList(tasks);
 
   return (
     <MemoryRouter>
-      <KanbanBoard taskListId={"1"} tasks={tasks} taskList={makeTaskList(tasks)} />
+      <KanbanBoard taskListId={"1"} tasks={tasks} taskList={taskList} />
     </MemoryRouter>
   );
 }
@@ -740,6 +755,61 @@ describe('KanbanBoard', () => {
       expect(document.activeElement).toBe(betaCard);
     });
     expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('Alt+Seta para coluna de MESMO status não arma foco pendente (não reposiciona em update posterior)', async () => {
+    // Workflow propositalmente com duas colunas que COMPARTILHAM o mesmo status
+    // id — única forma de o alvo do Alt+Seta ter o mesmo status do card e, assim,
+    // exercitar o early-return de `moveTaskToColumn` (nenhum movimento real).
+    // Esse dado malformado gera um aviso esperado de "key duplicada" do React
+    // (colunas são keyed por status.id); silenciamos só dentro deste teste.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const dupWorkflow = {
+        ...workflow,
+        statuses: [
+          { id: 7, order: 0, label: 'Col A', color: 'gray', icon: '⌛' },
+          { id: 7, order: 1, label: 'Col B', color: 'blue', icon: '▶️' },
+          { id: 9, order: 2, label: 'Col C', color: 'green', icon: '✅' },
+        ],
+      };
+      const tasks: TestTask[] = [
+        { id: "11", taskListId: "1", title: 'DupA', description: '', statusId: 7, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+        { id: "10", taskListId: "1", title: 'Keeper', description: '', statusId: 9, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      ];
+      const controlRef: { current: TasksUpdater | null } = { current: null };
+      render(<ControlledBoard initialTasks={tasks} workflowOverride={dupWorkflow} controlRef={controlRef} />);
+
+      const board = screen.getByRole('grid');
+      fireEvent.focus(board);
+
+      // Alt+ArrowRight no card da Col A: o alvo (Col B) tem o MESMO status id (7),
+      // então não há movimento — e o foco pendente NÃO deve ser armado.
+      const dupInColA = screen.getAllByText('DupA')[0].closest('.kanban-card');
+      fireEvent.keyDown(dupInColA!, { key: 'ArrowRight', altKey: true });
+      expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
+
+      // Move o foco para "Keeper" (Col C), distante do alvo de um eventual foco
+      // pendente espúrio (Col A).
+      fireEvent.keyDown(board, { key: 'ArrowRight' });
+      fireEvent.keyDown(board, { key: 'ArrowRight' });
+      const keeperCard = screen.getByText('Keeper').closest('.kanban-card');
+      await waitFor(() => expect(document.activeElement).toBe(keeperCard));
+
+      // Atualização concorrente não relacionada: se um foco pendente tivesse sido
+      // armado indevidamente, ele dispararia aqui e roubaria o foco para a Col A.
+      act(() => {
+        controlRef.current?.((prev) => [
+          ...prev,
+          { id: "99", taskListId: "1", title: 'Novo', description: '', statusId: 9, order: 1, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+        ]);
+      });
+
+      // O foco permanece em "Keeper" — sem reposicionamento espúrio.
+      expect(document.activeElement).toBe(keeperCard);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   // ── Coluna vazia ──────────────────────────────────────────
