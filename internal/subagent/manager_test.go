@@ -460,6 +460,34 @@ func TestManagerRunRequiresUserScope(t *testing.T) {
 	}
 }
 
+// TestWaitPrefersDoneOverCancelAndTimeout garante a semântica de prioridade do
+// select no limite: com a resposta já disponível em `done`, mesmo que cancelCh,
+// timer e ctx também estejam prontos, o desfecho deve ser succeeded (não pode
+// virar cancelled/timed_out por causa do não-determinismo do select).
+func TestWaitPrefersDoneOverCancelAndTimeout(t *testing.T) {
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	m := &Manager{notifier: notifier, now: time.Now}
+
+	for i := 0; i < 300; i++ {
+		done := make(chan completion, 1)
+		done <- completion{response: "ok", assistantMessageID: "msg"}
+		ar := &activeRun{childConversationID: "c", cancelCh: make(chan struct{})}
+		close(ar.cancelCh) // cancel também pronto ao mesmo tempo que done
+
+		cctx, cancel := context.WithCancel(context.Background())
+		cancel() // ctx.Done() também pronto
+
+		o := m.wait(cctx, "c", done, ar, time.Nanosecond) // timer praticamente pronto
+		if o.status != StatusSucceeded {
+			t.Fatalf("iter %d: com done disponível esperava succeeded, veio %q", i, o.status)
+		}
+		if o.summary != "ok" || o.assistantMessageID != "msg" {
+			t.Fatalf("iter %d: desfecho de sucesso incompleto: %#v", i, o)
+		}
+	}
+}
+
 // runningUpdateFailRepo embute um Repository real mas falha o Update que marca
 // o run como running (segundo Update da vida do run), permitindo exercitar o
 // tratamento de erro de persistência da transição para running.

@@ -681,6 +681,29 @@ func (f *fakeTaskListManager) SetTaskListValidationPolicy(_ context.Context, id 
 	return nil
 }
 
+func (f *fakeTaskListManager) GetTaskListCustomActions(_ context.Context, id string) (*database.TaskListCustomActions, error) {
+	tl, ok := f.taskLists[id]
+	if !ok {
+		return nil, fmt.Errorf("task list not found: %s", id)
+	}
+	return database.ParseTaskListCustomActionsJSON(tl.CustomActions)
+}
+
+func (f *fakeTaskListManager) SetTaskListCustomActions(_ context.Context, id string, actionsJSON string) error {
+	tl, ok := f.taskLists[id]
+	if !ok {
+		return fmt.Errorf("task list not found: %s", id)
+	}
+	s := strings.TrimSpace(actionsJSON)
+	if s != "" {
+		if _, err := database.ParseTaskListCustomActionsJSON(s); err != nil {
+			return err
+		}
+	}
+	tl.CustomActions = s
+	return nil
+}
+
 func fakeListPolicy(f *fakeTaskListManager, taskListID string) (*database.TaskListValidationPolicy, error) {
 	tl, ok := f.taskLists[taskListID]
 	if !ok {
@@ -769,6 +792,18 @@ func mustMarshal(t *testing.T, v any) json.RawMessage {
 }
 
 // ==================== GetTaskList Tests (consolidated: list all, full details, summary) ====================
+
+func TestGetTaskList_ParametersValidJSON(t *testing.T) {
+	tool := NewTaskList(nil)
+	var schema map[string]any
+	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
+		t.Fatalf("Parameters() is not valid JSON: %v", err)
+	}
+	props, _ := schema["properties"].(map[string]any)
+	if _, ok := props["custom_actions"]; !ok {
+		t.Fatalf("expected 'custom_actions' in tool parameters schema")
+	}
+}
 
 func TestGetTaskList_Name(t *testing.T) {
 	tool := NewTaskList(nil)
@@ -2068,6 +2103,177 @@ func TestUpsertTaskList_CreateSimple(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "created") {
 		t.Fatalf("expected 'created' in content, got: %s", result.Content)
+	}
+}
+
+func TestUpsertTaskList_CreateWithCustomActions(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"title": "Suporte",
+		"custom_actions": []map[string]any{
+			{
+				"id":       "refresh",
+				"label":    "Atualizar",
+				"icon":     "🔄",
+				"surfaces": []string{"card_menu", "board_menu"},
+				"event":    "tasklist.card.refresh",
+			},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	id, _ := result.Metadata["task_list_id"].(string)
+	if id == "" {
+		t.Fatalf("expected task_list_id in metadata, got: %#v", result.Metadata)
+	}
+	tl := mgr.taskLists[id]
+	ca, err := database.ParseTaskListCustomActionsJSON(tl.CustomActions)
+	if err != nil {
+		t.Fatalf("stored custom_actions invalid: %v (raw=%s)", err, tl.CustomActions)
+	}
+	if len(ca.Actions) != 1 || ca.Actions[0].ID != "refresh" {
+		t.Fatalf("expected one action 'refresh', got: %#v", ca.Actions)
+	}
+	if !strings.Contains(result.Content, "custom_actions") {
+		t.Fatalf("expected custom_actions echoed in content, got: %s", result.Content)
+	}
+}
+
+func TestUpsertTaskList_UpdateCustomActionsClear(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Suporte", defaultStatuses())
+	tl.CustomActions = `{"actions":[{"id":"refresh","label":"Atualizar","event":"tasklist.card.refresh"}]}`
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id":   tl.ID,
+		"custom_actions": []map[string]any{},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if mgr.taskLists[tl.ID].CustomActions != "" {
+		t.Fatalf("expected custom_actions cleared, got: %q", mgr.taskLists[tl.ID].CustomActions)
+	}
+}
+
+func TestUpsertTaskList_CustomActionsInvalid(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"title": "Suporte",
+		"custom_actions": []map[string]any{
+			{"id": "bad id", "label": "X", "event": "tasklist.card.refresh"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error for invalid action id, got: %s", result.Content)
+	}
+}
+
+// TestUpsertTaskList_CustomActionsObjectRejected garante que custom_actions
+// como objeto ({}) é rejeitado com erro, em vez de ser tratado como "limpar"
+// (que mascararia um tipo errado como data-loss). Só [] limpa.
+func TestUpsertTaskList_CustomActionsObjectRejected(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Suporte", defaultStatuses())
+	tl.CustomActions = `{"actions":[{"id":"refresh","label":"Atualizar","event":"tasklist.card.refresh"}]}`
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id":   tl.ID,
+		"custom_actions": map[string]any{},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error for custom_actions as object {}, got: %s", result.Content)
+	}
+	if mgr.taskLists[tl.ID].CustomActions == "" {
+		t.Fatalf("custom_actions should NOT be cleared by an invalid object {}")
+	}
+}
+
+// TestGetTaskList_BySlugDoesNotMutate garante que uma chamada de leitura apenas
+// com task_list_slug retorna os detalhes da lista SEM cair no caminho de
+// escrita (que sobrescreveria description/view_mode com vazio). Regressão do
+// bug em que task_list_slug sozinho era tratado como write.
+func TestGetTaskList_BySlugDoesNotMutate(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Suporte", defaultStatuses())
+	tl.Slug = "bugs"
+	tl.Description = "descrição importante"
+	tl.PreferredViewMode = "kanban"
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_slug": "bugs",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if action, ok := result.Metadata["action"]; ok {
+		t.Fatalf("read-by-slug should not be a write, got action=%v", action)
+	}
+	got := mgr.taskLists[tl.ID]
+	if got.Description != "descrição importante" {
+		t.Fatalf("description was mutated by read-by-slug: %q", got.Description)
+	}
+	if got.PreferredViewMode != "kanban" {
+		t.Fatalf("preferred_view_mode was mutated by read-by-slug: %q", got.PreferredViewMode)
+	}
+	if id, _ := result.Metadata["task_list_id"].(string); id != tl.ID {
+		t.Fatalf("expected full details for %s, got metadata: %#v", tl.ID, result.Metadata)
+	}
+}
+
+// TestCustomActionsToList_InvalidSurfacesError garante que JSON corrompido em
+// custom_actions não some silenciosamente do echo: expõe um marcador de erro,
+// coerente com validationPolicyToMap.
+func TestCustomActionsToList_InvalidSurfacesError(t *testing.T) {
+	// vazio -> omitido (nil)
+	if out := customActionsToList("   "); out != nil {
+		t.Fatalf("empty should be nil, got: %#v", out)
+	}
+	// lista vazia válida -> omitido (nil)
+	if out := customActionsToList(`{"actions":[]}`); out != nil {
+		t.Fatalf("empty actions should be nil, got: %#v", out)
+	}
+	// JSON inválido -> marcador de erro
+	out := customActionsToList(`{"actions":[{"id":"x"`)
+	if len(out) != 1 {
+		t.Fatalf("invalid JSON should yield one marker entry, got: %#v", out)
+	}
+	if pe, _ := out[0]["_parse_error"].(bool); !pe {
+		t.Fatalf("expected _parse_error marker, got: %#v", out[0])
+	}
+	if _, ok := out[0]["raw"]; !ok {
+		t.Fatalf("expected raw in parse error marker, got: %#v", out[0])
+	}
+	// campo desconhecido (parser estrito) -> também é marcador de erro
+	out2 := customActionsToList(`{"actions":[{"id":"x","label":"X","emits_event":"e"}]}`)
+	if len(out2) != 1 {
+		t.Fatalf("unknown field should yield marker, got: %#v", out2)
+	}
+	if pe, _ := out2[0]["_parse_error"].(bool); !pe {
+		t.Fatalf("expected _parse_error marker for unknown field, got: %#v", out2[0])
 	}
 }
 
