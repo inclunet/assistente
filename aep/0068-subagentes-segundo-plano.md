@@ -191,10 +191,10 @@ propagada:
   `sub_agent_runs` (um run por turno): `id`, `user_id`, `parent_conversation_id`,
   `parent_turn_id`, `child_conversation_id`, `turn_index`, `status`,
   `result_summary`, `assistant_message_id`, `error`, `chain_*`, timestamps.
-- Reusar `tool_invocations` **sem expandir o enum `origin_type`** da AEP-0063
-  (`chat`/`job_run`/`tool_catalog`). A invocação da tool `subagent` é uma tool call de
-  chat comum (`origin_type=chat`) e os turnos da própria sub-conversa também são
-  `chat`; o vínculo pai↔filho não vem de um novo `origin_type`, e sim de
+- Reusar `tool_invocations` **sem expandir o enum `origin_type`** da AEP-0063. O
+  `origin_type` da invocação da tool `subagent` segue a **origem do executor** que a
+  disparou (chat → `chat`; job → `job_run`; etc.), exatamente como qualquer outra tool
+  call. O vínculo pai↔filho **não** vem de um `origin_type` próprio, e sim de
   `ParentInvocationID` + da tabela `sub_agent_runs`. O campo `ParentInvocationID` já
   existe e é suportado no modelo/repositório
   (`internal/database/models_tool_invocations.go`, `internal/toolinvocations/repository.go`);
