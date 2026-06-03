@@ -41,7 +41,9 @@ type SubAgentRun struct {
 	ResultSummary string `json:"resultSummary,omitempty" gorm:"type:text"`
 	// AssistantMessageID referencia a mensagem do assistente que concluiu o run.
 	AssistantMessageID string `json:"assistantMessageId,omitempty"`
-	// Error guarda a mensagem de erro legível quando Status=failed/timed_out.
+	// Error guarda a mensagem de erro legível. Preenchido quando o run termina
+	// sem sucesso: Status=failed, timed_out ou cancelled (o Manager também
+	// registra o motivo em cancelamentos, ex.: ctx.Done()/send cancelado).
 	Error string `json:"error,omitempty" gorm:"type:text"`
 
 	// Proveniência / anti-runaway compartilhada com jobs (AEP-0067/0001).
