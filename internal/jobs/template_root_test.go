@@ -40,4 +40,9 @@ func TestEvaluateConditionWithRoot(t *testing.T) {
 	if ok, _ := EvaluateConditionWithRoot("", noCode); !ok {
 		t.Fatal("empty condition should be truthy")
 	}
+	// Condição só-whitespace NÃO é tratada como ausente (igual a EvaluateCondition):
+	// é renderizada, vira string vazia e portanto falsy.
+	if ok, _ := EvaluateConditionWithRoot("   ", noCode); ok {
+		t.Fatal("whitespace-only condition should be falsy, not treated as empty/truthy")
+	}
 }

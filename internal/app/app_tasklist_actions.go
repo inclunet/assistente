@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"assistente/internal/database"
@@ -200,6 +201,17 @@ func (a *App) TriggerCustomAction(taskListID string, taskID string, actionID str
 		if err != nil {
 			return "", fmt.Errorf("render link: %w", err)
 		}
+		// Campo ausente no template renderiza "<no value>": normaliza para vazio
+		// (RenderWithRoot já fez TrimSpace).
+		if renderedLink == "<no value>" {
+			renderedLink = ""
+		}
+		// Se sobrou algo, precisa ser um esquema que o frontend (openTaskLink) sabe
+		// abrir; do contrário a UI ignoraria silenciosamente e o usuário não veria
+		// erro nenhum. Falha explícito para a UI exibir o toast.
+		if renderedLink != "" && !isSupportedActionLink(renderedLink) {
+			return "", fmt.Errorf("custom action %q rendered an unsupported link %q (expected assistente://, http:// or https://)", action.ID, renderedLink)
+		}
 	}
 
 	// Evento publicado no EventBus (se configurado).
@@ -241,6 +253,16 @@ func (a *App) TriggerCustomAction(taskListID string, taskID string, actionID str
 	}
 
 	return renderedLink, nil
+}
+
+// isSupportedActionLink informa se o link renderizado usa um esquema que o
+// frontend (lib/deepLinks.openTaskLink) sabe abrir: deep link interno
+// (assistente://) ou URL externa (http/https). Qualquer outro seria ignorado
+// silenciosamente pela UI.
+func isSupportedActionLink(link string) bool {
+	return strings.HasPrefix(link, "assistente://") ||
+		strings.HasPrefix(link, "http://") ||
+		strings.HasPrefix(link, "https://")
 }
 
 // customActionTaskMap normaliza os campos de um card para a raiz `.task` dos templates.

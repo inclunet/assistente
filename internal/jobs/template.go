@@ -184,9 +184,13 @@ func RenderWithRoot(tmplStr string, data map[string]any) (string, error) {
 }
 
 // EvaluateConditionWithRoot avalia uma condição (template truthy) contra uma raiz
-// arbitrária. Condição vazia é sempre verdadeira (sem filtragem).
+// arbitrária. Condição vazia é sempre verdadeira (sem filtragem). O check de vazio
+// usa `== ""` (igual a EvaluateCondition): uma condição só-whitespace NÃO é tratada
+// como ausente — ela é renderizada (RenderWithRoot já dá TrimSpace), resulta em
+// string vazia e, portanto, falsy — mantendo a semântica consistente entre jobs e
+// custom actions.
 func EvaluateConditionWithRoot(condition string, data map[string]any) (bool, error) {
-	if strings.TrimSpace(condition) == "" {
+	if condition == "" {
 		return true, nil
 	}
 	result, err := RenderWithRoot(condition, data)
