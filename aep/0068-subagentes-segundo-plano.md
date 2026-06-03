@@ -1,6 +1,6 @@
 # AEP-0068 — Sub-agentes em segundo plano (tool de sub-conversas)
 
-Status: Proposto
+Status: Draft
 Data: 2026-06-02
 Autor: Inclunet + Cursor Agent
 
@@ -65,27 +65,35 @@ quanto os jobs o acionam pelo mesmo caminho.
 
 ### Contrato da tool `subagent` (única, dirigida por parâmetros)
 
-- `prompt` (string): tarefa/mensagem. Omitido + `conversation_id` presente = consulta
-  de **status** (não envia nada).
-- `conversation_id` (string, opcional): **ausente → cria** sub-conversa nova;
+- `prompt` (string, **opcional**): tarefa/mensagem. Presente = envia/continua;
+  omitido (com `conversation_id`/`run_id`, sem `cancel`) = consulta de **status**.
+- `conversation_id` (string UUID, opcional): **ausente → cria** sub-conversa nova;
   **presente → continua** na mesma (resume), preservando histórico.
 - `background` (bool, default `false`): `false` → executa e o pai **espera** o
   resultado (inline); `true` → retorna `{ conversation_id, run_id, status }` na
   hora e **avisa ao concluir**.
 - `clear` (bool, default `false`): reseta o histórico da sub-conversa antes de
-  enviar (só com `conversation_id`).
+  enviar (requer `conversation_id`).
 - `profile` (string, opcional): slug do profile do sub-agente
   (`ChatParams.ProfileSlug`). Vazio = perfil ativo global.
 - `title` (string, opcional), `model` (string, opcional): metadados da sub-conversa.
 - `tools` (string[], opcional): **restringe** (subconjunto) sobre as tools já
   habilitadas pelo profile — o profile é o gate primário.
-- `run_id` (string, opcional): identifica um **run específico** (turno) de uma
+- `run_id` (string UUID, opcional): identifica um **run específico** (turno) de uma
   sub-conversa para `status`/`cancel`. Se omitido, as operações abaixo agem sobre o
   **run mais recente** da `conversation_id` informada.
 - `cancel` (bool, opcional): cancela um run em andamento. Requer `conversation_id`
   (e opcionalmente `run_id` para escolher um run específico; sem ele, cancela o run
-  ativo mais recente). É **mutuamente exclusivo com `prompt`** — uma chamada ou
-  envia/continua, ou cancela, nunca ambos.
+  ativo mais recente). É **mutuamente exclusivo com `prompt`/`clear`** — uma chamada
+  ou envia/continua, ou cancela, nunca ambos.
+
+#### Validações mínimas (combinações inválidas → erro)
+
+- `clear:true` sem `conversation_id` → erro (nada a resetar).
+- `cancel:true` junto com `prompt` ou `clear` → erro (operações mutuamente exclusivas).
+- `run_id` sem `conversation_id` → erro (run sempre pertence a uma conversa).
+- `run_id`/`conversation_id` que não pertencem ao usuário → erro (escopo AEP-0052).
+- Sem `prompt`, sem `cancel` e sem `conversation_id`/`run_id` → erro (nada a fazer).
 
 #### Resolução de run em `status`/`cancel` (múltiplos runs por conversa)
 
