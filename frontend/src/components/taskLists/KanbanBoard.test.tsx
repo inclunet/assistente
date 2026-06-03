@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import type { ReactNode } from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import KanbanBoard from './KanbanBoard';
 
@@ -120,6 +120,68 @@ const makeTaskList = (tasks = makeTasks()) => ({
   workflow,
   tasks,
 });
+
+type TestTask = ReturnType<typeof makeTasks>[number];
+
+/**
+ * Board "controlado": liga o mock de `updateTaskStatus` a uma atualização
+ * otimista real do prop `tasks`, como o store faz em produção. Sem isso, mover
+ * um card não recompõe as colunas e a lógica de foco pós-move (issue #177) não
+ * seria exercida nos testes.
+ */
+type TasksUpdater = (updater: (prev: TestTask[]) => TestTask[]) => void;
+
+function ControlledBoard({
+  initialTasks,
+  removeOnStatusChange = false,
+  workflowOverride,
+  controlRef,
+}: {
+  initialTasks: TestTask[];
+  // Simula uma atualização concorrente que REMOVE o card ao mudar de status
+  // (ex.: consolidação), para exercitar o fallback de foco quando o followTask
+  // não acha mais o card movido.
+  removeOnStatusChange?: boolean;
+  // Permite usar um workflow diferente do padrão (ex.: colunas que compartilham
+  // o mesmo status id).
+  workflowOverride?: typeof workflow;
+  // Expõe o setter de `tasks` para o teste simular atualizações concorrentes.
+  controlRef?: { current: TasksUpdater | null };
+}) {
+  const [tasks, setTasks] = useState<TestTask[]>(initialTasks);
+
+  // Configura os mocks uma única vez (no mount) e os limpa no unmount, evitando
+  // side-effect durante o render. O updater funcional do setState garante que
+  // a atualização sempre parte do estado mais recente (sem capturar stale).
+  useEffect(() => {
+    mockUpdateTaskStatus.mockImplementation(async (taskId: string, statusId: number) => {
+      setTasks((prev) =>
+        removeOnStatusChange
+          ? prev.filter((t) => t.id !== taskId)
+          : prev.map((t) => (t.id === taskId ? { ...t, statusId } : t)),
+      );
+    });
+    mockDeleteTask.mockImplementation(async (taskId: string) => {
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    });
+    if (controlRef) controlRef.current = (updater) => setTasks(updater);
+    return () => {
+      mockUpdateTaskStatus.mockReset();
+      mockDeleteTask.mockReset();
+      if (controlRef) controlRef.current = null;
+    };
+  }, [removeOnStatusChange, controlRef]);
+
+  const taskList = workflowOverride
+    ? { ...makeTaskList(tasks), workflow: workflowOverride }
+    : makeTaskList(tasks);
+
+  return (
+    <MemoryRouter>
+      <KanbanBoard taskListId={"1"} tasks={tasks} taskList={taskList} />
+    </MemoryRouter>
+  );
+}
 
 /* ── Suíte de testes ───────────────────────────────────────── */
 
@@ -280,6 +342,105 @@ describe('KanbanBoard', () => {
 
     expect(mockAnnounce).toHaveBeenCalledWith(
       expect.stringContaining('Tarefa Gamma'),
+      'assertive',
+    );
+  });
+
+  // ── Home/End/PageUp/PageDown/Ctrl+Home/End (issue #179) ───
+
+  it('End vai ao último card da coluna e Home volta ao primeiro', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // foca col 0, row 0 (Tarefa Alpha)
+    mockAnnounce.mockClear();
+
+    fireEvent.keyDown(board, { key: 'End' });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Tarefa Beta'),
+      'assertive',
+    );
+
+    mockAnnounce.mockClear();
+    fireEvent.keyDown(board, { key: 'Home' });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Tarefa Alpha'),
+      'assertive',
+    );
+  });
+
+  it('PageDown salta 10 cards dentro da coluna e PageUp retorna', async () => {
+    const manyTasks = Array.from({ length: 12 }, (_, i) => ({
+      id: String(100 + i),
+      taskListId: '1',
+      title: `Card ${i + 1}`,
+      description: '',
+      statusId: 1,
+      order: i,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    }));
+    await renderBoard(manyTasks);
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // col 0, row 0 (Card 1)
+    mockAnnounce.mockClear();
+
+    fireEvent.keyDown(board, { key: 'PageDown' });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Card 11'),
+      'assertive',
+    );
+
+    mockAnnounce.mockClear();
+    fireEvent.keyDown(board, { key: 'PageUp' });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Card 1'),
+      'assertive',
+    );
+  });
+
+  it('não intercepta Ctrl+PageDown/Ctrl+PageUp (atalho global de abas)', async () => {
+    const manyTasks = Array.from({ length: 12 }, (_, i) => ({
+      id: String(100 + i),
+      taskListId: '1',
+      title: `Card ${i + 1}`,
+      description: '',
+      statusId: 1,
+      order: i,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    }));
+    await renderBoard(manyTasks);
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // col 0, row 0 (Card 1)
+    mockAnnounce.mockClear();
+
+    // fireEvent.keyDown retorna false quando preventDefault foi chamado.
+    // O board NÃO deve cancelar o evento nem mover o foco.
+    const notCanceledDown = fireEvent.keyDown(board, { key: 'PageDown', ctrlKey: true });
+    const notCanceledUp = fireEvent.keyDown(board, { key: 'PageUp', ctrlKey: true });
+
+    expect(notCanceledDown).toBe(true);
+    expect(notCanceledUp).toBe(true);
+    expect(mockAnnounce).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+End vai ao último card do board e Ctrl+Home ao primeiro', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // col 0, row 0 (Tarefa Alpha)
+    mockAnnounce.mockClear();
+
+    // Última coluna com cards é "Em Progresso" (Tarefa Gamma)
+    fireEvent.keyDown(board, { key: 'End', ctrlKey: true });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Tarefa Gamma'),
+      'assertive',
+    );
+
+    mockAnnounce.mockClear();
+    fireEvent.keyDown(board, { key: 'Home', ctrlKey: true });
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      expect.stringContaining('Tarefa Alpha'),
       'assertive',
     );
   });
@@ -452,6 +613,203 @@ describe('KanbanBoard', () => {
     await waitFor(() => {
       expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
     });
+  });
+
+  // ── Foco após mover entre colunas (issue #177) ───────────
+
+  it('mantém o foco no board e vai para o próximo card da coluna de origem ao mover (Alt+ArrowRight)', async () => {
+    render(<ControlledBoard initialTasks={makeTasks()} />);
+
+    // Move "Tarefa Alpha" (col 0, linha 0) para a coluna 1.
+    const alphaCard = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+    expect(alphaCard).toBeTruthy();
+    fireEvent.keyDown(alphaCard!, { key: 'ArrowRight', altKey: true });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+    });
+
+    const board = screen.getByRole('grid');
+    const betaCard = screen.getByText('Tarefa Beta').closest('.kanban-card');
+
+    await waitFor(() => {
+      // (1) o foco permanece DENTRO do board
+      expect(board.contains(document.activeElement)).toBe(true);
+      // (2) o foco foi para o PRÓXIMO card da coluna de origem ("Tarefa Beta")
+      expect(document.activeElement).toBe(betaCard);
+    });
+  });
+
+  it('ao esvaziar a coluna de origem, o foco acompanha o card movido', async () => {
+    const tasks: TestTask[] = [
+      { id: "10", taskListId: "1", title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      { id: "12", taskListId: "1", title: 'Tarefa Gamma', description: '', statusId: 2, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    ];
+    render(<ControlledBoard initialTasks={tasks} />);
+
+    // "Tarefa Alpha" é o único card da coluna 0; ao movê-la a coluna esvazia.
+    const alphaCard = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+    fireEvent.keyDown(alphaCard!, { key: 'ArrowRight', altKey: true });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+    });
+
+    const board = screen.getByRole('grid');
+    await waitFor(() => {
+      const movedAlpha = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+      expect(board.contains(document.activeElement)).toBe(true);
+      // fallback: o foco acompanha o card movido (agora na coluna de destino)
+      expect(document.activeElement).toBe(movedAlpha);
+    });
+  });
+
+  it('no modo grab usa o task atual e permite mover de volta à coluna de origem', async () => {
+    const tasks: TestTask[] = [
+      { id: "10", taskListId: "1", title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      { id: "12", taskListId: "1", title: 'Tarefa Gamma', description: '', statusId: 2, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    ];
+    render(<ControlledBoard initialTasks={tasks} />);
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    // Agarra "Tarefa Alpha" e move para a direita (status 2).
+    fireEvent.keyDown(board, { key: ' ' });
+    fireEvent.keyDown(board, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+    });
+    // O foco acompanha o card carregado até a nova coluna.
+    await waitFor(() => {
+      const alpha = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+      expect(document.activeElement).toBe(alpha);
+    });
+
+    // Move de volta para a coluna original: sem usar o task atual, o
+    // `grabbedTask` stale bloquearia este movimento (early-return por status).
+    fireEvent.keyDown(board, { key: 'ArrowLeft' });
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 1);
+    });
+  });
+
+  it('cancela o grab (e não move outro card) se o card carregado for removido', async () => {
+    const tasks: TestTask[] = [
+      { id: "10", taskListId: "1", title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      { id: "12", taskListId: "1", title: 'Tarefa Gamma', description: '', statusId: 2, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    ];
+    render(<ControlledBoard initialTasks={tasks} />);
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    // Agarra "Tarefa Alpha" e em seguida a deleta (some do estado).
+    fireEvent.keyDown(board, { key: ' ' });
+    fireEvent.keyDown(board, { key: 'Delete' });
+    await waitFor(() => {
+      expect(mockDeleteTask).toHaveBeenCalledWith("10");
+    });
+
+    mockAnnounce.mockClear();
+
+    // Tenta mover com o card carregado já inexistente: deve cancelar o grab
+    // e NÃO mover nenhum outro card.
+    fireEvent.keyDown(board, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(mockAnnounce).toHaveBeenCalledWith(
+        expect.stringContaining('cancelada'),
+        'assertive',
+      );
+    });
+    expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
+  });
+
+  it('no modo followTask, se o card sumir após o move, o foco vai para outra coluna não vazia (não cai no body)', async () => {
+    const tasks: TestTask[] = [
+      { id: "10", taskListId: "1", title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      { id: "11", taskListId: "1", title: 'Tarefa Beta', description: '', statusId: 1, order: 1, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    ];
+    // `removeOnStatusChange` simula uma atualização concorrente que remove o
+    // card movido — então `findTaskPos` não acha o card no branch followTask.
+    render(<ControlledBoard initialTasks={tasks} removeOnStatusChange />);
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    // Agarra "Tarefa Alpha" e move para a direita (o card é removido no caminho).
+    fireEvent.keyDown(board, { key: ' ' });
+    fireEvent.keyDown(board, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+    });
+
+    // Fallback: como "Alpha" sumiu, o foco vai para o 1º card de uma coluna não
+    // vazia ("Tarefa Beta"), permanecendo dentro do board (não no <body>).
+    await waitFor(() => {
+      const betaCard = screen.getByText('Tarefa Beta').closest('.kanban-card');
+      expect(board.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).toBe(betaCard);
+    });
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('Alt+Seta para coluna de MESMO status não arma foco pendente (não reposiciona em update posterior)', async () => {
+    // Workflow propositalmente com duas colunas que COMPARTILHAM o mesmo status
+    // id — única forma de o alvo do Alt+Seta ter o mesmo status do card e, assim,
+    // exercitar o early-return de `moveTaskToColumn` (nenhum movimento real).
+    // Esse dado malformado gera um aviso esperado de "key duplicada" do React
+    // (colunas são keyed por status.id); silenciamos só dentro deste teste.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const dupWorkflow = {
+        ...workflow,
+        statuses: [
+          { id: 7, order: 0, label: 'Col A', color: 'gray', icon: '⌛' },
+          { id: 7, order: 1, label: 'Col B', color: 'blue', icon: '▶️' },
+          { id: 9, order: 2, label: 'Col C', color: 'green', icon: '✅' },
+        ],
+      };
+      const tasks: TestTask[] = [
+        { id: "11", taskListId: "1", title: 'DupA', description: '', statusId: 7, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+        { id: "10", taskListId: "1", title: 'Keeper', description: '', statusId: 9, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      ];
+      const controlRef: { current: TasksUpdater | null } = { current: null };
+      render(<ControlledBoard initialTasks={tasks} workflowOverride={dupWorkflow} controlRef={controlRef} />);
+
+      const board = screen.getByRole('grid');
+      fireEvent.focus(board);
+
+      // Alt+ArrowRight no card da Col A: o alvo (Col B) tem o MESMO status id (7),
+      // então não há movimento — e o foco pendente NÃO deve ser armado.
+      const dupInColA = screen.getAllByText('DupA')[0].closest('.kanban-card');
+      fireEvent.keyDown(dupInColA!, { key: 'ArrowRight', altKey: true });
+      expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
+
+      // Move o foco para "Keeper" (Col C), distante do alvo de um eventual foco
+      // pendente espúrio (Col A).
+      fireEvent.keyDown(board, { key: 'ArrowRight' });
+      fireEvent.keyDown(board, { key: 'ArrowRight' });
+      const keeperCard = screen.getByText('Keeper').closest('.kanban-card');
+      await waitFor(() => expect(document.activeElement).toBe(keeperCard));
+
+      // Atualização concorrente não relacionada: se um foco pendente tivesse sido
+      // armado indevidamente, ele dispararia aqui e roubaria o foco para a Col A.
+      act(() => {
+        controlRef.current?.((prev) => [
+          ...prev,
+          { id: "99", taskListId: "1", title: 'Novo', description: '', statusId: 9, order: 1, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+        ]);
+      });
+
+      // O foco permanece em "Keeper" — sem reposicionamento espúrio.
+      expect(document.activeElement).toBe(keeperCard);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   // ── Coluna vazia ──────────────────────────────────────────
