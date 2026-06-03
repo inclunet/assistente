@@ -499,7 +499,10 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         }
 
         // ── PageUp/PageDown: salta 10 cards dentro da coluna ──
+        // Ctrl/Meta+PageUp/PageDown são atalhos globais de troca de aba
+        // (useWorkspaceKeyboardShortcuts): deixamos propagar sem interceptar.
         case 'PageUp': {
+          if (e.ctrlKey || e.metaKey) break;
           e.preventDefault();
           if (columnTasks.length === 0 || row === 0) {
             playBumpSound();
@@ -512,6 +515,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           break;
         }
         case 'PageDown': {
+          if (e.ctrlKey || e.metaKey) break;
           e.preventDefault();
           if (columnTasks.length === 0 || row === columnTasks.length - 1) {
             playBumpSound();

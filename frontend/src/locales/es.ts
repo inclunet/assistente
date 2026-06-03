@@ -2013,7 +2013,7 @@ const es = {
       // Kanban
       kanban: {
         boardLabel: 'Tablero Kanban de {{name}}',
-        instructions: 'Use flechas izquierda y derecha para cambiar de columna. Flechas arriba y abajo cambian de tarjeta. Inicio y Fin van a la primera y última tarjeta de la columna; Ctrl+Inicio y Ctrl+Fin a la primera y última tarjeta del tablero. Re Pág y Av Pág saltan 10 tarjetas en la columna. Alt+Flechas reordena o mueve entre columnas. Espacio selecciona y suelta una tarjeta. Delete elimina. F2 renombra. Enter abre el menú.',
+        instructions: 'Use flechas izquierda y derecha para cambiar de columna. Flechas arriba y abajo cambian de tarjeta. Inicio y Fin van a la primera y última tarjeta de la columna; Ctrl+Inicio y Ctrl+Fin a la primera y última tarjeta del tablero. Re Pág y Av Pág saltan 10 tarjetas en la columna. Alt+Flechas reordena o mueve entre columnas. Espacio selecciona y suelta una tarjeta. Delete elimina. F2 renombra. Enter abre los detalles de la tarjeta. Shift+F10 o la tecla Menú abren el menú contextual.',
         emptyColumn: 'columna vacía',
         task: 'tarea',
         tasks: 'tareas',

@@ -336,6 +336,32 @@ describe('KanbanBoard', () => {
     );
   });
 
+  it('não intercepta Ctrl+PageDown/Ctrl+PageUp (atalho global de abas)', async () => {
+    const manyTasks = Array.from({ length: 12 }, (_, i) => ({
+      id: String(100 + i),
+      taskListId: '1',
+      title: `Card ${i + 1}`,
+      description: '',
+      statusId: 1,
+      order: i,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    }));
+    await renderBoard(manyTasks);
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // col 0, row 0 (Card 1)
+    mockAnnounce.mockClear();
+
+    // fireEvent.keyDown retorna false quando preventDefault foi chamado.
+    // O board NÃO deve cancelar o evento nem mover o foco.
+    const notCanceledDown = fireEvent.keyDown(board, { key: 'PageDown', ctrlKey: true });
+    const notCanceledUp = fireEvent.keyDown(board, { key: 'PageUp', ctrlKey: true });
+
+    expect(notCanceledDown).toBe(true);
+    expect(notCanceledUp).toBe(true);
+    expect(mockAnnounce).not.toHaveBeenCalled();
+  });
+
   it('Ctrl+End vai ao último card do board e Ctrl+Home ao primeiro', async () => {
     await renderBoard();
     const board = screen.getByRole('grid');
