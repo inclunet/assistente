@@ -404,7 +404,11 @@ func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result 
 	run.CompletedAt = &completedAt
 
 	persistCtx := context.WithoutCancel(ctx)
-	_ = m.repo.Update(persistCtx, run)
+	if err := m.repo.Update(persistCtx, run); err != nil {
+		// Best-effort: não propaga (o desfecho do run já foi decidido), mas
+		// loga para não falhar silenciosamente — evita run preso sem sinal.
+		log.Printf("[Subagent] erro (best-effort) ao persistir estado final do run %s (status=%s): %v", run.ID, o.status, err)
+	}
 
 	result.Status = o.status
 	result.ResultSummary = run.ResultSummary
