@@ -70,13 +70,15 @@ quanto os jobs o acionam pelo mesmo caminho.
 - `conversation_id` (string UUID, opcional): **ausente → cria** sub-conversa nova;
   **presente → continua** na mesma (resume), preservando histórico.
 - `background` (bool, default `false`): `false` → executa e o pai **espera** o
-  resultado (inline); `true` → retorna `{ conversation_id, run_id, status }` na
-  hora e **avisa ao concluir**.
+  resultado (inline); `true` → retorna o handle na hora e **avisa ao concluir**.
 - `clear` (bool, default `false`): reseta o histórico da sub-conversa antes de
   enviar (requer `conversation_id`).
 - `profile` (string, opcional): slug do profile do sub-agente
   (`ChatParams.ProfileSlug`). Vazio = perfil ativo global.
-- `title` (string, opcional), `model` (string, opcional): metadados da sub-conversa.
+- `title` (string, opcional): título da sub-conversa (persistido em `Conversation.Title`).
+- `model` (string, opcional): modelo de execução do sub-agente (`llm.ChatParams.Model`),
+  **sobrescreve** o modelo derivado do `profile` para aquele run. Não é persistido na
+  entidade `Conversation` (que só tem `Title`) — é parâmetro de execução do envio.
 - `tools` (string[], opcional): **restringe** (subconjunto) sobre as tools já
   habilitadas pelo profile — o profile é o gate primário.
 - `run_id` (string UUID, opcional): identifica um **run específico** (turno) de uma
@@ -94,6 +96,21 @@ quanto os jobs o acionam pelo mesmo caminho.
 - `run_id` sem `conversation_id` → erro (run sempre pertence a uma conversa).
 - `run_id`/`conversation_id` que não pertencem ao usuário → erro (escopo AEP-0052).
 - Sem `prompt`, sem `cancel` e sem `conversation_id`/`run_id` → erro (nada a fazer).
+
+#### Retorno da tool
+
+Campos **sempre presentes** na resposta: `conversation_id`, `run_id`, `status`
+(`queued`/`running`/`succeeded`/`failed`/`cancelled`). Variações por modo:
+
+- `background:false` (síncrono): além do handle, retorna o **resultado final**
+  (`result_summary`/conteúdo da resposta do sub-agente e `assistant_message_id`). O
+  pai guarda `conversation_id`/`run_id` para retomar (`resume`) ou cancelar depois.
+- `background:true`: retorna o handle imediatamente (`status` tipicamente `queued`/
+  `running`); o resultado chega depois pelo aviso de conclusão.
+- `status` (sem `prompt`): retorna o estado atual do run alvo (`status`, e
+  `result_summary`/`assistant_message_id`/`error` quando já concluído).
+- `cancel`: retorna o handle com `status=cancelled` (ou no-op informativo se não
+  havia run ativo).
 
 #### Resolução de run em `status`/`cancel` (múltiplos runs por conversa)
 
@@ -157,8 +174,11 @@ propagada:
   `sub_agent_runs` (um run por turno): `id`, `user_id`, `parent_conversation_id`,
   `parent_turn_id`, `child_conversation_id`, `turn_index`, `status`,
   `result_summary`, `assistant_message_id`, `error`, `chain_*`, timestamps.
-- Reusar `tool_invocations` com `origin_type=sub_agent_run` e **popular
-  `ParentInvocationID`** (hoje ocioso) para encadear ao turno pai.
+- Reusar `tool_invocations` com `origin_type=sub_agent_run`. O campo
+  `ParentInvocationID` já existe e é suportado no modelo/repositório
+  (`internal/database/models_tool_invocations.go`, `internal/toolinvocations/repository.go`);
+  o que falta é o **pipeline de chat preenchê-lo** — esta AEP passa a populá-lo para
+  encadear a invocação ao turno pai.
 
 ## Fases
 
