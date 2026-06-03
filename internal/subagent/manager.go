@@ -190,11 +190,6 @@ func (m *Manager) waitForCompletion(ctx context.Context, childConvID string, don
 	}
 }
 
-// pollDone lê `done` de forma não-bloqueante, retornando a conclusão se já
-// estiver disponível. Usado para dar prioridade à resposta bem-sucedida quando
-// `done` e timer/ctx ficam prontos quase simultaneamente (evita timed_out/
-// cancelled indevido). Na F2+ o caminho de background compartilha o mesmo
-// helper via wait().
 // classifySendError mapeia um erro de m.send para o status correto do run
 // conforme o enum do AEP-0068 ("Retorno da tool"). Um cancelamento/timeout do
 // contexto que apareça como erro de envio deve refletir cancelled/timed_out, e
@@ -224,6 +219,11 @@ func classifyCtxErr(err error) (status, errMsg string) {
 	return database.SubAgentRunStatusCancelled, err.Error()
 }
 
+// pollDone lê `done` de forma não-bloqueante, retornando a conclusão se já
+// estiver disponível. Usado para dar prioridade à resposta bem-sucedida quando
+// `done` e timer/ctx ficam prontos quase simultaneamente (evita timed_out/
+// cancelled indevido). Na F2+ o caminho de background compartilha o mesmo
+// helper via wait().
 func pollDone(done chan completion) (completion, bool) {
 	select {
 	case c := <-done:

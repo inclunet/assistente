@@ -6,10 +6,20 @@ import (
 	"errors"
 	"testing"
 
+	"assistente/internal/eventctx"
 	"assistente/internal/subagent"
 	"assistente/internal/tools/invocationctx"
 	"assistente/internal/toolinvocations"
 )
+
+// parentCtx devolve um ctx de chamada de chat com vínculo pai válido
+// (conversation_id/turn_id de invocação), como o agentic loop carimba.
+func parentCtx() context.Context {
+	return invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "parent-conv",
+		TurnID:         "parent-turn",
+	})
+}
 
 type fakeRunner struct {
 	lastParams subagent.RunParams
@@ -98,7 +108,7 @@ func TestToolBusinessOutcomeIsNotToolError(t *testing.T) {
 	} {
 		runner := &fakeRunner{result: subagent.RunResult{ConversationID: "c", RunID: "r", Status: status}}
 		tool := NewWithProvider(func() Runner { return runner })
-		res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"faça X"}`))
+		res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"faça X"}`))
 		if err != nil {
 			t.Fatalf("status %s: Execute erro: %v", status, err)
 		}
@@ -125,7 +135,7 @@ func TestToolRealFailureMarksError(t *testing.T) {
 	// Erro real ao executar a operação (runner/manager retorna erro).
 	runner := &fakeRunner{err: errors.New("falha ao enviar")}
 	tool := NewWithProvider(func() Runner { return runner })
-	res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"x"}`))
+	res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"x"}`))
 	if err != nil {
 		t.Fatalf("Execute não deve retornar erro Go: %v", err)
 	}
@@ -141,10 +151,64 @@ func TestToolRealFailureMarksError(t *testing.T) {
 	}
 }
 
+// TestToolFailsClosedWithoutParent garante que uma chamada de chat sem vínculo
+// pai (sem conversation_id/turn_id de invocação) falha fechado (IsError) e NÃO
+// chama o runner — evitando criar sub-conversa órfã (AEP-0068).
+func TestToolFailsClosedWithoutParent(t *testing.T) {
+	cases := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{"sem-invocationctx", context.Background()},
+		{"sem-conversation", invocationctx.With(context.Background(), invocationctx.InvocationContext{TurnID: "t"})},
+		{"sem-turn", invocationctx.With(context.Background(), invocationctx.InvocationContext{ConversationID: "c"})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
+			tool := NewWithProvider(func() Runner { return runner })
+			res, err := tool.Execute(tc.ctx, json.RawMessage(`{"prompt":"faça X"}`))
+			if err != nil {
+				t.Fatalf("Execute não deve retornar erro Go: %v", err)
+			}
+			if !res.IsError {
+				t.Fatal("chamada de chat sem turno-pai deveria falhar fechado (IsError)")
+			}
+			if runner.lastParams.Prompt != "" {
+				t.Fatalf("runner não deveria ter sido chamado (sub-conversa órfã): %#v", runner.lastParams)
+			}
+		})
+	}
+}
+
+// TestToolAllowsParentlessForJobOrigin garante que a origem job/system (modo
+// sem-pai EXPLÍCITO do AEP-0068, formalizado na F4) pode rodar o sub-agente sem
+// vínculo pai: a tool NÃO falha fechado e chama o runner.
+func TestToolAllowsParentlessForJobOrigin(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{ConversationID: "c", RunID: "r", Status: subagent.StatusSucceeded}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	ctx := eventctx.With(context.Background(), eventctx.Provenance{Source: "job", SourceJobID: "job-1"})
+	res, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"faça X"}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("origem job não deveria falhar fechado: %s", res.Content)
+	}
+	if runner.lastParams.Prompt != "faça X" {
+		t.Fatalf("runner deveria ter sido chamado no modo job sem-pai: %#v", runner.lastParams)
+	}
+}
+
 func TestToolExplicitProfileOverridesInherited(t *testing.T) {
 	runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
 	tool := NewWithProvider(func() Runner { return runner })
-	ctx := invocationctx.With(context.Background(), invocationctx.InvocationContext{ProfileSlug: "parent-profile"})
+	ctx := invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "parent-conv",
+		TurnID:         "parent-turn",
+		ProfileSlug:    "parent-profile",
+	})
 
 	if _, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"x","profile":"researcher"}`)); err != nil {
 		t.Fatalf("Execute erro: %v", err)
