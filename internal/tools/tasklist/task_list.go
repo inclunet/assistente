@@ -221,7 +221,12 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 
 	hasValPolicy := rawJSONPresent(params.ValidationPolicy)
 	hasCustomActions := rawJSONPresent(params.CustomActions)
-	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || strings.TrimSpace(params.Description) != "" || params.PreferredViewMode != "" || hasValPolicy || hasCustomActions || params.Slug != nil || strings.TrimSpace(params.TaskListSlug) != ""
+	// task_list_slug e task_list_id são referências puras (modo leitura), nunca
+	// gatilho de escrita: passar só a referência deve retornar os detalhes da
+	// lista, não cair no update (que sobrescreveria description/view_mode com
+	// vazio). A escrita é disparada por campos reais (title, description, slug
+	// a definir, workflow, validation_policy, custom_actions, duplicate, ...).
+	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || strings.TrimSpace(params.Description) != "" || params.PreferredViewMode != "" || hasValPolicy || hasCustomActions || params.Slug != nil
 
 	idPtr := taskListIDPtrForResolve(params.TaskListID)
 	slugRef := strings.TrimSpace(params.TaskListSlug)

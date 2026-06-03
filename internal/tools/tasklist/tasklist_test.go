@@ -2184,6 +2184,42 @@ func TestUpsertTaskList_CustomActionsInvalid(t *testing.T) {
 	}
 }
 
+// TestGetTaskList_BySlugDoesNotMutate garante que uma chamada de leitura apenas
+// com task_list_slug retorna os detalhes da lista SEM cair no caminho de
+// escrita (que sobrescreveria description/view_mode com vazio). Regressão do
+// bug em que task_list_slug sozinho era tratado como write.
+func TestGetTaskList_BySlugDoesNotMutate(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Suporte", defaultStatuses())
+	tl.Slug = "bugs"
+	tl.Description = "descrição importante"
+	tl.PreferredViewMode = "kanban"
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_slug": "bugs",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if action, ok := result.Metadata["action"]; ok {
+		t.Fatalf("read-by-slug should not be a write, got action=%v", action)
+	}
+	got := mgr.taskLists[tl.ID]
+	if got.Description != "descrição importante" {
+		t.Fatalf("description was mutated by read-by-slug: %q", got.Description)
+	}
+	if got.PreferredViewMode != "kanban" {
+		t.Fatalf("preferred_view_mode was mutated by read-by-slug: %q", got.PreferredViewMode)
+	}
+	if id, _ := result.Metadata["task_list_id"].(string); id != tl.ID {
+		t.Fatalf("expected full details for %s, got metadata: %#v", tl.ID, result.Metadata)
+	}
+}
+
 func TestUpsertTaskList_CreateWithCustomWorkflow(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewTaskList(mgr)

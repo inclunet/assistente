@@ -54,6 +54,8 @@ func TestParseTaskListCustomActionsJSON_Invalid(t *testing.T) {
 		"unknown field when":  `{"actions":[{"id":"x","label":"X","event":"e","enabled_when":"true"}]}`,
 		"payload as object":   `{"actions":[{"id":"x","label":"X","event":"e","payload_template":{"a":1}}]}`,
 		"unknown top-level":   `{"actions":[],"version":2}`,
+		"trailing object":     `{"actions":[]}{"actions":[]}`,
+		"trailing garbage":    `{"actions":[{"id":"x","label":"X","event":"e"}]} extra`,
 	}
 	for name, raw := range cases {
 		if _, err := ParseTaskListCustomActionsJSON(raw); err == nil {

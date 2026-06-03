@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -94,6 +95,12 @@ func ParseTaskListCustomActionsJSON(raw string) (*TaskListCustomActions, error) 
 			return nil, fmt.Errorf("custom_actions: campo desconhecido %q — verifique o nome (campos válidos por ação: id, label, icon, surfaces, event, payload_template, link, when, confirm, danger)", field)
 		}
 		return nil, fmt.Errorf("custom_actions: JSON inválido: %w", err)
+	}
+	// Rejeita lixo/JSON extra após o primeiro valor (ex.: `{"actions":[]}{"x":1}`),
+	// que o Decoder aceitaria silenciosamente e geraria conteúdo inesperado para
+	// os demais consumers. io.EOF aqui significa "nada além do JSON esperado".
+	if err := dec.Decode(&json.RawMessage{}); err != io.EOF {
+		return nil, fmt.Errorf("custom_actions: JSON inválido: dados extras após o objeto JSON")
 	}
 	seen := make(map[string]bool, len(ca.Actions))
 	for i, a := range ca.Actions {
