@@ -52,7 +52,7 @@ quanto os jobs o acionam pelo mesmo caminho.
 - **AEP-0052 (Contas de Usuário)**: toda sub-conversa pertence ao mesmo `userID`;
   `resume` valida owner.
 - **AEP-0025/0062 (Profiles)**: o `profile` do sub-agente define modelo,
-  comportamento e **tools habilitadas** (`Profile.EnabledTools`/`DisableTools`) —
+  comportamento e **tools habilitadas** (`Profile.Chat.EnabledTools`/`Profile.Chat.DisableTools`) —
   inclusive se ele pode ou não criar novos sub-agentes.
 - **AEP-0001/0048/0063 (Jobs e Tool Invocations)**: jobs chamam a tool `subagent`;
   a persistência separa run de negócio de `tool_invocations`; proveniência via
@@ -75,13 +75,18 @@ quanto os jobs o acionam pelo mesmo caminho.
 - `clear` (bool, default `false`): reseta o histórico da sub-conversa antes de
   enviar (requer `conversation_id`).
 - `profile` (string, opcional): slug do profile do sub-agente
-  (`ChatParams.ProfileSlug`). Vazio = perfil ativo global.
+  (`ChatParams.ProfileSlug`). Default (vazio): chamadas originadas do chat/workspace
+  **herdam o profile já resolvido do pai**; só na ausência de pai (job/system) cai no
+  perfil ativo global.
 - `title` (string, opcional): título da sub-conversa (persistido em `Conversation.Title`).
 - `model` (string, opcional): modelo de execução do sub-agente (`llm.ChatParams.Model`),
   **sobrescreve** o modelo derivado do `profile` para aquele run. Não é persistido na
   entidade `Conversation` (que só tem `Title`) — é parâmetro de execução do envio.
 - `tools` (string[], opcional): **restringe** (subconjunto) sobre as tools já
-  habilitadas pelo profile — o profile é o gate primário.
+  habilitadas pelo profile — o profile é o gate primário. Semântica de vazio (alinhada
+  à base, que distingue `nil` de `[]`): **omitido/`nil`** = herda as tools do profile;
+  **`[]` (lista vazia)** = nenhuma tool (sub-agente sem tool calling). Itens fora do
+  habilitado pelo profile são ignorados (nunca expandem privilégio).
 - `run_id` (string UUID, opcional): identifica um **run específico** (turno) de uma
   sub-conversa para `status`/`cancel`. Se omitido, as operações abaixo agem sobre o
   **run mais recente** da `conversation_id` informada.
