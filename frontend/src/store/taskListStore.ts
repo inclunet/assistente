@@ -30,6 +30,11 @@ import {
   GetTaskNotes,
   UpdateTaskNote,
   DeleteTaskNote,
+  GetTaskListCustomActions,
+  SetTaskListCustomActions,
+  ListCardCustomActions,
+  ListBoardCustomActions,
+  TriggerCustomAction,
 } from '@wailsjs/go/app/App';
 import type {
   Task,
@@ -41,6 +46,9 @@ import type {
   TaskListWorkflow,
   TaskListWorkflowStatus,
   WorkflowTransitions,
+  TaskListCustomActions,
+  CustomActionView,
+  CustomActionSurface,
 } from '../types/tasklist';
 import type { database } from '@wailsjs/go/models';
 
@@ -182,6 +190,13 @@ interface TaskListStoreState {
   clearTaskList: (taskListId: string) => Promise<void>;
   cloneTaskList: (taskListId: string, newTitle: string) => Promise<TaskListWithWorkflow | null>;
   fetchAllTaskLists: () => Promise<database.TaskList[]>;
+
+  // Custom actions (AEP-0067)
+  getTaskListCustomActions: (taskListId: string) => Promise<TaskListCustomActions>;
+  setTaskListCustomActions: (taskListId: string, actionsJSON: string) => Promise<void>;
+  listCardCustomActions: (taskId: string, surface: CustomActionSurface) => Promise<CustomActionView[]>;
+  listBoardCustomActions: (taskListId: string) => Promise<CustomActionView[]>;
+  triggerCustomAction: (taskListId: string, taskId: string, actionId: string) => Promise<string>;
 
   // View mode
   setViewMode: (taskListId: string, viewMode: ViewMode) => Promise<void>;
@@ -420,6 +435,30 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       } catch {
         return [];
       }
+    },
+
+    // ── Custom actions (AEP-0067) ──────────────────────────────────────────
+    getTaskListCustomActions: async (taskListId: string) => {
+      const res = await GetTaskListCustomActions(taskListId);
+      return (res as unknown as TaskListCustomActions) || { actions: [] };
+    },
+
+    setTaskListCustomActions: async (taskListId: string, actionsJSON: string) => {
+      await SetTaskListCustomActions(taskListId, actionsJSON);
+    },
+
+    listCardCustomActions: async (taskId: string, surface: CustomActionSurface) => {
+      const res = await ListCardCustomActions(taskId, surface);
+      return (res as unknown as CustomActionView[]) || [];
+    },
+
+    listBoardCustomActions: async (taskListId: string) => {
+      const res = await ListBoardCustomActions(taskListId);
+      return (res as unknown as CustomActionView[]) || [];
+    },
+
+    triggerCustomAction: async (taskListId: string, taskId: string, actionId: string) => {
+      return (await TriggerCustomAction(taskListId, taskId, actionId)) || '';
     },
 
     // View mode

@@ -11,6 +11,9 @@ const mockReorderTasks = vi.fn();
 const mockDeleteTask = vi.fn();
 const mockUpdateTask = vi.fn();
 const mockAnnounce = vi.fn();
+const mockListCardCustomActions = vi.fn();
+const mockRunCustomAction = vi.fn();
+const mockOpenForTrigger = vi.fn();
 
 /* ── Mocks de módulos ──────────────────────────────────────── */
 
@@ -31,6 +34,7 @@ vi.mock('../../store/taskListStore', () => ({
       reorderTasks: mockReorderTasks,
       deleteTask: mockDeleteTask,
       updateTask: mockUpdateTask,
+      listCardCustomActions: mockListCardCustomActions,
     }),
     { getState: () => ({ updateTask: mockUpdateTask }) },
   ),
@@ -44,10 +48,16 @@ vi.mock('../../hooks/useAnchoredContextMenu', () => ({
   useAnchoredContextMenu: () => ({
     menu: { visible: false, x: 0, y: 0, items: [], ariaLabel: '' },
     triggerElementRef: { current: null },
-    openForTrigger: vi.fn(),
+    openForTrigger: mockOpenForTrigger,
     openAtPoint: vi.fn(),
     closeMenu: vi.fn(),
     onSelectItem: vi.fn(),
+  }),
+}));
+
+vi.mock('./useCustomActions', () => ({
+  useCustomActions: () => ({
+    runCustomAction: mockRunCustomAction,
   }),
 }));
 
@@ -120,6 +130,8 @@ describe('KanbanBoard', () => {
     mockReorderTasks.mockResolvedValue(undefined);
     mockDeleteTask.mockResolvedValue(undefined);
     mockUpdateTask.mockResolvedValue(undefined);
+    mockListCardCustomActions.mockResolvedValue([]);
+    mockRunCustomAction.mockResolvedValue(undefined);
     // Congela apenas o Date (sem afetar timers/Promises) para que os
     // asserts sobre formatRelativeTime sejam determinísticos: com createdAt
     // fixo em 2024-01-01 e "agora" travado em 2026-06-01, o helper produz
@@ -354,6 +366,41 @@ describe('KanbanBoard', () => {
     await waitFor(() => {
       expect(mockDeleteTask).toHaveBeenCalledWith("10");
     });
+  });
+
+  it('inclui custom actions no menu de contexto do card e executa a seleção', async () => {
+    mockListCardCustomActions.mockResolvedValue([
+      {
+        id: 'investigate',
+        label: 'Investigar',
+        icon: '🔍',
+        danger: false,
+      },
+    ]);
+    await renderBoard();
+
+    const card = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+    expect(card).toBeTruthy();
+    fireEvent.contextMenu(card!);
+
+    await waitFor(() => {
+      expect(mockOpenForTrigger).toHaveBeenCalled();
+    });
+
+    const [, , items] = mockOpenForTrigger.mock.calls[mockOpenForTrigger.mock.calls.length - 1];
+    const customItem = items.find((item: { id: string }) => item.id === 'custom-investigate');
+    expect(customItem).toEqual(expect.objectContaining({
+      label: 'Investigar',
+      icon: '🔍',
+    }));
+
+    customItem.action();
+
+    expect(mockRunCustomAction).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'investigate', label: 'Investigar' }),
+      '1',
+      '10',
+    );
   });
 
   // ── F2 Rename ─────────────────────────────────────────────
