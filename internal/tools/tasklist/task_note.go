@@ -294,6 +294,8 @@ func parseExternalUpdatedAt(s string) (*time.Time, error) {
 	layouts := []string{
 		time.RFC3339Nano,
 		time.RFC3339,
+		"2006-01-02T15:04:05.999999999-0700", // Jira (ISO-8601, offset ±HHMM sem dois-pontos), fração opcional
+		"2006-01-02T15:04:05-0700",           // Jira sem fração
 		"2006-01-02 15:04:05",
 		"2006-01-02T15:04:05",
 		"2006-01-02",
