@@ -76,9 +76,9 @@ quanto os jobs o acionam pelo mesmo caminho.
   enviar (só com `conversation_id`).
 - `profile` (string, opcional): slug do profile do sub-agente
   (`ChatParams.ProfileSlug`). Vazio = perfil ativo global.
-- `title?`, `model?` (opcionais): metadados da sub-conversa. `tools?[]` (opcional):
-  **restringe** (subconjunto) sobre as tools já habilitadas pelo profile — o
-  profile é o gate primário.
+- `title` (string, opcional), `model` (string, opcional): metadados da sub-conversa.
+- `tools` (string[], opcional): **restringe** (subconjunto) sobre as tools já
+  habilitadas pelo profile — o profile é o gate primário.
 - `run_id` (string, opcional): identifica um **run específico** (turno) de uma
   sub-conversa para `status`/`cancel`. Se omitido, as operações abaixo agem sobre o
   **run mais recente** da `conversation_id` informada.
