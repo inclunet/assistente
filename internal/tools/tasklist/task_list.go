@@ -35,6 +35,7 @@ type taskListArgs struct {
 	PreferredViewMode string          `json:"preferred_view_mode,omitempty"`
 	Workflow          *workflowArg    `json:"workflow,omitempty"`
 	ValidationPolicy  json.RawMessage `json:"validation_policy,omitempty"`
+	CustomActions     json.RawMessage `json:"custom_actions,omitempty"`
 }
 
 type TaskListTool struct {
@@ -48,7 +49,7 @@ func NewTaskList(mgr TaskListManager) *TaskListTool {
 func (t *TaskListTool) Name() string { return "task_list" }
 
 func (t *TaskListTool) Description() string {
-	return `Full CRUD for task lists. Without params → lists all. Identify a list by task_list_id and/or task_list_slug (at least one for read/update/duplicate/summary); if both are sent, they must refer to the same list. With id or slug only → full details. With summary_only → lightweight status counts. Optional slug (create/duplicate: initial slug for the new list; update: set or clear — use empty string to remove slug). With title and no existing list reference → create. With id or slug → update (title may be omitted to keep current). With duplicate + title → copy (tasks NOT copied). validation_policy: task_code_regex, allowed_note_sources, note_external_id_regex, note_external_parent_id_regex; {} clears. Workflow updates with removed statuses need status_migration.`
+	return `Full CRUD for task lists. Without params → lists all. Identify a list by task_list_id and/or task_list_slug (at least one for read/update/duplicate/summary); if both are sent, they must refer to the same list. With id or slug only → full details. With summary_only → lightweight status counts. Optional slug (create/duplicate: initial slug for the new list; update: set or clear — use empty string to remove slug). With title and no existing list reference → create. With id or slug → update (title may be omitted to keep current). With duplicate + title → copy (tasks NOT copied). validation_policy: task_code_regex, allowed_note_sources, note_external_id_regex, note_external_parent_id_regex; {} clears. custom_actions: optional per-list context-menu items/buttons (publish a domain event and/or open a link); [] clears, omit to keep. Workflow updates with removed statuses need status_migration.`
 }
 
 func (t *TaskListTool) Parameters() json.RawMessage {
@@ -101,6 +102,61 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 					"note_external_parent_id_regex": {"type": "string"}
 				},
 				"additionalProperties": false
+			},
+			"custom_actions": {
+				"type": "array",
+				"description": "Optional per-list custom actions (context-menu items / buttons). Omit to leave unchanged on update. Send [] to clear all. Each action publishes a domain event and/or opens a link. Templating: link, payload_template and when are Go templates rendered with the card as root '.task' (e.g. .task.code, .task.title, .task.link, .task.task_list_id, .task.task_list_slug) plus .now; use the json function for safe values, e.g. {\"code\": {{ json .task.code }}}",
+				"items": {
+					"type": "object",
+					"properties": {
+						"id": {
+							"type": "string",
+							"description": "Stable slug identifying the action. No spaces/whitespace or path separators (/ \\). Must be unique within the list"
+						},
+						"label": {
+							"type": "string",
+							"description": "Text shown on the menu item / button"
+						},
+						"icon": {
+							"type": "string",
+							"description": "Optional emoji/icon, e.g. '🔄'"
+						},
+						"surfaces": {
+							"type": "array",
+							"description": "Where the action appears. Defaults to card_menu when omitted",
+							"items": {
+								"type": "string",
+								"enum": ["card_menu", "card_detail", "board_menu"]
+							}
+						},
+						"event": {
+							"type": "string",
+							"description": "Domain event name to publish when triggered (no whitespace). Required unless 'link' is set"
+						},
+						"payload_template": {
+							"type": "string",
+							"description": "Go template rendered to a JSON object used as the event payload. Only applies when 'event' is set"
+						},
+						"link": {
+							"type": "string",
+							"description": "Go template rendered to a deep link (assistente://...) or external URL (http/https) to open. Required unless 'event' is set"
+						},
+						"when": {
+							"type": "string",
+							"description": "Optional Go template controlling visibility; the action only shows when it renders to a truthy value"
+						},
+						"confirm": {
+							"type": "string",
+							"description": "Optional confirmation text shown before running the action"
+						},
+						"danger": {
+							"type": "boolean",
+							"description": "When true, renders the action with a destructive/danger style"
+						}
+					},
+					"required": ["id", "label"],
+					"additionalProperties": false
+				}
 			},
 			"workflow": {
 				"type": "object",
@@ -163,8 +219,14 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
 	}
 
-	hasValPolicy := len(params.ValidationPolicy) > 0 && strings.TrimSpace(string(params.ValidationPolicy)) != "" && strings.TrimSpace(string(params.ValidationPolicy)) != "null"
-	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || strings.TrimSpace(params.Description) != "" || params.PreferredViewMode != "" || hasValPolicy || params.Slug != nil || strings.TrimSpace(params.TaskListSlug) != ""
+	hasValPolicy := rawJSONPresent(params.ValidationPolicy)
+	hasCustomActions := rawJSONPresent(params.CustomActions)
+	// task_list_slug e task_list_id são referências puras (modo leitura), nunca
+	// gatilho de escrita: passar só a referência deve retornar os detalhes da
+	// lista, não cair no update (que sobrescreveria description/view_mode com
+	// vazio). A escrita é disparada por campos reais (title, description, slug
+	// a definir, workflow, validation_policy, custom_actions, duplicate, ...).
+	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || strings.TrimSpace(params.Description) != "" || params.PreferredViewMode != "" || hasValPolicy || hasCustomActions || params.Slug != nil
 
 	idPtr := taskListIDPtrForResolve(params.TaskListID)
 	slugRef := strings.TrimSpace(params.TaskListSlug)
@@ -211,7 +273,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 			if params.Slug != nil {
 				newSlug = *params.Slug
 			}
-			return t.duplicateTaskList(ctx, resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, newSlug)
+			return t.duplicateTaskList(ctx, resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, newSlug)
 		}
 		title := strings.TrimSpace(params.Title)
 		if title == "" {
@@ -224,7 +286,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		if title == "" {
 			return tools.ToolResult{Content: "title is required for create; for update the list must have a stored title", IsError: true}, nil
 		}
-		return t.updateTaskList(ctx, resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.Slug)
+		return t.updateTaskList(ctx, resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, params.Slug)
 	}
 
 	title := strings.TrimSpace(params.Title)
@@ -235,7 +297,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if params.Slug != nil {
 		initialSlug = *params.Slug
 	}
-	return t.createTaskList(ctx, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, initialSlug)
+	return t.createTaskList(ctx, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, initialSlug)
 }
 
 // ==================== Read Operations ====================
@@ -366,6 +428,9 @@ func (t *TaskListTool) fullDetails(ctx context.Context, taskListID string) (tool
 	if vp := validationPolicyToMap(taskList.ValidationPolicy); vp != nil {
 		response["validation_policy"] = vp
 	}
+	if ca := customActionsToList(taskList.CustomActions); ca != nil {
+		response["custom_actions"] = ca
+	}
 
 	if taskList.Workflow != nil {
 		statuses, err := parseWorkflowStatuses(taskList.Workflow)
@@ -409,7 +474,7 @@ func (t *TaskListTool) fullDetails(ctx context.Context, taskListID string) (tool
 
 // ==================== Write Operations ====================
 
-func (t *TaskListTool) createTaskList(ctx context.Context, title, description, viewMode string, wf *workflowArg, policyRaw json.RawMessage, initialSlug string) (tools.ToolResult, error) {
+func (t *TaskListTool) createTaskList(ctx context.Context, title, description, viewMode string, wf *workflowArg, policyRaw, customActionsRaw json.RawMessage, initialSlug string) (tools.ToolResult, error) {
 	var template *database.TaskListWorkflow
 	if wf != nil {
 		tpl, err := t.buildWorkflowTemplate(wf)
@@ -432,6 +497,10 @@ func (t *TaskListTool) createTaskList(ctx context.Context, title, description, v
 		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
+	if msg, err := t.applyCustomActions(ctx, taskList.ID, customActionsRaw); err != nil {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
 	updated, err := t.mgr.GetTaskList(ctx, taskList.ID)
 	if err != nil {
 		updated = taskList
@@ -444,7 +513,7 @@ func (t *TaskListTool) createTaskList(ctx context.Context, title, description, v
 	}, nil
 }
 
-func (t *TaskListTool) duplicateTaskList(ctx context.Context, sourceID string, title, description, viewMode string, wfOverride *workflowArg, policyRaw json.RawMessage, newListSlug string) (tools.ToolResult, error) {
+func (t *TaskListTool) duplicateTaskList(ctx context.Context, sourceID string, title, description, viewMode string, wfOverride *workflowArg, policyRaw, customActionsRaw json.RawMessage, newListSlug string) (tools.ToolResult, error) {
 	source, err := t.mgr.GetTaskList(ctx, sourceID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Source task list not found (id=%s): %v", sourceID, err), IsError: true}, nil
@@ -492,6 +561,16 @@ func (t *TaskListTool) duplicateTaskList(ctx context.Context, sourceID string, t
 		}
 	}
 
+	if rawJSONPresent(customActionsRaw) {
+		if msg, err := t.applyCustomActions(ctx, newList.ID, customActionsRaw); err != nil {
+			return tools.ToolResult{Content: msg, IsError: true}, nil
+		}
+	} else if strings.TrimSpace(source.CustomActions) != "" {
+		if err := t.mgr.SetTaskListCustomActions(ctx, newList.ID, source.CustomActions); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("Error copying custom actions: %v", err), IsError: true}, nil
+		}
+	}
+
 	updated, err := t.mgr.GetTaskList(ctx, newList.ID)
 	if err != nil {
 		updated = newList
@@ -506,7 +585,7 @@ func (t *TaskListTool) duplicateTaskList(ctx context.Context, sourceID string, t
 	}, nil
 }
 
-func (t *TaskListTool) updateTaskList(ctx context.Context, id string, title, description, viewMode string, wf *workflowArg, policyRaw json.RawMessage, slugUpdate *string) (tools.ToolResult, error) {
+func (t *TaskListTool) updateTaskList(ctx context.Context, id string, title, description, viewMode string, wf *workflowArg, policyRaw, customActionsRaw json.RawMessage, slugUpdate *string) (tools.ToolResult, error) {
 	existing, err := t.mgr.GetTaskList(ctx, id)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%s): %v", id, err), IsError: true}, nil
@@ -517,6 +596,10 @@ func (t *TaskListTool) updateTaskList(ctx context.Context, id string, title, des
 	}
 
 	if msg, err := t.applyValidationPolicy(ctx, id, policyRaw); err != nil {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
+	if msg, err := t.applyCustomActions(ctx, id, customActionsRaw); err != nil {
 		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
@@ -620,6 +703,9 @@ func (t *TaskListTool) buildResult(tl *database.TaskList, action string) map[str
 	if vp := validationPolicyToMap(tl.ValidationPolicy); vp != nil {
 		result["validation_policy"] = vp
 	}
+	if ca := customActionsToList(tl.CustomActions); ca != nil {
+		result["custom_actions"] = ca
+	}
 	if tl.Workflow != nil {
 		statuses, err := parseWorkflowStatuses(tl.Workflow)
 		if err == nil {
@@ -656,15 +742,41 @@ func validationPolicyToMap(raw string) map[string]any {
 	return m
 }
 
+// customActionsToList interpreta o JSON armazenado em custom_actions e devolve
+// a lista de ações como []map[string]any para echo nas respostas. Retorna nil
+// quando não há ações configuradas (campo vazio ou lista vazia válida), de modo
+// que o campo seja omitido. Se o JSON armazenado for inválido (config corrompida
+// ou legada), em vez de sumir silenciosamente com o campo, expõe um marcador de
+// erro — coerente com validationPolicyToMap — para não atrapalhar diagnóstico.
+func customActionsToList(raw string) []map[string]any {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil
+	}
+	ca, err := database.ParseTaskListCustomActionsJSON(raw)
+	if err != nil || ca == nil {
+		return []map[string]any{{"_parse_error": true, "raw": s}}
+	}
+	if len(ca.Actions) == 0 {
+		return nil
+	}
+	actionsJSON, err := json.Marshal(ca.Actions)
+	if err != nil {
+		return []map[string]any{{"_parse_error": true, "raw": s}}
+	}
+	var out []map[string]any
+	if err := json.Unmarshal(actionsJSON, &out); err != nil {
+		return []map[string]any{{"_parse_error": true, "raw": s}}
+	}
+	return out
+}
+
 // applyValidationPolicy aplica validation_policy quando o JSON foi enviado (inclui {} para limpar).
 func (t *TaskListTool) applyValidationPolicy(ctx context.Context, taskListID string, policyRaw json.RawMessage) (errMsg string, err error) {
-	if len(policyRaw) == 0 {
+	if !rawJSONPresent(policyRaw) {
 		return "", nil
 	}
 	s := strings.TrimSpace(string(policyRaw))
-	if s == "" || s == "null" {
-		return "", nil
-	}
 	if s == "{}" {
 		if e := t.mgr.SetTaskListValidationPolicy(ctx, taskListID, ""); e != nil {
 			return fmt.Sprintf("Error clearing validation_policy: %v", e), e
@@ -676,6 +788,50 @@ func (t *TaskListTool) applyValidationPolicy(ctx context.Context, taskListID str
 	}
 	if e := t.mgr.SetTaskListValidationPolicy(ctx, taskListID, s); e != nil {
 		return fmt.Sprintf("Error saving validation_policy: %v", e), e
+	}
+	return "", nil
+}
+
+// rawJSONPresent reporta se um campo json.RawMessage opcional foi efetivamente
+// enviado (não vazio e diferente de "null"). Usado para distinguir "omitido"
+// (mantém valor atual) de "enviado" (aplica/limpa).
+func rawJSONPresent(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	s := strings.TrimSpace(string(raw))
+	return s != "" && s != "null"
+}
+
+// applyCustomActions aplica custom_actions quando enviado. custom_actions é um
+// ARRAY de ações (forma do schema do tool): um array vazio ([]) limpa todas as
+// ações. Qualquer outro tipo JSON (objeto, inclusive {}, ou escalar) é rejeitado
+// explicitamente — assim um tipo errado vira erro claro em vez de data-loss
+// silencioso e mantém coerência com a descrição do tool ("[] clears").
+func (t *TaskListTool) applyCustomActions(ctx context.Context, taskListID string, raw json.RawMessage) (errMsg string, err error) {
+	if !rawJSONPresent(raw) {
+		return "", nil
+	}
+	s := strings.TrimSpace(string(raw))
+	if !strings.HasPrefix(s, "[") {
+		msg := "custom_actions deve ser um array de ações (use [] para limpar todas)"
+		return msg, fmt.Errorf("%s", msg)
+	}
+	// Embrulha o array no formato armazenado {"actions":[...]} e valida.
+	normalized := `{"actions":` + s + `}`
+	parsed, e := database.ParseTaskListCustomActionsJSON(normalized)
+	if e != nil {
+		return e.Error(), e
+	}
+	// Array vazio ([] ou [ ]) limpa tudo.
+	if len(parsed.Actions) == 0 {
+		if e := t.mgr.SetTaskListCustomActions(ctx, taskListID, ""); e != nil {
+			return fmt.Sprintf("Error clearing custom_actions: %v", e), e
+		}
+		return "", nil
+	}
+	if e := t.mgr.SetTaskListCustomActions(ctx, taskListID, normalized); e != nil {
+		return fmt.Sprintf("Error saving custom_actions: %v", e), e
 	}
 	return "", nil
 }
