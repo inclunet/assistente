@@ -2014,7 +2014,7 @@ const en = {
       // Kanban
       kanban: {
         boardLabel: 'Kanban board for {{name}}',
-        instructions: 'Use left and right arrows to switch columns. Up and down arrows switch cards. Alt+Arrows reorders or moves between columns. Space selects and drops a card. Delete removes. F2 renames. Enter opens menu.',
+        instructions: 'Use left and right arrows to switch columns. Up and down arrows switch cards. Home and End go to the first and last card in the column; Ctrl+Home and Ctrl+End go to the first and last card on the board. Page Up and Page Down jump 10 cards within the column. Alt+Arrows reorders or moves between columns. Space selects and drops a card. Delete removes. F2 renames. Enter opens the card details. Shift+F10 or the Menu key open the context menu.',
         emptyColumn: 'empty column',
         task: 'task',
         tasks: 'tasks',
