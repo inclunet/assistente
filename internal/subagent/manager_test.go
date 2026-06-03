@@ -2,6 +2,7 @@ package subagent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -559,5 +560,53 @@ func TestManagerRunRequiresUserScope(t *testing.T) {
 
 	if _, err := mgr.Run(context.Background(), RunParams{Prompt: "faça X"}); err == nil {
 		t.Fatal("esperava erro de escopo de usuário ausente")
+	}
+}
+
+// runningUpdateFailRepo embute um Repository real mas falha o Update que marca
+// o run como running (segundo Update da vida do run), permitindo exercitar o
+// tratamento de erro de persistência da transição para running.
+type runningUpdateFailRepo struct {
+	Repository
+	failOnStatus string
+}
+
+func (r *runningUpdateFailRepo) Update(ctx context.Context, run *database.SubAgentRun) error {
+	if run != nil && run.Status == r.failOnStatus {
+		return fmt.Errorf("falha simulada ao persistir status %q", r.failOnStatus)
+	}
+	return r.Repository.Update(ctx, run)
+}
+
+// TestManagerRunningUpdateErrorAborts garante que, se a transição para running
+// não puder ser persistida, o Run aborta ANTES de enviar (não deixa trabalho
+// órfão) e reporta failed, em vez de descartar o erro silenciosamente.
+func TestManagerRunningUpdateErrorAborts(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	sendCalled := false
+	mgr := NewManager(ManagerConfig{
+		Repo:     &runningUpdateFailRepo{Repository: repo, failOnStatus: database.SubAgentRunStatusRunning},
+		Notifier: notifier,
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			sendCalled = true
+			return p.ConversationID, nil
+		},
+	})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "faça X"})
+	if err != nil {
+		t.Fatalf("Run não deve retornar erro de pré-condição: %v", err)
+	}
+	if res.Status != StatusFailed {
+		t.Fatalf("status esperado failed, veio %q", res.Status)
+	}
+	if res.Error == "" {
+		t.Fatal("esperava mensagem de erro no RunResult")
+	}
+	if sendCalled {
+		t.Fatal("Send NÃO deveria ser chamado quando a transição para running falha")
 	}
 }
