@@ -118,7 +118,8 @@ func TestManagerRunSendError(t *testing.T) {
 		Repo:     repo,
 		Notifier: notifier,
 		Send: func(_ context.Context, _ SendParams) (string, error) {
-			return "", context.DeadlineExceeded
+			// Erro comum (não derivado do ctx) → failed.
+			return "", fmt.Errorf("falha no envio")
 		},
 	})
 
@@ -135,6 +136,63 @@ func TestManagerRunSendError(t *testing.T) {
 	}
 	if run.Status != StatusFailed || run.Error == "" {
 		t.Fatalf("run failed esperado com erro: %#v", run)
+	}
+}
+
+// TestManagerRunSendClassifiesCtxError garante que um cancel/timeout que se
+// manifeste como erro de m.send seja classificado como cancelled/timed_out
+// (não failed), conforme o enum do AEP-0068. A mensagem real do erro deve ser
+// preservada no run.
+func TestManagerRunSendClassifiesCtxError(t *testing.T) {
+	cases := []struct {
+		name    string
+		sendErr error
+		want    string
+	}{
+		{"canceled", context.Canceled, StatusCancelled},
+		{"deadline", context.DeadlineExceeded, StatusTimedOut},
+		{"wrapped-canceled", fmt.Errorf("envio abortado: %w", context.Canceled), StatusCancelled},
+		{"wrapped-deadline", fmt.Errorf("envio expirou: %w", context.DeadlineExceeded), StatusTimedOut},
+	}
+	// send é compartilhado antes do branch p.Background: a classificação deve
+	// valer tanto para o caminho síncrono quanto para o background.
+	for _, bg := range []bool{false, true} {
+		for _, tc := range cases {
+			name := tc.name
+			if bg {
+				name += "/background"
+			}
+			t.Run(name, func(t *testing.T) {
+				repo, ctx := setupManagerTest(t)
+				notifier := messaging.NewResponseNotifier()
+				t.Cleanup(notifier.Stop)
+				mgr := NewManager(ManagerConfig{
+					Repo:     repo,
+					Notifier: notifier,
+					Send: func(_ context.Context, _ SendParams) (string, error) {
+						return "", tc.sendErr
+					},
+				})
+
+				res, err := mgr.Run(ctx, RunParams{Prompt: "faça X", Background: bg})
+				if err != nil {
+					t.Fatalf("Run não deve retornar erro de pré-condição: %v", err)
+				}
+				if res.Status != tc.want {
+					t.Fatalf("status esperado %q, veio %q", tc.want, res.Status)
+				}
+				run, err := repo.Get(ctx, res.RunID)
+				if err != nil {
+					t.Fatalf("buscar run: %v", err)
+				}
+				if run.Status != tc.want {
+					t.Fatalf("run persistido esperado %q, veio %#v", tc.want, run)
+				}
+				if run.Error == "" {
+					t.Fatalf("mensagem de erro deveria ser preservada: %#v", run)
+				}
+			})
+		}
 	}
 }
 
