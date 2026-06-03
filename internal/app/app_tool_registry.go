@@ -49,6 +49,12 @@ func (m *serviceTaskListManager) ResolveTaskListRef(ctx context.Context, taskLis
 func (m *serviceTaskListManager) SetTaskListValidationPolicy(ctx context.Context, taskListID string, policyJSON string) error {
 	return m.svc.SetTaskListValidationPolicy(ctx, taskListID, policyJSON)
 }
+func (m *serviceTaskListManager) GetTaskListCustomActions(ctx context.Context, taskListID string) (*database.TaskListCustomActions, error) {
+	return m.svc.GetTaskListCustomActions(ctx, taskListID)
+}
+func (m *serviceTaskListManager) SetTaskListCustomActions(ctx context.Context, taskListID string, actionsJSON string) error {
+	return m.svc.SetTaskListCustomActions(ctx, taskListID, actionsJSON)
+}
 func (m *serviceTaskListManager) UpdateWorkflowFull(ctx context.Context, taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
 	return m.svc.UpdateWorkflowFull(ctx, taskListID, statuses, transitions, initialStatusID, statusMigration)
 }

@@ -287,6 +287,76 @@ describe('MessageList', () => {
     expect(onLoadNewer).toHaveBeenCalledTimes(1);
   });
 
+  // Issue #178: durante o streaming, a mensagem em curso re-renderiza e pode ser
+  // remontada (a chave de timeline muda de `message:<id>` para `turn:<turnId>`),
+  // jogando o foco no <body>. O MessageList deve restaurar o foco no mesmo irmão.
+  it('restaura o foco no irmão focado quando ele é perdido para o <body> em re-render', () => {
+    const first = createNode('user-1');
+    const streaming = createNode('streaming-1');
+    streaming.message.role = 'assistant';
+    streaming.message.isStreaming = true;
+
+    const { container, rerender } = render(
+      <MessageList threadedMessages={[first, streaming]} isLoading />
+    );
+
+    const list = container.querySelector('.message-list__list') as HTMLElement;
+    const lastNode = list.querySelector(
+      '[data-message-node][data-level="0"][data-sibling-index="1"]'
+    ) as HTMLElement;
+
+    // Entra na lista: foco no último irmão (mensagem em streaming).
+    fireEvent.focusIn(lastNode, { target: lastNode });
+    // Streaming remonta o nó: o foco cai no <body> (relatedTarget nulo).
+    fireEvent.focusOut(lastNode, { relatedTarget: null });
+    expect(document.activeElement).toBe(document.body);
+
+    // Próxima atualização das mensagens (streaming) deve restaurar o foco.
+    const updatedStreaming = createNode('streaming-1');
+    updatedStreaming.message.role = 'assistant';
+    updatedStreaming.message.isStreaming = true;
+    updatedStreaming.message.content = 'parcial...';
+    rerender(<MessageList threadedMessages={[first, updatedStreaming]} isLoading />);
+
+    const restored = list.querySelector(
+      '[data-message-node][data-level="0"][data-sibling-index="1"]'
+    ) as HTMLElement;
+    expect(document.activeElement).toBe(restored);
+  });
+
+  it('não rouba o foco quando ele saiu da lista intencionalmente para outro elemento', () => {
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+
+    const first = createNode('user-1');
+    const streaming = createNode('streaming-1');
+    streaming.message.role = 'assistant';
+    streaming.message.isStreaming = true;
+
+    const { container, rerender } = render(
+      <MessageList threadedMessages={[first, streaming]} isLoading />
+    );
+
+    const list = container.querySelector('.message-list__list') as HTMLElement;
+    const lastNode = list.querySelector(
+      '[data-message-node][data-level="0"][data-sibling-index="1"]'
+    ) as HTMLElement;
+
+    fireEvent.focusIn(lastNode, { target: lastNode });
+    // Saída intencional para um elemento concreto fora da lista (ex.: input).
+    outside.focus();
+    fireEvent.focusOut(lastNode, { relatedTarget: outside });
+
+    const updatedStreaming = createNode('streaming-1');
+    updatedStreaming.message.role = 'assistant';
+    updatedStreaming.message.isStreaming = true;
+    updatedStreaming.message.content = 'parcial...';
+    rerender(<MessageList threadedMessages={[first, updatedStreaming]} isLoading />);
+
+    expect(document.activeElement).toBe(outside);
+    document.body.removeChild(outside);
+  });
+
   it('não pagina mensagens posteriores a partir de nó de streaming', () => {
     hoisted.messageNodeMock.mockClear();
     const onLoadNewer = vi.fn();
