@@ -129,7 +129,16 @@ type TestTask = ReturnType<typeof makeTasks>[number];
  * um card não recompõe as colunas e a lógica de foco pós-move (issue #177) não
  * seria exercida nos testes.
  */
-function ControlledBoard({ initialTasks }: { initialTasks: TestTask[] }) {
+function ControlledBoard({
+  initialTasks,
+  removeOnStatusChange = false,
+}: {
+  initialTasks: TestTask[];
+  // Simula uma atualização concorrente que REMOVE o card ao mudar de status
+  // (ex.: consolidação), para exercitar o fallback de foco quando o followTask
+  // não acha mais o card movido.
+  removeOnStatusChange?: boolean;
+}) {
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks);
 
   // Configura os mocks uma única vez (no mount) e os limpa no unmount, evitando
@@ -137,7 +146,11 @@ function ControlledBoard({ initialTasks }: { initialTasks: TestTask[] }) {
   // a atualização sempre parte do estado mais recente (sem capturar stale).
   useEffect(() => {
     mockUpdateTaskStatus.mockImplementation(async (taskId: string, statusId: number) => {
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, statusId } : t)));
+      setTasks((prev) =>
+        removeOnStatusChange
+          ? prev.filter((t) => t.id !== taskId)
+          : prev.map((t) => (t.id === taskId ? { ...t, statusId } : t)),
+      );
     });
     mockDeleteTask.mockImplementation(async (taskId: string) => {
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
@@ -146,7 +159,7 @@ function ControlledBoard({ initialTasks }: { initialTasks: TestTask[] }) {
       mockUpdateTaskStatus.mockReset();
       mockDeleteTask.mockReset();
     };
-  }, []);
+  }, [removeOnStatusChange]);
 
   return (
     <MemoryRouter>
@@ -697,6 +710,36 @@ describe('KanbanBoard', () => {
       );
     });
     expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
+  });
+
+  it('no modo followTask, se o card sumir após o move, o foco vai para outra coluna não vazia (não cai no body)', async () => {
+    const tasks: TestTask[] = [
+      { id: "10", taskListId: "1", title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      { id: "11", taskListId: "1", title: 'Tarefa Beta', description: '', statusId: 1, order: 1, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    ];
+    // `removeOnStatusChange` simula uma atualização concorrente que remove o
+    // card movido — então `findTaskPos` não acha o card no branch followTask.
+    render(<ControlledBoard initialTasks={tasks} removeOnStatusChange />);
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    // Agarra "Tarefa Alpha" e move para a direita (o card é removido no caminho).
+    fireEvent.keyDown(board, { key: ' ' });
+    fireEvent.keyDown(board, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith("10", 2);
+    });
+
+    // Fallback: como "Alpha" sumiu, o foco vai para o 1º card de uma coluna não
+    // vazia ("Tarefa Beta"), permanecendo dentro do board (não no <body>).
+    await waitFor(() => {
+      const betaCard = screen.getByText('Tarefa Beta').closest('.kanban-card');
+      expect(board.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).toBe(betaCard);
+    });
+    expect(document.activeElement).not.toBe(document.body);
   });
 
   // ── Coluna vazia ──────────────────────────────────────────

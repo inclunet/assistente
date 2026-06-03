@@ -202,7 +202,10 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
 
     let next: FocusPos | null = null;
     if (pending.kind === 'followTask') {
-      next = findTaskPos(pending.taskId);
+      // Se o card movido não for encontrado (ex.: removido/consolidado por uma
+      // atualização concorrente), mantém o foco no board indo para o primeiro
+      // card de uma coluna não vazia, em vez de deixar o foco cair no body.
+      next = findTaskPos(pending.taskId) ?? firstNonEmptyColumnPos();
     } else {
       const sourceTasks = getColumnTasks(pending.sourceCol);
       if (sourceTasks.length > 0) {
