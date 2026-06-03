@@ -320,7 +320,9 @@ func (m *Manager) wait(ctx context.Context, childConvID string, done chan comple
 
 // pollDone lê `done` de forma não-bloqueante, retornando a conclusão se já
 // estiver disponível. Usado para dar prioridade à resposta bem-sucedida quando
-// done e cancel/timeout ficam prontos quase simultaneamente.
+// `done` e cancel/timer/ctx ficam prontos quase simultaneamente (evita
+// cancelled/timed_out indevido). Caminhos síncrono e background compartilham
+// este helper via wait().
 func pollDone(done chan completion) (completion, bool) {
 	select {
 	case c := <-done:
