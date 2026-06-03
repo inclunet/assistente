@@ -52,8 +52,11 @@ quanto os jobs o acionam pelo mesmo caminho.
 - **AEP-0052 (Contas de Usuário)**: toda sub-conversa pertence ao mesmo `userID`;
   `resume` valida owner.
 - **AEP-0025/0062 (Profiles)**: o `profile` do sub-agente define modelo,
-  comportamento e **tools habilitadas** (`Profile.Chat.EnabledTools`/`Profile.Chat.DisableTools`) —
-  inclusive se ele pode ou não criar novos sub-agentes.
+  comportamento e as **tools habilitadas** via `Profile.Chat.EnabledTools` (lista;
+  `nil` = seleção dinâmica/catálogo). O gate global de tool calling é o booleano
+  `Profile.Chat.DisableTools` (`true` = sub-agente **sem nenhuma** tool, não é
+  denylist). Assim, se a tool `subagent` estiver fora de `EnabledTools` (ou
+  `DisableTools=true`), o sub-agente **não** pode criar novos sub-agentes.
 - **AEP-0001/0048/0063 (Jobs e Tool Invocations)**: jobs chamam a tool `subagent`;
   a persistência separa run de negócio de `tool_invocations`; proveniência via
   `eventctx` e circuit-breaker são reaproveitados como backstop anti-runaway.
