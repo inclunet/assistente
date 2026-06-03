@@ -68,8 +68,9 @@ quanto os jobs o acionam pelo mesmo caminho.
 - `prompt` (string, **opcional**): tarefa/mensagem. Presente = envia/continua;
   omitido (com `conversation_id`, opcionalmente `run_id`, e sem `cancel`) =
   consulta de **status**.
-- `conversation_id` (string UUID, opcional): **ausente → cria** sub-conversa nova;
-  **presente → continua** na mesma (resume), preservando histórico.
+- `conversation_id` (string UUIDv7, opcional — padrão de IDs do projeto, AEP-0046):
+  **ausente → cria** sub-conversa nova; **presente → continua** na mesma (resume),
+  preservando histórico.
 - `background` (bool, default `false`): `false` → executa e o pai **espera** o
   resultado (inline); `true` → retorna o handle na hora e **avisa ao concluir**.
 - `clear` (bool, default `false`): reseta o histórico da sub-conversa antes de
@@ -87,9 +88,9 @@ quanto os jobs o acionam pelo mesmo caminho.
   à base, que distingue `nil` de `[]`): **omitido/`nil`** = herda as tools do profile;
   **`[]` (lista vazia)** = nenhuma tool (sub-agente sem tool calling). Itens fora do
   habilitado pelo profile são ignorados (nunca expandem privilégio).
-- `run_id` (string UUID, opcional): identifica um **run específico** (turno) de uma
-  sub-conversa para `status`/`cancel`. Se omitido, as operações abaixo agem sobre o
-  **run mais recente** da `conversation_id` informada.
+- `run_id` (string UUIDv7, opcional — AEP-0046): identifica um **run específico**
+  (turno) de uma sub-conversa para `status`/`cancel`. Se omitido, as operações abaixo
+  agem sobre o **run mais recente** da `conversation_id` informada.
 - `cancel` (bool, opcional): cancela um run em andamento. Requer `conversation_id`
   (e opcionalmente `run_id` para escolher um run específico; sem ele, cancela o run
   ativo mais recente). É **mutuamente exclusivo com `prompt`/`clear`** — uma chamada
