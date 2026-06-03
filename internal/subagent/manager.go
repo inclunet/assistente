@@ -113,14 +113,11 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, err
 	}
 
-	// 1. Cria a sub-conversa (Kind=subagent, vinculada ao pai).
-	title := strings.TrimSpace(p.Title)
-	if title == "" {
-		title = deriveTitle(p.Prompt)
-	}
-	conv, err := database.CreateSubAgentConversationWithContext(ctx, title, p.ParentConversationID)
+	// 1. Resolve a sub-conversa: cria nova ou reusa uma existente
+	// (resume/clear — Fase 3), preservando o contexto da sub-conversa.
+	childConvID, turnIndex, err := m.resolveChildConversation(ctx, p)
 	if err != nil {
-		return RunResult{}, fmt.Errorf("erro ao criar sub-conversa: %w", err)
+		return RunResult{}, err
 	}
 
 	// 2. Persiste o run (queued) com proveniência (anti-runaway, AEP-0067/0001).
@@ -130,8 +127,8 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		UserID:               userID,
 		ParentConversationID: p.ParentConversationID,
 		ParentTurnID:         p.ParentTurnID,
-		ChildConversationID:  conv.ID,
-		TurnIndex:            0,
+		ChildConversationID:  childConvID,
+		TurnIndex:            turnIndex,
 		Status:               database.SubAgentRunStatusQueued,
 		Background:           p.Background,
 		ChainID:              prov.ChainID,
@@ -141,14 +138,14 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, fmt.Errorf("erro ao registrar run de sub-agente: %w", err)
 	}
 
-	result := RunResult{ConversationID: conv.ID, RunID: run.ID, Status: run.Status}
+	result := RunResult{ConversationID: childConvID, RunID: run.ID, Status: run.Status}
 
 	// 3. Registra o callback de conclusão e o run ativo ANTES de enviar.
 	done := make(chan completion, 1)
-	m.notifier.Register(conv.ID, messaging.ResponseCallback{
+	m.notifier.Register(childConvID, messaging.ResponseCallback{
 		Channel: Source,
 		TraceID: run.ID,
-		ChatID:  conv.ID,
+		ChatID:  childConvID,
 		Callback: func(response, assistantMessageID string) {
 			select {
 			case done <- completion{response: response, assistantMessageID: assistantMessageID}:
@@ -156,7 +153,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			}
 		},
 	})
-	ar := &activeRun{childConversationID: conv.ID, cancelCh: make(chan struct{})}
+	ar := &activeRun{childConversationID: childConvID, cancelCh: make(chan struct{})}
 	m.registerActive(run.ID, ar)
 
 	// 4. Marca running e dispara o envio pelo pipeline oficial.
@@ -168,14 +165,14 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 
 	sendCtx := toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID)
 	if _, err := m.send(sendCtx, SendParams{
-		ConversationID: conv.ID,
+		ConversationID: childConvID,
 		Prompt:         p.Prompt,
 		Media:          p.Media,
 		ProfileSlug:    p.ProfileSlug,
 		Model:          p.Model,
 		Source:         Source,
 	}); err != nil {
-		m.notifier.Cancel(conv.ID)
+		m.notifier.Cancel(childConvID)
 		m.unregisterActive(run.ID)
 		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: err.Error()}
 		finished := m.finish(ctx, run, &result, o)
@@ -190,7 +187,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		// preservando o userID (WithoutCancel mantém valores do ctx — AEP-0052).
 		bgCtx := context.WithoutCancel(ctx)
 		go func() {
-			o := m.wait(bgCtx, conv.ID, done, ar, p.Timeout)
+			o := m.wait(bgCtx, childConvID, done, ar, p.Timeout)
 			m.finish(bgCtx, run, &result, o)
 			m.unregisterActive(run.ID)
 			m.deliver(bgCtx, run, p)
@@ -199,9 +196,57 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	}
 
 	// Síncrono (Fase 1): espera inline.
-	o := m.wait(ctx, conv.ID, done, ar, p.Timeout)
+	o := m.wait(ctx, childConvID, done, ar, p.Timeout)
 	m.unregisterActive(run.ID)
 	return m.finish(ctx, run, &result, o), nil
+}
+
+// resolveChildConversation decide a sub-conversa alvo do run e o índice do turno:
+//   - sem ConversationID → cria uma sub-conversa nova (Kind=subagent).
+//   - com ConversationID → reusa a existente (resume), validando posse e Kind;
+//     com Clear=true, reseta histórico e resumo antes do envio (AEP-0068 F3).
+//
+// O TurnIndex é incremental por sub-conversa (último run + 1), preservando a
+// telemetria de turnos mesmo após um clear.
+func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (string, int, error) {
+	if strings.TrimSpace(p.ConversationID) == "" {
+		title := strings.TrimSpace(p.Title)
+		if title == "" {
+			title = deriveTitle(p.Prompt)
+		}
+		conv, err := database.CreateSubAgentConversationWithContext(ctx, title, p.ParentConversationID)
+		if err != nil {
+			return "", 0, fmt.Errorf("erro ao criar sub-conversa: %w", err)
+		}
+		return conv.ID, 0, nil
+	}
+
+	// Resume: a sub-conversa precisa existir, pertencer ao usuário (escopo
+	// AEP-0052, garantido por GetConversationInfoWithContext) e ser de sub-agente.
+	conv, err := database.GetConversationInfoWithContext(ctx, p.ConversationID)
+	if err != nil {
+		return "", 0, fmt.Errorf("sub-conversa não encontrada ou sem acesso: %w", err)
+	}
+	if conv.Kind != database.ConversationKindSubagent {
+		return "", 0, fmt.Errorf("conversa %s não é uma sub-conversa de sub-agente", p.ConversationID)
+	}
+
+	if p.Clear {
+		// clear = reset + envio: limpa histórico e resumo, depois envia o novo
+		// prompt na mesma chamada (a continuidade de contexto é descartada).
+		if err := database.DeleteAllMessagesWithContext(ctx, conv.ID); err != nil {
+			return "", 0, fmt.Errorf("erro ao limpar histórico da sub-conversa: %w", err)
+		}
+		if err := database.UpdateConversationSummaryWithContext(ctx, conv.ID, "", ""); err != nil {
+			return "", 0, fmt.Errorf("erro ao limpar resumo da sub-conversa: %w", err)
+		}
+	}
+
+	turnIndex := 0
+	if latest, lerr := m.repo.GetLatestByChildConversation(ctx, conv.ID); lerr == nil && latest != nil {
+		turnIndex = latest.TurnIndex + 1
+	}
+	return conv.ID, turnIndex, nil
 }
 
 // wait bloqueia até a conclusão, timeout, cancelamento explícito ou

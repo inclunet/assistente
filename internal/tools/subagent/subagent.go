@@ -41,7 +41,7 @@ func NewWithProvider(provider RunnerProvider) *Tool {
 func (t *Tool) Name() string { return "subagent" }
 
 func (t *Tool) Description() string {
-	return "Delegate work to a sub-agent running in its own persisted sub-conversation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent; with 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' and pass 'conversation_id' (optionally 'run_id') to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt'."
+	return "Delegate work to a sub-agent running in its own persisted sub-conversation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent. Without 'conversation_id' it creates a new sub-conversation; with 'conversation_id' it resumes an existing one, preserving its full context (like resuming by agent id). Add 'clear':true to reset that sub-conversation's history before sending. With 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' and pass 'conversation_id' (optionally 'run_id') to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt' and 'clear'."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
@@ -58,7 +58,11 @@ func (t *Tool) Parameters() json.RawMessage {
 			},
 			"conversation_id": {
 				"type": "string",
-				"description": "Sub-conversation handle. Required for status/cancel. (Reusing an existing sub-conversation to send a new prompt is added in a later phase.)"
+				"description": "Sub-conversation handle. Omit to create a new sub-conversation; provide to resume an existing one (preserving context) or to query status/cancel. Required for status/cancel/clear."
+			},
+			"clear": {
+				"type": "boolean",
+				"description": "Reset the sub-conversation history before sending. Requires conversation_id and prompt (clear is always reset + send). Mutually exclusive with cancel."
 			},
 			"run_id": {
 				"type": "string",
@@ -90,6 +94,7 @@ type subagentArgs struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 	RunID          string `json:"run_id,omitempty"`
 	Cancel         bool   `json:"cancel,omitempty"`
+	Clear          bool   `json:"clear,omitempty"`
 	Profile        string `json:"profile,omitempty"`
 	Title          string `json:"title,omitempty"`
 	Model          string `json:"model,omitempty"`
@@ -110,8 +115,17 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if a.Cancel && prompt != "" {
 		return errResult("'cancel' e 'prompt' são mutuamente exclusivos"), nil
 	}
+	if a.Cancel && a.Clear {
+		return errResult("'cancel' e 'clear' são mutuamente exclusivos"), nil
+	}
 	if a.Cancel && conversationID == "" {
 		return errResult("'cancel' requer 'conversation_id'"), nil
+	}
+	if a.Clear && conversationID == "" {
+		return errResult("'clear' requer 'conversation_id' (nada a resetar)"), nil
+	}
+	if a.Clear && prompt == "" {
+		return errResult("'clear' requer 'prompt': clear é sempre reset + envio na mesma chamada"), nil
 	}
 	if runID != "" && conversationID == "" {
 		return errResult("'run_id' requer 'conversation_id'"), nil
@@ -137,10 +151,10 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status, "cancelled": res.Cancelled}), nil
 
 	case prompt != "":
-		// Reuso de sub-conversa existente (resume) é Fase 3.
-		if conversationID != "" {
-			return errResult("reuso de sub-conversa existente (resume) ainda não é suportado nesta fase"), nil
-		}
+		// Enviar: cria sub-conversa nova (sem conversation_id) ou continua uma
+		// existente (resume, com conversation_id), opcionalmente resetando antes
+		// (clear). A continuidade de contexto é garantida pelo pipeline oficial,
+		// que carrega o histórico da conversa pelo conversation_id.
 		inv, _ := invocationctx.Get(ctx)
 		profile := strings.TrimSpace(a.Profile)
 		if profile == "" {
@@ -150,6 +164,8 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			ParentConversationID: inv.ConversationID,
 			ParentTurnID:         inv.TurnID,
 			ParentInvocationID:   toolinvocations.CurrentInvocationID(ctx),
+			ConversationID:       conversationID,
+			Clear:                a.Clear,
 			Prompt:               prompt,
 			ProfileSlug:          profile,
 			Model:                strings.TrimSpace(a.Model),

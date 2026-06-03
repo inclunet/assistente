@@ -353,6 +353,101 @@ func TestManagerCancelActiveBackgroundRun(t *testing.T) {
 	}
 }
 
+func TestManagerResumeReusesConversationAndIncrementsTurn(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Prompt: "passo 1"})
+	if err != nil {
+		t.Fatalf("Run 1: %v", err)
+	}
+
+	// Resume: mesma sub-conversa, novo run com turn_index incrementado.
+	second, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Prompt: "passo 2"})
+	if err != nil {
+		t.Fatalf("Run 2 (resume): %v", err)
+	}
+	if second.ConversationID != first.ConversationID {
+		t.Fatalf("resume deveria reusar a sub-conversa: %q != %q", second.ConversationID, first.ConversationID)
+	}
+	if second.RunID == first.RunID {
+		t.Fatal("resume deveria criar um novo run")
+	}
+	run2, err := repo.Get(ctx, second.RunID)
+	if err != nil {
+		t.Fatalf("buscar run 2: %v", err)
+	}
+	if run2.TurnIndex != 1 {
+		t.Fatalf("turn_index esperado 1, veio %d", run2.TurnIndex)
+	}
+}
+
+func TestManagerResumeRejectsNonSubagentConversation(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+
+	// Conversa normal (Kind vazio) criada diretamente.
+	normal := &database.Conversation{UserID: "user-a", Title: "normal"}
+	if err := database.DB().WithContext(ctx).Create(normal).Error; err != nil {
+		t.Fatalf("criar conversa normal: %v", err)
+	}
+
+	if _, err := mgr.Run(ctx, RunParams{ConversationID: normal.ID, Prompt: "x"}); err == nil {
+		t.Fatal("esperava erro ao reusar conversa que não é de sub-agente")
+	}
+}
+
+func TestManagerClearResetsHistoryBeforeSend(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Prompt: "passo 1"})
+	if err != nil {
+		t.Fatalf("Run 1: %v", err)
+	}
+
+	// Simula histórico e resumo na sub-conversa.
+	msg := &database.ChatMessage{ConversationID: first.ConversationID, Role: "user", Content: "antigo"}
+	if err := database.DB().WithContext(ctx).Create(msg).Error; err != nil {
+		t.Fatalf("criar mensagem: %v", err)
+	}
+	if err := database.UpdateConversationSummaryWithContext(ctx, first.ConversationID, "resumo antigo", msg.ID); err != nil {
+		t.Fatalf("set summary: %v", err)
+	}
+
+	// clear: reset + envio.
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Clear: true, Prompt: "novo problema"}); err != nil {
+		t.Fatalf("Run clear: %v", err)
+	}
+
+	var count int64
+	if err := database.DB().WithContext(ctx).Model(&database.ChatMessage{}).Where("conversation_id = ? AND content = ?", first.ConversationID, "antigo").Count(&count).Error; err != nil {
+		t.Fatalf("contar mensagens: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("clear deveria ter removido o histórico antigo; restaram %d", count)
+	}
+	summary, _, err := database.GetConversationSummaryWithContext(ctx, first.ConversationID)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if summary != "" {
+		t.Fatalf("clear deveria ter limpado o resumo; veio %q", summary)
+	}
+}
+
 func TestManagerRunRequiresUserScope(t *testing.T) {
 	repo, _ := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

@@ -164,11 +164,60 @@ func TestToolValidationNothingToDo(t *testing.T) {
 	}
 }
 
-func TestToolResumeNotSupportedYet(t *testing.T) {
-	tool := NewWithProvider(func() Runner { return &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}} })
-	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"x","conversation_id":"c1"}`))
+func TestToolResumePropagatesConversationID(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{ConversationID: "c1", RunID: "r2", Status: subagent.StatusSucceeded}}
+	tool := NewWithProvider(func() Runner { return runner })
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"continue","conversation_id":"c1"}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("resume não deveria ser erro: %s", res.Content)
+	}
+	if runner.lastParams.ConversationID != "c1" {
+		t.Fatalf("conversation_id não propagado ao Runner: %#v", runner.lastParams)
+	}
+	if runner.lastParams.Clear {
+		t.Fatal("clear não deveria estar setado")
+	}
+}
+
+func TestToolClearPropagated(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{ConversationID: "c1", RunID: "r3", Status: subagent.StatusSucceeded}}
+	tool := NewWithProvider(func() Runner { return runner })
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"novo","conversation_id":"c1","clear":true}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("clear+prompt não deveria ser erro: %s", res.Content)
+	}
+	if !runner.lastParams.Clear || runner.lastParams.ConversationID != "c1" {
+		t.Fatalf("clear/conversation_id não propagados: %#v", runner.lastParams)
+	}
+}
+
+func TestToolValidationClearWithoutConversation(t *testing.T) {
+	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"clear":true,"prompt":"x"}`))
 	if !res.IsError {
-		t.Fatal("esperava erro: resume (conversation_id + prompt) é Fase 3")
+		t.Fatal("esperava erro: clear sem conversation_id")
+	}
+}
+
+func TestToolValidationClearWithoutPrompt(t *testing.T) {
+	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"clear":true,"conversation_id":"c1"}`))
+	if !res.IsError {
+		t.Fatal("esperava erro: clear sem prompt")
+	}
+}
+
+func TestToolValidationCancelWithClear(t *testing.T) {
+	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"cancel":true,"clear":true,"conversation_id":"c1"}`))
+	if !res.IsError {
+		t.Fatal("esperava erro: cancel + clear são mutuamente exclusivos")
 	}
 }
 
