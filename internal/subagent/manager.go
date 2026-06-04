@@ -221,7 +221,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: fmt.Sprintf("erro ao persistir estado running: %v", err)}
 		finished := m.finalize(ctx, run, &result, o)
 		if p.Background {
-			m.deliver(ctx, run, p)
+			m.deliver(ctx, run)
 		}
 		return finished, nil
 	}
@@ -262,7 +262,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		o := outcome{status: status, errMsg: errMsg}
 		finished := m.finalize(ctx, run, &result, o)
 		if p.Background {
-			m.deliver(ctx, run, p)
+			m.deliver(ctx, run)
 		}
 		return finished, nil
 	}
@@ -275,13 +275,16 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		// (handle imediato) logo abaixo, então a goroutine NÃO pode escrever no
 		// mesmo struct (corrida detectada por -race).
 		bgResult := result
+		// Captura só o timeout (Duration), não o RunParams inteiro: evita reter o
+		// struct grande (Prompt/Title) na goroutine até o fim do run.
+		bgTimeout := p.Timeout
 		go func() {
 			// Cancela o loop da sub-conversa ao concluir a espera (timeout/cancel/
 			// sucesso), interrompendo trabalho em background — escopado a este run.
 			defer cancelSend()
-			o := m.wait(bgCtx, conv.ID, done, ar, p.Timeout, true)
+			o := m.wait(bgCtx, conv.ID, done, ar, bgTimeout, true)
 			m.finalize(bgCtx, run, &bgResult, o)
-			m.deliver(bgCtx, run, p)
+			m.deliver(bgCtx, run)
 		}()
 		return result, nil
 	}
@@ -534,7 +537,7 @@ func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result 
 
 // deliver entrega o aviso de conclusão ao pai (auto-wake), serializado por
 // conversa-pai e idempotente por run_id.
-func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun, p RunParams) {
+func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun) {
 	if m.delivery == nil || strings.TrimSpace(run.ParentConversationID) == "" {
 		return
 	}
