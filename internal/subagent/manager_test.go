@@ -460,6 +460,44 @@ func TestManagerCancelRequiresConversationID(t *testing.T) {
 	}
 }
 
+// TestManagerStatusCancelGuardWhenNotConfigured garante que Status e Cancel
+// falham-fechado (como o Run) quando o Manager não está configurado, SEM panic:
+// receiver nil, repo nil e (no Cancel) notifier nil.
+func TestManagerStatusCancelGuardWhenNotConfigured(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+
+	// Receiver nil: método com receiver ponteiro pode ser chamado com m==nil.
+	var nilMgr *Manager
+	if _, err := nilMgr.Status(ctx, "conv", ""); err == nil {
+		t.Fatal("Status com receiver nil deveria retornar erro 'não configurado'")
+	}
+	if _, err := nilMgr.Cancel(ctx, "conv", ""); err == nil {
+		t.Fatal("Cancel com receiver nil deveria retornar erro 'não configurado'")
+	}
+
+	// repo nil: Status e Cancel derreferenciariam m.repo via resolveRun.
+	noRepo := NewManager(ManagerConfig{Notifier: messaging.NewResponseNotifier()})
+	t.Cleanup(noRepo.notifier.Stop)
+	if _, err := noRepo.Status(ctx, "conv", ""); err == nil {
+		t.Fatal("Status sem repo deveria retornar erro 'não configurado'")
+	}
+	if _, err := noRepo.Cancel(ctx, "conv", ""); err == nil {
+		t.Fatal("Cancel sem repo deveria retornar erro 'não configurado'")
+	}
+
+	// notifier nil: específico do Cancel (usa m.notifier.Cancel).
+	repo, _ := setupManagerTest(t)
+	noNotifier := NewManager(ManagerConfig{Repo: repo})
+	if _, err := noNotifier.Cancel(ctx, "conv", ""); err == nil {
+		t.Fatal("Cancel sem notifier deveria retornar erro 'não configurado'")
+	}
+	// Status só-leitura NÃO exige notifier: deve passar da guarda (e dar erro de
+	// run inexistente, não de configuração).
+	if _, err := noNotifier.Status(ctx, "conv-inexistente", ""); err == nil {
+		t.Fatal("Status sem notifier deveria prosseguir e falhar por run inexistente")
+	}
+}
+
 func TestManagerCancelActiveBackgroundRun(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

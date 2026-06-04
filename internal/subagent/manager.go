@@ -463,6 +463,11 @@ func successOutcome(c completion) outcome {
 // Status retorna o estado atual de um run (prompt omitido). Resolve por run_id
 // quando informado; senão pelo run mais recente da sub-conversa.
 func (m *Manager) Status(ctx context.Context, conversationID, runID string) (StatusResult, error) {
+	// Falha-fechado como o Run: sem manager/repo, derreferenciar daria panic. O
+	// Status é só-leitura, então basta repo (não usa send/notifier).
+	if m == nil || m.repo == nil {
+		return StatusResult{}, fmt.Errorf("subagent manager não configurado")
+	}
 	run, err := m.resolveRun(ctx, conversationID, runID)
 	if err != nil {
 		return StatusResult{}, err
@@ -487,6 +492,12 @@ func (m *Manager) Status(ctx context.Context, conversationID, runID string) (Sta
 // só por run_id abriria superfície de API inconsistente e facilitaria wiring
 // errado. A restrição é específica do cancel; o Status segue aceitando run_id só.
 func (m *Manager) Cancel(ctx context.Context, conversationID, runID string) (CancelResult, error) {
+	// Falha-fechado como o Run (erro de wiring/sistema vem ANTES das validações
+	// de entrada). Cancel usa repo (resolveRun) e notifier (notifier.Cancel), logo
+	// exige ambos além do próprio manager — sem isso, derreferenciar daria panic.
+	if m == nil || m.repo == nil || m.notifier == nil {
+		return CancelResult{}, fmt.Errorf("subagent manager não configurado")
+	}
 	if strings.TrimSpace(conversationID) == "" {
 		return CancelResult{}, fmt.Errorf("conversation_id é obrigatório para cancelar um run")
 	}
