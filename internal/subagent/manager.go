@@ -205,25 +205,34 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// O ResponseNotifier é indexado só por conversationID e Notify()/Cancel()
 	// atuam sobre TODOS os callbacks pendentes da conversa; dois runs simultâneos
 	// no mesmo childConversationID se confundiriam (a 1ª conclusão concluiria
-	// ambos, ou um cancelamento atingiria o run errado). A reserva é feita ANTES
-	// do clear/Create e liberada quando o run deixa de estar ativo
-	// (unregisterActive).
+	// ambos, ou um cancelamento atingiria o run errado).
+	//
+	// Ordem real (ver passos 1b/2/2b abaixo): a criação de uma sub-conversa NOVA
+	// (isNew) é NÃO-destrutiva e já ocorreu em resolveChildConversation, ANTES da
+	// reserva. A reserva protege o que é destrutivo/concorrente: o registro do run
+	// (Create) e o clear (reset de histórico/resumo). É liberada quando o run
+	// deixa de estar ativo (unregisterActive) ou nos caminhos de falha aqui.
 	if err := m.reserveConversation(childConvID); err != nil {
 		m.releaseSlot(userID)
 		return RunResult{}, err
 	}
 
-	// 1b. Com a reserva em mãos, aplica o clear destrutivo (resume + reset) e
-	// calcula o TurnIndex. Em falha, libera a reserva da conversa E a vaga do
-	// usuário para não vazar nenhum dos dois.
-	turnIndex, err := m.prepareConversationState(ctx, childConvID, isNew, p.Clear)
+	// 1b. Calcula o TurnIndex (LEITURA não-destrutiva) com a reserva em mãos. O
+	//     índice vem da tabela de runs, não do histórico de chat, então independe
+	//     do clear e pode ser computado antes dele. Em falha, libera a reserva da
+	//     conversa E a vaga do usuário para não vazar nenhum dos dois.
+	turnIndex, err := m.nextTurnIndex(ctx, childConvID, isNew)
 	if err != nil {
 		m.releaseConversation(childConvID)
 		m.releaseSlot(userID)
 		return RunResult{}, err
 	}
 
-	// 2. Persiste o run (queued) com proveniência (anti-runaway, AEP-0067/0001).
+	// 2. Persiste o run (queued) ANTES de qualquer efeito destrutivo (clear), com
+	//    proveniência (anti-runaway, AEP-0067/0001). Registrar o run primeiro
+	//    elimina a janela de PERDA DE DADOS: se o Create falhar (lock/erro
+	//    transitório de DB), a sub-conversa NÃO foi limpa e não fica histórico
+	//    apagado sem um run registrado para auditoria/retry.
 	//    ChainID estável: em fluxos de usuário o ctx não vem carimbado (ChainID
 	//    vazio), o que iniciaria uma cadeia NOVA a cada auto-wake e quebraria a
 	//    continuidade do circuit breaker (AEP-0067). Usa childConvID como semente
@@ -246,6 +255,23 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		m.releaseConversation(childConvID)
 		m.releaseSlot(userID)
 		return RunResult{}, fmt.Errorf("erro ao registrar run de sub-agente: %w", err)
+	}
+
+	// 2b. Com o run JÁ registrado, aplica o clear destrutivo (resume + reset).
+	//     Continua 100% dentro da região reservada (não reabre clear-antes-da-
+	//     reserva). Se o clear falhar, o run existe: marca-o failed (auditoria/
+	//     retry, best-effort) e libera a reserva da conversa E a vaga do usuário.
+	if err := m.applyClear(ctx, childConvID, isNew, p.Clear); err != nil {
+		clearedAt := m.now()
+		run.Status = database.SubAgentRunStatusFailed
+		run.Error = fmt.Sprintf("erro ao limpar sub-conversa (clear): %v", err)
+		run.CompletedAt = &clearedAt
+		if uerr := m.repo.Update(context.WithoutCancel(ctx), run); uerr != nil {
+			log.Printf("[Subagent] erro (best-effort) ao marcar run %s como failed após falha de clear: %v", run.ID, uerr)
+		}
+		m.releaseConversation(childConvID)
+		m.releaseSlot(userID)
+		return RunResult{}, fmt.Errorf("erro ao limpar sub-conversa: %w", err)
 	}
 
 	result := RunResult{ConversationID: childConvID, RunID: run.ID, Status: run.Status}
@@ -418,10 +444,11 @@ func (m *Manager) releaseSlot(userID string) {
 //   - com ConversationID → reusa a existente (resume), validando posse e Kind.
 //
 // Devolve também isNew (true quando criou uma sub-conversa nova). O clear
-// (reset destrutivo de histórico/resumo) e o cálculo do TurnIndex NÃO são feitos
-// aqui: ficam em prepareConversationState, chamado SÓ APÓS reserveConversation —
-// assim uma 2ª chamada concorrente com Clear=true falha no fail-fast ANTES de
-// limpar qualquer coisa (evita efeito colateral destrutivo).
+// (reset destrutivo de histórico/resumo) fica em applyClear, chamado SÓ APÓS
+// reserveConversation E após o Create do run; o cálculo do TurnIndex fica em
+// nextTurnIndex (leitura sob a reserva). Assim uma 2ª chamada concorrente com
+// Clear=true falha no fail-fast ANTES de limpar qualquer coisa, e uma falha de
+// Create nunca deixa histórico apagado sem run (evita efeito destrutivo órfão).
 func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (childConvID string, isNew bool, err error) {
 	if strings.TrimSpace(p.ConversationID) == "" {
 		// Defense-in-depth (consistente com a tool e o contrato do AEP-0068):
@@ -454,35 +481,21 @@ func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (ch
 	return conv.ID, false, nil
 }
 
-// prepareConversationState aplica os efeitos de estado do run APÓS a reserva de
-// concorrência (reserveConversation): o clear destrutivo (reset de histórico e
-// resumo no resume) e o cálculo do TurnIndex. Rodar isto só com a reserva em mãos
-// garante que um clear nunca apague dados de uma sub-conversa cujo run será
-// rejeitado pelo fail-fast "já existe um sub-agente ativo".
+// nextTurnIndex calcula o TurnIndex incremental da sub-conversa (último run + 1),
+// uma LEITURA não-destrutiva. É chamado sob a reserva de concorrência, porém
+// ANTES do Create do run e do clear: o índice vem da tabela de runs (não do
+// histórico de chat que o clear apaga), então é independente do clear e seguro de
+// computar antes dele. Preserva a telemetria de turnos mesmo após um clear.
+// Sub-conversa nova começa no turno 0.
 //
-// O TurnIndex é incremental por sub-conversa (último run + 1), preservando a
-// telemetria de turnos mesmo após um clear. Sub-conversa nova começa no turno 0.
-func (m *Manager) prepareConversationState(ctx context.Context, childConvID string, isNew, clear bool) (int, error) {
+// "Nenhum run anterior" (ErrRecordNotFound) é esperado num resume sem histórico
+// de runs → turno 0; QUALQUER outro erro de DB é PROPAGADO (não mascara falha
+// transitória nem zera o índice indevidamente, o que corromperia a telemetria).
+func (m *Manager) nextTurnIndex(ctx context.Context, childConvID string, isNew bool) (int, error) {
 	if isNew {
-		// Recém-criada: nada a limpar e sem runs anteriores (turno 0).
+		// Recém-criada: sem runs anteriores (turno 0).
 		return 0, nil
 	}
-
-	if clear {
-		// clear = reset + envio: limpa histórico e resumo, depois envia o novo
-		// prompt na mesma chamada (a continuidade de contexto é descartada).
-		if err := database.DeleteAllMessagesWithContext(ctx, childConvID); err != nil {
-			return 0, fmt.Errorf("erro ao limpar histórico da sub-conversa: %w", err)
-		}
-		if err := database.UpdateConversationSummaryWithContext(ctx, childConvID, "", ""); err != nil {
-			return 0, fmt.Errorf("erro ao limpar resumo da sub-conversa: %w", err)
-		}
-	}
-
-	// turn_index incremental: último run + 1. "Nenhum run anterior"
-	// (ErrRecordNotFound) é esperado num resume sem histórico de runs → turno 0;
-	// QUALQUER outro erro de DB é PROPAGADO (não mascara falha transitória nem
-	// zera o índice indevidamente, o que corromperia a telemetria/ordenação).
 	latest, lerr := m.repo.GetLatestByChildConversation(ctx, childConvID)
 	switch {
 	case lerr == nil && latest != nil:
@@ -492,6 +505,29 @@ func (m *Manager) prepareConversationState(ctx context.Context, childConvID stri
 	}
 	// Sem run anterior (ErrRecordNotFound) ou resultado vazio: primeiro turno.
 	return 0, nil
+}
+
+// applyClear executa o reset DESTRUTIVO (limpa histórico e resumo) de um resume
+// com clear=true. Chamado SÓ APÓS reserveConversation E APÓS o Create do run:
+//   - sob a reserva → uma 2ª chamada concorrente falha no fail-fast ANTES daqui,
+//     nunca apagando dados de um run rejeitado (threads :348);
+//   - após o Create → se o registro do run falhar, nada foi apagado: não há perda
+//     de dados sem um run para auditoria/retry (thread :166).
+//
+// Sub-conversa nova (isNew) ou sem clear: no-op.
+func (m *Manager) applyClear(ctx context.Context, childConvID string, isNew, clear bool) error {
+	if isNew || !clear {
+		return nil
+	}
+	// clear = reset + envio: limpa histórico e resumo; o novo prompt é enviado na
+	// mesma chamada (a continuidade de contexto é descartada).
+	if err := database.DeleteAllMessagesWithContext(ctx, childConvID); err != nil {
+		return fmt.Errorf("erro ao limpar histórico da sub-conversa: %w", err)
+	}
+	if err := database.UpdateConversationSummaryWithContext(ctx, childConvID, "", ""); err != nil {
+		return fmt.Errorf("erro ao limpar resumo da sub-conversa: %w", err)
+	}
+	return nil
 }
 
 // resolveTimeout escolhe o timeout efetivo conforme o modo. Um Timeout explícito
