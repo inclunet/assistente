@@ -189,9 +189,11 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, err
 	}
 
-	// 1. Resolve a sub-conversa: cria nova ou reusa uma existente
-	// (resume/clear — Fase 3), preservando o contexto da sub-conversa.
-	childConvID, turnIndex, err := m.resolveChildConversation(ctx, p)
+	// 1. Resolve a sub-conversa SEM efeitos destrutivos: cria nova ou valida uma
+	// existente (resume — Fase 3). O clear (reset) NÃO ocorre aqui — só após a
+	// reserva de concorrência abaixo, para não apagar dados de um run que será
+	// rejeitado pelo fail-fast.
+	childConvID, isNew, err := m.resolveChildConversation(ctx, p)
 	if err != nil {
 		m.releaseSlot(userID)
 		return RunResult{}, err
@@ -202,8 +204,19 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// atuam sobre TODOS os callbacks pendentes da conversa; dois runs simultâneos
 	// no mesmo childConversationID se confundiriam (a 1ª conclusão concluiria
 	// ambos, ou um cancelamento atingiria o run errado). A reserva é feita ANTES
-	// do Create e liberada quando o run deixa de estar ativo (unregisterActive).
+	// do clear/Create e liberada quando o run deixa de estar ativo
+	// (unregisterActive).
 	if err := m.reserveConversation(childConvID); err != nil {
+		m.releaseSlot(userID)
+		return RunResult{}, err
+	}
+
+	// 1b. Com a reserva em mãos, aplica o clear destrutivo (resume + reset) e
+	// calcula o TurnIndex. Em falha, libera a reserva da conversa E a vaga do
+	// usuário para não vazar nenhum dos dois.
+	turnIndex, err := m.prepareConversationState(ctx, childConvID, isNew, p.Clear)
+	if err != nil {
+		m.releaseConversation(childConvID)
 		m.releaseSlot(userID)
 		return RunResult{}, err
 	}
@@ -397,52 +410,71 @@ func (m *Manager) releaseSlot(userID string) {
 	}
 }
 
-// resolveChildConversation decide a sub-conversa alvo do run e o índice do turno:
+// resolveChildConversation decide a sub-conversa alvo do run, SEM efeitos
+// destrutivos:
 //   - sem ConversationID → cria uma sub-conversa nova (Kind=subagent).
-//   - com ConversationID → reusa a existente (resume), validando posse e Kind;
-//     com Clear=true, reseta histórico e resumo antes do envio (AEP-0068 F3).
+//   - com ConversationID → reusa a existente (resume), validando posse e Kind.
 //
-// O TurnIndex é incremental por sub-conversa (último run + 1), preservando a
-// telemetria de turnos mesmo após um clear.
-func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (string, int, error) {
+// Devolve também isNew (true quando criou uma sub-conversa nova). O clear
+// (reset destrutivo de histórico/resumo) e o cálculo do TurnIndex NÃO são feitos
+// aqui: ficam em prepareConversationState, chamado SÓ APÓS reserveConversation —
+// assim uma 2ª chamada concorrente com Clear=true falha no fail-fast ANTES de
+// limpar qualquer coisa (evita efeito colateral destrutivo).
+func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (childConvID string, isNew bool, err error) {
 	if strings.TrimSpace(p.ConversationID) == "" {
 		title := strings.TrimSpace(p.Title)
 		if title == "" {
 			title = deriveTitle(p.Prompt)
 		}
-		conv, err := database.CreateSubAgentConversationWithContext(ctx, title, p.ParentConversationID)
-		if err != nil {
-			return "", 0, fmt.Errorf("erro ao criar sub-conversa: %w", err)
+		conv, cerr := database.CreateSubAgentConversationWithContext(ctx, title, p.ParentConversationID)
+		if cerr != nil {
+			return "", false, fmt.Errorf("erro ao criar sub-conversa: %w", cerr)
 		}
-		return conv.ID, 0, nil
+		return conv.ID, true, nil
 	}
 
 	// Resume: a sub-conversa precisa existir, pertencer ao usuário (escopo
 	// AEP-0052, garantido por GetConversationInfoWithContext) e ser de sub-agente.
-	conv, err := database.GetConversationInfoWithContext(ctx, p.ConversationID)
-	if err != nil {
-		return "", 0, fmt.Errorf("sub-conversa não encontrada ou sem acesso: %w", err)
+	conv, gerr := database.GetConversationInfoWithContext(ctx, p.ConversationID)
+	if gerr != nil {
+		return "", false, fmt.Errorf("sub-conversa não encontrada ou sem acesso: %w", gerr)
 	}
 	if conv.Kind != database.ConversationKindSubagent {
-		return "", 0, fmt.Errorf("conversa %s não é uma sub-conversa de sub-agente", p.ConversationID)
+		return "", false, fmt.Errorf("conversa %s não é uma sub-conversa de sub-agente", p.ConversationID)
+	}
+	return conv.ID, false, nil
+}
+
+// prepareConversationState aplica os efeitos de estado do run APÓS a reserva de
+// concorrência (reserveConversation): o clear destrutivo (reset de histórico e
+// resumo no resume) e o cálculo do TurnIndex. Rodar isto só com a reserva em mãos
+// garante que um clear nunca apague dados de uma sub-conversa cujo run será
+// rejeitado pelo fail-fast "já existe um sub-agente ativo".
+//
+// O TurnIndex é incremental por sub-conversa (último run + 1), preservando a
+// telemetria de turnos mesmo após um clear. Sub-conversa nova começa no turno 0.
+func (m *Manager) prepareConversationState(ctx context.Context, childConvID string, isNew, clear bool) (int, error) {
+	if isNew {
+		// Recém-criada: nada a limpar e sem runs anteriores (turno 0).
+		return 0, nil
 	}
 
-	if p.Clear {
+	if clear {
 		// clear = reset + envio: limpa histórico e resumo, depois envia o novo
 		// prompt na mesma chamada (a continuidade de contexto é descartada).
-		if err := database.DeleteAllMessagesWithContext(ctx, conv.ID); err != nil {
-			return "", 0, fmt.Errorf("erro ao limpar histórico da sub-conversa: %w", err)
+		if err := database.DeleteAllMessagesWithContext(ctx, childConvID); err != nil {
+			return 0, fmt.Errorf("erro ao limpar histórico da sub-conversa: %w", err)
 		}
-		if err := database.UpdateConversationSummaryWithContext(ctx, conv.ID, "", ""); err != nil {
-			return "", 0, fmt.Errorf("erro ao limpar resumo da sub-conversa: %w", err)
+		if err := database.UpdateConversationSummaryWithContext(ctx, childConvID, "", ""); err != nil {
+			return 0, fmt.Errorf("erro ao limpar resumo da sub-conversa: %w", err)
 		}
 	}
 
 	turnIndex := 0
-	if latest, lerr := m.repo.GetLatestByChildConversation(ctx, conv.ID); lerr == nil && latest != nil {
+	if latest, lerr := m.repo.GetLatestByChildConversation(ctx, childConvID); lerr == nil && latest != nil {
 		turnIndex = latest.TurnIndex + 1
 	}
-	return conv.ID, turnIndex, nil
+	return turnIndex, nil
 }
 
 // resolveTimeout escolhe o timeout efetivo conforme o modo. Um Timeout explícito
