@@ -159,6 +159,12 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	}
 
 	// 2. Persiste o run (queued) com proveniência (anti-runaway, AEP-0067/0001).
+	//    ChainID estável: em fluxos de usuário o ctx não vem carimbado (ChainID
+	//    vazio), o que iniciaria uma cadeia NOVA a cada auto-wake e quebraria a
+	//    continuidade do circuit breaker (AEP-0067). Usa childConvID como semente
+	//    estável da cadeia quando não há ChainID herdado (job mantém o seu).
+	//    Re-deriva sobre o prov do depth-check (agora que childConvID existe).
+	prov = deriveProvenance(ctx, childConvID)
 	chainHistoryJSON := encodeChainHistory(prov.ChainHistory)
 	run := &database.SubAgentRun{
 		UserID:               userID,
@@ -665,15 +671,21 @@ func (m *Manager) parentLock(parentConversationID string) *sync.Mutex {
 
 // ---- proveniência / utilitários ----
 
+// deriveProvenance recupera a proveniência do ctx e normaliza o Source ao
+// contrato do eventctx/AEP-0067, cujos valores válidos são {"user","job"} (ver
+// internal/eventctx/eventctx.go). Sem carimbo (fluxo de usuário) ou Source vazio
+// → trata como "user"; "job" só quando carimbado pelo executor de jobs. NUNCA
+// usa subagent.Source ("subagent") como Source: não é uma origem do eventctx e
+// quebraria when-guards/eventos de domínio que casam {{ eq .event._source
+// "user" }}. existingChainID só preenche o ChainID quando ele vier vazio — não
+// influencia o Source.
 func deriveProvenance(ctx context.Context, existingChainID string) eventctx.Provenance {
-	prov, ok := eventctx.From(ctx)
-	if !ok {
-		prov = eventctx.Provenance{Source: Source}
+	prov, _ := eventctx.From(ctx)
+	if strings.TrimSpace(prov.Source) == "" {
+		prov.Source = "user"
 	}
-	if strings.TrimSpace(prov.ChainID) == "" {
-		if strings.TrimSpace(existingChainID) != "" {
-			prov.ChainID = existingChainID
-		}
+	if strings.TrimSpace(prov.ChainID) == "" && strings.TrimSpace(existingChainID) != "" {
+		prov.ChainID = existingChainID
 	}
 	return prov
 }
