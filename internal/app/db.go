@@ -459,6 +459,12 @@ func consolidateTimelineTurn(messages []database.ChatMessage, invocationToolResu
 	if finalMsgIdx >= 0 {
 		finalContent = messages[finalMsgIdx].Content
 		finalReasoning = messages[finalMsgIdx].Reasoning
+		// Mantém os metadados do representante coerentes com o conteúdo canônico
+		// (que agora vem da conclusão, não da última iteração com tool calls).
+		consolidated.PromptTokens = messages[finalMsgIdx].PromptTokens
+		consolidated.CompletionTokens = messages[finalMsgIdx].CompletionTokens
+		consolidated.TotalTokens = messages[finalMsgIdx].TotalTokens
+		consolidated.Model = messages[finalMsgIdx].Model
 	}
 	if finalTextSegment != nil {
 		segments = append(segments, *finalTextSegment)
