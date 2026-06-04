@@ -853,6 +853,75 @@ func TestManagerReconcileOrphansUnconfiguredFails(t *testing.T) {
 	}
 }
 
+// TestManagerCancelAfterCompletionIsNoOp garante que, uma vez entregue a
+// conclusão pelo callback do notifier, o run sai de `active` IMEDIATAMENTE — de
+// modo que um Cancel concorrente que chegue DEPOIS da conclusão seja no-op
+// (cancelled:false + status terminal real) e NÃO cancele o streaming já
+// concluído (corrida — AEP-0068: cancel após término é no-op).
+func TestManagerCancelAfterCompletionIsNoOp(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	var mu sync.Mutex
+	cancelStreamCalls := 0
+	mgr := NewManager(ManagerConfig{
+		Repo:         repo,
+		Notifier:     notifier,
+		Delivery:     &recordingDelivery{},
+		CancelStream: func(string) { mu.Lock(); cancelStreamCalls++; mu.Unlock() },
+		// Não notifica automaticamente: controlamos a conclusão no teste.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "bg", Background: true, ParentConversationID: "parent-conv"})
+	if err != nil {
+		t.Fatalf("Run bg: %v", err)
+	}
+
+	// Entrega a conclusão: o callback remove o run de `active`.
+	notifier.Notify(res.ConversationID, "resultado", "msg-1")
+
+	// Aguarda o run sair de `active` (callback roda em goroutine no notifier).
+	deadline := time.Now().Add(2 * time.Second)
+	for mgr.lookupActive(res.RunID) != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("run não saiu de active após a conclusão")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// E persistir como succeeded, para asserir o status terminal real no no-op.
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		run, _ := repo.Get(ctx, res.RunID)
+		if run != nil && run.Status == StatusSucceeded {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("run não chegou a succeeded")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cr, err := mgr.Cancel(ctx, res.ConversationID, res.RunID)
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if cr.Cancelled {
+		t.Fatalf("cancel após conclusão deveria ser no-op (cancelled=false); veio %#v", cr)
+	}
+	if cr.Status != StatusSucceeded {
+		t.Fatalf("status terminal real esperado succeeded; veio %q", cr.Status)
+	}
+	mu.Lock()
+	calls := cancelStreamCalls
+	mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("CancelStream não deveria ser chamado após a conclusão; chamadas=%d", calls)
+	}
+}
+
 // TestManagerRunCancelsSendOnTimeout garante que, ao concluir por timeout, o
 // ctx passado ao pipeline de envio (que dispara o agentic loop da sub-conversa
 // em background) é efetivamente cancelado — interrompendo trabalho/custo após o
