@@ -205,6 +205,32 @@ func TestEventBus_SubscriberCount(t *testing.T) {
 	}
 }
 
+// TestEventBus_CloseDrainsInFlightHandlers garante que Close() bloqueia até as
+// goroutines de fan-out em voo terminarem (shutdown gracioso). É a barreira que
+// impede um handler (ex.: execução de job) de sobreviver ao Stop e escrever no
+// estado global depois — em testes, no DB de outro teste após o swap do
+// singleton database.DB(), causando o flake de isolamento entre pacotes.
+func TestEventBus_CloseDrainsInFlightHandlers(t *testing.T) {
+	eb := NewEventBus()
+	started := make(chan struct{})
+	var finished atomic.Bool
+
+	eb.Subscribe("evt", "sub", func(_ context.Context, _ string, _ map[string]any) {
+		close(started)
+		time.Sleep(80 * time.Millisecond)
+		finished.Store(true)
+	})
+
+	eb.Publish(context.Background(), "evt", nil)
+	<-started // garante que o handler começou antes de fechar
+
+	eb.Close() // deve bloquear até o handler em voo terminar
+
+	if !finished.Load() {
+		t.Fatal("Close retornou antes do handler em voo terminar (não drenou o fan-out)")
+	}
+}
+
 func TestEventBus_Events(t *testing.T) {
 	eb := NewEventBus()
 
