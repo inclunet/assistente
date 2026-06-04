@@ -910,10 +910,62 @@ func TestManagerClearWithoutConversationIDFails(t *testing.T) {
 	}
 }
 
-// TestPrepareConversationStateTurnIndexErrors garante que o cálculo do turn_index
-// trate "nenhum run anterior" (ErrRecordNotFound) como turno 0 e PROPAGUE
-// qualquer outro erro de DB (não mascara falha transitória virando 0 silencioso).
-func TestPrepareConversationStateTurnIndexErrors(t *testing.T) {
+// TestManagerClearNotAppliedWhenRunCreateFails garante (thread :166) que o clear
+// destrutivo só roda APÓS o run ser persistido: se o Create falhar, o histórico/
+// resumo da sub-conversa permanece INTACTO (sem perda de dados sem run registrado).
+func TestManagerClearNotAppliedWhenRunCreateFails(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	// Sub-conversa existente com histórico + resumo a preservar.
+	conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent-conv")
+	if err != nil {
+		t.Fatalf("criar conv: %v", err)
+	}
+	msg := &database.ChatMessage{ConversationID: conv.ID, Role: "user", Content: "preservar"}
+	if err := database.DB().WithContext(ctx).Create(msg).Error; err != nil {
+		t.Fatalf("criar mensagem: %v", err)
+	}
+	if err := database.UpdateConversationSummaryWithContext(ctx, conv.ID, "resumo a preservar", msg.ID); err != nil {
+		t.Fatalf("set summary: %v", err)
+	}
+
+	sendCalled := false
+	mgr := NewManager(ManagerConfig{
+		Repo:     &createFailRepo{Repository: repo},
+		Notifier: notifier,
+		Send:     func(_ context.Context, p SendParams) (string, error) { sendCalled = true; return p.ConversationID, nil },
+	})
+
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: conv.ID, Clear: true, Prompt: "novo"}); err == nil {
+		t.Fatal("Run deveria falhar quando o Create do run falha")
+	}
+	if sendCalled {
+		t.Fatal("não deveria enviar quando o Create falha")
+	}
+
+	// Histórico e resumo INTACTOS: o clear roda só APÓS o Create (que falhou).
+	var count int64
+	if err := database.DB().WithContext(ctx).Model(&database.ChatMessage{}).Where("conversation_id = ? AND content = ?", conv.ID, "preservar").Count(&count).Error; err != nil {
+		t.Fatalf("contar mensagens: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("clear NÃO deveria ter rodado (Create falhou); esperado 1 mensagem, veio %d", count)
+	}
+	summary, _, err := database.GetConversationSummaryWithContext(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if summary != "resumo a preservar" {
+		t.Fatalf("resumo deveria permanecer intacto; veio %q", summary)
+	}
+}
+
+// TestNextTurnIndexErrors garante que o cálculo do turn_index trate "nenhum run
+// anterior" (ErrRecordNotFound) como turno 0 e PROPAGUE qualquer outro erro de DB
+// (não mascara falha transitória virando 0 silencioso).
+func TestNextTurnIndexErrors(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()
 	t.Cleanup(notifier.Stop)
@@ -928,7 +980,7 @@ func TestPrepareConversationStateTurnIndexErrors(t *testing.T) {
 	if err := repo.Create(ctx, prev); err != nil {
 		t.Fatalf("criar run anterior: %v", err)
 	}
-	if ti, err := mgr.prepareConversationState(ctx, conv.ID, false, false); err != nil || ti != 4 {
+	if ti, err := mgr.nextTurnIndex(ctx, conv.ID, false); err != nil || ti != 4 {
 		t.Fatalf("turn_index esperado 4 sem erro; veio %d, err=%v", ti, err)
 	}
 
@@ -937,13 +989,13 @@ func TestPrepareConversationStateTurnIndexErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("criar conv vazia: %v", err)
 	}
-	if ti, err := mgr.prepareConversationState(ctx, empty.ID, false, false); err != nil || ti != 0 {
+	if ti, err := mgr.nextTurnIndex(ctx, empty.ID, false); err != nil || ti != 0 {
 		t.Fatalf("turn_index esperado 0 sem erro para sub-conversa sem run; veio %d, err=%v", ti, err)
 	}
 
 	// (c) erro transitório de DB (não-NotFound) → PROPAGA (não vira 0 silencioso).
 	failMgr := NewManager(ManagerConfig{Repo: &latestErrRepo{Repository: repo}, Notifier: notifier})
-	if _, err := failMgr.prepareConversationState(ctx, conv.ID, false, false); err == nil {
+	if _, err := failMgr.nextTurnIndex(ctx, conv.ID, false); err == nil {
 		t.Fatal("erro transitório de GetLatestByChildConversation deveria propagar, não virar turn_index 0")
 	}
 }
@@ -1783,6 +1835,16 @@ type latestErrRepo struct {
 
 func (r *latestErrRepo) GetLatestByChildConversation(_ context.Context, _ string) (*database.SubAgentRun, error) {
 	return nil, fmt.Errorf("falha transitória simulada de DB")
+}
+
+// createFailRepo simula falha (lock/erro transitório) no Create do run, para
+// verificar que o clear destrutivo NÃO roda quando o registro do run falha.
+type createFailRepo struct {
+	Repository
+}
+
+func (r *createFailRepo) Create(_ context.Context, _ *database.SubAgentRun) error {
+	return fmt.Errorf("falha simulada no Create do run")
 }
 
 type getFailRepo struct {
