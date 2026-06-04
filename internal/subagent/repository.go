@@ -83,20 +83,33 @@ func (r *DBRepository) GetLatestByChildConversation(ctx context.Context, childCo
 }
 
 // Update persiste alterações de um run existente, escopado ao usuário do
-// contexto. Força o UserID ao usuário do contexto (AEP-0052) antes do Save para
-// que um UserID alterado não troque o dono do registro (transferência de posse);
-// o filtro ScopeByUser no WHERE garante que só o dono atual é atingido.
+// contexto. Força o UserID ao usuário do contexto (AEP-0052) antes do UPDATE
+// para que um UserID alterado não troque o dono do registro (transferência de
+// posse); o filtro ScopeByUser + WHERE por id garantem alvo único (o dono
+// atual), nunca um update em massa.
 func (r *DBRepository) Update(ctx context.Context, run *database.SubAgentRun) error {
 	if _, err := enforceRunOwnership(ctx, run); err != nil {
 		return err
 	}
+	// PK obrigatória: sem id, um Updates(struct) viraria UPDATE EM MASSA (ainda
+	// que escopado por user_id), corrompendo todos os runs do usuário se um
+	// caller passar um struct parcial/novo. Falha fechado com ErrRecordNotFound
+	// em vez de executar um update amplo.
+	id := strings.TrimSpace(run.ID)
+	if id == "" {
+		return gorm.ErrRecordNotFound
+	}
 	// Usa Updates (não Save): o Save do GORM faz fallback para INSERT quando o
 	// UPDATE não casa nenhuma linha, mascarando o no-op (e podendo recriar um
-	// run de outro usuário). Select("*") preserva a semântica do Save de gravar
-	// todos os campos (inclusive zero-values). O WHERE leva o id (via Model) e o
-	// user_id (ScopeByUser, AEP-0052).
+	// run de outro usuário). Select("*").Omit("id","created_at") grava todos os
+	// campos mutáveis (inclusive zero-values, como o Save fazia) sem tocar nos
+	// imutáveis — padrão do codebase (internal/jobs/repository.go,
+	// internal/mcp/repository.go). O WHERE explícito por id (além do ScopeByUser
+	// por user_id, AEP-0052) garante alvo único e nunca um update em massa.
 	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(run), "user_id").
+		Where("id = ?", id).
 		Select("*").
+		Omit("id", "created_at").
 		Updates(run)
 	if tx.Error != nil {
 		return tx.Error
