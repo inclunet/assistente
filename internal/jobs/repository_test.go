@@ -18,6 +18,14 @@ func setupJobsRepositoryTest(t *testing.T) (*DBRepository, context.Context, cont
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	// :memory: SQLite vive enquanto a conexão existir; é POR conexão. Sob
+	// concorrência (ex.: runs disparados por evento rodam em goroutine de
+	// fan-out enquanto o teste consulta) o pool pode abrir uma 2ª conexão SEM o
+	// schema migrado, causando "no such table: jobs". Uma única conexão garante
+	// que o schema persista durante o teste.
+	if sqlDB, sErr := db.DB(); sErr == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
 	if err := db.AutoMigrate(
 		&database.User{},
 		&database.MCPServer{},
