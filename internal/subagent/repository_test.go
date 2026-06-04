@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"assistente/internal/database"
 
@@ -151,6 +152,75 @@ func TestRepositoryUpdateOtherUsersRunReturnsNotFound(t *testing.T) {
 	}
 	if got.Status != database.SubAgentRunStatusQueued {
 		t.Fatalf("status de user-b não deveria mudar, veio %q", got.Status)
+	}
+}
+
+// TestRepositoryUpdateEmptyIDDoesNotMassUpdate garante que um Update com run.ID
+// vazio falha fechado (ErrRecordNotFound) em vez de virar UPDATE em massa e
+// corromper todos os runs do usuário.
+func TestRepositoryUpdateEmptyIDDoesNotMassUpdate(t *testing.T) {
+	repo, ctx := setupManagerTest(t) // ctx => user-a
+
+	// Dois runs existentes do mesmo usuário.
+	r1 := &database.SubAgentRun{ChildConversationID: "child-1", Status: database.SubAgentRunStatusQueued}
+	r2 := &database.SubAgentRun{ChildConversationID: "child-2", Status: database.SubAgentRunStatusQueued}
+	if err := repo.Create(ctx, r1); err != nil {
+		t.Fatalf("Create r1: %v", err)
+	}
+	if err := repo.Create(ctx, r2); err != nil {
+		t.Fatalf("Create r2: %v", err)
+	}
+
+	// Update sem ID (struct parcial): deve recusar, não escrever nada.
+	partial := &database.SubAgentRun{Status: database.SubAgentRunStatusRunning}
+	if err := repo.Update(ctx, partial); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("esperava gorm.ErrRecordNotFound para run sem id, veio %v", err)
+	}
+
+	// Nenhum dos runs existentes pode ter sido alterado (sem mass-update).
+	for _, id := range []string{r1.ID, r2.ID} {
+		got, err := repo.Get(ctx, id)
+		if err != nil {
+			t.Fatalf("Get %s: %v", id, err)
+		}
+		if got.Status != database.SubAgentRunStatusQueued {
+			t.Fatalf("run %s não deveria ter mudado (mass-update), status=%q", id, got.Status)
+		}
+	}
+}
+
+// TestRepositoryUpdatePreservesImmutableFields garante que o Update não altera
+// os campos imutáveis id/created_at (Select("*").Omit("id","created_at")).
+func TestRepositoryUpdatePreservesImmutableFields(t *testing.T) {
+	repo, ctx := setupManagerTest(t) // ctx => user-a
+	run := &database.SubAgentRun{ChildConversationID: "child-1", Status: database.SubAgentRunStatusQueued}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	original, err := repo.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("Get original: %v", err)
+	}
+
+	// Tenta sobrescrever created_at junto com uma mudança legítima de status.
+	run.CreatedAt = original.CreatedAt.Add(-72 * time.Hour)
+	run.Status = database.SubAgentRunStatusRunning
+	if err := repo.Update(ctx, run); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.ID != original.ID {
+		t.Fatalf("id não deveria mudar: era %q, veio %q", original.ID, got.ID)
+	}
+	if !got.CreatedAt.Equal(original.CreatedAt) {
+		t.Fatalf("created_at não deveria mudar: era %v, veio %v", original.CreatedAt, got.CreatedAt)
+	}
+	if got.Status != database.SubAgentRunStatusRunning {
+		t.Fatalf("status deveria ter mudado para running, veio %q", got.Status)
 	}
 }
 
