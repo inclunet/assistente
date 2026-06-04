@@ -158,7 +158,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return errResult("'run_id' é para status/cancel e não pode ser combinado com 'prompt' (enviar/continuar)"), nil
 	}
 	if !a.Cancel && prompt == "" && conversationID == "" && runID == "" {
-		return errResult("nada a fazer: informe 'prompt' (enviar), 'conversation_id' (status) ou 'cancel'"), nil
+		return errResult("nada a fazer: informe 'prompt' (enviar); 'conversation_id' (status do run mais recente) ou 'run_id' (status por run); ou 'cancel'"), nil
 	}
 
 	if t.provider == nil {
