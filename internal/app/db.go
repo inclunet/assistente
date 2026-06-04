@@ -16,6 +16,21 @@ import (
 	"assistente/internal/toolinvocations"
 )
 
+// messageHasToolCalls indica se uma mensagem assistant carrega tool calls.
+// Usado para identificar a resposta final do turno: a única mensagem assistant
+// sem tool calls e com conteúdo. A detecção é puramente pela string `ToolCalls`
+// persistida (vazia / array vazio / null = sem tool calls); não há campo
+// `finish_reason` no nível do banco. Evita um `json.Unmarshal` redundante —
+// `consolidateTimelineTurn` já parseia `ToolCalls` ao montar os segmentos.
+func messageHasToolCalls(m database.ChatMessage) bool {
+	switch strings.TrimSpace(m.ToolCalls) {
+	case "", "[]", "null":
+		return false
+	default:
+		return true
+	}
+}
+
 // Re-exporta tipos do pacote database para manter compatibilidade
 type Conversation = database.Conversation
 type ChatMessage = database.ChatMessage
@@ -118,7 +133,7 @@ func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []dat
 		// Só hidrata turnos que realmente têm uso de tools: assistant com ToolCalls ou
 		// mensagens role=tool com ToolCallID (inclui tool-only turns/placeholder).
 		shouldHydrate := false
-		if msg.Role == "assistant" && strings.TrimSpace(msg.ToolCalls) != "" {
+		if msg.Role == "assistant" && messageHasToolCalls(msg) {
 			shouldHydrate = true
 		}
 		if msg.Role == "tool" && strings.TrimSpace(msg.ToolCallID) != "" {
@@ -350,7 +365,37 @@ func consolidateTimelineTurn(messages []database.ChatMessage, invocationToolResu
 	// só texto (resposta final). Issue #150.
 	segments := make([]chat.TurnSegment, 0)
 	assistantCount := 0
+	// Resposta final do turno: o placeholder finalizado (FinalizeAssistantMessage)
+	// é a única mensagem assistant SEM tool calls e com conteúdo (a iteração final
+	// para sem pedir ferramentas, então sua linha não tem `tool_calls`).
+	// Como o placeholder é criado no INÍCIO do turno (EnsureAssistantPlaceholder),
+	// seu created_at é o mais antigo e ele ordena ANTES das iterações intermediárias.
+	// Sem tratamento, `finalContent` e o último segmento de texto cairiam num passo
+	// intermediário em vez da conclusão. Identificamos a conclusão pela ausência de
+	// tool calls, movemos seu texto para o fim dos segmentos (restaurando a ordem
+	// cronológica real) e a usamos como conteúdo canônico do turno.
+	//
+	// Só aplicamos isto quando há iterações com tool calls — o cenário em que o
+	// placeholder fica fora de ordem. Em turnos sem ferramentas a ordem por
+	// created_at já é a cronológica correta.
+	hasToolBearingAssistant := false
 	for _, message := range messages {
+		if message.Role == "assistant" && messageHasToolCalls(message) {
+			hasToolBearingAssistant = true
+			break
+		}
+	}
+	finalMsgIdx := -1
+	if hasToolBearingAssistant {
+		for i, message := range messages {
+			if message.Role == "assistant" && strings.TrimSpace(message.Content) != "" && !messageHasToolCalls(message) {
+				finalMsgIdx = i
+				break
+			}
+		}
+	}
+	var finalTextSegment *chat.TurnSegment
+	for i, message := range messages {
 		if message.Role != "assistant" {
 			continue
 		}
@@ -365,11 +410,16 @@ func consolidateTimelineTurn(messages []database.ChatMessage, invocationToolResu
 		}
 		// Texto desta iteração é um segmento próprio quando não vazio. Mantém a
 		// ordem cronológica para que NVDA leia a cadeia de raciocínio inteira.
+		// O texto da conclusão (finalMsgIdx) é adiado para o fim dos segmentos.
 		if strings.TrimSpace(message.Content) != "" {
-			segments = append(segments, chat.TurnSegment{
-				Type:    "text",
-				Content: message.Content,
-			})
+			if i == finalMsgIdx {
+				finalTextSegment = &chat.TurnSegment{Type: "text", Content: message.Content}
+			} else {
+				segments = append(segments, chat.TurnSegment{
+					Type:    "text",
+					Content: message.Content,
+				})
+			}
 		}
 		iterationCalls := make([]chat.TurnSegmentToolCall, 0)
 		for _, call := range parseToolCalls(message.ID, message.ToolCalls) {
@@ -400,6 +450,24 @@ func consolidateTimelineTurn(messages []database.ChatMessage, invocationToolResu
 				ToolCalls: iterationCalls,
 			})
 		}
+	}
+	// A conclusão (mensagem sem tool calls) é o conteúdo canônico do turno e seu
+	// texto vai por último na cadeia de segmentos. O reasoning é pareado com a
+	// conclusão (atribuição incondicional): se a conclusão não tem reasoning,
+	// não mantemos o de uma iteração intermediária, evitando incoerência no
+	// conteúdo canônico (export/UI).
+	if finalMsgIdx >= 0 {
+		finalContent = messages[finalMsgIdx].Content
+		finalReasoning = messages[finalMsgIdx].Reasoning
+		// Mantém os metadados do representante coerentes com o conteúdo canônico
+		// (que agora vem da conclusão, não da última iteração com tool calls).
+		consolidated.PromptTokens = messages[finalMsgIdx].PromptTokens
+		consolidated.CompletionTokens = messages[finalMsgIdx].CompletionTokens
+		consolidated.TotalTokens = messages[finalMsgIdx].TotalTokens
+		consolidated.Model = messages[finalMsgIdx].Model
+	}
+	if finalTextSegment != nil {
+		segments = append(segments, *finalTextSegment)
 	}
 	if !hasAssistant {
 		// Keep the persisted tool message ID as representative so backend pagination anchors
@@ -498,7 +566,7 @@ func collectTurnIDsWithToolCalls(messages []database.ChatMessage) []string {
 			continue
 		}
 		shouldHydrate := false
-		if msg.Role == "assistant" && strings.TrimSpace(msg.ToolCalls) != "" {
+		if msg.Role == "assistant" && messageHasToolCalls(msg) {
 			shouldHydrate = true
 		}
 		if msg.Role == "tool" && strings.TrimSpace(msg.ToolCallID) != "" {
