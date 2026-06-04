@@ -881,6 +881,73 @@ func TestManagerClearDoesNotWipeHistoryWhenConcurrencyRejects(t *testing.T) {
 	}
 }
 
+// TestManagerClearWithoutConversationIDFails garante o contrato do AEP-0068
+// (defense-in-depth no Manager, consistente com a tool): Clear=true SEM
+// conversation_id falha — NÃO cria uma sub-conversa nova ignorando o reset.
+func TestManagerClearWithoutConversationIDFails(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	sendCalled := false
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		sendCalled = true
+		return p.ConversationID, nil
+	}})
+
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Clear: true, Prompt: "x"}); err == nil {
+		t.Fatal("clear sem conversation_id deveria falhar (clear é reset de sub-conversa existente)")
+	}
+	if sendCalled {
+		t.Fatal("não deveria enviar nada quando a validação de clear falha")
+	}
+	// Nenhuma sub-conversa nova pode ter sido criada.
+	var count int64
+	if err := database.DB().WithContext(ctx).Model(&database.Conversation{}).Where("kind = ?", database.ConversationKindSubagent).Count(&count).Error; err != nil {
+		t.Fatalf("contar sub-conversas: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("clear sem conversation_id NÃO deveria criar sub-conversa; criou %d", count)
+	}
+}
+
+// TestPrepareConversationStateTurnIndexErrors garante que o cálculo do turn_index
+// trate "nenhum run anterior" (ErrRecordNotFound) como turno 0 e PROPAGUE
+// qualquer outro erro de DB (não mascara falha transitória virando 0 silencioso).
+func TestPrepareConversationStateTurnIndexErrors(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier})
+
+	// (a) sub-conversa com run anterior (turn_index 3) → próximo é 4.
+	conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent-conv")
+	if err != nil {
+		t.Fatalf("criar conv: %v", err)
+	}
+	prev := &database.SubAgentRun{UserID: "user-a", ParentConversationID: "parent-conv", ChildConversationID: conv.ID, Status: StatusSucceeded, TurnIndex: 3}
+	if err := repo.Create(ctx, prev); err != nil {
+		t.Fatalf("criar run anterior: %v", err)
+	}
+	if ti, err := mgr.prepareConversationState(ctx, conv.ID, false, false); err != nil || ti != 4 {
+		t.Fatalf("turn_index esperado 4 sem erro; veio %d, err=%v", ti, err)
+	}
+
+	// (b) sub-conversa SEM run anterior (ErrRecordNotFound) → 0, sem erro.
+	empty, err := database.CreateSubAgentConversationWithContext(ctx, "t2", "parent-conv")
+	if err != nil {
+		t.Fatalf("criar conv vazia: %v", err)
+	}
+	if ti, err := mgr.prepareConversationState(ctx, empty.ID, false, false); err != nil || ti != 0 {
+		t.Fatalf("turn_index esperado 0 sem erro para sub-conversa sem run; veio %d, err=%v", ti, err)
+	}
+
+	// (c) erro transitório de DB (não-NotFound) → PROPAGA (não vira 0 silencioso).
+	failMgr := NewManager(ManagerConfig{Repo: &latestErrRepo{Repository: repo}, Notifier: notifier})
+	if _, err := failMgr.prepareConversationState(ctx, conv.ID, false, false); err == nil {
+		t.Fatal("erro transitório de GetLatestByChildConversation deveria propagar, não virar turn_index 0")
+	}
+}
+
 // TestManagerCancelAfterCompletionIsNoOp garante que, após a conclusão de um run
 // em background, um Cancel posterior seja no-op (cancelled:false + status
 // terminal real) e NÃO cancele o streaming já concluído (corrida — AEP-0068:
@@ -1707,6 +1774,17 @@ func TestManagerRunUserFlowDerivesStableChainID(t *testing.T) {
 // ---- B2: idempotência/erros do deliver ----
 
 // getFailRepo falha o Get para exercitar a idempotência fail-closed do deliver.
+// latestErrRepo simula um erro transitório (não-NotFound) em
+// GetLatestByChildConversation, para verificar que o cálculo de turn_index
+// PROPAGA o erro em vez de mascará-lo como turno 0.
+type latestErrRepo struct {
+	Repository
+}
+
+func (r *latestErrRepo) GetLatestByChildConversation(_ context.Context, _ string) (*database.SubAgentRun, error) {
+	return nil, fmt.Errorf("falha transitória simulada de DB")
+}
+
 type getFailRepo struct {
 	Repository
 	fail bool
