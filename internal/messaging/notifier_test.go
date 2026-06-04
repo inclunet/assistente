@@ -278,6 +278,93 @@ func TestNotifier_TTLDoesNotExpireFreshCallbacks(t *testing.T) {
 	}
 }
 
+// TestNotifier_PerCallbackTTLSurvivesDefault garante que um callback registrado
+// com TTL próprio (> 0) sobreviva ao TTL PADRÃO de 5min e só expire após o seu
+// próprio TTL — e que, enquanto vivo, ainda seja entregue por Notify. É o caso do
+// sub-agente em background, cujo run pode levar bem mais que 5min (até o timeout
+// efetivo) sem perder a conclusão. Um callback default (TTL=0) registrado junto
+// continua expirando aos 5min (retrocompat dos canais/UI).
+func TestNotifier_PerCallbackTTLSurvivesDefault(t *testing.T) {
+	now := time.Now()
+	clock := func() time.Time { return now }
+	n := newResponseNotifierWithClock(clock)
+	defer n.Stop()
+
+	const longTTL = 30 * time.Minute
+	var fired string
+	n.Register("conv-long", ResponseCallback{
+		Channel:  "subagent",
+		TraceID:  "trace-long",
+		TTL:      longTTL,
+		Callback: func(resp, _ string) { fired = resp },
+	})
+	// Callback default (sem TTL): deve expirar aos 5min como antes.
+	n.Register("conv-default", ResponseCallback{
+		Channel:  "telegram",
+		TraceID:  "trace-default",
+		Callback: func(string, string) { t.Fatal("callback default não deveria sobreviver ao TTL padrão") },
+	})
+
+	// Avança 6min: passa do TTL padrão (5min), mas não do TTL longo (30min).
+	now = now.Add(callbackTTL + time.Minute)
+	n.expireOldCallbacks()
+
+	if _, ok := n.callbacks["conv-default"]; ok {
+		t.Fatal("callback default deveria ter expirado aos 5min")
+	}
+	if _, ok := n.callbacks["conv-long"]; !ok {
+		t.Fatal("callback com TTL longo NÃO deveria ter expirado aos 6min")
+	}
+
+	// Enquanto vivo (bem além dos 5min), a conclusão ainda é entregue.
+	n.Notify("conv-long", "conclusão tardia", "msg-1")
+	deadline := time.Now().Add(2 * time.Second)
+	for fired == "" {
+		if time.Now().After(deadline) {
+			t.Fatal("callback de TTL longo não foi chamado por Notify")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if fired != "conclusão tardia" {
+		t.Fatalf("resposta inesperada no callback: %q", fired)
+	}
+
+	// Após o TTL longo, expira normalmente (sem leak).
+	n.Register("conv-long-2", ResponseCallback{
+		Channel:  "subagent",
+		TraceID:  "trace-long-2",
+		TTL:      longTTL,
+		Callback: func(string, string) { t.Fatal("não deveria disparar após expirar") },
+	})
+	now = now.Add(longTTL + time.Minute)
+	n.expireOldCallbacks()
+	if _, ok := n.callbacks["conv-long-2"]; ok {
+		t.Fatal("callback com TTL longo deveria expirar após o seu próprio TTL")
+	}
+}
+
+// TestNotifier_PendingExpiry expõe o instante de expiração calculado a partir do
+// TTL efetivo do registro (padrão vs. parametrizado).
+func TestNotifier_PendingExpiry(t *testing.T) {
+	now := time.Now()
+	clock := func() time.Time { return now }
+	n := newResponseNotifierWithClock(clock)
+	defer n.Stop()
+
+	n.Register("conv-default", ResponseCallback{Channel: "telegram", Callback: func(string, string) {}})
+	n.Register("conv-ttl", ResponseCallback{Channel: "subagent", TTL: time.Hour, Callback: func(string, string) {}})
+
+	if exp, ok := n.PendingExpiry("conv-default"); !ok || !exp.Equal(now.Add(callbackTTL)) {
+		t.Fatalf("expiry default esperado %v; veio %v (ok=%v)", now.Add(callbackTTL), exp, ok)
+	}
+	if exp, ok := n.PendingExpiry("conv-ttl"); !ok || !exp.Equal(now.Add(time.Hour)) {
+		t.Fatalf("expiry parametrizado esperado %v; veio %v (ok=%v)", now.Add(time.Hour), exp, ok)
+	}
+	if _, ok := n.PendingExpiry("inexistente"); ok {
+		t.Fatal("PendingExpiry deveria retornar ok=false para conversa sem callback")
+	}
+}
+
 // TestNotifier_CancelByChannel cobre B7. Quando um canal é desregistrado
 // (Unregister/Shutdown do gateway), todos os callbacks pendentes daquele
 // canal devem ser cancelados — não só os de uma conversa específica.

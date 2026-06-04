@@ -181,11 +181,21 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	result := RunResult{ConversationID: childConvID, RunID: run.ID, Status: run.Status}
 
 	// 3. Registra o callback de conclusão e o run ativo ANTES de enviar.
+	//    O TTL do callback é alinhado ao timeout EFETIVO do run (resolveTimeout):
+	//    o ResponseNotifier descarta callbacks pendentes após um TTL (padrão 5min,
+	//    bom para canais/UI). Um run background pode esperar até
+	//    DefaultBackgroundTimeout (1h); sem alinhar o TTL, o callback expiraria aos
+	//    5min e a conclusão NUNCA chegaria (o run viraria timed_out e o aviso ao
+	//    pai não seria entregue). A folga (callbackTTLMargin) garante que o próprio
+	//    timeout do run dispare ANTES do backstop de TTL — o caminho normal já
+	//    remove o callback via finalize (Notify no sucesso, notifier.Cancel no
+	//    timeout/cancel), então o TTL aqui é só defesa anti-órfão.
 	done := make(chan completion, 1)
 	m.notifier.Register(childConvID, messaging.ResponseCallback{
 		Channel: Source,
 		TraceID: run.ID,
 		ChatID:  childConvID,
+		TTL:     resolveTimeout(p.Timeout, p.Background) + callbackTTLMargin,
 		Callback: func(response, assistantMessageID string) {
 			// Marca o desfecho terminal (sucesso) no tracking ATIVO, sob o mesmo
 			// lock, ANTES de publicar no `done`. A partir daqui um Cancel
