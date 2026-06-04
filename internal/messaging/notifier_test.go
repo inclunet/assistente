@@ -291,12 +291,14 @@ func TestNotifier_PerCallbackTTLSurvivesDefault(t *testing.T) {
 	defer n.Stop()
 
 	const longTTL = 30 * time.Minute
-	var fired string
+	// Canal sincroniza a entrega: o callback roda em goroutine do Notify; ler uma
+	// variável simples no main seria corrida (detectada por -race).
+	firedCh := make(chan string, 1)
 	n.Register("conv-long", ResponseCallback{
 		Channel:  "subagent",
 		TraceID:  "trace-long",
 		TTL:      longTTL,
-		Callback: func(resp, _ string) { fired = resp },
+		Callback: func(resp, _ string) { firedCh <- resp },
 	})
 	// Callback default (sem TTL): deve expirar aos 5min como antes.
 	n.Register("conv-default", ResponseCallback{
@@ -318,15 +320,13 @@ func TestNotifier_PerCallbackTTLSurvivesDefault(t *testing.T) {
 
 	// Enquanto vivo (bem além dos 5min), a conclusão ainda é entregue.
 	n.Notify("conv-long", "conclusão tardia", "msg-1")
-	deadline := time.Now().Add(2 * time.Second)
-	for fired == "" {
-		if time.Now().After(deadline) {
-			t.Fatal("callback de TTL longo não foi chamado por Notify")
+	select {
+	case got := <-firedCh:
+		if got != "conclusão tardia" {
+			t.Fatalf("resposta inesperada no callback: %q", got)
 		}
-		time.Sleep(time.Millisecond)
-	}
-	if fired != "conclusão tardia" {
-		t.Fatalf("resposta inesperada no callback: %q", fired)
+	case <-time.After(2 * time.Second):
+		t.Fatal("callback de TTL longo não foi chamado por Notify")
 	}
 
 	// Após o TTL longo, expira normalmente (sem leak).

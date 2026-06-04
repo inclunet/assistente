@@ -147,8 +147,12 @@ func (n *ResponseNotifier) runCleanup(interval time.Duration) {
 
 func (n *ResponseNotifier) expireOldCallbacks() {
 	now := n.now()
+
+	// Identifica/remove os expirados SOB o lock; o I/O de log fica para depois,
+	// fora do lock — log.Printf pode bloquear (I/O) e seguraria Register/Notify/
+	// Cancel, aumentando a latência do fluxo de mensagens.
+	var toLog []expiredLogEntry
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	for convID, pendings := range n.callbacks {
 		fresh := pendings[:0]
 		var expired []pendingCallback
@@ -167,10 +171,29 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 			n.callbacks[convID] = fresh
 		}
 		for _, p := range expired {
-			log.Printf("[Notifier] Callback expirado por TTL trace=%s conv=%s channel=%s (>%.0fmin sem resposta)",
-				p.cb.TraceID, convID, p.cb.Channel, p.expiresAt.Sub(p.registered).Minutes())
+			toLog = append(toLog, expiredLogEntry{
+				traceID: p.cb.TraceID,
+				convID:  convID,
+				channel: p.cb.Channel,
+				minutes: p.expiresAt.Sub(p.registered).Minutes(),
+			})
 		}
 	}
+	n.mu.Unlock()
+
+	for _, e := range toLog {
+		log.Printf("[Notifier] Callback expirado por TTL trace=%s conv=%s channel=%s (>%.0fmin sem resposta)",
+			e.traceID, e.convID, e.channel, e.minutes)
+	}
+}
+
+// expiredLogEntry carrega os dados (já copiados sob o lock) para logar a
+// expiração de um callback FORA do lock — evita segurar n.mu durante o I/O.
+type expiredLogEntry struct {
+	traceID string
+	convID  string
+	channel string
+	minutes float64
 }
 
 // Register registra um callback para ser chamado quando a resposta de uma
@@ -256,15 +279,20 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 	if channel == "" {
 		return 0
 	}
+	// Mesmo princípio do expireOldCallbacks: decide/remove sob o lock, coleta o
+	// que precisa logar e faz o I/O de log FORA do lock (log.Printf pode bloquear).
+	var toLog []expiredLogEntry
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	cancelled := 0
 	for convID, pendings := range n.callbacks {
 		fresh := pendings[:0]
 		for _, p := range pendings {
 			if p.cb.Channel == channel {
-				log.Printf("[Notifier] Callback cancelado por canal removido trace=%s conv=%s channel=%s",
-					p.cb.TraceID, convID, p.cb.Channel)
+				toLog = append(toLog, expiredLogEntry{
+					traceID: p.cb.TraceID,
+					convID:  convID,
+					channel: p.cb.Channel,
+				})
 				cancelled++
 				continue
 			}
@@ -275,6 +303,12 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 		} else {
 			n.callbacks[convID] = fresh
 		}
+	}
+	n.mu.Unlock()
+
+	for _, e := range toLog {
+		log.Printf("[Notifier] Callback cancelado por canal removido trace=%s conv=%s channel=%s",
+			e.traceID, e.convID, e.channel)
 	}
 	return cancelled
 }
