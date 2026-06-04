@@ -45,15 +45,15 @@ type outcome struct {
 
 // activeRun rastreia um run em andamento para permitir cancelamento.
 //
-// terminalStatus carrega o desfecho terminal ASSIM QUE ele é conhecido (ex.: o
-// callback do notifier marca "succeeded" no instante em que entrega a conclusão),
-// AINDA QUE o finish não tenha persistido o status no DB. O run só sai de
-// `active` quando o finish já persistiu (ver unregisterActive nos caminhos de
-// conclusão), então enquanto estiver em `active` com terminalStatus != "" o
-// Cancel sabe que a conclusão ocorreu e devolve no-op com o status terminal real
-// (nunca cancelled:true após conclusão, nunca status running) — fecha a janela
-// entre a entrega da conclusão e a persistência pelo finish. Lido/escrito sob
-// m.mu.
+// terminalStatus carrega o desfecho terminal ASSIM QUE ele é decidido — pelo
+// callback do notifier (sucesso), por um Cancel efetivo (tryClaimCancel marca
+// "cancelled") ou pelo ponto central finalize (markCompleting) — AINDA QUE o
+// finish não tenha persistido o status no DB. O run só sai de `active` no
+// finalize, DEPOIS de o finish persistir. Assim, enquanto estiver em `active`
+// com terminalStatus != "" o Cancel sabe que o desfecho já ocorreu e devolve
+// no-op com o status terminal real (nunca cancelled:true após decisão, nunca
+// status running) — fecha a janela entre a decisão e a persistência. Lido/escrito
+// sob m.mu.
 type activeRun struct {
 	childConversationID string
 	cancelCh            chan struct{}
@@ -216,11 +216,11 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			// lock, ANTES de publicar no `done`. A partir daqui um Cancel
 			// concorrente vê terminalStatus != "" e devolve no-op com o status
 			// terminal REAL — nunca cancelled:true (corrida original: cancel após
-			// término) nem status running (janela entre a conclusão e o finish).
-			// O run só sai de `active` quando o finish já persistiu o terminal
-			// (unregisterActive nos caminhos de conclusão), mantendo a invariante
-			// em TODOS os instantes. Isto ocorre após o registerActive abaixo: o
-			// callback só dispara depois do m.send despachar o prompt.
+			// término) nem status running (janela entre a conclusão e o finish). A
+			// remoção de `active` e a persistência ficam a cargo do ponto central
+			// finalize (markCompleting → finish → unregisterActive), que o waiter
+			// executa ao receber esta conclusão. Isto ocorre após o registerActive
+			// abaixo: o callback só dispara depois do m.send despachar o prompt.
 			m.markCompleting(run.ID, database.SubAgentRunStatusSucceeded)
 			select {
 			case done <- completion{response: response, assistantMessageID: assistantMessageID}:
@@ -244,14 +244,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		m.notifier.Cancel(childConvID)
 		log.Printf("[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, childConvID, err)
 		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: fmt.Sprintf("erro ao persistir estado running: %v", err)}
-		// Ordem markCompleting → finish → unregisterActive (mesma invariante do
-		// caminho de conclusão/síncrono): marca o terminal em memória ANTES de
-		// remover de `active`, para que um Cancel concorrente na janela até o
-		// finish persistir veja terminalStatus e responda no-op com o status
-		// real (nunca cancelled:false + running). Vale p/ síncrono e background.
-		m.markCompleting(run.ID, o.status)
-		finished := m.finish(ctx, run, &result, o)
-		m.unregisterActive(run.ID)
+		finished := m.finalize(ctx, run, &result, o)
 		if p.Background {
 			m.deliver(ctx, run, p)
 		}
@@ -302,13 +295,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		// antes do branch p.Background).
 		status, errMsg := classifySendError(ctx, err)
 		o := outcome{status: status, errMsg: errMsg}
-		// Ordem markCompleting → finish → unregisterActive: marca o terminal real
-		// (cancelled/timed_out/failed) em memória ANTES de remover de `active`,
-		// fechando a janela em que um Cancel concorrente veria active==nil + DB
-		// ainda running. Vale p/ síncrono e background.
-		m.markCompleting(run.ID, o.status)
-		finished := m.finish(ctx, run, &result, o)
-		m.unregisterActive(run.ID)
+		finished := m.finalize(ctx, run, &result, o)
 		if p.Background {
 			m.deliver(ctx, run, p)
 		}
@@ -328,22 +315,18 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			// sucesso), interrompendo trabalho em background — escopado a este run.
 			defer cancelSend()
 			o := m.wait(bgCtx, childConvID, done, ar, p.Timeout, true)
-			m.finish(bgCtx, run, &bgResult, o)
-			m.unregisterActive(run.ID)
+			m.finalize(bgCtx, run, &bgResult, o)
 			m.deliver(bgCtx, run, p)
 		}()
 		return result, nil
 	}
 
-	// Síncrono (Fase 1): espera inline e cancela o loop ao concluir.
-	// Persiste o desfecho (finish) ANTES de remover de `active`: assim, no
-	// caminho de timeout/cancel (sem callback) o DB já reflete o terminal quando
-	// o run deixa `active`, evitando uma janela em que Cancel veria não-ativo com
-	// status running.
+	// Síncrono (Fase 1): espera inline e cancela o loop ao concluir. O desfecho
+	// é conduzido pelo ponto central finalize (markCompleting → finish →
+	// unregisterActive), mesma invariante de todos os caminhos.
 	defer cancelSend()
 	o := m.wait(ctx, childConvID, done, ar, p.Timeout, false)
-	finished := m.finish(ctx, run, &result, o)
-	m.unregisterActive(run.ID)
+	finished := m.finalize(ctx, run, &result, o)
 	return finished, nil
 }
 
@@ -526,35 +509,27 @@ func (m *Manager) Cancel(ctx context.Context, conversationID, runID string) (Can
 	}
 	res := CancelResult{ConversationID: run.ChildConversationID, RunID: run.ID, Status: run.Status}
 
-	// Snapshot consistente (sob lock) do tracking: ponteiro do run ativo e o
-	// status terminal já marcado (conclusão entregue mas talvez ainda não
-	// persistida pelo finish).
-	ar, termStatus := m.activeSnapshot(run.ID)
-	completed := ar != nil && termStatus != ""
-
-	if ar == nil || isTerminal(run.Status) || completed {
-		// No-op: o run não está ativo OU já concluiu (no DB ou em memória).
-		// Garante o STATUS TERMINAL REAL — nunca "running" pós-conclusão:
+	// Tenta CLAIMAR o cancelamento sob lock: só efetiva se o run estiver ativo e
+	// SEM desfecho já decidido (terminalStatus==""). Como o callback de conclusão
+	// e o finalize também escrevem terminalStatus sob o MESMO lock, o claim é
+	// atômico: fecha a corrida com a conclusão e com cancels concorrentes
+	// ("cancela uma única vez").
+	ar, terminal, claimed := m.tryClaimCancel(run.ID)
+	if !claimed {
+		// No-op: run inativo, já terminal, ou desfecho já decidido (em memória ou
+		// DB). Devolve o STATUS TERMINAL REAL — nunca "running" pós-decisão, nunca
+		// cancelled:true para um run cujo desfecho já foi decidido.
 		res.Cancelled = false
 		res.Message = "nenhum run ativo para cancelar; status atual mantido"
-		switch {
-		case completed && !isTerminal(run.Status):
-			// Conclusão já conhecida em memória, mas o finish ainda não
-			// persistiu: usa o desfecho terminal stashed.
-			res.Status = termStatus
-		case ar == nil && !isTerminal(run.Status):
-			// O run saiu de `active` (o finish persiste o terminal ANTES de
-			// remover), então o run lido pode estar defasado. Re-lê uma vez para
-			// refletir o terminal real e jamais reportar "running".
-			if fresh, ferr := m.repo.Get(ctx, run.ID); ferr == nil && fresh != nil {
-				res.Status = fresh.Status
-			}
-		}
+		res.Status = m.resolveTerminalStatus(ctx, run, ar, terminal)
 		return res, nil
 	}
 
-	// Run genuinamente ativo (sem conclusão sinalizada): interrompe o streaming
-	// e sinaliza o waiter.
+	// Cancelamento efetivo: o claim já marcou terminalStatus=cancelled, então
+	// cancels concorrentes seguintes caem no no-op acima. Só o claimer chega aqui,
+	// logo o streaming é interrompido UMA única vez; o waiter sinalizado persiste
+	// o terminal pelo ponto central finalize (markCompleting → finish →
+	// unregisterActive).
 	if m.cancelStrm != nil {
 		m.cancelStrm(run.ChildConversationID)
 	}
@@ -607,6 +582,24 @@ func (m *Manager) resolveRun(ctx context.Context, conversationID, runID string) 
 		return nil, fmt.Errorf("nenhum run encontrado para a conversa %s: %w", conversationID, err)
 	}
 	return run, nil
+}
+
+// finalize é o ÚNICO ponto que leva um run ao estado terminal e o remove de
+// `active`, SEMPRE na ordem markCompleting(status) → finish(persiste) →
+// unregisterActive. Centraliza a invariante de cancel/status do AEP-0068: do
+// instante em que o desfecho é decidido (sucesso via callback, timeout/cancel/ctx
+// via wait, erro de persistir running, erro de send, ou cancel efetivo) até a
+// saída de `active`, terminalStatus reflete o status real e qualquer Cancel
+// concorrente cai no no-op com esse status — nunca cancelled:false+running, nunca
+// cancelled:true para um run já decidido. Idempotente: se o run já saiu de
+// `active`, markCompleting/unregisterActive viram no-op e o finish é best-effort.
+// TODO caminho terminal DEVE passar por aqui (não chamar finish/unregisterActive
+// avulsos).
+func (m *Manager) finalize(ctx context.Context, run *database.SubAgentRun, result *RunResult, o outcome) RunResult {
+	m.markCompleting(run.ID, o.status)
+	finished := m.finish(ctx, run, result, o)
+	m.unregisterActive(run.ID)
+	return finished
 }
 
 // finish atualiza o run com o desfecho e preenche o RunResult.
@@ -742,11 +735,11 @@ func (m *Manager) lookupActive(runID string) *activeRun {
 }
 
 // markCompleting registra o desfecho terminal no run ativo (se ainda presente),
-// sob o mesmo lock que protege `active`. Chamado em TODO caminho terminal ANTES
-// do finish persistir — pelo callback do notifier (sucesso) e pelos caminhos de
-// erro (falha ao persistir running; erro de send classificado) — sempre na ordem
-// markCompleting → finish → unregisterActive. Torna o Cancel consistente (no-op
-// com status terminal) sem remover o run de `active` prematuramente.
+// sob o mesmo lock que protege `active`. É chamado por finalize (o ponto central
+// de finalização) ANTES do finish persistir, e pelo callback do notifier no
+// instante em que entrega a conclusão (para que um Cancel concorrente entre o
+// callback e o finalize já enxergue o terminal). No-op se o run já saiu de
+// `active` (idempotente). Sem efeito sobre runs inexistentes.
 func (m *Manager) markCompleting(runID, status string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -755,17 +748,47 @@ func (m *Manager) markCompleting(runID, status string) {
 	}
 }
 
-// activeSnapshot devolve, sob lock, o ponteiro do run ativo (ou nil) e o status
-// terminal já marcado (ou ""), num único instante coerente — evita corrida entre
-// checar presença em `active` e ler o desfecho terminal.
-func (m *Manager) activeSnapshot(runID string) (*activeRun, string) {
+// tryClaimCancel tenta efetivar, sob lock, o cancelamento de um run ATIVO ainda
+// sem desfecho decidido, marcando terminalStatus=cancelled. Devolve:
+//   - ar: o run ativo, ou nil se já saiu de `active`;
+//   - terminal: o desfecho já marcado (conclusão/cancel anterior), ou "";
+//   - claimed: true só se ESTE chamador marcou cancelled agora (deve interromper
+//     stream/waiter). claimed=false ⇒ no-op (run inativo OU desfecho já decidido).
+//
+// Como o callback de conclusão e o finalize escrevem terminalStatus sob o MESMO
+// lock, o claim é atômico: nunca dois cancels efetivos, nunca cancel efetivo
+// após a conclusão já marcada.
+func (m *Manager) tryClaimCancel(runID string) (ar *activeRun, terminal string, claimed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ar := m.active[runID]
+	ar = m.active[runID]
 	if ar == nil {
-		return nil, ""
+		return nil, "", false
 	}
-	return ar, ar.terminalStatus
+	if ar.terminalStatus != "" {
+		return ar, ar.terminalStatus, false
+	}
+	ar.terminalStatus = database.SubAgentRunStatusCancelled
+	return ar, ar.terminalStatus, true
+}
+
+// resolveTerminalStatus devolve o status terminal REAL para um no-op de Cancel,
+// jamais "running" pós-decisão:
+//   - terminal != "" (desfecho já marcado em memória; finish talvez pendente):
+//     usa-o;
+//   - run já saiu de `active` (ar==nil) e o DB ainda não reflete o terminal:
+//     re-lê uma vez (finalize persiste ANTES de remover de `active`);
+//   - caso contrário, mantém o status já lido do run.
+func (m *Manager) resolveTerminalStatus(ctx context.Context, run *database.SubAgentRun, ar *activeRun, terminal string) string {
+	if terminal != "" {
+		return terminal
+	}
+	if ar == nil && !isTerminal(run.Status) {
+		if fresh, ferr := m.repo.Get(ctx, run.ID); ferr == nil && fresh != nil {
+			return fresh.Status
+		}
+	}
+	return run.Status
 }
 
 // parentLock devolve o mutex (striped) responsável por serializar a entrega da

@@ -953,6 +953,192 @@ func TestManagerCancelDuringSendErrorWindowReturnsTerminal(t *testing.T) {
 	}
 }
 
+// TestManagerCancelDuringBackgroundTimeoutWindowReturnsTerminal cobre a janela
+// do caminho BACKGROUND quando o wait retorna por timeout (sem callback): o
+// finalize marca terminalStatus=timed_out e bloqueia no persist. Um Cancel na
+// janela deve ser no-op (cancelled:false) com o status terminal real (timed_out),
+// NUNCA running, e sem chamar CancelStream.
+func TestManagerCancelDuringBackgroundTimeoutWindowReturnsTerminal(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	blocking := &blockingTerminalUpdateRepo{
+		Repository: repo,
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	var mu sync.Mutex
+	cancelStreamCalls := 0
+	mgr := NewManager(ManagerConfig{
+		Repo:         blocking,
+		Notifier:     notifier,
+		Delivery:     &recordingDelivery{},
+		CancelStream: func(string) { mu.Lock(); cancelStreamCalls++; mu.Unlock() },
+		// Não notifica: o run expira por timeout.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	// Timeout curto: o wait do background retorna timed_out e chama finalize, que
+	// bloqueia no persist do terminal → janela determinística.
+	res, err := mgr.Run(ctx, RunParams{Prompt: "bg", Background: true, Timeout: 15 * time.Millisecond, ParentConversationID: "parent-conv"})
+	if err != nil {
+		t.Fatalf("Run bg: %v", err)
+	}
+
+	select {
+	case <-blocking.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("finish não entrou no persist do terminal (timeout não disparou?)")
+	}
+	t.Cleanup(func() { close(blocking.release) })
+
+	cr, err := mgr.Cancel(ctx, res.ConversationID, res.RunID)
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if cr.Cancelled {
+		t.Fatalf("cancel na janela de timeout (bg) deveria ser no-op; veio %#v", cr)
+	}
+	if cr.Status != StatusTimedOut {
+		t.Fatalf("status terminal real esperado timed_out (NUNCA running); veio %q", cr.Status)
+	}
+	mu.Lock()
+	calls := cancelStreamCalls
+	mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("CancelStream não deveria ser chamado na janela de timeout; chamadas=%d", calls)
+	}
+}
+
+// TestManagerCancelDuringSyncTimeoutWindowReturnsTerminal cobre a MESMA janela no
+// caminho SÍNCRONO: o Run síncrono bloqueia no finalize ao persistir o terminal
+// (timed_out). Como o Run síncrono bloqueia o chamador, roda em goroutine; o
+// Cancel concorrente na janela deve ser no-op com timed_out (nunca running).
+func TestManagerCancelDuringSyncTimeoutWindowReturnsTerminal(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	blocking := &blockingTerminalUpdateRepo{
+		Repository: repo,
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	var mu sync.Mutex
+	cancelStreamCalls := 0
+	convCh := make(chan string, 1)
+	mgr := NewManager(ManagerConfig{
+		Repo:         blocking,
+		Notifier:     notifier,
+		Delivery:     &recordingDelivery{},
+		CancelStream: func(string) { mu.Lock(); cancelStreamCalls++; mu.Unlock() },
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			convCh <- p.ConversationID
+			return p.ConversationID, nil
+		},
+	})
+
+	go func() {
+		_, _ = mgr.Run(ctx, RunParams{Prompt: "x", Timeout: 15 * time.Millisecond, ParentConversationID: "parent-conv"})
+	}()
+
+	childConvID := <-convCh
+
+	select {
+	case <-blocking.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("finish não entrou no persist do terminal (timeout síncrono não disparou?)")
+	}
+	t.Cleanup(func() { close(blocking.release) })
+
+	cr, err := mgr.Cancel(ctx, childConvID, "")
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if cr.Cancelled {
+		t.Fatalf("cancel na janela de timeout (sync) deveria ser no-op; veio %#v", cr)
+	}
+	if cr.Status != StatusTimedOut {
+		t.Fatalf("status terminal real esperado timed_out (NUNCA running); veio %q", cr.Status)
+	}
+	mu.Lock()
+	calls := cancelStreamCalls
+	mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("CancelStream não deveria ser chamado na janela de timeout síncrono; chamadas=%d", calls)
+	}
+}
+
+// TestManagerSecondCancelAfterEffectiveCancelIsNoOp garante que, após um Cancel
+// EFETIVO (cancelled:true), um segundo Cancel concorrente na janela até o finalize
+// persistir seja no-op (cancelled:false) com o status terminal cancelled, e que o
+// streaming seja interrompido UMA única vez (CancelStream chamado 1x). Reusa o
+// blockingTerminalUpdateRepo para segurar o finalize na janela.
+func TestManagerSecondCancelAfterEffectiveCancelIsNoOp(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	blocking := &blockingTerminalUpdateRepo{
+		Repository: repo,
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	var mu sync.Mutex
+	cancelStreamCalls := 0
+	mgr := NewManager(ManagerConfig{
+		Repo:         blocking,
+		Notifier:     notifier,
+		Delivery:     &recordingDelivery{},
+		CancelStream: func(string) { mu.Lock(); cancelStreamCalls++; mu.Unlock() },
+		// Não notifica e timeout longo: o run fica GENUINAMENTE ativo até o Cancel.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "bg", Background: true, Timeout: time.Hour, ParentConversationID: "parent-conv"})
+	if err != nil {
+		t.Fatalf("Run bg: %v", err)
+	}
+
+	// 1º Cancel: run genuinamente ativo → efetivo (cancelled:true), CancelStream 1x.
+	cr1, err := mgr.Cancel(ctx, res.ConversationID, res.RunID)
+	if err != nil {
+		t.Fatalf("Cancel 1: %v", err)
+	}
+	if !cr1.Cancelled || cr1.Status != StatusCancelled {
+		t.Fatalf("1º cancel deveria ser efetivo (cancelled:true, cancelled); veio %#v", cr1)
+	}
+
+	// O ar.cancel() acorda o waiter, que chama finalize → finish (terminal) e
+	// BLOQUEIA no persist: estamos na janela com terminalStatus=cancelled.
+	select {
+	case <-blocking.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("finalize não entrou no persist do terminal após o cancel efetivo")
+	}
+	t.Cleanup(func() { close(blocking.release) })
+
+	// 2º Cancel na janela: deve ser no-op com o status terminal cancelled.
+	cr2, err := mgr.Cancel(ctx, res.ConversationID, res.RunID)
+	if err != nil {
+		t.Fatalf("Cancel 2: %v", err)
+	}
+	if cr2.Cancelled {
+		t.Fatalf("2º cancel deveria ser no-op (cancelled:false); veio %#v", cr2)
+	}
+	if cr2.Status != StatusCancelled {
+		t.Fatalf("2º cancel deveria devolver o terminal real cancelled; veio %q", cr2.Status)
+	}
+
+	mu.Lock()
+	calls := cancelStreamCalls
+	mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("CancelStream deveria ser chamado exatamente 1x (cancela uma única vez); chamadas=%d", calls)
+	}
+}
+
 // TestManagerRunCancelsSendOnTimeout garante que, ao concluir por timeout, o
 // ctx passado ao pipeline de envio (que dispara o agentic loop da sub-conversa
 // em background) é efetivamente cancelado — interrompendo trabalho/custo após o
