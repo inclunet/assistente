@@ -184,20 +184,31 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		// que carrega o histórico da conversa pelo conversation_id.
 		inv, _ := invocationctx.Get(ctx)
 
-		// Vínculo com o turno-pai (AEP-0068). Só vale ao CRIAR uma nova
-		// sub-conversa (sem conversation_id): uma chamada vinda do chat/workspace
-		// SEMPRE tem conversa/turno pai (o agentic loop carimba o
-		// InvocationContext — ver internal/agent/service.go). Se faltarem, é bug
-		// de wiring e NÃO devemos criar sub-conversa órfã (kind=subagent some da
-		// listagem principal). Falha fechado. No resume (conversation_id presente)
-		// a sub-conversa já existe, então não há risco de órfã e a checagem não se
-		// aplica. A única exceção legítima sem-pai na criação é a origem job
-		// (eventctx.Provenance.Source == "job", único valor de automação; ver
-		// internal/eventctx/eventctx.go), formalizada na F4: distinção EXPLÍCITA
-		// por origem (eventctx.Provenance), não pela ausência de InvocationContext.
+		// Vínculo com o turno-pai (AEP-0068). Uma chamada vinda do chat/workspace
+		// SEMPRE tem conversa/turno pai (o agentic loop carimba o InvocationContext
+		// — ver internal/agent/service.go); se faltarem, é bug de wiring. Para
+		// origem chat o parent é OBRIGATÓRIO quando:
+		//   - CRIA sub-conversa nova (sem conversation_id): não criar órfã
+		//     (kind=subagent some da listagem principal); OU
+		//   - background:true (INCLUSIVE no resume): o aviso de conclusão (auto-wake)
+		//     é injetado NA conversa do pai (AEP-0068, "Aviso de conclusão"); sem
+		//     parent, deliver() retorna cedo (ParentConversationID vazio) e a
+		//     notificação NUNCA chega — escondendo o bug de wiring. No síncrono o
+		//     resultado volta pelo retorno da tool, então resume síncrono sem-pai
+		//     segue permitido (não regride).
+		// A exceção legítima sem-pai é a origem job (eventctx.Provenance.Source ==
+		// "job", único valor de automação; ver internal/eventctx/eventctx.go),
+		// formalizada na F4: entrada de automação, parentless por contrato
+		// (auto-wake do mesmo modo não se aplica). Distinção EXPLÍCITA por origem,
+		// não pela mera ausência de InvocationContext.
 		hasParent := strings.TrimSpace(inv.ConversationID) != "" && strings.TrimSpace(inv.TurnID) != ""
-		if conversationID == "" && !hasParent && !originAllowsParentless(ctx) {
-			return errResult("sub-agente requer um turno-pai: invocado sem conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+		if !hasParent && !originAllowsParentless(ctx) {
+			if conversationID == "" {
+				return errResult("sub-agente requer um turno-pai: invocado sem conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+			}
+			if a.Background {
+				return errResult("sub-agente em background requer um turno-pai: a entrega da conclusão (auto-wake) precisa de conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+			}
 		}
 
 		profile := strings.TrimSpace(a.Profile)
