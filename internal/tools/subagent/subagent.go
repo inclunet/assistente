@@ -42,7 +42,7 @@ func NewWithProvider(provider RunnerProvider) *Tool {
 func (t *Tool) Name() string { return "subagent" }
 
 func (t *Tool) Description() string {
-	return "Delegate work to a sub-agent running in its own persisted sub-conversation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent; with 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' and pass 'conversation_id' (optionally 'run_id') to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt'."
+	return "Delegate work to a sub-agent running in its own persisted sub-conversation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent; with 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' (and 'cancel') and pass either 'conversation_id' (queries its most recent run) OR 'run_id' alone (the run is resolved by its id) to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt'."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
@@ -59,7 +59,7 @@ func (t *Tool) Parameters() json.RawMessage {
 			},
 			"conversation_id": {
 				"type": "string",
-				"description": "Sub-conversation handle. Required for status/cancel. (Reusing an existing sub-conversation to send a new prompt is added in a later phase.)"
+				"description": "Sub-conversation handle. Required for cancel. For status it is optional when 'run_id' is provided (run_id alone resolves the run); otherwise it targets the most recent run of this conversation. (Reusing an existing sub-conversation to send a new prompt is added in a later phase.)"
 			},
 			"run_id": {
 				"type": "string",
