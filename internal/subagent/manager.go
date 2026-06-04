@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"strings"
 	"sync"
@@ -68,8 +69,18 @@ type Manager struct {
 	mu          sync.Mutex
 	active      map[string]*activeRun // runID -> run ativo
 	activeConvs map[string]struct{}   // childConversationID com run ativo (fail-fast resume)
-	parentMu    map[string]*sync.Mutex
+
+	// parentLocks serializa a entrega por conversa-pai (evita corrida no
+	// StreamingManager). Striped locks de cardinalidade FIXA: um map[parentID]
+	// cresceria sem limite num processo long-lived (lock/map leak). Com stripes,
+	// o mesmo parentID mapeia sempre para o MESMO mutex (serialização por pai
+	// preservada); colisões entre pais distintos só causam serialização extra
+	// ocasional, sem perda de correção e sem crescimento de memória.
+	parentLocks [parentLockStripes]sync.Mutex
 }
+
+// parentLockStripes é a cardinalidade fixa do pool de locks por conversa-pai.
+const parentLockStripes = 64
 
 // ManagerConfig agrupa as dependências do Manager.
 type ManagerConfig struct {
@@ -110,7 +121,6 @@ func NewManager(cfg ManagerConfig) *Manager {
 		maxChainDepth: maxChainDepth,
 		active:        make(map[string]*activeRun),
 		activeConvs:   make(map[string]struct{}),
-		parentMu:      make(map[string]*sync.Mutex),
 	}
 }
 
@@ -579,8 +589,16 @@ func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun, p RunP
 
 	persistCtx := context.WithoutCancel(ctx)
 
-	// Idempotência por run_id: recarrega o run e não entrega duas vezes.
-	if fresh, err := m.repo.Get(persistCtx, run.ID); err == nil && fresh != nil {
+	// Idempotência por run_id — fail-CLOSED: recarrega o run para confirmar que
+	// ainda não foi entregue. Se NÃO conseguirmos verificar o estado (repo.Get
+	// erro), NÃO entregamos — melhor não-entregar do que reentregar um aviso
+	// duplicado no pai (que re-dispararia o loop). Loga o motivo para diagnóstico.
+	fresh, err := m.repo.Get(persistCtx, run.ID)
+	if err != nil {
+		log.Printf("[Subagent] deliver: não foi possível verificar idempotência do run %s; entrega abortada (fail-closed): %v", run.ID, err)
+		return
+	}
+	if fresh != nil {
 		if fresh.DeliveredAt != nil {
 			return
 		}
@@ -604,13 +622,21 @@ func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun, p RunP
 	dctx := eventctx.With(persistCtx, prov)
 
 	if err := m.delivery.Deliver(dctx, notice); err != nil {
-		// Não marca DeliveredAt em falha — permite reentrega futura.
+		// Não marca DeliveredAt em falha — permite reentrega futura. Loga
+		// best-effort: um run de background que concluiu mas nunca apareceu no
+		// pai precisa ser diagnosticável.
+		log.Printf("[Subagent] deliver: falha ao entregar aviso do run %s ao pai %s (será reentregue): %v", run.ID, run.ParentConversationID, err)
 		return
 	}
 
 	now := m.now()
 	run.DeliveredAt = &now
-	_ = m.repo.Update(persistCtx, run)
+	if err := m.repo.Update(persistCtx, run); err != nil {
+		// O aviso JÁ foi entregue, mas não conseguimos persistir DeliveredAt: em
+		// retry/recovery a idempotência pode não enxergar a entrega e reentregar.
+		// Não aborta (o desfecho já ocorreu), mas o erro precisa ser visível.
+		log.Printf("[Subagent] deliver: aviso do run %s entregue, mas falha ao persistir DeliveredAt (risco de reentrega em retry/recovery): %v", run.ID, err)
+	}
 }
 
 // ---- registro de runs ativos / locks por pai ----
@@ -658,15 +684,14 @@ func (m *Manager) lookupActive(runID string) *activeRun {
 	return m.active[runID]
 }
 
+// parentLock devolve o mutex (striped) responsável por serializar a entrega da
+// conversa-pai informada. O array é fixo e nunca muda, então pegar o endereço de
+// um elemento é seguro sem lock adicional; o mesmo parentID cai sempre no mesmo
+// stripe (serialização por pai garantida).
 func (m *Manager) parentLock(parentConversationID string) *sync.Mutex {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	lock, ok := m.parentMu[parentConversationID]
-	if !ok {
-		lock = &sync.Mutex{}
-		m.parentMu[parentConversationID] = lock
-	}
-	return lock
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(parentConversationID))
+	return &m.parentLocks[h.Sum32()%parentLockStripes]
 }
 
 // ---- proveniência / utilitários ----

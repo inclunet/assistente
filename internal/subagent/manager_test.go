@@ -1,8 +1,10 @@
 package subagent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"testing"
@@ -1063,6 +1065,167 @@ func TestManagerRunUserFlowDerivesStableChainID(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("entrega/auto-wake não ocorreu no prazo")
+	}
+}
+
+// ---- B2: idempotência/erros do deliver ----
+
+// getFailRepo falha o Get para exercitar a idempotência fail-closed do deliver.
+type getFailRepo struct {
+	Repository
+	fail bool
+}
+
+func (r *getFailRepo) Get(ctx context.Context, id string) (*database.SubAgentRun, error) {
+	if r.fail {
+		return nil, fmt.Errorf("falha simulada no Get")
+	}
+	return r.Repository.Get(ctx, id)
+}
+
+// deliveredUpdateFailRepo falha o Update que grava DeliveredAt (run já entregue).
+type deliveredUpdateFailRepo struct {
+	Repository
+}
+
+func (r *deliveredUpdateFailRepo) Update(ctx context.Context, run *database.SubAgentRun) error {
+	if run != nil && run.DeliveredAt != nil {
+		return fmt.Errorf("falha simulada ao persistir DeliveredAt")
+	}
+	return r.Repository.Update(ctx, run)
+}
+
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prevOut := log.Writer()
+	prevFlags := log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+	})
+	return &buf
+}
+
+func seedDeliverableRun(t *testing.T, repo Repository, ctx context.Context) *database.SubAgentRun {
+	t.Helper()
+	run := &database.SubAgentRun{
+		ParentConversationID: "parent-conv",
+		ParentTurnID:         "parent-turn",
+		ChildConversationID:  "child-conv",
+		Status:               database.SubAgentRunStatusSucceeded,
+		ResultSummary:        "ok",
+	}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatalf("Create run: %v", err)
+	}
+	return run
+}
+
+// TestDeliverIdempotencyFailClosed garante que, se não for possível confirmar o
+// estado de entrega (repo.Get erro), o deliver NÃO entrega (fail-closed) e loga.
+func TestDeliverIdempotencyFailClosed(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	run := seedDeliverableRun(t, repo, ctx)
+	delivery := &recordingDelivery{}
+	logBuf := captureLog(t)
+
+	mgr := NewManager(ManagerConfig{
+		Repo:     &getFailRepo{Repository: repo, fail: true},
+		Notifier: messaging.NewResponseNotifier(),
+		Delivery: delivery,
+		Send:     func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+	t.Cleanup(mgr.notifier.Stop)
+
+	mgr.deliver(ctx, run, RunParams{ParentConversationID: run.ParentConversationID})
+
+	if delivery.count() != 0 {
+		t.Fatalf("fail-closed: não deveria entregar quando Get falha, entregou %d", delivery.count())
+	}
+	if !strings.Contains(logBuf.String(), "fail-closed") {
+		t.Fatalf("esperava log de fail-closed, veio: %q", logBuf.String())
+	}
+}
+
+// TestDeliverDeliveryErrorIsLoggedAndNotMarked garante que falha de Deliver é
+// logada (best-effort) e NÃO marca DeliveredAt (permite reentrega).
+func TestDeliverDeliveryErrorIsLoggedAndNotMarked(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	run := seedDeliverableRun(t, repo, ctx)
+	delivery := &recordingDelivery{err: fmt.Errorf("falha de entrega")}
+	logBuf := captureLog(t)
+
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: messaging.NewResponseNotifier(),
+		Delivery: delivery,
+		Send:     func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+	t.Cleanup(mgr.notifier.Stop)
+
+	mgr.deliver(ctx, run, RunParams{ParentConversationID: run.ParentConversationID})
+
+	if delivery.count() != 1 {
+		t.Fatalf("Deliver deveria ter sido tentado uma vez, veio %d", delivery.count())
+	}
+	got, err := repo.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.DeliveredAt != nil {
+		t.Fatal("DeliveredAt não deveria ser marcado quando Deliver falha (reentrega)")
+	}
+	if !strings.Contains(logBuf.String(), "falha ao entregar") {
+		t.Fatalf("esperava log de falha de entrega, veio: %q", logBuf.String())
+	}
+}
+
+// TestDeliverDeliveredAtPersistErrorIsLogged garante que o erro ao persistir
+// DeliveredAt NÃO é engolido: a entrega ocorre, mas o erro é logado.
+func TestDeliverDeliveredAtPersistErrorIsLogged(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	run := seedDeliverableRun(t, repo, ctx)
+	delivery := &recordingDelivery{}
+	logBuf := captureLog(t)
+
+	mgr := NewManager(ManagerConfig{
+		Repo:     &deliveredUpdateFailRepo{Repository: repo},
+		Notifier: messaging.NewResponseNotifier(),
+		Delivery: delivery,
+		Send:     func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+	t.Cleanup(mgr.notifier.Stop)
+
+	mgr.deliver(ctx, run, RunParams{ParentConversationID: run.ParentConversationID})
+
+	if delivery.count() != 1 {
+		t.Fatalf("Deliver deveria ter ocorrido uma vez, veio %d", delivery.count())
+	}
+	if !strings.Contains(logBuf.String(), "DeliveredAt") {
+		t.Fatalf("esperava log do erro de persistência de DeliveredAt, veio: %q", logBuf.String())
+	}
+}
+
+// ---- B4: striped locks por conversa-pai ----
+
+// TestParentLockStripedStable garante que o mesmo parentID mapeia sempre para o
+// MESMO mutex (serialização por pai preservada) e que parentLock nunca retorna
+// nil para qualquer id (sem crescimento de map: array fixo).
+func TestParentLockStripedStable(t *testing.T) {
+	mgr := NewManager(ManagerConfig{})
+	if mgr.parentLock("p1") != mgr.parentLock("p1") {
+		t.Fatal("mesmo parentID deveria devolver o mesmo mutex (stripe estável)")
+	}
+	if mgr.parentLock("alpha") != mgr.parentLock("alpha") {
+		t.Fatal("mapeamento por id deveria ser estável")
+	}
+	for i := 0; i < 5000; i++ {
+		if mgr.parentLock(fmt.Sprintf("parent-%d", i)) == nil {
+			t.Fatalf("parentLock retornou nil para id %d", i)
+		}
 	}
 }
 
