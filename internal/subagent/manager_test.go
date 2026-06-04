@@ -112,7 +112,7 @@ func TestWaitClassifiesCtxDone(t *testing.T) {
 		ar := &activeRun{childConversationID: "c", cancelCh: make(chan struct{})}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		o := m.wait(ctx, "c", make(chan completion, 1), ar, time.Hour)
+		o := m.wait(ctx, "c", make(chan completion, 1), ar, time.Hour, false)
 		if o.status != StatusCancelled {
 			t.Fatalf("esperava cancelled, veio %q", o.status)
 		}
@@ -125,7 +125,7 @@ func TestWaitClassifiesCtxDone(t *testing.T) {
 		ar := &activeRun{childConversationID: "c", cancelCh: make(chan struct{})}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Hour))
 		defer cancel()
-		o := m.wait(ctx, "c", make(chan completion, 1), ar, time.Hour)
+		o := m.wait(ctx, "c", make(chan completion, 1), ar, time.Hour, false)
 		if o.status != StatusTimedOut {
 			t.Fatalf("esperava timed_out, veio %q", o.status)
 		}
@@ -976,6 +976,119 @@ func TestManagerRunBackgroundCancelsSendOnTimeout(t *testing.T) {
 	}
 }
 
+// TestResolveTimeoutByMode prova a separação de semântica de timeout por modo
+// (determinístico, sem depender de 5min/1h reais): explícito é respeitado em
+// ambos os modos; sem timeout, síncrono usa DefaultSyncTimeout e background usa
+// DefaultBackgroundTimeout (nunca o default síncrono).
+func TestResolveTimeoutByMode(t *testing.T) {
+	if got := resolveTimeout(0, false); got != DefaultSyncTimeout {
+		t.Fatalf("síncrono sem timeout: esperava DefaultSyncTimeout (%v), veio %v", DefaultSyncTimeout, got)
+	}
+	if got := resolveTimeout(0, true); got != DefaultBackgroundTimeout {
+		t.Fatalf("background sem timeout: esperava DefaultBackgroundTimeout (%v), veio %v", DefaultBackgroundTimeout, got)
+	}
+	if got := resolveTimeout(0, true); got == DefaultSyncTimeout {
+		t.Fatal("background sem timeout NÃO deve usar DefaultSyncTimeout")
+	}
+	explicit := 50 * time.Millisecond
+	if got := resolveTimeout(explicit, false); got != explicit {
+		t.Fatalf("síncrono com timeout explícito: esperava %v, veio %v", explicit, got)
+	}
+	if got := resolveTimeout(explicit, true); got != explicit {
+		t.Fatalf("background com timeout explícito: esperava %v, veio %v", explicit, got)
+	}
+}
+
+// TestManagerRunBackgroundNoTimeoutDoesNotUseSyncDefault garante, em nível de
+// comportamento, que um run background SEM Timeout não expira por causa do
+// default síncrono: com Send que nunca notifica, o run permanece ativo (não vira
+// timed_out) e só termina por cancelamento explícito. Cancela ao fim para não
+// vazar a goroutine de backstop longo.
+func TestManagerRunBackgroundNoTimeoutDoesNotUseSyncDefault(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: &recordingDelivery{},
+		// Nunca notifica: sem timeout síncrono, o run fica ativo (backstop longo).
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	res, err := mgr.Run(ctx, RunParams{
+		ParentConversationID: "parent-conv",
+		Prompt:               "trabalho de fundo",
+		Background:           true, // sem Timeout: usa DefaultBackgroundTimeout, não o síncrono
+	})
+	if err != nil {
+		t.Fatalf("Run bg erro: %v", err)
+	}
+	if res.Status != StatusRunning {
+		t.Fatalf("status imediato esperado running, veio %q", res.Status)
+	}
+
+	// Janela de observação: o run NÃO pode virar timed_out (não usou default síncrono).
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		got, err := repo.Get(ctx, res.RunID)
+		if err != nil {
+			t.Fatalf("Get run: %v", err)
+		}
+		if got.Status == StatusTimedOut {
+			t.Fatal("run background sem Timeout não deveria expirar (default síncrono indevido)")
+		}
+		if isTerminal(got.Status) {
+			t.Fatalf("run não deveria estar terminal ainda, veio %q", got.Status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Limpeza: cancela o run para encerrar a goroutine do backstop (1h).
+	if _, err := mgr.Cancel(ctx, res.ConversationID, res.RunID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+}
+
+// TestManagerRunBackgroundExplicitTimeoutRespected garante que um Timeout
+// explícito é respeitado no modo background (vira timed_out), sem depender do
+// default de background longo.
+func TestManagerRunBackgroundExplicitTimeoutRespected(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	delivery := &recordingDelivery{ch: make(chan ParentNotice, 1)}
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: delivery,
+		Send:     func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	res, err := mgr.Run(ctx, RunParams{
+		ParentConversationID: "parent-conv",
+		Prompt:               "trabalho longo",
+		Background:           true,
+		Timeout:              20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("Run bg erro: %v", err)
+	}
+	if res.Status != StatusRunning {
+		t.Fatalf("status imediato esperado running, veio %q", res.Status)
+	}
+
+	// Espera o aviso de conclusão do background com status terminal.
+	select {
+	case n := <-delivery.ch:
+		if n.Status != StatusTimedOut {
+			t.Fatalf("esperava timed_out pelo Timeout explícito, veio %q", n.Status)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("aviso de conclusão do background não chegou no prazo")
+	}
+}
+
 func TestManagerRunRequiresUserScope(t *testing.T) {
 	repo, _ := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()
@@ -1050,7 +1163,7 @@ func TestWaitPrefersDoneOverCancelAndTimeout(t *testing.T) {
 		cctx, cancel := context.WithCancel(context.Background())
 		cancel() // ctx.Done() também pronto
 
-		o := m.wait(cctx, "c", done, ar, time.Nanosecond) // timer praticamente pronto
+		o := m.wait(cctx, "c", done, ar, time.Nanosecond, false) // timer praticamente pronto
 		if o.status != StatusSucceeded {
 			t.Fatalf("iter %d: com done disponível esperava succeeded, veio %q", i, o.status)
 		}

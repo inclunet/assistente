@@ -311,7 +311,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			// Cancela o loop da sub-conversa ao concluir a espera (timeout/cancel/
 			// sucesso), interrompendo trabalho em background — escopado a este run.
 			defer cancelSend()
-			o := m.wait(bgCtx, childConvID, done, ar, p.Timeout)
+			o := m.wait(bgCtx, childConvID, done, ar, p.Timeout, true)
 			m.finish(bgCtx, run, &bgResult, o)
 			m.unregisterActive(run.ID)
 			m.deliver(bgCtx, run, p)
@@ -322,7 +322,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 
 	// Síncrono (Fase 1): espera inline e cancela o loop ao concluir.
 	defer cancelSend()
-	o := m.wait(ctx, childConvID, done, ar, p.Timeout)
+	o := m.wait(ctx, childConvID, done, ar, p.Timeout, false)
 	m.unregisterActive(run.ID)
 	defer m.releaseSlot(userID)
 	return m.finish(ctx, run, &result, o), nil
@@ -396,12 +396,28 @@ func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (st
 	return conv.ID, turnIndex, nil
 }
 
-// wait bloqueia até a conclusão, timeout, cancelamento explícito ou
-// cancelamento do ctx.
-func (m *Manager) wait(ctx context.Context, childConvID string, done chan completion, ar *activeRun, timeout time.Duration) outcome {
-	if timeout <= 0 {
-		timeout = DefaultSyncTimeout
+// resolveTimeout escolhe o timeout efetivo conforme o modo. Um Timeout explícito
+// (>0) é respeitado em ambos os modos. Sem Timeout: o síncrono usa
+// DefaultSyncTimeout (curto, cabe no executor de tools) e o background usa
+// DefaultBackgroundTimeout (backstop anti-runaway bem maior — AEP-0068). Assim,
+// background:true sem Timeout NÃO expira nos 5min do síncrono, mas mantém o
+// backstop de "timeout por run" exigido pelos Riscos da AEP.
+func resolveTimeout(timeout time.Duration, background bool) time.Duration {
+	if timeout > 0 {
+		return timeout
 	}
+	if background {
+		return DefaultBackgroundTimeout
+	}
+	return DefaultSyncTimeout
+}
+
+// wait bloqueia até a conclusão, timeout, cancelamento explícito ou
+// cancelamento do ctx. O background distingue o default de timeout (ver
+// resolveTimeout): background:true sem Timeout usa o backstop longo, não o
+// DefaultSyncTimeout.
+func (m *Manager) wait(ctx context.Context, childConvID string, done chan completion, ar *activeRun, timeout time.Duration, background bool) outcome {
+	timeout = resolveTimeout(timeout, background)
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
