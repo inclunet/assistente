@@ -858,6 +858,88 @@ func TestManagerSecondCancelAfterEffectiveCancelIsNoOp(t *testing.T) {
 	}
 }
 
+// TestManagerBackgroundCallbackTTLAlignsToTimeout garante que o callback de
+// conclusão de um run em BACKGROUND é registrado no ResponseNotifier com um TTL
+// alinhado ao timeout efetivo do run (bem além do TTL padrão de 5min). Sem isso,
+// um run background longo perderia a conclusão (callback expirado aos 5min) e
+// viraria timed_out. Também valida que o callback é REMOVIDO no caminho terminal
+// (Notify) e no cancel — sem leak.
+func TestManagerBackgroundCallbackTTLAlignsToTimeout(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: &recordingDelivery{},
+		// Não notifica automaticamente: controlamos a conclusão no teste.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	// Timeout explícito de 30min: o TTL do callback deve ficar bem acima dos 5min
+	// padrão (timeout + margem), provando que um run longo não expira o callback.
+	res, err := mgr.Run(ctx, RunParams{Prompt: "bg", Background: true, Timeout: 30 * time.Minute, ParentConversationID: "parent-conv"})
+	if err != nil {
+		t.Fatalf("Run bg: %v", err)
+	}
+
+	exp, ok := notifier.PendingExpiry(res.ConversationID)
+	if !ok {
+		t.Fatal("callback do sub-agente deveria estar registrado")
+	}
+	if remaining := time.Until(exp); remaining <= 6*time.Minute {
+		t.Fatalf("TTL do callback deveria exceder o padrão de 5min (alinhado ao timeout do run); restante=%s", remaining)
+	}
+
+	// Caminho terminal (conclusão por Notify): o callback é consumido e removido.
+	notifier.Notify(res.ConversationID, "ok", "msg-1")
+	deadline := time.Now().Add(2 * time.Second)
+	for notifier.PendingCount() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("callback não foi removido após a conclusão (leak); pending=%d", notifier.PendingCount())
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestManagerBackgroundCancelRemovesCallback garante que o cancel de um run em
+// background remove o callback do notifier (sem leak), além de concluir cancelled.
+func TestManagerBackgroundCancelRemovesCallback(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: &recordingDelivery{},
+		Send:     func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "bg", Background: true, Timeout: time.Hour, ParentConversationID: "parent-conv"})
+	if err != nil {
+		t.Fatalf("Run bg: %v", err)
+	}
+	if notifier.PendingCount() != 1 {
+		t.Fatalf("callback deveria estar pendente antes do cancel; pending=%d", notifier.PendingCount())
+	}
+
+	cr, err := mgr.Cancel(ctx, res.ConversationID, res.RunID)
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if !cr.Cancelled {
+		t.Fatalf("cancel de run ativo deveria ser efetivo; veio %#v", cr)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for notifier.PendingCount() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("callback não foi removido após o cancel (leak); pending=%d", notifier.PendingCount())
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // TestManagerRunCancelsSendOnTimeout garante que, ao concluir por timeout, o
 // ctx passado ao pipeline de envio (que dispara o agentic loop da sub-conversa
 // em background) é efetivamente cancelado — interrompendo trabalho/custo após o

@@ -46,6 +46,15 @@ const DefaultSyncTimeout = 5 * time.Minute
 // (reconciliação no startup, Fase 4). Caller pode sobrescrever via Timeout.
 const DefaultBackgroundTimeout = 1 * time.Hour
 
+// callbackTTLMargin é a folga somada ao timeout efetivo do run ao registrar o
+// callback de conclusão no ResponseNotifier. O notifier descarta callbacks
+// pendentes após um TTL; alinhamos esse TTL ao timeout do run (ver Run) para que
+// um run de background longo não perca a conclusão por expiração precoce do
+// callback. A margem garante que o TIMEOUT DO PRÓPRIO RUN dispare primeiro (o
+// caminho normal já remove o callback via finalize), deixando o TTL do notifier
+// como mero backstop anti-órfão — nunca o mecanismo que encerra um run legítimo.
+const callbackTTLMargin = 2 * time.Minute
+
 // SendParams descreve um envio ao pipeline oficial de mensagens. O adapter de
 // wiring traduz para usecases.SendMessageRequest (sem duplicar o pipeline).
 type SendParams struct {
