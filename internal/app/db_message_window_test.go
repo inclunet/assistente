@@ -141,6 +141,54 @@ func TestConsolidateTimelineTurnMessages_OrdersMessagesBeforeChoosingRepresentat
 	}
 }
 
+// Em turnos agênticos a resposta final é gravada num placeholder criado no
+// INÍCIO do turno (created_at mais antigo), enquanto as iterações intermediárias
+// com tool calls são gravadas depois. A conclusão (única mensagem assistant sem
+// tool calls) deve ser o conteúdo canônico e o ÚLTIMO segmento de texto, mesmo
+// estando "primeiro" por created_at.
+func TestConsolidateTimelineTurn_AgenticPlaceholderIsConclusion(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	result := consolidateTimelineTurn([]database.ChatMessage{
+		{
+			// Placeholder finalizado: conclusão, mas created_at mais antigo.
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime},
+			Role:      "assistant",
+			Content:   "conclusão do turno",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-step1", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			Content:   "vou verificar primeiro",
+			TurnID:    &turnID,
+			ToolCalls: `[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-step2", CreatedAt: baseTime.Add(2 * time.Minute)},
+			Role:      "assistant",
+			Content:   "raciocínio intermediário",
+			TurnID:    &turnID,
+			ToolCalls: `[{"id":"tool-2","type":"function","function":{"name":"search","arguments":"{}"}}]`,
+		},
+	}, nil)
+
+	if result.Message.Content != "conclusão do turno" {
+		t.Fatalf("expected conclusion as canonical content, got %q", result.Message.Content)
+	}
+	if len(result.Segments) == 0 {
+		t.Fatalf("expected segments to be populated")
+	}
+	last := result.Segments[len(result.Segments)-1]
+	if last.Type != "text" || last.Content != "conclusão do turno" {
+		t.Fatalf("expected conclusion as last text segment, got type=%q content=%q", last.Type, last.Content)
+	}
+	// A conclusão não deve aparecer como primeiro segmento (ordem corrigida).
+	if first := result.Segments[0]; first.Type == "text" && first.Content == "conclusão do turno" {
+		t.Fatalf("conclusion should not be the first segment")
+	}
+}
+
 func TestConsolidateTimelineTurnMessages_DeduplicatesToolCallsByID(t *testing.T) {
 	turnID := "turn-1"
 	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
