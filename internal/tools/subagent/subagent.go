@@ -63,7 +63,7 @@ func (t *Tool) Parameters() json.RawMessage {
 			},
 			"run_id": {
 				"type": "string",
-				"description": "Specific run (turn) of a sub-conversation for status/cancel. If omitted, acts on the most recent run of conversation_id. Requires conversation_id."
+				"description": "Specific run (turn) for status/cancel. For a status query (no prompt, no cancel) it may be used alone (the run is resolved by its id). For cancel it requires conversation_id. If omitted, acts on the most recent run of conversation_id."
 			},
 			"cancel": {
 				"type": "boolean",
@@ -127,7 +127,13 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if a.Cancel && conversationID == "" {
 		return errResult("'cancel' requer 'conversation_id'"), nil
 	}
-	if runID != "" && conversationID == "" {
+	// 'run_id' sozinho (sem 'conversation_id') é permitido APENAS no modo status
+	// (sem 'cancel' e sem 'prompt'): o Manager resolve o run pelo run_id e
+	// recupera a conversa dele (ver Manager.Status/resolveRun). Para send/cancel,
+	// 'run_id' continua exigindo 'conversation_id' (AEP-0068, "Validações
+	// mínimas": run sempre pertence a uma conversa; em status o run_id basta).
+	isStatus := !a.Cancel && prompt == ""
+	if runID != "" && conversationID == "" && !isStatus {
 		return errResult("'run_id' requer 'conversation_id'"), nil
 	}
 	if !a.Cancel && prompt == "" && conversationID == "" && runID == "" {

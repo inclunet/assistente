@@ -48,6 +48,61 @@ func (f *fakeRunner) Cancel(_ context.Context, conversationID, runID string) (su
 	return f.cancelResult, f.cancelErr
 }
 
+// TestToolStatusByRunIDAlone garante que, no modo status (sem prompt e sem
+// cancel), run_id pode ser usado SEM conversation_id: o Manager resolve o run
+// pelo run_id (AEP-0068). A tool deve chamar Status(ctx, "", runID).
+func TestToolStatusByRunIDAlone(t *testing.T) {
+	runner := &fakeRunner{statusResult: subagent.StatusResult{ConversationID: "child-conv", RunID: "run-1", Status: subagent.StatusRunning}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"run_id":"run-1"}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("status por run_id sozinho não deveria falhar: %s", res.Content)
+	}
+	if runner.lastStatusID[0] != "" || runner.lastStatusID[1] != "run-1" {
+		t.Fatalf("esperava Status(\"\", \"run-1\"), veio %#v", runner.lastStatusID)
+	}
+}
+
+// TestToolSendWithRunIDWithoutConversationFails garante que run_id sem
+// conversation_id continua proibido fora do status (send mantém a restrição).
+func TestToolSendWithRunIDWithoutConversationFails(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"faça X","run_id":"run-1"}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("send com run_id sem conversation_id deveria falhar")
+	}
+	if runner.lastParams.Prompt != "" {
+		t.Fatalf("runner não deveria ter sido chamado: %#v", runner.lastParams)
+	}
+}
+
+// TestToolCancelWithRunIDWithoutConversationFails garante que cancel exige
+// conversation_id mesmo com run_id.
+func TestToolCancelWithRunIDWithoutConversationFails(t *testing.T) {
+	runner := &fakeRunner{cancelResult: subagent.CancelResult{Status: subagent.StatusCancelled, Cancelled: true}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"cancel":true,"run_id":"run-1"}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("cancel com run_id sem conversation_id deveria falhar")
+	}
+	if runner.lastCancelID[1] != "" {
+		t.Fatalf("runner.Cancel não deveria ter sido chamado: %#v", runner.lastCancelID)
+	}
+}
+
 func TestToolMetadata(t *testing.T) {
 	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
 	if tool.Name() != "subagent" {
@@ -156,14 +211,6 @@ func TestToolValidationCancelWithoutConversation(t *testing.T) {
 	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"cancel":true}`))
 	if !res.IsError {
 		t.Fatal("esperava erro: cancel sem conversation_id")
-	}
-}
-
-func TestToolValidationRunIDWithoutConversation(t *testing.T) {
-	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
-	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"run_id":"r1"}`))
-	if !res.IsError {
-		t.Fatal("esperava erro: run_id sem conversation_id")
 	}
 }
 
