@@ -33,7 +33,7 @@ func TestBuildSubagentNoticeWrapsUntrustedOutput(t *testing.T) {
 	openIdx := strings.Index(out, subagentResultOpen)
 	closeIdx := strings.Index(out, subagentResultClose)
 	resIdx := strings.Index(out, "tudo certo")
-	if !(openIdx < resIdx && resIdx < closeIdx) {
+	if openIdx >= resIdx || resIdx >= closeIdx {
 		t.Fatalf("o resultado deveria estar dentro do bloco demarcado: open=%d res=%d close=%d", openIdx, resIdx, closeIdx)
 	}
 }
