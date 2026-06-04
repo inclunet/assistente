@@ -419,7 +419,16 @@ func (m *Manager) Status(ctx context.Context, conversationID, runID string) (Sta
 // Cancel cancela um run em andamento. Se havia run ativo, retorna
 // Cancelled=true com Status=cancelled; se o run já era terminal/inexistente, é
 // no-op (Cancelled=false) retornando o status real (AEP-0068).
+//
+// conversation_id é SEMPRE obrigatório para cancel (defense-in-depth, alinhado à
+// validação da tool e ao AEP-0068, "Validações mínimas": cancel sempre exige a
+// conversa). A flexibilização de run_id sozinho vale APENAS para status — cancelar
+// só por run_id abriria superfície de API inconsistente e facilitaria wiring
+// errado. A restrição é específica do cancel; o Status segue aceitando run_id só.
 func (m *Manager) Cancel(ctx context.Context, conversationID, runID string) (CancelResult, error) {
+	if strings.TrimSpace(conversationID) == "" {
+		return CancelResult{}, fmt.Errorf("conversation_id é obrigatório para cancelar um run")
+	}
 	run, err := m.resolveRun(ctx, conversationID, runID)
 	if err != nil {
 		return CancelResult{}, err
