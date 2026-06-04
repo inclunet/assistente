@@ -2,14 +2,18 @@ package subagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
 	"assistente/internal/database"
+	"assistente/internal/eventctx"
 	"assistente/internal/messaging"
 	"assistente/internal/toolinvocations"
 )
@@ -24,21 +28,74 @@ type completion struct {
 	assistantMessageID string
 }
 
+// outcome representa o desfecho da espera por um run.
+type outcome struct {
+	status             string
+	summary            string
+	assistantMessageID string
+	errMsg             string
+}
+
+// activeRun rastreia um run em andamento para permitir cancelamento.
+//
+// terminalStatus carrega o desfecho terminal ASSIM QUE ele é decidido — pelo
+// callback do notifier (sucesso), por um Cancel efetivo (tryClaimCancel marca
+// "cancelled") ou pelo ponto central finalize (markCompleting) — AINDA QUE o
+// finish não tenha persistido o status no DB. O run só sai de `active` no
+// finalize, DEPOIS de o finish persistir. Assim, enquanto estiver em `active`
+// com terminalStatus != "" o Cancel sabe que o desfecho já ocorreu e devolve
+// no-op com o status terminal real (nunca cancelled:true após decisão, nunca
+// status running) — fecha a janela entre a decisão e a persistência. Lido/escrito
+// sob m.mu.
+type activeRun struct {
+	childConversationID string
+	cancelCh            chan struct{}
+	cancelOnce          sync.Once
+	terminalStatus      string
+}
+
+func (a *activeRun) cancel() {
+	a.cancelOnce.Do(func() { close(a.cancelCh) })
+}
+
 // Manager orquestra runs de sub-agente (AEP-0068). É a única porta de entrada
 // para criar/continuar sub-conversas; reusa o pipeline oficial via SendFunc e
 // detecta conclusão por callback in-process (ResponseNotifier).
 type Manager struct {
-	repo     Repository
-	notifier *messaging.ResponseNotifier
-	send     SendFunc
-	now      func() time.Time
+	repo       Repository
+	notifier   *messaging.ResponseNotifier
+	send       SendFunc
+	delivery   ParentDelivery
+	cancelStrm func(conversationID string)
+	now        func() time.Time
+
+	mu     sync.Mutex
+	active map[string]*activeRun // runID -> run ativo
+
+	// parentLocks serializa a entrega por conversa-pai (evita corrida no
+	// StreamingManager). Striped locks de cardinalidade FIXA: um map[parentID]
+	// cresceria sem limite num processo long-lived (lock/map leak). Com stripes,
+	// o mesmo parentID mapeia sempre para o MESMO mutex (serialização por pai
+	// preservada); colisões entre pais distintos só causam serialização extra
+	// ocasional, sem perda de correção e sem crescimento de memória.
+	parentLocks [parentLockStripes]sync.Mutex
 }
+
+// parentLockStripes é a cardinalidade fixa do pool de locks por conversa-pai.
+const parentLockStripes = 64
 
 // ManagerConfig agrupa as dependências do Manager.
 type ManagerConfig struct {
 	Repo     Repository
 	Notifier *messaging.ResponseNotifier
 	Send     SendFunc
+	// Delivery entrega o aviso de conclusão de runs em background ao pai
+	// (auto-wake). Pode ser nil (ex.: contextos sem pai); então o aviso é
+	// apenas persistido no run.
+	Delivery ParentDelivery
+	// CancelStream cancela o streaming LLM de uma conversa (barge-in). Usado
+	// para interromper um sub-agente em background. Pode ser nil em testes.
+	CancelStream func(conversationID string)
 	// Now é injetável para testes; nil usa time.Now.
 	Now func() time.Time
 }
@@ -50,20 +107,23 @@ func NewManager(cfg ManagerConfig) *Manager {
 		now = time.Now
 	}
 	return &Manager{
-		repo:     cfg.Repo,
-		notifier: cfg.Notifier,
-		send:     cfg.Send,
-		now:      now,
+		repo:       cfg.Repo,
+		notifier:   cfg.Notifier,
+		send:       cfg.Send,
+		delivery:   cfg.Delivery,
+		cancelStrm: cfg.CancelStream,
+		now:        now,
+		active:     make(map[string]*activeRun),
 	}
 }
 
-// Run executa um sub-agente de forma SÍNCRONA (background:false, Fase 1):
-// cria a sub-conversa, dispara o envio pelo pipeline oficial e espera a
-// conclusão (callback in-process) ou timeout/cancelamento.
+// Run executa um sub-agente. Com Background=false é síncrono (Fase 1): espera a
+// conclusão e devolve o resultado. Com Background=true (Fase 2) retorna o handle
+// imediatamente e executa em goroutine, entregando o aviso de conclusão ao pai.
 //
-// Retorna o RunResult sempre que o run foi criado (mesmo em falha/timeout), com
-// Status refletindo o desfecho. O error não-nil é reservado para falhas de
-// pré-condição (validação, sem dono no ctx, falha ao criar a sub-conversa).
+// Retorna o RunResult sempre que o run foi criado; error não-nil é reservado a
+// falhas de pré-condição (validação, sem dono no ctx, falha ao criar a
+// sub-conversa/run).
 func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	if m == nil || m.send == nil || m.repo == nil || m.notifier == nil {
 		return RunResult{}, fmt.Errorf("subagent manager não configurado")
@@ -86,7 +146,13 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, fmt.Errorf("erro ao criar sub-conversa: %w", err)
 	}
 
-	// 2. Persiste o run (queued).
+	// 2. Persiste o run (queued) com proveniência (anti-runaway, AEP-0067/0001).
+	//    ChainID estável: em fluxos de usuário o ctx não vem carimbado (ChainID
+	//    vazio), o que iniciaria uma cadeia NOVA a cada auto-wake e quebraria a
+	//    continuidade do circuit breaker (AEP-0067). Usa conv.ID como semente
+	//    estável da cadeia quando não há ChainID herdado (job mantém o seu).
+	prov := deriveProvenance(ctx, conv.ID)
+	chainHistoryJSON := encodeChainHistory(prov.ChainHistory)
 	run := &database.SubAgentRun{
 		UserID:               userID,
 		ParentConversationID: p.ParentConversationID,
@@ -94,28 +160,51 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		ChildConversationID:  conv.ID,
 		TurnIndex:            0,
 		Status:               database.SubAgentRunStatusQueued,
-		Background:           false,
+		Background:           p.Background,
+		ChainID:              prov.ChainID,
+		ChainHistory:         chainHistoryJSON,
 	}
 	if err := m.repo.Create(ctx, run); err != nil {
 		return RunResult{}, fmt.Errorf("erro ao registrar run de sub-agente: %w", err)
 	}
 
-	result := RunResult{ConversationID: conv.ID, RunID: run.ID}
+	result := RunResult{ConversationID: conv.ID, RunID: run.ID, Status: run.Status}
 
-	// 3. Registra o callback de conclusão ANTES de enviar (evita corrida com
-	//    um agentic loop muito rápido).
+	// 3. Registra o callback de conclusão e o run ativo ANTES de enviar.
+	//    O TTL do callback é alinhado ao timeout EFETIVO do run (resolveTimeout):
+	//    o ResponseNotifier descarta callbacks pendentes após um TTL (padrão 5min,
+	//    bom para canais/UI). Um run background pode esperar até
+	//    DefaultBackgroundTimeout (1h); sem alinhar o TTL, o callback expiraria aos
+	//    5min e a conclusão NUNCA chegaria (o run viraria timed_out e o aviso ao
+	//    pai não seria entregue). A folga (callbackTTLMargin) garante que o próprio
+	//    timeout do run dispare ANTES do backstop de TTL — o caminho normal já
+	//    remove o callback via finalize (Notify no sucesso, notifier.Cancel no
+	//    timeout/cancel), então o TTL aqui é só defesa anti-órfão.
 	done := make(chan completion, 1)
 	m.notifier.Register(conv.ID, messaging.ResponseCallback{
 		Channel: Source,
 		TraceID: run.ID,
 		ChatID:  conv.ID,
+		TTL:     resolveTimeout(p.Timeout, p.Background) + callbackTTLMargin,
 		Callback: func(response, assistantMessageID string) {
+			// Marca o desfecho terminal (sucesso) no tracking ATIVO, sob o mesmo
+			// lock, ANTES de publicar no `done`. A partir daqui um Cancel
+			// concorrente vê terminalStatus != "" e devolve no-op com o status
+			// terminal REAL — nunca cancelled:true (corrida original: cancel após
+			// término) nem status running (janela entre a conclusão e o finish). A
+			// remoção de `active` e a persistência ficam a cargo do ponto central
+			// finalize (markCompleting → finish → unregisterActive), que o waiter
+			// executa ao receber esta conclusão. Isto ocorre após o registerActive
+			// abaixo: o callback só dispara depois do m.send despachar o prompt.
+			m.markCompleting(run.ID, database.SubAgentRunStatusSucceeded)
 			select {
 			case done <- completion{response: response, assistantMessageID: assistantMessageID}:
 			default:
 			}
 		},
 	})
+	ar := &activeRun{childConversationID: conv.ID, cancelCh: make(chan struct{})}
+	m.registerActive(run.ID, ar)
 
 	// 4. Marca running e dispara o envio pelo pipeline oficial.
 	//    Persiste a transição num ctx desacoplado de cancelamento (como em
@@ -125,22 +214,35 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	startedAt := m.now()
 	run.Status = database.SubAgentRunStatusRunning
 	run.StartedAt = &startedAt
+	result.Status = run.Status
 	if err := m.repo.Update(context.WithoutCancel(ctx), run); err != nil {
 		m.notifier.Cancel(conv.ID)
 		log.Printf("[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, conv.ID, err)
-		return m.finish(ctx, run, &result, database.SubAgentRunStatusFailed, "", "", fmt.Sprintf("erro ao persistir estado running: %v", err)), nil
+		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: fmt.Sprintf("erro ao persistir estado running: %v", err)}
+		finished := m.finalize(ctx, run, &result, o)
+		if p.Background {
+			m.deliver(ctx, run)
+		}
+		return finished, nil
 	}
 
 	// Encadeia as sub-invocações da sub-conversa à invocação da tool `subagent`.
-	// Contexto cancelável ESCOPADO a este run: o pipeline oficial dispara o
-	// agentic loop da sub-conversa em background sob um ctx derivado deste
-	// (SendMessageUseCase.Execute → context.WithCancel). Ao concluir por timeout,
-	// cancelamento ou ctx.Done() (e também no sucesso, via defer) cancelamos esse
-	// loop para não deixar trabalho rodando/custando após o desfecho. O cancel é
-	// filho de ctx (nunca cancela o pai) e privado deste run (sem cancelamento
-	// cruzado entre runs/sub-conversas).
-	sendCtx, cancelSend := context.WithCancel(toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID))
-	defer cancelSend()
+	// Contexto de envio cancelável e ESCOPADO a este run: o pipeline oficial
+	// dispara o agentic loop da sub-conversa em background sob um ctx derivado
+	// deste (SendMessageUseCase.Execute → context.WithCancel). Ao concluir
+	// (timeout, cancel, ctx.Done() ou sucesso) cancelamos cancelSend para não
+	// deixar o loop rodando/custando após o desfecho. cancelSend é privado deste
+	// run (sem cancelamento cruzado) e nunca cancela o ctx-pai.
+	//   - Síncrono: o base herda o ctx da tool (cancelamento do pai propaga); o
+	//     cancel é disparado via defer ao retornar (logo após a espera inline).
+	//   - Background: o base é desacoplado (WithoutCancel) para o run sobreviver
+	//     ao fim do turno-pai; o cancel é disparado na goroutine ao concluir a
+	//     espera (timeout/cancel via wait), alcançando o loop daquele run.
+	sendBase := toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID)
+	if p.Background {
+		sendBase = context.WithoutCancel(sendBase)
+	}
+	sendCtx, cancelSend := context.WithCancel(sendBase)
 	if _, err := m.send(sendCtx, SendParams{
 		ConversationID: conv.ID,
 		Prompt:         p.Prompt,
@@ -149,52 +251,120 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		Model:          p.Model,
 		Source:         Source,
 	}); err != nil {
+		cancelSend()
 		m.notifier.Cancel(conv.ID)
 		// Um cancel/timeout do ctx (usuário cancela a tool, deadline do executor)
 		// pode se manifestar como erro de send. Classificamos pelo estado do
 		// ctx/erro para não reportar cancelled/timed_out como failed (telemetria).
+		// Vale para o caminho síncrono e o de background (send é compartilhado
+		// antes do branch p.Background).
 		status, errMsg := classifySendError(ctx, err)
-		return m.finish(ctx, run, &result, status, "", "", errMsg), nil
+		o := outcome{status: status, errMsg: errMsg}
+		finished := m.finalize(ctx, run, &result, o)
+		if p.Background {
+			m.deliver(ctx, run)
+		}
+		return finished, nil
 	}
 
-	// 5. Espera conclusão / timeout / cancelamento.
-	status, summary, assistantMessageID, errMsg := m.waitForCompletion(ctx, conv.ID, done, p.Timeout)
-	return m.finish(ctx, run, &result, status, summary, assistantMessageID, errMsg), nil
+	if p.Background {
+		// Background real: goroutine com ctx desacoplado de cancelamento, mas
+		// preservando o userID (WithoutCancel mantém valores do ctx — AEP-0052).
+		bgCtx := context.WithoutCancel(ctx)
+		// Cópia local do RunResult para a goroutine: o Run retorna `result`
+		// (handle imediato) logo abaixo, então a goroutine NÃO pode escrever no
+		// mesmo struct (corrida detectada por -race).
+		bgResult := result
+		// Captura só o timeout (Duration), não o RunParams inteiro: evita reter o
+		// struct grande (Prompt/Title) na goroutine até o fim do run.
+		bgTimeout := p.Timeout
+		go func() {
+			// Cancela o loop da sub-conversa ao concluir a espera (timeout/cancel/
+			// sucesso), interrompendo trabalho em background — escopado a este run.
+			defer cancelSend()
+			o := m.wait(bgCtx, conv.ID, done, ar, bgTimeout, true)
+			m.finalize(bgCtx, run, &bgResult, o)
+			m.deliver(bgCtx, run)
+		}()
+		return result, nil
+	}
+
+	// Síncrono (Fase 1): espera inline e cancela o loop ao concluir. O desfecho
+	// é conduzido pelo ponto central finalize (markCompleting → finish →
+	// unregisterActive), mesma invariante de todos os caminhos.
+	defer cancelSend()
+	o := m.wait(ctx, conv.ID, done, ar, p.Timeout, false)
+	finished := m.finalize(ctx, run, &result, o)
+	return finished, nil
 }
 
-// waitForCompletion bloqueia até a conclusão (`done`), timeout ou cancelamento
-// do ctx, e devolve o desfecho (status + dados). É extraído do Run para ser
-// testável de forma determinística (injetando `done`).
-//
-// O select de Go não prioriza cases: se `done` ficar pronto quase junto com
-// timer.C/ctx.Done(), o desfecho poderia virar timed_out/cancelled mesmo
-// havendo resposta. Por isso, antes de persistir timeout/cancel, re-checamos
-// `done` de forma não-bloqueante (pollDone) e priorizamos succeeded.
-func (m *Manager) waitForCompletion(ctx context.Context, childConvID string, done chan completion, timeout time.Duration) (status, summary, assistantMessageID, errMsg string) {
-	if timeout <= 0 {
-		timeout = DefaultSyncTimeout
+// resolveTimeout escolhe o timeout efetivo conforme o modo. Um Timeout explícito
+// (>0) é respeitado em ambos os modos. Sem Timeout: o síncrono usa
+// DefaultSyncTimeout (curto, cabe no executor de tools) e o background usa
+// DefaultBackgroundTimeout (backstop anti-runaway bem maior — AEP-0068). Assim,
+// background:true sem Timeout NÃO expira nos 5min do síncrono, mas mantém o
+// backstop de "timeout por run" exigido pelos Riscos da AEP.
+func resolveTimeout(timeout time.Duration, background bool) time.Duration {
+	if timeout > 0 {
+		return timeout
 	}
+	if background {
+		return DefaultBackgroundTimeout
+	}
+	return DefaultSyncTimeout
+}
+
+// wait bloqueia até a conclusão, timeout, cancelamento explícito ou
+// cancelamento do ctx. O background distingue o default de timeout (ver
+// resolveTimeout): background:true sem Timeout usa o backstop longo, não o
+// DefaultSyncTimeout.
+func (m *Manager) wait(ctx context.Context, childConvID string, done chan completion, ar *activeRun, timeout time.Duration, background bool) outcome {
+	timeout = resolveTimeout(timeout, background)
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
+	// O select de Go não prioriza cases: se `done` ficar pronto quase junto com
+	// cancelCh/timer/ctx, o desfecho poderia virar cancelado/timed_out mesmo
+	// havendo resposta. Por isso, antes de persistir cancel/timeout, re-checamos
+	// `done` de forma não-bloqueante e damos prioridade à conclusão bem-sucedida.
 	select {
 	case c := <-done:
-		return database.SubAgentRunStatusSucceeded, c.response, c.assistantMessageID, ""
-	case <-timer.C:
+		return successOutcome(c)
+	case <-ar.cancelCh:
 		if c, ok := pollDone(done); ok {
-			return database.SubAgentRunStatusSucceeded, c.response, c.assistantMessageID, ""
+			return successOutcome(c)
 		}
 		m.notifier.Cancel(childConvID)
-		return database.SubAgentRunStatusTimedOut, "", "", "tempo limite excedido aguardando o sub-agente"
+		return outcome{status: database.SubAgentRunStatusCancelled, errMsg: "cancelado"}
+	case <-timer.C:
+		if c, ok := pollDone(done); ok {
+			return successOutcome(c)
+		}
+		m.notifier.Cancel(childConvID)
+		return outcome{status: database.SubAgentRunStatusTimedOut, errMsg: "tempo limite excedido aguardando o sub-agente"}
 	case <-ctx.Done():
 		if c, ok := pollDone(done); ok {
-			return database.SubAgentRunStatusSucceeded, c.response, c.assistantMessageID, ""
+			return successOutcome(c)
 		}
 		m.notifier.Cancel(childConvID)
 		// Distingue timed_out (deadline do executor) de cancelled (cancelamento
 		// explícito), em vez de tratar todo ctx.Done() como cancelled.
 		status, errMsg := classifyCtxErr(ctx.Err())
-		return status, "", "", errMsg
+		return outcome{status: status, errMsg: errMsg}
+	}
+}
+
+// pollDone lê `done` de forma não-bloqueante, retornando a conclusão se já
+// estiver disponível. Usado para dar prioridade à resposta bem-sucedida quando
+// `done` e cancel/timer/ctx ficam prontos quase simultaneamente (evita
+// cancelled/timed_out indevido). Caminhos síncrono e background compartilham
+// este helper via wait().
+func pollDone(done chan completion) (completion, bool) {
+	select {
+	case c := <-done:
+		return c, true
+	default:
+		return completion{}, false
 	}
 }
 
@@ -218,8 +388,8 @@ func classifySendError(ctx context.Context, err error) (status, errMsg string) {
 
 // classifyCtxErr mapeia o erro de um contexto encerrado para o status do run:
 // context.DeadlineExceeded → timed_out; cancelamento (ou qualquer outro) →
-// cancelled. Compartilhado pelo caminho ctx.Done() (waitForCompletion) e pela
-// classificação de erro de send, mantendo a distinção timed_out vs cancelled.
+// cancelled. Compartilhado pelo caminho ctx.Done() (wait) e pela classificação
+// de erro de send, mantendo a distinção timed_out vs cancelled.
 func classifyCtxErr(err error) (status, errMsg string) {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return database.SubAgentRunStatusTimedOut, err.Error()
@@ -227,43 +397,353 @@ func classifyCtxErr(err error) (status, errMsg string) {
 	return database.SubAgentRunStatusCancelled, err.Error()
 }
 
-// pollDone lê `done` de forma não-bloqueante, retornando a conclusão se já
-// estiver disponível. Usado para dar prioridade à resposta bem-sucedida quando
-// `done` e timer/ctx ficam prontos quase simultaneamente (evita timed_out/
-// cancelled indevido). Na F2+ o caminho de background compartilha o mesmo
-// helper via wait().
-func pollDone(done chan completion) (completion, bool) {
-	select {
-	case c := <-done:
-		return c, true
-	default:
-		return completion{}, false
-	}
+// successOutcome monta o desfecho de sucesso a partir da conclusão recebida.
+func successOutcome(c completion) outcome {
+	return outcome{status: database.SubAgentRunStatusSucceeded, summary: c.response, assistantMessageID: c.assistantMessageID}
 }
 
-// finish atualiza o run com o desfecho e preenche o RunResult. A persistência
-// usa um ctx desacoplado de cancelamento para registrar o estado final mesmo
-// quando o run foi cancelado.
-func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result *RunResult, status, summary, assistantMessageID, errMsg string) RunResult {
+// Status retorna o estado atual de um run (prompt omitido). Resolve por run_id
+// quando informado; senão pelo run mais recente da sub-conversa.
+func (m *Manager) Status(ctx context.Context, conversationID, runID string) (StatusResult, error) {
+	// Falha-fechado como o Run: sem manager/repo, derreferenciar daria panic. O
+	// Status é só-leitura, então basta repo (não usa send/notifier).
+	if m == nil || m.repo == nil {
+		return StatusResult{}, fmt.Errorf("subagent manager não configurado")
+	}
+	run, err := m.resolveRun(ctx, conversationID, runID)
+	if err != nil {
+		return StatusResult{}, err
+	}
+	return StatusResult{
+		ConversationID:     run.ChildConversationID,
+		RunID:              run.ID,
+		Status:             run.Status,
+		ResultSummary:      run.ResultSummary,
+		AssistantMessageID: run.AssistantMessageID,
+		Error:              run.Error,
+	}, nil
+}
+
+// Cancel cancela um run em andamento. Se havia run ativo, retorna
+// Cancelled=true com Status=cancelled; se o run já era terminal/inexistente, é
+// no-op (Cancelled=false) retornando o status real (AEP-0068).
+//
+// conversation_id é SEMPRE obrigatório para cancel (defense-in-depth, alinhado à
+// validação da tool e ao AEP-0068, "Validações mínimas": cancel sempre exige a
+// conversa). A flexibilização de run_id sozinho vale APENAS para status — cancelar
+// só por run_id abriria superfície de API inconsistente e facilitaria wiring
+// errado. A restrição é específica do cancel; o Status segue aceitando run_id só.
+func (m *Manager) Cancel(ctx context.Context, conversationID, runID string) (CancelResult, error) {
+	// Falha-fechado como o Run (erro de wiring/sistema vem ANTES das validações
+	// de entrada). Cancel usa repo (resolveRun) e notifier (notifier.Cancel), logo
+	// exige ambos além do próprio manager — sem isso, derreferenciar daria panic.
+	if m == nil || m.repo == nil || m.notifier == nil {
+		return CancelResult{}, fmt.Errorf("subagent manager não configurado")
+	}
+	if strings.TrimSpace(conversationID) == "" {
+		return CancelResult{}, fmt.Errorf("conversation_id é obrigatório para cancelar um run")
+	}
+	run, err := m.resolveRun(ctx, conversationID, runID)
+	if err != nil {
+		return CancelResult{}, err
+	}
+	res := CancelResult{ConversationID: run.ChildConversationID, RunID: run.ID, Status: run.Status}
+
+	// Tenta CLAIMAR o cancelamento sob lock: só efetiva se o run estiver ativo e
+	// SEM desfecho já decidido (terminalStatus==""). Como o callback de conclusão
+	// e o finalize também escrevem terminalStatus sob o MESMO lock, o claim é
+	// atômico: fecha a corrida com a conclusão e com cancels concorrentes
+	// ("cancela uma única vez").
+	ar, terminal, claimed := m.tryClaimCancel(run.ID)
+	if !claimed {
+		// No-op: run inativo, já terminal, ou desfecho já decidido (em memória ou
+		// DB). Devolve o STATUS TERMINAL REAL — nunca "running" pós-decisão, nunca
+		// cancelled:true para um run cujo desfecho já foi decidido.
+		res.Cancelled = false
+		res.Message = "nenhum run ativo para cancelar; status atual mantido"
+		res.Status = m.resolveTerminalStatus(ctx, run, ar, terminal)
+		return res, nil
+	}
+
+	// Cancelamento efetivo: o claim já marcou terminalStatus=cancelled, então
+	// cancels concorrentes seguintes caem no no-op acima. Só o claimer chega aqui,
+	// logo o streaming é interrompido UMA única vez; o waiter sinalizado persiste
+	// o terminal pelo ponto central finalize (markCompleting → finish →
+	// unregisterActive).
+	if m.cancelStrm != nil {
+		m.cancelStrm(run.ChildConversationID)
+	}
+	m.notifier.Cancel(run.ChildConversationID)
+	ar.cancel()
+
+	res.Status = database.SubAgentRunStatusCancelled
+	res.Cancelled = true
+	res.Message = "run cancelado"
+	return res, nil
+}
+
+// resolveRun encontra o run alvo por run_id (validando que pertence à conversa)
+// ou pelo run mais recente da conversa.
+func (m *Manager) resolveRun(ctx context.Context, conversationID, runID string) (*database.SubAgentRun, error) {
+	if strings.TrimSpace(runID) != "" {
+		run, err := m.repo.Get(ctx, runID)
+		if err != nil {
+			return nil, fmt.Errorf("run não encontrado: %w", err)
+		}
+		if strings.TrimSpace(conversationID) != "" && run.ChildConversationID != conversationID {
+			return nil, fmt.Errorf("run %s não pertence à conversa %s", runID, conversationID)
+		}
+		return run, nil
+	}
+	if strings.TrimSpace(conversationID) == "" {
+		return nil, fmt.Errorf("conversation_id ou run_id é obrigatório")
+	}
+	run, err := m.repo.GetLatestByChildConversation(ctx, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("nenhum run encontrado para a conversa %s: %w", conversationID, err)
+	}
+	return run, nil
+}
+
+// finalize é o ÚNICO ponto que leva um run ao estado terminal e o remove de
+// `active`, SEMPRE na ordem markCompleting(status) → finish(persiste) →
+// unregisterActive. Centraliza a invariante de cancel/status do AEP-0068: do
+// instante em que o desfecho é decidido (sucesso via callback, timeout/cancel/ctx
+// via wait, erro de persistir running, erro de send, ou cancel efetivo) até a
+// saída de `active`, terminalStatus reflete o status real e qualquer Cancel
+// concorrente cai no no-op com esse status — nunca cancelled:false+running, nunca
+// cancelled:true para um run já decidido. Idempotente: se o run já saiu de
+// `active`, markCompleting/unregisterActive viram no-op e o finish é best-effort.
+// TODO caminho terminal DEVE passar por aqui (não chamar finish/unregisterActive
+// avulsos).
+func (m *Manager) finalize(ctx context.Context, run *database.SubAgentRun, result *RunResult, o outcome) RunResult {
+	m.markCompleting(run.ID, o.status)
+	finished := m.finish(ctx, run, result, o)
+	m.unregisterActive(run.ID)
+	return finished
+}
+
+// finish atualiza o run com o desfecho e preenche o RunResult.
+func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result *RunResult, o outcome) RunResult {
 	completedAt := m.now()
-	run.Status = status
-	run.ResultSummary = truncate(summary, maxResultSummary)
-	run.AssistantMessageID = assistantMessageID
-	run.Error = errMsg
+	run.Status = o.status
+	run.ResultSummary = truncate(o.summary, maxResultSummary)
+	run.AssistantMessageID = o.assistantMessageID
+	run.Error = o.errMsg
 	run.CompletedAt = &completedAt
 
 	persistCtx := context.WithoutCancel(ctx)
 	if err := m.repo.Update(persistCtx, run); err != nil {
 		// Best-effort: não propaga (o desfecho do run já foi decidido), mas
 		// loga para não falhar silenciosamente — evita run preso sem sinal.
-		log.Printf("[Subagent] erro (best-effort) ao persistir estado final do run %s (status=%s): %v", run.ID, status, err)
+		log.Printf("[Subagent] erro (best-effort) ao persistir estado final do run %s (status=%s): %v", run.ID, o.status, err)
 	}
 
-	result.Status = status
+	result.Status = o.status
 	result.ResultSummary = run.ResultSummary
-	result.AssistantMessageID = assistantMessageID
-	result.Error = errMsg
+	result.AssistantMessageID = o.assistantMessageID
+	result.Error = o.errMsg
 	return *result
+}
+
+// deliver entrega o aviso de conclusão ao pai (auto-wake), serializado por
+// conversa-pai e idempotente por run_id.
+func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun) {
+	if m.delivery == nil || strings.TrimSpace(run.ParentConversationID) == "" {
+		return
+	}
+
+	// Fila serializada por conversa-pai (evita corrida no StreamingManager).
+	lock := m.parentLock(run.ParentConversationID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	persistCtx := context.WithoutCancel(ctx)
+
+	// Idempotência por run_id — fail-CLOSED: recarrega o run APENAS para checar
+	// DeliveredAt. Se NÃO conseguirmos verificar o estado (repo.Get erro), NÃO
+	// entregamos — melhor não-entregar do que reentregar um aviso duplicado no pai
+	// (que re-dispararia o loop). Loga o motivo para diagnóstico.
+	//
+	// IMPORTANTE: NÃO sobrescrevemos `run` com `fresh`. O finish persiste o estado
+	// terminal de forma best-effort (Update logado, não fatal); se esse Update
+	// falhou, o DB pode estar com status/summary DEFASADOS (ex.: running, summary
+	// vazio). O payload ao pai deve refletir o desfecho REAL decidido em memória
+	// pelo finalize/finish (que escreveu status/summary/error no ponteiro `run`),
+	// não o conteúdo do DB. `fresh` serve só para a idempotência.
+	fresh, err := m.repo.Get(persistCtx, run.ID)
+	if err != nil {
+		log.Printf("[Subagent] deliver: não foi possível verificar idempotência do run %s; entrega abortada (fail-closed): %v", run.ID, err)
+		return
+	}
+	if fresh != nil && fresh.DeliveredAt != nil {
+		return
+	}
+
+	notice := ParentNotice{
+		ParentConversationID: run.ParentConversationID,
+		ParentTurnID:         run.ParentTurnID,
+		RunID:                run.ID,
+		ChildConversationID:  run.ChildConversationID,
+		Status:               run.Status,
+		Summary:              run.ResultSummary,
+		AssistantMessageID:   run.AssistantMessageID,
+		Error:                run.Error,
+	}
+
+	// Proveniência propagada para o auto-wake (backstop anti-runaway).
+	prov := deriveProvenance(ctx, run.ChainID)
+	prov.ChainHistory = appendChain(prov.ChainHistory, run.ID)
+	dctx := eventctx.With(persistCtx, prov)
+
+	if err := m.delivery.Deliver(dctx, notice); err != nil {
+		// Não marca DeliveredAt em falha — permite reentrega futura. Loga
+		// best-effort: um run de background que concluiu mas nunca apareceu no
+		// pai precisa ser diagnosticável.
+		log.Printf("[Subagent] deliver: falha ao entregar aviso do run %s ao pai %s (será reentregue): %v", run.ID, run.ParentConversationID, err)
+		return
+	}
+
+	now := m.now()
+	run.DeliveredAt = &now
+	if err := m.repo.Update(persistCtx, run); err != nil {
+		// O aviso JÁ foi entregue, mas não conseguimos persistir DeliveredAt: em
+		// retry/recovery a idempotência pode não enxergar a entrega e reentregar.
+		// Não aborta (o desfecho já ocorreu), mas o erro precisa ser visível.
+		log.Printf("[Subagent] deliver: aviso do run %s entregue, mas falha ao persistir DeliveredAt (risco de reentrega em retry/recovery): %v", run.ID, err)
+	}
+}
+
+// ---- registro de runs ativos / locks por pai ----
+
+func (m *Manager) registerActive(runID string, ar *activeRun) {
+	m.mu.Lock()
+	m.active[runID] = ar
+	m.mu.Unlock()
+}
+
+func (m *Manager) unregisterActive(runID string) {
+	m.mu.Lock()
+	delete(m.active, runID)
+	m.mu.Unlock()
+}
+
+func (m *Manager) lookupActive(runID string) *activeRun {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.active[runID]
+}
+
+// markCompleting registra o desfecho terminal no run ativo (se ainda presente),
+// sob o mesmo lock que protege `active`. É chamado por finalize (o ponto central
+// de finalização) ANTES do finish persistir, e pelo callback do notifier no
+// instante em que entrega a conclusão (para que um Cancel concorrente entre o
+// callback e o finalize já enxergue o terminal). No-op se o run já saiu de
+// `active` (idempotente). Sem efeito sobre runs inexistentes.
+func (m *Manager) markCompleting(runID, status string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ar := m.active[runID]; ar != nil {
+		ar.terminalStatus = status
+	}
+}
+
+// tryClaimCancel tenta efetivar, sob lock, o cancelamento de um run ATIVO ainda
+// sem desfecho decidido, marcando terminalStatus=cancelled. Devolve:
+//   - ar: o run ativo, ou nil se já saiu de `active`;
+//   - terminal: o desfecho já marcado (conclusão/cancel anterior), ou "";
+//   - claimed: true só se ESTE chamador marcou cancelled agora (deve interromper
+//     stream/waiter). claimed=false ⇒ no-op (run inativo OU desfecho já decidido).
+//
+// Como o callback de conclusão e o finalize escrevem terminalStatus sob o MESMO
+// lock, o claim é atômico: nunca dois cancels efetivos, nunca cancel efetivo
+// após a conclusão já marcada.
+func (m *Manager) tryClaimCancel(runID string) (ar *activeRun, terminal string, claimed bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ar = m.active[runID]
+	if ar == nil {
+		return nil, "", false
+	}
+	if ar.terminalStatus != "" {
+		return ar, ar.terminalStatus, false
+	}
+	ar.terminalStatus = database.SubAgentRunStatusCancelled
+	return ar, ar.terminalStatus, true
+}
+
+// resolveTerminalStatus devolve o status terminal REAL para um no-op de Cancel,
+// jamais "running" pós-decisão:
+//   - terminal != "" (desfecho já marcado em memória; finish talvez pendente):
+//     usa-o;
+//   - run já saiu de `active` (ar==nil) e o DB ainda não reflete o terminal:
+//     re-lê uma vez (finalize persiste ANTES de remover de `active`);
+//   - caso contrário, mantém o status já lido do run.
+func (m *Manager) resolveTerminalStatus(ctx context.Context, run *database.SubAgentRun, ar *activeRun, terminal string) string {
+	if terminal != "" {
+		return terminal
+	}
+	if ar == nil && !isTerminal(run.Status) {
+		// Releitura DESACOPLADA do cancelamento do caller: se o ctx do caller
+		// expirou/foi cancelado entre o resolveRun e aqui, um Get com esse ctx
+		// falharia e cairíamos no fallback run.Status — reexpondo um status
+		// possivelmente NÃO-terminal (ex.: running), exatamente o que este helper
+		// evita. WithoutCancel preserva os values (userID/escopo AEP-0052), então
+		// RequireUserID continua válido, mas a leitura fica imune ao cancelamento.
+		if fresh, ferr := m.repo.Get(context.WithoutCancel(ctx), run.ID); ferr == nil && fresh != nil {
+			return fresh.Status
+		}
+	}
+	return run.Status
+}
+
+// parentLock devolve o mutex (striped) responsável por serializar a entrega da
+// conversa-pai informada. O array é fixo e nunca muda, então pegar o endereço de
+// um elemento é seguro sem lock adicional; o mesmo parentID cai sempre no mesmo
+// stripe (serialização por pai garantida).
+func (m *Manager) parentLock(parentConversationID string) *sync.Mutex {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(parentConversationID))
+	return &m.parentLocks[h.Sum32()%parentLockStripes]
+}
+
+// ---- proveniência / utilitários ----
+
+// deriveProvenance recupera a proveniência do ctx e normaliza o Source ao
+// contrato do eventctx/AEP-0067, cujos valores válidos são {"user","job"} (ver
+// internal/eventctx/eventctx.go). Sem carimbo (fluxo de usuário) ou Source vazio
+// → trata como "user"; "job" só quando carimbado pelo executor de jobs. NUNCA
+// usa subagent.Source ("subagent") como Source: não é uma origem do eventctx e
+// quebraria when-guards/eventos de domínio que casam {{ eq .event._source
+// "user" }}. existingChainID só preenche o ChainID quando ele vier vazio — não
+// influencia o Source.
+func deriveProvenance(ctx context.Context, existingChainID string) eventctx.Provenance {
+	prov, _ := eventctx.From(ctx)
+	if strings.TrimSpace(prov.Source) == "" {
+		prov.Source = "user"
+	}
+	if strings.TrimSpace(prov.ChainID) == "" && strings.TrimSpace(existingChainID) != "" {
+		prov.ChainID = existingChainID
+	}
+	return prov
+}
+
+func appendChain(history []string, id string) []string {
+	if id == "" {
+		return history
+	}
+	return append(history, id)
+}
+
+func encodeChainHistory(history []string) string {
+	if len(history) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(history)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // deriveTitle gera um título curto a partir do prompt.

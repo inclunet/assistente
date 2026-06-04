@@ -53,5 +53,10 @@ type SubAgentRun struct {
 	StartedAt   *time.Time `json:"startedAt,omitempty"`
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
 
+	// DeliveredAt marca quando o aviso de conclusão (background) já foi entregue
+	// ao pai. Garante idempotência por run_id: sem aviso duplicado em
+	// retry/recovery (AEP-0068 Fase 2).
+	DeliveredAt *time.Time `json:"deliveredAt,omitempty"`
+
 	User *User `json:"-" gorm:"foreignKey:UserID"`
 }

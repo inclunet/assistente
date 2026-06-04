@@ -28,11 +28,32 @@ const (
 	StatusTimedOut  = database.SubAgentRunStatusTimedOut
 )
 
-// DefaultSyncTimeout limita a espera de um run síncrono (background:false).
-// Curto o bastante para caber dentro do timeout do executor de tools
-// (DefaultToolTimeout = 6m) e devolver erro legível ao pai em vez de estourar
-// o executor.
+// DefaultSyncTimeout limita a espera de um run SÍNCRONO (background:false) quando
+// o caller não informa Timeout. Curto o bastante para caber dentro do timeout do
+// executor de tools (DefaultToolTimeout = 6m) e devolver erro legível ao pai em
+// vez de estourar o executor. NÃO se aplica a background — ver
+// DefaultBackgroundTimeout.
 const DefaultSyncTimeout = 5 * time.Minute
+
+// DefaultBackgroundTimeout é o backstop anti-runaway de um run em BACKGROUND
+// (background:true) quando o caller não informa Timeout. NÃO é um limite de UX
+// como o síncrono: o run de background não deve expirar silenciosamente nos
+// mesmos 5min do modo síncrono (contrariaria o objetivo de "segundo plano" —
+// AEP-0068). Mesmo assim, a AEP-0068 (Riscos) prescreve "timeout por run" como
+// backstop contra runs presos/runaway; usamos um valor bem maior, suficiente
+// para trabalho de fundo legítimo, mas que ainda impede uma goroutine rodando
+// para sempre na sessão. Runs órfãos por app fechado são tratados à parte
+// (reconciliação no startup, Fase 4). Caller pode sobrescrever via Timeout.
+const DefaultBackgroundTimeout = 1 * time.Hour
+
+// callbackTTLMargin é a folga somada ao timeout efetivo do run ao registrar o
+// callback de conclusão no ResponseNotifier. O notifier descarta callbacks
+// pendentes após um TTL; alinhamos esse TTL ao timeout do run (ver Run) para que
+// um run de background longo não perca a conclusão por expiração precoce do
+// callback. A margem garante que o TIMEOUT DO PRÓPRIO RUN dispare primeiro (o
+// caminho normal já remove o callback via finalize), deixando o TTL do notifier
+// como mero backstop anti-órfão — nunca o mecanismo que encerra um run legítimo.
+const callbackTTLMargin = 2 * time.Minute
 
 // SendParams descreve um envio ao pipeline oficial de mensagens. O adapter de
 // wiring traduz para usecases.SendMessageRequest (sem duplicar o pipeline).
@@ -73,8 +94,66 @@ type RunParams struct {
 	// Title é o título da sub-conversa (opcional; derivado do prompt se vazio).
 	Title string
 
-	// Timeout limita a espera de um run síncrono. <=0 usa DefaultSyncTimeout.
+	// Background, quando true, retorna o handle imediatamente e executa o
+	// sub-agente em goroutine; o aviso de conclusão é entregue ao pai
+	// (auto-wake). Quando false, o run é síncrono (Fase 1).
+	Background bool
+
+	// Timeout limita a espera do run. <=0 usa o default POR MODO:
+	// DefaultSyncTimeout (síncrono) ou DefaultBackgroundTimeout (background).
+	// Um valor explícito (>0) é respeitado em ambos os modos.
 	Timeout time.Duration
+}
+
+// ParentNotice descreve o aviso de conclusão de um run em background a ser
+// entregue na conversa-pai (pelo lado do assistente) + auto-wake (AEP-0068).
+type ParentNotice struct {
+	ParentConversationID string
+	ParentTurnID         string
+	RunID                string
+	ChildConversationID  string
+	Status               string
+	Summary              string
+	AssistantMessageID   string
+	Error                string
+}
+
+// ParentDelivery entrega o aviso de conclusão na conversa-pai e re-dispara o
+// loop do pai (auto-wake), propagando proveniência (eventctx). É implementada
+// pelo wiring do app reusando o pipeline oficial — o pacote subagent não
+// conhece os detalhes para evitar ciclo de imports.
+type ParentDelivery interface {
+	Deliver(ctx context.Context, n ParentNotice) error
+}
+
+// StatusResult é o retorno de uma consulta de status (prompt omitido).
+type StatusResult struct {
+	ConversationID     string `json:"conversation_id"`
+	RunID              string `json:"run_id"`
+	Status             string `json:"status"`
+	ResultSummary      string `json:"result_summary,omitempty"`
+	AssistantMessageID string `json:"assistant_message_id,omitempty"`
+	Error              string `json:"error,omitempty"`
+}
+
+// CancelResult é o retorno de um cancel. Cancelled distingue cancelamento real
+// (havia run ativo) de no-op (run já terminal/inexistente), conforme AEP-0068.
+type CancelResult struct {
+	ConversationID string `json:"conversation_id"`
+	RunID          string `json:"run_id"`
+	Status         string `json:"status"`
+	Cancelled      bool   `json:"cancelled"`
+	Message        string `json:"message,omitempty"`
+}
+
+// isTerminal informa se um status de run é terminal (não há mais transições).
+func isTerminal(status string) bool {
+	switch status {
+	case StatusSucceeded, StatusFailed, StatusCancelled, StatusTimedOut:
+		return true
+	default:
+		return false
+	}
 }
 
 // RunResult é o retorno de um run de sub-agente.

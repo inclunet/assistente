@@ -1512,6 +1512,8 @@ export namespace database {
 	    contact_id?: string;
 	    messages?: ChatMessage[];
 	    message_count: number;
+	    kind?: string;
+	    parentConversationId?: string;
 	    summary?: string;
 	    summary_up_to_message_id?: string;
 	    summarizing_in_progress?: boolean;
@@ -1531,6 +1533,8 @@ export namespace database {
 	        this.contact_id = source["contact_id"];
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
 	        this.message_count = source["message_count"];
+	        this.kind = source["kind"];
+	        this.parentConversationId = source["parentConversationId"];
 	        this.summary = source["summary"];
 	        this.summary_up_to_message_id = source["summary_up_to_message_id"];
 	        this.summarizing_in_progress = source["summarizing_in_progress"];

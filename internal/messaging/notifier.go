@@ -39,13 +39,24 @@ type ResponseCallback struct {
 
 	// Callback é chamado com a resposta completa do assistente e o ID da mensagem salva.
 	Callback func(response string, assistantMessageID string)
+
+	// TTL define por quanto tempo este callback pode ficar pendente antes de ser
+	// descartado pelo housekeeping. Zero usa o padrão (callbackTTL, 5min) — o caso
+	// dos canais/UI, cuja resposta chega em segundos. Registros de vida longa
+	// (ex.: sub-agente em background, cujo run pode levar até o timeout efetivo,
+	// bem além de 5min) devem informar um TTL >= timeout do run, para que a
+	// conclusão ainda seja entregue mesmo após os 5min padrão. A remoção normal
+	// (Notify/Cancel) acontece bem antes; o TTL é apenas o backstop anti-órfão.
+	TTL time.Duration
 }
 
-// pendingCallback é o registro interno do Notifier — guarda o callback
-// e o instante de registro para a checagem de TTL.
+// pendingCallback é o registro interno do Notifier — guarda o callback, o
+// instante de registro e o instante de expiração já calculado (registro + TTL
+// efetivo) para a checagem do housekeeping.
 type pendingCallback struct {
 	cb         ResponseCallback
 	registered time.Time
+	expiresAt  time.Time
 }
 
 // ResponseNotifier permite ao Gateway registrar callbacks para capturar respostas
@@ -135,14 +146,20 @@ func (n *ResponseNotifier) runCleanup(interval time.Duration) {
 }
 
 func (n *ResponseNotifier) expireOldCallbacks() {
-	cutoff := n.now().Add(-callbackTTL)
+	now := n.now()
+
+	// Identifica/remove os expirados SOB o lock; o I/O de log fica para depois,
+	// fora do lock — log.Printf pode bloquear (I/O) e seguraria Register/Notify/
+	// Cancel, aumentando a latência do fluxo de mensagens.
+	var toLog []expiredLogEntry
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	for convID, pendings := range n.callbacks {
 		fresh := pendings[:0]
 		var expired []pendingCallback
 		for _, p := range pendings {
-			if p.registered.Before(cutoff) {
+			// expiresAt já incorpora o TTL efetivo do registro (padrão ou
+			// parametrizado por ResponseCallback.TTL).
+			if p.expiresAt.Before(now) {
 				expired = append(expired, p)
 				continue
 			}
@@ -154,21 +171,48 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 			n.callbacks[convID] = fresh
 		}
 		for _, p := range expired {
-			log.Printf("[Notifier] Callback expirado por TTL trace=%s conv=%s channel=%s (>%.0fmin sem resposta)",
-				p.cb.TraceID, convID, p.cb.Channel, callbackTTL.Minutes())
+			toLog = append(toLog, expiredLogEntry{
+				traceID: p.cb.TraceID,
+				convID:  convID,
+				channel: p.cb.Channel,
+				minutes: p.expiresAt.Sub(p.registered).Minutes(),
+			})
 		}
 	}
+	n.mu.Unlock()
+
+	for _, e := range toLog {
+		log.Printf("[Notifier] Callback expirado por TTL trace=%s conv=%s channel=%s (>%.0fmin sem resposta)",
+			e.traceID, e.convID, e.channel, e.minutes)
+	}
+}
+
+// expiredLogEntry carrega os dados (já copiados sob o lock) para logar a
+// expiração de um callback FORA do lock — evita segurar n.mu durante o I/O.
+type expiredLogEntry struct {
+	traceID string
+	convID  string
+	channel string
+	minutes float64
 }
 
 // Register registra um callback para ser chamado quando a resposta de uma
 // conversa ficar pronta. O callback é removido automaticamente após ser chamado,
-// cancelado, ou expirado por TTL.
+// cancelado, ou expirado por TTL. O TTL efetivo é cb.TTL quando > 0 (registros de
+// vida longa, ex.: sub-agente em background) ou o padrão callbackTTL (5min) caso
+// contrário (canais/UI).
 func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) {
+	ttl := callbackTTL
+	if cb.TTL > 0 {
+		ttl = cb.TTL
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	now := n.now()
 	n.callbacks[conversationID] = append(n.callbacks[conversationID], pendingCallback{
 		cb:         cb,
-		registered: n.now(),
+		registered: now,
+		expiresAt:  now.Add(ttl),
 	})
 }
 
@@ -235,15 +279,20 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 	if channel == "" {
 		return 0
 	}
+	// Mesmo princípio do expireOldCallbacks: decide/remove sob o lock, coleta o
+	// que precisa logar e faz o I/O de log FORA do lock (log.Printf pode bloquear).
+	var toLog []expiredLogEntry
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	cancelled := 0
 	for convID, pendings := range n.callbacks {
 		fresh := pendings[:0]
 		for _, p := range pendings {
 			if p.cb.Channel == channel {
-				log.Printf("[Notifier] Callback cancelado por canal removido trace=%s conv=%s channel=%s",
-					p.cb.TraceID, convID, p.cb.Channel)
+				toLog = append(toLog, expiredLogEntry{
+					traceID: p.cb.TraceID,
+					convID:  convID,
+					channel: p.cb.Channel,
+				})
 				cancelled++
 				continue
 			}
@@ -255,7 +304,27 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 			n.callbacks[convID] = fresh
 		}
 	}
+	n.mu.Unlock()
+
+	for _, e := range toLog {
+		log.Printf("[Notifier] Callback cancelado por canal removido trace=%s conv=%s channel=%s",
+			e.traceID, e.convID, e.channel)
+	}
 	return cancelled
+}
+
+// PendingExpiry retorna o instante de expiração (registro + TTL efetivo) do
+// primeiro callback pendente de uma conversa. Útil para debug/testes (ex.:
+// verificar que um registro de vida longa — sub-agente — tem TTL bem além do
+// padrão). ok=false quando não há callback pendente para a conversa.
+func (n *ResponseNotifier) PendingExpiry(conversationID string) (time.Time, bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	pendings := n.callbacks[conversationID]
+	if len(pendings) == 0 {
+		return time.Time{}, false
+	}
+	return pendings[0].expiresAt, true
 }
 
 // PendingCount retorna quantos callbacks estão pendentes (útil para debug/testes).
