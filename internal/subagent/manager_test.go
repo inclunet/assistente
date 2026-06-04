@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/eventctx"
 	"assistente/internal/messaging"
 
 	"github.com/glebarez/sqlite"
@@ -778,6 +779,103 @@ func TestManagerRunBackgroundExplicitTimeoutRespected(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("aviso de conclusão do background não chegou no prazo")
+	}
+}
+
+// TestDeriveProvenanceSourceDefaults garante a normalização do Source ao
+// contrato do eventctx/AEP-0067 ("user"/"job"): sem carimbo ou Source vazio →
+// "user"; "job" preservado; existingChainID só preenche ChainID vazio sem mexer
+// no Source, e ChainID herdado não é sobrescrito.
+func TestDeriveProvenanceSourceDefaults(t *testing.T) {
+	if p := deriveProvenance(context.Background(), ""); p.Source != "user" {
+		t.Fatalf("sem carimbo esperava Source=user, veio %q", p.Source)
+	}
+	if p := deriveProvenance(context.Background(), ""); p.Source == Source {
+		t.Fatalf("Source nunca deve ser subagent.Source (%q)", Source)
+	}
+	jctx := eventctx.With(context.Background(), eventctx.Provenance{Source: "job", SourceJobID: "j1"})
+	if p := deriveProvenance(jctx, ""); p.Source != "job" {
+		t.Fatalf("com job esperava Source=job, veio %q", p.Source)
+	}
+	ectx := eventctx.With(context.Background(), eventctx.Provenance{Source: ""})
+	if p := deriveProvenance(ectx, ""); p.Source != "user" {
+		t.Fatalf("Source vazio carimbado esperava user, veio %q", p.Source)
+	}
+	if p := deriveProvenance(context.Background(), "conv-x"); p.ChainID != "conv-x" || p.Source != "user" {
+		t.Fatalf("esperava ChainID=conv-x/Source=user, veio %q/%q", p.ChainID, p.Source)
+	}
+	cctx := eventctx.With(context.Background(), eventctx.Provenance{Source: "job", ChainID: "chain-1"})
+	if p := deriveProvenance(cctx, "conv-x"); p.ChainID != "chain-1" {
+		t.Fatalf("ChainID herdado deveria ser preservado (chain-1), veio %q", p.ChainID)
+	}
+}
+
+// provCapturingDelivery captura a proveniência (eventctx) do ctx de entrega para
+// verificar a continuidade da cadeia (_chain_id) no auto-wake.
+type provCapturingDelivery struct {
+	ch chan eventctx.Provenance
+}
+
+func (d provCapturingDelivery) Deliver(ctx context.Context, _ ParentNotice) error {
+	prov, _ := eventctx.From(ctx)
+	select {
+	case d.ch <- prov:
+	default:
+	}
+	return nil
+}
+
+// TestManagerRunUserFlowDerivesStableChainID garante que, num fluxo de usuário
+// (ctx sem eventctx), o run persiste um ChainID estável (= conv.ID, não vazio) e
+// que a entrega/auto-wake propaga o MESMO ChainID com Source=user — preservando
+// a continuidade da cadeia/circuit breaker do AEP-0067.
+func TestManagerRunUserFlowDerivesStableChainID(t *testing.T) {
+	repo, ctx := setupManagerTest(t) // ctx => user-a, SEM eventctx carimbado
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	provCh := make(chan eventctx.Provenance, 1)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: provCapturingDelivery{ch: provCh},
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			go notifier.Notify(p.ConversationID, "ok", "msg")
+			return p.ConversationID, nil
+		},
+	})
+
+	res, err := mgr.Run(ctx, RunParams{
+		ParentConversationID: "parent-conv",
+		Prompt:               "trabalho",
+		Background:           true,
+	})
+	if err != nil {
+		t.Fatalf("Run erro: %v", err)
+	}
+
+	// O run persistido tem ChainID estável = conv.ID (não vazio).
+	got, err := repo.Get(ctx, res.RunID)
+	if err != nil {
+		t.Fatalf("Get run: %v", err)
+	}
+	if got.ChainID == "" {
+		t.Fatal("ChainID do run não deveria ser vazio em fluxo de usuário")
+	}
+	if got.ChainID != res.ConversationID {
+		t.Fatalf("ChainID deveria ser semeado de conv.ID (%q), veio %q", res.ConversationID, got.ChainID)
+	}
+
+	// A entrega/auto-wake propaga o MESMO ChainID, com Source=user.
+	select {
+	case prov := <-provCh:
+		if prov.ChainID != got.ChainID {
+			t.Fatalf("auto-wake deveria propagar o mesmo ChainID (%q), veio %q", got.ChainID, prov.ChainID)
+		}
+		if prov.Source != "user" {
+			t.Fatalf("auto-wake esperava Source=user, veio %q", prov.Source)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("entrega/auto-wake não ocorreu no prazo")
 	}
 }
 
