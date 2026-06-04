@@ -176,6 +176,16 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		TraceID: run.ID,
 		ChatID:  childConvID,
 		Callback: func(response, assistantMessageID string) {
+			// Remove o run de `active` ASSIM QUE a conclusão chega, ANTES de
+			// torná-la observável via `done`. Assim, um Cancel concorrente que
+			// chegue DEPOIS da conclusão vê o run como NÃO ativo e cai no no-op
+			// (cancelled:false + status real), em vez de reportar cancelled:true
+			// e cancelar o streaming já concluído (corrida — AEP-0068: cancel
+			// após término é no-op). delete é idempotente, então o unregister do
+			// caminho normal (wait/goroutine) permanece seguro. Esta remoção é
+			// posterior ao registerActive abaixo: o callback só dispara após o
+			// m.send despachar o prompt, bem depois do registro.
+			m.unregisterActive(run.ID)
 			select {
 			case done <- completion{response: response, assistantMessageID: assistantMessageID}:
 			default:
