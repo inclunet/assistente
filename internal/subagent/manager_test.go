@@ -547,11 +547,12 @@ func TestManagerClearResetsHistoryBeforeSend(t *testing.T) {
 	}
 }
 
-// TestManagerCancelAfterCompletionIsNoOp garante que, uma vez entregue a
-// conclusão pelo callback do notifier, o run sai de `active` IMEDIATAMENTE — de
-// modo que um Cancel concorrente que chegue DEPOIS da conclusão seja no-op
-// (cancelled:false + status terminal real) e NÃO cancele o streaming já
-// concluído (corrida — AEP-0068: cancel após término é no-op).
+// TestManagerCancelAfterCompletionIsNoOp garante que, após a conclusão de um run
+// em background, um Cancel posterior seja no-op (cancelled:false + status
+// terminal real) e NÃO cancele o streaming já concluído (corrida — AEP-0068:
+// cancel após término é no-op). Fluxo real: o callback do notifier marca
+// terminalStatus e publica em `done`; a remoção de `active` ocorre depois, em
+// unregisterActive, após o finish persistir o terminal.
 func TestManagerCancelAfterCompletionIsNoOp(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()
@@ -573,10 +574,11 @@ func TestManagerCancelAfterCompletionIsNoOp(t *testing.T) {
 		t.Fatalf("Run bg: %v", err)
 	}
 
-	// Entrega a conclusão: o callback remove o run de `active`.
+	// Entrega a conclusão: o callback marca terminalStatus e publica em `done`.
 	notifier.Notify(res.ConversationID, "resultado", "msg-1")
 
-	// Aguarda o run sair de `active` (callback roda em goroutine no notifier).
+	// Aguarda o run sair de `active` — o que ocorre em unregisterActive, após o
+	// finish persistir (o callback do notifier roda em goroutine).
 	deadline := time.Now().Add(2 * time.Second)
 	for mgr.lookupActive(res.RunID) != nil {
 		if time.Now().After(deadline) {
