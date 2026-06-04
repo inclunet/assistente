@@ -280,6 +280,15 @@ func (d *recordingDelivery) count() int {
 	return len(d.notices)
 }
 
+func (d *recordingDelivery) lastNotice() (ParentNotice, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.notices) == 0 {
+		return ParentNotice{}, false
+	}
+	return d.notices[len(d.notices)-1], true
+}
+
 func TestManagerRunBackgroundDeliversNotice(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()
@@ -1814,6 +1823,93 @@ func TestDeliverDeliveredAtPersistErrorIsLogged(t *testing.T) {
 	}
 	if !strings.Contains(logBuf.String(), "DeliveredAt") {
 		t.Fatalf("esperava log do erro de persistência de DeliveredAt, veio: %q", logBuf.String())
+	}
+}
+
+// TestDeliverUsesInMemoryTerminalNotStaleDB garante que o payload entregue ao pai
+// venha do desfecho terminal DECIDIDO EM MEMÓRIA (finalize/finish), e NÃO do que
+// está no DB — que pode estar defasado caso o Update terminal do finish (best-
+// effort) tenha falhado. Simula DB em running/summary vazio e desfecho em memória
+// succeeded/summary X → deliver deve entregar succeeded/X.
+func TestDeliverUsesInMemoryTerminalNotStaleDB(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+
+	// DB DEFASADO: o Update terminal do finish "falhou", então persiste running e
+	// summary vazio (estado anterior ao desfecho).
+	stale := &database.SubAgentRun{
+		ParentConversationID: "parent-conv",
+		ParentTurnID:         "parent-turn",
+		ChildConversationID:  "child-conv",
+		Status:               database.SubAgentRunStatusRunning,
+		ResultSummary:        "",
+	}
+	if err := repo.Create(ctx, stale); err != nil {
+		t.Fatalf("Create run defasado: %v", err)
+	}
+
+	delivery := &recordingDelivery{}
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: messaging.NewResponseNotifier(),
+		Delivery: delivery,
+		Send:     func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+	t.Cleanup(mgr.notifier.Stop)
+
+	// Desfecho REAL em memória (mesmo ID do run): o que o finalize/finish calculou.
+	inMem := &database.SubAgentRun{
+		UUIDModel:            database.UUIDModel{ID: stale.ID},
+		ParentConversationID: "parent-conv",
+		ParentTurnID:         "parent-turn",
+		ChildConversationID:  "child-conv",
+		Status:               database.SubAgentRunStatusSucceeded,
+		ResultSummary:        "resultado final X",
+		AssistantMessageID:   "msg-final",
+	}
+
+	mgr.deliver(ctx, inMem, RunParams{ParentConversationID: "parent-conv"})
+
+	n, ok := delivery.lastNotice()
+	if !ok {
+		t.Fatal("deveria ter entregue uma notícia ao pai")
+	}
+	if n.Status != StatusSucceeded {
+		t.Fatalf("status deveria vir do desfecho em memória (succeeded), não do DB defasado (running); veio %q", n.Status)
+	}
+	if n.Summary != "resultado final X" {
+		t.Fatalf("summary deveria vir do desfecho em memória; veio %q", n.Summary)
+	}
+	if n.AssistantMessageID != "msg-final" {
+		t.Fatalf("assistant_message_id deveria vir do desfecho em memória; veio %q", n.AssistantMessageID)
+	}
+}
+
+// TestDeliverAlreadyDeliveredIsNoOp garante idempotência: se o DB indica que o
+// run já foi entregue (DeliveredAt != nil), deliver é no-op (não reentrega).
+func TestDeliverAlreadyDeliveredIsNoOp(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	run := seedDeliverableRun(t, repo, ctx)
+
+	// Marca como já entregue no DB.
+	now := time.Now()
+	run.DeliveredAt = &now
+	if err := repo.Update(ctx, run); err != nil {
+		t.Fatalf("Update DeliveredAt: %v", err)
+	}
+
+	delivery := &recordingDelivery{}
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: messaging.NewResponseNotifier(),
+		Delivery: delivery,
+		Send:     func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+	t.Cleanup(mgr.notifier.Stop)
+
+	mgr.deliver(ctx, run, RunParams{ParentConversationID: run.ParentConversationID})
+
+	if delivery.count() != 0 {
+		t.Fatalf("run já entregue: deliver deveria ser no-op, entregou %d", delivery.count())
 	}
 }
 

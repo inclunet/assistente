@@ -768,20 +768,24 @@ func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun, p RunP
 
 	persistCtx := context.WithoutCancel(ctx)
 
-	// Idempotência por run_id — fail-CLOSED: recarrega o run para confirmar que
-	// ainda não foi entregue. Se NÃO conseguirmos verificar o estado (repo.Get
-	// erro), NÃO entregamos — melhor não-entregar do que reentregar um aviso
-	// duplicado no pai (que re-dispararia o loop). Loga o motivo para diagnóstico.
+	// Idempotência por run_id — fail-CLOSED: recarrega o run APENAS para checar
+	// DeliveredAt. Se NÃO conseguirmos verificar o estado (repo.Get erro), NÃO
+	// entregamos — melhor não-entregar do que reentregar um aviso duplicado no pai
+	// (que re-dispararia o loop). Loga o motivo para diagnóstico.
+	//
+	// IMPORTANTE: NÃO sobrescrevemos `run` com `fresh`. O finish persiste o estado
+	// terminal de forma best-effort (Update logado, não fatal); se esse Update
+	// falhou, o DB pode estar com status/summary DEFASADOS (ex.: running, summary
+	// vazio). O payload ao pai deve refletir o desfecho REAL decidido em memória
+	// pelo finalize/finish (que escreveu status/summary/error no ponteiro `run`),
+	// não o conteúdo do DB. `fresh` serve só para a idempotência.
 	fresh, err := m.repo.Get(persistCtx, run.ID)
 	if err != nil {
 		log.Printf("[Subagent] deliver: não foi possível verificar idempotência do run %s; entrega abortada (fail-closed): %v", run.ID, err)
 		return
 	}
-	if fresh != nil {
-		if fresh.DeliveredAt != nil {
-			return
-		}
-		run = fresh
+	if fresh != nil && fresh.DeliveredAt != nil {
+		return
 	}
 
 	notice := ParentNotice{
