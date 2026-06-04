@@ -103,9 +103,10 @@ type subagentArgs struct {
 }
 
 // originAllowsParentless informa se a origem da chamada permite rodar o
-// sub-agente SEM vínculo com um turno-pai. Apenas origem job/system
-// (eventctx.Provenance.Source == "job", carimbada pelo executor de jobs antes
-// de resolver a tool — ver internal/jobs/executor.go) é aceitável sem pai
+// sub-agente SEM vínculo com um turno-pai. Apenas a origem job
+// (eventctx.Provenance.Source == "job", único valor de automação — ver
+// internal/eventctx/eventctx.go; carimbada pelo executor de jobs antes de
+// resolver a tool, ver internal/jobs/executor.go) é aceitável sem pai
 // (AEP-0068, ponto de entrada formalizado na F4). Chamadas de chat NUNCA caem
 // aqui: o agentic loop sempre fornece conversation_id/turn_id.
 func originAllowsParentless(ctx context.Context) bool {
@@ -183,9 +184,10 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		// de wiring e NÃO devemos criar sub-conversa órfã (kind=subagent some da
 		// listagem principal). Falha fechado. No resume (conversation_id presente)
 		// a sub-conversa já existe, então não há risco de órfã e a checagem não se
-		// aplica. A única exceção legítima sem-pai na criação é a origem
-		// job/system (origin "job", formalizado na F4): distinção EXPLÍCITA por
-		// origem (eventctx.Provenance), não pela ausência de InvocationContext.
+		// aplica. A única exceção legítima sem-pai na criação é a origem job
+		// (eventctx.Provenance.Source == "job", único valor de automação; ver
+		// internal/eventctx/eventctx.go), formalizada na F4: distinção EXPLÍCITA
+		// por origem (eventctx.Provenance), não pela ausência de InvocationContext.
 		hasParent := strings.TrimSpace(inv.ConversationID) != "" && strings.TrimSpace(inv.TurnID) != ""
 		if conversationID == "" && !hasParent && !originAllowsParentless(ctx) {
 			return errResult("sub-agente requer um turno-pai: invocado sem conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
