@@ -851,6 +851,131 @@ func TestManagerReconcileOrphansUnconfiguredFails(t *testing.T) {
 	}
 }
 
+// TestManagerRunCancelsSendOnTimeout garante que, ao concluir por timeout, o
+// ctx passado ao pipeline de envio (que dispara o agentic loop da sub-conversa
+// em background) é efetivamente cancelado — interrompendo trabalho/custo após o
+// desfecho — SEM depender do cancelamento do ctx-pai.
+func TestManagerRunCancelsSendOnTimeout(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	var sendCtx context.Context
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		// Captura o ctx do envio e retorna sem notificar → estoura timeout.
+		// (O loop real rodaria em background sob um filho deste ctx.)
+		Send: func(c context.Context, p SendParams) (string, error) {
+			sendCtx = c
+			return p.ConversationID, nil
+		},
+	})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "faça X", Timeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("Run erro inesperado: %v", err)
+	}
+	if res.Status != StatusTimedOut {
+		t.Fatalf("status esperado timed_out, veio %q", res.Status)
+	}
+	if sendCtx == nil {
+		t.Fatal("send não foi chamado")
+	}
+	if sendCtx.Err() == nil {
+		t.Fatal("sendCtx deveria ter sido cancelado após o timeout (loop em background não interrompido)")
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("ctx-pai não deveria ser cancelado pelo desfecho do run: %v", ctx.Err())
+	}
+}
+
+// TestManagerRunCancelsSendOnCtxCancel garante que um cancelamento do ctx (ex.:
+// usuário cancela a tool) conclui cancelled E cancela o ctx do envio (escopado
+// ao run), interrompendo o loop da sub-conversa.
+func TestManagerRunCancelsSendOnCtxCancel(t *testing.T) {
+	repo, base := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	cctx, cancel := context.WithCancel(base)
+	defer cancel()
+	var sendCtx context.Context
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Send: func(c context.Context, p SendParams) (string, error) {
+			sendCtx = c
+			cancel() // simula cancelamento depois que o envio iniciou o loop
+			return p.ConversationID, nil
+		},
+	})
+
+	res, err := mgr.Run(cctx, RunParams{Prompt: "faça X", Timeout: time.Hour})
+	if err != nil {
+		t.Fatalf("Run erro inesperado: %v", err)
+	}
+	if res.Status != StatusCancelled {
+		t.Fatalf("status esperado cancelled, veio %q", res.Status)
+	}
+	if sendCtx == nil || sendCtx.Err() == nil {
+		t.Fatal("sendCtx deveria ter sido cancelado")
+	}
+}
+
+// TestManagerRunBackgroundCancelsSendOnTimeout garante que, no modo background,
+// o ctx do envio (desacoplado do pai via WithoutCancel para o run sobreviver ao
+// turno-pai) é cancelado quando a espera em background estoura o timeout —
+// interrompendo o loop daquele run sem cancelar o ctx-pai.
+func TestManagerRunBackgroundCancelsSendOnTimeout(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	sendCtxCh := make(chan context.Context, 1)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: &recordingDelivery{},
+		Send: func(c context.Context, p SendParams) (string, error) {
+			sendCtxCh <- c
+			return p.ConversationID, nil // nunca notifica → timeout no background
+		},
+	})
+
+	res, err := mgr.Run(ctx, RunParams{
+		ParentConversationID: "parent-conv",
+		Prompt:               "trabalho longo",
+		Background:           true,
+		Timeout:              20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("Run bg erro: %v", err)
+	}
+	if res.Status != StatusRunning {
+		t.Fatalf("status imediato esperado running, veio %q", res.Status)
+	}
+
+	var sendCtx context.Context
+	select {
+	case sendCtx = <-sendCtxCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("send não foi chamado")
+	}
+
+	// Após o timeout do background, o sendCtx (detached do pai) deve ser cancelado.
+	deadline := time.Now().Add(2 * time.Second)
+	for sendCtx.Err() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("sendCtx do run em background deveria ter sido cancelado após o timeout")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("ctx-pai não deveria ser cancelado pelo desfecho do run: %v", ctx.Err())
+	}
+}
+
 func TestManagerRunRequiresUserScope(t *testing.T) {
 	repo, _ := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()
