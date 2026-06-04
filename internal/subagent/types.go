@@ -28,11 +28,23 @@ const (
 	StatusTimedOut  = database.SubAgentRunStatusTimedOut
 )
 
-// DefaultSyncTimeout limita a espera de um run síncrono (background:false).
-// Curto o bastante para caber dentro do timeout do executor de tools
-// (DefaultToolTimeout = 6m) e devolver erro legível ao pai em vez de estourar
-// o executor.
+// DefaultSyncTimeout limita a espera de um run SÍNCRONO (background:false) quando
+// o caller não informa Timeout. Curto o bastante para caber dentro do timeout do
+// executor de tools (DefaultToolTimeout = 6m) e devolver erro legível ao pai em
+// vez de estourar o executor. NÃO se aplica a background — ver
+// DefaultBackgroundTimeout.
 const DefaultSyncTimeout = 5 * time.Minute
+
+// DefaultBackgroundTimeout é o backstop anti-runaway de um run em BACKGROUND
+// (background:true) quando o caller não informa Timeout. NÃO é um limite de UX
+// como o síncrono: o run de background não deve expirar silenciosamente nos
+// mesmos 5min do modo síncrono (contrariaria o objetivo de "segundo plano" —
+// AEP-0068). Mesmo assim, a AEP-0068 (Riscos) prescreve "timeout por run" como
+// backstop contra runs presos/runaway; usamos um valor bem maior, suficiente
+// para trabalho de fundo legítimo, mas que ainda impede uma goroutine rodando
+// para sempre na sessão. Runs órfãos por app fechado são tratados à parte
+// (reconciliação no startup, Fase 4). Caller pode sobrescrever via Timeout.
+const DefaultBackgroundTimeout = 1 * time.Hour
 
 // SendParams descreve um envio ao pipeline oficial de mensagens. O adapter de
 // wiring traduz para usecases.SendMessageRequest (sem duplicar o pipeline).
@@ -78,7 +90,9 @@ type RunParams struct {
 	// (auto-wake). Quando false, o run é síncrono (Fase 1).
 	Background bool
 
-	// Timeout limita a espera de um run síncrono. <=0 usa DefaultSyncTimeout.
+	// Timeout limita a espera do run. <=0 usa o default POR MODO:
+	// DefaultSyncTimeout (síncrono) ou DefaultBackgroundTimeout (background).
+	// Um valor explícito (>0) é respeitado em ambos os modos.
 	Timeout time.Duration
 }
 
