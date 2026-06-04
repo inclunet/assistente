@@ -15,6 +15,11 @@ type EventBus struct {
 	mu       sync.RWMutex
 	handlers map[string][]namedHandler
 	closed   bool
+	// wg rastreia as goroutines de fan-out em voo para que Close possa drená-las
+	// (shutdown gracioso). Sem isso, um handler (ex.: execução de job) pode
+	// sobreviver ao Close/Stop e continuar escrevendo no estado global — em
+	// testes, escrevendo no DB de OUTRO teste após o swap do singleton.
+	wg sync.WaitGroup
 }
 
 type namedHandler struct {
@@ -89,19 +94,23 @@ func (eb *EventBus) UnsubscribeAll(subscriberID string) {
 // Cada handler roda em goroutine separada para nao bloquear o publisher.
 func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[string]any) {
 	eb.mu.RLock()
-	handlers := make([]namedHandler, len(eb.handlers[eventName]))
-	copy(handlers, eb.handlers[eventName])
-	closed := eb.closed
-	eb.mu.RUnlock()
-
-	if closed {
+	if eb.closed {
+		eb.mu.RUnlock()
 		return
 	}
-
+	handlers := make([]namedHandler, len(eb.handlers[eventName]))
+	copy(handlers, eb.handlers[eventName])
 	if len(handlers) == 0 {
+		eb.mu.RUnlock()
 		log.Printf("[EventBus] Event %q published with no listeners", eventName)
 		return
 	}
+	// Registra as goroutines no WaitGroup AINDA sob o RLock: Close adquire o
+	// write-lock exclusivo, então ou o Add acontece antes de Close (e o Wait as
+	// aguarda) ou Close já marcou closed e este Publish teria retornado acima.
+	// Isso evita a corrida clássica de Add-após-Wait.
+	eb.wg.Add(len(handlers))
+	eb.mu.RUnlock()
 
 	// Guard central anti-data-race: o mesmo payload (e o mesmo slice _chain_history)
 	// é entregue a todos os handlers concorrentes, que downstream fazem
@@ -120,6 +129,7 @@ func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[s
 
 	for _, h := range handlers {
 		go func(nh namedHandler) {
+			defer eb.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("[EventBus] Panic in handler %q for event %q: %v", nh.id, eventName, r)
@@ -149,10 +159,16 @@ func (eb *EventBus) Events() []string {
 	return events
 }
 
-// Close impede novos publishes e subscriptions.
+// Close impede novos publishes e subscriptions e DRENA as goroutines de fan-out
+// em voo (shutdown gracioso): após Close, nenhum handler disparado por este bus
+// continua executando. O wg.Wait roda FORA do lock para não travar handlers que
+// chamem Publish (encadeamento) durante o dreno — um Publish após closed retorna
+// cedo sem registrar novas goroutines, então o Wait sempre converge.
 func (eb *EventBus) Close() {
 	eb.mu.Lock()
-	defer eb.mu.Unlock()
 	eb.closed = true
 	eb.handlers = make(map[string][]namedHandler)
+	eb.mu.Unlock()
+
+	eb.wg.Wait()
 }
