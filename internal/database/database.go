@@ -1201,6 +1201,54 @@ func DeleteAllMessagesWithContext(ctx context.Context, conversationID string) er
 	return db.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error
 }
 
+// ClearConversationContentWithContext apaga o histórico (mensagens) e zera o
+// resumo de uma conversa do usuário do contexto de forma ATÔMICA: as duas
+// escritas destrutivas (delete de mensagens + limpeza de summary) rodam na MESMA
+// transação GORM, então um erro no meio faz rollback total. Isso elimina o estado
+// parcialmente limpo — ex.: summary antigo apontando para mensagens já apagadas —
+// que confundiria UI/sumarização. Usado pelo clear de sub-agente (AEP-0068).
+//
+// A limpeza das tool invocations associadas roda ANTES da transação: é operação
+// auxiliar e idempotente (re-executar simplesmente não encontra mais nada) e não
+// participa do estado parcial crítico mensagens↔summary que motivou a atomicidade.
+//
+// SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna ErrUserScopeRequired.
+func ClearConversationContentWithContext(ctx context.Context, conversationID string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	// Valida posse/escopo antes de mutar (mesma checagem dos helpers originais).
+	if _, err := GetConversationInfoWithContext(ctx, conversationID); err != nil {
+		return err
+	}
+	// Tool invocations do histórico (auxiliar, idempotente) — fora da transação.
+	if err := deleteChatToolInvocationsForConversation(ctx, conversationID); err != nil {
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		messageIDs := scopedMessageQuery(ctx, tx.Model(&ChatMessage{}).
+			Select("chat_messages.id").
+			Where("chat_messages.conversation_id = ?", conversationID))
+		if err := tx.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error; err != nil {
+			return fmt.Errorf("erro ao limpar histórico da sub-conversa: %w", err)
+		}
+		if err := ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
+			Where("id = ?", conversationID).
+			Updates(map[string]interface{}{
+				"summary":                  "",
+				"summary_up_to_message_id": "",
+				"summarizing_in_progress":  false,
+			}).Error; err != nil {
+			return fmt.Errorf("erro ao limpar resumo da sub-conversa: %w", err)
+		}
+		return nil
+	})
+}
+
 // ClearAllConversationsWithContext apaga mensagens e conversas pertencentes ao
 // usuário do contexto. Falha fechado com ErrUserScopeRequired sem userID —
 // não há caso legítimo de "limpar global"; AdoptLegacyData/RebuildFTSIndex

@@ -519,13 +519,13 @@ func (m *Manager) applyClear(ctx context.Context, childConvID string, isNew, cle
 	if isNew || !clear {
 		return nil
 	}
-	// clear = reset + envio: limpa histórico e resumo; o novo prompt é enviado na
-	// mesma chamada (a continuidade de contexto é descartada).
-	if err := database.DeleteAllMessagesWithContext(ctx, childConvID); err != nil {
-		return fmt.Errorf("erro ao limpar histórico da sub-conversa: %w", err)
-	}
-	if err := database.UpdateConversationSummaryWithContext(ctx, childConvID, "", ""); err != nil {
-		return fmt.Errorf("erro ao limpar resumo da sub-conversa: %w", err)
+	// clear = reset + envio: limpa histórico e resumo ATOMICAMENTE (uma única
+	// transação no pacote database — ClearConversationContentWithContext), evitando
+	// estado parcialmente limpo (ex.: summary apontando para mensagens já apagadas)
+	// se uma das escritas falhar. O novo prompt é enviado na mesma chamada (a
+	// continuidade de contexto é descartada).
+	if err := database.ClearConversationContentWithContext(ctx, childConvID); err != nil {
+		return fmt.Errorf("erro ao limpar sub-conversa: %w", err)
 	}
 	return nil
 }
