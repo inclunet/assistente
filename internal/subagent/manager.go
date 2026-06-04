@@ -182,7 +182,23 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return finished, nil
 	}
 
-	sendCtx := toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID)
+	// Encadeia as sub-invocações da sub-conversa à invocação da tool `subagent`.
+	// Contexto de envio cancelável e ESCOPADO a este run: o pipeline oficial
+	// dispara o agentic loop da sub-conversa em background sob um ctx derivado
+	// deste (SendMessageUseCase.Execute → context.WithCancel). Ao concluir
+	// (timeout, cancel, ctx.Done() ou sucesso) cancelamos cancelSend para não
+	// deixar o loop rodando/custando após o desfecho. cancelSend é privado deste
+	// run (sem cancelamento cruzado) e nunca cancela o ctx-pai.
+	//   - Síncrono: o base herda o ctx da tool (cancelamento do pai propaga); o
+	//     cancel é disparado via defer ao retornar (logo após a espera inline).
+	//   - Background: o base é desacoplado (WithoutCancel) para o run sobreviver
+	//     ao fim do turno-pai; o cancel é disparado na goroutine ao concluir a
+	//     espera (timeout/cancel via wait), alcançando o loop daquele run.
+	sendBase := toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID)
+	if p.Background {
+		sendBase = context.WithoutCancel(sendBase)
+	}
+	sendCtx, cancelSend := context.WithCancel(sendBase)
 	if _, err := m.send(sendCtx, SendParams{
 		ConversationID: conv.ID,
 		Prompt:         p.Prompt,
@@ -191,6 +207,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		Model:          p.Model,
 		Source:         Source,
 	}); err != nil {
+		cancelSend()
 		m.notifier.Cancel(conv.ID)
 		m.unregisterActive(run.ID)
 		// Um cancel/timeout do ctx (usuário cancela a tool, deadline do executor)
@@ -216,6 +233,9 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		// mesmo struct (corrida detectada por -race).
 		bgResult := result
 		go func() {
+			// Cancela o loop da sub-conversa ao concluir a espera (timeout/cancel/
+			// sucesso), interrompendo trabalho em background — escopado a este run.
+			defer cancelSend()
 			o := m.wait(bgCtx, conv.ID, done, ar, p.Timeout)
 			m.finish(bgCtx, run, &bgResult, o)
 			m.unregisterActive(run.ID)
@@ -224,7 +244,8 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return result, nil
 	}
 
-	// Síncrono (Fase 1): espera inline.
+	// Síncrono (Fase 1): espera inline e cancela o loop ao concluir.
+	defer cancelSend()
 	o := m.wait(ctx, conv.ID, done, ar, p.Timeout)
 	m.unregisterActive(run.ID)
 	return m.finish(ctx, run, &result, o), nil
