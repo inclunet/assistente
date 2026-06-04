@@ -137,9 +137,9 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// 2. Persiste o run (queued) com proveniência (anti-runaway, AEP-0067/0001).
 	//    ChainID estável: em fluxos de usuário o ctx não vem carimbado (ChainID
 	//    vazio), o que iniciaria uma cadeia NOVA a cada auto-wake e quebraria a
-	//    continuidade do circuit breaker (AEP-0067). Usa conv.ID como semente
+	//    continuidade do circuit breaker (AEP-0067). Usa childConvID como semente
 	//    estável da cadeia quando não há ChainID herdado (job mantém o seu).
-	prov := deriveProvenance(ctx, conv.ID)
+	prov := deriveProvenance(ctx, childConvID)
 	chainHistoryJSON := encodeChainHistory(prov.ChainHistory)
 	run := &database.SubAgentRun{
 		UserID:               userID,

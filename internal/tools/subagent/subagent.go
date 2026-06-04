@@ -51,7 +51,7 @@ func (t *Tool) Parameters() json.RawMessage {
 		"properties": {
 			"prompt": {
 				"type": "string",
-				"description": "Task/message for the sub-agent. Provide it to start a NEW sub-agent (send); omit it (with conversation_id) for a status query. Reusing an existing sub-conversation to send a new prompt (resume: prompt + conversation_id) is not available in this phase and returns an error."
+				"description": "Task/message for the sub-agent. Provide it to send: without conversation_id it starts a new sub-agent; with conversation_id it continues (resume) the existing sub-conversation, preserving context. Omit it (with conversation_id) for a status query."
 			},
 			"background": {
 				"type": "boolean",
