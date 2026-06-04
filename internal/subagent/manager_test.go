@@ -418,6 +418,48 @@ func TestManagerCancelNoOpWhenTerminal(t *testing.T) {
 	}
 }
 
+// TestManagerCancelRequiresConversationID garante a invariante do AEP-0068:
+// cancel SEMPRE exige conversation_id (defense-in-depth no Manager, alinhado à
+// validação da tool). Cancelar só por run_id deve falhar; com conversation_id
+// funciona como antes; e o STATUS por run_id sozinho NÃO regride (segue válido).
+func TestManagerCancelRequiresConversationID(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m1")
+		return p.ConversationID, nil
+	}})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "x"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// cancel só por run_id (sem conversation_id) → erro de validação, NÃO cancela.
+	if _, err := mgr.Cancel(ctx, "", res.RunID); err == nil {
+		t.Fatal("cancel sem conversation_id deveria falhar (AEP-0068: cancel exige conversation_id)")
+	}
+
+	// cancel COM conversation_id → funciona como antes (run terminal ⇒ no-op real).
+	cr, err := mgr.Cancel(ctx, res.ConversationID, res.RunID)
+	if err != nil {
+		t.Fatalf("Cancel com conversation_id: %v", err)
+	}
+	if cr.Status != StatusSucceeded {
+		t.Fatalf("status real esperado succeeded; veio %q", cr.Status)
+	}
+
+	// STATUS por run_id sozinho (sem conversation_id) → NÃO regrediu.
+	st, err := mgr.Status(ctx, "", res.RunID)
+	if err != nil {
+		t.Fatalf("Status por run_id sozinho deveria funcionar (sem regressão): %v", err)
+	}
+	if st.RunID != res.RunID || st.Status != StatusSucceeded {
+		t.Fatalf("status por run_id inesperado: %#v", st)
+	}
+}
+
 func TestManagerCancelActiveBackgroundRun(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()
