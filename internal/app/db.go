@@ -133,7 +133,7 @@ func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []dat
 		// Só hidrata turnos que realmente têm uso de tools: assistant com ToolCalls ou
 		// mensagens role=tool com ToolCallID (inclui tool-only turns/placeholder).
 		shouldHydrate := false
-		if msg.Role == "assistant" && strings.TrimSpace(msg.ToolCalls) != "" {
+		if msg.Role == "assistant" && messageHasToolCalls(msg) {
 			shouldHydrate = true
 		}
 		if msg.Role == "tool" && strings.TrimSpace(msg.ToolCallID) != "" {
@@ -452,12 +452,13 @@ func consolidateTimelineTurn(messages []database.ChatMessage, invocationToolResu
 		}
 	}
 	// A conclusão (mensagem sem tool calls) é o conteúdo canônico do turno e seu
-	// texto vai por último na cadeia de segmentos.
+	// texto vai por último na cadeia de segmentos. O reasoning é pareado com a
+	// conclusão (atribuição incondicional): se a conclusão não tem reasoning,
+	// não mantemos o de uma iteração intermediária, evitando incoerência no
+	// conteúdo canônico (export/UI).
 	if finalMsgIdx >= 0 {
 		finalContent = messages[finalMsgIdx].Content
-		if strings.TrimSpace(messages[finalMsgIdx].Reasoning) != "" {
-			finalReasoning = messages[finalMsgIdx].Reasoning
-		}
+		finalReasoning = messages[finalMsgIdx].Reasoning
 	}
 	if finalTextSegment != nil {
 		segments = append(segments, *finalTextSegment)
@@ -559,7 +560,7 @@ func collectTurnIDsWithToolCalls(messages []database.ChatMessage) []string {
 			continue
 		}
 		shouldHydrate := false
-		if msg.Role == "assistant" && strings.TrimSpace(msg.ToolCalls) != "" {
+		if msg.Role == "assistant" && messageHasToolCalls(msg) {
 			shouldHydrate = true
 		}
 		if msg.Role == "tool" && strings.TrimSpace(msg.ToolCallID) != "" {
