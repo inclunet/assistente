@@ -27,6 +27,11 @@ func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	// :memory: SQLite é por conexão; uma única conexão garante que o schema
+	// persista mesmo sob acesso concorrente (ver setupJobsRepositoryTest).
+	if sqlDB, sErr := db.DB(); sErr == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
 	if err := db.AutoMigrate(&database.User{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}

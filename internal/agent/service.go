@@ -202,15 +202,18 @@ func (s *Service) RunAgenticLoop(
 		maxRecoveryAttempts = 1
 	}
 
-	// Propaga contexto de invocação (tab type + arquivo ativo) para as tools
-	if params.TabType != "" || params.ActiveFilePath != "" || params.SurfaceStateJSON != "" || params.SurfaceContextJSON != "" {
-		ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
-			TabType:        params.TabType,
-			ActiveFilePath: params.ActiveFilePath,
-			SurfaceState:   chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[agent] surface state payload"),
-			SurfaceContext: chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[agent] surface context payload"),
-		})
-	}
+	// Propaga contexto de invocação para as tools. Sempre carrega a identidade
+	// da conversa/turno/profile (AEP-0068, usado pela tool `subagent`); os
+	// campos de superfície (tab/arquivo) só quando presentes.
+	ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
+		TabType:        params.TabType,
+		ActiveFilePath: params.ActiveFilePath,
+		SurfaceState:   chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[agent] surface state payload"),
+		SurfaceContext: chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[agent] surface context payload"),
+		ConversationID: conversationID,
+		TurnID:         turnID,
+		ProfileSlug:    params.ProfileSlug,
+	})
 
 	// AEP-0039 Fase 2: acumula estatísticas de tool calling ao longo do loop
 	var (

@@ -125,6 +125,7 @@ var builtinToolMetadataByName = map[string]builtinToolMetadata{
 	"job":                  {Category: "jobs", Class: "automation_management", Package: "jobs", Risk: "write"},
 	"job_pipeline":         {Category: "jobs", Class: "automation_management", Package: "jobs", Risk: "write"},
 	"open_deep_link":       {Category: "app", Class: "app_tool", Package: "basic", Risk: "read"},
+	"subagent":             {Category: "agents", Class: "agent_delegation", Package: "agents", Risk: "write"},
 }
 
 func builtinToolCatalogMetadata(name string) builtinToolMetadata {

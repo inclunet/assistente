@@ -80,6 +80,12 @@ type LLMProvider struct {
 
 // ==================== Conversation & Messages ====================
 
+// Kinds de conversa (AEP-0068). Conversas normais têm Kind="" (vazio);
+// sub-conversas de sub-agentes têm Kind=ConversationKindSubagent.
+const (
+	ConversationKindSubagent = "subagent"
+)
+
 // Conversation representa uma conversa
 type Conversation struct {
 	UUIDModel
@@ -89,6 +95,12 @@ type Conversation struct {
 	ContactID    string        `json:"contact_id,omitempty" gorm:"index"` // ID do contato externo (UUID, phone, telegram ID)
 	Messages     []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
 	MessageCount int           `json:"message_count" gorm:"-:migration;->"` // Campo calculado, não persiste no banco
+
+	// Sub-agentes (AEP-0068): vínculo e filtragem de sub-conversas.
+	//   - Kind="" → conversa normal; Kind="subagent" → sub-conversa de sub-agente.
+	//   - ParentConversationID aponta para a conversa que originou o sub-agente.
+	Kind                 string `json:"kind,omitempty" gorm:"index"`
+	ParentConversationID string `json:"parentConversationId,omitempty" gorm:"index"`
 
 	// Rolling Context: sumarização automática de mensagens antigas
 	Summary               string `json:"summary,omitempty" gorm:"type:text"`                     // Resumo acumulativo da conversa

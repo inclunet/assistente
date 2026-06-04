@@ -122,6 +122,73 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 	}
 }
 
+// captureInvocationTool registra o ID da invocação corrente visto via ctx
+// (AEP-0068): permite verificar que o Service carimba WithCurrentInvocationID.
+type captureInvocationTool struct {
+	seen *string
+}
+
+func (captureInvocationTool) Name() string                { return "echo" }
+func (captureInvocationTool) Description() string         { return "echo" }
+func (captureInvocationTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (t captureInvocationTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	if t.seen != nil {
+		*t.seen = CurrentInvocationID(ctx)
+	}
+	return tools.ToolResult{Content: "ok"}, nil
+}
+
+func TestServiceInheritsParentInvocationFromContext(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	var seenCurrent string
+	registry := tools.NewRegistry()
+	registry.MustRegister(captureInvocationTool{seen: &seenCurrent})
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+
+	// Sem ParentInvocationID explícito no request, mas carimbado no ctx:
+	// deve ser herdado e persistido na invocação.
+	ctx := WithParentInvocationID(userA, "parent-inv-1")
+	result := svc.Execute(ctx, ExecuteRequest{
+		Call:   tools.ToolCall{ID: "call-1", Type: "function", Function: tools.FunctionCall{Name: "echo", Arguments: `{}`}},
+		Origin: Origin{Type: OriginChat, ID: "turn-1"},
+	})
+	if result.Invocation.ID == "" {
+		t.Fatal("expected invocation id")
+	}
+	got, err := repo.Get(userA, result.Invocation.ID)
+	if err != nil {
+		t.Fatalf("get invocation: %v", err)
+	}
+	if got.ParentInvocationID != "parent-inv-1" {
+		t.Fatalf("ParentInvocationID herdado do ctx esperado parent-inv-1, veio %q", got.ParentInvocationID)
+	}
+	// A tool deve enxergar o ID da própria invocação no ctx.
+	if seenCurrent != result.Invocation.ID {
+		t.Fatalf("CurrentInvocationID esperado %q, veio %q", result.Invocation.ID, seenCurrent)
+	}
+}
+
+func TestServiceExplicitParentInvocationWins(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	registry := tools.NewRegistry()
+	registry.MustRegister(echoTool{})
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+
+	ctx := WithParentInvocationID(userA, "from-ctx")
+	result := svc.Execute(ctx, ExecuteRequest{
+		Call:               tools.ToolCall{ID: "call-1", Type: "function", Function: tools.FunctionCall{Name: "echo", Arguments: `{}`}},
+		Origin:             Origin{Type: OriginChat, ID: "turn-1"},
+		ParentInvocationID: "explicit",
+	})
+	got, err := repo.Get(userA, result.Invocation.ID)
+	if err != nil {
+		t.Fatalf("get invocation: %v", err)
+	}
+	if got.ParentInvocationID != "explicit" {
+		t.Fatalf("ParentInvocationID explícito deve vencer; veio %q", got.ParentInvocationID)
+	}
+}
+
 type resultErrorTool struct{}
 
 func (resultErrorTool) Name() string { return "result_error" }

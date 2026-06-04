@@ -18,6 +18,7 @@ import (
 	jobtool "assistente/internal/tools/job"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
+	subagenttool "assistente/internal/tools/subagent"
 	tasklisttool "assistente/internal/tools/tasklist"
 	"assistente/internal/tools/web"
 )
@@ -275,6 +276,19 @@ func (a *App) initToolRegistry() {
 	}
 	a.toolRegistry.MustRegisterDiscoverableOptIn(jobtool.NewJobWithProvider(jobMgr))
 	a.toolRegistry.MustRegisterDiscoverableOptIn(jobtool.NewPipelineWithProvider(jobMgr))
+
+	// Sub-agentes (AEP-0068): opt-in para não inflar o payload padrão, mas
+	// descobrível na UI/catálogo. O gate de profundidade é o próprio profile —
+	// o sub-agente só pode criar novos sub-agentes se o profile dele habilitar
+	// a tool `subagent` (EnabledTools / DisableTools). O Manager é criado mais
+	// tarde no wiring (após o ChatController existir), então o provider é lazy.
+	subagentRunner := func() subagenttool.Runner {
+		if a.subagentMgr == nil {
+			return nil
+		}
+		return a.subagentMgr
+	}
+	a.toolRegistry.MustRegisterDiscoverableOptIn(subagenttool.NewWithProvider(subagentRunner))
 
 	// Registra ferramenta de deep links
 	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{emitter: a.emitter}))
