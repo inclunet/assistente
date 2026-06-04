@@ -636,6 +636,65 @@ func TestManagerClearResetsHistoryBeforeSend(t *testing.T) {
 	}
 }
 
+// TestManagerClearDoesNotWipeHistoryWhenConcurrencyRejects garante que um
+// Clear=true NÃO apague histórico/resumo quando o run for rejeitado pelo fail-fast
+// de concorrência: o clear (destrutivo) só roda APÓS a reserva da sub-conversa.
+// Uma 2ª chamada concorrente com Clear=true deve falhar ANTES de limpar.
+func TestManagerClearDoesNotWipeHistoryWhenConcurrencyRejects(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: &recordingDelivery{},
+		// Nunca notifica → o 1º run fica ATIVO, mantendo a reserva da sub-conversa.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	// 1º run em background: cria a sub-conversa e a mantém reservada (ativa).
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Background: true, Prompt: "passo 1"})
+	if err != nil {
+		t.Fatalf("Run 1: %v", err)
+	}
+
+	// Semeia histórico e resumo na sub-conversa.
+	msg := &database.ChatMessage{ConversationID: first.ConversationID, Role: "user", Content: "preservar"}
+	if err := database.DB().WithContext(ctx).Create(msg).Error; err != nil {
+		t.Fatalf("criar mensagem: %v", err)
+	}
+	if err := database.UpdateConversationSummaryWithContext(ctx, first.ConversationID, "resumo a preservar", msg.ID); err != nil {
+		t.Fatalf("set summary: %v", err)
+	}
+
+	// 2ª chamada concorrente com Clear=true: deve falhar no fail-fast (run ativo)
+	// e NÃO limpar histórico/resumo (o clear só roda após a reserva).
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Clear: true, Prompt: "novo"}); err == nil {
+		t.Fatal("2ª chamada concorrente com Clear deveria falhar no fail-fast de concorrência")
+	}
+
+	// Histórico e resumo devem permanecer INTACTOS (clear não rodou).
+	var count int64
+	if err := database.DB().WithContext(ctx).Model(&database.ChatMessage{}).Where("conversation_id = ? AND content = ?", first.ConversationID, "preservar").Count(&count).Error; err != nil {
+		t.Fatalf("contar mensagens: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("clear NÃO deveria ter rodado (run rejeitado); esperado 1 mensagem preservada, veio %d", count)
+	}
+	summary, _, err := database.GetConversationSummaryWithContext(ctx, first.ConversationID)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if summary != "resumo a preservar" {
+		t.Fatalf("resumo deveria permanecer intacto; veio %q", summary)
+	}
+
+	// Encerra o run ativo para não vazar a goroutine de background.
+	if _, err := mgr.Cancel(ctx, first.ConversationID, first.RunID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+}
+
 // TestManagerCancelAfterCompletionIsNoOp garante que, após a conclusão de um run
 // em background, um Cancel posterior seja no-op (cancelled:false + status
 // terminal real) e NÃO cancele o streaming já concluído (corrida — AEP-0068:
