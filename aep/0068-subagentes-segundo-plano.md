@@ -108,7 +108,13 @@ quanto os jobs o acionam pelo mesmo caminho.
   válido em consultas de `status` (sem `prompt`).
 - `cancel:true` sem `conversation_id` → erro (não há run a cancelar sem a conversa alvo).
 - `cancel:true` junto com `prompt` ou `clear` → erro (operações mutuamente exclusivas).
-- `run_id` sem `conversation_id` → erro (run sempre pertence a uma conversa).
+- `run_id` sem `conversation_id` em **send/cancel** → erro (a operação exige a
+  conversa alvo explícita). Em **status** (sem `prompt` e sem `cancel`), `run_id`
+  **sozinho é permitido**: o run sempre pertence a uma conversa, mas o Manager o
+  resolve pelo próprio `run_id` e recupera a conversa dele (ver "Resolução de run
+  em `status`/`cancel`"). A invariante "run pertence a uma conversa" continua
+  válida — apenas não exige que o chamador informe a conversa quando o `run_id`
+  já identifica o run.
 - `run_id`/`conversation_id` que não pertencem ao usuário → erro (escopo AEP-0052).
 - Sem `prompt`, sem `cancel` e sem `conversation_id`/`run_id` → erro (nada a fazer).
 
@@ -137,8 +143,10 @@ enum já usado em `tool_invocations`). Variações por modo:
 Como cada `prompt` cria um novo run (turno) sobre a mesma `conversation_id`, as
 operações de consulta/cancelamento resolvem o alvo assim:
 
-- `run_id` informado → opera exatamente nesse run (validando que pertence à
-  `conversation_id`/usuário).
+- `run_id` informado → opera exatamente nesse run (validando que pertence ao
+  usuário; e, **se** `conversation_id` também for informado, que pertence a ela).
+  Em `status`, `conversation_id` é **opcional** quando há `run_id` (o run é
+  resolvido pelo id); em `cancel`, `conversation_id` permanece obrigatório.
 - `run_id` omitido → opera no **run mais recente** da `conversation_id` (para `cancel`,
   o run ativo mais recente; se nenhum estiver ativo, é no-op com status informativo).
 - Precedência de parâmetros (mutuamente exclusivos): `cancel:true` → cancelar;
