@@ -387,10 +387,11 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 //   - com ConversationID → reusa a existente (resume), validando posse e Kind.
 //
 // Devolve também isNew (true quando criou uma sub-conversa nova). O clear
-// (reset destrutivo de histórico/resumo) e o cálculo do TurnIndex NÃO são feitos
-// aqui: ficam em prepareConversationState, chamado SÓ APÓS reserveConversation —
-// assim uma 2ª chamada concorrente com Clear=true falha no fail-fast ANTES de
-// limpar qualquer coisa (evita efeito colateral destrutivo).
+// (reset destrutivo de histórico/resumo) fica em applyClear, chamado pelo Run SÓ
+// APÓS reserveConversation E após o Create do run; o cálculo do TurnIndex fica em
+// nextTurnIndex (leitura sob a reserva). Assim uma 2ª chamada concorrente com
+// Clear=true falha no fail-fast ANTES de limpar qualquer coisa, e uma falha de
+// Create nunca deixa histórico apagado sem run (evita efeito destrutivo órfão).
 func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (childConvID string, isNew bool, err error) {
 	if strings.TrimSpace(p.ConversationID) == "" {
 		// Defense-in-depth (consistente com a tool e o contrato do AEP-0068):
