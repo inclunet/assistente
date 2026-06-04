@@ -1793,6 +1793,51 @@ func TestDeliverAlreadyDeliveredIsNoOp(t *testing.T) {
 	}
 }
 
+// TestResolveTerminalStatusSurvivesCancelledCtx garante que a releitura best-
+// effort do status terminal (no-op de Cancel) NÃO falhe por cancelamento do ctx
+// do caller: usa context.WithoutCancel. DB com desfecho terminal (succeeded) e
+// ctx do caller já cancelado → deve devolver succeeded (o terminal real), e não
+// o status defasado (running) do fallback.
+func TestResolveTerminalStatusSurvivesCancelledCtx(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+
+	// DB já com o desfecho TERMINAL persistido pelo finalize/finish.
+	stored := &database.SubAgentRun{
+		ParentConversationID: "parent-conv",
+		ChildConversationID:  "child-conv",
+		Status:               database.SubAgentRunStatusSucceeded,
+		ResultSummary:        "ok",
+	}
+	if err := repo.Create(ctx, stored); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	mgr := NewManager(ManagerConfig{Repo: repo})
+
+	// ctx do caller JÁ cancelado (ex.: expirou entre o resolveRun e a releitura).
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	// Pré-condição (prova do fallback SEM o fix): um Get com o ctx cancelado
+	// falha — então, sem WithoutCancel, resolveTerminalStatus cairia no
+	// fallback run.Status e devolveria o status defasado (running).
+	if _, err := repo.Get(cancelledCtx, stored.ID); err == nil {
+		t.Fatal("pré-condição: Get com ctx cancelado deveria falhar (prova do fallback sem o fix)")
+	}
+
+	// run em memória com status NÃO-terminal (defasado) e ar==nil → dispara a
+	// releitura best-effort.
+	stale := &database.SubAgentRun{
+		UUIDModel: database.UUIDModel{ID: stored.ID},
+		Status:    database.SubAgentRunStatusRunning,
+	}
+
+	got := mgr.resolveTerminalStatus(cancelledCtx, stale, nil, "")
+	if got != database.SubAgentRunStatusSucceeded {
+		t.Fatalf("esperava o terminal real (succeeded) via WithoutCancel; veio %q (fallback defasado)", got)
+	}
+}
+
 // ---- B4: striped locks por conversa-pai ----
 
 // TestParentLockStripedStable garante que o mesmo parentID mapeia sempre para o
