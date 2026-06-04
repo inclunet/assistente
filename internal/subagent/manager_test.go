@@ -1336,10 +1336,15 @@ func TestDeliverDeliveredAtPersistErrorIsLogged(t *testing.T) {
 // nil para qualquer id (sem crescimento de map: array fixo).
 func TestParentLockStripedStable(t *testing.T) {
 	mgr := NewManager(ManagerConfig{})
-	if mgr.parentLock("p1") != mgr.parentLock("p1") {
+	// Mesmo parentID deve devolver sempre o MESMO mutex (serialização por pai).
+	p1First := mgr.parentLock("p1")
+	p1Again := mgr.parentLock("p1")
+	if p1First != p1Again {
 		t.Fatal("mesmo parentID deveria devolver o mesmo mutex (stripe estável)")
 	}
-	if mgr.parentLock("alpha") != mgr.parentLock("alpha") {
+	alphaFirst := mgr.parentLock("alpha")
+	alphaAgain := mgr.parentLock("alpha")
+	if alphaFirst != alphaAgain {
 		t.Fatal("mapeamento por id deveria ser estável")
 	}
 	for i := 0; i < 5000; i++ {
