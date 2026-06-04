@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gorm.io/gorm"
+
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
 	"assistente/internal/messaging"
@@ -422,6 +424,13 @@ func (m *Manager) releaseSlot(userID string) {
 // limpar qualquer coisa (evita efeito colateral destrutivo).
 func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (childConvID string, isNew bool, err error) {
 	if strings.TrimSpace(p.ConversationID) == "" {
+		// Defense-in-depth (consistente com a tool e o contrato do AEP-0068):
+		// clear é um reset de sub-conversa EXISTENTE; sem conversation_id não há o
+		// que resetar. Falhar explícito evita criar uma sub-conversa nova ignorando
+		// o reset (mascararia erro de wiring em chamadores diretos do Manager).
+		if p.Clear {
+			return "", false, fmt.Errorf("clear exige conversation_id: não há sub-conversa existente para resetar")
+		}
 		title := strings.TrimSpace(p.Title)
 		if title == "" {
 			title = deriveTitle(p.Prompt)
@@ -470,11 +479,19 @@ func (m *Manager) prepareConversationState(ctx context.Context, childConvID stri
 		}
 	}
 
-	turnIndex := 0
-	if latest, lerr := m.repo.GetLatestByChildConversation(ctx, childConvID); lerr == nil && latest != nil {
-		turnIndex = latest.TurnIndex + 1
+	// turn_index incremental: último run + 1. "Nenhum run anterior"
+	// (ErrRecordNotFound) é esperado num resume sem histórico de runs → turno 0;
+	// QUALQUER outro erro de DB é PROPAGADO (não mascara falha transitória nem
+	// zera o índice indevidamente, o que corromperia a telemetria/ordenação).
+	latest, lerr := m.repo.GetLatestByChildConversation(ctx, childConvID)
+	switch {
+	case lerr == nil && latest != nil:
+		return latest.TurnIndex + 1, nil
+	case lerr != nil && !errors.Is(lerr, gorm.ErrRecordNotFound):
+		return 0, fmt.Errorf("erro ao calcular turn_index da sub-conversa: %w", lerr)
 	}
-	return turnIndex, nil
+	// Sem run anterior (ErrRecordNotFound) ou resultado vazio: primeiro turno.
+	return 0, nil
 }
 
 // resolveTimeout escolhe o timeout efetivo conforme o modo. Um Timeout explícito
