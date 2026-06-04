@@ -616,6 +616,85 @@ func TestManagerCancelAfterCompletionIsNoOp(t *testing.T) {
 	}
 }
 
+// blockingTerminalUpdateRepo bloqueia a persistência do status TERMINAL (a do
+// finish, identificada por CompletedAt != nil) até ser liberado, dando
+// determinismo à janela "conclusão entregue mas finish ainda não persistiu".
+type blockingTerminalUpdateRepo struct {
+	Repository
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingTerminalUpdateRepo) Update(ctx context.Context, run *database.SubAgentRun) error {
+	if run != nil && run.CompletedAt != nil {
+		r.once.Do(func() { close(r.entered) })
+		<-r.release
+	}
+	return r.Repository.Update(ctx, run)
+}
+
+// TestManagerCancelDuringCompletionWindowReturnsTerminal cobre a janela entre a
+// entrega da conclusão (o callback marca terminalStatus e o run AINDA está em
+// `active`) e a persistência do terminal pelo finish: Cancel deve retornar no-op
+// (cancelled:false) com o status TERMINAL real (succeeded), NUNCA running.
+func TestManagerCancelDuringCompletionWindowReturnsTerminal(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	blocking := &blockingTerminalUpdateRepo{
+		Repository: repo,
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	var mu sync.Mutex
+	cancelStreamCalls := 0
+	mgr := NewManager(ManagerConfig{
+		Repo:         blocking,
+		Notifier:     notifier,
+		Delivery:     &recordingDelivery{},
+		CancelStream: func(string) { mu.Lock(); cancelStreamCalls++; mu.Unlock() },
+		Send:         func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "bg", Background: true, ParentConversationID: "parent-conv"})
+	if err != nil {
+		t.Fatalf("Run bg: %v", err)
+	}
+
+	// Entrega a conclusão: o callback marca terminalStatus=succeeded e publica done.
+	notifier.Notify(res.ConversationID, "resultado", "msg-1")
+
+	// Aguarda o finish ENTRAR no persist do terminal (bloqueado): estamos na janela.
+	select {
+	case <-blocking.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("finish não entrou no persist do terminal")
+	}
+	// Garante liberação do finish mesmo se a asserção falhar (LIFO: roda antes do Stop).
+	t.Cleanup(func() { close(blocking.release) })
+
+	// Na janela: run ainda em `active`, DB ainda NÃO terminal. Cancel deve ser
+	// no-op com o status terminal real (succeeded), nunca running.
+	cr, err := mgr.Cancel(ctx, res.ConversationID, res.RunID)
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if cr.Cancelled {
+		t.Fatalf("cancel na janela de conclusão deveria ser no-op (cancelled=false); veio %#v", cr)
+	}
+	if cr.Status != StatusSucceeded {
+		t.Fatalf("status terminal real esperado succeeded (NUNCA running); veio %q", cr.Status)
+	}
+	mu.Lock()
+	calls := cancelStreamCalls
+	mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("CancelStream não deveria ser chamado na janela de conclusão; chamadas=%d", calls)
+	}
+}
+
 // TestManagerRunCancelsSendOnTimeout garante que, ao concluir por timeout, o
 // ctx passado ao pipeline de envio (que dispara o agentic loop da sub-conversa
 // em background) é efetivamente cancelado — interrompendo trabalho/custo após o

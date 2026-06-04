@@ -37,10 +37,21 @@ type outcome struct {
 }
 
 // activeRun rastreia um run em andamento para permitir cancelamento.
+//
+// terminalStatus carrega o desfecho terminal ASSIM QUE ele é conhecido (ex.: o
+// callback do notifier marca "succeeded" no instante em que entrega a conclusão),
+// AINDA QUE o finish não tenha persistido o status no DB. O run só sai de
+// `active` quando o finish já persistiu (ver unregisterActive nos caminhos de
+// conclusão), então enquanto estiver em `active` com terminalStatus != "" o
+// Cancel sabe que a conclusão ocorreu e devolve no-op com o status terminal real
+// (nunca cancelled:true após conclusão, nunca status running) — fecha a janela
+// entre a entrega da conclusão e a persistência pelo finish. Lido/escrito sob
+// m.mu.
 type activeRun struct {
 	childConversationID string
 	cancelCh            chan struct{}
 	cancelOnce          sync.Once
+	terminalStatus      string
 }
 
 func (a *activeRun) cancel() {
@@ -176,16 +187,16 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		TraceID: run.ID,
 		ChatID:  childConvID,
 		Callback: func(response, assistantMessageID string) {
-			// Remove o run de `active` ASSIM QUE a conclusão chega, ANTES de
-			// torná-la observável via `done`. Assim, um Cancel concorrente que
-			// chegue DEPOIS da conclusão vê o run como NÃO ativo e cai no no-op
-			// (cancelled:false + status real), em vez de reportar cancelled:true
-			// e cancelar o streaming já concluído (corrida — AEP-0068: cancel
-			// após término é no-op). delete é idempotente, então o unregister do
-			// caminho normal (wait/goroutine) permanece seguro. Esta remoção é
-			// posterior ao registerActive abaixo: o callback só dispara após o
-			// m.send despachar o prompt, bem depois do registro.
-			m.unregisterActive(run.ID)
+			// Marca o desfecho terminal (sucesso) no tracking ATIVO, sob o mesmo
+			// lock, ANTES de publicar no `done`. A partir daqui um Cancel
+			// concorrente vê terminalStatus != "" e devolve no-op com o status
+			// terminal REAL — nunca cancelled:true (corrida original: cancel após
+			// término) nem status running (janela entre a conclusão e o finish).
+			// O run só sai de `active` quando o finish já persistiu o terminal
+			// (unregisterActive nos caminhos de conclusão), mantendo a invariante
+			// em TODOS os instantes. Isto ocorre após o registerActive abaixo: o
+			// callback só dispara depois do m.send despachar o prompt.
+			m.markCompleting(run.ID, database.SubAgentRunStatusSucceeded)
 			select {
 			case done <- completion{response: response, assistantMessageID: assistantMessageID}:
 			default:
@@ -279,10 +290,15 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	}
 
 	// Síncrono (Fase 1): espera inline e cancela o loop ao concluir.
+	// Persiste o desfecho (finish) ANTES de remover de `active`: assim, no
+	// caminho de timeout/cancel (sem callback) o DB já reflete o terminal quando
+	// o run deixa `active`, evitando uma janela em que Cancel veria não-ativo com
+	// status running.
 	defer cancelSend()
 	o := m.wait(ctx, childConvID, done, ar, p.Timeout, false)
+	finished := m.finish(ctx, run, &result, o)
 	m.unregisterActive(run.ID)
-	return m.finish(ctx, run, &result, o), nil
+	return finished, nil
 }
 
 // resolveChildConversation decide a sub-conversa alvo do run e o índice do turno:
@@ -464,15 +480,35 @@ func (m *Manager) Cancel(ctx context.Context, conversationID, runID string) (Can
 	}
 	res := CancelResult{ConversationID: run.ChildConversationID, RunID: run.ID, Status: run.Status}
 
-	ar := m.lookupActive(run.ID)
-	if ar == nil || isTerminal(run.Status) {
-		// No-op: nada ativo para cancelar.
+	// Snapshot consistente (sob lock) do tracking: ponteiro do run ativo e o
+	// status terminal já marcado (conclusão entregue mas talvez ainda não
+	// persistida pelo finish).
+	ar, termStatus := m.activeSnapshot(run.ID)
+	completed := ar != nil && termStatus != ""
+
+	if ar == nil || isTerminal(run.Status) || completed {
+		// No-op: o run não está ativo OU já concluiu (no DB ou em memória).
+		// Garante o STATUS TERMINAL REAL — nunca "running" pós-conclusão:
 		res.Cancelled = false
 		res.Message = "nenhum run ativo para cancelar; status atual mantido"
+		switch {
+		case completed && !isTerminal(run.Status):
+			// Conclusão já conhecida em memória, mas o finish ainda não
+			// persistiu: usa o desfecho terminal stashed.
+			res.Status = termStatus
+		case ar == nil && !isTerminal(run.Status):
+			// O run saiu de `active` (o finish persiste o terminal ANTES de
+			// remover), então o run lido pode estar defasado. Re-lê uma vez para
+			// refletir o terminal real e jamais reportar "running".
+			if fresh, ferr := m.repo.Get(ctx, run.ID); ferr == nil && fresh != nil {
+				res.Status = fresh.Status
+			}
+		}
 		return res, nil
 	}
 
-	// Interrompe o streaming do sub-agente e sinaliza o waiter.
+	// Run genuinamente ativo (sem conclusão sinalizada): interrompe o streaming
+	// e sinaliza o waiter.
 	if m.cancelStrm != nil {
 		m.cancelStrm(run.ChildConversationID)
 	}
@@ -638,6 +674,31 @@ func (m *Manager) lookupActive(runID string) *activeRun {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.active[runID]
+}
+
+// markCompleting registra o desfecho terminal no run ativo (se ainda presente),
+// sob o mesmo lock que protege `active`. Chamado pelo callback do notifier no
+// instante da conclusão, ANTES do finish persistir — torna o Cancel consistente
+// (no-op com status terminal) sem remover o run de `active` prematuramente.
+func (m *Manager) markCompleting(runID, status string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ar := m.active[runID]; ar != nil {
+		ar.terminalStatus = status
+	}
+}
+
+// activeSnapshot devolve, sob lock, o ponteiro do run ativo (ou nil) e o status
+// terminal já marcado (ou ""), num único instante coerente — evita corrida entre
+// checar presença em `active` e ler o desfecho terminal.
+func (m *Manager) activeSnapshot(runID string) (*activeRun, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ar := m.active[runID]
+	if ar == nil {
+		return nil, ""
+	}
+	return ar, ar.terminalStatus
 }
 
 // parentLock devolve o mutex (striped) responsável por serializar a entrega da
