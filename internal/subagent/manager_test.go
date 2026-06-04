@@ -363,8 +363,8 @@ func TestManagerDeliverIsIdempotent(t *testing.T) {
 		t.Fatalf("criar run: %v", err)
 	}
 
-	mgr.deliver(ctx, run, RunParams{ParentConversationID: "parent-conv"})
-	mgr.deliver(ctx, run, RunParams{ParentConversationID: "parent-conv"})
+	mgr.deliver(ctx, run)
+	mgr.deliver(ctx, run)
 
 	if delivery.count() != 1 {
 		t.Fatalf("esperava 1 entrega (idempotente), veio %d", delivery.count())
@@ -1493,7 +1493,7 @@ func TestDeliverIdempotencyFailClosed(t *testing.T) {
 	})
 	t.Cleanup(mgr.notifier.Stop)
 
-	mgr.deliver(ctx, run, RunParams{ParentConversationID: run.ParentConversationID})
+	mgr.deliver(ctx, run)
 
 	if delivery.count() != 0 {
 		t.Fatalf("fail-closed: não deveria entregar quando Get falha, entregou %d", delivery.count())
@@ -1519,7 +1519,7 @@ func TestDeliverDeliveryErrorIsLoggedAndNotMarked(t *testing.T) {
 	})
 	t.Cleanup(mgr.notifier.Stop)
 
-	mgr.deliver(ctx, run, RunParams{ParentConversationID: run.ParentConversationID})
+	mgr.deliver(ctx, run)
 
 	if delivery.count() != 1 {
 		t.Fatalf("Deliver deveria ter sido tentado uma vez, veio %d", delivery.count())
@@ -1552,7 +1552,7 @@ func TestDeliverDeliveredAtPersistErrorIsLogged(t *testing.T) {
 	})
 	t.Cleanup(mgr.notifier.Stop)
 
-	mgr.deliver(ctx, run, RunParams{ParentConversationID: run.ParentConversationID})
+	mgr.deliver(ctx, run)
 
 	if delivery.count() != 1 {
 		t.Fatalf("Deliver deveria ter ocorrido uma vez, veio %d", delivery.count())
@@ -1603,7 +1603,7 @@ func TestDeliverUsesInMemoryTerminalNotStaleDB(t *testing.T) {
 		AssistantMessageID:   "msg-final",
 	}
 
-	mgr.deliver(ctx, inMem, RunParams{ParentConversationID: "parent-conv"})
+	mgr.deliver(ctx, inMem)
 
 	n, ok := delivery.lastNotice()
 	if !ok {
@@ -1642,7 +1642,7 @@ func TestDeliverAlreadyDeliveredIsNoOp(t *testing.T) {
 	})
 	t.Cleanup(mgr.notifier.Stop)
 
-	mgr.deliver(ctx, run, RunParams{ParentConversationID: run.ParentConversationID})
+	mgr.deliver(ctx, run)
 
 	if delivery.count() != 0 {
 		t.Fatalf("run já entregue: deliver deveria ser no-op, entregou %d", delivery.count())
