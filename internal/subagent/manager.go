@@ -661,7 +661,13 @@ func (m *Manager) resolveTerminalStatus(ctx context.Context, run *database.SubAg
 		return terminal
 	}
 	if ar == nil && !isTerminal(run.Status) {
-		if fresh, ferr := m.repo.Get(ctx, run.ID); ferr == nil && fresh != nil {
+		// Releitura DESACOPLADA do cancelamento do caller: se o ctx do caller
+		// expirou/foi cancelado entre o resolveRun e aqui, um Get com esse ctx
+		// falharia e cairíamos no fallback run.Status — reexpondo um status
+		// possivelmente NÃO-terminal (ex.: running), exatamente o que este helper
+		// evita. WithoutCancel preserva os values (userID/escopo AEP-0052), então
+		// RequireUserID continua válido, mas a leitura fica imune ao cancelamento.
+		if fresh, ferr := m.repo.Get(context.WithoutCancel(ctx), run.ID); ferr == nil && fresh != nil {
 			return fresh.Status
 		}
 	}
