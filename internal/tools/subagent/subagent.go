@@ -137,7 +137,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return errResult("'run_id' requer 'conversation_id'"), nil
 	}
 	if !a.Cancel && prompt == "" && conversationID == "" && runID == "" {
-		return errResult("nada a fazer: informe 'prompt' (enviar), 'conversation_id' (status) ou 'cancel'"), nil
+		return errResult("nada a fazer: informe 'prompt' (enviar); 'conversation_id' (status do run mais recente) ou 'run_id' (status por run); ou 'cancel'"), nil
 	}
 
 	if t.provider == nil {
