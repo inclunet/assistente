@@ -242,10 +242,16 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	result.Status = run.Status
 	if err := m.repo.Update(context.WithoutCancel(ctx), run); err != nil {
 		m.notifier.Cancel(childConvID)
-		m.unregisterActive(run.ID)
 		log.Printf("[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, childConvID, err)
 		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: fmt.Sprintf("erro ao persistir estado running: %v", err)}
+		// Ordem markCompleting → finish → unregisterActive (mesma invariante do
+		// caminho de conclusão/síncrono): marca o terminal em memória ANTES de
+		// remover de `active`, para que um Cancel concorrente na janela até o
+		// finish persistir veja terminalStatus e responda no-op com o status
+		// real (nunca cancelled:false + running). Vale p/ síncrono e background.
+		m.markCompleting(run.ID, o.status)
 		finished := m.finish(ctx, run, &result, o)
+		m.unregisterActive(run.ID)
 		if p.Background {
 			m.deliver(ctx, run, p)
 		}
@@ -289,7 +295,6 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	}); err != nil {
 		cancelSend()
 		m.notifier.Cancel(childConvID)
-		m.unregisterActive(run.ID)
 		// Um cancel/timeout do ctx (usuário cancela a tool, deadline do executor)
 		// pode se manifestar como erro de send. Classificamos pelo estado do
 		// ctx/erro para não reportar cancelled/timed_out como failed (telemetria).
@@ -297,7 +302,13 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		// antes do branch p.Background).
 		status, errMsg := classifySendError(ctx, err)
 		o := outcome{status: status, errMsg: errMsg}
+		// Ordem markCompleting → finish → unregisterActive: marca o terminal real
+		// (cancelled/timed_out/failed) em memória ANTES de remover de `active`,
+		// fechando a janela em que um Cancel concorrente veria active==nil + DB
+		// ainda running. Vale p/ síncrono e background.
+		m.markCompleting(run.ID, o.status)
 		finished := m.finish(ctx, run, &result, o)
+		m.unregisterActive(run.ID)
 		if p.Background {
 			m.deliver(ctx, run, p)
 		}
@@ -731,9 +742,11 @@ func (m *Manager) lookupActive(runID string) *activeRun {
 }
 
 // markCompleting registra o desfecho terminal no run ativo (se ainda presente),
-// sob o mesmo lock que protege `active`. Chamado pelo callback do notifier no
-// instante da conclusão, ANTES do finish persistir — torna o Cancel consistente
-// (no-op com status terminal) sem remover o run de `active` prematuramente.
+// sob o mesmo lock que protege `active`. Chamado em TODO caminho terminal ANTES
+// do finish persistir — pelo callback do notifier (sucesso) e pelos caminhos de
+// erro (falha ao persistir running; erro de send classificado) — sempre na ordem
+// markCompleting → finish → unregisterActive. Torna o Cancel consistente (no-op
+// com status terminal) sem remover o run de `active` prematuramente.
 func (m *Manager) markCompleting(runID, status string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

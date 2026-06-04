@@ -883,6 +883,76 @@ func TestManagerCancelDuringCompletionWindowReturnsTerminal(t *testing.T) {
 	}
 }
 
+// TestManagerCancelDuringSendErrorWindowReturnsTerminal cobre a MESMA janela do
+// teste de conclusão, mas no CAMINHO DE ERRO de send: o run marca o terminal
+// (failed) em memória (markCompleting) e o finish bloqueia ao persistir. Um
+// Cancel concorrente na janela deve ser no-op (cancelled:false) com o status
+// terminal real (failed), NUNCA running. Garante que o caminho de erro segue a
+// ordem markCompleting → finish → unregisterActive.
+func TestManagerCancelDuringSendErrorWindowReturnsTerminal(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	blocking := &blockingTerminalUpdateRepo{
+		Repository: repo,
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	var mu sync.Mutex
+	cancelStreamCalls := 0
+	convCh := make(chan string, 1)
+	mgr := NewManager(ManagerConfig{
+		Repo:         blocking,
+		Notifier:     notifier,
+		Delivery:     &recordingDelivery{},
+		CancelStream: func(string) { mu.Lock(); cancelStreamCalls++; mu.Unlock() },
+		// Send falha com erro comum (não derivado do ctx) → desfecho failed.
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			convCh <- p.ConversationID
+			return "", fmt.Errorf("falha de envio")
+		},
+	})
+
+	// O caminho de erro de send é síncrono (antes do branch background): Run
+	// bloqueia no finish (persist do terminal). Rodamos em goroutine.
+	runDone := make(chan RunResult, 1)
+	go func() {
+		res, _ := mgr.Run(ctx, RunParams{Prompt: "x", ParentConversationID: "parent-conv"})
+		runDone <- res
+	}()
+
+	childConvID := <-convCh
+
+	// Aguarda o finish ENTRAR no persist do terminal (bloqueado): estamos na janela.
+	select {
+	case <-blocking.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("finish não entrou no persist do terminal")
+	}
+	// Garante liberação do finish mesmo se a asserção falhar (LIFO: roda antes do Stop).
+	t.Cleanup(func() { close(blocking.release) })
+
+	// Na janela: run ainda em `active`, DB ainda NÃO terminal. Cancel (resolvido
+	// pela sub-conversa) deve ser no-op com o status terminal real (failed).
+	cr, err := mgr.Cancel(ctx, childConvID, "")
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if cr.Cancelled {
+		t.Fatalf("cancel na janela de erro deveria ser no-op (cancelled=false); veio %#v", cr)
+	}
+	if cr.Status != StatusFailed {
+		t.Fatalf("status terminal real esperado failed (NUNCA running); veio %q", cr.Status)
+	}
+	mu.Lock()
+	calls := cancelStreamCalls
+	mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("CancelStream não deveria ser chamado na janela de erro; chamadas=%d", calls)
+	}
+}
+
 // TestManagerRunCancelsSendOnTimeout garante que, ao concluir por timeout, o
 // ctx passado ao pipeline de envio (que dispara o agentic loop da sub-conversa
 // em background) é efetivamente cancelado — interrompendo trabalho/custo após o
