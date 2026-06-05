@@ -214,12 +214,29 @@ type RunResult struct {
 	Error              string `json:"error,omitempty"`
 }
 
+// ChildRunAggregate é o agregado de runs por sub-conversa para a listagem da UI
+// (AEP-0068 F5): contagem de runs e status/erro/background do run MAIS RECENTE.
+// Calculado no banco (GROUP BY/window) para não carregar todos os runs em
+// memória numa tela de listagem.
+type ChildRunAggregate struct {
+	ChildConversationID string `gorm:"column:child_conversation_id"`
+	RunCount            int    `gorm:"column:run_count"`
+	LatestStatus        string `gorm:"column:latest_status"`
+	LatestError         string `gorm:"column:latest_error"`
+	LatestBackground    bool   `gorm:"column:latest_background"`
+}
+
 // Repository persiste runs de sub-agente (tabela sub_agent_runs, AEP-0068).
 type Repository interface {
 	Create(ctx context.Context, run *database.SubAgentRun) error
 	Get(ctx context.Context, id string) (*database.SubAgentRun, error)
 	GetLatestByChildConversation(ctx context.Context, childConversationID string) (*database.SubAgentRun, error)
 	ListByUser(ctx context.Context) ([]database.SubAgentRun, error)
+	// AggregateByChildConversation retorna, por child_conversation_id, a contagem
+	// de runs e o status/erro/background do run mais recente, escopado ao usuário
+	// do contexto (AEP-0052). Substitui o carregamento de todos os runs + agregação
+	// em memória na listagem da UI.
+	AggregateByChildConversation(ctx context.Context) (map[string]ChildRunAggregate, error)
 	Update(ctx context.Context, run *database.SubAgentRun) error
 	// ReconcileOrphans marca como failed runs em queued/running (órfãos após
 	// restart). Operação instance-wide de startup (não é pedido de usuário).

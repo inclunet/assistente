@@ -1584,6 +1584,8 @@ const en = {
       refresh: 'Refresh',
       open: 'Open sub-conversation',
       errorLoading: 'Failed to load sub-agents',
+      retry: 'Try again',
+      openError: 'Failed to open sub-conversation',
       untitled: 'Untitled sub-agent',
       background: 'Background',
       colTitle: 'Title',

@@ -1558,6 +1558,8 @@ const ptBR = {
       refresh: 'Atualizar',
       open: 'Abrir sub-conversa',
       errorLoading: 'Erro ao carregar sub-agentes',
+      retry: 'Tentar novamente',
+      openError: 'Erro ao abrir a sub-conversa',
       untitled: 'Sub-agente sem título',
       background: 'Em segundo plano',
       colTitle: 'Título',

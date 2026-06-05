@@ -100,6 +100,44 @@ func (r *DBRepository) ListByUser(ctx context.Context) ([]database.SubAgentRun, 
 	return runs, nil
 }
 
+// AggregateByChildConversation devolve, por child_conversation_id, a contagem de
+// runs e o status/erro/background do run MAIS RECENTE do usuário do contexto,
+// agregando no BANCO em vez de carregar todos os runs em memória (AEP-0068 F5).
+//
+// "Mais recente" segue a MESMA ordem do antigo ListByUser (created_at DESC, id
+// DESC), preservando exatamente a semântica exibida na UI. Usa window functions
+// (suportadas pelo SQLite do projeto, modernc/glebarez): COUNT OVER para a
+// contagem por sub-conversa e ROW_NUMBER OVER para eleger o run mais recente.
+//
+// Escopo por usuário (AEP-0052): RequireUserID + filtro explícito user_id = ?
+// (consulta Raw, equivalente ao ScopeByUser do ListByUser). Sem userID falha
+// fechado, nunca agrega runs de todos os usuários.
+func (r *DBRepository) AggregateByChildConversation(ctx context.Context) (map[string]ChildRunAggregate, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	const q = `
+SELECT child_conversation_id, run_count, status AS latest_status, error AS latest_error, background AS latest_background
+FROM (
+  SELECT child_conversation_id, status, error, background,
+         COUNT(*) OVER (PARTITION BY child_conversation_id) AS run_count,
+         ROW_NUMBER() OVER (PARTITION BY child_conversation_id ORDER BY created_at DESC, id DESC) AS rn
+  FROM sub_agent_runs
+  WHERE user_id = ?
+) t
+WHERE rn = 1`
+	var rows []ChildRunAggregate
+	if err := r.db.WithContext(ctx).Raw(q, userID).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]ChildRunAggregate, len(rows))
+	for _, row := range rows {
+		out[row.ChildConversationID] = row
+	}
+	return out, nil
+}
+
 // Update persiste alterações de um run existente, escopado ao usuário do
 // contexto. Força o UserID ao usuário do contexto (AEP-0052) antes do UPDATE
 // para que um UserID alterado não troque o dono do registro (transferência de

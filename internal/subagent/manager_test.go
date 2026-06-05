@@ -896,25 +896,25 @@ func TestManagerListSubConversationsUnconfiguredFails(t *testing.T) {
 	}
 }
 
-// listByUserGuardRepo embute Repository e faz o teste falhar se ListByUser for
-// chamado — usado para provar o early return de ListSubConversations.
-type listByUserGuardRepo struct {
+// aggregateGuardRepo embute Repository e faz o teste falhar se a agregação for
+// chamada — usado para provar o early return de ListSubConversations.
+type aggregateGuardRepo struct {
 	Repository
 	t *testing.T
 }
 
-func (r *listByUserGuardRepo) ListByUser(_ context.Context) ([]database.SubAgentRun, error) {
+func (r *aggregateGuardRepo) AggregateByChildConversation(_ context.Context) (map[string]ChildRunAggregate, error) {
 	r.t.Helper()
-	r.t.Fatal("ListByUser não deveria ser chamado quando não há sub-conversas (early return)")
+	r.t.Fatal("AggregateByChildConversation não deveria ser chamado quando não há sub-conversas (early return)")
 	return nil, nil
 }
 
 // TestManagerListSubConversationsEmptyShortCircuits garante que, sem sub-conversas
-// (metas vazio), ListSubConversations retorna slice vazio não-nil SEM consultar
-// repo.ListByUser (evita um SELECT desnecessário potencialmente grande).
+// (metas vazio), ListSubConversations retorna slice vazio não-nil SEM consultar a
+// agregação de runs (evita um SELECT desnecessário potencialmente grande).
 func TestManagerListSubConversationsEmptyShortCircuits(t *testing.T) {
 	mgr := &Manager{
-		repo:   &listByUserGuardRepo{t: t},
+		repo:   &aggregateGuardRepo{t: t},
 		lister: &fakeLister{metas: nil},
 	}
 	list, err := mgr.ListSubConversations(context.Background())
@@ -926,6 +926,63 @@ func TestManagerListSubConversationsEmptyShortCircuits(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("esperava lista vazia, veio %d", len(list))
+	}
+}
+
+// TestAggregateByChildConversation valida a agregação no banco: contagem de runs
+// por sub-conversa, eleição do run MAIS RECENTE (status/erro/background) e escopo
+// por usuário (runs de outro usuário não aparecem).
+func TestAggregateByChildConversation(t *testing.T) {
+	repo, ctx := setupManagerTest(t) // ctx = user-a
+
+	base := time.Now()
+	mk := func(c context.Context, child, status, errMsg string, bg bool, createdAt time.Time) {
+		t.Helper()
+		run := &database.SubAgentRun{
+			ParentConversationID: "p",
+			ChildConversationID:  child,
+			Status:               status,
+			Error:                errMsg,
+			Background:           bg,
+		}
+		run.CreatedAt = createdAt
+		if err := repo.Create(c, run); err != nil {
+			t.Fatalf("criar run: %v", err)
+		}
+	}
+
+	// convX: 3 runs; o mais recente (maior created_at) é failed/boom/background.
+	mk(ctx, "convX", StatusSucceeded, "", false, base.Add(-2*time.Hour))
+	mk(ctx, "convX", StatusSucceeded, "", false, base.Add(-1*time.Hour))
+	mk(ctx, "convX", StatusFailed, "boom", true, base)
+	// convY: 1 run running.
+	mk(ctx, "convY", StatusRunning, "", false, base.Add(-30*time.Minute))
+	// Outro usuário: run em convZ não deve aparecer para user-a.
+	ctxB := database.WithUserID(context.Background(), "user-b")
+	mk(ctxB, "convZ", StatusSucceeded, "", false, base)
+
+	agg, err := repo.AggregateByChildConversation(ctx)
+	if err != nil {
+		t.Fatalf("AggregateByChildConversation: %v", err)
+	}
+	if len(agg) != 2 {
+		t.Fatalf("esperava 2 sub-conversas para user-a, veio %d (%#v)", len(agg), agg)
+	}
+	if _, ok := agg["convZ"]; ok {
+		t.Fatal("convZ é de outro usuário e NÃO deveria aparecer (violação de escopo)")
+	}
+
+	x := agg["convX"]
+	if x.RunCount != 3 {
+		t.Fatalf("convX run_count esperado 3, veio %d", x.RunCount)
+	}
+	if x.LatestStatus != StatusFailed || x.LatestError != "boom" || !x.LatestBackground {
+		t.Fatalf("convX deveria refletir o run mais recente (failed/boom/background): %#v", x)
+	}
+
+	y := agg["convY"]
+	if y.RunCount != 1 || y.LatestStatus != StatusRunning {
+		t.Fatalf("convY inesperado: %#v", y)
 	}
 }
 

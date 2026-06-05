@@ -175,4 +175,39 @@ describe('SubAgentsPage', { timeout: 60_000 }, () => {
       expect(mockAnnounce).toHaveBeenCalledWith('subagents.errorLoading', 'assertive');
     });
   });
+
+  it('renderiza estado de erro visível (distinto do vazio) quando a carga falha', async () => {
+    mockGetSubAgentConversations.mockRejectedValue(new Error('boom'));
+    render(<SubAgentsPage />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('subagents.errorLoading');
+    // Estado de erro é distinto do estado vazio.
+    expect(screen.queryByText('subagents.empty')).not.toBeInTheDocument();
+  });
+
+  it('permite tentar novamente após falha de carga', async () => {
+    const user = userEvent.setup();
+    mockGetSubAgentConversations.mockRejectedValueOnce(new Error('boom'));
+    mockGetSubAgentConversations.mockResolvedValueOnce(subAgents);
+    render(<SubAgentsPage />);
+
+    await user.click(await screen.findByText('subagents.retry'));
+
+    await screen.findByText('Pesquisa de mercado');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('não quebra e anuncia erro quando o deep link falha ao abrir', async () => {
+    const user = userEvent.setup();
+    mockGetSubAgentConversations.mockResolvedValue(subAgents);
+    mockExecuteDeepLink.mockRejectedValueOnce(new Error('deep link boom'));
+    render(<SubAgentsPage />);
+
+    await user.click(await screen.findByText('Pesquisa de mercado'));
+
+    await waitFor(() => {
+      expect(mockAnnounce).toHaveBeenCalledWith('subagents.openError', 'assertive');
+    });
+  });
 });

@@ -1583,6 +1583,8 @@ const es = {
       refresh: 'Actualizar',
       open: 'Abrir subconversación',
       errorLoading: 'Error al cargar subagentes',
+      retry: 'Intentar de nuevo',
+      openError: 'Error al abrir la subconversación',
       untitled: 'Subagente sin título',
       background: 'En segundo plano',
       colTitle: 'Título',

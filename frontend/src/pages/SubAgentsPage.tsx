@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
+import { Button } from '../components/ui/Button';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -40,16 +41,19 @@ export default function SubAgentsPage() {
 
   const [subAgents, setSubAgents] = useState<SubAgent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [focusedRow, setFocusedRow] = useState<SubAgent | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const result = await GetSubAgentConversations();
       setSubAgents(result || []);
     } catch (error) {
       logger.error('Erro ao carregar sub-agentes:', error);
+      setLoadError(true);
       announce(t('subagents.errorLoading'), 'assertive');
     } finally {
       setLoading(false);
@@ -61,11 +65,16 @@ export default function SubAgentsPage() {
   }, [load]);
 
   const handleOpen = useCallback(async (conversationId: string, title?: string) => {
-    await executeDeepLink(
-      { type: 'conversation:open', conversationId, title },
-      { navigate },
-    );
-  }, [navigate]);
+    try {
+      await executeDeepLink(
+        { type: 'conversation:open', conversationId, title },
+        { navigate },
+      );
+    } catch (error) {
+      logger.error('Erro ao abrir sub-conversa via deep link:', error);
+      announce(t('subagents.openError'), 'assertive');
+    }
+  }, [navigate, announce, t]);
 
   const displayItems = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -139,6 +148,19 @@ export default function SubAgentsPage() {
     return (
       <div className="subagents-page">
         <div className="loading">{t('subagents.loading')}</div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="subagents-page">
+        <div className="subagents-page__error" role="alert">
+          <p className="subagents-page__error-message">{t('subagents.errorLoading')}</p>
+          <Button variant="secondary" onClick={() => void load()}>
+            {t('subagents.retry')}
+          </Button>
+        </div>
       </div>
     );
   }

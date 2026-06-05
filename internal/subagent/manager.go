@@ -776,29 +776,12 @@ func (m *Manager) ListSubConversations(ctx context.Context) ([]SubConversationSu
 	if len(metas) == 0 {
 		return []SubConversationSummary{}, nil
 	}
-	runs, err := m.repo.ListByUser(ctx)
+	// Agregação por sub-conversa feita no BANCO (contagem + status/erro/background
+	// do run mais recente), em vez de carregar todos os runs do usuário e agregar
+	// em memória — evita query/transferência pesada nesta tela de listagem.
+	byConv, err := m.repo.AggregateByChildConversation(ctx)
 	if err != nil {
 		return nil, err
-	}
-
-	// runs vem ordenado do mais recente para o mais antigo: o primeiro visto por
-	// child_conversation_id é o mais recente.
-	type runAgg struct {
-		latest *database.SubAgentRun
-		count  int
-	}
-	byConv := make(map[string]*runAgg, len(metas))
-	for i := range runs {
-		r := &runs[i]
-		agg, ok := byConv[r.ChildConversationID]
-		if !ok {
-			agg = &runAgg{}
-			byConv[r.ChildConversationID] = agg
-		}
-		if agg.latest == nil {
-			agg.latest = r
-		}
-		agg.count++
 	}
 
 	out := make([]SubConversationSummary, 0, len(metas))
@@ -814,11 +797,11 @@ func (m *Manager) ListSubConversations(ctx context.Context) ([]SubConversationSu
 			CreatedAt:            meta.CreatedAt,
 			UpdatedAt:            meta.UpdatedAt,
 		}
-		if agg, ok := byConv[meta.ConversationID]; ok && agg.latest != nil {
-			s.LatestStatus = agg.latest.Status
-			s.RunCount = agg.count
-			s.Background = agg.latest.Background
-			s.LastError = agg.latest.Error
+		if agg, ok := byConv[meta.ConversationID]; ok {
+			s.LatestStatus = agg.LatestStatus
+			s.RunCount = agg.RunCount
+			s.Background = agg.LatestBackground
+			s.LastError = agg.LatestError
 		}
 		out = append(out, s)
 	}
