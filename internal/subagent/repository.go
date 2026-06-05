@@ -152,6 +152,13 @@ func (r *DBRepository) Update(ctx context.Context, run *database.SubAgentRun) er
 // reconciliados. Como o startup roda em goroutine enquanto o app já pode
 // aceitar requests, runs legítimos criados após o início (created_at >= cutoff)
 // NÃO podem ser marcados como órfãos. now é o instante para carimbar o desfecho.
+//
+// SECURITY: instance-wide — atualiza runs de TODOS os usuários, sem filtro de
+// userID. É deliberado: roda só no startup (internal/app/app.go), sem ator de
+// usuário, para reconciliar órfãos de QUALQUER dono após um crash (deixar o run
+// de outro usuário preso em running seria o bug). O WHERE é restrito a
+// status IN (queued,running) AND created_at < cutoff — não toca runs terminais
+// nem os criados após o início. Não há entrada por request de usuário.
 func (r *DBRepository) ReconcileOrphans(ctx context.Context, cutoff, now time.Time) (int64, error) {
 	res := r.db.WithContext(ctx).Model(&database.SubAgentRun{}).
 		Where("status IN ? AND created_at < ?", []string{database.SubAgentRunStatusQueued, database.SubAgentRunStatusRunning}, cutoff).

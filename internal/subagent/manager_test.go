@@ -1026,6 +1026,53 @@ func TestManagerReconcileOrphansRespectsCutoff(t *testing.T) {
 	}
 }
 
+// TestManagerReconcileOrphansIsInstanceWide documenta o contrato DELIBERADAMENTE
+// instance-wide (SECURITY: instance-wide): a reconciliação de startup roda sem
+// ator de usuário e marca como failed os órfãos de TODOS os donos — deixar o run
+// de outro usuário preso em running após um crash seria o bug.
+func TestManagerReconcileOrphansIsInstanceWide(t *testing.T) {
+	repo, ctxA := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+	ctxB := database.WithUserID(context.Background(), "user-b")
+
+	mkRunFor := func(userCtx context.Context, userID string) string {
+		conv, err := database.CreateSubAgentConversationWithContext(userCtx, "t", "parent")
+		if err != nil {
+			t.Fatalf("criar conv (%s): %v", userID, err)
+		}
+		run := &database.SubAgentRun{UserID: userID, ParentConversationID: "parent", ChildConversationID: conv.ID, Status: StatusRunning}
+		if err := repo.Create(userCtx, run); err != nil {
+			t.Fatalf("criar run (%s): %v", userID, err)
+		}
+		return run.ID
+	}
+	runA := mkRunFor(ctxA, "user-a")
+	runB := mkRunFor(ctxB, "user-b")
+
+	// Reconciliação instance-wide (não filtra por usuário) deve atingir ambos.
+	n, err := mgr.ReconcileOrphans(ctxA, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ReconcileOrphans: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("esperava 2 runs reconciliados (de 2 usuários), veio %d", n)
+	}
+
+	gotA, err := repo.Get(ctxA, runA)
+	if err != nil {
+		t.Fatalf("buscar run A: %v", err)
+	}
+	gotB, err := repo.Get(ctxB, runB)
+	if err != nil {
+		t.Fatalf("buscar run B: %v", err)
+	}
+	if gotA.Status != StatusFailed || gotB.Status != StatusFailed {
+		t.Fatalf("ambos os órfãos deveriam virar failed (instance-wide); A=%q B=%q", gotA.Status, gotB.Status)
+	}
+}
+
 // TestManagerReconcileOrphansUnconfiguredFails garante que, sem repo/manager, a
 // reconciliação falha explicitamente (não mascara wiring quebrado no startup).
 func TestManagerReconcileOrphansUnconfiguredFails(t *testing.T) {
