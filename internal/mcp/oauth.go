@@ -125,7 +125,7 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
 		return fmt.Errorf("silent refresh failed: %w", err)
 	}
 
-	rt.tokenSource = rt.wrapWithPersistence(rt.oauthCfg.TokenSource(ctx, newToken))
+	rt.tokenSource = rt.wrapWithPersistence(rt.oauthCfg.TokenSource(rt.longLivedCtx(), newToken))
 	rt.persistTokens(ctx, newToken)
 
 	rotated := newToken.RefreshToken != "" && newToken.RefreshToken != refreshToken
@@ -317,6 +317,16 @@ func (rt *pkceRoundTripper) authCtx() context.Context {
 		return context.Background()
 	}
 	return rt.authCtxProvider()
+}
+
+// longLivedCtx devolve um contexto não-cancelável para o oauth2.TokenSource
+// ARMAZENADO em rt.tokenSource. Esse token source faz refreshes muito depois da
+// operação que o criou; se capturasse o ctx request-scoped (ou o ctx com timeout
+// do device/PKCE flow), todo refresh futuro falharia ao ser cancelado, forçando
+// reauth interativa (issue #193). Preserva os valores do authCtx (ex.: user_id)
+// removendo apenas o cancelamento.
+func (rt *pkceRoundTripper) longLivedCtx() context.Context {
+	return context.WithoutCancel(rt.authCtx())
 }
 
 func (rt *pkceRoundTripper) effectiveClientID() string {
@@ -817,7 +827,7 @@ func (rt *pkceRoundTripper) authorizeDeviceFlow(parentCtx context.Context) error
 				Scopes: deviceScopes,
 			}
 			rt.oauthCfg = oauthCfg
-			rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(ctx, token))
+			rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
 			rt.persistTokens(ctx, token)
 			if tokenResp.RefreshToken == "" {
 				log.Printf("[MCP:%s] AVISO: device flow não retornou refresh_token — reauth será necessária na expiração (verifique offline_access)", rt.serverSlug)
@@ -971,7 +981,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 		}
 
 		rt.oauthCfg = oauthCfg
-		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(ctx, token))
+		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
 		rt.persistTokens(ctx, token)
 
 		log.Printf("[MCP:%s] Autorização OAuth2 PKCE concluída com sucesso", rt.serverSlug)
@@ -1239,7 +1249,8 @@ func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEve
 			Scopes: cfg.OAuth2Scopes,
 		}
 		rt.oauthCfg = oauthCfg
-		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(bootstrapCtx, token))
+		// Token source persistido: ctx long-lived para não morrer com o bootstrap.
+		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
 	}
 
 	return &http.Client{Transport: rt}

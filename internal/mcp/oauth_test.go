@@ -1347,6 +1347,56 @@ func TestTrySilentRefresh_UsesStoreRefreshTokenWhenMemoryLacksIt(t *testing.T) {
 	}
 }
 
+func TestStoredTokenSourceSurvivesOperationCtxCancel(t *testing.T) {
+	// O token source ARMAZENADO deve renovar mesmo depois que o ctx da operação que
+	// o criou é cancelado — senão refreshes futuros falham e forçam reauth (#193).
+	var mu sync.Mutex
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		// expires_in baixo: com o expiryDelta do oauth2, o token é tratado como
+		// expirado, forçando refresh a cada Token().
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  fmt.Sprintf("acc-%d", n),
+			"token_type":    "Bearer",
+			"refresh_token": fmt.Sprintf("ref-%d", n),
+			"expires_in":    1,
+		})
+	}))
+	defer srv.Close()
+
+	credMgr := newTestCredMgr()
+	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
+	rt.persistTokens(context.Background(), &oauth2.Token{AccessToken: "seed", RefreshToken: "seed-ref"})
+	rt.oauthCfg = &oauth2.Config{ClientID: "c", Endpoint: oauth2.Endpoint{TokenURL: srv.URL + "/token"}}
+	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "seed"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := rt.trySilentRefresh(ctx); err != nil {
+		t.Fatalf("trySilentRefresh: %v", err)
+	}
+	// Cancela o ctx da operação: o token source armazenado NÃO deve depender dele.
+	cancel()
+
+	tok, err := rt.tokenSource.Token()
+	if err != nil {
+		t.Fatalf("refresh futuro falhou após cancelamento do ctx da operação: %v", err)
+	}
+	if tok == nil || tok.AccessToken == "" {
+		t.Fatal("esperava access_token renovado")
+	}
+	mu.Lock()
+	gotCalls := calls
+	mu.Unlock()
+	if gotCalls < 2 {
+		t.Errorf("esperava ao menos 2 chamadas ao token endpoint (refresh inicial + futuro), got %d", gotCalls)
+	}
+}
+
 // ============ single-flight por servidor (#194) ============
 
 // seqTokenSource devolve tokens em sequência: simula que, entre a captura do token
