@@ -90,19 +90,24 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
 		return fmt.Errorf("no oauth config or token source")
 	}
 
-	token, err := rt.tokenSource.Token()
-	if err != nil || token == nil || token.RefreshToken == "" {
-		return fmt.Errorf("no refresh token available")
-	}
-
-	refreshToken := token.RefreshToken
-	// Reload-before-refresh: outro caminho (reconexão, outra tool em paralelo) pode
-	// ter rotacionado o refresh_token e persistido um novo. Em provedores com
-	// refresh rotativo de uso único (ex.: Atlassian), reusar um refresh_token já
-	// consumido falha e dispara reauth interativa. Recarrega o mais recente do
-	// store antes de renovar (issue #193).
-	if stored := loadUserTokens(rt.authCtx(), rt.credMgr, rt.serverSlug); stored != nil && stored.RefreshToken != "" {
+	// Reload-before-refresh: prefere o refresh_token mais recente do store e cai para
+	// o token em memória. Duas razões (issue #193):
+	//   - outro caminho (reconexão, tool concorrente) pode ter rotacionado e
+	//     persistido um novo refresh_token; reusar um já consumido (rotativo de uso
+	//     único, ex.: Atlassian) falha e dispara reauth;
+	//   - em refresh non-rotativo, o token em memória pode não reter o refresh_token,
+	//     mas o store ainda o tem — não exigimos refresh_token em memória aqui.
+	refreshToken := ""
+	if stored := loadUserTokens(rt.authCtx(), rt.credMgr, rt.serverSlug); stored != nil {
 		refreshToken = stored.RefreshToken
+	}
+	if refreshToken == "" {
+		if token, err := rt.tokenSource.Token(); err == nil && token != nil {
+			refreshToken = token.RefreshToken
+		}
+	}
+	if refreshToken == "" {
+		return fmt.Errorf("no refresh token available")
 	}
 
 	expiredToken := &oauth2.Token{

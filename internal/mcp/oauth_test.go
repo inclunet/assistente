@@ -1302,6 +1302,51 @@ func TestPersistTokens_PersistsExpiry(t *testing.T) {
 	}
 }
 
+func TestTrySilentRefresh_UsesStoreRefreshTokenWhenMemoryLacksIt(t *testing.T) {
+	// Refresh non-rotativo: o token em memória não tem refresh_token, mas o store
+	// tem. O reload-before-refresh deve recarregar do store em vez de falhar com
+	// "no refresh token available" (issue #193).
+	var gotRefresh string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotRefresh = r.Form.Get("refresh_token")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "new-access",
+			"token_type":    "Bearer",
+			"refresh_token": "rotated-refresh",
+			"expires_in":    3600,
+		})
+	}))
+	defer srv.Close()
+
+	credMgr := newTestCredMgr()
+	ctx := context.Background()
+	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
+	rt.persistTokens(ctx, &oauth2.Token{AccessToken: "old-access", RefreshToken: "stored-refresh"})
+
+	rt.oauthCfg = &oauth2.Config{
+		ClientID: "c",
+		Endpoint: oauth2.Endpoint{TokenURL: srv.URL + "/token"},
+	}
+	// Token em memória SEM refresh_token (caminho que antes retornava cedo).
+	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "old-access"})
+
+	if err := rt.trySilentRefresh(ctx); err != nil {
+		t.Fatalf("trySilentRefresh deveria suceder usando o refresh do store: %v", err)
+	}
+	if gotRefresh != "stored-refresh" {
+		t.Errorf("deveria usar o refresh_token do store, got %q", gotRefresh)
+	}
+	loaded := loadUserTokens(ctx, credMgr, "srv")
+	if loaded == nil || loaded.AccessToken != "new-access" {
+		t.Errorf("novo access_token deveria ser persistido, got %+v", loaded)
+	}
+	if loaded.RefreshToken != "rotated-refresh" {
+		t.Errorf("refresh rotacionado deveria persistir, got %q", loaded.RefreshToken)
+	}
+}
+
 // ============ single-flight por servidor (#194) ============
 
 // seqTokenSource devolve tokens em sequência: simula que, entre a captura do token
