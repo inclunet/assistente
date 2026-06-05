@@ -225,6 +225,24 @@ func TestWebFetch_BlocksLocalhost(t *testing.T) {
 	}
 }
 
+func TestWebFetch_BlocksRedirectToInvalidScheme(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "ftp://example.com/x")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+
+	tool := newTestWebFetch() // allowPrivateHosts=true; o alvo é o destino do redirect
+	args, _ := json.Marshal(map[string]string{"url": srv.URL})
+	res, err := tool.Execute(context.Background(), json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.IsError {
+		t.Error("esperado IsError ao bloquear redirect para scheme inválido")
+	}
+}
+
 func TestHtmlToText(t *testing.T) {
 	html := `<div><p>Hello <b>World</b></p><script>alert('x')</script><style>.x{}</style></div>`
 	text := htmlToText(html)

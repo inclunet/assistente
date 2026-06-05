@@ -33,9 +33,16 @@ func NewWebFetch(credMgr *credentials.Manager) *WebFetch {
 	client := httpclient.New(&httpclient.Config{
 		CredentialManager: credMgr,
 	}, map[string]string{})
-	return &WebFetch{
+	t := &WebFetch{
 		client: client,
 	}
+	// net/http segue redirects automaticamente; sem isto uma URL pública poderia
+	// redirecionar para um host privado (ex.: 127.0.0.1, 169.254.169.254) e burlar
+	// o bloqueio anti-SSRF. Aplica o guard compartilhado no client desta tool.
+	if bc := client.GetBaseClient(); bc != nil {
+		bc.CheckRedirect = httpclient.RedirectGuard(httpclient.DefaultMaxRedirects, func() bool { return t.allowPrivateHosts })
+	}
+	return t
 }
 
 func (t *WebFetch) Name() string { return "web_fetch" }

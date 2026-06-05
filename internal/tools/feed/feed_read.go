@@ -35,25 +35,11 @@ func NewFeedRead(credMgr *credentials.Manager) *FeedRead {
 	t := &FeedRead{client: client}
 
 	// O net/http segue redirects automaticamente, então só validar a URL inicial
-	// não basta: um atacante poderia passar uma URL pública que redireciona para
-	// http://127.0.0.1/... e burlar o isPrivateHost. Bloqueamos qualquer redirect
-	// para scheme não-http(s) ou host local/privado. O cliente é exclusivo desta
-	// tool, então é seguro configurar o CheckRedirect do baseClient aqui.
+	// não basta: uma URL pública poderia redirecionar para http://127.0.0.1/... e
+	// burlar o bloqueio. Usa o guard anti-SSRF compartilhado. O cliente é exclusivo
+	// desta tool, então é seguro configurar o CheckRedirect do baseClient aqui.
 	if bc := client.GetBaseClient(); bc != nil {
-		bc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			// via contém as requisições já feitas; permitimos até feedMaxRedirects
-			// saltos e só barramos a partir do seguinte.
-			if len(via) > feedMaxRedirects {
-				return fmt.Errorf("excesso de redirects (limite %d)", feedMaxRedirects)
-			}
-			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-				return fmt.Errorf("redirect para scheme não suportado: %q", req.URL.Scheme)
-			}
-			if !t.allowPrivateHosts && httpclient.IsPrivateHost(req.URL.Hostname()) {
-				return fmt.Errorf("redirect para host local/privado bloqueado: %s", req.URL.Host)
-			}
-			return nil
-		}
+		bc.CheckRedirect = httpclient.RedirectGuard(feedMaxRedirects, func() bool { return t.allowPrivateHosts })
 	}
 
 	return t

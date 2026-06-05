@@ -25,6 +25,12 @@ func IsPrivateHost(host string) bool {
 	host = strings.ToLower(strings.TrimSpace(host))
 	host = strings.Trim(host, "[]")
 	host = strings.TrimSuffix(host, ".")
+	// Remove o zone identifier de IPv6 link-local (RFC 6874), ex.: "fe80::1%lo0".
+	// url.URL.Hostname() devolve o sufixo "%zone" e net.ParseIP falharia, deixando
+	// passar endereços link-local/loopback — outro bypass anti-SSRF.
+	if i := strings.IndexByte(host, '%'); i >= 0 {
+		host = host[:i]
+	}
 	if host == "localhost" {
 		return true
 	}
