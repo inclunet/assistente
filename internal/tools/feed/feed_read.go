@@ -156,9 +156,25 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao parsear feed: %v", err), IsError: true}, nil
 	}
 
-	encoded, err := json.MarshalIndent(canonical, "", "  ")
+	// Marshal compacto (sem indentação): o contrato da tool é JSON canônico
+	// consumível por json.Unmarshal, não por leitura humana, e reduz bytes.
+	encoded, err := json.Marshal(canonical)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao serializar feed: %v", err), IsError: true}, nil
+	}
+
+	// O executor trunca resultados acima de tools.DefaultMaxResultSize e anexa um
+	// aviso textual, o que transformaria a saída em JSON inválido e quebraria o
+	// contrato de "JSON canônico". Em vez de devolver JSON corrompido, falhamos
+	// de forma explícita pedindo um payload menor.
+	if len(encoded) > tools.DefaultMaxResultSize {
+		return tools.ToolResult{
+			Content: fmt.Sprintf(
+				"Feed serializado tem %d bytes, acima do limite de %d. Reduza 'max_items' ou desabilite 'include_content' para obter um payload menor.",
+				len(encoded), tools.DefaultMaxResultSize,
+			),
+			IsError: true,
+		}, nil
 	}
 
 	return tools.ToolResult{
@@ -177,6 +193,13 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 // Usa net.ParseIP para cobrir corretamente os ranges privados (10/8,
 // 172.16/12, 192.168/16), loopback e link-local, sem o falso positivo de um
 // prefix match ingênuo (ex.: 172.2.x.x é público).
+//
+// Limitação conhecida: só inspeciona IPs literais e "localhost". Um hostname
+// que resolve via DNS para um IP privado (ex.: "internal.example") NÃO é
+// bloqueado, pois net.ParseIP retorna nil para nomes — e não fazemos resolução
+// de DNS aqui (evita lookups extras e o TOCTOU entre o check e o dial). Portanto
+// isto não é proteção anti-SSRF completa, apenas uma barreira contra URLs que
+// já apontam diretamente para endereços locais/privados.
 func isPrivateHost(host string) bool {
 	host = strings.ToLower(strings.Trim(host, "[]"))
 	if host == "localhost" {
