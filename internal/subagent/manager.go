@@ -31,6 +31,11 @@ const maxResultSummary = 16 * 1024
 // descontrolada (sub-agente acordando o pai que delega de novo, etc.).
 const DefaultMaxChainDepth = 10
 
+// DefaultMaxConcurrentPerUser é o teto global de sub-agentes simultâneos por
+// usuário (AEP-0068 F5). Protege contra custo/concorrência descontrolados
+// quando muitos runs em background são disparados ao mesmo tempo.
+const DefaultMaxConcurrentPerUser = 4
+
 // completion carrega o resultado entregue pelo callback in-process do notifier.
 type completion struct {
 	response           string
@@ -75,13 +80,16 @@ type Manager struct {
 	notifier      *messaging.ResponseNotifier
 	send          SendFunc
 	delivery      ParentDelivery
+	lister        ConversationLister
 	cancelStrm    func(conversationID string)
 	now           func() time.Time
 	maxChainDepth int
+	maxConcurrent int
 
-	mu          sync.Mutex
-	active      map[string]*activeRun // runID -> run ativo
-	activeConvs map[string]struct{}   // childConversationID com run ativo (fail-fast resume)
+	mu           sync.Mutex
+	active       map[string]*activeRun // runID -> run ativo
+	activeByUser map[string]int        // userID -> nº de runs ativos (teto de concorrência)
+	activeConvs  map[string]struct{}   // childConversationID com run ativo (fail-fast resume)
 
 	// parentLocks serializa a entrega por conversa-pai (evita corrida no
 	// StreamingManager). Striped locks de cardinalidade FIXA: um map[parentID]
@@ -104,6 +112,9 @@ type ManagerConfig struct {
 	// (auto-wake). Pode ser nil (ex.: contextos sem pai); então o aviso é
 	// apenas persistido no run.
 	Delivery ParentDelivery
+	// Lister fornece metadados/custo das sub-conversas para a UI (AEP-0068 F5).
+	// Pode ser nil (ex.: testes que não exercitam a listagem).
+	Lister ConversationLister
 	// CancelStream cancela o streaming LLM de uma conversa (barge-in). Usado
 	// para interromper um sub-agente em background. Pode ser nil em testes.
 	CancelStream func(conversationID string)
@@ -112,6 +123,9 @@ type ManagerConfig struct {
 	// MaxChainDepth é o teto de profundidade de cadeia (backstop anti-runaway).
 	// <=0 usa DefaultMaxChainDepth.
 	MaxChainDepth int
+	// MaxConcurrentPerUser é o teto global de sub-agentes simultâneos por
+	// usuário. <=0 usa DefaultMaxConcurrentPerUser.
+	MaxConcurrentPerUser int
 }
 
 // NewManager cria um Manager com as dependências injetadas.
@@ -124,15 +138,22 @@ func NewManager(cfg ManagerConfig) *Manager {
 	if maxChainDepth <= 0 {
 		maxChainDepth = DefaultMaxChainDepth
 	}
+	maxConcurrent := cfg.MaxConcurrentPerUser
+	if maxConcurrent <= 0 {
+		maxConcurrent = DefaultMaxConcurrentPerUser
+	}
 	return &Manager{
 		repo:          cfg.Repo,
 		notifier:      cfg.Notifier,
 		send:          cfg.Send,
 		delivery:      cfg.Delivery,
+		lister:        cfg.Lister,
 		cancelStrm:    cfg.CancelStream,
 		now:           now,
 		maxChainDepth: maxChainDepth,
+		maxConcurrent: maxConcurrent,
 		active:        make(map[string]*activeRun),
+		activeByUser:  make(map[string]int),
 		activeConvs:   make(map[string]struct{}),
 	}
 }
@@ -176,12 +197,19 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, fmt.Errorf("limite de profundidade de cadeia atingido (%d): possível runaway de sub-agentes/jobs", m.maxChainDepth)
 	}
 
+	// Teto global de concorrência por usuário (AEP-0068 F5): reserva uma vaga
+	// antes de criar qualquer sub-conversa/run; cada caminho terminal libera.
+	if err := m.acquireSlot(userID); err != nil {
+		return RunResult{}, err
+	}
+
 	// 1. Resolve a sub-conversa SEM efeitos destrutivos: cria nova ou valida uma
 	// existente (resume — Fase 3). O clear (reset) NÃO ocorre aqui — só após a
 	// reserva de concorrência abaixo, para não apagar dados de um run que será
 	// rejeitado pelo fail-fast.
 	childConvID, isNew, err := m.resolveChildConversation(ctx, p)
 	if err != nil {
+		m.releaseSlot(userID)
 		return RunResult{}, err
 	}
 
@@ -197,15 +225,18 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// (Create) e o clear (reset de histórico/resumo). É liberada quando o run
 	// deixa de estar ativo (unregisterActive) ou nos caminhos de falha aqui.
 	if err := m.reserveConversation(childConvID); err != nil {
+		m.releaseSlot(userID)
 		return RunResult{}, err
 	}
 
 	// 1b. Calcula o TurnIndex (LEITURA não-destrutiva) com a reserva em mãos. O
 	//     índice vem da tabela de runs, não do histórico de chat, então independe
-	//     do clear e pode ser computado antes dele. Em falha, libera a reserva.
+	//     do clear e pode ser computado antes dele. Em falha, libera a reserva da
+	//     conversa E a vaga do usuário para não vazar nenhum dos dois.
 	turnIndex, err := m.nextTurnIndex(ctx, childConvID, isNew)
 	if err != nil {
 		m.releaseConversation(childConvID)
+		m.releaseSlot(userID)
 		return RunResult{}, err
 	}
 
@@ -234,13 +265,14 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	}
 	if err := m.repo.Create(ctx, run); err != nil {
 		m.releaseConversation(childConvID)
+		m.releaseSlot(userID)
 		return RunResult{}, fmt.Errorf("erro ao registrar run de sub-agente: %w", err)
 	}
 
 	// 2b. Com o run JÁ registrado, aplica o clear destrutivo (resume + reset).
 	//     Continua 100% dentro da região reservada (não reabre clear-antes-da-
 	//     reserva). Se o clear falhar, o run existe: marca-o failed (auditoria/
-	//     retry, best-effort) e libera a reserva.
+	//     retry, best-effort) e libera a reserva da conversa E a vaga do usuário.
 	if err := m.applyClear(ctx, childConvID, isNew, p.Clear); err != nil {
 		clearedAt := m.nowFn()
 		run.Status = database.SubAgentRunStatusFailed
@@ -250,6 +282,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			log.Printf("[Subagent] erro (best-effort) ao marcar run %s como failed após falha de clear: %v", run.ID, uerr)
 		}
 		m.releaseConversation(childConvID)
+		m.releaseSlot(userID)
 		return RunResult{}, fmt.Errorf("erro ao limpar sub-conversa: %w", err)
 	}
 
@@ -305,6 +338,10 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		log.Printf("[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, childConvID, err)
 		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: fmt.Sprintf("erro ao persistir estado running: %v", err)}
 		finished := m.finalize(ctx, run, &result, o)
+		// Libera a vaga IMEDIATAMENTE após o estado terminal e ANTES de deliver():
+		// o deliver (auto-wake ao pai) pode bloquear (lock por conversa-pai / IO de
+		// DB) e não deve segurar o teto de concorrência com o run já finalizado.
+		m.releaseSlot(userID)
 		if p.Background {
 			m.deliver(ctx, run)
 		}
@@ -356,6 +393,9 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		status, errMsg := classifySendError(ctx, err)
 		o := outcome{status: status, errMsg: errMsg}
 		finished := m.finalize(ctx, run, &result, o)
+		// Libera a vaga ANTES de deliver() (que pode bloquear): o run já está em
+		// estado terminal, não deve reter o teto de concorrência do usuário.
+		m.releaseSlot(userID)
 		if p.Background {
 			m.deliver(ctx, run)
 		}
@@ -379,6 +419,10 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			defer cancelSend()
 			o := m.wait(bgCtx, childConvID, done, ar, bgTimeout, true)
 			m.finalize(bgCtx, run, &bgResult, o)
+			// Libera a vaga ANTES de deliver(): o deliver (auto-wake ao pai) pode
+			// bloquear (lock por conversa-pai / IO) e não pode segurar o teto de
+			// concorrência com o run já em estado terminal.
+			m.releaseSlot(userID)
 			m.deliver(bgCtx, run)
 		}()
 		return result, nil
@@ -390,7 +434,33 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	defer cancelSend()
 	o := m.wait(ctx, childConvID, done, ar, p.Timeout, false)
 	finished := m.finalize(ctx, run, &result, o)
+	m.releaseSlot(userID)
 	return finished, nil
+}
+
+// acquireSlot reserva uma vaga de concorrência para o usuário; falha se o teto
+// já foi atingido. releaseSlot devolve a vaga (idempotente em zero).
+func (m *Manager) acquireSlot(userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeByUser[userID] >= m.maxConcurrent {
+		return fmt.Errorf("limite de %d sub-agentes simultâneos atingido para este usuário; aguarde a conclusão de um run ou cancele um existente", m.maxConcurrent)
+	}
+	m.activeByUser[userID]++
+	return nil
+}
+
+func (m *Manager) releaseSlot(userID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Remove a entrada ao zerar para não vazar chaves no map em processos
+	// long-lived com muitos userIDs distintos. Idempotente: chave ausente lê 0,
+	// então release a mais não recria a chave nem vai negativo.
+	if n := m.activeByUser[userID]; n > 1 {
+		m.activeByUser[userID] = n - 1
+	} else {
+		delete(m.activeByUser, userID)
+	}
 }
 
 // resolveChildConversation decide a sub-conversa alvo do run, SEM efeitos
@@ -690,6 +760,61 @@ func (m *Manager) ReconcileOrphans(ctx context.Context, cutoff time.Time) (int64
 		return 0, fmt.Errorf("subagent manager não configurado: não é possível reconciliar runs órfãos")
 	}
 	return m.repo.ReconcileOrphans(ctx, cutoff, m.nowFn())
+}
+
+// ListSubConversations retorna a visão das sub-conversas do usuário para a UI
+// (AEP-0068 F5): identidade, vínculo com o pai, status do run mais recente,
+// contagem de runs e custo agregado (tokens). Combina os metadados da conversa
+// (via Lister) com os runs persistidos (via Repository), tudo escopado por
+// usuário.
+func (m *Manager) ListSubConversations(ctx context.Context) ([]SubConversationSummary, error) {
+	if m == nil || m.repo == nil || m.lister == nil {
+		// Falha explicitamente: retornar lista vazia mascararia wiring quebrado
+		// do binding Wails (a UI veria "nenhum sub-agente" em vez de um erro),
+		// consistente com Run/ReconcileOrphans.
+		return nil, fmt.Errorf("subagent manager não configurado: não é possível listar sub-conversas")
+	}
+	metas, err := m.lister.ListSubAgentConversations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Sem sub-conversas: evita a query de agregação de runs no banco
+	// (AggregateByChildConversation) que não teria com o que casar. Retorna slice
+	// vazio não-nil, idêntico ao contrato do caminho normal
+	// (out = make([]SubConversationSummary, 0, ...)).
+	if len(metas) == 0 {
+		return []SubConversationSummary{}, nil
+	}
+	// Agregação por sub-conversa feita no BANCO (contagem + status/erro/background
+	// do run mais recente), em vez de carregar todos os runs do usuário e agregar
+	// em memória — evita query/transferência pesada nesta tela de listagem.
+	byConv, err := m.repo.AggregateByChildConversation(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]SubConversationSummary, 0, len(metas))
+	for _, meta := range metas {
+		s := SubConversationSummary{
+			ConversationID:       meta.ConversationID,
+			Title:                meta.Title,
+			ParentConversationID: meta.ParentConversationID,
+			MessageCount:         meta.MessageCount,
+			PromptTokens:         meta.PromptTokens,
+			CompletionTokens:     meta.CompletionTokens,
+			TotalTokens:          meta.TotalTokens,
+			CreatedAt:            meta.CreatedAt,
+			UpdatedAt:            meta.UpdatedAt,
+		}
+		if agg, ok := byConv[meta.ConversationID]; ok {
+			s.LatestStatus = agg.LatestStatus
+			s.RunCount = agg.RunCount
+			s.Background = agg.LatestBackground
+			s.LastError = agg.LatestError
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 // resolveRun encontra o run alvo por run_id (validando que pertence à conversa)

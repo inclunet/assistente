@@ -164,6 +164,46 @@ func isTerminal(status string) bool {
 	}
 }
 
+// ConversationLister fornece os metadados/custo das sub-conversas do usuário
+// para a UI (AEP-0068 F5). Implementado pelo wiring do app sobre o pacote
+// database (evita o pacote subagent depender de detalhes de consulta/joins).
+type ConversationLister interface {
+	ListSubAgentConversations(ctx context.Context) ([]SubConversationMeta, error)
+}
+
+// SubConversationMeta são os metadados de uma sub-conversa vindos do banco
+// (sem dados de run). O Manager enriquece com status/contagem/custo dos runs.
+type SubConversationMeta struct {
+	ConversationID       string
+	Title                string
+	ParentConversationID string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	MessageCount         int
+	PromptTokens         int
+	CompletionTokens     int
+	TotalTokens          int
+}
+
+// SubConversationSummary é a visão de uma sub-conversa para a UI: identidade,
+// vínculo com o pai, status do run mais recente, contagem de runs e custo
+// agregado (tokens). Serializada para o frontend pelo binding Wails.
+type SubConversationSummary struct {
+	ConversationID       string    `json:"conversationId"`
+	Title                string    `json:"title"`
+	ParentConversationID string    `json:"parentConversationId,omitempty"`
+	LatestStatus         string    `json:"latestStatus"`
+	RunCount             int       `json:"runCount"`
+	Background           bool      `json:"background"`
+	MessageCount         int       `json:"messageCount"`
+	PromptTokens         int       `json:"promptTokens"`
+	CompletionTokens     int       `json:"completionTokens"`
+	TotalTokens          int       `json:"totalTokens"`
+	LastError            string    `json:"lastError,omitempty"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+}
+
 // RunResult é o retorno de um run de sub-agente.
 type RunResult struct {
 	ConversationID     string `json:"conversation_id"`
@@ -174,11 +214,28 @@ type RunResult struct {
 	Error              string `json:"error,omitempty"`
 }
 
+// ChildRunAggregate é o agregado de runs por sub-conversa para a listagem da UI
+// (AEP-0068 F5): contagem de runs e status/erro/background do run MAIS RECENTE.
+// Calculado no banco (GROUP BY/window) para não carregar todos os runs em
+// memória numa tela de listagem.
+type ChildRunAggregate struct {
+	ChildConversationID string `gorm:"column:child_conversation_id"`
+	RunCount            int    `gorm:"column:run_count"`
+	LatestStatus        string `gorm:"column:latest_status"`
+	LatestError         string `gorm:"column:latest_error"`
+	LatestBackground    bool   `gorm:"column:latest_background"`
+}
+
 // Repository persiste runs de sub-agente (tabela sub_agent_runs, AEP-0068).
 type Repository interface {
 	Create(ctx context.Context, run *database.SubAgentRun) error
 	Get(ctx context.Context, id string) (*database.SubAgentRun, error)
 	GetLatestByChildConversation(ctx context.Context, childConversationID string) (*database.SubAgentRun, error)
+	// AggregateByChildConversation retorna, por child_conversation_id, a contagem
+	// de runs e o status/erro/background do run mais recente, escopado ao usuário
+	// do contexto (AEP-0052). Substitui o carregamento de todos os runs + agregação
+	// em memória na listagem da UI.
+	AggregateByChildConversation(ctx context.Context) (map[string]ChildRunAggregate, error)
 	Update(ctx context.Context, run *database.SubAgentRun) error
 	// ReconcileOrphans marca como failed runs em queued/running (órfãos após
 	// restart). Operação instance-wide de startup (não é pedido de usuário).

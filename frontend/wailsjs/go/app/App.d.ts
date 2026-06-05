@@ -20,6 +20,7 @@ import {chat} from '../models';
 import {llm} from '../models';
 import {skills} from '../models';
 import {credentials} from '../models';
+import {subagent} from '../models';
 import {ports} from '../models';
 
 export function AddChildMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<database.ChatMessage>;
@@ -243,6 +244,8 @@ export function GetConversationTokenStats(arg1:string):Promise<chat.TokenStats>;
 export function GetConversationWithThreads(arg1:string):Promise<chat.ConversationWithThreads>;
 
 export function GetConversations():Promise<Array<database.Conversation>>;
+
+export function GetSubAgentConversations():Promise<Array<subagent.SubConversationSummary>>;
 
 export function GetEffectiveModel():Promise<string>;
 
