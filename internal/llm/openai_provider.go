@@ -32,10 +32,13 @@ import (
 //
 //   - useResponses=true (APIFormatOpenAIResponses):
 //     Responses API first (/v1/responses).
-//     Para OpenAI real (api.openai.com). Suporta MCP nativo (type:mcp),
-//     reasoning summaries (via Reasoning param), tool_choice, e features modernas.
-//     SupportsNativeMCP() retorna true.
-//     WithMCPServers() cria uma cópia com MCP servers configurados.
+//     Para OpenAI real (api.openai.com) e proxies que falam Responses (ex.: LiteLLM).
+//     Habilita reasoning summaries (via Reasoning param), tool_choice, e features modernas.
+//     SupportsNativeMCP() retorna true SOMENTE quanto a BaseURL é a OpenAI real
+//     (api.openai.com); proxies OpenAI-compatible não suportam tools type:"mcp" e
+//     caem no modo adapter (MCP via function/bridge tools). Ver SupportsNativeMCP().
+//     WithMCPServers() cria uma cópia com MCP servers configurados apenas quando
+//     SupportsNativeMCP() é true.
 //
 // Limitações conhecidas do path Responses vs Chat Completions:
 //   - Multimodalidade: imagens em user messages são convertidas como texto.
@@ -96,12 +99,23 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 	}
 }
 
+// SupportsNativeMCP só é verdadeiro para a plataforma OpenAI real
+// (api.openai.com) operando via Responses API. Conforme AEP-0021, apenas a
+// "OpenAI (real)" suporta tools nativas type:"mcp" na Responses API.
+//
+// Proxies OpenAI-compatible que também falam a Responses API (ex.: LiteLLM
+// roteando para deepseek/v4-flash e outros modelos) NÃO suportam o tipo "mcp"
+// — apenas type:"function". Enviar type:"mcp" para esses endpoints produz um
+// 400 Bad Request a cada turno ("unknown variant `mcp`, expected `function`").
+// Por isso o suporte nativo é gateado pela URL real da OpenAI; demais endpoints
+// caem no modo adapter (MCP servers expostos como function/bridge tools), que
+// preserva toda a funcionalidade das tools sem o type:"mcp".
 func (p *OpenAIProvider) SupportsNativeMCP() bool {
-	return p.useResponses
+	return p.useResponses && p.provider != nil && isOpenAIRealURL(p.provider.BaseURL)
 }
 
 func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {
-	if !p.useResponses || len(servers) == 0 {
+	if !p.SupportsNativeMCP() || len(servers) == 0 {
 		return p
 	}
 	return &OpenAIProvider{

@@ -804,6 +804,85 @@ func TestSupportsNativeMCP_ReflectsRealImplementation(t *testing.T) {
 	}
 }
 
+// TestOpenAIResponsesProvider_LiteLLMProxy_NoNativeMCP cobre a regressão do
+// 400 recorrente (unknown variant `mcp`): um proxy OpenAI-compatible (ex.:
+// LiteLLM) configurado com api_format=openai_responses fala a Responses API,
+// mas roteia para modelos (deepseek/v4-flash) que NÃO aceitam tools type:"mcp".
+// O provider deve continuar usando a Responses API, porém SEM reportar suporte
+// a MCP nativo — os MCP servers caem no modo adapter (function/bridge tools).
+func TestOpenAIResponsesProvider_LiteLLMProxy_NoNativeMCP(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:        "litellm",
+		Name:      "LiteLLM",
+		Type:      ProviderCustom,
+		APIFormat: APIFormatOpenAIResponses,
+		BaseURL:   "http://llm.inclunet.com.br/v1",
+	}
+	provider := NewOpenAIResponsesProvider(p, credMgr)
+
+	if !provider.useResponses {
+		t.Fatal("proxy deve continuar usando a Responses API (useResponses=true)")
+	}
+	if provider.SupportsNativeMCP() {
+		t.Error("proxy OpenAI-compatible NÃO deve reportar suporte a MCP nativo (type:mcp gera 400)")
+	}
+
+	servers := []MCPServerConfig{
+		{Name: "GitHub", Slug: "github", URL: "https://api.githubcopilot.com/mcp/", AuthToken: "tok"},
+	}
+	if got := provider.WithMCPServers(servers); got != provider {
+		t.Error("WithMCPServers deve ser no-op quando o provider não suporta MCP nativo")
+	}
+}
+
+// TestBuildResponsesParams_NativeMCPGatedByURL garante, no nível da request, que
+// apenas a OpenAI real (api.openai.com) recebe tools type:"mcp" e que um proxy
+// que fala Responses (mas não suporta MCP nativo) nunca injeta type:"mcp".
+func TestBuildResponsesParams_NativeMCPGatedByURL(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	ctx := context.Background()
+	msgs := []Message{{Role: "user", Content: "oi"}}
+	servers := []MCPServerConfig{
+		{Name: "GitHub", Slug: "github", URL: "https://api.githubcopilot.com/mcp/", AuthToken: "tok"},
+	}
+
+	real := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "o", Name: "OpenAI", Type: ProviderOpenAI,
+		APIFormat: APIFormatOpenAIResponses, BaseURL: "https://api.openai.com/v1",
+	}, credMgr)
+	realCfg, ok := real.WithMCPServers(servers).(*OpenAIProvider)
+	if !ok {
+		t.Fatal("WithMCPServers deveria retornar *OpenAIProvider para a OpenAI real")
+	}
+	realParams := realCfg.buildResponsesParams(ctx, "gpt-5", msgs, ChatParams{}, realCfg.mcpServers)
+	if !hasMCPTool(realParams.Tools) {
+		t.Error("OpenAI real deve manter MCP nativo (tool type:mcp presente na request)")
+	}
+
+	proxy := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "l", Name: "LiteLLM", Type: ProviderCustom,
+		APIFormat: APIFormatOpenAIResponses, BaseURL: "http://llm.inclunet.com.br/v1",
+	}, credMgr)
+	proxyCfg, ok := proxy.WithMCPServers(servers).(*OpenAIProvider)
+	if !ok {
+		t.Fatal("WithMCPServers (no-op) deveria retornar *OpenAIProvider")
+	}
+	proxyParams := proxyCfg.buildResponsesParams(ctx, "deepseek-v4-flash", msgs, ChatParams{}, proxyCfg.mcpServers)
+	if hasMCPTool(proxyParams.Tools) {
+		t.Error("proxy OpenAI-compatible NÃO deve enviar tool type:mcp (causaria 400 Bad Request)")
+	}
+}
+
+func hasMCPTool(tools []responses.ToolUnionParam) bool {
+	for i := range tools {
+		if tools[i].OfMcp != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func TestWithMCPServers_ImmutableOriginal(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	provider := NewOpenAIResponsesProvider(&ProviderConfig{ID: "o", Name: "O", BaseURL: "https://api.openai.com/v1"}, credMgr)
