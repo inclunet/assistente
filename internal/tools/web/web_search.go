@@ -134,7 +134,13 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 	}
 
 	offset := 0
-	if a.Offset != nil && *a.Offset > 0 {
+	if a.Offset != nil {
+		if *a.Offset < 0 {
+			return tools.ToolResult{
+				Content: fmt.Sprintf("Parâmetro 'offset' inválido: %d (deve ser >= 0)", *a.Offset),
+				IsError: true,
+			}, nil
+		}
 		offset = *a.Offset
 	}
 
@@ -166,6 +172,21 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 	if err != nil {
 		return tools.ToolResult{
 			Content: fmt.Sprintf("Erro ao serializar resultados: %v", err),
+			IsError: true,
+		}, nil
+	}
+
+	// O executor trunca resultados acima do limite efetivo e anexa um aviso textual,
+	// o que transformaria a saída em JSON inválido e quebraria o contrato canônico.
+	// Lemos o limite efetivo do ctx e, em vez de devolver JSON corrompido, falhamos
+	// de forma explícita pedindo um payload menor.
+	maxResultSize := tools.MaxResultSizeFromContext(ctx)
+	if len(encoded) > maxResultSize {
+		return tools.ToolResult{
+			Content: fmt.Sprintf(
+				"Resultado serializado tem %d bytes, acima do limite de %d. Reduza 'max_results' para obter um payload menor.",
+				len(encoded), maxResultSize,
+			),
 			IsError: true,
 		}, nil
 	}

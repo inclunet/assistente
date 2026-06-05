@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"assistente/internal/credentials"
+	"assistente/internal/tools"
 	httpclient "assistente/internal/tools/http"
 )
 
@@ -129,7 +130,10 @@ func TestWebSearch_Pagination(t *testing.T) {
 	}
 
 	// Página 2: offset = 0 + count (4).
-	res2, _ := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","max_results":4,"offset":4}`))
+	res2, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","max_results":4,"offset":4}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
 	var p2 webSearchJSONOutput
 	if err := json.Unmarshal([]byte(res2.Content), &p2); err != nil {
 		t.Fatalf("JSON inválido: %v", err)
@@ -142,7 +146,10 @@ func TestWebSearch_Pagination(t *testing.T) {
 	}
 
 	// Última página: offset 8, restam 2 → não cheia, has_more false.
-	res3, _ := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","max_results":4,"offset":8}`))
+	res3, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","max_results":4,"offset":8}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
 	var p3 webSearchJSONOutput
 	if err := json.Unmarshal([]byte(res3.Content), &p3); err != nil {
 		t.Fatalf("JSON inválido: %v", err)
@@ -152,9 +159,48 @@ func TestWebSearch_Pagination(t *testing.T) {
 	}
 
 	// Além do fim: offset 20 → vazio, has_more false, results [].
-	res4, _ := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","max_results":4,"offset":20}`))
+	res4, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","max_results":4,"offset":20}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
 	if !strings.Contains(res4.Content, `"results":[]`) {
 		t.Errorf("além do fim deveria ter results []: %s", res4.Content)
+	}
+}
+
+func TestWebSearch_NegativeOffset(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	provider := &mockSearchProvider{results: []SearchResult{{Title: "x", URL: "https://x"}}}
+	tool := NewWebSearchWithProvider(credMgr, provider)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","offset":-1}`))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if !result.IsError {
+		t.Error("offset negativo deveria retornar erro explícito")
+	}
+}
+
+func TestWebSearch_ExceedsMaxResultSize(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	// Snippets grandes para estourar o limite efetivo do executor.
+	big := strings.Repeat("a", 500)
+	results := make([]SearchResult, 20)
+	for i := range results {
+		results[i] = SearchResult{Title: fmt.Sprintf("R%d", i), URL: "https://e", Snippet: big}
+	}
+	provider := &mockSearchProvider{results: results}
+	tool := NewWebSearchWithProvider(credMgr, provider)
+
+	// Injeta um limite pequeno no ctx, como o executor faria.
+	ctx := tools.WithMaxResultSize(context.Background(), 200)
+	result, err := tool.Execute(ctx, json.RawMessage(`{"query":"x","max_results":20}`))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if !result.IsError {
+		t.Error("payload acima do limite deveria falhar explicitamente, não devolver JSON truncado")
 	}
 }
 
