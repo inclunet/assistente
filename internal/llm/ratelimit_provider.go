@@ -83,6 +83,10 @@ func (p *rateLimitedProvider) SupportsNativeMCP() bool {
 	return p.inner.SupportsNativeMCP()
 }
 
+func (p *rateLimitedProvider) NativeMCPCapable() bool {
+	return p.inner.NativeMCPCapable()
+}
+
 // WithMCPServers preserva o decorator: o provider configurado com MCP servers
 // continua sujeito ao mesmo limite e chave.
 func (p *rateLimitedProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {

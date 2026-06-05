@@ -138,14 +138,36 @@ func FilterToolNamesByEnabledTools(names []string, enabledTools []string, disabl
 	return filtered
 }
 
-func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool) []string {
+// ResolveNativeMCPEnabled aplica o override de MCP nativo do PERFIL ativo sobre
+// o default do provider/endpoint (AEP-0021). Semântica tri-state do override:
+//
+//   - nil   → auto: usa o default do provider (streamer.SupportsNativeMCP(),
+//     hoje a heurística por URL — ex.: apenas OpenAI real manda type:"mcp").
+//   - true  → força MCP nativo, mas só se o provider for FISICAMENTE capaz
+//     (NativeMCPCapable). Caso contrário (ex.: Chat Completions, Google) cai
+//     em adapter, evitando remover bridge tools sem ter como enviar type:"mcp".
+//   - false → força modo adapter (MCP como function/bridge tools).
+func ResolveNativeMCPEnabled(streamer llm.ChatProvider, override *bool) bool {
+	if ChatProviderIsNil(streamer) {
+		return false
+	}
+	if override != nil {
+		if *override {
+			return streamer.NativeMCPCapable()
+		}
+		return false
+	}
+	return streamer.SupportsNativeMCP()
+}
+
+func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool, nativeMCPOverride *bool) []string {
 	if disableTools {
 		return nil
 	}
 	if len(names) == 0 || NativeMCPManagerIsNil(mcpMgr) || ChatProviderIsNil(streamer) {
 		return names
 	}
-	if !streamer.SupportsNativeMCP() {
+	if !ResolveNativeMCPEnabled(streamer, nativeMCPOverride) {
 		return names
 	}
 	nativeServers := mcpMgr.GetEligibleNativeMCPServers()
@@ -179,11 +201,12 @@ func ApplyNativeMCP(
 	mcpMgr NativeMCPManager,
 	enabledTools []string,
 	disableTools bool,
+	nativeMCPOverride *bool,
 ) (llm.ChatProvider, []llm.ToolDefinition) {
 	if disableTools || NativeMCPManagerIsNil(mcpMgr) || ChatProviderIsNil(streamer) {
 		return streamer, toolDefs
 	}
-	if !streamer.SupportsNativeMCP() {
+	if !ResolveNativeMCPEnabled(streamer, nativeMCPOverride) {
 		return streamer, toolDefs
 	}
 

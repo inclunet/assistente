@@ -42,9 +42,17 @@ type ChatProvider interface {
 	// SimpleChat é um atalho para enviar system+user e obter a resposta (sem tools).
 	SimpleChat(ctx context.Context, model, systemPrompt, userMessage string) (string, error)
 
-	// SupportsNativeMCP indica se este provider implementa MCP connector nativo real.
-	// Retorna true somente se WithMCPServers produz efeito operacional (altera a request ao LLM).
+	// SupportsNativeMCP indica o DEFAULT (auto) de MCP nativo deste provider quando
+	// o perfil não força nada. É a heurística segura por endpoint (ex.: OpenAI real
+	// por api.openai.com). Um perfil pode sobrescrever esse default (ver AEP-0021).
 	SupportsNativeMCP() bool
+
+	// NativeMCPCapable indica se o provider/transport é FISICAMENTE capaz de emitir
+	// MCP nativo (independentemente da heurística de URL ou de política de perfil).
+	// Ex.: OpenAI via Responses API e Anthropic são capazes; Chat Completions e
+	// Google não. Um override de perfil "true" só habilita MCP nativo quando o
+	// provider é capaz — evita remover bridge tools sem ter como enviar type:"mcp".
+	NativeMCPCapable() bool
 
 	// WithMCPServers retorna uma cópia do provider configurada com MCP servers HTTP remotos.
 	// Quando SupportsNativeMCP() é true, os servers são incorporados na request ao LLM

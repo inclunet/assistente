@@ -286,7 +286,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
 	// MCP nativo: configura servidores MCP HTTP no provider e remove suas tools da lista padrão.
-	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, profileEnabledTools, disableTools)
+	// O override é por PERFIL (AEP-0021) e vale igualmente para chat e sub-agentes,
+	// já que ambos resolvem o mesmo activeProfile neste pipeline. Aqui activeProfile
+	// já é não-nil (validado acima, onde LLMProvider vazio/nil retorna erro).
+	nativeMCPOverride := activeProfile.Chat.NativeMCP
+	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, profileEnabledTools, disableTools, nativeMCPOverride)
 
 	// Cria contexto cancelável por conversa — permite barge-in cancelar o LLM em andamento.
 	convCtx, convCancel := context.WithCancel(ctx)
@@ -320,7 +324,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				},
 				func(names []string) []llm.ToolDefinition {
 					names = filterExpandedToolNames(uc.toolRegistry, names, profileEnabledTools, disableTools)
-					names = chat.FilterToolNamesForNativeMCP(requestStreamer, uc.mcpMgr, names, disableTools)
+					names = chat.FilterToolNamesForNativeMCP(requestStreamer, uc.mcpMgr, names, disableTools, nativeMCPOverride)
 					return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
 				},
 				recoveryEnabled,

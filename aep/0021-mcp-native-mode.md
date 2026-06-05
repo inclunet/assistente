@@ -1,12 +1,14 @@
 # MCP Modo Nativo
 
-## Status: Revisado (v3)
+## Status: Revisado (v4)
 
 > **Historico:** A versao original desta AEP descrevia um conceito aspiracional de modo nativo com `mcp_mode` (adapter/native/auto) no perfil. A infraestrutura foi parcialmente criada (`GetNativeServerInfo`, `TestMCPNativeSupport`, `ShouldUseMCPNative`) mas **nunca foi consumida no chat loop**. O sistema sempre operou em modo adapter.
 >
 > A v2 refletia a arquitetura [AEP-0037](0037-sdk-migration-chat-provider.md), mas descrevia `api_format: "openai"` como suportando MCP nativo, o que era incorreto.
 >
-> Esta v3 reflete a separacao real entre `openai` (Chat Completions only) e `openai_responses` (Responses API first), implementada no runtime.
+> A v3 refletiu a separacao real entre `openai` (Chat Completions only) e `openai_responses` (Responses API first), e tratou o suporte como puramente capability-driven, sem participacao do perfil.
+>
+> **Esta v4** corrige a decisao: o suporte a MCP nativo passa a ser **configuravel POR PERFIL** (`Profile.Chat.NativeMCP`, tri-state), com a heuristica por endpoint servindo apenas como **default (auto)**. Motivo: um mesmo endpoint OpenAI-compatible que fala a Responses API (ex.: proxy LiteLLM) pode rotear para varios modelos — alguns que aceitam `type:"mcp"` e outros que NAO (ex.: `deepseek-v4-flash`, que devolvia `400 unknown variant `mcp`, expected `function`` a cada turno). Gatear apenas por provider/URL e grosseiro demais; o perfil ja amarra modelo + comportamento, entao e o lugar correto para essa capability.
 
 ---
 
@@ -31,14 +33,17 @@ Usuario → LLM+Provider API → MCP Server (direto, server-side)
 
 ## Suporte por Provider (marco 2026)
 
-| Provider | api_format | API | MCP Nativo | Formato |
-|----------|------------|-----|------------|---------|
-| OpenAI (real) | `openai_responses` | Responses API (`/v1/responses`) | **Sim** | `type: "mcp"` tool com `server_url` |
-| Anthropic | `anthropic` | Messages API (`/v1/messages`) | **Sim** | `mcp_servers[]` + `mcp_toolset` + beta header |
-| Google (Gemini) | `google` | Gemini API | **Nao** | Nao implementado |
-| OpenAI-compatible | `openai` | Chat Completions (`/v1/chat/completions`) | **Nao** | N/A |
+A tabela abaixo lista a **capacidade fisica** (`NativeMCPCapable()` — o transporte consegue emitir `type:"mcp"`?) e o **default (auto)** quando o perfil nao forca nada (`SupportsNativeMCP()`).
 
-> **Nota:** `api_format: "openai"` (Chat Completions) **nao** suporta MCP nativo. Apenas `openai_responses` (Responses API) suporta. Essa separacao foi feita para nao fingir suporte em provedores OpenAI-compatible (OpenRouter, Ollama, Groq, etc) que apenas falam Chat Completions.
+| Provider | api_format | API | Capaz (fisico) | Default (auto) | Formato |
+|----------|------------|-----|----------------|----------------|---------|
+| OpenAI (real) | `openai_responses` | Responses API (`/v1/responses`) | **Sim** | **Nativo** (URL `api.openai.com`) | `type: "mcp"` tool com `server_url` |
+| OpenAI-compatible via Responses | `openai_responses` | Responses API (proxy: LiteLLM/Azure) | **Sim** | **Adapter** (URL nao-real) | `type: "mcp"` (se forcado por perfil) |
+| Anthropic | `anthropic` | Messages API (`/v1/messages`) | **Sim** | **Nativo** | `mcp_servers[]` + `mcp_toolset` + beta header |
+| Google (Gemini) | `google` | Gemini API | **Nao** | Adapter | Nao implementado |
+| OpenAI-compatible | `openai` | Chat Completions (`/v1/chat/completions`) | **Nao** | Adapter | N/A |
+
+> **Nota:** `api_format: "openai"` (Chat Completions) e Google **nao sao fisicamente capazes** de MCP nativo — nenhum override de perfil os habilita (ver `NativeMCPCapable()`). Ja `openai_responses` e capaz, mas o **default** depende da URL: apenas a OpenAI real (`api.openai.com`) usa `type:"mcp"` por padrao; proxies caem em adapter por seguranca (podem rotear para modelos que rejeitam `type:"mcp"`). O perfil pode sobrescrever esse default (ver abaixo).
 
 ### Limitacoes comuns
 
@@ -50,30 +55,40 @@ Usuario → LLM+Provider API → MCP Server (direto, server-side)
 
 ## Nova Arquitetura
 
-### Determinacao automatica via `api_format`
+### Tres camadas de decisao
 
-O campo `api_format` no `ProviderConfig` (ver [AEP-0037](0037-sdk-migration-chat-provider.md)) determina qual SDK/protocolo e usado. Cada `ChatProvider` implementa `SupportsNativeMCP() bool`:
+A decisao final de usar MCP nativo combina tres camadas, da mais forte para a mais fraca:
 
-- `api_format: "openai_responses"` → `OpenAIProvider(useResponses=true)` → Responses API → **suporta MCP nativo**
-- `api_format: "openai"` → `OpenAIProvider(useResponses=false)` → Chat Completions → **nao suporta MCP nativo**
-- `api_format: "anthropic"` → `AnthropicProvider` → Messages API → **suporta MCP nativo**
-- `api_format: "google"` → `GoogleProvider` → Gemini API → **nao suporta MCP nativo**
+1. **Capacidade fisica do provider** — `ChatProvider.NativeMCPCapable() bool`. O transporte consegue emitir `type:"mcp"`? (`openai_responses` e `anthropic` = sim; `openai`/Chat Completions e `google` = nao). Se `false`, **nenhum override habilita** — evita remover bridge tools sem ter como enviar `type:"mcp"`.
+2. **Override do perfil** — `Profile.Chat.NativeMCP *bool` (tri-state). Quando setado, manda (dentro da capacidade fisica).
+3. **Default (auto) do provider** — `ChatProvider.SupportsNativeMCP() bool`, a heuristica segura por endpoint (OpenAI real por `api.openai.com`). Usado quando o perfil nao diz nada (`nil`).
 
-Se o provider suporta MCP nativo (`SupportsNativeMCP() == true`), o Assistente envia os MCP servers HTTP diretamente na request ao provider via `WithMCPServers()`. MCP servers STDIO continuam como bridges no `tools[]` (adapter).
+A resolucao vive em `internal/chat.ResolveNativeMCPEnabled(streamer, override)`:
 
-Providers sem suporte nativo (`SupportsNativeMCP() == false`) usam todos os MCP servers via adapter/bridge local, independente do tipo de transporte.
+```
+ResolveNativeMCPEnabled(streamer, override):
+  se streamer == nil: false
+  se override != nil:
+     se *override == true:  return streamer.NativeMCPCapable()   // forca nativo (se capaz)
+     senao:                 return false                          // forca adapter
+  return streamer.SupportsNativeMCP()                             // auto: default por endpoint
+```
+
+### Capability tri-state por perfil: `Profile.Chat.NativeMCP`
+
+Campo `*bool` (ponteiro = compativel com perfis antigos), serializado como `native_mcp` no JSON do perfil:
+
+- `nil` / ausente → **auto**: usa o default do endpoint (heuristica por URL).
+- `true` → **forca nativo** (`type:"mcp"`), desde que o provider seja fisicamente capaz. Util para proxies (LiteLLM/Azure) cujo modelo selecionado aceita `type:"mcp"`.
+- `false` → **forca adapter** (MCP como function/bridge tools). Util quando o endpoint serve um modelo que NAO aceita `type:"mcp"` (ex.: `deepseek-v4-flash` via LiteLLM), eliminando o `400` recorrente.
+
+O override vale igualmente para **chat normal e sub-agentes**, pois ambos resolvem o mesmo `activeProfile` no pipeline unico de envio (`SendMessageUseCase`); o sub-agente apenas carrega um `ProfileSlug` diferente. A UI expoe um seletor tri-state (Automatico / Forcar nativo / Forcar adapter) na aba **Ferramentas** do editor de perfis.
+
+### Aplicacao na montagem de tools
+
+`internal/chat.ApplyNativeMCP(...)` e `FilterToolNamesForNativeMCP(...)` recebem o override resolvido do perfil. Quando o resultado e nativo, os MCP servers HTTP elegiveis sao anexados ao provider via `WithMCPServers()` e suas bridge tools sao removidas do `tools[]`; quando e adapter, os servers permanecem como function/bridge tools. `WithMCPServers()` gate apenas pela **capacidade fisica** (a politica ja foi decidida na camada de chat). MCP servers STDIO sempre continuam como bridges.
 
 **Inferencia automatica:** Quando `api_format` nao esta definido, `GetAPIFormat()` infere `openai_responses` se o BaseURL contem `api.openai.com`. Qualquer outro URL cai no default conservador `openai` (Chat Completions).
-
-### Decisao em runtime (sem toggle no perfil)
-
-A decisao e puramente capability-driven, sem campo de perfil:
-
-```
-usarNativo = provider.SupportsNativeMCP() && server.Transport != "stdio"
-```
-
-O perfil nao participa da decisao. Se o provider suporta MCP nativo e o servidor e HTTP remoto, o caminho nativo e usado automaticamente.
 
 ### Codigo legado removido
 

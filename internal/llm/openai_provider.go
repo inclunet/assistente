@@ -99,23 +99,29 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 	}
 }
 
-// SupportsNativeMCP só é verdadeiro para a plataforma OpenAI real
-// (api.openai.com) operando via Responses API. Conforme AEP-0021, apenas a
-// "OpenAI (real)" suporta tools nativas type:"mcp" na Responses API.
-//
-// Proxies OpenAI-compatible que também falam a Responses API (ex.: LiteLLM
-// roteando para deepseek/v4-flash e outros modelos) NÃO suportam o tipo "mcp"
-// — apenas type:"function". Enviar type:"mcp" para esses endpoints produz um
-// 400 Bad Request a cada turno ("unknown variant `mcp`, expected `function`").
-// Por isso o suporte nativo é gateado pela URL real da OpenAI; demais endpoints
-// caem no modo adapter (MCP servers expostos como function/bridge tools), que
-// preserva toda a funcionalidade das tools sem o type:"mcp".
+// SupportsNativeMCP é o DEFAULT (auto) de MCP nativo quando o perfil não força
+// nada: só é verdadeiro para a plataforma OpenAI real (api.openai.com) operando
+// via Responses API. Esse default existe porque proxies OpenAI-compatible que
+// também falam a Responses API (ex.: LiteLLM) podem rotear para modelos que NÃO
+// suportam o tipo "mcp" (ex.: deepseek-v4-flash) — apenas type:"function" —, o
+// que produziria um 400 a cada turno. A decisão final, porém, é por PERFIL: um
+// perfil pode forçar nativo (true) ou adapter (false) sobre este default
+// (ver internal/chat.ResolveNativeMCPEnabled e AEP-0021).
 func (p *OpenAIProvider) SupportsNativeMCP() bool {
 	return p.useResponses && p.provider != nil && isOpenAIRealURL(p.provider.BaseURL)
 }
 
+// NativeMCPCapable: a OpenAI só emite tools type:"mcp" pelo caminho da Responses
+// API (useResponses=true). Chat Completions não carrega MCP nativo no wire.
+func (p *OpenAIProvider) NativeMCPCapable() bool {
+	return p.useResponses
+}
+
 func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {
-	if !p.SupportsNativeMCP() || len(servers) == 0 {
+	// Gate físico (não a heurística/política): armazena os servers sempre que o
+	// transporte for capaz de emitir type:"mcp". A decisão de POLÍTICA (default
+	// por URL + override do perfil) é feita por internal/chat antes de chamar aqui.
+	if !p.NativeMCPCapable() || len(servers) == 0 {
 		return p
 	}
 	return &OpenAIProvider{

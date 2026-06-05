@@ -3376,6 +3376,7 @@ export namespace profiles {
 	    disable_skills?: boolean;
 	    disable_on_demand_skills?: boolean;
 	    command_allowlist?: string;
+	    native_mcp?: boolean;
 	    max_agentic_iterations?: number;
 	    streaming_recovery_enabled?: boolean;
 	    streaming_recovery_max_attempts?: number;
@@ -3404,6 +3405,7 @@ export namespace profiles {
 	        this.disable_skills = source["disable_skills"];
 	        this.disable_on_demand_skills = source["disable_on_demand_skills"];
 	        this.command_allowlist = source["command_allowlist"];
+	        this.native_mcp = source["native_mcp"];
 	        this.max_agentic_iterations = source["max_agentic_iterations"];
 	        this.streaming_recovery_enabled = source["streaming_recovery_enabled"];
 	        this.streaming_recovery_max_attempts = source["streaming_recovery_max_attempts"];

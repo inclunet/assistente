@@ -411,6 +411,8 @@ func (f *fakeChatProvider) SimpleChat(ctx context.Context, model, systemPrompt, 
 
 func (f *fakeChatProvider) SupportsNativeMCP() bool { return false }
 
+func (f *fakeChatProvider) NativeMCPCapable() bool { return false }
+
 func (f *fakeChatProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider { return f }
 
 // recordingHandler captura OnError do StreamHandler.

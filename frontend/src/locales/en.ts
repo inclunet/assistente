@@ -948,6 +948,12 @@ const en = {
         responseTimeout: 'Response Timeout (seconds)',
         responseTimeoutHint: '2nd layer of protection against infinite loops. Responses exceeding this time are interrupted.',
 
+        nativeMcpLabel: 'Native MCP (type:mcp)',
+        nativeMcpAuto: 'Automatic (recommended)',
+        nativeMcpOn: 'Force native (type:mcp)',
+        nativeMcpOff: 'Force adapter (function)',
+        nativeMcpHint: 'How MCP servers are offered to the model. Automatic: the endpoint decides (only real OpenAI uses type:mcp). Force adapter when the endpoint model (e.g. deepseek via proxy) does not accept type:mcp.',
+
         streamingRecoveryEnabled: 'Try to automatically recover interrupted responses',
         streamingRecoveryEnabledHint: 'When a response fails or is interrupted, tries to recover automatically before marking it as failed.',
         streamingRecoveryMaxAttempts: 'Maximum recovery attempts',

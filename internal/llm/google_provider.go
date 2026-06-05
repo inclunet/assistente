@@ -35,6 +35,13 @@ func (p *GoogleProvider) SupportsNativeMCP() bool {
 	return false
 }
 
+// NativeMCPCapable: o SDK Gemini não implementa passthrough de MCP nativo, então
+// não é fisicamente capaz de emitir type:"mcp" — um override de perfil "true"
+// não tem como ser honrado e os MCP servers continuam via modo adapter.
+func (p *GoogleProvider) NativeMCPCapable() bool {
+	return false
+}
+
 func (p *GoogleProvider) WithMCPServers(_ []MCPServerConfig) ChatProvider {
 	return p
 }

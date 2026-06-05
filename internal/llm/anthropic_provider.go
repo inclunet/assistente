@@ -54,6 +54,11 @@ func (p *AnthropicProvider) SupportsNativeMCP() bool {
 	return true
 }
 
+// NativeMCPCapable: a Anthropic suporta MCP nativo via Beta Messages API.
+func (p *AnthropicProvider) NativeMCPCapable() bool {
+	return true
+}
+
 func (p *AnthropicProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {
 	if len(servers) == 0 {
 		return p
