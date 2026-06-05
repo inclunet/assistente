@@ -214,6 +214,14 @@ func TestToolValidationCancelWithoutConversation(t *testing.T) {
 	}
 }
 
+func TestToolValidationRunIDWithPrompt(t *testing.T) {
+	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"x","conversation_id":"c1","run_id":"r1"}`))
+	if !res.IsError {
+		t.Fatal("esperava erro: run_id é para status/cancel e não pode acompanhar prompt")
+	}
+}
+
 func TestToolValidationNothingToDo(t *testing.T) {
 	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
 	res, _ := tool.Execute(context.Background(), json.RawMessage(`{}`))
@@ -222,11 +230,60 @@ func TestToolValidationNothingToDo(t *testing.T) {
 	}
 }
 
-func TestToolResumeNotSupportedYet(t *testing.T) {
-	tool := NewWithProvider(func() Runner { return &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}} })
-	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"x","conversation_id":"c1"}`))
+func TestToolResumePropagatesConversationID(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{ConversationID: "c1", RunID: "r2", Status: subagent.StatusSucceeded}}
+	tool := NewWithProvider(func() Runner { return runner })
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"continue","conversation_id":"c1"}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("resume não deveria ser erro: %s", res.Content)
+	}
+	if runner.lastParams.ConversationID != "c1" {
+		t.Fatalf("conversation_id não propagado ao Runner: %#v", runner.lastParams)
+	}
+	if runner.lastParams.Clear {
+		t.Fatal("clear não deveria estar setado")
+	}
+}
+
+func TestToolClearPropagated(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{ConversationID: "c1", RunID: "r3", Status: subagent.StatusSucceeded}}
+	tool := NewWithProvider(func() Runner { return runner })
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"novo","conversation_id":"c1","clear":true}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("clear+prompt não deveria ser erro: %s", res.Content)
+	}
+	if !runner.lastParams.Clear || runner.lastParams.ConversationID != "c1" {
+		t.Fatalf("clear/conversation_id não propagados: %#v", runner.lastParams)
+	}
+}
+
+func TestToolValidationClearWithoutConversation(t *testing.T) {
+	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"clear":true,"prompt":"x"}`))
 	if !res.IsError {
-		t.Fatal("esperava erro: resume (conversation_id + prompt) é Fase 3")
+		t.Fatal("esperava erro: clear sem conversation_id")
+	}
+}
+
+func TestToolValidationClearWithoutPrompt(t *testing.T) {
+	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"clear":true,"conversation_id":"c1"}`))
+	if !res.IsError {
+		t.Fatal("esperava erro: clear sem prompt")
+	}
+}
+
+func TestToolValidationCancelWithClear(t *testing.T) {
+	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
+	res, _ := tool.Execute(context.Background(), json.RawMessage(`{"cancel":true,"clear":true,"conversation_id":"c1"}`))
+	if !res.IsError {
+		t.Fatal("esperava erro: cancel + clear são mutuamente exclusivos")
 	}
 }
 
@@ -347,6 +404,74 @@ func TestToolAllowsParentlessForJobOrigin(t *testing.T) {
 	}
 	if runner.lastParams.Prompt != "faça X" {
 		t.Fatalf("runner deveria ter sido chamado no modo job sem-pai: %#v", runner.lastParams)
+	}
+}
+
+// TestToolResumeBackgroundRequiresParent garante (thread :201) que um resume
+// (conversation_id presente) com background:true e origem CHAT SEM vínculo pai
+// falha fechado: a entrega da conclusão (auto-wake) injeta o aviso na conversa do
+// pai e, sem parent, deliver() retorna cedo e a notificação nunca chega (AEP-0068).
+func TestToolResumeBackgroundRequiresParent(t *testing.T) {
+	cases := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{"sem-invocationctx", context.Background()},
+		{"sem-conversation", invocationctx.With(context.Background(), invocationctx.InvocationContext{TurnID: "t"})},
+		{"sem-turn", invocationctx.With(context.Background(), invocationctx.InvocationContext{ConversationID: "c"})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &fakeRunner{result: subagent.RunResult{ConversationID: "c1", RunID: "r", Status: subagent.StatusRunning}}
+			tool := NewWithProvider(func() Runner { return runner })
+			res, err := tool.Execute(tc.ctx, json.RawMessage(`{"prompt":"continue","conversation_id":"c1","background":true}`))
+			if err != nil {
+				t.Fatalf("Execute não deve retornar erro Go: %v", err)
+			}
+			if !res.IsError {
+				t.Fatal("resume+background sem turno-pai (origem chat) deveria falhar fechado (IsError)")
+			}
+			if runner.lastParams.Prompt != "" {
+				t.Fatalf("runner não deveria ter sido chamado sem parent em background: %#v", runner.lastParams)
+			}
+		})
+	}
+}
+
+// TestToolResumeSyncWithoutParentAllowed garante que o resume SÍNCRONO sem pai
+// segue permitido (não regride): no síncrono o resultado volta pelo retorno da
+// tool, sem auto-wake, então não exige parent.
+func TestToolResumeSyncWithoutParentAllowed(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{ConversationID: "c1", RunID: "r2", Status: subagent.StatusSucceeded}}
+	tool := NewWithProvider(func() Runner { return runner })
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"continue","conversation_id":"c1"}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("resume síncrono sem pai não deveria falhar: %s", res.Content)
+	}
+	if runner.lastParams.ConversationID != "c1" {
+		t.Fatalf("conversation_id não propagado: %#v", runner.lastParams)
+	}
+}
+
+// TestToolResumeBackgroundAllowedForJobOrigin garante que origem job pode rodar
+// resume+background SEM pai (parentless por contrato; auto-wake não se aplica do
+// mesmo modo — AEP-0068).
+func TestToolResumeBackgroundAllowedForJobOrigin(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{ConversationID: "c1", RunID: "r", Status: subagent.StatusRunning}}
+	tool := NewWithProvider(func() Runner { return runner })
+	ctx := eventctx.With(context.Background(), eventctx.Provenance{Source: "job", SourceJobID: "job-1"})
+	res, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"continue","conversation_id":"c1","background":true}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("origem job resume+background não deveria falhar: %s", res.Content)
+	}
+	if !runner.lastParams.Background || runner.lastParams.ConversationID != "c1" {
+		t.Fatalf("params não propagados no resume+background de job: %#v", runner.lastParams)
 	}
 }
 

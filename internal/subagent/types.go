@@ -82,6 +82,14 @@ type RunParams struct {
 	// herdada pelas sub-invocações da sub-conversa (encadeamento AEP-0063/0068).
 	ParentInvocationID string
 
+	// ConversationID, quando informado, reusa uma sub-conversa existente
+	// (resume), preservando o histórico/contexto. Vazio → cria uma nova
+	// sub-conversa. A sub-conversa precisa ser do usuário e Kind=subagent.
+	ConversationID string
+	// Clear, quando true (com ConversationID e Prompt), reseta o histórico e o
+	// resumo da sub-conversa antes de enviar o novo prompt (AEP-0068 F3).
+	Clear bool
+
 	// Prompt é a tarefa/mensagem enviada ao sub-agente.
 	Prompt string
 	// Media é mídia opcional (JSON base64) anexada ao envio.

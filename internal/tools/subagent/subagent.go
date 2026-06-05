@@ -42,7 +42,7 @@ func NewWithProvider(provider RunnerProvider) *Tool {
 func (t *Tool) Name() string { return "subagent" }
 
 func (t *Tool) Description() string {
-	return "Delegate work to a sub-agent running in its own persisted sub-conversation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent; with 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' (and 'cancel') and pass either 'conversation_id' (queries its most recent run) OR 'run_id' alone (the run is resolved by its id) to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt'."
+	return "Delegate work to a sub-agent running in its own persisted sub-conversation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent. Without 'conversation_id' it creates a new sub-conversation; with 'conversation_id' it resumes an existing one, preserving its full context (like resuming by agent id). Add 'clear':true to reset that sub-conversation's history before sending. With 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' (and 'cancel') and pass either 'conversation_id' (queries its most recent run) OR 'run_id' alone (the run is resolved by its id) to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt' and 'clear'."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
@@ -51,7 +51,7 @@ func (t *Tool) Parameters() json.RawMessage {
 		"properties": {
 			"prompt": {
 				"type": "string",
-				"description": "Task/message for the sub-agent. Provide it to start a NEW sub-agent (send); omit it (with conversation_id) for a status query. Reusing an existing sub-conversation to send a new prompt (resume: prompt + conversation_id) is not available in this phase and returns an error."
+				"description": "Task/message for the sub-agent. Provide it to send: without conversation_id it starts a new sub-agent; with conversation_id it continues (resume) the existing sub-conversation, preserving context. Omit it (with conversation_id) for a status query."
 			},
 			"background": {
 				"type": "boolean",
@@ -59,15 +59,19 @@ func (t *Tool) Parameters() json.RawMessage {
 			},
 			"conversation_id": {
 				"type": "string",
-				"description": "Sub-conversation handle. Required for cancel. For status it is optional when 'run_id' is provided (run_id alone resolves the run); otherwise it targets the most recent run of this conversation. (Reusing an existing sub-conversation to send a new prompt is added in a later phase.)"
+				"description": "Sub-conversation handle. Omit to create a new sub-conversation; provide to resume an existing one (preserving context). Required for cancel and clear. For status it is optional when 'run_id' is provided (run_id alone resolves the run); otherwise it targets the most recent run of this conversation."
+			},
+			"clear": {
+				"type": "boolean",
+				"description": "Reset the sub-conversation history before sending. Requires conversation_id and prompt (clear is always reset + send). Mutually exclusive with cancel."
 			},
 			"run_id": {
 				"type": "string",
-				"description": "Specific run (turn) for status/cancel. For a status query (no prompt, no cancel) it may be used alone (the run is resolved by its id). For cancel it requires conversation_id. If omitted, acts on the most recent run of conversation_id."
+				"description": "Specific run (turn) for status/cancel only; must NOT be combined with prompt (send/resume). For a status query (no prompt, no cancel) it may be used alone (the run is resolved by its id). For cancel it requires conversation_id. If omitted, acts on the most recent run of conversation_id."
 			},
 			"cancel": {
 				"type": "boolean",
-				"description": "Cancel a running sub-agent. Requires conversation_id. Mutually exclusive with prompt."
+				"description": "Cancel a running sub-agent. Requires conversation_id. Mutually exclusive with prompt and clear."
 			},
 			"profile": {
 				"type": "string",
@@ -92,6 +96,7 @@ type subagentArgs struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 	RunID          string `json:"run_id,omitempty"`
 	Cancel         bool   `json:"cancel,omitempty"`
+	Clear          bool   `json:"clear,omitempty"`
 	Profile        string `json:"profile,omitempty"`
 	Title          string `json:"title,omitempty"`
 	Model          string `json:"model,omitempty"`
@@ -124,17 +129,33 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if a.Cancel && prompt != "" {
 		return errResult("'cancel' e 'prompt' são mutuamente exclusivos"), nil
 	}
+	if a.Cancel && a.Clear {
+		return errResult("'cancel' e 'clear' são mutuamente exclusivos"), nil
+	}
 	if a.Cancel && conversationID == "" {
 		return errResult("'cancel' requer 'conversation_id'"), nil
 	}
+	if a.Clear && conversationID == "" {
+		return errResult("'clear' requer 'conversation_id' (nada a resetar)"), nil
+	}
+	if a.Clear && prompt == "" {
+		return errResult("'clear' requer 'prompt': clear é sempre reset + envio na mesma chamada"), nil
+	}
 	// 'run_id' sozinho (sem 'conversation_id') é permitido APENAS no modo status
-	// (sem 'cancel' e sem 'prompt'): o Manager resolve o run pelo run_id e
-	// recupera a conversa dele (ver Manager.Status/resolveRun). Para send/cancel,
-	// 'run_id' continua exigindo 'conversation_id' (AEP-0068, "Validações
-	// mínimas": run sempre pertence a uma conversa; em status o run_id basta).
-	isStatus := !a.Cancel && prompt == ""
+	// (sem 'cancel', sem 'clear' e sem 'prompt'): o Manager resolve o run pelo
+	// run_id e recupera a conversa dele (ver Manager.Status/resolveRun). Para
+	// send/cancel, 'run_id' continua exigindo 'conversation_id' (AEP-0068,
+	// "Validações mínimas": run sempre pertence a uma conversa; em status o
+	// run_id basta).
+	isStatus := !a.Cancel && !a.Clear && prompt == ""
 	if runID != "" && conversationID == "" && !isStatus {
 		return errResult("'run_id' requer 'conversation_id'"), nil
+	}
+	if runID != "" && prompt != "" {
+		// run_id identifica um run específico para status/cancel; não faz sentido
+		// (e seria ignorado) ao enviar/continuar. Rejeita para não criar uma
+		// superfície ambígua (AEP-0068 — validações mínimas).
+		return errResult("'run_id' é para status/cancel e não pode ser combinado com 'prompt' (enviar/continuar)"), nil
 	}
 	if !a.Cancel && prompt == "" && conversationID == "" && runID == "" {
 		return errResult("nada a fazer: informe 'prompt' (enviar); 'conversation_id' (status do run mais recente) ou 'run_id' (status por run); ou 'cancel'"), nil
@@ -157,24 +178,37 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status, "cancelled": res.Cancelled}), nil
 
 	case prompt != "":
-		// Reuso de sub-conversa existente (resume) é Fase 3.
-		if conversationID != "" {
-			return errResult("reuso de sub-conversa existente (resume) ainda não é suportado nesta fase"), nil
-		}
+		// Enviar: cria sub-conversa nova (sem conversation_id) ou continua uma
+		// existente (resume, com conversation_id), opcionalmente resetando antes
+		// (clear). A continuidade de contexto é garantida pelo pipeline oficial,
+		// que carrega o histórico da conversa pelo conversation_id.
 		inv, _ := invocationctx.Get(ctx)
 
 		// Vínculo com o turno-pai (AEP-0068). Uma chamada vinda do chat/workspace
 		// SEMPRE tem conversa/turno pai (o agentic loop carimba o InvocationContext
-		// — ver internal/agent/service.go). Se faltarem ao CRIAR uma nova
-		// sub-conversa, é bug de wiring e NÃO devemos criar sub-conversa órfã
-		// (kind=subagent some da listagem principal). Falha fechado. A única
-		// exceção legítima sem-pai é a origem job (eventctx.Provenance.Source ==
+		// — ver internal/agent/service.go); se faltarem, é bug de wiring. Para
+		// origem chat o parent é OBRIGATÓRIO quando:
+		//   - CRIA sub-conversa nova (sem conversation_id): não criar órfã
+		//     (kind=subagent some da listagem principal); OU
+		//   - background:true (INCLUSIVE no resume): o aviso de conclusão (auto-wake)
+		//     é injetado NA conversa do pai (AEP-0068, "Aviso de conclusão"); sem
+		//     parent, deliver() retorna cedo (ParentConversationID vazio) e a
+		//     notificação NUNCA chega — escondendo o bug de wiring. No síncrono o
+		//     resultado volta pelo retorno da tool, então resume síncrono sem-pai
+		//     segue permitido (não regride).
+		// A exceção legítima sem-pai é a origem job (eventctx.Provenance.Source ==
 		// "job", único valor de automação; ver internal/eventctx/eventctx.go),
-		// ponto de entrada formalizado na F4: distinção EXPLÍCITA por origem
-		// (eventctx.Provenance), não pela mera ausência de InvocationContext.
+		// formalizada na F4: entrada de automação, parentless por contrato
+		// (auto-wake do mesmo modo não se aplica). Distinção EXPLÍCITA por origem,
+		// não pela mera ausência de InvocationContext.
 		hasParent := strings.TrimSpace(inv.ConversationID) != "" && strings.TrimSpace(inv.TurnID) != ""
 		if !hasParent && !originAllowsParentless(ctx) {
-			return errResult("sub-agente requer um turno-pai: invocado sem conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+			if conversationID == "" {
+				return errResult("sub-agente requer um turno-pai: invocado sem conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+			}
+			if a.Background {
+				return errResult("sub-agente em background requer um turno-pai: a entrega da conclusão (auto-wake) precisa de conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+			}
 		}
 
 		profile := strings.TrimSpace(a.Profile)
@@ -185,6 +219,8 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			ParentConversationID: inv.ConversationID,
 			ParentTurnID:         inv.TurnID,
 			ParentInvocationID:   toolinvocations.CurrentInvocationID(ctx),
+			ConversationID:       conversationID,
+			Clear:                a.Clear,
 			Prompt:               prompt,
 			ProfileSlug:          profile,
 			Model:                strings.TrimSpace(a.Model),
