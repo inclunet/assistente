@@ -112,6 +112,63 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
 A interface `SearchProvider` desacoplada e o contrato JSON estável já deixam a porta
 aberta para essas evoluções sem quebrar os consumidores atuais.
 
+## Provedores futuros (intenção)
+
+A arquitetura `SearchProvider` é propositalmente plugável: cada buscador é uma
+implementação isolada de `Search(ctx, client, query, offset, maxResults)` que devolve
+`[]SearchResult`, e a tool apenas serializa o JSON canônico. Isso permite oferecer
+vários backends de busca, selecionáveis por configuração/credencial, com fallback
+para o DuckDuckGo quando não houver chave configurada. A intenção é suportar três
+classes de provedores:
+
+### 1. APIs oficiais (preferenciais quando houver credencial)
+
+- **Brave Search API** — resultados de qualidade, paginação e contagem confiáveis;
+  requer API key.
+- **Google (Programmable Search / Custom Search JSON API)** — API oficial com
+  `cx` + API key; cota limitada, mas estável e com `total` real.
+- **Bing Web Search API** (Azure) — API key; resultados ricos (web/news/images).
+- Outras APIs especializadas (ex.: Tavily/SerpAPI-like) podem entrar pela mesma
+  interface.
+
+Vantagens: paginação determinística, `total` exato (substitui o `has_more`
+heurístico), região/idioma/safe-search nativos e menor risco de quebra.
+
+### 2. Busca via modelo (LLM com web search)
+
+- **OpenAI no modo web search** (e equivalentes que exponham busca nativa): o
+  provedor delega a busca ao modelo e normaliza a resposta para `SearchResult`
+  (título/URL/snippet). Útil quando já há credencial de LLM e se quer resultados
+  "curados" pelo modelo. Atenção a custo por chamada e à necessidade de extrair
+  URLs/citações de forma estruturada.
+
+### 3. Web scraping (ousadias, sem API key)
+
+Para cenários sem credencial, manter alternativas por scraping — explicitamente
+assumidas como **frágeis e best-effort**:
+
+- **DuckDuckGo HTML** — provedor atual (fallback universal).
+- **Google via scraping** e **Bing via scraping** — extraem resultados da página de
+  busca pública.
+- Outros buscadores conforme necessidade.
+
+Riscos/cuidados a documentar e tratar nesses provedores: mudança de layout (parsing
+quebra), bloqueio/captcha e rate limiting, e conformidade com os Termos de Uso de
+cada buscador. Por isso scraping fica como camada de fallback, atrás das APIs
+oficiais quando disponíveis, com métricas de "parsing vazio" para detectar quebras.
+
+### Seleção e fallback
+
+- Provedor escolhido por preferência do usuário e/ou presença de credencial
+  (ex.: se há `brave_api_key`, usa Brave; senão tenta Google API; senão cai para
+  scraping DuckDuckGo).
+- O campo `provider` no JSON canônico já identifica qual backend respondeu, de modo
+  transparente para LLM e jobs.
+- Cadeia de fallback automática em caso de erro/quota de um provedor.
+
+A adição de qualquer um desses provedores **não altera o contrato JSON** nem os
+parâmetros da tool — apenas troca a implementação por trás de `SearchProvider`.
+
 ## Arquivos
 
 - `internal/tools/web/web_search.go` — `WebSearch` (`tools.Tool`), `SearchProvider`,
