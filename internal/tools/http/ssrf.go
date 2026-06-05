@@ -11,9 +11,9 @@ import (
 //
 // Usa net.ParseIP para cobrir corretamente os ranges privados (10/8, 172.16/12,
 // 192.168/16, fc00::/7), loopback, link-local (inclui 169.254.169.254, o metadata
-// endpoint de nuvem), multicast de escopo local e unspecified, sem o falso positivo
-// de um prefix match ingênuo (ex.: 172.2.x.x é público). Também bloqueia "localhost"
-// e o TLD reservado ".localhost".
+// endpoint de nuvem), multicast (inclui 239.255.255.250/SSDP), broadcast IPv4 e
+// unspecified, sem o falso positivo de um prefix match ingênuo (ex.: 172.2.x.x é
+// público). Também bloqueia "localhost" e o TLD reservado ".localhost".
 //
 // Limitações conhecidas (barreira básica, não proteção anti-SSRF completa):
 //   - Só inspeciona IPs literais em notação padrão (o que net.ParseIP aceita) e
@@ -55,6 +55,13 @@ func IsPrivateHost(host string) bool {
 	if ip == nil {
 		return false
 	}
+	// Broadcast IPv4 limitado (255.255.255.255): alcança toda a rede local.
+	if ip.Equal(net.IPv4bcast) {
+		return true
+	}
+	// IsMulticast cobre todo o range multicast (224.0.0.0/4 e ff00::/8), incluindo
+	// destinos de descoberta de rede local como 239.255.255.250 (SSDP), não só o
+	// escopo link-local.
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsUnspecified()
+		ip.IsMulticast() || ip.IsUnspecified()
 }

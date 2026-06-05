@@ -129,8 +129,11 @@ func parseFeed(r io.Reader, opts parseOptions) (CanonicalFeed, error) {
 			pf.Owner = firstNonEmpty(src.ITunesExt.Owner.Name, src.ITunesExt.Owner.Email)
 		}
 		for _, c := range src.ITunesExt.Categories {
-			if c != nil && strings.TrimSpace(c.Text) != "" {
-				pf.Categories = append(pf.Categories, c.Text)
+			if c == nil {
+				continue
+			}
+			if cat := strings.TrimSpace(c.Text); cat != "" {
+				pf.Categories = append(pf.Categories, cat)
 			}
 		}
 		out.Podcast = pf
