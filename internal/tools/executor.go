@@ -177,26 +177,38 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			return
 		}
 
-		// Trunca resultado se necessário (UTF-8 safe).
-		// Reserva bytes para o aviso de truncamento, garantindo que
-		// result.Content final ≤ MaxResultSize.
+		// Aplica o limite de tamanho. Política canônica (centralizada aqui, antes
+		// duplicada em cada tool): saídas estruturadas (JSON canônico) não podem ser
+		// truncadas — truncar corromperia o JSON e quebraria consumidores. Nesse
+		// caso falhamos de forma explícita; caso contrário, truncamos (UTF-8 safe).
 		if len(result.Content) > e.config.MaxResultSize {
-			origSize := len(result.Content)
-			warning := fmt.Sprintf(
-				"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-				origSize, e.config.MaxResultSize,
-			)
-			contentBudget := e.config.MaxResultSize - len(warning)
-			if contentBudget >= 1 {
-				result.Content = truncateUTF8(result.Content, contentBudget) + warning
+			if result.Structured {
+				result = ToolResult{
+					Content: fmt.Sprintf(
+						"Resultado estruturado tem %d bytes, acima do limite de %d. Reduza o escopo da chamada (ex.: max_results/max_items) para obter um payload menor.",
+						len(result.Content), e.config.MaxResultSize,
+					),
+					IsError: true,
+				}
 			} else {
-				// Warning não cabe — trunca sem aviso para respeitar o limite.
-				result.Content = truncateUTF8(result.Content, e.config.MaxResultSize)
+				origSize := len(result.Content)
+				// Reserva bytes para o aviso, garantindo Content final ≤ MaxResultSize.
+				warning := fmt.Sprintf(
+					"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
+					origSize, e.config.MaxResultSize,
+				)
+				contentBudget := e.config.MaxResultSize - len(warning)
+				if contentBudget >= 1 {
+					result.Content = truncateUTF8(result.Content, contentBudget) + warning
+				} else {
+					// Warning não cabe — trunca sem aviso para respeitar o limite.
+					result.Content = truncateUTF8(result.Content, e.config.MaxResultSize)
+				}
+				if result.Metadata == nil {
+					result.Metadata = make(map[string]any)
+				}
+				result.Metadata["truncated"] = true
 			}
-			if result.Metadata == nil {
-				result.Metadata = make(map[string]any)
-			}
-			result.Metadata["truncated"] = true
 		}
 
 		resultCh <- ToolExecutionResult{

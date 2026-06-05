@@ -186,24 +186,12 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao serializar feed: %v", err), IsError: true}, nil
 	}
 
-	// O executor trunca resultados acima do seu limite efetivo e anexa um aviso
-	// textual, o que transformaria a saída em JSON inválido e quebraria o contrato
-	// de "JSON canônico". Lemos o limite efetivo do ctx (varia por chamador: jobs
-	// usam budget maior que o default) e, em vez de devolver JSON corrompido,
-	// falhamos de forma explícita pedindo um payload menor.
-	maxResultSize := tools.MaxResultSizeFromContext(ctx)
-	if len(encoded) > maxResultSize {
-		return tools.ToolResult{
-			Content: fmt.Sprintf(
-				"Feed serializado tem %d bytes, acima do limite de %d. Reduza 'max_items' ou desabilite 'include_content' para obter um payload menor.",
-				len(encoded), maxResultSize,
-			),
-			IsError: true,
-		}, nil
-	}
-
+	// Structured=true: o executor não trunca este JSON canônico (truncar o
+	// corromperia); se exceder o limite efetivo, falha de forma explícita. A
+	// política é centralizada no executor (cobre chat e jobs).
 	return tools.ToolResult{
-		Content: string(encoded),
+		Content:    string(encoded),
+		Structured: true,
 		Metadata: map[string]any{
 			"url":        a.URL,
 			"feed_type":  canonical.FeedType,

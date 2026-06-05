@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"assistente/internal/credentials"
-	"assistente/internal/tools"
 	httpclient "assistente/internal/tools/http"
 )
 
@@ -182,25 +181,19 @@ func TestWebSearch_NegativeOffset(t *testing.T) {
 	}
 }
 
-func TestWebSearch_ExceedsMaxResultSize(t *testing.T) {
+func TestWebSearch_StructuredFlag(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
-	// Snippets grandes para estourar o limite efetivo do executor.
-	big := strings.Repeat("a", 500)
-	results := make([]SearchResult, 20)
-	for i := range results {
-		results[i] = SearchResult{Title: fmt.Sprintf("R%d", i), URL: "https://e", Snippet: big}
-	}
-	provider := &mockSearchProvider{results: results}
+	provider := &mockSearchProvider{results: []SearchResult{{Title: "x", URL: "https://x"}}}
 	tool := NewWebSearchWithProvider(credMgr, provider)
 
-	// Injeta um limite pequeno no ctx, como o executor faria.
-	ctx := tools.WithMaxResultSize(context.Background(), 200)
-	result, err := tool.Execute(ctx, json.RawMessage(`{"query":"x","max_results":20}`))
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"x"}`))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
-	if !result.IsError {
-		t.Error("payload acima do limite deveria falhar explicitamente, não devolver JSON truncado")
+	// A tool marca a saída como estruturada; o executor é quem aplica o limite
+	// (testado em internal/tools/executor_test.go), evitando truncar JSON canônico.
+	if !result.Structured {
+		t.Error("saída JSON canônica deveria ter Structured=true")
 	}
 }
 

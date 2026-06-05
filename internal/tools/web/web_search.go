@@ -176,23 +176,11 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 		}, nil
 	}
 
-	// O executor trunca resultados acima do limite efetivo e anexa um aviso textual,
-	// o que transformaria a saída em JSON inválido e quebraria o contrato canônico.
-	// Lemos o limite efetivo do ctx e, em vez de devolver JSON corrompido, falhamos
-	// de forma explícita pedindo um payload menor.
-	maxResultSize := tools.MaxResultSizeFromContext(ctx)
-	if len(encoded) > maxResultSize {
-		return tools.ToolResult{
-			Content: fmt.Sprintf(
-				"Resultado serializado tem %d bytes, acima do limite de %d. Reduza 'max_results' para obter um payload menor.",
-				len(encoded), maxResultSize,
-			),
-			IsError: true,
-		}, nil
-	}
-
+	// Structured=true: o executor não trunca este JSON canônico (truncar o
+	// corromperia); se exceder o limite efetivo, falha de forma explícita.
 	return tools.ToolResult{
-		Content: string(encoded),
+		Content:    string(encoded),
+		Structured: true,
 		Metadata: map[string]any{
 			"results":  len(results),
 			"provider": t.provider.Name(),
