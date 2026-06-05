@@ -144,6 +144,39 @@ func TestParseFeedSince(t *testing.T) {
 	}
 }
 
+const atomUpdatedOnlyFixture = `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Atom updated-only</title>
+  <link href="https://example.com/atom"/>
+  <updated>2006-01-04T15:04:05Z</updated>
+  <entry>
+    <title>Old updated-only</title>
+    <link href="https://example.com/atom/old"/>
+    <id>urn:uuid:old</id>
+    <updated>2006-01-02T15:04:05Z</updated>
+  </entry>
+  <entry>
+    <title>New updated-only</title>
+    <link href="https://example.com/atom/new"/>
+    <id>urn:uuid:new</id>
+    <updated>2006-01-04T15:04:05Z</updated>
+  </entry>
+</feed>`
+
+func TestParseFeedSinceAtomUpdatedOnly(t *testing.T) {
+	since := time.Date(2006, 1, 3, 0, 0, 0, 0, time.UTC)
+	feed, err := parseFeed(strings.NewReader(atomUpdatedOnlyFixture), parseOptions{MaxItems: 20, StripHTML: true, Since: &since})
+	if err != nil {
+		t.Fatalf("parseFeed: %v", err)
+	}
+	if feed.ItemCount != 1 {
+		t.Fatalf("esperado 1 item após since (fallback para updated), got %d", feed.ItemCount)
+	}
+	if feed.Items[0].Title != "New updated-only" {
+		t.Errorf("esperado item recente (updated >= since), got %q", feed.Items[0].Title)
+	}
+}
+
 func TestParseFeedAtom(t *testing.T) {
 	feed, err := parseFeed(strings.NewReader(atomFixture), parseOptions{MaxItems: 20, StripHTML: true})
 	if err != nil {
@@ -415,6 +448,43 @@ func TestFeedReadExecuteRejectsPrivateHost(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Error("expected error for private host")
+	}
+}
+
+func TestFeedReadExecuteBlocksRedirectToInvalidScheme(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "ftp://example.com/feed")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+
+	tool := NewFeedRead(nil)
+	tool.allowPrivateHosts = true // o destino do redirect, não o host inicial, é o alvo do teste
+	args, _ := json.Marshal(map[string]any{"url": srv.URL})
+	res, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.IsError {
+		t.Error("esperado IsError ao bloquear redirect para scheme inválido")
+	}
+}
+
+func TestFeedReadExecuteRedirectNoLocation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusFound) // 302 sem Location: net/http não segue e devolve o 3xx
+	}))
+	defer srv.Close()
+
+	tool := NewFeedRead(nil)
+	tool.allowPrivateHosts = true
+	args, _ := json.Marshal(map[string]any{"url": srv.URL})
+	res, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.IsError {
+		t.Error("esperado IsError para resposta 3xx não seguida")
 	}
 }
 

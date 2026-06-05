@@ -140,8 +140,17 @@ func parseFeed(r io.Reader, opts parseOptions) (CanonicalFeed, error) {
 		if it == nil {
 			continue
 		}
-		if opts.Since != nil && it.PublishedParsed != nil && it.PublishedParsed.Before(*opts.Since) {
-			continue
+		// Filtro since: prefere a data de publicação, mas cai para a de atualização
+		// (comum em Atom, que muitas vezes só tem <updated>). Itens sem nenhuma data
+		// parseável são preservados.
+		if opts.Since != nil {
+			itemDate := it.PublishedParsed
+			if itemDate == nil {
+				itemDate = it.UpdatedParsed
+			}
+			if itemDate != nil && itemDate.Before(*opts.Since) {
+				continue
+			}
 		}
 		ci := CanonicalItem{
 			Title:      strings.TrimSpace(it.Title),

@@ -33,13 +33,35 @@ func NewFeedRead(credMgr *credentials.Manager) *FeedRead {
 	client := httpclient.New(&httpclient.Config{
 		CredentialManager: credMgr,
 	}, map[string]string{})
-	return &FeedRead{client: client}
+	t := &FeedRead{client: client}
+
+	// O net/http segue redirects automaticamente, então só validar a URL inicial
+	// não basta: um atacante poderia passar uma URL pública que redireciona para
+	// http://127.0.0.1/... e burlar o isPrivateHost. Bloqueamos qualquer redirect
+	// para scheme não-http(s) ou host local/privado. O cliente é exclusivo desta
+	// tool, então é seguro configurar o CheckRedirect do baseClient aqui.
+	if bc := client.GetBaseClient(); bc != nil {
+		bc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) >= feedMaxRedirects {
+				return fmt.Errorf("excesso de redirects (%d)", len(via))
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("redirect para scheme não suportado: %q", req.URL.Scheme)
+			}
+			if !t.allowPrivateHosts && isPrivateHost(req.URL.Hostname()) {
+				return fmt.Errorf("redirect para host local/privado bloqueado: %s", req.URL.Host)
+			}
+			return nil
+		}
+	}
+
+	return t
 }
 
 func (t *FeedRead) Name() string { return "feed_read" }
 
 func (t *FeedRead) Description() string {
-	return "Fetches a feed URL (RSS, Atom, JSON Feed, or podcast) and returns it as canonical JSON: feed metadata plus a normalized list of items (title, link, dates in RFC3339, summary, enclosures). Podcast feeds include iTunes metadata (duration, episode/season, audio enclosures). Authentication is applied automatically per domain when a credential is registered. Use this instead of web_fetch when the URL is a feed and you want structured items to process with other tools/LLM."
+	return "Fetches a feed URL (RSS, Atom, JSON Feed, or podcast) and returns it as canonical JSON: feed metadata plus a normalized list of items (title, link, dates in RFC3339 when parseable - otherwise the raw feed string is kept, summary, enclosures). Podcast feeds include iTunes metadata (duration, episode/season, audio enclosures). Authentication is applied automatically per domain when a credential is registered. Use this instead of web_fetch when the URL is a feed and you want structured items to process with other tools/LLM."
 }
 
 func (t *FeedRead) Parameters() json.RawMessage {
@@ -83,6 +105,7 @@ type feedReadArgs struct {
 const (
 	feedDefaultMaxItems  = 20
 	feedMaxResponseBody  = 10 * 1024 * 1024 // 10MB
+	feedMaxRedirects     = 10
 	feedDefaultUserAgent = "Assistente/1.0 (Tool FeedRead; +https://github.com)"
 )
 
@@ -143,7 +166,19 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+	// Só 2xx é tratado como sucesso. Um 3xx aqui significa que o redirect não foi
+	// seguido (CheckRedirect o bloqueou ou era inválido); nesse caso o body é a
+	// página de redirect, não o feed, então devolvemos um erro explícito em vez de
+	// tentar parsear e gerar uma mensagem confusa.
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		dest := strings.TrimSpace(resp.Header.Get("Location"))
+		msg := fmt.Sprintf("Redirect HTTP %s não seguido para %s", resp.Status, a.URL)
+		if dest != "" {
+			msg += fmt.Sprintf(" (destino: %s)", dest)
+		}
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return tools.ToolResult{
 			Content: fmt.Sprintf("HTTP %s para %s", resp.Status, a.URL),
 			IsError: true,
