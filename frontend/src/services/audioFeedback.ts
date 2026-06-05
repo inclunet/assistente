@@ -13,7 +13,7 @@ export const SOUND_TYPES = {
   
   // Status
   SUCCESS: 'success',     // Operação bem-sucedida
-  ERROR: 'error',         // Erro
+  ERROR: 'error',         // Erro: "tum dum" (duas notas graves descendentes)
   CLEAR: 'clear',         // Limpeza
   
   // Gravação
@@ -133,14 +133,22 @@ export function playSound(type: SoundType): void {
         break;
         
       case SOUND_TYPES.ERROR:
-        // Tom grave longo
+        // "tum dum" - duas notas graves descendentes (comunica "algo deu errado")
         {
-          const { oscillator, gainNode } = createTone(ctx);
-          oscillator.frequency.setValueAtTime(200, now);
-          gainNode.gain.setValueAtTime(0.3, now);
-          gainNode.gain.linearRampToValueAtTime(0, now + 0.3);
-          oscillator.start(now);
-          oscillator.stop(now + 0.3);
+          const { oscillator: osc1, gainNode: gain1 } = createTone(ctx);
+          osc1.frequency.setValueAtTime(247, now);
+          gain1.gain.setValueAtTime(0.3, now);
+          gain1.gain.linearRampToValueAtTime(0, now + 0.12);
+          osc1.start(now);
+          osc1.stop(now + 0.12);
+
+          const { oscillator: osc2, gainNode: gain2 } = createTone(ctx);
+          osc2.frequency.setValueAtTime(165, now + 0.14);
+          gain2.gain.setValueAtTime(0, now);
+          gain2.gain.setValueAtTime(0.3, now + 0.14);
+          gain2.gain.linearRampToValueAtTime(0, now + 0.34);
+          osc2.start(now + 0.14);
+          osc2.stop(now + 0.34);
         }
         break;
         

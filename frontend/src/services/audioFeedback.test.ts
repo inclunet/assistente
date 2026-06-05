@@ -64,6 +64,11 @@ describe('audioFeedback', () => {
     expect(oscillatorStarts).toBeGreaterThan(0);
   });
 
+  it('toca o som de erro "tum dum" com duas notas', () => {
+    expect(() => playSound(SOUND_TYPES.ERROR)).not.toThrow();
+    expect(oscillatorStarts).toBe(2);
+  });
+
   it('avisa em tipos desconhecidos', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
