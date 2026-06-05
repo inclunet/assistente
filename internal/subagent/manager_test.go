@@ -541,6 +541,317 @@ func TestManagerCancelActiveBackgroundRun(t *testing.T) {
 	}
 }
 
+func TestManagerResumeReusesConversationAndIncrementsTurn(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Prompt: "passo 1"})
+	if err != nil {
+		t.Fatalf("Run 1: %v", err)
+	}
+
+	// Resume: mesma sub-conversa, novo run com turn_index incrementado.
+	second, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Prompt: "passo 2"})
+	if err != nil {
+		t.Fatalf("Run 2 (resume): %v", err)
+	}
+	if second.ConversationID != first.ConversationID {
+		t.Fatalf("resume deveria reusar a sub-conversa: %q != %q", second.ConversationID, first.ConversationID)
+	}
+	if second.RunID == first.RunID {
+		t.Fatal("resume deveria criar um novo run")
+	}
+	run2, err := repo.Get(ctx, second.RunID)
+	if err != nil {
+		t.Fatalf("buscar run 2: %v", err)
+	}
+	if run2.TurnIndex != 1 {
+		t.Fatalf("turn_index esperado 1, veio %d", run2.TurnIndex)
+	}
+}
+
+// TestManagerResumeTrimsConversationID garante (thread :389) que um
+// conversation_id com espaços ao redor é normalizado e tratado como o id real:
+// faz RESUME da sub-conversa existente, não "não encontrada" nem criação de nova.
+func TestManagerResumeTrimsConversationID(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Prompt: "passo 1"})
+	if err != nil {
+		t.Fatalf("Run 1: %v", err)
+	}
+
+	// Resume com o MESMO id, porém cercado de espaços.
+	padded := "  " + first.ConversationID + "  "
+	second, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: padded, Prompt: "passo 2"})
+	if err != nil {
+		t.Fatalf("Run 2 (resume com id com espaços): %v", err)
+	}
+	if second.ConversationID != first.ConversationID {
+		t.Fatalf("id com espaços deveria reusar a sub-conversa: %q != %q", second.ConversationID, first.ConversationID)
+	}
+	if second.RunID == first.RunID {
+		t.Fatal("resume deveria criar um novo run (não uma sub-conversa nova)")
+	}
+	run2, err := repo.Get(ctx, second.RunID)
+	if err != nil {
+		t.Fatalf("buscar run 2: %v", err)
+	}
+	if run2.TurnIndex != 1 {
+		t.Fatalf("turn_index esperado 1 (resume), veio %d", run2.TurnIndex)
+	}
+}
+
+func TestManagerResumeRejectsNonSubagentConversation(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+
+	// Conversa normal (Kind vazio) criada diretamente.
+	normal := &database.Conversation{UserID: "user-a", Title: "normal"}
+	if err := database.DB().WithContext(ctx).Create(normal).Error; err != nil {
+		t.Fatalf("criar conversa normal: %v", err)
+	}
+
+	if _, err := mgr.Run(ctx, RunParams{ConversationID: normal.ID, Prompt: "x"}); err == nil {
+		t.Fatal("esperava erro ao reusar conversa que não é de sub-agente")
+	}
+}
+
+func TestManagerClearResetsHistoryBeforeSend(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Prompt: "passo 1"})
+	if err != nil {
+		t.Fatalf("Run 1: %v", err)
+	}
+
+	// Simula histórico e resumo na sub-conversa.
+	msg := &database.ChatMessage{ConversationID: first.ConversationID, Role: "user", Content: "antigo"}
+	if err := database.DB().WithContext(ctx).Create(msg).Error; err != nil {
+		t.Fatalf("criar mensagem: %v", err)
+	}
+	if err := database.UpdateConversationSummaryWithContext(ctx, first.ConversationID, "resumo antigo", msg.ID); err != nil {
+		t.Fatalf("set summary: %v", err)
+	}
+
+	// clear: reset + envio.
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Clear: true, Prompt: "novo problema"}); err != nil {
+		t.Fatalf("Run clear: %v", err)
+	}
+
+	var count int64
+	if err := database.DB().WithContext(ctx).Model(&database.ChatMessage{}).Where("conversation_id = ? AND content = ?", first.ConversationID, "antigo").Count(&count).Error; err != nil {
+		t.Fatalf("contar mensagens: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("clear deveria ter removido o histórico antigo; restaram %d", count)
+	}
+	summary, _, err := database.GetConversationSummaryWithContext(ctx, first.ConversationID)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if summary != "" {
+		t.Fatalf("clear deveria ter limpado o resumo; veio %q", summary)
+	}
+}
+
+// TestManagerClearDoesNotWipeHistoryWhenConcurrencyRejects garante que um
+// Clear=true NÃO apague histórico/resumo quando o run for rejeitado pelo fail-fast
+// de concorrência: o clear (destrutivo) só roda APÓS a reserva da sub-conversa.
+// Uma 2ª chamada concorrente com Clear=true deve falhar ANTES de limpar.
+func TestManagerClearDoesNotWipeHistoryWhenConcurrencyRejects(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: &recordingDelivery{},
+		// Nunca notifica → o 1º run fica ATIVO, mantendo a reserva da sub-conversa.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	// 1º run em background: cria a sub-conversa e a mantém reservada (ativa).
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Background: true, Prompt: "passo 1"})
+	if err != nil {
+		t.Fatalf("Run 1: %v", err)
+	}
+
+	// Semeia histórico e resumo na sub-conversa.
+	msg := &database.ChatMessage{ConversationID: first.ConversationID, Role: "user", Content: "preservar"}
+	if err := database.DB().WithContext(ctx).Create(msg).Error; err != nil {
+		t.Fatalf("criar mensagem: %v", err)
+	}
+	if err := database.UpdateConversationSummaryWithContext(ctx, first.ConversationID, "resumo a preservar", msg.ID); err != nil {
+		t.Fatalf("set summary: %v", err)
+	}
+
+	// 2ª chamada concorrente com Clear=true: deve falhar no fail-fast (run ativo)
+	// e NÃO limpar histórico/resumo (o clear só roda após a reserva).
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Clear: true, Prompt: "novo"}); err == nil {
+		t.Fatal("2ª chamada concorrente com Clear deveria falhar no fail-fast de concorrência")
+	}
+
+	// Histórico e resumo devem permanecer INTACTOS (clear não rodou).
+	var count int64
+	if err := database.DB().WithContext(ctx).Model(&database.ChatMessage{}).Where("conversation_id = ? AND content = ?", first.ConversationID, "preservar").Count(&count).Error; err != nil {
+		t.Fatalf("contar mensagens: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("clear NÃO deveria ter rodado (run rejeitado); esperado 1 mensagem preservada, veio %d", count)
+	}
+	summary, _, err := database.GetConversationSummaryWithContext(ctx, first.ConversationID)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if summary != "resumo a preservar" {
+		t.Fatalf("resumo deveria permanecer intacto; veio %q", summary)
+	}
+
+	// Encerra o run ativo para não vazar a goroutine de background.
+	if _, err := mgr.Cancel(ctx, first.ConversationID, first.RunID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+}
+
+// TestManagerClearWithoutConversationIDFails garante o contrato do AEP-0068
+// (defense-in-depth no Manager, consistente com a tool): Clear=true SEM
+// conversation_id falha — NÃO cria uma sub-conversa nova ignorando o reset.
+func TestManagerClearWithoutConversationIDFails(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	sendCalled := false
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		sendCalled = true
+		return p.ConversationID, nil
+	}})
+
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Clear: true, Prompt: "x"}); err == nil {
+		t.Fatal("clear sem conversation_id deveria falhar (clear é reset de sub-conversa existente)")
+	}
+	if sendCalled {
+		t.Fatal("não deveria enviar nada quando a validação de clear falha")
+	}
+	// Nenhuma sub-conversa nova pode ter sido criada.
+	var count int64
+	if err := database.DB().WithContext(ctx).Model(&database.Conversation{}).Where("kind = ?", database.ConversationKindSubagent).Count(&count).Error; err != nil {
+		t.Fatalf("contar sub-conversas: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("clear sem conversation_id NÃO deveria criar sub-conversa; criou %d", count)
+	}
+}
+
+// TestManagerClearNotAppliedWhenRunCreateFails garante (thread :166) que o clear
+// destrutivo só roda APÓS o run ser persistido: se o Create falhar, o histórico/
+// resumo da sub-conversa permanece INTACTO (sem perda de dados sem run registrado).
+func TestManagerClearNotAppliedWhenRunCreateFails(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	// Sub-conversa existente com histórico + resumo a preservar.
+	conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent-conv")
+	if err != nil {
+		t.Fatalf("criar conv: %v", err)
+	}
+	msg := &database.ChatMessage{ConversationID: conv.ID, Role: "user", Content: "preservar"}
+	if err := database.DB().WithContext(ctx).Create(msg).Error; err != nil {
+		t.Fatalf("criar mensagem: %v", err)
+	}
+	if err := database.UpdateConversationSummaryWithContext(ctx, conv.ID, "resumo a preservar", msg.ID); err != nil {
+		t.Fatalf("set summary: %v", err)
+	}
+
+	sendCalled := false
+	mgr := NewManager(ManagerConfig{
+		Repo:     &createFailRepo{Repository: repo},
+		Notifier: notifier,
+		Send:     func(_ context.Context, p SendParams) (string, error) { sendCalled = true; return p.ConversationID, nil },
+	})
+
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: conv.ID, Clear: true, Prompt: "novo"}); err == nil {
+		t.Fatal("Run deveria falhar quando o Create do run falha")
+	}
+	if sendCalled {
+		t.Fatal("não deveria enviar quando o Create falha")
+	}
+
+	// Histórico e resumo INTACTOS: o clear roda só APÓS o Create (que falhou).
+	var count int64
+	if err := database.DB().WithContext(ctx).Model(&database.ChatMessage{}).Where("conversation_id = ? AND content = ?", conv.ID, "preservar").Count(&count).Error; err != nil {
+		t.Fatalf("contar mensagens: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("clear NÃO deveria ter rodado (Create falhou); esperado 1 mensagem, veio %d", count)
+	}
+	summary, _, err := database.GetConversationSummaryWithContext(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if summary != "resumo a preservar" {
+		t.Fatalf("resumo deveria permanecer intacto; veio %q", summary)
+	}
+}
+
+// TestNextTurnIndexErrors garante que o cálculo do turn_index trate "nenhum run
+// anterior" (ErrRecordNotFound) como turno 0 e PROPAGUE qualquer outro erro de DB
+// (não mascara falha transitória virando 0 silencioso).
+func TestNextTurnIndexErrors(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier})
+
+	// (a) sub-conversa com run anterior (turn_index 3) → próximo é 4.
+	conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent-conv")
+	if err != nil {
+		t.Fatalf("criar conv: %v", err)
+	}
+	prev := &database.SubAgentRun{UserID: "user-a", ParentConversationID: "parent-conv", ChildConversationID: conv.ID, Status: StatusSucceeded, TurnIndex: 3}
+	if err := repo.Create(ctx, prev); err != nil {
+		t.Fatalf("criar run anterior: %v", err)
+	}
+	if ti, err := mgr.nextTurnIndex(ctx, conv.ID, false); err != nil || ti != 4 {
+		t.Fatalf("turn_index esperado 4 sem erro; veio %d, err=%v", ti, err)
+	}
+
+	// (b) sub-conversa SEM run anterior (ErrRecordNotFound) → 0, sem erro.
+	empty, err := database.CreateSubAgentConversationWithContext(ctx, "t2", "parent-conv")
+	if err != nil {
+		t.Fatalf("criar conv vazia: %v", err)
+	}
+	if ti, err := mgr.nextTurnIndex(ctx, empty.ID, false); err != nil || ti != 0 {
+		t.Fatalf("turn_index esperado 0 sem erro para sub-conversa sem run; veio %d, err=%v", ti, err)
+	}
+
+	// (c) erro transitório de DB (não-NotFound) → PROPAGA (não vira 0 silencioso).
+	failMgr := NewManager(ManagerConfig{Repo: &latestErrRepo{Repository: repo}, Notifier: notifier})
+	if _, err := failMgr.nextTurnIndex(ctx, conv.ID, false); err == nil {
+		t.Fatal("erro transitório de GetLatestByChildConversation deveria propagar, não virar turn_index 0")
+	}
+}
+
 // TestManagerCancelAfterCompletionIsNoOp garante que, após a conclusão de um run
 // em background, um Cancel posterior seja no-op (cancelled:false + status
 // terminal real) e NÃO cancele o streaming já concluído (corrida — AEP-0068:
@@ -1367,6 +1678,27 @@ func TestManagerRunUserFlowDerivesStableChainID(t *testing.T) {
 // ---- B2: idempotência/erros do deliver ----
 
 // getFailRepo falha o Get para exercitar a idempotência fail-closed do deliver.
+// latestErrRepo simula um erro transitório (não-NotFound) em
+// GetLatestByChildConversation, para verificar que o cálculo de turn_index
+// PROPAGA o erro em vez de mascará-lo como turno 0.
+type latestErrRepo struct {
+	Repository
+}
+
+func (r *latestErrRepo) GetLatestByChildConversation(_ context.Context, _ string) (*database.SubAgentRun, error) {
+	return nil, fmt.Errorf("falha transitória simulada de DB")
+}
+
+// createFailRepo simula falha (lock/erro transitório) no Create do run, para
+// verificar que o clear destrutivo NÃO roda quando o registro do run falha.
+type createFailRepo struct {
+	Repository
+}
+
+func (r *createFailRepo) Create(_ context.Context, _ *database.SubAgentRun) error {
+	return fmt.Errorf("falha simulada no Create do run")
+}
+
 type getFailRepo struct {
 	Repository
 	fail bool
@@ -1670,6 +2002,51 @@ func TestManagerRunRequiresUserScope(t *testing.T) {
 
 	if _, err := mgr.Run(context.Background(), RunParams{Prompt: "faça X"}); err == nil {
 		t.Fatal("esperava erro de escopo de usuário ausente")
+	}
+}
+
+// TestManagerFailFastConcurrentRunSameConversation garante o fail-fast (AEP-0068):
+// enquanto houver um run ATIVO em uma sub-conversa, iniciar outro run (resume) na
+// MESMA sub-conversa deve falhar de imediato, em vez de dois runs disputarem o
+// mesmo ResponseNotifier (que é indexado só por conversationID).
+func TestManagerFailFastConcurrentRunSameConversation(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Delivery: &recordingDelivery{},
+		// Nunca notifica → o 1º run permanece ativo.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	// 1º run em background → fica ativo (sem notificação). Timeout curto só para
+	// o goroutine encerrar após o teste.
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Prompt: "tarefa longa", Background: true, Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("primeiro Run: %v", err)
+	}
+
+	// 2º run (resume) na MESMA sub-conversa enquanto o 1º está ativo → fail-fast.
+	if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Prompt: "tarefa concorrente"}); err == nil {
+		t.Fatal("esperava fail-fast ao iniciar run concorrente na mesma sub-conversa")
+	}
+
+	// Cancela o 1º para liberar a reserva e, então, um novo run na mesma
+	// sub-conversa deve ser aceito.
+	if _, err := mgr.Cancel(ctx, first.ConversationID, first.RunID); err != nil {
+		t.Fatalf("cancelar 1º run: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: first.ConversationID, Prompt: "agora pode", Background: true, Timeout: time.Second}); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("após cancelar o 1º run, a sub-conversa deveria aceitar novo run")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
