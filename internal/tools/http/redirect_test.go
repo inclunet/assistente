@@ -100,4 +100,17 @@ func TestRedirectGuardStripsCredentialsOnHostChange(t *testing.T) {
 	if otherPort.Header.Get("X-Api-Key") != "" {
 		t.Error("credencial deveria ser removida ao mudar a porta (host:port diferente)")
 	}
+
+	// Downgrade https->http no MESMO host: credenciais não podem ir em texto puro.
+	downgrade := mustReq(t, "http://api.exemplo.com/x")
+	downgrade.Header = http.Header{}
+	downgrade.Header.Set("Authorization", "Bearer segredo")
+	downgrade.Header.Set("X-Api-Key", "chave-secreta")
+	downgrade = downgrade.WithContext(context.WithValue(context.Background(), appliedAuthHeadersKey{}, []string{"X-Api-Key"}))
+	if err := guard(downgrade, []*http.Request{orig}); err != nil {
+		t.Fatalf("downgrade para host público não deveria ser bloqueado pelo guard: %v", err)
+	}
+	if downgrade.Header.Get("Authorization") != "" || downgrade.Header.Get("X-Api-Key") != "" {
+		t.Error("credenciais deveriam ser removidas no downgrade https->http")
+	}
 }

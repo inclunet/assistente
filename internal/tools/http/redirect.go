@@ -27,11 +27,11 @@ func RedirectGuard(maxRedirects int, allowPrivate func() bool) func(req *http.Re
 		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 			return fmt.Errorf("redirect para scheme não suportado: %q", req.URL.Scheme)
 		}
-		// Remove credenciais ao sair do host original: o net/http copia os headers
-		// para o destino do redirect e só remove Authorization/Cookie em mudança de
-		// host — headers de credencial custom (ex.: X-Api-Key) vazariam para outro
-		// domínio sem isto.
-		stripCredentialsOnHostChange(req, via)
+		// Remove credenciais quando o redirect sai do host original ou faz downgrade
+		// https->http: o net/http copia os headers para o destino e só remove
+		// Authorization/Cookie em mudança de host — headers de credencial custom
+		// (ex.: X-Api-Key) vazariam para outro domínio (ou em texto puro) sem isto.
+		stripCredentialsOnUntrustedRedirect(req, via)
 		if allowPrivate != nil && allowPrivate() {
 			return nil
 		}
@@ -42,22 +42,30 @@ func RedirectGuard(maxRedirects int, allowPrivate func() bool) func(req *http.Re
 	}
 }
 
-// stripCredentialsOnHostChange remove headers sensíveis do próximo request quando
-// o destino do redirect não é o host original, evitando vazamento de credenciais
-// (domain-scoped) para outro domínio. Cobre os headers padrão (defense-in-depth) e
-// os headers de credencial custom injetados pelo cliente, propagados via context.
-func stripCredentialsOnHostChange(req *http.Request, via []*http.Request) {
+// stripCredentialsOnUntrustedRedirect remove headers sensíveis do próximo request
+// quando o redirect cruza um limite de confiança, evitando vazamento de credenciais
+// (domain-scoped). Cobre os headers padrão (defense-in-depth) e os headers de
+// credencial custom injetados pelo cliente, propagados via context.
+//
+// Considera "não confiável":
+//   - mudança de host:port (não só Hostname): example.com -> example.com:8443
+//     alcança outro serviço na mesma máquina;
+//   - downgrade https->http no mesmo host: exporia as credenciais em texto puro.
+func stripCredentialsOnUntrustedRedirect(req *http.Request, via []*http.Request) {
 	if len(via) == 0 || via[0] == nil || via[0].URL == nil || req.URL == nil {
 		return
 	}
-	// Compara Host (host:port), não só Hostname(): um redirect que muda apenas a
-	// porta (ex.: example.com -> example.com:8443) alcança outro serviço na mesma
-	// máquina e também deve descartar as credenciais. Over-strip num caso raro
-	// (porta default explícita) é aceitável — segurança acima de conveniência.
-	if strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+	orig := via[0].URL
+	sameHost := strings.EqualFold(req.URL.Host, orig.Host)
+	downgrade := strings.EqualFold(orig.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http")
+	// Over-strip num caso raro (porta default explícita) é aceitável — segurança
+	// acima de conveniência.
+	if sameHost && !downgrade {
 		return
 	}
-	for _, h := range []string{"Authorization", "Proxy-Authorization", "Cookie", "Cookie2", "Www-Authenticate"} {
+	// Apenas headers de request: Www-Authenticate é header de resposta e não se
+	// aplica aqui.
+	for _, h := range []string{"Authorization", "Proxy-Authorization", "Cookie", "Cookie2"} {
 		req.Header.Del(h)
 	}
 	if applied, ok := req.Context().Value(appliedAuthHeadersKey{}).([]string); ok {
