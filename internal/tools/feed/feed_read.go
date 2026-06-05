@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -50,7 +49,7 @@ func NewFeedRead(credMgr *credentials.Manager) *FeedRead {
 			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 				return fmt.Errorf("redirect para scheme não suportado: %q", req.URL.Scheme)
 			}
-			if !t.allowPrivateHosts && isPrivateHost(req.URL.Hostname()) {
+			if !t.allowPrivateHosts && httpclient.IsPrivateHost(req.URL.Hostname()) {
 				return fmt.Errorf("redirect para host local/privado bloqueado: %s", req.URL.Host)
 			}
 			return nil
@@ -129,7 +128,7 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return tools.ToolResult{Content: "URL deve usar http:// ou https://", IsError: true}, nil
 	}
-	if !t.allowPrivateHosts && isPrivateHost(parsedURL.Hostname()) {
+	if !t.allowPrivateHosts && httpclient.IsPrivateHost(parsedURL.Hostname()) {
 		return tools.ToolResult{Content: "Acesso a hosts locais/privados não é permitido", IsError: true}, nil
 	}
 
@@ -168,10 +167,12 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	// Só 2xx é tratado como sucesso. Um 3xx aqui significa que o redirect não foi
-	// seguido (CheckRedirect o bloqueou ou era inválido); nesse caso o body é a
-	// página de redirect, não o feed, então devolvemos um erro explícito em vez de
-	// tentar parsear e gerar uma mensagem confusa.
+	// Só 2xx é tratado como sucesso. Redirects bloqueados pelo CheckRedirect chegam
+	// como erro de t.client.Do (caminho "Erro ao acessar feed" acima), não aqui —
+	// pois o wrapper httpclient.Client não preserva a resposta quando Do retorna
+	// erro. Este bloco cobre o caso de uma resposta 3xx que o net/http não seguiu
+	// por conta própria (tipicamente um redirect sem header Location): o body seria
+	// a página de redirect, não o feed, então devolvemos um erro explícito.
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		dest := strings.TrimSpace(resp.Header.Get("Location"))
 		msg := fmt.Sprintf("Redirect HTTP %s não seguido para %s", resp.Status, a.URL)
@@ -200,15 +201,17 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao serializar feed: %v", err), IsError: true}, nil
 	}
 
-	// O executor trunca resultados acima de tools.DefaultMaxResultSize e anexa um
-	// aviso textual, o que transformaria a saída em JSON inválido e quebraria o
-	// contrato de "JSON canônico". Em vez de devolver JSON corrompido, falhamos
-	// de forma explícita pedindo um payload menor.
-	if len(encoded) > tools.DefaultMaxResultSize {
+	// O executor trunca resultados acima do seu limite efetivo e anexa um aviso
+	// textual, o que transformaria a saída em JSON inválido e quebraria o contrato
+	// de "JSON canônico". Lemos o limite efetivo do ctx (varia por chamador: jobs
+	// usam budget maior que o default) e, em vez de devolver JSON corrompido,
+	// falhamos de forma explícita pedindo um payload menor.
+	maxResultSize := tools.MaxResultSizeFromContext(ctx)
+	if len(encoded) > maxResultSize {
 		return tools.ToolResult{
 			Content: fmt.Sprintf(
 				"Feed serializado tem %d bytes, acima do limite de %d. Reduza 'max_items' ou desabilite 'include_content' para obter um payload menor.",
-				len(encoded), tools.DefaultMaxResultSize,
+				len(encoded), maxResultSize,
 			),
 			IsError: true,
 		}, nil
@@ -224,27 +227,4 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			"status":     resp.StatusCode,
 		},
 	}, nil
-}
-
-// isPrivateHost bloqueia hosts locais/privados (defesa básica contra SSRF).
-// Usa net.ParseIP para cobrir corretamente os ranges privados (10/8,
-// 172.16/12, 192.168/16), loopback e link-local, sem o falso positivo de um
-// prefix match ingênuo (ex.: 172.2.x.x é público).
-//
-// Limitação conhecida: só inspeciona IPs literais e "localhost". Um hostname
-// que resolve via DNS para um IP privado (ex.: "internal.example") NÃO é
-// bloqueado, pois net.ParseIP retorna nil para nomes — e não fazemos resolução
-// de DNS aqui (evita lookups extras e o TOCTOU entre o check e o dial). Portanto
-// isto não é proteção anti-SSRF completa, apenas uma barreira contra URLs que
-// já apontam diretamente para endereços locais/privados.
-func isPrivateHost(host string) bool {
-	host = strings.ToLower(strings.Trim(host, "[]"))
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
 }

@@ -1,0 +1,24 @@
+package http
+
+import "testing"
+
+func TestIsPrivateHost(t *testing.T) {
+	blocked := []string{
+		"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]",
+		"10.0.0.1", "192.168.1.1", "172.16.0.1", "172.31.255.255", "169.254.0.1",
+	}
+	for _, h := range blocked {
+		if !IsPrivateHost(h) {
+			t.Errorf("%q deveria ser bloqueado", h)
+		}
+	}
+
+	// 172.2.x.x e 172.32.x.x são públicos (fora do range 172.16/12); o prefix
+	// match ingênuo bloqueava 172.2.* indevidamente.
+	public := []string{"172.2.3.4", "172.32.0.1", "8.8.8.8", "example.com", "1.1.1.1", "google.com"}
+	for _, h := range public {
+		if IsPrivateHost(h) {
+			t.Errorf("%q NÃO deveria ser bloqueado", h)
+		}
+	}
+}

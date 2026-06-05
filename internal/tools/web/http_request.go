@@ -128,7 +128,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 
 	// Bloqueia hosts locais/privados (exceto em modo teste)
-	if !t.allowPrivateHosts && isPrivateHost(parsedURL.Hostname()) {
+	if !t.allowPrivateHosts && httpclient.IsPrivateHost(parsedURL.Hostname()) {
 		return tools.ToolResult{Content: "Acesso a hosts locais/privados não é permitido", IsError: true}, nil
 	}
 

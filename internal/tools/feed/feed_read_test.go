@@ -385,21 +385,6 @@ func TestFeedReadExecuteMalformedFeed(t *testing.T) {
 	}
 }
 
-func TestIsPrivateHost(t *testing.T) {
-	blocked := []string{"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "10.0.0.1", "192.168.1.1", "172.16.0.1", "172.31.255.255", "169.254.0.1"}
-	for _, h := range blocked {
-		if !isPrivateHost(h) {
-			t.Errorf("%q deveria ser bloqueado", h)
-		}
-	}
-	public := []string{"172.2.3.4", "172.32.0.1", "8.8.8.8", "example.com", "1.1.1.1"}
-	for _, h := range public {
-		if isPrivateHost(h) {
-			t.Errorf("%q NÃO deveria ser bloqueado", h)
-		}
-	}
-}
-
 func TestFeedReadExecute(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")

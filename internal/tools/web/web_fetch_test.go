@@ -225,30 +225,6 @@ func TestWebFetch_BlocksLocalhost(t *testing.T) {
 	}
 }
 
-func TestIsPrivateHost(t *testing.T) {
-	tests := []struct {
-		host     string
-		expected bool
-	}{
-		{"localhost", true},
-		{"127.0.0.1", true},
-		{"192.168.1.1", true},
-		{"10.0.0.1", true},
-		{"172.16.0.1", true},
-		{"::1", true},
-		{"google.com", false},
-		{"example.org", false},
-		{"8.8.8.8", false},
-	}
-
-	for _, tt := range tests {
-		result := isPrivateHost(tt.host)
-		if result != tt.expected {
-			t.Errorf("isPrivateHost(%q) = %v, want %v", tt.host, result, tt.expected)
-		}
-	}
-}
-
 func TestHtmlToText(t *testing.T) {
 	html := `<div><p>Hello <b>World</b></p><script>alert('x')</script><style>.x{}</style></div>`
 	text := htmlToText(html)
