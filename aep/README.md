@@ -64,6 +64,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0066](0066-connection-status-indicator.md) | Indicador de Status de Conexão com a API LLM | 📝 Draft |
 | [0067](0067-tasklist-domain-events-and-custom-actions.md) | Eventos de Domínio de Tasklists e Custom Actions | 📝 Draft |
 | [0068](0068-subagentes-segundo-plano.md) | Sub-agentes em segundo plano (tool de sub-conversas) | 📝 Draft |
+| [0069](0069-feed-read-tool.md) | Tool feed_read (RSS/Atom/JSON Feed/Podcast → JSON canônico) | 📝 Draft |
 
 ## Status Legend
 

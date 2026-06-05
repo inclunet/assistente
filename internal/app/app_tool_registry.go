@@ -13,6 +13,7 @@ import (
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
 	deeplinktool "assistente/internal/tools/deeplink"
+	feedtool "assistente/internal/tools/feed"
 	"assistente/internal/tools/filesystem"
 	"assistente/internal/tools/history"
 	jobtool "assistente/internal/tools/job"
@@ -194,6 +195,9 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(httpReqTool)
 
 	a.toolRegistry.MustRegister(web.NewWebSearch(a.credMgr))
+
+	// feed_read: RSS/Atom/JSON Feed/podcast -> JSON canônico (auth por domínio)
+	a.toolRegistry.MustRegister(feedtool.NewFeedRead(a.credMgr))
 
 	// Registra ferramenta de shell (run_command)
 	confirmFn := func(ctx context.Context, cmd, wd string) (bool, error) {
