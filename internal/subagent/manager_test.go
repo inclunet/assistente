@@ -1086,6 +1086,40 @@ func TestManagerReconcileOrphansUnconfiguredFails(t *testing.T) {
 	}
 }
 
+// TestManagerReconcileOrphansNilClockDoesNotPanic garante (thread :681) que um
+// Manager construído manualmente com repo setado mas SEM `now` (clock nil) não
+// panica em ReconcileOrphans — o helper nowFn cai para time.Now.
+func TestManagerReconcileOrphansNilClockDoesNotPanic(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	// Manager manual: repo setado, demais campos zero (now == nil).
+	mgr := &Manager{repo: repo}
+
+	conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent")
+	if err != nil {
+		t.Fatalf("criar conv: %v", err)
+	}
+	run := &database.SubAgentRun{UserID: "user-a", ParentConversationID: "parent", ChildConversationID: conv.ID, Status: StatusRunning}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatalf("criar run: %v", err)
+	}
+
+	// Não deve panicar mesmo com now nil; deve reconciliar o órfão.
+	n, err := mgr.ReconcileOrphans(ctx, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ReconcileOrphans com now nil: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("esperava 1 run reconciliado, veio %d", n)
+	}
+	got, err := repo.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("buscar run: %v", err)
+	}
+	if got.Status != StatusFailed || got.CompletedAt == nil {
+		t.Fatalf("órfão deveria virar failed com completed_at preenchido (time.Now); veio %#v", got)
+	}
+}
+
 // TestManagerClearDoesNotWipeHistoryWhenConcurrencyRejects garante que um
 // Clear=true NÃO apague histórico/resumo quando o run for rejeitado pelo fail-fast
 // de concorrência: o clear (destrutivo) só roda APÓS a reserva da sub-conversa.

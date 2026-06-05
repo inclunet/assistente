@@ -158,6 +158,18 @@ func NewManager(cfg ManagerConfig) *Manager {
 	}
 }
 
+// nowFn devolve o relógio efetivo do Manager com fallback seguro para time.Now.
+// NewManager sempre injeta `now`, mas um Manager construído manualmente (ex.: só
+// com repo, em testes/wiring parcial) pode tê-lo nil — chamar m.now() direto
+// panicaria. Use SEMPRE nowFn() no lugar de m.now() para tolerar esse caso sem
+// alterar o comportamento quando o clock está injetado.
+func (m *Manager) nowFn() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now()
+}
+
 // Run executa um sub-agente. Com Background=false é síncrono (Fase 1): espera a
 // conclusão e devolve o resultado. Com Background=true (Fase 2) retorna o handle
 // imediatamente e executa em goroutine, entregando o aviso de conclusão ao pai.
@@ -262,7 +274,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	//     reserva). Se o clear falhar, o run existe: marca-o failed (auditoria/
 	//     retry, best-effort) e libera a reserva da conversa E a vaga do usuário.
 	if err := m.applyClear(ctx, childConvID, isNew, p.Clear); err != nil {
-		clearedAt := m.now()
+		clearedAt := m.nowFn()
 		run.Status = database.SubAgentRunStatusFailed
 		run.Error = fmt.Sprintf("erro ao limpar sub-conversa (clear): %v", err)
 		run.CompletedAt = &clearedAt
@@ -317,7 +329,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	//    finish): o estado não pode ficar preso em queued enquanto o loop roda.
 	//    Se nem isso persistir, aborta ANTES de enviar para não deixar trabalho
 	//    órfão e reporta a falha (não descarta o erro silenciosamente).
-	startedAt := m.now()
+	startedAt := m.nowFn()
 	run.Status = database.SubAgentRunStatusRunning
 	run.StartedAt = &startedAt
 	result.Status = run.Status
@@ -734,7 +746,7 @@ func (m *Manager) ReconcileOrphans(ctx context.Context, cutoff time.Time) (int64
 	if m == nil || m.repo == nil {
 		return 0, fmt.Errorf("subagent manager não configurado: não é possível reconciliar runs órfãos")
 	}
-	return m.repo.ReconcileOrphans(ctx, cutoff, m.now())
+	return m.repo.ReconcileOrphans(ctx, cutoff, m.nowFn())
 }
 
 // ListSubConversations retorna a visão das sub-conversas do usuário para a UI
@@ -845,7 +857,7 @@ func (m *Manager) finalize(ctx context.Context, run *database.SubAgentRun, resul
 
 // finish atualiza o run com o desfecho e preenche o RunResult.
 func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result *RunResult, o outcome) RunResult {
-	completedAt := m.now()
+	completedAt := m.nowFn()
 	run.Status = o.status
 	run.ResultSummary = truncate(o.summary, maxResultSummary)
 	run.AssistantMessageID = o.assistantMessageID
@@ -924,7 +936,7 @@ func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun) {
 		return
 	}
 
-	now := m.now()
+	now := m.nowFn()
 	run.DeliveredAt = &now
 	if err := m.repo.Update(persistCtx, run); err != nil {
 		// O aviso JÁ foi entregue, mas não conseguimos persistir DeliveredAt: em
