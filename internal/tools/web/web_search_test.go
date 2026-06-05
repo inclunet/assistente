@@ -30,6 +30,16 @@ func TestWebSearch_Parameters(t *testing.T) {
 	if _, ok := props["query"]; !ok {
 		t.Error("schema deve ter propriedade 'query'")
 	}
+	// O schema deve codificar os limites que o Execute() aplica, para que
+	// validadores por JSON Schema rejeitem inputs fora do contrato.
+	maxResults := props["max_results"].(map[string]interface{})
+	if maxResults["minimum"] != float64(1) || maxResults["maximum"] != float64(20) || maxResults["default"] != float64(8) {
+		t.Errorf("max_results deve ter minimum=1, maximum=20, default=8, got %v", maxResults)
+	}
+	offset := props["offset"].(map[string]interface{})
+	if offset["minimum"] != float64(0) || offset["default"] != float64(0) {
+		t.Errorf("offset deve ter minimum=0, default=0, got %v", offset)
+	}
 }
 
 func TestWebSearch_MissingQuery(t *testing.T) {

@@ -82,11 +82,16 @@ func (t *WebSearch) Parameters() json.RawMessage {
 			},
 			"max_results": {
 				"type": "integer",
-				"description": "Número máximo de resultados por página. Padrão: 8 (máx: 20)."
+				"description": "Número máximo de resultados por página. Padrão: 8 (máx: 20).",
+				"minimum": 1,
+				"maximum": 20,
+				"default": 8
 			},
 			"offset": {
 				"type": "integer",
-				"description": "Deslocamento 0-based para paginação. Para a próxima página, use offset = offset anterior + count. Padrão: 0."
+				"description": "Deslocamento 0-based para paginação. Para a próxima página, use offset = offset anterior + count. Padrão: 0.",
+				"minimum": 0,
+				"default": 0
 			}
 		},
 		"required": ["query"],
