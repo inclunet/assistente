@@ -24,7 +24,7 @@ function antDesignIconsStub() {
         // Named exports for every icon used in the codebase.
         // When a new icon is added, append it here.
         ...[
-          'ApiOutlined', 'AppstoreOutlined', 'ArrowLeftOutlined', 'AudioOutlined',
+          'ApartmentOutlined', 'ApiOutlined', 'AppstoreOutlined', 'ArrowLeftOutlined', 'AudioOutlined',
           'BarChartOutlined', 'BugOutlined', 'BulbOutlined',
           'CalendarOutlined', 'CaretRightOutlined', 'CheckCircleOutlined',
           'CheckOutlined', 'CheckSquareOutlined', 'ClearOutlined',

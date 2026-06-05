@@ -575,7 +575,7 @@ func TestManagerResumeReusesConversationAndIncrementsTurn(t *testing.T) {
 	}
 }
 
-// TestManagerResumeTrimsConversationID garante (thread :389) que um
+// TestManagerResumeTrimsConversationID garante que um
 // conversation_id com espaços ao redor é normalizado e tratado como o id real:
 // faz RESUME da sub-conversa existente, não "não encontrada" nem criação de nova.
 func TestManagerResumeTrimsConversationID(t *testing.T) {
@@ -613,7 +613,7 @@ func TestManagerResumeTrimsConversationID(t *testing.T) {
 	}
 }
 
-// TestAppendChainDoesNotMutateInput garante (thread :308) que appendChain nunca
+// TestAppendChainDoesNotMutateInput garante que appendChain nunca
 // muta o slice recebido (vindo de eventctx no ctx — imutável): faz cópia
 // defensiva antes de anexar.
 func TestAppendChainDoesNotMutateInput(t *testing.T) {
@@ -641,7 +641,7 @@ func TestAppendChainDoesNotMutateInput(t *testing.T) {
 
 // TestManagerRunDoesNotMutateCtxChainHistory garante, ponta a ponta, que um Run
 // que anexa seu run.ID à cadeia NÃO muta o ChainHistory de proveniência guardado
-// no ctx (context values são imutáveis — thread :308). Usa uma sentinela no
+// no ctx (context values são imutáveis). Usa uma sentinela no
 // backing array (capacidade > len) para detectar um append in-place.
 func TestManagerRunDoesNotMutateCtxChainHistory(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
@@ -730,6 +730,357 @@ func TestManagerClearResetsHistoryBeforeSend(t *testing.T) {
 	}
 	if summary != "" {
 		t.Fatalf("clear deveria ter limpado o resumo; veio %q", summary)
+	}
+}
+
+type fakeLister struct {
+	metas []SubConversationMeta
+	err   error
+}
+
+func (f *fakeLister) ListSubAgentConversations(_ context.Context) ([]SubConversationMeta, error) {
+	return f.metas, f.err
+}
+
+func TestManagerConcurrencyLimitPerUser(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:                 repo,
+		Notifier:             notifier,
+		Delivery:             &recordingDelivery{},
+		MaxConcurrentPerUser: 1,
+		CancelStream:         func(string) {},
+		// Nunca notifica → o primeiro run em background ocupa a vaga.
+		Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil },
+	})
+
+	first, err := mgr.Run(ctx, RunParams{Prompt: "ocupa a vaga", Background: true, ParentConversationID: "p"})
+	if err != nil {
+		t.Fatalf("primeiro run: %v", err)
+	}
+
+	// Segundo run deve ser barrado pelo teto de concorrência.
+	if _, err := mgr.Run(ctx, RunParams{Prompt: "deve falhar", Background: true, ParentConversationID: "p"}); err == nil {
+		t.Fatal("esperava erro de limite de concorrência no segundo run")
+	}
+
+	// Cancelar o primeiro libera a vaga.
+	if _, err := mgr.Cancel(ctx, first.ConversationID, first.RunID); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	// Aguarda a goroutine do primeiro run liberar a vaga.
+	deadline := time.Now().Add(2 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		_, lastErr = mgr.Run(ctx, RunParams{Prompt: "agora vai", Background: true, ParentConversationID: "p"})
+		if lastErr == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if lastErr != nil {
+		t.Fatalf("vaga não liberada após cancelar o primeiro run: %v", lastErr)
+	}
+}
+
+// blockingDelivery sinaliza quando deliver começa (entered) e bloqueia até
+// release ser fechado — usado para provar que a vaga de concorrência é liberada
+// ANTES de deliver().
+type blockingDelivery struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (d *blockingDelivery) Deliver(_ context.Context, _ ParentNotice) error {
+	close(d.entered)
+	<-d.release
+	return nil
+}
+
+// TestReleaseSlotBeforeDeliverBackground garante que, num run em background, a
+// vaga de concorrência do usuário é liberada IMEDIATAMENTE após o estado terminal
+// e ANTES de deliver() (que pode bloquear): com o deliver travado, um novo
+// acquireSlot já deve ser possível. Também verifica que não há double-release
+// (a chave do usuário é limpa exatamente uma vez ao final).
+func TestReleaseSlotBeforeDeliverBackground(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	delivery := &blockingDelivery{entered: make(chan struct{}), release: make(chan struct{})}
+	mgr := NewManager(ManagerConfig{
+		Repo:                 repo,
+		Notifier:             notifier,
+		Delivery:             delivery,
+		MaxConcurrentPerUser: 1,
+		CancelStream:         func(string) {},
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			go notifier.Notify(p.ConversationID, "ok", "m1")
+			return p.ConversationID, nil
+		},
+	})
+
+	if _, err := mgr.Run(ctx, RunParams{Prompt: "bg", Background: true, ParentConversationID: "p"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// Espera o deliver começar (e, portanto, bloquear no <-release).
+	select {
+	case <-delivery.entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("deliver não foi chamado a tempo")
+	}
+
+	// Com deliver BLOQUEADO, a vaga já deve estar livre: o release acontece antes
+	// do deliver. Um novo acquireSlot precisa ser possível imediatamente.
+	if err := mgr.acquireSlot("user-a"); err != nil {
+		t.Fatalf("a vaga deveria estar livre antes de deliver desbloquear (release antes de deliver): %v", err)
+	}
+	mgr.releaseSlot("user-a")
+
+	// Libera o deliver e confirma que, ao final, a chave do usuário some exatamente
+	// uma vez (sem double-release: contador não foi a negativo nem ficou preso).
+	close(delivery.release)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		mgr.mu.Lock()
+		_, present := mgr.activeByUser["user-a"]
+		mgr.mu.Unlock()
+		if !present {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("a vaga do usuário não foi liberada/limpa após o término")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// TestReleaseSlotNoMapLeak garante que releaseSlot remove a entrada do
+// activeByUser ao zerar (sem vazar chaves por userID em processo long-lived),
+// é idempotente (release a mais não recria a chave nem vai negativo) e que o
+// teto de concorrência continua funcionando após acquire→release→acquire.
+func TestReleaseSlotNoMapLeak(t *testing.T) {
+	mgr := NewManager(ManagerConfig{MaxConcurrentPerUser: 1})
+	const u = "user-x"
+
+	if err := mgr.acquireSlot(u); err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if got := mgr.activeByUser[u]; got != 1 {
+		t.Fatalf("após acquire esperava 1, veio %d", got)
+	}
+
+	mgr.releaseSlot(u)
+	if _, ok := mgr.activeByUser[u]; ok {
+		t.Fatalf("após release a chave deveria ser removida (sem leak), mas permanece: %d", mgr.activeByUser[u])
+	}
+
+	// Idempotência: release a mais não recria a chave nem vai negativo.
+	mgr.releaseSlot(u)
+	if v, ok := mgr.activeByUser[u]; ok {
+		t.Fatalf("release idempotente não deveria recriar a chave; veio %d", v)
+	}
+	// Leitura de ausente = 0 (não negativo).
+	if got := mgr.activeByUser[u]; got != 0 {
+		t.Fatalf("chave ausente deveria ler 0, veio %d", got)
+	}
+
+	// Teto continua funcionando após acquire→release→acquire.
+	if err := mgr.acquireSlot(u); err != nil {
+		t.Fatalf("acquire pós-release: %v", err)
+	}
+	if err := mgr.acquireSlot(u); err == nil {
+		t.Fatal("esperava barrar o 2º acquire pelo teto de concorrência")
+	}
+	mgr.releaseSlot(u)
+	if _, ok := mgr.activeByUser[u]; ok {
+		t.Fatal("após liberar a única vaga a chave deveria sumir novamente")
+	}
+}
+
+func TestManagerListSubConversations(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	// Cria uma sub-conversa real com um run succeeded.
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			go notifier.Notify(p.ConversationID, "ok", "m1")
+			return p.ConversationID, nil
+		},
+	})
+	run1, err := mgr.Run(ctx, RunParams{Prompt: "tarefa", ParentConversationID: "parent-conv"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// Lister falso devolve a meta da sub-conversa criada, com custo.
+	lister := &fakeLister{metas: []SubConversationMeta{{
+		ConversationID:       run1.ConversationID,
+		Title:                "tarefa",
+		ParentConversationID: "parent-conv",
+		MessageCount:         2,
+		PromptTokens:         100,
+		CompletionTokens:     50,
+		TotalTokens:          150,
+	}}}
+	mgr.lister = lister
+
+	list, err := mgr.ListSubConversations(ctx)
+	if err != nil {
+		t.Fatalf("ListSubConversations: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("esperava 1 sub-conversa, veio %d", len(list))
+	}
+	s := list[0]
+	if s.ConversationID != run1.ConversationID {
+		t.Fatalf("conversationId inesperado: %#v", s)
+	}
+	if s.LatestStatus != StatusSucceeded || s.RunCount != 1 {
+		t.Fatalf("status/contagem de run inesperados: %#v", s)
+	}
+	if s.TotalTokens != 150 || s.PromptTokens != 100 || s.CompletionTokens != 50 {
+		t.Fatalf("custo (tokens) inesperado: %#v", s)
+	}
+}
+
+// TestManagerListSubConversationsUnconfiguredFails garante que, sem
+// repo/lister/manager, a listagem falha explicitamente em vez de devolver lista
+// vazia (que mascararia wiring quebrado no binding Wails).
+func TestManagerListSubConversationsUnconfiguredFails(t *testing.T) {
+	var nilMgr *Manager
+	if _, err := nilMgr.ListSubConversations(context.Background()); err == nil {
+		t.Fatal("esperava erro com Manager nil")
+	}
+	repo, _ := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+	// Sem Lister configurado.
+	if _, err := mgr.ListSubConversations(context.Background()); err == nil {
+		t.Fatal("esperava erro com lister não configurado")
+	}
+}
+
+// aggregateGuardRepo embute Repository e faz o teste falhar se a agregação for
+// chamada — usado para provar o early return de ListSubConversations.
+type aggregateGuardRepo struct {
+	Repository
+	t *testing.T
+}
+
+func (r *aggregateGuardRepo) AggregateByChildConversation(_ context.Context) (map[string]ChildRunAggregate, error) {
+	r.t.Helper()
+	r.t.Fatal("AggregateByChildConversation não deveria ser chamado quando não há sub-conversas (early return)")
+	return nil, nil
+}
+
+// TestManagerListSubConversationsEmptyShortCircuits garante que, sem sub-conversas
+// (metas vazio), ListSubConversations retorna slice vazio não-nil SEM consultar a
+// agregação de runs (evita um SELECT desnecessário potencialmente grande).
+func TestManagerListSubConversationsEmptyShortCircuits(t *testing.T) {
+	mgr := &Manager{
+		repo:   &aggregateGuardRepo{t: t},
+		lister: &fakeLister{metas: nil},
+	}
+	list, err := mgr.ListSubConversations(context.Background())
+	if err != nil {
+		t.Fatalf("ListSubConversations: %v", err)
+	}
+	if list == nil {
+		t.Fatal("esperava slice vazio não-nil, veio nil")
+	}
+	if len(list) != 0 {
+		t.Fatalf("esperava lista vazia, veio %d", len(list))
+	}
+}
+
+// TestAggregateByChildConversation valida a agregação no banco: contagem de runs
+// por sub-conversa, eleição do run MAIS RECENTE (status/erro/background) e escopo
+// por usuário (runs de outro usuário não aparecem).
+func TestAggregateByChildConversation(t *testing.T) {
+	repo, ctx := setupManagerTest(t) // ctx = user-a
+
+	base := time.Now()
+	mk := func(c context.Context, child, status, errMsg string, bg bool, createdAt time.Time, turnIndex int) {
+		t.Helper()
+		run := &database.SubAgentRun{
+			ParentConversationID: "p",
+			ChildConversationID:  child,
+			Status:               status,
+			Error:                errMsg,
+			Background:           bg,
+			TurnIndex:            turnIndex,
+		}
+		run.CreatedAt = createdAt
+		if err := repo.Create(c, run); err != nil {
+			t.Fatalf("criar run: %v", err)
+		}
+	}
+
+	// convX: 3 runs; o mais recente (maior created_at) é failed/boom/background.
+	mk(ctx, "convX", StatusSucceeded, "", false, base.Add(-2*time.Hour), 0)
+	mk(ctx, "convX", StatusSucceeded, "", false, base.Add(-1*time.Hour), 1)
+	mk(ctx, "convX", StatusFailed, "boom", true, base, 2)
+	// convY: 1 run running.
+	mk(ctx, "convY", StatusRunning, "", false, base.Add(-30*time.Minute), 0)
+	// convTie: EMPATE de created_at, mas turn_index distinto. O critério canônico
+	// (turn_index DESC) deve eleger o run de MAIOR turn_index — o mesmo escolhido
+	// por GetLatestByChildConversation. Cria o de maior turn_index PRIMEIRO para
+	// que um desempate por id/ordem de inserção pegaria o OUTRO se o turn_index
+	// não fosse respeitado.
+	tie := base.Add(-15 * time.Minute)
+	mk(ctx, "convTie", StatusFailed, "tie-boom", true, tie, 5)
+	mk(ctx, "convTie", StatusSucceeded, "", false, tie, 1)
+	// Outro usuário: run em convZ não deve aparecer para user-a.
+	ctxB := database.WithUserID(context.Background(), "user-b")
+	mk(ctxB, "convZ", StatusSucceeded, "", false, base, 0)
+
+	agg, err := repo.AggregateByChildConversation(ctx)
+	if err != nil {
+		t.Fatalf("AggregateByChildConversation: %v", err)
+	}
+	if len(agg) != 3 {
+		t.Fatalf("esperava 3 sub-conversas para user-a, veio %d (%#v)", len(agg), agg)
+	}
+	if _, ok := agg["convZ"]; ok {
+		t.Fatal("convZ é de outro usuário e NÃO deveria aparecer (violação de escopo)")
+	}
+
+	x := agg["convX"]
+	if x.RunCount != 3 {
+		t.Fatalf("convX run_count esperado 3, veio %d", x.RunCount)
+	}
+	if x.LatestStatus != StatusFailed || x.LatestError != "boom" || !x.LatestBackground {
+		t.Fatalf("convX deveria refletir o run mais recente (failed/boom/background): %#v", x)
+	}
+
+	y := agg["convY"]
+	if y.RunCount != 1 || y.LatestStatus != StatusRunning {
+		t.Fatalf("convY inesperado: %#v", y)
+	}
+
+	// Empate de created_at: a agregação deve eleger o run de maior turn_index e
+	// concordar EXATAMENTE com GetLatestByChildConversation (mesmo critério).
+	tieAgg := agg["convTie"]
+	if tieAgg.RunCount != 2 {
+		t.Fatalf("convTie run_count esperado 2, veio %d", tieAgg.RunCount)
+	}
+	if tieAgg.LatestStatus != StatusFailed || tieAgg.LatestError != "tie-boom" || !tieAgg.LatestBackground {
+		t.Fatalf("convTie deveria eleger o run de maior turn_index (failed/tie-boom/background): %#v", tieAgg)
+	}
+	latest, err := repo.GetLatestByChildConversation(ctx, "convTie")
+	if err != nil {
+		t.Fatalf("GetLatestByChildConversation(convTie): %v", err)
+	}
+	if latest.Status != tieAgg.LatestStatus || latest.Error != tieAgg.LatestError || latest.Background != tieAgg.LatestBackground {
+		t.Fatalf("agregação e GetLatestByChildConversation divergiram em empate: latest=%#v agg=%#v", latest, tieAgg)
 	}
 }
 
@@ -966,7 +1317,7 @@ func TestManagerReconcileOrphansUnconfiguredFails(t *testing.T) {
 	}
 }
 
-// TestManagerReconcileOrphansNilClockDoesNotPanic garante (thread :681) que um
+// TestManagerReconcileOrphansNilClockDoesNotPanic garante que um
 // Manager construído manualmente com repo setado mas SEM `now` (clock nil) não
 // panica em ReconcileOrphans — o helper nowFn cai para time.Now.
 func TestManagerReconcileOrphansNilClockDoesNotPanic(t *testing.T) {
@@ -1088,7 +1439,7 @@ func TestManagerClearWithoutConversationIDFails(t *testing.T) {
 	}
 }
 
-// TestManagerClearNotAppliedWhenRunCreateFails garante (thread :166) que o clear
+// TestManagerClearNotAppliedWhenRunCreateFails garante que o clear
 // destrutivo só roda APÓS o run ser persistido: se o Create falhar, o histórico/
 // resumo da sub-conversa permanece INTACTO (sem perda de dados sem run registrado).
 func TestManagerClearNotAppliedWhenRunCreateFails(t *testing.T) {

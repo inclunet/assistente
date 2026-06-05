@@ -455,6 +455,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 			return a.chatCtrl.SendForSubagent(ctx, p.ConversationID, p.Prompt, p.Media, p.ProfileSlug, p.Model)
 		},
 		Delivery:     &subagentParentDelivery{app: a},
+		Lister:       &subagentConversationLister{app: a},
 		CancelStream: a.streamMgr.Cancel,
 	})
 
