@@ -71,7 +71,7 @@ func (t *Tool) Parameters() json.RawMessage {
 			},
 			"cancel": {
 				"type": "boolean",
-				"description": "Cancel a running sub-agent. Requires conversation_id. Mutually exclusive with prompt."
+				"description": "Cancel a running sub-agent. Requires conversation_id. Mutually exclusive with prompt and clear."
 			},
 			"profile": {
 				"type": "string",
