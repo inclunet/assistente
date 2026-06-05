@@ -34,6 +34,20 @@ describe('dateUtils', () => {
     vi.useRealTimers();
   });
 
+  it('mantém a saída estável em chamadas repetidas (cache por locale)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-01T12:00:00.000Z'));
+    const fiveMinutesAgo = new Date('2024-01-01T11:55:00.000Z').getTime();
+
+    // Chamar duas vezes com o mesmo locale (formatter reusado do cache de módulo)
+    // produz exatamente a mesma saída — comportamento intacto.
+    const first = formatRelativeTimeLocalized(fiveMinutesAgo, 'pt-BR');
+    const second = formatRelativeTimeLocalized(fiveMinutesAgo, 'pt-BR');
+    expect(second).toBe(first);
+
+    vi.useRealTimers();
+  });
+
   it('formata data e data/hora', () => {
     const date = new Date('2024-02-03T10:05:00.000Z');
     expect(formatDate(date)).toMatch(/\d{2}\/\d{2}\/\d{4}/);

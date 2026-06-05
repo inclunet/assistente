@@ -35,6 +35,21 @@ export function formatRelativeTime(timestamp: number): string {
   }
 }
 
+// Cache de Intl.RelativeTimeFormat por locale (nível de módulo): criar um
+// formatter por chamada gera muitas alocações em telas com muitas linhas
+// (DataGrid). A chave é o locale; as options são fixas ({ numeric: 'auto' }),
+// então não precisam compor a chave.
+const relativeTimeFormatters = new Map<string, Intl.RelativeTimeFormat>();
+
+function getRelativeTimeFormatter(locale: string): Intl.RelativeTimeFormat {
+  let rtf = relativeTimeFormatters.get(locale);
+  if (!rtf) {
+    rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+    relativeTimeFormatters.set(locale, rtf);
+  }
+  return rtf;
+}
+
 /**
  * Formata timestamp como tempo relativo LOCALIZADO conforme o idioma atual,
  * usando Intl.RelativeTimeFormat (ex.: "há 5 min" / "5 min ago" / "hace 5 min",
@@ -51,7 +66,7 @@ export function formatRelativeTimeLocalized(timestamp: number, locale: string): 
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
 
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  const rtf = getRelativeTimeFormatter(locale);
   if (absSeconds < 60) return rtf.format(sign * absSeconds, 'second');
   if (minutes < 60) return rtf.format(sign * minutes, 'minute');
   if (hours < 24) return rtf.format(sign * hours, 'hour');
