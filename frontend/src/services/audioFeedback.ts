@@ -13,7 +13,7 @@ export const SOUND_TYPES = {
   
   // Status
   SUCCESS: 'success',     // Operação bem-sucedida
-  ERROR: 'error',         // Erro: "tum dum" (duas notas graves descendentes)
+  ERROR: 'error',         // Erro: "tun tum" (nota grave 330Hz repetida, reusando o par envio/recebimento)
   CLEAR: 'clear',         // Limpeza
   
   // Gravação
@@ -133,22 +133,25 @@ export function playSound(type: SoundType): void {
         break;
         
       case SOUND_TYPES.ERROR:
-        // "tum dum" - duas notas graves descendentes (comunica "algo deu errado")
+        // "tun tum" - a nota grave (330Hz) do par de envio/recebimento repetida,
+        // reusando exatamente as mesmas frequências, ganho, durações e separação.
+        // Distinguível: envio sobe (330→660), recebimento desce (660→330),
+        // erro fica plano no grave (330→330).
         {
           const { oscillator: osc1, gainNode: gain1 } = createTone(ctx);
-          osc1.frequency.setValueAtTime(247, now);
-          gain1.gain.setValueAtTime(0.3, now);
-          gain1.gain.linearRampToValueAtTime(0, now + 0.12);
+          osc1.frequency.setValueAtTime(330, now);
+          gain1.gain.setValueAtTime(0.25, now);
+          gain1.gain.linearRampToValueAtTime(0, now + 0.06);
           osc1.start(now);
-          osc1.stop(now + 0.12);
+          osc1.stop(now + 0.06);
 
           const { oscillator: osc2, gainNode: gain2 } = createTone(ctx);
-          osc2.frequency.setValueAtTime(165, now + 0.14);
+          osc2.frequency.setValueAtTime(330, now + 0.07);
           gain2.gain.setValueAtTime(0, now);
-          gain2.gain.setValueAtTime(0.3, now + 0.14);
-          gain2.gain.linearRampToValueAtTime(0, now + 0.34);
-          osc2.start(now + 0.14);
-          osc2.stop(now + 0.34);
+          gain2.gain.setValueAtTime(0.25, now + 0.07);
+          gain2.gain.linearRampToValueAtTime(0, now + 0.13);
+          osc2.start(now + 0.07);
+          osc2.stop(now + 0.13);
         }
         break;
         

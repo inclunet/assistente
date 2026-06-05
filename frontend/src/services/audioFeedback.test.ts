@@ -30,13 +30,16 @@ class MockAudioContext {
   currentTime = 0;
   state = 'running';
   destination = {};
+  createdOscillators: MockOscillator[] = [];
 
   constructor() {
     lastContext = this;
   }
 
   createOscillator() {
-    return new MockOscillator();
+    const osc = new MockOscillator();
+    this.createdOscillators.push(osc);
+    return osc;
   }
 
   createGain() {
@@ -64,9 +67,14 @@ describe('audioFeedback', () => {
     expect(oscillatorStarts).toBeGreaterThan(0);
   });
 
-  it('toca o som de erro "tum dum" com duas notas', () => {
+  it('toca o som de erro "tun tum" reusando a nota grave (330Hz) duas vezes', () => {
     expect(() => playSound(SOUND_TYPES.ERROR)).not.toThrow();
     expect(oscillatorStarts).toBe(2);
+
+    const freqs = (lastContext?.createdOscillators ?? []).flatMap((osc) =>
+      osc.frequency.setValueAtTime.mock.calls.map((call) => call[0] as number)
+    );
+    expect(freqs).toEqual([330, 330]);
   });
 
   it('avisa em tipos desconhecidos', () => {
