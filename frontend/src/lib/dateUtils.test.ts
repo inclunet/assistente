@@ -54,8 +54,18 @@ describe('dateUtils', () => {
     // 1.1s no passado: deve dar 1 segundo (não 2 — floor de -1.1 daria -2).
     const oneTenthPast = Date.now() - 1100;
 
-    expect(formatRelativeTimeLocalized(oneTenthPast, 'en')).toBe('1 second ago');
-    expect(formatRelativeTimeLocalized(oneTenthPast, 'pt-BR')).toContain('1 segundo');
+    // Asserções tolerantes a variações de ICU/Node (ex.: "1 second ago" vs
+    // "1 sec. ago"): valida idioma correto + magnitude 1 (não 2), sem exigir a
+    // string exata.
+    const en = formatRelativeTimeLocalized(oneTenthPast, 'en');
+    expect(en).toMatch(/1\s*sec(ond)?s?\.?\s*ago/i);
+    expect(en.toLowerCase()).toContain('ago');
+    expect(en).not.toMatch(/\b2\b/);
+
+    const pt = formatRelativeTimeLocalized(oneTenthPast, 'pt-BR');
+    expect(pt).toMatch(/1\s*seg(undo)?s?/i);
+    expect(pt.toLowerCase()).toContain('há');
+    expect(pt).not.toMatch(/\b2\b/);
 
     vi.useRealTimers();
   });
