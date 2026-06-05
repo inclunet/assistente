@@ -344,16 +344,22 @@ func (rt *pkceRoundTripper) effectiveScopes() []string {
 	return scopes
 }
 
-// hasValidTokenLocked reporta se já há um token utilizável (não expirado) para
-// este servidor. Deve ser chamado com rt.mu retido. Se o token estiver expirado
-// mas houver refresh_token, o oauth2 tenta renovar aqui — o que também evita uma
-// janela de autorização desnecessária.
-func (rt *pkceRoundTripper) hasValidTokenLocked() bool {
-	if rt.tokenSource == nil {
-		return false
+// cachedAccessToken devolve o access_token atual do token source (string vazia se
+// não houver). Usado para fotografar o token rejeitado antes de esperar no arbiter
+// e, depois, detectar se outro flow o substituiu. Adquire rt.mu internamente, logo
+// NÃO deve ser chamado com rt.mu já retido.
+func (rt *pkceRoundTripper) cachedAccessToken() string {
+	rt.mu.Lock()
+	ts := rt.tokenSource
+	rt.mu.Unlock()
+	if ts == nil {
+		return ""
 	}
-	tok, err := rt.tokenSource.Token()
-	return err == nil && tok != nil && tok.Valid()
+	tok, err := ts.Token()
+	if err != nil || tok == nil {
+		return ""
+	}
+	return tok.AccessToken
 }
 
 func containsFold(list []string, target string) bool {
@@ -468,6 +474,11 @@ func isSessionExpiredStatus(statusCode int) bool {
 }
 
 func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
+	// authorize() só é chamado após um 401/403, ou seja, o token atual ACABOU de ser
+	// rejeitado. Capturamos o access_token rejeitado ANTES de esperar no arbiter para
+	// detectar, depois, se OUTRO flow o substituiu enquanto aguardávamos.
+	rejected := rt.cachedAccessToken()
+
 	// Serializa entre servidores: enquanto outro MCP estiver fazendo
 	// flow OAuth interativo, este espera. rt.mu (logo abaixo) protege
 	// dentro DE UM servidor — não substitui o arbiter global.
@@ -477,13 +488,16 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
-	// Single-flight por servidor: enquanto esperávamos o arbiter global, outro flow
-	// (ou um refresh) pode ter obtido um token válido para ESTE servidor. Sem esta
-	// reverificação, N requisições concorrentes que tomaram 401 no mesmo servidor
-	// abririam N janelas de autorização em sequência (issue #194).
-	if rt.hasValidTokenLocked() {
-		log.Printf("[MCP:%s] Token válido já presente ao adquirir o arbiter — pulando nova janela de autorização", rt.serverSlug)
-		return nil
+	// Single-flight por servidor: pula a janela SOMENTE se outro flow concorrente
+	// instalou um token NOVO e válido (diferente do que foi rejeitado) enquanto
+	// esperávamos no arbiter (issue #194). Não basta o token estar "não expirado":
+	// ele pode ter sido revogado e rejeitado com 401 — nesse caso o usuário precisa
+	// mesmo reautenticar, então seguimos o flow.
+	if rt.tokenSource != nil {
+		if tok, err := rt.tokenSource.Token(); err == nil && tok != nil && tok.Valid() && tok.AccessToken != rejected {
+			log.Printf("[MCP:%s] Token renovado por outro flow enquanto aguardávamos o arbiter — pulando nova janela de autorização", rt.serverSlug)
+			return nil
+		}
 	}
 
 	// 1. Discovery automático de endpoints OAuth (se URL MCP disponível)

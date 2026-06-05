@@ -1304,29 +1304,49 @@ func TestPersistTokens_PersistsExpiry(t *testing.T) {
 
 // ============ single-flight por servidor (#194) ============
 
-func TestHasValidTokenLocked(t *testing.T) {
-	rt := &pkceRoundTripper{}
-	if rt.hasValidTokenLocked() {
-		t.Error("sem tokenSource deveria ser false")
+// seqTokenSource devolve tokens em sequência: simula que, entre a captura do token
+// rejeitado e a reverificação pós-arbiter, OUTRO flow trocou o token.
+type seqTokenSource struct {
+	mu     sync.Mutex
+	tokens []*oauth2.Token
+	i      int
+}
+
+func (s *seqTokenSource) Token() (*oauth2.Token, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tok := s.tokens[s.i]
+	if s.i < len(s.tokens)-1 {
+		s.i++
 	}
-	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "a", Expiry: time.Now().Add(time.Hour)})
-	if !rt.hasValidTokenLocked() {
-		t.Error("token não-expirado deveria ser válido")
+	return tok, nil
+}
+
+func TestAuthorizeSkipsWhenAnotherFlowRenewedToken(t *testing.T) {
+	// Caso #194: ao adquirir o arbiter, o token foi substituído por OUTRO flow
+	// (access_token diferente do rejeitado) — authorize pula a nova janela.
+	rt := &pkceRoundTripper{
+		serverSlug: "srv",
+		tokenSource: &seqTokenSource{tokens: []*oauth2.Token{
+			{AccessToken: "old-rejected", Expiry: time.Now().Add(time.Hour)},
+			{AccessToken: "new-from-other-flow", Expiry: time.Now().Add(time.Hour)},
+		}},
 	}
-	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "a", Expiry: time.Now().Add(-time.Hour)})
-	if rt.hasValidTokenLocked() {
-		t.Error("token expirado não deveria ser válido")
+	if err := rt.authorize(context.Background()); err != nil {
+		t.Fatalf("authorize deveria pular e retornar nil quando outro flow renovou, got %v", err)
 	}
 }
 
-func TestAuthorizeSkipsWhenTokenAlreadyValid(t *testing.T) {
-	// Simula o caso #194: ao adquirir o arbiter, já há um token válido (obtido por
-	// outro flow concorrente) — authorize deve retornar nil sem abrir janela.
+func TestAuthorizeProceedsWhenTokenUnchanged(t *testing.T) {
+	// Token rejeitado continua o mesmo (ex.: revogado, não-expirado): NÃO pode pular
+	// — o usuário precisa reautenticar. Sem config válida, authorize deve falhar ao
+	// tentar de fato o flow (prova que não tomou o atalho do single-flight).
 	rt := &pkceRoundTripper{
 		serverSlug:  "srv",
-		tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "a", Expiry: time.Now().Add(time.Hour)}),
+		tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "still-rejected", Expiry: time.Now().Add(time.Hour)}),
 	}
-	if err := rt.authorize(context.Background()); err != nil {
-		t.Fatalf("authorize deveria pular e retornar nil, got %v", err)
+	err := rt.authorize(context.Background())
+	if err == nil {
+		t.Fatal("authorize não deveria pular quando o token rejeitado permanece; deveria prosseguir e falhar sem config")
 	}
 }
