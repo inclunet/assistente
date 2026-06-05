@@ -59,6 +59,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 }));
 
 const mockPlayChatReceiveSoundIfActive = vi.fn();
+const mockPlayChatErrorSoundIfActive = vi.fn();
 const mockAnnounceForActiveChatConversation = vi.fn();
 const mockAnnounceChatBackgroundResponseDone = vi.fn();
 const mockGetChatConversationVoiceOrigin = vi.fn((
@@ -77,6 +78,7 @@ const mockGetChatConversationVoiceOrigin = vi.fn((
 });
 vi.mock('./chatArbitration', () => ({
   playChatReceiveSoundIfActive: (...args: unknown[]) => mockPlayChatReceiveSoundIfActive(...args),
+  playChatErrorSoundIfActive: (...args: unknown[]) => mockPlayChatErrorSoundIfActive(...args),
   announceForActiveChatConversation: (...args: unknown[]) => mockAnnounceForActiveChatConversation(...args),
   announceChatBackgroundResponseDone: (...args: unknown[]) => mockAnnounceChatBackgroundResponseDone(...args),
   getChatConversationVoiceOrigin: (conversationId: string, fallbackTitle?: string | null, origin?: ChatSurfaceOrigin | null) => (
@@ -231,6 +233,7 @@ describe('chatEventController', () => {
       hasNewerMessages: false,
     });
     mockPlayChatReceiveSoundIfActive.mockClear();
+    mockPlayChatErrorSoundIfActive.mockClear();
     mockAnnounceForActiveChatConversation.mockClear();
     mockAnnounceChatBackgroundResponseDone.mockClear();
     mockHandleChatSpeak.mockClear();
@@ -356,6 +359,7 @@ describe('chatEventController', () => {
     expect(messages[1].message.content).toBe('parcial');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe(streamingId);
     expect(mockAnnounce).toHaveBeenCalledWith('boom', 'assertive');
+    expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
   it('em erro no chat:done usa assistantMessageId persistido quando disponível', () => {
@@ -440,6 +444,36 @@ describe('chatEventController', () => {
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
     expect(messages[1].message.content).toBe('Erro: boom stream');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
+    expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
+  });
+
+  it('toca som de erro em chat:error e chat:tool_failure final, respeitando arbitragem', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_failure', {
+      conversationId: 'conversation-1',
+      name: 'minha_tool',
+      callId: 'call-1',
+      willRetry: true,
+    });
+    expect(mockPlayChatErrorSoundIfActive).not.toHaveBeenCalled();
+
+    emitEvent('chat:tool_failure', {
+      conversationId: 'conversation-1',
+      name: 'minha_tool',
+      callId: 'call-1',
+      willRetry: false,
+    });
+    expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
+
+    mockPlayChatErrorSoundIfActive.mockClear();
+    emitEvent('chat:error', {
+      conversationId: 'conversation-1',
+      error: 'falha geral',
+    });
+    expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
   it('preenche fallback visual quando chat:done falha sem parcial', () => {

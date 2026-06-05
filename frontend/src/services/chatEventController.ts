@@ -20,6 +20,7 @@ import {
   announceForActiveChatConversation,
   getChatConversationVoiceOrigin,
   playChatReceiveSoundIfActive,
+  playChatErrorSoundIfActive,
 } from './chatArbitration';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
 import { reloadConversationSnapshot } from './chatSessionLoader';
@@ -340,6 +341,7 @@ export function startChatEventController({
     if (!isActive()) return;
     finalizeStreaming();
     announce(event.error);
+    playChatErrorSoundIfActive(conversationId, origin);
     cleanup();
   });
 
@@ -432,6 +434,7 @@ export function startChatEventController({
       ensureAssistantNode();
       flushStreamingUpdate();
       announce(String(event.error || '').trim(), 'assertive');
+      playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
       updateEmptyAssistantWithError(String(event.error || '').trim());
       const interruptedId = event.messageId && event.messageId !== '' ? event.messageId : streamingMsgId;
       if (interruptedId !== streamingMsgId && interruptedId !== currentAssistantNodeId) {
@@ -531,6 +534,7 @@ export function startChatEventController({
       return;
     }
     announce(i18next.t('chat.toolFailed', { name: event.name }), 'assertive');
+    playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
   });
 
   unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
@@ -581,6 +585,7 @@ export function startChatEventController({
       ensureAssistantNode();
       flushStreamingUpdate();
       announce(String(event.errorMessage || '').trim(), 'assertive');
+      playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
       updateEmptyAssistantWithError(String(event.errorMessage || '').trim());
       const interruptedId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : streamingMsgId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
@@ -662,6 +667,7 @@ export function startChatEventController({
       cleanup();
       ensureAssistantNode();
       updateStreamingMessage(i18next.t('chat.sendErrorPrefix', { message }));
+      playChatErrorSoundIfActive(conversationId, origin);
       finalizeStreaming();
       adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
       patchCurrentSession({ isLoading: false, streamingMessageId: null });
