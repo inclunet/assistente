@@ -61,7 +61,11 @@ function getRelativeTimeFormatter(locale: string): Intl.RelativeTimeFormat {
 export function formatRelativeTimeLocalized(timestamp: number, locale: string): string {
   const diffMs = timestamp - Date.now(); // negativo = passado
   const sign = diffMs <= 0 ? -1 : 1;
-  const absSeconds = Math.abs(Math.floor(diffMs / 1000));
+  // abs ANTES do floor: floor de um valor negativo arredonda para -∞ e pularia
+  // 1s (ex.: -1.1s viraria -2). A magnitude vem de Math.abs truncado; o sinal
+  // (passado/futuro) é aplicado separadamente via `sign`. minutes/hours/days
+  // derivam de absSeconds (já não-negativo), então seus floors estão corretos.
+  const absSeconds = Math.floor(Math.abs(diffMs) / 1000);
   const minutes = Math.floor(absSeconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);

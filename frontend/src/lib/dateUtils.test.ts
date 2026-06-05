@@ -48,6 +48,18 @@ describe('dateUtils', () => {
     vi.useRealTimers();
   });
 
+  it('trunca corretamente diferenças negativas (abs antes do floor)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-01T12:00:00.000Z'));
+    // 1.1s no passado: deve dar 1 segundo (não 2 — floor de -1.1 daria -2).
+    const oneTenthPast = Date.now() - 1100;
+
+    expect(formatRelativeTimeLocalized(oneTenthPast, 'en')).toBe('1 second ago');
+    expect(formatRelativeTimeLocalized(oneTenthPast, 'pt-BR')).toContain('1 segundo');
+
+    vi.useRealTimers();
+  });
+
   it('formata data e data/hora', () => {
     const date = new Date('2024-02-03T10:05:00.000Z');
     expect(formatDate(date)).toMatch(/\d{2}\/\d{2}\/\d{4}/);
