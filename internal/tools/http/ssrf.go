@@ -10,8 +10,10 @@ import (
 // http_request, feed_read) para evitar divergência de política e duplicação.
 //
 // Usa net.ParseIP para cobrir corretamente os ranges privados (10/8, 172.16/12,
-// 192.168/16), loopback, link-local e unspecified, sem o falso positivo de um
-// prefix match ingênuo (ex.: 172.2.x.x é público).
+// 192.168/16, fc00::/7), loopback, link-local (inclui 169.254.169.254, o metadata
+// endpoint de nuvem), multicast de escopo local e unspecified, sem o falso positivo
+// de um prefix match ingênuo (ex.: 172.2.x.x é público). Também bloqueia "localhost"
+// e o TLD reservado ".localhost".
 //
 // Limitações conhecidas (barreira básica, não proteção anti-SSRF completa):
 //   - Só inspeciona IPs literais em notação padrão (o que net.ParseIP aceita) e
@@ -38,12 +40,21 @@ func IsPrivateHost(host string) bool {
 	//    "127.0.0.1." são aceitos por DNS e pelo net/http). Feito após o passo 1
 	//    para cobrir também casos como "10.0.0.1.%eth0".
 	host = strings.TrimRight(host, ".")
-	if host == "localhost" {
+
+	// Host vazio não é destino válido; bloqueia por segurança (ex.: "http://").
+	if host == "" {
+		return true
+	}
+	// "localhost" e o TLD reservado ".localhost" (RFC 6761): em muitos sistemas
+	// (ex.: systemd-resolved) qualquer "*.localhost" resolve para loopback, então
+	// "evil.localhost" seria um bypass do match exato de "localhost".
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return true
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
 		return false
 	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsUnspecified()
 }

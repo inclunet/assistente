@@ -61,6 +61,11 @@ func New(cfg *Config, domainPatterns map[string]string) *Client {
 	}
 }
 
+// appliedAuthHeadersKey é a chave de context usada para propagar ao RedirectGuard
+// quais headers de credencial o cliente injetou, para que possam ser removidos se
+// um redirect sair do host original (evita vazamento de credencial cross-host).
+type appliedAuthHeadersKey struct{}
+
 // Do executa uma requisição HTTP com interceptação de autenticação
 func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
 	if req == nil {
@@ -68,26 +73,35 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	}
 
 	// Aplicar autenticação
-	c.applyAuth(ctx, req)
+	applied := c.applyAuth(ctx, req)
+
+	// O net/http copia os headers para os destinos de redirect. Ele remove
+	// Authorization/Cookie ao mudar de host, mas NÃO remove headers de credencial
+	// custom (ex.: X-Api-Key). Propagamos os nomes injetados via context para o
+	// RedirectGuard removê-los quando o redirect sair do host original.
+	if len(applied) > 0 {
+		ctx = context.WithValue(ctx, appliedAuthHeadersKey{}, applied)
+	}
 
 	// Executar com retry
 	return c.doWithRetry(ctx, req)
 }
 
-// applyAuth aplica autenticação baseada no domínio da requisição
-func (c *Client) applyAuth(ctx context.Context, req *http.Request) {
+// applyAuth aplica autenticação baseada no domínio da requisição e retorna os
+// nomes dos headers de credencial que injetou.
+func (c *Client) applyAuth(ctx context.Context, req *http.Request) []string {
 	if c.credMgr == nil {
-		return
+		return nil
 	}
 
 	domain := req.URL.Host
 	if domain == "" {
-		return
+		return nil
 	}
 
 	// Se já tem Authorization explícito, não sobrescrever
 	if req.Header.Get("Authorization") != "" {
-		return
+		return nil
 	}
 
 	var auth *credentials.AuthConfig
@@ -116,9 +130,10 @@ func (c *Client) applyAuth(ctx context.Context, req *http.Request) {
 	}
 
 	if auth == nil {
-		return
+		return nil
 	}
 
+	var applied []string
 	switch auth.Type {
 	case "bearer":
 		if auth.Token != "" {
@@ -127,16 +142,20 @@ func (c *Client) applyAuth(ctx context.Context, req *http.Request) {
 			} else {
 				req.Header.Set("Authorization", auth.Token)
 			}
+			applied = append(applied, "Authorization")
 		}
 	case "basic":
 		if auth.Username != "" && auth.Password != "" {
 			req.SetBasicAuth(auth.Username, auth.Password)
+			applied = append(applied, "Authorization")
 		}
 	case "custom":
 		for key, val := range auth.Headers {
 			req.Header.Set(key, val)
+			applied = append(applied, key)
 		}
 	}
+	return applied
 }
 
 // doWithRetry executa requisição com lógica de retry

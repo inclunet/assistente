@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	httpclient "assistente/internal/tools/http"
 )
 
 const rssFixture = `<?xml version="1.0" encoding="UTF-8"?>
@@ -517,18 +519,18 @@ func TestFeedReadExecuteRedirectLimit(t *testing.T) {
 	tool := NewFeedRead(nil)
 	tool.allowPrivateHosts = true
 
-	// Cadeia que precisa de exatamente feedMaxRedirects saltos deve passar.
-	args, _ := json.Marshal(map[string]any{"url": fmt.Sprintf("%s/?n=%d", srv.URL, feedMaxRedirects)})
+	// Cadeia que precisa de exatamente DefaultMaxRedirects saltos deve passar.
+	args, _ := json.Marshal(map[string]any{"url": fmt.Sprintf("%s/?n=%d", srv.URL, httpclient.DefaultMaxRedirects)})
 	res, err := tool.Execute(context.Background(), args)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	if res.IsError {
-		t.Errorf("cadeia de %d redirects deveria ser permitida, got erro: %s", feedMaxRedirects, res.Content)
+		t.Errorf("cadeia de %d redirects deveria ser permitida, got erro: %s", httpclient.DefaultMaxRedirects, res.Content)
 	}
 
 	// Um salto acima do limite deve falhar.
-	args2, _ := json.Marshal(map[string]any{"url": fmt.Sprintf("%s/?n=%d", srv.URL, feedMaxRedirects+1)})
+	args2, _ := json.Marshal(map[string]any{"url": fmt.Sprintf("%s/?n=%d", srv.URL, httpclient.DefaultMaxRedirects+1)})
 	res2, err := tool.Execute(context.Background(), args2)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)

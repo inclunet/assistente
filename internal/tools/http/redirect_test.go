@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"testing"
@@ -45,5 +46,45 @@ func TestRedirectGuard(t *testing.T) {
 	over := make([]*http.Request, DefaultMaxRedirects+1)
 	if err := denyPrivate(mustReq(t, "https://example.com/x"), over); err == nil {
 		t.Error("acima do limite de redirects deveria falhar")
+	}
+}
+
+func TestRedirectGuardStripsCredentialsOnHostChange(t *testing.T) {
+	guard := RedirectGuard(DefaultMaxRedirects, func() bool { return false })
+	orig := mustReq(t, "https://api.exemplo.com/start")
+
+	// Próximo request com credenciais herdadas, indo para outro host.
+	next := mustReq(t, "https://atacante.com/loot")
+	next.Header = http.Header{}
+	next.Header.Set("Authorization", "Bearer segredo")
+	next.Header.Set("X-Api-Key", "chave-secreta")
+	next.Header.Set("Accept", "application/json")
+	// Propaga, como o cliente faria, os headers de credencial custom injetados.
+	ctx := context.WithValue(context.Background(), appliedAuthHeadersKey{}, []string{"X-Api-Key"})
+	next = next.WithContext(ctx)
+
+	if err := guard(next, []*http.Request{orig}); err != nil {
+		t.Fatalf("redirect para host público não deveria ser bloqueado: %v", err)
+	}
+	if next.Header.Get("Authorization") != "" {
+		t.Error("Authorization deveria ter sido removido ao mudar de host")
+	}
+	if next.Header.Get("X-Api-Key") != "" {
+		t.Error("header de credencial custom deveria ter sido removido ao mudar de host")
+	}
+	if next.Header.Get("Accept") != "application/json" {
+		t.Error("headers não-sensíveis (Accept) NÃO deveriam ser removidos")
+	}
+
+	// Mesmo host (subpath): credenciais são preservadas.
+	same := mustReq(t, "https://api.exemplo.com/outro")
+	same.Header = http.Header{}
+	same.Header.Set("X-Api-Key", "chave-secreta")
+	same = same.WithContext(context.WithValue(context.Background(), appliedAuthHeadersKey{}, []string{"X-Api-Key"}))
+	if err := guard(same, []*http.Request{orig}); err != nil {
+		t.Fatalf("mesmo host não deveria ser bloqueado: %v", err)
+	}
+	if same.Header.Get("X-Api-Key") != "chave-secreta" {
+		t.Error("no mesmo host as credenciais deveriam ser preservadas")
 	}
 }

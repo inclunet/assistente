@@ -39,7 +39,7 @@ func NewFeedRead(credMgr *credentials.Manager) *FeedRead {
 	// burlar o bloqueio. Usa o guard anti-SSRF compartilhado. O cliente é exclusivo
 	// desta tool, então é seguro configurar o CheckRedirect do baseClient aqui.
 	if bc := client.GetBaseClient(); bc != nil {
-		bc.CheckRedirect = httpclient.RedirectGuard(feedMaxRedirects, func() bool { return t.allowPrivateHosts })
+		bc.CheckRedirect = httpclient.RedirectGuard(httpclient.DefaultMaxRedirects, func() bool { return t.allowPrivateHosts })
 	}
 
 	return t
@@ -92,7 +92,6 @@ type feedReadArgs struct {
 const (
 	feedDefaultMaxItems  = 20
 	feedMaxResponseBody  = 10 * 1024 * 1024 // 10MB
-	feedMaxRedirects     = 10
 	feedDefaultUserAgent = "Assistente/1.0 (Tool FeedRead; +https://github.com)"
 )
 
