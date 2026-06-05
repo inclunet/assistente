@@ -331,6 +331,14 @@ func TestStructuredResultNotTruncated(t *testing.T) {
 	if res.Result.Metadata["truncated"] == true {
 		t.Error("saída estruturada não deveria ser marcada como truncada")
 	}
+	// Falha classificada: precisa de ErrorKind != "" e Error != nil para que
+	// agent/service.go emita tool_failure e persista o error_kind (AEP-0039).
+	if res.ErrorKind != ErrorKindUnknown {
+		t.Errorf("esperado ErrorKind=%q, got %q", ErrorKindUnknown, res.ErrorKind)
+	}
+	if res.Error == nil {
+		t.Error("esperado Error não-nil para oversize estruturado")
+	}
 }
 
 func TestExecuteContextCancellation(t *testing.T) {

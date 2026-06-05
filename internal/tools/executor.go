@@ -181,15 +181,22 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		// duplicada em cada tool): saídas estruturadas (JSON canônico) não podem ser
 		// truncadas — truncar corromperia o JSON e quebraria consumidores. Nesse
 		// caso falhamos de forma explícita; caso contrário, truncamos (UTF-8 safe).
+		var execErr error
+		execKind := ErrorKindNone
 		if len(result.Content) > e.config.MaxResultSize {
 			if result.Structured {
+				// Falha classificada do executor (AEP-0039): preenche Error/ErrorKind
+				// para que agent/service.go emita tool_failure e persista o error_kind.
+				origSize := len(result.Content)
 				result = ToolResult{
 					Content: fmt.Sprintf(
 						"Resultado estruturado tem %d bytes, acima do limite de %d. Reduza o escopo da chamada (ex.: max_results/max_items) para obter um payload menor.",
-						len(result.Content), e.config.MaxResultSize,
+						origSize, e.config.MaxResultSize,
 					),
 					IsError: true,
 				}
+				execErr = fmt.Errorf("saída estruturada de '%s' tem %d bytes, acima do limite de %d", toolName, origSize, e.config.MaxResultSize)
+				execKind = ErrorKindUnknown
 			} else {
 				origSize := len(result.Content)
 				// Reserva bytes para o aviso, garantindo Content final ≤ MaxResultSize.
@@ -215,6 +222,8 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			CallID:     call.ID,
 			ToolName:   toolName,
 			Result:     result,
+			Error:      execErr,
+			ErrorKind:  execKind,
 			DurationMs: time.Since(start).Milliseconds(),
 		}
 	}()

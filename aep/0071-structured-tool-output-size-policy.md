@@ -61,7 +61,10 @@ No `internal/tools/executor.go`, ao aplicar o limite:
 
 - **`Structured == true`** e `len(Content) > MaxResultSize` → substitui o
   resultado por um **erro explícito** padronizado, orientando a reduzir o escopo
-  da chamada (ex.: `max_results`/`max_items`). Nunca trunca.
+  da chamada (ex.: `max_results`/`max_items`). Nunca trunca. É tratado como
+  **falha classificada do executor** (`ErrorKind = unknown`, `Error != nil`),
+  para que `agent/service.go` emita `tool_failure` e persista o `error_kind`
+  (consistente com a AEP-0039).
 - **`Structured == false`** → comportamento atual: truncagem UTF-8 safe com aviso
   `[TRUNCADO: ...]` e `Metadata["truncated"] = true`.
 
