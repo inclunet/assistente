@@ -24,9 +24,9 @@ type WebSearch struct {
 
 // SearchProvider define a interface para provedores de busca.
 type SearchProvider interface {
-	// Search executa a busca e retorna resultados formatados.
-	// Usa cliente HTTP centralizado com auth/retry automático.
-	Search(ctx context.Context, client *httpclient.Client, query string, maxResults int) ([]SearchResult, error)
+	// Search executa a busca a partir de offset (0-based) e retorna até maxResults
+	// resultados. Usa cliente HTTP centralizado com auth/retry automático.
+	Search(ctx context.Context, client *httpclient.Client, query string, offset, maxResults int) ([]SearchResult, error)
 	// Name retorna o nome do provedor para logs.
 	Name() string
 }
@@ -69,7 +69,7 @@ func NewWebSearchWithProvider(credMgr *credentials.Manager, provider SearchProvi
 func (t *WebSearch) Name() string { return "web_search" }
 
 func (t *WebSearch) Description() string {
-	return "Searches the web and returns titles, URLs, and snippets. Use to discover relevant links; to read content, call web_fetch on a chosen URL."
+	return "Searches the web and returns a JSON object {query, provider, offset, count, has_more, results[{title, url, snippet}]}. For the next page, call again with offset = previous offset + count while has_more is true. Use to discover relevant links; to read content, call web_fetch on a chosen URL."
 }
 
 func (t *WebSearch) Parameters() json.RawMessage {
@@ -82,7 +82,11 @@ func (t *WebSearch) Parameters() json.RawMessage {
 			},
 			"max_results": {
 				"type": "integer",
-				"description": "Número máximo de resultados. Padrão: 8."
+				"description": "Número máximo de resultados por página. Padrão: 8 (máx: 20)."
+			},
+			"offset": {
+				"type": "integer",
+				"description": "Deslocamento 0-based para paginação. Para a próxima página, use offset = offset anterior + count. Padrão: 0."
 			}
 		},
 		"required": ["query"],
@@ -93,6 +97,20 @@ func (t *WebSearch) Parameters() json.RawMessage {
 type webSearchArgs struct {
 	Query      string `json:"query"`
 	MaxResults *int   `json:"max_results,omitempty"`
+	Offset     *int   `json:"offset,omitempty"`
+}
+
+// webSearchJSONOutput é o contrato JSON canônico da tool: objeto estável consumível
+// tanto por LLMs quanto por json.Unmarshal (jobs/output maps).
+type webSearchJSONOutput struct {
+	Query    string `json:"query"`
+	Provider string `json:"provider"`
+	Offset   int    `json:"offset"`
+	Count    int    `json:"count"`
+	// HasMore é heurístico (página veio "cheia"): por ser scraping, não há total de
+	// resultados disponível. Use offset+count para buscar a próxima página.
+	HasMore bool           `json:"has_more"`
+	Results []SearchResult `json:"results"`
 }
 
 const searchDefaultMaxResults = 8
@@ -115,7 +133,12 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 		}
 	}
 
-	results, err := t.provider.Search(ctx, t.client, a.Query, maxResults)
+	offset := 0
+	if a.Offset != nil && *a.Offset > 0 {
+		offset = *a.Offset
+	}
+
+	results, err := t.provider.Search(ctx, t.client, a.Query, offset, maxResults)
 	if err != nil {
 		return tools.ToolResult{
 			Content: fmt.Sprintf("Erro na busca (%s): %v", t.provider.Name(), err),
@@ -123,32 +146,38 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 		}, nil
 	}
 
-	if len(results) == 0 {
+	// JSON canônico: serve tanto LLMs quanto consumo programático (jobs). Mesmo sem
+	// resultados devolve estrutura válida (results: []), evitando que o chamador
+	// precise tratar texto.
+	if results == nil {
+		results = []SearchResult{}
+	}
+	// Heurística de paginação: a página veio "cheia" => provavelmente há mais.
+	hasMore := len(results) >= maxResults
+	out := webSearchJSONOutput{
+		Query:    a.Query,
+		Provider: t.provider.Name(),
+		Offset:   offset,
+		Count:    len(results),
+		HasMore:  hasMore,
+		Results:  results,
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil {
 		return tools.ToolResult{
-			Content:  fmt.Sprintf("Nenhum resultado encontrado para '%s'", a.Query),
-			Metadata: map[string]any{"results": 0, "provider": t.provider.Name()},
+			Content: fmt.Sprintf("Erro ao serializar resultados: %v", err),
+			IsError: true,
 		}, nil
 	}
 
-	// Formata resultados
-	var sb strings.Builder
-	_, _ = fmt.Fprintf(&sb, "Busca: '%s' (%d resultados via %s)\n\n", a.Query, len(results), t.provider.Name())
-
-	for i, r := range results {
-		_, _ = fmt.Fprintf(&sb, "%d. %s\n", i+1, r.Title)
-		_, _ = fmt.Fprintf(&sb, "   %s\n", r.URL)
-		if r.Snippet != "" {
-			_, _ = fmt.Fprintf(&sb, "   %s\n", r.Snippet)
-		}
-		sb.WriteString("\n")
-	}
-
 	return tools.ToolResult{
-		Content: sb.String(),
+		Content: string(encoded),
 		Metadata: map[string]any{
 			"results":  len(results),
 			"provider": t.provider.Name(),
 			"query":    a.Query,
+			"offset":   offset,
+			"has_more": hasMore,
 		},
 	}, nil
 }
@@ -160,9 +189,14 @@ type duckDuckGoProvider struct{}
 
 func (p *duckDuckGoProvider) Name() string { return "DuckDuckGo" }
 
-func (p *duckDuckGoProvider) Search(ctx context.Context, client *httpclient.Client, query string, maxResults int) ([]SearchResult, error) {
-	// Usa a DuckDuckGo HTML lite como fallback universal (sem API key)
+func (p *duckDuckGoProvider) Search(ctx context.Context, client *httpclient.Client, query string, offset, maxResults int) ([]SearchResult, error) {
+	// Usa a DuckDuckGo HTML lite como fallback universal (sem API key). O parâmetro
+	// "s" desloca o início dos resultados (paginação). Não há total de resultados
+	// exposto, por isso o has_more é heurístico na camada da tool.
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
+	if offset > 0 {
+		searchURL += fmt.Sprintf("&s=%d", offset)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {

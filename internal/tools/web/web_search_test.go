@@ -53,14 +53,19 @@ type mockSearchProvider struct {
 
 func (m *mockSearchProvider) Name() string { return "MockSearch" }
 
-func (m *mockSearchProvider) Search(ctx context.Context, client *httpclient.Client, query string, maxResults int) ([]SearchResult, error) {
+func (m *mockSearchProvider) Search(ctx context.Context, client *httpclient.Client, query string, offset, maxResults int) ([]SearchResult, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	if maxResults < len(m.results) {
-		return m.results[:maxResults], nil
+	// Simula paginação por offset sobre o conjunto fixo de resultados.
+	if offset >= len(m.results) {
+		return nil, nil
 	}
-	return m.results, nil
+	page := m.results[offset:]
+	if maxResults < len(page) {
+		return page[:maxResults], nil
+	}
+	return page, nil
 }
 
 func TestWebSearch_WithMockProvider(t *testing.T) {
@@ -82,17 +87,74 @@ func TestWebSearch_WithMockProvider(t *testing.T) {
 		t.Fatalf("resultado é erro: %s", result.Content)
 	}
 
-	if !strings.Contains(result.Content, "Go Programming") {
-		t.Error("deve conter primeiro resultado")
+	// Saída canônica é JSON parseável.
+	var out webSearchJSONOutput
+	if err := json.Unmarshal([]byte(result.Content), &out); err != nil {
+		t.Fatalf("Content deve ser JSON válido: %v\ncontent=%s", err, result.Content)
 	}
-	if !strings.Contains(result.Content, "Go Tutorial") {
-		t.Error("deve conter segundo resultado")
+	if out.Count != 2 || len(out.Results) != 2 {
+		t.Fatalf("esperado 2 resultados, got count=%d len=%d", out.Count, len(out.Results))
 	}
-	if !strings.Contains(result.Content, "https://go.dev") {
-		t.Error("deve conter URL")
+	if out.Results[0].Title != "Go Programming" || out.Results[0].URL != "https://go.dev" {
+		t.Errorf("primeiro resultado inesperado: %+v", out.Results[0])
 	}
-	if !strings.Contains(result.Content, "2 resultados") {
-		t.Error("deve indicar número de resultados")
+	if out.Results[1].Title != "Go Tutorial" {
+		t.Errorf("segundo resultado inesperado: %+v", out.Results[1])
+	}
+}
+
+func TestWebSearch_Pagination(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	results := make([]SearchResult, 10)
+	for i := range results {
+		results[i] = SearchResult{Title: fmt.Sprintf("R%d", i), URL: fmt.Sprintf("https://e/%d", i)}
+	}
+	provider := &mockSearchProvider{results: results}
+	tool := NewWebSearchWithProvider(credMgr, provider)
+
+	// Página 1: offset 0, 4 por página → cheia, has_more true.
+	res1, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","max_results":4,"offset":0}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var p1 webSearchJSONOutput
+	if err := json.Unmarshal([]byte(res1.Content), &p1); err != nil {
+		t.Fatalf("JSON inválido: %v", err)
+	}
+	if p1.Offset != 0 || p1.Count != 4 || !p1.HasMore {
+		t.Fatalf("página 1 inesperada: %+v", p1)
+	}
+	if p1.Results[0].Title != "R0" {
+		t.Errorf("página 1 deveria começar em R0: %+v", p1.Results[0])
+	}
+
+	// Página 2: offset = 0 + count (4).
+	res2, _ := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","max_results":4,"offset":4}`))
+	var p2 webSearchJSONOutput
+	if err := json.Unmarshal([]byte(res2.Content), &p2); err != nil {
+		t.Fatalf("JSON inválido: %v", err)
+	}
+	if p2.Offset != 4 || p2.Count != 4 || !p2.HasMore {
+		t.Fatalf("página 2 inesperada: %+v", p2)
+	}
+	if p2.Results[0].Title != "R4" {
+		t.Errorf("página 2 deveria começar em R4: %+v", p2.Results[0])
+	}
+
+	// Última página: offset 8, restam 2 → não cheia, has_more false.
+	res3, _ := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","max_results":4,"offset":8}`))
+	var p3 webSearchJSONOutput
+	if err := json.Unmarshal([]byte(res3.Content), &p3); err != nil {
+		t.Fatalf("JSON inválido: %v", err)
+	}
+	if p3.Offset != 8 || p3.Count != 2 || p3.HasMore {
+		t.Fatalf("última página inesperada: %+v", p3)
+	}
+
+	// Além do fim: offset 20 → vazio, has_more false, results [].
+	res4, _ := tool.Execute(context.Background(), json.RawMessage(`{"query":"x","max_results":4,"offset":20}`))
+	if !strings.Contains(res4.Content, `"results":[]`) {
+		t.Errorf("além do fim deveria ter results []: %s", res4.Content)
 	}
 }
 
@@ -109,8 +171,17 @@ func TestWebSearch_NoResults(t *testing.T) {
 	if result.IsError {
 		t.Error("sem resultados não é erro, apenas informa")
 	}
-	if !strings.Contains(result.Content, "Nenhum resultado") {
-		t.Error("deve indicar que não encontrou")
+	// Sem resultados ainda deve ser JSON válido com results: [] (não null), para
+	// consumo programático estável.
+	if !strings.Contains(result.Content, `"results":[]`) {
+		t.Errorf("results vazio deveria serializar como [], got: %s", result.Content)
+	}
+	var out webSearchJSONOutput
+	if err := json.Unmarshal([]byte(result.Content), &out); err != nil {
+		t.Fatalf("Content deve ser JSON válido: %v", err)
+	}
+	if out.Count != 0 || out.Results == nil {
+		t.Errorf("esperado count=0 e results não-nulo, got count=%d results=%v", out.Count, out.Results)
 	}
 }
 
@@ -154,8 +225,12 @@ func TestWebSearch_MaxResults(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("resultado é erro: %s", result.Content)
 	}
-	if !strings.Contains(result.Content, "3 resultados") {
-		t.Errorf("deve limitar a 3 resultados: %s", result.Content)
+	var out webSearchJSONOutput
+	if err := json.Unmarshal([]byte(result.Content), &out); err != nil {
+		t.Fatalf("Content deve ser JSON válido: %v", err)
+	}
+	if out.Count != 3 || len(out.Results) != 3 {
+		t.Errorf("deve limitar a 3 resultados: count=%d len=%d", out.Count, len(out.Results))
 	}
 }
 
