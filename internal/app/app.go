@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"assistente/controllers"
 	"assistente/internal/agent"
@@ -37,6 +38,13 @@ import (
 	"assistente/internal/updater"
 	"assistente/internal/workspace"
 )
+
+// subagentReconcileTimeout é o teto de tempo da reconciliação de runs órfãos de
+// sub-agente no startup. Operação de manutenção que roda em goroutine; o deadline
+// impede que um DB travado (lock/I/O lento) deixe a goroutine pendurada
+// indefinidamente. 30s é consistente com o teto usado em operações de jobs
+// (internal/jobs/manager.go).
+const subagentReconcileTimeout = 30 * time.Second
 
 // Request structs for LLM Provider Management — type aliases para controllers.
 // Mantém compatibilidade com código e testes existentes durante a migração.
@@ -449,6 +457,32 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Delivery:     &subagentParentDelivery{app: a},
 		CancelStream: a.streamMgr.Cancel,
 	})
+
+	// Reconciliação de runs órfãos (AEP-0068 F4): runs deixados em queued/running
+	// por um encerramento abrupto do app são marcados como failed no startup
+	// (espelha a reconciliação de jobs). Não bloqueia o startup.
+	//
+	// cutoff capturado AQUI (após criar o manager, antes de servir requests):
+	// como a reconciliação roda em goroutine enquanto o app já pode aceitar
+	// chamadas, só reconciliamos runs criados antes deste instante — um run
+	// legítimo criado em paralelo (created_at >= cutoff) não é marcado como
+	// órfão.
+	reconcileCutoff := time.Now()
+	go func() {
+		// Teto de tempo: a reconciliação roda em goroutine de startup e não pode
+		// pendurar o processo indefinidamente se o DB travar (lock/I/O lento).
+		// WithoutCancel é mantido (não deve ser cancelada por cancelamento normal
+		// do ctx do app durante uso), mas WithTimeout adiciona o deadline —
+		// consistente com o teto de operações de jobs (internal/jobs/manager.go).
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), subagentReconcileTimeout)
+		defer cancel()
+		n, err := a.subagentMgr.ReconcileOrphans(ctx, reconcileCutoff)
+		if err != nil {
+			log.Printf("[Subagent] erro ao reconciliar runs órfãos: %v", err)
+		} else if n > 0 {
+			log.Printf("[Subagent] %d run(s) órfão(s) de sub-agente reconciliado(s) como failed", n)
+		}
+	}()
 
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,

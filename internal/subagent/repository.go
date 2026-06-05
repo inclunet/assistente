@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"assistente/internal/database"
 
@@ -122,4 +123,33 @@ func (r *DBRepository) Update(ctx context.Context, run *database.SubAgentRun) er
 		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+// ReconcileOrphans marca como failed runs deixados em queued/running por um
+// encerramento abrupto. É uma manutenção instance-wide de startup (não um
+// pedido de usuário), por isso NÃO exige userID no ctx — alinhado a operações
+// como migrações/reconciliação de jobs (AEP-0052: maintenance op, não leitura
+// de dados de usuário). Atualiza apenas o status terminal de runs interrompidos.
+//
+// cutoff é a fronteira temporal: só runs CRIADOS antes de cutoff são
+// reconciliados. Como o startup roda em goroutine enquanto o app já pode
+// aceitar requests, runs legítimos criados após o início (created_at >= cutoff)
+// NÃO podem ser marcados como órfãos. now é o instante para carimbar o desfecho.
+//
+// SECURITY: instance-wide — atualiza runs de TODOS os usuários, sem filtro de
+// userID. É deliberado: roda só no startup (internal/app/app.go), sem ator de
+// usuário, para reconciliar órfãos de QUALQUER dono após um crash (deixar o run
+// de outro usuário preso em running seria o bug). O WHERE é restrito a
+// status IN (queued,running) AND created_at < cutoff — não toca runs terminais
+// nem os criados após o início. Não há entrada por request de usuário.
+func (r *DBRepository) ReconcileOrphans(ctx context.Context, cutoff, now time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&database.SubAgentRun{}).
+		Where("status IN ? AND created_at < ?", []string{database.SubAgentRunStatusQueued, database.SubAgentRunStatusRunning}, cutoff).
+		Updates(map[string]any{
+			"status":       database.SubAgentRunStatusFailed,
+			"error":        "interrompido: o app foi encerrado durante a execução do sub-agente",
+			"completed_at": now,
+			"updated_at":   now,
+		})
+	return res.RowsAffected, res.Error
 }

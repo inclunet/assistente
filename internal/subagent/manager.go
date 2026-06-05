@@ -24,6 +24,13 @@ import (
 // crescimento excessivo da tabela sub_agent_runs.
 const maxResultSummary = 16 * 1024
 
+// DefaultMaxChainDepth é o teto de profundidade de cadeia (backstop anti-runaway,
+// AEP-0068). Espelha jobs.DefaultMaxChainDepth para coerência entre os dois
+// caminhos que compartilham proveniência via eventctx. Não é o gate de
+// profundidade (esse é o profile) — é só um circuit-breaker contra recursão
+// descontrolada (sub-agente acordando o pai que delega de novo, etc.).
+const DefaultMaxChainDepth = 10
+
 // completion carrega o resultado entregue pelo callback in-process do notifier.
 type completion struct {
 	response           string
@@ -64,12 +71,13 @@ func (a *activeRun) cancel() {
 // para criar/continuar sub-conversas; reusa o pipeline oficial via SendFunc e
 // detecta conclusão por callback in-process (ResponseNotifier).
 type Manager struct {
-	repo       Repository
-	notifier   *messaging.ResponseNotifier
-	send       SendFunc
-	delivery   ParentDelivery
-	cancelStrm func(conversationID string)
-	now        func() time.Time
+	repo          Repository
+	notifier      *messaging.ResponseNotifier
+	send          SendFunc
+	delivery      ParentDelivery
+	cancelStrm    func(conversationID string)
+	now           func() time.Time
+	maxChainDepth int
 
 	mu          sync.Mutex
 	active      map[string]*activeRun // runID -> run ativo
@@ -101,6 +109,9 @@ type ManagerConfig struct {
 	CancelStream func(conversationID string)
 	// Now é injetável para testes; nil usa time.Now.
 	Now func() time.Time
+	// MaxChainDepth é o teto de profundidade de cadeia (backstop anti-runaway).
+	// <=0 usa DefaultMaxChainDepth.
+	MaxChainDepth int
 }
 
 // NewManager cria um Manager com as dependências injetadas.
@@ -109,16 +120,33 @@ func NewManager(cfg ManagerConfig) *Manager {
 	if now == nil {
 		now = time.Now
 	}
-	return &Manager{
-		repo:       cfg.Repo,
-		notifier:   cfg.Notifier,
-		send:       cfg.Send,
-		delivery:   cfg.Delivery,
-		cancelStrm: cfg.CancelStream,
-		now:         now,
-		active:      make(map[string]*activeRun),
-		activeConvs: make(map[string]struct{}),
+	maxChainDepth := cfg.MaxChainDepth
+	if maxChainDepth <= 0 {
+		maxChainDepth = DefaultMaxChainDepth
 	}
+	return &Manager{
+		repo:          cfg.Repo,
+		notifier:      cfg.Notifier,
+		send:          cfg.Send,
+		delivery:      cfg.Delivery,
+		cancelStrm:    cfg.CancelStream,
+		now:           now,
+		maxChainDepth: maxChainDepth,
+		active:        make(map[string]*activeRun),
+		activeConvs:   make(map[string]struct{}),
+	}
+}
+
+// nowFn devolve o relógio efetivo do Manager com fallback seguro para time.Now.
+// NewManager sempre injeta `now`, mas um Manager construído manualmente (ex.: só
+// com repo, em testes/wiring parcial) pode tê-lo nil — chamar m.now() direto
+// panicaria. Use SEMPRE nowFn() no lugar de m.now() para tolerar esse caso sem
+// alterar o comportamento quando o clock está injetado.
+func (m *Manager) nowFn() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now()
 }
 
 // Run executa um sub-agente. Com Background=false é síncrono (Fase 1): espera a
@@ -138,6 +166,14 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return RunResult{}, err
+	}
+
+	// Backstop anti-runaway (AEP-0068/0067): a cadeia de proveniência
+	// compartilhada com jobs limita a profundidade de delegação. Verifica ANTES
+	// de criar qualquer sub-conversa/run para não deixar lixo.
+	prov := deriveProvenance(ctx, "")
+	if len(prov.ChainHistory) >= m.maxChainDepth {
+		return RunResult{}, fmt.Errorf("limite de profundidade de cadeia atingido (%d): possível runaway de sub-agentes/jobs", m.maxChainDepth)
 	}
 
 	// 1. Resolve a sub-conversa SEM efeitos destrutivos: cria nova ou valida uma
@@ -182,7 +218,8 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	//    vazio), o que iniciaria uma cadeia NOVA a cada auto-wake e quebraria a
 	//    continuidade do circuit breaker (AEP-0067). Usa childConvID como semente
 	//    estável da cadeia quando não há ChainID herdado (job mantém o seu).
-	prov := deriveProvenance(ctx, childConvID)
+	//    Re-deriva sobre o prov do depth-check (agora que childConvID existe).
+	prov = deriveProvenance(ctx, childConvID)
 	chainHistoryJSON := encodeChainHistory(prov.ChainHistory)
 	run := &database.SubAgentRun{
 		UserID:               userID,
@@ -205,7 +242,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	//     reserva). Se o clear falhar, o run existe: marca-o failed (auditoria/
 	//     retry, best-effort) e libera a reserva.
 	if err := m.applyClear(ctx, childConvID, isNew, p.Clear); err != nil {
-		clearedAt := m.now()
+		clearedAt := m.nowFn()
 		run.Status = database.SubAgentRunStatusFailed
 		run.Error = fmt.Sprintf("erro ao limpar sub-conversa (clear): %v", err)
 		run.CompletedAt = &clearedAt
@@ -259,7 +296,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	//    finish): o estado não pode ficar preso em queued enquanto o loop roda.
 	//    Se nem isso persistir, aborta ANTES de enviar para não deixar trabalho
 	//    órfão e reporta a falha (não descarta o erro silenciosamente).
-	startedAt := m.now()
+	startedAt := m.nowFn()
 	run.Status = database.SubAgentRunStatusRunning
 	run.StartedAt = &startedAt
 	result.Status = run.Status
@@ -274,7 +311,16 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return finished, nil
 	}
 
-	// Encadeia as sub-invocações da sub-conversa à invocação da tool `subagent`.
+	// Anexa o run.ID à cadeia de proveniência ANTES do envio: o run.ID só existe
+	// após o Create, então o backstop acima checa a cadeia que chega; ao enviar,
+	// a cadeia precisa CRESCER com este run para que qualquer sub-agente/job
+	// disparado DENTRO deste run enxergue a profundidade aumentada e o
+	// circuit-breaker seja efetivo nível a nível (AEP-0068/0067).
+	sendProv := deriveProvenance(ctx, run.ChainID)
+	sendProv.ChainHistory = appendChain(sendProv.ChainHistory, run.ID)
+	if strings.TrimSpace(sendProv.ChainID) == "" {
+		sendProv.ChainID = run.ID
+	}
 	// Contexto de envio cancelável e ESCOPADO a este run: o pipeline oficial
 	// dispara o agentic loop da sub-conversa em background sob um ctx derivado
 	// deste (SendMessageUseCase.Execute → context.WithCancel). Ao concluir
@@ -286,7 +332,8 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	//   - Background: o base é desacoplado (WithoutCancel) para o run sobreviver
 	//     ao fim do turno-pai; o cancel é disparado na goroutine ao concluir a
 	//     espera (timeout/cancel via wait), alcançando o loop daquele run.
-	sendBase := toolinvocations.WithParentInvocationID(ctx, p.ParentInvocationID)
+	sendBase := eventctx.With(ctx, sendProv)
+	sendBase = toolinvocations.WithParentInvocationID(sendBase, p.ParentInvocationID)
 	if p.Background {
 		sendBase = context.WithoutCancel(sendBase)
 	}
@@ -626,6 +673,25 @@ func (m *Manager) Cancel(ctx context.Context, conversationID, runID string) (Can
 	return res, nil
 }
 
+// ReconcileOrphans marca como failed os runs deixados em queued/running por um
+// encerramento abrupto do app (AEP-0068 F4). Após um restart não há goroutine
+// viva para concluí-los nem entrada no mapa `active`, então qualquer run não
+// terminal persistido ANTES do início desta instância é órfão. Espelha a
+// reconciliação de jobs no startup. Retorna quantos runs foram reconciliados.
+//
+// cutoff é a fronteira temporal (tipicamente o instante de início do app): só
+// runs criados antes dele são reconciliados, evitando marcar como órfão um run
+// legítimo criado em paralelo enquanto o startup ainda roda.
+//
+// Falha explicitamente se o Manager/Repo não estiver configurado: mascarar
+// wiring quebrado retornando (0,nil) esconderia um erro de inicialização.
+func (m *Manager) ReconcileOrphans(ctx context.Context, cutoff time.Time) (int64, error) {
+	if m == nil || m.repo == nil {
+		return 0, fmt.Errorf("subagent manager não configurado: não é possível reconciliar runs órfãos")
+	}
+	return m.repo.ReconcileOrphans(ctx, cutoff, m.nowFn())
+}
+
 // resolveRun encontra o run alvo por run_id (validando que pertence à conversa)
 // ou pelo run mais recente da conversa.
 func (m *Manager) resolveRun(ctx context.Context, conversationID, runID string) (*database.SubAgentRun, error) {
@@ -669,7 +735,7 @@ func (m *Manager) finalize(ctx context.Context, run *database.SubAgentRun, resul
 
 // finish atualiza o run com o desfecho e preenche o RunResult.
 func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result *RunResult, o outcome) RunResult {
-	completedAt := m.now()
+	completedAt := m.nowFn()
 	run.Status = o.status
 	run.ResultSummary = truncate(o.summary, maxResultSummary)
 	run.AssistantMessageID = o.assistantMessageID
@@ -748,7 +814,7 @@ func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun) {
 		return
 	}
 
-	now := m.now()
+	now := m.nowFn()
 	run.DeliveredAt = &now
 	if err := m.repo.Update(persistCtx, run); err != nil {
 		// O aviso JÁ foi entregue, mas não conseguimos persistir DeliveredAt: em
@@ -897,11 +963,19 @@ func deriveProvenance(ctx context.Context, existingChainID string) eventctx.Prov
 	return prov
 }
 
+// appendChain devolve uma NOVA cadeia com id anexado, sem nunca mutar o slice
+// recebido. O history normalmente vem de eventctx.Provenance guardado no ctx; um
+// append direto poderia (conforme a capacidade do slice) sobrescrever o backing
+// array compartilhado com o ctx, alterando a proveniência do chamador de forma
+// inesperada. Context values devem ser tratados como IMUTÁVEIS, então copiamos
+// defensivamente antes de anexar.
 func appendChain(history []string, id string) []string {
 	if id == "" {
 		return history
 	}
-	return append(history, id)
+	out := make([]string, len(history), len(history)+1)
+	copy(out, history)
+	return append(out, id)
 }
 
 func encodeChainHistory(history []string) string {
