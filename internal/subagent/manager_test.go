@@ -1008,7 +1008,7 @@ func TestAggregateByChildConversation(t *testing.T) {
 	repo, ctx := setupManagerTest(t) // ctx = user-a
 
 	base := time.Now()
-	mk := func(c context.Context, child, status, errMsg string, bg bool, createdAt time.Time) {
+	mk := func(c context.Context, child, status, errMsg string, bg bool, createdAt time.Time, turnIndex int) {
 		t.Helper()
 		run := &database.SubAgentRun{
 			ParentConversationID: "p",
@@ -1016,6 +1016,7 @@ func TestAggregateByChildConversation(t *testing.T) {
 			Status:               status,
 			Error:                errMsg,
 			Background:           bg,
+			TurnIndex:            turnIndex,
 		}
 		run.CreatedAt = createdAt
 		if err := repo.Create(c, run); err != nil {
@@ -1024,21 +1025,29 @@ func TestAggregateByChildConversation(t *testing.T) {
 	}
 
 	// convX: 3 runs; o mais recente (maior created_at) é failed/boom/background.
-	mk(ctx, "convX", StatusSucceeded, "", false, base.Add(-2*time.Hour))
-	mk(ctx, "convX", StatusSucceeded, "", false, base.Add(-1*time.Hour))
-	mk(ctx, "convX", StatusFailed, "boom", true, base)
+	mk(ctx, "convX", StatusSucceeded, "", false, base.Add(-2*time.Hour), 0)
+	mk(ctx, "convX", StatusSucceeded, "", false, base.Add(-1*time.Hour), 1)
+	mk(ctx, "convX", StatusFailed, "boom", true, base, 2)
 	// convY: 1 run running.
-	mk(ctx, "convY", StatusRunning, "", false, base.Add(-30*time.Minute))
+	mk(ctx, "convY", StatusRunning, "", false, base.Add(-30*time.Minute), 0)
+	// convTie: EMPATE de created_at, mas turn_index distinto. O critério canônico
+	// (turn_index DESC) deve eleger o run de MAIOR turn_index — o mesmo escolhido
+	// por GetLatestByChildConversation. Cria o de maior turn_index PRIMEIRO para
+	// que um desempate por id/ordem de inserção pegaria o OUTRO se o turn_index
+	// não fosse respeitado.
+	tie := base.Add(-15 * time.Minute)
+	mk(ctx, "convTie", StatusFailed, "tie-boom", true, tie, 5)
+	mk(ctx, "convTie", StatusSucceeded, "", false, tie, 1)
 	// Outro usuário: run em convZ não deve aparecer para user-a.
 	ctxB := database.WithUserID(context.Background(), "user-b")
-	mk(ctxB, "convZ", StatusSucceeded, "", false, base)
+	mk(ctxB, "convZ", StatusSucceeded, "", false, base, 0)
 
 	agg, err := repo.AggregateByChildConversation(ctx)
 	if err != nil {
 		t.Fatalf("AggregateByChildConversation: %v", err)
 	}
-	if len(agg) != 2 {
-		t.Fatalf("esperava 2 sub-conversas para user-a, veio %d (%#v)", len(agg), agg)
+	if len(agg) != 3 {
+		t.Fatalf("esperava 3 sub-conversas para user-a, veio %d (%#v)", len(agg), agg)
 	}
 	if _, ok := agg["convZ"]; ok {
 		t.Fatal("convZ é de outro usuário e NÃO deveria aparecer (violação de escopo)")
@@ -1055,6 +1064,23 @@ func TestAggregateByChildConversation(t *testing.T) {
 	y := agg["convY"]
 	if y.RunCount != 1 || y.LatestStatus != StatusRunning {
 		t.Fatalf("convY inesperado: %#v", y)
+	}
+
+	// Empate de created_at: a agregação deve eleger o run de maior turn_index e
+	// concordar EXATAMENTE com GetLatestByChildConversation (mesmo critério).
+	tieAgg := agg["convTie"]
+	if tieAgg.RunCount != 2 {
+		t.Fatalf("convTie run_count esperado 2, veio %d", tieAgg.RunCount)
+	}
+	if tieAgg.LatestStatus != StatusFailed || tieAgg.LatestError != "tie-boom" || !tieAgg.LatestBackground {
+		t.Fatalf("convTie deveria eleger o run de maior turn_index (failed/tie-boom/background): %#v", tieAgg)
+	}
+	latest, err := repo.GetLatestByChildConversation(ctx, "convTie")
+	if err != nil {
+		t.Fatalf("GetLatestByChildConversation(convTie): %v", err)
+	}
+	if latest.Status != tieAgg.LatestStatus || latest.Error != tieAgg.LatestError || latest.Background != tieAgg.LatestBackground {
+		t.Fatalf("agregação e GetLatestByChildConversation divergiram em empate: latest=%#v agg=%#v", latest, tieAgg)
 	}
 }
 

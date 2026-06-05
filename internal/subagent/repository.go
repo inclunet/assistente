@@ -75,7 +75,7 @@ func (r *DBRepository) GetLatestByChildConversation(ctx context.Context, childCo
 	var run database.SubAgentRun
 	err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
 		Where("child_conversation_id = ?", childConversationID).
-		Order("turn_index DESC, created_at DESC").
+		Order("turn_index DESC, created_at DESC, id DESC").
 		First(&run).Error
 	if err != nil {
 		return nil, err
@@ -87,8 +87,10 @@ func (r *DBRepository) GetLatestByChildConversation(ctx context.Context, childCo
 // runs e o status/erro/background do run MAIS RECENTE do usuário do contexto,
 // agregando no BANCO em vez de carregar todos os runs em memória (AEP-0068 F5).
 //
-// "Mais recente" segue a MESMA ordem do antigo ListByUser (created_at DESC, id
-// DESC), preservando exatamente a semântica exibida na UI. Usa window functions
+// "Mais recente" segue EXATAMENTE o mesmo critério canônico de
+// GetLatestByChildConversation (turn_index DESC, created_at DESC, id DESC), para
+// que ambos elejam sempre o mesmo run — evitando status/erro/background
+// inconsistentes na UI em empates de created_at. Usa window functions
 // (suportadas pelo SQLite do projeto, modernc/glebarez): COUNT OVER para a
 // contagem por sub-conversa e ROW_NUMBER OVER para eleger o run mais recente.
 //
@@ -105,7 +107,7 @@ SELECT child_conversation_id, run_count, status AS latest_status, error AS lates
 FROM (
   SELECT child_conversation_id, status, error, background,
          COUNT(*) OVER (PARTITION BY child_conversation_id) AS run_count,
-         ROW_NUMBER() OVER (PARTITION BY child_conversation_id ORDER BY created_at DESC, id DESC) AS rn
+         ROW_NUMBER() OVER (PARTITION BY child_conversation_id ORDER BY turn_index DESC, created_at DESC, id DESC) AS rn
   FROM sub_agent_runs
   WHERE user_id = ?
 ) t
