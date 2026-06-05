@@ -613,6 +613,65 @@ func TestManagerResumeTrimsConversationID(t *testing.T) {
 	}
 }
 
+// TestAppendChainDoesNotMutateInput garante (thread :308) que appendChain nunca
+// muta o slice recebido (vindo de eventctx no ctx — imutável): faz cópia
+// defensiva antes de anexar.
+func TestAppendChainDoesNotMutateInput(t *testing.T) {
+	// Capacidade > len: um append in-place sobrescreveria o backing array.
+	orig := make([]string, 2, 4)
+	orig[0], orig[1] = "a", "b"
+
+	out := appendChain(orig, "c")
+	if len(out) != 3 || out[2] != "c" {
+		t.Fatalf("appendChain deveria anexar 'c'; veio %#v", out)
+	}
+	if len(orig) != 2 || orig[0] != "a" || orig[1] != "b" {
+		t.Fatalf("slice original não deveria ser mutado; veio %#v", orig)
+	}
+	// Backing arrays distintos: mutar o resultado não afeta o original.
+	out[0] = "X"
+	if orig[0] != "a" {
+		t.Fatal("appendChain deveria copiar: mutação no resultado vazou para o original")
+	}
+	// id vazio é no-op (history inalterado).
+	if got := appendChain(orig, ""); len(got) != 2 {
+		t.Fatalf("id vazio deveria retornar history inalterado; veio %#v", got)
+	}
+}
+
+// TestManagerRunDoesNotMutateCtxChainHistory garante, ponta a ponta, que um Run
+// que anexa seu run.ID à cadeia NÃO muta o ChainHistory de proveniência guardado
+// no ctx (context values são imutáveis — thread :308). Usa uma sentinela no
+// backing array (capacidade > len) para detectar um append in-place.
+func TestManagerRunDoesNotMutateCtxChainHistory(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	// ChainHistory len 1, cap 4: um append in-place escreveria no índice 1 do
+	// backing array. Plantamos uma sentinela nesse índice para detectar a mutação.
+	hist := make([]string, 1, 4)
+	hist[0] = "chain-root"
+	backing := hist[:2]
+	backing[1] = "SENTINELA"
+
+	provCtx := eventctx.With(ctx, eventctx.Provenance{Source: "user", ChainID: "chain-1", ChainHistory: hist})
+	if _, err := mgr.Run(provCtx, RunParams{ParentConversationID: "parent-conv", Prompt: "x"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if backing[1] != "SENTINELA" {
+		t.Fatalf("Run mutou o backing array do ChainHistory do ctx (append in-place); índice 1 = %q", backing[1])
+	}
+	if len(hist) != 1 || hist[0] != "chain-root" {
+		t.Fatalf("ChainHistory do ctx alterado: %#v", hist)
+	}
+}
+
 func TestManagerResumeRejectsNonSubagentConversation(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()
@@ -671,6 +730,273 @@ func TestManagerClearResetsHistoryBeforeSend(t *testing.T) {
 	}
 	if summary != "" {
 		t.Fatalf("clear deveria ter limpado o resumo; veio %q", summary)
+	}
+}
+
+func TestManagerInheritsJobProvenance(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	// Simula um job chamando o sub-agente: o ctx carrega a proveniência do job.
+	jobCtx := eventctx.With(ctx, eventctx.Provenance{Source: "job", SourceJobID: "job-a", ChainID: "chain-1", ChainHistory: []string{"job-a"}})
+
+	res, err := mgr.Run(jobCtx, RunParams{Prompt: "tarefa do job"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	run, err := repo.Get(ctx, res.RunID)
+	if err != nil {
+		t.Fatalf("buscar run: %v", err)
+	}
+	if run.ChainID != "chain-1" {
+		t.Fatalf("chain_id do job não herdado: %q", run.ChainID)
+	}
+	if run.ChainHistory == "" || !contains(run.ChainHistory, "job-a") {
+		t.Fatalf("chain_history do job não preservado: %q", run.ChainHistory)
+	}
+}
+
+// TestManagerAppendsRunIDToProvenanceBeforeSend garante que o run.ID é anexado
+// à cadeia de proveniência ANTES do envio (fix review PR #186): assim qualquer
+// sub-agente/job disparado DENTRO deste run vê a cadeia maior e o backstop de
+// profundidade cresce nível a nível.
+func TestManagerAppendsRunIDToProvenanceBeforeSend(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+
+	var sentProv eventctx.Provenance
+	var sentOK bool
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(sctx context.Context, p SendParams) (string, error) {
+		sentProv, sentOK = eventctx.From(sctx)
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	jobCtx := eventctx.With(ctx, eventctx.Provenance{Source: "job", ChainID: "chain-1", ChainHistory: []string{"job-a"}})
+	res, err := mgr.Run(jobCtx, RunParams{Prompt: "tarefa"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !sentOK {
+		t.Fatal("ctx de envio deveria carregar proveniência (eventctx)")
+	}
+	if len(sentProv.ChainHistory) != 2 {
+		t.Fatalf("cadeia deveria crescer de 1 para 2 ao enviar; veio %v", sentProv.ChainHistory)
+	}
+	last := sentProv.ChainHistory[len(sentProv.ChainHistory)-1]
+	if last != res.RunID {
+		t.Fatalf("último elo da cadeia deveria ser o run.ID (%s); veio %q", res.RunID, last)
+	}
+}
+
+func TestManagerChainDepthBackstop(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	sendCalled := false
+	mgr := NewManager(ManagerConfig{
+		Repo:          repo,
+		Notifier:      notifier,
+		MaxChainDepth: 2,
+		Send:          func(_ context.Context, p SendParams) (string, error) { sendCalled = true; return p.ConversationID, nil },
+	})
+
+	// Cadeia já no limite (2 itens) → deve recusar antes de criar conversa/run.
+	deepCtx := eventctx.With(ctx, eventctx.Provenance{Source: "job", ChainID: "c", ChainHistory: []string{"a", "b"}})
+	if _, err := mgr.Run(deepCtx, RunParams{Prompt: "x"}); err == nil {
+		t.Fatal("esperava erro de profundidade de cadeia")
+	}
+	if sendCalled {
+		t.Fatal("não deveria ter enviado nada ao atingir o limite de cadeia")
+	}
+}
+
+func TestManagerReconcileOrphans(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+
+	mkRun := func(status string) string {
+		conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent")
+		if err != nil {
+			t.Fatalf("criar conv: %v", err)
+		}
+		run := &database.SubAgentRun{UserID: "user-a", ParentConversationID: "parent", ChildConversationID: conv.ID, Status: status}
+		if err := repo.Create(ctx, run); err != nil {
+			t.Fatalf("criar run: %v", err)
+		}
+		return run.ID
+	}
+	runningID := mkRun(StatusRunning)
+	queuedID := mkRun(StatusQueued)
+	succeededID := mkRun(StatusSucceeded)
+
+	// cutoff no futuro: inclui os runs já criados (simulando órfãos de um
+	// processo anterior).
+	n, err := mgr.ReconcileOrphans(ctx, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ReconcileOrphans: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("esperava 2 runs reconciliados, veio %d", n)
+	}
+
+	for _, id := range []string{runningID, queuedID} {
+		run, err := repo.Get(ctx, id)
+		if err != nil {
+			t.Fatalf("buscar run %s: %v", id, err)
+		}
+		if run.Status != StatusFailed || run.Error == "" || run.CompletedAt == nil {
+			t.Fatalf("run órfão %s não reconciliado: %#v", id, run)
+		}
+	}
+	done, err := repo.Get(ctx, succeededID)
+	if err != nil {
+		t.Fatalf("buscar run concluído: %v", err)
+	}
+	if done.Status != StatusSucceeded {
+		t.Fatalf("run terminal não deveria ser alterado; veio %q", done.Status)
+	}
+}
+
+func contains(haystack, needle string) bool {
+	return strings.Contains(haystack, needle)
+}
+
+// TestManagerReconcileOrphansRespectsCutoff garante que a reconciliação NÃO
+// marca como órfão um run criado após o cutoff (instante de início do app):
+// runs legítimos criados em paralelo ao startup devem ser preservados.
+func TestManagerReconcileOrphansRespectsCutoff(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+
+	conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent")
+	if err != nil {
+		t.Fatalf("criar conv: %v", err)
+	}
+	run := &database.SubAgentRun{UserID: "user-a", ParentConversationID: "parent", ChildConversationID: conv.ID, Status: StatusRunning}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatalf("criar run: %v", err)
+	}
+
+	// cutoff no passado: o run (criado agora) é POSTERIOR ao cutoff → não pode
+	// ser reconciliado.
+	n, err := mgr.ReconcileOrphans(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ReconcileOrphans: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("nenhum run deveria ser reconciliado (criado após cutoff), veio %d", n)
+	}
+	got, err := repo.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("buscar run: %v", err)
+	}
+	if got.Status != StatusRunning {
+		t.Fatalf("run criado após cutoff não deveria mudar de status; veio %q", got.Status)
+	}
+}
+
+// TestManagerReconcileOrphansIsInstanceWide documenta o contrato DELIBERADAMENTE
+// instance-wide (SECURITY: instance-wide): a reconciliação de startup roda sem
+// ator de usuário e marca como failed os órfãos de TODOS os donos — deixar o run
+// de outro usuário preso em running após um crash seria o bug.
+func TestManagerReconcileOrphansIsInstanceWide(t *testing.T) {
+	repo, ctxA := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) { return p.ConversationID, nil }})
+	ctxB := database.WithUserID(context.Background(), "user-b")
+
+	mkRunFor := func(userCtx context.Context, userID string) string {
+		conv, err := database.CreateSubAgentConversationWithContext(userCtx, "t", "parent")
+		if err != nil {
+			t.Fatalf("criar conv (%s): %v", userID, err)
+		}
+		run := &database.SubAgentRun{UserID: userID, ParentConversationID: "parent", ChildConversationID: conv.ID, Status: StatusRunning}
+		if err := repo.Create(userCtx, run); err != nil {
+			t.Fatalf("criar run (%s): %v", userID, err)
+		}
+		return run.ID
+	}
+	runA := mkRunFor(ctxA, "user-a")
+	runB := mkRunFor(ctxB, "user-b")
+
+	// Reconciliação instance-wide (não filtra por usuário) deve atingir ambos.
+	n, err := mgr.ReconcileOrphans(ctxA, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ReconcileOrphans: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("esperava 2 runs reconciliados (de 2 usuários), veio %d", n)
+	}
+
+	gotA, err := repo.Get(ctxA, runA)
+	if err != nil {
+		t.Fatalf("buscar run A: %v", err)
+	}
+	gotB, err := repo.Get(ctxB, runB)
+	if err != nil {
+		t.Fatalf("buscar run B: %v", err)
+	}
+	if gotA.Status != StatusFailed || gotB.Status != StatusFailed {
+		t.Fatalf("ambos os órfãos deveriam virar failed (instance-wide); A=%q B=%q", gotA.Status, gotB.Status)
+	}
+}
+
+// TestManagerReconcileOrphansUnconfiguredFails garante que, sem repo/manager, a
+// reconciliação falha explicitamente (não mascara wiring quebrado no startup).
+func TestManagerReconcileOrphansUnconfiguredFails(t *testing.T) {
+	var nilMgr *Manager
+	if _, err := nilMgr.ReconcileOrphans(context.Background(), time.Now()); err == nil {
+		t.Fatal("esperava erro com Manager nil")
+	}
+	mgr := &Manager{} // sem repo
+	if _, err := mgr.ReconcileOrphans(context.Background(), time.Now()); err == nil {
+		t.Fatal("esperava erro com repo não configurado")
+	}
+}
+
+// TestManagerReconcileOrphansNilClockDoesNotPanic garante (thread :681) que um
+// Manager construído manualmente com repo setado mas SEM `now` (clock nil) não
+// panica em ReconcileOrphans — o helper nowFn cai para time.Now.
+func TestManagerReconcileOrphansNilClockDoesNotPanic(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	// Manager manual: repo setado, demais campos zero (now == nil).
+	mgr := &Manager{repo: repo}
+
+	conv, err := database.CreateSubAgentConversationWithContext(ctx, "t", "parent")
+	if err != nil {
+		t.Fatalf("criar conv: %v", err)
+	}
+	run := &database.SubAgentRun{UserID: "user-a", ParentConversationID: "parent", ChildConversationID: conv.ID, Status: StatusRunning}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatalf("criar run: %v", err)
+	}
+
+	// Não deve panicar mesmo com now nil; deve reconciliar o órfão.
+	n, err := mgr.ReconcileOrphans(ctx, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ReconcileOrphans com now nil: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("esperava 1 run reconciliado, veio %d", n)
+	}
+	got, err := repo.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("buscar run: %v", err)
+	}
+	if got.Status != StatusFailed || got.CompletedAt == nil {
+		t.Fatalf("órfão deveria virar failed com completed_at preenchido (time.Now); veio %#v", got)
 	}
 }
 
