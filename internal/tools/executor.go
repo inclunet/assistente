@@ -149,7 +149,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			}
 		}()
 
-		result, err := tool.Execute(toolCtx, args)
+		// Expõe à tool o limite efetivo de resultado deste executor, para que
+		// tools com saída estruturada possam falhar de forma controlada em vez de
+		// serem truncadas (o que invalidaria, p.ex., um JSON canônico).
+		execCtx := WithMaxResultSize(toolCtx, e.config.MaxResultSize)
+		result, err := tool.Execute(execCtx, args)
 		if err != nil {
 			// Detecta se o erro é um timeout (context deadline exceeded)
 			errKind := ErrorKindUnknown

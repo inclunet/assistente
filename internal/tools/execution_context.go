@@ -30,3 +30,24 @@ func GetExecutionContext(ctx context.Context) (ExecutionContext, bool) {
 	ec, ok := v.(ExecutionContext)
 	return ec, ok
 }
+
+type maxResultSizeKey struct{}
+
+// WithMaxResultSize injeta no ctx o limite efetivo de tamanho de resultado que o
+// executor aplicará a esta execução (ele varia por chamador: jobs usam um budget
+// maior que o default). É chamado pelo executor antes de Tool.Execute.
+func WithMaxResultSize(ctx context.Context, size int) context.Context {
+	return context.WithValue(ctx, maxResultSizeKey{}, size)
+}
+
+// MaxResultSizeFromContext retorna o limite efetivo de resultado injetado pelo
+// executor. Tools que produzem saída estruturada (ex.: JSON canônico) podem usá-lo
+// para falhar de forma controlada em vez de serem truncadas para um payload
+// inválido. Quando ausente (ex.: tool chamada fora do executor) retorna
+// DefaultMaxResultSize.
+func MaxResultSizeFromContext(ctx context.Context) int {
+	if v, ok := ctx.Value(maxResultSizeKey{}).(int); ok && v > 0 {
+		return v
+	}
+	return DefaultMaxResultSize
+}

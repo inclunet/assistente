@@ -67,7 +67,9 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	// Aplicar autenticação
+	// Aplicar autenticação. O vazamento de credenciais em redirects que cruzam um
+	// limite de confiança é tratado pelo RedirectGuard (allowlist deny-by-default),
+	// que cobre tanto estes headers quanto os custom passados pelo chamador.
 	c.applyAuth(ctx, req)
 
 	// Executar com retry

@@ -117,6 +117,7 @@ var builtinToolMetadataByName = map[string]builtinToolMetadata{
 	"web_search":           {Category: "web", Class: "web_lookup", Package: "web", Risk: "network"},
 	"web_fetch":            {Category: "web", Class: "web_lookup", Package: "web", Risk: "network"},
 	"http_request":         {Category: "http", Class: "http_api", Package: "web", Risk: "network"},
+	"feed_read":            {Category: "web", Class: "web_lookup", Package: "web", Risk: "network"},
 	"search_conversations": {Category: "history", Class: "read_context", Package: "history", Risk: "read"},
 	"collect_responses":    {Category: "questionnaire", Class: "app_tool", Package: "basic", Risk: "read"},
 	"task_list":            {Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"},
