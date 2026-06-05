@@ -951,11 +951,19 @@ func deriveProvenance(ctx context.Context, existingChainID string) eventctx.Prov
 	return prov
 }
 
+// appendChain devolve uma NOVA cadeia com id anexado, sem nunca mutar o slice
+// recebido. O history normalmente vem de eventctx.Provenance guardado no ctx; um
+// append direto poderia (conforme a capacidade do slice) sobrescrever o backing
+// array compartilhado com o ctx, alterando a proveniência do chamador de forma
+// inesperada. Context values devem ser tratados como IMUTÁVEIS, então copiamos
+// defensivamente antes de anexar.
 func appendChain(history []string, id string) []string {
 	if id == "" {
 		return history
 	}
-	return append(history, id)
+	out := make([]string, len(history), len(history)+1)
+	copy(out, history)
+	return append(out, id)
 }
 
 func encodeChainHistory(history []string) string {
