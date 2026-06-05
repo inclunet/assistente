@@ -458,15 +458,25 @@ func ListSubAgentConversationsWithContext(ctx context.Context) ([]SubAgentConver
 		return nil, err
 	}
 	var rows []SubAgentConversationMeta
+	// Agrega via LEFT JOIN direto em chat_messages + GROUP BY pela PK da conversa,
+	// em vez de uma subquery que agrupa a tabela inteira de mensagens a cada
+	// listagem: como a query já está restrita às sub-conversas do usuário, só as
+	// mensagens dessas conversas são varridas/agrupadas (não as de conversas
+	// irrelevantes). Semântica preservada:
+	//   - COUNT(chat_messages.id): 0 para conversa sem mensagens (id NULL no LEFT
+	//     JOIN é ignorado pelo COUNT) — equivalente ao COALESCE(count,0) anterior;
+	//   - SUM(...) sobre 0 linhas = NULL → COALESCE(...,0) = 0, igual ao anterior;
+	//   - GROUP BY conversations.id (PK): demais colunas são funcionalmente
+	//     dependentes da PK (válido no dialeto SQLite do projeto);
+	//   - ordenação por updated_at DESC mantida.
 	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
 	err := query.
 		Select("conversations.id, conversations.title, conversations.parent_conversation_id, conversations.created_at, conversations.updated_at, "+
-			"COALESCE(m.count, 0) as message_count, COALESCE(m.prompt_tokens, 0) as prompt_tokens, "+
-			"COALESCE(m.completion_tokens, 0) as completion_tokens, COALESCE(m.total_tokens, 0) as total_tokens").
-		Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count, SUM(prompt_tokens) as prompt_tokens, "+
-			"SUM(completion_tokens) as completion_tokens, SUM(total_tokens) as total_tokens "+
-			"FROM chat_messages GROUP BY conversation_id) as m ON m.conversation_id = conversations.id").
+			"COUNT(chat_messages.id) as message_count, COALESCE(SUM(chat_messages.prompt_tokens), 0) as prompt_tokens, "+
+			"COALESCE(SUM(chat_messages.completion_tokens), 0) as completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens").
+		Joins("LEFT JOIN chat_messages ON chat_messages.conversation_id = conversations.id").
 		Where("conversations.kind = ?", ConversationKindSubagent).
+		Group("conversations.id").
 		Order("conversations.updated_at DESC").
 		Scan(&rows).Error
 	if err != nil {

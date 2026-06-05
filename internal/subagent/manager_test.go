@@ -575,7 +575,7 @@ func TestManagerResumeReusesConversationAndIncrementsTurn(t *testing.T) {
 	}
 }
 
-// TestManagerResumeTrimsConversationID garante (thread :389) que um
+// TestManagerResumeTrimsConversationID garante que um
 // conversation_id com espaços ao redor é normalizado e tratado como o id real:
 // faz RESUME da sub-conversa existente, não "não encontrada" nem criação de nova.
 func TestManagerResumeTrimsConversationID(t *testing.T) {
@@ -613,7 +613,7 @@ func TestManagerResumeTrimsConversationID(t *testing.T) {
 	}
 }
 
-// TestAppendChainDoesNotMutateInput garante (thread :308) que appendChain nunca
+// TestAppendChainDoesNotMutateInput garante que appendChain nunca
 // muta o slice recebido (vindo de eventctx no ctx — imutável): faz cópia
 // defensiva antes de anexar.
 func TestAppendChainDoesNotMutateInput(t *testing.T) {
@@ -641,7 +641,7 @@ func TestAppendChainDoesNotMutateInput(t *testing.T) {
 
 // TestManagerRunDoesNotMutateCtxChainHistory garante, ponta a ponta, que um Run
 // que anexa seu run.ID à cadeia NÃO muta o ChainHistory de proveniência guardado
-// no ctx (context values são imutáveis — thread :308). Usa uma sentinela no
+// no ctx (context values são imutáveis). Usa uma sentinela no
 // backing array (capacidade > len) para detectar um append in-place.
 func TestManagerRunDoesNotMutateCtxChainHistory(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
@@ -785,8 +785,8 @@ func TestManagerConcurrencyLimitPerUser(t *testing.T) {
 	}
 }
 
-// TestReleaseSlotNoMapLeak garante (thread :451) que releaseSlot remove a chave
-// do activeByUser ao zerar (sem vazar chaves por userID em processo long-lived),
+// TestReleaseSlotNoMapLeak garante que releaseSlot remove a entrada do
+// activeByUser ao zerar (sem vazar chaves por userID em processo long-lived),
 // é idempotente (release a mais não recria a chave nem vai negativo) e que o
 // teto de concorrência continua funcionando após acquire→release→acquire.
 func TestReleaseSlotNoMapLeak(t *testing.T) {
@@ -893,6 +893,39 @@ func TestManagerListSubConversationsUnconfiguredFails(t *testing.T) {
 	// Sem Lister configurado.
 	if _, err := mgr.ListSubConversations(context.Background()); err == nil {
 		t.Fatal("esperava erro com lister não configurado")
+	}
+}
+
+// listByUserGuardRepo embute Repository e faz o teste falhar se ListByUser for
+// chamado — usado para provar o early return de ListSubConversations.
+type listByUserGuardRepo struct {
+	Repository
+	t *testing.T
+}
+
+func (r *listByUserGuardRepo) ListByUser(_ context.Context) ([]database.SubAgentRun, error) {
+	r.t.Helper()
+	r.t.Fatal("ListByUser não deveria ser chamado quando não há sub-conversas (early return)")
+	return nil, nil
+}
+
+// TestManagerListSubConversationsEmptyShortCircuits garante que, sem sub-conversas
+// (metas vazio), ListSubConversations retorna slice vazio não-nil SEM consultar
+// repo.ListByUser (evita um SELECT desnecessário potencialmente grande).
+func TestManagerListSubConversationsEmptyShortCircuits(t *testing.T) {
+	mgr := &Manager{
+		repo:   &listByUserGuardRepo{t: t},
+		lister: &fakeLister{metas: nil},
+	}
+	list, err := mgr.ListSubConversations(context.Background())
+	if err != nil {
+		t.Fatalf("ListSubConversations: %v", err)
+	}
+	if list == nil {
+		t.Fatal("esperava slice vazio não-nil, veio nil")
+	}
+	if len(list) != 0 {
+		t.Fatalf("esperava lista vazia, veio %d", len(list))
 	}
 }
 
@@ -1129,7 +1162,7 @@ func TestManagerReconcileOrphansUnconfiguredFails(t *testing.T) {
 	}
 }
 
-// TestManagerReconcileOrphansNilClockDoesNotPanic garante (thread :681) que um
+// TestManagerReconcileOrphansNilClockDoesNotPanic garante que um
 // Manager construído manualmente com repo setado mas SEM `now` (clock nil) não
 // panica em ReconcileOrphans — o helper nowFn cai para time.Now.
 func TestManagerReconcileOrphansNilClockDoesNotPanic(t *testing.T) {
@@ -1251,7 +1284,7 @@ func TestManagerClearWithoutConversationIDFails(t *testing.T) {
 	}
 }
 
-// TestManagerClearNotAppliedWhenRunCreateFails garante (thread :166) que o clear
+// TestManagerClearNotAppliedWhenRunCreateFails garante que o clear
 // destrutivo só roda APÓS o run ser persistido: se o Create falhar, o histórico/
 // resumo da sub-conversa permanece INTACTO (sem perda de dados sem run registrado).
 func TestManagerClearNotAppliedWhenRunCreateFails(t *testing.T) {

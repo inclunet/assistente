@@ -770,6 +770,12 @@ func (m *Manager) ListSubConversations(ctx context.Context) ([]SubConversationSu
 	if err != nil {
 		return nil, err
 	}
+	// Sem sub-conversas: evita um SELECT potencialmente grande em repo.ListByUser
+	// que não teria com o que casar. Retorna slice vazio não-nil, idêntico ao
+	// contrato do caminho normal (out = make([]SubConversationSummary, 0, ...)).
+	if len(metas) == 0 {
+		return []SubConversationSummary{}, nil
+	}
 	runs, err := m.repo.ListByUser(ctx)
 	if err != nil {
 		return nil, err
