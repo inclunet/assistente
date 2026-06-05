@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -144,7 +145,7 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		return tools.ToolResult{
-			Content: fmt.Sprintf("HTTP %d %s para %s", resp.StatusCode, resp.Status, a.URL),
+			Content: fmt.Sprintf("HTTP %s para %s", resp.Status, a.URL),
 			IsError: true,
 		}, nil
 	}
@@ -172,24 +173,18 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}, nil
 }
 
-// isPrivateHost bloqueia hosts locais/privados (defesa básica contra SSRF),
-// espelhando o comportamento de web_fetch.
+// isPrivateHost bloqueia hosts locais/privados (defesa básica contra SSRF).
+// Usa net.ParseIP para cobrir corretamente os ranges privados (10/8,
+// 172.16/12, 192.168/16), loopback e link-local, sem o falso positivo de um
+// prefix match ingênuo (ex.: 172.2.x.x é público).
 func isPrivateHost(host string) bool {
-	host = strings.ToLower(host)
-	switch host {
-	case "localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]":
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if host == "localhost" {
 		return true
 	}
-	if strings.HasPrefix(host, "10.") ||
-		strings.HasPrefix(host, "192.168.") ||
-		strings.HasPrefix(host, "172.16.") ||
-		strings.HasPrefix(host, "172.17.") ||
-		strings.HasPrefix(host, "172.18.") ||
-		strings.HasPrefix(host, "172.19.") ||
-		strings.HasPrefix(host, "172.2") ||
-		strings.HasPrefix(host, "172.30.") ||
-		strings.HasPrefix(host, "172.31.") {
-		return true
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
 	}
-	return false
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
 }

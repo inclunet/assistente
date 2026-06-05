@@ -221,6 +221,126 @@ func TestParseFeedPodcast(t *testing.T) {
 	}
 }
 
+const emptyFeedFixture = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Empty</title>
+    <link>https://example.com</link>
+    <description>no items</description>
+  </channel>
+</rss>`
+
+const undatedFixture = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Mixed dates</title>
+    <link>https://example.com</link>
+    <description>d</description>
+    <item>
+      <title>Old dated</title>
+      <link>https://example.com/old</link>
+      <pubDate>Mon, 02 Jan 2006 15:04:05 GMT</pubDate>
+    </item>
+    <item>
+      <title>No date</title>
+      <link>https://example.com/nd</link>
+    </item>
+  </channel>
+</rss>`
+
+func TestParseFeedEmptyItemsNotNull(t *testing.T) {
+	feed, err := parseFeed(strings.NewReader(emptyFeedFixture), parseOptions{MaxItems: 20, StripHTML: true})
+	if err != nil {
+		t.Fatalf("parseFeed: %v", err)
+	}
+	if feed.Items == nil {
+		t.Fatal("Items deve ser não-nulo")
+	}
+	encoded, err := json.Marshal(feed)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"items":[]`) {
+		t.Errorf("esperado \"items\":[] no JSON, got %s", encoded)
+	}
+}
+
+func TestParseFeedMalformed(t *testing.T) {
+	_, err := parseFeed(strings.NewReader("isto não é um feed válido <<<"), parseOptions{MaxItems: 20})
+	if err == nil {
+		t.Fatal("esperado erro ao parsear lixo")
+	}
+}
+
+func TestParseFeedSinceKeepsUndated(t *testing.T) {
+	since := time.Date(2006, 1, 3, 0, 0, 0, 0, time.UTC)
+	feed, err := parseFeed(strings.NewReader(undatedFixture), parseOptions{MaxItems: 20, StripHTML: true, Since: &since})
+	if err != nil {
+		t.Fatalf("parseFeed: %v", err)
+	}
+	if feed.ItemCount != 1 {
+		t.Fatalf("esperado 1 item (o sem data preservado), got %d", feed.ItemCount)
+	}
+	if feed.Items[0].Title != "No date" {
+		t.Errorf("esperado item sem data preservado, got %q", feed.Items[0].Title)
+	}
+}
+
+func TestFeedReadExecuteHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	tool := NewFeedRead(nil)
+	tool.allowPrivateHosts = true
+	args, _ := json.Marshal(map[string]any{"url": srv.URL})
+	res, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("esperado IsError para 404")
+	}
+	if strings.Contains(res.Content, "404 404") {
+		t.Errorf("código HTTP duplicado na mensagem: %q", res.Content)
+	}
+	if !strings.Contains(res.Content, "404") {
+		t.Errorf("mensagem deveria conter o status, got %q", res.Content)
+	}
+}
+
+func TestFeedReadExecuteMalformedFeed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = w.Write([]byte("not a feed <<<"))
+	}))
+	defer srv.Close()
+
+	tool := NewFeedRead(nil)
+	tool.allowPrivateHosts = true
+	args, _ := json.Marshal(map[string]any{"url": srv.URL})
+	res, _ := tool.Execute(context.Background(), args)
+	if !res.IsError {
+		t.Error("esperado IsError para feed malformado")
+	}
+}
+
+func TestIsPrivateHost(t *testing.T) {
+	blocked := []string{"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "10.0.0.1", "192.168.1.1", "172.16.0.1", "172.31.255.255", "169.254.0.1"}
+	for _, h := range blocked {
+		if !isPrivateHost(h) {
+			t.Errorf("%q deveria ser bloqueado", h)
+		}
+	}
+	public := []string{"172.2.3.4", "172.32.0.1", "8.8.8.8", "example.com", "1.1.1.1"}
+	for _, h := range public {
+		if isPrivateHost(h) {
+			t.Errorf("%q NÃO deveria ser bloqueado", h)
+		}
+	}
+}
+
 func TestFeedReadExecute(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")

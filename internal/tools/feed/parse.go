@@ -109,6 +109,9 @@ func parseFeed(r io.Reader, opts parseOptions) (CanonicalFeed, error) {
 		Published:   normalizeTime(src.Published, src.PublishedParsed),
 		Authors:     personNames(src.Authors),
 		Categories:  src.Categories,
+		// Inicializa não-nulo para que um feed sem itens serialize como "items": []
+		// (JSON canônico estável), nunca "items": null.
+		Items: []CanonicalItem{},
 	}
 	if src.Image != nil {
 		out.Image = &CanonicalImage{URL: src.Image.URL, Title: src.Image.Title}
