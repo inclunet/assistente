@@ -6,6 +6,8 @@ func TestIsPrivateHost(t *testing.T) {
 	blocked := []string{
 		"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]",
 		"10.0.0.1", "192.168.1.1", "172.16.0.1", "172.31.255.255", "169.254.0.1",
+		// Variantes com ponto final (FQDN) e espaços: bypass clássico de filtros.
+		"localhost.", "127.0.0.1.", "  localhost  ", "10.0.0.1.", "LOCALHOST.",
 	}
 	for _, h := range blocked {
 		if !IsPrivateHost(h) {

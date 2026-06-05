@@ -19,7 +19,12 @@ import (
 // check e o dial). Portanto não é proteção anti-SSRF completa, apenas uma barreira
 // contra URLs que já apontam diretamente para endereços locais/privados.
 func IsPrivateHost(host string) bool {
-	host = strings.ToLower(strings.Trim(host, "[]"))
+	// Normaliza: remove espaços, colchetes de IPv6 e o ponto final do FQDN
+	// ("localhost." / "127.0.0.1." são aceitos por DNS e pelo net/http e seriam
+	// um bypass clássico de filtros por string).
+	host = strings.ToLower(strings.TrimSpace(host))
+	host = strings.Trim(host, "[]")
+	host = strings.TrimSuffix(host, ".")
 	if host == "localhost" {
 		return true
 	}
